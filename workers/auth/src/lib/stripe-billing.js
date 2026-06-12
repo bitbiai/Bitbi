@@ -42,6 +42,7 @@ const CHECKOUT_SESSION_URL_ORIGINS = new Set([
 ]);
 const BILLING_PORTAL_URL_ORIGINS = new Set([
   "https://billing.stripe.com",
+  "https://pay.bitbi.ai",
 ]);
 const BILLING_PORTAL_SESSION_PATH_PATTERN = /^\/p\/session\/(?:live_|test_)?[A-Za-z0-9_-]{8,2048}\/?$/;
 const STRIPE_CHECKOUT_TIMEOUT_MS = 10_000;
@@ -993,8 +994,9 @@ function isStripeBillingPortalUrl(value) {
   try {
     const url = new URL(value);
     const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
-    // Stripe Billing Portal sessions are hosted on billing.stripe.com with an opaque
-    // /p/session/{token} path; keep this allowlist narrow because the URL is a redirect target.
+    // Stripe Billing Portal sessions are hosted on billing.stripe.com, or BITBI's
+    // configured Stripe custom domain, with an opaque /p/session/{token} path.
+    // Keep this allowlist narrow because the URL is a redirect target.
     return url.protocol === "https:"
       && !url.username
       && !url.password

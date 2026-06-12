@@ -64,6 +64,7 @@ const STRIPE_CHECKOUT_ORIGINS = new Set([
 ]);
 const STRIPE_PORTAL_ORIGINS = new Set([
     'https://billing.stripe.com',
+    'https://pay.bitbi.ai',
 ]);
 const EURO_FORMATTER = new Intl.NumberFormat(FORMAT_LOCALE, { style: 'currency', currency: 'EUR' });
 const NUMBER_FORMATTER = new Intl.NumberFormat(FORMAT_LOCALE);

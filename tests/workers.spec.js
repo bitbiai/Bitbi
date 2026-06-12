@@ -12111,17 +12111,6 @@ test.describe('BITBI Pro member subscriptions', () => {
     });
     const token = await seedSession(env, member.id);
 
-    const missingKey = await worker.fetch(
-      authJsonRequest('/api/account/billing/portal', 'POST', undefined, {
-        Origin: 'https://bitbi.ai',
-        Cookie: `bitbi_session=${token}`,
-      }),
-      env,
-      createExecutionContext().execCtx
-    );
-    expect(missingKey.status).toBe(428);
-    expect(calls).toHaveLength(0);
-
     const response = await worker.fetch(
       authJsonRequest('/api/account/billing/portal', 'POST', undefined, {
         Origin: 'https://bitbi.ai',
@@ -12170,45 +12159,65 @@ test.describe('BITBI Pro member subscriptions', () => {
     expect(documentedUrl.status).toBe(201);
 
     env.__TEST_FETCH = async () => new Response(JSON.stringify({
-      id: 'bps_member_portal_evil',
+      id: 'bps_member_portal_custom_domain',
       object: 'billing_portal.session',
       livemode: true,
-      url: 'https://billing.example.com/p/session/live_YWNjdF9iaXRiaV9wb3J0YWxfZXZpbA',
+      url: 'https://pay.bitbi.ai/p/session/live_YWNjdF9iaXRiaV9jdXN0b21fZG9tYWlu',
     }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    const nonStripeUrl = await worker.fetch(
+    const customDomainUrl = await worker.fetch(
       authJsonRequest('/api/account/billing/portal', 'POST', undefined, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
-        'Idempotency-Key': 'member-portal-non-stripe-url',
+        'Idempotency-Key': 'member-portal-custom-domain-url',
       }),
       env,
       createExecutionContext().execCtx
     );
-    await expect(nonStripeUrl.json()).resolves.toMatchObject({
-      code: 'stripe_billing_portal_invalid_response',
-      error: 'Stripe Billing Portal Session URL is invalid.',
+    await expect(customDomainUrl.json()).resolves.toMatchObject({
+      ok: true,
+      portal_url: 'https://pay.bitbi.ai/p/session/live_YWNjdF9iaXRiaV9jdXN0b21fZG9tYWlu',
     });
-    expect(nonStripeUrl.status).toBe(502);
+    expect(customDomainUrl.status).toBe(201);
 
-    env.__TEST_FETCH = async () => new Response(JSON.stringify({
-      id: 'bps_member_portal_missing_url',
-      object: 'billing_portal.session',
-      livemode: true,
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    const missingUrl = await worker.fetch(
-      authJsonRequest('/api/account/billing/portal', 'POST', undefined, {
-        Origin: 'https://bitbi.ai',
-        Cookie: `bitbi_session=${token}`,
-        'Idempotency-Key': 'member-portal-missing-url',
-      }),
-      env,
-      createExecutionContext().execCtx
+    const expectInvalidPortalUrl = async (idempotencyKey, url) => {
+      env.__TEST_FETCH = async () => new Response(JSON.stringify({
+        id: 'bps_member_portal_invalid_url',
+        object: 'billing_portal.session',
+        livemode: true,
+        url,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      const invalidUrl = await worker.fetch(
+        authJsonRequest('/api/account/billing/portal', 'POST', undefined, {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${token}`,
+          'Idempotency-Key': idempotencyKey,
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      await expect(invalidUrl.json()).resolves.toMatchObject({
+        code: 'stripe_billing_portal_invalid_response',
+        error: 'Stripe Billing Portal Session URL is invalid.',
+      });
+      expect(invalidUrl.status).toBe(502);
+    };
+
+    await expectInvalidPortalUrl(
+      'member-portal-non-https-url',
+      'http://billing.stripe.com/p/session/live_YWNjdF9iaXRiaV9wb3J0YWxfaHR0cA'
     );
-    await expect(missingUrl.json()).resolves.toMatchObject({
-      code: 'stripe_billing_portal_invalid_response',
-      error: 'Stripe Billing Portal Session URL is invalid.',
-    });
-    expect(missingUrl.status).toBe(502);
+    await expectInvalidPortalUrl(
+      'member-portal-non-allowed-domain',
+      'https://billing.example.com/p/session/live_YWNjdF9iaXRiaV9wb3J0YWxfZXZpbA'
+    );
+    await expectInvalidPortalUrl(
+      'member-portal-credentialed-url',
+      'https://member:secret@billing.stripe.com/p/session/live_YWNjdF9iaXRiaV9wb3J0YWxfY3JlZA'
+    );
+    await expectInvalidPortalUrl(
+      'member-portal-malformed-path',
+      'https://pay.bitbi.ai/customer/session/live_YWNjdF9iaXRiaV9wb3J0YWxfbWFsZm9ybWVk'
+    );
 
     env.__TEST_FETCH = async () => new Response(JSON.stringify({
       id: 'bps_member_portal_testmode',
@@ -12233,11 +12242,36 @@ test.describe('BITBI Pro member subscriptions', () => {
 
   test('credits page redirects to Stripe Customer Portal without rendering the portal URL', () => {
     const source = fs.readFileSync(path.join(process.cwd(), 'js/pages/credits/main.js'), 'utf8');
+    expect(source).toContain("'https://pay.bitbi.ai'");
     expect(source).toContain('const portalUrl = res.data?.portal_url;');
     expect(source).toContain('if (isSafePortalRedirect(portalUrl))');
     expect(source).toContain('window.location.assign(portalUrl);');
     expect(source).not.toMatch(/subscriptionFeedbackMessage\s*=\s*portalUrl/);
     expect(source).not.toMatch(/textContent\s*=\s*portalUrl/);
+  });
+
+  test('member billing portal requires an idempotency key before Stripe calls', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const member = createContractUser({ id: 'member-billing-portal-missing-key', role: 'user' });
+    const calls = [];
+    const env = createAuthTestEnv({
+      users: [member],
+      fetch: async () => {
+        calls.push(true);
+        return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      },
+    });
+    const token = await seedSession(env, member.id);
+    const missingKey = await worker.fetch(
+      authJsonRequest('/api/account/billing/portal', 'POST', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingKey.status).toBe(428);
+    expect(calls).toHaveLength(0);
   });
 
   test('route policy includes the member subscription checkout route', async () => {
