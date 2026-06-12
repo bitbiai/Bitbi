@@ -12082,6 +12082,7 @@ test.describe('BITBI Pro member subscriptions', () => {
     const { upsertMemberSubscriptionFromProvider } = await loadBillingModule();
     const member = createContractUser({ id: 'member-billing-portal', role: 'user' });
     const calls = [];
+    const stripePortalUrl = 'https://billing.stripe.com/p/session/live_YWNjdF8xTTJKVGtMa2RJd0h1N2l4LF9iaXRiaV9wb3J0YWxfMDE';
     const env = createAuthTestEnv({
       STRIPE_LIVE_SECRET_KEY: 'sk_live_member_portal_secret_123456',
       STRIPE_LIVE_SUBSCRIPTION_PRICE_ID: 'price_member_pro_portal_123456',
@@ -12093,7 +12094,7 @@ test.describe('BITBI Pro member subscriptions', () => {
           id: 'bps_member_portal_123456',
           object: 'billing_portal.session',
           livemode: true,
-          url: 'https://billing.stripe.com/p/session/bps_member_portal_123456',
+          url: stripePortalUrl,
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       },
     });
@@ -12134,15 +12135,80 @@ test.describe('BITBI Pro member subscriptions', () => {
     expect(response.status).toBe(201);
     expect(body).toEqual(expect.objectContaining({
       ok: true,
-      portal_url: 'https://billing.stripe.com/p/session/bps_member_portal_123456',
+      portal_url: stripePortalUrl,
       mode: 'live',
     }));
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe('https://api.stripe.com/v1/billing_portal/sessions');
     expect(calls[0].init.headers.Authorization).toContain('Bearer ');
     expect(JSON.stringify(body)).not.toContain('cus_member_portal_123456');
+    expect(JSON.stringify(body)).not.toContain('sk_live_member_portal_secret_123456');
+    expect(body).not.toHaveProperty('customer');
+    expect(body).not.toHaveProperty('session_id');
     expect(calls[0].form.customer).toBe('cus_member_portal_123456');
     expect(calls[0].form.return_url).toBe('https://bitbi.ai/account/credits.html?scope=member');
+
+    env.__TEST_FETCH = async () => new Response(JSON.stringify({
+      id: 'bps_member_portal_987654',
+      object: 'billing_portal.session',
+      livemode: true,
+      url: 'https://billing.stripe.com/p/session/live_YWNjdF9iaXRiaV9wb3J0YWxfOTg3NjU0?prefilled_email=member%40bitbi.ai',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const documentedUrl = await worker.fetch(
+      authJsonRequest('/api/account/billing/portal', 'POST', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-portal-documented-url',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    await expect(documentedUrl.json()).resolves.toMatchObject({
+      ok: true,
+      portal_url: 'https://billing.stripe.com/p/session/live_YWNjdF9iaXRiaV9wb3J0YWxfOTg3NjU0?prefilled_email=member%40bitbi.ai',
+    });
+    expect(documentedUrl.status).toBe(201);
+
+    env.__TEST_FETCH = async () => new Response(JSON.stringify({
+      id: 'bps_member_portal_evil',
+      object: 'billing_portal.session',
+      livemode: true,
+      url: 'https://billing.example.com/p/session/live_YWNjdF9iaXRiaV9wb3J0YWxfZXZpbA',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const nonStripeUrl = await worker.fetch(
+      authJsonRequest('/api/account/billing/portal', 'POST', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-portal-non-stripe-url',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    await expect(nonStripeUrl.json()).resolves.toMatchObject({
+      code: 'stripe_billing_portal_invalid_response',
+      error: 'Stripe Billing Portal Session URL is invalid.',
+    });
+    expect(nonStripeUrl.status).toBe(502);
+
+    env.__TEST_FETCH = async () => new Response(JSON.stringify({
+      id: 'bps_member_portal_missing_url',
+      object: 'billing_portal.session',
+      livemode: true,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const missingUrl = await worker.fetch(
+      authJsonRequest('/api/account/billing/portal', 'POST', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-portal-missing-url',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    await expect(missingUrl.json()).resolves.toMatchObject({
+      code: 'stripe_billing_portal_invalid_response',
+      error: 'Stripe Billing Portal Session URL is invalid.',
+    });
+    expect(missingUrl.status).toBe(502);
 
     env.__TEST_FETCH = async () => new Response(JSON.stringify({
       id: 'bps_member_portal_testmode',
@@ -12163,6 +12229,15 @@ test.describe('BITBI Pro member subscriptions', () => {
       code: 'stripe_billing_portal_invalid_response',
     });
     expect(invalid.status).toBe(502);
+  });
+
+  test('credits page redirects to Stripe Customer Portal without rendering the portal URL', () => {
+    const source = fs.readFileSync(path.join(process.cwd(), 'js/pages/credits/main.js'), 'utf8');
+    expect(source).toContain('const portalUrl = res.data?.portal_url;');
+    expect(source).toContain('if (isSafePortalRedirect(portalUrl))');
+    expect(source).toContain('window.location.assign(portalUrl);');
+    expect(source).not.toMatch(/subscriptionFeedbackMessage\s*=\s*portalUrl/);
+    expect(source).not.toMatch(/textContent\s*=\s*portalUrl/);
   });
 
   test('route policy includes the member subscription checkout route', async () => {

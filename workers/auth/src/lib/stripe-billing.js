@@ -43,6 +43,7 @@ const CHECKOUT_SESSION_URL_ORIGINS = new Set([
 const BILLING_PORTAL_URL_ORIGINS = new Set([
   "https://billing.stripe.com",
 ]);
+const BILLING_PORTAL_SESSION_PATH_PATTERN = /^\/p\/session\/(?:live_|test_)?[A-Za-z0-9_-]{8,2048}\/?$/;
 const STRIPE_CHECKOUT_TIMEOUT_MS = 10_000;
 const LIVE_AUTH_SCOPES = new Set(["platform_admin", "org_owner"]);
 const LIVE_MEMBER_AUTH_SCOPE = "member";
@@ -991,9 +992,15 @@ function normalizeStripeCheckoutSession(value, { mode = STRIPE_MODE_TEST } = {})
 function isStripeBillingPortalUrl(value) {
   try {
     const url = new URL(value);
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+    // Stripe Billing Portal sessions are hosted on billing.stripe.com with an opaque
+    // /p/session/{token} path; keep this allowlist narrow because the URL is a redirect target.
     return url.protocol === "https:"
-      && BILLING_PORTAL_URL_ORIGINS.has(url.origin)
-      && url.pathname.length > 1;
+      && !url.username
+      && !url.password
+      && (url.port === "" || url.port === "443")
+      && BILLING_PORTAL_URL_ORIGINS.has(`https://${hostname}`)
+      && BILLING_PORTAL_SESSION_PATH_PATTERN.test(url.pathname);
   } catch {
     return false;
   }
