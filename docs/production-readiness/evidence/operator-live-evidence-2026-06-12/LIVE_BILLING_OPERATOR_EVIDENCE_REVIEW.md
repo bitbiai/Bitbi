@@ -6,7 +6,18 @@ Reviewed branch: `main`
 
 Reviewed HEAD: `d5c0bf068b8682e2f0d3db0857d7beee2669c0c9`
 
-Review status: **LIVE BILLING READINESS NOT TRANSITIONED**
+Review status: **SUPERSEDED BY OPERATOR GO-LIVE APPROVAL**
+
+Supplement recorded: 2026-06-13
+
+The 2026-06-12 artifact review below remains accurate: artifact-backed evidence was partial and did not independently prove every readiness item. On 2026-06-13, the operator explicitly approved live billing go-live anyway after manually validating production behavior and accepting the remaining evidence risk.
+
+Current Live Billing readiness status: **operator_approved_live**
+
+See:
+
+- `LIVE_BILLING_OPERATOR_GO_LIVE_APPROVAL.md`
+- `live-billing-operator-go-live-approval.json`
 
 This review records the final repo-side evidence assessment for the live billing operator canary. It does not contain raw Stripe payloads, webhook signatures, portal session URLs, card data, cookies, bearer tokens, Cloudflare secrets, Stripe secrets, or customer identifiers.
 
@@ -31,7 +42,7 @@ The operator also reported that:
 - The Stripe Customer Portal opens from the member Credits page through the configured `pay.bitbi.ai` Stripe portal domain.
 - Stripe subscription/payment and BITBI member billing state appear operational.
 
-Those statements are useful operational context, and the new artifacts show meaningful live-billing progress. They still do not prove every required live-billing evidence item. Under the repo readiness policy, operator statements plus partial screenshots are not enough to mark Live Billing Readiness green.
+Those statements are useful operational context, and the new artifacts show meaningful live-billing progress. They still do not prove every required live-billing evidence item. The later operator go-live approval records that the operator accepted this evidence risk and authorized the Live Billing UI to show an operator-approved live state.
 
 ## Evidence Matrix
 
@@ -54,8 +65,8 @@ Those statements are useful operational context, and the new artifacts show mean
 | Decision | Status | Reason |
 | --- | --- | --- |
 | Code support for live billing canary | ready_for_operator_canary | Prior repo validation and source review support a controlled operator canary path. |
-| Live Billing Readiness | blocked_pending_complete_artifact_backed_evidence | Required live evidence is partially attached, but not complete enough to turn the status green. |
-| Production Readiness | blocked | This review covers billing only. Non-billing production evidence is outside this package and remains blocked unless separately proven. |
+| Live Billing Readiness | operator_approved_live | Operator manually validated production behavior and accepted remaining artifact evidence risk. |
+| Production Readiness | operator_go_live_approved_billing_scope_not_full_evidence_proven_production_maturity | This review covers billing only. Full evidence-proven production maturity is not claimed. |
 | Tax/invoice readiness | disabled_pending_review | Optional Stripe Tax, tax ID collection, and invoice creation flags remain disabled unless explicitly approved later. |
 
 ## Required Evidence To Transition Live Billing Green
@@ -73,17 +84,16 @@ Attach sanitized artifacts under this dated package or another classified eviden
 9. Admin Live Billing JSON and Markdown exports are redacted.
 10. `npm run check:secrets` passes after attaching the evidence package.
 
-Only after those artifacts are present and reviewed should Admin Live Billing wording/status move Live Billing Readiness to operator-reviewed/green.
+The operator has now approved going live despite these remaining artifact gaps. Future evidence should still be attached here when available.
 
 ## Current Readiness Statement
 
 Allowed claim:
 
-- Repository support is ready for operator live-billing canary.
+- Live billing is operator-approved live with partial artifact-backed evidence and accepted evidence risk.
 
 Blocked claims:
 
-- Live Billing Readiness is not green from this review.
-- Production Readiness remains blocked.
+- Full evidence-proven production maturity is not claimed.
 - Stripe live completion is not claimed.
 - Tax, invoice, accounting, and legal compliance completion are not claimed.

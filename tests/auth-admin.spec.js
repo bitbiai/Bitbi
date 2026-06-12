@@ -3141,14 +3141,21 @@ async function mockAdminControlPlane(page, captures = {}) {
 	      version: 'omega-p1-live-billing-readiness-v1',
 	      generatedAt: '2026-05-18T16:05:00.000Z',
 	      repositorySupport: 'ready_for_operator_canary',
-	      productionReadiness: 'blocked',
-	      liveBillingReadiness: 'blocked',
-	      configShapeStatus: 'partial_shapes_present',
-	      evidenceStatus: 'pending_operator_evidence',
-	      canaryStatus: 'pending_operator_evidence',
+	      productionReadiness: 'operator_go_live_approved',
+	      productionReadinessScope: 'billing_go_live_operator_approval_not_full_evidence_proven_production_maturity',
+	      liveBillingReadiness: 'operator_approved_live',
+	      configShapeStatus: 'configured_shapes_present',
+	      evidenceStatus: 'partial_evidence_operator_approved',
+	      canaryStatus: 'operator_confirmed_manual_live_validation',
 	      finalVerdict: {
-	        status: 'blocked_pending_operator_evidence',
-	        summary: 'Repository support is ready for an operator live-billing canary, but production readiness and live billing readiness remain blocked until sanitized evidence is collected and reviewed.',
+	        status: 'operator_approved_live_with_evidence_waivers',
+	        summary: 'Live billing is enabled by operator approval. Artifact-backed evidence is partially complete; operator accepted remaining evidence risk.',
+	      },
+	      operatorApproval: {
+	        status: 'operator_approved_live',
+	        approvedAt: '2026-06-13',
+	        acceptedRemainingEvidenceRisk: true,
+	        artifactBackedEvidence: 'partial',
 	      },
 	      boundedResponse: true,
 	      redactedResponse: true,
@@ -3157,20 +3164,21 @@ async function mockAdminControlPlane(page, captures = {}) {
       d1MutationPerformed: false,
       creditMutationPerformed: false,
       dangerousActionsOffered: [],
-	      copy: 'Admin does not activate live payments by itself. It guides configuration, evidence, and operator go/no-go.',
+	      copy: 'Live billing is enabled by operator approval. Artifact-backed evidence is partially complete; operator accepted remaining evidence risk.',
 	      statusBadges: [
 	        { id: 'repository_support', label: 'Repository support', status: 'ready_for_operator_canary', variant: 'ready' },
-	        { id: 'production_readiness', label: 'Production readiness', status: 'blocked', variant: 'blocked' },
-	        { id: 'live_billing_readiness', label: 'Live billing readiness', status: 'blocked', variant: 'blocked' },
-	        { id: 'config_shape', label: 'Config shape', status: 'partial_shapes_present', variant: 'pending' },
-	        { id: 'credit_packs', label: 'Credit packs', status: 'missing_or_pending', variant: 'pending' },
-	        { id: 'bitbi_pro', label: 'BITBI Pro subscription', status: 'missing_or_pending', variant: 'pending' },
-	        { id: 'webhook', label: 'Webhook', status: 'secret_present_redacted', variant: 'pending' },
-	        { id: 'reconciliation', label: 'Reconciliation', status: 'blocked', variant: 'pending' },
-	        { id: 'billing_reviews', label: 'Billing reviews', status: '2 unresolved', variant: 'pending' },
-	        { id: 'evidence_status', label: 'Evidence status', status: 'pending_operator_evidence', variant: 'pending' },
-	        { id: 'canary_status', label: 'Canary status', status: 'pending_operator_evidence', variant: 'pending' },
-	        { id: 'final_verdict', label: 'Final verdict', status: 'blocked_pending_operator_evidence', variant: 'blocked' },
+	        { id: 'production_readiness', label: 'Production readiness', status: 'operator_go_live_approved', variant: 'ready' },
+	        { id: 'live_billing_readiness', label: 'Live billing readiness', status: 'operator_approved_live', variant: 'ready' },
+	        { id: 'config_shape', label: 'Config shape', status: 'configured_shapes_present', variant: 'ready' },
+	        { id: 'credit_packs', label: 'Credit packs', status: 'configured_enabled_operator_live', variant: 'ready' },
+	        { id: 'bitbi_pro', label: 'BITBI Pro subscription', status: 'configured_enabled_operator_live', variant: 'ready' },
+	        { id: 'webhook', label: 'Webhook', status: 'configured_operator_live', variant: 'ready' },
+	        { id: 'customer_portal', label: 'Customer Portal', status: 'configured_operator_confirmed_pay_bitbi_ai', variant: 'ready' },
+	        { id: 'reconciliation', label: 'Reconciliation', status: 'critical_items_operator_warning', variant: 'pending' },
+	        { id: 'billing_reviews', label: 'Billing reviews', status: '2 blocking_or_needs_review', variant: 'pending' },
+	        { id: 'evidence_status', label: 'Evidence status', status: 'partial_evidence_operator_approved', variant: 'ready' },
+	        { id: 'canary_status', label: 'Canary status', status: 'operator_confirmed_manual_live_validation', variant: 'ready' },
+	        { id: 'final_verdict', label: 'Final verdict', status: 'operator_approved_live_with_evidence_waivers', variant: 'ready' },
 	      ],
       configuration: {
         namesInspected: [
@@ -3185,8 +3193,8 @@ async function mockAdminControlPlane(page, captures = {}) {
           'ENABLE_STRIPE_INVOICE_CREATION',
         ],
         flags: {
-          liveCreditPacks: { status: 'disabled_or_non_true' },
-          liveSubscriptions: { status: 'missing' },
+          liveCreditPacks: { status: 'enabled', enabled: true },
+          liveSubscriptions: { status: 'enabled', enabled: true },
           automaticTax: { status: 'missing' },
           taxIdCollection: { status: 'missing' },
           invoiceCreation: { status: 'missing' },
@@ -3245,8 +3253,9 @@ async function mockAdminControlPlane(page, captures = {}) {
       customerPortal: {
         implemented: true,
         endpoint: '/api/account/billing/portal',
-        status: 'configured_shape_present',
-        sessionCanary: 'pending_operator_evidence',
+        status: 'configured_operator_confirmed',
+        sessionCanary: 'operator_confirmed_pay_bitbi_ai',
+        operatorConfirmedPayBitbiAi: true,
         memberTriggeredOnly: true,
         adminCustomerMutation: false,
       },
@@ -3258,14 +3267,14 @@ async function mockAdminControlPlane(page, captures = {}) {
         operatorReviewRequired: true,
       },
       evidenceChecklist: [
-        { id: 'live_credit_pack_checkout_canary', status: 'pending_operator_evidence', why: 'Credit pack canary', inspect: 'Credits page', nextAction: 'Collect sanitized evidence.' },
-        { id: 'live_subscription_checkout_canary', status: 'pending_operator_evidence', why: 'Subscription canary', inspect: 'Pricing page', nextAction: 'Collect sanitized evidence.' },
-        { id: 'verified_webhook_receipt', status: 'pending_operator_evidence', why: 'Webhook evidence', inspect: 'Billing Events', nextAction: 'Collect sanitized evidence.' },
-        { id: 'customer_portal_session_canary', status: 'pending_operator_evidence', why: 'Portal evidence', inspect: 'Credits page', nextAction: 'Collect sanitized evidence.' },
-        { id: 'tax_invoice_configuration_review', status: 'pending_operator_review', why: 'Tax review', inspect: 'Stripe Dashboard', nextAction: 'Review with accounting.' },
+        { id: 'live_credit_pack_checkout_canary', status: 'operator_confirmed_purchase_history_visible', why: 'Credit pack canary', inspect: 'Credits page', nextAction: 'Attach remaining artifact-backed grant details when available.' },
+        { id: 'live_subscription_checkout_canary', status: 'operator_confirmed_bitbi_pro_active', why: 'Subscription canary', inspect: 'Pricing page', nextAction: 'Attach sanitized subscription evidence when available.' },
+        { id: 'verified_webhook_receipt', status: 'operator_confirmed_admin_events_visible', why: 'Webhook evidence', inspect: 'Billing Events', nextAction: 'Keep webhook artifacts redacted.' },
+        { id: 'customer_portal_session_canary', status: 'operator_confirmed_pay_bitbi_ai', why: 'Portal evidence', inspect: 'Credits page', nextAction: 'Do not store full portal session URLs.' },
+        { id: 'tax_invoice_configuration_review', status: 'disabled_by_default_operator_review_pending', why: 'Tax review', inspect: 'Stripe Dashboard', nextAction: 'Keep optional flags false until accounting/legal review.' },
       ],
-      reviews: { totalShown: 2, unresolved: 2, byState: { needs_review: 1, blocked: 1 } },
-	      reconciliation: { verdict: 'blocked', summary: { criticalItems: 2, warningItems: 1 }, notes: ['This report is read-only.'] },
+      reviews: { totalShown: 2, unresolved: 2, blockingOrNeedsReview: 2, byState: { needs_review: 1, blocked: 1 } },
+	      reconciliation: { verdict: 'blocked', operatorApprovalStatus: 'critical_items_operator_warning', criticalItems: 2, summary: { criticalItems: 2, warningItems: 1 }, notes: ['This report is read-only.'] },
 	      actions: {
 	        refreshStatus: true,
 	        copyValidationCommands: true,
@@ -3284,22 +3293,22 @@ async function mockAdminControlPlane(page, captures = {}) {
 	      },
 	      nextOperatorActions: [
 	        {
-	          id: 'deploy_auth_worker_static',
-	          label: 'Deploy Auth Worker and Static Pages after validation passes.',
-	          inspect: 'Run release:plan and deploy in the documented order.',
-	          safeAction: 'Deployment only; do not enable live flags yet.',
+	          id: 'monitor_live_billing',
+	          label: 'Monitor Billing Events, Billing Reviews, and Reconciliation during live operation.',
+	          inspect: 'Admin -> Finance -> Live Billing, Billing Events, Billing Reconciliation.',
+	          safeAction: 'Read-only monitoring; do not trigger provider mutations from Admin.',
 	        },
 	        {
-	          id: 'export_redacted_status',
-	          label: 'Export this redacted status before enabling live flags.',
-	          inspect: 'Admin -> Finance -> Live Billing.',
-	          safeAction: 'Download JSON or Markdown evidence from this page.',
+	          id: 'attach_remaining_artifacts',
+	          label: 'Attach remaining waived or pending artifact-backed evidence when it is available.',
+	          inspect: 'docs/production-readiness/evidence/operator-live-evidence-2026-06-12/.',
+	          safeAction: 'Use shortened IDs and redacted screenshots/exports only.',
 	        },
 	        {
-	          id: 'configure_redacted_env',
-	          label: 'Configure Cloudflare Stripe secrets and vars with optional tax flags false.',
-	          inspect: 'Cloudflare Worker settings; values stay outside the repo.',
-	          safeAction: 'Use copied env-name checklist with placeholders only.',
+	          id: 'rollback_if_needed',
+	          label: 'If issues appear, disable live credit packs and subscriptions while keeping the webhook endpoint available.',
+	          inspect: 'Cloudflare Worker vars, Billing Reviews, Billing Reconciliation.',
+	          safeAction: 'Set live flags false; do not delete ledger or evidence rows.',
 	        },
 	      ],
 	    });
@@ -16035,16 +16044,16 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
     const section = page.locator('#sectionLiveBilling');
-    await expect(section).toBeVisible();
+	    await expect(section).toBeVisible();
 	    await expect(section).toContainText('Live Billing Command Center');
-	    await expect(section).toContainText('Admin does not activate live payments by itself');
-	    await expect(page.locator('#liveBillingState')).toContainText('Live billing readiness remains BLOCKED');
+	    await expect(section).toContainText('Live billing is enabled by operator approval');
+	    await expect(page.locator('#liveBillingState')).toContainText('Live billing readiness is OPERATOR_APPROVED_LIVE');
 	    await expect(section).toContainText('Repository support');
 	    await expect(section).toContainText('ready for operator canary');
 	    await expect(section).toContainText('Final verdict');
-	    await expect(section).toContainText('blocked pending operator evidence');
+	    await expect(section).toContainText('operator approved live with evidence waivers');
 	    await expect(section).toContainText('Safe Cutover Path');
-	    await expect(section).toContainText('Export this redacted status before enabling live flags');
+	    await expect(section).toContainText('Attach remaining waived or pending artifact-backed evidence');
 	    await expect(section).toContainText('Configuration Readiness');
 	    await expect(section).toContainText('Config shape');
 	    await expect(section).toContainText('Offer Catalog');

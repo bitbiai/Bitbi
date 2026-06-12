@@ -3,12 +3,20 @@
   "generatedAt": "2026-06-12T18:10:00.000Z",
   "branch": "main",
   "auditedHeadBeforePacket": "43d9f4c72b788fd64916e6136be65d70149a4676",
-  "packageStatus": "deployment_ready_operator_closure_packet",
-  "allowedCurrentClaim": "Repository support is ready for operator live-billing canary.",
+  "packageStatus": "operator_approved_live_billing_with_partial_artifact_evidence",
+  "allowedCurrentClaim": "Live billing is operator-approved live with partial artifact-backed evidence and accepted evidence risk.",
+  "operatorApprovalSupplement": {
+    "recordedAt": "2026-06-13",
+    "records": [
+      "LIVE_BILLING_OPERATOR_GO_LIVE_APPROVAL.md",
+      "live-billing-operator-go-live-approval.json"
+    ],
+    "artifactBackedEvidence": "partial",
+    "operatorAcceptedRemainingEvidenceRisk": true
+  },
   "blockedClaims": [
-    "Production readiness remains blocked until live/operator evidence is reviewed.",
-    "Live billing readiness remains blocked until sanitized canary evidence is reviewed.",
-    "Stripe live completion is not claimed.",
+    "Full evidence-proven production maturity is not claimed.",
+    "Fully artifact-proven Stripe live completion is not claimed.",
     "Tax, invoice, accounting, and legal compliance completion are not claimed."
   ],
   "safety": {
@@ -99,9 +107,9 @@
   ],
   "operatorDecision": {
     "codeReadiness": "ready_for_operator_canary",
-    "deployReadiness": "ready_for_controlled_deployment_preparation",
-    "configReadiness": "blocked_pending_operator_configuration",
-    "canaryReadiness": "blocked_pending_operator_canary_execution",
-    "publicGoLiveReadiness": "blocked_pending_sanitized_evidence_review"
+    "deployReadiness": "operator_approved_live_deploy_if_current_code_not_already_deployed",
+    "configReadiness": "operator_confirmed_production_configured_repo_cannot_read_cloudflare_dashboard",
+    "canaryReadiness": "operator_confirmed_manual_live_validation",
+    "publicGoLiveReadiness": "operator_approved_live_with_evidence_waivers"
   }
 }

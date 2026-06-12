@@ -6,15 +6,17 @@ Branch: `main`
 
 Audited HEAD before this packet: `43d9f4c72b788fd64916e6136be65d70149a4676`
 
-Package status: deployment-ready operator closure packet for controlled live canary. It is not production-readiness proof and not live-billing-readiness proof.
+Package status: operator-approved live billing packet with partial artifact-backed evidence and accepted evidence risk. It is not full evidence-proven production maturity proof.
 
-Allowed current claim: repository support is ready for operator live-billing canary.
+2026-06-13 supplement: the operator manually validated the live billing system and approved go-live despite incomplete artifact-backed evidence. See `LIVE_BILLING_OPERATOR_GO_LIVE_APPROVAL.md`.
 
-Blocked claims until sanitized live/operator evidence is collected, attached, and reviewed:
+Allowed current claim: live billing is operator-approved live with partial artifact-backed evidence and accepted evidence risk.
+
+Blocked claims until separate evidence is collected, attached, and reviewed:
 
 - Production ready
-- Live billing ready
-- Stripe live complete
+- Full evidence-proven production maturity
+- Fully artifact-proven Stripe live completion
 - Live payments proven
 - Tax, invoice, accounting, or legal compliance complete
 

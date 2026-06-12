@@ -1,0 +1,68 @@
+{
+  "recordType": "live_billing_operator_go_live_approval",
+  "recordedAt": "2026-06-13",
+  "evidencePackage": "docs/production-readiness/evidence/operator-live-evidence-2026-06-12/",
+  "liveBillingReadiness": "operator_approved_live",
+  "productionReadiness": "operator_go_live_approved_billing_scope_not_full_evidence_proven_production_maturity",
+  "artifactBackedEvidence": "partial",
+  "operatorAcceptedRemainingEvidenceRisk": true,
+  "operatorConfirmed": {
+    "stripeCustomerPortal": {
+      "status": "operator_confirmed",
+      "safeHost": "pay.bitbi.ai",
+      "fullSessionUrlIncluded": false
+    },
+    "bitbiProSubscriptionPayment": {
+      "status": "operator_confirmed"
+    },
+    "creditPackPurchaseHistory": {
+      "status": "operator_confirmed"
+    },
+    "adminLiveBillingConfiguredSupport": {
+      "status": "operator_confirmed"
+    },
+    "operatorGoLiveResponsibility": {
+      "status": "accepted"
+    }
+  },
+  "waivedOrPendingArtifactEvidence": [
+    {
+      "id": "full_stripe_webhook_2xx_delivery_artifact_set",
+      "status": "operator_confirmed_artifact_completion_pending"
+    },
+    {
+      "id": "no_credit_before_webhook_ledger_proof",
+      "status": "operator_waived_pending_artifact"
+    },
+    {
+      "id": "duplicate_webhook_idempotency_proof",
+      "status": "operator_waived_pending_artifact"
+    },
+    {
+      "id": "wrong_price_id_live_rejection_proof",
+      "status": "repo_tested_operator_waived_pending_live_artifact"
+    },
+    {
+      "id": "refund_dispute_failure_review_only_proof",
+      "status": "repo_tested_operator_waived_pending_live_artifact"
+    },
+    {
+      "id": "tax_invoice_accounting_legal_review",
+      "status": "pending_separate_approval_optional_flags_disabled"
+    }
+  ],
+  "safety": {
+    "stripeSecretsIncluded": false,
+    "webhookSigningSecretsIncluded": false,
+    "rawWebhookPayloadsIncluded": false,
+    "fullPortalSessionUrlsIncluded": false,
+    "cookiesOrBearerTokensIncluded": false,
+    "sessionValuesIncluded": false,
+    "privateApiKeysIncluded": false,
+    "cardDataIncluded": false
+  },
+  "readinessLanguage": {
+    "allowedClaim": "Live billing is operator-approved live with partial artifact-backed evidence and accepted evidence risk.",
+    "blockedClaim": "Full evidence-proven production maturity remains not claimed from this billing-only operator approval."
+  }
+}

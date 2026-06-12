@@ -710,8 +710,32 @@ export function createBillingDomain({ notify, formatDate }) {
 
     function liveBillingBadgeVariant(value) {
         const text = String(value || '').toLowerCase();
-        if (text.includes('ready') || text.includes('configured') || text.includes('present')) return 'active';
+        if (text.includes('no critical') || text.includes('no_critical')) return 'active';
         if (text.includes('blocked') || text.includes('missing') || text.includes('invalid')) return 'disabled';
+        if (
+            text.includes('operator_approved_live')
+            || text.includes('operator_go_live_approved')
+            || text.includes('operator approved live')
+            || text.includes('operator go live approved')
+            || text.includes('partial_evidence_operator_approved')
+        ) return 'active';
+        if (
+            text.includes('critical')
+            || text.includes('warning')
+            || text.includes('pending')
+            || text.includes('waived')
+            || text.includes('partial')
+            || text.includes('review')
+        ) return 'legacy';
+        if (
+            text.includes('ready')
+            || text.includes('configured')
+            || text.includes('present')
+            || text.includes('approved')
+            || text.includes('operator')
+            || text.includes('live')
+            || text.includes('enabled')
+        ) return 'active';
         return 'legacy';
     }
 
@@ -742,6 +766,8 @@ export function createBillingDomain({ notify, formatDate }) {
             evidenceStatus: status.evidenceStatus,
             canaryStatus: status.canaryStatus,
             finalVerdict: status.finalVerdict || {},
+            operatorApproval: status.operatorApproval || {},
+            productionReadinessScope: status.productionReadinessScope || null,
             nextOperatorActions: status.nextOperatorActions || [],
             statusBadges: status.statusBadges || [],
             configuration: status.configuration || {},
@@ -769,6 +795,9 @@ Generated: ${formatDate(status.generatedAt)}
 
 Production readiness: **${status.productionReadiness || 'blocked'}**
 Live billing readiness: **${status.liveBillingReadiness || 'blocked'}**
+Operator approval: **${status.operatorApproval?.status || 'not_recorded'}**
+
+${status.operatorApproval?.acceptedRemainingEvidenceRisk ? 'Operator accepted remaining evidence risk. Artifact-backed evidence is partially complete.' : 'Operator approval not recorded in this export.'}
 
 ## Status
 
@@ -892,7 +921,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             el('h3', 'admin-section-title', 'Safe Cutover Path'),
             el('p', 'admin-shell__desc', status.finalVerdict?.summary || 'Repository support is ready for an operator canary, but readiness remains blocked until evidence is reviewed.'),
         );
-        header.append(heading, badge(status.finalVerdict?.status || 'blocked_pending_operator_evidence', 'disabled'));
+        header.append(heading, badge(status.finalVerdict?.status || 'blocked_pending_operator_evidence', liveBillingBadgeVariant(status.finalVerdict?.status)));
         card.appendChild(header);
         const list = el('div', 'admin-reconciliation-items');
         for (const item of (status.nextOperatorActions || []).slice(0, 7)) {
@@ -908,7 +937,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         }
         if (!list.children.length) {
             const empty = el('article', 'admin-reconciliation-item');
-            empty.append(el('p', 'admin-shell__desc', 'Export redacted status and collect sanitized operator evidence before changing any readiness verdict.'));
+            empty.append(el('p', 'admin-shell__desc', 'Monitor live billing and attach any remaining sanitized evidence without exposing secrets or raw payloads.'));
             list.appendChild(empty);
         }
         card.appendChild(list);
@@ -927,7 +956,11 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             return;
         }
         const status = res.data || {};
-        setState('liveBillingState', `Generated ${formatDate(status.generatedAt)}. Live billing readiness remains ${String(status.liveBillingReadiness || 'blocked').toUpperCase()}.`);
+        const liveLabel = String(status.liveBillingReadiness || 'blocked').toUpperCase();
+        const statePrefix = status.liveBillingReadiness === 'operator_approved_live'
+            ? 'Live billing readiness is'
+            : 'Live billing readiness remains';
+        setState('liveBillingState', `Generated ${formatDate(status.generatedAt)}. ${statePrefix} ${liveLabel}.`);
         if (topBadges) {
             clear(topBadges);
             for (const item of (status.statusBadges || []).slice(0, 4)) {
@@ -956,13 +989,13 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         const heroGrid = el('div', 'admin-operator-guidance__grid');
         for (const item of [
             ['Repository', readableToken(status.repositorySupport || 'ready_for_operator_canary'), 'Repository support can guide a controlled operator canary after deploy.'],
-            ['Canary', readableToken(status.canaryStatus || 'pending_operator_evidence'), 'No real canary evidence is assumed by this page.'],
-            ['Final verdict', readableToken(status.finalVerdict?.status || 'blocked_pending_operator_evidence'), 'Readiness remains blocked until sanitized evidence is reviewed.'],
+            ['Canary', readableToken(status.canaryStatus || 'pending_operator_evidence'), status.operatorApproval?.status === 'operator_approved_live' ? 'Manual live validation was operator-confirmed; artifact evidence remains partial.' : 'No real canary evidence is assumed by this page.'],
+            ['Final verdict', readableToken(status.finalVerdict?.status || 'blocked_pending_operator_evidence'), status.finalVerdict?.summary || 'Readiness remains blocked until sanitized evidence is reviewed.'],
             ['Read-only', 'No live Stripe calls', 'Refreshing this page does not create checkout, mutate credits, refund, cancel, or call Stripe.'],
             ['Redacted', 'Secrets stay hidden', 'Raw Stripe payloads, signatures, keys, cards, cookies, tokens, and session values are never rendered.'],
         ]) {
             const node = el('div', 'admin-operator-guidance__item');
-            node.append(badge(item[0], item[0] === 'Final verdict' ? 'disabled' : 'user'), el('strong', null, item[1]), el('span', null, item[2]));
+            node.append(badge(item[0], item[0] === 'Final verdict' ? liveBillingBadgeVariant(status.finalVerdict?.status) : 'user'), el('strong', null, item[1]), el('span', null, item[2]));
             heroGrid.appendChild(node);
         }
         overview.appendChild(heroGrid);
@@ -985,7 +1018,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         grid.appendChild(renderBillingEvidenceCard({
             title: 'Configuration Readiness',
             badgeLabel: status.liveBillingReadiness || 'blocked',
-            badgeVariant: 'disabled',
+            badgeVariant: liveBillingBadgeVariant(status.liveBillingReadiness),
             copy: 'Presence and shape only. Values are redacted and secrets are never shown.',
             rows: [
                 ['Credit packs flag', readableToken(config.flags?.liveCreditPacks?.status)],
@@ -1049,12 +1082,14 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         }));
         grid.appendChild(renderBillingEvidenceCard({
             title: 'Reconciliation / Reviews',
-            badgeLabel: reconciliation.verdict || 'blocked',
-            badgeVariant: reconciliation.verdict === 'ready' ? 'active' : 'legacy',
+            badgeLabel: reconciliation.operatorApprovalStatus || reconciliation.verdict || 'blocked',
+            badgeVariant: liveBillingBadgeVariant(reconciliation.operatorApprovalStatus || reconciliation.verdict),
             copy: 'Read-only local D1 report. It does not repair, claw back, refund, retry, cancel, or call Stripe.',
             rows: [
                 ['Billing review rows shown', `${reviewCounts.totalShown || 0}`],
                 ['Unresolved reviews', `${reviewCounts.unresolved || 0}`],
+                ['Blocking/needs-review rows', `${reviewCounts.blockingOrNeedsReview || 0}`],
+                ['Critical reconciliation items', `${reconciliation.criticalItems || reconciliation.summary?.criticalItems || 0}`],
                 ['Review states', renderJsonSummary(reviewCounts.byState || {})],
                 ['Reconciliation notes', Array.isArray(reconciliation.notes) ? reconciliation.notes.join(' ') : '-'],
             ],

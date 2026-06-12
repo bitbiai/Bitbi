@@ -9235,38 +9235,49 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     const body = await response.json();
     expect(response.status).toBe(200);
     expect(body).toEqual(expect.objectContaining({
-	      ok: true,
-	      repositorySupport: 'ready_for_operator_canary',
-	      productionReadiness: 'blocked',
-	      liveBillingReadiness: 'blocked',
-	      configShapeStatus: 'configured_shapes_present',
-	      evidenceStatus: 'pending_operator_evidence',
-	      canaryStatus: 'pending_operator_evidence',
-	      redactedResponse: true,
-	      stripeCallsMade: false,
-	      d1MutationPerformed: false,
-	      creditMutationPerformed: false,
-	      finalVerdict: expect.objectContaining({
-	        status: 'blocked_pending_operator_evidence',
-	      }),
-	    }));
-	    expect(body.statusBadges).toEqual(expect.arrayContaining([
-	      expect.objectContaining({ id: 'repository_support', status: 'ready_for_operator_canary' }),
-	      expect.objectContaining({ id: 'live_billing_readiness', status: 'blocked' }),
-	      expect.objectContaining({ id: 'config_shape', status: 'configured_shapes_present' }),
-	      expect.objectContaining({ id: 'webhook' }),
-	      expect.objectContaining({ id: 'canary_status', status: 'pending_operator_evidence' }),
-	      expect.objectContaining({ id: 'final_verdict', status: 'blocked_pending_operator_evidence' }),
-	    ]));
-	    expect(body.nextOperatorActions.length).toBeGreaterThanOrEqual(3);
-	    expect(body.nextOperatorActions.length).toBeLessThanOrEqual(7);
-	    expect(body.nextOperatorActions).toEqual(expect.arrayContaining([
-	      expect.objectContaining({ id: 'export_redacted_status' }),
-	      expect.objectContaining({ id: 'run_operator_canaries' }),
-	    ]));
-	    expect(body.customerPortal).toEqual(expect.objectContaining({
+      ok: true,
+      repositorySupport: 'ready_for_operator_canary',
+      productionReadiness: 'operator_go_live_approved',
+      productionReadinessScope: 'billing_go_live_operator_approval_not_full_evidence_proven_production_maturity',
+      liveBillingReadiness: 'operator_approved_live',
+      configShapeStatus: 'configured_shapes_present',
+      evidenceStatus: 'partial_evidence_operator_approved',
+      canaryStatus: 'operator_confirmed_manual_live_validation',
+      redactedResponse: true,
+      stripeCallsMade: false,
+      d1MutationPerformed: false,
+      creditMutationPerformed: false,
+      finalVerdict: expect.objectContaining({
+        status: 'operator_approved_live_with_evidence_waivers',
+      }),
+      operatorApproval: expect.objectContaining({
+        status: 'operator_approved_live',
+        acceptedRemainingEvidenceRisk: true,
+      }),
+    }));
+    expect(body.statusBadges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'repository_support', status: 'ready_for_operator_canary' }),
+      expect.objectContaining({ id: 'production_readiness', status: 'operator_go_live_approved', variant: 'ready' }),
+      expect.objectContaining({ id: 'live_billing_readiness', status: 'operator_approved_live', variant: 'ready' }),
+      expect.objectContaining({ id: 'config_shape', status: 'configured_shapes_present' }),
+      expect.objectContaining({ id: 'credit_packs', status: 'configured_enabled_operator_live', variant: 'ready' }),
+      expect.objectContaining({ id: 'bitbi_pro', status: 'configured_enabled_operator_live', variant: 'ready' }),
+      expect.objectContaining({ id: 'webhook', status: 'configured_operator_live', variant: 'ready' }),
+      expect.objectContaining({ id: 'canary_status', status: 'operator_confirmed_manual_live_validation' }),
+      expect.objectContaining({ id: 'final_verdict', status: 'operator_approved_live_with_evidence_waivers' }),
+    ]));
+    expect(body.nextOperatorActions.length).toBeGreaterThanOrEqual(3);
+    expect(body.nextOperatorActions.length).toBeLessThanOrEqual(7);
+    expect(body.nextOperatorActions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'monitor_live_billing' }),
+      expect.objectContaining({ id: 'attach_remaining_artifacts' }),
+      expect.objectContaining({ id: 'rollback_if_needed' }),
+    ]));
+    expect(body.customerPortal).toEqual(expect.objectContaining({
       implemented: true,
       endpoint: '/api/account/billing/portal',
+      status: 'configured_operator_confirmed',
+      sessionCanary: 'operator_confirmed_pay_bitbi_ai',
       memberTriggeredOnly: true,
       adminCustomerMutation: false,
     }));
@@ -9274,7 +9285,8 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       operatorReviewRequired: true,
     }));
     expect(body.evidenceChecklist).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'customer_portal_session_canary' }),
+      expect.objectContaining({ id: 'customer_portal_session_canary', status: 'operator_confirmed_pay_bitbi_ai' }),
+      expect.objectContaining({ id: 'duplicate_webhook_idempotency', status: 'operator_waived_pending_artifact' }),
       expect.objectContaining({ id: 'tax_invoice_configuration_review' }),
     ]));
     const serialized = JSON.stringify(body);

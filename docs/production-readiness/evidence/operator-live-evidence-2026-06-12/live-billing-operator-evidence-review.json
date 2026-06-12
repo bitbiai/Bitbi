@@ -3,7 +3,13 @@
   "reviewedAt": "2026-06-12T21:50:48Z",
   "branch": "main",
   "reviewedHead": "93c58605d97ec77a970cb3ceab933300c7610bfe",
-  "reviewStatus": "live_billing_readiness_not_transitioned",
+  "reviewStatus": "superseded_by_operator_go_live_approval",
+  "supplementRecordedAt": "2026-06-13",
+  "currentLiveBillingReadiness": "operator_approved_live",
+  "operatorApprovalRecords": [
+    "LIVE_BILLING_OPERATOR_GO_LIVE_APPROVAL.md",
+    "live-billing-operator-go-live-approval.json"
+  ],
   "safety": {
     "stripeCallsMade": false,
     "checkoutSessionCreated": false,
@@ -89,10 +95,12 @@
   ],
   "finalOperatorDecision": {
     "codeSupport": "ready_for_operator_canary",
-    "liveBillingReadiness": "blocked_pending_complete_artifact_backed_evidence",
-    "productionReadiness": "blocked",
+    "liveBillingReadiness": "operator_approved_live",
+    "productionReadiness": "operator_go_live_approved_billing_scope_not_full_evidence_proven_production_maturity",
     "taxInvoiceReadiness": "disabled_pending_review",
-    "adminLiveBillingStatusShouldTurnGreen": false
+    "adminLiveBillingStatusShouldTurnGreen": true,
+    "artifactBackedEvidence": "partial",
+    "operatorAcceptedRemainingEvidenceRisk": true
   },
   "requiredBeforeGreen": [
     "Attach sanitized Customer Portal canary evidence without raw portal URL.",
