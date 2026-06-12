@@ -6,6 +6,7 @@ import {
     apiAccountCreditsDashboard,
     apiAdminOrganizations,
     apiCancelMemberSubscription,
+    apiCreateMemberBillingPortalSession,
     apiCreateMemberLiveCreditPackCheckout,
     apiCreateLiveCreditPackCheckout,
     apiGetMe,
@@ -61,6 +62,9 @@ const STRIPE_CHECKOUT_ORIGINS = new Set([
     'https://checkout.stripe.com',
     'https://pay.bitbi.ai',
 ]);
+const STRIPE_PORTAL_ORIGINS = new Set([
+    'https://billing.stripe.com',
+]);
 const EURO_FORMATTER = new Intl.NumberFormat(FORMAT_LOCALE, { style: 'currency', currency: 'EUR' });
 const NUMBER_FORMATTER = new Intl.NumberFormat(FORMAT_LOCALE);
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat(FORMAT_LOCALE, { dateStyle: 'medium', timeStyle: 'short' });
@@ -74,6 +78,7 @@ let immediateDeliveryAccepted = false;
 let legalError = '';
 let pendingSubscriptionAction = null;
 let subscriptionActionPending = false;
+let portalActionPending = false;
 let subscriptionFeedbackMessage = '';
 let subscriptionDialogFocusCleanup = null;
 
@@ -220,12 +225,27 @@ function subscriptionIdempotencyKey(action) {
     return `member-subscription:${action}:${random}`;
 }
 
+function portalIdempotencyKey() {
+    const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return `member-billing-portal:${random}`;
+}
+
 function isSafeCheckoutRedirect(value) {
     if (typeof value !== 'string' || !value) return false;
     try {
         const url = new URL(value, window.location.href);
         if (STRIPE_CHECKOUT_ORIGINS.has(url.origin)) return true;
         return url.origin === window.location.origin && url.pathname.startsWith('/account/credits');
+    } catch {
+        return false;
+    }
+}
+
+function isSafePortalRedirect(value) {
+    if (typeof value !== 'string' || !value) return false;
+    try {
+        const url = new URL(value, window.location.href);
+        return STRIPE_PORTAL_ORIGINS.has(url.origin);
     } catch {
         return false;
     }
@@ -587,6 +607,9 @@ function getSubscriptionModel(dashboard = {}) {
         activeUntil: dashboard.activeUntil || subscription.activeUntil || dashboard.subscriptionPeriodEnd || subscription.subscriptionPeriodEnd || null,
         canCancel: dashboard.canCancelSubscription === true || subscription.canCancelSubscription === true || (active && !cancelAtPeriodEnd),
         canReactivate: dashboard.canReactivateSubscription === true || subscription.canReactivateSubscription === true || (active && cancelAtPeriodEnd),
+        canManagePortal: active
+            && dashboard.customerPortal?.enabled === true
+            && dashboard.customerPortal?.configured === true,
         planName: dashboard.planName || subscription.planName || 'BITBI Pro',
         storageLimitBytes: dashboard.storageLimitBytes ?? subscription.storageLimitBytes,
     };
@@ -678,6 +701,17 @@ function renderSubscriptionSection(dashboard = {}) {
 
     const actions = document.createElement('div');
     actions.className = 'credits-subscription-actions';
+    if (model.canManagePortal) {
+        const portalButton = document.createElement('button');
+        portalButton.type = 'button';
+        portalButton.className = 'btn btn-primary';
+        portalButton.dataset.subscriptionPortal = 'stripe';
+        portalButton.disabled = portalActionPending;
+        portalButton.textContent = portalActionPending
+            ? localeText('credits.openingBillingPortal')
+            : localeText('credits.manageBillingWithStripe');
+        actions.appendChild(portalButton);
+    }
     if (model.canReactivate) {
         const button = document.createElement('button');
         button.type = 'button';
@@ -861,6 +895,35 @@ async function confirmSubscriptionAction() {
     await loadMemberDashboard();
 }
 
+async function openBillingPortal(button) {
+    if (portalActionPending) return;
+    portalActionPending = true;
+    const original = button?.textContent || '';
+    if (button) {
+        button.disabled = true;
+        button.textContent = localeText('credits.openingBillingPortal');
+    }
+    const res = await apiCreateMemberBillingPortalSession({ idempotencyKey: portalIdempotencyKey() });
+    portalActionPending = false;
+    if (!res.ok) {
+        subscriptionFeedbackMessage = res.error || localeText('credits.billingPortalFailed');
+        renderSubscriptionFeedback();
+        if (currentDashboard) renderMemberDashboard(currentDashboard);
+        return;
+    }
+    const portalUrl = res.data?.portal_url;
+    if (isSafePortalRedirect(portalUrl)) {
+        window.location.assign(portalUrl);
+        return;
+    }
+    subscriptionFeedbackMessage = localeText('credits.billingPortalFailed');
+    renderSubscriptionFeedback();
+    if (button) {
+        button.disabled = false;
+        button.textContent = original;
+    }
+}
+
 async function startCheckout(packId, button) {
     if (!packId) return;
     if (activeMode !== 'member' && !selectedOrganizationId) return;
@@ -943,6 +1006,11 @@ $packGrid?.addEventListener('click', (event) => {
 });
 
 $subscriptionSection?.addEventListener('click', (event) => {
+    const portalButton = event.target.closest('[data-subscription-portal]');
+    if (portalButton) {
+        openBillingPortal(portalButton);
+        return;
+    }
     const button = event.target.closest('[data-subscription-action]');
     if (!button) return;
     openSubscriptionDialog(button.dataset.subscriptionAction);

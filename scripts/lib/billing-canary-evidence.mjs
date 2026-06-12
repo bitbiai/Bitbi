@@ -13,20 +13,35 @@ const BILLING_LIVE_ENV_NAMES = Object.freeze([
   "STRIPE_LIVE_CHECKOUT_CANCEL_URL",
   "STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL",
   "STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL",
+  "STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL",
+  "ENABLE_STRIPE_AUTOMATIC_TAX",
+  "ENABLE_STRIPE_TAX_ID_COLLECTION",
+  "ENABLE_STRIPE_INVOICE_CREATION",
   "STRIPE_MODE",
 ]);
 
 const REQUIRED_EVIDENCE = Object.freeze([
   ["live_credit_pack_checkout_canary", "Live credit-pack checkout canary"],
   ["live_subscription_checkout_canary", "Live subscription checkout canary"],
-  ["webhook_receipt", "Verified webhook receipt evidence"],
+  ["verified_webhook_receipt", "Verified webhook receipt evidence"],
   ["duplicate_webhook_idempotency", "Duplicate webhook idempotency evidence"],
   ["wrong_price_id_rejection", "Wrong Price ID rejection evidence"],
   ["missing_webhook_secret_fail_closed", "Missing webhook secret fail-closed evidence"],
   ["no_credit_before_webhook", "No-credit-before-webhook evidence"],
-  ["invoice_paid_subscription_grant", "invoice.paid subscription credit grant evidence"],
+  ["invoice_paid_subscription_credit_grant", "invoice.paid subscription credit grant evidence"],
   ["refund_dispute_failure_review", "Refund/dispute/payment-failure review evidence"],
   ["raw_payload_signature_secret_redaction", "No raw payload/signature/secret rendering evidence"],
+  ["customer_portal_session_canary", "Stripe Customer Portal session canary"],
+  ["tax_invoice_configuration_review", "Stripe Tax/invoice configuration review"],
+]);
+
+const NEXT_OPERATOR_ACTIONS = Object.freeze([
+  "Deploy Auth Worker and Static Pages after validation passes; do not enable live flags yet.",
+  "Export Admin -> Finance -> Live Billing redacted status before changing live billing flags.",
+  "Configure Cloudflare Stripe secrets and vars with optional tax/invoice flags false until review.",
+  "Refresh Admin Live Billing and verify configured shapes only; no raw values should render.",
+  "Run controlled canary purchases only when the operator intentionally triggers real payment.",
+  "Attach sanitized evidence under docs/production-readiness/evidence/ and keep readiness blocked until reviewed.",
 ]);
 
 const SENSITIVE_KEY_PATTERN = /secret|token|password|signature|raw|payload|authorization|cookie|session|payment_?method|card|source/i;
@@ -59,7 +74,9 @@ export function createBillingCanaryEvidenceSkeleton({
   env = process.env,
   generatedAt = new Date().toISOString(),
   operatorFields = {},
+  adminStatus = null,
 } = {}) {
+  const sanitizedAdminStatus = adminStatus ? sanitizeEvidenceValue(adminStatus) : null;
   return {
     reportVersion: "current-baseline-billing-canary-evidence-v1",
     generatedAt,
@@ -83,10 +100,22 @@ export function createBillingCanaryEvidenceSkeleton({
       ...operatorFields,
     }),
     configPresence: envPresence(env, BILLING_LIVE_ENV_NAMES),
+    importedAdminStatus: sanitizedAdminStatus,
+    nextOperatorActions: sanitizedAdminStatus?.nextOperatorActions?.length
+      ? sanitizedAdminStatus.nextOperatorActions.map((item) => ({
+        id: item?.id || "",
+        label: item?.label || "",
+        safeAction: item?.safeAction || "",
+      })).slice(0, 7)
+      : NEXT_OPERATOR_ACTIONS.map((label, index) => ({
+        id: `operator_action_${index + 1}`,
+        label,
+        safeAction: "Evidence-only step; do not paste secrets or mutate live provider state.",
+      })),
     requiredEvidence: REQUIRED_EVIDENCE.map(([id, label]) => ({
       id,
       label,
-      status: "pending_operator_evidence",
+      status: sanitizedAdminStatus?.evidenceChecklist?.find?.((item) => item?.id === id)?.status || "pending_operator_evidence",
       evidencePath: "",
       notes: "",
     })),
@@ -106,6 +135,8 @@ export function createBillingCanaryEvidenceSkeleton({
       "Attach wrong Price ID rejection and missing webhook secret fail-closed evidence.",
       "Attach no-credit-before-webhook and invoice.paid grant evidence.",
       "Attach refund/dispute/payment-failure review-only evidence.",
+      "Attach customer portal canary evidence if the portal flow is configured.",
+      "Attach tax/invoice configuration review evidence if optional Stripe Tax or invoice flags are configured.",
       "Confirm raw payloads, signatures, secrets, payment methods, cookies, and session tokens are absent.",
     ],
   };
@@ -123,6 +154,9 @@ export function renderBillingCanaryEvidenceMarkdown(evidence) {
     .join("\n");
   const assertions = evidence.safetyAssertions.map((item) => `- ${item}`).join("\n");
   const checklist = evidence.operatorChecklist.map((item) => `- [ ] ${item}`).join("\n");
+  const nextActions = (evidence.nextOperatorActions || [])
+    .map((item, index) => `${index + 1}. ${item.label || item.safeAction || "Collect sanitized operator evidence."}`)
+    .join("\n");
   return `# Billing Canary Evidence Skeleton
 
 Generated: ${evidence.generatedAt}
@@ -151,6 +185,10 @@ ${formatPresenceRows(evidence.configPresence)}
 | --- | --- | --- | --- |
 ${requiredRows}
 
+## Next Operator Actions
+
+${nextActions || "1. Export Admin Live Billing redacted status and collect sanitized operator evidence."}
+
 ## Operator Fields
 
 | Field | Value |
@@ -159,6 +197,13 @@ ${requiredRows}
 | Environment | ${evidence.operatorFields.environment || "operator to fill"} |
 | Evidence date | ${evidence.operatorFields.evidenceDate || "operator to fill"} |
 | Notes | ${evidence.operatorFields.notes || "operator to fill"} |
+
+## Imported Admin Status
+
+${evidence.importedAdminStatus ? `- Version: ${evidence.importedAdminStatus.version || "not reported"}
+- Generated: ${evidence.importedAdminStatus.generatedAt || "not reported"}
+- Live billing readiness: ${evidence.importedAdminStatus.liveBillingReadiness || "blocked"}
+- Stripe calls made by status read: ${evidence.importedAdminStatus.stripeCallsMade === true ? "yes" : "no"}` : "- No Admin status JSON imported."}
 
 ## Safety Assertions
 

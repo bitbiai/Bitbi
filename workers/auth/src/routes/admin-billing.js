@@ -122,10 +122,240 @@ async function auditBillingEvent(ctx, adminUser, action, meta = {}, targetUserId
   );
 }
 
+function countByField(rows, field) {
+  const counts = {};
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const key = String(row?.[field] || "unknown").slice(0, 96) || "unknown";
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return counts;
+}
+
+function liveBillingStatusVariant(value) {
+  const text = String(value || "").toLowerCase();
+  if (text.includes("configured") || text.includes("present") || text.includes("active")) return "ready";
+  if (text.includes("missing") || text.includes("blocked") || text.includes("invalid")) return "blocked";
+  return "pending";
+}
+
+function liveBillingConfigShapeStatus(config = {}) {
+  const hasLiveSecret = config.secrets?.liveSecretKey?.present === true;
+  const hasWebhookSecret = config.secrets?.liveWebhookSecret?.present === true;
+  const hasSubscriptionPrice = config.priceIds?.liveSubscriptionPriceId?.present === true;
+  const hasCreditUrls = config.urls?.liveCreditPackSuccess?.present === true
+    && config.urls?.liveCreditPackCancel?.present === true;
+  const hasSubscriptionUrls = config.urls?.liveSubscriptionSuccess?.present === true
+    && config.urls?.liveSubscriptionCancel?.present === true;
+  if (hasLiveSecret && hasWebhookSecret && hasSubscriptionPrice && hasCreditUrls && hasSubscriptionUrls) {
+    return "configured_shapes_present";
+  }
+  if (hasLiveSecret || hasWebhookSecret || hasSubscriptionPrice || hasCreditUrls || hasSubscriptionUrls) {
+    return "partial_shapes_present";
+  }
+  return "missing_required_shapes";
+}
+
+async function buildAdminLiveBillingReadinessStatus(env) {
+  const evidence = buildBillingEvidenceStatus(env);
+  const [events, reviews, reconciliation] = await Promise.all([
+    listBillingProviderEvents(env, {
+      provider: "stripe",
+      providerMode: "live",
+      limit: 25,
+    }),
+    listBillingReviewEvents(env, {
+      provider: "stripe",
+      providerMode: "live",
+      limit: 25,
+    }),
+    getBillingReconciliationReport(env),
+  ]);
+  const reviewRows = Array.isArray(reviews?.reviews) ? reviews.reviews : [];
+  const unresolvedReviews = reviewRows.filter((review) => !["resolved", "dismissed"].includes(String(review.reviewState || "").toLowerCase()));
+  const summary = reconciliation?.summary || {};
+  const configShapeStatus = liveBillingConfigShapeStatus(evidence.config);
+  const nextOperatorActions = [
+    {
+      id: "deploy_auth_worker_static",
+      label: "Deploy Auth Worker and Static Pages after validation passes.",
+      inspect: "Run release:plan and deploy in the documented order.",
+      safeAction: "Deployment only; do not enable live flags yet.",
+    },
+    {
+      id: "export_redacted_status",
+      label: "Export this redacted status before enabling live flags.",
+      inspect: "Admin -> Finance -> Live Billing.",
+      safeAction: "Download JSON or Markdown evidence from this page.",
+    },
+    {
+      id: "configure_redacted_env",
+      label: "Configure Cloudflare Stripe secrets and vars with optional tax flags false.",
+      inspect: "Cloudflare Worker settings; values stay outside the repo.",
+      safeAction: "Use copied env-name checklist with placeholders only.",
+    },
+    {
+      id: "verify_config_shape",
+      label: "Refresh Admin Live Billing and verify configured shapes, not values.",
+      inspect: "Configuration Readiness and Webhook Health cards.",
+      safeAction: "Confirm no raw secrets, payloads, signatures, cards, cookies, or tokens render.",
+    },
+    {
+      id: "run_operator_canaries",
+      label: "Run controlled canary purchases only when the operator intentionally triggers real payment.",
+      inspect: "Credits page, Stripe Dashboard, Billing Events, Billing Reconciliation.",
+      safeAction: "Capture sanitized evidence for no-credit-before-webhook, exactly-once grants, duplicate webhook idempotency, BITBI Pro invoice top-up, and review-only failures.",
+    },
+    {
+      id: "attach_evidence_review",
+      label: "Attach sanitized evidence and keep final readiness blocked until reviewed.",
+      inspect: "docs/production-readiness/evidence/ and this command center.",
+      safeAction: "Move only to operator-reviewed after evidence is complete.",
+    },
+  ];
+  return {
+    ok: true,
+    version: "omega-p1-live-billing-readiness-v1",
+    generatedAt: evidence.generatedAt,
+    repositorySupport: "ready_for_operator_canary",
+    productionReadiness: evidence.productionReadiness,
+    liveBillingReadiness: evidence.liveBillingReadiness,
+    configShapeStatus,
+    evidenceStatus: "pending_operator_evidence",
+    canaryStatus: "pending_operator_evidence",
+    finalVerdict: {
+      status: "blocked_pending_operator_evidence",
+      summary: "Repository support is ready for an operator live-billing canary, but production readiness and live billing readiness remain blocked until sanitized evidence is collected and reviewed.",
+    },
+    boundedResponse: true,
+    redactedResponse: true,
+    stripeCallsMade: false,
+    checkoutSessionCreated: false,
+    d1MutationPerformed: false,
+    creditMutationPerformed: false,
+    dangerousActionsOffered: [],
+    copy: "Admin does not activate live payments by itself. It guides configuration, evidence, and operator go/no-go.",
+    statusBadges: [
+      { id: "repository_support", label: "Repository support", status: "ready_for_operator_canary", variant: "ready" },
+      { id: "production_readiness", label: "Production readiness", status: evidence.productionReadiness || "blocked", variant: "blocked" },
+      { id: "live_billing_readiness", label: "Live billing readiness", status: evidence.liveBillingReadiness || "blocked", variant: "blocked" },
+      { id: "config_shape", label: "Config shape", status: configShapeStatus, variant: liveBillingStatusVariant(configShapeStatus) },
+      { id: "credit_packs", label: "Credit packs", status: evidence.creditPacks?.status || "missing_or_pending", variant: liveBillingStatusVariant(evidence.creditPacks?.status) },
+      { id: "bitbi_pro", label: "BITBI Pro subscription", status: evidence.subscription?.status || "missing_or_pending", variant: liveBillingStatusVariant(evidence.subscription?.status) },
+      { id: "webhook", label: "Webhook", status: evidence.config?.secrets?.liveWebhookSecret?.present ? "secret_present_redacted" : "secret_missing", variant: evidence.config?.secrets?.liveWebhookSecret?.present ? "pending" : "blocked" },
+      { id: "reconciliation", label: "Reconciliation", status: reconciliation?.verdict || "blocked", variant: String(reconciliation?.verdict || "").toLowerCase() === "ready" ? "ready" : "pending" },
+      { id: "billing_reviews", label: "Billing reviews", status: `${unresolvedReviews.length} unresolved`, variant: unresolvedReviews.length ? "pending" : "ready" },
+      { id: "evidence_status", label: "Evidence status", status: "pending_operator_evidence", variant: "pending" },
+      { id: "canary_status", label: "Canary status", status: "pending_operator_evidence", variant: "pending" },
+      { id: "final_verdict", label: "Final verdict", status: "blocked_pending_operator_evidence", variant: "blocked" },
+    ],
+    configuration: evidence.config,
+    catalog: {
+      creditPacks: evidence.creditPacks,
+      subscription: evidence.subscription,
+      publicCatalog: true,
+      stripePriceIdConfigured: evidence.config?.priceIds?.liveSubscriptionPriceId?.present === true,
+      needsStripeDashboardEvidence: true,
+    },
+    checkoutSafety: {
+      facts: evidence.failClosedFacts,
+      checkoutCreationDoesNotGrantCredits: true,
+      grantsRequireVerifiedWebhookOrInvoice: true,
+      missingWebhookSecretFailsClosedBeforeCheckout: true,
+      wrongProviderModeOrPriceIdDoesNotGrant: true,
+    },
+    webhookHealth: {
+      endpoint: "/api/billing/webhooks/stripe/live",
+      signatureVerification: "verified_live_signature",
+      rawPayloadsRendered: false,
+      signaturesRendered: false,
+      recentEvents: (Array.isArray(events) ? events : []).slice(0, 10).map((event) => ({
+        id: event.id,
+        eventType: event.eventType,
+        providerMode: event.providerMode,
+        processingStatus: event.processingStatus,
+        actionStatus: event.actionStatus,
+        duplicate: event.duplicate === true,
+        receivedAt: event.receivedAt || event.createdAt,
+      })),
+      countsByType: countByField(events, "eventType"),
+      countsByStatus: countByField(events, "processingStatus"),
+      countsByProviderMode: countByField(events, "providerMode"),
+    },
+    customerPortal: {
+      ...evidence.customerPortal,
+      implemented: true,
+      endpoint: "/api/account/billing/portal",
+      memberTriggeredOnly: true,
+      adminCustomerMutation: false,
+    },
+    taxInvoice: evidence.taxInvoice,
+    evidenceChecklist: (Array.isArray(evidence.evidenceRequired) ? evidence.evidenceRequired : []).map((item) => ({
+      ...item,
+      why: {
+        live_credit_pack_checkout_canary: "Proves the configured live credit-pack checkout can be created safely by an operator.",
+        live_subscription_checkout_canary: "Proves the configured BITBI Pro checkout can be created safely by an operator.",
+        verified_webhook_receipt: "Proves Stripe live events reach the verified webhook endpoint.",
+        duplicate_webhook_idempotency: "Proves repeated provider events cannot double-grant credits.",
+        wrong_price_id_rejection: "Proves unrelated Stripe prices do not grant BITBI Pro credits.",
+        missing_webhook_secret_fail_closed: "Proves checkout stays disabled without webhook-credit readiness.",
+        no_credit_before_webhook: "Proves checkout creation alone never grants credits.",
+        invoice_paid_subscription_credit_grant: "Proves subscription credits are topped up only after a paid invoice event.",
+        refund_dispute_failure_review_only: "Proves refunds, disputes, and failures create review records only.",
+        raw_payload_signature_secret_redaction: "Proves Admin never renders raw payloads, signatures, or secrets.",
+        customer_portal_session_canary: "Proves a signed-in member can open Stripe Customer Portal without Admin customer mutation.",
+        tax_invoice_configuration_review: "Confirms Stripe Tax/invoice flags and dashboard accounting setup were reviewed by an operator.",
+      }[item.id] || "Required operator evidence for live billing readiness.",
+      inspect: {
+        live_credit_pack_checkout_canary: "Credits page checkout response and Stripe Dashboard checkout session.",
+        live_subscription_checkout_canary: "Pricing/Credits subscription checkout response and Stripe Dashboard checkout session.",
+        verified_webhook_receipt: "Billing Events provider log for /api/billing/webhooks/stripe/live.",
+        duplicate_webhook_idempotency: "Billing Reconciliation duplicate/idempotency section.",
+        wrong_price_id_rejection: "Billing Events ignored/review rows with wrong Price ID.",
+        missing_webhook_secret_fail_closed: "Worker response from checkout with webhook secret absent.",
+        no_credit_before_webhook: "Member credit ledger remains unchanged after checkout creation.",
+        invoice_paid_subscription_credit_grant: "Member subscription bucket ledger after verified invoice.paid.",
+        refund_dispute_failure_review_only: "Billing Reviews queue.",
+        raw_payload_signature_secret_redaction: "Admin Live Billing and Billing Evidence payloads.",
+        customer_portal_session_canary: "Member Credits page portal button and Stripe Portal session.",
+        tax_invoice_configuration_review: "Stripe Dashboard tax/invoice settings and redacted env checklist.",
+      }[item.id] || "Admin Live Billing Command Center.",
+      nextAction: "Collect sanitized operator evidence; do not paste raw secrets, signatures, payloads, cards, cookies, or session values.",
+    })),
+    reviews: {
+      totalShown: reviewRows.length,
+      unresolved: unresolvedReviews.length,
+      byState: countByField(reviewRows, "reviewState"),
+    },
+    reconciliation: {
+      verdict: reconciliation?.verdict || "blocked",
+      summary,
+      notes: reconciliation?.notes || [],
+    },
+    actions: {
+      refreshStatus: true,
+      copyValidationCommands: true,
+      copyCloudflareEnvChecklist: true,
+      copyStripeDashboardChecklist: true,
+      downloadSanitizedEvidenceJson: true,
+      downloadSanitizedEvidenceMarkdown: true,
+      openBillingReviews: true,
+      openBillingReconciliation: true,
+      openCreditsPage: true,
+      createsLiveCheckout: false,
+      callsStripe: false,
+      refunds: false,
+      creditMutation: false,
+      subscriptionMutation: false,
+    },
+    nextOperatorActions,
+  };
+}
+
 export async function handleAdminBilling(ctx) {
   const { request, env, url, pathname, method, isSecure, correlationId } = ctx;
   const isBillingRoute = pathname === "/api/admin/billing/plans"
     || pathname === "/api/admin/billing/evidence/status"
+    || pathname === "/api/admin/billing/live-readiness/status"
     || pathname === "/api/admin/billing/events"
     || pathname === "/api/admin/billing/reconciliation"
     || pathname === "/api/admin/billing/reviews"
@@ -155,6 +385,17 @@ export async function handleAdminBilling(ctx) {
     const limited = await enforceAdminBillingRateLimit(ctx);
     if (limited) return limited;
     return json(buildBillingEvidenceStatus(env));
+  }
+
+  if (pathname === "/api/admin/billing/live-readiness/status" && method === "GET") {
+    const limited = await enforceAdminBillingRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const status = await buildAdminLiveBillingReadinessStatus(env);
+      return json(status);
+    } catch (error) {
+      return billingErrorJson(error, ctx);
+    }
   }
 
   if (pathname === "/api/admin/billing/events" && method === "GET") {

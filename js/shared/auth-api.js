@@ -573,6 +573,10 @@ export function apiAdminBillingEvidenceStatus() {
     return request('GET', '/admin/billing/evidence/status');
 }
 
+export function apiAdminBillingLiveReadinessStatus() {
+    return request('GET', '/admin/billing/live-readiness/status');
+}
+
 export function apiAdminOrganizationBilling(orgId) {
     return request('GET', `/admin/orgs/${encodeURIComponent(orgId)}/billing`);
 }
@@ -1428,6 +1432,12 @@ export function apiReactivateMemberSubscription({ idempotencyKey } = {}) {
     return request('POST', '/account/billing/subscription/reactivate', {
         confirmed: true,
     }, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiCreateMemberBillingPortalSession({ idempotencyKey } = {}) {
+    return request('POST', '/account/billing/portal', undefined, {
         headers: { 'Idempotency-Key': idempotencyKey },
     });
 }

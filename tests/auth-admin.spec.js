@@ -3135,6 +3135,176 @@ async function mockAdminControlPlane(page, captures = {}) {
     });
   });
 
+  await page.route('**/api/admin/billing/live-readiness/status', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+	      version: 'omega-p1-live-billing-readiness-v1',
+	      generatedAt: '2026-05-18T16:05:00.000Z',
+	      repositorySupport: 'ready_for_operator_canary',
+	      productionReadiness: 'blocked',
+	      liveBillingReadiness: 'blocked',
+	      configShapeStatus: 'partial_shapes_present',
+	      evidenceStatus: 'pending_operator_evidence',
+	      canaryStatus: 'pending_operator_evidence',
+	      finalVerdict: {
+	        status: 'blocked_pending_operator_evidence',
+	        summary: 'Repository support is ready for an operator live-billing canary, but production readiness and live billing readiness remain blocked until sanitized evidence is collected and reviewed.',
+	      },
+	      boundedResponse: true,
+	      redactedResponse: true,
+      stripeCallsMade: false,
+      checkoutSessionCreated: false,
+      d1MutationPerformed: false,
+      creditMutationPerformed: false,
+      dangerousActionsOffered: [],
+	      copy: 'Admin does not activate live payments by itself. It guides configuration, evidence, and operator go/no-go.',
+	      statusBadges: [
+	        { id: 'repository_support', label: 'Repository support', status: 'ready_for_operator_canary', variant: 'ready' },
+	        { id: 'production_readiness', label: 'Production readiness', status: 'blocked', variant: 'blocked' },
+	        { id: 'live_billing_readiness', label: 'Live billing readiness', status: 'blocked', variant: 'blocked' },
+	        { id: 'config_shape', label: 'Config shape', status: 'partial_shapes_present', variant: 'pending' },
+	        { id: 'credit_packs', label: 'Credit packs', status: 'missing_or_pending', variant: 'pending' },
+	        { id: 'bitbi_pro', label: 'BITBI Pro subscription', status: 'missing_or_pending', variant: 'pending' },
+	        { id: 'webhook', label: 'Webhook', status: 'secret_present_redacted', variant: 'pending' },
+	        { id: 'reconciliation', label: 'Reconciliation', status: 'blocked', variant: 'pending' },
+	        { id: 'billing_reviews', label: 'Billing reviews', status: '2 unresolved', variant: 'pending' },
+	        { id: 'evidence_status', label: 'Evidence status', status: 'pending_operator_evidence', variant: 'pending' },
+	        { id: 'canary_status', label: 'Canary status', status: 'pending_operator_evidence', variant: 'pending' },
+	        { id: 'final_verdict', label: 'Final verdict', status: 'blocked_pending_operator_evidence', variant: 'blocked' },
+	      ],
+      configuration: {
+        namesInspected: [
+          'ENABLE_LIVE_STRIPE_CREDIT_PACKS',
+          'ENABLE_LIVE_STRIPE_SUBSCRIPTIONS',
+          'STRIPE_LIVE_SECRET_KEY',
+          'STRIPE_LIVE_WEBHOOK_SECRET',
+          'STRIPE_LIVE_SUBSCRIPTION_PRICE_ID',
+          'STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL',
+          'ENABLE_STRIPE_AUTOMATIC_TAX',
+          'ENABLE_STRIPE_TAX_ID_COLLECTION',
+          'ENABLE_STRIPE_INVOICE_CREATION',
+        ],
+        flags: {
+          liveCreditPacks: { status: 'disabled_or_non_true' },
+          liveSubscriptions: { status: 'missing' },
+          automaticTax: { status: 'missing' },
+          taxIdCollection: { status: 'missing' },
+          invoiceCreation: { status: 'missing' },
+        },
+        secrets: {
+          liveSecretKey: { present: true, status: 'present_shape_ok', valueExposed: false },
+          liveWebhookSecret: { present: true, status: 'present_shape_ok', valueExposed: false },
+        },
+        priceIds: {
+	          liveSubscriptionPriceId: { present: true, safeSuffix: 'ro_123456', valueExposed: false },
+	        },
+	        urls: {
+	          liveCreditPackSuccess: { present: true, status: 'present_https', origin: 'https://bitbi.ai', valueExposed: false },
+	          liveCreditPackCancel: { present: true, status: 'present_https', origin: 'https://bitbi.ai', valueExposed: false },
+	          liveSubscriptionSuccess: { present: false, status: 'missing', valueExposed: false },
+	          liveSubscriptionCancel: { present: false, status: 'missing', valueExposed: false },
+	          liveCustomerPortalReturn: { present: true, status: 'present_https', origin: 'https://bitbi.ai', valueExposed: false },
+	        },
+      },
+      catalog: {
+        creditPacks: {
+          activePacks: [
+            { id: 'live_credits_5000', name: '5000 Credit Pack', credits: 5000, amountCents: 999, currency: 'eur' },
+            { id: 'live_credits_12000', name: '12000 Credit Pack', credits: 12000, amountCents: 1999, currency: 'eur' },
+          ],
+        },
+        subscription: {
+          plan: {
+            name: 'BITBI Pro',
+            amountCents: 999,
+            currency: 'eur',
+            interval: 'month',
+            allowanceCredits: 6000,
+            storageLimitBytes: 5368709120,
+          },
+        },
+        publicCatalog: true,
+        stripePriceIdConfigured: true,
+        needsStripeDashboardEvidence: true,
+      },
+      checkoutSafety: {
+        checkoutCreationDoesNotGrantCredits: true,
+        missingWebhookSecretFailsClosedBeforeCheckout: true,
+        wrongProviderModeOrPriceIdDoesNotGrant: true,
+      },
+      webhookHealth: {
+        endpoint: '/api/billing/webhooks/stripe/live',
+        signatureVerification: 'verified_live_signature',
+        rawPayloadsRendered: false,
+        signaturesRendered: false,
+        recentEvents: [{ id: 'bpe_live_1', eventType: 'invoice.paid', providerMode: 'live', processingStatus: 'completed', actionStatus: 'completed', duplicate: false, receivedAt: '2026-05-18T16:00:00.000Z' }],
+        countsByType: { 'invoice.paid': 1 },
+        countsByStatus: { completed: 1 },
+        countsByProviderMode: { live: 1 },
+      },
+      customerPortal: {
+        implemented: true,
+        endpoint: '/api/account/billing/portal',
+        status: 'configured_shape_present',
+        sessionCanary: 'pending_operator_evidence',
+        memberTriggeredOnly: true,
+        adminCustomerMutation: false,
+      },
+      taxInvoice: {
+        status: 'disabled_by_default',
+        automaticTax: { status: 'missing' },
+        taxIdCollection: { status: 'missing' },
+        oneTimeInvoiceCreation: { status: 'missing' },
+        operatorReviewRequired: true,
+      },
+      evidenceChecklist: [
+        { id: 'live_credit_pack_checkout_canary', status: 'pending_operator_evidence', why: 'Credit pack canary', inspect: 'Credits page', nextAction: 'Collect sanitized evidence.' },
+        { id: 'live_subscription_checkout_canary', status: 'pending_operator_evidence', why: 'Subscription canary', inspect: 'Pricing page', nextAction: 'Collect sanitized evidence.' },
+        { id: 'verified_webhook_receipt', status: 'pending_operator_evidence', why: 'Webhook evidence', inspect: 'Billing Events', nextAction: 'Collect sanitized evidence.' },
+        { id: 'customer_portal_session_canary', status: 'pending_operator_evidence', why: 'Portal evidence', inspect: 'Credits page', nextAction: 'Collect sanitized evidence.' },
+        { id: 'tax_invoice_configuration_review', status: 'pending_operator_review', why: 'Tax review', inspect: 'Stripe Dashboard', nextAction: 'Review with accounting.' },
+      ],
+      reviews: { totalShown: 2, unresolved: 2, byState: { needs_review: 1, blocked: 1 } },
+	      reconciliation: { verdict: 'blocked', summary: { criticalItems: 2, warningItems: 1 }, notes: ['This report is read-only.'] },
+	      actions: {
+	        refreshStatus: true,
+	        copyValidationCommands: true,
+	        copyCloudflareEnvChecklist: true,
+	        copyStripeDashboardChecklist: true,
+	        downloadSanitizedEvidenceJson: true,
+	        downloadSanitizedEvidenceMarkdown: true,
+	        openBillingReviews: true,
+	        openBillingReconciliation: true,
+	        openCreditsPage: true,
+	        createsLiveCheckout: false,
+	        callsStripe: false,
+	        refunds: false,
+	        creditMutation: false,
+	        subscriptionMutation: false,
+	      },
+	      nextOperatorActions: [
+	        {
+	          id: 'deploy_auth_worker_static',
+	          label: 'Deploy Auth Worker and Static Pages after validation passes.',
+	          inspect: 'Run release:plan and deploy in the documented order.',
+	          safeAction: 'Deployment only; do not enable live flags yet.',
+	        },
+	        {
+	          id: 'export_redacted_status',
+	          label: 'Export this redacted status before enabling live flags.',
+	          inspect: 'Admin -> Finance -> Live Billing.',
+	          safeAction: 'Download JSON or Markdown evidence from this page.',
+	        },
+	        {
+	          id: 'configure_redacted_env',
+	          label: 'Configure Cloudflare Stripe secrets and vars with optional tax flags false.',
+	          inspect: 'Cloudflare Worker settings; values stay outside the repo.',
+	          safeAction: 'Use copied env-name checklist with placeholders only.',
+	        },
+	      ],
+	    });
+	  });
+
   await page.route('**/api/admin/operations/timeline**', async (route) => {
     const url = new URL(route.request().url());
     captures.operatorTimelineRequests = captures.operatorTimelineRequests || [];
@@ -15854,6 +16024,56 @@ test.describe('Admin Control Plane', () => {
     await expect.poll(() => readClipboardValue(page)).toContain('npm run billing:canary-evidence');
   });
 
+  test('renders live billing command center with redacted readiness and safe-only actions', async ({
+    page,
+  }) => {
+    await installClipboardSpy(page);
+    await mockAdminControlPlane(page);
+
+    const response = await page.goto('/admin/index.html#live-billing');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    const section = page.locator('#sectionLiveBilling');
+    await expect(section).toBeVisible();
+	    await expect(section).toContainText('Live Billing Command Center');
+	    await expect(section).toContainText('Admin does not activate live payments by itself');
+	    await expect(page.locator('#liveBillingState')).toContainText('Live billing readiness remains BLOCKED');
+	    await expect(section).toContainText('Repository support');
+	    await expect(section).toContainText('ready for operator canary');
+	    await expect(section).toContainText('Final verdict');
+	    await expect(section).toContainText('blocked pending operator evidence');
+	    await expect(section).toContainText('Safe Cutover Path');
+	    await expect(section).toContainText('Export this redacted status before enabling live flags');
+	    await expect(section).toContainText('Configuration Readiness');
+	    await expect(section).toContainText('Config shape');
+	    await expect(section).toContainText('Offer Catalog');
+    await expect(section).toContainText('5000 Credit Pack');
+    await expect(section).toContainText('12000 Credit Pack');
+    await expect(section).toContainText('BITBI Pro');
+    await expect(section).toContainText('Checkout Safety');
+    await expect(section).toContainText('Webhook Health');
+    await expect(section).toContainText('verified_live_signature');
+    await expect(section).toContainText('Customer / Subscription Management');
+    await expect(section).toContainText('/api/account/billing/portal');
+    await expect(section).toContainText('Evidence Checklist');
+    await expect(section).toContainText('customer portal session canary');
+    await expect(section).toContainText('tax invoice configuration review');
+    await expect(section).not.toContainText('sk_live_');
+    await expect(section).not.toContainText('whsec_');
+    await expect(section).not.toContainText('Stripe-Signature');
+    await expect(section.getByRole('button', { name: /enable live|create live checkout|call stripe|refund|clawback|cancel subscription|edit secret/i })).toHaveCount(0);
+
+    await section.getByRole('button', { name: 'Copy validation commands' }).click();
+    await expect.poll(() => readClipboardValue(page)).toContain('npm run billing:canary-evidence');
+    await section.getByRole('button', { name: 'Copy Cloudflare env checklist' }).click();
+    await expect.poll(() => readClipboardValue(page)).toContain('STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL=<configure in Cloudflare; value redacted>');
+    await section.getByRole('button', { name: 'Copy Stripe Dashboard checklist' }).click();
+    await expect.poll(() => readClipboardValue(page)).toContain('/api/billing/webhooks/stripe/live');
+    await expect(section.getByRole('button', { name: 'Download evidence JSON' })).toBeVisible();
+    await expect(section.getByRole('button', { name: 'Download evidence Markdown' })).toBeVisible();
+  });
+
   test('renders billing review queue safely and records manual resolutions only', async ({
     page,
   }) => {
@@ -15990,7 +16210,7 @@ test.describe('Admin Control Plane', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/admin/index.html');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(10);
+    await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(11);
     const managementShellWidth = await page.locator('.admin-management-shell').evaluate((node) =>
       Math.round(node.getBoundingClientRect().width)
     );

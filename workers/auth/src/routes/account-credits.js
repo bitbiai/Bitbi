@@ -10,6 +10,7 @@ import {
 import {
   StripeBillingError,
   cancelStripeLiveMemberSubscriptionAtPeriodEnd,
+  createStripeLiveCustomerPortalSession,
   createStripeLiveMemberCreditPackCheckout,
   createStripeLiveMemberSubscriptionCheckout,
   getMemberLiveCreditsPurchaseContext,
@@ -210,6 +211,39 @@ async function handleMemberSubscriptionManagement(ctx, session, action) {
   }
 }
 
+async function handleMemberCustomerPortal(ctx, session) {
+  const limited = await enforceSensitiveUserRateLimit(ctx, {
+    scope: "account-billing-live-portal-user",
+    userId: session.user.id,
+    maxRequests: 8,
+    windowMs: 15 * 60_000,
+    component: "account-billing-live-portal",
+  });
+  if (limited) return limited;
+
+  const idempotency = idempotencyKeyOrResponse(ctx.request);
+  if (idempotency.response) return idempotency.response;
+
+  try {
+    const result = await createStripeLiveCustomerPortalSession({
+      env: ctx.env,
+      userId: session.user.id,
+      idempotencyKey: idempotency.key,
+    });
+    return json({
+      ok: true,
+      portal_url: result.portal.url,
+      mode: "live",
+      subscription: result.subscription,
+    }, { status: 201 });
+  } catch (error) {
+    return creditsErrorResponse(error, {
+      correlationId: ctx.correlationId,
+      userId: session.user.id,
+    });
+  }
+}
+
 export async function handleAccountCredits(ctx) {
   const { request, env, pathname, method, url, correlationId } = ctx;
   const isDashboard = pathname === "/api/account/credits-dashboard" && method === "GET";
@@ -217,7 +251,8 @@ export async function handleAccountCredits(ctx) {
   const isSubscriptionCheckout = pathname === "/api/account/billing/checkout/subscription" && method === "POST";
   const isSubscriptionCancel = pathname === "/api/account/billing/subscription/cancel" && method === "POST";
   const isSubscriptionReactivate = pathname === "/api/account/billing/subscription/reactivate" && method === "POST";
-  if (!isDashboard && !isLiveCheckout && !isSubscriptionCheckout && !isSubscriptionCancel && !isSubscriptionReactivate) return null;
+  const isCustomerPortal = pathname === "/api/account/billing/portal" && method === "POST";
+  if (!isDashboard && !isLiveCheckout && !isSubscriptionCheckout && !isSubscriptionCancel && !isSubscriptionReactivate && !isCustomerPortal) return null;
 
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
@@ -233,6 +268,9 @@ export async function handleAccountCredits(ctx) {
   }
   if (isSubscriptionReactivate) {
     return handleMemberSubscriptionManagement(ctx, session, "reactivate");
+  }
+  if (isCustomerPortal) {
+    return handleMemberCustomerPortal(ctx, session);
   }
 
   try {
@@ -250,11 +288,15 @@ export async function handleAccountCredits(ctx) {
         limit: url.searchParams.get("limit"),
       });
       dashboard.liveCheckout = purchaseContext.liveCheckout;
+      dashboard.subscriptionCheckout = purchaseContext.subscriptionCheckout;
+      dashboard.customerPortal = purchaseContext.customerPortal;
       dashboard.packs = purchaseContext.packs;
       dashboard.purchaseHistory = purchaseContext.purchaseHistory;
     } catch (error) {
       if (!isBillingStorageUnavailableError(error)) throw error;
       dashboard.liveCheckout = { enabled: false, configured: false, mode: "live", code: "billing_storage_unavailable" };
+      dashboard.subscriptionCheckout = { enabled: false, configured: false, mode: "live", code: "billing_storage_unavailable" };
+      dashboard.customerPortal = { enabled: false, configured: false, mode: "live", code: "billing_storage_unavailable" };
       dashboard.packs = [];
       dashboard.purchaseHistory = [];
     }

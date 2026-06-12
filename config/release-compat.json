@@ -560,6 +560,42 @@
         "summary": "HTTPS cancel URL used only by live Stripe BITBI Pro subscription Checkout Session creation. Public Pricing checkout should use https://bitbi.ai/pricing.html?checkout=cancel."
       },
       {
+        "id": "auth-stripe-live-customer-portal-return-url-var",
+        "kind": "dashboard_setting",
+        "worker": "auth",
+        "name": "STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL",
+        "requiredForRelease": false,
+        "documentation": "docs/production-readiness/LIVE_BILLING_RUNBOOK.md",
+        "summary": "Optional HTTPS return URL for authenticated member Stripe Customer Portal sessions. Required only for POST /api/account/billing/portal."
+      },
+      {
+        "id": "auth-enable-stripe-automatic-tax-var",
+        "kind": "dashboard_setting",
+        "worker": "auth",
+        "name": "ENABLE_STRIPE_AUTOMATIC_TAX",
+        "requiredForRelease": false,
+        "documentation": "docs/production-readiness/LIVE_BILLING_RUNBOOK.md",
+        "summary": "Optional Stripe Checkout automatic_tax flag. Defaults off and remains pending operator/accounting review before any readiness claim."
+      },
+      {
+        "id": "auth-enable-stripe-tax-id-collection-var",
+        "kind": "dashboard_setting",
+        "worker": "auth",
+        "name": "ENABLE_STRIPE_TAX_ID_COLLECTION",
+        "requiredForRelease": false,
+        "documentation": "docs/production-readiness/LIVE_BILLING_RUNBOOK.md",
+        "summary": "Optional Stripe Checkout tax_id_collection flag. Defaults off and remains pending operator/accounting review before any readiness claim."
+      },
+      {
+        "id": "auth-enable-stripe-invoice-creation-var",
+        "kind": "dashboard_setting",
+        "worker": "auth",
+        "name": "ENABLE_STRIPE_INVOICE_CREATION",
+        "requiredForRelease": false,
+        "documentation": "docs/production-readiness/LIVE_BILLING_RUNBOOK.md",
+        "summary": "Optional Stripe Checkout invoice_creation flag for one-time live credit-pack payment sessions. Defaults off and remains pending operator/accounting review before any readiness claim."
+      },
+      {
         "id": "ai-service-auth-secret",
         "kind": "secret",
         "worker": "ai",
@@ -681,6 +717,7 @@
       "POST /api/account/billing/checkout/subscription",
       "POST /api/account/billing/subscription/cancel",
       "POST /api/account/billing/subscription/reactivate",
+      "POST /api/account/billing/portal",
       "POST /api/profile/avatar",
       "DELETE /api/profile/avatar",
       "POST /api/forgot-password",
@@ -855,6 +892,7 @@
       "GET /api/admin/orgs",
       "GET /api/admin/billing/plans",
       "GET /api/admin/billing/evidence/status",
+      "GET /api/admin/billing/live-readiness/status",
       "GET /api/admin/billing/events",
       "GET /api/admin/billing/reconciliation",
       "GET /api/admin/billing/reviews",

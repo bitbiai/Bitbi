@@ -305,12 +305,17 @@ assert(markdown.includes("SKIPPED: Live/staging checks are skipped"));
   assert.equal(skeleton.productionReadiness, "blocked");
   assert.equal(skeleton.liveBillingReadiness, "blocked");
   assert.equal(skeleton.stripeCallsMade, false);
-  assert.equal(skeleton.checkoutSessionCreated, false);
-  assert.equal(skeleton.creditMutationPerformed, false);
-  assert(skeleton.requiredEvidence.every((entry) => entry.status === "pending_operator_evidence"));
-  assert(billingMarkdown.includes("Final verdict: **BLOCKED**"));
-  assert(billingMarkdown.includes("Live credit-pack checkout canary"));
+	  assert.equal(skeleton.checkoutSessionCreated, false);
+	  assert.equal(skeleton.creditMutationPerformed, false);
+	  assert.equal(skeleton.nextOperatorActions.length, 6);
+	  assert(skeleton.requiredEvidence.every((entry) => entry.status === "pending_operator_evidence"));
+	  assert(billingMarkdown.includes("Final verdict: **BLOCKED**"));
+	  assert(billingMarkdown.includes("Next Operator Actions"));
+	  assert(billingMarkdown.includes("Export Admin -> Finance -> Live Billing redacted status"));
+	  assert(billingMarkdown.includes("Live credit-pack checkout canary"));
   assert(billingMarkdown.includes("invoice.paid subscription credit grant evidence"));
+  assert(billingMarkdown.includes("Stripe Customer Portal session canary"));
+  assert(billingMarkdown.includes("Stripe Tax/invoice configuration review"));
   assert(billingMarkdown.includes("present (value redacted)"));
   assert(!billingMarkdown.includes(rawSecret));
   assert(!billingMarkdown.includes(rawWebhookSecret));
@@ -331,6 +336,34 @@ assert(markdown.includes("SKIPPED: Live/staging checks are skipped"));
     () => writeBillingCanaryEvidence(tmp, "billing-canary.md", billingMarkdown),
     /docs\/production-readiness\/evidence/
   );
-}
+
+  const imported = createBillingCanaryEvidenceSkeleton({
+    adminStatus: {
+      version: "omega-p1-live-billing-readiness-v1",
+      generatedAt: "2026-05-18T16:05:00.000Z",
+      liveBillingReadiness: "blocked",
+      stripeCallsMade: false,
+	      evidenceChecklist: [
+	        { id: "customer_portal_session_canary", status: "pending_operator_evidence" },
+	        { id: "tax_invoice_configuration_review", status: "pending_operator_review" },
+	      ],
+	      nextOperatorActions: [
+	        {
+	          id: "export_redacted_status",
+	          label: `Export status without ${rawWebhookSecret}`,
+	          safeAction: "Download sanitized evidence only.",
+	        },
+	      ],
+	      secretValue: rawSecret,
+	    },
+	  });
+	  const importedMarkdown = renderBillingCanaryEvidenceMarkdown(imported);
+	  assert(importedMarkdown.includes("Imported Admin Status"));
+	  assert(importedMarkdown.includes("omega-p1-live-billing-readiness-v1"));
+	  assert(importedMarkdown.includes("Export status without [redacted]"));
+	  assert(!importedMarkdown.includes(rawSecret));
+	  assert(!importedMarkdown.includes(rawWebhookSecret));
+	  assertBillingEvidenceIsRedacted(importedMarkdown);
+	}
 
 console.log("Readiness evidence tests passed.");

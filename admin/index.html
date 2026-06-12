@@ -151,6 +151,7 @@
             </button>
             <div class="admin-nav__group-items" id="adminNavGroupFinance">
                 <a href="#billing" class="admin-nav__link" data-section="billing">Billing</a>
+                <a href="#live-billing" class="admin-nav__link" data-section="live-billing">Live Billing</a>
                 <a href="#billing-events" class="admin-nav__link" data-section="billing-events">Billing Events</a>
                 <a href="/account/credits.html" class="admin-nav__link admin-nav__link--external" data-section="credits">Credits</a>
             </div>
@@ -570,6 +571,24 @@
                         <div id="userCreditGrantResult" class="admin-state" aria-live="polite"></div>
                     </div>
                 </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 LIVE BILLING COMMAND CENTER
+                 ═══════════════════════════════════════ -->
+            <div id="sectionLiveBilling" class="admin-section" style="display:none">
+                <div class="admin-control-toolbar glass glass-card reveal visible">
+                    <div>
+                        <h3 class="admin-section-title">Live Billing Command Center</h3>
+                        <p class="admin-shell__desc">Admin does not activate live payments by itself. It guides configuration, evidence, and operator go/no-go with redacted, read-only status.</p>
+                    </div>
+                    <div class="admin-control-toolbar__badges" id="liveBillingTopBadges">
+                        <span class="badge badge--disabled">Live billing blocked</span>
+                        <button type="button" id="liveBillingRefresh" class="btn-action">Refresh status</button>
+                    </div>
+                </div>
+                <div id="liveBillingState" class="admin-state" aria-live="polite">Loading live billing readiness...</div>
+                <div id="liveBillingPanel"></div>
             </div>
 
             <!-- ═══════════════════════════════════════

@@ -3,6 +3,7 @@ export const CONTROL_SECTIONS = new Set([
     'security',
     'orgs',
     'billing',
+    'live-billing',
     'billing-events',
     'ai-usage',
     'ai-budget-switches',

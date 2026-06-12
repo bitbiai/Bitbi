@@ -7,6 +7,7 @@ import {
     apiAdminBillingEvent,
     apiAdminBillingEvidenceStatus,
     apiAdminBillingEvents,
+    apiAdminBillingLiveReadinessStatus,
     apiAdminBillingPlans,
     apiAdminBillingReconciliation,
     apiAdminBillingReview,
@@ -32,6 +33,7 @@ import {
     copyTextToClipboard,
     createIdempotencyKey,
     detailRows,
+    downloadTextFile,
     el,
     isSensitiveKey,
     notReported,
@@ -706,6 +708,374 @@ export function createBillingDomain({ notify, formatDate }) {
         return [status || 'reported', 'user'];
     }
 
+    function liveBillingBadgeVariant(value) {
+        const text = String(value || '').toLowerCase();
+        if (text.includes('ready') || text.includes('configured') || text.includes('present')) return 'active';
+        if (text.includes('blocked') || text.includes('missing') || text.includes('invalid')) return 'disabled';
+        return 'legacy';
+    }
+
+    function moneyCents(amountCents, currency = 'eur') {
+        const amount = Number(amountCents || 0) / 100;
+        try {
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: String(currency || 'eur').toUpperCase(),
+            }).format(amount);
+        } catch {
+            return `${amount.toFixed(2)} ${String(currency || '').toUpperCase()}`;
+        }
+    }
+
+    function safeEvidenceExport(status) {
+        return JSON.stringify({
+            generatedAt: status.generatedAt,
+            version: status.version,
+            productionReadiness: status.productionReadiness,
+            liveBillingReadiness: status.liveBillingReadiness,
+            redactedResponse: status.redactedResponse === true,
+            stripeCallsMade: status.stripeCallsMade === true,
+            d1MutationPerformed: status.d1MutationPerformed === true,
+            creditMutationPerformed: status.creditMutationPerformed === true,
+            repositorySupport: status.repositorySupport,
+            configShapeStatus: status.configShapeStatus,
+            evidenceStatus: status.evidenceStatus,
+            canaryStatus: status.canaryStatus,
+            finalVerdict: status.finalVerdict || {},
+            nextOperatorActions: status.nextOperatorActions || [],
+            statusBadges: status.statusBadges || [],
+            configuration: status.configuration || {},
+            catalog: status.catalog || {},
+            checkoutSafety: status.checkoutSafety || {},
+            webhookHealth: status.webhookHealth || {},
+            customerPortal: status.customerPortal || {},
+            taxInvoice: status.taxInvoice || {},
+            evidenceChecklist: status.evidenceChecklist || [],
+            reviews: status.reviews || {},
+            reconciliation: status.reconciliation || {},
+        }, null, 2);
+    }
+
+    function safeEvidenceMarkdown(status) {
+        const checklist = (status.evidenceChecklist || [])
+            .map((item) => `| ${item.id} | ${item.status} | ${item.why || '-'} | ${item.inspect || '-'} |`)
+            .join('\n');
+        const badges = (status.statusBadges || [])
+            .map((item) => `- ${item.label}: ${item.status}`)
+            .join('\n');
+        return `# Live Billing Readiness Evidence
+
+Generated: ${formatDate(status.generatedAt)}
+
+Production readiness: **${status.productionReadiness || 'blocked'}**
+Live billing readiness: **${status.liveBillingReadiness || 'blocked'}**
+
+## Status
+
+${badges || '- Not reported'}
+
+## Next Operator Actions
+
+${(status.nextOperatorActions || []).map((item, index) => `${index + 1}. ${item.label || item.id || 'Operator action required'}`).join('\n') || '1. Export redacted status and collect operator canary evidence.'}
+
+## Required Evidence
+
+| Evidence | Status | Why it matters | Where to inspect |
+| --- | --- | --- | --- |
+${checklist || '| pending | pending_operator_evidence | Operator evidence required. | Admin Live Billing |'}
+
+## Safety
+
+- Stripe calls made by this Admin status read: ${status.stripeCallsMade === true ? 'yes' : 'no'}
+- D1 mutation performed by this Admin status read: ${status.d1MutationPerformed === true ? 'yes' : 'no'}
+- Credit mutation performed by this Admin status read: ${status.creditMutationPerformed === true ? 'yes' : 'no'}
+- Raw payloads, signatures, payment methods, cookies, tokens, and secrets are not included.
+`;
+    }
+
+    function appendLiveBillingActions(container, status) {
+        const actions = el('div', 'admin-control-chip-row admin-billing-evidence-actions');
+        const refresh = el('button', 'btn-action', 'Refresh status');
+        refresh.type = 'button';
+        refresh.addEventListener('click', loadLiveBillingCommandCenter);
+
+        const commands = el('button', 'btn-action', 'Copy validation commands');
+        commands.type = 'button';
+        commands.addEventListener('click', async () => {
+            const copied = await copyTextToClipboard([
+                'npm run check:js',
+                'npm run check:secrets',
+                'npm run check:route-policies',
+                'npm run billing:canary-evidence',
+                'npm run test:workers -- --grep "billing|Stripe|subscription|webhook|portal|reconciliation"',
+                'npm run build:static',
+                'npm run release:plan',
+            ].join('\n'));
+            notify(copied ? 'Live billing validation commands copied.' : 'Command copy failed.', copied ? 'success' : 'error');
+        });
+
+        const envChecklist = el('button', 'btn-action', 'Copy Cloudflare env checklist');
+        envChecklist.type = 'button';
+        envChecklist.addEventListener('click', async () => {
+            const names = status.configuration?.namesInspected || [];
+            const copied = await copyTextToClipboard(names.map((name) => `${name}=<configure in Cloudflare; value redacted>`).join('\n'));
+            notify(copied ? 'Redacted env checklist copied.' : 'Env checklist copy failed.', copied ? 'success' : 'error');
+        });
+
+        const stripeChecklist = el('button', 'btn-action', 'Copy Stripe Dashboard checklist');
+        stripeChecklist.type = 'button';
+        stripeChecklist.addEventListener('click', async () => {
+            const copied = await copyTextToClipboard([
+                'Create/verify live credit-pack Prices that match the public BITBI catalog.',
+                'Create/verify the BITBI Pro live subscription Price ID.',
+                'Configure live webhook endpoint: /api/billing/webhooks/stripe/live.',
+                'Attach events: checkout.session.completed, invoice.paid/payment_succeeded, customer.subscription.*, invoice.payment_failed/action_required, checkout.session.expired, refund.*, charge.refunded, charge.dispute.*.',
+                'Configure Customer Portal if STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL is set.',
+                'Review Stripe Tax, tax ID collection, and invoice settings with accounting before claiming readiness.',
+                'Collect sanitized canary evidence; never paste raw payloads, signatures, secrets, cards, cookies, or tokens.',
+            ].join('\n'));
+            notify(copied ? 'Stripe Dashboard checklist copied.' : 'Checklist copy failed.', copied ? 'success' : 'error');
+        });
+
+        const jsonButton = el('button', 'btn-action', 'Download evidence JSON');
+        jsonButton.type = 'button';
+        jsonButton.addEventListener('click', () => {
+            downloadTextFile('live-billing-readiness-evidence.json', safeEvidenceExport(status), 'application/json');
+            notify('Sanitized evidence JSON prepared.', 'success');
+        });
+
+        const markdownButton = el('button', 'btn-action', 'Download evidence Markdown');
+        markdownButton.type = 'button';
+        markdownButton.addEventListener('click', () => {
+            downloadTextFile('live-billing-readiness-evidence.md', safeEvidenceMarkdown(status), 'text/markdown');
+            notify('Sanitized evidence Markdown prepared.', 'success');
+        });
+
+        const reviews = el('a', 'btn-action', 'Open Billing Reviews');
+        reviews.href = '#billing-events';
+        const reconciliation = el('a', 'btn-action', 'Open Billing Reconciliation');
+        reconciliation.href = '#billing-events';
+        const credits = el('a', 'btn-action', 'Open Credits page');
+        credits.href = '/account/credits.html?scope=member';
+        actions.append(refresh, commands, envChecklist, stripeChecklist, jsonButton, markdownButton, reviews, reconciliation, credits);
+        container.appendChild(actions);
+    }
+
+    function renderLiveBillingChecklist(status) {
+        const card = el('article', 'admin-control-card glass glass-card reveal visible');
+        const top = el('div', 'admin-control-card__top');
+        top.append(el('h3', 'admin-section-title', 'Evidence Checklist'), badge('operator evidence required', 'disabled'));
+        card.appendChild(top);
+        const rows = el('div', 'admin-reconciliation-items');
+        for (const item of status.evidenceChecklist || []) {
+            const row = el('article', 'admin-reconciliation-item');
+            const header = el('div', 'admin-reconciliation-item__header');
+            header.append(badge(readableToken(item.status), liveBillingBadgeVariant(item.status)), el('strong', null, readableToken(item.id)));
+            row.appendChild(header);
+            row.appendChild(el('p', 'admin-shell__desc', item.why || 'Operator evidence required.'));
+            row.appendChild(detailRows([
+                ['Where to inspect', item.inspect || 'Admin Live Billing'],
+                ['Safe next action', item.nextAction || 'Collect sanitized operator evidence.'],
+            ]));
+            rows.appendChild(row);
+        }
+        card.appendChild(rows);
+        return card;
+    }
+
+    function renderLiveBillingNextActions(status) {
+        const card = el('section', 'admin-operator-guidance glass glass-card reveal visible');
+        const header = el('div', 'admin-operator-guidance__header');
+        const heading = el('div');
+        heading.append(
+            el('p', 'admin-operator-guidance__eyebrow', 'Next operator action'),
+            el('h3', 'admin-section-title', 'Safe Cutover Path'),
+            el('p', 'admin-shell__desc', status.finalVerdict?.summary || 'Repository support is ready for an operator canary, but readiness remains blocked until evidence is reviewed.'),
+        );
+        header.append(heading, badge(status.finalVerdict?.status || 'blocked_pending_operator_evidence', 'disabled'));
+        card.appendChild(header);
+        const list = el('div', 'admin-reconciliation-items');
+        for (const item of (status.nextOperatorActions || []).slice(0, 7)) {
+            const row = el('article', 'admin-reconciliation-item');
+            const rowHeader = el('div', 'admin-reconciliation-item__header');
+            rowHeader.append(badge('safe', 'user'), el('strong', null, item.label || readableToken(item.id)));
+            row.append(rowHeader);
+            row.appendChild(detailRows([
+                ['Where to inspect', item.inspect || 'Admin Live Billing'],
+                ['Safe action', item.safeAction || 'Collect sanitized evidence only.'],
+            ]));
+            list.appendChild(row);
+        }
+        if (!list.children.length) {
+            const empty = el('article', 'admin-reconciliation-item');
+            empty.append(el('p', 'admin-shell__desc', 'Export redacted status and collect sanitized operator evidence before changing any readiness verdict.'));
+            list.appendChild(empty);
+        }
+        card.appendChild(list);
+        return card;
+    }
+
+    async function loadLiveBillingCommandCenter() {
+        const panel = byId('liveBillingPanel');
+        const topBadges = byId('liveBillingTopBadges');
+        setState('liveBillingState', 'Loading live billing readiness...');
+        clear(panel);
+        const res = await apiAdminBillingLiveReadinessStatus();
+        if (!res.ok) {
+            setState('liveBillingState', '');
+            renderUnavailable(panel, res, 'Live billing readiness unavailable.');
+            return;
+        }
+        const status = res.data || {};
+        setState('liveBillingState', `Generated ${formatDate(status.generatedAt)}. Live billing readiness remains ${String(status.liveBillingReadiness || 'blocked').toUpperCase()}.`);
+        if (topBadges) {
+            clear(topBadges);
+            for (const item of (status.statusBadges || []).slice(0, 4)) {
+                topBadges.appendChild(badge(item.label, liveBillingBadgeVariant(item.status)));
+            }
+            const refresh = el('button', 'btn-action', 'Refresh status');
+            refresh.type = 'button';
+            refresh.addEventListener('click', loadLiveBillingCommandCenter);
+            topBadges.appendChild(refresh);
+        }
+
+        const overview = el('section', 'admin-operator-guidance glass glass-card reveal visible');
+        const header = el('div', 'admin-operator-guidance__header');
+        const heading = el('div');
+        heading.append(
+            el('p', 'admin-operator-guidance__eyebrow', 'Live billing cockpit'),
+            el('h3', 'admin-section-title', 'Operator Go/No-Go'),
+            el('p', 'admin-shell__desc', status.copy || 'Admin guides configuration and evidence only.'),
+        );
+        const badgeWrap = el('div', 'admin-control-toolbar__badges');
+        for (const item of status.statusBadges || []) {
+            badgeWrap.appendChild(badge(item.label, liveBillingBadgeVariant(item.status)));
+        }
+        header.append(heading, badgeWrap);
+        overview.appendChild(header);
+        const heroGrid = el('div', 'admin-operator-guidance__grid');
+        for (const item of [
+            ['Repository', readableToken(status.repositorySupport || 'ready_for_operator_canary'), 'Repository support can guide a controlled operator canary after deploy.'],
+            ['Canary', readableToken(status.canaryStatus || 'pending_operator_evidence'), 'No real canary evidence is assumed by this page.'],
+            ['Final verdict', readableToken(status.finalVerdict?.status || 'blocked_pending_operator_evidence'), 'Readiness remains blocked until sanitized evidence is reviewed.'],
+            ['Read-only', 'No live Stripe calls', 'Refreshing this page does not create checkout, mutate credits, refund, cancel, or call Stripe.'],
+            ['Redacted', 'Secrets stay hidden', 'Raw Stripe payloads, signatures, keys, cards, cookies, tokens, and session values are never rendered.'],
+        ]) {
+            const node = el('div', 'admin-operator-guidance__item');
+            node.append(badge(item[0], item[0] === 'Final verdict' ? 'disabled' : 'user'), el('strong', null, item[1]), el('span', null, item[2]));
+            heroGrid.appendChild(node);
+        }
+        overview.appendChild(heroGrid);
+        panel.appendChild(overview);
+        panel.appendChild(renderLiveBillingNextActions(status));
+
+        const config = status.configuration || {};
+        const secrets = config.secrets || {};
+        const urls = config.urls || {};
+        const catalog = status.catalog || {};
+        const creditPacks = catalog.creditPacks || {};
+        const subscription = catalog.subscription || {};
+        const portal = status.customerPortal || {};
+        const taxInvoice = status.taxInvoice || {};
+        const webhook = status.webhookHealth || {};
+        const reconciliation = status.reconciliation || {};
+        const reviewCounts = status.reviews || {};
+
+        const grid = el('div', 'admin-control-grid admin-billing-evidence-grid');
+        grid.appendChild(renderBillingEvidenceCard({
+            title: 'Configuration Readiness',
+            badgeLabel: status.liveBillingReadiness || 'blocked',
+            badgeVariant: 'disabled',
+            copy: 'Presence and shape only. Values are redacted and secrets are never shown.',
+            rows: [
+                ['Credit packs flag', readableToken(config.flags?.liveCreditPacks?.status)],
+                ['Subscriptions flag', readableToken(config.flags?.liveSubscriptions?.status)],
+                ['Config shape', readableToken(status.configShapeStatus || 'missing_required_shapes')],
+                ['Live secret key', secrets.liveSecretKey?.present ? 'Present; value redacted' : 'Missing'],
+                ['Live webhook secret', secrets.liveWebhookSecret?.present ? 'Present; value redacted' : 'Missing'],
+                ['Subscription Price ID', config.priceIds?.liveSubscriptionPriceId?.present ? `Configured (...${config.priceIds.liveSubscriptionPriceId.safeSuffix || 'redacted'})` : 'Missing'],
+                ['Portal return URL', urls.liveCustomerPortalReturn?.status || 'missing'],
+            ],
+        }));
+        grid.appendChild(renderBillingEvidenceCard({
+            title: 'Offer Catalog',
+            badgeLabel: 'public catalog',
+            badgeVariant: 'user',
+            copy: 'Catalog facts are static repo facts and still need matching Stripe Dashboard evidence.',
+            rows: [
+                ['Credit packs', (creditPacks.activePacks || []).map((pack) => `${pack.name}: ${pack.credits} credits for ${moneyCents(pack.amountCents, pack.currency)}`).join(', ') || 'None'],
+                ['BITBI Pro', `${subscription.plan?.name || 'BITBI Pro'}: ${moneyCents(subscription.plan?.amountCents, subscription.plan?.currency)} / ${subscription.plan?.interval || 'month'}`],
+                ['Monthly allowance', `${subscription.plan?.allowanceCredits || 0} credits`],
+                ['Storage', `${Math.round(Number(subscription.plan?.storageLimitBytes || 0) / 1024 / 1024 / 1024)} GB`],
+                ['Stripe Dashboard evidence', catalog.needsStripeDashboardEvidence ? 'Required' : 'Not reported'],
+            ],
+        }));
+        grid.appendChild(renderBillingEvidenceCard({
+            title: 'Checkout Safety',
+            badgeLabel: 'fail closed',
+            badgeVariant: 'active',
+            copy: 'Checkout creation is not credit delivery. Grants require verified webhook or invoice evidence.',
+            rows: [
+                ['No credit before webhook', status.checkoutSafety?.checkoutCreationDoesNotGrantCredits ? 'Yes' : 'Not reported'],
+                ['Webhook secret required before checkout', status.checkoutSafety?.missingWebhookSecretFailsClosedBeforeCheckout ? 'Yes' : 'Not reported'],
+                ['Wrong Price/provider mode', status.checkoutSafety?.wrongProviderModeOrPriceIdDoesNotGrant ? 'No grant' : 'Not reported'],
+            ],
+        }));
+        grid.appendChild(renderBillingEvidenceCard({
+            title: 'Webhook Health',
+            badgeLabel: webhook.signatureVerification || 'verified_live_signature',
+            badgeVariant: 'legacy',
+            copy: 'Recent event data is sanitized local metadata only. Raw payloads and signatures are not rendered.',
+            rows: [
+                ['Endpoint', webhook.endpoint || '/api/billing/webhooks/stripe/live'],
+                ['Recent live events shown', `${(webhook.recentEvents || []).length}`],
+                ['Counts by type', renderJsonSummary(webhook.countsByType || {})],
+                ['Counts by status', renderJsonSummary(webhook.countsByStatus || {})],
+                ['Raw payload/signature rendered', webhook.rawPayloadsRendered || webhook.signaturesRendered ? 'Unexpected' : 'No'],
+            ],
+        }));
+        grid.appendChild(renderBillingEvidenceCard({
+            title: 'Customer / Subscription Management',
+            badgeLabel: portal.implemented ? 'implemented' : 'pending',
+            badgeVariant: portal.implemented ? 'active' : 'legacy',
+            copy: 'Customer Portal is a member-triggered Stripe-hosted billing management flow, not an Admin mutation path.',
+            rows: [
+                ['Portal endpoint', portal.endpoint || '/api/account/billing/portal'],
+                ['Portal config', portal.status || 'missing_or_pending'],
+                ['Member-triggered only', portal.memberTriggeredOnly ? 'Yes' : 'Not reported'],
+                ['Admin arbitrary customer mutation', portal.adminCustomerMutation ? 'Unexpected' : 'No'],
+                ['Cancel/reactivate routes', 'Implemented separately for signed-in members'],
+            ],
+        }));
+        grid.appendChild(renderBillingEvidenceCard({
+            title: 'Reconciliation / Reviews',
+            badgeLabel: reconciliation.verdict || 'blocked',
+            badgeVariant: reconciliation.verdict === 'ready' ? 'active' : 'legacy',
+            copy: 'Read-only local D1 report. It does not repair, claw back, refund, retry, cancel, or call Stripe.',
+            rows: [
+                ['Billing review rows shown', `${reviewCounts.totalShown || 0}`],
+                ['Unresolved reviews', `${reviewCounts.unresolved || 0}`],
+                ['Review states', renderJsonSummary(reviewCounts.byState || {})],
+                ['Reconciliation notes', Array.isArray(reconciliation.notes) ? reconciliation.notes.join(' ') : '-'],
+            ],
+        }));
+        grid.appendChild(renderBillingEvidenceCard({
+            title: 'Tax / Invoice Review',
+            badgeLabel: taxInvoice.status || 'disabled_by_default',
+            badgeVariant: String(taxInvoice.status || '').includes('configured') ? 'legacy' : 'user',
+            copy: 'Optional Stripe Tax, tax ID collection, and invoice creation remain operator/accounting review items.',
+            rows: [
+                ['Automatic Tax', taxInvoice.automaticTax?.status || 'missing'],
+                ['Tax ID collection', taxInvoice.taxIdCollection?.status || 'missing'],
+                ['Credit-pack invoice creation', taxInvoice.oneTimeInvoiceCreation?.status || 'missing'],
+                ['Accounting review required', taxInvoice.operatorReviewRequired ? 'Yes' : 'Not reported'],
+            ],
+        }));
+        panel.appendChild(grid);
+        panel.appendChild(renderLiveBillingChecklist(status));
+        appendLiveBillingActions(panel, status);
+    }
+
     async function loadBillingEvidenceStatus() {
         const panel = byId('billingEvidencePanel');
         setState('billingEvidenceState', 'Loading billing evidence status...');
@@ -1225,12 +1595,14 @@ export function createBillingDomain({ notify, formatDate }) {
         byId('billingReviewsRefresh')?.addEventListener('click', loadBillingReviews);
         byId('billingEvidenceRefresh')?.addEventListener('click', loadBillingEvidenceStatus);
         byId('billingReconciliationRefresh')?.addEventListener('click', loadBillingReconciliation);
+        byId('liveBillingRefresh')?.addEventListener('click', loadLiveBillingCommandCenter);
     }
 
     return {
         bind,
         loadOrgs,
         loadBillingPlans,
+        loadLiveBillingCommandCenter,
         loadBillingEventsPanel,
         loadBillingEvidenceStatus,
         loadBillingReconciliation,

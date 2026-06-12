@@ -7,6 +7,7 @@ import {
     apiAdminAiBudgetSwitches,
     apiAdminAiUsageAttempts,
     apiAdminBillingEvents,
+    apiAdminBillingLiveReadinessStatus,
     apiAdminBillingPlans,
     apiAdminDataLifecycleArchives,
     apiAdminDataLifecycleRequests,
@@ -80,6 +81,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         const probes = await Promise.all([
             capabilityProbe('Organizations', () => apiAdminOrganizations({ limit: 1 })),
             capabilityProbe('Billing plans', () => apiAdminBillingPlans()),
+            capabilityProbe('Live billing', () => apiAdminBillingLiveReadinessStatus()),
             capabilityProbe('Billing events', () => apiAdminBillingEvents({ limit: 1 })),
             capabilityProbe('AI usage attempts', () => apiAdminAiUsageAttempts({ limit: 1 })),
             capabilityProbe('AI budget controls', () => apiAdminAiBudgetSwitches()),
@@ -110,33 +112,40 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 href: '#billing',
             },
             {
-                title: 'Billing Events / Stripe',
+                title: 'Live Billing Command Center',
                 badge: { label: probes[2].status, variant: probes[2].variant },
+                copy: 'Review redacted live Stripe readiness, customer portal support, evidence checklist, and safe operator next steps. This UI does not activate live payments.',
+                href: '#live-billing',
+                cta: 'Open cockpit',
+            },
+            {
+                title: 'Billing Events / Stripe',
+                badge: { label: probes[3].status, variant: probes[3].variant },
                 copy: 'Inspect sanitized provider events, operator-only live Stripe review records, and read-only local reconciliation signals. Automated remediation, credit clawback, and Stripe actions remain disabled.',
                 href: '#billing-events',
             },
             {
                 title: 'AI Usage Attempts',
-                badge: { label: probes[3].status, variant: probes[3].variant },
+                badge: { label: probes[4].status, variant: probes[4].variant },
                 copy: 'Inspect org-scoped image/text usage attempts, reservations, replay status, and cleanup dry-runs.',
                 href: '#ai-usage',
             },
             {
                 title: 'AI Budget Controls',
-                badge: { label: probes[4].status, variant: probes[4].variant },
+                badge: { label: probes[5].status, variant: probes[5].variant },
                 copy: 'Operate Cloudflare-master plus D1 app switches, platform_admin_lab_budget caps, reconciliation, repair evidence, and sanitized archives. This is not live billing readiness.',
                 href: '#ai-budget-switches',
                 cta: 'Open controls',
             },
             {
                 title: 'Data Lifecycle',
-                badge: { label: probes[5].status, variant: probes[5].variant },
+                badge: { label: probes[6].status, variant: probes[6].variant },
                 copy: 'Inspect export/deletion/anonymization requests and private export archive metadata. Irreversible deletion remains unavailable in this UI.',
                 href: '#lifecycle',
             },
             {
                 title: 'Tenant Asset Manual Review',
-                badge: { label: probes[7].status, variant: probes[7].variant },
+                badge: { label: probes[8].status, variant: probes[8].variant },
                 copy: 'Inspect AI folders/images manual-review queue evidence and record review-status decisions. Ownership backfill and access switching remain blocked.',
                 href: '#operations',
                 cta: 'Open queue',
@@ -195,6 +204,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         loaded.add(sectionName);
         if (sectionName === 'orgs') await billingDomain.loadOrgs();
         if (sectionName === 'billing') await billingDomain.loadBillingPlans();
+        if (sectionName === 'live-billing') await billingDomain.loadLiveBillingCommandCenter();
         if (sectionName === 'billing-events') await billingDomain.loadBillingEventsPanel();
         if (sectionName === 'ai-usage') await aiBudgetDomain.loadAiAttempts();
         if (sectionName === 'ai-budget-switches') await aiBudgetDomain.loadAiBudgetSwitchesPanel();

@@ -16,6 +16,10 @@ const LIVE_CONFIG_NAMES = Object.freeze([
   "STRIPE_LIVE_CHECKOUT_CANCEL_URL",
   "STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL",
   "STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL",
+  "STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL",
+  "ENABLE_STRIPE_AUTOMATIC_TAX",
+  "ENABLE_STRIPE_TAX_ID_COLLECTION",
+  "ENABLE_STRIPE_INVOICE_CREATION",
 ]);
 
 function safeString(value, maxLength = 256) {
@@ -139,6 +143,10 @@ export function buildBillingEvidenceStatus(env = {}) {
   const creditPackCancelUrl = urlEvidence(env, "STRIPE_LIVE_CHECKOUT_CANCEL_URL");
   const subscriptionSuccessUrl = urlEvidence(env, "STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL");
   const subscriptionCancelUrl = urlEvidence(env, "STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL");
+  const portalReturnUrl = urlEvidence(env, "STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL");
+  const automaticTaxFlag = flagEvidence(env, "ENABLE_STRIPE_AUTOMATIC_TAX");
+  const taxIdCollectionFlag = flagEvidence(env, "ENABLE_STRIPE_TAX_ID_COLLECTION");
+  const invoiceCreationFlag = flagEvidence(env, "ENABLE_STRIPE_INVOICE_CREATION");
 
   const activePacks = BITBI_LIVE_CREDIT_PACKS
     .filter((pack) => pack.active !== false)
@@ -188,6 +196,9 @@ export function buildBillingEvidenceStatus(env = {}) {
       flags: {
         liveCreditPacks: creditPacksFlag,
         liveSubscriptions: subscriptionsFlag,
+        automaticTax: automaticTaxFlag,
+        taxIdCollection: taxIdCollectionFlag,
+        invoiceCreation: invoiceCreationFlag,
       },
       stripeMode: stripeModeEvidence(env),
       secrets: {
@@ -202,6 +213,7 @@ export function buildBillingEvidenceStatus(env = {}) {
         liveCreditPackCancel: creditPackCancelUrl,
         liveSubscriptionSuccess: subscriptionSuccessUrl,
         liveSubscriptionCancel: subscriptionCancelUrl,
+        liveCustomerPortalReturn: portalReturnUrl,
       },
     },
     creditPacks: {
@@ -227,6 +239,22 @@ export function buildBillingEvidenceStatus(env = {}) {
         rolloverPolicy: "subscription_bucket_top_up_no_automatic_rollover_claim",
       },
     },
+    customerPortal: {
+      status: statusForRequired([liveSecret, priceId, portalReturnUrl]),
+      sessionCanary: "pending_operator_evidence",
+      returnUrl: portalReturnUrl,
+      noAdminCustomerMutation: true,
+      noRawCustomerIdsReturned: true,
+    },
+    taxInvoice: {
+      status: automaticTaxFlag.enabled || taxIdCollectionFlag.enabled || invoiceCreationFlag.enabled
+        ? "configured_pending_operator_accounting_review"
+        : "disabled_by_default",
+      automaticTax: automaticTaxFlag,
+      taxIdCollection: taxIdCollectionFlag,
+      oneTimeInvoiceCreation: invoiceCreationFlag,
+      operatorReviewRequired: true,
+    },
     failClosedFacts: [
       "Checkout creation does not grant credits.",
       "Verified webhook or paid invoice event is required before credit grant.",
@@ -235,6 +263,8 @@ export function buildBillingEvidenceStatus(env = {}) {
       "Wrong price ID or provider mode grants no subscription credits.",
       "Refund, dispute, and payment-failure events are review-only and do not claw back credits automatically.",
       "Raw Stripe payloads, signatures, and secret values are not returned by admin billing evidence endpoints.",
+      "Customer Portal session creation is member-triggered only and does not allow Admin to mutate arbitrary Stripe customers.",
+      "Stripe Tax, tax ID collection, and invoice creation stay disabled unless explicit operator env flags are set.",
       "Live billing readiness remains blocked until operator canary evidence is attached and reviewed.",
     ],
     evidenceRequired: [
@@ -248,6 +278,8 @@ export function buildBillingEvidenceStatus(env = {}) {
       { id: "invoice_paid_subscription_credit_grant", status: "pending_operator_evidence" },
       { id: "refund_dispute_failure_review_only", status: "repo_tests_required_operator_review" },
       { id: "raw_payload_signature_secret_redaction", status: "repo_tests_required_operator_review" },
+      { id: "customer_portal_session_canary", status: "pending_operator_evidence" },
+      { id: "tax_invoice_configuration_review", status: "pending_operator_review" },
     ],
     safeActions: [
       "Refresh billing evidence status.",
@@ -256,6 +288,7 @@ export function buildBillingEvidenceStatus(env = {}) {
       "Copy docs/production-readiness/EVIDENCE_TEMPLATE.md.",
       "Copy npm run billing:canary-evidence.",
       "Copy targeted local billing validation commands.",
+      "Copy redacted Stripe Dashboard and Cloudflare env setup checklist.",
     ],
     dangerousActionsOffered: [],
   };

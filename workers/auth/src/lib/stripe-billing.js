@@ -1,6 +1,7 @@
 import {
   BillingError,
   getActiveMemberSubscription,
+  getMemberSubscriptionState,
   getCreditBalance,
   grantMemberCredits,
   grantOrganizationCredits,
@@ -25,6 +26,7 @@ export const STRIPE_MODE_LIVE = "live";
 export const STRIPE_WEBHOOK_TOLERANCE_MS = 5 * 60_000;
 export const STRIPE_CHECKOUT_API_URL = "https://api.stripe.com/v1/checkout/sessions";
 export const STRIPE_SUBSCRIPTIONS_API_URL = "https://api.stripe.com/v1/subscriptions";
+export const STRIPE_BILLING_PORTAL_SESSIONS_API_URL = "https://api.stripe.com/v1/billing_portal/sessions";
 
 const STRIPE_SIGNATURE_HEADER = "stripe-signature";
 const TEST_CHECKOUT_SESSION_ID_PATTERN = /^cs_test_[A-Za-z0-9_:-]{8,200}$/;
@@ -37,6 +39,9 @@ const USER_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const CHECKOUT_SESSION_URL_ORIGINS = new Set([
   "https://checkout.stripe.com",
   "https://pay.bitbi.ai",
+]);
+const BILLING_PORTAL_URL_ORIGINS = new Set([
+  "https://billing.stripe.com",
 ]);
 const STRIPE_CHECKOUT_TIMEOUT_MS = 10_000;
 const LIVE_AUTH_SCOPES = new Set(["platform_admin", "org_owner"]);
@@ -388,6 +393,7 @@ function getStripeLiveCheckoutConfig(env) {
   return {
     mode: STRIPE_MODE_LIVE,
     secretKey: normalizeStripeLiveSecretKey(env),
+    ...liveStripeOptionalCheckoutOptions(env, { allowInvoiceCreation: true }),
     successUrl: normalizeHttpsUrl(
       env?.STRIPE_LIVE_CHECKOUT_SUCCESS_URL,
       "Stripe live checkout success URL",
@@ -421,6 +427,18 @@ function normalizeStripeLiveSubscriptionPriceId(env) {
   return priceId;
 }
 
+function optionalLiveStripeFlag(env, name) {
+  return safeString(env?.[name], 16) === "true";
+}
+
+function liveStripeOptionalCheckoutOptions(env, { allowInvoiceCreation = false } = {}) {
+  return {
+    automaticTaxEnabled: optionalLiveStripeFlag(env, "ENABLE_STRIPE_AUTOMATIC_TAX"),
+    taxIdCollectionEnabled: optionalLiveStripeFlag(env, "ENABLE_STRIPE_TAX_ID_COLLECTION"),
+    invoiceCreationEnabled: allowInvoiceCreation && optionalLiveStripeFlag(env, "ENABLE_STRIPE_INVOICE_CREATION"),
+  };
+}
+
 function getStripeLiveSubscriptionCheckoutConfig(env) {
   normalizeLiveStripeSubscriptionsEnabled(env);
   normalizeStripeLiveWebhookSecret(env);
@@ -428,6 +446,7 @@ function getStripeLiveSubscriptionCheckoutConfig(env) {
     mode: STRIPE_MODE_LIVE,
     secretKey: normalizeStripeLiveSecretKey(env),
     priceId: normalizeStripeLiveSubscriptionPriceId(env),
+    ...liveStripeOptionalCheckoutOptions(env),
     successUrl: normalizeHttpsUrl(
       env?.STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL,
       "Stripe live subscription success URL",
@@ -446,6 +465,19 @@ function getStripeLiveSubscriptionManagementConfig(env) {
     mode: STRIPE_MODE_LIVE,
     secretKey: normalizeStripeLiveSecretKey(env),
     priceId: normalizeStripeLiveSubscriptionPriceId(env),
+  };
+}
+
+function getStripeLiveCustomerPortalConfig(env) {
+  return {
+    mode: STRIPE_MODE_LIVE,
+    secretKey: normalizeStripeLiveSecretKey(env),
+    priceId: normalizeStripeLiveSubscriptionPriceId(env),
+    returnUrl: normalizeHttpsUrl(
+      env?.STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL,
+      "Stripe live customer portal return URL",
+      "STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL"
+    ),
   };
 }
 
@@ -515,6 +547,36 @@ export function getStripeLiveSubscriptionCheckoutStatus(env, { includeConfigName
       allowanceCredits: BITBI_MEMBER_SUBSCRIPTION.allowanceCredits,
       storageLimitBytes: BITBI_MEMBER_SUBSCRIPTION.storageLimitBytes,
     },
+  };
+  if (includeConfigNames) {
+    result.configNames = requiredNames;
+    result.missingConfigNames = missing;
+  }
+  return result;
+}
+
+export function getStripeLiveCustomerPortalStatus(env, { includeConfigNames = false } = {}) {
+  const requiredNames = [
+    "STRIPE_LIVE_SECRET_KEY",
+    "STRIPE_LIVE_SUBSCRIPTION_PRICE_ID",
+    "STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL",
+  ];
+  const missing = requiredNames.filter((name) => !safeString(env?.[name], 2048));
+  let enabled = false;
+  let configured = false;
+  let code = null;
+  try {
+    getStripeLiveCustomerPortalConfig(env);
+    enabled = true;
+    configured = true;
+  } catch (error) {
+    if (error instanceof StripeBillingError) code = error.code;
+  }
+  const result = {
+    enabled,
+    configured,
+    mode: STRIPE_MODE_LIVE,
+    code,
   };
   if (includeConfigNames) {
     result.configNames = requiredNames;
@@ -926,6 +988,102 @@ function normalizeStripeCheckoutSession(value, { mode = STRIPE_MODE_TEST } = {})
   };
 }
 
+function isStripeBillingPortalUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:"
+      && BILLING_PORTAL_URL_ORIGINS.has(url.origin)
+      && url.pathname.length > 1;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeStripeBillingPortalSession(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new StripeBillingError("Stripe Billing Portal Session response is invalid.", {
+      status: 502,
+      code: "stripe_billing_portal_invalid_response",
+    });
+  }
+  const id = safeString(value.id, 128);
+  const url = safeString(value.url, 2048);
+  if (!id || !/^bps_[A-Za-z0-9_:-]{8,120}$/.test(id) || value.livemode !== true) {
+    throw new StripeBillingError("Stripe Billing Portal Session response is not live mode.", {
+      status: 502,
+      code: "stripe_billing_portal_invalid_response",
+    });
+  }
+  if (!url || !isStripeBillingPortalUrl(url)) {
+    throw new StripeBillingError("Stripe Billing Portal Session URL is invalid.", {
+      status: 502,
+      code: "stripe_billing_portal_invalid_response",
+    });
+  }
+  return { id, url };
+}
+
+async function postStripeBillingPortalSession({ env, config, body, idempotencyKey }) {
+  const fetchImpl = env.__TEST_FETCH || globalThis.fetch;
+  if (typeof fetchImpl !== "function") {
+    throw new StripeBillingError("Stripe API fetch is unavailable.", {
+      status: 503,
+      code: "stripe_fetch_unavailable",
+    });
+  }
+
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeout = controller
+    ? setTimeout(() => controller.abort(), STRIPE_CHECKOUT_TIMEOUT_MS)
+    : null;
+  try {
+    const response = await fetchImpl(STRIPE_BILLING_PORTAL_SESSIONS_API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.secretKey}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Idempotency-Key": idempotencyKey,
+      },
+      body,
+      signal: controller?.signal,
+    });
+    let parsed = null;
+    try {
+      parsed = await response.json();
+    } catch {
+      parsed = null;
+    }
+    if (!response.ok) {
+      throw new StripeBillingError("Stripe Billing Portal Session could not be created.", {
+        status: 502,
+        code: "stripe_billing_portal_create_failed",
+      });
+    }
+    return normalizeStripeBillingPortalSession(parsed);
+  } catch (error) {
+    if (error instanceof StripeBillingError) throw error;
+    throw new StripeBillingError("Stripe Billing Portal Session could not be created.", {
+      status: 502,
+      code: "stripe_billing_portal_create_failed",
+    });
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function applyOptionalLiveCheckoutFormOptions(body, config) {
+  if (config?.automaticTaxEnabled === true) {
+    body.set("automatic_tax[enabled]", "true");
+    body.set("billing_address_collection", "auto");
+  }
+  if (config?.taxIdCollectionEnabled === true) {
+    body.set("tax_id_collection[enabled]", "true");
+  }
+  if (config?.invoiceCreationEnabled === true) {
+    body.set("invoice_creation[enabled]", "true");
+  }
+}
+
 async function postStripeCheckoutSession({ env, config, body, idempotencyKey }) {
   const fetchImpl = env.__TEST_FETCH || globalThis.fetch;
   if (typeof fetchImpl !== "function") {
@@ -1099,6 +1257,7 @@ function buildCheckoutForm({
   }
   body.set("success_url", config.successUrl);
   body.set("cancel_url", config.cancelUrl);
+  applyOptionalLiveCheckoutFormOptions(body, config);
   body.set("client_reference_id", checkoutId);
   body.set("line_items[0][quantity]", "1");
   body.set("line_items[0][price_data][currency]", pack.currency);
@@ -1142,6 +1301,10 @@ function buildSubscriptionCheckoutForm({
   body.set("payment_method_types[0]", "card");
   body.set("success_url", config.successUrl);
   body.set("cancel_url", config.cancelUrl);
+  applyOptionalLiveCheckoutFormOptions(body, {
+    ...config,
+    invoiceCreationEnabled: false,
+  });
   body.set("client_reference_id", checkoutId);
   body.set("line_items[0][quantity]", "1");
   body.set("line_items[0][price]", config.priceId);
@@ -1968,6 +2131,56 @@ export function reactivateStripeLiveMemberSubscription({ env, userId, idempotenc
   });
 }
 
+export async function createStripeLiveCustomerPortalSession({
+  env,
+  userId,
+  idempotencyKey,
+}) {
+  const normalizedUserId = normalizeUserId(userId);
+  const normalizedKey = normalizeBillingIdempotencyKey(idempotencyKey);
+  const config = getStripeLiveCustomerPortalConfig(env);
+  const state = await getMemberSubscriptionState(env, normalizedUserId);
+  const subscription = state.subscription;
+  const customerId = safeString(subscription?.providerCustomerId, 128);
+  if (
+    !subscription ||
+    subscription.provider !== "stripe" ||
+    subscription.providerMode !== STRIPE_MODE_LIVE ||
+    subscription.providerPriceId !== config.priceId ||
+    !customerId ||
+    !/^cus_[A-Za-z0-9_:-]{6,120}$/.test(customerId)
+  ) {
+    throw new StripeBillingError("No manageable live Stripe billing customer was found.", {
+      status: 404,
+      code: "stripe_billing_portal_not_available",
+      configNames: ["STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL"],
+    });
+  }
+
+  const body = new URLSearchParams();
+  body.set("customer", customerId);
+  body.set("return_url", config.returnUrl);
+
+  const session = await postStripeBillingPortalSession({
+    env,
+    config,
+    body,
+    idempotencyKey: `bitbi-live-portal-${normalizedKey.slice(0, 80)}`,
+  });
+  return {
+    portal: {
+      url: session.url,
+      sessionId: session.id,
+    },
+    subscription: {
+      id: subscription.id,
+      status: subscription.status,
+      hasActiveSubscription: state.hasActiveSubscription === true,
+      providerMode: subscription.providerMode,
+    },
+  };
+}
+
 function normalizeUserId(value) {
   const userId = safeString(value, 128);
   if (!userId || !USER_ID_PATTERN.test(userId)) {
@@ -2104,7 +2317,7 @@ export async function verifyStripeLiveWebhookRequest({ env, rawBody, request, no
   }
   return {
     provider: BILLING_WEBHOOK_STRIPE_PROVIDER,
-    verificationStatus: "verified_test_signature",
+    verificationStatus: "verified_live_signature",
     timestamp: parsed.timestamp,
   };
 }
@@ -3131,6 +3344,7 @@ export async function getMemberLiveCreditsPurchaseContext({
   return {
     liveCheckout: getStripeLiveCreditPackCheckoutStatus(env, { includeConfigNames }),
     subscriptionCheckout: getStripeLiveSubscriptionCheckoutStatus(env, { includeConfigNames }),
+    customerPortal: getStripeLiveCustomerPortalStatus(env, { includeConfigNames }),
     packs: listStripeLiveCreditPacks(),
     purchaseHistory: (purchaseRows.results || []).map(serializeDashboardMemberCheckout),
   };

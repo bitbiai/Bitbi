@@ -8322,7 +8322,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(calls[1].form['line_items[0][price_data][unit_amount]']).toBe('1999');
   });
 
-  test('active normal members can create personal live checkout without org ownership', async () => {
+	  test('active normal members can create personal live checkout without org ownership', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');
     const calls = [];
     const member = createContractUser({ id: 'phase2m-member-no-org', role: 'user' });
@@ -8453,6 +8453,124 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       createExecutionContext().execCtx
     );
     expect(conflict.status).toBe(409);
+  });
+
+  test('optional live Stripe tax and invoice checkout options are disabled by default and gated by explicit flags', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+
+    const makeCheckoutFetch = (calls) => async (url, init = {}) => {
+      const form = Object.fromEntries(new URLSearchParams(String(init.body || '')));
+      const index = String(calls.length + 1).padStart(2, '0');
+      const mode = form.mode || 'payment';
+      calls.push({ url, init, form });
+      return new Response(JSON.stringify({
+        id: `cs_live_tax_options_${mode}_${index}`,
+        object: 'checkout.session',
+        livemode: true,
+        mode,
+        url: `https://checkout.stripe.com/c/pay/cs_live_tax_options_${mode}_${index}`,
+        payment_intent: mode === 'payment' ? `pi_live_tax_options_${index}` : undefined,
+        subscription: mode === 'subscription' ? `sub_live_tax_options_${index}` : undefined,
+        customer: `cus_live_tax_options_${index}`,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+
+    const makeEnv = (member, calls, extra = {}) => createAuthTestEnv(seedLiveBillingOrg({
+      member,
+      extra: {
+        users: [member],
+        organizations: [],
+        organizationMemberships: [],
+        ENABLE_LIVE_STRIPE_SUBSCRIPTIONS: 'true',
+        STRIPE_LIVE_SUBSCRIPTION_PRICE_ID: 'price_tax_options_123456',
+        STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL: 'https://bitbi.ai/pricing.html?checkout=success',
+        STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL: 'https://bitbi.ai/pricing.html?checkout=cancel',
+        fetch: makeCheckoutFetch(calls),
+        ...extra,
+      },
+    }));
+    const assertOptionalOptionsAbsent = (form) => {
+      expect(form['automatic_tax[enabled]']).toBeUndefined();
+      expect(form.billing_address_collection).toBeUndefined();
+      expect(form['tax_id_collection[enabled]']).toBeUndefined();
+      expect(form['invoice_creation[enabled]']).toBeUndefined();
+    };
+
+    const defaultCalls = [];
+    const defaultMember = createContractUser({ id: 'phase2l-tax-default-member', role: 'user' });
+    const defaultEnv = makeEnv(defaultMember, defaultCalls);
+    const defaultToken = await seedSession(defaultEnv, defaultMember.id);
+    const defaultPack = await worker.fetch(
+      authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', { pack_id: 'live_credits_5000', ...LIVE_TERMS_ACCEPTANCE }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${defaultToken}`,
+        'Idempotency-Key': 'phase2l-tax-default-pack',
+      }),
+      defaultEnv,
+      createExecutionContext().execCtx
+    );
+    expect(defaultPack.status).toBe(201);
+    const defaultSubscription = await worker.fetch(
+      authJsonRequest('/api/account/billing/checkout/subscription', 'POST', {
+        terms_accepted: true,
+        terms_version: '2026-05-05',
+        immediate_delivery_accepted: true,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${defaultToken}`,
+        'Idempotency-Key': 'phase2l-tax-default-subscription',
+      }),
+      defaultEnv,
+      createExecutionContext().execCtx
+    );
+    expect(defaultSubscription.status).toBe(201);
+    expect(defaultCalls).toHaveLength(2);
+    assertOptionalOptionsAbsent(defaultCalls[0].form);
+    assertOptionalOptionsAbsent(defaultCalls[1].form);
+
+    const enabledCalls = [];
+    const enabledMember = createContractUser({ id: 'phase2l-tax-enabled-member', role: 'user' });
+    const enabledEnv = makeEnv(enabledMember, enabledCalls, {
+      ENABLE_STRIPE_AUTOMATIC_TAX: 'true',
+      ENABLE_STRIPE_TAX_ID_COLLECTION: 'true',
+      ENABLE_STRIPE_INVOICE_CREATION: 'true',
+    });
+    const enabledToken = await seedSession(enabledEnv, enabledMember.id);
+    const enabledPack = await worker.fetch(
+      authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', { pack_id: 'live_credits_5000', ...LIVE_TERMS_ACCEPTANCE }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${enabledToken}`,
+        'Idempotency-Key': 'phase2l-tax-enabled-pack',
+      }),
+      enabledEnv,
+      createExecutionContext().execCtx
+    );
+    expect(enabledPack.status).toBe(201);
+    const enabledSubscription = await worker.fetch(
+      authJsonRequest('/api/account/billing/checkout/subscription', 'POST', {
+        terms_accepted: true,
+        terms_version: '2026-05-05',
+        immediate_delivery_accepted: true,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${enabledToken}`,
+        'Idempotency-Key': 'phase2l-tax-enabled-subscription',
+      }),
+      enabledEnv,
+      createExecutionContext().execCtx
+    );
+    expect(enabledSubscription.status).toBe(201);
+    expect(enabledCalls).toHaveLength(2);
+    expect(enabledCalls[0].form['automatic_tax[enabled]']).toBe('true');
+    expect(enabledCalls[0].form.billing_address_collection).toBe('auto');
+    expect(enabledCalls[0].form['tax_id_collection[enabled]']).toBe('true');
+    expect(enabledCalls[0].form['invoice_creation[enabled]']).toBe('true');
+    expect(enabledCalls[1].form['automatic_tax[enabled]']).toBe('true');
+    expect(enabledCalls[1].form.billing_address_collection).toBe('auto');
+    expect(enabledCalls[1].form['tax_id_collection[enabled]']).toBe('true');
+    expect(enabledCalls[1].form['invoice_creation[enabled]']).toBeUndefined();
+    expect(enabledEnv.DB.state.memberCreditLedger).toHaveLength(0);
+    expect(enabledEnv.DB.state.memberCreditBuckets).toHaveLength(0);
   });
 
   test('live checkout fails closed for disabled config, missing live keys, test keys, and unsupported packs', async () => {
@@ -9069,6 +9187,115 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(JSON.stringify(timeline)).not.toContain('raw-r2-key-should-not-render');
   });
 
+  test('admin live billing readiness status is admin-only, redacted, local-only, and non-mutating', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('phase-live-billing-status-admin');
+    const member = createContractUser({ id: 'phase-live-billing-status-member', role: 'user' });
+    const env = createAuthTestEnv({
+      users: [admin, member],
+      ENABLE_LIVE_STRIPE_CREDIT_PACKS: 'true',
+      ENABLE_LIVE_STRIPE_SUBSCRIPTIONS: 'true',
+      STRIPE_LIVE_SECRET_KEY: 'sk_live_live_billing_status_secret_123456',
+      STRIPE_LIVE_WEBHOOK_SECRET: 'whsec_live_billing_status_secret_123456',
+      STRIPE_LIVE_SUBSCRIPTION_PRICE_ID: 'price_live_billing_status_123456',
+      STRIPE_LIVE_CHECKOUT_SUCCESS_URL: 'https://bitbi.ai/pricing.html?checkout=success',
+      STRIPE_LIVE_CHECKOUT_CANCEL_URL: 'https://bitbi.ai/pricing.html?checkout=cancel',
+      STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL: 'https://bitbi.ai/pricing.html?checkout=success',
+      STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL: 'https://bitbi.ai/pricing.html?checkout=cancel',
+      STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL: 'https://bitbi.ai/account/credits.html?scope=member',
+      ENABLE_STRIPE_AUTOMATIC_TAX: 'true',
+    });
+    env.__TEST_FETCH = async () => {
+      throw new Error('Live billing readiness status must not call Stripe.');
+    };
+    const memberToken = await seedSession(env, member.id);
+    const adminToken = await seedSession(env, admin.id);
+
+    const denied = await worker.fetch(
+      authJsonRequest('/api/admin/billing/live-readiness/status', 'GET', undefined, {
+        Cookie: `bitbi_session=${memberToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(denied.status).toBe(403);
+
+    const before = JSON.stringify({
+      billingProviderEvents: env.DB.state.billingProviderEvents,
+      memberCreditLedger: env.DB.state.memberCreditLedger,
+      creditLedger: env.DB.state.creditLedger,
+    });
+    const response = await worker.fetch(
+      authJsonRequest('/api/admin/billing/live-readiness/status', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body).toEqual(expect.objectContaining({
+	      ok: true,
+	      repositorySupport: 'ready_for_operator_canary',
+	      productionReadiness: 'blocked',
+	      liveBillingReadiness: 'blocked',
+	      configShapeStatus: 'configured_shapes_present',
+	      evidenceStatus: 'pending_operator_evidence',
+	      canaryStatus: 'pending_operator_evidence',
+	      redactedResponse: true,
+	      stripeCallsMade: false,
+	      d1MutationPerformed: false,
+	      creditMutationPerformed: false,
+	      finalVerdict: expect.objectContaining({
+	        status: 'blocked_pending_operator_evidence',
+	      }),
+	    }));
+	    expect(body.statusBadges).toEqual(expect.arrayContaining([
+	      expect.objectContaining({ id: 'repository_support', status: 'ready_for_operator_canary' }),
+	      expect.objectContaining({ id: 'live_billing_readiness', status: 'blocked' }),
+	      expect.objectContaining({ id: 'config_shape', status: 'configured_shapes_present' }),
+	      expect.objectContaining({ id: 'webhook' }),
+	      expect.objectContaining({ id: 'canary_status', status: 'pending_operator_evidence' }),
+	      expect.objectContaining({ id: 'final_verdict', status: 'blocked_pending_operator_evidence' }),
+	    ]));
+	    expect(body.nextOperatorActions.length).toBeGreaterThanOrEqual(3);
+	    expect(body.nextOperatorActions.length).toBeLessThanOrEqual(7);
+	    expect(body.nextOperatorActions).toEqual(expect.arrayContaining([
+	      expect.objectContaining({ id: 'export_redacted_status' }),
+	      expect.objectContaining({ id: 'run_operator_canaries' }),
+	    ]));
+	    expect(body.customerPortal).toEqual(expect.objectContaining({
+      implemented: true,
+      endpoint: '/api/account/billing/portal',
+      memberTriggeredOnly: true,
+      adminCustomerMutation: false,
+    }));
+    expect(body.taxInvoice).toEqual(expect.objectContaining({
+      operatorReviewRequired: true,
+    }));
+    expect(body.evidenceChecklist).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'customer_portal_session_canary' }),
+      expect.objectContaining({ id: 'tax_invoice_configuration_review' }),
+    ]));
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('sk_live_live_billing_status_secret_123456');
+    expect(serialized).not.toContain('whsec_live_billing_status_secret_123456');
+    expect(serialized).not.toContain('price_live_billing_status_123456');
+    expect(serialized).not.toContain('Stripe-Signature');
+    expect(JSON.stringify({
+      billingProviderEvents: env.DB.state.billingProviderEvents,
+      memberCreditLedger: env.DB.state.memberCreditLedger,
+      creditLedger: env.DB.state.creditLedger,
+    })).toBe(before);
+
+    const policy = (await loadRoutePolicyModule()).getRoutePolicy('GET', '/api/admin/billing/live-readiness/status');
+    expect(policy).toEqual(expect.objectContaining({
+      id: 'admin.billing.live-readiness.status',
+      auth: 'admin',
+      csrf: 'safe-method',
+    }));
+  });
+
   test('live Stripe webhook grants credits exactly once for authorized live sessions only', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');
     const owner = createContractUser({ id: 'phase2l-owner', role: 'user' });
@@ -9111,6 +9338,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       provider: 'stripe',
       providerMode: 'live',
       eventType: 'checkout.session.completed',
+      verificationStatus: 'verified_live_signature',
       organizationId: ORG_ID,
       userId: owner.id,
     }));
@@ -11849,6 +12077,94 @@ test.describe('BITBI Pro member subscriptions', () => {
     }));
   });
 
+  test('member billing portal is authenticated, idempotent, and validates live Stripe portal responses', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const { upsertMemberSubscriptionFromProvider } = await loadBillingModule();
+    const member = createContractUser({ id: 'member-billing-portal', role: 'user' });
+    const calls = [];
+    const env = createAuthTestEnv({
+      STRIPE_LIVE_SECRET_KEY: 'sk_live_member_portal_secret_123456',
+      STRIPE_LIVE_SUBSCRIPTION_PRICE_ID: 'price_member_pro_portal_123456',
+      STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL: 'https://bitbi.ai/account/credits.html?scope=member',
+      users: [member],
+      fetch: async (url, init = {}) => {
+        calls.push({ url, init, form: Object.fromEntries(new URLSearchParams(String(init.body || ''))) });
+        return new Response(JSON.stringify({
+          id: 'bps_member_portal_123456',
+          object: 'billing_portal.session',
+          livemode: true,
+          url: 'https://billing.stripe.com/p/session/bps_member_portal_123456',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      },
+    });
+    await upsertMemberSubscriptionFromProvider({
+      env,
+      userId: member.id,
+      providerSubscriptionId: 'sub_member_portal_123456',
+      providerCustomerId: 'cus_member_portal_123456',
+      providerPriceId: 'price_member_pro_portal_123456',
+      status: 'active',
+      currentPeriodStart: PERIOD_START,
+      currentPeriodEnd: PERIOD_END,
+      metadata: { source: 'test' },
+    });
+    const token = await seedSession(env, member.id);
+
+    const missingKey = await worker.fetch(
+      authJsonRequest('/api/account/billing/portal', 'POST', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(missingKey.status).toBe(428);
+    expect(calls).toHaveLength(0);
+
+    const response = await worker.fetch(
+      authJsonRequest('/api/account/billing/portal', 'POST', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-portal-1',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+    expect(response.status).toBe(201);
+    expect(body).toEqual(expect.objectContaining({
+      ok: true,
+      portal_url: 'https://billing.stripe.com/p/session/bps_member_portal_123456',
+      mode: 'live',
+    }));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('https://api.stripe.com/v1/billing_portal/sessions');
+    expect(calls[0].init.headers.Authorization).toContain('Bearer ');
+    expect(JSON.stringify(body)).not.toContain('cus_member_portal_123456');
+    expect(calls[0].form.customer).toBe('cus_member_portal_123456');
+    expect(calls[0].form.return_url).toBe('https://bitbi.ai/account/credits.html?scope=member');
+
+    env.__TEST_FETCH = async () => new Response(JSON.stringify({
+      id: 'bps_member_portal_testmode',
+      object: 'billing_portal.session',
+      livemode: false,
+      url: 'https://billing.stripe.com/p/session/bps_member_portal_testmode',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const invalid = await worker.fetch(
+      authJsonRequest('/api/account/billing/portal', 'POST', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'member-portal-invalid',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    await expect(invalid.json()).resolves.toMatchObject({
+      code: 'stripe_billing_portal_invalid_response',
+    });
+    expect(invalid.status).toBe(502);
+  });
+
   test('route policy includes the member subscription checkout route', async () => {
     const { ROUTE_POLICIES } = await loadRoutePolicyModule();
     expect(ROUTE_POLICIES).toEqual(expect.arrayContaining([
@@ -11869,6 +12185,18 @@ test.describe('BITBI Pro member subscriptions', () => {
         method: 'POST',
         path: '/api/account/billing/subscription/reactivate',
         auth: 'user',
+      }),
+      expect.objectContaining({
+        id: 'account.billing.portal.create',
+        method: 'POST',
+        path: '/api/account/billing/portal',
+        auth: 'user',
+      }),
+      expect.objectContaining({
+        id: 'admin.billing.live-readiness.status',
+        method: 'GET',
+        path: '/api/admin/billing/live-readiness/status',
+        auth: 'admin',
       }),
     ]));
   });

@@ -65,7 +65,8 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 - R2/D1/Queue/DO/service binding evidence.
 - Restore drill and rollback evidence.
 - Billing evidence status from `GET /api/admin/billing/evidence/status`, with secret values redacted and `stripeCallsMade:false`.
-- Stripe Testmode/live canary evidence where billing is in scope, using `npm run billing:canary-evidence` as the blocked/pending skeleton before any live operator canary.
+- Live Billing Command Center status from `GET /api/admin/billing/live-readiness/status`, with bounded local D1 billing summaries, redacted config facts, Customer Portal/tax evidence status, and no Stripe calls or mutations.
+- Stripe Testmode/live canary evidence where billing is in scope, using `npm run billing:canary-evidence` or `node scripts/billing-canary-evidence.mjs --format json|markdown --output docs/production-readiness/evidence/<file>` as the blocked/pending skeleton before any live operator canary.
 - Operator timeline/triage evidence from `GET /api/admin/operations/timeline`, with bounded redacted local D1 metadata only and no external calls, R2 listing, or mutations.
 - Evidence archive/index coverage from `npm run evidence:index` or `npm run evidence:index:markdown`; unsafe markers must remain classified, not pasted into readiness evidence.
 - Admin/platform budget switch/cap/reconciliation/repair/report/archive evidence where AI cost controls are in scope.
@@ -83,6 +84,8 @@ The Admin Users delete dialog has two guarded modes: operational delete only, an
 The Data Lifecycle area includes a request detail overlay for reviewing Data Erasure/export/anonymization workflows. It can open request details, generate a plan, approve eligible planned requests, execute only backend-supported safe actions, record guarded final completion/close/reject state where eligible, and export sanitized evidence as JSON, Markdown, or printable HTML for browser Save as PDF. Completion states distinguish `completed`, `completed_with_retention`, `rejected`, `closed`, and `blocked_requires_legal_review`; evidence packets document lifecycle state and are not legal advice or production-readiness proof.
 
 The Billing Events area includes a Billing Evidence Center backed by read-only `GET /api/admin/billing/evidence/status`. It reports live billing prerequisite presence/shape, static credit-pack catalog facts, BITBI Pro subscription metadata, webhook readiness facts, and blocked canary evidence without showing Stripe secrets, raw payloads, signatures, webhook secrets, checkout sessions, refunds, subscription mutations, or credit mutations.
+
+The Admin Finance navigation also includes a Live Billing Command Center backed by read-only `GET /api/admin/billing/live-readiness/status`. It aggregates redacted configuration presence, public catalog facts, webhook/reconciliation/review summaries, Customer Portal readiness, optional Stripe Tax/invoice flags, evidence checklist rows, a blocked final verdict, a short operator next-action path, and copy/download-only operator aids. Repository support can be ready for an operator canary while production readiness and live billing readiness stay blocked. It does not activate live payments, call Stripe, create checkout sessions, issue refunds, mutate credits, mutate subscriptions, resolve reviews, deploy, apply migrations, or edit Cloudflare/Stripe settings.
 
 The Operations area includes Operator Timeline / Triage backed by read-only `GET /api/admin/operations/timeline`. It normalizes recent admin audit/activity, billing review/reconciliation, AI budget, lifecycle, tenant review/reset, readiness, and archive metadata into bounded redacted event summaries. It does not call Stripe/providers, list R2, mutate D1/R2/Queues, issue refunds, create checkout sessions, mutate subscriptions, mutate credits, deploy, migrate, backfill ownership, switch access checks, or execute reset.
 
@@ -141,7 +144,7 @@ Add `--ai-worker-url`, `--contact-worker-url`, or `--admin-readiness-url` only w
 
 - Live/manual Cloudflare validation is not recorded in repo.
 - Live billing canaries remain incomplete. Checkout creation does not grant credits; verified webhook/payment/invoice events are required. Refund, dispute, and payment-failure handling remains review-only unless a later approved workflow explicitly changes that.
-- Stripe dashboard configuration, live webhook receipt, duplicate-event idempotency, wrong Price ID rejection, missing-webhook-secret fail-closed behavior, and no-raw-payload/signature rendering still require operator evidence before live billing readiness can be claimed.
+- Stripe dashboard configuration, Customer Portal setup, live webhook receipt, duplicate-event idempotency, wrong Price ID rejection, missing-webhook-secret fail-closed behavior, no-credit-before-webhook, invoice.paid subscription top-up, refund/dispute review-only behavior, optional tax/invoice review, and no-raw-payload/signature rendering still require operator evidence before live billing readiness can be claimed.
 - Internal AI Worker caller policy is enforced for provider-cost routes, but live provider/cap/operator evidence is still required before readiness claims.
 - Canary/readiness tooling includes local-only safety contract checks and skipped-by-default live checks; missing live URLs or credentials must remain pending/blocked, not treated as success.
 - Tenant ownership backfill and access-switch readiness are blocked; current post-cleanup evidence is pending.

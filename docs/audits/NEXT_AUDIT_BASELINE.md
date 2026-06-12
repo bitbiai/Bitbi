@@ -42,7 +42,7 @@ This baseline is not production readiness, live billing readiness, tenant isolat
 
 ## Implemented Current State
 
-- Admin Control Plane surfaces exist for users, billing evidence/reviews/reconciliation, lifecycle, readiness/evidence, AI Lab, AI usage, platform budget controls, tenant assets, operations, and registration availability.
+- Admin Control Plane surfaces exist for users, billing evidence/reviews/reconciliation, Live Billing Command Center, lifecycle, readiness/evidence, AI Lab, AI usage, platform budget controls, tenant assets, operations, and registration availability.
 - Admin Control Plane modularization is complete enough that `main.js` is no longer the large domain implementation file.
 - Release Candidate, release-plan, static-deploy-safety, release-cutover, readiness dossier, Cloudflare resource model, rollback drill, and main-release-readiness tooling exist as local non-mutating aids.
 - Evidence Index classifies local repo evidence without live R2 listing or raw unsafe value output.
@@ -54,7 +54,7 @@ This baseline is not production readiness, live billing readiness, tenant isolat
 ## Blocked And Unclaimed
 
 - Production readiness remains blocked until live/operator evidence is collected and reviewed.
-- Live billing readiness remains blocked until Stripe dashboard/webhook/live canary evidence exists and is reviewed.
+- Live billing readiness remains blocked until Stripe dashboard, Customer Portal where configured, webhook, invoice, duplicate-event, wrong Price ID, no-credit-before-webhook, tax/invoice review, and live canary evidence exists and is reviewed.
 - Tenant isolation remains unclaimed.
 - Ownership backfill readiness remains blocked except for specifically reviewed current evidence and separately approved exact-candidate execution.
 - Access-Switch enforced mode remains blocked until current evidence, switch policy, tests, and rollback model support it.

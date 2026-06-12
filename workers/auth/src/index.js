@@ -380,6 +380,11 @@ export default {
       const result = await handleAccountCredits(ctx);
       if (result) return result;
     }
+    // route-policy: account.billing.portal.create
+    if (pathname === "/api/account/billing/portal" && method === "POST") {
+      const result = await handleAccountCredits(ctx);
+      if (result) return result;
+    }
 
     // Avatar
     if (pathname === "/api/profile/avatar" && method === "GET") return handleGetAvatar(ctx);

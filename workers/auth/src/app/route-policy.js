@@ -399,6 +399,13 @@ export const ROUTE_POLICIES = Object.freeze([
     sensitivity: "high",
     notes: "Authenticated member-only BITBI Pro cancellation reversal. Calls Stripe Update Subscription with cancel_at_period_end=false only for the signed-in user's still-active subscription that is already scheduled to cancel.",
   }),
+  userJsonWrite("account.billing.portal.create", "POST", "/api/account/billing/portal", "billing", null, "account-billing-live-portal-user", {
+    body: { kind: "none", noneReason: "Portal creation reads the authenticated member subscription/customer state and Idempotency-Key only." },
+    config: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_LIVE_SECRET_KEY", "STRIPE_LIVE_SUBSCRIPTION_PRICE_ID", "STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL"],
+    audit: { event: "stripe_live_member_customer_portal_requested" },
+    sensitivity: "high",
+    notes: "Authenticated member-only Stripe Customer Portal session creation. Requires Idempotency-Key, same-origin mutation protection, live Stripe secret, configured BITBI Pro Price ID, HTTPS portal return URL, fail-closed rate limiting, and an existing live Stripe customer attached to the signed-in member. It returns only the hosted portal URL and does not let Admin mutate arbitrary Stripe customers.",
+  }),
   safeRead("profile.avatar.read", "GET", "/api/profile/avatar", "profile", {
     config: ["DB", "PRIVATE_MEDIA"],
   }),
@@ -633,6 +640,11 @@ export const ROUTE_POLICIES = Object.freeze([
     config: REQUIRED_CONFIG.authPublicLimiter,
     rateLimit: { id: "admin-billing-read-ip", failClosed: true },
     notes: "Read-only redacted live billing configuration evidence. Reports env presence/shape and static catalog facts only; does not call Stripe, create checkout sessions, mutate D1, process webhooks, or expose secrets.",
+  }),
+  adminRead("admin.billing.live-readiness.status", "/api/admin/billing/live-readiness/status", "billing", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-billing-read-ip", failClosed: true },
+    notes: "Admin-only Live Billing Command Center status. Aggregates redacted env/catalog facts plus bounded local D1 billing event/review/reconciliation summaries. It does not call Stripe, create checkout sessions, mutate D1, resolve reviews, refund, cancel subscriptions, or expose raw secrets, payloads, signatures, cards, cookies, tokens, or session values.",
   }),
   adminRead("admin.orgs.billing.read", "/api/admin/orgs/:id/billing", "billing", {
     config: REQUIRED_CONFIG.authPublicLimiter,
