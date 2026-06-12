@@ -94,6 +94,27 @@
         color: rgba(255, 255, 255, 0.62);
     }
 
+    @media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+        #profileSocialDashboard .profile__stats {
+            gap: var(--space-2);
+        }
+
+        #profileSocialDashboard .profile__stat {
+            min-block-size: 4rem;
+            padding: 0.68rem 0.78rem;
+            border-radius: var(--radius-sm);
+        }
+
+        #profileSocialDashboard .profile__stat strong {
+            font-size: clamp(1.2rem, 1.6vw, 1.62rem);
+        }
+
+        #profileSocialDashboard .profile__stat span {
+            font-size: 0.61rem;
+            letter-spacing: 0.07em;
+        }
+    }
+
     .profile__media-tabs,
     .profile-interactions__tabs {
         display: inline-grid;
@@ -224,6 +245,36 @@
 
     .profile__media-card:focus-visible {
         box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.18);
+    }
+
+    .profile__media-expand {
+        grid-column: 1 / -1;
+        justify-self: center;
+        min-block-size: 2.4rem;
+        padding: 0.58rem 1rem;
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--color-cyan);
+        background: rgba(0, 240, 255, 0.07);
+        border: 1px solid rgba(0, 240, 255, 0.24);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: border-color 0.2s var(--ease-default), background 0.2s var(--ease-default), transform 0.2s var(--ease-default);
+    }
+
+    .profile__media-expand:hover,
+    .profile__media-expand:focus-visible {
+        transform: translateY(-1px);
+        border-color: rgba(0, 240, 255, 0.42);
+        background: rgba(0, 240, 255, 0.11);
+        outline: none;
+    }
+
+    .profile__media-expand:focus-visible {
+        box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.2);
     }
 
     .profile-media-overlay .modal-action {

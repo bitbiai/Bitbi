@@ -5395,6 +5395,8 @@ async function mockAuthenticatedProfile(page, {
   linkedWallet = null,
   profilePatchStatus = 200,
   profilePatchBody = { ok: true },
+  publishedMediaItems = null,
+  likedMediaItems = null,
 } = {}) {
   const assetStore = createSavedAssetsStore(folderPayload, assetsPayload);
   const avatarState = {
@@ -5543,6 +5545,67 @@ async function mockAuthenticatedProfile(page, {
     });
   });
 
+  const defaultPublishedMediaItems = [{
+    media_type: 'mempics',
+    collection: 'mempics',
+    id: 'aa110011',
+    title: 'Profile public image',
+    published_at: '2026-05-01T10:00:00.000Z',
+    like_count: 4,
+    comment_count: 2,
+    publisher: { display_name: 'Profile Owner', stats: { public_media_count: 3 } },
+    thumb: { url: '/api/gallery/mempics/aa110011/thumb', w: 320, h: 320 },
+    preview: { url: '/api/gallery/mempics/aa110011/medium', w: 1200, h: 1200 },
+    full: { url: '/api/gallery/mempics/aa110011/file' },
+  }, {
+    media_type: 'memvids',
+    collection: 'memvids',
+    id: 'bb220011',
+    title: 'Profile public video',
+    published_at: '2026-05-02T10:00:00.000Z',
+    like_count: 2,
+    comment_count: 1,
+    mime_type: 'video/mp4',
+    publisher: { display_name: 'Profile Owner', stats: { public_media_count: 3 } },
+    poster: { url: '/api/gallery/memvids/bb220011/poster', w: 640, h: 360 },
+    file: { url: '/api/gallery/memvids/bb220011/file' },
+  }, {
+    media_type: 'memtracks',
+    collection: 'memtracks',
+    id: 'cc330011',
+    title: 'Profile public track',
+    published_at: '2026-05-03T10:00:00.000Z',
+    like_count: 1,
+    comment_count: 0,
+    mime_type: 'audio/mpeg',
+    publisher: { display_name: 'Profile Owner', stats: { public_media_count: 3 } },
+    poster: { url: '/api/gallery/memtracks/cc330011/poster', w: 640, h: 640 },
+    file: { url: '/api/gallery/memtracks/cc330011/file' },
+  }];
+  const defaultLikedMediaItems = [{
+    media_type: 'memvids',
+    collection: 'memvids',
+    id: 'dd440011',
+    title: 'Liked public video',
+    published_at: '2026-05-04T10:00:00.000Z',
+    like_count: 8,
+    comment_count: 1,
+    publisher: { display_name: 'Video Owner', stats: { public_media_count: 1 } },
+    poster: { url: '/api/gallery/memvids/dd440011/poster', w: 640, h: 360 },
+    file: { url: '/api/gallery/memvids/dd440011/file' },
+  }, {
+    media_type: 'memtracks',
+    collection: 'memtracks',
+    id: 'ee550011',
+    title: 'Liked public track',
+    published_at: '2026-05-05T10:00:00.000Z',
+    like_count: 3,
+    comment_count: 0,
+    publisher: { display_name: 'Track Owner', stats: { public_media_count: 1 } },
+    poster: { url: '/api/gallery/memtracks/ee550011/poster', w: 640, h: 640 },
+    file: { url: '/api/gallery/memtracks/ee550011/file' },
+  }];
+
   await page.route('**/api/profile/media/published**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -5550,43 +5613,7 @@ async function mockAuthenticatedProfile(page, {
       body: JSON.stringify({
         ok: true,
         data: {
-          items: [{
-            media_type: 'mempics',
-            collection: 'mempics',
-            id: 'aa110011',
-            title: 'Profile public image',
-            published_at: '2026-05-01T10:00:00.000Z',
-            like_count: 4,
-            comment_count: 2,
-            publisher: { display_name: 'Profile Owner', stats: { public_media_count: 3 } },
-            thumb: { url: '/api/gallery/mempics/aa110011/thumb', w: 320, h: 320 },
-            preview: { url: '/api/gallery/mempics/aa110011/medium', w: 1200, h: 1200 },
-            full: { url: '/api/gallery/mempics/aa110011/file' },
-          }, {
-            media_type: 'memvids',
-            collection: 'memvids',
-            id: 'bb220011',
-            title: 'Profile public video',
-            published_at: '2026-05-02T10:00:00.000Z',
-            like_count: 2,
-            comment_count: 1,
-            mime_type: 'video/mp4',
-            publisher: { display_name: 'Profile Owner', stats: { public_media_count: 3 } },
-            poster: { url: '/api/gallery/memvids/bb220011/poster', w: 640, h: 360 },
-            file: { url: '/api/gallery/memvids/bb220011/file' },
-          }, {
-            media_type: 'memtracks',
-            collection: 'memtracks',
-            id: 'cc330011',
-            title: 'Profile public track',
-            published_at: '2026-05-03T10:00:00.000Z',
-            like_count: 1,
-            comment_count: 0,
-            mime_type: 'audio/mpeg',
-            publisher: { display_name: 'Profile Owner', stats: { public_media_count: 3 } },
-            poster: { url: '/api/gallery/memtracks/cc330011/poster', w: 640, h: 640 },
-            file: { url: '/api/gallery/memtracks/cc330011/file' },
-          }],
+          items: publishedMediaItems || defaultPublishedMediaItems,
           has_more: false,
           next_cursor: null,
         },
@@ -5601,29 +5628,7 @@ async function mockAuthenticatedProfile(page, {
       body: JSON.stringify({
         ok: true,
         data: {
-          items: [{
-            media_type: 'memvids',
-            collection: 'memvids',
-            id: 'dd440011',
-            title: 'Liked public video',
-            published_at: '2026-05-04T10:00:00.000Z',
-            like_count: 8,
-            comment_count: 1,
-            publisher: { display_name: 'Video Owner', stats: { public_media_count: 1 } },
-            poster: { url: '/api/gallery/memvids/dd440011/poster', w: 640, h: 360 },
-            file: { url: '/api/gallery/memvids/dd440011/file' },
-          }, {
-            media_type: 'memtracks',
-            collection: 'memtracks',
-            id: 'ee550011',
-            title: 'Liked public track',
-            published_at: '2026-05-05T10:00:00.000Z',
-            like_count: 3,
-            comment_count: 0,
-            publisher: { display_name: 'Track Owner', stats: { public_media_count: 1 } },
-            poster: { url: '/api/gallery/memtracks/ee550011/poster', w: 640, h: 640 },
-            file: { url: '/api/gallery/memtracks/ee550011/file' },
-          }],
+          items: likedMediaItems || defaultLikedMediaItems,
           has_more: false,
           next_cursor: null,
         },
@@ -13471,6 +13476,73 @@ test.describe('Profile page (authenticated)', () => {
     await expect(page.locator('#profileForm')).toBeVisible();
     await expect(page.locator('#profileSocialDashboard')).toHaveCount(0);
     await expect(page.locator('#profileSettingsCard')).toHaveCount(0);
+  });
+
+  test('desktop profile media starts at six cards and expands without changing mobile', async ({ page }) => {
+    const createMediaItems = (label, count, seed) => Array.from({ length: count }, (_, index) => {
+      const id = `${seed}${(index + 10).toString(16).padStart(2, '0')}`;
+      return {
+        media_type: 'mempics',
+        collection: 'mempics',
+        id,
+        title: `${label} media ${index + 1}`,
+        published_at: `2026-05-${String(index + 1).padStart(2, '0')}T10:00:00.000Z`,
+        like_count: index,
+        comment_count: index % 3,
+        publisher: { display_name: 'Profile Owner', stats: { public_media_count: count } },
+        thumb: { url: `/api/gallery/mempics/${id}/thumb`, w: 320, h: 320 },
+        preview: { url: `/api/gallery/mempics/${id}/medium`, w: 1200, h: 1200 },
+        full: { url: `/api/gallery/mempics/${id}/file` },
+      };
+    });
+    const publishedMediaItems = createMediaItems('Published', 8, 'aa1100');
+    const likedMediaItems = createMediaItems('Liked', 7, 'bb2200');
+    await mockAuthenticatedProfile(page, {
+      role: 'user',
+      publishedMediaItems,
+      likedMediaItems,
+    });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const response = await page.goto('/account/profile.html');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#profileContent')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#profileMediaGrid .profile__media-card')).toHaveCount(6);
+    await expect(page.locator('#profileMediaGrid')).toContainText('Published media 6');
+    await expect(page.locator('#profileMediaGrid')).not.toContainText('Published media 7');
+    await expect(page.locator('.profile__media-expand')).toHaveText('Show all');
+
+    const statMetrics = await page.locator('#profileSocialDashboard .profile__stats').evaluate((node) => {
+      const cards = Array.from(node.querySelectorAll('.profile__stat'));
+      const numbers = cards.map((card) => card.querySelector('strong'));
+      return {
+        cardHeights: cards.map((card) => card.getBoundingClientRect().height),
+        numberSizes: numbers.map((number) => Number.parseFloat(getComputedStyle(number).fontSize)),
+      };
+    });
+    expect(Math.max(...statMetrics.cardHeights)).toBeLessThanOrEqual(72);
+    expect(Math.max(...statMetrics.numberSizes)).toBeLessThan(28);
+
+    await page.locator('.profile__media-expand').click();
+    await expect(page.locator('#profileMediaGrid .profile__media-card')).toHaveCount(8);
+    await expect(page.locator('#profileMediaGrid')).toContainText('Published media 8');
+    await page.locator(`.profile__media-card[data-media-id="${publishedMediaItems[7].id}"]`).click();
+    await expect(page.locator('#profileMediaOverlay')).toHaveClass(/active/);
+    await expect(page.locator('#profileMediaOverlay .profile-media-overlay__media img')).toBeVisible();
+    await page.locator('#profileMediaOverlay .profile-media-overlay__close').click();
+
+    await page.locator('[data-profile-media-tab="liked"]').click();
+    await expect(page.locator('#profileMediaGrid .profile__media-card')).toHaveCount(6);
+    await expect(page.locator('#profileMediaGrid')).not.toContainText('Liked media 7');
+    await expect(page.locator('.profile__media-expand')).toHaveText('Show all');
+    await page.locator('.profile__media-expand').click();
+    await expect(page.locator('#profileMediaGrid .profile__media-card')).toHaveCount(7);
+    await expect(page.locator('#profileMediaGrid')).toContainText('Liked media 7');
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('[data-profile-media-tab="published"]').click();
+    await expect(page.locator('#profileMediaGrid .profile__media-card')).toHaveCount(8);
+    await expect(page.locator('.profile__media-expand')).toHaveCount(0);
   });
 
   test('profile settings layout stays wide, readable, and non-overlapping across viewports', async ({ page }) => {

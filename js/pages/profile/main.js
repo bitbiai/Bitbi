@@ -147,6 +147,8 @@ document.querySelectorAll('[data-open-wallet-workspace]').forEach((trigger) => {
 const dtf = new Intl.DateTimeFormat('de-DE', {
     day: '2-digit', month: '2-digit', year: 'numeric',
 });
+const PROFILE_DESKTOP_MEDIA_QUERY = '(min-width: 1024px) and (hover: hover) and (pointer: fine)';
+const PROFILE_DESKTOP_MEDIA_LIMIT = 6;
 
 function formatDate(iso) {
     if (!iso) return '\u2014';
@@ -919,6 +921,7 @@ function renderProfile(profile, account) {
 /* ── Social dashboard ── */
 const profileDashboardState = {
     mediaTab: 'published',
+    mediaExpanded: false,
     interactionsTab: 'followers',
     interactionsCleanup: null,
     mediaItems: [],
@@ -1203,11 +1206,34 @@ function openProfileMediaOverlay(item, { ownerAction = false } = {}) {
     overlay.close.focus();
 }
 
-function renderProfileMedia(items = []) {
+function shouldLimitProfileMediaOnDesktop() {
+    return Boolean(window.matchMedia?.(PROFILE_DESKTOP_MEDIA_QUERY).matches);
+}
+
+function createProfileMediaExpandButton() {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'profile__media-expand';
+    button.textContent = localeText('profile.showAll').trim();
+    button.addEventListener('click', () => {
+        profileDashboardState.mediaExpanded = true;
+        renderProfileMedia(profileDashboardState.mediaItems, { preserveItems: true });
+    });
+    return button;
+}
+
+function renderProfileMedia(items = [], options = {}) {
     if (!$profileMediaGrid) return;
-    profileDashboardState.mediaItems = Array.isArray(items) ? items.slice() : [];
+    if (!options.preserveItems) {
+        profileDashboardState.mediaItems = Array.isArray(items) ? items.slice() : [];
+    }
+    const allItems = profileDashboardState.mediaItems;
+    const shouldCollapse = shouldLimitProfileMediaOnDesktop()
+        && !profileDashboardState.mediaExpanded
+        && allItems.length > PROFILE_DESKTOP_MEDIA_LIMIT;
+    const visibleItems = shouldCollapse ? allItems.slice(0, PROFILE_DESKTOP_MEDIA_LIMIT) : allItems;
     $profileMediaGrid.replaceChildren();
-    if (!items.length) {
+    if (!allItems.length) {
         const empty = document.createElement('p');
         empty.className = 'profile__media-empty';
         empty.textContent = profileDashboardState.mediaTab === 'liked'
@@ -1217,7 +1243,7 @@ function renderProfileMedia(items = []) {
         return;
     }
 
-    items.forEach((item) => {
+    visibleItems.forEach((item) => {
         const card = document.createElement('article');
         card.className = `profile__media-card profile__media-card--${item.media_type || 'media'}`;
         card.dataset.mediaId = item.id || '';
@@ -1272,11 +1298,16 @@ function renderProfileMedia(items = []) {
         });
         $profileMediaGrid.appendChild(card);
     });
+
+    if (shouldCollapse) {
+        $profileMediaGrid.appendChild(createProfileMediaExpandButton());
+    }
 }
 
 async function loadProfileMedia(tab = profileDashboardState.mediaTab) {
     if (!$profileMediaGrid) return;
     profileDashboardState.mediaTab = tab;
+    profileDashboardState.mediaExpanded = false;
     setProfileMediaStatus(localeText('profile.loadingProfileMedia'), 'neutral');
     const result = await apiGetProfileMedia(tab === 'liked' ? 'liked' : 'published', { limit: 60 });
     if (!result.ok) {
@@ -1438,6 +1469,9 @@ function initProfileDashboard() {
     window.addEventListener('bitbi:public-media-interaction-change', () => {
         void loadProfileSummary();
         void loadProfileMedia(profileDashboardState.mediaTab);
+    });
+    window.matchMedia?.(PROFILE_DESKTOP_MEDIA_QUERY)?.addEventListener?.('change', () => {
+        renderProfileMedia(profileDashboardState.mediaItems, { preserveItems: true });
     });
     void loadProfileSummary();
     void loadProfileMedia('published');
