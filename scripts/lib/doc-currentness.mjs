@@ -119,6 +119,7 @@ const ACTIVE_RUNBOOK_POLICY_DOCS = new Set([
   "docs/OBSERVABILITY_EVENTS.md",
   "docs/SLO_ALERT_BASELINE.md",
   "docs/ai-image-derivatives-runbook.md",
+  "docs/production-readiness/LIVE_BILLING_RUNBOOK.md",
   "docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md",
   "docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md",
 ]);

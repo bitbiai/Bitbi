@@ -61,6 +61,7 @@ These files must stay aligned with `config/release-compat.json` and must not cla
 | `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` | Security/community policy. |
 | `docs/runbooks/*.md`, `docs/ops/*.md` | Incident/operator runbooks. |
 | `docs/BACKUP_RESTORE_DRILL.md`, `docs/OBSERVABILITY_EVENTS.md`, `docs/SLO_ALERT_BASELINE.md` | Operational readiness baselines. |
+| `docs/production-readiness/LIVE_BILLING_RUNBOOK.md` | Live billing operator canary/evidence runbook; not proof of production readiness or live billing readiness. |
 | `docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md`, `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` | Current release/evidence checklist and runbook. |
 | `docs/ai-image-derivatives-runbook.md` | AI derivative operational runbook. |
 

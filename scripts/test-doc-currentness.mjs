@@ -170,6 +170,31 @@ function writeFile(repo, relativePath, text) {
 }
 
 {
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: latest auth D1 migration is ${latest}.\nStart at docs/audits/NEXT_AUDIT_BASELINE.md.\n`);
+  writeFile(repo, "docs/production-readiness/LIVE_BILLING_RUNBOOK.md", [
+    "# Live Billing Runbook",
+    "",
+    "Status: repository support is ready for operator live-billing canary. Production readiness and live billing readiness remain blocked until sanitized operator evidence is collected, attached, and reviewed.",
+    "",
+    "Use `config/release-compat.json`, `npm run release:plan`, and generated readiness evidence when a concrete migration checkpoint is needed.",
+    "",
+    "No D1 migration is introduced by this runbook unless release tooling reports a pending existing migration.",
+    "",
+    "The Admin Live Billing Command Center does not enable live billing, prove Stripe readiness, prove tax readiness, prove legal compliance, deploy, mutate Cloudflare, or call Stripe.",
+    "",
+  ].join("\n"));
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.deepEqual(result.violations, []);
+  assert.equal(
+    result.markdownInventory.find((entry) => entry.path === "docs/production-readiness/LIVE_BILLING_RUNBOOK.md")?.category,
+    "active_runbook_policy"
+  );
+}
+
+{
   const repo = makeRepo("0061_future_release_contract.sql");
   writeFile(repo, "README.md", `Current release truth lives in ${releaseContract}; do not duplicate the latest auth migration filename.\n`);
   const result = scanDocCurrentness(repo, {
