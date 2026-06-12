@@ -5,9 +5,7 @@ export const RC_CHECK_VERSION = "current-baseline-rc-check-v1";
 export const FINAL_RC_COMMANDS = Object.freeze([
   { category: "repository", command: "git status --short" },
   { category: "audit", command: "npm audit --audit-level=low" },
-  { category: "audit", command: "npm --prefix workers/auth audit --audit-level=low" },
-  { category: "audit", command: "npm --prefix workers/contact audit --audit-level=low" },
-  { category: "audit", command: "npm --prefix workers/ai audit --audit-level=low" },
+  { category: "audit", command: "npm run check:worker-dependency-audits" },
   { category: "static-analysis", command: "npm run check:js" },
   { category: "static-analysis", command: "npm run check:secrets" },
   { category: "static-analysis", command: "npm run check:route-policies" },

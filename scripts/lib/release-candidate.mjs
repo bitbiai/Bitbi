@@ -197,9 +197,7 @@ export function createReleaseCandidateManifest({
     audits: {
       root: { status: "operator_to_run_or_attach", command: "npm audit --audit-level=low" },
       workers: [
-        { worker: "auth", status: "operator_to_run_or_attach", command: "npm --prefix workers/auth audit --audit-level=low" },
-        { worker: "contact", status: "operator_to_run_or_attach", command: "npm --prefix workers/contact audit --audit-level=low" },
-        { worker: "ai", status: "operator_to_run_or_attach", command: "npm --prefix workers/ai audit --audit-level=low" },
+        { worker: "all", status: "operator_to_run_or_attach", command: "npm run check:worker-dependency-audits" },
       ],
     },
     releasePlan: summarizeReleasePlan(plan),

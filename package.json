@@ -2,7 +2,7 @@
   "name": "bitbi",
   "private": true,
   "engines": {
-    "node": ">=20 <21",
+    "node": ">=22 <23",
     "npm": ">=10"
   },
   "scripts": {
@@ -50,6 +50,7 @@
     "check:live-security-headers": "node scripts/check-live-security-headers.mjs",
     "check:js": "node scripts/check-js.mjs",
     "check:main-release-readiness": "node scripts/check-main-release-readiness.mjs",
+    "check:worker-dependency-audits": "node scripts/check-worker-dependency-audits.mjs",
     "check:static-deploy-safety": "node scripts/check-static-deploy-safety.mjs",
     "check:static-deploy-safety:github": "node scripts/check-static-deploy-safety.mjs --github-output",
     "check:ai-cost-policy": "node scripts/check-ai-cost-policy.mjs",

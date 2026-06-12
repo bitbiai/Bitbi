@@ -195,22 +195,22 @@ export function validateToolchainFiles(repoRoot) {
     issues.push(".nvmrc is missing.");
   } else {
     const value = fs.readFileSync(nvmrcPath, "utf8").trim();
-    if (value !== "20") {
-      issues.push(`.nvmrc must pin Node 20, found ${JSON.stringify(value)}.`);
+    if (value !== "22") {
+      issues.push(`.nvmrc must pin Node 22, found ${JSON.stringify(value)}.`);
     }
   }
 
   const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
-  if (pkg.engines?.node !== ">=20 <21") {
-    issues.push('package.json engines.node must be ">=20 <21".');
+  if (pkg.engines?.node !== ">=22 <23") {
+    issues.push('package.json engines.node must be ">=22 <23".');
   }
   if (pkg.engines?.npm !== ">=10") {
     issues.push('package.json engines.npm must be ">=10".');
   }
 
   const workflow = fs.readFileSync(workflowPath, "utf8");
-  if (!/node-version:\s*20\b/.test(workflow)) {
-    issues.push("Static workflow must use Node 20.");
+  if (!/node-version:\s*22\b/.test(workflow)) {
+    issues.push("Static workflow must use Node 22.");
   }
 
   return issues;

@@ -21,7 +21,7 @@ assert.equal(plan.commandCount, FINAL_RC_COMMANDS.length);
 
 for (const required of [
   "npm audit --audit-level=low",
-  "npm --prefix workers/auth audit --audit-level=low",
+  "npm run check:worker-dependency-audits",
   "npm run check:js",
   "npm run check:secrets",
   "npm run check:route-policies",

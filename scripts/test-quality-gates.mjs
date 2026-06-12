@@ -45,14 +45,14 @@ import {
 {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "bitbi-toolchain-"));
   fs.mkdirSync(path.join(tmp, ".github/workflows"), { recursive: true });
-  fs.writeFileSync(path.join(tmp, ".nvmrc"), "20\n");
+  fs.writeFileSync(path.join(tmp, ".nvmrc"), "22\n");
   fs.writeFileSync(path.join(tmp, "package.json"), JSON.stringify({
     engines: {
-      node: ">=20 <21",
+      node: ">=22 <23",
       npm: ">=10",
     },
   }));
-  fs.writeFileSync(path.join(tmp, ".github/workflows/static.yml"), "node-version: 20\n");
+  fs.writeFileSync(path.join(tmp, ".github/workflows/static.yml"), "node-version: 22\n");
   assert.deepEqual(validateToolchainFiles(tmp), []);
 }
 

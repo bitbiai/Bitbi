@@ -57,7 +57,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
@@ -68,8 +68,8 @@ jobs:
           for worker in workers/auth workers/contact workers/ai; do
             npm --prefix "$worker" ci
             npm --prefix "$worker" ls --depth=0
-            npm --prefix "$worker" audit --audit-level=low
           done
+          npm run check:worker-dependency-audits
       - name: Check toolchain pinning
         run: npm run check:toolchain
       - name: Run quality gate tests
@@ -140,7 +140,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
@@ -162,7 +162,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
       - name: Install dependencies
         run: npm ci

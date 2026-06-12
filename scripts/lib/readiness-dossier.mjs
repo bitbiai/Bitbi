@@ -10,9 +10,7 @@ export const READINESS_DOSSIER_VERSION = "current-baseline-readiness-dossier-v1"
 const VALIDATION_COMMANDS = Object.freeze([
   "git status --short",
   "npm audit --audit-level=low",
-  "npm --prefix workers/auth audit --audit-level=low",
-  "npm --prefix workers/contact audit --audit-level=low",
-  "npm --prefix workers/ai audit --audit-level=low",
+  "npm run check:worker-dependency-audits",
   "npm run check:js",
   "npm run check:secrets",
   "npm run check:route-policies",
@@ -181,9 +179,7 @@ export function createProductionReadinessDossier({
       status: "operator_to_run_or_attach",
       guidance: [
         "npm audit --audit-level=low",
-        "npm --prefix workers/auth audit --audit-level=low",
-        "npm --prefix workers/contact audit --audit-level=low",
-        "npm --prefix workers/ai audit --audit-level=low",
+        "npm run check:worker-dependency-audits",
       ],
     },
     localValidationChecklist: VALIDATION_COMMANDS,
