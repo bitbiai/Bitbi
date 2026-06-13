@@ -402,6 +402,11 @@ function parseJsonObject(value) {
   }
 }
 
+function payloadSummaryEquivalent(left, right) {
+  return JSON.stringify(left && typeof left === "object" ? left : {}) ===
+    JSON.stringify(right && typeof right === "object" ? right : {});
+}
+
 function serializeEventRow(row, { includeActions = false, actions = [] } = {}) {
   if (!row) return null;
   const event = {
@@ -1463,10 +1468,19 @@ export async function ingestVerifiedBillingProviderEvent({
   ).bind(normalized.provider, normalized.providerEventId).first();
   if (existing) {
     if (existing.payload_hash !== normalized.payloadHash) {
-      throw new BillingEventError("Billing provider event id was replayed with a different payload.", {
-        status: 409,
-        code: "billing_event_payload_conflict",
-      });
+      const existingSummary = parseJsonObject(existing.payload_summary_json);
+      const sameCanonicalEvent =
+        normalized.provider === BILLING_WEBHOOK_STRIPE_PROVIDER &&
+        normalized.eventType === "checkout.session.completed" &&
+        existing.provider_mode === normalized.providerMode &&
+        existing.event_type === normalized.eventType &&
+        payloadSummaryEquivalent(existingSummary, normalized.payloadSummary);
+      if (!sameCanonicalEvent) {
+        throw new BillingEventError("Billing provider event id was replayed with a different payload.", {
+          status: 409,
+          code: "billing_event_payload_conflict",
+        });
+      }
     }
     return {
       event: serializeEventRow(existing),

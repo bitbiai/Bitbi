@@ -3588,6 +3588,98 @@ async function requireLiveMemberCheckoutSession(env, completion) {
   return { checkout, scope: LIVE_MEMBER_AUTH_SCOPE };
 }
 
+function isCompletedLiveMemberCheckoutAlreadyGranted(checkout) {
+  return Boolean(
+    checkout &&
+    checkout.provider === "stripe" &&
+    checkout.provider_mode === STRIPE_MODE_LIVE &&
+    checkout.authorization_scope === LIVE_MEMBER_AUTH_SCOPE &&
+    checkout.status === "completed" &&
+    checkout.payment_status === "paid" &&
+    checkout.member_credit_ledger_entry_id
+  );
+}
+
+async function returnLiveMemberCheckoutAlreadyGrantedNoop({
+  env,
+  stored,
+  payload,
+  completion,
+  checkout,
+  scope = LIVE_MEMBER_AUTH_SCOPE,
+  tolerateEventUpdateFailure = false,
+}) {
+  const refreshedCheckout = await upsertCompletedMemberCheckoutSession({
+    env,
+    completion,
+    billingEventId: stored.event.id,
+    ledgerEntryId: checkout.member_credit_ledger_entry_id,
+  });
+  let event = stored.event;
+  try {
+    event = await updateBillingProviderEventProcessing(env, {
+      eventId: stored.event.id,
+      processingStatus: "planned",
+      userId: completion.userId,
+      actionType: payload.type,
+      actionStatus: "planned",
+      actionDryRun: false,
+      actionSummary: {
+        sideEffectsEnabled: true,
+        liveBillingEnabled: true,
+        checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE,
+        authorizationScope: scope,
+        creditGrantStatus: "already_granted",
+        creditPackId: completion.pack.id,
+        credits: completion.pack.credits,
+        creditsGranted: 0,
+        reused: true,
+        checkoutStatus: "completed",
+        ledgerEntryLinked: true,
+      },
+    });
+  } catch (error) {
+    if (!tolerateEventUpdateFailure) throw error;
+  }
+  return {
+    event,
+    duplicate: false,
+    actionPlanned: true,
+    creditGrant: {
+      checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE,
+      userId: completion.userId,
+      creditsGranted: 0,
+      balanceAfter: null,
+      reused: true,
+    },
+    checkout: serializeMemberCheckoutRow(refreshedCheckout || checkout),
+  };
+}
+
+async function recoverLiveMemberCheckoutAlreadyGrantedNoop({
+  env,
+  stored,
+  payload,
+  completion,
+}) {
+  if (completion?.checkoutScope !== LIVE_MEMBER_CHECKOUT_SCOPE) return null;
+  try {
+    const { checkout, scope } = await requireLiveMemberCheckoutSession(env, completion);
+    if (!isCompletedLiveMemberCheckoutAlreadyGranted(checkout)) return null;
+    return await returnLiveMemberCheckoutAlreadyGrantedNoop({
+      env,
+      stored,
+      payload,
+      completion,
+      checkout,
+      scope,
+      tolerateEventUpdateFailure: true,
+    });
+  } catch {
+    return null;
+  }
+}
+
 function assertMemberSubscriptionCheckoutMatchesCompletion(checkout, completion) {
   if (
     checkout.user_id !== completion.userId ||
@@ -4338,6 +4430,16 @@ export async function handleVerifiedStripeLiveWebhookEvent({
   try {
     if (completion.checkoutScope === LIVE_MEMBER_CHECKOUT_SCOPE) {
       const { checkout: existingCheckout, scope } = await requireLiveMemberCheckoutSession(env, completion);
+      if (isCompletedLiveMemberCheckoutAlreadyGranted(existingCheckout)) {
+        return await returnLiveMemberCheckoutAlreadyGrantedNoop({
+          env,
+          stored,
+          payload,
+          completion,
+          checkout: existingCheckout,
+          scope,
+        });
+      }
       let grant = null;
       if (!existingCheckout.member_credit_ledger_entry_id) {
         grant = await grantMemberCredits({
@@ -4449,6 +4551,13 @@ export async function handleVerifiedStripeLiveWebhookEvent({
       checkout: serializeCheckoutRow(checkout),
     };
   } catch (error) {
+    const recoveredNoop = await recoverLiveMemberCheckoutAlreadyGrantedNoop({
+      env,
+      stored,
+      payload,
+      completion,
+    });
+    if (recoveredNoop) return recoveredNoop;
     const code = error instanceof BillingError || error instanceof StripeBillingError
       ? error.code
       : "stripe_live_credit_grant_failed";

@@ -9522,6 +9522,210 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     }));
   });
 
+  test('live Stripe webhook grants 5000 member checkout credits exactly once', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const member = createContractUser({ id: 'phase2m-webhook-5000-member', role: 'user' });
+    const calls = [];
+    const env = createAuthTestEnv(seedLiveBillingOrg({
+      member,
+      extra: {
+        users: [member],
+        organizations: [],
+        organizationMemberships: [],
+        fetch: mockLiveStripeCheckoutFetch({ calls }),
+      },
+    }));
+    const token = await seedSession(env, member.id);
+
+    const checkout = await worker.fetch(
+      authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', { pack_id: 'live_credits_5000', ...LIVE_TERMS_ACCEPTANCE }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'phase2m-valid-member-5000-live-checkout',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(checkout.status).toBe(201);
+
+    const checkoutRow = env.DB.state.billingMemberCheckoutSessions[0];
+    const payload = liveStripeCompletedPayload({
+      id: 'evt_phase2m_valid_member_5000_live',
+      session: {
+        id: checkoutRow.provider_checkout_session_id,
+        payment_intent: 'pi_live_phase2m_member_5000_01',
+        user_id: member.id,
+        credit_pack_id: 'live_credits_5000',
+        credits: '5000',
+        amount_total: 999,
+        metadata: {
+          checkout_scope: 'member',
+          authorization_scope: 'member',
+          organization_id: undefined,
+          internal_checkout_session_id: checkoutRow.id,
+        },
+      },
+    });
+    const accepted = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const acceptedBody = await accepted.json();
+    expect(accepted.status).toBe(202);
+    expect(acceptedBody.creditGrant).toEqual(expect.objectContaining({
+      checkoutScope: 'member',
+      userId: member.id,
+      creditsGranted: 5000,
+      balanceAfter: 5000,
+      reused: false,
+    }));
+    expect(env.DB.state.memberCreditLedger).toHaveLength(1);
+    expect(env.DB.state.memberCreditLedger[0]).toEqual(expect.objectContaining({
+      user_id: member.id,
+      amount: 5000,
+      source: 'stripe_live_checkout',
+      idempotency_key: `stripe_live_member_checkout:${checkoutRow.provider_checkout_session_id}:live_credits_5000`,
+    }));
+    expect(env.DB.state.billingMemberCheckoutSessions[0]).toEqual(expect.objectContaining({
+      status: 'completed',
+      payment_status: 'paid',
+      member_credit_ledger_entry_id: env.DB.state.memberCreditLedger[0].id,
+    }));
+
+    const duplicate = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const duplicateBody = await duplicate.json();
+    expect(duplicate.status).toBe(200);
+    expect(duplicateBody.duplicate).toBe(true);
+    expect(env.DB.state.memberCreditLedger).toHaveLength(1);
+
+    const formattedDuplicate = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: JSON.stringify(payload, null, 2) }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const formattedDuplicateBody = await formattedDuplicate.json();
+    expect(formattedDuplicate.status).toBe(200);
+    expect(formattedDuplicateBody.duplicate).toBe(true);
+    expect(env.DB.state.memberCreditLedger).toHaveLength(1);
+  });
+
+  test('live Stripe webhook retry for a repaired member credit-pack checkout returns an already-granted no-op', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const member = createContractUser({ id: 'phase2m-webhook-repaired-member', role: 'user' });
+    const checkoutSessionId = 'cs_live_phase2m_repaired_5000';
+    const ledgerEntryId = 'mcl_phase2m_repaired_5000';
+    const env = createAuthTestEnv(seedLiveBillingOrg({
+      member,
+      extra: {
+        users: [member],
+        organizations: [],
+        organizationMemberships: [],
+        memberCreditLedger: [{
+          id: ledgerEntryId,
+          user_id: member.id,
+          amount: 5000,
+          balance_after: 7580,
+          entry_type: 'grant',
+          feature_key: null,
+          source: 'stripe_live_checkout',
+          idempotency_key: `stripe_live_member_checkout:${checkoutSessionId}:live_credits_5000`,
+          request_hash: 'phase2m_repaired_5000_request',
+          created_by_user_id: member.id,
+          created_at: '2026-06-13T10:00:00.000Z',
+          metadata_json: '{}',
+        }],
+        billingMemberCheckoutSessions: [{
+          id: 'bcs_phase2m_repaired_5000',
+          provider: 'stripe',
+          provider_mode: 'live',
+          provider_checkout_session_id: checkoutSessionId,
+          provider_payment_intent_id: 'pi_live_phase2m_repaired_5000',
+          user_id: member.id,
+          credit_pack_id: 'live_credits_5000',
+          credits: 5000,
+          amount_cents: 999,
+          currency: 'eur',
+          status: 'completed',
+          idempotency_key_hash: 'phase2m_repaired_5000_key',
+          request_fingerprint_hash: 'phase2m_repaired_5000_request',
+          checkout_url: 'https://pay.bitbi.ai/c/pay/cs_live_phase2m_repaired_5000',
+          provider_customer_id: 'cus_live_phase2m_repaired_5000',
+          billing_event_id: null,
+          member_credit_ledger_entry_id: ledgerEntryId,
+          authorization_scope: 'member',
+          payment_status: 'paid',
+          error_code: null,
+          error_message: null,
+          metadata_json: JSON.stringify({ checkoutScope: 'member', authorizationScope: 'member' }),
+          granted_at: '2026-06-13T10:02:00.000Z',
+          failed_at: null,
+          expired_at: null,
+          created_at: '2026-06-13T10:00:00.000Z',
+          updated_at: '2026-06-13T10:02:00.000Z',
+          completed_at: '2026-06-13T10:02:00.000Z',
+        }],
+      },
+    }));
+    const payload = liveStripeCompletedPayload({
+      id: 'evt_phase2m_repaired_retry_5000',
+      session: {
+        id: checkoutSessionId,
+        payment_intent: 'pi_live_phase2m_repaired_5000',
+        customer: 'cus_live_phase2m_repaired_5000',
+        user_id: member.id,
+        credit_pack_id: 'live_credits_5000',
+        credits: '5000',
+        amount_total: 999,
+        metadata: {
+          checkout_scope: 'member',
+          authorization_scope: 'member',
+          organization_id: undefined,
+          internal_checkout_session_id: 'bcs_phase2m_repaired_5000',
+        },
+      },
+    });
+
+    const response = await worker.fetch(
+      await signedLiveStripeWebhookRequest({ body: payload }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const body = await response.json();
+    expect(response.status).toBe(202);
+    expect(body).toEqual(expect.objectContaining({
+      ok: true,
+      duplicate: false,
+      actionPlanned: true,
+    }));
+    expect(body.creditGrant).toEqual(expect.objectContaining({
+      checkoutScope: 'member',
+      userId: member.id,
+      creditsGranted: 0,
+      reused: true,
+    }));
+    expect(env.DB.state.memberCreditLedger).toHaveLength(1);
+    expect(env.DB.state.memberCreditLedger[0].id).toBe(ledgerEntryId);
+    expect(env.DB.state.billingMemberCheckoutSessions[0]).toEqual(expect.objectContaining({
+      status: 'completed',
+      payment_status: 'paid',
+      member_credit_ledger_entry_id: ledgerEntryId,
+    }));
+    expect(env.DB.state.billingProviderEvents[0]).toEqual(expect.objectContaining({
+      provider_event_id: 'evt_phase2m_repaired_retry_5000',
+      processing_status: 'planned',
+      error_code: null,
+    }));
+    expect(env.DB.state.billingEventActions[0]).not.toEqual(expect.objectContaining({
+      status: 'failed',
+    }));
+    expect(JSON.stringify(body)).not.toContain(STRIPE_LIVE_WEBHOOK_SECRET);
+  });
+
   test('admin live member credit-pack repair dry-runs, applies once, and reuses the webhook idempotency key', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');
     const member = createContractUser({ id: 'phase2m-repair-member', role: 'user' });
