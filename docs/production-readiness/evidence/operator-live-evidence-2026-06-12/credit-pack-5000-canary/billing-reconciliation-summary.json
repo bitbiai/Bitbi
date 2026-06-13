@@ -1,1 +1,48 @@
-null
+{
+  "generated_at": "2026-06-13",
+  "source": "post_repair_admin_reconciliation_export_sanitized",
+  "read_only": true,
+  "calls_stripe": false,
+  "mutates_d1": false,
+  "summary": {
+    "critical_items": 0,
+    "warning_items": 3,
+    "member_live_credit_pack_by_status": {
+      "completed": 3,
+      "created": 10
+    },
+    "provider_grant_rows": 4,
+    "duplicate_idempotency_key_groups": 0,
+    "negative_balances": 0,
+    "billing_reviews_blocked": 0,
+    "billing_reviews_needs_review": 0,
+    "ledger_linked_without_billing_event": 1
+  },
+  "repaired_checkout": {
+    "checkout_id": "bcs_28816cfe9f76e56339a9dbe5a105b565",
+    "checkout_status": "completed",
+    "payment_status": "paid",
+    "ledger_entry_id": "cl_5f0f971241b265f255405bc5fede1e86",
+    "repair_eligible": false,
+    "critical_item_present": false
+  },
+  "warnings": [
+    {
+      "id": "ledger_linked_without_billing_event",
+      "severity": "warning",
+      "status": "expected_for_this_repair",
+      "reason": "Original live checkout webhook failed before local provider event capture; repair linked the ledger directly to the checkout."
+    },
+    {
+      "id": "historical_provider_events_failed",
+      "severity": "warning",
+      "status": "visible_for_operator_monitoring",
+      "reason": "Historical failed provider events remain visible but are not critical for the repaired checkout."
+    }
+  ],
+  "verdict": {
+    "repaired_checkout_has_no_critical_reconciliation_item": true,
+    "repair_did_not_create_negative_balance": true,
+    "duplicate_idempotency_groups_found": false
+  }
+}

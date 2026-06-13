@@ -1,0 +1,68 @@
+{
+  "generated_at": "2026-06-13",
+  "scope": "5000-credit-pack repair evidence",
+  "safety": {
+    "raw_stripe_payloads_included": false,
+    "webhook_signatures_included": false,
+    "cookies_or_bearer_tokens_included": false,
+    "card_data_included": false,
+    "full_checkout_urls_included": false,
+    "full_portal_urls_included": false,
+    "screenshots_committed": false,
+    "rtf_zip_pdf_committed": false
+  },
+  "incident": {
+    "checkout_id": "bcs_28816cfe9f76e56339a9dbe5a105b565",
+    "credit_pack_id": "live_credits_5000",
+    "expected_credits": 5000,
+    "expected_amount_cents": 999,
+    "expected_currency": "eur",
+    "original_failure": "checkout.session.completed delivery returned HTTP 500 / Cloudflare 1101 before local fulfillment",
+    "pre_purchase_total_credits": 2580,
+    "pre_purchase_purchased_credits": 64
+  },
+  "repair_apply_result": {
+    "status": "applied",
+    "credits_granted": 5000,
+    "balance_after_repair": 7580,
+    "ledger_entry_id": "cl_5f0f971241b265f255405bc5fede1e86",
+    "checkout_status_after_repair": "completed",
+    "payment_status_after_repair": "paid",
+    "repair_eligible_after_repair": false
+  },
+  "noop_verification": {
+    "status": "already_completed",
+    "credits_granted": 0,
+    "reused": true,
+    "has_ledger_entry": true,
+    "proves_no_second_grant": true
+  },
+  "reconciliation_summary": {
+    "critical_items": 0,
+    "warning_items": 3,
+    "member_live_credit_pack_completed": 3,
+    "member_live_credit_pack_created": 10,
+    "provider_grant_rows": 4,
+    "duplicate_idempotency_key_groups": 0,
+    "negative_balances": 0,
+    "ledger_linked_without_billing_event": 1,
+    "note": "Ledger-linked-without-billing-event warning is expected for this repaired checkout because the original webhook failed before local provider event capture."
+  },
+  "billing_reviews_summary": {
+    "blocked": 0,
+    "needs_review": 0,
+    "resolved": 1,
+    "dismissed": 1,
+    "informational": 2,
+    "stale_unresolved": 0
+  },
+  "evidence_verdict": {
+    "incident_repaired": true,
+    "exactly_5000_granted_once": true,
+    "checkout_completed_and_ledger_linked": true,
+    "repeat_repair_no_double_grant": true,
+    "no_critical_reconciliation_item": true,
+    "no_blocking_or_needs_review_item": true,
+    "duplicate_stripe_webhook_replay_evidence": "pending_actual_replay_artifact"
+  }
+}

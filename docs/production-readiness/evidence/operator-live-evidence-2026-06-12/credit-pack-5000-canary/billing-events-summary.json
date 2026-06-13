@@ -1,1 +1,37 @@
-null
+{
+  "generated_at": "2026-06-13",
+  "scope": "5000-credit-pack canary billing event summary",
+  "committed_raw_provider_payloads": false,
+  "committed_webhook_signatures": false,
+  "events_summary": {
+    "original_checkout_event": {
+      "event_type": "checkout.session.completed",
+      "provider_mode": "live",
+      "credit_pack_id": "live_credits_5000",
+      "amount_cents": 999,
+      "currency": "eur",
+      "delivery_result": "HTTP 500 / Cloudflare 1101",
+      "local_provider_event_row_captured": false,
+      "local_checkout_status_before_repair": "created",
+      "local_credit_grant_before_repair": 0
+    },
+    "repair_event": {
+      "source": "admin_live_credit_pack_repair_endpoint",
+      "checkout_id": "bcs_28816cfe9f76e56339a9dbe5a105b565",
+      "result": "applied",
+      "credits_granted": 5000,
+      "ledger_entry_id": "cl_5f0f971241b265f255405bc5fede1e86",
+      "checkout_status_after_repair": "completed",
+      "payment_status_after_repair": "paid"
+    },
+    "repeat_repair_check": {
+      "result": "already_completed",
+      "credits_granted": 0,
+      "reused_existing_ledger": true,
+      "proves_no_double_grant": true
+    }
+  },
+  "pending_evidence": {
+    "duplicate_stripe_webhook_replay": "pending_actual_replay_artifact"
+  }
+}

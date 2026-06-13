@@ -4,9 +4,25 @@ Generated: 2026-06-13
 
 ## Status
 
-Live billing remains operator-approved for the broader system, but this 5000-credit-pack canary is a failed fulfillment incident until the paid checkout is repaired and verified.
+This 5000-credit-pack canary began as a failed fulfillment incident and is now
+repaired for the affected checkout.
 
-Recommended temporary safety action:
+Repaired checkout:
+
+- Checkout id: `bcs_28816cfe9f76e56339a9dbe5a105b565`
+- Credit pack: `live_credits_5000`
+- Repair result: `applied`
+- Credits granted: 5000
+- Ledger entry id: `cl_5f0f971241b265f255405bc5fede1e86`
+- Checkout status after repair: `completed`
+- Payment status after repair: `paid`
+- Repeat repair verification: `already_completed`, 0 credits granted, reused existing ledger
+
+Live billing remains operator-approved for the broader system. Duplicate Stripe
+webhook replay evidence remains pending until an actual replay or equivalent
+delivery artifact is captured.
+
+Historical temporary safety action from the incident response:
 
 - Set `ENABLE_LIVE_STRIPE_CREDIT_PACKS=false` until the repair/hardening Worker deploy is complete and the already-paid checkout is repaired.
 - Keep `ENABLE_LIVE_STRIPE_SUBSCRIPTIONS` and `/api/billing/webhooks/stripe/live` unchanged unless the operator explicitly decides otherwise.
@@ -66,13 +82,18 @@ The repair must be idempotent and operator-audited:
 - Re-running the same repair must be a no-op and must not double-grant credits.
 - Do not store raw Stripe payloads, webhook signatures, checkout URLs, customer portal URLs, card data, cookies, bearer tokens, or secrets.
 
-## Evidence Status
+## Repair Evidence Status
 
-This canary must not be marked artifact-backed successful until a follow-up evidence package shows:
+This canary is marked repaired because follow-up evidence shows:
 
 - The repair was applied by an admin/operator using the dry-run-first repair path.
-- The member purchased-credit balance increased by exactly 5000 once.
+- The member credit balance increased by exactly 5000 once, from 2580 to 7580.
 - The checkout row moved from `created` to `completed`.
-- The member ledger contains exactly one `stripe_live_checkout` grant for the checkout.
-- Duplicate repair/webhook attempts did not double-grant.
+- The member ledger has a linked grant row for the checkout.
+- Repeat repair/no-op verification did not double-grant.
+- Reconciliation shows 0 critical items after repair.
+- Billing Reviews show 0 blocking and 0 `needs_review` items after repair.
 
+Still pending:
+
+- Artifact-backed duplicate Stripe webhook replay evidence.
