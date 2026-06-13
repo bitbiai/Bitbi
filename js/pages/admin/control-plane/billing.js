@@ -659,6 +659,47 @@ export function createBillingDomain({ notify, formatDate }) {
         return (Array.isArray(refs) ? refs : []).filter((ref) => ref?.itemType && ref?.itemId);
     }
 
+    function providerEventIdsFromArchiveRefs(refs) {
+        const ids = new Set();
+        for (const ref of nonEmptyRefs(refs)) {
+            const itemId = String(ref.itemId || '');
+            if ((ref.itemType === 'billing_provider_event' || ref.itemType === 'billing_review') && itemId.startsWith('bpe_')) {
+                ids.add(itemId);
+            } else if ((ref.itemType === 'payment_problem' || ref.itemType === 'reconciliation_item') && itemId.startsWith('event-bpe_')) {
+                ids.add(itemId.slice('event-'.length));
+            } else if ((ref.itemType === 'payment_problem' || ref.itemType === 'reconciliation_item') && itemId.startsWith('bpe_')) {
+                ids.add(itemId);
+            }
+            if (String(ref.billingEventId || '').startsWith('bpe_')) ids.add(ref.billingEventId);
+            if (String(ref.id || '').startsWith('bpe_')) ids.add(ref.id);
+        }
+        return [...ids];
+    }
+
+    async function verifyArchivedRefsHiddenFromActiveEvents(refs, stateId) {
+        const archivedEventIds = providerEventIdsFromArchiveRefs(refs);
+        if (archivedEventIds.length === 0) return true;
+        const provider = byId('billingEventsProvider')?.value || '';
+        const status = byId('billingEventsStatus')?.value || '';
+        const res = await apiAdminBillingEvents({ provider, status, limit: 100 });
+        if (!res.ok) {
+            setState(stateId, apiUnavailableMessage(res, 'Archiv wurde gespeichert, aber die aktive Ansicht konnte nicht nachgeprüft werden.'), 'error');
+            return false;
+        }
+        const returned = (Array.isArray(res.data?.events) ? res.data.events : [])
+            .filter((event) => archivedEventIds.includes(event.id));
+        if (returned.length > 0) {
+            setState(
+                stateId,
+                `Archiv wurde gespeichert, aber die aktive API liefert weiterhin archivierte IDs: ${returned.map((event) => shortId(event.id)).join(', ')}. Bitte Auth-Worker-Deploy und Migration prüfen.`,
+                'error'
+            );
+            notify('Archiv-Regressionsprüfung fehlgeschlagen.', 'error');
+            return false;
+        }
+        return true;
+    }
+
     async function refreshBillingArchiveDependentPanels() {
         await Promise.all([
             loadBillingEvidenceStatus(),
@@ -703,6 +744,7 @@ export function createBillingDomain({ notify, formatDate }) {
         setState(stateId, `${itemRefs.length} Eintrag/Einträge wurden aus der aktiven Ansicht ausgeblendet.`, 'success');
         notify('Einträge archiviert.', 'success');
         await refreshBillingArchiveDependentPanels();
+        await verifyArchivedRefsHiddenFromActiveEvents(itemRefs, stateId);
     }
 
     async function restoreBillingRefs(refs, { stateId = 'billingArchiveState' } = {}) {
@@ -748,14 +790,27 @@ export function createBillingDomain({ notify, formatDate }) {
             renderUnavailable(list, res, 'Billing events unavailable.');
             return;
         }
-        const events = Array.isArray(res.data?.events) ? res.data.events : [];
+        const rawEvents = Array.isArray(res.data?.events) ? res.data.events : [];
+        const leakedArchivedEvents = rawEvents.filter((event) => event?.archived === true);
+        const events = rawEvents.filter((event) => event?.archived !== true);
         visibleBillingEventRefs = events.map((event) => eventArchiveRef(event)).filter(Boolean);
         appendArchiveNote(list, res.data?.archiveSummary || {});
+        if (leakedArchivedEvents.length > 0) {
+            setState(
+                'billingEventsState',
+                `Aktive API hat archivierte Einträge zurückgegeben: ${leakedArchivedEvents.map((event) => shortId(event.id)).join(', ')}. Diese Zeilen werden nicht als aktive Einträge gerendert; bitte Auth-Worker prüfen.`,
+                'error'
+            );
+        }
         if (events.length === 0) {
-            setState('billingEventsState', `Keine aktiven Billing Events für die Filter gefunden. ${archiveSummaryText(res.data?.archiveSummary || {})}`);
+            if (leakedArchivedEvents.length === 0) {
+                setState('billingEventsState', `Keine aktiven Billing Events gefunden. Archivierte Einträge findest du im Archiv. ${archiveSummaryText(res.data?.archiveSummary || {})}`);
+            }
             return;
         }
-        setState('billingEventsState', `Showing ${events.length} sanitized events in the active view. ${archiveSummaryText(res.data?.archiveSummary || {})}`);
+        if (leakedArchivedEvents.length === 0) {
+            setState('billingEventsState', `Showing ${events.length} sanitized events in the active view. ${archiveSummaryText(res.data?.archiveSummary || {})}`);
+        }
         const { wrap, tbody } = table(['Provider', 'Mode', 'Type', 'Status', 'Organization', 'Received', 'Actions']);
         for (const event of events) {
             const tr = document.createElement('tr');

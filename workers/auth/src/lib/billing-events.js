@@ -456,6 +456,9 @@ function serializeEventRow(row, { includeActions = false, actions = [] } = {}) {
     updatedAt: row.updated_at,
     payloadSummary: parseJsonObject(row.payload_summary_json),
   };
+  if (row.archived != null) {
+    event.archived = Number(row.archived || 0) === 1 || row.archived === true;
+  }
   if (includeActions) {
     event.actions = actions.map(serializeActionRow);
   }
@@ -1642,12 +1645,61 @@ function normalizeOptionalFilter(value, maxLength = 128) {
   return text || null;
 }
 
-async function archiveSummaryWithHiddenCount(env, candidateRows = []) {
+const PROVIDER_EVENT_ARCHIVE_EXISTS_SQL = `EXISTS (
+       SELECT 1
+       FROM billing_operator_item_states AS archive
+       WHERE archive.state = 'archived'
+         AND (
+           (archive.item_type IN ('billing_provider_event', 'billing_review')
+             AND archive.item_id = bpe.id)
+           OR (archive.item_type IN ('payment_problem', 'reconciliation_item')
+             AND (archive.item_id = bpe.id OR archive.item_id = ('event-' || bpe.id)))
+         )
+     )`;
+
+function providerEventFilterSql({ includeArchived = false } = {}) {
+  return includeArchived ? "" : `AND NOT ${PROVIDER_EVENT_ARCHIVE_EXISTS_SQL}`;
+}
+
+function providerEventFilterBindings({
+  providerFilter,
+  modeFilter,
+  statusFilter,
+  typeFilter,
+  orgFilter,
+}) {
+  return [
+    providerFilter,
+    providerFilter,
+    modeFilter,
+    modeFilter,
+    statusFilter,
+    statusFilter,
+    typeFilter,
+    typeFilter,
+    orgFilter,
+    orgFilter,
+  ];
+}
+
+async function countArchivedProviderEventsForFilter(env, filters) {
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM billing_provider_events AS bpe
+     WHERE (? IS NULL OR bpe.provider = ?)
+       AND (? IS NULL OR bpe.provider_mode = ?)
+       AND (? IS NULL OR bpe.processing_status = ?)
+       AND (? IS NULL OR bpe.event_type = ?)
+       AND (? IS NULL OR bpe.organization_id = ?)
+       AND ${PROVIDER_EVENT_ARCHIVE_EXISTS_SQL}`
+  ).bind(...providerEventFilterBindings(filters)).first();
+  return Number(row?.count || 0);
+}
+
+async function archiveSummaryWithHiddenCount(env, filters) {
   const archiveSummary = await getBillingArchiveSummary(env);
   const archivedKeys = await getArchivedBillingItemKeys(env);
-  const hiddenArchivedCount = candidateRows.filter((row) =>
-    isBillingProviderEventArchived(archivedKeys, row.id)
-  ).length;
+  const hiddenArchivedCount = await countArchivedProviderEventsForFilter(env, filters);
   return {
     archiveSummary: {
       ...archiveSummary,
@@ -1668,43 +1720,57 @@ export async function listBillingProviderEvents(env, {
   includeArchiveSummary = false,
 } = {}) {
   const appliedLimit = normalizeLimit(limit);
-  const scanLimit = includeArchived ? appliedLimit : Math.min(Math.max(appliedLimit * 5, 50), 500);
   const providerFilter = provider ? normalizeProvider(provider) : null;
   const modeFilter = providerMode ? normalizeReviewProviderMode(providerMode) : null;
   const statusFilter = normalizeOptionalFilter(status, 32);
   const typeFilter = eventType ? normalizeEventType(eventType) : null;
   const orgFilter = organizationId ? normalizeOrgId(organizationId) : null;
+  const filterBindings = providerEventFilterBindings({
+    providerFilter,
+    modeFilter,
+    statusFilter,
+    typeFilter,
+    orgFilter,
+  });
   const rows = await env.DB.prepare(
-    `SELECT id, provider, provider_event_id, provider_account, provider_mode,
-            event_type, event_created_at, received_at, processing_status,
-            verification_status, payload_hash, payload_summary_json,
-            organization_id, user_id, billing_customer_id, error_code,
-            error_message, attempt_count, last_processed_at, created_at, updated_at
-     FROM billing_provider_events
-     WHERE (? IS NULL OR provider = ?)
-       AND (? IS NULL OR provider_mode = ?)
-       AND (? IS NULL OR processing_status = ?)
-       AND (? IS NULL OR event_type = ?)
-       AND (? IS NULL OR organization_id = ?)
-     ORDER BY received_at DESC, id DESC
+    `SELECT bpe.id, bpe.provider, bpe.provider_event_id, bpe.provider_account, bpe.provider_mode,
+            bpe.event_type, bpe.event_created_at, bpe.received_at, bpe.processing_status,
+            bpe.verification_status, bpe.payload_hash, bpe.payload_summary_json,
+            bpe.organization_id, bpe.user_id, bpe.billing_customer_id, bpe.error_code,
+            bpe.error_message, bpe.attempt_count, bpe.last_processed_at, bpe.created_at, bpe.updated_at,
+            ${PROVIDER_EVENT_ARCHIVE_EXISTS_SQL} AS archived
+     FROM billing_provider_events AS bpe
+     WHERE (? IS NULL OR bpe.provider = ?)
+       AND (? IS NULL OR bpe.provider_mode = ?)
+       AND (? IS NULL OR bpe.processing_status = ?)
+       AND (? IS NULL OR bpe.event_type = ?)
+       AND (? IS NULL OR bpe.organization_id = ?)
+       ${providerEventFilterSql({ includeArchived })}
+     ORDER BY bpe.received_at DESC, bpe.id DESC
      LIMIT ?`
-  ).bind(
-    providerFilter,
-    providerFilter,
-    modeFilter,
-    modeFilter,
-    statusFilter,
-    statusFilter,
-    typeFilter,
-    typeFilter,
-    orgFilter,
-    orgFilter,
-    scanLimit
-  ).all();
+  ).bind(...filterBindings, appliedLimit).all();
   const rawRows = rows.results || [];
   const { archiveSummary, archivedKeys } = includeArchived
-    ? { archiveSummary: await getBillingArchiveSummary(env), archivedKeys: new Set() }
-    : await archiveSummaryWithHiddenCount(env, rawRows);
+    ? {
+      archiveSummary: {
+        ...(await getBillingArchiveSummary(env)),
+        hiddenArchivedCount: await countArchivedProviderEventsForFilter(env, {
+          providerFilter,
+          modeFilter,
+          statusFilter,
+          typeFilter,
+          orgFilter,
+        }),
+      },
+      archivedKeys: new Set(),
+    }
+    : await archiveSummaryWithHiddenCount(env, {
+      providerFilter,
+      modeFilter,
+      statusFilter,
+      typeFilter,
+      orgFilter,
+    });
   const events = rawRows
     .filter((row) => includeArchived || !isBillingProviderEventArchived(archivedKeys, row.id))
     .slice(0, appliedLimit)
@@ -1727,13 +1793,14 @@ export async function getBillingProviderEvent(env, { id, includeArchived = false
     });
   }
   const row = await env.DB.prepare(
-    `SELECT id, provider, provider_event_id, provider_account, provider_mode,
-            event_type, event_created_at, received_at, processing_status,
-            verification_status, payload_hash, payload_summary_json,
-            organization_id, user_id, billing_customer_id, error_code,
-            error_message, attempt_count, last_processed_at, created_at, updated_at
-     FROM billing_provider_events
-     WHERE id = ?
+    `SELECT bpe.id, bpe.provider, bpe.provider_event_id, bpe.provider_account, bpe.provider_mode,
+            bpe.event_type, bpe.event_created_at, bpe.received_at, bpe.processing_status,
+            bpe.verification_status, bpe.payload_hash, bpe.payload_summary_json,
+            bpe.organization_id, bpe.user_id, bpe.billing_customer_id, bpe.error_code,
+            bpe.error_message, bpe.attempt_count, bpe.last_processed_at, bpe.created_at, bpe.updated_at,
+            ${PROVIDER_EVENT_ARCHIVE_EXISTS_SQL} AS archived
+     FROM billing_provider_events AS bpe
+     WHERE bpe.id = ?
      LIMIT 1`
   ).bind(eventIdValue).first();
   if (!row) {

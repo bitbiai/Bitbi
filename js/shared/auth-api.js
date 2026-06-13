@@ -659,13 +659,14 @@ export function apiAdminGrantUserCredits(userId, { amount, reason, idempotencyKe
     });
 }
 
-export function apiAdminBillingEvents({ provider, status, eventType, organizationId, limit } = {}) {
+export function apiAdminBillingEvents({ provider, status, eventType, organizationId, limit, includeArchived = false } = {}) {
     const params = new URLSearchParams();
     if (provider) params.set('provider', provider);
     if (status) params.set('status', status);
     if (eventType) params.set('event_type', eventType);
     if (organizationId) params.set('organization_id', organizationId);
     if (limit) params.set('limit', String(limit));
+    if (includeArchived) params.set('include_archived', 'true');
     const qs = params.toString() ? `?${params}` : '';
     return request('GET', `/admin/billing/events${qs}`);
 }
@@ -678,13 +679,14 @@ export function apiAdminBillingReconciliation() {
     return request('GET', '/admin/billing/reconciliation');
 }
 
-export function apiAdminBillingReviews({ reviewState, provider, providerMode, eventType, limit } = {}) {
+export function apiAdminBillingReviews({ reviewState, provider, providerMode, eventType, limit, includeArchived = false } = {}) {
     const params = new URLSearchParams();
     if (reviewState) params.set('review_state', reviewState);
     if (provider) params.set('provider', provider);
     if (providerMode) params.set('provider_mode', providerMode);
     if (eventType) params.set('event_type', eventType);
     if (limit) params.set('limit', String(limit));
+    if (includeArchived) params.set('include_archived', 'true');
     const qs = params.toString() ? `?${params}` : '';
     return request('GET', `/admin/billing/reviews${qs}`);
 }

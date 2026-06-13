@@ -42,6 +42,8 @@ for (const exportName of [
   assert(cleanupLib.includes(`export async function ${exportName}`), `missing cleanup export ${exportName}`);
 }
 assert(cleanupLib.includes("export function isBillingProviderEventArchived"), "cleanup lib must expose provider-event archive matching");
+assert(cleanupLib.includes("billingProviderEventArchiveItemKeys"), "cleanup lib must centralize provider-event archive aliases");
+assert(cleanupLib.includes('"payment_problem"') && cleanupLib.includes('"reconciliation_item"') && cleanupLib.includes("event-${id}"), "provider-event archive aliases must cover live payment_problem/reconciliation_item shapes");
 
 assert(cleanupLib.includes("ICH VERSTEHE: DATENBANK-LÖSCHUNG IST ENDGÜLTIG"), "exact German purge confirmation must be required");
 assert(cleanupLib.includes("exportEvidenceAcknowledged"), "purge apply must require export acknowledgement");
@@ -78,6 +80,10 @@ assert(billingEvents.includes("operator_purge_tombstone_matched"), "tombstone-ma
 assert(billingEvents.includes("side effects are disabled"), "tombstone replay must not create side effects");
 assert(billingEvents.includes("includeArchived = false"), "billing provider/review lists must default to active-only");
 assert(billingEvents.includes("isBillingProviderEventArchived"), "billing provider events must exclude archived provider/review rows");
+assert(billingEvents.includes("PROVIDER_EVENT_ARCHIVE_EXISTS_SQL"), "billing provider event list must use a server-side archive SQL predicate");
+assert(billingEvents.includes("AND NOT ${PROVIDER_EVENT_ARCHIVE_EXISTS_SQL}"), "active provider event SQL must exclude archived rows before LIMIT");
+assert(billingEvents.includes("archive.item_type IN ('payment_problem', 'reconciliation_item')"), "provider event SQL must exclude payment_problem/reconciliation_item aliases");
+assert(billingEvents.includes("archive.item_id = ('event-' || bpe.id)"), "provider event SQL must exclude event-prefixed archive aliases");
 assert(billingEvents.includes("isBillingItemKeyArchived"), "reconciliation rows must use explicit archived item filtering");
 assert(billingEvents.includes("archiveSummary"), "billing active reports must expose a separate archive summary");
 assert(billingEvents.includes("Archived billing records are excluded from active counters"), "reconciliation must explain active/archive split");
@@ -100,6 +106,8 @@ for (const uiNeedle of [
   "loadOperatorBillingArchive",
   "visibleBillingEventRefs",
   "visibleBillingReviewRefs",
+  "verifyArchivedRefsHiddenFromActiveEvents",
+  "Archiv-Regressionsprüfung fehlgeschlagen",
   "Archivierte Einträge sind in dieser aktiven Ansicht ausgeblendet",
   "Archived records hidden from active counters",
   "Wiederherstellen",

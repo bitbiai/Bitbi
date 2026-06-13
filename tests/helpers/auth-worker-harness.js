@@ -12,6 +12,16 @@ function normalizeSql(sql) {
   return String(sql).replace(/\s+/g, ' ').trim();
 }
 
+function isArchivedBillingProviderEventInState(state, eventId) {
+  const directTypes = new Set(['billing_provider_event', 'billing_review']);
+  const aliasTypes = new Set(['payment_problem', 'reconciliation_item']);
+  return (state.billingOperatorItemStates || []).some((row) => {
+    if (row.state !== 'archived') return false;
+    if (directTypes.has(row.item_type) && row.item_id === eventId) return true;
+    return aliasTypes.has(row.item_type) && (row.item_id === eventId || row.item_id === `event-${eventId}`);
+  });
+}
+
 const USER_DEPENDENCY_TABLE_STATE = {
   sessions: 'sessions',
   email_verification_tokens: 'emailVerificationTokens',
@@ -4341,6 +4351,134 @@ class MockD1 {
       };
     }
 
+    if (query.startsWith("SELECT id, item_type, item_id, state, reason, archived_by_user_id, archived_at, restored_by_user_id, restored_at, metadata_json, created_at, updated_at FROM billing_operator_item_states WHERE (? IS NULL OR item_type = ?)")) {
+      const [typeFilter, typeValue, archivedOnly, limit] = bindings;
+      const rows = this.state.billingOperatorItemStates
+        .filter((row) =>
+          (typeFilter == null || row.item_type === typeValue) &&
+          (Number(archivedOnly || 0) === 0 || row.state === 'archived')
+        )
+        .sort((a, b) =>
+          String(b.archived_at || '').localeCompare(String(a.archived_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit));
+      return { results: deepClone(rows) };
+    }
+
+    if (query.startsWith('SELECT id, run_type, selection_scope, requested_by_user_id, reason, dry_run, confirmation, idempotency_key_hash, status, summary_json, created_at, updated_at FROM billing_operator_cleanup_runs WHERE requested_by_user_id = ? AND idempotency_key_hash = ?')) {
+      const [requestedByUserId, keyHash] = bindings;
+      return deepClone(this.state.billingOperatorCleanupRuns.find((row) =>
+        row.requested_by_user_id === requestedByUserId &&
+        row.idempotency_key_hash === keyHash
+      ) || null);
+    }
+
+    if (query.startsWith('INSERT INTO billing_operator_cleanup_runs ( id, run_type, selection_scope, requested_by_user_id, reason, dry_run, confirmation, idempotency_key_hash, status, summary_json, created_at, updated_at ) VALUES')) {
+      const [
+        id,
+        runType,
+        selectionScope,
+        requestedByUserId,
+        reason,
+        dryRun,
+        confirmation,
+        idempotencyKeyHash,
+        status,
+        summaryJson,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      if (idempotencyKeyHash && this.state.billingOperatorCleanupRuns.some((row) =>
+        row.requested_by_user_id === requestedByUserId &&
+        row.idempotency_key_hash === idempotencyKeyHash
+      )) {
+        throw new Error('UNIQUE constraint failed: billing_operator_cleanup_runs');
+      }
+      this.state.billingOperatorCleanupRuns.push({
+        id,
+        run_type: runType,
+        selection_scope: selectionScope,
+        requested_by_user_id: requestedByUserId,
+        reason,
+        dry_run: dryRun,
+        confirmation,
+        idempotency_key_hash: idempotencyKeyHash,
+        status,
+        summary_json: summaryJson,
+        created_at: createdAt,
+        updated_at: updatedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('INSERT INTO billing_operator_cleanup_run_items ( id, run_id, item_type, item_id, action, status, summary_json, created_at ) VALUES')) {
+      const [id, runId, itemType, itemId, action, status, summaryJson, createdAt] = bindings;
+      this.state.billingOperatorCleanupRunItems.push({
+        id,
+        run_id: runId,
+        item_type: itemType,
+        item_id: itemId,
+        action,
+        status,
+        summary_json: summaryJson,
+        created_at: createdAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("INSERT INTO billing_operator_item_states ( id, item_type, item_id, state, reason, archived_by_user_id, archived_at, restored_by_user_id, restored_at, metadata_json, created_at, updated_at ) VALUES")) {
+      const [
+        id,
+        itemType,
+        itemId,
+        reason,
+        archivedByUserId,
+        archivedAt,
+        metadataJson,
+        createdAt,
+        updatedAt,
+      ] = bindings;
+      const existing = this.state.billingOperatorItemStates.find((row) =>
+        row.item_type === itemType && row.item_id === itemId
+      );
+      if (existing) {
+        existing.state = 'archived';
+        existing.reason = reason;
+        existing.archived_by_user_id = archivedByUserId;
+        existing.archived_at = archivedAt;
+        existing.restored_by_user_id = null;
+        existing.restored_at = null;
+        existing.metadata_json = metadataJson;
+        existing.updated_at = updatedAt;
+      } else {
+        this.state.billingOperatorItemStates.push({
+          id,
+          item_type: itemType,
+          item_id: itemId,
+          state: 'archived',
+          reason,
+          archived_by_user_id: archivedByUserId,
+          archived_at: archivedAt,
+          restored_by_user_id: null,
+          restored_at: null,
+          metadata_json: metadataJson,
+          created_at: createdAt,
+          updated_at: updatedAt,
+        });
+      }
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('DELETE FROM billing_operator_item_states WHERE item_type = ? AND item_id = ?')) {
+      const [itemType, itemId] = bindings;
+      const before = this.state.billingOperatorItemStates.length;
+      this.state.billingOperatorItemStates = this.state.billingOperatorItemStates.filter((row) =>
+        !(row.item_type === itemType && row.item_id === itemId)
+      );
+      return { success: true, meta: { changes: before - this.state.billingOperatorItemStates.length } };
+    }
+
     if (query.startsWith('SELECT id, tombstone_type, provider, provider_mode, provider_event_id, provider_checkout_session_id, provider_payment_intent_id, provider_subscription_id, original_item_type, original_item_id, payload_hash, reason, purged_by_user_id, purged_at, metadata_json, created_at, updated_at FROM billing_operator_purge_tombstones WHERE')) {
       const [
         eventProvider,
@@ -4504,9 +4642,79 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (query.startsWith('SELECT bpe.id, bpe.provider, bpe.provider_event_id, bpe.provider_account, bpe.provider_mode, bpe.event_type, bpe.event_created_at, bpe.received_at, bpe.processing_status, bpe.verification_status, bpe.payload_hash, bpe.payload_summary_json, bpe.organization_id, bpe.user_id, bpe.billing_customer_id, bpe.error_code, bpe.error_message, bpe.attempt_count, bpe.last_processed_at, bpe.created_at, bpe.updated_at') && query.includes('FROM billing_provider_events AS bpe WHERE bpe.id = ?')) {
+      const [eventId] = bindings;
+      const row = this.state.billingProviderEvents.find((entry) => entry.id === eventId);
+      return row ? deepClone({
+        ...row,
+        archived: isArchivedBillingProviderEventInState(this.state, row.id) ? 1 : 0,
+      }) : null;
+    }
+
     if (query.startsWith('SELECT id, provider, provider_event_id, provider_account, provider_mode, event_type, event_created_at, received_at, processing_status, verification_status, payload_hash, payload_summary_json, organization_id, user_id, billing_customer_id, error_code, error_message, attempt_count, last_processed_at, created_at, updated_at FROM billing_provider_events WHERE id = ?')) {
       const [eventId] = bindings;
       return deepClone(this.state.billingProviderEvents.find((row) => row.id === eventId) || null);
+    }
+
+    if (query.startsWith('SELECT COUNT(*) AS count FROM billing_provider_events AS bpe WHERE')) {
+      const [
+        providerFilter,
+        providerValue,
+        modeFilter,
+        modeValue,
+        statusFilter,
+        statusValue,
+        typeFilter,
+        typeValue,
+        organizationFilter,
+        organizationValue,
+      ] = bindings;
+      const count = this.state.billingProviderEvents
+        .filter((row) =>
+          (providerFilter == null || row.provider === providerValue) &&
+          (modeFilter == null || row.provider_mode === modeValue) &&
+          (statusFilter == null || row.processing_status === statusValue) &&
+          (typeFilter == null || row.event_type === typeValue) &&
+          (organizationFilter == null || row.organization_id === organizationValue) &&
+          isArchivedBillingProviderEventInState(this.state, row.id)
+        ).length;
+      return { count };
+    }
+
+    if (query.startsWith('SELECT bpe.id, bpe.provider, bpe.provider_event_id, bpe.provider_account, bpe.provider_mode, bpe.event_type, bpe.event_created_at, bpe.received_at, bpe.processing_status, bpe.verification_status, bpe.payload_hash, bpe.payload_summary_json, bpe.organization_id, bpe.user_id, bpe.billing_customer_id, bpe.error_code, bpe.error_message, bpe.attempt_count, bpe.last_processed_at, bpe.created_at, bpe.updated_at')) {
+      const [
+        providerFilter,
+        providerValue,
+        modeFilter,
+        modeValue,
+        statusFilter,
+        statusValue,
+        typeFilter,
+        typeValue,
+        organizationFilter,
+        organizationValue,
+        limit,
+      ] = bindings;
+      const excludeArchived = query.includes('AND NOT EXISTS');
+      const rows = this.state.billingProviderEvents
+        .filter((row) =>
+          (providerFilter == null || row.provider === providerValue) &&
+          (modeFilter == null || row.provider_mode === modeValue) &&
+          (statusFilter == null || row.processing_status === statusValue) &&
+          (typeFilter == null || row.event_type === typeValue) &&
+          (organizationFilter == null || row.organization_id === organizationValue) &&
+          (!excludeArchived || !isArchivedBillingProviderEventInState(this.state, row.id))
+        )
+        .sort((a, b) =>
+          String(b.received_at || '').localeCompare(String(a.received_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )
+        .slice(0, Number(limit))
+        .map((row) => ({
+          ...row,
+          archived: isArchivedBillingProviderEventInState(this.state, row.id) ? 1 : 0,
+        }));
+      return { results: deepClone(rows) };
     }
 
     if (query.startsWith('SELECT id, provider, provider_event_id, provider_account, provider_mode, event_type, event_created_at, received_at, processing_status, verification_status, payload_hash, payload_summary_json, organization_id, user_id, billing_customer_id, error_code, error_message, attempt_count, last_processed_at, created_at, updated_at FROM billing_provider_events WHERE (? IS NULL OR provider = ?)')) {

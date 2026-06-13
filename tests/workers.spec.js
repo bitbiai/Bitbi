@@ -10639,6 +10639,297 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(serialized).not.toContain('payload_hash');
   });
 
+  test('admin billing active views exclude archived provider events and live alias shapes', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const {
+      getBillingProviderEvent,
+      getBillingReconciliationReport,
+      listBillingProviderEvents,
+      listBillingReviewEvents,
+    } = await loadBillingEventsModule();
+    const admin = createAdminUser('phase22-archive-admin');
+    const archivedEventId = 'bpe_605a8acec24bb750359cf95b16ae81e9';
+    const activeEventId = 'bpe_11111111111111111111111111111111';
+    const archivedEvent = {
+      id: archivedEventId,
+      provider: 'stripe',
+      provider_event_id: 'evt_phase22_archived_live_failure',
+      provider_account: null,
+      provider_mode: 'live',
+      event_type: 'checkout.session.completed',
+      event_created_at: '2026-06-13T17:38:00.000Z',
+      received_at: '2026-06-13T17:38:01.000Z',
+      processing_status: 'failed',
+      verification_status: 'verified_live_signature',
+      payload_hash: 'archived_payload_hash_must_not_render',
+      payload_summary_json: JSON.stringify({
+        event_type: 'checkout.session.completed',
+        provider_mode: 'live',
+        creditPackId: 'live_credits_5000',
+        amount: 999,
+        currency: 'eur',
+      }),
+      organization_id: null,
+      user_id: 'phase22-archive-member',
+      billing_customer_id: 'cus_phase22_archived',
+      error_code: 'billing_webhook_unexpected_error',
+      error_message: 'Archived failure should not remain active.',
+      attempt_count: 1,
+      last_processed_at: '2026-06-13T17:38:02.000Z',
+      created_at: '2026-06-13T17:38:01.000Z',
+      updated_at: '2026-06-13T17:38:02.000Z',
+    };
+    const activeEvent = {
+      ...archivedEvent,
+      id: activeEventId,
+      provider_event_id: 'evt_phase22_active_live_failure',
+      received_at: '2026-06-13T17:39:01.000Z',
+      created_at: '2026-06-13T17:39:01.000Z',
+      updated_at: '2026-06-13T17:39:02.000Z',
+      error_message: 'Active failure should still be visible.',
+    };
+    const env = createAuthTestEnv({
+      users: [admin],
+      billingProviderEvents: [archivedEvent, activeEvent],
+      billingEventActions: [
+        {
+          id: 'bea_phase22_archived_review',
+          event_id: archivedEventId,
+          action_type: 'checkout.session.completed',
+          status: 'failed',
+          dry_run: 0,
+          summary_json: JSON.stringify({
+            eventType: 'checkout.session.completed',
+            providerMode: 'live',
+            sideEffectsEnabled: false,
+            operatorReviewOnly: true,
+            reviewState: 'blocked',
+            reviewReason: 'Archived payment problem.',
+            recommendedAction: 'Use archive for old operator incident.',
+            safeIdentifiers: { providerEventId: 'evt_phase22_archived_live_failure' },
+          }),
+          created_at: '2026-06-13T17:38:03.000Z',
+          updated_at: '2026-06-13T17:38:03.000Z',
+        },
+        {
+          id: 'bea_phase22_active_review',
+          event_id: activeEventId,
+          action_type: 'checkout.session.completed',
+          status: 'failed',
+          dry_run: 0,
+          summary_json: JSON.stringify({
+            eventType: 'checkout.session.completed',
+            providerMode: 'live',
+            sideEffectsEnabled: false,
+            operatorReviewOnly: true,
+            reviewState: 'blocked',
+            reviewReason: 'Active payment problem.',
+            recommendedAction: 'Review active issue.',
+            safeIdentifiers: { providerEventId: 'evt_phase22_active_live_failure' },
+          }),
+          created_at: '2026-06-13T17:39:03.000Z',
+          updated_at: '2026-06-13T17:39:03.000Z',
+        },
+      ],
+      billingOperatorItemStates: [{
+        id: 'bois_phase22_archived_provider_event',
+        item_type: 'billing_provider_event',
+        item_id: archivedEventId,
+        state: 'archived',
+        reason: 'Operator archived old live incident.',
+        archived_by_user_id: admin.id,
+        archived_at: '2026-06-13T17:40:00.000Z',
+        restored_by_user_id: null,
+        restored_at: null,
+        metadata_json: JSON.stringify({ summary: { title: 'Archived provider event' } }),
+        created_at: '2026-06-13T17:40:00.000Z',
+        updated_at: '2026-06-13T17:40:00.000Z',
+      }],
+    });
+    const adminToken = await seedSession(env, admin.id);
+
+    const activeList = await listBillingProviderEvents(env, {
+      provider: 'stripe',
+      limit: 25,
+      includeArchiveSummary: true,
+    });
+    expect(activeList.events.map((event) => event.id)).toEqual([activeEventId]);
+    expect(activeList.archiveSummary).toEqual(expect.objectContaining({
+      totalArchived: 1,
+      hiddenArchivedCount: 1,
+      activeViewsExcludeArchived: true,
+      archiveAvailable: true,
+    }));
+
+    const includeArchived = await listBillingProviderEvents(env, {
+      provider: 'stripe',
+      limit: 25,
+      includeArchived: true,
+      includeArchiveSummary: true,
+    });
+    expect(includeArchived.events.map((event) => event.id)).toEqual([activeEventId, archivedEventId]);
+    expect(includeArchived.events.find((event) => event.id === archivedEventId)).toEqual(expect.objectContaining({
+      archived: true,
+      verificationStatus: 'verified_live_signature',
+    }));
+
+    await expect(getBillingProviderEvent(env, { id: archivedEventId })).rejects.toMatchObject({
+      code: 'billing_event_archived',
+      status: 404,
+    });
+    await expect(getBillingProviderEvent(env, { id: archivedEventId, includeArchived: true })).resolves.toEqual(expect.objectContaining({
+      id: archivedEventId,
+      archived: true,
+    }));
+
+    const activeReviews = await listBillingReviewEvents(env, { provider: 'stripe', providerMode: 'live', limit: 25 });
+    expect(activeReviews.reviews.map((review) => review.id)).toEqual([activeEventId]);
+    const reconciliation = await getBillingReconciliationReport(env);
+    expect(reconciliation.summary.providerEvents.failed).toBe(1);
+    expect(reconciliation.summary.reviews.blocked).toBe(1);
+    expect(JSON.stringify(reconciliation)).not.toContain(archivedEventId);
+
+    for (const [item_type, item_id] of [
+      ['billing_review', archivedEventId],
+      ['payment_problem', archivedEventId],
+      ['payment_problem', `event-${archivedEventId}`],
+      ['reconciliation_item', archivedEventId],
+      ['reconciliation_item', `event-${archivedEventId}`],
+    ]) {
+      env.DB.state.billingOperatorItemStates = [{
+        id: `bois_${item_type}_${item_id}`.replace(/[^A-Za-z0-9_]/g, '_').slice(0, 64),
+        item_type,
+        item_id,
+        state: 'archived',
+        reason: 'Operator archived alias-shaped payment problem.',
+        archived_by_user_id: admin.id,
+        archived_at: '2026-06-13T17:41:00.000Z',
+        restored_by_user_id: null,
+        restored_at: null,
+        metadata_json: '{}',
+        created_at: '2026-06-13T17:41:00.000Z',
+        updated_at: '2026-06-13T17:41:00.000Z',
+      }];
+      const aliasActiveList = await listBillingProviderEvents(env, { provider: 'stripe', limit: 25 });
+      expect(aliasActiveList.map((event) => event.id)).toEqual([activeEventId]);
+      await expect(getBillingProviderEvent(env, { id: archivedEventId })).rejects.toMatchObject({
+        code: 'billing_event_archived',
+      });
+    }
+
+    env.DB.state.billingOperatorItemStates = [{
+      id: 'bois_phase22_archived_provider_event_restore',
+      item_type: 'billing_provider_event',
+      item_id: archivedEventId,
+      state: 'archived',
+      reason: 'Operator archived old live incident.',
+      archived_by_user_id: admin.id,
+      archived_at: '2026-06-13T17:42:00.000Z',
+      restored_by_user_id: null,
+      restored_at: null,
+      metadata_json: '{}',
+      created_at: '2026-06-13T17:42:00.000Z',
+      updated_at: '2026-06-13T17:42:00.000Z',
+    }];
+
+    const archiveRoute = await worker.fetch(
+      authJsonRequest('/api/admin/billing/operator-archive?limit=250', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const archiveBody = await archiveRoute.json();
+    expect(archiveRoute.status).toBe(200);
+    expect(archiveBody.archiveItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        itemType: 'billing_provider_event',
+        itemId: archivedEventId,
+        state: 'archived',
+      }),
+    ]));
+
+    const activeRoute = await worker.fetch(
+      authJsonRequest('/api/admin/billing/events?provider=stripe&limit=25', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const activeBody = await activeRoute.json();
+    expect(activeRoute.status).toBe(200);
+    expect(activeBody.events.map((event) => event.id)).toEqual([activeEventId]);
+    expect(activeBody.archiveSummary.hiddenArchivedCount).toBe(1);
+
+    const includeRoute = await worker.fetch(
+      authJsonRequest('/api/admin/billing/events?provider=stripe&limit=25&include_archived=true', 'GET', undefined, {
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const includeBody = await includeRoute.json();
+    expect(includeRoute.status).toBe(200);
+    expect(includeBody.events.find((event) => event.id === archivedEventId)).toEqual(expect.objectContaining({
+      archived: true,
+    }));
+
+    const archiveApply = await worker.fetch(
+      authJsonRequest('/api/admin/billing/operator-archive', 'POST', {
+        itemRefs: [{ itemType: 'billing_provider_event', itemId: archivedEventId }],
+        reason: 'Idempotent archive regression test.',
+        dryRun: false,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase22-archive-regression-repeat',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(archiveApply.status).toBe(201);
+    const archiveRepeat = await worker.fetch(
+      authJsonRequest('/api/admin/billing/operator-archive', 'POST', {
+        itemRefs: [{ itemType: 'billing_provider_event', itemId: archivedEventId }],
+        reason: 'Idempotent archive regression test.',
+        dryRun: false,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase22-archive-regression-repeat',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    const archiveRepeatBody = await archiveRepeat.json();
+    expect(archiveRepeat.status).toBe(201);
+    expect(archiveRepeatBody.reused).toBe(true);
+    expect(env.DB.state.billingOperatorItemStates.filter((row) =>
+      row.item_type === 'billing_provider_event' && row.item_id === archivedEventId && row.state === 'archived'
+    )).toHaveLength(1);
+
+    const restore = await worker.fetch(
+      authJsonRequest('/api/admin/billing/operator-archive/restore', 'POST', {
+        itemRefs: [{ itemType: 'billing_provider_event', itemId: archivedEventId }],
+        reason: 'Restore archived provider event for active-view regression test.',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'phase22-archive-restore-regression',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(restore.status).toBe(201);
+    const restoredList = await listBillingProviderEvents(env, { provider: 'stripe', limit: 25 });
+    expect(restoredList.map((event) => event.id)).toEqual([activeEventId, archivedEventId]);
+
+    const serialized = JSON.stringify({ activeBody, includeBody, archiveBody });
+    expect(serialized).not.toContain('archived_payload_hash_must_not_render');
+    expect(serialized).not.toContain('Stripe-Signature');
+    expect(serialized).not.toContain(STRIPE_LIVE_WEBHOOK_SECRET);
+  });
+
   test('billing review detail returns sanitized metadata only', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv(seedLiveBillingOrg());

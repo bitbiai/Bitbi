@@ -394,9 +394,21 @@ export function isBillingItemKeyArchived(archivedKeys, itemType, itemId) {
   return Boolean(key && archivedKeys?.has(key));
 }
 
+export function billingProviderEventArchiveItemKeys(eventId) {
+  const id = sanitizeId(eventId);
+  if (!id) return [];
+  return [
+    ["billing_provider_event", id],
+    ["billing_review", id],
+    ["payment_problem", id],
+    ["payment_problem", `event-${id}`],
+    ["reconciliation_item", id],
+    ["reconciliation_item", `event-${id}`],
+  ].map(([itemType, itemId]) => billingItemKey(itemType, itemId)).filter(Boolean);
+}
+
 export function isBillingProviderEventArchived(archivedKeys, eventId) {
-  return isBillingItemKeyArchived(archivedKeys, "billing_provider_event", eventId)
-    || isBillingItemKeyArchived(archivedKeys, "billing_review", eventId);
+  return billingProviderEventArchiveItemKeys(eventId).some((key) => archivedKeys?.has(key));
 }
 
 export async function getBillingArchiveSummary(env) {
