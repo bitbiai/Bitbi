@@ -2025,6 +2025,7 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.aiCleanupRequests = captures.aiCleanupRequests || [];
   captures.storageRequests = captures.storageRequests || [];
   captures.billingReviewResolutionRequests = captures.billingReviewResolutionRequests || [];
+  captures.billingArchiveRestoreRequests = captures.billingArchiveRestoreRequests || [];
   captures.aiBudgetSwitchUpdateRequests = captures.aiBudgetSwitchUpdateRequests || [];
   captures.platformBudgetCapUpdateRequests = captures.platformBudgetCapUpdateRequests || [];
   captures.platformBudgetRepairRequests = captures.platformBudgetRepairRequests || [];
@@ -3682,8 +3683,26 @@ async function mockAdminControlPlane(page, captures = {}) {
         id: 'checkout_sessions',
         title: 'Checkout Sessions',
         severity: 'critical',
-        summary: { completedWithoutLedger: 1 },
+        summary: { completedWithoutLedger: 1, createdPastVerificationWindow: 9 },
         items: [
+          {
+            id: 'checkouts_created_after_window',
+            severity: 'warning',
+            title: 'Live member credit-pack checkout remains created after the verification window.',
+            detail: 'Live member checkout remains created after the verification window.',
+            count: 9,
+            refs: {
+              id: 'bcs_created_after_window_1234567890abcdef',
+              providerEventId: 'evt_live_created_after_window_1234567890abcdef',
+              eventType: 'checkout.session.completed',
+              providerMode: 'live',
+              userId: 'user_owner_long_identifier_1234567890',
+              organizationId: '',
+              repairCandidate: true,
+              rawPayload: 'should-not-render',
+              stripeSignature: 'Stripe-Signature should-not-render',
+            },
+          },
           {
             id: 'checkouts_completed_without_ledger',
             severity: 'critical',
@@ -3695,6 +3714,20 @@ async function mockAdminControlPlane(page, captures = {}) {
               checkoutSessionId: 'cs_live_reconciliation_1',
               secretValue: 'sk_live_should_not_render',
               cardLast4: '4242',
+            },
+          },
+          {
+            id: 'checkouts_ledger_without_event',
+            severity: 'warning',
+            title: 'Ledger-linked live checkout sessions are missing billing event links.',
+            detail: 'Ledger-linked checkout sessions lack billing event links.',
+            count: 2,
+            refs: {
+              id: 'bcs_ledger_without_event_abcdef1234567890',
+              providerMode: 'live',
+              subscriptionId: 'sub_live_ledger_without_event_1234567890',
+              repairCandidate: false,
+              paymentMethodId: 'pm_card_should_not_render',
             },
           },
         ],
@@ -3851,6 +3884,71 @@ async function mockAdminControlPlane(page, captures = {}) {
   });
   await page.route('**/api/admin/billing/reviews/bpe_review_2', async (route) => {
     await fulfillJson(route, reviewDetail(billingReviews[1]));
+  });
+
+  const billingArchiveItems = captures.billingArchiveItems || [
+    {
+      id: 'arc_20260613_provider',
+      itemType: 'billing_provider_event',
+      itemId: 'bpe_archive_20260613_provider',
+      state: 'archived',
+      reason: 'Canary-Ereignis aus aktiver Ansicht archiviert.',
+      archivedAt: '2026-06-13T19:38:00.000Z',
+      createdAt: '2026-06-13T19:37:00.000Z',
+      summary: {
+        title: 'Provider Event 13 A',
+        eventType: 'checkout.session.completed',
+      },
+    },
+    {
+      id: 'arc_20260613_problem',
+      itemType: 'payment_problem',
+      itemId: 'event-bpe_archive_20260613_problem',
+      state: 'archived',
+      reason: 'Zahlungsproblem aus aktiver Ansicht archiviert.',
+      archivedAt: '2026-06-13T18:12:00.000Z',
+      createdAt: '2026-06-13T18:10:00.000Z',
+      summary: {
+        title: 'Zahlungsproblem 13 B',
+        eventType: 'checkout.session.completed',
+      },
+    },
+    {
+      id: 'arc_20260714_problem',
+      itemType: 'payment_problem',
+      itemId: 'event-bpe_archive_20260714_problem',
+      state: 'archived',
+      reason: 'Zahlungsproblem 14 aus aktiver Ansicht archiviert.',
+      archivedAt: '2026-07-14T11:05:00.000Z',
+      createdAt: '2026-07-14T11:03:00.000Z',
+      summary: {
+        title: 'Zahlungsproblem 14 C',
+        eventType: 'invoice.payment_failed',
+      },
+    },
+  ];
+
+  await page.route('**/api/admin/billing/operator-archive**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/restore')) {
+      captures.billingArchiveRestoreRequests.push({
+        method: route.request().method(),
+        path: url.pathname,
+        idempotencyKey: route.request().headers()['idempotency-key'],
+        body: route.request().postDataJSON(),
+      });
+      await fulfillJson(route, { ok: true, reused: false, summary: { restored: 1 } });
+      return;
+    }
+    if (route.request().method() === 'POST') {
+      await fulfillJson(route, { ok: true, reused: false, summary: { archived: 1 } });
+      return;
+    }
+    await fulfillJson(route, {
+      ok: true,
+      archiveItems: billingArchiveItems,
+      nextCursor: null,
+    });
   });
 
   const attemptsPayload = {
@@ -16168,7 +16266,18 @@ test.describe('Admin Control Plane', () => {
     const panel = page.locator('#billingReconciliationPanel');
     await expect(panel).toContainText('2 critical');
     await expect(panel).toContainText('Unresolved blocked billing review events exist.');
-    await expect(panel).toContainText('Completed live credit-pack checkout sessions without linked ledger entries.');
+    await expect(panel).toContainText('Live-Credit-Pack-Checkout ist nach der Prüfzeit noch offen.');
+    await expect(panel).toContainText('Live-Credit-Pack-Checkout hat keinen lokalen Ledger-Nachweis.');
+    await expect(panel).toContainText('Checkout mit Ledger-Verknüpfung hat keinen Billing-Event-Link.');
+    await expect(panel.locator('.admin-reconciliation-compact-grid')).toHaveCount(1);
+    await expect(panel.locator('.admin-reconciliation-compact-card')).toHaveCount(3);
+    await expect(panel.locator('.admin-reconciliation-compact-card').first()).toContainText('9 Fälle');
+    await expect(panel.locator('.admin-reconciliation-ref-chip').first()).toContainText('ID');
+    await expect(panel.locator('.admin-reconciliation-ref-chip').nth(1)).toContainText('Provider Event');
+    const checkoutSection = panel.locator('.admin-reconciliation-section', { hasText: 'Checkout Sessions' });
+    await expect(checkoutSection).not.toContainText('Safe refs');
+    await expect(panel).not.toContainText('bcs_created_after_window_1234567890abcdef');
+    await expect(panel).toContainText('bcs_create...abcdef');
     await expect(panel).toContainText('Read-only operator report');
     await expect(panel).toContainText('no Stripe API calls');
     await expect(panel).toContainText('no automatic remediation');
@@ -16177,6 +16286,54 @@ test.describe('Admin Control Plane', () => {
     await expect(panel).not.toContainText('pm_card_should_not_render');
     await expect(panel).not.toContainText('4242');
     await expect(page.locator('#sectionBillingEvents').getByRole('button', { name: /fix|remediate|refund|reverse credits|clawback|cancel subscription|retry payment|call stripe|chargeback action/i })).toHaveCount(0);
+  });
+
+  test('groups billing archive entries by date and restores from expanded groups', async ({
+    page,
+  }) => {
+    const captures = {};
+    await mockAdminControlPlane(page, captures);
+
+    const response = await page.goto('/admin/index.html#billing-events');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
+    const archive = page.locator('#billingArchiveList');
+    await expect(page.locator('#billingArchiveState')).toContainText('3 archivierte Billing-Einträge in 2 Datumsgruppen gefunden');
+    await expect(archive.locator('details.admin-billing-archive-group')).toHaveCount(2);
+    await expect(archive.locator('summary', { hasText: '14.07.2026' })).toContainText('1 Eintrag');
+    await expect(archive.locator('summary', { hasText: '13.06.2026' })).toContainText('2 Einträge');
+    await expect(archive.getByText('Provider Event 13 A')).toBeHidden();
+    await expect(archive.getByText('Zahlungsproblem 14 C')).toBeHidden();
+
+    const juneGroup = archive.locator('details.admin-billing-archive-group', { hasText: '13.06.2026' });
+    await juneGroup.locator('summary').click();
+    await expect(juneGroup.getByText('Provider Event 13 A')).toBeVisible();
+    await expect(juneGroup.getByText('Zahlungsproblem 13 B')).toBeVisible();
+    await expect(juneGroup.getByText('Zahlungsproblem 14 C')).toHaveCount(0);
+
+    const julyGroup = archive.locator('details.admin-billing-archive-group', { hasText: '14.07.2026' });
+    await julyGroup.locator('summary').click();
+    await expect(julyGroup.getByText('Zahlungsproblem 14 C')).toBeVisible();
+    await expect(julyGroup.getByText('Provider Event 13 A')).toHaveCount(0);
+
+    await page.locator('#billingArchiveSearch').fill('Zahlungsproblem 14');
+    await page.locator('#billingArchiveSearchForm').getByRole('button', { name: 'Archiv suchen' }).click();
+    await expect(page.locator('#billingArchiveState')).toContainText('1 archivierte Billing-Einträge in 1 Datumsgruppe gefunden');
+    await expect(archive.locator('details.admin-billing-archive-group')).toHaveCount(1);
+    await expect(archive.locator('summary', { hasText: '14.07.2026' })).toBeVisible();
+    await expect(archive.getByText('Zahlungsproblem 14 C')).toBeHidden();
+    await archive.locator('summary', { hasText: '14.07.2026' }).click();
+    page.once('dialog', async (dialog) => {
+      expect(dialog.message()).toContain('Grund für die Wiederherstellung');
+      await dialog.accept('Test: archivierten Eintrag wieder sichtbar machen.');
+    });
+    await archive.getByRole('button', { name: 'Wiederherstellen' }).click();
+    await expect.poll(() => captures.billingArchiveRestoreRequests.length).toBe(1);
+    expect(captures.billingArchiveRestoreRequests[0].body.itemRefs).toEqual([
+      { itemType: 'payment_problem', itemId: 'event-bpe_archive_20260714_problem' },
+    ]);
+    expect(captures.billingArchiveRestoreRequests[0].idempotencyKey).toMatch(/^admin-billing-restore-/);
   });
 
   test('renders billing reconciliation unavailable state safely', async ({

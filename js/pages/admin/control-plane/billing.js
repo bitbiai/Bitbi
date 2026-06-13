@@ -1470,6 +1470,109 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         return 'user';
     }
 
+    function reconciliationSeverityLabel(severity) {
+        const value = String(severity || '').toLowerCase();
+        if (value === 'critical') return 'Kritisch';
+        if (value === 'warning') return 'Warnung';
+        return 'Info';
+    }
+
+    const CHECKOUT_RECONCILIATION_TITLES = new Map([
+        ['Live member credit-pack checkout remains created after the verification window.', 'Live-Credit-Pack-Checkout ist nach der Prüfzeit noch offen.'],
+        ['Ledger-linked live checkout sessions are missing billing event links.', 'Checkout mit Ledger-Verknüpfung hat keinen Billing-Event-Link.'],
+        ['Provider-sourced credit grants are missing checkout links.', 'Provider-Gutschriften haben keinen Checkout-Link.'],
+        ['Live checkout webhook events lack linked local ledger evidence.', 'Live-Checkout-Webhooks haben keinen lokalen Ledger-Nachweis.'],
+        ['Completed live credit-pack checkout sessions without linked ledger entries.', 'Live-Credit-Pack-Checkout hat keinen lokalen Ledger-Nachweis.'],
+    ]);
+
+    const CHECKOUT_RECONCILIATION_DETAILS = new Map([
+        ['Live member credit-pack checkout remains created after the verification window.', 'Die Zahlung braucht Prüfung, weil der lokale Checkout nach der erwarteten Prüfzeit noch nicht abgeschlossen ist.'],
+        ['Ledger-linked live checkout sessions are missing billing event links.', 'Die Gutschrift ist im Ledger verknüpft, aber der passende Billing-Event-Link fehlt für die Nachvollziehbarkeit.'],
+        ['Provider-sourced credit grants are missing checkout links.', 'Eine Provider-Gutschrift ist sichtbar, aber der lokale Checkout-Link fehlt als sauberer Nachweis.'],
+        ['Live checkout webhook events lack linked local ledger evidence.', 'Der Live-Webhook ist bekannt, aber der lokale Ledger-Nachweis fehlt oder ist nicht verknüpft.'],
+        ['Completed live credit-pack checkout sessions without linked ledger entries.', 'Der Checkout wirkt abgeschlossen, aber der lokale Ledger-Nachweis fehlt. Bitte nicht erneut kassieren, sondern sicher prüfen.'],
+    ]);
+
+    const RECONCILIATION_REF_LABELS = {
+        id: 'ID',
+        checkoutSessionId: 'Checkout',
+        providerEventId: 'Provider Event',
+        eventType: 'Event-Typ',
+        providerMode: 'Modus',
+        userId: 'User',
+        organizationId: 'Organisation',
+        subscriptionId: 'Abo',
+        repairCandidate: 'Reparatur',
+    };
+
+    function isCheckoutReconciliationSection(section) {
+        const id = String(section?.id || '').toLowerCase();
+        const title = String(section?.title || '').toLowerCase();
+        return id === 'checkout_sessions' || title === 'checkout sessions';
+    }
+
+    function reconciliationItemTitle(item, section) {
+        if (isCheckoutReconciliationSection(section)) {
+            return CHECKOUT_RECONCILIATION_TITLES.get(item?.title) || 'Checkout-Session braucht Prüfung.';
+        }
+        return item?.title || 'Billing reconciliation item';
+    }
+
+    function reconciliationItemDetail(item, section) {
+        if (isCheckoutReconciliationSection(section)) {
+            return CHECKOUT_RECONCILIATION_DETAILS.get(item?.title)
+                || 'Dieser Punkt weist auf eine mögliche Abweichung in lokalen Checkout-Daten hin. Bitte prüfe die sichere Referenz.';
+        }
+        return item?.detail || '';
+    }
+
+    function safeReconciliationRefValue(value) {
+        if (value == null || value === '') return '';
+        if (typeof value === 'boolean') return value ? 'Ja' : 'Nein';
+        if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
+        if (Array.isArray(value) || typeof value === 'object') return '';
+        const safe = safeSummaryValue(value);
+        if (!safe || safe === '[redacted]' || safe === 'Not reported') return '';
+        return shortId(safe);
+    }
+
+    function reconciliationRefEntries(refs) {
+        if (!refs || typeof refs !== 'object' || Array.isArray(refs)) return [];
+        return Object.keys(RECONCILIATION_REF_LABELS)
+            .map((key) => [key, safeReconciliationRefValue(refs[key])])
+            .filter(([key, value]) => value && !isSensitiveKey(key));
+    }
+
+    function renderReconciliationRefChips(refs) {
+        const entries = reconciliationRefEntries(refs);
+        const wrap = el('div', 'admin-reconciliation-ref-chips');
+        if (entries.length === 0) {
+            wrap.appendChild(el('span', 'admin-reconciliation-ref-chip admin-reconciliation-ref-chip--empty', 'Keine sichere Referenz gemeldet.'));
+            return wrap;
+        }
+        for (const [key, value] of entries) {
+            const chip = el('span', 'admin-reconciliation-ref-chip');
+            chip.appendChild(el('span', 'admin-reconciliation-ref-chip__label', RECONCILIATION_REF_LABELS[key]));
+            chip.appendChild(el('span', 'admin-reconciliation-ref-chip__value', value));
+            wrap.appendChild(chip);
+        }
+        return wrap;
+    }
+
+    function renderCheckoutReconciliationCard(item, section) {
+        const card = el('article', `admin-reconciliation-compact-card admin-reconciliation-compact-card--${item.severity || 'info'}`);
+        const header = el('div', 'admin-reconciliation-compact-card__header');
+        header.appendChild(badge(reconciliationSeverityLabel(item.severity), reconciliationSeverityVariant(item.severity)));
+        if (item.count != null) header.appendChild(badge(`${item.count} ${Number(item.count) === 1 ? 'Fall' : 'Fälle'}`, 'user'));
+        card.appendChild(header);
+        card.appendChild(el('h4', 'admin-reconciliation-compact-card__title', reconciliationItemTitle(item, section)));
+        const detail = reconciliationItemDetail(item, section);
+        if (detail) card.appendChild(el('p', 'admin-reconciliation-compact-card__desc', detail));
+        card.appendChild(el('p', 'admin-reconciliation-compact-card__label', 'Sichere Referenz'));
+        card.appendChild(renderReconciliationRefChips(item.refs));
+        return card;
+    }
+
     function renderReconciliationSummaryCard(title, badgeText, badgeVariant, meta) {
         const card = el('article', 'admin-control-card glass glass-card reveal visible');
         const top = el('div', 'admin-control-card__top');
@@ -1492,6 +1595,12 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         const items = Array.isArray(section.items) ? section.items : [];
         if (items.length === 0) {
             article.appendChild(el('p', 'admin-shell__empty', 'No local items reported in this section.'));
+        } else if (isCheckoutReconciliationSection(section)) {
+            const list = el('div', 'admin-reconciliation-compact-grid');
+            for (const item of items) {
+                list.appendChild(renderCheckoutReconciliationCard(item, section));
+            }
+            article.appendChild(list);
         } else {
             const list = el('div', 'admin-reconciliation-items');
             for (const item of items) {
@@ -1811,6 +1920,172 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         appendBillingReviewResolutionForm(detail, review);
     }
 
+    function archiveDateInfo(item) {
+        const raw = item?.archivedAt || item?.createdAt || '';
+        const date = raw ? new Date(raw) : null;
+        if (!date || Number.isNaN(date.getTime())) {
+            return {
+                key: 'unknown',
+                label: 'Datum unbekannt',
+                timeLabel: '',
+                timestamp: 0,
+                sortValue: Number.NEGATIVE_INFINITY,
+                unknown: true,
+            };
+        }
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return {
+            key: `${year}-${month}-${day}`,
+            label: new Intl.DateTimeFormat('de-DE', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+            }).format(date),
+            timeLabel: new Intl.DateTimeFormat('de-DE', {
+                hour: '2-digit',
+                minute: '2-digit',
+            }).format(date),
+            timestamp: date.getTime(),
+            sortValue: date.getTime(),
+            unknown: false,
+        };
+    }
+
+    function archiveDateKey(item) {
+        return archiveDateInfo(item).key;
+    }
+
+    function archiveDateLabel(item) {
+        return archiveDateInfo(item).label;
+    }
+
+    function archiveTimeLabel(item) {
+        return archiveDateInfo(item).timeLabel;
+    }
+
+    function archiveTypeLabel(itemType) {
+        const type = String(itemType || '').toLowerCase();
+        if (type === 'billing_provider_event') return 'Provider Events';
+        if (type === 'payment_problem') return 'Zahlungsprobleme';
+        if (type === 'billing_review') return 'Billing Reviews';
+        if (type === 'reconciliation_item') return 'Abgleich-Punkte';
+        if (type === 'checkout_session') return 'Checkouts';
+        return readableToken(itemType || 'Einträge');
+    }
+
+    function archiveTypeSummary(items) {
+        const counts = new Map();
+        for (const item of items) {
+            const label = archiveTypeLabel(item.itemType);
+            counts.set(label, (counts.get(label) || 0) + 1);
+        }
+        return Array.from(counts.entries())
+            .sort(([left], [right]) => left.localeCompare(right, 'de'))
+            .map(([label, count]) => `${label}: ${count}`)
+            .join(' · ');
+    }
+
+    function archiveItemSortValue(item) {
+        const archived = archiveDateInfo({ archivedAt: item?.archivedAt });
+        if (archived.timestamp) return archived.timestamp;
+        return archiveDateInfo({ createdAt: item?.createdAt }).timestamp;
+    }
+
+    function archiveItemMatchesSearch(item, query) {
+        const q = String(query || '').trim().toLowerCase();
+        if (!q) return true;
+        const summary = item?.summary && typeof item.summary === 'object'
+            ? Object.values(item.summary).join(' ')
+            : '';
+        return [
+            item?.itemType,
+            item?.itemId,
+            item?.reason,
+            summary,
+            archiveDateLabel(item),
+        ].some((value) => String(value || '').toLowerCase().includes(q));
+    }
+
+    function groupArchiveItemsByDate(items) {
+        const groupsByKey = new Map();
+        for (const item of items) {
+            const info = archiveDateInfo(item);
+            const group = groupsByKey.get(info.key) || {
+                key: info.key,
+                label: info.label,
+                items: [],
+                latestTimeLabel: info.timeLabel,
+                latestSortValue: info.sortValue,
+                unknown: info.unknown,
+            };
+            group.items.push(item);
+            if (info.sortValue > group.latestSortValue) {
+                group.latestSortValue = info.sortValue;
+                group.latestTimeLabel = info.timeLabel;
+            }
+            groupsByKey.set(info.key, group);
+        }
+        return Array.from(groupsByKey.values())
+            .map((group) => ({
+                ...group,
+                items: group.items.sort((left, right) => {
+                    const rightTime = archiveItemSortValue(right);
+                    const leftTime = archiveItemSortValue(left);
+                    if (rightTime !== leftTime) return rightTime - leftTime;
+                    return String(left.itemId || left.id || '').localeCompare(String(right.itemId || right.id || ''));
+                }),
+            }))
+            .sort((left, right) => {
+                if (left.unknown && !right.unknown) return 1;
+                if (!left.unknown && right.unknown) return -1;
+                return right.latestSortValue - left.latestSortValue;
+            });
+    }
+
+    function renderArchiveItemTableOrCards(items) {
+        const { wrap, tbody } = table(['Typ', 'Eintrag', 'Zusammenfassung', 'Grund', 'Archiviert um', 'Aktion']);
+        wrap.classList.add('admin-billing-archive-table');
+        for (const item of items) {
+            const tr = document.createElement('tr');
+            addCell(tr, archiveTypeLabel(item.itemType));
+            addCell(tr, shortId(item.itemId));
+            const summary = item.summary && typeof item.summary === 'object'
+                ? (item.summary.title || renderJsonSummary(item.summary))
+                : '-';
+            addCell(tr, summary);
+            addCell(tr, item.reason || '-');
+            addCell(tr, archiveTimeLabel(item) || formatDate(item.archivedAt || item.createdAt));
+            const restoreButton = el('button', 'btn-action', 'Wiederherstellen');
+            restoreButton.type = 'button';
+            restoreButton.addEventListener('click', () => restoreBillingRefs([{
+                itemType: item.itemType,
+                itemId: item.itemId,
+            }], { stateId: 'billingArchiveState' }));
+            addCell(tr, restoreButton);
+            tbody.appendChild(tr);
+        }
+        return wrap;
+    }
+
+    function renderArchiveDateGroup(group) {
+        const details = el('details', 'admin-billing-archive-group');
+        const summary = el('summary', 'admin-billing-archive-summary');
+        const primary = el('span', 'admin-billing-archive-summary__primary');
+        primary.appendChild(el('strong', null, group.label));
+        primary.appendChild(el('span', 'admin-billing-archive-summary__count', `${group.items.length} ${group.items.length === 1 ? 'Eintrag' : 'Einträge'}`));
+        const secondary = el('span', 'admin-billing-archive-summary__secondary');
+        secondary.appendChild(el('span', null, archiveTypeSummary(group.items) || 'Archivierte Einträge'));
+        if (group.latestTimeLabel) secondary.appendChild(el('span', null, `zuletzt ${group.latestTimeLabel}`));
+        secondary.appendChild(el('span', 'badge badge--legacy', 'Archiviert, nicht gelöscht'));
+        summary.append(primary, secondary);
+        const body = el('div', 'admin-billing-archive-group__body');
+        body.appendChild(renderArchiveItemTableOrCards(group.items));
+        details.append(summary, body);
+        return details;
+    }
+
     async function loadOperatorBillingArchive() {
         const list = byId('billingArchiveList');
         if (!list) return;
@@ -1824,33 +2099,20 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             return;
         }
         const archiveItems = Array.isArray(res.data?.archiveItems) ? res.data.archiveItems : [];
-        if (archiveItems.length === 0) {
+        const filteredArchiveItems = archiveItems.filter((item) => archiveItemMatchesSearch(item, q));
+        const archiveGroups = groupArchiveItemsByDate(filteredArchiveItems);
+        if (filteredArchiveItems.length === 0) {
             setState('billingArchiveState', 'Keine archivierten Billing-Einträge gefunden.');
             list.appendChild(el('div', 'admin-shell__empty', 'Archivierte Zahlungsereignisse werden hier angezeigt. Aktive Ansichten bleiben davon getrennt.'));
             return;
         }
-        setState('billingArchiveState', `${archiveItems.length} archivierte Billing-Einträge gefunden. Archivierte Einträge sind nicht gelöscht.`);
-        const { wrap, tbody } = table(['Typ', 'Eintrag', 'Zusammenfassung', 'Grund', 'Archiviert am', 'Aktion']);
-        for (const item of archiveItems) {
-            const tr = document.createElement('tr');
-            addCell(tr, readableToken(item.itemType || '-'));
-            addCell(tr, shortId(item.itemId));
-            const summary = item.summary && typeof item.summary === 'object'
-                ? (item.summary.title || renderJsonSummary(item.summary))
-                : '-';
-            addCell(tr, summary);
-            addCell(tr, item.reason || '-');
-            addCell(tr, formatDate(item.archivedAt || item.createdAt));
-            const restoreButton = el('button', 'btn-action', 'Wiederherstellen');
-            restoreButton.type = 'button';
-            restoreButton.addEventListener('click', () => restoreBillingRefs([{
-                itemType: item.itemType,
-                itemId: item.itemId,
-            }], { stateId: 'billingArchiveState' }));
-            addCell(tr, restoreButton);
-            tbody.appendChild(tr);
-        }
-        list.appendChild(wrap);
+        setState(
+            'billingArchiveState',
+            `${filteredArchiveItems.length} archivierte Billing-Einträge in ${archiveGroups.length} ${archiveGroups.length === 1 ? 'Datumsgruppe' : 'Datumsgruppen'} gefunden. Öffne ein Datum, um die Einträge zu sehen.`
+        );
+        const groups = el('div', 'admin-billing-archive-groups');
+        for (const group of archiveGroups) groups.appendChild(renderArchiveDateGroup(group));
+        list.appendChild(groups);
     }
 
     async function loadBillingEventsPanel() {

@@ -1231,6 +1231,101 @@
         margin-block-start: var(--space-4);
     }
 
+    .admin-reconciliation-compact-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+        gap: var(--space-3);
+        margin-block-start: var(--space-4);
+    }
+
+    .admin-reconciliation-compact-card {
+        display: grid;
+        gap: var(--space-2);
+        align-content: start;
+        min-width: 0;
+        padding: var(--space-4);
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        background: rgba(255, 255, 255, 0.026);
+    }
+
+    .admin-reconciliation-compact-card--critical {
+        border-color: rgba(239, 68, 68, 0.28);
+        background: rgba(239, 68, 68, 0.055);
+    }
+
+    .admin-reconciliation-compact-card--warning {
+        border-color: rgba(245, 158, 11, 0.24);
+        background: rgba(245, 158, 11, 0.05);
+    }
+
+    .admin-reconciliation-compact-card__header,
+    .admin-reconciliation-ref-chips {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--space-2);
+        min-width: 0;
+    }
+
+    .admin-reconciliation-compact-card__title {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.92);
+        font-size: var(--step-0);
+        line-height: 1.35;
+    }
+
+    .admin-reconciliation-compact-card__desc {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 0.92rem;
+        line-height: 1.45;
+    }
+
+    .admin-reconciliation-compact-card__label {
+        margin: var(--space-1) 0 0;
+        color: rgba(255, 255, 255, 0.54);
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+    }
+
+    .admin-reconciliation-ref-chip {
+        display: inline-flex;
+        align-items: center;
+        max-width: 100%;
+        min-width: 0;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.045);
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 0.8rem;
+        line-height: 1.2;
+    }
+
+    .admin-reconciliation-ref-chip__label {
+        padding: 0.32rem 0.45rem 0.32rem 0.6rem;
+        color: rgba(255, 255, 255, 0.58);
+        white-space: nowrap;
+    }
+
+    .admin-reconciliation-ref-chip__value {
+        min-width: 0;
+        padding: 0.32rem 0.6rem 0.32rem 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: var(--font-mono);
+    }
+
+    .admin-reconciliation-ref-chip--empty {
+        padding: 0.32rem 0.6rem;
+        color: rgba(255, 255, 255, 0.58);
+        font-family: inherit;
+    }
+
     .admin-reconciliation-item {
         padding: var(--space-4);
         border: var(--border-subtle);
@@ -1255,6 +1350,72 @@
         align-items: center;
         gap: var(--space-2);
         color: rgba(255, 255, 255, 0.9);
+    }
+
+    .admin-billing-archive-groups {
+        display: grid;
+        gap: var(--space-3);
+        margin-block-start: var(--space-4);
+    }
+
+    .admin-billing-archive-group {
+        overflow: hidden;
+        border: var(--border-subtle);
+        border-radius: var(--radius-sm);
+        background: rgba(255, 255, 255, 0.025);
+    }
+
+    .admin-billing-archive-summary {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-2);
+        padding: var(--space-4);
+        cursor: pointer;
+        list-style-position: inside;
+    }
+
+    .admin-billing-archive-summary:hover {
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .admin-billing-archive-summary__primary,
+    .admin-billing-archive-summary__secondary {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--space-2);
+        min-width: 0;
+    }
+
+    .admin-billing-archive-summary__count {
+        color: rgba(255, 255, 255, 0.62);
+    }
+
+    .admin-billing-archive-summary__secondary {
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 0.9rem;
+    }
+
+    .admin-billing-archive-group__body {
+        padding: 0 var(--space-4) var(--space-4);
+    }
+
+    .admin-billing-archive-table {
+        margin-block-start: 0;
+    }
+
+    @media (max-width: 720px) {
+        .admin-reconciliation-compact-card {
+            padding: var(--space-3);
+        }
+
+        .admin-billing-archive-summary {
+            padding: var(--space-3);
+        }
+
+        .admin-billing-archive-group__body {
+            padding-inline: var(--space-3);
+        }
     }
 
     .admin-control-card .admin-inventory,
