@@ -15,7 +15,7 @@
     "needs_review_present": false
   },
   "notes": [
-    "No raw provider payloads, webhook signatures, cookies, bearer tokens, card data, or full checkout URLs are included.",
+    "No raw provider payloads, webhook signatures, cookies, bearer tokens, card data, full receipt URLs, or full checkout URLs are included.",
     "Historical informational review rows remain visible for operator monitoring.",
     "No blocking or needs_review item is recorded for the applied repair."
   ]

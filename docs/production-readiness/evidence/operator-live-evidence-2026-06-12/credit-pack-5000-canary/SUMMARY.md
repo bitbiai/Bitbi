@@ -6,9 +6,9 @@ Generated: 2026-06-13
 
 This sanitized evidence package records the successful operator repair for the
 live 5000-credit-pack fulfillment incident. It intentionally excludes raw Stripe
-payloads, webhook signatures, cookies, bearer tokens, card data, full checkout
-session URLs, full Customer Portal URLs, RTF files, ZIP files, screenshots, and
-private PDFs.
+payloads, webhook signatures, cookies, bearer tokens, card data, full receipt
+URLs, full checkout session URLs, full Customer Portal URLs, RTF files, ZIP
+files, screenshots, private PDFs, and private customer data.
 
 ## Incident
 
@@ -45,7 +45,7 @@ private PDFs.
 - Reconciliation critical items after repair: 0
 - Billing Reviews blocked items after repair: 0
 - Billing Reviews `needs_review` items after repair: 0
-- Remaining reconciliation warnings: historical/provider-event warnings remain visible, including the repaired checkout being ledger-linked without a stored provider event because the original webhook failed before local event capture
+- Remaining warnings: historical/provider-event warnings remain visible, including the repaired checkout being ledger-linked without a stored provider event because the original webhook failed before local event capture
 
 ## Evidence Verdict
 
@@ -60,8 +60,3 @@ The 5000-credit-pack incident is repaired for this checkout:
 Duplicate Stripe webhook replay evidence remains pending. Do not mark duplicate
 Stripe replay as artifact-backed until a real Stripe replay or equivalent
 delivery artifact is captured.
-
-## Local-Only Artifacts
-
-The operator may keep local screenshots, RTF exports, ZIP packets, and private
-PDFs for personal records. They are intentionally not committed in this package.

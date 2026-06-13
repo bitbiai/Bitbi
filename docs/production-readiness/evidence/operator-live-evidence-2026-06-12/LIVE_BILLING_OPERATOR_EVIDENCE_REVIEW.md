@@ -12,6 +12,15 @@ Supplement recorded: 2026-06-13
 
 The 2026-06-12 artifact review below remains accurate: artifact-backed evidence was partial and did not independently prove every readiness item. On 2026-06-13, the operator explicitly approved live billing go-live anyway after manually validating production behavior and accepting the remaining evidence risk.
 
+Second supplement recorded: 2026-06-13
+
+The live `live_credits_5000` fulfillment incident for checkout
+`bcs_28816cfe9f76e56339a9dbe5a105b565` is now repaired in the sanitized
+canary package at `credit-pack-5000-canary/`. The repair evidence proves exactly
+one +5000 purchased-credit grant, a completed and ledger-linked checkout, and a
+repeat repair/no-op result of `already_completed` with 0 credits granted. A real
+duplicate Stripe webhook replay artifact is still pending.
+
 Current Live Billing readiness status: **operator_approved_live**
 
 See:
@@ -53,8 +62,9 @@ Those statements are useful operational context, and the new artifacts show mean
 | BITBI Admin Billing Events status | live sanitized events visible | partial_pass | Admin export shows 25 live Stripe events, live provider mode, `verified_live_signature`, and no raw payload/signature rendering. It also shows failed/planned/ignored statuses, so this is not a final readiness pass. |
 | Subscription state active for member | active state visible | partial_pass | Credits screenshot and reconciliation summary show 1 active subscription. Full invoice-paid top-up ledger proof is not present. |
 | `invoice.paid` or `invoice.payment_succeeded` evidence | invoice event count present | partial_pass | Admin export counts 1 `invoice.paid`, but does not attach a complete top-up/ledger proof. |
-| Credit-pack canary status | completed purchase row visible | pending_artifact_review | Credits screenshot shows a completed `live_credits_5000` member purchase row. It does not prove no-credit-before-webhook or exactly-once grant. |
-| Duplicate credit-pack grant prevention | no duplicate event IDs in reconciliation | partial_pass_not_replay_proof | Reconciliation shows duplicate event IDs 0, but no duplicate webhook replay/idempotency canary artifact is present. |
+| 5000 credit-pack repair | repaired | pass_repaired | The sanitized canary package records repair result `applied`, +5000 credits granted, balance after repair 7580, checkout `completed`, payment `paid`, and ledger entry `cl_5f0f971241b265f255405bc5fede1e86`. |
+| Credit-pack exactly-once grant | proven for repaired checkout | pass_exactly_once_repair | Repeat/no-op verification returned `already_completed`, `creditsGranted: 0`, `reused: true`, and the existing ledger entry remained linked. |
+| Duplicate credit-pack grant prevention | no-op repair proven; Stripe replay pending | partial_pass_repair_noop_not_stripe_replay | The repair no-op proves the admin repair path does not double-grant this checkout. A real duplicate Stripe webhook replay/idempotency artifact is still pending. |
 | Reconciliation critical mismatch status | no critical mismatch, verdict still blocked | partial_pass_blocked_verdict | Reconciliation shows 0 critical items and 1 warning; verdict remains `blocked`. |
 | Billing Reviews blocked/critical status | no blocked or needs-review rows | partial_pass | Export shows 4 rows: 1 resolved, 1 dismissed, 2 informational, 0 blocked, 0 needs-review. Informational rows remain visible. |
 | Admin Live Billing redacted JSON/Markdown evidence | redacted export summarized | partial_pass_blocked_export | The supplied export is redacted, but the export itself reports `liveBillingReadiness: blocked`, `evidenceStatus: pending_operator_evidence`, and `canaryStatus: pending_operator_evidence`. |
@@ -78,7 +88,7 @@ Attach sanitized artifacts under this dated package or another classified eviden
 3. Admin Billing Events show the corresponding live Stripe events.
 4. Member subscription state is active.
 5. `invoice.paid` or `invoice.payment_succeeded` exists for the BITBI Pro canary and the subscription top-up is exactly-once.
-6. Credit-pack purchase evidence exists, credits were granted only after verified webhook handling, and duplicate delivery did not double-grant.
+6. Additional credit-pack webhook replay evidence exists showing duplicate delivery does not double-grant.
 7. Reconciliation has no critical live-billing mismatch.
 8. Billing Reviews has no unresolved blocked or critical item.
 9. Admin Live Billing JSON and Markdown exports are redacted.

@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-06-13",
   "scope": "5000-credit-pack canary billing event summary",
-  "committed_raw_provider_payloads": false,
-  "committed_webhook_signatures": false,
+  "raw_provider_payloads_committed": false,
+  "webhook_signatures_committed": false,
   "events_summary": {
     "original_checkout_event": {
       "event_type": "checkout.session.completed",

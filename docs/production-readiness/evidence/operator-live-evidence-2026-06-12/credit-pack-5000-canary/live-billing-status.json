@@ -44,11 +44,14 @@
     "checkout_id": "bcs_28816cfe9f76e56339a9dbe5a105b565",
     "status": "repaired",
     "credits_granted": 5000,
+    "balance_after_repair": 7580,
     "checkout_status_after_repair": "completed",
     "payment_status_after_repair": "paid",
     "ledger_entry_id": "cl_5f0f971241b265f255405bc5fede1e86",
     "repeat_repair_status": "already_completed",
-    "repeat_repair_credits_granted": 0
+    "repeat_repair_credits_granted": 0,
+    "repeat_repair_reused": true,
+    "no_second_grant_occurred": true
   },
   "readiness_notes": {
     "production_readiness": "operator-go-live-approved for billing scope only; not a claim of full evidence-proven production maturity",

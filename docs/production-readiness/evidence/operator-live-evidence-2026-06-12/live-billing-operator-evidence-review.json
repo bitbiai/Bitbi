@@ -5,6 +5,7 @@
   "reviewedHead": "93c58605d97ec77a970cb3ceab933300c7610bfe",
   "reviewStatus": "superseded_by_operator_go_live_approval",
   "supplementRecordedAt": "2026-06-13",
+  "secondSupplementRecordedAt": "2026-06-13",
   "currentLiveBillingReadiness": "operator_approved_live",
   "operatorApprovalRecords": [
     "LIVE_BILLING_OPERATOR_GO_LIVE_APPROVAL.md",
@@ -29,12 +30,18 @@
   "operatorReportedContext": {
     "customerPortalWorksFromCreditsPage": true,
     "stripeSubscriptionPaymentAndBitbiBillingStateAppearOperational": true,
-    "treatedAsArtifactBackedEvidence": false
+    "treatedAsArtifactBackedEvidence": false,
+    "creditPack5000RepairApplied": true
   },
   "sanitizedArtifactsAttached": [
     "admin-live-billing-export-redacted-summary.md",
     "live-billing-artifact-summary.md",
-    "live-billing-artifact-summary.json"
+    "live-billing-artifact-summary.json",
+    "credit-pack-5000-canary/SUMMARY.md",
+    "credit-pack-5000-canary/live-billing-status.json",
+    "credit-pack-5000-canary/billing-events-summary.json",
+    "credit-pack-5000-canary/billing-reconciliation-summary.json",
+    "credit-pack-5000-canary/billing-reviews-summary.json"
   ],
   "sourceArtifactsReviewedButNotCommitted": [
     "raw screenshots containing user-facing names or avatars",
@@ -68,9 +75,22 @@
       "artifactBacked": true
     },
     {
+      "id": "credit_pack_5000_repair",
+      "status": "repaired",
+      "artifactBacked": true,
+      "notes": "Checkout bcs_28816cfe9f76e56339a9dbe5a105b565 repair result was applied, +5000 credits were granted, balance after repair was 7580, checkout completed, and ledger entry cl_5f0f971241b265f255405bc5fede1e86 is linked."
+    },
+    {
       "id": "credit_pack_canary_exactly_once",
-      "status": "pending_artifact_review",
-      "artifactBacked": false
+      "status": "proven_for_repaired_checkout",
+      "artifactBacked": true,
+      "notes": "No-op repeat repair returned already_completed with creditsGranted 0, reused true, and an existing ledger entry. This proves no second grant occurred through the repair path."
+    },
+    {
+      "id": "duplicate_stripe_replay",
+      "status": "pending_actual_replay_artifact",
+      "artifactBacked": false,
+      "notes": "The repair no-op is proven. A real duplicate Stripe webhook replay or equivalent delivery artifact is still pending."
     },
     {
       "id": "reconciliation_no_critical_mismatch",
@@ -108,7 +128,7 @@
     "Attach sanitized Admin Billing Events export showing relevant live Stripe events.",
     "Attach sanitized active member subscription state evidence.",
     "Attach sanitized invoice.paid or invoice.payment_succeeded top-up evidence.",
-    "Attach sanitized credit-pack purchase and duplicate-delivery no-double-grant evidence.",
+    "Attach sanitized duplicate Stripe webhook replay or equivalent delivery evidence showing no double grant.",
     "Attach sanitized reconciliation export with no critical live-billing mismatch.",
     "Attach sanitized Billing Reviews export with no unresolved blocked or critical item.",
     "Attach redacted Admin Live Billing JSON and Markdown exports.",
