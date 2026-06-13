@@ -24,6 +24,9 @@ cookies*.txt
 # GitHub Pages build
 _site/
 
+# Local operator tools
+PAY_APP/
+
 # Playwright
 test-results/
 playwright-report/
