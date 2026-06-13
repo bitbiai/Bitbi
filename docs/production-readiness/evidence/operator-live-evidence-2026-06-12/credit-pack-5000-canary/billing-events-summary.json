@@ -29,9 +29,25 @@
       "credits_granted": 0,
       "reused_existing_ledger": true,
       "proves_no_double_grant": true
+    },
+    "stripe_resend_recovery": {
+      "event_type": "checkout.session.completed",
+      "provider_mode": "live",
+      "credit_pack_id": "live_credits_5000",
+      "amount_cents": 999,
+      "currency": "eur",
+      "delivery_result": "HTTP 202/2xx",
+      "verification_status": "verified_live_signature",
+      "local_provider_event_row_captured": true,
+      "checkout_status_after_resend": "completed",
+      "payment_status_after_resend": "paid",
+      "checkout_ledger_linked_after_resend": true,
+      "checkout_billing_event_linked_after_resend": true,
+      "credits_granted_by_resend": 0,
+      "no_second_5000_grant": true
     }
   },
-  "pending_evidence": {
-    "duplicate_stripe_webhook_replay": "pending_actual_replay_artifact"
+  "recovered_evidence": {
+    "duplicate_stripe_webhook_replay": "captured_http_202_no_second_grant"
   }
 }

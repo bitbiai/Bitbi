@@ -16,23 +16,21 @@
     "negative_balances": 0,
     "billing_reviews_blocked": 0,
     "billing_reviews_needs_review": 0,
-    "ledger_linked_without_billing_event": 1
+    "ledger_linked_without_billing_event": 0
   },
   "repaired_checkout": {
     "checkout_id": "bcs_28816cfe9f76e56339a9dbe5a105b565",
     "checkout_status": "completed",
     "payment_status": "paid",
     "ledger_entry_id": "cl_5f0f971241b265f255405bc5fede1e86",
+    "billing_event_linked": true,
+    "billing_event_verification_status": "verified_live_signature",
+    "stripe_resend_delivery_result": "HTTP 202/2xx",
+    "stripe_resend_credits_granted": 0,
     "repair_eligible": false,
     "critical_item_present": false
   },
   "warnings": [
-    {
-      "id": "ledger_linked_without_billing_event",
-      "severity": "warning",
-      "status": "expected_for_this_repair",
-      "reason": "Original live checkout webhook failed before local provider event capture; repair linked the ledger directly to the checkout."
-    },
     {
       "id": "historical_provider_events_failed",
       "severity": "warning",
@@ -42,6 +40,8 @@
   ],
   "verdict": {
     "repaired_checkout_has_no_critical_reconciliation_item": true,
+    "repaired_checkout_has_billing_event_link": true,
+    "stripe_resend_did_not_double_grant": true,
     "repair_did_not_create_negative_balance": true,
     "duplicate_idempotency_groups_found": false
   }

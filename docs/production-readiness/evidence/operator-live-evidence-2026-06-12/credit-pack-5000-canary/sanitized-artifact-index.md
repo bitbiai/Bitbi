@@ -8,6 +8,11 @@ cookies, bearer tokens, full receipt URLs, checkout URLs, portal session URLs,
 private keys, unredacted secrets, screenshots, RTF files, ZIP files, private
 PDFs, and private customer data.
 
+The sanitized committed summaries include the post-deploy Stripe resend
+recovery: HTTP 202/2xx, `verified_live_signature`, no second +5000 grant, and a
+completed ledger-linked checkout with no blocking review or canary-critical
+reconciliation item.
+
 Committed sanitized files:
 
 - `SUMMARY.md`

@@ -40,12 +40,26 @@ files, screenshots, private PDFs, and private customer data.
 - Repeat/no-op has ledger entry: `true`
 - Conclusion: repeat repair did not double-grant credits
 
+## Stripe Webhook Resend Recovery
+
+- Stripe resend result after migration/deploy: HTTP 202/2xx
+- Stored verification status: `verified_live_signature`
+- Stored provider event type: `checkout.session.completed`
+- Stored provider mode: `live`
+- Checkout remains `completed`
+- Payment status remains `paid`
+- Checkout remains ledger-linked
+- Checkout is now billing-event-linked
+- Second +5000 grant occurred: `false`
+- Credits granted by resend: 0
+- Conclusion: the old live `checkout.session.completed` resend recovered as a safe no-op and did not double-grant credits
+
 ## Reconciliation And Reviews
 
 - Reconciliation critical items after repair: 0
 - Billing Reviews blocked items after repair: 0
 - Billing Reviews `needs_review` items after repair: 0
-- Remaining warnings: historical/provider-event warnings remain visible, including the repaired checkout being ledger-linked without a stored provider event because the original webhook failed before local event capture
+- Remaining warnings: historical/provider-event warnings remain visible for operator monitoring, but the repaired 5000-credit-pack checkout has no critical reconciliation item
 
 ## Evidence Verdict
 
@@ -53,10 +67,12 @@ The 5000-credit-pack incident is repaired for this checkout:
 
 - exactly +5000 purchased credits were granted once
 - the checkout is completed and ledger-linked
+- the Stripe resend recovered with HTTP 202/2xx and `verified_live_signature`
+- the checkout is billing-event-linked after the resend
 - repeat repair/no-op verification did not grant a second time
+- webhook resend/no-op processing did not grant a second +5000
 - reconciliation has no critical item for the repaired checkout
 - billing reviews have no blocking or `needs_review` item for the repair
 
-Duplicate Stripe webhook replay evidence remains pending. Do not mark duplicate
-Stripe replay as artifact-backed until a real Stripe replay or equivalent
-delivery artifact is captured.
+Duplicate Stripe webhook replay evidence for this repaired checkout is now
+artifact-backed by the safe Stripe resend recovery recorded in this package.
