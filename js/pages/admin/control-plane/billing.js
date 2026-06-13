@@ -12,6 +12,9 @@ import {
     apiAdminBillingReconciliation,
     apiAdminBillingReview,
     apiAdminBillingReviews,
+    apiAdminBillingOperatorArchive,
+    apiAdminArchiveBillingItems,
+    apiAdminRestoreBillingItems,
     apiAdminAssignOrganizationUser,
     apiAdminGrantOrganizationCredits,
     apiAdminGrantUserCredits,
@@ -57,6 +60,8 @@ export function createBillingDomain({ notify, formatDate }) {
     };
     let selectedBillingReviewId = '';
     let billingReviewResolutionSubmitting = false;
+    let visibleBillingEventRefs = [];
+    let visibleBillingReviewRefs = [];
 
     function normalizeLookupValue(value) {
         return String(value || '').trim().toLowerCase();
@@ -612,6 +617,125 @@ export function createBillingDomain({ notify, formatDate }) {
         }
     }
 
+    function archiveSummaryText(summary = {}) {
+        const total = Number(summary.totalArchived || 0);
+        const hidden = Number(summary.hiddenArchivedCount || 0);
+        if (hidden > 0) {
+            return `Archivierte Einträge sind in dieser aktiven Ansicht ausgeblendet (${hidden} in diesem Filter, ${total} insgesamt). Öffne das Archiv, um sie zu sehen.`;
+        }
+        if (total > 0) {
+            return `Archivierte Einträge sind in aktiven Auswertungen ausgeblendet (${total} insgesamt). Öffne das Archiv, um sie zu sehen.`;
+        }
+        return 'Archivierte Einträge sind in dieser aktiven Ansicht ausgeblendet. Öffne das Archiv, um sie zu sehen.';
+    }
+
+    function appendArchiveNote(container, summary = {}) {
+        if (!container) return;
+        const note = el('p', 'admin-shell__desc admin-billing-archive-note', archiveSummaryText(summary));
+        container.appendChild(note);
+    }
+
+    function eventArchiveRef(event, itemType = 'billing_provider_event') {
+        if (!event?.id) return null;
+        return {
+            itemType,
+            itemId: event.id,
+            providerEventId: event.providerEventId || null,
+            eventType: event.eventType || null,
+        };
+    }
+
+    function reviewArchiveRef(review) {
+        if (!review?.id) return null;
+        return {
+            itemType: 'billing_review',
+            itemId: review.id,
+            providerEventId: review.providerEventId || null,
+            eventType: review.eventType || null,
+        };
+    }
+
+    function nonEmptyRefs(refs) {
+        return (Array.isArray(refs) ? refs : []).filter((ref) => ref?.itemType && ref?.itemId);
+    }
+
+    async function refreshBillingArchiveDependentPanels() {
+        await Promise.all([
+            loadBillingEvidenceStatus(),
+            loadBillingReconciliation(),
+            loadBillingReviews(),
+            loadBillingEvents(),
+            loadOperatorBillingArchive(),
+        ]);
+    }
+
+    async function archiveBillingRefs(refs, { stateId = 'billingArchiveActionState', defaultReason = 'Aus aktiver Admin-Billing-Auswertung archiviert.' } = {}) {
+        const itemRefs = nonEmptyRefs(refs);
+        if (itemRefs.length === 0) {
+            setState(stateId, 'Keine archivfähigen Einträge ausgewählt.', 'error');
+            return;
+        }
+        const reason = window.prompt(
+            'Grund für das Archivieren eingeben. Keine Secrets, Cookies, Karten- oder Rohdaten eintragen.',
+            defaultReason
+        );
+        if (!reason || !reason.trim()) {
+            setState(stateId, 'Archivieren abgebrochen: Grund ist erforderlich.', 'error');
+            return;
+        }
+        if (!window.confirm(`Archivieren blendet ${itemRefs.length} Eintrag/Einträge nur aus der aktiven Auswertung aus. Im Archiv bleiben sie erhalten und können wiederhergestellt werden.`)) {
+            setState(stateId, 'Archivieren abgebrochen.', 'neutral');
+            return;
+        }
+        setState(stateId, 'Archivieren läuft...');
+        const res = await apiAdminArchiveBillingItems({
+            itemRefs,
+            reason: reason.trim(),
+            dryRun: false,
+        }, {
+            idempotencyKey: createIdempotencyKey('admin-billing-archive'),
+        });
+        if (!res.ok) {
+            setState(stateId, apiUnavailableMessage(res, 'Archivieren fehlgeschlagen.'), 'error');
+            notify('Archivieren fehlgeschlagen.', 'error');
+            return;
+        }
+        setState(stateId, `${itemRefs.length} Eintrag/Einträge wurden aus der aktiven Ansicht ausgeblendet.`, 'success');
+        notify('Einträge archiviert.', 'success');
+        await refreshBillingArchiveDependentPanels();
+    }
+
+    async function restoreBillingRefs(refs, { stateId = 'billingArchiveState' } = {}) {
+        const itemRefs = nonEmptyRefs(refs);
+        if (itemRefs.length === 0) {
+            setState(stateId, 'Keine archivierten Einträge ausgewählt.', 'error');
+            return;
+        }
+        const reason = window.prompt(
+            'Grund für die Wiederherstellung eingeben.',
+            'Archivierten Admin-Billing-Eintrag wieder sichtbar machen.'
+        );
+        if (!reason || !reason.trim()) {
+            setState(stateId, 'Wiederherstellen abgebrochen: Grund ist erforderlich.', 'error');
+            return;
+        }
+        setState(stateId, 'Wiederherstellung läuft...');
+        const res = await apiAdminRestoreBillingItems({
+            itemRefs,
+            reason: reason.trim(),
+        }, {
+            idempotencyKey: createIdempotencyKey('admin-billing-restore'),
+        });
+        if (!res.ok) {
+            setState(stateId, apiUnavailableMessage(res, 'Wiederherstellung fehlgeschlagen.'), 'error');
+            notify('Wiederherstellung fehlgeschlagen.', 'error');
+            return;
+        }
+        setState(stateId, `${itemRefs.length} Eintrag/Einträge wurden wiederhergestellt.`, 'success');
+        notify('Einträge wiederhergestellt.', 'success');
+        await refreshBillingArchiveDependentPanels();
+    }
+
     async function loadBillingEvents() {
         const provider = byId('billingEventsProvider')?.value || '';
         const status = byId('billingEventsStatus')?.value || '';
@@ -625,11 +749,13 @@ export function createBillingDomain({ notify, formatDate }) {
             return;
         }
         const events = Array.isArray(res.data?.events) ? res.data.events : [];
+        visibleBillingEventRefs = events.map((event) => eventArchiveRef(event)).filter(Boolean);
+        appendArchiveNote(list, res.data?.archiveSummary || {});
         if (events.length === 0) {
-            setState('billingEventsState', 'No billing events found.');
+            setState('billingEventsState', `Keine aktiven Billing Events für die Filter gefunden. ${archiveSummaryText(res.data?.archiveSummary || {})}`);
             return;
         }
-        setState('billingEventsState', `Showing ${events.length} sanitized events. Live payments disabled.`);
+        setState('billingEventsState', `Showing ${events.length} sanitized events in the active view. ${archiveSummaryText(res.data?.archiveSummary || {})}`);
         const { wrap, tbody } = table(['Provider', 'Mode', 'Type', 'Status', 'Organization', 'Received', 'Actions']);
         for (const event of events) {
             const tr = document.createElement('tr');
@@ -639,10 +765,18 @@ export function createBillingDomain({ notify, formatDate }) {
             addCell(tr, badge(event.processingStatus || '-', variantFor(event.processingStatus)));
             addCell(tr, shortId(event.organizationId));
             addCell(tr, formatDate(event.receivedAt));
+            const actions = el('div', 'admin-control-chip-row');
             const btn = el('button', 'btn-action', 'Inspect');
             btn.type = 'button';
             btn.addEventListener('click', () => loadBillingEventDetail(event.id));
-            addCell(tr, btn);
+            const archiveBtn = el('button', 'btn-action btn-action--secondary', 'Archivieren');
+            archiveBtn.type = 'button';
+            archiveBtn.addEventListener('click', () => archiveBillingRefs([eventArchiveRef(event)], {
+                stateId: 'billingEventsState',
+                defaultReason: `Provider Event ${shortId(event.id)} aus aktiver Admin-Ansicht archivieren.`,
+            }));
+            actions.append(btn, archiveBtn);
+            addCell(tr, actions);
             tbody.appendChild(tr);
         }
         list.appendChild(wrap);
@@ -671,6 +805,15 @@ export function createBillingDomain({ notify, formatDate }) {
             ['Received', formatDate(event.receivedAt)],
             ['Summary', renderJsonSummary(event.payloadSummary)],
         ]));
+        const archiveActions = el('div', 'admin-control-chip-row');
+        const archiveButton = el('button', 'btn-action btn-action--secondary', 'Diesen Eintrag archivieren');
+        archiveButton.type = 'button';
+        archiveButton.addEventListener('click', () => archiveBillingRefs([eventArchiveRef(event)], {
+            stateId: 'billingEventsState',
+            defaultReason: `Provider Event ${shortId(event.id)} aus aktiver Admin-Ansicht archivieren.`,
+        }));
+        archiveActions.appendChild(archiveButton);
+        detail.appendChild(archiveActions);
         if (Array.isArray(event.actions) && event.actions.length) {
             const { wrap, tbody } = table(['Action', 'Status', 'Dry-run', 'Summary']);
             for (const action of event.actions) {
@@ -779,6 +922,7 @@ export function createBillingDomain({ notify, formatDate }) {
             evidenceChecklist: status.evidenceChecklist || [],
             reviews: status.reviews || {},
             reconciliation: status.reconciliation || {},
+            archiveSummary: status.archiveSummary || {},
         }, null, 2);
     }
 
@@ -1147,8 +1291,10 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             ['Stripe calls made', evidence.stripeCallsMade === true ? 'Yes' : 'No'],
             ['Credit mutation performed', evidence.creditMutationPerformed === true ? 'Yes' : 'No'],
             ['Response redacted', evidence.redactedResponse === true ? 'Yes' : 'No'],
+            ['Archived records hidden from active counters', evidence.archiveSummary?.totalArchived ? `${evidence.archiveSummary.totalArchived} archived record(s)` : '0'],
         ]));
         panel.appendChild(overview);
+        appendArchiveNote(panel, evidence.archiveSummary || {});
 
         const grid = el('div', 'admin-control-grid admin-billing-evidence-grid');
         grid.appendChild(renderBillingEvidenceCard({
@@ -1326,6 +1472,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         }
         const report = res.data || {};
         const summary = report.summary || {};
+        const archiveSummary = report.archiveSummary || summary.archiveSummary || {};
         const reviews = summary.reviews || {};
         const checkouts = summary.checkouts || {};
         const ledger = summary.creditLedger || {};
@@ -1341,9 +1488,11 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             ['Source', report.source || 'local_d1_only'],
             ['Production readiness', report.productionReadiness || 'blocked'],
             ['Live billing readiness', report.liveBillingReadiness || 'blocked'],
+            ['Archiv ausgeblendet', archiveSummary.totalArchived ? `${archiveSummary.totalArchived} Eintrag/Einträge` : '0'],
             ['Notes', Array.isArray(report.notes) ? report.notes.join(' ') : 'Read-only local report.'],
         ]));
         panel.appendChild(overview);
+        appendArchiveNote(panel, archiveSummary);
 
         const cards = el('div', 'admin-control-grid admin-reconciliation-summary');
         cards.appendChild(renderReconciliationSummaryCard('Risk Items', `${summary.criticalItems || 0} critical`, (summary.criticalItems || 0) > 0 ? 'disabled' : 'user', [
@@ -1515,11 +1664,13 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             return;
         }
         const reviews = Array.isArray(res.data?.reviews) ? res.data.reviews : [];
+        visibleBillingReviewRefs = reviews.map((review) => reviewArchiveRef(review)).filter(Boolean);
+        appendArchiveNote(list, res.data?.archiveSummary || {});
         if (reviews.length === 0) {
-            setState('billingReviewsState', 'No billing review events found for the selected filters.');
+            setState('billingReviewsState', `Keine aktiven Billing Reviews für die Filter gefunden. ${archiveSummaryText(res.data?.archiveSummary || {})}`);
             return;
         }
-        setState('billingReviewsState', `Showing ${reviews.length} sanitized billing review event${reviews.length === 1 ? '' : 's'}.`);
+        setState('billingReviewsState', `Showing ${reviews.length} sanitized billing review event${reviews.length === 1 ? '' : 's'} in the active view. ${archiveSummaryText(res.data?.archiveSummary || {})}`);
         const { wrap, tbody } = table(['State', 'Type', 'Provider', 'Mode', 'Provider event', 'Received', 'Recommended action', 'Actions']);
         wrap.classList.add('admin-billing-review-table');
         for (const review of reviews) {
@@ -1532,13 +1683,21 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             addCell(tr, shortId(review.providerEventId));
             addCell(tr, formatDate(review.receivedAt || review.createdAt));
             addCell(tr, review.recommendedAction || review.reviewReason || '-');
+            const actions = el('div', 'admin-control-chip-row');
             const btn = el('button', 'btn-action', 'Inspect Review');
             btn.type = 'button';
             btn.addEventListener('click', () => {
                 selectedBillingReviewId = review.id;
                 loadBillingReviewDetail(review.id);
             });
-            addCell(tr, btn);
+            const archiveBtn = el('button', 'btn-action btn-action--secondary', 'Archivieren');
+            archiveBtn.type = 'button';
+            archiveBtn.addEventListener('click', () => archiveBillingRefs([reviewArchiveRef(review)], {
+                stateId: 'billingReviewsState',
+                defaultReason: `Billing Review ${shortId(review.id)} aus aktiver Admin-Ansicht archivieren.`,
+            }));
+            actions.append(btn, archiveBtn);
+            addCell(tr, actions);
             tbody.appendChild(tr);
         }
         list.appendChild(wrap);
@@ -1576,6 +1735,15 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             ['Resolution status', review.resolutionStatus || '-'],
             ['Resolution note', review.resolutionNote || '-'],
         ]));
+        const archiveActions = el('div', 'admin-control-chip-row');
+        const archiveButton = el('button', 'btn-action btn-action--secondary', 'Diesen Review archivieren');
+        archiveButton.type = 'button';
+        archiveButton.addEventListener('click', () => archiveBillingRefs([reviewArchiveRef(review)], {
+            stateId: 'billingReviewsState',
+            defaultReason: `Billing Review ${shortId(review.id)} aus aktiver Admin-Ansicht archivieren.`,
+        }));
+        archiveActions.appendChild(archiveButton);
+        detail.appendChild(archiveActions);
         if (review.actionSummary && typeof review.actionSummary === 'object') {
             detail.appendChild(el('h3', 'admin-section-title', 'Action Summary'));
             detail.appendChild(detailRows([
@@ -1588,8 +1756,50 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         appendBillingReviewResolutionForm(detail, review);
     }
 
+    async function loadOperatorBillingArchive() {
+        const list = byId('billingArchiveList');
+        if (!list) return;
+        const q = byId('billingArchiveSearch')?.value.trim() || '';
+        setState('billingArchiveState', 'Archiv wird geladen...');
+        clear(list);
+        const res = await apiAdminBillingOperatorArchive({ limit: 100, q });
+        if (!res.ok) {
+            setState('billingArchiveState', '');
+            renderUnavailable(list, res, 'Billing-Archiv ist nicht verfügbar.');
+            return;
+        }
+        const archiveItems = Array.isArray(res.data?.archiveItems) ? res.data.archiveItems : [];
+        if (archiveItems.length === 0) {
+            setState('billingArchiveState', 'Keine archivierten Billing-Einträge gefunden.');
+            list.appendChild(el('div', 'admin-shell__empty', 'Archivierte Zahlungsereignisse werden hier angezeigt. Aktive Ansichten bleiben davon getrennt.'));
+            return;
+        }
+        setState('billingArchiveState', `${archiveItems.length} archivierte Billing-Einträge gefunden. Archivierte Einträge sind nicht gelöscht.`);
+        const { wrap, tbody } = table(['Typ', 'Eintrag', 'Zusammenfassung', 'Grund', 'Archiviert am', 'Aktion']);
+        for (const item of archiveItems) {
+            const tr = document.createElement('tr');
+            addCell(tr, readableToken(item.itemType || '-'));
+            addCell(tr, shortId(item.itemId));
+            const summary = item.summary && typeof item.summary === 'object'
+                ? (item.summary.title || renderJsonSummary(item.summary))
+                : '-';
+            addCell(tr, summary);
+            addCell(tr, item.reason || '-');
+            addCell(tr, formatDate(item.archivedAt || item.createdAt));
+            const restoreButton = el('button', 'btn-action', 'Wiederherstellen');
+            restoreButton.type = 'button';
+            restoreButton.addEventListener('click', () => restoreBillingRefs([{
+                itemType: item.itemType,
+                itemId: item.itemId,
+            }], { stateId: 'billingArchiveState' }));
+            addCell(tr, restoreButton);
+            tbody.appendChild(tr);
+        }
+        list.appendChild(wrap);
+    }
+
     async function loadBillingEventsPanel() {
-        await Promise.all([loadBillingEvidenceStatus(), loadBillingReconciliation(), loadBillingReviews(), loadBillingEvents()]);
+        await Promise.all([loadBillingEvidenceStatus(), loadBillingReconciliation(), loadBillingReviews(), loadBillingEvents(), loadOperatorBillingArchive()]);
     }
 
     function bind() {
@@ -1628,8 +1838,21 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             loadBillingReviews();
         });
         byId('billingReviewsRefresh')?.addEventListener('click', loadBillingReviews);
+        byId('billingReviewsArchiveVisible')?.addEventListener('click', () => archiveBillingRefs(visibleBillingReviewRefs, {
+            stateId: 'billingReviewsState',
+            defaultReason: 'Sichtbare Billing Reviews aus aktiver Admin-Ansicht archivieren.',
+        }));
         byId('billingEvidenceRefresh')?.addEventListener('click', loadBillingEvidenceStatus);
         byId('billingReconciliationRefresh')?.addEventListener('click', loadBillingReconciliation);
+        byId('billingEventsArchiveVisible')?.addEventListener('click', () => archiveBillingRefs(visibleBillingEventRefs, {
+            stateId: 'billingEventsState',
+            defaultReason: 'Sichtbare Provider Events aus aktiver Admin-Ansicht archivieren.',
+        }));
+        byId('billingArchiveRefresh')?.addEventListener('click', loadOperatorBillingArchive);
+        byId('billingArchiveSearchForm')?.addEventListener('submit', (event) => {
+            event.preventDefault();
+            loadOperatorBillingArchive();
+        });
         byId('liveBillingRefresh')?.addEventListener('click', loadLiveBillingCommandCenter);
     }
 
@@ -1643,5 +1866,6 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         loadBillingReconciliation,
         loadBillingReviews,
         loadBillingEvents,
+        loadOperatorBillingArchive,
     };
 }

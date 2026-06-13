@@ -38,6 +38,7 @@ import {
 import {
   archiveOperatorBillingItems,
   applyOperatorBillingPurge,
+  getBillingArchiveSummary,
   listOperatorBillingArchive,
   OPERATOR_PURGE_CONFIRMATION,
   previewOperatorBillingPurge,
@@ -74,6 +75,15 @@ async function enforceAdminBillingRateLimit(ctx, {
   if (result.unavailable) return rateLimitUnavailableResponse(ctx.correlationId || null);
   if (result.limited) return rateLimitResponse();
   return null;
+}
+
+function parseBooleanFlag(value) {
+  return String(value || "").trim().toLowerCase() === "true";
+}
+
+function wantsArchivedBillingRows(url) {
+  return parseBooleanFlag(url.searchParams.get("include_archived") || url.searchParams.get("includeArchived"))
+    || String(url.searchParams.get("mode") || "").trim().toLowerCase() === "archive";
 }
 
 function billingErrorJson(error, ctx = null) {
@@ -260,19 +270,23 @@ function liveBillingConfigShapeStatus(config = {}) {
 
 async function buildAdminLiveBillingReadinessStatus(env) {
   const evidence = buildBillingEvidenceStatus(env);
-  const [events, reviews, reconciliation] = await Promise.all([
+  const [eventResult, reviews, reconciliation] = await Promise.all([
     listBillingProviderEvents(env, {
       provider: "stripe",
       providerMode: "live",
       limit: 25,
+      includeArchiveSummary: true,
     }),
     listBillingReviewEvents(env, {
       provider: "stripe",
       providerMode: "live",
       limit: 25,
+      includeArchiveSummary: true,
     }),
     getBillingReconciliationReport(env),
   ]);
+  const events = eventResult.events || [];
+  const archiveSummary = reconciliation?.archiveSummary || eventResult.archiveSummary || {};
   const reviewRows = Array.isArray(reviews?.reviews) ? reviews.reviews : [];
   const unresolvedReviews = reviewRows.filter((review) => !["resolved", "dismissed"].includes(String(review.reviewState || "").toLowerCase()));
   const blockingReviews = reviewRows.filter((review) => ["blocked", "needs_review", "critical"].includes(String(review.reviewState || "").toLowerCase()));
@@ -368,6 +382,12 @@ async function buildAdminLiveBillingReadinessStatus(env) {
     liveBillingReadiness: "operator_approved_live",
     configShapeStatus,
     evidenceStatus: "partial_evidence_operator_approved_incident_open",
+    archiveSummary: {
+      ...archiveSummary,
+      activeViewsExcludeArchived: true,
+      readinessNotProvenByArchive: true,
+      note: "Archived billing records are excluded from active operator counters and remain available in the archive. Archiving is not production-readiness evidence.",
+    },
     canaryStatus: "operator_confirmed_manual_live_validation",
     finalVerdict: {
       status: "operator_approved_live_with_evidence_waivers",
@@ -533,7 +553,15 @@ export async function handleAdminBilling(ctx) {
   if (pathname === "/api/admin/billing/evidence/status" && method === "GET") {
     const limited = await enforceAdminBillingRateLimit(ctx);
     if (limited) return limited;
-    return json(buildBillingEvidenceStatus(env));
+    const archiveSummary = await getBillingArchiveSummary(env);
+    return json({
+      ...buildBillingEvidenceStatus(env),
+      archiveSummary: {
+        ...archiveSummary,
+        readinessNotProvenByArchive: true,
+        note: "Archived billing records are excluded from active operator counters and remain available in the archive. Archiving is not production-readiness evidence.",
+      },
+    });
   }
 
   if (pathname === "/api/admin/billing/live-readiness/status" && method === "GET") {
@@ -551,14 +579,22 @@ export async function handleAdminBilling(ctx) {
     const limited = await enforceAdminBillingRateLimit(ctx);
     if (limited) return limited;
     try {
-      const events = await listBillingProviderEvents(env, {
+      const result = await listBillingProviderEvents(env, {
         provider: url.searchParams.get("provider"),
         status: url.searchParams.get("status"),
         eventType: url.searchParams.get("event_type") || url.searchParams.get("eventType"),
         organizationId: url.searchParams.get("organization_id") || url.searchParams.get("organizationId"),
         limit: url.searchParams.get("limit"),
+        includeArchived: wantsArchivedBillingRows(url),
+        includeArchiveSummary: true,
       });
-      return json({ ok: true, events, livePaymentProviderEnabled: false });
+      return json({
+        ok: true,
+        events: result.events || [],
+        archiveSummary: result.archiveSummary,
+        archivedExcludedByDefault: !wantsArchivedBillingRows(url),
+        livePaymentProviderEnabled: false,
+      });
     } catch (error) {
       return billingErrorJson(error, ctx);
     }
@@ -579,17 +615,22 @@ export async function handleAdminBilling(ctx) {
     const limited = await enforceAdminBillingRateLimit(ctx);
     if (limited) return limited;
     try {
+      const includeArchived = wantsArchivedBillingRows(url);
       const result = await listBillingReviewEvents(env, {
         reviewState: url.searchParams.get("review_state") || url.searchParams.get("reviewState"),
         provider: url.searchParams.get("provider"),
         providerMode: url.searchParams.get("provider_mode") || url.searchParams.get("providerMode"),
         eventType: url.searchParams.get("event_type") || url.searchParams.get("eventType"),
         limit: url.searchParams.get("limit"),
+        includeArchived,
+        includeArchiveSummary: true,
       });
       return json({
         ok: true,
         reviews: result.reviews,
         nextCursor: result.nextCursor,
+        archiveSummary: result.archiveSummary,
+        archivedExcludedByDefault: !includeArchived,
         livePaymentProviderEnabled: false,
       });
     } catch (error) {
@@ -786,7 +827,10 @@ export async function handleAdminBilling(ctx) {
     const limited = await enforceAdminBillingRateLimit(ctx);
     if (limited) return limited;
     try {
-      const event = await getBillingProviderEvent(env, { id: eventMatch[1] });
+      const event = await getBillingProviderEvent(env, {
+        id: eventMatch[1],
+        includeArchived: wantsArchivedBillingRows(url),
+      });
       return json({ ok: true, event, livePaymentProviderEnabled: false });
     } catch (error) {
       return billingErrorJson(error, ctx);
@@ -798,7 +842,10 @@ export async function handleAdminBilling(ctx) {
     const limited = await enforceAdminBillingRateLimit(ctx);
     if (limited) return limited;
     try {
-      const review = await getBillingReviewEvent(env, { id: reviewMatch[1] });
+      const review = await getBillingReviewEvent(env, {
+        id: reviewMatch[1],
+        includeArchived: wantsArchivedBillingRows(url),
+      });
       return json({
         ok: true,
         review,

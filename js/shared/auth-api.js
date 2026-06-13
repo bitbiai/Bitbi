@@ -702,6 +702,36 @@ export function apiAdminResolveBillingReview(reviewId, { resolutionStatus, resol
     });
 }
 
+export function apiAdminBillingOperatorArchive({ limit, itemType, q } = {}) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    if (itemType) params.set('item_type', itemType);
+    if (q) params.set('q', q);
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/billing/operator-archive${qs}`);
+}
+
+export function apiAdminArchiveBillingItems({ itemRefs, reason, dryRun = false, selectionScope } = {}, { idempotencyKey } = {}) {
+    return request('POST', '/admin/billing/operator-archive', {
+        itemRefs: Array.isArray(itemRefs) ? itemRefs : [],
+        reason,
+        dryRun,
+        selectionScope: selectionScope || 'selected_visible_admin_billing_items',
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('admin-billing-archive') },
+    });
+}
+
+export function apiAdminRestoreBillingItems({ itemRefs, reason } = {}, { idempotencyKey } = {}) {
+    return request('POST', '/admin/billing/operator-archive/restore', {
+        itemRefs: Array.isArray(itemRefs) ? itemRefs : [],
+        reason,
+        selectionScope: 'selected_archived_admin_billing_items',
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('admin-billing-restore') },
+    });
+}
+
 export function apiAdminAiUsageAttempts({ status, organizationId, userId, feature, limit, cursor } = {}) {
     const params = new URLSearchParams();
     if (status) params.set('status', status);

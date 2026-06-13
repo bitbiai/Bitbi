@@ -1375,6 +1375,9 @@ class MockD1 {
     if (this.missingTables.has('billing_event_actions') && query.includes('billing_event_actions')) {
       throw new Error('no such table: billing_event_actions');
     }
+    if (this.missingTables.has('billing_operator_item_states') && query.includes('billing_operator_item_states')) {
+      throw new Error('no such table: billing_operator_item_states');
+    }
     if (this.missingTables.has('billing_member_checkout_sessions') && query.includes('billing_member_checkout_sessions')) {
       throw new Error('no such table: billing_member_checkout_sessions');
     }
@@ -4312,6 +4315,30 @@ class MockD1 {
       return deepClone(this.state.billingProviderEvents.find((row) =>
         row.provider === provider && row.provider_event_id === providerEventId
       ) || null);
+    }
+
+    if (query === "SELECT item_type, item_id FROM billing_operator_item_states WHERE state = 'archived'") {
+      return {
+        results: deepClone(this.state.billingOperatorItemStates
+          .filter((row) => row.state === 'archived')
+          .map((row) => ({
+            item_type: row.item_type,
+            item_id: row.item_id,
+          }))),
+      };
+    }
+
+    if (query.startsWith("SELECT item_type, COUNT(*) AS count FROM billing_operator_item_states WHERE state = 'archived' GROUP BY item_type")) {
+      const counts = new Map();
+      for (const row of this.state.billingOperatorItemStates) {
+        if (row.state !== 'archived') continue;
+        counts.set(row.item_type, (counts.get(row.item_type) || 0) + 1);
+      }
+      return {
+        results: Array.from(counts.entries())
+          .sort(([a], [b]) => String(a).localeCompare(String(b)))
+          .map(([item_type, count]) => ({ item_type, count })),
+      };
     }
 
     if (query.startsWith('SELECT id, tombstone_type, provider, provider_mode, provider_event_id, provider_checkout_session_id, provider_payment_intent_id, provider_subscription_id, original_item_type, original_item_id, payload_hash, reason, purged_by_user_id, purged_at, metadata_json, created_at, updated_at FROM billing_operator_purge_tombstones WHERE')) {

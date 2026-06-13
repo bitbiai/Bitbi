@@ -696,6 +696,7 @@
                     </form>
                     <div class="admin-control-toolbar__badges">
                         <button type="button" id="billingReviewsRefresh" class="btn-action">Refresh</button>
+                        <button type="button" id="billingReviewsArchiveVisible" class="btn-action btn-action--secondary">Archivieren</button>
                     </div>
                     <div id="billingReviewsState" class="admin-state" aria-live="polite">Loading billing reviews...</div>
                     <div id="billingReviewsList"></div>
@@ -725,9 +726,26 @@
                     </label>
                     <button type="submit" class="btn-action">Apply</button>
                 </form>
+                <div class="admin-control-toolbar__badges">
+                    <button type="button" id="billingEventsArchiveVisible" class="btn-action btn-action--secondary">Sichtbare Einträge archivieren</button>
+                </div>
                 <div id="billingEventsState" class="admin-state">Loading billing events...</div>
                 <div id="billingEventsList"></div>
                 <div id="billingEventDetail" class="admin-control-detail glass glass-card" hidden></div>
+                </div>
+                <div class="admin-control-subsection">
+                    <h3 class="admin-section-title">Billing Archiv</h3>
+                    <p class="admin-shell__desc">Archivierte Zahlungsereignisse werden nicht gelöscht. Sie erscheinen nicht mehr in der aktiven Auswertung und bleiben im Archiv nachvollziehbar.</p>
+                    <form id="billingArchiveSearchForm" class="admin-control-filter glass glass-card">
+                        <label class="admin-ai__field">
+                            <span class="admin-ai__label">Archiv suchen</span>
+                            <input id="billingArchiveSearch" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="Typ, ID, Grund oder Ereignis suchen">
+                        </label>
+                        <button type="submit" class="btn-action">Archiv suchen</button>
+                        <button type="button" id="billingArchiveRefresh" class="btn-action btn-action--secondary">Archiv aktualisieren</button>
+                    </form>
+                    <div id="billingArchiveState" class="admin-state" aria-live="polite">Loading billing archive...</div>
+                    <div id="billingArchiveList"></div>
                 </div>
             </div>
 

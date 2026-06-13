@@ -1,6 +1,12 @@
 import { nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
 import { normalizeOrgId } from "./orgs.js";
-import { findOperatorBillingPurgeTombstoneForProviderEvent } from "./operator-billing-cleanup.js";
+import {
+  findOperatorBillingPurgeTombstoneForProviderEvent,
+  getArchivedBillingItemKeys,
+  getBillingArchiveSummary,
+  isBillingItemKeyArchived,
+  isBillingProviderEventArchived,
+} from "./operator-billing-cleanup.js";
 
 export const BILLING_WEBHOOK_TEST_PROVIDER = "test";
 export const BILLING_WEBHOOK_STRIPE_PROVIDER = "stripe";
@@ -869,11 +875,14 @@ async function listReconciliationCheckouts(env) {
 
 export async function getBillingReconciliationReport(env) {
   const generatedAt = nowIso();
-  const providerEvents = (await listBillingProviderEvents(env, {
+  const providerEventResult = await listBillingProviderEvents(env, {
     provider: BILLING_WEBHOOK_STRIPE_PROVIDER,
     providerMode: LIVE_MODE,
     limit: RECONCILIATION_SCAN_LIMIT,
-  }));
+    includeArchiveSummary: true,
+  });
+  const providerEvents = providerEventResult.events || [];
+  const archiveSummary = providerEventResult.archiveSummary || await getBillingArchiveSummary(env);
   const eventDetails = [];
   for (const event of providerEvents) {
     eventDetails.push(await getBillingProviderEvent(env, { id: event.id }));
@@ -885,19 +894,38 @@ export async function getBillingReconciliationReport(env) {
     reviews.push(serializeBillingReviewEvent(event, reviewAction.action, { includeSummary: true }));
   }
 
+  const archivedKeys = await getArchivedBillingItemKeys(env);
   const reconciliation = await listReconciliationCheckouts(env);
-  const {
-    organizationCheckouts,
-    memberCheckouts,
-    subscriptionCheckouts,
-    organizationLedger,
-    memberLedger,
-    organizationUsage,
-    memberUsage,
-    memberSubscriptions,
-    memberCreditBuckets,
-    memberCreditBucketEvents,
-  } = reconciliation;
+  const organizationCheckouts = reconciliation.organizationCheckouts.filter((row) =>
+    !isBillingItemKeyArchived(archivedKeys, "billing_checkout_session", row.id)
+  );
+  const memberCheckouts = reconciliation.memberCheckouts.filter((row) =>
+    !isBillingItemKeyArchived(archivedKeys, "billing_member_checkout_session", row.id)
+  );
+  const subscriptionCheckouts = reconciliation.subscriptionCheckouts.filter((row) =>
+    !isBillingItemKeyArchived(archivedKeys, "billing_member_subscription_checkout_session", row.id)
+  );
+  const organizationLedger = reconciliation.organizationLedger.filter((row) =>
+    !isBillingItemKeyArchived(archivedKeys, "credit_ledger", row.id)
+  );
+  const memberLedger = reconciliation.memberLedger.filter((row) =>
+    !isBillingItemKeyArchived(archivedKeys, "member_credit_ledger", row.id)
+  );
+  const organizationUsage = reconciliation.organizationUsage.filter((row) =>
+    !isBillingItemKeyArchived(archivedKeys, "usage_event", row.id)
+  );
+  const memberUsage = reconciliation.memberUsage.filter((row) =>
+    !isBillingItemKeyArchived(archivedKeys, "member_usage_event", row.id)
+  );
+  const memberSubscriptions = reconciliation.memberSubscriptions.filter((row) =>
+    !isBillingItemKeyArchived(archivedKeys, "billing_member_subscription", row.id)
+  );
+  const memberCreditBuckets = reconciliation.memberCreditBuckets.filter((row) =>
+    !isBillingItemKeyArchived(archivedKeys, "member_credit_bucket", row.id)
+  );
+  const memberCreditBucketEvents = reconciliation.memberCreditBucketEvents.filter((row) =>
+    !isBillingItemKeyArchived(archivedKeys, "member_credit_bucket_event", row.id)
+  );
 
   const reviewCounts = countBy(reviews, "reviewState");
   const unresolvedReviews = reviews.filter((review) => UNRESOLVED_REVIEW_STATES.has(review.reviewState));
@@ -1408,6 +1436,7 @@ export async function getBillingReconciliationReport(env) {
       scanLimit: RECONCILIATION_SCAN_LIMIT,
       criticalItems: criticalCount,
       warningItems: warningCount,
+      archiveSummary,
       providerEvents: {
         recentLiveStripeTotal: providerEvents.length,
         failed: failedEvents.length,
@@ -1453,10 +1482,12 @@ export async function getBillingReconciliationReport(env) {
         subscriptionBucketsWithoutKnownSubscription: subscriptionBucketsWithoutKnownSubscription.length,
       },
     },
+    archiveSummary,
     sections,
     notes: [
       "This report is read-only.",
       "It uses local D1 state only.",
+      "Archived billing records are excluded from active counters and remain available in the operator archive.",
       "It does not call Stripe.",
       "It does not reconcile automatically.",
       "It does not adjust credits, subscriptions, checkout state, review state, or provider events.",
@@ -1611,6 +1642,21 @@ function normalizeOptionalFilter(value, maxLength = 128) {
   return text || null;
 }
 
+async function archiveSummaryWithHiddenCount(env, candidateRows = []) {
+  const archiveSummary = await getBillingArchiveSummary(env);
+  const archivedKeys = await getArchivedBillingItemKeys(env);
+  const hiddenArchivedCount = candidateRows.filter((row) =>
+    isBillingProviderEventArchived(archivedKeys, row.id)
+  ).length;
+  return {
+    archiveSummary: {
+      ...archiveSummary,
+      hiddenArchivedCount,
+    },
+    archivedKeys,
+  };
+}
+
 export async function listBillingProviderEvents(env, {
   provider = null,
   providerMode = null,
@@ -1618,8 +1664,11 @@ export async function listBillingProviderEvents(env, {
   eventType = null,
   organizationId = null,
   limit = 25,
+  includeArchived = false,
+  includeArchiveSummary = false,
 } = {}) {
   const appliedLimit = normalizeLimit(limit);
+  const scanLimit = includeArchived ? appliedLimit : Math.min(Math.max(appliedLimit * 5, 50), 500);
   const providerFilter = provider ? normalizeProvider(provider) : null;
   const modeFilter = providerMode ? normalizeReviewProviderMode(providerMode) : null;
   const statusFilter = normalizeOptionalFilter(status, 32);
@@ -1650,12 +1699,26 @@ export async function listBillingProviderEvents(env, {
     typeFilter,
     orgFilter,
     orgFilter,
-    appliedLimit
+    scanLimit
   ).all();
-  return (rows.results || []).map((row) => serializeEventRow(row));
+  const rawRows = rows.results || [];
+  const { archiveSummary, archivedKeys } = includeArchived
+    ? { archiveSummary: await getBillingArchiveSummary(env), archivedKeys: new Set() }
+    : await archiveSummaryWithHiddenCount(env, rawRows);
+  const events = rawRows
+    .filter((row) => includeArchived || !isBillingProviderEventArchived(archivedKeys, row.id))
+    .slice(0, appliedLimit)
+    .map((row) => serializeEventRow(row));
+  if (includeArchiveSummary) {
+    return {
+      events,
+      archiveSummary,
+    };
+  }
+  return events;
 }
 
-export async function getBillingProviderEvent(env, { id }) {
+export async function getBillingProviderEvent(env, { id, includeArchived = false } = {}) {
   const eventIdValue = safeString(id, 64);
   if (!eventIdValue || !/^bpe_[a-f0-9]{32}$/.test(eventIdValue)) {
     throw new BillingEventError("Billing event not found.", {
@@ -1679,6 +1742,15 @@ export async function getBillingProviderEvent(env, { id }) {
       code: "billing_event_not_found",
     });
   }
+  if (!includeArchived) {
+    const archivedKeys = await getArchivedBillingItemKeys(env);
+    if (isBillingProviderEventArchived(archivedKeys, row.id)) {
+      throw new BillingEventError("Billing event is archived and hidden from active views.", {
+        status: 404,
+        code: "billing_event_archived",
+      });
+    }
+  }
   const actions = await env.DB.prepare(
     `SELECT id, event_id, action_type, status, dry_run, summary_json, created_at, updated_at
      FROM billing_event_actions
@@ -1697,20 +1769,25 @@ export async function listBillingReviewEvents(env, {
   providerMode = null,
   eventType = null,
   limit = 25,
+  includeArchived = false,
+  includeArchiveSummary = false,
 } = {}) {
   const appliedLimit = normalizeLimit(limit);
   const stateFilter = normalizeReviewStateFilter(reviewState);
   const modeFilter = normalizeReviewProviderMode(providerMode);
   const scanLimit = Math.min(Math.max(appliedLimit * 5, 25), 500);
-  const candidateEvents = await listBillingProviderEvents(env, {
+  const eventResult = await listBillingProviderEvents(env, {
     provider,
     providerMode: modeFilter,
     eventType,
     limit: scanLimit,
+    includeArchived,
+    includeArchiveSummary: true,
   });
+  const candidateEvents = eventResult.events || [];
   const reviews = [];
   for (const event of candidateEvents) {
-    const detail = await getBillingProviderEvent(env, { id: event.id });
+    const detail = await getBillingProviderEvent(env, { id: event.id, includeArchived });
     const reviewAction = findBillingReviewAction(detail);
     if (!reviewAction) continue;
     const review = serializeBillingReviewEvent(detail, reviewAction.action);
@@ -1721,11 +1798,12 @@ export async function listBillingReviewEvents(env, {
   return {
     reviews,
     nextCursor: null,
+    archiveSummary: includeArchiveSummary ? eventResult.archiveSummary : undefined,
   };
 }
 
-export async function getBillingReviewEvent(env, { id }) {
-  const event = await getBillingProviderEvent(env, { id });
+export async function getBillingReviewEvent(env, { id, includeArchived = false } = {}) {
+  const event = await getBillingProviderEvent(env, { id, includeArchived });
   const reviewAction = findBillingReviewAction(event);
   if (!reviewAction) {
     throw new BillingEventError("Billing review event not found.", {

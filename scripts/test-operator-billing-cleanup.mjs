@@ -11,6 +11,9 @@ const cleanupLib = read("workers/auth/src/lib/operator-billing-cleanup.js");
 const adminBilling = read("workers/auth/src/routes/admin-billing.js");
 const routePolicy = read("workers/auth/src/app/route-policy.js");
 const billingEvents = read("workers/auth/src/lib/billing-events.js");
+const authApi = read("js/shared/auth-api.js");
+const adminBillingUi = read("js/pages/admin/control-plane/billing.js");
+const adminHtml = read("admin/index.html");
 const releaseCompat = JSON.parse(read("config/release-compat.json"));
 
 for (const table of [
@@ -33,9 +36,12 @@ for (const exportName of [
   "previewOperatorBillingPurge",
   "applyOperatorBillingPurge",
   "findOperatorBillingPurgeTombstoneForProviderEvent",
+  "getArchivedBillingItemKeys",
+  "getBillingArchiveSummary",
 ]) {
   assert(cleanupLib.includes(`export async function ${exportName}`), `missing cleanup export ${exportName}`);
 }
+assert(cleanupLib.includes("export function isBillingProviderEventArchived"), "cleanup lib must expose provider-event archive matching");
 
 assert(cleanupLib.includes("ICH VERSTEHE: DATENBANK-LÖSCHUNG IST ENDGÜLTIG"), "exact German purge confirmation must be required");
 assert(cleanupLib.includes("exportEvidenceAcknowledged"), "purge apply must require export acknowledgement");
@@ -70,6 +76,39 @@ assert(routePolicy.includes("never calls Stripe"), "cleanup policy must document
 assert(billingEvents.includes("findOperatorBillingPurgeTombstoneForProviderEvent"), "billing ingestion must check operator purge tombstones");
 assert(billingEvents.includes("operator_purge_tombstone_matched"), "tombstone-matched provider events must be classified safely");
 assert(billingEvents.includes("side effects are disabled"), "tombstone replay must not create side effects");
+assert(billingEvents.includes("includeArchived = false"), "billing provider/review lists must default to active-only");
+assert(billingEvents.includes("isBillingProviderEventArchived"), "billing provider events must exclude archived provider/review rows");
+assert(billingEvents.includes("isBillingItemKeyArchived"), "reconciliation rows must use explicit archived item filtering");
+assert(billingEvents.includes("archiveSummary"), "billing active reports must expose a separate archive summary");
+assert(billingEvents.includes("Archived billing records are excluded from active counters"), "reconciliation must explain active/archive split");
+
+assert(adminBilling.includes("wantsArchivedBillingRows"), "admin route must require explicit archived mode");
+assert(adminBilling.includes("archivedExcludedByDefault"), "admin event/review responses must state archived default exclusion");
+assert(adminBilling.includes("readinessNotProvenByArchive"), "admin evidence/live status must not treat archives as readiness evidence");
+assert(adminBilling.includes("Archiving is not production-readiness evidence"), "admin evidence/live status must explain archive is not readiness evidence");
+
+for (const wrapperName of [
+  "apiAdminBillingOperatorArchive",
+  "apiAdminArchiveBillingItems",
+  "apiAdminRestoreBillingItems",
+]) {
+  assert(authApi.includes(`export function ${wrapperName}`), `missing frontend API wrapper ${wrapperName}`);
+}
+assert(authApi.includes("Idempotency-Key"), "archive/restore frontend writes must send idempotency keys");
+
+for (const uiNeedle of [
+  "loadOperatorBillingArchive",
+  "visibleBillingEventRefs",
+  "visibleBillingReviewRefs",
+  "Archivierte Einträge sind in dieser aktiven Ansicht ausgeblendet",
+  "Archived records hidden from active counters",
+  "Wiederherstellen",
+]) {
+  assert(adminBillingUi.includes(uiNeedle), `billing UI missing archive behavior ${uiNeedle}`);
+}
+assert(adminHtml.includes("Billing Archiv"), "admin HTML must expose a dedicated billing archive panel");
+assert(adminHtml.includes("Archivierte Zahlungsereignisse werden nicht gelöscht"), "admin archive panel must explain archive is not deletion");
+assert(adminHtml.includes("Sichtbare Einträge archivieren"), "provider event log must expose visible-row archive control");
 
 assert.equal(
   releaseCompat.release.schemaCheckpoints.auth.latest,

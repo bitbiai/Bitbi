@@ -374,13 +374,54 @@ async function resolveAllActiveSelf(env, userId) {
   return [...map.values()];
 }
 
-async function getArchivedKeys(env) {
+export async function getArchivedBillingItemKeys(env) {
   const rows = await queryRows(env,
     `SELECT item_type, item_id
      FROM billing_operator_item_states
      WHERE state = 'archived'`
   );
   return new Set(rows.map((row) => `${row.item_type}:${row.item_id}`));
+}
+
+export function billingItemKey(itemType, itemId) {
+  const type = normalizeItemType(itemType);
+  const id = sanitizeId(itemId);
+  return type && id ? `${type}:${id}` : null;
+}
+
+export function isBillingItemKeyArchived(archivedKeys, itemType, itemId) {
+  const key = billingItemKey(itemType, itemId);
+  return Boolean(key && archivedKeys?.has(key));
+}
+
+export function isBillingProviderEventArchived(archivedKeys, eventId) {
+  return isBillingItemKeyArchived(archivedKeys, "billing_provider_event", eventId)
+    || isBillingItemKeyArchived(archivedKeys, "billing_review", eventId);
+}
+
+export async function getBillingArchiveSummary(env) {
+  const rows = await queryRows(env,
+    `SELECT item_type, COUNT(*) AS count
+     FROM billing_operator_item_states
+     WHERE state = 'archived'
+     GROUP BY item_type
+     ORDER BY item_type ASC`
+  );
+  const byItemType = {};
+  let totalArchived = 0;
+  for (const row of rows) {
+    const itemType = safeString(row.item_type, 96) || "unknown";
+    const count = Number(row.count || 0);
+    byItemType[itemType] = count;
+    totalArchived += count;
+  }
+  return {
+    totalArchived,
+    byItemType,
+    activeViewsExcludeArchived: true,
+    archiveAvailable: true,
+    note: "Archived billing records are excluded from active operator counters and remain available in the archive.",
+  };
 }
 
 async function resolveSelection(env, body, { adminUserId, includeArchived = false } = {}) {
@@ -390,7 +431,7 @@ async function resolveSelection(env, body, { adminUserId, includeArchived = fals
     ? await resolveExplicitRefs(env, refs)
     : await resolveAllActiveSelf(env, adminUserId);
   if (!includeArchived) {
-    const archived = await getArchivedKeys(env);
+    const archived = await getArchivedBillingItemKeys(env);
     items = items.filter((item) => !archived.has(itemKey(item)));
   }
   return { items, scope, refs };
