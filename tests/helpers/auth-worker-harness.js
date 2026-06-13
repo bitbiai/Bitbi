@@ -3769,6 +3769,10 @@ class MockD1 {
     }
 
     if (query.startsWith('SELECT id, provider, provider_mode, provider_checkout_session_id, provider_payment_intent_id, user_id, credit_pack_id, credits, amount_cents, currency, status, idempotency_key_hash, request_fingerprint_hash, checkout_url, provider_customer_id, billing_event_id, member_credit_ledger_entry_id, authorization_scope')) {
+      if (query.includes('WHERE id = ?')) {
+        const [id] = bindings;
+        return deepClone(this.state.billingMemberCheckoutSessions.find((row) => row.id === id) || null);
+      }
       if (query.includes('WHERE user_id = ? AND idempotency_key_hash = ?')) {
         const [userId, idempotencyKeyHash] = bindings;
         return deepClone(this.state.billingMemberCheckoutSessions.find((row) =>
@@ -3903,6 +3907,36 @@ class MockD1 {
       row.error_message = errorMessage;
       row.updated_at = updatedAt;
       row.failed_at = row.failed_at || failedAt;
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE billing_member_checkout_sessions SET member_credit_ledger_entry_id = COALESCE')) {
+      const [
+        ledgerEntryId,
+        paymentIntentId,
+        customerId,
+        metadataJson,
+        updatedAt,
+        completedAt,
+        grantedLedgerEntryId,
+        grantedAt,
+        id,
+      ] = bindings;
+      const row = this.state.billingMemberCheckoutSessions.find((entry) =>
+        entry.id === id && entry.provider === 'stripe' && entry.provider_mode === 'live'
+      );
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.member_credit_ledger_entry_id = ledgerEntryId || row.member_credit_ledger_entry_id;
+      row.status = 'completed';
+      row.provider_payment_intent_id = paymentIntentId || row.provider_payment_intent_id;
+      row.provider_customer_id = customerId || row.provider_customer_id;
+      row.payment_status = 'paid';
+      row.error_code = null;
+      row.error_message = null;
+      row.metadata_json = metadataJson;
+      row.updated_at = updatedAt;
+      row.completed_at = row.completed_at || completedAt;
+      if (grantedLedgerEntryId) row.granted_at = row.granted_at || grantedAt;
       return { success: true, meta: { changes: 1 } };
     }
 

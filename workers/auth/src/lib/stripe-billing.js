@@ -51,6 +51,9 @@ const LIVE_MEMBER_AUTH_SCOPE = "member";
 const LIVE_ORGANIZATION_CHECKOUT_SCOPE = "organization";
 const LIVE_MEMBER_CHECKOUT_SCOPE = "member";
 const LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE = "member_subscription";
+const LIVE_MEMBER_CREDIT_PACK_REPAIR_CONFIRMATION = "repair_paid_member_credit_pack_checkout";
+const LIVE_MEMBER_CREDIT_PACK_REPAIR_EVIDENCE_MODE = "operator_attested_paid_stripe_checkout";
+const SAFE_OPERATOR_REASON_PATTERN = /(?:sk_live_|sk_test_|whsec_|stripe-signature|authorization|bearer|cookie|session=|pm_[A-Za-z0-9]|card\s*[:=]|payload\s*[:=])/i;
 export const BITBI_TERMS_VERSION = "2026-05-05";
 
 const LIVE_OPERATOR_REVIEW_POLICIES = Object.freeze({
@@ -886,6 +889,25 @@ async function fetchMemberCheckoutByProviderSession(env, sessionId) {
      WHERE provider = 'stripe' AND provider_checkout_session_id = ?
      LIMIT 1`
   ).bind(sessionId).first();
+}
+
+async function fetchMemberCheckoutForRepair(env, { checkoutId = null, sessionId = null } = {}) {
+  if (checkoutId) {
+    return env.DB.prepare(
+      `SELECT id, provider, provider_mode, provider_checkout_session_id,
+              provider_payment_intent_id, user_id, credit_pack_id,
+              credits, amount_cents, currency, status, idempotency_key_hash,
+              request_fingerprint_hash, checkout_url, provider_customer_id,
+              billing_event_id, member_credit_ledger_entry_id, authorization_scope,
+              payment_status, granted_at, failed_at, expired_at, metadata_json,
+              created_at, updated_at, completed_at
+       FROM billing_member_checkout_sessions
+       WHERE id = ?
+       LIMIT 1`
+    ).bind(checkoutId).first();
+  }
+  if (sessionId) return fetchMemberCheckoutByProviderSession(env, sessionId);
+  return null;
 }
 
 async function fetchMemberSubscriptionCheckoutByIdempotency(env, { userId, idempotencyKeyHash }) {
@@ -3124,6 +3146,330 @@ async function upsertCompletedMemberCheckoutSession({
   return fetchMemberCheckoutByProviderSession(env, completion.sessionId);
 }
 
+function normalizeRepairReason(value) {
+  const reason = safeString(value, 500);
+  if (!reason || reason.length < 12) {
+    throw new StripeBillingError("A bounded operator repair reason is required.", {
+      status: 400,
+      code: "billing_repair_reason_required",
+    });
+  }
+  if (SAFE_OPERATOR_REASON_PATTERN.test(reason)) {
+    throw new StripeBillingError("Billing repair reason must not contain secrets, payloads, signatures, or payment method values.", {
+      status: 400,
+      code: "unsafe_billing_repair_reason",
+    });
+  }
+  return reason;
+}
+
+function normalizeRepairExpectedNumber(value, expected, code) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number !== expected) {
+    throw new StripeBillingError("Billing repair expected values do not match the live credit pack.", {
+      status: 409,
+      code,
+    });
+  }
+  return number;
+}
+
+function normalizeRepairExpectedString(value, expected, code) {
+  const text = safeString(value, 128);
+  if (String(text || "").toLowerCase() !== String(expected).toLowerCase()) {
+    throw new StripeBillingError("Billing repair expected values do not match the live credit pack.", {
+      status: 409,
+      code,
+    });
+  }
+  return text;
+}
+
+function assertSafeManualStripeEvidence(evidence, checkout, pack) {
+  const data = evidence && typeof evidence === "object" && !Array.isArray(evidence) ? evidence : {};
+  if (data.evidence_mode !== LIVE_MEMBER_CREDIT_PACK_REPAIR_EVIDENCE_MODE && data.evidenceMode !== LIVE_MEMBER_CREDIT_PACK_REPAIR_EVIDENCE_MODE) {
+    throw new StripeBillingError("Manual paid Stripe evidence attestation is required for this repair.", {
+      status: 400,
+      code: "billing_repair_evidence_required",
+    });
+  }
+  if (data.livemode !== true && data.stripe_livemode !== true && data.stripeLivemode !== true) {
+    throw new StripeBillingError("Billing repair requires live Stripe payment evidence.", {
+      status: 409,
+      code: "billing_repair_live_evidence_required",
+    });
+  }
+  normalizeRepairExpectedString(data.mode || data.stripe_mode || data.stripeMode, "payment", "billing_repair_mode_mismatch");
+  normalizeRepairExpectedString(data.payment_status || data.paymentStatus || data.stripe_payment_status || data.stripePaymentStatus, "paid", "billing_repair_payment_status_mismatch");
+  normalizeRepairExpectedString(data.credit_pack_id || data.creditPackId || data.stripe_credit_pack_id || data.stripeCreditPackId, pack.id, "billing_repair_pack_mismatch");
+  normalizeRepairExpectedNumber(data.credits ?? data.stripe_credits ?? data.stripeCredits, pack.credits, "billing_repair_credits_mismatch");
+  normalizeRepairExpectedNumber(data.amount_cents ?? data.amountCents ?? data.stripe_amount_cents ?? data.stripeAmountCents, pack.amountCents, "billing_repair_amount_mismatch");
+  normalizeRepairExpectedString(data.currency || data.stripe_currency || data.stripeCurrency, pack.currency, "billing_repair_currency_mismatch");
+  const evidenceUserId = safeString(data.user_id || data.userId || data.stripe_user_id || data.stripeUserId, 128);
+  if (evidenceUserId && evidenceUserId !== checkout.user_id) {
+    throw new StripeBillingError("Billing repair Stripe evidence user does not match the local checkout.", {
+      status: 409,
+      code: "billing_repair_user_mismatch",
+    });
+  }
+  const evidenceCheckoutId = safeString(
+    data.internal_checkout_session_id ||
+      data.internalCheckoutSessionId ||
+      data.client_reference_id ||
+      data.clientReferenceId,
+    128
+  );
+  if (evidenceCheckoutId && evidenceCheckoutId !== checkout.id) {
+    throw new StripeBillingError("Billing repair Stripe evidence checkout reference does not match the local checkout.", {
+      status: 409,
+      code: "billing_repair_checkout_reference_mismatch",
+    });
+  }
+}
+
+function serializeRepairCheckout(row) {
+  const serialized = serializeDashboardMemberCheckout(row);
+  return {
+    ...serialized,
+    hasLedgerEntry: Boolean(row?.member_credit_ledger_entry_id),
+    repairEligible: row?.status === "created" || row?.status === "failed",
+  };
+}
+
+async function markMemberCheckoutRepaired({
+  env,
+  checkout,
+  ledgerEntryId,
+  paymentIntentId = null,
+  providerCustomerId = null,
+  idempotencyKey,
+  reason,
+  adminUserId,
+  now = nowIso(),
+}) {
+  const metadata = {
+    ...parseJsonObject(checkout.metadata_json),
+    repair: {
+      type: "admin_live_member_credit_pack_repair",
+      evidenceMode: LIVE_MEMBER_CREDIT_PACK_REPAIR_EVIDENCE_MODE,
+      repairedAt: now,
+      repairedByAdminUserId: safeString(adminUserId, 128),
+      idempotencyKeyHash: await sha256Hex(`admin-live-credit-pack-repair:${idempotencyKey}`),
+      reason: safeString(reason, 500),
+    },
+  };
+  await env.DB.prepare(
+    `UPDATE billing_member_checkout_sessions
+     SET member_credit_ledger_entry_id = COALESCE(?, member_credit_ledger_entry_id),
+         status = 'completed',
+         provider_payment_intent_id = COALESCE(?, provider_payment_intent_id),
+         provider_customer_id = COALESCE(?, provider_customer_id),
+         payment_status = 'paid',
+         error_code = NULL,
+         error_message = NULL,
+         metadata_json = ?,
+         updated_at = ?,
+         completed_at = COALESCE(completed_at, ?),
+         granted_at = CASE WHEN ? IS NOT NULL THEN COALESCE(granted_at, ?) ELSE granted_at END
+     WHERE id = ?
+       AND provider = 'stripe'
+       AND provider_mode = 'live'`
+  ).bind(
+    ledgerEntryId,
+    paymentIntentId && LIVE_PAYMENT_INTENT_ID_PATTERN.test(paymentIntentId) ? paymentIntentId : null,
+    providerCustomerId,
+    JSON.stringify(metadata),
+    now,
+    now,
+    ledgerEntryId,
+    now,
+    checkout.id
+  ).run();
+  return fetchMemberCheckoutForRepair(env, { checkoutId: checkout.id });
+}
+
+export async function repairPaidLiveMemberCreditPackCheckout({
+  env,
+  checkoutId,
+  stripeCheckoutSessionId,
+  expectedCreditPackId,
+  expectedCredits,
+  expectedAmountCents,
+  expectedCurrency,
+  evidence,
+  dryRun = true,
+  confirm = false,
+  confirmation,
+  reason,
+  adminUserId,
+  idempotencyKey,
+}) {
+  const normalizedKey = normalizeBillingIdempotencyKey(idempotencyKey);
+  const operatorReason = normalizeRepairReason(reason);
+  const pack = getStripeLiveCreditPack(expectedCreditPackId || "live_credits_5000");
+  normalizeRepairExpectedNumber(expectedCredits ?? pack.credits, pack.credits, "billing_repair_credits_mismatch");
+  normalizeRepairExpectedNumber(expectedAmountCents ?? pack.amountCents, pack.amountCents, "billing_repair_amount_mismatch");
+  normalizeRepairExpectedString(expectedCurrency || pack.currency, pack.currency, "billing_repair_currency_mismatch");
+
+  const safeCheckoutId = safeString(checkoutId, 128);
+  const safeSessionId = safeString(stripeCheckoutSessionId, 200);
+  if (!safeCheckoutId && !safeSessionId) {
+    throw new StripeBillingError("Billing repair requires a local checkout id or Stripe checkout session id.", {
+      status: 400,
+      code: "billing_repair_target_required",
+    });
+  }
+  if (safeSessionId && !LIVE_CHECKOUT_SESSION_ID_PATTERN.test(safeSessionId)) {
+    throw new StripeBillingError("Billing repair Stripe checkout session id is invalid.", {
+      status: 400,
+      code: "billing_repair_session_id_invalid",
+    });
+  }
+
+  const checkout = await fetchMemberCheckoutForRepair(env, {
+    checkoutId: safeCheckoutId,
+    sessionId: safeCheckoutId ? null : safeSessionId,
+  });
+  if (!checkout) {
+    throw new StripeBillingError("Live member credit-pack checkout was not found.", {
+      status: 404,
+      code: "billing_repair_checkout_not_found",
+    });
+  }
+  if (safeSessionId && checkout.provider_checkout_session_id !== safeSessionId) {
+    throw new StripeBillingError("Billing repair checkout id and Stripe session id do not match.", {
+      status: 409,
+      code: "billing_repair_checkout_session_mismatch",
+    });
+  }
+  if (
+    checkout.provider !== "stripe" ||
+    checkout.provider_mode !== STRIPE_MODE_LIVE ||
+    (checkout.authorization_scope || LIVE_MEMBER_AUTH_SCOPE) !== LIVE_MEMBER_AUTH_SCOPE
+  ) {
+    throw new StripeBillingError("Billing repair target is not a live member Stripe checkout.", {
+      status: 409,
+      code: "billing_repair_scope_mismatch",
+    });
+  }
+  if (
+    checkout.credit_pack_id !== pack.id ||
+    Number(checkout.credits) !== pack.credits ||
+    Number(checkout.amount_cents) !== pack.amountCents ||
+    String(checkout.currency).toLowerCase() !== pack.currency
+  ) {
+    throw new StripeBillingError("Billing repair target does not match the expected live credit pack.", {
+      status: 409,
+      code: "billing_repair_checkout_pack_mismatch",
+    });
+  }
+  if (!checkout.provider_checkout_session_id || !LIVE_CHECKOUT_SESSION_ID_PATTERN.test(checkout.provider_checkout_session_id)) {
+    throw new StripeBillingError("Billing repair target is missing a valid live Stripe checkout session id.", {
+      status: 409,
+      code: "billing_repair_session_missing",
+    });
+  }
+
+  const activeUser = await env.DB.prepare(
+    "SELECT id, email, role, status FROM users WHERE id = ? LIMIT 1"
+  ).bind(checkout.user_id).first();
+  if (!activeUser || activeUser.status !== "active") {
+    throw new StripeBillingError("Billing repair target user is not active.", {
+      status: 409,
+      code: "billing_repair_user_inactive",
+    });
+  }
+
+  if (checkout.status === "completed" && checkout.member_credit_ledger_entry_id) {
+    return {
+      status: "already_completed",
+      dryRun: Boolean(dryRun),
+      reused: true,
+      applied: false,
+      evidenceMode: LIVE_MEMBER_CREDIT_PACK_REPAIR_EVIDENCE_MODE,
+      checkout: serializeRepairCheckout(checkout),
+      creditGrant: {
+        userId: checkout.user_id,
+        creditsGranted: 0,
+        reused: true,
+        ledgerEntryId: checkout.member_credit_ledger_entry_id,
+      },
+    };
+  }
+  if (!["created", "failed"].includes(String(checkout.status))) {
+    throw new StripeBillingError("Billing repair target is not in a repairable checkout state.", {
+      status: 409,
+      code: "billing_repair_status_not_repairable",
+    });
+  }
+  if (checkout.member_credit_ledger_entry_id) {
+    throw new StripeBillingError("Billing repair target already has a linked member credit ledger entry.", {
+      status: 409,
+      code: "billing_repair_ledger_already_linked",
+    });
+  }
+
+  assertSafeManualStripeEvidence(evidence, checkout, pack);
+
+  const grantIdempotencyKey = `stripe_live_member_checkout:${checkout.provider_checkout_session_id}:${pack.id}`;
+  const plan = {
+    checkout: serializeRepairCheckout(checkout),
+    wouldGrantCredits: pack.credits,
+    idempotency: "webhook-compatible",
+    evidenceMode: LIVE_MEMBER_CREDIT_PACK_REPAIR_EVIDENCE_MODE,
+    dryRun: Boolean(dryRun),
+    applied: false,
+  };
+  if (dryRun) {
+    return {
+      status: "dry_run",
+      reused: false,
+      ...plan,
+    };
+  }
+  if (confirm !== true || confirmation !== LIVE_MEMBER_CREDIT_PACK_REPAIR_CONFIRMATION) {
+    throw new StripeBillingError("Billing repair confirmation is required before applying credits.", {
+      status: 400,
+      code: "billing_repair_confirmation_required",
+    });
+  }
+
+  const grant = await grantMemberCredits({
+    env,
+    userId: checkout.user_id,
+    amount: pack.credits,
+    createdByUserId: adminUserId,
+    idempotencyKey: grantIdempotencyKey,
+    source: "stripe_live_checkout",
+    reason: `credit_pack:${pack.id}`,
+  });
+  const updated = await markMemberCheckoutRepaired({
+    env,
+    checkout,
+    ledgerEntryId: grant?.ledgerEntry?.id || null,
+    paymentIntentId: safeString(evidence?.payment_intent_id || evidence?.paymentIntentId, 128),
+    providerCustomerId: safeString(evidence?.customer_id || evidence?.customerId, 128),
+    idempotencyKey: normalizedKey,
+    reason: operatorReason,
+    adminUserId,
+  });
+  return {
+    status: grant?.reused ? "applied_reused_grant" : "applied",
+    dryRun: false,
+    reused: Boolean(grant?.reused),
+    applied: true,
+    evidenceMode: LIVE_MEMBER_CREDIT_PACK_REPAIR_EVIDENCE_MODE,
+    checkout: serializeRepairCheckout(updated),
+    creditGrant: {
+      userId: checkout.user_id,
+      creditsGranted: grant?.reused ? 0 : pack.credits,
+      balanceAfter: grant?.creditBalance ?? null,
+      reused: Boolean(grant?.reused),
+      ledgerEntryId: grant?.ledgerEntry?.id || updated?.member_credit_ledger_entry_id || null,
+    },
+  };
+}
+
 async function upsertCompletedMemberSubscriptionCheckoutSession({
   env,
   completion,
@@ -3969,16 +4315,24 @@ export async function handleVerifiedStripeLiveWebhookEvent({
   try {
     completion = normalizeLiveCheckoutCompletion(payload);
   } catch (error) {
-    if (error instanceof StripeBillingError) {
-      await markStripeEventFailed(env, {
-        eventId: stored.event.id,
-        actionType: payload.type,
-        errorCode: error.code,
-        errorMessage: error.message,
-      });
-      throw error;
-    }
-    throw error;
+    const code = error instanceof StripeBillingError
+      ? error.code
+      : "stripe_live_checkout_completion_unexpected_error";
+    const message = error instanceof StripeBillingError
+      ? error.message
+      : "Stripe live checkout completion handling failed.";
+    await markStripeEventFailed(env, {
+      eventId: stored.event.id,
+      actionType: payload.type,
+      errorCode: code,
+      errorMessage: message,
+    });
+    throw error instanceof StripeBillingError
+      ? error
+      : new StripeBillingError("Stripe live checkout completion handling failed.", {
+          status: 503,
+          code,
+        });
   }
 
   try {

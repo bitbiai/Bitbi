@@ -694,6 +694,11 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "billing_review_resolution_recorded" },
     notes: "Admin-only manual resolved/dismissed marker for operator-review billing lifecycle events. Requires Idempotency-Key, admin MFA, same-origin JSON, fail-closed rate limiting, and audit logging; does not call Stripe, reverse credits, cancel subscriptions, alter raw provider payloads, or credit accounts.",
   }),
+  adminJsonWrite("admin.billing.live_credit_pack_repairs.create", "POST", "/api/admin/billing/live-credit-pack-repairs", "billing", "smallJson", "admin-billing-write-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "live_member_credit_pack_repair_recorded" },
+    notes: "Admin-only, dry-run-first repair for a paid live member credit-pack checkout stuck before fulfillment. Requires Idempotency-Key, admin MFA, same-origin JSON, fail-closed rate limiting, explicit confirmation for non-dry-run, bounded reason, local checkout validation, and redacted operator payment evidence. It does not call Stripe, refund, claw back credits, expose raw payloads, or grant twice because it uses the same webhook-compatible member ledger idempotency key.",
+  }),
   adminRead("admin.avatars.latest", "/api/admin/avatars/latest", "admin", { config: ["DB"] }),
   adminRead("admin.avatars.read", "/api/admin/avatars/:userId", "admin", { config: ["DB", "PRIVATE_MEDIA"] }),
   adminRead("admin.activity.read", "/api/admin/activity", "admin", {

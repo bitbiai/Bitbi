@@ -291,6 +291,24 @@ function writeFile(repo, relativePath, text) {
 {
   const repo = makeRepo();
   writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+  writeFile(
+    repo,
+    "docs/production-readiness/evidence/bitbi-5000-credit-pack-evidence/PRE_PURCHASE_BASELINE.md",
+    "Staged 5000-credit-pack canary evidence. Latest auth D1 migration was `0048_add_member_ai_usage_attempts.sql` when this snapshot was captured. Production readiness remains BLOCKED.\n"
+  );
+  const result = scanDocCurrentness(repo, {
+    currentDocs: ["README.md"],
+  });
+  assert.deepEqual(result.violations, []);
+  assert.equal(
+    result.markdownInventory.find((entry) => entry.path === "docs/production-readiness/evidence/bitbi-5000-credit-pack-evidence/PRE_PURCHASE_BASELINE.md")?.category,
+    "historical_phase_report"
+  );
+}
+
+{
+  const repo = makeRepo();
+  writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
   writeFile(repo, "docs/audits/archive/root-phase-reports/PHASE2L_LIVE_STRIPE_CREDIT_PACKS_AND_CREDITS_DASHBOARD_REPORT.md", "Latest auth D1 migration at that historical phase: `0059_add_data_lifecycle_completion_state.sql`\n");
   const result = scanDocCurrentness(repo, {
     currentDocs: ["README.md"],

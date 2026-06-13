@@ -30,6 +30,10 @@ import {
   verifyStripeLiveWebhookRequest,
   verifyStripeWebhookRequest,
 } from "../lib/stripe-billing.js";
+import {
+  getErrorFields,
+  logDiagnostic,
+} from "../../../../js/shared/worker-observability.mjs";
 
 async function enforceBillingWebhookRateLimit(ctx, provider) {
   const normalizedProvider = provider === "stripe-live"
@@ -54,14 +58,27 @@ async function enforceBillingWebhookRateLimit(ctx, provider) {
   return null;
 }
 
-function billingEventErrorJson(error) {
+function billingEventErrorJson(error, ctx = null) {
   if (error instanceof BillingEventError) {
     return json(billingEventErrorResponse(error), { status: error.status });
   }
   if (error instanceof StripeBillingError) {
     return json(stripeBillingErrorResponse(error), { status: error.status });
   }
-  throw error;
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: "billing-webhooks",
+    event: "billing_webhook_unexpected_error",
+    level: "error",
+    correlationId: ctx?.correlationId || null,
+    code: "billing_webhook_unexpected_error",
+    ...getErrorFields(error),
+  });
+  return json({
+    ok: false,
+    error: "Billing webhook processing failed.",
+    code: "billing_webhook_unexpected_error",
+  }, { status: 500 });
 }
 
 export async function handleBillingWebhooks(ctx) {
@@ -168,6 +185,6 @@ export async function handleBillingWebhooks(ctx) {
       { status: result.duplicate ? 200 : 202 }
     );
   } catch (error) {
-    return billingEventErrorJson(error);
+    return billingEventErrorJson(error, ctx);
   }
 }

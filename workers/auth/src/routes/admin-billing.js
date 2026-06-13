@@ -39,6 +39,11 @@ import {
   getErrorFields,
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
+import {
+  repairPaidLiveMemberCreditPackCheckout,
+  StripeBillingError,
+  stripeBillingErrorResponse,
+} from "../lib/stripe-billing.js";
 
 async function enforceAdminBillingRateLimit(ctx, {
   scope = "admin-billing-read-ip",
@@ -69,6 +74,9 @@ function billingErrorJson(error, ctx = null) {
   }
   if (error instanceof BillingEventError) {
     return json(billingEventErrorResponse(error), { status: error.status });
+  }
+  if (error instanceof StripeBillingError) {
+    return json(stripeBillingErrorResponse(error), { status: error.status });
   }
   if (isBillingStorageUnavailableError(error)) {
     logDiagnostic({
@@ -136,6 +144,10 @@ function liveBillingStatusVariant(value) {
   if (text.includes("no_critical")) return "ready";
   if (text.includes("blocked") || text.includes("missing") || text.includes("invalid")) return "blocked";
   if (
+    text.includes("incident")
+    || text.includes("repair")
+  ) return "pending";
+  if (
     text.includes("operator_approved_live")
     || text.includes("operator_go_live_approved")
     || text.includes("operator_approved_live_with_evidence_waivers")
@@ -171,8 +183,8 @@ function liveBillingFeatureStatus({ configured, enabled, operatorApproved }) {
 function liveBillingEvidenceOverride(id) {
   return {
     live_credit_pack_checkout_canary: {
-      status: "operator_confirmed_purchase_history_visible",
-      nextAction: "Attach remaining artifact-backed grant details when available; operator accepted go-live risk.",
+      status: "live_fulfillment_failure_repair_required",
+      nextAction: "Repair the paid 5000-credit member checkout with the dry-run-first admin repair path, then attach follow-up evidence showing exactly one +5000 purchased-credit grant.",
     },
     live_subscription_checkout_canary: {
       status: "operator_confirmed_bitbi_pro_active",
@@ -347,11 +359,11 @@ async function buildAdminLiveBillingReadinessStatus(env) {
     productionReadinessScope: "billing_go_live_operator_approval_not_full_evidence_proven_production_maturity",
     liveBillingReadiness: "operator_approved_live",
     configShapeStatus,
-    evidenceStatus: "partial_evidence_operator_approved",
+    evidenceStatus: "partial_evidence_operator_approved_incident_open",
     canaryStatus: "operator_confirmed_manual_live_validation",
     finalVerdict: {
       status: "operator_approved_live_with_evidence_waivers",
-      summary: "Live billing is enabled by operator approval. Artifact-backed evidence is partially complete; operator accepted remaining evidence risk.",
+      summary: "Live billing is enabled by operator approval. Artifact-backed evidence is partially complete; the 5000-credit-pack canary has an open paid-fulfillment repair incident.",
     },
     operatorApproval: {
       status: "operator_approved_live",
@@ -363,10 +375,10 @@ async function buildAdminLiveBillingReadinessStatus(env) {
       confirmed: [
         "Stripe Customer Portal works via pay.bitbi.ai.",
         "BITBI Pro subscription/payment works.",
-        "Credit-pack purchase history is visible in BITBI.",
         "Admin Live Billing shows configured live billing support.",
       ],
       waivedOrPending: [
+        "5000-credit-pack canary paid in Stripe but BITBI fulfillment failed; repair and follow-up evidence pending.",
         "Full artifact-backed no-credit-before-webhook evidence.",
         "Full duplicate webhook replay/idempotency artifact.",
         "Wrong Price ID live rejection artifact.",
@@ -381,7 +393,7 @@ async function buildAdminLiveBillingReadinessStatus(env) {
     d1MutationPerformed: false,
     creditMutationPerformed: false,
     dangerousActionsOffered: [],
-    copy: "Live billing is enabled by operator approval. Artifact-backed evidence is partially complete; operator accepted remaining evidence risk.",
+    copy: "Live billing is enabled by operator approval. Artifact-backed evidence is partially complete; the 5000-credit-pack canary has an open paid-fulfillment repair incident.",
     statusBadges: [
       { id: "repository_support", label: "Repository support", status: "ready_for_operator_canary", variant: "ready" },
       { id: "production_readiness", label: "Production readiness", status: "operator_go_live_approved", variant: "ready" },
@@ -393,7 +405,7 @@ async function buildAdminLiveBillingReadinessStatus(env) {
       { id: "customer_portal", label: "Customer Portal", status: portalConfigured ? "configured_operator_confirmed_pay_bitbi_ai" : "missing_or_pending", variant: portalConfigured ? "ready" : "pending" },
       { id: "reconciliation", label: "Reconciliation", status: reconciliationOperatorStatus, variant: criticalReconciliationItems > 0 ? "pending" : "ready" },
       { id: "billing_reviews", label: "Billing reviews", status: `${blockingReviews.length} blocking_or_needs_review`, variant: blockingReviews.length ? "pending" : "ready" },
-      { id: "evidence_status", label: "Evidence status", status: "partial_evidence_operator_approved", variant: "ready" },
+      { id: "evidence_status", label: "Evidence status", status: "partial_evidence_operator_approved_incident_open", variant: "pending" },
       { id: "canary_status", label: "Canary status", status: "operator_confirmed_manual_live_validation", variant: "ready" },
       { id: "final_verdict", label: "Final verdict", status: "operator_approved_live_with_evidence_waivers", variant: "ready" },
     ],
@@ -483,6 +495,7 @@ export async function handleAdminBilling(ctx) {
     || pathname === "/api/admin/billing/events"
     || pathname === "/api/admin/billing/reconciliation"
     || pathname === "/api/admin/billing/reviews"
+    || pathname === "/api/admin/billing/live-credit-pack-repairs"
     || /^\/api\/admin\/billing\/events\/[^/]+$/.test(pathname)
     || /^\/api\/admin\/billing\/reviews\/[^/]+$/.test(pathname)
     || /^\/api\/admin\/billing\/reviews\/[^/]+\/resolution$/.test(pathname)
@@ -639,6 +652,63 @@ export async function handleAdminBilling(ctx) {
         });
       }
       return json({ ok: true, ...result, sideEffectsEnabled: false });
+    } catch (error) {
+      return billingErrorJson(error, ctx);
+    }
+  }
+
+  // route-policy: admin.billing.live_credit_pack_repairs.create
+  if (pathname === "/api/admin/billing/live-credit-pack-repairs" && method === "POST") {
+    const limited = await enforceAdminBillingRateLimit(ctx, {
+      scope: "admin-billing-write-ip",
+      maxRequests: 30,
+      windowMs: 15 * 60_000,
+      component: "admin-billing-write",
+    });
+    if (limited) return limited;
+
+    const idempotency = idempotencyKeyOrResponse(request);
+    if (idempotency.response) return idempotency.response;
+
+    const parsed = await readJsonBodyOrResponse(request, {
+      maxBytes: BODY_LIMITS.smallJson,
+    });
+    if (parsed.response) return parsed.response;
+
+    try {
+      const result = await repairPaidLiveMemberCreditPackCheckout({
+        env,
+        checkoutId: parsed.body?.checkout_id || parsed.body?.checkoutId,
+        stripeCheckoutSessionId: parsed.body?.stripe_checkout_session_id || parsed.body?.stripeCheckoutSessionId,
+        expectedCreditPackId: parsed.body?.expected_credit_pack_id || parsed.body?.expectedCreditPackId,
+        expectedCredits: parsed.body?.expected_credits ?? parsed.body?.expectedCredits,
+        expectedAmountCents: parsed.body?.expected_amount_cents ?? parsed.body?.expectedAmountCents,
+        expectedCurrency: parsed.body?.expected_currency || parsed.body?.expectedCurrency,
+        evidence: parsed.body?.evidence,
+        dryRun: parsed.body?.dry_run !== false && parsed.body?.dryRun !== false,
+        confirm: parsed.body?.confirm === true,
+        confirmation: parsed.body?.confirmation,
+        reason: parsed.body?.reason,
+        adminUserId: session.user.id,
+        idempotencyKey: idempotency.key,
+      });
+      await auditBillingEvent(ctx, session.user, result.applied
+        ? "live_member_credit_pack_repair_applied"
+        : "live_member_credit_pack_repair_dry_run", {
+        checkout_id: result.checkout?.id,
+        target_user_id: result.checkout?.userId,
+        session_id: result.checkout?.sessionId,
+        credit_pack_id: result.checkout?.creditPack?.id,
+        credits: result.wouldGrantCredits || result.checkout?.creditPack?.credits || result.creditGrant?.creditsGranted,
+        amount_cents: result.checkout?.creditPack?.amountCents,
+        currency: result.checkout?.creditPack?.currency,
+        status: result.status,
+        dry_run: result.dryRun === true,
+        applied: result.applied === true,
+        reused: result.reused === true,
+        evidence_mode: result.evidenceMode,
+      }, result.checkout?.userId || null);
+      return json({ ok: true, ...result }, { status: result.applied && !result.reused ? 201 : 200 });
     } catch (error) {
       return billingErrorJson(error, ctx);
     }

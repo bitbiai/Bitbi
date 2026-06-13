@@ -56,6 +56,8 @@ const $subscriptionDialogConfirm = document.getElementById('creditsSubscriptionD
 
 const TERMS_VERSION = '2026-05-05';
 const LEDGER_VISIBLE_LIMIT = 5;
+const CHECKOUT_RETURN_POLL_LIMIT = 5;
+const CHECKOUT_RETURN_POLL_MS = 3000;
 const LOCALE = getCurrentLocale();
 const FORMAT_LOCALE = LOCALE === 'de' ? 'de-DE' : 'en-US';
 const STRIPE_CHECKOUT_ORIGINS = new Set([
@@ -82,6 +84,8 @@ let subscriptionActionPending = false;
 let portalActionPending = false;
 let subscriptionFeedbackMessage = '';
 let subscriptionDialogFocusCleanup = null;
+let checkoutReturnPolls = 0;
+let checkoutReturnPollTimer = null;
 
 function show(node) {
     if (node) node.hidden = false;
@@ -355,6 +359,52 @@ function renderCheckoutStatus(status = {}, accessScope) {
         }
     }
     return enabled;
+}
+
+function isCheckoutSuccessReturn() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('checkout') === 'success' || params.get('payment') === 'success';
+    } catch {
+        return false;
+    }
+}
+
+function findPendingReturnedPurchase(rows = []) {
+    if (!isCheckoutSuccessReturn()) return null;
+    return rows.find((item) =>
+        item?.checkoutScope === 'member' &&
+        item?.providerMode === 'live' &&
+        item?.status === 'created' &&
+        !item?.ledgerEntryId
+    ) || null;
+}
+
+function renderPendingReturnedPurchaseNotice(rows = []) {
+    const pending = findPendingReturnedPurchase(rows);
+    if (!pending || !$configNote) return false;
+    $configNote.textContent = localeText('credits.checkoutPendingVerification', {
+        reference: pending.id || localeText('credits.notReported'),
+    });
+    show($configNote);
+    return true;
+}
+
+function schedulePendingReturnedPurchaseRefresh(rows = []) {
+    if (!findPendingReturnedPurchase(rows)) {
+        checkoutReturnPolls = 0;
+        if (checkoutReturnPollTimer) {
+            window.clearTimeout(checkoutReturnPollTimer);
+            checkoutReturnPollTimer = null;
+        }
+        return;
+    }
+    if (checkoutReturnPolls >= CHECKOUT_RETURN_POLL_LIMIT || checkoutReturnPollTimer) return;
+    checkoutReturnPolls += 1;
+    checkoutReturnPollTimer = window.setTimeout(async () => {
+        checkoutReturnPollTimer = null;
+        await loadMemberDashboard();
+    }, CHECKOUT_RETURN_POLL_MS);
 }
 
 function renderLegalBlock(visible) {
@@ -764,12 +814,15 @@ function renderMemberDashboard(dashboard) {
     if ($packsSection) $packsSection.hidden = false;
     if ($purchasesSection) $purchasesSection.hidden = false;
     const checkoutEnabled = renderCheckoutStatus(dashboard.liveCheckout, 'member');
+    const purchaseHistory = dashboard.purchaseHistory || [];
+    renderPendingReturnedPurchaseNotice(purchaseHistory);
     renderLegalBlock(checkoutEnabled && Array.isArray(dashboard.packs) && dashboard.packs.length > 0);
     renderSummary(dashboard.balance);
     renderSubscriptionSection(dashboard);
     renderPacks(dashboard.packs || [], checkoutEnabled);
-    renderPurchases(dashboard.purchaseHistory || []);
+    renderPurchases(purchaseHistory);
     renderLedger(dashboard.transactions);
+    schedulePendingReturnedPurchaseRefresh(purchaseHistory);
 }
 
 function renderDashboard(dashboard) {

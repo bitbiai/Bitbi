@@ -255,6 +255,11 @@ function isOperatorLiveEvidencePackagePath(relativePath) {
   return /^docs\/production-readiness\/evidence\/operator-live-evidence-\d{4}-\d{2}-\d{2}\/.+\.md$/.test(normalized);
 }
 
+function isCreditPackEvidencePackagePath(relativePath) {
+  const normalized = normalizePathname(relativePath);
+  return /^docs\/production-readiness\/evidence\/bitbi-5000-credit-pack-evidence\/.+\.md$/.test(normalized);
+}
+
 function isPerformancePhaseReportPath(relativePath) {
   const normalized = normalizePathname(relativePath);
   return /^docs\/performance\/phase-[a-z0-9-]+\.md$/.test(normalized);
@@ -283,6 +288,7 @@ export function classifyFirstPartyMarkdownPath(relativePath, options = {}) {
   if (currentDocs.has(normalized)) return "active_current";
   if (ACTIVE_RUNBOOK_POLICY_DOCS.has(normalized)) return "active_runbook_policy";
   if (isOperatorLiveEvidencePackagePath(normalized)) return "historical_phase_report";
+  if (isCreditPackEvidencePackagePath(normalized)) return "historical_phase_report";
   if (normalized.startsWith(".agents/skills/") && normalized.endsWith("/SKILL.md")) return "active_runbook_policy";
   if (normalized.startsWith("services/") && normalized.endsWith("/README.md")) return "active_runbook_policy";
   if (normalized.startsWith("docs/runbooks/") && normalized.endsWith(".md")) return "active_runbook_policy";

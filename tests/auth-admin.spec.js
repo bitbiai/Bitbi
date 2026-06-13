@@ -3145,11 +3145,11 @@ async function mockAdminControlPlane(page, captures = {}) {
 	      productionReadinessScope: 'billing_go_live_operator_approval_not_full_evidence_proven_production_maturity',
 	      liveBillingReadiness: 'operator_approved_live',
 	      configShapeStatus: 'configured_shapes_present',
-	      evidenceStatus: 'partial_evidence_operator_approved',
+	      evidenceStatus: 'partial_evidence_operator_approved_incident_open',
 	      canaryStatus: 'operator_confirmed_manual_live_validation',
 	      finalVerdict: {
 	        status: 'operator_approved_live_with_evidence_waivers',
-	        summary: 'Live billing is enabled by operator approval. Artifact-backed evidence is partially complete; operator accepted remaining evidence risk.',
+	        summary: 'Live billing is enabled by operator approval. Artifact-backed evidence is partially complete; the 5000-credit-pack canary has an open paid-fulfillment repair incident.',
 	      },
 	      operatorApproval: {
 	        status: 'operator_approved_live',
@@ -3164,7 +3164,7 @@ async function mockAdminControlPlane(page, captures = {}) {
       d1MutationPerformed: false,
       creditMutationPerformed: false,
       dangerousActionsOffered: [],
-	      copy: 'Live billing is enabled by operator approval. Artifact-backed evidence is partially complete; operator accepted remaining evidence risk.',
+	      copy: 'Live billing is enabled by operator approval. Artifact-backed evidence is partially complete; the 5000-credit-pack canary has an open paid-fulfillment repair incident.',
 	      statusBadges: [
 	        { id: 'repository_support', label: 'Repository support', status: 'ready_for_operator_canary', variant: 'ready' },
 	        { id: 'production_readiness', label: 'Production readiness', status: 'operator_go_live_approved', variant: 'ready' },
@@ -3176,7 +3176,7 @@ async function mockAdminControlPlane(page, captures = {}) {
 	        { id: 'customer_portal', label: 'Customer Portal', status: 'configured_operator_confirmed_pay_bitbi_ai', variant: 'ready' },
 	        { id: 'reconciliation', label: 'Reconciliation', status: 'critical_items_operator_warning', variant: 'pending' },
 	        { id: 'billing_reviews', label: 'Billing reviews', status: '2 blocking_or_needs_review', variant: 'pending' },
-	        { id: 'evidence_status', label: 'Evidence status', status: 'partial_evidence_operator_approved', variant: 'ready' },
+	        { id: 'evidence_status', label: 'Evidence status', status: 'partial_evidence_operator_approved_incident_open', variant: 'pending' },
 	        { id: 'canary_status', label: 'Canary status', status: 'operator_confirmed_manual_live_validation', variant: 'ready' },
 	        { id: 'final_verdict', label: 'Final verdict', status: 'operator_approved_live_with_evidence_waivers', variant: 'ready' },
 	      ],
@@ -3267,7 +3267,7 @@ async function mockAdminControlPlane(page, captures = {}) {
         operatorReviewRequired: true,
       },
       evidenceChecklist: [
-        { id: 'live_credit_pack_checkout_canary', status: 'operator_confirmed_purchase_history_visible', why: 'Credit pack canary', inspect: 'Credits page', nextAction: 'Attach remaining artifact-backed grant details when available.' },
+        { id: 'live_credit_pack_checkout_canary', status: 'live_fulfillment_failure_repair_required', why: 'Credit pack canary', inspect: 'Credits page', nextAction: 'Repair the paid 5000-credit member checkout, then attach exactly-once grant evidence.' },
         { id: 'live_subscription_checkout_canary', status: 'operator_confirmed_bitbi_pro_active', why: 'Subscription canary', inspect: 'Pricing page', nextAction: 'Attach sanitized subscription evidence when available.' },
         { id: 'verified_webhook_receipt', status: 'operator_confirmed_admin_events_visible', why: 'Webhook evidence', inspect: 'Billing Events', nextAction: 'Keep webhook artifacts redacted.' },
         { id: 'customer_portal_session_canary', status: 'operator_confirmed_pay_bitbi_ai', why: 'Portal evidence', inspect: 'Credits page', nextAction: 'Do not store full portal session URLs.' },

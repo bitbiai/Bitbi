@@ -22,6 +22,7 @@ const MAX_REVIEW_NOTE_LENGTH = 1000;
 const RECONCILIATION_SCAN_LIMIT = 500;
 const RECONCILIATION_ITEM_LIMIT = 12;
 const RECONCILIATION_STALE_REVIEW_MS = 7 * 24 * 60 * 60 * 1000;
+const RECONCILIATION_STUCK_CHECKOUT_MS = 15 * 60 * 1000;
 const REVIEW_STATES = new Set(["needs_review", "blocked", "informational", "resolved", "dismissed"]);
 const REVIEW_RESOLUTION_STATUSES = new Set(["resolved", "dismissed"]);
 const REVIEW_PROVIDER_MODES = new Set(["test", "sandbox", "synthetic", "live"]);
@@ -1002,6 +1003,22 @@ export async function getBillingReconciliationReport(env) {
   const completedSubscriptionWithoutProviderId = subscriptionCheckouts.filter((row) =>
     row.status === "completed" && !row.provider_subscription_id
   );
+  const createdMemberCreditPackCheckouts = memberCheckouts.filter((row) =>
+    row.status === "created" &&
+    !row.member_credit_ledger_entry_id &&
+    row.credit_pack_id &&
+    row.provider_checkout_session_id
+  );
+  const paidCreatedMemberCreditPackCheckouts = createdMemberCreditPackCheckouts.filter((row) =>
+    String(row.payment_status || "").toLowerCase() === "paid"
+  );
+  const staleCreatedMemberCreditPackCheckouts = createdMemberCreditPackCheckouts.filter((row) => {
+    const created = Date.parse(row.created_at || "");
+    const generated = Date.parse(generatedAt);
+    return Number.isFinite(created) &&
+      Number.isFinite(generated) &&
+      generated - created > RECONCILIATION_STUCK_CHECKOUT_MS;
+  });
   const checkoutEventIdsWithLedger = new Set([
     ...organizationCheckouts.filter((row) => row.billing_event_id && row.credit_ledger_entry_id),
     ...memberCheckouts.filter((row) => row.billing_event_id && row.member_credit_ledger_entry_id),
@@ -1030,6 +1047,26 @@ export async function getBillingReconciliationReport(env) {
       detail: "Completed checkout sessions without local credit ledger links may indicate ungranted credits or an incomplete webhook path.",
       count: completedOrgWithoutLedger.length + completedMemberWithoutLedger.length,
       refs: safeRowRefs(sample),
+    }));
+  }
+  if (paidCreatedMemberCreditPackCheckouts.length > 0) {
+    checkoutItems.push(reportItem({
+      id: "member_credit_pack_paid_checkout_stuck_created",
+      severity: "critical",
+      title: "Paid live member credit-pack checkout is still created.",
+      detail: "A paid member credit-pack checkout without a ledger link requires immediate operator repair; do not ask the member to purchase again.",
+      count: paidCreatedMemberCreditPackCheckouts.length,
+      refs: safeRowRefs(paidCreatedMemberCreditPackCheckouts[0], { repairCandidate: true }),
+    }));
+  }
+  if (staleCreatedMemberCreditPackCheckouts.length > 0) {
+    checkoutItems.push(reportItem({
+      id: "member_credit_pack_created_checkout_stale",
+      severity: "warning",
+      title: "Live member credit-pack checkout remains created after the verification window.",
+      detail: "This may be abandoned or paid-but-unfulfilled. Verify Stripe payment evidence before applying any repair.",
+      count: staleCreatedMemberCreditPackCheckouts.length,
+      refs: safeRowRefs(staleCreatedMemberCreditPackCheckouts[0], { repairCandidate: "verify_stripe_first" }),
     }));
   }
   if (ledgerLinkedWithoutEvent.length > 0) {
@@ -1300,6 +1337,8 @@ export async function getBillingReconciliationReport(env) {
       expiredInconsistent: expiredInconsistent.length,
       checkoutWebhookEventsWithoutLedger: checkoutGrantEventsWithoutLedger.length,
       providerGrantsWithoutCheckoutLink: providerGrantLedgersWithoutCheckout.length,
+      paidCreatedMemberCreditPackCheckouts: paidCreatedMemberCreditPackCheckouts.length,
+      staleCreatedMemberCreditPackCheckouts: staleCreatedMemberCreditPackCheckouts.length,
     }),
     reportSection("credit_ledger", "Credit Ledger", ledgerItems, {
       organizationAccountsScanned: latestOrgBalances.length,
@@ -1368,6 +1407,8 @@ export async function getBillingReconciliationReport(env) {
         ledgerLinkedWithoutBillingEvent: ledgerLinkedWithoutEvent.length,
         checkoutWebhookEventsWithoutLedger: checkoutGrantEventsWithoutLedger.length,
         providerGrantsWithoutCheckoutLink: providerGrantLedgersWithoutCheckout.length,
+        paidCreatedMemberCreditPackCheckouts: paidCreatedMemberCreditPackCheckouts.length,
+        staleCreatedMemberCreditPackCheckouts: staleCreatedMemberCreditPackCheckouts.length,
       },
       creditLedger: {
         organizationAccountsScanned: latestOrgBalances.length,
