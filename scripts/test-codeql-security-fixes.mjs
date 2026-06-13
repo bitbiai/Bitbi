@@ -5,6 +5,7 @@ import { escapeMarkdownTableCell } from "./lib/markdown-table.mjs";
 import { escapeMediaInventoryMarkdownCell } from "./media-derivative-inventory.mjs";
 import { renderTenantAssetEvidenceSummaryMarkdown } from "./summarize-tenant-asset-evidence.mjs";
 import { exportManualReviewPostCleanupEvidenceMarkdown } from "../workers/auth/src/lib/tenant-asset-manual-review-post-cleanup.js";
+import { validateRoutePolicies } from "../workers/auth/src/app/route-policy.js";
 
 const inlineScripts = extractInlineScripts([
   '<script type="application/json" data-note="quoted > attribute">',
@@ -82,5 +83,43 @@ assert(!manualHeroVideoUploadSource.includes("video.setAttribute('src', localObj
 assert(!manualHeroVideoUploadSource.includes("localObjectUrl"));
 assert(manualHeroVideoUploadSource.includes("URL.createObjectURL(videoBlob)"));
 assert(manualHeroVideoUploadSource.includes("URL.revokeObjectURL(objectUrl)"));
+
+const routePolicyGuardSource = fs.readFileSync(
+  new URL("./check-route-policies.mjs", import.meta.url),
+  "utf8",
+);
+const routePolicySource = fs.readFileSync(
+  new URL("../workers/auth/src/app/route-policy.js", import.meta.url),
+  "utf8",
+);
+
+assert(!routePolicyGuardSource.includes("console.error(`- ${issue}`)"));
+assert(!routePolicyGuardSource.includes("console.error('- ' + issue)"));
+assert(routePolicyGuardSource.includes("renderSafeRoutePolicyIssue"));
+assert(!/invalid auth policy\s+["'`]\s*\$\{entry\.auth\}/i.test(routePolicySource));
+assert(!/invalid MFA policy\s+["'`]\s*\$\{entry\.mfa\}/i.test(routePolicySource));
+assert(!/invalid CSRF policy\s+["'`]\s*\$\{entry\.csrf\}/i.test(routePolicySource));
+assert(!/invalid sensitivity\s+["'`]\s*\$\{entry\.sensitivity\}/i.test(routePolicySource));
+
+const sanitizedRoutePolicyIssues = validateRoutePolicies([
+  {
+    id: "sk_live_secret_should_not_be_logged",
+    method: "POST",
+    path: "/api/admin/synthetic-route-policy-fixture",
+    auth: "admin",
+    mfa: "totp=123456",
+    csrf: "same-origin-required",
+    sensitivity: "high",
+    owner: "security",
+    config: [],
+    body: { kind: "json", maxBytesName: "MAX_SYNTHETIC_BODY_BYTES" },
+    rateLimit: { id: "synthetic.route-policy.fixture", failClosed: true },
+    audit: { event: "synthetic.route-policy.fixture" },
+  },
+]);
+
+assert(sanitizedRoutePolicyIssues.some((issue) => issue === "route-policy#1: invalid MFA policy."));
+assert(!sanitizedRoutePolicyIssues.join("\n").includes("totp=123456"));
+assert(!sanitizedRoutePolicyIssues.join("\n").includes("sk_live_secret_should_not_be_logged"));
 
 console.log("CodeQL security helper regression checks passed.");

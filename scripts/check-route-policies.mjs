@@ -13,6 +13,18 @@ const repoRoot = path.resolve(__dirname, "..");
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const ROUTE_POLICY_MARKER = /route-policy:\s*([a-z0-9_.-]+)/i;
 const METHOD_COMPARISON = /\bmethod\s*===\s*["'](POST|PUT|PATCH|DELETE)["']/;
+const MAX_SAFE_DIAGNOSTIC_INPUT_LENGTH = 1000;
+const MAX_SAFE_DIAGNOSTIC_OUTPUT_LENGTH = 240;
+const SENSITIVE_DIAGNOSTIC_PATTERNS = [
+  /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9_=-]+\b/g,
+  /\bwhsec_[A-Za-z0-9_=-]+\b/g,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]+\b/gi,
+  /\b(?:session|cookie|token|secret|password|authorization)\s*[:=]\s*["']?[^"',\s;]+/gi,
+  /\b(?:Stripe-Signature|Set-Cookie|Cookie)\s*:\s*[^,\s;]+/gi,
+  /\b(?:mfa|totp|recovery[_-]?code)\s*[:=]\s*["']?[^"',\s;]+/gi,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+  /\b(?:[A-Za-z0-9_-]+\/){2,}[A-Za-z0-9_.-]+\b/g,
+];
 
 const MUTATING_DISPATCH_FILES = [
   "workers/auth/src/index.js",
@@ -214,6 +226,30 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
 }
 
+function redactSensitiveDiagnosticText(value) {
+  let output = value;
+  for (const pattern of SENSITIVE_DIAGNOSTIC_PATTERNS) {
+    output = output.replace(pattern, "[redacted]");
+  }
+  return output;
+}
+
+function renderSafeRoutePolicyIssue(issue, index) {
+  if (typeof issue !== "string" || issue.length === 0 || issue.length > MAX_SAFE_DIAGNOSTIC_INPUT_LENGTH) {
+    return `route policy issue #${index + 1}`;
+  }
+  const normalized = issue
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (!normalized) return `route policy issue #${index + 1}`;
+
+  const redacted = redactSensitiveDiagnosticText(normalized);
+  if (redacted.length <= MAX_SAFE_DIAGNOSTIC_OUTPUT_LENGTH) return redacted;
+  return `${redacted.slice(0, MAX_SAFE_DIAGNOSTIC_OUTPUT_LENGTH - 1)}…`;
+}
+
 function policyMap() {
   return new Map(ROUTE_POLICIES.map((entry) => [entry.id, entry]));
 }
@@ -333,10 +369,8 @@ checkHighRiskAdminMutationExpectations(issues);
 checkLookupExamples(issues);
 
 if (issues.length > 0) {
-  console.error("Route policy guard failed:");
-  for (const issue of issues) {
-    console.error(`- ${issue}`);
-  }
+  const safeDiagnostics = issues.map((issue, index) => `- ${renderSafeRoutePolicyIssue(issue, index)}`);
+  console.error(["Route policy guard failed:", ...safeDiagnostics].join("\n"));
   process.exit(1);
 }
 

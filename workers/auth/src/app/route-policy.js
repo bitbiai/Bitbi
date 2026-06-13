@@ -2,6 +2,8 @@ const VALID_AUTH = new Set(["anonymous", "optional-user", "user", "admin"]);
 const VALID_MFA = new Set(["none", "admin-production-required", "admin-bootstrap-allowed"]);
 const VALID_CSRF = new Set(["same-origin-required", "safe-method", "exempt-with-reason", "not-browser-facing"]);
 const VALID_SENSITIVITY = new Set(["low", "medium", "high"]);
+const SAFE_POLICY_REF_PATTERN = /^[a-z0-9_.-]{1,96}$/i;
+const UNSAFE_POLICY_REF_PATTERN = /\b(?:sk|rk)_(?:live|test)_|\bwhsec_|\b(?:token|secret|cookie|session|password|authorization)\b/i;
 
 const REQUIRED_CONFIG = Object.freeze({
   authCore: ["DB"],
@@ -1736,60 +1738,73 @@ export function getRoutePolicy(method, pathname) {
   return null;
 }
 
+function safePolicyRef(entry, index) {
+  if (
+    entry
+    && typeof entry.id === "string"
+    && SAFE_POLICY_REF_PATTERN.test(entry.id)
+    && !UNSAFE_POLICY_REF_PATTERN.test(entry.id)
+  ) {
+    return entry.id;
+  }
+  return `route-policy#${index + 1}`;
+}
+
 export function validateRoutePolicies(policies = ROUTE_POLICIES) {
   const issues = [];
   const ids = new Set();
   const routeKeys = new Set();
 
-  for (const entry of policies) {
+  for (const [index, entry] of policies.entries()) {
     if (!entry || typeof entry !== "object") {
       issues.push("Route policy entry must be an object.");
       continue;
     }
+    const ref = safePolicyRef(entry, index);
 
     if (!entry.id || typeof entry.id !== "string") issues.push("Route policy entry is missing id.");
-    if (ids.has(entry.id)) issues.push(`Duplicate route policy id "${entry.id}".`);
+    if (ids.has(entry.id)) issues.push(`${ref}: duplicate route policy id.`);
     ids.add(entry.id);
 
-    if (!entry.method || typeof entry.method !== "string") issues.push(`${entry.id}: missing method.`);
-    if (!entry.path || typeof entry.path !== "string" || !entry.path.startsWith("/")) issues.push(`${entry.id}: missing absolute path.`);
+    if (!entry.method || typeof entry.method !== "string") issues.push(`${ref}: missing method.`);
+    if (!entry.path || typeof entry.path !== "string" || !entry.path.startsWith("/")) issues.push(`${ref}: missing absolute path.`);
     const routeKey = `${entry.method} ${entry.path}`;
-    if (routeKeys.has(routeKey)) issues.push(`Duplicate route policy route "${routeKey}".`);
+    if (routeKeys.has(routeKey)) issues.push(`${ref}: duplicate route policy route.`);
     routeKeys.add(routeKey);
 
-    if (!VALID_AUTH.has(entry.auth)) issues.push(`${entry.id}: invalid auth policy "${entry.auth}".`);
-    if (!VALID_MFA.has(entry.mfa)) issues.push(`${entry.id}: invalid MFA policy "${entry.mfa}".`);
-    if (!VALID_CSRF.has(entry.csrf)) issues.push(`${entry.id}: invalid CSRF policy "${entry.csrf}".`);
-    if (!VALID_SENSITIVITY.has(entry.sensitivity)) issues.push(`${entry.id}: invalid sensitivity "${entry.sensitivity}".`);
-    if (!entry.owner || typeof entry.owner !== "string") issues.push(`${entry.id}: missing owner.`);
-    if (!Array.isArray(entry.config)) issues.push(`${entry.id}: config must be an array.`);
-    if (!entry.body || typeof entry.body !== "object") issues.push(`${entry.id}: missing body policy.`);
-    if (!entry.rateLimit || typeof entry.rateLimit !== "object") issues.push(`${entry.id}: missing rateLimit policy.`);
-    if (!entry.audit || typeof entry.audit !== "object") issues.push(`${entry.id}: missing audit policy.`);
+    if (!VALID_AUTH.has(entry.auth)) issues.push(`${ref}: invalid auth policy.`);
+    if (!VALID_MFA.has(entry.mfa)) issues.push(`${ref}: invalid MFA policy.`);
+    if (!VALID_CSRF.has(entry.csrf)) issues.push(`${ref}: invalid CSRF policy.`);
+    if (!VALID_SENSITIVITY.has(entry.sensitivity)) issues.push(`${ref}: invalid sensitivity.`);
+    if (!entry.owner || typeof entry.owner !== "string") issues.push(`${ref}: missing owner.`);
+    if (!Array.isArray(entry.config)) issues.push(`${ref}: config must be an array.`);
+    if (!entry.body || typeof entry.body !== "object") issues.push(`${ref}: missing body policy.`);
+    if (!entry.rateLimit || typeof entry.rateLimit !== "object") issues.push(`${ref}: missing rateLimit policy.`);
+    if (!entry.audit || typeof entry.audit !== "object") issues.push(`${ref}: missing audit policy.`);
 
     if (entry.method !== "GET" && entry.method !== "HEAD" && entry.csrf !== "same-origin-required" && entry.csrf !== "not-browser-facing") {
-      issues.push(`${entry.id}: mutating browser-facing routes must require same-origin CSRF policy.`);
+      issues.push(`${ref}: mutating browser-facing routes must require same-origin CSRF policy.`);
     }
     if (entry.csrf === "exempt-with-reason" && !entry.csrfReason) {
-      issues.push(`${entry.id}: CSRF exemption requires csrfReason.`);
+      issues.push(`${ref}: CSRF exemption requires csrfReason.`);
     }
     if (entry.auth === "admin" && entry.mfa === "none") {
-      issues.push(`${entry.id}: admin routes must declare an MFA policy.`);
+      issues.push(`${ref}: admin routes must declare an MFA policy.`);
     }
     if (entry.path.startsWith("/api/admin/") && entry.auth !== "admin") {
-      issues.push(`${entry.id}: /api/admin routes must use admin auth.`);
+      issues.push(`${ref}: /api/admin routes must use admin auth.`);
     }
     if (entry.sensitivity === "high" && !entry.rateLimit.id && !entry.rateLimit.noneReason) {
-      issues.push(`${entry.id}: high-sensitivity route needs a rate limit id or explicit exemption.`);
+      issues.push(`${ref}: high-sensitivity route needs a rate limit id or explicit exemption.`);
     }
     if (entry.rateLimit.id && entry.rateLimit.failClosed !== true && entry.sensitivity === "high") {
-      issues.push(`${entry.id}: high-sensitivity rate limits must be fail-closed.`);
+      issues.push(`${ref}: high-sensitivity rate limits must be fail-closed.`);
     }
     if (entry.body.kind !== "none" && !entry.body.maxBytesName) {
-      issues.push(`${entry.id}: body-parsing route must declare maxBytesName.`);
+      issues.push(`${ref}: body-parsing route must declare maxBytesName.`);
     }
     if (entry.body.kind === "none" && !entry.body.noneReason) {
-      issues.push(`${entry.id}: no-body policy requires noneReason.`);
+      issues.push(`${ref}: no-body policy requires noneReason.`);
     }
   }
 
