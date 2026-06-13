@@ -1,0 +1,657 @@
+{
+  "generatedAt": "2026-06-13T05:41:35.963Z",
+  "version": "omega-p1-live-billing-readiness-v1",
+  "productionReadiness": "operator_go_live_approved",
+  "liveBillingReadiness": "operator_approved_live",
+  "redactedResponse": true,
+  "stripeCallsMade": false,
+  "d1MutationPerformed": false,
+  "creditMutationPerformed": false,
+  "repositorySupport": "ready_for_operator_canary",
+  "configShapeStatus": "configured_shapes_present",
+  "evidenceStatus": "partial_evidence_operator_approved",
+  "canaryStatus": "operator_confirmed_manual_live_validation",
+  "finalVerdict": {
+    "status": "operator_approved_live_with_evidence_waivers",
+    "summary": "Live billing is enabled by operator approval. Artifact-backed evidence is partially complete; operator accepted remaining evidence risk."
+  },
+  "nextOperatorActions": [
+    {
+      "id": "monitor_live_billing",
+      "label": "Monitor Billing Events, Billing Reviews, and Reconciliation during live operation.",
+      "inspect": "Admin -> Finance -> Live Billing, Billing Events, Billing Reconciliation.",
+      "safeAction": "Read-only monitoring; do not trigger refunds, clawbacks, or provider mutations from Admin."
+    },
+    {
+      "id": "attach_remaining_artifacts",
+      "label": "Attach remaining waived or pending artifact-backed evidence when it is available.",
+      "inspect": "docs/production-readiness/evidence/operator-live-evidence-2026-06-12/.",
+      "safeAction": "Use shortened IDs and redacted screenshots/exports only."
+    },
+    {
+      "id": "keep_tax_invoice_flags_disabled",
+      "label": "Keep Stripe Tax, tax ID collection, and invoice creation flags disabled until separate approval.",
+      "inspect": "Cloudflare Worker vars and Stripe Dashboard accounting/tax settings.",
+      "safeAction": "Optional tax/invoice settings remain false by default."
+    },
+    {
+      "id": "confirm_live_flags",
+      "label": "Confirm live credit-pack and subscription enablement in Cloudflare without exposing values.",
+      "inspect": "Cloudflare Worker env vars and Admin Live Billing configured/enabled badges.",
+      "safeAction": "Operator-owned verification; this Admin page cannot read dashboard state outside its runtime env."
+    },
+    {
+      "id": "rollback_if_needed",
+      "label": "If issues appear, disable live credit packs and subscriptions while keeping the webhook endpoint available.",
+      "inspect": "Cloudflare Worker vars, Billing Reviews, Billing Reconciliation.",
+      "safeAction": "Set ENABLE_LIVE_STRIPE_CREDIT_PACKS=false and ENABLE_LIVE_STRIPE_SUBSCRIPTIONS=false; do not delete ledger or evidence rows."
+    }
+  ],
+  "statusBadges": [
+    {
+      "id": "repository_support",
+      "label": "Repository support",
+      "status": "ready_for_operator_canary",
+      "variant": "ready"
+    },
+    {
+      "id": "production_readiness",
+      "label": "Production readiness",
+      "status": "operator_go_live_approved",
+      "variant": "ready"
+    },
+    {
+      "id": "live_billing_readiness",
+      "label": "Live billing readiness",
+      "status": "operator_approved_live",
+      "variant": "ready"
+    },
+    {
+      "id": "config_shape",
+      "label": "Config shape",
+      "status": "configured_shapes_present",
+      "variant": "ready"
+    },
+    {
+      "id": "credit_packs",
+      "label": "Credit packs",
+      "status": "configured_enabled_operator_live",
+      "variant": "ready"
+    },
+    {
+      "id": "bitbi_pro",
+      "label": "BITBI Pro subscription",
+      "status": "configured_enabled_operator_live",
+      "variant": "ready"
+    },
+    {
+      "id": "webhook",
+      "label": "Webhook",
+      "status": "configured_operator_live",
+      "variant": "ready"
+    },
+    {
+      "id": "customer_portal",
+      "label": "Customer Portal",
+      "status": "configured_operator_confirmed_pay_bitbi_ai",
+      "variant": "ready"
+    },
+    {
+      "id": "reconciliation",
+      "label": "Reconciliation",
+      "status": "no_critical_items_operator_accepted",
+      "variant": "ready"
+    },
+    {
+      "id": "billing_reviews",
+      "label": "Billing reviews",
+      "status": "0 blocking_or_needs_review",
+      "variant": "ready"
+    },
+    {
+      "id": "evidence_status",
+      "label": "Evidence status",
+      "status": "partial_evidence_operator_approved",
+      "variant": "ready"
+    },
+    {
+      "id": "canary_status",
+      "label": "Canary status",
+      "status": "operator_confirmed_manual_live_validation",
+      "variant": "ready"
+    },
+    {
+      "id": "final_verdict",
+      "label": "Final verdict",
+      "status": "operator_approved_live_with_evidence_waivers",
+      "variant": "ready"
+    }
+  ],
+  "configuration": {
+    "namesInspected": [
+      "ENABLE_LIVE_STRIPE_CREDIT_PACKS",
+      "ENABLE_LIVE_STRIPE_SUBSCRIPTIONS",
+      "STRIPE_LIVE_SECRET_KEY",
+      "STRIPE_LIVE_WEBHOOK_SECRET",
+      "STRIPE_LIVE_SUBSCRIPTION_PRICE_ID",
+      "STRIPE_LIVE_CHECKOUT_SUCCESS_URL",
+      "STRIPE_LIVE_CHECKOUT_CANCEL_URL",
+      "STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL",
+      "STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL",
+      "STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL",
+      "ENABLE_STRIPE_AUTOMATIC_TAX",
+      "ENABLE_STRIPE_TAX_ID_COLLECTION",
+      "ENABLE_STRIPE_INVOICE_CREATION"
+    ],
+    "flags": {
+      "liveCreditPacks": {
+        "name": "ENABLE_LIVE_STRIPE_CREDIT_PACKS",
+        "present": true,
+        "enabled": true,
+        "expected": "true",
+        "status": "enabled",
+        "valueExposed": false
+      },
+      "liveSubscriptions": {
+        "name": "ENABLE_LIVE_STRIPE_SUBSCRIPTIONS",
+        "present": true,
+        "enabled": true,
+        "expected": "true",
+        "status": "enabled",
+        "valueExposed": false
+      },
+      "automaticTax": {
+        "name": "ENABLE_STRIPE_AUTOMATIC_TAX",
+        "present": true,
+        "enabled": false,
+        "expected": "true",
+        "status": "disabled_or_non_true",
+        "valueExposed": false
+      },
+      "taxIdCollection": {
+        "name": "ENABLE_STRIPE_TAX_ID_COLLECTION",
+        "present": true,
+        "enabled": false,
+        "expected": "true",
+        "status": "disabled_or_non_true",
+        "valueExposed": false
+      },
+      "invoiceCreation": {
+        "name": "ENABLE_STRIPE_INVOICE_CREATION",
+        "present": true,
+        "enabled": false,
+        "expected": "true",
+        "status": "disabled_or_non_true",
+        "valueExposed": false
+      }
+    },
+    "stripeMode": {
+      "name": "STRIPE_MODE",
+      "present": true,
+      "mode": "test",
+      "status": "testmode_configured",
+      "valueExposed": true
+    },
+    "secrets": {
+      "liveSecretKey": {
+        "name": "STRIPE_LIVE_SECRET_KEY",
+        "present": true,
+        "status": "present_shape_ok",
+        "shape": "expected_prefix_present",
+        "valueExposed": false
+      },
+      "liveWebhookSecret": {
+        "name": "STRIPE_LIVE_WEBHOOK_SECRET",
+        "present": true,
+        "status": "present_shape_ok",
+        "shape": "expected_prefix_present",
+        "valueExposed": false
+      }
+    },
+    "priceIds": {
+      "liveSubscriptionPriceId": {
+        "name": "STRIPE_LIVE_SUBSCRIPTION_PRICE_ID",
+        "present": true,
+        "status": "present_shape_ok",
+        "shape": "price_id_shape_present",
+        "safeSuffix": "qrsM9blR",
+        "valueExposed": false
+      }
+    },
+    "urls": {
+      "liveCreditPackSuccess": {
+        "name": "STRIPE_LIVE_CHECKOUT_SUCCESS_URL",
+        "present": true,
+        "status": "present_https",
+        "protocol": "https",
+        "origin": "https://bitbi.ai",
+        "pathname": "/account/credits.html",
+        "queryPresent": true,
+        "valueExposed": false
+      },
+      "liveCreditPackCancel": {
+        "name": "STRIPE_LIVE_CHECKOUT_CANCEL_URL",
+        "present": true,
+        "status": "present_https",
+        "protocol": "https",
+        "origin": "https://bitbi.ai",
+        "pathname": "/account/credits.html",
+        "queryPresent": true,
+        "valueExposed": false
+      },
+      "liveSubscriptionSuccess": {
+        "name": "STRIPE_LIVE_SUBSCRIPTION_SUCCESS_URL",
+        "present": true,
+        "status": "present_https",
+        "protocol": "https",
+        "origin": "https://bitbi.ai",
+        "pathname": "/pricing.html",
+        "queryPresent": true,
+        "valueExposed": false
+      },
+      "liveSubscriptionCancel": {
+        "name": "STRIPE_LIVE_SUBSCRIPTION_CANCEL_URL",
+        "present": true,
+        "status": "present_https",
+        "protocol": "https",
+        "origin": "https://bitbi.ai",
+        "pathname": "/pricing.html",
+        "queryPresent": true,
+        "valueExposed": false
+      },
+      "liveCustomerPortalReturn": {
+        "name": "STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL",
+        "present": true,
+        "status": "present_https",
+        "protocol": "https",
+        "origin": "https://bitbi.ai",
+        "pathname": "/account/credits.html",
+        "queryPresent": false,
+        "valueExposed": false
+      }
+    }
+  },
+  "catalog": {
+    "creditPacks": {
+      "status": "configured_shape_present",
+      "configuredCount": 2,
+      "activePacks": [
+        {
+          "id": "live_credits_5000",
+          "name": "5000 Credit Pack",
+          "credits": 5000,
+          "amountCents": 999,
+          "currency": "eur",
+          "displayPrice": "9,99 €",
+          "active": true
+        },
+        {
+          "id": "live_credits_12000",
+          "name": "12000 Credit Pack",
+          "credits": 12000,
+          "amountCents": 1999,
+          "currency": "eur",
+          "displayPrice": "19,99 €",
+          "active": true
+        }
+      ],
+      "checkoutCanary": "pending_operator_evidence",
+      "noCreditBeforeWebhook": true
+    },
+    "subscription": {
+      "status": "configured_shape_present",
+      "checkoutCanary": "pending_operator_evidence",
+      "invoicePaidEvidence": "pending_operator_evidence",
+      "plan": {
+        "id": "bitbi_pro_monthly",
+        "name": "BITBI Pro",
+        "amountCents": 999,
+        "currency": "eur",
+        "displayPrice": "9,99 €",
+        "interval": "month",
+        "allowanceCredits": 6000,
+        "storageLimitBytes": 5368709120,
+        "rolloverPolicy": "subscription_bucket_top_up_no_automatic_rollover_claim"
+      }
+    },
+    "publicCatalog": true,
+    "stripePriceIdConfigured": true,
+    "needsStripeDashboardEvidence": true
+  },
+  "checkoutSafety": {
+    "facts": [
+      "Checkout creation does not grant credits.",
+      "Verified webhook or paid invoice event is required before credit grant.",
+      "Live credit-pack checkout requires the live webhook secret before checkout creation.",
+      "Live subscription checkout requires the live webhook secret before checkout creation.",
+      "Wrong price ID or provider mode grants no subscription credits.",
+      "Refund, dispute, and payment-failure events are review-only and do not claw back credits automatically.",
+      "Raw Stripe payloads, signatures, and secret values are not returned by admin billing evidence endpoints.",
+      "Customer Portal session creation is member-triggered only and does not allow Admin to mutate arbitrary Stripe customers.",
+      "Stripe Tax, tax ID collection, and invoice creation stay disabled unless explicit operator env flags are set.",
+      "Live billing readiness remains blocked until operator canary evidence is attached and reviewed."
+    ],
+    "checkoutCreationDoesNotGrantCredits": true,
+    "grantsRequireVerifiedWebhookOrInvoice": true,
+    "missingWebhookSecretFailsClosedBeforeCheckout": true,
+    "wrongProviderModeOrPriceIdDoesNotGrant": true
+  },
+  "webhookHealth": {
+    "endpoint": "/api/billing/webhooks/stripe/live",
+    "signatureVerification": "verified_live_signature",
+    "rawPayloadsRendered": false,
+    "signaturesRendered": false,
+    "recentEvents": [
+      {
+        "id": "bpe_605a8acec24bb750359cf95b16ae81e9",
+        "eventType": "customer.subscription.updated",
+        "providerMode": "live",
+        "processingStatus": "failed",
+        "duplicate": false,
+        "receivedAt": "2026-05-25T15:24:12.897Z"
+      },
+      {
+        "id": "bpe_7fc676a6458dab246271f3e4505d209f",
+        "eventType": "customer.subscription.updated",
+        "providerMode": "live",
+        "processingStatus": "failed",
+        "duplicate": false,
+        "receivedAt": "2026-05-25T15:23:44.698Z"
+      },
+      {
+        "id": "bpe_8ee3d6ccb773e1bc1a51c095d2c813b2",
+        "eventType": "checkout.session.completed",
+        "providerMode": "live",
+        "processingStatus": "planned",
+        "duplicate": false,
+        "receivedAt": "2026-05-24T18:24:29.407Z"
+      },
+      {
+        "id": "bpe_2fe271a64de98d9a22d72178f43d32e4",
+        "eventType": "checkout.session.expired",
+        "providerMode": "live",
+        "processingStatus": "ignored",
+        "duplicate": false,
+        "receivedAt": "2026-05-16T13:45:14.298Z"
+      },
+      {
+        "id": "bpe_c79de42fbf81da27de0a9edcf4e7e9c9",
+        "eventType": "checkout.session.expired",
+        "providerMode": "live",
+        "processingStatus": "ignored",
+        "duplicate": false,
+        "receivedAt": "2026-05-15T19:48:28.364Z"
+      },
+      {
+        "id": "bpe_40fce04a363ffe12f042d402fa685162",
+        "eventType": "checkout.session.expired",
+        "providerMode": "live",
+        "processingStatus": "ignored",
+        "duplicate": false,
+        "receivedAt": "2026-05-15T17:32:35.736Z"
+      },
+      {
+        "id": "bpe_16f19fc517d0fb031c1960c0cb55c2b3",
+        "eventType": "checkout.session.expired",
+        "providerMode": "live",
+        "processingStatus": "ignored",
+        "duplicate": false,
+        "receivedAt": "2026-05-15T17:31:10.406Z"
+      },
+      {
+        "id": "bpe_c52385cdf6e5252543f9bfb3f16f6758",
+        "eventType": "customer.subscription.updated",
+        "providerMode": "live",
+        "processingStatus": "failed",
+        "duplicate": false,
+        "receivedAt": "2026-05-14T20:45:49.528Z"
+      },
+      {
+        "id": "bpe_0eddadcfa3c313553d096c95746b825c",
+        "eventType": "customer.subscription.updated",
+        "providerMode": "live",
+        "processingStatus": "failed",
+        "duplicate": false,
+        "receivedAt": "2026-05-14T20:43:04.707Z"
+      },
+      {
+        "id": "bpe_1c5776e8d33c4ff15f4bdf22d1237f02",
+        "eventType": "customer.subscription.updated",
+        "providerMode": "live",
+        "processingStatus": "failed",
+        "duplicate": false,
+        "receivedAt": "2026-05-14T20:34:48.414Z"
+      }
+    ],
+    "countsByType": {
+      "customer.subscription.updated": 6,
+      "checkout.session.completed": 3,
+      "checkout.session.expired": 15,
+      "invoice.paid": 1
+    },
+    "countsByStatus": {
+      "failed": 8,
+      "planned": 2,
+      "ignored": 15
+    },
+    "countsByProviderMode": {
+      "live": 25
+    }
+  },
+  "customerPortal": {
+    "status": "configured_operator_confirmed",
+    "sessionCanary": "operator_confirmed_pay_bitbi_ai",
+    "returnUrl": {
+      "name": "STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL",
+      "present": true,
+      "status": "present_https",
+      "protocol": "https",
+      "origin": "https://bitbi.ai",
+      "pathname": "/account/credits.html",
+      "queryPresent": false,
+      "valueExposed": false
+    },
+    "noAdminCustomerMutation": true,
+    "noRawCustomerIdsReturned": true,
+    "implemented": true,
+    "endpoint": "/api/account/billing/portal",
+    "operatorConfirmedPayBitbiAi": true,
+    "memberTriggeredOnly": true,
+    "adminCustomerMutation": false
+  },
+  "taxInvoice": {
+    "status": "disabled_by_default",
+    "automaticTax": {
+      "name": "ENABLE_STRIPE_AUTOMATIC_TAX",
+      "present": true,
+      "enabled": false,
+      "expected": "true",
+      "status": "disabled_or_non_true",
+      "valueExposed": false
+    },
+    "taxIdCollection": {
+      "name": "ENABLE_STRIPE_TAX_ID_COLLECTION",
+      "present": true,
+      "enabled": false,
+      "expected": "true",
+      "status": "disabled_or_non_true",
+      "valueExposed": false
+    },
+    "oneTimeInvoiceCreation": {
+      "name": "ENABLE_STRIPE_INVOICE_CREATION",
+      "present": true,
+      "enabled": false,
+      "expected": "true",
+      "status": "disabled_or_non_true",
+      "valueExposed": false
+    },
+    "operatorReviewRequired": true
+  },
+  "evidenceChecklist": [
+    {
+      "id": "live_credit_pack_checkout_canary",
+      "status": "operator_confirmed_purchase_history_visible",
+      "why": "Proves the configured live credit-pack checkout can be created safely by an operator.",
+      "inspect": "Credits page checkout response and Stripe Dashboard checkout session.",
+      "nextAction": "Attach remaining artifact-backed grant details when available; operator accepted go-live risk."
+    },
+    {
+      "id": "live_subscription_checkout_canary",
+      "status": "operator_confirmed_bitbi_pro_active",
+      "why": "Proves the configured BITBI Pro checkout can be created safely by an operator.",
+      "inspect": "Pricing/Credits subscription checkout response and Stripe Dashboard checkout session.",
+      "nextAction": "Attach the final sanitized Stripe/BITBI subscription artifact when available."
+    },
+    {
+      "id": "verified_webhook_receipt",
+      "status": "operator_confirmed_admin_events_visible",
+      "why": "Proves Stripe live events reach the verified webhook endpoint.",
+      "inspect": "Billing Events provider log for /api/billing/webhooks/stripe/live.",
+      "nextAction": "Keep webhook delivery screenshots/export redacted; do not paste raw payloads or signatures."
+    },
+    {
+      "id": "duplicate_webhook_idempotency",
+      "status": "operator_waived_pending_artifact",
+      "why": "Proves repeated provider events cannot double-grant credits.",
+      "inspect": "Billing Reconciliation duplicate/idempotency section.",
+      "nextAction": "Collect duplicate-delivery/idempotency proof after go-live monitoring if not already captured."
+    },
+    {
+      "id": "wrong_price_id_rejection",
+      "status": "repo_tests_operator_waived_pending_live_artifact",
+      "why": "Proves unrelated Stripe prices do not grant BITBI Pro credits.",
+      "inspect": "Billing Events ignored/review rows with wrong Price ID.",
+      "nextAction": "Keep wrong-price live evidence out of production unless performed as a safe controlled negative canary."
+    },
+    {
+      "id": "missing_webhook_secret_fail_closed",
+      "status": "repo_tests_operator_waived",
+      "why": "Proves checkout stays disabled without webhook-credit readiness.",
+      "inspect": "Worker response from checkout with webhook secret absent.",
+      "nextAction": "Keep webhook secret configured in production; do not remove it for live evidence collection."
+    },
+    {
+      "id": "no_credit_before_webhook",
+      "status": "operator_waived_pending_artifact",
+      "why": "Proves checkout creation alone never grants credits.",
+      "inspect": "Member credit ledger remains unchanged after checkout creation.",
+      "nextAction": "Attach a sanitized before/after ledger excerpt if the operator wants full artifact backing."
+    },
+    {
+      "id": "invoice_paid_subscription_credit_grant",
+      "status": "operator_confirmed_bitbi_pro_payment_active",
+      "why": "Proves subscription credits are topped up only after a paid invoice event.",
+      "inspect": "Member subscription bucket ledger after verified invoice.paid.",
+      "nextAction": "Attach sanitized invoice-paid/top-up evidence when available."
+    },
+    {
+      "id": "refund_dispute_failure_review_only",
+      "status": "repo_tests_operator_waived_pending_live_artifact",
+      "why": "Proves refunds, disputes, and failures create review records only.",
+      "inspect": "Billing Reviews queue.",
+      "nextAction": "Monitor Billing Reviews; do not trigger refunds or disputes just to create evidence."
+    },
+    {
+      "id": "raw_payload_signature_secret_redaction",
+      "status": "secret_scan_and_redacted_export_passed",
+      "why": "Proves Admin never renders raw payloads, signatures, or secrets.",
+      "inspect": "Admin Live Billing and Billing Evidence payloads.",
+      "nextAction": "Continue running check:secrets before every evidence commit."
+    },
+    {
+      "id": "customer_portal_session_canary",
+      "status": "operator_confirmed_pay_bitbi_ai",
+      "why": "Proves a signed-in member can open Stripe Customer Portal without Admin customer mutation.",
+      "inspect": "Member Credits page portal button and Stripe Portal session.",
+      "nextAction": "Portal works through pay.bitbi.ai; do not store full portal session URLs."
+    },
+    {
+      "id": "tax_invoice_configuration_review",
+      "status": "disabled_by_default_operator_review_pending",
+      "why": "Confirms Stripe Tax/invoice flags and dashboard accounting setup were reviewed by an operator.",
+      "inspect": "Stripe Dashboard tax/invoice settings and redacted env checklist.",
+      "nextAction": "Keep tax, tax ID, and invoice flags false until separate accounting/legal approval."
+    }
+  ],
+  "reviews": {
+    "totalShown": 4,
+    "unresolved": 2,
+    "blockingOrNeedsReview": 0,
+    "byState": {
+      "resolved": 1,
+      "dismissed": 1,
+      "informational": 2
+    }
+  },
+  "reconciliation": {
+    "verdict": "blocked",
+    "operatorApprovalStatus": "no_critical_items_operator_accepted",
+    "criticalItems": 0,
+    "summary": {
+      "scanLimit": 500,
+      "criticalItems": 0,
+      "warningItems": 1,
+      "providerEvents": {
+        "recentLiveStripeTotal": 27,
+        "failed": 8,
+        "duplicateEventIds": 0,
+        "conflicts": 0,
+        "ignoredPriceOrModeEvents": 0
+      },
+      "reviews": {
+        "needsReview": 0,
+        "blocked": 0,
+        "informational": 2,
+        "resolved": 1,
+        "dismissed": 1,
+        "staleUnresolved": 0
+      },
+      "checkouts": {
+        "organizationLiveCreditPackByStatus": {
+          "created": 3,
+          "completed": 1
+        },
+        "memberLiveCreditPackByStatus": {
+          "created": 11,
+          "completed": 2
+        },
+        "memberSubscriptionCheckoutByStatus": {
+          "created": 3,
+          "completed": 1
+        },
+        "completedWithoutLedger": 0,
+        "ledgerLinkedWithoutBillingEvent": 0,
+        "checkoutWebhookEventsWithoutLedger": 0,
+        "providerGrantsWithoutCheckoutLink": 0
+      },
+      "creditLedger": {
+        "organizationAccountsScanned": 1,
+        "memberAccountsScanned": 8,
+        "negativeBalances": 0,
+        "usageEventsMissingLedger": 0,
+        "manualGrantRows": 10,
+        "providerGrantRows": 3,
+        "manualProviderSeparationRisks": 0
+      },
+      "subscriptions": {
+        "byStatus": {
+          "active": 1
+        },
+        "activeOrTrialing": 1,
+        "cancelAtPeriodEnd": 0,
+        "activeWithoutTopUpMarker": 0,
+        "activeWithoutBucket": 0,
+        "subscriptionBucketsWithoutActiveSubscription": 0,
+        "subscriptionBucketsWithoutKnownSubscription": 0
+      }
+    },
+    "notes": [
+      "This report is read-only.",
+      "It uses local D1 state only.",
+      "It does not call Stripe.",
+      "It does not reconcile automatically.",
+      "It does not adjust credits, subscriptions, checkout state, review state, or provider events.",
+      "Operator review is required before any production or live billing readiness claim."
+    ]
+  }
+}
