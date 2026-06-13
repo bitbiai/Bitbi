@@ -20025,7 +20025,7 @@ test.describe('Worker routes', () => {
       expect(body.ok).toBe(true);
       expect(body.releaseTruth).toMatchObject({
         source: 'config/release-compat.json',
-        latestAuthMigration: '0064_add_public_media_interactions.sql',
+        latestAuthMigration: '0065_allow_live_billing_event_verification_status.sql',
         repoTruthIsLiveDeployProof: false,
         deployVerificationRequired: true,
       });

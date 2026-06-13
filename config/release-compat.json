@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0064_add_public_media_interactions.sql",
+        "latest": "0065_allow_live_billing_event_verification_status.sql",
         "databaseName": "bitbi-auth-db"
       }
     },

@@ -4341,6 +4341,9 @@ class MockD1 {
       )) {
         throw new Error('UNIQUE constraint failed: billing_provider_events');
       }
+      if (!['verified_test_signature', 'verified_live_signature', 'failed', 'unverified'].includes(verificationStatus)) {
+        throw new Error('CHECK constraint failed: billing_provider_events.verification_status');
+      }
       this.state.billingProviderEvents.push({
         id,
         provider,
