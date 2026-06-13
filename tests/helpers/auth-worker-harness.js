@@ -45,6 +45,7 @@ const USER_DEPENDENCY_TABLE_STATE = {
   billing_member_subscription_checkout_sessions: 'billingMemberSubscriptionCheckoutSessions',
   billing_checkout_sessions: 'billingCheckoutSessions',
   billing_provider_events: 'billingProviderEvents',
+  billing_operator_purge_tombstones: 'billingOperatorPurgeTombstones',
   credit_ledger: 'creditLedger',
   usage_events: 'usageEvents',
   ai_usage_attempts: 'aiUsageAttempts',
@@ -1063,6 +1064,10 @@ class MockD1 {
       billingMemberCheckoutSessions: [],
       billingMemberSubscriptions: [],
       billingMemberSubscriptionCheckoutSessions: [],
+      billingOperatorItemStates: [],
+      billingOperatorCleanupRuns: [],
+      billingOperatorCleanupRunItems: [],
+      billingOperatorPurgeTombstones: [],
       newsPulseItems: [],
       openClawIngestNonces: [],
       adminRuntimeBudgetSwitches: defaultAdminRuntimeBudgetSwitchRows(),
@@ -4307,6 +4312,49 @@ class MockD1 {
       return deepClone(this.state.billingProviderEvents.find((row) =>
         row.provider === provider && row.provider_event_id === providerEventId
       ) || null);
+    }
+
+    if (query.startsWith('SELECT id, tombstone_type, provider, provider_mode, provider_event_id, provider_checkout_session_id, provider_payment_intent_id, provider_subscription_id, original_item_type, original_item_id, payload_hash, reason, purged_by_user_id, purged_at, metadata_json, created_at, updated_at FROM billing_operator_purge_tombstones WHERE')) {
+      const [
+        eventProvider,
+        providerEventId,
+        checkoutProvider,
+        checkoutMode,
+        checkoutSessionId,
+        paymentProvider,
+        paymentMode,
+        paymentIntentId,
+        subscriptionProvider,
+        subscriptionMode,
+        subscriptionId,
+      ] = bindings;
+      const row = this.state.billingOperatorPurgeTombstones
+        .filter((entry) =>
+          (entry.provider === eventProvider && entry.provider_event_id === providerEventId) ||
+          (
+            entry.provider === checkoutProvider &&
+            entry.provider_mode === checkoutMode &&
+            entry.provider_checkout_session_id &&
+            entry.provider_checkout_session_id === checkoutSessionId
+          ) ||
+          (
+            entry.provider === paymentProvider &&
+            entry.provider_mode === paymentMode &&
+            entry.provider_payment_intent_id &&
+            entry.provider_payment_intent_id === paymentIntentId
+          ) ||
+          (
+            entry.provider === subscriptionProvider &&
+            entry.provider_mode === subscriptionMode &&
+            entry.provider_subscription_id &&
+            entry.provider_subscription_id === subscriptionId
+          )
+        )
+        .sort((a, b) =>
+          String(b.purged_at || '').localeCompare(String(a.purged_at || '')) ||
+          String(b.id || '').localeCompare(String(a.id || ''))
+        )[0] || null;
+      return deepClone(row);
     }
 
     if (query.startsWith('INSERT INTO billing_provider_events ( id, provider, provider_event_id, provider_account, provider_mode, event_type, event_created_at, received_at, processing_status, verification_status, dedupe_key, payload_hash, payload_summary_json, organization_id, user_id, billing_customer_id, error_code, error_message, attempt_count, last_processed_at, created_at, updated_at ) VALUES')) {

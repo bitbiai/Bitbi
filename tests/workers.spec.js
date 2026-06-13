@@ -5677,6 +5677,29 @@ test.describe('Phase 1-E auth route policy registry', () => {
       body: expect.objectContaining({ kind: 'json', maxBytesName: 'smallJson' }),
       rateLimit: expect.objectContaining({ failClosed: true }),
     }));
+    expect(getRoutePolicy('GET', '/api/admin/billing/operator-archive')).toEqual(expect.objectContaining({
+      id: 'admin.billing.operator_archive.list',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      body: expect.objectContaining({ kind: 'none' }),
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    for (const [path, id] of [
+      ['/api/admin/billing/operator-archive', 'admin.billing.operator_archive.create'],
+      ['/api/admin/billing/operator-archive/restore', 'admin.billing.operator_archive.restore'],
+      ['/api/admin/billing/operator-purge-preview', 'admin.billing.operator_purge.preview'],
+      ['/api/admin/billing/operator-purge', 'admin.billing.operator_purge.apply'],
+    ]) {
+      expect(getRoutePolicy('POST', path)).toEqual(expect.objectContaining({
+        id,
+        auth: 'admin',
+        mfa: 'admin-production-required',
+        csrf: 'same-origin-required',
+        body: expect.objectContaining({ kind: 'json', maxBytesName: 'smallJson' }),
+        rateLimit: expect.objectContaining({ failClosed: true }),
+      }));
+    }
   });
 });
 
@@ -20025,7 +20048,7 @@ test.describe('Worker routes', () => {
       expect(body.ok).toBe(true);
       expect(body.releaseTruth).toMatchObject({
         source: 'config/release-compat.json',
-        latestAuthMigration: '0065_allow_live_billing_event_verification_status.sql',
+        latestAuthMigration: '0066_add_operator_billing_cleanup.sql',
         repoTruthIsLiveDeployProof: false,
         deployVerificationRequired: true,
       });

@@ -1,5 +1,6 @@
 import { nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
 import { normalizeOrgId } from "./orgs.js";
+import { findOperatorBillingPurgeTombstoneForProviderEvent } from "./operator-billing-cleanup.js";
 
 export const BILLING_WEBHOOK_TEST_PROVIDER = "test";
 export const BILLING_WEBHOOK_STRIPE_PROVIDER = "stripe";
@@ -353,6 +354,24 @@ function sanitizedPayloadSummary(payload, { providerEventId, eventType, provider
     creditPackId: safeString(metadata.credit_pack_id || metadata.creditPackId, 64),
     checkoutSessionIdPresent: Boolean(object.id),
     paymentDataRedacted: true,
+  };
+}
+
+function extractProviderObjectRefs(payload) {
+  const data = payload?.data && typeof payload.data === "object" && !Array.isArray(payload.data)
+    ? payload.data
+    : {};
+  const object = data.object && typeof data.object === "object" && !Array.isArray(data.object)
+    ? data.object
+    : {};
+  const safeRef = (value) => {
+    const text = safeString(value, 128);
+    return text && /^[A-Za-z0-9._:-]{2,128}$/.test(text) ? text : null;
+  };
+  return {
+    providerCheckoutSessionId: safeRef(object.id),
+    providerPaymentIntentId: safeRef(object.payment_intent || object.paymentIntent),
+    providerSubscriptionId: safeRef(object.subscription),
   };
 }
 
@@ -1489,13 +1508,24 @@ export async function ingestVerifiedBillingProviderEvent({
     };
   }
 
+  const tombstone = await findOperatorBillingPurgeTombstoneForProviderEvent(env, {
+    provider: normalized.provider,
+    providerMode: normalized.providerMode,
+    providerEventId: normalized.providerEventId,
+    ...extractProviderObjectRefs(payload),
+  });
+
   const id = eventId();
   const now = receivedAt || nowIso();
-  const processingStatus = normalized.supportedAction ? "planned" : "ignored";
-  const errorCode = normalized.supportedAction ? null : "unsupported_billing_event_type";
-  const errorMessage = normalized.supportedAction
-    ? null
-    : "Billing event type was stored for inspection but has no enabled side effects.";
+  const processingStatus = tombstone ? "ignored" : (normalized.supportedAction ? "planned" : "ignored");
+  const errorCode = tombstone
+    ? "operator_purge_tombstone_matched"
+    : (normalized.supportedAction ? null : "unsupported_billing_event_type");
+  const errorMessage = tombstone
+    ? "Billing provider event matched an operator purge tombstone; side effects are disabled."
+    : (normalized.supportedAction
+      ? null
+      : "Billing event type was stored for inspection but has no enabled side effects.");
   await env.DB.prepare(
     `INSERT INTO billing_provider_events (
        id, provider, provider_event_id, provider_account, provider_mode,
@@ -1530,7 +1560,7 @@ export async function ingestVerifiedBillingProviderEvent({
   ).run();
 
   let actionPlanned = false;
-  if (normalized.supportedAction) {
+  if (normalized.supportedAction && !tombstone) {
     await env.DB.prepare(
       `INSERT INTO billing_event_actions (
          id, event_id, action_type, status, dry_run, summary_json, created_at, updated_at
@@ -1566,6 +1596,7 @@ export async function ingestVerifiedBillingProviderEvent({
     event: serializeEventRow(inserted),
     duplicate: false,
     actionPlanned,
+    tombstoneMatched: Boolean(tombstone),
   };
 }
 

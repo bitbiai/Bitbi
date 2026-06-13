@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0065_allow_live_billing_event_verification_status.sql",
+        "latest": "0066_add_operator_billing_cleanup.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -897,6 +897,11 @@
       "GET /api/admin/billing/reconciliation",
       "GET /api/admin/billing/reviews",
       "POST /api/admin/billing/live-credit-pack-repairs",
+      "GET /api/admin/billing/operator-archive",
+      "POST /api/admin/billing/operator-archive",
+      "POST /api/admin/billing/operator-archive/restore",
+      "POST /api/admin/billing/operator-purge-preview",
+      "POST /api/admin/billing/operator-purge",
       "GET /api/admin/avatars/latest",
       "GET /api/admin/activity",
       "GET /api/admin/user-activity",

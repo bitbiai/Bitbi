@@ -36,6 +36,14 @@ import {
   resolveBillingReviewEvent,
 } from "../lib/billing-events.js";
 import {
+  archiveOperatorBillingItems,
+  applyOperatorBillingPurge,
+  listOperatorBillingArchive,
+  OPERATOR_PURGE_CONFIRMATION,
+  previewOperatorBillingPurge,
+  restoreOperatorBillingItems,
+} from "../lib/operator-billing-cleanup.js";
+import {
   getErrorFields,
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
@@ -496,6 +504,10 @@ export async function handleAdminBilling(ctx) {
     || pathname === "/api/admin/billing/reconciliation"
     || pathname === "/api/admin/billing/reviews"
     || pathname === "/api/admin/billing/live-credit-pack-repairs"
+    || pathname === "/api/admin/billing/operator-archive"
+    || pathname === "/api/admin/billing/operator-archive/restore"
+    || pathname === "/api/admin/billing/operator-purge-preview"
+    || pathname === "/api/admin/billing/operator-purge"
     || /^\/api\/admin\/billing\/events\/[^/]+$/.test(pathname)
     || /^\/api\/admin\/billing\/reviews\/[^/]+$/.test(pathname)
     || /^\/api\/admin\/billing\/reviews\/[^/]+\/resolution$/.test(pathname)
@@ -580,6 +592,190 @@ export async function handleAdminBilling(ctx) {
         nextCursor: result.nextCursor,
         livePaymentProviderEnabled: false,
       });
+    } catch (error) {
+      return billingErrorJson(error, ctx);
+    }
+  }
+
+  if (pathname === "/api/admin/billing/operator-archive" && method === "GET") {
+    const limited = await enforceAdminBillingRateLimit(ctx);
+    if (limited) return limited;
+    try {
+      const result = await listOperatorBillingArchive(env, {
+        limit: url.searchParams.get("limit"),
+        itemType: url.searchParams.get("item_type") || url.searchParams.get("itemType"),
+        q: url.searchParams.get("q"),
+        archivedOnly: url.searchParams.get("archived_only") || url.searchParams.get("archivedOnly"),
+      });
+      return json({ ok: true, ...result, livePaymentProviderEnabled: false });
+    } catch (error) {
+      return billingErrorJson(error, ctx);
+    }
+  }
+
+  // route-policy: admin.billing.operator_archive.create
+  if (pathname === "/api/admin/billing/operator-archive" && method === "POST") {
+    const limited = await enforceAdminBillingRateLimit(ctx, {
+      scope: "admin-billing-write-ip",
+      maxRequests: 30,
+      windowMs: 15 * 60_000,
+      component: "admin-billing-write",
+    });
+    if (limited) return limited;
+
+    const idempotency = idempotencyKeyOrResponse(request);
+    if (idempotency.response) return idempotency.response;
+
+    const parsed = await readJsonBodyOrResponse(request, {
+      maxBytes: BODY_LIMITS.smallJson,
+    });
+    if (parsed.response) return parsed.response;
+
+    try {
+      const result = await archiveOperatorBillingItems({
+        env,
+        adminUserId: session.user.id,
+        body: parsed.body,
+        idempotencyKey: idempotency.key,
+      });
+      if (!result.reused) {
+        await auditBillingEvent(ctx, session.user, result.run?.dryRun
+          ? "billing_operator_archive_dry_run"
+          : "billing_operator_archive_applied", {
+          cleanup_run_id: result.run?.id,
+          selection_scope: result.run?.selectionScope,
+          dry_run: result.run?.dryRun === true,
+          status: result.run?.status,
+          affected_items: result.summary?.affectedItems || result.result?.affectedItems || 0,
+        });
+      }
+      return json({ ok: true, ...result }, { status: result.run?.dryRun ? 200 : 201 });
+    } catch (error) {
+      return billingErrorJson(error, ctx);
+    }
+  }
+
+  // route-policy: admin.billing.operator_archive.restore
+  if (pathname === "/api/admin/billing/operator-archive/restore" && method === "POST") {
+    const limited = await enforceAdminBillingRateLimit(ctx, {
+      scope: "admin-billing-write-ip",
+      maxRequests: 30,
+      windowMs: 15 * 60_000,
+      component: "admin-billing-write",
+    });
+    if (limited) return limited;
+
+    const idempotency = idempotencyKeyOrResponse(request);
+    if (idempotency.response) return idempotency.response;
+
+    const parsed = await readJsonBodyOrResponse(request, {
+      maxBytes: BODY_LIMITS.smallJson,
+    });
+    if (parsed.response) return parsed.response;
+
+    try {
+      const result = await restoreOperatorBillingItems({
+        env,
+        adminUserId: session.user.id,
+        body: parsed.body,
+        idempotencyKey: idempotency.key,
+      });
+      if (!result.reused) {
+        await auditBillingEvent(ctx, session.user, result.run?.dryRun
+          ? "billing_operator_restore_dry_run"
+          : "billing_operator_restore_applied", {
+          cleanup_run_id: result.run?.id,
+          selection_scope: result.run?.selectionScope,
+          dry_run: result.run?.dryRun === true,
+          status: result.run?.status,
+          affected_items: result.summary?.affectedItems || result.result?.restoredItems || 0,
+        });
+      }
+      return json({ ok: true, ...result }, { status: result.run?.dryRun ? 200 : 201 });
+    } catch (error) {
+      return billingErrorJson(error, ctx);
+    }
+  }
+
+  // route-policy: admin.billing.operator_purge.preview
+  if (pathname === "/api/admin/billing/operator-purge-preview" && method === "POST") {
+    const limited = await enforceAdminBillingRateLimit(ctx, {
+      scope: "admin-billing-write-ip",
+      maxRequests: 20,
+      windowMs: 15 * 60_000,
+      component: "admin-billing-write",
+    });
+    if (limited) return limited;
+
+    const idempotency = idempotencyKeyOrResponse(request);
+    if (idempotency.response) return idempotency.response;
+
+    const parsed = await readJsonBodyOrResponse(request, {
+      maxBytes: BODY_LIMITS.smallJson,
+    });
+    if (parsed.response) return parsed.response;
+
+    try {
+      const result = await previewOperatorBillingPurge({
+        env,
+        adminUserId: session.user.id,
+        body: parsed.body,
+        idempotencyKey: idempotency.key,
+      });
+      if (!result.reused) {
+        await auditBillingEvent(ctx, session.user, "billing_operator_purge_preview", {
+          cleanup_run_id: result.run?.id,
+          selection_scope: result.run?.selectionScope,
+          status: result.run?.status,
+          blocked: result.summary?.blockedItems || 0,
+          deletable: result.summary?.deletableItems || 0,
+        });
+      }
+      return json({
+        ok: true,
+        ...result,
+        confirmationPhrase: OPERATOR_PURGE_CONFIRMATION,
+      });
+    } catch (error) {
+      return billingErrorJson(error, ctx);
+    }
+  }
+
+  // route-policy: admin.billing.operator_purge.apply
+  if (pathname === "/api/admin/billing/operator-purge" && method === "POST") {
+    const limited = await enforceAdminBillingRateLimit(ctx, {
+      scope: "admin-billing-write-ip",
+      maxRequests: 10,
+      windowMs: 15 * 60_000,
+      component: "admin-billing-write",
+    });
+    if (limited) return limited;
+
+    const idempotency = idempotencyKeyOrResponse(request);
+    if (idempotency.response) return idempotency.response;
+
+    const parsed = await readJsonBodyOrResponse(request, {
+      maxBytes: BODY_LIMITS.smallJson,
+    });
+    if (parsed.response) return parsed.response;
+
+    try {
+      const result = await applyOperatorBillingPurge({
+        env,
+        adminUserId: session.user.id,
+        body: parsed.body,
+        idempotencyKey: idempotency.key,
+      });
+      if (!result.reused) {
+        await auditBillingEvent(ctx, session.user, "billing_operator_purge_applied", {
+          cleanup_run_id: result.run?.id,
+          selection_scope: result.run?.selectionScope,
+          status: result.run?.status,
+          deleted_count: result.result?.deletedCount || 0,
+          tombstones_created: result.result?.tombstonesCreated || 0,
+        });
+      }
+      return json({ ok: true, ...result }, { status: result.reused ? 200 : 201 });
     } catch (error) {
       return billingErrorJson(error, ctx);
     }

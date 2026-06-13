@@ -701,6 +701,31 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "live_member_credit_pack_repair_recorded" },
     notes: "Admin-only, dry-run-first repair for a paid live member credit-pack checkout stuck before fulfillment. Requires Idempotency-Key, admin MFA, same-origin JSON, fail-closed rate limiting, explicit confirmation for non-dry-run, bounded reason, local checkout validation, and redacted operator payment evidence. It does not call Stripe, refund, claw back credits, expose raw payloads, or grant twice because it uses the same webhook-compatible member ledger idempotency key.",
   }),
+  adminRead("admin.billing.operator_archive.list", "/api/admin/billing/operator-archive", "billing", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    rateLimit: { id: "admin-billing-read-ip", failClosed: true },
+    notes: "Admin-only list of reversible operator-archived billing items. Returns redacted summaries only; raw payloads, Stripe links, secrets, cookies, card data, and provider signatures are not returned.",
+  }),
+  adminJsonWrite("admin.billing.operator_archive.create", "POST", "/api/admin/billing/operator-archive", "billing", "smallJson", "admin-billing-write-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "billing_operator_archive_applied" },
+    notes: "Admin-only reversible archive of selected or scoped billing overview items. Requires Idempotency-Key, admin MFA, same-origin JSON, fail-closed rate limiting, bounded reason, and audit logging. It hides items from operator active views only and does not delete D1 rows, mutate credits, call Stripe, refund, cancel, or change provider state.",
+  }),
+  adminJsonWrite("admin.billing.operator_archive.restore", "POST", "/api/admin/billing/operator-archive/restore", "billing", "smallJson", "admin-billing-write-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "billing_operator_restore_applied" },
+    notes: "Admin-only restore of reversibly archived billing overview items. Requires Idempotency-Key, admin MFA, same-origin JSON, fail-closed rate limiting, bounded reason, and audit logging. It only removes local archive state and never calls Stripe or mutates credits.",
+  }),
+  adminJsonWrite("admin.billing.operator_purge.preview", "POST", "/api/admin/billing/operator-purge-preview", "billing", "smallJson", "admin-billing-write-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "billing_operator_purge_preview" },
+    notes: "Admin-only database reset dry-run for operator-owned billing cleanup. Requires Idempotency-Key, admin MFA, same-origin JSON, fail-closed rate limiting, and bounded reason. It computes deletable rows, blocked ledger-linked rows, tombstone requirements, and safety blockers; it does not delete business rows, mutate credits, call Stripe, or change provider state.",
+  }),
+  adminJsonWrite("admin.billing.operator_purge.apply", "POST", "/api/admin/billing/operator-purge", "billing", "smallJson", "admin-billing-write-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { event: "billing_operator_purge_applied" },
+    notes: "High-risk admin-only database reset executor for safe operator-owned billing rows. Requires Idempotency-Key, admin MFA, same-origin JSON, fail-closed rate limiting, prior matching preview hash, exportEvidenceAcknowledged=true, exact German confirmation phrase, server-side tombstones before provider-event deletion, and audit logging. It blocks ledger-linked or paid/completed credit rows, never calls Stripe, never refunds, never cancels subscriptions, and never mutates credits directly.",
+  }),
   adminRead("admin.avatars.latest", "/api/admin/avatars/latest", "admin", { config: ["DB"] }),
   adminRead("admin.avatars.read", "/api/admin/avatars/:userId", "admin", { config: ["DB", "PRIVATE_MEDIA"] }),
   adminRead("admin.activity.read", "/api/admin/activity", "admin", {

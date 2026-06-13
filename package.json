@@ -37,6 +37,7 @@
     "test:rollback-drill": "node scripts/test-rollback-drill.mjs",
     "test:release-rc": "node scripts/test-release-rc.mjs",
     "test:rc-check": "node scripts/test-rc-check.mjs",
+    "test:operator-billing-cleanup": "node scripts/test-operator-billing-cleanup.mjs",
     "check:toolchain": "node scripts/check-toolchain.mjs",
     "check:worker-body-parsers": "node scripts/check-worker-body-parsers.mjs",
     "check:admin-activity-query-shape": "node scripts/check-admin-activity-query-shape.mjs",

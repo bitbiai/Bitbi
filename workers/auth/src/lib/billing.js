@@ -66,7 +66,7 @@ export function billingErrorResponse(error) {
 export function isBillingStorageUnavailableError(error) {
   const message = String(error?.message || error || "");
   if (!/(?:no such table|no such column|SQLITE_ERROR|D1_ERROR)/i.test(message)) return false;
-  return /\b(?:member_credit_ledger|member_usage_events|member_credit_buckets|member_credit_bucket_events|billing_member_subscriptions|billing_member_subscription_checkout_sessions|credit_ledger|usage_events|plans|entitlements|organization_subscriptions|billing_provider_events|billing_event_actions|billing_checkout_sessions|billing_member_checkout_sessions)\b/i.test(message);
+  return /\b(?:member_credit_ledger|member_usage_events|member_credit_buckets|member_credit_bucket_events|billing_member_subscriptions|billing_member_subscription_checkout_sessions|credit_ledger|usage_events|plans|entitlements|organization_subscriptions|billing_provider_events|billing_event_actions|billing_checkout_sessions|billing_member_checkout_sessions|billing_operator_item_states|billing_operator_cleanup_runs|billing_operator_cleanup_run_items|billing_operator_purge_tombstones)\b/i.test(message);
 }
 
 export function billingStorageUnavailableResponse() {
