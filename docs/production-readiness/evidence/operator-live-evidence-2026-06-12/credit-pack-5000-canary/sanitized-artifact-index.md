@@ -13,4 +13,7 @@ private keys, and unredacted secrets.
 - `billing-reconciliation-summary.json`
 - `billing-events-summary.csv`
 - `billing-reconciliation-summary.csv`
-- `monthly-accounting-packet.pdf`
+
+Opaque binary exports such as ZIP/PDF files are intentionally omitted from the
+repo evidence package so deploy checks can inspect the committed evidence as
+plain text.

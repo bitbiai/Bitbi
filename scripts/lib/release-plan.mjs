@@ -161,6 +161,7 @@ function isValidationOnlyPath(relativePath) {
     || normalized === "package-lock.json"
     || normalized === ".nvmrc"
     || normalized === ".node-version"
+    || normalized === ".gitignore"
     || normalized === "AGENTS.md"
     || normalized === "CLAUDE.md"
     || normalized === "README.md"

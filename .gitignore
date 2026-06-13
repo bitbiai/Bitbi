@@ -26,6 +26,7 @@ _site/
 
 # Local operator tools
 PAY_APP/
+docs/production-readiness/evidence/bitbi-5000-credit-pack-evidence/
 
 # Playwright
 test-results/

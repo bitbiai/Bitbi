@@ -396,6 +396,8 @@ function writeFile(repo, relativePath, text) {
   writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
   writeFile(repo, "docs/audits/README.md", `Current release truth: ${latest}\n`);
   writeFile(repo, "workers/auth/CLAUDE.md", `Current release truth: ${latest}\n`);
+  writeFile(repo, "PAY_APP/README.md", "Local ignored operator app docs.\n");
+  writeFile(repo, "PAY_APP/SECURITY_MODEL.md", "Local ignored operator app security notes.\n");
   writeFile(repo, "node_modules/foo/README.md", "Dependency readme.\n");
   writeFile(repo, "workers/ai/node_modules/foo/README.md", "Nested dependency readme.\n");
   writeFile(repo, "workers/auth/node_modules/foo/LICENSE.md", "Nested dependency license.\n");
@@ -408,6 +410,7 @@ function writeFile(repo, relativePath, text) {
   assert(inventoriedPaths.includes("docs/audits/README.md"));
   assert(inventoriedPaths.includes("workers/auth/CLAUDE.md"));
   assert(!inventoriedPaths.some((entryPath) => entryPath.split("/").includes("node_modules")));
+  assert(!inventoriedPaths.some((entryPath) => entryPath.startsWith("PAY_APP/")));
 }
 
 {

@@ -147,6 +147,16 @@ function createContext() {
 
 {
   const plan = createReleasePlanFromRepo(repoRoot, {
+    files: [".gitignore"],
+  });
+  assert.equal(plan.deploySteps.length, 0);
+  assert.deepEqual(plan.impacts.validationOnlyFiles, [".gitignore"]);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.equal(plan.isNoop, true);
+}
+
+{
+  const plan = createReleasePlanFromRepo(repoRoot, {
     files: [
       "github-actions-stuck-evidence/actions-permissions-before.json",
       "github-actions-stuck-evidence/queued-runs.json",
