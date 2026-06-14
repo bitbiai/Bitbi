@@ -1137,6 +1137,7 @@ async function readHomepageResponsiveStageState(page) {
     return {
       activeCategory: stage?.dataset.activeCategory || '',
       stageMode: stage?.dataset.stageMode || '',
+      motionEngine: stage?.dataset.motionEngine || '',
       ready: stage?.classList.contains('is-ready') || false,
       bodyStageClass: document.body.classList.contains('home-categories-desktop-stage'),
       transitioning: stage?.classList.contains('is-transitioning') || false,
@@ -1169,6 +1170,39 @@ function expectSingleInteractiveHomepagePanel(state, expectedCategory) {
     expect(panel.visible, `${panel.category} visible`).toBe(isActive);
     expect(panel.pointerEvents, `${panel.category} pointer-events`).toBe(isActive ? 'auto' : 'none');
   }
+}
+
+async function readHomepageCategoryAnchorMetrics(page, category) {
+  return page.evaluate((targetCategory) => {
+    const panelSelector = {
+      gallery: '#gallery',
+      video: '#video-creations',
+      sound: '#soundlab',
+    }[targetCategory];
+    const panel = panelSelector ? document.querySelector(panelSelector) : null;
+    const stage = document.getElementById('homeCategories');
+    const navbar = document.getElementById('navbar');
+    const header = panel?.querySelector('.section__header--sm') || panel?.querySelector('.section__title')?.closest('.section__header--sm');
+    const controls = panel?.querySelector('.gallery-mode, .video-mode, .sound-mode');
+    const content = panel?.querySelector('#galleryExplore, #videoExplore, #soundLabExplore');
+    const navRect = navbar?.getBoundingClientRect();
+    const headerRect = header?.getBoundingClientRect();
+    const controlsRect = controls?.getBoundingClientRect();
+    const contentRect = content?.getBoundingClientRect();
+
+    return {
+      motionEngine: stage?.dataset.motionEngine || '',
+      transitioning: stage?.classList.contains('is-transitioning') || false,
+      activeCategory: stage?.dataset.activeCategory || '',
+      navBottom: navRect ? Math.round(navRect.bottom * 100) / 100 : 0,
+      headerTop: headerRect ? Math.round(headerRect.top * 100) / 100 : 0,
+      headerBottom: headerRect ? Math.round(headerRect.bottom * 100) / 100 : 0,
+      controlsTop: controlsRect ? Math.round(controlsRect.top * 100) / 100 : 0,
+      controlsBottom: controlsRect ? Math.round(controlsRect.bottom * 100) / 100 : 0,
+      contentTop: contentRect ? Math.round(contentRect.top * 100) / 100 : 0,
+      viewportHeight: window.innerHeight,
+    };
+  }, category);
 }
 
 // ---------------------------------------------------------------------------
@@ -2218,6 +2252,8 @@ test.describe('Homepage', () => {
     await expect(stage).toHaveAttribute('data-stage-mode', 'desktop');
     await expectActiveHomepageCategory(page, 'video');
     await waitForHomepageCategoryStage(page);
+    let settledState = await readHomepageResponsiveStageState(page);
+    expect(settledState.motionEngine).toBe('standard');
     await expectHomepageHeaderCategoryGlow(page, 'video');
     await expect(stage.locator('[data-category-nav]')).toHaveCount(0);
     await expect(page.locator('.home-categories__arrow')).toHaveCount(0);
@@ -2235,6 +2271,8 @@ test.describe('Homepage', () => {
     await expectActiveHomepageCategory(page, 'gallery');
     await waitForHomepageCategoryStage(page);
     await expectSettledHomepageCategory('gallery');
+    settledState = await readHomepageResponsiveStageState(page);
+    expect(settledState.motionEngine).toBe('standard');
     await waitForHomepageCategoryAlignment(page);
     await expectHomepageHeaderCategoryGlow(page, 'gallery');
     await expect(page.locator('#galleryGrid .gallery-item').filter({ hasText: 'Staged Gallery Card' })).toBeVisible();
@@ -2281,6 +2319,54 @@ test.describe('Homepage', () => {
     await switchHomepageCategory(page, 'video');
     await waitForHomepageCategoryAlignment(page);
     await expectHomepageHeaderCategoryGlow(page, 'video');
+  });
+
+  test('homepage WebKit category motion anchors the section header above media grids', async ({ page }) => {
+    test.setTimeout(45_000);
+
+    await page.addInitScript(() => {
+      Object.defineProperty(window.navigator, 'vendor', {
+        configurable: true,
+        get: () => 'Apple Computer, Inc.',
+      });
+      Object.defineProperty(window.navigator, 'userAgent', {
+        configurable: true,
+        get: () => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+      });
+    });
+
+    await page.goto('/');
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-stage-mode', 'desktop');
+    await waitForHomepageCategoryStage(page);
+
+    let state = await readHomepageResponsiveStageState(page);
+    expect(state.motionEngine).toBe('webkit');
+
+    for (const category of ['gallery', 'video', 'sound']) {
+      await page.locator('#navbar .site-nav__links').getByRole('link', {
+        name: category === 'gallery' ? 'Gallery' : category === 'video' ? 'Video' : 'Sound Lab',
+      }).click();
+      await expectActiveHomepageCategory(page, category);
+      await waitForHomepageCategoryStage(page);
+      await expect.poll(async () => {
+        const metrics = await readHomepageCategoryAnchorMetrics(page, category);
+        const headerVisible = metrics.headerTop >= metrics.navBottom - 2
+          && metrics.headerTop < metrics.viewportHeight - 96;
+        const controlsVisible = metrics.controlsBottom > metrics.navBottom + 16
+          && metrics.controlsBottom < metrics.viewportHeight;
+        const contentBelowControls = metrics.contentTop > metrics.controlsBottom + 8;
+        const mediaNotPinnedUnderNav = metrics.contentTop > metrics.navBottom + 96;
+        return [
+          metrics.motionEngine,
+          metrics.activeCategory,
+          String(metrics.transitioning),
+          String(headerVisible),
+          String(controlsVisible),
+          String(contentBelowControls),
+          String(mediaNotPinnedUnderNav),
+        ].join('|');
+      }, { timeout: 10_000 }).toBe(`webkit|${category}|false|true|true|true|true`);
+    }
   });
 
   test('mobile homepage categories remain stacked in document flow with no desktop carousel controls', async ({ page }) => {
