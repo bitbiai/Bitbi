@@ -1129,6 +1129,15 @@ async function readHomepageResponsiveStageState(page) {
         display: style?.display || '',
         position: style?.position || '',
         pointerEvents: style?.pointerEvents || '',
+        transientClasses: panel
+          ? Array.from(panel.classList).filter((className) => (
+            className.startsWith('is-transition')
+              || className.startsWith('is-leave')
+              || className.startsWith('is-enter')
+              || className === 'is-layout-preparing'
+              || className === 'is-webkit-preparing'
+          ))
+          : [],
         visible: Boolean(rect && rect.width > 0 && rect.height > 0 && style?.visibility !== 'hidden'),
       };
     });
@@ -1141,6 +1150,8 @@ async function readHomepageResponsiveStageState(page) {
       ready: stage?.classList.contains('is-ready') || false,
       bodyStageClass: document.body.classList.contains('home-categories-desktop-stage'),
       transitioning: stage?.classList.contains('is-transitioning') || false,
+      webKitSwitching: stage?.classList.contains('is-webkit-switching') || false,
+      webKitRevealing: stage?.classList.contains('is-webkit-revealing') || false,
       viewportHeightStyle: stage?.querySelector('.home-categories__viewport')?.style.height || '',
       viewportMinHeightStyle: stage?.querySelector('.home-categories__viewport')?.style.minHeight || '',
       overflowX: Math.max(
@@ -1195,6 +1206,7 @@ async function readHomepageCategoryAnchorMetrics(page, category) {
       transitioning: stage?.classList.contains('is-transitioning') || false,
       activeCategory: stage?.dataset.activeCategory || '',
       navBottom: navRect ? Math.round(navRect.bottom * 100) / 100 : 0,
+      stageTop: stage ? Math.round(stage.getBoundingClientRect().top * 100) / 100 : 0,
       headerTop: headerRect ? Math.round(headerRect.top * 100) / 100 : 0,
       headerBottom: headerRect ? Math.round(headerRect.bottom * 100) / 100 : 0,
       controlsTop: controlsRect ? Math.round(controlsRect.top * 100) / 100 : 0,
@@ -2321,7 +2333,7 @@ test.describe('Homepage', () => {
     await expectHomepageHeaderCategoryGlow(page, 'video');
   });
 
-  test('homepage WebKit category motion anchors the section header above media grids', async ({ page }) => {
+  test('homepage WebKit safe switch settles without heavy carousel state', async ({ page }) => {
     test.setTimeout(45_000);
 
     await page.addInitScript(() => {
@@ -2340,7 +2352,7 @@ test.describe('Homepage', () => {
     await waitForHomepageCategoryStage(page);
 
     let state = await readHomepageResponsiveStageState(page);
-    expect(state.motionEngine).toBe('webkit');
+    expect(state.motionEngine).toBe('webkit-safe');
 
     for (const category of ['gallery', 'video', 'sound']) {
       await page.locator('#navbar .site-nav__links').getByRole('link', {
@@ -2349,24 +2361,58 @@ test.describe('Homepage', () => {
       await expectActiveHomepageCategory(page, category);
       await waitForHomepageCategoryStage(page);
       await expect.poll(async () => {
+        const state = await readHomepageResponsiveStageState(page);
         const metrics = await readHomepageCategoryAnchorMetrics(page, category);
+        const stageAligned = Math.abs(metrics.stageTop - metrics.navBottom) <= 2;
         const headerVisible = metrics.headerTop >= metrics.navBottom - 2
           && metrics.headerTop < metrics.viewportHeight - 96;
         const controlsVisible = metrics.controlsBottom > metrics.navBottom + 16
           && metrics.controlsBottom < metrics.viewportHeight;
         const contentBelowControls = metrics.contentTop > metrics.controlsBottom + 8;
         const mediaNotPinnedUnderNav = metrics.contentTop > metrics.navBottom + 96;
+        const noTransientPanelClasses = state.panels.every((panel) => panel.transientClasses.length === 0);
         return [
           metrics.motionEngine,
           metrics.activeCategory,
           String(metrics.transitioning),
+          String(state.webKitSwitching),
+          String(state.webKitRevealing),
+          `${state.viewportHeightStyle}|${state.viewportMinHeightStyle}`,
+          String(stageAligned),
           String(headerVisible),
           String(controlsVisible),
           String(contentBelowControls),
           String(mediaNotPinnedUnderNav),
+          String(noTransientPanelClasses),
         ].join('|');
-      }, { timeout: 10_000 }).toBe(`webkit|${category}|false|true|true|true|true`);
+      }, { timeout: 10_000 }).toBe(`webkit-safe|${category}|false|false|false|||true|true|true|true|true|true`);
+      state = await readHomepageResponsiveStageState(page);
+      expectSingleInteractiveHomepagePanel(state, category);
     }
+
+    await page.evaluate(() => {
+      const links = [
+        document.querySelector('#navbar .site-nav__links [data-category-link="gallery"]'),
+        document.querySelector('#navbar .site-nav__links [data-category-link="video"]'),
+        document.querySelector('#navbar .site-nav__links [data-category-link="sound"]'),
+      ].filter(Boolean);
+      links.forEach((link) => link.click());
+    });
+    await expectActiveHomepageCategory(page, 'sound');
+    await expect.poll(async () => {
+      const state = await readHomepageResponsiveStageState(page);
+      return [
+        state.motionEngine,
+        state.activeCategory,
+        String(state.transitioning),
+        String(state.webKitSwitching),
+        String(state.webKitRevealing),
+        `${state.viewportHeightStyle}|${state.viewportMinHeightStyle}`,
+        String(state.panels.every((panel) => panel.transientClasses.length === 0)),
+      ].join('|');
+    }, { timeout: 10_000 }).toBe('webkit-safe|sound|false|false|false|||true');
+    state = await readHomepageResponsiveStageState(page);
+    expectSingleInteractiveHomepagePanel(state, 'sound');
   });
 
   test('mobile homepage categories remain stacked in document flow with no desktop carousel controls', async ({ page }) => {

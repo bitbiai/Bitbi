@@ -4319,19 +4319,56 @@
             transform: translate3d(0, 0, 0) rotateY(0deg) scale(1);
         }
 
-        .home-categories.is-webkit-motion.is-transitioning .home-categories__viewport {
+        @keyframes home-category-webkit-safe-reveal {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .home-categories.is-webkit-motion.is-webkit-switching .home-categories__viewport,
+        .home-categories.is-webkit-motion.is-webkit-revealing .home-categories__viewport {
+            perspective: none;
             transition: none;
         }
 
-        .home-categories.is-webkit-motion.is-transitioning .category-ghost-models__name {
+        .home-categories.is-webkit-motion.is-webkit-switching .home-categories__viewport {
+            opacity: 0;
+        }
+
+        .home-categories.is-webkit-motion.is-webkit-revealing .home-categories__viewport {
+            animation: home-category-webkit-safe-reveal 0.16s var(--ease-default) both;
+        }
+
+        .home-categories.is-webkit-motion .home-categories__panel.is-webkit-preparing {
+            display: block;
+            position: absolute;
+            inset-block-start: 0;
+            inset-inline: 0;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transform: none;
+            transition: none;
+        }
+
+        .home-categories.is-webkit-motion.is-webkit-switching .home-categories__panel,
+        .home-categories.is-webkit-motion.is-webkit-revealing .home-categories__panel {
+            transform: none;
+            transition: none;
+        }
+
+        .home-categories.is-webkit-motion.is-webkit-switching .category-ghost-models__name,
+        .home-categories.is-webkit-motion.is-webkit-revealing .category-ghost-models__name {
             animation-play-state: paused;
             opacity: 0.2;
             filter: none;
         }
 
-        .home-categories.is-webkit-motion.is-transitioning .gallery-item,
-        .home-categories.is-webkit-motion.is-transitioning .video-card,
-        .home-categories.is-webkit-motion.is-transitioning .snd-card--memtrack {
+        .home-categories.is-webkit-motion.is-webkit-switching .gallery-item,
+        .home-categories.is-webkit-motion.is-webkit-switching .video-card,
+        .home-categories.is-webkit-motion.is-webkit-switching .snd-card--memtrack,
+        .home-categories.is-webkit-motion.is-webkit-revealing .gallery-item,
+        .home-categories.is-webkit-motion.is-webkit-revealing .video-card,
+        .home-categories.is-webkit-motion.is-webkit-revealing .snd-card--memtrack {
             -webkit-backdrop-filter: none;
             backdrop-filter: none;
             transition-property: transform, opacity, border-color, background-color, box-shadow;

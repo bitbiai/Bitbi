@@ -31,8 +31,8 @@ const CATEGORY_META = {
 const TRANSITION_MS = 560;
 const LAYOUT_PREPARE_TIMEOUT_MS = 160;
 const WEBKIT_LAYOUT_PREPARE_TIMEOUT_MS = 320;
-const WEBKIT_SECTION_HEADER_MIN_GAP_PX = 16;
-const WEBKIT_SECTION_HEADER_MAX_GAP_PX = 96;
+const WEBKIT_SAFE_REVEAL_MS = 160;
+const WEBKIT_FINAL_ALIGNMENT_TOLERANCE_PX = 2;
 
 function resolveCategoryFromHash(hash) {
     return CATEGORY_ORDER.find((key) => CATEGORY_META[key].hash === hash) || null;
@@ -116,12 +116,14 @@ export function initCategoryCarousel() {
     let contentAlignmentFrame = 0;
     let stagedLayoutEnabled = false;
     let transitionEndCleanup = null;
+    let webKitSwitchTimer = 0;
+    let queuedWebKitSwitch = null;
     const webKitMotionMode = isWebKitMotionEngine();
 
     if (webKitMotionMode) {
         stage.classList.add('is-webkit-motion');
     }
-    stage.dataset.motionEngine = webKitMotionMode ? 'webkit' : 'standard';
+    stage.dataset.motionEngine = webKitMotionMode ? 'webkit-safe' : 'standard';
 
     function getPanel(category) {
         return panels.get(category) || null;
@@ -142,6 +144,7 @@ export function initCategoryCarousel() {
             'is-leave-left',
             'is-leave-right',
             'is-enter-active',
+            'is-webkit-preparing',
         );
     }
 
@@ -157,33 +160,12 @@ export function initCategoryCarousel() {
         return stageTop - navBottom;
     }
 
-    function getPanelScrollAnchor(panel) {
-        if (!panel) return null;
-        return panel.querySelector('.section__header--sm')
-            || panel.querySelector('.section__title')?.closest('.section__header--sm')
-            || panel.querySelector('.gallery-mode, .video-mode, .sound-mode')?.closest('.section__inner')
-            || panel.querySelector(':scope > .section__inner')
-            || panel;
-    }
-
-    function getWebKitPanelHeaderTargetY(panel) {
-        const anchor = getPanelScrollAnchor(panel);
-        if (!anchor) return null;
+    function getWebKitStageTargetY() {
         const navBottom = navbar?.getBoundingClientRect().bottom || 0;
-        const anchorRect = anchor.getBoundingClientRect();
-        const panelRect = panel.getBoundingClientRect();
-        const measuredHeaderGap = anchorRect.top - panelRect.top;
-        const desiredHeaderGap = Math.min(
-            WEBKIT_SECTION_HEADER_MAX_GAP_PX,
-            Math.max(
-                WEBKIT_SECTION_HEADER_MIN_GAP_PX,
-                Number.isFinite(measuredHeaderGap) ? measuredHeaderGap : WEBKIT_SECTION_HEADER_MIN_GAP_PX,
-            ),
-        );
+        const stageTop = stage.getBoundingClientRect().top;
         const rawTarget = (window.scrollY || window.pageYOffset || 0)
-            + anchorRect.top
-            - navBottom
-            - desiredHeaderGap;
+            + stageTop
+            - navBottom;
         const maxScrollY = Math.max(
             0,
             document.documentElement.scrollHeight - window.innerHeight,
@@ -192,12 +174,12 @@ export function initCategoryCarousel() {
         return Math.min(Math.max(0, rawTarget), maxScrollY);
     }
 
-    function alignWebKitPanelHeaderToNav(panel) {
+    function alignWebKitStageToNavOnce({ force = false } = {}) {
         stopStageAlignmentAnimation();
-        const targetY = getWebKitPanelHeaderTargetY(panel);
+        const targetY = getWebKitStageTargetY();
         if (!Number.isFinite(targetY)) return;
         const currentY = window.scrollY || window.pageYOffset || 0;
-        if (Math.abs(targetY - currentY) <= 1) return;
+        if (!force && Math.abs(targetY - currentY) <= WEBKIT_FINAL_ALIGNMENT_TOLERANCE_PX) return;
         window.scrollTo({ top: targetY, behavior: 'auto' });
     }
 
@@ -222,6 +204,20 @@ export function initCategoryCarousel() {
         if (!transitionEndCleanup) return;
         transitionEndCleanup();
         transitionEndCleanup = null;
+    }
+
+    function stopWebKitSwitchTimer() {
+        if (!webKitSwitchTimer) return;
+        window.clearTimeout(webKitSwitchTimer);
+        webKitSwitchTimer = 0;
+    }
+
+    function clearWebKitSwitchState() {
+        stopWebKitSwitchTimer();
+        stage.classList.remove('is-webkit-switching', 'is-webkit-revealing');
+        panels.forEach((panel) => {
+            panel.classList.remove('is-webkit-preparing');
+        });
     }
 
     function alignStageToHeaderEdge() {
@@ -288,30 +284,26 @@ export function initCategoryCarousel() {
 
     function alignStageForSameCategory() {
         if (webKitMotionMode) {
-            alignWebKitPanelHeaderToNav(getPanel(activeCategory));
-            scheduleWebKitPanelHeaderVerification(activeCategory);
+            alignWebKitStageToNavOnce();
+            scheduleWebKitStageVerification(activeCategory);
             return;
         }
         animateStageAlignment();
     }
 
-    function scheduleWebKitPanelHeaderVerification(category) {
+    function scheduleWebKitStageVerification(category) {
         stopContentAlignmentWatch();
-        let remainingFrames = 2;
         const step = () => {
             if (!stagedLayoutEnabled || isTransitioning || activeCategory !== category) {
                 contentAlignmentFrame = 0;
                 return;
             }
-            remainingFrames -= 1;
-            if (remainingFrames > 0) {
-                contentAlignmentFrame = window.requestAnimationFrame(step);
-                return;
-            }
-            alignWebKitPanelHeaderToNav(getPanel(category));
+            alignWebKitStageToNavOnce();
             contentAlignmentFrame = 0;
         };
-        contentAlignmentFrame = window.requestAnimationFrame(step);
+        window.requestAnimationFrame(() => {
+            contentAlignmentFrame = window.requestAnimationFrame(step);
+        });
     }
 
     function applyCategoryState() {
@@ -423,11 +415,14 @@ export function initCategoryCarousel() {
 
     function setStackedStageState() {
         stopStageAlignmentAnimation();
+        stopContentAlignmentWatch();
         stopTransitionEndWatch();
+        clearWebKitSwitchState();
         window.clearTimeout(transitionTimer);
         transitionTimer = 0;
         isTransitioning = false;
         pendingCategory = null;
+        queuedWebKitSwitch = null;
         stagedLayoutEnabled = false;
         document.body.classList.remove('home-categories-desktop-stage');
         stage.classList.remove('is-ready', 'is-transitioning');
@@ -447,6 +442,7 @@ export function initCategoryCarousel() {
 
     function setStagedLayoutState() {
         stopTransitionEndWatch();
+        clearWebKitSwitchState();
         stagedLayoutEnabled = true;
         document.body.classList.add('home-categories-desktop-stage');
         stage.classList.add('is-ready');
@@ -460,7 +456,7 @@ export function initCategoryCarousel() {
         updateCategoryLinkState();
         if (hashCategory || activeCategory !== 'video') {
             if (webKitMotionMode) {
-                scheduleWebKitPanelHeaderVerification(activeCategory);
+                scheduleWebKitStageVerification(activeCategory);
             } else {
                 startContentAlignmentWatch();
             }
@@ -490,9 +486,6 @@ export function initCategoryCarousel() {
             viewport.style.height = '';
             viewport.style.minHeight = '';
         });
-        if (webKitMotionMode) {
-            scheduleWebKitPanelHeaderVerification(nextCategory);
-        }
     }
 
     function scheduleTransitionFinish(nextCategory, panelsToWatch, expectedSeq) {
@@ -511,7 +504,7 @@ export function initCategoryCarousel() {
         [panelsToWatch.current, panelsToWatch.next].forEach((panel) => {
             panel?.addEventListener('transitionend', handleTransitionEnd);
         });
-        transitionTimer = window.setTimeout(complete, TRANSITION_MS + (webKitMotionMode ? 160 : 80));
+        transitionTimer = window.setTimeout(complete, TRANSITION_MS + 80);
         transitionEndCleanup = () => {
             [panelsToWatch.current, panelsToWatch.next].forEach((panel) => {
                 panel?.removeEventListener('transitionend', handleTransitionEnd);
@@ -519,6 +512,119 @@ export function initCategoryCarousel() {
             window.clearTimeout(transitionTimer);
             transitionTimer = 0;
         };
+    }
+
+    function queueLatestWebKitSwitch(nextCategory, options) {
+        queuedWebKitSwitch = {
+            nextCategory,
+            alignStage: !!options.alignStage,
+            clearHash: !!options.clearHash,
+        };
+        pendingCategory = nextCategory;
+        updateCategoryLinkState();
+    }
+
+    function runQueuedWebKitSwitchIfNeeded() {
+        const queuedSwitch = queuedWebKitSwitch;
+        queuedWebKitSwitch = null;
+        if (queuedSwitch && queuedSwitch.nextCategory !== activeCategory) {
+            startWebKitSafeSwitch(queuedSwitch.nextCategory, queuedSwitch);
+            return true;
+        }
+        if (queuedSwitch?.alignStage) {
+            alignStageForSameCategory();
+        }
+        return false;
+    }
+
+    function finishWebKitSafeSwitch(nextCategory, expectedSeq) {
+        if (expectedSeq !== transitionSeq) return;
+        stage.classList.remove('is-webkit-switching');
+        stage.classList.add('is-webkit-revealing');
+        webKitSwitchTimer = window.setTimeout(() => {
+            if (expectedSeq !== transitionSeq) return;
+            webKitSwitchTimer = 0;
+            stage.classList.remove('is-webkit-revealing');
+            alignWebKitStageToNavOnce();
+            isTransitioning = false;
+            pendingCategory = null;
+            updateCategoryLinkState();
+            runQueuedWebKitSwitchIfNeeded();
+        }, WEBKIT_SAFE_REVEAL_MS + 40);
+    }
+
+    async function startWebKitSafeSwitch(nextCategory, { alignStage = false, clearHash = false } = {}) {
+        const nextPanel = getPanel(nextCategory);
+        if (!nextPanel) return;
+        if (isTransitioning) {
+            queueLatestWebKitSwitch(nextCategory, { alignStage, clearHash });
+            return;
+        }
+
+        const thisTransitionSeq = ++transitionSeq;
+        isTransitioning = true;
+        pendingCategory = nextCategory;
+        stopStageAlignmentAnimation();
+        stopContentAlignmentWatch();
+        stopTransitionEndWatch();
+        clearWebKitSwitchState();
+        window.clearTimeout(transitionTimer);
+        transitionTimer = 0;
+        viewport.style.height = '';
+        viewport.style.minHeight = '';
+        stage.classList.remove('is-transitioning');
+        stage.classList.add('is-webkit-switching');
+        updateCategoryLinkState();
+
+        panels.forEach((panel) => {
+            panel.classList.remove(
+                'is-transition-current',
+                'is-transition-next',
+                'is-from-left',
+                'is-from-right',
+                'is-leave-left',
+                'is-leave-right',
+                'is-enter-active',
+                'is-layout-preparing',
+                'is-webkit-preparing',
+            );
+        });
+
+        nextPanel.classList.add('is-webkit-preparing');
+        nextPanel.setAttribute('aria-hidden', 'true');
+        setPanelInert(nextPanel, true);
+
+        if (clearHash) clearCategoryHash();
+
+        await requestCategoryLayout(nextCategory, nextPanel, 'webkit-safe-switch');
+        if (thisTransitionSeq !== transitionSeq || pendingCategory !== nextCategory) {
+            nextPanel.classList.remove('is-webkit-preparing');
+            nextPanel.setAttribute('aria-hidden', String(nextCategory !== activeCategory));
+            setPanelInert(nextPanel, nextCategory !== activeCategory);
+            stage.classList.remove('is-webkit-switching', 'is-webkit-revealing');
+            isTransitioning = false;
+            pendingCategory = null;
+            viewport.style.height = '';
+            viewport.style.minHeight = '';
+            updateCategoryLinkState();
+            runQueuedWebKitSwitchIfNeeded();
+            return;
+        }
+
+        nextPanel.classList.remove('is-webkit-preparing');
+        activeCategory = nextCategory;
+        pendingCategory = null;
+        applyCategoryState();
+        updateCategoryLinkState();
+        viewport.style.height = '';
+        viewport.style.minHeight = '';
+        if (alignStage) {
+            alignWebKitStageToNavOnce({ force: true });
+        }
+        await waitForAnimationFrame(2);
+        if (thisTransitionSeq !== transitionSeq || activeCategory !== nextCategory) return;
+        alignWebKitStageToNavOnce();
+        finishWebKitSafeSwitch(nextCategory, thisTransitionSeq);
     }
 
     function setActiveCategory(nextCategory, { alignStage = false, clearHash = false } = {}) {
@@ -533,7 +639,12 @@ export function initCategoryCarousel() {
             return;
         }
 
-        if (isTransitioning) return;
+        if (isTransitioning) {
+            if (webKitMotionMode) {
+                queueLatestWebKitSwitch(nextCategory, { alignStage, clearHash });
+            }
+            return;
+        }
 
         if (nextCategory === activeCategory) {
             if (clearHash) clearCategoryHash();
@@ -543,7 +654,7 @@ export function initCategoryCarousel() {
                 const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
                 if (prefersReducedMotion || !stage.classList.contains('is-ready')) {
                     if (webKitMotionMode) {
-                        alignWebKitPanelHeaderToNav(getPanel(activeCategory));
+                        alignWebKitStageToNavOnce();
                     } else {
                         alignStageToHeaderEdge();
                     }
@@ -566,7 +677,7 @@ export function initCategoryCarousel() {
             if (clearHash) clearCategoryHash();
             if (alignStage) {
                 if (webKitMotionMode) {
-                    alignWebKitPanelHeaderToNav(getPanel(nextCategory));
+                    alignWebKitStageToNavOnce();
                 } else {
                     alignStageToHeaderEdge();
                 }
@@ -574,13 +685,14 @@ export function initCategoryCarousel() {
             return;
         }
 
+        if (webKitMotionMode) {
+            startWebKitSafeSwitch(nextCategory, { alignStage, clearHash });
+            return;
+        }
+
         const currentIndex = CATEGORY_ORDER.indexOf(activeCategory);
         const nextIndex = CATEGORY_ORDER.indexOf(nextCategory);
         const nextFromLeft = nextIndex < currentIndex;
-
-        if (webKitMotionMode) {
-            stopContentAlignmentWatch();
-        }
 
         isTransitioning = true;
         pendingCategory = nextCategory;
@@ -606,9 +718,6 @@ export function initCategoryCarousel() {
         const currentHeight = currentPanel.offsetHeight;
 
         viewport.style.height = `${currentHeight}px`;
-        if (webKitMotionMode) {
-            viewport.style.minHeight = `${currentHeight}px`;
-        }
 
         if (clearHash) clearCategoryHash();
 
@@ -619,20 +728,10 @@ export function initCategoryCarousel() {
             }
             nextPanel.classList.remove('is-layout-preparing');
             const nextHeight = nextPanel.offsetHeight;
-            if (webKitMotionMode) {
-                const stableHeight = Math.max(currentHeight, nextHeight);
-                viewport.style.height = `${stableHeight}px`;
-                viewport.style.minHeight = `${stableHeight}px`;
-                if (alignStage) {
-                    alignWebKitPanelHeaderToNav(nextPanel);
-                }
-            }
             currentPanel.classList.add(nextFromLeft ? 'is-leave-right' : 'is-leave-left');
             nextPanel.classList.add('is-enter-active');
-            if (!webKitMotionMode) {
-                viewport.style.height = `${nextHeight}px`;
-            }
-            if (alignStage && !webKitMotionMode) {
+            viewport.style.height = `${nextHeight}px`;
+            if (alignStage) {
                 animateStageAlignment();
             }
             scheduleTransitionFinish(nextCategory, {
@@ -664,7 +763,7 @@ export function initCategoryCarousel() {
     const alignActiveCategoryAfterContentReady = () => {
         if (!stagedLayoutEnabled) return;
         if (webKitMotionMode) {
-            scheduleWebKitPanelHeaderVerification(activeCategory);
+            scheduleWebKitStageVerification(activeCategory);
             return;
         }
         startContentAlignmentWatch();
@@ -697,7 +796,7 @@ export function initCategoryCarousel() {
             if (stagedLayoutEnabled) {
                 setActiveCategory(initialCategory, { alignStage: false });
                 if (webKitMotionMode) {
-                    alignWebKitPanelHeaderToNav(getPanel(initialCategory));
+                    alignWebKitStageToNavOnce();
                     return;
                 }
                 alignStageToHeaderEdge();
