@@ -30,6 +30,7 @@ const CATEGORY_META = {
 
 const TRANSITION_MS = 560;
 const LAYOUT_PREPARE_TIMEOUT_MS = 160;
+const WEBKIT_LAYOUT_PREPARE_TIMEOUT_MS = 320;
 
 function resolveCategoryFromHash(hash) {
     return CATEGORY_ORDER.find((key) => CATEGORY_META[key].hash === hash) || null;
@@ -72,6 +73,18 @@ function shouldHonorInitialCategoryHash() {
     return navEntry?.type !== 'reload';
 }
 
+function isWebKitMotionEngine() {
+    // Safari/WebKit needs a quieter staged-category transition path; keep this
+    // centralized so Chromium's existing scroll/height choreography is unchanged.
+    const ua = navigator.userAgent || '';
+    const vendor = navigator.vendor || '';
+    const isAppleVendor = /Apple/i.test(vendor);
+    const isAppleTouchWebKit = /AppleWebKit/i.test(ua) && /\b(iPad|iPhone|iPod)\b/i.test(ua);
+    const isChromiumFamily = /\b(?:Chrome|Chromium|CriOS|Edg|OPR|SamsungBrowser)\b/i.test(ua);
+    if (isAppleTouchWebKit) return true;
+    return isAppleVendor && !isChromiumFamily;
+}
+
 export function initCategoryCarousel() {
     const stage = document.getElementById('homeCategories');
     const viewport = stage?.querySelector('.home-categories__viewport');
@@ -100,6 +113,12 @@ export function initCategoryCarousel() {
     let scrollFrame = 0;
     let contentAlignmentFrame = 0;
     let stagedLayoutEnabled = false;
+    let transitionEndCleanup = null;
+    const webKitMotionMode = isWebKitMotionEngine();
+
+    if (webKitMotionMode) {
+        stage.classList.add('is-webkit-motion');
+    }
 
     function getPanel(category) {
         return panels.get(category) || null;
@@ -150,6 +169,12 @@ export function initCategoryCarousel() {
         if (!contentAlignmentFrame) return;
         window.cancelAnimationFrame(contentAlignmentFrame);
         contentAlignmentFrame = 0;
+    }
+
+    function stopTransitionEndWatch() {
+        if (!transitionEndCleanup) return;
+        transitionEndCleanup();
+        transitionEndCleanup = null;
     }
 
     function alignStageToHeaderEdge() {
@@ -212,6 +237,15 @@ export function initCategoryCarousel() {
         step(startTime + (1000 / 60));
         if (scrollFrame) return;
         scrollFrame = window.requestAnimationFrame(step);
+    }
+
+    function alignStageForSameCategory() {
+        if (webKitMotionMode) {
+            alignStageToHeaderEdge();
+            startContentAlignmentWatch(420);
+            return;
+        }
+        animateStageAlignment();
     }
 
     function applyCategoryState() {
@@ -283,7 +317,7 @@ export function initCategoryCarousel() {
             },
         };
         document.dispatchEvent(new CustomEvent('bitbi:homepage-category-layout-request', { detail }));
-        await withTimeout(Promise.allSettled(pending));
+        await withTimeout(Promise.allSettled(pending), webKitMotionMode ? WEBKIT_LAYOUT_PREPARE_TIMEOUT_MS : LAYOUT_PREPARE_TIMEOUT_MS);
         await waitForAnimationFrame(2);
     }
 
@@ -323,6 +357,7 @@ export function initCategoryCarousel() {
 
     function setStackedStageState() {
         stopStageAlignmentAnimation();
+        stopTransitionEndWatch();
         window.clearTimeout(transitionTimer);
         transitionTimer = 0;
         isTransitioning = false;
@@ -332,6 +367,7 @@ export function initCategoryCarousel() {
         stage.classList.remove('is-ready', 'is-transitioning');
         stage.dataset.stageMode = 'stacked';
         viewport.style.height = '';
+        viewport.style.minHeight = '';
 
         panels.forEach((panel) => {
             clearPanelState(panel);
@@ -344,6 +380,7 @@ export function initCategoryCarousel() {
     }
 
     function setStagedLayoutState() {
+        stopTransitionEndWatch();
         stagedLayoutEnabled = true;
         document.body.classList.add('home-categories-desktop-stage');
         stage.classList.add('is-ready');
@@ -352,6 +389,7 @@ export function initCategoryCarousel() {
         const hashCategory = resolveCategoryFromHash(window.location.hash);
         activeCategory = hashCategory || activeCategory || 'video';
         viewport.style.height = '';
+        viewport.style.minHeight = '';
         applyCategoryState();
         updateCategoryLinkState();
         if (hashCategory || activeCategory !== 'video') {
@@ -369,6 +407,7 @@ export function initCategoryCarousel() {
     }
 
     function finishTransition(nextCategory) {
+        stopTransitionEndWatch();
         window.clearTimeout(transitionTimer);
         transitionTimer = 0;
         activeCategory = nextCategory;
@@ -379,7 +418,37 @@ export function initCategoryCarousel() {
         updateCategoryLinkState();
         requestAnimationFrame(() => {
             viewport.style.height = '';
+            viewport.style.minHeight = '';
         });
+        if (webKitMotionMode) {
+            startContentAlignmentWatch(560);
+        }
+    }
+
+    function scheduleTransitionFinish(nextCategory, panelsToWatch, expectedSeq) {
+        stopTransitionEndWatch();
+        let finished = false;
+        const complete = () => {
+            if (finished || expectedSeq !== transitionSeq) return;
+            finished = true;
+            finishTransition(nextCategory);
+        };
+        const handleTransitionEnd = (event) => {
+            if (event.target !== panelsToWatch.current && event.target !== panelsToWatch.next) return;
+            if (event.propertyName && event.propertyName !== 'transform') return;
+            complete();
+        };
+        [panelsToWatch.current, panelsToWatch.next].forEach((panel) => {
+            panel?.addEventListener('transitionend', handleTransitionEnd);
+        });
+        transitionTimer = window.setTimeout(complete, TRANSITION_MS + (webKitMotionMode ? 160 : 80));
+        transitionEndCleanup = () => {
+            [panelsToWatch.current, panelsToWatch.next].forEach((panel) => {
+                panel?.removeEventListener('transitionend', handleTransitionEnd);
+            });
+            window.clearTimeout(transitionTimer);
+            transitionTimer = 0;
+        };
     }
 
     function setActiveCategory(nextCategory, { alignStage = false, clearHash = false } = {}) {
@@ -405,7 +474,7 @@ export function initCategoryCarousel() {
                 if (prefersReducedMotion || !stage.classList.contains('is-ready')) {
                     alignStageToHeaderEdge();
                 } else {
-                    animateStageAlignment();
+                    alignStageForSameCategory();
                 }
             }
             return;
@@ -428,6 +497,10 @@ export function initCategoryCarousel() {
         const currentIndex = CATEGORY_ORDER.indexOf(activeCategory);
         const nextIndex = CATEGORY_ORDER.indexOf(nextCategory);
         const nextFromLeft = nextIndex < currentIndex;
+
+        if (alignStage && webKitMotionMode) {
+            alignStageToHeaderEdge();
+        }
 
         isTransitioning = true;
         pendingCategory = nextCategory;
@@ -453,6 +526,9 @@ export function initCategoryCarousel() {
         const currentHeight = currentPanel.offsetHeight;
 
         viewport.style.height = `${currentHeight}px`;
+        if (webKitMotionMode) {
+            viewport.style.minHeight = `${currentHeight}px`;
+        }
 
         if (clearHash) clearCategoryHash();
 
@@ -463,15 +539,23 @@ export function initCategoryCarousel() {
             }
             nextPanel.classList.remove('is-layout-preparing');
             const nextHeight = nextPanel.offsetHeight;
+            if (webKitMotionMode) {
+                const stableHeight = Math.max(currentHeight, nextHeight);
+                viewport.style.height = `${stableHeight}px`;
+                viewport.style.minHeight = `${stableHeight}px`;
+            }
             currentPanel.classList.add(nextFromLeft ? 'is-leave-right' : 'is-leave-left');
             nextPanel.classList.add('is-enter-active');
-            viewport.style.height = `${nextHeight}px`;
-            if (alignStage) {
+            if (!webKitMotionMode) {
+                viewport.style.height = `${nextHeight}px`;
+            }
+            if (alignStage && !webKitMotionMode) {
                 animateStageAlignment();
             }
-            transitionTimer = window.setTimeout(() => {
-                finishTransition(nextCategory);
-            }, TRANSITION_MS + 50);
+            scheduleTransitionFinish(nextCategory, {
+                current: currentPanel,
+                next: nextPanel,
+            }, thisTransitionSeq);
         });
     }
 

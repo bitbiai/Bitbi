@@ -1139,6 +1139,9 @@ async function readHomepageResponsiveStageState(page) {
       stageMode: stage?.dataset.stageMode || '',
       ready: stage?.classList.contains('is-ready') || false,
       bodyStageClass: document.body.classList.contains('home-categories-desktop-stage'),
+      transitioning: stage?.classList.contains('is-transitioning') || false,
+      viewportHeightStyle: stage?.querySelector('.home-categories__viewport')?.style.height || '',
+      viewportMinHeightStyle: stage?.querySelector('.home-categories__viewport')?.style.minHeight || '',
       overflowX: Math.max(
         0,
         document.documentElement.scrollWidth - window.innerWidth,
@@ -2187,6 +2190,30 @@ test.describe('Homepage', () => {
     await page.goto('/');
 
     const stage = page.locator('#homeCategories');
+    const expectSettledHomepageCategory = async (category) => {
+      await expectActiveHomepageCategory(page, category);
+      await waitForHomepageCategoryStage(page);
+      await expect.poll(async () => {
+        const state = await readHomepageResponsiveStageState(page);
+        return `${state.viewportHeightStyle}|${state.viewportMinHeightStyle}`;
+      }, { timeout: 10_000 }).toBe('|');
+      const state = await readHomepageResponsiveStageState(page);
+      expectSingleInteractiveHomepagePanel(state, category);
+      expect(state.transitioning).toBe(false);
+      expect(state.viewportHeightStyle).toBe('');
+      expect(state.viewportMinHeightStyle).toBe('');
+      const readySelector = category === 'gallery'
+        ? '#galleryGrid'
+        : category === 'video'
+          ? '#videoGrid'
+          : '#soundLabTracks';
+      await expect.poll(async () => page.evaluate(({ selector, category }) => {
+        const grid = document.querySelector(selector);
+        if (!grid) return 'missing';
+        if (category === 'sound') return grid.dataset.soundWallReady || grid.dataset.soundWidthReady || '';
+        return grid.dataset.mediaWallReady || grid.dataset.publicMediaWallReady || '';
+      }, { selector: readySelector, category }), { timeout: 10_000 }).toBe('true');
+    };
 
     await expect(stage).toHaveAttribute('data-stage-mode', 'desktop');
     await expectActiveHomepageCategory(page, 'video');
@@ -2207,19 +2234,18 @@ test.describe('Homepage', () => {
 
     await expectActiveHomepageCategory(page, 'gallery');
     await waitForHomepageCategoryStage(page);
+    await expectSettledHomepageCategory('gallery');
     await waitForHomepageCategoryAlignment(page);
     await expectHomepageHeaderCategoryGlow(page, 'gallery');
     await expect(page.locator('#galleryGrid .gallery-item').filter({ hasText: 'Staged Gallery Card' })).toBeVisible();
 
     await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Video' }).click();
-    await expectActiveHomepageCategory(page, 'video');
-    await waitForHomepageCategoryStage(page);
+    await expectSettledHomepageCategory('video');
     await waitForHomepageCategoryAlignment(page);
     await expectHomepageHeaderCategoryGlow(page, 'video');
 
     await page.locator('#navbar .site-nav__links').getByRole('link', { name: 'Sound Lab' }).click();
-    await expectActiveHomepageCategory(page, 'sound');
-    await waitForHomepageCategoryStage(page);
+    await expectSettledHomepageCategory('sound');
     await waitForHomepageCategoryAlignment(page);
     await expectHomepageHeaderCategoryGlow(page, 'sound');
     await expect(page.locator('#soundLabTracks .snd-card').first()).toBeVisible();
@@ -2238,6 +2264,7 @@ test.describe('Homepage', () => {
 
     await expectActiveHomepageCategory(page, 'gallery');
     await waitForHomepageCategoryStage(page);
+    await expectSettledHomepageCategory('gallery');
     await waitForHomepageCategoryAlignment(page);
     await expectHomepageHeaderCategoryGlow(page, 'gallery');
 
