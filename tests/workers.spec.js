@@ -5604,6 +5604,60 @@ test.describe('Phase 1-E auth route policy registry', () => {
       csrf: 'same-origin-required',
       rateLimit: expect.objectContaining({ failClosed: true }),
     }));
+    expect(getRoutePolicy('GET', '/api/admin/r2/buckets')).toEqual(expect.objectContaining({
+      id: 'admin.r2.buckets.list',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      body: expect.objectContaining({ kind: 'none' }),
+      rateLimit: expect.objectContaining({ failClosed: true }),
+      config: expect.arrayContaining(['DB', 'USER_IMAGES', 'PRIVATE_MEDIA', 'AUDIT_ARCHIVE', 'PUBLIC_RATE_LIMITER']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/r2/objects')).toEqual(expect.objectContaining({
+      id: 'admin.r2.objects.list',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      body: expect.objectContaining({ kind: 'none' }),
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/r2/objects/detail')).toEqual(expect.objectContaining({
+      id: 'admin.r2.objects.detail',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/r2/objects/file')).toEqual(expect.objectContaining({
+      id: 'admin.r2.objects.file',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+    }));
+    expect(getRoutePolicy('POST', '/api/admin/r2/objects/upload')).toEqual(expect.objectContaining({
+      id: 'admin.r2.objects.upload',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'same-origin-required',
+      body: expect.objectContaining({ kind: 'multipart', maxBytesName: 'adminR2Upload' }),
+      audit: expect.objectContaining({ event: 'admin_r2_object_uploaded' }),
+      rateLimit: expect.objectContaining({ failClosed: true }),
+    }));
+    for (const [path, id, auditEvent, maxBytesName] of [
+      ['/api/admin/r2/folders', 'admin.r2.folders.create', 'admin_r2_folder_created', 'smallJson'],
+      ['/api/admin/r2/objects/copy', 'admin.r2.objects.copy', 'admin_r2_objects_copied', 'adminJson'],
+      ['/api/admin/r2/objects/move', 'admin.r2.objects.move', 'admin_r2_objects_moved', 'adminJson'],
+      ['/api/admin/r2/objects/delete', 'admin.r2.objects.delete', 'admin_r2_objects_deleted', 'adminJson'],
+    ]) {
+      expect(getRoutePolicy('POST', path)).toEqual(expect.objectContaining({
+        id,
+        auth: 'admin',
+        mfa: 'admin-production-required',
+        csrf: 'same-origin-required',
+        body: expect.objectContaining({ kind: 'json', maxBytesName }),
+        audit: expect.objectContaining({ event: auditEvent }),
+        rateLimit: expect.objectContaining({ failClosed: true }),
+      }));
+    }
     expect(getRoutePolicy('POST', '/api/billing/webhooks/test')).toEqual(expect.objectContaining({
       id: 'billing.webhooks.test',
       auth: 'anonymous',
@@ -5700,6 +5754,225 @@ test.describe('Phase 1-E auth route policy registry', () => {
         rateLimit: expect.objectContaining({ failClosed: true }),
       }));
     }
+  });
+});
+
+test.describe('Admin R2 Object Storage Explorer', () => {
+  function createAdminR2Env() {
+    const admin = createAdminUser('admin-r2-user');
+    const member = createContractUser({ id: 'user_display_123', role: 'user', email: 'artist@example.com' });
+    const body = new TextEncoder().encode('0123456789abcdef').buffer;
+    return createAuthTestEnv({
+      users: [admin, member],
+      profiles: [{ user_id: member.id, display_name: 'Studio Artist', created_at: nowIso(), updated_at: nowIso() }],
+      aiImages: [{
+        id: 'a1b2c3d4',
+        user_id: member.id,
+        folder_id: null,
+        r2_key: 'users/user_display_123/folders/projects/photo.png',
+        prompt: 'Linked photo',
+        model: '@cf/test-model',
+        steps: 4,
+        seed: 1,
+        size_bytes: 16,
+        created_at: nowIso(),
+      }],
+      userImages: {
+        'users/user_display_123/folders/projects/photo.png': {
+          body,
+          httpMetadata: { contentType: 'image/png' },
+          uploaded: '2026-06-15T12:00:00.000Z',
+        },
+        'users/user_display_123/folders/projects/manual.txt': {
+          body: new TextEncoder().encode('manual').buffer,
+          httpMetadata: { contentType: 'text/plain; charset=utf-8' },
+          uploaded: '2026-06-15T12:01:00.000Z',
+        },
+        'tmp/unlinked.txt': {
+          body: new TextEncoder().encode('unlinked').buffer,
+          httpMetadata: { contentType: 'text/plain; charset=utf-8' },
+          uploaded: '2026-06-15T12:02:00.000Z',
+        },
+      },
+      privateMedia: {
+        'avatars/user_display_123/current.webp': {
+          body: new TextEncoder().encode('avatar').buffer,
+          httpMetadata: { contentType: 'image/webp' },
+        },
+      },
+      auditArchive: {
+        'data-exports/user_display_123/archive.json': {
+          body: new TextEncoder().encode('{"ok":true}').buffer,
+          httpMetadata: { contentType: 'application/json' },
+        },
+      },
+    });
+  }
+
+  async function fetchAdminR2(pathname, { method = 'GET', body, headers = {}, mutateEnv } = {}) {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAdminR2Env();
+    if (typeof mutateEnv === 'function') mutateEnv(env);
+    const token = await seedSession(env, 'admin-r2-user');
+    const response = await authWorker.fetch(
+      authJsonRequest(pathname, method, body, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        ...headers,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    return { authWorker, env, token, response };
+  }
+
+  test('bucket discovery returns only configured Worker-bound buckets', async () => {
+    const { response } = await fetchAdminR2('/api/admin/r2/buckets');
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.buckets.map((bucket) => bucket.id).sort()).toEqual([
+      'AUDIT_ARCHIVE',
+      'PRIVATE_MEDIA',
+      'USER_IMAGES',
+    ]);
+    expect(JSON.stringify(body)).not.toContain('bitbi-public-media');
+    expect(body.data.publicMediaBindingAvailable).toBe(false);
+  });
+
+  test('R2 explorer endpoints deny non-admin sessions', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAdminR2Env();
+    const token = await seedSession(env, 'user_display_123');
+    const response = await authWorker.fetch(
+      authJsonRequest('/api/admin/r2/buckets', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.ok).toBe(false);
+    expect(JSON.stringify(body)).not.toContain('users/user_display_123/folders/projects/photo.png');
+  });
+
+  test('object listing uses prefix delimiter and friendly user labels', async () => {
+    const { response } = await fetchAdminR2('/api/admin/r2/objects?bucket=USER_IMAGES&prefix=users/&delimiter=/&limit=25');
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'folder',
+        prefix: 'users/user_display_123/',
+        owner: expect.objectContaining({
+          label: 'Studio Artist',
+          email: 'artist@example.com',
+          userId: 'user_display_123',
+        }),
+      }),
+    ]));
+    expect(body.data.objects).toEqual([]);
+  });
+
+  test('object detail detects app-managed links and file route supports byte ranges', async () => {
+    const detail = await fetchAdminR2('/api/admin/r2/objects/detail?bucket=USER_IMAGES&key=users%2Fuser_display_123%2Ffolders%2Fprojects%2Fphoto.png');
+    expect(detail.response.status).toBe(200);
+    const detailBody = await detail.response.json();
+    expect(detailBody.data.object.appLink).toMatchObject({
+      linked: true,
+      links: [expect.objectContaining({ table: 'ai_images', column: 'r2_key', rowId: 'a1b2c3d4' })],
+    });
+
+    const file = await fetchAdminR2('/api/admin/r2/objects/file?bucket=USER_IMAGES&key=users%2Fuser_display_123%2Ffolders%2Fprojects%2Fphoto.png', {
+      headers: { Range: 'bytes=0-3' },
+    });
+    expect(file.response.status).toBe(206);
+    expect(file.response.headers.get('Content-Range')).toBe('bytes 0-3/16');
+    expect(file.response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+  });
+
+  test('copy works for raw unlinked objects while move/delete block DB-linked objects', async () => {
+    const copy = await fetchAdminR2('/api/admin/r2/objects/copy', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': 'r2-copy-test' },
+      body: {
+        sourceBucket: 'USER_IMAGES',
+        targetBucket: 'USER_IMAGES',
+        targetPrefix: 'tmp/copied/',
+        items: [{ key: 'tmp/unlinked.txt' }],
+        reason: 'Copy unlinked object during R2 explorer test',
+      },
+    });
+    expect(copy.response.status).toBe(200);
+    expect(copy.env.USER_IMAGES.objects.has('tmp/copied/unlinked.txt')).toBe(true);
+
+    const moveLinked = await fetchAdminR2('/api/admin/r2/objects/move', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': 'r2-move-linked-test' },
+      body: {
+        sourceBucket: 'USER_IMAGES',
+        targetBucket: 'USER_IMAGES',
+        targetPrefix: 'tmp/moved/',
+        items: [{ key: 'users/user_display_123/folders/projects/photo.png' }],
+        reason: 'Attempt linked move during R2 explorer test',
+      },
+    });
+    expect(moveLinked.response.status).toBe(200);
+    const moveBody = await moveLinked.response.json();
+    expect(moveBody.data.results[0]).toMatchObject({
+      ok: false,
+      code: 'admin_r2_app_linked_object_blocked',
+    });
+    expect(moveLinked.env.USER_IMAGES.objects.has('users/user_display_123/folders/projects/photo.png')).toBe(true);
+  });
+
+  test('delete requires confirmation and deletes only unlinked raw objects', async () => {
+    const missingConfirmation = await fetchAdminR2('/api/admin/r2/objects/delete', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': 'r2-delete-missing-confirmation' },
+      body: {
+        bucket: 'USER_IMAGES',
+        items: [{ bucket: 'USER_IMAGES', key: 'tmp/unlinked.txt' }],
+        reason: 'Missing confirmation test',
+      },
+    });
+    expect(missingConfirmation.response.status).toBe(409);
+
+    const deleted = await fetchAdminR2('/api/admin/r2/objects/delete', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': 'r2-delete-unlinked' },
+      body: {
+        bucket: 'USER_IMAGES',
+        items: [{ bucket: 'USER_IMAGES', key: 'tmp/unlinked.txt' }],
+        reason: 'Delete unlinked object during R2 explorer test',
+        confirm: true,
+        confirmation: 'DELETE R2 OBJECTS',
+      },
+    });
+    expect(deleted.response.status).toBe(200);
+    const body = await deleted.response.json();
+    expect(body.data.results[0]).toMatchObject({ ok: true });
+    expect(deleted.env.USER_IMAGES.objects.has('tmp/unlinked.txt')).toBe(false);
+
+    const linkedDelete = await fetchAdminR2('/api/admin/r2/objects/delete', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': 'r2-delete-linked' },
+      body: {
+        bucket: 'USER_IMAGES',
+        items: [{ bucket: 'USER_IMAGES', key: 'users/user_display_123/folders/projects/photo.png' }],
+        reason: 'Attempt linked delete during R2 explorer test',
+        confirm: true,
+        confirmation: 'DELETE R2 OBJECTS',
+      },
+    });
+    expect(linkedDelete.response.status).toBe(200);
+    const linkedBody = await linkedDelete.response.json();
+    expect(linkedBody.data.results[0]).toMatchObject({
+      ok: false,
+      code: 'admin_r2_app_linked_object_blocked',
+    });
+    expect(linkedDelete.env.USER_IMAGES.objects.has('users/user_display_123/folders/projects/photo.png')).toBe(true);
   });
 });
 

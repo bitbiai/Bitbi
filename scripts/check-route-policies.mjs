@@ -31,6 +31,7 @@ const MUTATING_DISPATCH_FILES = [
   "workers/auth/src/routes/admin.js",
   "workers/auth/src/routes/admin-billing.js",
   "workers/auth/src/routes/admin-orgs.js",
+  "workers/auth/src/routes/admin-r2-explorer.js",
   "workers/auth/src/routes/admin-storage.js",
   "workers/auth/src/routes/admin-tenant-assets.js",
   "workers/auth/src/routes/admin-data-lifecycle.js",
@@ -71,6 +72,15 @@ const REQUIRED_LOOKUPS = [
   ["POST", "/api/admin/data-lifecycle/exports/cleanup-expired", "admin.data-lifecycle.exports.cleanup-expired"],
   ["GET", "/api/admin/data-lifecycle/exports/dla_123", "admin.data-lifecycle.exports.read"],
   ["GET", "/api/admin/users/user_123/storage/reconciliation", "admin.users.storage.reconciliation"],
+  ["GET", "/api/admin/r2/buckets", "admin.r2.buckets.list"],
+  ["GET", "/api/admin/r2/objects", "admin.r2.objects.list"],
+  ["GET", "/api/admin/r2/objects/detail", "admin.r2.objects.detail"],
+  ["GET", "/api/admin/r2/objects/file", "admin.r2.objects.file"],
+  ["POST", "/api/admin/r2/objects/upload", "admin.r2.objects.upload"],
+  ["POST", "/api/admin/r2/folders", "admin.r2.folders.create"],
+  ["POST", "/api/admin/r2/objects/copy", "admin.r2.objects.copy"],
+  ["POST", "/api/admin/r2/objects/move", "admin.r2.objects.move"],
+  ["POST", "/api/admin/r2/objects/delete", "admin.r2.objects.delete"],
   ["GET", "/api/admin/tenant-assets/folders-images/evidence", "admin.tenant-assets.folders-images.evidence.read"],
   ["GET", "/api/admin/tenant-assets/folders-images/evidence/export", "admin.tenant-assets.folders-images.evidence.export"],
   ["GET", "/api/admin/tenant-assets/domains/evidence", "admin.tenant-assets.domains.evidence.read"],
@@ -155,6 +165,18 @@ const HIGH_RISK_ADMIN_MUTATION_EXPECTATIONS = [
   {
     id: "admin.users.storage.folder.delete",
     requiredNoteFragments: ["Idempotency-Key", "confirm=true", "confirmation=delete_user_folder", "audit logging", "scoped to the selected user"],
+  },
+  {
+    id: "admin.r2.objects.upload",
+    requiredNoteFragments: ["Idempotency-Key", "bounded operator reason", "allowlisted bucket", "audit logging"],
+  },
+  {
+    id: "admin.r2.objects.move",
+    requiredNoteFragments: ["Idempotency-Key", "copy-before-delete", "DB-linked/app-managed R2 keys are blocked", "audit logging"],
+  },
+  {
+    id: "admin.r2.objects.delete",
+    requiredNoteFragments: ["Idempotency-Key", "confirm=true", "confirmation=DELETE R2 OBJECTS", "DB-linked/app-managed R2 objects are blocked", "audit logging"],
   },
   {
     id: "admin.data-lifecycle.requests.create",

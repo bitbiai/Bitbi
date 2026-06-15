@@ -61,6 +61,7 @@ import { handleAdminBilling } from "./admin-billing.js";
 import { handleAdminDataLifecycle } from "./admin-data-lifecycle.js";
 import { handleAdminMfa } from "./admin-mfa.js";
 import { handleAdminOrgs } from "./admin-orgs.js";
+import { handleAdminR2Explorer } from "./admin-r2-explorer.js";
 import { handleAdminStorage } from "./admin-storage.js";
 import { handleAdminTenantAssets } from "./admin-tenant-assets.js";
 import { handleAdminHomepageHeroVideos } from "./homepage-hero-videos.js";
@@ -947,6 +948,11 @@ export async function handleAdmin(ctx) {
   const adminBillingResult = await handleAdminBilling(ctx);
   if (adminBillingResult) {
     return adminBillingResult;
+  }
+
+  const adminR2ExplorerResult = await handleAdminR2Explorer(ctx);
+  if (adminR2ExplorerResult) {
+    return adminR2ExplorerResult;
   }
 
   const adminStorageResult = await handleAdminStorage(ctx);

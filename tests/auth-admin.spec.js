@@ -3951,6 +3951,168 @@ async function mockAdminControlPlane(page, captures = {}) {
     });
   });
 
+  const r2BucketsPayload = captures.r2BucketsPayload || {
+    ok: true,
+    buckets: [
+      {
+        id: 'USER_IMAGES',
+        displayName: 'bitbi-user-images',
+        binding: 'USER_IMAGES',
+        capabilities: ['list', 'read', 'write', 'delete', 'copy', 'move'],
+        available: true,
+      },
+      {
+        id: 'PRIVATE_MEDIA',
+        displayName: 'bitbi-private-media',
+        binding: 'PRIVATE_MEDIA',
+        capabilities: ['list', 'read', 'write', 'delete', 'copy', 'move'],
+        available: true,
+      },
+      {
+        id: 'AUDIT_ARCHIVE',
+        displayName: 'bitbi-audit-archive',
+        binding: 'AUDIT_ARCHIVE',
+        capabilities: ['list', 'read', 'write', 'delete', 'copy', 'move'],
+        available: true,
+      },
+    ],
+    unavailableBuckets: [],
+    publicMediaBindingAvailable: false,
+  };
+  const r2ObjectsPayload = captures.r2ObjectsPayload || {
+    ok: true,
+    bucket: {
+      id: 'USER_IMAGES',
+      displayName: 'bitbi-user-images',
+      binding: 'USER_IMAGES',
+    },
+    prefix: 'users/',
+    delimiter: '/',
+    breadcrumbs: [
+      { label: 'bitbi-user-images', prefix: '' },
+      { label: 'users', prefix: 'users/' },
+    ],
+    folders: [
+      {
+        type: 'folder',
+        key: 'users/user_display_123/',
+        prefix: 'users/user_display_123/',
+        name: 'Studio Artist',
+        basename: 'user_display_123',
+        canonicalPrefix: 'users/user_display_123/',
+        owner: {
+          userId: 'user_display_123',
+          displayName: 'Studio Artist',
+          email: 'artist@example.com',
+          label: 'Studio Artist',
+        },
+      },
+    ],
+    objects: [
+      {
+        type: 'object',
+        key: 'users/user_display_123/folders/projects/photo.png',
+        name: 'photo.png',
+        basename: 'photo.png',
+        size: 1024,
+        uploaded: '2026-06-01T12:00:00.000Z',
+        contentType: 'image/png',
+        etag: 'etag-photo',
+        httpEtag: '"etag-photo"',
+        owner: {
+          userId: 'user_display_123',
+          displayName: 'Studio Artist',
+          email: 'artist@example.com',
+          label: 'Studio Artist',
+        },
+        appLink: {
+          linked: true,
+          risk: 'app-managed',
+          links: [
+            { domain: 'AI image', table: 'ai_images', column: 'r2_key', rowId: 'img_linked_1', ownerUserId: 'user_display_123' },
+          ],
+        },
+      },
+      {
+        type: 'object',
+        key: 'users/user_display_123/tmp/manual-note.txt',
+        name: 'manual-note.txt',
+        basename: 'manual-note.txt',
+        size: 44,
+        uploaded: '2026-06-02T12:00:00.000Z',
+        contentType: 'text/plain',
+        etag: 'etag-note',
+        httpEtag: '"etag-note"',
+        owner: {
+          userId: 'user_display_123',
+          displayName: 'Studio Artist',
+          email: 'artist@example.com',
+          label: 'Studio Artist',
+        },
+        appLink: {
+          linked: false,
+          risk: 'unlinked',
+          links: [],
+        },
+      },
+    ],
+    cursor: null,
+    truncated: false,
+    hasMore: false,
+  };
+
+  await page.route('**/api/admin/r2/buckets', async (route) => {
+    await fulfillJson(route, r2BucketsPayload);
+  });
+  await page.route('**/api/admin/r2/objects?*', async (route) => {
+    await fulfillJson(route, r2ObjectsPayload);
+  });
+  await page.route('**/api/admin/r2/objects/detail?*', async (route) => {
+    await fulfillJson(route, {
+      ok: true,
+      bucket: r2ObjectsPayload.bucket,
+      object: {
+        ...r2ObjectsPayload.objects[0],
+        preview: { supported: true, kind: 'image' },
+        fileUrl: '/api/admin/r2/objects/file?bucket=USER_IMAGES&key=users%2Fuser_display_123%2Ffolders%2Fprojects%2Fphoto.png',
+        downloadUrl: '/api/admin/r2/objects/file?bucket=USER_IMAGES&key=users%2Fuser_display_123%2Ffolders%2Fprojects%2Fphoto.png&download=1',
+        metadata: {},
+      },
+    });
+  });
+  await page.route('**/api/admin/r2/folders', async (route) => {
+    captures.r2CreateFolderRequests = captures.r2CreateFolderRequests || [];
+    captures.r2CreateFolderRequests.push({
+      idempotencyKey: route.request().headers()['idempotency-key'],
+      body: route.request().postDataJSON(),
+    });
+    await fulfillJson(route, { ok: true, created: true });
+  });
+  await page.route('**/api/admin/r2/objects/copy', async (route) => {
+    captures.r2CopyRequests = captures.r2CopyRequests || [];
+    captures.r2CopyRequests.push({
+      idempotencyKey: route.request().headers()['idempotency-key'],
+      body: route.request().postDataJSON(),
+    });
+    await fulfillJson(route, { ok: true, results: [] });
+  });
+  await page.route('**/api/admin/r2/objects/move', async (route) => {
+    captures.r2MoveRequests = captures.r2MoveRequests || [];
+    captures.r2MoveRequests.push({
+      idempotencyKey: route.request().headers()['idempotency-key'],
+      body: route.request().postDataJSON(),
+    });
+    await fulfillJson(route, { ok: true, results: [] });
+  });
+  await page.route('**/api/admin/r2/objects/delete', async (route) => {
+    captures.r2DeleteRequests = captures.r2DeleteRequests || [];
+    captures.r2DeleteRequests.push({
+      idempotencyKey: route.request().headers()['idempotency-key'],
+      body: route.request().postDataJSON(),
+    });
+    await fulfillJson(route, { ok: true, deletedCount: 1, results: [] });
+  });
+
   const attemptsPayload = {
     ok: true,
     attempts: [
@@ -15033,6 +15195,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('a.admin-nav__link[data-section="ai-budget-switches"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="lifecycle"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="tenant-assets"]')).toBeAttached();
+    await expect(page.locator('a.admin-nav__link[data-section="object-storage"]')).toHaveText('R2 Drive');
     await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="content"]')).toHaveText('Content Reference');
     await expect(page.locator('a.admin-nav__link[data-section="media"]')).toHaveText('Media Reference');
@@ -15057,6 +15220,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('AI Usage Attempts');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('AI Budget Controls');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Tenant Asset Manual Review');
+    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('R2 Object Storage');
     await expect(page.getByRole('link', { name: 'Budget Controls' }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Tenant Assets' }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Operations' }).first()).toBeVisible();
@@ -16181,6 +16345,58 @@ test.describe('Admin Control Plane', () => {
     await expect(section.getByRole('button', { name: 'Download evidence Markdown' })).toBeVisible();
   });
 
+  test('renders R2 Object Storage drive with configured buckets, friendly owner labels, and guarded actions', async ({
+    page,
+  }) => {
+    const captures = {};
+    await mockAdminControlPlane(page, captures);
+
+    const response = await page.goto('/admin/index.html#object-storage');
+    expect(response.status()).toBe(200);
+    const section = page.locator('#sectionObjectStorage');
+    await expect(section).toBeVisible({ timeout: 10_000 });
+    await expect(section).toContainText('R2 Object Storage');
+    await expect(section).toContainText('bitbi-user-images');
+    await expect(section).toContainText('USER_IMAGES');
+    await expect(section).toContainText('bitbi-private-media');
+    await expect(section).toContainText('bitbi-audit-archive');
+    await expect(section).toContainText('Studio Artist');
+    await expect(section).toContainText('photo.png');
+    await expect(section).toContainText('manual-note.txt');
+    await expect(section).not.toContainText('bitbi-public-media');
+
+    const photoRow = page.locator('#objectStorageTable tbody tr').filter({ hasText: 'photo.png' });
+    await photoRow.getByRole('button', { name: 'Details' }).click();
+    await expect(page.locator('#objectStorageDetail')).toContainText('Raw key');
+    await expect(page.locator('#objectStorageDetail')).toContainText('App-managed');
+    await expect(page.locator('#objectStorageDetail')).toContainText('Raw R2 rename, move, or delete is blocked');
+
+    await page.locator('#objectStorageRefreshBtn').click();
+    await expect(page.locator('#objectStorageState')).toContainText('item(s) shown');
+    const noteCheckbox = page.getByRole('checkbox', { name: 'Select manual-note.txt' });
+    await noteCheckbox.check();
+    await expect(page.locator('#objectStorageDeleteBtn')).toBeEnabled();
+    await expect(page.locator('#objectStorageCopyBtn')).toBeEnabled();
+    await page.locator('#objectStorageCopyBtn').click();
+    await expect(page.locator('#objectStorageClipboard')).toContainText('Copy: 1 object(s) from USER_IMAGES');
+
+    const dialogResponses = ['DELETE R2 OBJECTS', 'Operator requested R2 cleanup for unlinked object'];
+    page.on('dialog', async (dialog) => {
+      await dialog.accept(dialogResponses.shift() || '');
+    });
+    await page.locator('#objectStorageDeleteBtn').click();
+    await expect.poll(() => captures.r2DeleteRequests?.length || 0).toBe(1);
+    expect(captures.r2DeleteRequests[0].idempotencyKey).toMatch(/^admin-r2-delete-/);
+    expect(captures.r2DeleteRequests[0].body).toEqual(expect.objectContaining({
+      bucket: 'USER_IMAGES',
+      confirmation: 'DELETE R2 OBJECTS',
+      reason: 'Operator requested R2 cleanup for unlinked object',
+    }));
+    expect(captures.r2DeleteRequests[0].body.items).toEqual([
+      { key: 'users/user_display_123/tmp/manual-note.txt' },
+    ]);
+  });
+
   test('renders billing review queue safely and records manual resolutions only', async ({
     page,
   }) => {
@@ -16376,7 +16592,7 @@ test.describe('Admin Control Plane', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/admin/index.html');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(11);
+    await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(12);
     const managementShellWidth = await page.locator('.admin-management-shell').evaluate((node) =>
       Math.round(node.getBoundingClientRect().width)
     );

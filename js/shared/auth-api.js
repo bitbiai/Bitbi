@@ -136,6 +136,49 @@ async function request(method, path, body, options = {}) {
     }
 }
 
+async function requestForm(method, path, formData, options = {}) {
+    const signalState = buildRequestSignal(options);
+    try {
+        const opts = {
+            method,
+            credentials: 'include',
+            headers: {},
+            body: formData,
+        };
+        if (signalState.signal) {
+            opts.signal = signalState.signal;
+        }
+        if (options.headers && typeof options.headers === 'object') {
+            for (const [key, value] of Object.entries(options.headers)) {
+                if (value !== undefined && value !== null) {
+                    opts.headers[key] = String(value);
+                }
+            }
+        }
+        const res = await fetch(BASE + path, opts);
+        let data;
+        try { data = await res.json(); } catch { data = null; }
+        if (res.ok) return { ok: true, data, status: res.status };
+        return {
+            ok: false,
+            error: data?.error || `Error ${res.status}`,
+            code: data?.code || null,
+            data,
+            status: res.status,
+        };
+    } catch (e) {
+        if (e?.name === 'AbortError') {
+            if (signalState.timedOut()) {
+                return { ok: false, aborted: true, timeout: true, error: 'Request timed out.', code: 'request_timeout' };
+            }
+            return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
+        }
+        return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
+    } finally {
+        signalState.cleanup();
+    }
+}
+
 function notifyAssetStorageChanged() {
     if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
     window.dispatchEvent(new CustomEvent('bitbi:assets-storage-changed'));
@@ -638,6 +681,94 @@ export function apiAdminDeleteUserFolder(userId, folderId, { reason, idempotency
         folderId,
     }, {
         headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('admin-storage-folder-delete') },
+    });
+}
+
+export function apiAdminR2Buckets(options) {
+    return request('GET', '/admin/r2/buckets', undefined, options);
+}
+
+export function apiAdminR2Objects({ bucket, prefix = '', delimiter = '/', cursor, limit, search, includeLinked = true } = {}, options) {
+    const params = new URLSearchParams();
+    if (bucket) params.set('bucket', bucket);
+    if (prefix) params.set('prefix', prefix);
+    if (delimiter) params.set('delimiter', delimiter);
+    if (cursor) params.set('cursor', cursor);
+    if (limit) params.set('limit', String(limit));
+    if (search) params.set('search', search);
+    if (includeLinked !== undefined) params.set('includeLinked', includeLinked ? 'true' : 'false');
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/r2/objects${qs}`, undefined, options);
+}
+
+export function apiAdminR2ObjectDetail({ bucket, key } = {}, options) {
+    const params = new URLSearchParams();
+    if (bucket) params.set('bucket', bucket);
+    if (key) params.set('key', key);
+    const qs = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/r2/objects/detail${qs}`, undefined, options);
+}
+
+export function adminR2ObjectFileUrl({ bucket, key, download = false } = {}) {
+    const params = new URLSearchParams();
+    if (bucket) params.set('bucket', bucket);
+    if (key) params.set('key', key);
+    params.set('download', download ? '1' : '0');
+    return `${BASE}/admin/r2/objects/file?${params}`;
+}
+
+export function apiAdminR2UploadObject({ bucket, prefix, key, file, reason, overwrite = false } = {}, { idempotencyKey } = {}) {
+    const formData = new FormData();
+    if (bucket) formData.set('bucket', bucket);
+    if (prefix) formData.set('prefix', prefix);
+    if (key) formData.set('key', key);
+    if (file) formData.set('file', file);
+    formData.set('reason', reason || '');
+    formData.set('overwrite', overwrite ? 'true' : 'false');
+    return requestForm('POST', '/admin/r2/objects/upload', formData, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('admin-r2-upload') },
+    });
+}
+
+export function apiAdminR2CreateFolder({ bucket, prefix, reason } = {}, { idempotencyKey } = {}) {
+    return request('POST', '/admin/r2/folders', { bucket, prefix, reason }, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('admin-r2-folder') },
+    });
+}
+
+export function apiAdminR2CopyObjects({ sourceBucket, targetBucket, targetPrefix, items, reason } = {}, { idempotencyKey } = {}) {
+    return request('POST', '/admin/r2/objects/copy', {
+        sourceBucket,
+        targetBucket,
+        targetPrefix,
+        items: Array.isArray(items) ? items : [],
+        reason,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('admin-r2-copy') },
+    });
+}
+
+export function apiAdminR2MoveObjects({ sourceBucket, targetBucket, targetPrefix, items, reason } = {}, { idempotencyKey } = {}) {
+    return request('POST', '/admin/r2/objects/move', {
+        sourceBucket,
+        targetBucket,
+        targetPrefix,
+        items: Array.isArray(items) ? items : [],
+        reason,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('admin-r2-move') },
+    });
+}
+
+export function apiAdminR2DeleteObjects({ bucket, items, reason, confirmation = 'DELETE R2 OBJECTS' } = {}, { idempotencyKey } = {}) {
+    return request('POST', '/admin/r2/objects/delete', {
+        bucket,
+        items: Array.isArray(items) ? items : [],
+        reason,
+        confirm: true,
+        confirmation,
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('admin-r2-delete') },
     });
 }
 

@@ -741,20 +741,46 @@ class MockBucket {
     this.objects.delete(key);
   }
 
-  async list({ prefix = '', limit = 1000 } = {}) {
-    this.listCalls.push({ prefix, limit });
+  async list({ prefix = '', delimiter, limit = 1000, cursor } = {}) {
+    this.listCalls.push({ prefix, delimiter, limit, cursor });
+    const keys = [...this.objects.keys()].sort().filter((key) => key.startsWith(prefix));
+    const startIndex = cursor ? Math.max(0, Number.parseInt(cursor, 10) || 0) : 0;
     const objects = [];
-    for (const [key, value] of this.objects) {
-      if (!key.startsWith(prefix)) continue;
+    const delimitedPrefixes = new Set();
+    let nextIndex = keys.length;
+    for (let index = startIndex; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (delimiter) {
+        const remainder = key.slice(prefix.length);
+        const delimiterIndex = remainder.indexOf(delimiter);
+        if (delimiterIndex >= 0) {
+          delimitedPrefixes.add(prefix + remainder.slice(0, delimiterIndex + delimiter.length));
+          if ((objects.length + delimitedPrefixes.size) >= limit) {
+            nextIndex = index + 1;
+            break;
+          }
+          continue;
+        }
+      }
+      const value = this.objects.get(key);
       objects.push({
         key,
         uploaded: value.uploaded,
         size: value.size,
         httpMetadata: value.httpMetadata,
+        customMetadata: value.customMetadata || {},
       });
-      if (objects.length >= limit) break;
+      if ((objects.length + delimitedPrefixes.size) >= limit) {
+        nextIndex = index + 1;
+        break;
+      }
     }
-    return { objects };
+    return {
+      objects,
+      delimitedPrefixes: Array.from(delimitedPrefixes).sort(),
+      truncated: nextIndex < keys.length,
+      cursor: nextIndex < keys.length ? String(nextIndex) : undefined,
+    };
   }
 }
 
@@ -13167,6 +13193,26 @@ class MockD1 {
       if (existing) Object.assign(existing, next);
       else this.state.homepageHeroVideoSlots.push(next);
       return { success: true, meta: { changes: 1 } };
+    }
+
+    const r2LinkProbeMatch = query.match(/^SELECT\s+id,\s+([a-z0-9_]+)\s+AS\s+owner_user_id\s+FROM\s+([a-z0-9_]+)\s+WHERE\s+([a-z0-9_]+)\s*=\s*\?\s+LIMIT\s+1$/i);
+    if (r2LinkProbeMatch) {
+      const [, ownerColumn, tableName, keyColumn] = r2LinkProbeMatch;
+      const tableState = {
+        ai_images: 'aiImages',
+        ai_text_assets: 'aiTextAssets',
+        ai_video_jobs: 'aiVideoJobs',
+        homepage_hero_video_uploads: 'homepageHeroVideoUploads',
+        homepage_hero_video_derivatives: 'homepageHeroVideoDerivatives',
+        memvid_stream_previews: 'memvidStreamPreviews',
+        data_export_archives: 'dataExportArchives',
+        data_lifecycle_request_items: 'dataLifecycleRequestItems',
+      }[tableName];
+      if (tableState) {
+        const [key] = bindings;
+        const row = (this.state[tableState] || []).find((entry) => entry[keyColumn] === key);
+        return row ? { id: row.id, owner_user_id: row[ownerColumn] ?? null } : null;
+      }
     }
 
     throw new Error(`Unsupported query in test harness: ${query}`);

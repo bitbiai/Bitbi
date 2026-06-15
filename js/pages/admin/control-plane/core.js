@@ -9,6 +9,7 @@ export const CONTROL_SECTIONS = new Set([
     'ai-budget-switches',
     'lifecycle',
     'operations',
+    'object-storage',
     'tenant-assets',
     'readiness',
     'settings',

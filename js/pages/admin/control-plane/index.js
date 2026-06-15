@@ -12,6 +12,7 @@ import {
     apiAdminDataLifecycleArchives,
     apiAdminDataLifecycleRequests,
     apiAdminOrganizations,
+    apiAdminR2Buckets,
     apiAdminTenantAssetManualReviewEvidence,
 } from '../../../shared/auth-api.js?v=__ASSET_VERSION__';
 import {
@@ -44,6 +45,9 @@ import {
     createOperationsDomain,
 } from './operations.js?v=__ASSET_VERSION__';
 import {
+    createObjectStorageDomain,
+} from './object-storage.js?v=__ASSET_VERSION__';
+import {
     createReadinessDomain,
 } from './readiness-domain.js?v=__ASSET_VERSION__';
 import {
@@ -62,6 +66,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
     const aiBudgetDomain = createAiBudgetDomain(domainContext);
     const lifecycleDomain = createLifecycleDomain(domainContext);
     const tenantAssetsDomain = createTenantAssetsDomain(domainContext);
+    const objectStorageDomain = createObjectStorageDomain(domainContext);
     const operationsDomain = createOperationsDomain({
         ...domainContext,
         loadTenantAssetManualReviewQueue: tenantAssetsDomain.loadTenantAssetManualReviewQueue,
@@ -88,6 +93,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             capabilityProbe('Data lifecycle', () => apiAdminDataLifecycleRequests({ limit: 1 })),
             capabilityProbe('Export archives', () => apiAdminDataLifecycleArchives({ limit: 1 })),
             capabilityProbe('Tenant asset manual review', () => apiAdminTenantAssetManualReviewEvidence({ limit: 1, includeItems: false })),
+            capabilityProbe('R2 Object Storage', () => apiAdminR2Buckets()),
         ]);
         renderAdminWorkbench(probes);
 
@@ -151,6 +157,13 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 cta: 'Open queue',
             },
             {
+                title: 'R2 Object Storage',
+                badge: { label: probes[9].status, variant: probes[9].variant },
+                copy: 'Browse and manage configured Worker-bound R2 buckets with Admin/MFA, idempotency, audit logging, and app-managed object safeguards.',
+                href: '#object-storage',
+                cta: 'Open drive',
+            },
+            {
                 title: 'Operational Readiness',
                 badge: { label: 'Production blocked', variant: 'disabled' },
                 copy: 'Release preflight is green, but live Cloudflare validation, migration verification, and main-only operator evidence remain deployment prerequisites.',
@@ -180,6 +193,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         lifecycleDomain.bind();
         operationsDomain.bind();
         tenantAssetsDomain.bind();
+        objectStorageDomain.bind();
     }
 
     async function load(sectionName) {
@@ -210,6 +224,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         if (sectionName === 'ai-budget-switches') await aiBudgetDomain.loadAiBudgetSwitchesPanel();
         if (sectionName === 'lifecycle') await lifecycleDomain.loadLifecycle();
         if (sectionName === 'operations') await operationsDomain.loadOperations();
+        if (sectionName === 'object-storage') await objectStorageDomain.loadObjectStorage();
         if (sectionName === 'tenant-assets') await tenantAssetsDomain.renderTenantAssets();
     }
 
