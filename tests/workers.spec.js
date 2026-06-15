@@ -45758,6 +45758,176 @@ test.describe('Worker routes', () => {
     expect(serialized).not.toContain(sourceAsset.r2_key);
   });
 
+  test('admin homepage hero manual upload stores a raw poster fallback when Images is unavailable', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('hero-upload-raw-fallback-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      ENABLE_HOMEPAGE_HERO_MANUAL_UPLOADS: 'true',
+      IMAGES: {},
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const posterBytes = Buffer.from([
+      0x52, 0x49, 0x46, 0x46, 0x0c, 0x00, 0x00, 0x00,
+      0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20,
+      0x00, 0x00, 0x00, 0x00,
+    ]);
+    const form = new FormData();
+    form.append('title', 'Raw Fallback Poster Source');
+    form.append('operator_reason', 'Testing raw poster fallback storage.');
+    form.append('aspect_ratio', '16:9');
+    form.append('poster_time_seconds', '7.2');
+    form.append('video', new Blob([Buffer.from('mock-video-source')], { type: 'video/mp4' }), 'hero-source.mp4');
+    form.append('poster', new Blob([posterBytes], { type: 'image/webp' }), 'hero-source-poster.webp');
+
+    const uploadRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/admin/homepage/hero-videos/uploads', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+          'Idempotency-Key': 'homepage-hero-upload-raw-fallback',
+        },
+        body: form,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(uploadRes.status).toBe(201);
+    const uploaded = await uploadRes.json();
+    expect(uploaded.data.poster_warning).toBeNull();
+    expect(uploaded.data.candidate).toMatchObject({
+      source_type: 'admin_asset',
+      title: 'Raw Fallback Poster Source',
+      poster_status: 'ready',
+      poster_retryable: false,
+      poster_url: expect.stringMatching(/^\/api\/ai\/text-assets\/[a-f0-9]+\/poster$/),
+    });
+
+    const sourceAsset = env.DB.state.aiTextAssets.find((row) => row.id === uploaded.data.candidate.source_asset_id);
+    expect(sourceAsset.poster_r2_key).toMatch(new RegExp(`^users/${admin.id}/derivatives/v1/${sourceAsset.id}/poster\\.webp$`));
+    expect(sourceAsset.poster_width).toBeNull();
+    expect(sourceAsset.poster_height).toBeNull();
+    expect(sourceAsset.poster_size_bytes).toBe(posterBytes.byteLength);
+    const storedPoster = env.USER_IMAGES.objects.get(sourceAsset.poster_r2_key);
+    expect(storedPoster.httpMetadata.contentType).toBe('image/webp');
+    expect(Buffer.compare(Buffer.from(storedPoster.body), posterBytes)).toBe(0);
+    expect(JSON.parse(sourceAsset.metadata_json).homepage_hero_source).toMatchObject({
+      is_manual_upload: true,
+      display_aspect_ratio: '16:9',
+      poster_time_seconds: 7.2,
+      poster_status: 'ready',
+      poster_retryable: false,
+    });
+
+    const assetsRes = await authWorker.fetch(
+      authJsonRequest('/api/ai/assets?limit=10', 'GET', undefined, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(assetsRes.status).toBe(200);
+    const assets = await assetsRes.json();
+    const saved = assets.data.assets.find((asset) => asset.id === sourceAsset.id);
+    expect(saved).toMatchObject({
+      asset_type: 'video',
+      poster_status: 'ready',
+      poster_url: `/api/ai/text-assets/${sourceAsset.id}/poster`,
+    });
+  });
+
+  test('admin homepage hero manual upload falls back to raw poster storage when Images transform fails', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('hero-upload-transform-fallback-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      ENABLE_HOMEPAGE_HERO_MANUAL_UPLOADS: 'true',
+      imagesBinding: { failResponseWith: new Error('Cloudflare Images transform unavailable') },
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const posterBytes = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0x00, 0x00, 0x00, 0x0d,
+    ]);
+    const form = new FormData();
+    form.append('title', 'Transform Fallback Poster Source');
+    form.append('operator_reason', 'Testing poster fallback after transform failure.');
+    form.append('poster_time_seconds', '2.5');
+    form.append('video', new Blob([Buffer.from('mock-video-source')], { type: 'video/mp4' }), 'hero-source.mp4');
+    form.append('poster', new Blob([posterBytes], { type: 'image/png' }), 'hero-source-poster.png');
+
+    const uploadRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/admin/homepage/hero-videos/uploads', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+          'Idempotency-Key': 'homepage-hero-upload-transform-fallback',
+        },
+        body: form,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(uploadRes.status).toBe(201);
+    const uploaded = await uploadRes.json();
+    expect(uploaded.data.poster_warning).toBeNull();
+    const sourceAsset = env.DB.state.aiTextAssets.find((row) => row.id === uploaded.data.candidate.source_asset_id);
+    expect(sourceAsset.poster_r2_key).toMatch(new RegExp(`^users/${admin.id}/derivatives/v1/${sourceAsset.id}/poster\\.png$`));
+    expect(sourceAsset.poster_size_bytes).toBe(posterBytes.byteLength);
+    expect(env.USER_IMAGES.objects.get(sourceAsset.poster_r2_key).httpMetadata.contentType).toBe('image/png');
+    expect(uploaded.data.candidate).toMatchObject({
+      poster_status: 'ready',
+      poster_retryable: false,
+      poster_url: `/api/ai/text-assets/${sourceAsset.id}/poster`,
+    });
+  });
+
+  test('admin homepage hero manual upload reports poster failure when raw fallback bytes are invalid', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const admin = createAdminUser('hero-upload-invalid-poster-admin');
+    const env = createAuthTestEnv({
+      users: [admin],
+      ENABLE_HOMEPAGE_HERO_MANUAL_UPLOADS: 'true',
+      IMAGES: {},
+    });
+    const adminToken = await seedSession(env, admin.id);
+    const form = new FormData();
+    form.append('title', 'Invalid Poster Source');
+    form.append('operator_reason', 'Testing invalid poster fallback rejection.');
+    form.append('poster_time_seconds', '4');
+    form.append('video', new Blob([Buffer.from('mock-video-source')], { type: 'video/mp4' }), 'hero-source.mp4');
+    form.append('poster', new Blob([Buffer.from('not-an-image')], { type: 'image/webp' }), 'hero-source-poster.webp');
+
+    const uploadRes = await authWorker.fetch(
+      new Request('https://bitbi.ai/api/admin/homepage/hero-videos/uploads', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://bitbi.ai',
+          Cookie: `bitbi_session=${adminToken}`,
+          'Idempotency-Key': 'homepage-hero-upload-invalid-raw-poster',
+        },
+        body: form,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(uploadRes.status).toBe(201);
+    const uploaded = await uploadRes.json();
+    expect(uploaded.data.poster_warning).toContain('Poster preview could not be saved');
+    expect(uploaded.data.candidate).toMatchObject({
+      poster_url: null,
+      poster_status: 'failed',
+      poster_retryable: true,
+      poster_error_code: 'poster_processing_failed',
+    });
+    const sourceAsset = env.DB.state.aiTextAssets.find((row) => row.id === uploaded.data.candidate.source_asset_id);
+    expect(sourceAsset.poster_r2_key).toBeNull();
+    expect(env.USER_IMAGES.objects.size).toBe(1);
+  });
+
   test('admin homepage hero manual upload without poster records retryable poster state in saved assets', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const admin = createAdminUser('hero-upload-pending-admin');

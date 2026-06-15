@@ -355,6 +355,45 @@ function extensionForPosterMimeType(mimeType) {
   return "webp";
 }
 
+function detectPosterMimeTypeFromBytes(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength < 4) return null;
+  if (
+    bytes[0] === 0x89
+    && bytes[1] === 0x50
+    && bytes[2] === 0x4e
+    && bytes[3] === 0x47
+  ) {
+    return "image/png";
+  }
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    bytes.byteLength >= 12
+    && bytes[0] === 0x52
+    && bytes[1] === 0x49
+    && bytes[2] === 0x46
+    && bytes[3] === 0x46
+    && bytes[8] === 0x57
+    && bytes[9] === 0x45
+    && bytes[10] === 0x42
+    && bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+function buildPosterRawFallbackSuccessEvent(successEvent) {
+  const event = String(successEvent || "poster_saved");
+  if (event.endsWith("_saved")) return `${event.slice(0, -"_saved".length)}_raw_fallback_saved`;
+  return `${event}_raw_fallback`;
+}
+
+function buildPosterRawFallbackKey({ userId, assetId, mimeType }) {
+  return `users/${userId}/derivatives/v1/${assetId}/poster.${extensionForPosterMimeType(mimeType)}`;
+}
+
 async function r2ObjectToUint8Array(object) {
   if (!object) return null;
   if (typeof object.arrayBuffer === "function") {
@@ -839,6 +878,7 @@ export async function saveGeneratedVideoAsset(env, {
   mimeType,
   payload = {},
   posterBytes = null,
+  posterMimeType = null,
 }) {
   const safeTitle = cleanInlineText(title).slice(0, 120) || "Generated Video";
   const now = nowIso();
@@ -999,6 +1039,7 @@ export async function saveGeneratedVideoAsset(env, {
       userId,
       assetId,
       posterBytes: posterBytes instanceof Uint8Array ? posterBytes : new Uint8Array(posterBytes),
+      fallbackMimeType: posterMimeType,
       successEvent: "video_poster_saved",
       failureEvent: "video_poster_save_failed",
     })
@@ -1272,13 +1313,110 @@ async function processAiTextAssetPosterBytes(env, {
   userId,
   assetId,
   posterBytes,
+  fallbackMimeType = null,
   successEvent,
   failureEvent,
   propagateQuotaErrors = false,
   maxInputBytes = POSTER_MAX_BYTES,
 }) {
+  const normalizedFallbackMimeType = normalizePosterMimeType(fallbackMimeType);
+  const detectedFallbackMimeType = detectPosterMimeTypeFromBytes(posterBytes);
+  const rawFallbackMimeType = detectedFallbackMimeType;
+
+  async function storeRawFallback(reason, error = null) {
+    if (!rawFallbackMimeType) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-text-assets",
+        event: failureEvent,
+        level: "warn",
+        asset_id: assetId,
+        user_id: userId,
+        failure_reason: reason,
+        poster_storage_path: "raw_fallback_rejected",
+        ...(error ? getErrorFields(error) : {}),
+      });
+      return null;
+    }
+
+    if (
+      detectedFallbackMimeType
+      && normalizedFallbackMimeType
+      && detectedFallbackMimeType !== normalizedFallbackMimeType
+    ) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-text-assets",
+        event: failureEvent,
+        level: "warn",
+        asset_id: assetId,
+        user_id: userId,
+        failure_reason: "poster_mime_type_mismatch",
+        declared_mime_type: normalizedFallbackMimeType,
+        detected_mime_type: detectedFallbackMimeType,
+        poster_storage_path: "raw_fallback_rejected",
+      });
+      return null;
+    }
+
+    let result = null;
+    try {
+      result = await storeAiTextAssetPosterObject(env, {
+        userId,
+        assetId,
+        r2Key: buildPosterRawFallbackKey({ userId, assetId, mimeType: rawFallbackMimeType }),
+        posterBytes,
+        mimeType: rawFallbackMimeType,
+        width: null,
+        height: null,
+        successEvent: buildPosterRawFallbackSuccessEvent(successEvent),
+        failureEvent,
+        propagateQuotaErrors,
+      });
+    } catch (fallbackError) {
+      if (isAssetStorageQuotaError(fallbackError) && propagateQuotaErrors) throw fallbackError;
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-text-assets",
+        event: failureEvent,
+        level: "warn",
+        asset_id: assetId,
+        user_id: userId,
+        failure_reason: "raw_fallback_storage_failed",
+        poster_storage_path: "raw_fallback_failed",
+        ...getErrorFields(fallbackError),
+      });
+      return null;
+    }
+
+    if (result) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-text-assets",
+        event: "poster_raw_fallback_used",
+        asset_id: assetId,
+        user_id: userId,
+        failure_reason: reason,
+        mime_type: rawFallbackMimeType,
+        poster_size_bytes: posterBytes.byteLength,
+        ...(error ? getErrorFields(error) : {}),
+      });
+    }
+
+    return result;
+  }
+
   try {
     if (posterBytes.byteLength === 0 || posterBytes.byteLength > maxInputBytes) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-text-assets",
+        event: failureEvent,
+        level: "warn",
+        asset_id: assetId,
+        user_id: userId,
+        failure_reason: posterBytes.byteLength === 0 ? "poster_empty" : "poster_too_large",
+      });
       return null;
     }
 
@@ -1287,29 +1425,34 @@ async function processAiTextAssetPosterBytes(env, {
       typeof env.IMAGES.input !== "function" ||
       typeof env.IMAGES.info !== "function"
     ) {
-      return null;
+      return storeRawFallback("images_binding_unavailable");
     }
 
     let originalInfo;
     try {
       originalInfo = await env.IMAGES.info(posterBytes);
-    } catch {
-      return null;
+    } catch (error) {
+      return storeRawFallback("images_info_failed", error);
     }
     if (!originalInfo?.width || !originalInfo?.height) {
-      return null;
+      return storeRawFallback("images_info_missing_dimensions");
     }
 
-    const transformResult = await env.IMAGES.input(posterBytes)
-      .transform({
-        width: POSTER_MAX_WIDTH,
-        height: POSTER_MAX_HEIGHT,
-        fit: "scale-down",
-      })
-      .output({
-        format: POSTER_FORMAT,
-        quality: POSTER_QUALITY,
-      });
+    let transformResult;
+    try {
+      transformResult = await env.IMAGES.input(posterBytes)
+        .transform({
+          width: POSTER_MAX_WIDTH,
+          height: POSTER_MAX_HEIGHT,
+          fit: "scale-down",
+        })
+        .output({
+          format: POSTER_FORMAT,
+          quality: POSTER_QUALITY,
+        });
+    } catch (error) {
+      return storeRawFallback("images_transform_failed", error);
+    }
 
     let response;
     if (typeof transformResult.response === "function") {
@@ -1325,17 +1468,17 @@ async function processAiTextAssetPosterBytes(env, {
         headers: { "content-type": contentType },
       });
     } else {
-      return null;
+      return storeRawFallback("images_output_shape_unsupported");
     }
 
     const buffer = await response.arrayBuffer();
     if (!buffer || !buffer.byteLength) {
-      return null;
+      return storeRawFallback("images_output_empty");
     }
 
     const outputBytes = new Uint8Array(buffer);
     if (outputBytes.byteLength > POSTER_MAX_BYTES) {
-      return null;
+      return storeRawFallback("images_output_too_large");
     }
 
     let outputInfo;
@@ -1368,6 +1511,8 @@ async function processAiTextAssetPosterBytes(env, {
     });
   } catch (error) {
     if (isAssetStorageQuotaError(error) && propagateQuotaErrors) throw error;
+    const fallback = await storeRawFallback("poster_processing_unexpected_error", error);
+    if (fallback) return fallback;
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-text-assets",

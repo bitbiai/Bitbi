@@ -305,15 +305,17 @@ export function createManualHeroVideoUploadController({
             return;
         }
         const data = res.data?.data || {};
-        if (data.poster_warning) {
-            showToast?.(data.poster_warning, 'warning');
-        }
         if (typeof onUploadSuccess === 'function') {
             await onUploadSuccess(data);
         }
         reset();
-        setStatus(successStatus, 'success');
-        showToast?.(successToast, 'success');
+        if (data.poster_warning) {
+            setStatus(data.poster_warning, 'warning');
+            showToast?.(data.poster_warning, 'warning');
+        } else {
+            setStatus(successStatus, 'success');
+            showToast?.(successToast, 'success');
+        }
         render();
     }
 

@@ -983,6 +983,7 @@ async function persistVideoResult({ env, userId, input, providerResult, elapsedM
   });
 
   let posterBytes = null;
+  let posterMimeType = null;
   const posterUrl = extractProviderPosterUrl(providerResult);
   if (posterUrl) {
     try {
@@ -992,6 +993,7 @@ async function persistVideoResult({ env, userId, input, providerResult, elapsedM
         label: "poster",
       });
       posterBytes = posterAsset.body;
+      posterMimeType = posterAsset.contentType;
     } catch (error) {
       logDiagnostic({
         service: "bitbi-auth",
@@ -1012,6 +1014,7 @@ async function persistVideoResult({ env, userId, input, providerResult, elapsedM
     videoBytes: videoAsset.body,
     mimeType: videoAsset.contentType,
     posterBytes,
+    posterMimeType,
     payload: {
       prompt: input.prompt,
       model: {

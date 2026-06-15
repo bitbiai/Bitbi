@@ -2102,9 +2102,10 @@ async function handleAdminUploadSource(ctx) {
 
   const poster = formData.get("poster");
   let posterBytes = null;
+  let posterMimeType = null;
   let posterWarning = null;
   if (poster && typeof poster.arrayBuffer === "function" && Number(poster.size || 0) > 0) {
-    const posterMimeType = normalizeSourcePosterMimeType(poster.type);
+    posterMimeType = normalizeSourcePosterMimeType(poster.type);
     if (!posterMimeType) {
       return json({ ok: false, error: "Unsupported hero source poster type.", code: "unsupported_poster_type" }, { status: 415 });
     }
@@ -2176,6 +2177,7 @@ async function handleAdminUploadSource(ctx) {
         },
       },
       posterBytes,
+      posterMimeType,
     });
     const asset = await findSourceAsset(env, "admin_asset", saved.id, result.user.id);
     if (!asset?.r2_key) {
@@ -2225,7 +2227,11 @@ async function handleAdminUploadSource(ctx) {
       existing: false,
       data: {
         candidate: toAdminAssetCandidate(asset, result.user.id),
-        poster_warning: asset.poster_r2_key ? null : posterWarning || "Poster preview is pending. Retry poster generation or complete a derivative conversion before relying on this source in Admin asset views.",
+        poster_warning: asset.poster_r2_key
+          ? null
+          : (posterBytes?.byteLength
+            ? "Poster preview could not be saved. Retry poster generation before relying on this source in Admin asset views."
+            : posterWarning || "Poster preview is pending. Retry poster generation or complete a derivative conversion before relying on this source in Admin asset views."),
       },
     }, { status: 201 });
   } catch (error) {
