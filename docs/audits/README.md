@@ -80,6 +80,7 @@ These files are not current source of truth. They may mention older migration nu
 | `docs/audits/archive/root-phase-reports/PHASE1_COMPLETION_HANDOFF.md`, `docs/audits/archive/root-phase-reports/PHASE2A_ENTRYPOINT.md` | Historical handoffs. |
 | dated `docs/production-readiness/evidence/operator-live-evidence-*/` packages | Historical/operator evidence snapshots unless a future package is explicitly promoted into the active runbook list. |
 | `docs/production-readiness/evidence/bitbi-5000-credit-pack-evidence/` | Historical/staged credit-pack canary evidence; not proof of repaired fulfillment until follow-up operator evidence shows the exact grant once. |
+| `docs/audits/tenant-asset-center-live-cleanup/*.md` | Generated Tenant Asset Center/D1/R2 live-inventory reports; evidence-only snapshots, not active current runtime truth. |
 
 ## Superseded Or Stale Context
 
