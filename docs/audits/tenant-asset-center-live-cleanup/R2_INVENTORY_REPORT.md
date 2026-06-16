@@ -1,6 +1,6 @@
 # R2 Inventory Report
 
-Generated: 2026-06-16T19:02:46.369Z
+Generated: 2026-06-16T20:48:37.842Z
 
 ## Repo Bindings
 
@@ -23,11 +23,19 @@ Generated: 2026-06-16T19:02:46.369Z
 
 ## Full Bucket Listing Status
 
-Full object enumeration through local credentials is **not available**.
+Full object enumeration through local S3-compatible R2 credentials is **not available**.
 
 Credential presence check (values never printed): `{"CLOUDFLARE_ACCOUNT_ID":false,"CF_ACCOUNT_ID":false,"R2_ACCOUNT_ID":false,"R2_ACCESS_KEY_ID":false,"R2_SECRET_ACCESS_KEY":false,"AWS_ACCESS_KEY_ID":false,"AWS_SECRET_ACCESS_KEY":false,"CLOUDFLARE_API_TOKEN":false}`
 
-Because the local environment has no R2 S3/API credentials and Wrangler exposes no object-list command, this run inventories D1-referenced keys plus bounded existence checks only. Destructive cleanup is blocked until full bucket listing evidence or an authenticated Admin R2 export is available.
+Requested buckets: `bitbi-user-images`, `bitbi-private-media`, `bitbi-audit-archive`, `bitbi-public-media`
+
+| Bucket | Status | Objects | Bytes | Pages | HEAD attempted | HEAD failed | Error |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| - | - | - | - | - | - | - | - |
+
+Raw object manifests and HEAD metadata are stored only in `.local/operator-evidence/tenant-asset-live-cleanup-20260616T204837Z/r2-full-inventory`.
+
+Destructive cleanup remains disabled in this package. Full inventory is used for proof and later-candidate classification only.
 
 ## D1-Referenced R2 Categories
 
@@ -44,6 +52,14 @@ Unique D1-referenced R2 objects: **453**
 
 ## Bounded R2 Existence Check
 
-- Checked: 60
+- Checked: 0
 - Missing among checked: 0
-- Unchecked remaining due to limit: 393
+- Unchecked remaining due to limit: 453
+
+## Full Inventory Relationship Summary
+
+- Full R2 inventory objects listed: 0
+- D1 references found in full R2 inventory: 0
+- D1 references missing from full R2 inventory: 0
+- D1 references not checked because a bucket did not list successfully: 453
+- Full R2 objects without a D1 reference: 0

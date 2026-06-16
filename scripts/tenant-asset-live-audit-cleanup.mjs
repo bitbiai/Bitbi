@@ -12,6 +12,11 @@ const CONFIRMATION_PHRASE = "DELETE ONLY UNASSIGNABLE TENANT ASSET LEGACY DATA";
 const REPORT_DIR = "docs/audits/tenant-asset-center-live-cleanup";
 const MAX_REF_ROWS_PER_COLUMN = 20000;
 const DEFAULT_R2_CHECK_LIMIT = 60;
+const DEFAULT_R2_HEAD_CONCURRENCY = 8;
+const MAX_R2_HEAD_CONCURRENCY = 32;
+const DEFAULT_R2_HEAD_LIMIT = 10000;
+const MAX_R2_HEAD_LIMIT = 100000;
+const DEFAULT_R2_LIST_TIMEOUT_MS = 60000;
 const PRIOR_TEST_EMAILS = Object.freeze(["ziegenbart@bk.ru", "sanctum@kiandex.com"]);
 const PRIOR_TEST_USER_IDS = Object.freeze([
   "86f0add4-8dbc-46a5-ac5d-0a3d8cf6ae2b",
@@ -71,6 +76,12 @@ Options:
   --dry-run                      Inventory and plan only.
   --confirm <phrase>             Required for --execute. Exact phrase: ${CONFIRMATION_PHRASE}
   --remote                       Use remote Cloudflare D1/R2. Default: true.
+  --skip-r2-full-listing         Skip S3-compatible full R2 bucket enumeration.
+  --r2-list-buckets <names>      Comma-separated bucket name override. Default: BITBI buckets.
+  --r2-head-metadata <bool>      Collect bounded HEAD metadata for listed objects. Default true.
+  --r2-head-concurrency <n>      Concurrent R2 HEAD requests. Default ${DEFAULT_R2_HEAD_CONCURRENCY}, cap ${MAX_R2_HEAD_CONCURRENCY}.
+  --r2-head-limit <n>            Max listed objects to HEAD. Default ${DEFAULT_R2_HEAD_LIMIT}, cap ${MAX_R2_HEAD_LIMIT}.
+  --r2-list-timeout-ms <n>       Timeout per S3 list/head request. Default ${DEFAULT_R2_LIST_TIMEOUT_MS}.
   --skip-r2-existence-check      Do not read D1-referenced R2 objects to /dev/null.
   --r2-check-limit <n>           Max D1-referenced R2 keys to existence-check. Default ${DEFAULT_R2_CHECK_LIMIT}.
   --limit <n>                    Max rows per r2-key column inventory. Default ${MAX_REF_ROWS_PER_COLUMN}.
@@ -96,6 +107,12 @@ function parseArgs(argv) {
     execute: false,
     confirm: "",
     remote: true,
+    skipR2FullListing: false,
+    r2ListBuckets: null,
+    r2HeadMetadata: true,
+    r2HeadConcurrency: DEFAULT_R2_HEAD_CONCURRENCY,
+    r2HeadLimit: DEFAULT_R2_HEAD_LIMIT,
+    r2ListTimeoutMs: DEFAULT_R2_LIST_TIMEOUT_MS,
     skipR2ExistenceCheck: false,
     r2CheckLimit: DEFAULT_R2_CHECK_LIMIT,
     limit: MAX_REF_ROWS_PER_COLUMN,
@@ -110,12 +127,22 @@ function parseArgs(argv) {
     else if (arg === "--dry-run") options.execute = false;
     else if (arg === "--execute") options.execute = true;
     else if (arg === "--remote") options.remote = true;
+    else if (arg === "--skip-r2-full-listing") options.skipR2FullListing = true;
     else if (arg === "--skip-r2-existence-check") options.skipR2ExistenceCheck = true;
     else if (arg === "--json-report") options.jsonReport = true;
     else if (arg === "--evidence-dir") options.evidenceDir = argv[++index];
     else if (arg === "--protected-allowlist") options.protectedAllowlistPath = argv[++index];
     else if (arg === "--confirm") options.confirm = argv[++index] || "";
     else if (arg === "--backup-r2-candidates") options.backupR2Candidates = parseBoolean(argv[++index], true);
+    else if (arg === "--r2-list-buckets") options.r2ListBuckets = parseBucketList(argv[++index]);
+    else if (arg === "--r2-head-metadata") {
+      const next = argv[index + 1];
+      options.r2HeadMetadata = next && !next.startsWith("--") ? parseBoolean(argv[++index], true) : true;
+    }
+    else if (arg === "--no-r2-head-metadata") options.r2HeadMetadata = false;
+    else if (arg === "--r2-head-concurrency") options.r2HeadConcurrency = parseCappedInteger(argv[++index], "--r2-head-concurrency", 1, MAX_R2_HEAD_CONCURRENCY);
+    else if (arg === "--r2-head-limit") options.r2HeadLimit = parseCappedInteger(argv[++index], "--r2-head-limit", 0, MAX_R2_HEAD_LIMIT);
+    else if (arg === "--r2-list-timeout-ms") options.r2ListTimeoutMs = parseCappedInteger(argv[++index], "--r2-list-timeout-ms", 5000, 300000);
     else if (arg === "--r2-check-limit") options.r2CheckLimit = parseNonNegativeInteger(argv[++index], "--r2-check-limit");
     else if (arg === "--limit") options.limit = parseNonNegativeInteger(argv[++index], "--limit");
     else if (arg === "--batch-size") options.batchSize = parseNonNegativeInteger(argv[++index], "--batch-size");
@@ -130,9 +157,30 @@ function parseArgs(argv) {
   return options;
 }
 
+function parseBucketList(value) {
+  const buckets = String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (!buckets.length) throw new Error("--r2-list-buckets must include at least one bucket name.");
+  for (const bucket of buckets) {
+    if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) {
+      throw new Error(`Invalid R2 bucket name in --r2-list-buckets: ${bucket}`);
+    }
+  }
+  return Array.from(new Set(buckets));
+}
+
 function parseNonNegativeInteger(value, flag) {
   const parsed = Number.parseInt(String(value || ""), 10);
   if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`${flag} must be a non-negative integer.`);
+  return parsed;
+}
+
+function parseCappedInteger(value, flag, min, max) {
+  const parsed = parseNonNegativeInteger(value, flag);
+  if (parsed < min) throw new Error(`${flag} must be at least ${min}.`);
+  if (parsed > max) throw new Error(`${flag} is capped at ${max}.`);
   return parsed;
 }
 
@@ -312,6 +360,416 @@ function localR2CredentialStatus() {
   return Object.fromEntries(names.map((name) => [name, Boolean(process.env[name])]));
 }
 
+function resolveR2S3Credentials() {
+  const accountId = process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID || "";
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || "";
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || "";
+  return {
+    accountId,
+    accessKeyId,
+    secretAccessKey,
+    present: Boolean(accountId && accessKeyId && secretAccessKey),
+  };
+}
+
+function sanitizeCredentialText(value, credentials = resolveR2S3Credentials()) {
+  let text = String(value || "");
+  for (const secret of [credentials.accountId, credentials.accessKeyId, credentials.secretAccessKey].filter(Boolean)) {
+    text = text.split(secret).join("[redacted-r2-credential]");
+  }
+  return text;
+}
+
+function classifyR2HttpError(status, bodyText = "") {
+  const code = extractXmlTag(bodyText, "Code") || "";
+  if (status === 401 || status === 403 || /AccessDenied|InvalidAccessKeyId|SignatureDoesNotMatch/i.test(code)) return "r2_auth_or_permission_error";
+  if (status === 404 || /NoSuchBucket|NoSuchKey/i.test(code)) return "r2_not_found";
+  if (status === 429 || status >= 500) return "r2_transient_or_rate_limited";
+  return code ? `r2_${code}` : `r2_http_${status}`;
+}
+
+function encodeRfc3986(value) {
+  return encodeURIComponent(String(value))
+    .replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function encodePath(value) {
+  return String(value || "")
+    .split("/")
+    .map((segment) => encodeRfc3986(segment))
+    .join("/");
+}
+
+function hmac(key, value, encoding = undefined) {
+  return crypto.createHmac("sha256", key).update(value).digest(encoding);
+}
+
+function sigV4Date(date = new Date()) {
+  const iso = date.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  return { amzDate: iso, dateStamp: iso.slice(0, 8) };
+}
+
+function canonicalQuery(params) {
+  return Array.from(params.entries())
+    .sort(([aKey, aValue], [bKey, bValue]) => aKey === bKey ? String(aValue).localeCompare(String(bValue)) : aKey.localeCompare(bKey))
+    .map(([key, value]) => `${encodeRfc3986(key)}=${encodeRfc3986(value)}`)
+    .join("&");
+}
+
+function signR2S3Request({ method, bucketName, key = "", query = {}, credentials, now = new Date() }) {
+  const region = "auto";
+  const service = "s3";
+  const { amzDate, dateStamp } = sigV4Date(now);
+  const host = `${credentials.accountId}.r2.cloudflarestorage.com`;
+  const canonicalUri = key ? `/${encodeRfc3986(bucketName)}/${encodePath(key)}` : `/${encodeRfc3986(bucketName)}`;
+  const params = new URLSearchParams();
+  for (const [name, value] of Object.entries(query || {})) {
+    if (value !== undefined && value !== null && value !== "") params.append(name, String(value));
+  }
+  const queryString = canonicalQuery(params);
+  const payloadHash = "UNSIGNED-PAYLOAD";
+  const headers = {
+    host,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": amzDate,
+  };
+  const signedHeaders = Object.keys(headers).sort().join(";");
+  const canonicalHeaders = Object.keys(headers)
+    .sort()
+    .map((name) => `${name}:${headers[name]}\n`)
+    .join("");
+  const canonicalRequest = [
+    method.toUpperCase(),
+    canonicalUri,
+    queryString,
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    crypto.createHash("sha256").update(canonicalRequest).digest("hex"),
+  ].join("\n");
+  const dateKey = hmac(`AWS4${credentials.secretAccessKey}`, dateStamp);
+  const regionKey = hmac(dateKey, region);
+  const serviceKey = hmac(regionKey, service);
+  const signingKey = hmac(serviceKey, "aws4_request");
+  const signature = hmac(signingKey, stringToSign, "hex");
+  const authorization = `AWS4-HMAC-SHA256 Credential=${credentials.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const url = `https://${host}${canonicalUri}${queryString ? `?${queryString}` : ""}`;
+  return {
+    url,
+    headers: {
+      "authorization": authorization,
+      "x-amz-content-sha256": payloadHash,
+      "x-amz-date": amzDate,
+    },
+  };
+}
+
+async function fetchR2S3({ method, bucketName, key = "", query = {}, credentials, timeoutMs }) {
+  if (typeof fetch !== "function") throw new Error("Node fetch API is unavailable.");
+  const request = signR2S3Request({ method, bucketName, key, query, credentials });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(request.url, {
+      method,
+      headers: request.headers,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function decodeXmlText(value) {
+  return String(value || "")
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#([0-9]+);/g, (_, decimal) => String.fromCodePoint(Number.parseInt(decimal, 10)));
+}
+
+function extractXmlTag(xml, tag) {
+  const match = String(xml || "").match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
+  return match ? decodeXmlText(match[1].trim()) : "";
+}
+
+function parseListObjectsV2Xml(xml) {
+  const text = String(xml || "");
+  const contents = [];
+  for (const match of text.matchAll(/<Contents>([\s\S]*?)<\/Contents>/gi)) {
+    const block = match[1];
+    const key = extractXmlTag(block, "Key");
+    if (!key) continue;
+    contents.push({
+      key,
+      lastModified: extractXmlTag(block, "LastModified") || null,
+      etag: extractXmlTag(block, "ETag").replace(/^"|"$/g, "") || null,
+      size: Number(extractXmlTag(block, "Size") || 0),
+      storageClass: extractXmlTag(block, "StorageClass") || null,
+    });
+  }
+  return {
+    isTruncated: /^true$/i.test(extractXmlTag(text, "IsTruncated")),
+    nextContinuationToken: extractXmlTag(text, "NextContinuationToken") || "",
+    contents,
+  };
+}
+
+function headerValue(headers, name) {
+  return headers.get(name) || headers.get(name.toLowerCase()) || null;
+}
+
+function safeContentMetadataFromHeaders(headers) {
+  return {
+    contentType: headerValue(headers, "content-type"),
+    contentLength: Number(headerValue(headers, "content-length") || 0),
+    cacheControl: headerValue(headers, "cache-control"),
+    contentDisposition: headerValue(headers, "content-disposition"),
+    etag: String(headerValue(headers, "etag") || "").replace(/^"|"$/g, "") || null,
+    lastModified: headerValue(headers, "last-modified"),
+  };
+}
+
+async function listR2BucketObjects(bucketName, options, credentials) {
+  const objects = [];
+  const errors = [];
+  let continuationToken = "";
+  let page = 0;
+  while (true) {
+    page += 1;
+    let response;
+    try {
+      response = await fetchR2S3({
+        method: "GET",
+        bucketName,
+        query: {
+          "list-type": "2",
+          "max-keys": "1000",
+          ...(continuationToken ? { "continuation-token": continuationToken } : {}),
+        },
+        credentials,
+        timeoutMs: options.r2ListTimeoutMs,
+      });
+    } catch (error) {
+      errors.push({
+        bucketName,
+        operation: "list",
+        page,
+        errorClass: error?.name === "AbortError" ? "r2_request_timeout" : "r2_network_error",
+        message: sanitizeCredentialText(error?.message || String(error), credentials).slice(0, 300),
+      });
+      break;
+    }
+    const bodyText = await response.text();
+    if (!response.ok) {
+      errors.push({
+        bucketName,
+        operation: "list",
+        page,
+        status: response.status,
+        errorClass: classifyR2HttpError(response.status, bodyText),
+        code: extractXmlTag(bodyText, "Code") || null,
+        message: sanitizeCredentialText(extractXmlTag(bodyText, "Message") || bodyText, credentials).slice(0, 300),
+      });
+      break;
+    }
+    const parsed = parseListObjectsV2Xml(bodyText);
+    objects.push(...parsed.contents);
+    if (!parsed.isTruncated) {
+      return {
+        ok: true,
+        bucketName,
+        listedAt: new Date().toISOString(),
+        pages: page,
+        truncated: false,
+        objectCount: objects.length,
+        totalBytes: objects.reduce((sum, object) => sum + Number(object.size || 0), 0),
+        objects,
+        errors,
+      };
+    }
+    if (!parsed.nextContinuationToken) {
+      errors.push({
+        bucketName,
+        operation: "list",
+        page,
+        errorClass: "r2_missing_continuation_token",
+        message: "ListObjectsV2 returned IsTruncated=true without NextContinuationToken.",
+      });
+      break;
+    }
+    continuationToken = parsed.nextContinuationToken;
+  }
+  return {
+    ok: false,
+    bucketName,
+    listedAt: new Date().toISOString(),
+    pages: page,
+    truncated: true,
+    objectCount: objects.length,
+    totalBytes: objects.reduce((sum, object) => sum + Number(object.size || 0), 0),
+    objects,
+    errors,
+  };
+}
+
+async function mapConcurrent(items, limit, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (nextIndex < items.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      results[current] = await mapper(items[current], current);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function headR2Objects(bucketName, objects, options, credentials) {
+  const selected = objects.slice(0, options.r2HeadLimit);
+  const results = await mapConcurrent(selected, options.r2HeadConcurrency, async (object) => {
+    try {
+      const response = await fetchR2S3({
+        method: "HEAD",
+        bucketName,
+        key: object.key,
+        credentials,
+        timeoutMs: options.r2ListTimeoutMs,
+      });
+      if (!response.ok) {
+        return {
+          key: object.key,
+          ok: false,
+          status: response.status,
+          errorClass: classifyR2HttpError(response.status, ""),
+        };
+      }
+      return {
+        key: object.key,
+        ok: true,
+        ...safeContentMetadataFromHeaders(response.headers),
+      };
+    } catch (error) {
+      return {
+        key: object.key,
+        ok: false,
+        errorClass: error?.name === "AbortError" ? "r2_request_timeout" : "r2_network_error",
+        message: sanitizeCredentialText(error?.message || String(error), credentials).slice(0, 300),
+      };
+    }
+  });
+  return {
+    bucketName,
+    requested: objects.length,
+    attempted: selected.length,
+    skippedDueToLimit: Math.max(0, objects.length - selected.length),
+    succeeded: results.filter((item) => item.ok).length,
+    failed: results.filter((item) => !item.ok).length,
+    results,
+  };
+}
+
+function defaultR2ListBuckets() {
+  return Array.from(new Set(Object.values(R2_BUCKETS).map((entry) => entry.bucketName)));
+}
+
+async function collectFullR2Inventory(options, evidenceDir, bucketList) {
+  const outputDir = path.join(evidenceDir, "r2-full-inventory");
+  ensureDir(outputDir);
+  const credentials = resolveR2S3Credentials();
+  const credentialStatus = localR2CredentialStatus();
+  const summary = {
+    generatedAt: new Date().toISOString(),
+    skipped: Boolean(options.skipR2FullListing),
+    credentialsPresent: credentialStatus,
+    endpoint: credentials.accountId ? "https://[redacted-account].r2.cloudflarestorage.com" : null,
+    bucketsRequested: options.r2ListBuckets || defaultR2ListBuckets(),
+    buckets: [],
+    totalObjects: 0,
+    totalBytes: 0,
+    allRequestedBucketsListed: false,
+    headMetadataEnabled: options.r2HeadMetadata,
+    headLimit: options.r2HeadLimit,
+    headConcurrency: options.r2HeadConcurrency,
+  };
+  const errors = [];
+  if (options.skipR2FullListing) {
+    errors.push({ operation: "full_inventory", errorClass: "operator_requested_skip" });
+    writeJson(path.join(outputDir, "summary.json"), summary);
+    writeJson(path.join(outputDir, "errors.json"), errors);
+    return { available: false, complete: false, skipped: true, summary, errors, inventories: {}, headMetadata: {} };
+  }
+  if (!credentials.present) {
+    errors.push({ operation: "full_inventory", errorClass: "missing_r2_s3_credentials" });
+    writeJson(path.join(outputDir, "summary.json"), summary);
+    writeJson(path.join(outputDir, "errors.json"), errors);
+    return { available: false, complete: false, skipped: false, summary, errors, inventories: {}, headMetadata: {} };
+  }
+  const bucketsRequested = options.r2ListBuckets || defaultR2ListBuckets();
+  const inventories = {};
+  const headMetadata = {};
+  for (const bucketName of bucketsRequested) {
+    const inventory = await listR2BucketObjects(bucketName, options, credentials);
+    inventories[bucketName] = inventory;
+    writeJson(path.join(outputDir, `${bucketName}.json`), inventory);
+    summary.buckets.push({
+      bucketName,
+      ok: inventory.ok,
+      objectCount: inventory.objectCount,
+      totalBytes: inventory.totalBytes,
+      pages: inventory.pages,
+      truncated: inventory.truncated,
+      errorClass: inventory.errors?.[0]?.errorClass || null,
+    });
+    summary.totalObjects += inventory.objectCount;
+    summary.totalBytes += inventory.totalBytes;
+    errors.push(...(inventory.errors || []));
+    if (inventory.ok && options.r2HeadMetadata && inventory.objects.length) {
+      const metadata = await headR2Objects(bucketName, inventory.objects, options, credentials);
+      headMetadata[bucketName] = metadata;
+      writeJson(path.join(outputDir, `${bucketName}-head-metadata.json`), metadata);
+      summary.buckets[summary.buckets.length - 1].headAttempted = metadata.attempted;
+      summary.buckets[summary.buckets.length - 1].headSucceeded = metadata.succeeded;
+      summary.buckets[summary.buckets.length - 1].headFailed = metadata.failed;
+      summary.buckets[summary.buckets.length - 1].headSkippedDueToLimit = metadata.skippedDueToLimit;
+      errors.push(...metadata.results.filter((item) => !item.ok).slice(0, 1000).map((item) => ({
+        bucketName,
+        operation: "head",
+        keyHash: sha256Hex(item.key),
+        keyRedacted: redactedKey(item.key),
+        errorClass: item.errorClass,
+        status: item.status || null,
+      })));
+    }
+  }
+  summary.allRequestedBucketsListed = summary.buckets.length > 0 && summary.buckets.every((bucket) => bucket.ok);
+  writeJson(path.join(outputDir, "summary.json"), summary);
+  writeJson(path.join(outputDir, "errors.json"), errors);
+  return {
+    available: summary.buckets.some((bucket) => bucket.ok),
+    complete: summary.allRequestedBucketsListed,
+    skipped: false,
+    summary,
+    errors,
+    inventories,
+    headMetadata,
+    outputDir,
+  };
+}
+
 function loadReleaseLatest() {
   const release = JSON.parse(fs.readFileSync("config/release-compat.json", "utf8"));
   return release?.release?.schemaCheckpoints?.auth?.latest || "unknown";
@@ -425,15 +883,90 @@ async function loadSchema(options) {
   );
   const tables = sqliteRows.filter((row) => row.type === "table" && !SKIP_TABLES.has(row.name)).map((row) => row.name);
   const schema = { sqliteMaster: sqliteRows, tables: {} };
+  const indexesByTable = new Map();
+  for (const row of sqliteRows.filter((entry) => entry.type === "index")) {
+    if (!indexesByTable.has(row.tbl_name)) indexesByTable.set(row.tbl_name, []);
+    indexesByTable.get(row.tbl_name).push({ name: row.name, unique: /\bUNIQUE\b/i.test(row.sql || "") ? 1 : 0, origin: "sqlite_master" });
+  }
   for (const table of tables) {
+    const tableSql = sqliteRows.find((row) => row.type === "table" && row.name === table)?.sql || "";
     schema.tables[table] = {
-      columns: queryD1(`PRAGMA table_info(${quoteIdent(table)})`, options),
-      indexes: queryD1(`PRAGMA index_list(${quoteIdent(table)})`, options),
-      foreignKeys: queryD1(`PRAGMA foreign_key_list(${quoteIdent(table)})`, options),
-      sql: sqliteRows.find((row) => row.type === "table" && row.name === table)?.sql || "",
+      columns: parseCreateTableColumns(tableSql),
+      indexes: indexesByTable.get(table) || [],
+      foreignKeys: parseCreateTableForeignKeyCount(tableSql),
+      sql: tableSql,
     };
   }
   return schema;
+}
+
+function splitSqlDefinitionList(body) {
+  const parts = [];
+  let current = "";
+  let depth = 0;
+  let quote = null;
+  for (let index = 0; index < body.length; index += 1) {
+    const character = body[index];
+    if (quote) {
+      current += character;
+      if (character === quote && body[index + 1] === quote) {
+        current += body[index + 1];
+        index += 1;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+      current += character;
+      continue;
+    }
+    if (character === "(") depth += 1;
+    if (character === ")") depth = Math.max(0, depth - 1);
+    if (character === "," && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+function parseCreateTableColumns(sql) {
+  const match = String(sql || "").match(/\(([\s\S]*)\)\s*$/);
+  if (!match) return [];
+  return splitSqlDefinitionList(match[1])
+    .map((definition, cid) => {
+      const trimmed = definition.trim();
+      if (/^(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT|KEY)\b/i.test(trimmed)) return null;
+      const nameMatch = trimmed.match(/^"([^"]+)"|^`([^`]+)`|^\[([^\]]+)\]|^([A-Za-z_][A-Za-z0-9_]*)/);
+      const name = nameMatch?.[1] || nameMatch?.[2] || nameMatch?.[3] || nameMatch?.[4] || "";
+      if (!name) return null;
+      const rest = trimmed.slice(nameMatch[0].length).trim();
+      const typeMatch = rest.match(/^([A-Za-z0-9_()]+)/);
+      return {
+        cid,
+        name,
+        type: typeMatch?.[1] || "",
+        notnull: /\bNOT\s+NULL\b/i.test(rest) ? 1 : 0,
+        dflt_value: extractDefaultValue(rest),
+        pk: /\bPRIMARY\s+KEY\b/i.test(rest) ? 1 : 0,
+      };
+    })
+    .filter(Boolean);
+}
+
+function extractDefaultValue(definitionRest) {
+  const match = String(definitionRest || "").match(/\bDEFAULT\s+((?:'[^']*')|(?:"[^"]*")|(?:\([^)]*\))|[^\s,]+)/i);
+  return match ? match[1] : null;
+}
+
+function parseCreateTableForeignKeyCount(sql) {
+  const count = (String(sql || "").match(/\bFOREIGN\s+KEY\b/gi) || []).length;
+  return Array.from({ length: count }, (_, id) => ({ id }));
 }
 
 function identifySchemaColumns(schema) {
@@ -790,17 +1323,30 @@ function buildDeletePlan(classifiedRefs, relationship, gates) {
   const plan = {
     dryRun: true,
     executeEligible: false,
-    reason: "execution_blocked_until_full_r2_inventory_and_candidate_backup_are_available",
+    reason: "execution_blocked_read_only_full_inventory_task",
     d1MutationsPlanned: [],
     r2BackupPlanned: [],
-    r2DeleteCandidates: candidates.map((ref) => ({
+    r2DeleteCandidates: [
+      ...candidates.map((ref) => ({
       bucket: ref.bucket,
       keyHash: sha256Hex(ref.key || ""),
       keyRedacted: redactedKey(ref.key || ""),
       category: ref.category,
       table: ref.table,
       column: ref.column,
+      source: "d1_reference_classification",
     })),
+      ...((relationship.fullR2Analysis?.unreferencedDeleteCandidates || []).map((item) => ({
+        bucket: item.bucketName,
+        keyHash: item.keyHash,
+        keyRedacted: item.keyRedacted,
+        category: item.classification,
+        table: "-",
+        column: "-",
+        source: "full_r2_inventory_unreferenced_object",
+        size: item.size,
+      }))),
+    ],
     blockedCandidates: blocked.map((ref) => ({
       bucket: ref.bucket,
       keyHash: ref.key ? sha256Hex(ref.key) : null,
@@ -817,6 +1363,8 @@ function buildDeletePlan(classifiedRefs, relationship, gates) {
       r2ReferencedObjects: relationship.uniqueR2ReferenceCount,
       missingCheckedObjects: relationship.r2Verification?.missing?.length || 0,
       uncheckedRemaining: relationship.r2Verification?.uncheckedRemaining || 0,
+      d1ReferencedMissingFromFullInventory: relationship.fullR2Analysis?.d1ReferenceMissing?.length || 0,
+      fullR2UnreferencedObjects: relationship.fullR2Analysis?.unreferencedObjects?.length || 0,
     },
   };
   return plan;
@@ -913,6 +1461,16 @@ function renderR2InventoryReport(context) {
     Object.values(R2_BUCKETS).some((entry) => entry.bucketName === bucket && entry.repoBound !== false) ? "repo-bound" : "dashboard-visible / not bound",
   ]);
   const categoryRows = Object.entries(context.r2CategoryCounts).sort().map(([category, count]) => [category, count]);
+  const fullRows = (context.fullR2Inventory?.summary?.buckets || []).map((bucket) => [
+    bucket.bucketName,
+    bucket.ok ? "listed" : "failed",
+    bucket.objectCount,
+    bytesLabel(bucket.totalBytes),
+    bucket.pages,
+    bucket.headAttempted ?? "-",
+    bucket.headFailed ?? "-",
+    bucket.errorClass || "-",
+  ]);
   return `# R2 Inventory Report
 
 Generated: ${context.generatedAt}
@@ -929,11 +1487,17 @@ ${markdownTable(["Bucket", "Repo status"], liveRows)}
 
 ## Full Bucket Listing Status
 
-Full object enumeration through local credentials is **${context.fullR2ListingAvailable ? "available" : "not available"}**.
+Full object enumeration through local S3-compatible R2 credentials is **${context.fullR2ListingAvailable ? "available" : "not available"}**.
 
 Credential presence check (values never printed): \`${JSON.stringify(context.r2CredentialStatus)}\`
 
-Because the local environment has no R2 S3/API credentials and Wrangler exposes no object-list command, this run inventories D1-referenced keys plus bounded existence checks only. Destructive cleanup is blocked until full bucket listing evidence or an authenticated Admin R2 export is available.
+Requested buckets: \`${(context.fullR2Inventory?.summary?.bucketsRequested || []).join("`, `") || "-"}\`
+
+${markdownTable(["Bucket", "Status", "Objects", "Bytes", "Pages", "HEAD attempted", "HEAD failed", "Error"], fullRows)}
+
+Raw object manifests and HEAD metadata are stored only in \`${context.fullR2Inventory?.outputDir || path.join(context.evidenceDir, "r2-full-inventory")}\`.
+
+Destructive cleanup remains disabled in this package. Full inventory is used for proof and later-candidate classification only.
 
 ## D1-Referenced R2 Categories
 
@@ -946,28 +1510,55 @@ ${markdownTable(["Category", "References"], categoryRows)}
 - Checked: ${context.r2Verification.checked?.filter((item) => item.checked).length || 0}
 - Missing among checked: ${context.r2Verification.missing?.length || 0}
 - Unchecked remaining due to limit: ${context.r2Verification.uncheckedRemaining || 0}
+
+## Full Inventory Relationship Summary
+
+- Full R2 inventory objects listed: ${context.fullR2Analysis?.inventoryObjectCount || 0}
+- D1 references found in full R2 inventory: ${context.fullR2Analysis?.d1ReferenceExisting?.length || 0}
+- D1 references missing from full R2 inventory: ${context.fullR2Analysis?.d1ReferenceMissing?.length || 0}
+- D1 references not checked because a bucket did not list successfully: ${context.fullR2Analysis?.d1ReferenceUnknown?.length || 0}
+- Full R2 objects without a D1 reference: ${context.fullR2Analysis?.unreferencedObjects?.length || 0}
 `;
 }
 
 function renderR2PrefixReport(context) {
+  const fullPrefixRows = Object.entries(context.fullR2Analysis?.unreferencedPrefixCounts || {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 80)
+    .map(([prefix, count]) => [prefix, count]);
   const prefixRows = Object.entries(context.r2PrefixCounts).sort((a, b) => b[1] - a[1]).map(([prefix, count]) => [prefix, count]);
   return `# R2 Prefix And Bucket Structure Report
 
 Generated: ${context.generatedAt}
 
-This report is built from D1-referenced keys only unless full bucket listing is available.
+This report summarizes D1-referenced key families and, when full R2 listing is available, unreferenced bucket/prefix families. Raw object keys are local-only evidence.
+
+## D1-Referenced Prefix Families
 
 ${markdownTable(["Prefix family", "D1 references"], prefixRows)}
+
+## Full R2 Unreferenced Prefix Families
+
+${markdownTable(["Bucket / prefix family", "Unreferenced objects"], fullPrefixRows)}
 `;
 }
 
 function renderRelationshipReport(context) {
-  const rows = context.r2Verification.missing?.slice(0, 50).map((item) => [
+  const boundedRows = context.r2Verification.missing?.slice(0, 50).map((item) => [
     item.bucket,
     item.keyRedacted,
     item.references.map((ref) => `${ref.table}.${ref.column}`).join(", "),
     item.errorClass || "missing",
   ]) || [];
+  const fullMissingRows = (context.fullR2Analysis?.d1ReferenceMissing || []).slice(0, 80).map((item) => [
+    item.bucketName,
+    item.keyRedacted,
+    item.references.map((ref) => `${ref.table}.${ref.column}`).join(", "),
+    item.reason,
+  ]);
+  const unreferencedRows = Object.entries(context.fullR2Analysis?.unreferencedCategoryCounts || {})
+    .sort()
+    .map(([category, count]) => [category, count]);
   return `# D1 / R2 / Website Relationship Matrix
 
 Generated: ${context.generatedAt}
@@ -979,17 +1570,30 @@ Generated: ${context.generatedAt}
 - Protected-account references: ${context.r2Refs.filter((ref) => String(ref.category || "").startsWith("protected_")).length}
 - Public media counts: \`${JSON.stringify(context.publicMediaSummary)}\`
 - Missing checked objects: ${context.r2Verification.missing?.length || 0}
+- D1 references missing in full R2 inventory: ${context.fullR2Analysis?.d1ReferenceMissing?.length || 0}
+- R2 objects without D1 references: ${context.fullR2Analysis?.unreferencedObjects?.length || 0}
+- R2 later delete candidates from full inventory: ${context.fullR2Analysis?.unreferencedDeleteCandidates?.length || 0}
+
+## Full R2 Inventory Comparison
+
+${markdownTable(["Classification", "Count"], unreferencedRows)}
+
+## D1 References Missing From Full R2 Inventory
+
+${markdownTable(["Bucket", "Key", "Referenced by", "Evidence"], fullMissingRows)}
 
 ## Missing Checked Objects
 
-${markdownTable(["Bucket", "Key", "Referenced by", "Evidence"], rows)}
+${markdownTable(["Bucket", "Key", "Referenced by", "Evidence"], boundedRows)}
 
 Rows and object keys in raw form are stored only in local evidence.
 `;
 }
 
 function renderBrokenMediaReport(context) {
-  const missing = context.r2Verification.missing || [];
+  const missing = (context.fullR2Analysis?.d1ReferenceMissing?.length
+    ? context.fullR2Analysis.d1ReferenceMissing
+    : context.r2Verification.missing) || [];
   const publicIssues = [];
   const publicSummary = context.publicMediaSummary || {};
   if (Number(publicSummary.mempics?.missing_derivatives || 0) > 0) publicIssues.push(["Mempics", publicSummary.mempics.missing_derivatives, "public image derivative missing in D1 fields"]);
@@ -1005,12 +1609,12 @@ ${markdownTable(["Domain", "Count", "Finding"], publicIssues)}
 
 ## R2 Existence Findings
 
-Checked D1-referenced R2 objects with missing result: **${missing.length}**.
+D1-referenced R2 objects with missing result: **${missing.length}**.
 
 ${markdownTable(
     ["Bucket", "Key", "Category", "References"],
     missing.slice(0, 80).map((item) => [
-      item.bucket,
+      item.bucketName || item.bucket,
       item.keyRedacted,
       (item.categories || []).join(", ") || "-",
       item.references.map((ref) => `${ref.table}.${ref.column}`).join(", "),
@@ -1040,17 +1644,26 @@ ${markdownTable(["User", "Images", "Text/media", "Known D1 bytes", "Recorded byt
 
 function renderClassificationReport(context) {
   const rows = Object.entries(context.r2CategoryCounts).sort().map(([category, count]) => [category, count]);
+  const unreferencedRows = Object.entries(context.fullR2Analysis?.unreferencedCategoryCounts || {})
+    .sort()
+    .map(([category, count]) => [category, count]);
   return `# Legacy Classification Report
 
 Generated: ${context.generatedAt}
 
 Classification is conservative. Legacy alone does not mean delete; unassignable proof is required.
 
+## D1-Referenced Object Classification
+
 ${markdownTable(["Classification", "Reference count"], rows)}
+
+## Full R2 Unreferenced Object Classification
+
+${markdownTable(["Classification", "Object count"], unreferencedRows)}
 
 ## Current Safety Decision
 
-Execution is blocked in this run because full R2 bucket enumeration is unavailable. D1-referenced protected data is kept. Unknown or deleted-user references are retained as blockers, not deleted.
+Execution remains blocked because this task is a read-only full-inventory pass. D1-referenced protected data is kept. Unknown, audit/export, public-bucket, and protected-owner objects are retained as blockers/keeps, not deleted.
 `;
 }
 
@@ -1058,6 +1671,7 @@ function renderDeleteCandidatesReport(context) {
   const candidates = context.cleanupPlan.r2DeleteCandidates || [];
   const blocked = context.cleanupPlan.blockedCandidates || [];
   const blockedCounts = summarizeBy(blocked, (item) => item.category);
+  const fullInventoryCandidateCounts = summarizeBy(context.fullR2Analysis?.unreferencedDeleteCandidates || [], (item) => item.classification);
   return `# Delete Candidates Report
 
 Generated: ${context.generatedAt}
@@ -1068,13 +1682,19 @@ Cleanup execution eligible: **${context.cleanupPlan.executeEligible ? "yes" : "n
 
 Reason: ${context.cleanupPlan.reason}
 
+No deletion was executed. These are candidate classifications for a later explicit cleanup task only.
+
+## Candidate Counts From Full R2 Inventory
+
+${markdownTable(["Category", "Count"], Object.entries(fullInventoryCandidateCounts).sort().map(([category, count]) => [category, count]))}
+
 ## R2 Delete Candidates
 
-${markdownTable(["Bucket", "Key", "Category", "D1 source"], candidates.map((item) => [
+${markdownTable(["Bucket", "Key", "Category", "Source"], candidates.map((item) => [
     item.bucket,
     item.keyRedacted,
     item.category,
-    `${item.table}.${item.column}`,
+    item.source || `${item.table}.${item.column}`,
   ]))}
 
 ## Blocked / Retained Candidates
@@ -1091,6 +1711,65 @@ ${markdownTable(["Bucket", "Key", "Category", "Reason"], blocked.slice(0, 40).ma
     item.category,
     item.reason,
   ]))}
+`;
+}
+
+function renderFullR2RedactedReport(context) {
+  const bucketRows = (context.fullR2Inventory?.summary?.buckets || []).map((bucket) => [
+    bucket.bucketName,
+    bucket.ok ? "listed" : "failed",
+    bucket.objectCount,
+    bytesLabel(bucket.totalBytes),
+    bucket.pages,
+    bucket.headAttempted ?? "-",
+    bucket.headSucceeded ?? "-",
+    bucket.headFailed ?? "-",
+    bucket.errorClass || "-",
+  ]);
+  const categoryRows = Object.entries(context.fullR2Analysis?.unreferencedCategoryCounts || {})
+    .sort()
+    .map(([category, count]) => [category, count]);
+  const candidateRows = (context.fullR2Analysis?.unreferencedDeleteCandidates || []).slice(0, 80).map((item) => [
+    item.bucketName,
+    item.keyRedacted,
+    item.classification,
+    bytesLabel(item.size),
+    item.prefixFamily,
+  ]);
+  const blockedRows = (context.fullR2Analysis?.unreferencedBlockedOrKept || []).slice(0, 80).map((item) => [
+    item.bucketName,
+    item.keyRedacted,
+    item.classification,
+    item.reason,
+  ]);
+  return `# Full R2 Object Inventory Redacted Report
+
+Generated: ${context.generatedAt}
+
+Raw full object keys, ETags, and HEAD metadata are stored only in local evidence under \`${context.fullR2Inventory?.outputDir || path.join(context.evidenceDir, "r2-full-inventory")}\`.
+
+## Bucket Listing Summary
+
+${markdownTable(["Bucket", "Status", "Objects", "Bytes", "Pages", "HEAD attempted", "HEAD ok", "HEAD failed", "Error"], bucketRows)}
+
+## D1 / Full R2 Comparison
+
+- D1-referenced objects present in listed R2 inventory: ${context.fullR2Analysis?.d1ReferenceExisting?.length || 0}
+- D1-referenced objects missing in listed R2 inventory: ${context.fullR2Analysis?.d1ReferenceMissing?.length || 0}
+- D1 references not checked because a bucket did not list successfully: ${context.fullR2Analysis?.d1ReferenceUnknown?.length || 0}
+- R2 objects without D1 references: ${context.fullR2Analysis?.unreferencedObjects?.length || 0}
+
+## Unreferenced Object Classifications
+
+${markdownTable(["Classification", "Object count"], categoryRows)}
+
+## Later Delete Candidate Samples
+
+${markdownTable(["Bucket", "Key", "Classification", "Size", "Prefix family"], candidateRows)}
+
+## Kept / Blocked Unreferenced Samples
+
+${markdownTable(["Bucket", "Key", "Classification", "Reason"], blockedRows)}
 `;
 }
 
@@ -1149,25 +1828,41 @@ No D1 or R2 mutation was executed by this audit package, so protected accounts w
 }
 
 function renderFinalSummary(context) {
+  const bucketSummary = (context.fullR2Inventory?.summary?.buckets || []).map((bucket) => (
+    `- ${bucket.bucketName}: ${bucket.ok ? `${bucket.objectCount} objects / ${bytesLabel(bucket.totalBytes)}` : `not listed (${bucket.errorClass || "no error detail"})`}`
+  ));
   return `# Tenant Asset Center Live Cleanup Final Summary
 
 Generated: ${context.generatedAt}
 
 ## Result
 
-This run produced a live D1 inventory, D1-referenced R2 relationship inventory, bounded R2 existence checks, classifications, and a cleanup dry-run plan.
+This run produced a live D1 inventory, full S3-compatible R2 object inventory when credentials were available, D1/R2 relationship comparisons, classifications, and a cleanup dry-run plan.
 
 No cleanup was executed.
 
+## Full R2 Listing Status
+
+Full R2 listing available: **${context.fullR2ListingAvailable ? "yes" : "no"}**.
+
+${context.fullR2ListingAvailable
+    ? bucketSummary.join("\n")
+    : "The Codex command environment did not expose the required R2 S3-compatible credential variables. Values were never printed. The run failed closed and did not perform object deletion or D1 mutation."}
+
 ## Why Execution Was Blocked
 
-Full R2 bucket enumeration is required before deleting unassignable legacy media. The local environment can list bucket names with Wrangler, but does not expose an R2 object-list/head command and has no S3/API credentials available. Therefore, unknown bucket objects cannot be proven safe or unsafe, and deletion is blocked.
+This package is currently a read-only full-inventory pass. Deletion/apply mode remains intentionally blocked until a separate explicit cleanup task validates backup and apply behavior.
 
 ## Counts
 
 - D1 tables inventoried: ${Object.keys(context.schema.tables).length}
 - D1 R2 references collected: ${context.r2Refs.length}
 - Unique D1-referenced R2 objects: ${context.uniqueR2ReferenceCount}
+- Full R2 inventory objects listed: ${context.fullR2Analysis?.inventoryObjectCount || 0}
+- Full R2 inventory bytes listed: ${bytesLabel(context.fullR2Inventory?.summary?.totalBytes || 0)}
+- D1 references missing from full R2 inventory: ${context.fullR2Analysis?.d1ReferenceMissing?.length || 0}
+- R2 objects without D1 references: ${context.fullR2Analysis?.unreferencedObjects?.length || 0}
+- Later delete candidates from full inventory: ${context.fullR2Analysis?.unreferencedDeleteCandidates?.length || 0}
 - R2 objects checked by bounded get: ${context.r2Verification.checked?.filter((item) => item.checked).length || 0}
 - Missing checked objects: ${context.r2Verification.missing?.length || 0}
 - D1 mutations executed: 0
@@ -1175,12 +1870,9 @@ Full R2 bucket enumeration is required before deleting unassignable legacy media
 
 ## Next Safe Step
 
-Provide full R2 inventory evidence through either:
-
-1. temporary local S3-compatible R2 inventory credentials in environment variables only, or
-2. an authenticated Admin R2 Drive export that lists every object in the bound buckets,
-
-then re-run this package and execute only candidates that remain proven unassignable.
+${context.fullR2ListingAvailable
+    ? "Review the full-inventory reports and local raw evidence. A later cleanup task may implement backup/apply behavior for candidates that remain proven unassignable, but this run made no D1 or R2 mutations."
+    : "Run the same dry-run from a shell/process where `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` are visible to Node. Do not paste the values into the repo or reports. This run made no D1 or R2 mutations."}
 `;
 }
 
@@ -1219,6 +1911,7 @@ function renderReports(context) {
     "STORAGE_ACCOUNTING_RECONCILIATION_REPORT.md": renderStorageReport(context),
     "LEGACY_CLASSIFICATION_REPORT.md": renderClassificationReport(context),
     "DELETE_CANDIDATES_REPORT.md": renderDeleteCandidatesReport(context),
+    "FULL_R2_OBJECT_INVENTORY_REDACTED.md": renderFullR2RedactedReport(context),
     "KEEP_AND_REPAIR_CANDIDATES_REPORT.md": renderKeepRepairReport(context),
     "POST_CLEANUP_VERIFICATION_REPORT.md": renderPostCleanupReport(context),
     "PROTECTED_ACCOUNTS_UNCHANGED_REPORT.md": renderProtectedReport(context),
@@ -1241,15 +1934,154 @@ function prefixFamily(key) {
   return parts[0] || "root";
 }
 
+function bytesLabel(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let amount = bytes / 1024;
+  let unitIndex = 0;
+  while (amount >= 1024 && unitIndex < units.length - 1) {
+    amount /= 1024;
+    unitIndex += 1;
+  }
+  return `${amount.toFixed(amount >= 10 ? 1 : 2)} ${units[unitIndex]}`;
+}
+
+function buildR2InventoryObjectMap(fullInventory) {
+  const map = new Map();
+  for (const [bucketName, inventory] of Object.entries(fullInventory?.inventories || {})) {
+    if (!inventory?.ok) continue;
+    for (const object of inventory.objects || []) {
+      map.set(`${bucketName}\0${object.key}`, { bucketName, ...object });
+    }
+  }
+  return map;
+}
+
+function classifyUnreferencedR2Object({ bucketName, object, protectedUserIds }) {
+  const key = String(object.key || "");
+  const family = prefixFamily(key);
+  const protectedMatch = Array.from(protectedUserIds || []).find((id) => key.includes(id));
+  if (protectedMatch) {
+    if (bucketName === R2_BUCKETS.PRIVATE_MEDIA.bucketName || key.startsWith(`avatars/${protectedMatch}`)) {
+      return { classification: "protected_user_avatar", reason: "object key contains a protected owner id" };
+    }
+    if (key.includes("/derivatives/") || /\/(thumb|medium|derivative)[._/-]/i.test(key)) {
+      return { classification: "protected_user_derivative", reason: "object key contains a protected owner id and derivative signal" };
+    }
+    if (/poster/i.test(key)) return { classification: "protected_user_poster", reason: "object key contains a protected owner id and poster signal" };
+    return { classification: "protected_user_source_asset", reason: "object key contains a protected owner id" };
+  }
+  if (PRIOR_TEST_USER_IDS.some((id) => key.includes(id))) {
+    return { classification: "prior_test_account_residue_delete_candidate", reason: "object key contains an exact prior test user id" };
+  }
+  if (bucketName === R2_BUCKETS.AUDIT_ARCHIVE.bucketName || /^tenant-asset-cleanups\//.test(key) || /audit|evidence|export|archive/i.test(key)) {
+    return { classification: "audit_or_legal_retention_keep", reason: "audit/export/evidence retention signal" };
+  }
+  if (/news[-_/]?pulse/i.test(key)) return { classification: "news_pulse_asset", reason: "known platform news pulse prefix/signal" };
+  if (/homepage|hero[-_/]?video|hero/i.test(key)) {
+    return { classification: "protected_homepage_hero_asset_or_derivative", reason: "known homepage hero/platform asset signal" };
+  }
+  if (/tmp|temp|replay|cache/i.test(key)) {
+    const lastModified = Date.parse(object.lastModified || "");
+    const ageDays = Number.isFinite(lastModified) ? (Date.now() - lastModified) / (24 * 60 * 60 * 1000) : null;
+    if (ageDays != null && ageDays > 30) {
+      return { classification: "ai_usage_temp_or_replay_expired", reason: "unreferenced temp/replay/cache object older than 30 days" };
+    }
+    return { classification: "ai_usage_temp_or_replay_current", reason: "unreferenced temp/replay/cache object within review window or unknown age" };
+  }
+  if (bucketName === R2_BUCKETS.PUBLIC_MEDIA.bucketName) {
+    return { classification: "unknown_blocker_keep", reason: "dashboard-visible public bucket is not bound in Auth Worker and needs route/source review" };
+  }
+  if (bucketName === R2_BUCKETS.USER_IMAGES.bucketName && /^users\/[^/]+\//.test(key)) {
+    if (key.includes("/derivatives/") || /\/(thumb|medium|derivative)[._/-]/i.test(key)) {
+      return { classification: "orphaned_unreferenced_derivative", reason: "unreferenced USER_IMAGES derivative outside protected owner ids" };
+    }
+    return { classification: "orphaned_unreferenced_media", reason: "unreferenced USER_IMAGES object outside protected owner ids" };
+  }
+  if (bucketName === R2_BUCKETS.PRIVATE_MEDIA.bucketName && /^avatars\/[^/]+/.test(key)) {
+    return { classification: "orphaned_unreferenced_media", reason: "unreferenced PRIVATE_MEDIA avatar outside protected owner ids" };
+  }
+  return { classification: "unknown_blocker_keep", reason: `unreferenced object in ${family} has no provable owner/source signal` };
+}
+
+function analyzeFullR2Relationship({ r2Refs, fullR2Inventory, protectedUserIds }) {
+  const dedupedRefs = dedupeR2Refs(r2Refs);
+  const listedBucketNames = new Set(Object.entries(fullR2Inventory?.inventories || {})
+    .filter(([, inventory]) => inventory?.ok)
+    .map(([bucketName]) => bucketName));
+  const inventoryMap = buildR2InventoryObjectMap(fullR2Inventory);
+  const d1ReferenceKeys = new Set();
+  const d1ReferenceExisting = [];
+  const d1ReferenceMissing = [];
+  const d1ReferenceUnknown = [];
+  for (const ref of dedupedRefs) {
+    const bucketName = r2BucketName(ref.bucket);
+    const mapKey = `${bucketName}\0${ref.key}`;
+    d1ReferenceKeys.add(mapKey);
+    const entry = {
+      ...ref,
+      bucketName,
+      keyHash: sha256Hex(ref.key),
+      keyRedacted: redactedKey(ref.key),
+    };
+    if (!listedBucketNames.has(bucketName)) d1ReferenceUnknown.push({ ...entry, reason: "bucket_not_successfully_listed" });
+    else if (inventoryMap.has(mapKey)) d1ReferenceExisting.push(entry);
+    else d1ReferenceMissing.push({ ...entry, reason: "d1_reference_not_found_in_full_r2_inventory" });
+  }
+  const unreferencedObjects = [];
+  for (const [bucketName, inventory] of Object.entries(fullR2Inventory?.inventories || {})) {
+    if (!inventory?.ok) continue;
+    for (const object of inventory.objects || []) {
+      const mapKey = `${bucketName}\0${object.key}`;
+      if (d1ReferenceKeys.has(mapKey)) continue;
+      const classified = classifyUnreferencedR2Object({ bucketName, object, protectedUserIds });
+      unreferencedObjects.push({
+        bucketName,
+        key: object.key,
+        keyHash: sha256Hex(object.key),
+        keyRedacted: redactedKey(object.key),
+        size: Number(object.size || 0),
+        lastModified: object.lastModified || null,
+        prefixFamily: prefixFamily(object.key),
+        ...classified,
+      });
+    }
+  }
+  const deleteCategories = new Set([
+    "prior_test_account_residue_delete_candidate",
+    "orphaned_unreferenced_media",
+    "orphaned_unreferenced_derivative",
+    "ai_usage_temp_or_replay_expired",
+  ]);
+  return {
+    available: Boolean(fullR2Inventory?.available),
+    complete: Boolean(fullR2Inventory?.complete),
+    listedBucketNames: Array.from(listedBucketNames).sort(),
+    inventoryObjectCount: inventoryMap.size,
+    d1ReferenceExisting,
+    d1ReferenceMissing,
+    d1ReferenceUnknown,
+    unreferencedObjects,
+    unreferencedDeleteCandidates: unreferencedObjects.filter((item) => deleteCategories.has(item.classification)),
+    unreferencedBlockedOrKept: unreferencedObjects.filter((item) => !deleteCategories.has(item.classification)),
+    unreferencedCategoryCounts: summarizeBy(unreferencedObjects, (item) => item.classification),
+    unreferencedPrefixCounts: summarizeBy(unreferencedObjects, (item) => `${item.bucketName}:${item.prefixFamily}`),
+  };
+}
+
 function assertExecutionAllowed(context, options) {
   const blockers = [];
   if (context.users.active.length !== 3) blockers.push("protected_allowlist_not_exactly_three_active_users");
   if (context.users.priorTestRows.length > 0) blockers.push("prior_test_email_rows_still_present");
   if (!context.fullR2ListingAvailable) blockers.push("full_r2_listing_unavailable");
-  if (context.r2Verification.uncheckedRemaining > 0) blockers.push("r2_reference_check_limit_left_unchecked_objects");
+  if (!context.fullR2Inventory?.complete) blockers.push("full_r2_listing_not_complete_for_all_requested_buckets");
+  if (context.fullR2Analysis?.d1ReferenceMissing?.length > 0) blockers.push("d1_referenced_r2_objects_missing_from_full_inventory");
+  if (!context.fullR2ListingAvailable && context.r2Verification.uncheckedRemaining > 0) blockers.push("r2_reference_check_limit_left_unchecked_objects");
   if ((context.cleanupPlan.blockedCandidates || []).length > 0) blockers.push("blocked_or_unknown_candidates_present");
   if (!context.cleanupPlan.executeEligible) blockers.push("cleanup_plan_not_execute_eligible");
   if (options.backupR2Candidates && (context.cleanupPlan.r2DeleteCandidates || []).length > 0) blockers.push("r2_backup_not_implemented_without_full_inventory");
+  blockers.push("execution_disabled_for_read_only_full_inventory_task");
   return blockers;
 }
 
@@ -1272,11 +2104,6 @@ async function main() {
   const r2BucketList = listR2Buckets();
   commandsRun.push("npx wrangler r2 bucket list --config workers/auth/wrangler.jsonc");
   const r2CredentialStatus = localR2CredentialStatus();
-  const fullR2ListingAvailable = Boolean(
-    (r2CredentialStatus.R2_ACCESS_KEY_ID || r2CredentialStatus.AWS_ACCESS_KEY_ID)
-    && (r2CredentialStatus.R2_SECRET_ACCESS_KEY || r2CredentialStatus.AWS_SECRET_ACCESS_KEY)
-    && (r2CredentialStatus.CLOUDFLARE_ACCOUNT_ID || r2CredentialStatus.CF_ACCOUNT_ID || r2CredentialStatus.R2_ACCOUNT_ID)
-  );
 
   const exportPath = path.join(evidenceDir, "remote-d1-export.sql");
   const exportResult = exportD1(exportPath, options);
@@ -1299,7 +2126,28 @@ async function main() {
     category: ref.error ? "unknown_blocker_keep" : classifyReference(ref, { protectedUserIds, allUserIds, deletedUserIds }),
   }));
   const uniqueR2ReferenceCount = dedupeR2Refs(r2Refs).length;
-  const r2Verification = verifyR2References(r2Refs, options);
+  const fullR2Inventory = await collectFullR2Inventory(options, evidenceDir, r2BucketList);
+  commandsRun.push("S3 ListObjectsV2 full R2 inventory via signed HTTPS requests (credentials redacted)");
+  const fullR2ListingAvailable = Boolean(fullR2Inventory.available);
+  const fullR2Analysis = analyzeFullR2Relationship({ r2Refs, fullR2Inventory, protectedUserIds });
+  const shouldRunBoundedR2Fallback = !fullR2ListingAvailable && options.skipR2FullListing && !options.skipR2ExistenceCheck;
+  const r2Verification = fullR2ListingAvailable
+    ? {
+      skipped: true,
+      reason: "superseded_by_full_r2_inventory",
+      checked: [],
+      missing: [],
+      uncheckedRemaining: 0,
+    }
+    : shouldRunBoundedR2Fallback
+      ? verifyR2References(r2Refs, options)
+      : {
+        skipped: true,
+        reason: fullR2Inventory.skipped ? "operator_requested_skip" : "full_r2_inventory_unavailable_or_incomplete",
+        checked: [],
+        missing: [],
+        uncheckedRemaining: uniqueR2ReferenceCount,
+      };
   const storageAccounting = await collectStorageAccounting(schema, users, options);
   const publicMediaSummary = await collectPublicMediaSummary(schema, options);
   const r2CategoryCounts = summarizeBy(r2Refs, (ref) => ref.category);
@@ -1308,11 +2156,12 @@ async function main() {
     protectedAllowlistExactThree: users.active.length === 3,
     priorTestEmailsAbsent: users.priorTestRows.length === 0,
     fullR2ListingAvailable,
+    fullR2ListingComplete: Boolean(fullR2Inventory.complete),
     r2ReferenceExistenceCheckComplete: !r2Verification.uncheckedRemaining,
     noD1MutationInDryRun: true,
     noR2MutationInDryRun: true,
   };
-  const relationship = { uniqueR2ReferenceCount, r2Verification };
+  const relationship = { uniqueR2ReferenceCount, r2Verification, fullR2Analysis };
   const cleanupPlan = buildDeletePlan(r2Refs, relationship, gates);
 
   const context = {
@@ -1323,6 +2172,8 @@ async function main() {
     r2BucketList,
     r2CredentialStatus,
     fullR2ListingAvailable,
+    fullR2Inventory,
+    fullR2Analysis,
     schema,
     schemaColumns,
     rowCounts,
@@ -1363,6 +2214,7 @@ async function main() {
     row: redactRow(ref.row),
   })));
   writeJson(path.join(evidenceDir, "r2-verification.json"), r2Verification);
+  writeJson(path.join(evidenceDir, "full-r2-relationship-analysis.json"), fullR2Analysis);
   writeJson(path.join(evidenceDir, "storage-accounting.json"), storageAccounting);
   writeJson(path.join(evidenceDir, "public-media-summary.json"), publicMediaSummary);
   writeJson(path.join(evidenceDir, "cleanup-plan.json"), cleanupPlan);
@@ -1376,6 +2228,14 @@ async function main() {
     d1Tables: Object.keys(schema.tables).length,
     d1R2References: r2Refs.length,
     uniqueR2ReferenceCount,
+    fullR2ListingAvailable,
+    fullR2ListingComplete: Boolean(fullR2Inventory.complete),
+    fullR2Buckets: fullR2Inventory.summary?.buckets || [],
+    fullR2ObjectCount: fullR2Analysis.inventoryObjectCount || 0,
+    fullR2TotalBytes: fullR2Inventory.summary?.totalBytes || 0,
+    d1ReferencesMissingFromFullR2Inventory: fullR2Analysis.d1ReferenceMissing?.length || 0,
+    unreferencedR2Objects: fullR2Analysis.unreferencedObjects?.length || 0,
+    unreferencedR2DeleteCandidates: fullR2Analysis.unreferencedDeleteCandidates?.length || 0,
     r2Checked: r2Verification.checked?.filter((item) => item.checked).length || 0,
     r2MissingChecked: r2Verification.missing?.length || 0,
     executionRequested: options.execute,
@@ -1402,6 +2262,13 @@ async function main() {
     d1Tables: Object.keys(schema.tables).length,
     d1R2References: r2Refs.length,
     uniqueR2ReferenceCount,
+    fullR2ListingAvailable,
+    fullR2ListingComplete: Boolean(fullR2Inventory.complete),
+    fullR2ObjectCount: fullR2Analysis.inventoryObjectCount || 0,
+    fullR2TotalBytes: fullR2Inventory.summary?.totalBytes || 0,
+    d1ReferencesMissingFromFullR2Inventory: fullR2Analysis.d1ReferenceMissing?.length || 0,
+    unreferencedR2Objects: fullR2Analysis.unreferencedObjects?.length || 0,
+    unreferencedR2DeleteCandidates: fullR2Analysis.unreferencedDeleteCandidates?.length || 0,
     r2Checked: r2Verification.checked?.filter((item) => item.checked).length || 0,
     r2MissingChecked: r2Verification.missing?.length || 0,
     executionBlockers,

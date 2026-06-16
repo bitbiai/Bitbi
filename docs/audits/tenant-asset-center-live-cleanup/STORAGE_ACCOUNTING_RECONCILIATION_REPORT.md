@@ -1,6 +1,6 @@
 # Storage Accounting Reconciliation Report
 
-Generated: 2026-06-16T19:02:46.369Z
+Generated: 2026-06-16T20:48:37.842Z
 
 The report compares recorded `user_asset_storage_usage` bytes with current D1-known asset byte fields for the three protected accounts. It does not list full R2 buckets and does not mutate quota rows.
 

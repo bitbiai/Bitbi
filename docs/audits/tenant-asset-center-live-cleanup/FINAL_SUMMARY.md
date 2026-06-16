@@ -1,32 +1,38 @@
 # Tenant Asset Center Live Cleanup Final Summary
 
-Generated: 2026-06-16T19:02:46.369Z
+Generated: 2026-06-16T20:48:37.842Z
 
 ## Result
 
-This run produced a live D1 inventory, D1-referenced R2 relationship inventory, bounded R2 existence checks, classifications, and a cleanup dry-run plan.
+This run produced a live D1 inventory, full S3-compatible R2 object inventory when credentials were available, D1/R2 relationship comparisons, classifications, and a cleanup dry-run plan.
 
 No cleanup was executed.
 
+## Full R2 Listing Status
+
+Full R2 listing available: **no**.
+
+The Codex command environment did not expose the required R2 S3-compatible credential variables. Values were never printed. The run failed closed and did not perform object deletion or D1 mutation.
+
 ## Why Execution Was Blocked
 
-Full R2 bucket enumeration is required before deleting unassignable legacy media. The local environment can list bucket names with Wrangler, but does not expose an R2 object-list/head command and has no S3/API credentials available. Therefore, unknown bucket objects cannot be proven safe or unsafe, and deletion is blocked.
+This package is currently a read-only full-inventory pass. Deletion/apply mode remains intentionally blocked until a separate explicit cleanup task validates backup and apply behavior.
 
 ## Counts
 
 - D1 tables inventoried: 76
 - D1 R2 references collected: 583
 - Unique D1-referenced R2 objects: 453
-- R2 objects checked by bounded get: 60
+- Full R2 inventory objects listed: 0
+- Full R2 inventory bytes listed: 0 B
+- D1 references missing from full R2 inventory: 0
+- R2 objects without D1 references: 0
+- Later delete candidates from full inventory: 0
+- R2 objects checked by bounded get: 0
 - Missing checked objects: 0
 - D1 mutations executed: 0
 - R2 deletes executed: 0
 
 ## Next Safe Step
 
-Provide full R2 inventory evidence through either:
-
-1. temporary local S3-compatible R2 inventory credentials in environment variables only, or
-2. an authenticated Admin R2 Drive export that lists every object in the bound buckets,
-
-then re-run this package and execute only candidates that remain proven unassignable.
+Run the same dry-run from a shell/process where `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` are visible to Node. Do not paste the values into the repo or reports. This run made no D1 or R2 mutations.
