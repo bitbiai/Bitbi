@@ -1,8 +1,8 @@
 # Protected Accounts Unchanged Report
 
-Generated: 2026-06-16T20:48:37.842Z
+Generated: 2026-06-16T20:54:54.217Z
 
-Protected allowlist source: `.local/operator-evidence/tenant-asset-live-cleanup-20260616T204837Z/protected-allowlist.json`
+Protected allowlist source: `.local/operator-evidence/tenant-asset-live-cleanup-20260616T205454Z/protected-allowlist.json`
 
 | User | Email | Role | Status | Display |
 | --- | --- | --- | --- | --- |

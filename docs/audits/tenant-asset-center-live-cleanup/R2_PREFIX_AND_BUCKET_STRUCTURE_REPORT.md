@@ -1,6 +1,6 @@
 # R2 Prefix And Bucket Structure Report
 
-Generated: 2026-06-16T20:48:37.842Z
+Generated: 2026-06-16T20:54:54.217Z
 
 This report summarizes D1-referenced key families and, when full R2 listing is available, unreferenced bucket/prefix families. Raw object keys are local-only evidence.
 
@@ -17,4 +17,15 @@ This report summarizes D1-referenced key families and, when full R2 listing is a
 
 | Bucket / prefix family | Unreferenced objects |
 | --- | --- |
-| - | - |
+| bitbi-user-images:news-pulse/thumbs/... | 64 |
+| bitbi-audit-archive:admin-audit-log/2026/... | 7 |
+| bitbi-private-media:audio/sound-lab/... | 1 |
+| bitbi-private-media:images | 1 |
+| bitbi-private-media:sound-lab | 1 |
+| bitbi-private-media:sound-lab/thumbs/... | 1 |
+| bitbi-public-media:audio/sound-lab/... | 1 |
+| bitbi-public-media:gallery/full/... | 1 |
+| bitbi-public-media:gallery/previews/... | 1 |
+| bitbi-public-media:gallery/thumbs/... | 1 |
+| bitbi-public-media:sound-lab | 1 |
+| bitbi-public-media:sound-lab/thumbs/... | 1 |

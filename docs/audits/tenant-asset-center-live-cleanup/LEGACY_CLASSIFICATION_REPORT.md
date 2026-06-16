@@ -1,6 +1,6 @@
 # Legacy Classification Report
 
-Generated: 2026-06-16T20:48:37.842Z
+Generated: 2026-06-16T20:54:54.217Z
 
 Classification is conservative. Legacy alone does not mean delete; unassignable proof is required.
 
@@ -19,7 +19,9 @@ Classification is conservative. Legacy alone does not mean delete; unassignable 
 
 | Classification | Object count |
 | --- | --- |
-| - | - |
+| audit_or_legal_retention_keep | 7 |
+| news_pulse_asset | 64 |
+| unknown_blocker_keep | 10 |
 
 ## Current Safety Decision
 
