@@ -1,6 +1,6 @@
 # Legacy Classification Report
 
-Generated: 2026-06-17T03:43:20.319Z
+Generated: 2026-06-17T13:31:34.822Z
 
 Classification is conservative. Legacy alone does not mean delete; unassignable proof is required.
 
@@ -21,8 +21,7 @@ Classification is conservative. Legacy alone does not mean delete; unassignable 
 | --- | --- |
 | audit_or_legal_retention_keep | 7 |
 | news_pulse_asset | 64 |
-| unknown_blocker_keep | 10 |
 
 ## Current Safety Decision
 
-Broad cleanup execution remains blocked. This run used only the separate exact-key zero-byte marker cleanup path: 0 marker object(s) deleted, 10 failed, 0 D1 rows changed.
+Execution remains blocked because this task is a read-only full-inventory pass. D1-referenced protected data is kept. Unknown, audit/export, public-bucket, and protected-owner objects are retained as blockers/keeps, not deleted.

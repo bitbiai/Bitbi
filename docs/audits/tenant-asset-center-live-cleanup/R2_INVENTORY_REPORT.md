@@ -1,6 +1,6 @@
 # R2 Inventory Report
 
-Generated: 2026-06-17T03:43:20.319Z
+Generated: 2026-06-17T13:31:34.822Z
 
 ## Repo Bindings
 
@@ -32,11 +32,11 @@ Requested buckets: `bitbi-user-images`, `bitbi-private-media`, `bitbi-audit-arch
 | Bucket | Status | Objects | Bytes | Pages | HEAD attempted | HEAD failed | Error |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | bitbi-user-images | listed | 516 | 980.8 MB | 1 | 516 | 0 | - |
-| bitbi-private-media | listed | 7 | 132.5 KB | 1 | 7 | 0 | - |
+| bitbi-private-media | listed | 3 | 132.5 KB | 1 | 3 | 0 | - |
 | bitbi-audit-archive | listed | 7 | 12.2 KB | 1 | 7 | 0 | - |
-| bitbi-public-media | listed | 6 | 0 B | 1 | 6 | 0 | - |
+| bitbi-public-media | listed | 0 | 0 B | 1 | - | - | - |
 
-Raw object manifests and HEAD metadata are stored only in `.local/operator-evidence/tenant-asset-live-cleanup-20260617T034320Z/r2-full-inventory`.
+Raw object manifests and HEAD metadata are stored only in `.local/operator-evidence/tenant-asset-live-cleanup-20260617T133134Z/r2-full-inventory`.
 
 Destructive cleanup remains disabled in this package. Full inventory is used for proof and later-candidate classification only.
 
@@ -61,8 +61,8 @@ Unique D1-referenced R2 objects: **455**
 
 ## Full Inventory Relationship Summary
 
-- Full R2 inventory objects listed: 536
+- Full R2 inventory objects listed: 526
 - D1 references found in full R2 inventory: 455
 - D1 references missing from full R2 inventory: 0
 - D1 references not checked because a bucket did not list successfully: 0
-- Full R2 objects without a D1 reference: 81
+- Full R2 objects without a D1 reference: 71

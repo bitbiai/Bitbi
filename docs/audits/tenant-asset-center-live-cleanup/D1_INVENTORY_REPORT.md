@@ -1,6 +1,6 @@
 # D1 Inventory Report
 
-Generated: 2026-06-17T03:43:20.319Z
+Generated: 2026-06-17T13:31:34.822Z
 
 ## Scope
 
@@ -56,4 +56,4 @@ Tables discovered: **76**.
 | ai_images | 40 |
 | homepage_hero_video_derivatives | 40 |
 
-Raw schema, row counts, and user/profile rows are stored only under `.local/operator-evidence/tenant-asset-live-cleanup-20260617T034320Z`.
+Raw schema, row counts, and user/profile rows are stored only under `.local/operator-evidence/tenant-asset-live-cleanup-20260617T133134Z`.
