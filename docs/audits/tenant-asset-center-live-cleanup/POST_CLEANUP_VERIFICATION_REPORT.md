@@ -1,8 +1,8 @@
 # Post-Cleanup Verification Report
 
-Generated: 2026-06-16T20:54:54.217Z
+Generated: 2026-06-17T03:43:20.319Z
 
-No cleanup mutation was executed in this run.
+Exact-key zero-byte R2 marker cleanup was attempted before this verification inventory. No D1 mutation was executed.
 
 ## Verification State
 
@@ -10,6 +10,7 @@ No cleanup mutation was executed in this run.
 - Exact prior test emails present: 0
 - D1 references to known prior test user IDs: 0
 - R2 deletion performed: 0
+- R2 exact-key zero-byte marker deletion by bucket: `{}`
 - D1 deletion/update performed: 0
 
-Post-cleanup delta verification is not applicable because execution was blocked by incomplete full R2 inventory evidence.
+Post-cleanup full R2 inventory objects without D1 references: 81. D1 references missing from full R2 inventory: 0.

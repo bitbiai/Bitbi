@@ -1,6 +1,6 @@
 # Legacy Classification Report
 
-Generated: 2026-06-16T20:54:54.217Z
+Generated: 2026-06-17T03:43:20.319Z
 
 Classification is conservative. Legacy alone does not mean delete; unassignable proof is required.
 
@@ -8,7 +8,7 @@ Classification is conservative. Legacy alone does not mean delete; unassignable 
 
 | Classification | Reference count |
 | --- | --- |
-| news_pulse_asset | 106 |
+| news_pulse_asset | 108 |
 | protected_homepage_hero_asset_or_derivative | 123 |
 | protected_user_avatar | 3 |
 | protected_user_derivative | 80 |
@@ -25,4 +25,4 @@ Classification is conservative. Legacy alone does not mean delete; unassignable 
 
 ## Current Safety Decision
 
-Execution remains blocked because this task is a read-only full-inventory pass. D1-referenced protected data is kept. Unknown, audit/export, public-bucket, and protected-owner objects are retained as blockers/keeps, not deleted.
+Broad cleanup execution remains blocked. This run used only the separate exact-key zero-byte marker cleanup path: 0 marker object(s) deleted, 10 failed, 0 D1 rows changed.

@@ -1,21 +1,21 @@
 # Full R2 Object Inventory Redacted Report
 
-Generated: 2026-06-16T20:54:54.217Z
+Generated: 2026-06-17T03:43:20.319Z
 
-Raw full object keys, ETags, and HEAD metadata are stored only in local evidence under `.local/operator-evidence/tenant-asset-live-cleanup-20260616T205454Z/r2-full-inventory`.
+Raw full object keys, ETags, and HEAD metadata are stored only in local evidence under `.local/operator-evidence/tenant-asset-live-cleanup-20260617T034320Z/r2-full-inventory`.
 
 ## Bucket Listing Summary
 
 | Bucket | Status | Objects | Bytes | Pages | HEAD attempted | HEAD ok | HEAD failed | Error |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| bitbi-user-images | listed | 514 | 980.8 MB | 1 | 514 | 514 | 0 | - |
+| bitbi-user-images | listed | 516 | 980.8 MB | 1 | 516 | 516 | 0 | - |
 | bitbi-private-media | listed | 7 | 132.5 KB | 1 | 7 | 7 | 0 | - |
 | bitbi-audit-archive | listed | 7 | 12.2 KB | 1 | 7 | 7 | 0 | - |
 | bitbi-public-media | listed | 6 | 0 B | 1 | 6 | 6 | 0 | - |
 
 ## D1 / Full R2 Comparison
 
-- D1-referenced objects present in listed R2 inventory: 453
+- D1-referenced objects present in listed R2 inventory: 455
 - D1-referenced objects missing in listed R2 inventory: 0
 - D1 references not checked because a bucket did not list successfully: 0
 - R2 objects without D1 references: 81

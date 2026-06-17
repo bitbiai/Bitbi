@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 const DB_NAME = "bitbi-auth-db";
 const AUTH_WRANGLER_CONFIG = "workers/auth/wrangler.jsonc";
 const CONFIRMATION_PHRASE = "DELETE ONLY UNASSIGNABLE TENANT ASSET LEGACY DATA";
+const ZERO_BYTE_MARKER_CONFIRMATION_PHRASE = "DELETE EXACT ZERO BYTE UNKNOWN R2 MARKERS";
 const REPORT_DIR = "docs/audits/tenant-asset-center-live-cleanup";
 const MAX_REF_ROWS_PER_COLUMN = 20000;
 const DEFAULT_R2_CHECK_LIMIT = 60;
@@ -68,6 +69,7 @@ function usage() {
   return `Usage:
   node scripts/tenant-asset-live-audit-cleanup.mjs [--dry-run]
   node scripts/tenant-asset-live-audit-cleanup.mjs --execute --confirm "${CONFIRMATION_PHRASE}"
+  node scripts/tenant-asset-live-audit-cleanup.mjs --cleanup-zero-byte-unknown-r2-markers --cleanup-source-evidence-dir <path> --confirm "${ZERO_BYTE_MARKER_CONFIRMATION_PHRASE}"
 
 Options:
   --evidence-dir <path>          Local raw evidence directory. Defaults under .local/operator-evidence/.
@@ -75,6 +77,10 @@ Options:
   --execute                      Execute safe cleanup only if every gate passes. Dry-run is default.
   --dry-run                      Inventory and plan only.
   --confirm <phrase>             Required for --execute. Exact phrase: ${CONFIRMATION_PHRASE}
+  --cleanup-zero-byte-unknown-r2-markers
+                                 Delete only exact zero-byte slash marker keys from a previous unknown_blocker_keep evidence set.
+  --cleanup-source-evidence-dir <path>
+                                 Previous local evidence directory for marker cleanup source proof.
   --remote                       Use remote Cloudflare D1/R2. Default: true.
   --skip-r2-full-listing         Skip S3-compatible full R2 bucket enumeration.
   --r2-list-buckets <names>      Comma-separated bucket name override. Default: BITBI buckets.
@@ -106,6 +112,8 @@ function parseArgs(argv) {
     protectedAllowlistPath: null,
     execute: false,
     confirm: "",
+    cleanupZeroByteUnknownR2Markers: false,
+    cleanupSourceEvidenceDir: null,
     remote: true,
     skipR2FullListing: false,
     r2ListBuckets: null,
@@ -126,11 +134,13 @@ function parseArgs(argv) {
     if (arg === "--help" || arg === "-h") options.help = true;
     else if (arg === "--dry-run") options.execute = false;
     else if (arg === "--execute") options.execute = true;
+    else if (arg === "--cleanup-zero-byte-unknown-r2-markers") options.cleanupZeroByteUnknownR2Markers = true;
     else if (arg === "--remote") options.remote = true;
     else if (arg === "--skip-r2-full-listing") options.skipR2FullListing = true;
     else if (arg === "--skip-r2-existence-check") options.skipR2ExistenceCheck = true;
     else if (arg === "--json-report") options.jsonReport = true;
     else if (arg === "--evidence-dir") options.evidenceDir = argv[++index];
+    else if (arg === "--cleanup-source-evidence-dir") options.cleanupSourceEvidenceDir = argv[++index];
     else if (arg === "--protected-allowlist") options.protectedAllowlistPath = argv[++index];
     else if (arg === "--confirm") options.confirm = argv[++index] || "";
     else if (arg === "--backup-r2-candidates") options.backupR2Candidates = parseBoolean(argv[++index], true);
@@ -150,6 +160,14 @@ function parseArgs(argv) {
   }
   if (options.execute && options.confirm !== CONFIRMATION_PHRASE) {
     throw new Error(`--execute requires --confirm "${CONFIRMATION_PHRASE}"`);
+  }
+  if (options.cleanupZeroByteUnknownR2Markers) {
+    if (options.execute) throw new Error("--cleanup-zero-byte-unknown-r2-markers cannot be combined with --execute.");
+    if (options.confirm !== ZERO_BYTE_MARKER_CONFIRMATION_PHRASE) {
+      throw new Error(`--cleanup-zero-byte-unknown-r2-markers requires --confirm "${ZERO_BYTE_MARKER_CONFIRMATION_PHRASE}"`);
+    }
+    if (!options.cleanupSourceEvidenceDir) throw new Error("--cleanup-zero-byte-unknown-r2-markers requires --cleanup-source-evidence-dir.");
+    if (options.skipR2FullListing) throw new Error("--cleanup-zero-byte-unknown-r2-markers requires post-cleanup full R2 listing.");
   }
   if (options.r2CheckLimit > 2000) throw new Error("--r2-check-limit is capped at 2000 for operator safety.");
   if (options.limit > 100000) throw new Error("--limit is capped at 100000 for operator safety.");
@@ -541,6 +559,14 @@ function safeContentMetadataFromHeaders(headers) {
   };
 }
 
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function readJsonIfExists(filePath, fallback = null) {
+  return fs.existsSync(filePath) ? readJson(filePath) : fallback;
+}
+
 async function listR2BucketObjects(bucketName, options, credentials) {
   const objects = [];
   const errors = [];
@@ -622,6 +648,61 @@ async function listR2BucketObjects(bucketName, options, credentials) {
     objects,
     errors,
   };
+}
+
+async function headR2Object(bucketName, key, options, credentials) {
+  try {
+    const response = await fetchR2S3({
+      method: "HEAD",
+      bucketName,
+      key,
+      credentials,
+      timeoutMs: options.r2ListTimeoutMs,
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        errorClass: classifyR2HttpError(response.status, ""),
+      };
+    }
+    return {
+      ok: true,
+      status: response.status,
+      ...safeContentMetadataFromHeaders(response.headers),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      errorClass: error?.name === "AbortError" ? "r2_request_timeout" : "r2_network_error",
+      message: sanitizeCredentialText(error?.message || String(error), credentials).slice(0, 300),
+    };
+  }
+}
+
+async function deleteR2ObjectExact(bucketName, key, options, credentials) {
+  try {
+    const response = await fetchR2S3({
+      method: "DELETE",
+      bucketName,
+      key,
+      credentials,
+      timeoutMs: options.r2ListTimeoutMs,
+    });
+    const bodyText = response.ok ? "" : await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      errorClass: response.ok ? null : classifyR2HttpError(response.status, bodyText),
+      message: response.ok ? "" : sanitizeCredentialText(extractXmlTag(bodyText, "Message") || bodyText, credentials).slice(0, 300),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      errorClass: error?.name === "AbortError" ? "r2_request_timeout" : "r2_network_error",
+      message: sanitizeCredentialText(error?.message || String(error), credentials).slice(0, 300),
+    };
+  }
 }
 
 async function mapConcurrent(items, limit, mapper) {
@@ -768,6 +849,255 @@ async function collectFullR2Inventory(options, evidenceDir, bucketList) {
     headMetadata,
     outputDir,
   };
+}
+
+function normalizeEvidenceDir(value) {
+  return path.resolve(String(value || ""));
+}
+
+function loadEvidenceInventoryObjects(sourceEvidenceDir, bucketName) {
+  const filePath = path.join(sourceEvidenceDir, "r2-full-inventory", `${bucketName}.json`);
+  const inventory = readJsonIfExists(filePath, { objects: [] });
+  const map = new Map();
+  for (const object of inventory.objects || []) map.set(object.key, object);
+  return map;
+}
+
+function loadEvidenceHeadMetadata(sourceEvidenceDir, bucketName) {
+  const filePath = path.join(sourceEvidenceDir, "r2-full-inventory", `${bucketName}-head-metadata.json`);
+  const metadata = readJsonIfExists(filePath, { results: [] });
+  const map = new Map();
+  for (const item of metadata.results || []) map.set(item.key, item);
+  return map;
+}
+
+function buildEvidenceD1ReferenceKeySet(sourceEvidenceDir) {
+  const refs = readJsonIfExists(path.join(sourceEvidenceDir, "r2-references-raw.json"), []);
+  const keys = new Set();
+  for (const ref of refs || []) {
+    if (!ref?.key || !ref?.bucket) continue;
+    keys.add(`${r2BucketName(ref.bucket)}\0${ref.key}`);
+  }
+  return keys;
+}
+
+function loadEvidenceProtectedUserIds(sourceEvidenceDir) {
+  const allowlist = readJsonIfExists(path.join(sourceEvidenceDir, "protected-allowlist.json"), { protectedUsers: [] });
+  return new Set((allowlist.protectedUsers || []).map((row) => row.id).filter(Boolean));
+}
+
+function trackedTextFiles() {
+  const result = run("git", ["ls-files"], { allowFailure: true });
+  if (result.status !== 0) return [];
+  return String(result.stdout || "")
+    .split("\n")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .filter((file) => !file.startsWith(".local/") && !file.includes("node_modules/"));
+}
+
+function findExactTrackedFileReferences(key, files) {
+  const references = [];
+  for (const file of files) {
+    let content = "";
+    try {
+      content = fs.readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    if (content.includes(key)) references.push(file);
+  }
+  return references;
+}
+
+function hasRetainedPlatformSignal(key) {
+  return /news[-_/]?pulse|homepage|hero[-_/]?video|hero|audit|evidence|export|archive|tenant-asset-cleanups/i.test(String(key || ""));
+}
+
+function isZeroByteSlashMarker(item, inventoryObject, headMetadata) {
+  const key = String(item?.key || "");
+  const sizes = [
+    Number(item?.size || 0),
+    inventoryObject ? Number(inventoryObject.size || 0) : 0,
+    headMetadata?.ok ? Number(headMetadata.contentLength || 0) : 0,
+  ];
+  return key.endsWith("/") && sizes.every((size) => size === 0);
+}
+
+function buildUnknownR2MarkerInvestigation(sourceEvidenceDir) {
+  const sourceDir = normalizeEvidenceDir(sourceEvidenceDir);
+  const analysisPath = path.join(sourceDir, "full-r2-relationship-analysis.json");
+  if (!fs.existsSync(analysisPath)) throw new Error(`Missing source relationship analysis: ${analysisPath}`);
+  const analysis = readJson(analysisPath);
+  const sourceSummary = readJsonIfExists(path.join(sourceDir, "run-summary.json"), {});
+  const d1ReferenceKeys = buildEvidenceD1ReferenceKeySet(sourceDir);
+  const protectedUserIds = loadEvidenceProtectedUserIds(sourceDir);
+  const trackedFiles = trackedTextFiles();
+  const inventoryMaps = new Map();
+  const headMaps = new Map();
+  const unknownObjects = (analysis.unreferencedObjects || [])
+    .filter((item) => item.classification === "unknown_blocker_keep")
+    .sort((a, b) => `${a.bucketName}:${a.key}`.localeCompare(`${b.bucketName}:${b.key}`));
+  const items = unknownObjects.map((item) => {
+    if (!inventoryMaps.has(item.bucketName)) inventoryMaps.set(item.bucketName, loadEvidenceInventoryObjects(sourceDir, item.bucketName));
+    if (!headMaps.has(item.bucketName)) headMaps.set(item.bucketName, loadEvidenceHeadMetadata(sourceDir, item.bucketName));
+    const inventoryObject = inventoryMaps.get(item.bucketName).get(item.key) || null;
+    const headMetadata = headMaps.get(item.bucketName).get(item.key) || null;
+    const d1Referenced = d1ReferenceKeys.has(`${item.bucketName}\0${item.key}`);
+    const protectedSignal = Array.from(protectedUserIds).some((id) => String(item.key || "").includes(id));
+    const exactTextReferences = findExactTrackedFileReferences(item.key, trackedFiles);
+    const codeReferenceDecision = exactTextReferences.length
+      ? "reviewed_as_prefix_text_only_zero_byte_marker_not_media_object"
+      : "no_exact_tracked_text_reference";
+    const checks = {
+      sourceClassificationUnknownBlocker: item.classification === "unknown_blocker_keep",
+      sourceInventoryObjectPresent: Boolean(inventoryObject),
+      headMetadataPresent: Boolean(headMetadata?.ok),
+      zeroByteSlashMarker: isZeroByteSlashMarker(item, inventoryObject, headMetadata),
+      d1Referenced: Boolean(d1Referenced),
+      protectedUserSignal: Boolean(protectedSignal),
+      retainedPlatformSignal: hasRetainedPlatformSignal(item.key),
+      bucketAllowed: [R2_BUCKETS.PRIVATE_MEDIA.bucketName, R2_BUCKETS.PUBLIC_MEDIA.bucketName].includes(item.bucketName),
+    };
+    const blockers = [];
+    if (!checks.sourceInventoryObjectPresent) blockers.push("missing_source_inventory_object");
+    if (!checks.headMetadataPresent) blockers.push("missing_head_metadata");
+    if (!checks.zeroByteSlashMarker) blockers.push("not_zero_byte_slash_marker");
+    if (checks.d1Referenced) blockers.push("d1_reference_present");
+    if (checks.protectedUserSignal) blockers.push("protected_user_signal");
+    if (checks.retainedPlatformSignal) blockers.push("retained_platform_or_audit_signal");
+    if (!checks.bucketAllowed) blockers.push("bucket_not_allowed_for_marker_cleanup");
+    const decision = blockers.length
+      ? (checks.zeroByteSlashMarker ? "blocked_missing_evidence" : "blocked_nonzero_or_ambiguous")
+      : "delete_zero_byte_legacy_folder_marker";
+    return {
+      bucketName: item.bucketName,
+      key: item.key,
+      keyHash: item.keyHash || sha256Hex(item.key),
+      keyRedacted: item.keyRedacted || redactedKey(item.key),
+      size: Number(item.size || 0),
+      etag: inventoryObject?.etag || null,
+      lastModified: item.lastModified || inventoryObject?.lastModified || null,
+      contentType: headMetadata?.contentType || null,
+      contentLength: headMetadata?.contentLength ?? null,
+      prefixFamily: item.prefixFamily || prefixFamily(item.key),
+      sourceReason: item.reason,
+      exactTrackedTextReferenceCount: exactTextReferences.length,
+      exactTrackedTextReferenceFiles: exactTextReferences,
+      codeReferenceDecision,
+      checks,
+      blockers,
+      decision,
+    };
+  });
+  return {
+    generatedAt: new Date().toISOString(),
+    sourceEvidenceDir: sourceDir,
+    sourceSummary: {
+      fullR2ObjectCount: sourceSummary.fullR2ObjectCount || analysis.inventoryObjectCount || 0,
+      d1ReferencesMissingFromFullR2Inventory: sourceSummary.d1ReferencesMissingFromFullR2Inventory ?? analysis.d1ReferenceMissing?.length ?? 0,
+      unreferencedR2Objects: sourceSummary.unreferencedR2Objects ?? analysis.unreferencedObjects?.length ?? 0,
+      unreferencedCategoryCounts: analysis.unreferencedCategoryCounts || {},
+    },
+    protectedUserCount: protectedUserIds.size,
+    unknownBlockerCount: unknownObjects.length,
+    items,
+    eligibleItems: items.filter((item) => item.decision === "delete_zero_byte_legacy_folder_marker"),
+    blockedItems: items.filter((item) => item.decision !== "delete_zero_byte_legacy_folder_marker"),
+  };
+}
+
+async function performUnknownR2MarkerCleanup(options, stamp) {
+  const credentials = resolveR2S3Credentials();
+  if (!credentials.present) throw new Error("R2 S3 credentials are required for zero-byte marker cleanup.");
+  const cleanupEvidenceDir = path.join(".local", "operator-evidence", `unknown-r2-blocker-cleanup-${stamp}`);
+  ensureDir(cleanupEvidenceDir);
+  const investigation = buildUnknownR2MarkerInvestigation(options.cleanupSourceEvidenceDir);
+  const deleteManifest = {
+    generatedAt: new Date().toISOString(),
+    confirmationPhraseAccepted: true,
+    cleanupEvidenceDir,
+    sourceEvidenceDir: investigation.sourceEvidenceDir,
+    deletionMode: "exact_key_zero_byte_unknown_r2_markers_only",
+    eligibleCount: investigation.eligibleItems.length,
+    blockedCount: investigation.blockedItems.length,
+    items: investigation.eligibleItems.map((item) => ({
+      bucketName: item.bucketName,
+      key: item.key,
+      keyHash: item.keyHash,
+      keyRedacted: item.keyRedacted,
+      size: item.size,
+      etag: item.etag,
+      lastModified: item.lastModified,
+      contentType: item.contentType,
+      contentLength: item.contentLength,
+      prefixFamily: item.prefixFamily,
+      decision: item.decision,
+      checks: item.checks,
+    })),
+  };
+  writeJson(path.join(cleanupEvidenceDir, "unknown-marker-investigation.json"), investigation);
+  writeJson(path.join(cleanupEvidenceDir, "delete-manifest.json"), deleteManifest);
+
+  const results = [];
+  for (const item of investigation.eligibleItems) {
+    const beforeHead = await headR2Object(item.bucketName, item.key, options, credentials);
+    let deleteResult = { ok: false, skipped: true, errorClass: "pre_delete_head_failed_or_not_zero_byte_marker" };
+    let afterHead = null;
+    if (beforeHead.ok && Number(beforeHead.contentLength || 0) === 0 && String(item.key || "").endsWith("/")) {
+      deleteResult = await deleteR2ObjectExact(item.bucketName, item.key, options, credentials);
+      afterHead = await headR2Object(item.bucketName, item.key, options, credentials);
+    }
+    results.push({
+      bucketName: item.bucketName,
+      key: item.key,
+      keyHash: item.keyHash,
+      keyRedacted: item.keyRedacted,
+      size: item.size,
+      beforeHead: {
+        ok: beforeHead.ok,
+        status: beforeHead.status || null,
+        contentLength: beforeHead.contentLength ?? null,
+        contentType: beforeHead.contentType || null,
+        errorClass: beforeHead.errorClass || null,
+      },
+      deleteResult,
+      afterHead: afterHead
+        ? {
+          ok: afterHead.ok,
+          status: afterHead.status || null,
+          errorClass: afterHead.errorClass || null,
+        }
+        : null,
+      deleted: Boolean(deleteResult.ok && afterHead && !afterHead.ok && afterHead.errorClass === "r2_not_found"),
+    });
+  }
+
+  const cleanupResult = {
+    generatedAt: new Date().toISOString(),
+    cleanupEvidenceDir,
+    sourceEvidenceDir: investigation.sourceEvidenceDir,
+    mode: "exact_key_zero_byte_unknown_r2_markers_only",
+    preUnknownBlockerCount: investigation.unknownBlockerCount,
+    eligibleCount: investigation.eligibleItems.length,
+    blockedCount: investigation.blockedItems.length,
+    deletedCount: results.filter((item) => item.deleted).length,
+    failedCount: results.filter((item) => !item.deleted).length,
+    deletedByBucket: summarizeBy(results.filter((item) => item.deleted), (item) => item.bucketName),
+    failedByBucket: summarizeBy(results.filter((item) => !item.deleted), (item) => item.bucketName),
+    blockedByDecision: summarizeBy(investigation.blockedItems, (item) => item.decision),
+    sourceCategoryCounts: investigation.sourceSummary.unreferencedCategoryCounts || {},
+    noD1Mutation: true,
+    exactKeyOnly: true,
+    allDeletedWereZeroByteSlashMarkers: results.filter((item) => item.deleted).every((item) => Number(item.size || 0) === 0),
+    rawResultFile: path.join(cleanupEvidenceDir, "delete-results.json"),
+  };
+  if (cleanupResult.failedCount > 0) {
+    cleanupResult.warning = "one_or_more_exact_key_deletes_failed_no_broad_retry_performed";
+  }
+  writeJson(path.join(cleanupEvidenceDir, "delete-results.json"), { cleanupResult, results });
+  writeJson(path.join(cleanupEvidenceDir, "cleanup-summary.json"), cleanupResult);
+  return cleanupResult;
 }
 
 function loadReleaseLatest() {
@@ -1647,6 +1977,7 @@ function renderClassificationReport(context) {
   const unreferencedRows = Object.entries(context.fullR2Analysis?.unreferencedCategoryCounts || {})
     .sort()
     .map(([category, count]) => [category, count]);
+  const markerCleanup = context.unknownR2MarkerCleanup;
   return `# Legacy Classification Report
 
 Generated: ${context.generatedAt}
@@ -1663,7 +1994,9 @@ ${markdownTable(["Classification", "Object count"], unreferencedRows)}
 
 ## Current Safety Decision
 
-Execution remains blocked because this task is a read-only full-inventory pass. D1-referenced protected data is kept. Unknown, audit/export, public-bucket, and protected-owner objects are retained as blockers/keeps, not deleted.
+${markerCleanup
+    ? `Broad cleanup execution remains blocked. This run used only the separate exact-key zero-byte marker cleanup path: ${markerCleanup.deletedCount} marker object(s) deleted, ${markerCleanup.failedCount || 0} failed, 0 D1 rows changed.`
+    : "Execution remains blocked because this task is a read-only full-inventory pass. D1-referenced protected data is kept. Unknown, audit/export, public-bucket, and protected-owner objects are retained as blockers/keeps, not deleted."}
 `;
 }
 
@@ -1672,6 +2005,7 @@ function renderDeleteCandidatesReport(context) {
   const blocked = context.cleanupPlan.blockedCandidates || [];
   const blockedCounts = summarizeBy(blocked, (item) => item.category);
   const fullInventoryCandidateCounts = summarizeBy(context.fullR2Analysis?.unreferencedDeleteCandidates || [], (item) => item.classification);
+  const markerCleanup = context.unknownR2MarkerCleanup;
   return `# Delete Candidates Report
 
 Generated: ${context.generatedAt}
@@ -1682,7 +2016,9 @@ Cleanup execution eligible: **${context.cleanupPlan.executeEligible ? "yes" : "n
 
 Reason: ${context.cleanupPlan.reason}
 
-No deletion was executed. These are candidate classifications for a later explicit cleanup task only.
+${markerCleanup
+    ? `Broad delete candidate execution was not run. A separate exact-key marker cleanup path deleted ${markerCleanup.deletedCount} zero-byte marker object(s) and failed ${markerCleanup.failedCount || 0}; no D1 mutation was executed.`
+    : "No deletion was executed. These are candidate classifications for a later explicit cleanup task only."}
 
 ## Candidate Counts From Full R2 Inventory
 
@@ -1789,21 +2125,27 @@ No derivative repair or ownership backfill was executed by this package. Protect
 }
 
 function renderPostCleanupReport(context) {
+  const markerCleanup = context.unknownR2MarkerCleanup;
   return `# Post-Cleanup Verification Report
 
 Generated: ${context.generatedAt}
 
-No cleanup mutation was executed in this run.
+${markerCleanup
+    ? "Exact-key zero-byte R2 marker cleanup was attempted before this verification inventory. No D1 mutation was executed."
+    : "No cleanup mutation was executed in this run."}
 
 ## Verification State
 
 - Protected accounts still present in live D1 at inventory time: ${context.users.active.length}
 - Exact prior test emails present: ${context.users.priorTestRows.length}
 - D1 references to known prior test user IDs: ${context.userReferenceIntegrity.reduce((sum, item) => sum + Number(item.priorTestReferenceCount || 0), 0)}
-- R2 deletion performed: 0
+- R2 deletion performed: ${markerCleanup?.deletedCount || 0}
+- R2 exact-key zero-byte marker deletion by bucket: \`${JSON.stringify(markerCleanup?.deletedByBucket || {})}\`
 - D1 deletion/update performed: 0
 
-Post-cleanup delta verification is not applicable because execution was blocked by incomplete full R2 inventory evidence.
+${markerCleanup
+    ? `Post-cleanup full R2 inventory objects without D1 references: ${context.fullR2Analysis?.unreferencedObjects?.length || 0}. D1 references missing from full R2 inventory: ${context.fullR2Analysis?.d1ReferenceMissing?.length || 0}.`
+    : "Post-cleanup delta verification is not applicable because execution was blocked by incomplete full R2 inventory evidence."}
 `;
 }
 
@@ -1823,7 +2165,11 @@ Protected allowlist source: \`${context.allowlistSource}\`
 
 ${markdownTable(["User", "Email", "Role", "Status", "Display"], rows)}
 
-No D1 or R2 mutation was executed by this audit package, so protected accounts were not changed.
+No D1 mutation was executed by this audit package. ${context.unknownR2MarkerCleanup
+    ? (context.unknownR2MarkerCleanup.deletedCount > 0
+      ? "The only R2 mutation was exact-key deletion of zero-byte unreferenced marker objects outside protected account prefixes."
+      : "The exact-key R2 cleanup path was attempted but no R2 object was deleted.")
+    : "No R2 mutation was executed by this audit package."}
 `;
 }
 
@@ -1831,6 +2177,7 @@ function renderFinalSummary(context) {
   const bucketSummary = (context.fullR2Inventory?.summary?.buckets || []).map((bucket) => (
     `- ${bucket.bucketName}: ${bucket.ok ? `${bucket.objectCount} objects / ${bytesLabel(bucket.totalBytes)}` : `not listed (${bucket.errorClass || "no error detail"})`}`
   ));
+  const markerCleanup = context.unknownR2MarkerCleanup;
   return `# Tenant Asset Center Live Cleanup Final Summary
 
 Generated: ${context.generatedAt}
@@ -1839,7 +2186,9 @@ Generated: ${context.generatedAt}
 
 This run produced a live D1 inventory, full S3-compatible R2 object inventory when credentials were available, D1/R2 relationship comparisons, classifications, and a cleanup dry-run plan.
 
-No cleanup was executed.
+${markerCleanup
+    ? `The run also attempted the narrow exact-key zero-byte unknown R2 marker cleanup: ${markerCleanup.deletedCount} marker object(s) deleted, ${markerCleanup.failedCount || 0} failed, 0 D1 rows changed.`
+    : "No cleanup was executed."}
 
 ## Full R2 Listing Status
 
@@ -1851,7 +2200,9 @@ ${context.fullR2ListingAvailable
 
 ## Why Execution Was Blocked
 
-This package is currently a read-only full-inventory pass. Deletion/apply mode remains intentionally blocked until a separate explicit cleanup task validates backup and apply behavior.
+${markerCleanup
+    ? "The broad deletion/apply mode remains intentionally blocked. Only the explicit zero-byte marker cleanup mode was used for this run."
+    : "This package is currently a read-only full-inventory pass. Deletion/apply mode remains intentionally blocked until a separate explicit cleanup task validates backup and apply behavior."}
 
 ## Counts
 
@@ -1866,13 +2217,76 @@ This package is currently a read-only full-inventory pass. Deletion/apply mode r
 - R2 objects checked by bounded get: ${context.r2Verification.checked?.filter((item) => item.checked).length || 0}
 - Missing checked objects: ${context.r2Verification.missing?.length || 0}
 - D1 mutations executed: 0
-- R2 deletes executed: 0
+- R2 deletes executed: ${markerCleanup?.deletedCount || 0}
 
 ## Next Safe Step
 
 ${context.fullR2ListingAvailable
-    ? "Review the full-inventory reports and local raw evidence. A later cleanup task may implement backup/apply behavior for candidates that remain proven unassignable, but this run made no D1 or R2 mutations."
+    ? (markerCleanup
+      ? "Review the post-cleanup reports and local raw evidence. Remaining unreferenced objects are retained categories or blockers; broad deletion remains disabled."
+      : "Review the full-inventory reports and local raw evidence. A later cleanup task may implement backup/apply behavior for candidates that remain proven unassignable, but this run made no D1 or R2 mutations.")
     : "Run the same dry-run from a shell/process where `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` are visible to Node. Do not paste the values into the repo or reports. This run made no D1 or R2 mutations."}
+`;
+}
+
+function renderUnknownR2BlockerCleanupReport(context) {
+  const markerCleanup = context.unknownR2MarkerCleanup;
+  const currentCategoryRows = Object.entries(context.fullR2Analysis?.unreferencedCategoryCounts || {})
+    .sort()
+    .map(([category, count]) => [category, count]);
+  const deletedRows = Object.entries(markerCleanup?.deletedByBucket || {})
+    .sort()
+    .map(([bucket, count]) => [bucket, count]);
+  const failedRows = Object.entries(markerCleanup?.failedByBucket || {})
+    .sort()
+    .map(([bucket, count]) => [bucket, count]);
+  return `# Unknown R2 Blocker Cleanup Report
+
+Generated: ${context.generatedAt}
+
+## Scope
+
+This report covers only exact-key zero-byte marker cleanup for unreferenced R2 objects previously classified as \`unknown_blocker_keep\`.
+
+Raw keys, ETags, HEAD metadata, and deletion manifests are stored only in local evidence.
+
+## Cleanup Result
+
+- Source evidence: \`${markerCleanup?.sourceEvidenceDir || "not run"}\`
+- Cleanup evidence: \`${markerCleanup?.cleanupEvidenceDir || "not run"}\`
+- Pre-cleanup unknown blocker count: ${markerCleanup?.preUnknownBlockerCount ?? "not run"}
+- Eligible exact zero-byte marker count: ${markerCleanup?.eligibleCount ?? 0}
+- Deleted exact zero-byte marker count: ${markerCleanup?.deletedCount ?? 0}
+- Blocked investigation count: ${markerCleanup?.blockedCount ?? 0}
+- Failed delete count: ${markerCleanup?.failedCount ?? 0}
+- Failure warning: ${markerCleanup?.warning || "-"}
+- D1 rows changed: 0
+- Exact-key only: ${markerCleanup?.exactKeyOnly ? "yes" : "not run"}
+- Every deleted object was zero-byte slash marker: ${markerCleanup?.deletedCount > 0 ? (markerCleanup.allDeletedWereZeroByteSlashMarkers ? "yes" : "no") : "not applicable (0 deleted)"}
+
+${markdownTable(["Bucket", "Deleted marker objects"], deletedRows)}
+
+${markdownTable(["Bucket", "Failed marker delete attempts"], failedRows)}
+
+## Post-Cleanup Full R2 Inventory
+
+- Full R2 listing available: ${context.fullR2ListingAvailable ? "yes" : "no"}
+- Full R2 listing complete: ${context.fullR2Inventory?.complete ? "yes" : "no"}
+- Full R2 object count: ${context.fullR2Analysis?.inventoryObjectCount || 0}
+- R2 objects without D1 references: ${context.fullR2Analysis?.unreferencedObjects?.length || 0}
+- D1 references missing from full R2 inventory: ${context.fullR2Analysis?.d1ReferenceMissing?.length || 0}
+- Later delete candidates from full inventory: ${context.fullR2Analysis?.unreferencedDeleteCandidates?.length || 0}
+
+## Current Unreferenced Classification Counts
+
+${markdownTable(["Classification", "Object count"], currentCategoryRows)}
+
+## Safety Notes
+
+- No D1 mutation was executed.
+- No prefix-wide or wildcard R2 deletion was executed.
+- \`news_pulse_asset\` and \`audit_or_legal_retention_keep\` objects were not targeted.
+- Protected-account prefixes and D1-referenced objects were excluded by manifest checks.
 `;
 }
 
@@ -1915,6 +2329,7 @@ function renderReports(context) {
     "KEEP_AND_REPAIR_CANDIDATES_REPORT.md": renderKeepRepairReport(context),
     "POST_CLEANUP_VERIFICATION_REPORT.md": renderPostCleanupReport(context),
     "PROTECTED_ACCOUNTS_UNCHANGED_REPORT.md": renderProtectedReport(context),
+    "UNKNOWN_R2_BLOCKER_CLEANUP_REPORT.md": renderUnknownR2BlockerCleanupReport(context),
     "FINAL_SUMMARY.md": renderFinalSummary(context),
     "TENANT_ASSET_CENTER_NECESSITY_REVIEW.md": renderNecessityReview(context),
   };
@@ -2094,6 +2509,9 @@ async function main() {
 
   const generatedAt = new Date().toISOString();
   const stamp = utcStamp();
+  const unknownR2MarkerCleanup = options.cleanupZeroByteUnknownR2Markers
+    ? await performUnknownR2MarkerCleanup(options, stamp)
+    : null;
   const evidenceDir = options.evidenceDir || path.join(".local", "operator-evidence", `tenant-asset-live-cleanup-${stamp}`);
   ensureDir(evidenceDir);
   ensureDir(REPORT_DIR);
@@ -2103,6 +2521,9 @@ async function main() {
   const r2Bindings = loadWranglerR2Bindings();
   const r2BucketList = listR2Buckets();
   commandsRun.push("npx wrangler r2 bucket list --config workers/auth/wrangler.jsonc");
+  if (unknownR2MarkerCleanup) {
+    commandsRun.push("S3 exact-key DELETE for zero-byte unknown R2 markers (credentials redacted)");
+  }
   const r2CredentialStatus = localR2CredentialStatus();
 
   const exportPath = path.join(evidenceDir, "remote-d1-export.sql");
@@ -2188,6 +2609,7 @@ async function main() {
     r2CategoryCounts,
     r2PrefixCounts,
     cleanupPlan,
+    unknownR2MarkerCleanup,
     exportResult: {
       status: exportResult.status,
       ok: exportResult.status === 0,
@@ -2239,6 +2661,7 @@ async function main() {
     r2Checked: r2Verification.checked?.filter((item) => item.checked).length || 0,
     r2MissingChecked: r2Verification.missing?.length || 0,
     executionRequested: options.execute,
+    unknownR2MarkerCleanup,
     executionBlockers,
     commandsRun,
   });
@@ -2272,6 +2695,7 @@ async function main() {
     r2Checked: r2Verification.checked?.filter((item) => item.checked).length || 0,
     r2MissingChecked: r2Verification.missing?.length || 0,
     executionBlockers,
+    unknownR2MarkerCleanup,
   };
   if (options.jsonReport) {
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);

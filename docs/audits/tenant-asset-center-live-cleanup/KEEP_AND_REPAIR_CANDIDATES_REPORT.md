@@ -1,10 +1,10 @@
 # Keep And Repair Candidates Report
 
-Generated: 2026-06-16T20:54:54.217Z
+Generated: 2026-06-17T03:43:20.319Z
 
 | Category | Count | Decision |
 | --- | --- | --- |
-| news_pulse_asset | 106 | keep or review |
+| news_pulse_asset | 108 | keep or review |
 | protected_homepage_hero_asset_or_derivative | 123 | keep protected account data |
 | protected_user_avatar | 3 | keep protected account data |
 | protected_user_derivative | 80 | keep protected account data |

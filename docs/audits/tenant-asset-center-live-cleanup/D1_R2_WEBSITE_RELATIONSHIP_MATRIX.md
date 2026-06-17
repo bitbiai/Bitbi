@@ -1,11 +1,11 @@
 # D1 / R2 / Website Relationship Matrix
 
-Generated: 2026-06-16T20:54:54.217Z
+Generated: 2026-06-17T03:43:20.319Z
 
 ## Summary
 
-- D1 R2-key references collected: 583
-- Unique R2 objects referenced by D1: 453
+- D1 R2-key references collected: 585
+- Unique R2 objects referenced by D1: 455
 - Protected-account references: 477
 - Public media counts: `{"mempics":{"total":28,"missing_derivatives":0},"memvids":{"total":44,"missing_posters":0},"memtracks":{"total":10,"missing_posters":0},"comments":{"total":0},"likes":{"total":5},"follows":{"total":4}}`
 - Missing checked objects: 0

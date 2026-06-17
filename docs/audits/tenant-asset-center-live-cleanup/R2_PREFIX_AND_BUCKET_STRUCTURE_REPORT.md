@@ -1,6 +1,6 @@
 # R2 Prefix And Bucket Structure Report
 
-Generated: 2026-06-16T20:54:54.217Z
+Generated: 2026-06-17T03:43:20.319Z
 
 This report summarizes D1-referenced key families and, when full R2 listing is available, unreferenced bucket/prefix families. Raw object keys are local-only evidence.
 
@@ -9,7 +9,7 @@ This report summarizes D1-referenced key families and, when full R2 listing is a
 | Prefix family | D1 references |
 | --- | --- |
 | users/{userId}/... | 402 |
-| news-pulse/thumbs/... | 106 |
+| news-pulse/thumbs/... | 108 |
 | homepage/hero-videos/... | 72 |
 | avatars/{userId} | 3 |
 
