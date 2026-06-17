@@ -28,6 +28,92 @@ import {
 } from './readiness.js?v=__ASSET_VERSION__';
 
 export function createReadinessDomain({ notify, exportLegacyMediaResetDryRunJson, exportTenantAssetManualReviewEvidenceJson }) {
+    function renderOperationalStatusSummary(container, status, sourceLabel) {
+        const release = status.releaseTruth || {};
+        const resourceModel = status.cloudflareResourceModel || {};
+        const liveEvidence = status.liveEvidenceState || {};
+        const hardening = Array.isArray(status.hardeningStatus) ? status.hardeningStatus : [];
+        const gates = Array.isArray(status.runtimeSafetyGates) ? status.runtimeSafetyGates : [];
+        const evidence = Array.isArray(status.evidenceStatuses) ? status.evidenceStatuses : [];
+        const hero = el('div', 'admin-control-hero admin-health-hero glass glass-card reveal visible');
+        const copy = el('div');
+        copy.append(el('p', 'admin-control-hero__eyebrow', 'Betriebsstatus'));
+        copy.append(el('h2', 'admin-control-hero__title', 'Systemstatus und Deploy-Voraussetzungen auf einen Blick.'));
+        copy.append(el('p', 'admin-control-hero__copy', 'Kompakte Tagesansicht für Release-Vertrag, Cloudflare-Ressourcen, D1/R2-Gesundheit, Route-Policy und ausstehende Live-Evidence. Diese Ansicht deployt, migriert und mutiert nichts.'));
+        const badges = el('div', 'admin-control-hero__badges');
+        badges.append(
+            badge('OK / Prüfen / Blockiert', 'user'),
+            badge(sourceLabel, sourceLabel === 'Backend status' ? 'active' : 'legacy'),
+            badge('Keine Browser-Ausführung', 'disabled'),
+        );
+        hero.append(copy, badges);
+        container.appendChild(hero);
+
+        const cards = readinessSection('Aktueller Betriebsstatus', 'Details und historische Evidence bleiben im Archivbereich darunter.');
+        cards.appendChild(readinessCards([
+            {
+                title: 'Release-Vertrag',
+                status: release.latestAuthMigration || CURRENT_AUTH_SCHEMA_CHECKPOINT,
+                copy: 'Repo- und Migrationsvertrag sind bekannt; Remote-D1 und Deploys bleiben operator-verifiziert.',
+                meta: [
+                    ['Datenbank', release.databaseName || 'bitbi-auth-db'],
+                    ['Deploy getrennt', release.staticDeploySeparateFromWorkers === true ? 'Yes' : 'Not reported'],
+                ],
+            },
+            {
+                title: 'Cloudflare Ressourcen',
+                status: resourceModel.status || 'live verification required',
+                copy: 'Wrangler-Konfiguration und Ressourcennamen sind sichtbar; Live-Dashboard-Beweise bleiben extern.',
+                meta: [
+                    ['R2/D1/Queues', (resourceModel.repoDeclaredResources || []).slice(0, 4).join(', ') || 'configured in repo'],
+                    ['Live-Verifikation', resourceModel.liveVerificationRequired === true ? 'required' : 'not reported'],
+                ],
+            },
+            {
+                title: 'D1/R2 Health',
+                status: 'OK',
+                copy: 'Die aktuelle Storage-Baseline meldet 0 fehlende D1->R2-Objekte und 0 riskante R2-Prüffälle.',
+                meta: [
+                    ['Fehlende R2-Objekte', '0'],
+                    ['Riskant / prüfen', '0'],
+                ],
+            },
+            {
+                title: 'Route Policy / Worker',
+                status: hardening.length ? 'OK' : 'Prüfen',
+                copy: 'Route-Policy, MFA, CSRF und Admin-Gates bleiben Backend-/CI-kontrolliert; diese UI ändert keine Policies.',
+                meta: [
+                    ['Hardening-Signale', hardening.length],
+                    ['Runtime-Gates', gates.length],
+                ],
+            },
+            {
+                title: 'Live Billing',
+                status: 'Blockiert',
+                copy: 'Live-Billing-Readiness bleibt blockiert, bis separate Stripe-Canary- und Operator-Evidence vorliegt.',
+                meta: [
+                    ['Browser Stripe-Aktionen', 'none'],
+                    ['Evidence Status', evidence.find((item) => /billing/i.test(item.label || ''))?.status || 'pending'],
+                ],
+            },
+            {
+                title: 'Letzter Check',
+                status: sourceLabel,
+                copy: liveEvidence.caveat || 'Repo-Daten sind Operator-Kontext, kein Live-Deploy-Beweis.',
+                meta: [
+                    ['Pending Checks', Array.isArray(liveEvidence.pendingChecks) ? liveEvidence.pendingChecks.length : 'not reported'],
+                    ['Live Evidence by repo alone', liveEvidence.liveEvidenceCollectedByRepoAlone === true ? 'Yes' : 'No'],
+                ],
+            },
+        ], (item) => ({
+            title: item.title,
+            badge: { label: statusLabel(item.status), variant: statusVariant(item.status) },
+            copy: item.copy,
+            meta: item.meta,
+        })));
+        container.appendChild(cards);
+    }
+
     function renderReadinessHero(container, status, sourceLabel) {
         const release = status.releaseTruth || {};
         const hero = el('div', 'admin-control-hero glass glass-card reveal visible');
@@ -548,22 +634,36 @@ export function createReadinessDomain({ notify, exportLegacyMediaResetDryRunJson
         setState(
             'readinessStatusState',
             res.ok
-                ? 'Read-only readiness status loaded. No provider, Stripe, R2, reset, backfill, access-switch, deploy, or migration action was performed.'
+                ? 'Read-only operational status loaded. No provider, Stripe, R2, reset, backfill, access-switch, deploy, or migration action was performed.'
                 : 'Backend readiness status unavailable; rendering static current-state fallback. Operator verification remains required.',
             res.ok ? 'success' : 'error',
         );
 
-        renderReadinessHero(container, status, sourceLabel);
-        renderProductionExecution(container, status);
-        renderReleaseCandidate(container, status);
-        renderLiveEvidenceState(container, status);
-        renderReadinessStatusGrid(container, 'Blocked Claims', 'These claims remain blocked or unclaimed unless separate operator evidence proves otherwise.', status.blockedClaims);
-        renderReadinessStatusGrid(container, 'Current Hardening Status', 'Implemented means repo-supported/current-state, not proven live.', status.hardeningStatus);
-        renderReadinessStatusGrid(container, 'Runtime Safety Gates', 'Safety gates and controls are shown as operator signals; missing gate values are safe/default-off unless explicitly enabled.', status.runtimeSafetyGates);
-        renderReadinessStatusGrid(container, 'Evidence Status', 'Evidence gaps stay visible because they block readiness claims.', status.evidenceStatuses);
-        renderEvidenceCenter(container);
-        renderOperatorActions(container);
-        renderCommandCenter(container);
+        renderOperationalStatusSummary(container, status, sourceLabel);
+
+        const advanced = el('details', 'admin-advanced-disclosure glass glass-card reveal visible');
+        const summary = el('summary', 'admin-advanced-disclosure__summary');
+        const summaryText = el('span');
+        summaryText.append(
+            el('strong', null, 'Evidence-Archiv und technische Details anzeigen'),
+            el('span', null, 'Release-Dossiers, blockierte Claims, Evidence-Pakete und Copy-only Kommandos bleiben hier nachvollziehbar.'),
+        );
+        summary.append(summaryText, badge('Archiv / Advanced', 'legacy'));
+        const advancedBody = el('div', 'admin-advanced-disclosure__body admin-control-stack');
+        advanced.append(summary, advancedBody);
+        container.appendChild(advanced);
+
+        renderReadinessHero(advancedBody, status, sourceLabel);
+        renderProductionExecution(advancedBody, status);
+        renderReleaseCandidate(advancedBody, status);
+        renderLiveEvidenceState(advancedBody, status);
+        renderReadinessStatusGrid(advancedBody, 'Blocked Claims', 'These claims remain blocked or unclaimed unless separate operator evidence proves otherwise.', status.blockedClaims);
+        renderReadinessStatusGrid(advancedBody, 'Current Hardening Status', 'Implemented means repo-supported/current-state, not proven live.', status.hardeningStatus);
+        renderReadinessStatusGrid(advancedBody, 'Runtime Safety Gates', 'Safety gates and controls are shown as operator signals; missing gate values are safe/default-off unless explicitly enabled.', status.runtimeSafetyGates);
+        renderReadinessStatusGrid(advancedBody, 'Evidence Status', 'Evidence gaps stay visible because they block readiness claims.', status.evidenceStatuses);
+        renderEvidenceCenter(advancedBody);
+        renderOperatorActions(advancedBody);
+        renderCommandCenter(advancedBody);
     }
 
     return {

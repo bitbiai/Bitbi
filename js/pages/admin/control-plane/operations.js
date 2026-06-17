@@ -139,11 +139,11 @@ export function createOperationsDomain({ notify, formatDate, loadTenantAssetManu
         for (const [label, href] of [
             ['Open Billing Reviews', '#billing-events'],
             ['Open Billing Reconciliation', '#billing-events'],
-            ['Open Tenant Asset Center', '#tenant-assets'],
+            ['Open Speicher-Integrität', '#tenant-assets'],
             ['Open Manual Review Queue', '#operations'],
             ['Open Data Lifecycle', '#lifecycle'],
             ['Open AI Budget Evidence', '#ai-budget-switches'],
-            ['Open Readiness/Evidence Dashboard', '#readiness'],
+            ['Open Betriebsstatus', '#readiness'],
         ]) {
             const link = el('a', 'btn-action btn-action--secondary', label);
             link.href = href;

@@ -150,11 +150,11 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 href: '#lifecycle',
             },
             {
-                title: 'Tenant Asset Manual Review',
+                title: 'Storage Health / Asset Integrity',
                 badge: { label: probes[8].status, variant: probes[8].variant },
-                copy: 'Inspect AI folders/images manual-review queue evidence and record review-status decisions. Ownership backfill and access switching remain blocked.',
-                href: '#operations',
-                cta: 'Open queue',
+                copy: 'Review the clean D1/R2 baseline, bucket status, missing/risky counts, and protected owner account summary. Legacy diagnostics remain behind Advanced.',
+                href: '#tenant-assets',
+                cta: 'Open health',
             },
             {
                 title: 'R2 Object Storage',
@@ -164,17 +164,18 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 cta: 'Open drive',
             },
             {
-                title: 'Operational Readiness',
+                title: 'Operational Status',
                 badge: { label: 'Production blocked', variant: 'disabled' },
-                copy: 'Release preflight is green, but live Cloudflare validation, migration verification, and main-only operator evidence remain deployment prerequisites.',
+                copy: 'Compact system status for release contract, Cloudflare resource model, D1/R2 health, route-policy signals, and live-evidence prerequisites.',
                 href: '#readiness',
+                cta: 'Open status',
             },
             {
-                title: 'Reference Views',
+                title: 'Help & Archive',
                 badge: { label: 'Read-only', variant: 'user' },
-                copy: 'Open Content, Media, and Access Reference surfaces for codebase-only context. These views do not query live systems, list R2, or prove tenant authorization.',
+                copy: 'Collapsed technical reference groups for handbook, media/data context, and access runbooks. These are archived context, not live runtime truth.',
                 href: '#content',
-                cta: 'Open references',
+                cta: 'Open archive',
             },
         ]);
     }

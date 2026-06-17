@@ -37,7 +37,7 @@ function injectRefNote(sectionId) {
     if (!el || el.querySelector('.admin-reference-note')) return;
     const note = document.createElement('div');
     note.className = 'admin-reference-note';
-    note.textContent = 'Reference view \u2014 reflects codebase definitions, not live system queries';
+    note.textContent = 'Help & Archive \u2014 reflects codebase definitions, not live system queries or current runtime truth';
     el.insertBefore(note, el.firstChild);
 }
 

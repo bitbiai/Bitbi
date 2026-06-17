@@ -15167,24 +15167,24 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionDashboard')).toContainText('Evidence-index success does not prove production readiness');
     await expect(page.locator('#adminWorkbench')).toContainText('Operator Tasks');
     await expect(page.locator('#adminWorkbench .admin-workbench-card')).toHaveCount(8);
-    await expect(page.locator('#adminWorkbench')).toContainText('Release & Deploy Safety');
+    await expect(page.locator('#adminWorkbench')).toContainText('Betriebsstatus');
     await expect(page.locator('#adminWorkbench')).toContainText('Production Evidence');
     await expect(page.locator('#adminWorkbench')).toContainText('Billing Evidence');
     await expect(page.locator('#adminWorkbench')).toContainText('AI Budget Controls');
-    await expect(page.locator('#adminWorkbench')).toContainText('Tenant Asset Safety');
+    await expect(page.locator('#adminWorkbench')).toContainText('Speicher-Integrität');
     await expect(page.locator('#adminWorkbench')).toContainText('Data Lifecycle');
     await expect(page.locator('#adminWorkbench')).toContainText('Operations Triage');
-    await expect(page.locator('#adminWorkbench')).toContainText('Reference Views');
+    await expect(page.locator('#adminWorkbench')).toContainText('Help & Archive');
     await expect(page.locator('#adminWorkbench')).toContainText('Read-only plus guarded mutation');
-    await expect(page.locator('#adminWorkbench')).toContainText('Read-only reference');
-    await expect(page.locator('#adminWorkbench')).toContainText('Tenant isolation, backfill readiness, access switch, and reset remain blocked/unclaimed.');
+    await expect(page.locator('#adminWorkbench')).toContainText('Collapsed reference');
+    await expect(page.locator('#adminWorkbench')).toContainText('Legacy backfill, access switch, reset, and manual-review tools stay collapsed behind Advanced Diagnostics.');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Billing Evidence' })).toHaveAttribute('href', '#billing-events');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open AI Budget Controls' })).toHaveAttribute('href', '#ai-budget-switches');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Data Lifecycle' })).toHaveAttribute('href', '#lifecycle');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Operations Triage' })).toHaveAttribute('href', '#operations');
-    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Tenant Asset Safety' })).toHaveAttribute('href', '#tenant-assets');
-    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Release & Deploy Safety' })).toHaveAttribute('href', '#readiness');
-    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Reference Views' })).toHaveAttribute('href', '#content');
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Speicher-Integrität' })).toHaveAttribute('href', '#tenant-assets');
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Betriebsstatus' })).toHaveAttribute('href', '#readiness');
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Help & Archive' })).toHaveAttribute('href', '#content');
     await expect(page.locator('#statTotal')).toHaveText('12');
 
     await expect(page.locator('a.admin-nav__link[data-section="security"]')).toBeAttached();
@@ -15194,12 +15194,12 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('a.admin-nav__link[data-section="ai-usage"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="ai-budget-switches"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="lifecycle"]')).toBeAttached();
-    await expect(page.locator('a.admin-nav__link[data-section="tenant-assets"]')).toBeAttached();
+    await expect(page.locator('a.admin-nav__link[data-section="tenant-assets"]')).toHaveText('Speicher-Integrität');
     await expect(page.locator('a.admin-nav__link[data-section="object-storage"]')).toHaveText('R2 Drive');
-    await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toBeAttached();
-    await expect(page.locator('a.admin-nav__link[data-section="content"]')).toHaveText('Content Reference');
-    await expect(page.locator('a.admin-nav__link[data-section="media"]')).toHaveText('Media Reference');
-    await expect(page.locator('a.admin-nav__link[data-section="access"]')).toHaveText('Access Reference');
+    await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toHaveText('Betriebsstatus');
+    await expect(page.locator('a.admin-nav__link[data-section="content"]')).toHaveText('Handbook & Archive');
+    await expect(page.locator('a.admin-nav__link[data-section="media"]')).toHaveText('Media Data Reference');
+    await expect(page.locator('a.admin-nav__link[data-section="access"]')).toHaveText('Access Runbooks');
     await expect(page.locator('.admin-nav__group-label')).toContainText([
       'Overview',
       'Users',
@@ -15207,7 +15207,7 @@ test.describe('Admin Control Plane', () => {
       'Finance',
       'Organization',
       'System',
-      'Reference',
+      'Help & Archive',
     ]);
     const missingInternalNavTargets = await page.locator('a.admin-nav__link[data-section]').evaluateAll((links) => links
       .filter((link) => (link.getAttribute('href') || '').startsWith('#'))
@@ -15219,16 +15219,16 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Billing / Credits');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('AI Usage Attempts');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('AI Budget Controls');
-    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Tenant Asset Manual Review');
+    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Storage Health / Asset Integrity');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('R2 Object Storage');
     await expect(page.getByRole('link', { name: 'Budget Controls' }).first()).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Tenant Assets' }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Speicher-Integrität' }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Operations' }).first()).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Content Reference' }).first()).toHaveAttribute('href', '#content');
-    await expect(page.getByRole('link', { name: 'Media Reference' }).first()).toHaveAttribute('href', '#media');
-    await expect(page.getByRole('link', { name: 'Access Reference' }).first()).toHaveAttribute('href', '#access');
-    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Reference Views');
-    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('codebase-only context');
+    await expect(page.getByRole('link', { name: 'Help & Archive' }).first()).toHaveAttribute('href', '#content');
+    await expect(page.getByRole('link', { name: 'Media Data' }).first()).toHaveAttribute('href', '#media');
+    await expect(page.getByRole('link', { name: 'Runbooks' }).first()).toHaveAttribute('href', '#access');
+    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Help & Archive');
+    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('archived context');
     await expect(page.locator('#adminPanel')).not.toContainText(/OMEGA|P0\/P1 Wave Matrix|P1 Wave|implementation package/);
 
     await clickAdminNavSection(page, 'security');
@@ -15612,11 +15612,24 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#tenantReviewDetail')).toContainText('review in progress');
 
     await clickAdminNavSection(page, 'tenant-assets');
+    await expect(page).toHaveURL(/#tenant-assets$/);
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Speicher-Integrität');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Status: Sauber');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Aktuelle Speicherlage');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Fehlende R2-Objekte');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Riskant / prüfen');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Löschkandidaten');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('bitbi-public-media');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Dashboard sichtbar, nicht im Auth Worker gebunden');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('current and valid');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('news pulse asset');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('audit or legal retention keep');
+    const tenantAdvanced = page.locator('#sectionTenantAssets details.admin-advanced-disclosure').first();
+    await expect(tenantAdvanced).not.toHaveAttribute('open', '');
+    await expect(page.locator('#sectionTenantAssets').getByRole('button', { name: 'Ownership Backfill danger explanation' })).toHaveCount(0);
+    await tenantAdvanced.locator('summary').click();
     await expect(page.locator('#sectionTenantAssets')).toContainText('Tenant Asset Center');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Tenant Asset Domain Matrix');
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Next Safe Action');
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Review D1 metadata evidence and manual-review dry-runs first');
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Do not execute tenant changes here');
     await expect(page.locator('#sectionTenantAssets')).toContainText('AI folders');
     await expect(page.locator('#sectionTenantAssets')).toContainText('AI text assets');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Public gallery references: Memtracks');
@@ -15693,9 +15706,17 @@ test.describe('Admin Control Plane', () => {
     expect(captures.tenantAssetDomainEvidenceRequests).toHaveLength(1);
 
     await clickAdminNavSection(page, 'readiness');
+    await expect(page.locator('#sectionReadiness')).toContainText('Betriebsstatus');
+    await expect(page.locator('#sectionReadiness')).toContainText('Aktueller Betriebsstatus');
+    await expect(page.locator('#sectionReadiness')).toContainText('D1/R2 Health');
+    await expect(page.locator('#sectionReadiness')).toContainText('Live Billing');
+    await expect(page.locator('#sectionReadiness')).toContainText('Evidence-Archiv und technische Details anzeigen');
+    const readinessAdvanced = page.locator('#sectionReadiness details.admin-advanced-disclosure').first();
+    await expect(readinessAdvanced).not.toHaveAttribute('open', '');
+    await expect(page.locator('#sectionReadiness').getByRole('button', { name: /enable legacy reset|confirmed reset|ownership backfill|access-switch|live billing enablement/i })).toHaveCount(0);
+    await readinessAdvanced.locator('summary').click();
     await expect(page.locator('#sectionReadiness')).toContainText('Readiness & Evidence Dashboard');
     await expect(page.locator('#sectionReadiness')).toContainText('Release evidence workflow');
-    await expect(page.locator('#sectionReadiness')).toContainText('Next Safe Action');
     await expect(page.locator('#sectionReadiness')).toContainText('Keep claims blocked');
     await expect(page.locator('#sectionReadiness')).toContainText(CURRENT_AUTH_MIGRATION);
     await expect(page.locator('#sectionReadiness')).toContainText('Production readiness');
@@ -15705,6 +15726,35 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionReadiness')).toContainText('Legacy reset sanitized dry-run evidence');
     await expect(page.locator('#sectionReadiness')).toContainText('Command Center');
     await expect(page.locator('#sectionReadiness').getByRole('button', { name: /enable legacy reset|confirmed reset|ownership backfill|access-switch|live billing enablement/i })).toHaveCount(0);
+
+    await page.goto('/admin/index.html#storage-health');
+    await expect(page.locator('#sectionTenantAssets')).toBeVisible();
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Speicher-Integrität');
+
+    await clickAdminNavSection(page, 'content');
+    await expect(page.locator('#sectionContent')).toContainText('Help & Archive');
+    const contentReference = page.locator('#sectionContent details.admin-reference-disclosure').first();
+    await expect(contentReference).not.toHaveAttribute('open', '');
+    await expect(page.locator('#contentGallery')).not.toBeVisible();
+    await contentReference.locator('summary').click();
+    await expect(page.locator('#contentGallery')).toBeVisible();
+    await expect(page.locator('#sectionContent')).toContainText('Help & Archive');
+
+    await clickAdminNavSection(page, 'media');
+    await expect(page.locator('#sectionMedia')).toContainText('Media Data Reference');
+    const mediaReference = page.locator('#sectionMedia details.admin-reference-disclosure').first();
+    await expect(mediaReference).not.toHaveAttribute('open', '');
+    await expect(page.locator('#mediaGallery')).not.toBeVisible();
+    await mediaReference.locator('summary').click();
+    await expect(page.locator('#mediaGallery')).toBeVisible();
+
+    await clickAdminNavSection(page, 'access');
+    await expect(page.locator('#sectionAccess')).toContainText('Access Runbooks');
+    const accessReference = page.locator('#sectionAccess details.admin-reference-disclosure').first();
+    await expect(accessReference).not.toHaveAttribute('open', '');
+    await expect(page.locator('#accessRoles')).not.toBeVisible();
+    await accessReference.locator('summary').click();
+    await expect(page.locator('#accessRoles')).toBeVisible();
 
     await clickAdminNavSection(page, 'settings');
     await expect(page.locator('#sectionSettings')).toContainText('Deployment-owned');
@@ -15762,6 +15812,7 @@ test.describe('Admin Control Plane', () => {
     const response = await page.goto('/admin/index.html#tenant-assets');
     expect(response.status()).toBe(200);
     await expect(page.locator('#sectionTenantAssets')).toBeVisible();
+    await page.locator('#sectionTenantAssets details.admin-advanced-disclosure').first().locator('summary').click();
     await page.getByRole('button', { name: 'Run Backfill Dry-run' }).click();
     await expect(page.locator('#tenantBackfillExactCandidate')).toContainText('No exact safe ai_images candidate ID is available');
     await expect(page.getByRole('button', { name: 'Execute Endpoint Dry-run' })).toBeDisabled();
@@ -15783,6 +15834,7 @@ test.describe('Admin Control Plane', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#sectionTenantAssets')).toBeVisible();
+    await page.locator('#sectionTenantAssets details.admin-advanced-disclosure').first().locator('summary').click();
 
     const dangerButton = page.getByRole('button', { name: 'Ownership Backfill danger explanation' });
     await dangerButton.click();
@@ -15808,13 +15860,13 @@ test.describe('Admin Control Plane', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#sectionReadiness')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Readiness');
-    await expect(page.locator('#adminHeroDesc')).toHaveText('Release, migration, Cloudflare, and staging verification checklist');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Betriebsstatus');
+    await expect(page.locator('#adminHeroDesc')).toHaveText('Operational readiness, release contract, and archived evidence details');
 
     await page.goto('/admin/index.html#tenant-assets');
     await expect(page.locator('#sectionTenantAssets')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Tenant Assets');
-    await expect(page.locator('#adminHeroDesc')).toHaveText('Cross-domain ownership inventory, evidence gaps, and storage safety');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Speicher-Integrität');
+    await expect(page.locator('#adminHeroDesc')).toHaveText('Compact storage health, D1/R2 integrity, and advanced legacy diagnostics');
 
     await page.goto('/admin/index.html#users');
     await expect(page.locator('#sectionUsers')).toBeVisible();
@@ -15830,38 +15882,38 @@ test.describe('Admin Control Plane', () => {
 
     await page.goto('/admin/index.html#content');
     await expect(page.locator('#sectionContent')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Content Reference');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Help & Archive');
 
     await page.goto('/admin/index.html#media');
     await expect(page.locator('#sectionMedia')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Media Reference');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Media Data Reference');
 
     await page.goto('/admin/index.html#access');
     await expect(page.locator('#sectionAccess')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Access Reference');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Access Runbooks');
 
     await page.goto('/admin/index.html#dashboard');
     await expect(page.locator('#sectionDashboard')).toBeVisible();
-    await page.locator('#adminWorkbench').getByRole('link', { name: 'Open Release & Deploy Safety' }).click();
+    await page.locator('#adminWorkbench').getByRole('link', { name: 'Open Betriebsstatus' }).click();
     await expect(page).toHaveURL(/#readiness$/);
     await expect(page.locator('#sectionReadiness')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Readiness');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Betriebsstatus');
 
     await clickAdminNavSection(page, 'dashboard');
     await expect(page.locator('#sectionDashboard')).toBeVisible();
-    await page.locator('#adminWorkbench').getByRole('link', { name: 'Open Tenant Asset Safety' }).click();
+    await page.locator('#adminWorkbench').getByRole('link', { name: 'Open Speicher-Integrität' }).click();
     await expect(page).toHaveURL(/#tenant-assets$/);
     await expect(page.locator('#sectionTenantAssets')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Tenant Assets');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Speicher-Integrität');
 
     await clickAdminNavSection(page, 'dashboard');
-    await page.locator('#adminWorkbench').getByRole('link', { name: 'Open Reference Views' }).click();
+    await page.locator('#adminWorkbench').getByRole('link', { name: 'Open Help & Archive' }).click();
     await expect(page).toHaveURL(/#content$/);
     await expect(page.locator('#sectionContent')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Content Reference');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Help & Archive');
 
     await clickAdminNavSection(page, 'dashboard');
-    await page.getByRole('link', { name: 'Media Reference' }).first().click();
+    await page.getByRole('link', { name: 'Media Data' }).first().click();
     await expect(page).toHaveURL(/#media$/);
     await expect(page.locator('#sectionMedia')).toBeVisible();
   });
@@ -15916,19 +15968,25 @@ test.describe('Admin Control Plane', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#sectionContent')).toBeVisible();
-    await expect(page.locator('#sectionContent')).toContainText(/Reference view.*reflects codebase definitions, not live system queries/);
+    await expect(page.locator('#sectionContent')).toContainText(/Help & Archive.*reflects codebase definitions, not live system queries or current runtime truth/);
+    await expect(page.locator('#contentGallery')).not.toBeVisible();
+    await page.locator('#sectionContent details.admin-reference-disclosure').first().locator('summary').click();
     await expect(page.locator('#contentGallery')).toContainText('items total');
     await expect(page.locator('#contentSoundlab')).toContainText('Sound Lab Explore reads public music from Memtracks.');
 
     await page.goto('/admin/index.html#media');
     await expect(page.locator('#sectionMedia')).toBeVisible();
-    await expect(page.locator('#sectionMedia')).toContainText(/Reference view.*reflects codebase definitions, not live system queries/);
+    await expect(page.locator('#sectionMedia')).toContainText(/Help & Archive.*reflects codebase definitions, not live system queries or current runtime truth/);
+    await expect(page.locator('#mediaGallery')).not.toBeVisible();
+    await page.locator('#sectionMedia details.admin-reference-disclosure').first().locator('summary').click();
     await expect(page.locator('#mediaGallery')).toContainText('Public items');
     await expect(page.locator('#mediaAudio')).toContainText('Legacy bundled Free tracks are removed from the active Sound Lab UI.');
 
     await page.goto('/admin/index.html#access');
     await expect(page.locator('#sectionAccess')).toBeVisible();
-    await expect(page.locator('#sectionAccess')).toContainText(/Reference view.*reflects codebase definitions, not live system queries/);
+    await expect(page.locator('#sectionAccess')).toContainText(/Help & Archive.*reflects codebase definitions, not live system queries or current runtime truth/);
+    await expect(page.locator('#accessGating')).not.toBeVisible();
+    await page.locator('#sectionAccess details.admin-reference-disclosure').first().locator('summary').click();
     await expect(page.locator('#accessGating')).toContainText('Sound Lab category gates');
     await expect(page.locator('#accessRoles')).toContainText('Admin');
     await expect(page.locator('#accessMap')).toContainText('Assets Manager');
@@ -16120,7 +16178,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#operatorTimelineFilter')).toContainText('Status');
     await expect(page.locator('#operatorTimelineFilter')).toContainText('Attention');
     await expect(page.locator('#operatorTimelineList')).toContainText('Open Billing Reviews');
-    await expect(page.locator('#operatorTimelineList')).toContainText('Open Tenant Asset Center');
+    await expect(page.locator('#operatorTimelineList')).toContainText('Open Speicher-Integrität');
     await expect(page.locator('#operatorTimelineList')).toContainText('Copy event ID');
     await expect(page.locator('#operatorTimelineList')).not.toContainText('sk_live_');
     await expect(page.locator('#operatorTimelineList')).not.toContainText('Stripe-Signature');
@@ -16145,6 +16203,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     const readiness = page.locator('#sectionReadiness');
     await expect(readiness).toBeVisible();
+    await readiness.locator('details.admin-advanced-disclosure').first().locator('summary').click();
     await expect(readiness).toContainText('Current Release Truth');
     await expect(readiness).toContainText(CURRENT_AUTH_MIGRATION);
     await expect(readiness).toContainText('not live deploy proof');
@@ -16636,7 +16695,7 @@ test.describe('Admin Control Plane', () => {
     await readinessNav.scrollIntoViewIfNeeded();
     await expect(readinessNav).toBeVisible();
     await readinessNav.click();
-    await expect(page.locator('#sectionReadiness')).toContainText('Current Release Truth');
+    await expect(page.locator('#sectionReadiness')).toContainText('Aktueller Betriebsstatus');
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/admin/index.html#orgs');

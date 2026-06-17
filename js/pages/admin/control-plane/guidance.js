@@ -9,7 +9,7 @@ import {
 const WORKBENCH_TASKS = Object.freeze([
     {
         id: 'release-deploy-safety',
-        title: 'Release & Deploy Safety',
+        title: 'Betriebsstatus',
         status: 'evidence_pending',
         mode: 'Read-only',
         href: '#readiness',
@@ -49,13 +49,13 @@ const WORKBENCH_TASKS = Object.freeze([
     },
     {
         id: 'tenant-asset-safety',
-        title: 'Tenant Asset Safety',
-        status: 'evidence_pending',
+        title: 'Speicher-Integrität',
+        status: 'ready_to_review',
         mode: 'Read-only first',
         href: '#tenant-assets',
         probe: 'Tenant asset manual review',
-        nextAction: 'Run post-cleanup manual-review dry-run and export evidence before any supersession.',
-        blockedReason: 'Tenant isolation, backfill readiness, access switch, and reset remain blocked/unclaimed.',
+        nextAction: 'Use the compact storage health summary first; open advanced diagnostics only when evidence review is needed.',
+        blockedReason: 'Legacy backfill, access switch, reset, and manual-review tools stay collapsed behind Advanced Diagnostics.',
     },
     {
         id: 'data-lifecycle',
@@ -79,13 +79,13 @@ const WORKBENCH_TASKS = Object.freeze([
     },
     {
         id: 'reference-views',
-        title: 'Reference Views',
+        title: 'Help & Archive',
         status: 'ready_to_review',
-        mode: 'Read-only reference',
+        mode: 'Collapsed reference',
         href: '#content',
         probe: null,
-        nextAction: 'Use Content, Media, and Access Reference views for codebase-only context before interpreting live evidence.',
-        blockedReason: 'Reference views do not query live systems, list R2, prove authorization, or unlock production claims.',
+        nextAction: 'Open compact reference groups only when you need handbook, data-model, or runbook context.',
+        blockedReason: 'Archived references do not query live systems, list R2, prove authorization, or unlock production claims.',
     },
 ]);
 
