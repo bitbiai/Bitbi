@@ -15166,7 +15166,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionDashboard')).toContainText('Blocked claims');
     await expect(page.locator('#sectionDashboard')).toContainText('Evidence-index success does not prove production readiness');
     await expect(page.locator('#adminWorkbench')).toContainText('Operator Tasks');
-    await expect(page.locator('#adminWorkbench .admin-workbench-card')).toHaveCount(8);
+    await expect(page.locator('#adminWorkbench .admin-workbench-card')).toHaveCount(7);
     await expect(page.locator('#adminWorkbench')).toContainText('Betriebsstatus');
     await expect(page.locator('#adminWorkbench')).toContainText('Production Evidence');
     await expect(page.locator('#adminWorkbench')).toContainText('Billing Evidence');
@@ -15174,9 +15174,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminWorkbench')).toContainText('Speicher-Integrität');
     await expect(page.locator('#adminWorkbench')).toContainText('Data Lifecycle');
     await expect(page.locator('#adminWorkbench')).toContainText('Operations Triage');
-    await expect(page.locator('#adminWorkbench')).toContainText('Help & Archive');
     await expect(page.locator('#adminWorkbench')).toContainText('Read-only plus guarded mutation');
-    await expect(page.locator('#adminWorkbench')).toContainText('Collapsed reference');
     await expect(page.locator('#adminWorkbench')).toContainText('Legacy backfill, access switch, reset, and manual-review tools stay collapsed behind Advanced Diagnostics.');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Billing Evidence' })).toHaveAttribute('href', '#billing-events');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open AI Budget Controls' })).toHaveAttribute('href', '#ai-budget-switches');
@@ -15184,7 +15182,6 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Operations Triage' })).toHaveAttribute('href', '#operations');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Speicher-Integrität' })).toHaveAttribute('href', '#tenant-assets');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Betriebsstatus' })).toHaveAttribute('href', '#readiness');
-    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Help & Archive' })).toHaveAttribute('href', '#content');
     await expect(page.locator('#statTotal')).toHaveText('12');
 
     await expect(page.locator('a.admin-nav__link[data-section="security"]')).toBeAttached();
@@ -15197,9 +15194,9 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('a.admin-nav__link[data-section="tenant-assets"]')).toHaveText('Speicher-Integrität');
     await expect(page.locator('a.admin-nav__link[data-section="object-storage"]')).toHaveText('R2 Drive');
     await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toHaveText('Betriebsstatus');
-    await expect(page.locator('a.admin-nav__link[data-section="content"]')).toHaveText('Handbook & Archive');
-    await expect(page.locator('a.admin-nav__link[data-section="media"]')).toHaveText('Media Data Reference');
-    await expect(page.locator('a.admin-nav__link[data-section="access"]')).toHaveText('Access Runbooks');
+    await expect(page.locator('a.admin-nav__link[data-section="content"]')).toHaveCount(0);
+    await expect(page.locator('a.admin-nav__link[data-section="media"]')).toHaveCount(0);
+    await expect(page.locator('a.admin-nav__link[data-section="access"]')).toHaveCount(0);
     await expect(page.locator('.admin-nav__group-label')).toContainText([
       'Overview',
       'Users',
@@ -15207,8 +15204,8 @@ test.describe('Admin Control Plane', () => {
       'Finance',
       'Organization',
       'System',
-      'Help & Archive',
     ]);
+    await expect(page.locator('.admin-nav__group-label').filter({ hasText: 'Help & Archive' })).toHaveCount(0);
     const missingInternalNavTargets = await page.locator('a.admin-nav__link[data-section]').evaluateAll((links) => links
       .filter((link) => (link.getAttribute('href') || '').startsWith('#'))
       .map((link) => link.dataset.section)
@@ -15224,11 +15221,11 @@ test.describe('Admin Control Plane', () => {
     await expect(page.getByRole('link', { name: 'Budget Controls' }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Speicher-Integrität' }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Operations' }).first()).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Help & Archive' }).first()).toHaveAttribute('href', '#content');
-    await expect(page.getByRole('link', { name: 'Media Data' }).first()).toHaveAttribute('href', '#media');
-    await expect(page.getByRole('link', { name: 'Runbooks' }).first()).toHaveAttribute('href', '#access');
-    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Help & Archive');
-    await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('archived context');
+    await expect(page.getByRole('link', { name: 'Help & Archive' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Media Data' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Runbooks' })).toHaveCount(0);
+    await expect(page.locator('#controlPlaneCapabilityGrid')).not.toContainText('Help & Archive');
+    await expect(page.locator('#controlPlaneCapabilityGrid')).not.toContainText('archived context');
     await expect(page.locator('#adminPanel')).not.toContainText(/OMEGA|P0\/P1 Wave Matrix|P1 Wave|implementation package/);
 
     await clickAdminNavSection(page, 'security');
@@ -15731,30 +15728,14 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionTenantAssets')).toBeVisible();
     await expect(page.locator('#adminHeroTitle')).toHaveText('Speicher-Integrität');
 
-    await clickAdminNavSection(page, 'content');
-    await expect(page.locator('#sectionContent')).toContainText('Help & Archive');
-    const contentReference = page.locator('#sectionContent details.admin-reference-disclosure').first();
-    await expect(contentReference).not.toHaveAttribute('open', '');
-    await expect(page.locator('#contentGallery')).not.toBeVisible();
-    await contentReference.locator('summary').click();
-    await expect(page.locator('#contentGallery')).toBeVisible();
-    await expect(page.locator('#sectionContent')).toContainText('Help & Archive');
-
-    await clickAdminNavSection(page, 'media');
-    await expect(page.locator('#sectionMedia')).toContainText('Media Data Reference');
-    const mediaReference = page.locator('#sectionMedia details.admin-reference-disclosure').first();
-    await expect(mediaReference).not.toHaveAttribute('open', '');
-    await expect(page.locator('#mediaGallery')).not.toBeVisible();
-    await mediaReference.locator('summary').click();
-    await expect(page.locator('#mediaGallery')).toBeVisible();
-
-    await clickAdminNavSection(page, 'access');
-    await expect(page.locator('#sectionAccess')).toContainText('Access Runbooks');
-    const accessReference = page.locator('#sectionAccess details.admin-reference-disclosure').first();
-    await expect(accessReference).not.toHaveAttribute('open', '');
-    await expect(page.locator('#accessRoles')).not.toBeVisible();
-    await accessReference.locator('summary').click();
-    await expect(page.locator('#accessRoles')).toBeVisible();
+    for (const oldHash of ['content', 'media', 'access', 'reference', 'help-archive']) {
+      await page.goto(`/admin/index.html#${oldHash}`);
+      await expect(page.locator('#sectionDashboard')).toBeVisible();
+      await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+      await expect(page.locator('#adminPanel')).not.toContainText('Help & Archive');
+      await expect(page.locator('#adminPanel')).not.toContainText('Media Data Reference');
+      await expect(page.locator('#adminPanel')).not.toContainText('Access Runbooks');
+    }
 
     await clickAdminNavSection(page, 'settings');
     await expect(page.locator('#sectionSettings')).toContainText('Deployment-owned');
@@ -15880,17 +15861,11 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionSettings')).toBeVisible();
     await expect(page.locator('#adminHeroTitle')).toHaveText('Admin Settings');
 
-    await page.goto('/admin/index.html#content');
-    await expect(page.locator('#sectionContent')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Help & Archive');
-
-    await page.goto('/admin/index.html#media');
-    await expect(page.locator('#sectionMedia')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Media Data Reference');
-
-    await page.goto('/admin/index.html#access');
-    await expect(page.locator('#sectionAccess')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Access Runbooks');
+    for (const oldHash of ['content', 'media', 'access', 'reference', 'help-archive']) {
+      await page.goto(`/admin/index.html#${oldHash}`);
+      await expect(page.locator('#sectionDashboard')).toBeVisible();
+      await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+    }
 
     await page.goto('/admin/index.html#dashboard');
     await expect(page.locator('#sectionDashboard')).toBeVisible();
@@ -15907,15 +15882,9 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminHeroTitle')).toHaveText('Speicher-Integrität');
 
     await clickAdminNavSection(page, 'dashboard');
-    await page.locator('#adminWorkbench').getByRole('link', { name: 'Open Help & Archive' }).click();
-    await expect(page).toHaveURL(/#content$/);
-    await expect(page.locator('#sectionContent')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Help & Archive');
-
-    await clickAdminNavSection(page, 'dashboard');
-    await page.getByRole('link', { name: 'Media Data' }).first().click();
-    await expect(page).toHaveURL(/#media$/);
-    await expect(page.locator('#sectionMedia')).toBeVisible();
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Help & Archive' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Media Data' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Runbooks' })).toHaveCount(0);
   });
 
   test('Activity module keeps admin and user logs searchable, expandable, and paginated', async ({
@@ -15958,7 +15927,7 @@ test.describe('Admin Control Plane', () => {
     await expect.poll(() => captures.userActivityRequests.length).toBeGreaterThan(0);
   });
 
-  test('Reference views remain read-only codebase references for content, media, and access', async ({
+  test('removed Help & Archive hashes fall back to the Command Center safely', async ({
     page,
   }) => {
     const captures = {};
@@ -15967,29 +15936,15 @@ test.describe('Admin Control Plane', () => {
     const response = await page.goto('/admin/index.html#content');
     expect(response.status()).toBe(200);
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#sectionContent')).toBeVisible();
-    await expect(page.locator('#sectionContent')).toContainText(/Help & Archive.*reflects codebase definitions, not live system queries or current runtime truth/);
-    await expect(page.locator('#contentGallery')).not.toBeVisible();
-    await page.locator('#sectionContent details.admin-reference-disclosure').first().locator('summary').click();
-    await expect(page.locator('#contentGallery')).toContainText('items total');
-    await expect(page.locator('#contentSoundlab')).toContainText('Sound Lab Explore reads public music from Memtracks.');
-
-    await page.goto('/admin/index.html#media');
-    await expect(page.locator('#sectionMedia')).toBeVisible();
-    await expect(page.locator('#sectionMedia')).toContainText(/Help & Archive.*reflects codebase definitions, not live system queries or current runtime truth/);
-    await expect(page.locator('#mediaGallery')).not.toBeVisible();
-    await page.locator('#sectionMedia details.admin-reference-disclosure').first().locator('summary').click();
-    await expect(page.locator('#mediaGallery')).toContainText('Public items');
-    await expect(page.locator('#mediaAudio')).toContainText('Legacy bundled Free tracks are removed from the active Sound Lab UI.');
-
-    await page.goto('/admin/index.html#access');
-    await expect(page.locator('#sectionAccess')).toBeVisible();
-    await expect(page.locator('#sectionAccess')).toContainText(/Help & Archive.*reflects codebase definitions, not live system queries or current runtime truth/);
-    await expect(page.locator('#accessGating')).not.toBeVisible();
-    await page.locator('#sectionAccess details.admin-reference-disclosure').first().locator('summary').click();
-    await expect(page.locator('#accessGating')).toContainText('Sound Lab category gates');
-    await expect(page.locator('#accessRoles')).toContainText('Admin');
-    await expect(page.locator('#accessMap')).toContainText('Assets Manager');
+    for (const oldHash of ['content', 'media', 'access', 'reference', 'help-archive']) {
+      await page.goto(`/admin/index.html#${oldHash}`);
+      await expect(page.locator('#sectionDashboard')).toBeVisible();
+      await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+      await expect(page.locator('#adminPanel')).not.toContainText('Help & Archive');
+      await expect(page.locator('#adminPanel')).not.toContainText('Handbook & Archive');
+      await expect(page.locator('#adminPanel')).not.toContainText('Media Data Reference');
+      await expect(page.locator('#adminPanel')).not.toContainText('Access Runbooks');
+    }
   });
 
   test('Avatar dropdown and lightbox remain isolated from user management behavior', async ({
@@ -16651,7 +16606,7 @@ test.describe('Admin Control Plane', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/admin/index.html');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(12);
+    await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(11);
     const managementShellWidth = await page.locator('.admin-management-shell').evaluate((node) =>
       Math.round(node.getBoundingClientRect().width)
     );
@@ -17425,13 +17380,12 @@ test.describe('Admin nav accordion behavior', () => {
     const usersToggle = page.locator('.admin-nav__group:has(a[data-section="users"]) > .admin-nav__group-toggle');
     const aiToggle = page.locator('.admin-nav__group:has(a[data-section="ai-lab"]) > .admin-nav__group-toggle');
     const systemToggle = page.locator('.admin-nav__group:has(a[data-section="settings"]) > .admin-nav__group-toggle');
-    const referenceToggle = page.locator('.admin-nav__group:has(a[data-section="content"]) > .admin-nav__group-toggle');
 
     await expect(overviewToggle).toHaveAttribute('aria-expanded', 'false');
     await expect(usersToggle).toHaveAttribute('aria-expanded', 'false');
     await expect(aiToggle).toHaveAttribute('aria-expanded', 'false');
     await expect(systemToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(referenceToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('.admin-nav__group:has(a[data-section="content"])')).toHaveCount(0);
   });
 
   test('opening one nav group collapses any previously open group (single-open accordion)', async ({ page }) => {
@@ -17476,8 +17430,8 @@ test.describe('Admin nav accordion behavior', () => {
     await expect(usersToggle).toBeFocused();
 
     await page.keyboard.press('End');
-    const referenceToggle = page.locator('.admin-nav__group:has(a[data-section="content"]) > .admin-nav__group-toggle');
-    await expect(referenceToggle).toBeFocused();
+    const systemToggle = page.locator('.admin-nav__group:has(a[data-section="settings"]) > .admin-nav__group-toggle');
+    await expect(systemToggle).toBeFocused();
   });
 
   test('cold deep link to #ai-lab auto-expands the AI group on load', async ({ page }) => {
@@ -17504,16 +17458,12 @@ test.describe('Admin nav accordion behavior', () => {
     await expect(systemGroup).toHaveClass(/admin-nav__group--active/);
   });
 
-  test('cold deep link to #content auto-expands the Reference group on load', async ({ page }) => {
+  test('cold deep link to removed Help & Archive route falls back to Dashboard', async ({ page }) => {
     await page.goto('/admin/index.html#content');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#sectionContent')).toBeVisible();
-
-    const referenceGroup = page.locator('.admin-nav__group:has(a[data-section="content"])');
-    const referenceToggle = referenceGroup.locator('> .admin-nav__group-toggle');
-    await expect(referenceToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(referenceGroup).toHaveClass(/admin-nav__group--expanded/);
-    await expect(referenceGroup).toHaveClass(/admin-nav__group--active/);
+    await expect(page.locator('#sectionDashboard')).toBeVisible();
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+    await expect(page.locator('.admin-nav__group:has(a[data-section="content"])')).toHaveCount(0);
   });
 
   test('clicking a child link collapses its parent group while keeping the active highlight', async ({ page }) => {

@@ -170,13 +170,6 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 href: '#readiness',
                 cta: 'Open status',
             },
-            {
-                title: 'Help & Archive',
-                badge: { label: 'Read-only', variant: 'user' },
-                copy: 'Collapsed technical reference groups for handbook, media/data context, and access runbooks. These are archived context, not live runtime truth.',
-                href: '#content',
-                cta: 'Open archive',
-            },
         ]);
     }
 

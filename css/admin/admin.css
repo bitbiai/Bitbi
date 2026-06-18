@@ -1065,10 +1065,6 @@
         background: rgba(255, 179, 0, 0.035);
     }
 
-    .admin-reference-disclosure {
-        margin-block-start: var(--space-5);
-    }
-
     /* ── Admin R2 Object Storage Explorer ── */
     .admin-r2-explorer {
         gap: var(--space-4);

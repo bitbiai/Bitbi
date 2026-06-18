@@ -6939,11 +6939,7 @@ test.describe('Homepage', () => {
   test('Gallery and Sound Lab cleanup remove stale Exclusive admin references', () => {
     const adminHtml = fs.readFileSync(path.join(process.cwd(), 'admin/index.html'), 'utf8');
     const adminJs = fs.readFileSync(path.join(process.cwd(), 'js/pages/admin/main.js'), 'utf8');
-    const adminReferenceViewsJs = fs.readFileSync(
-      path.join(process.cwd(), 'js/pages/admin/reference-views.js'),
-      'utf8',
-    );
-    const adminSource = `${adminHtml}\n${adminJs}\n${adminReferenceViewsJs}`;
+    const adminSource = `${adminHtml}\n${adminJs}`;
 
     expect(adminSource).not.toContain('Little Monster');
     expect(adminSource).not.toContain('Gallery "Exclusive"');
@@ -6951,8 +6947,7 @@ test.describe('Homepage', () => {
     expect(adminSource).not.toContain('Sound Lab Exclusive');
     expect(adminSource).not.toContain('Exclusive audio tracks');
     expect(adminSource).not.toContain('Exclusive track thumbnails');
-    expect(adminSource).toContain('Published member tracks');
-    expect(adminSource).toContain('Memtracks');
+    expect(adminSource).not.toContain('reference-views.js');
   });
 
   test('published Memvid cards show the sharer display name and avatar instead of generic category copy', async ({ page }) => {

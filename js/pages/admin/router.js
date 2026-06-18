@@ -13,9 +13,6 @@ const SECTION_DOM_IDS = {
     'tenant-assets': 'sectionTenantAssets',
     readiness: 'sectionReadiness',
     users: 'sectionUsers',
-    content: 'sectionContent',
-    media: 'sectionMedia',
-    access: 'sectionAccess',
     'ai-lab': 'sectionAiLab',
     'homepage-hero-videos': 'sectionHomepageHeroVideos',
     activity: 'sectionActivity',
@@ -37,9 +34,6 @@ const SECTION_META = {
     'tenant-assets': { title: 'Speicher-Integrität', desc: 'Compact storage health, D1/R2 integrity, and advanced legacy diagnostics' },
     readiness: { title: 'Betriebsstatus', desc: 'Operational readiness, release contract, and archived evidence details' },
     users: { title: 'User Management', desc: 'Manage users, roles, and sessions' },
-    content: { title: 'Help & Archive', desc: 'Compact handbook and archived codebase reference, not live system truth' },
-    media: { title: 'Media Data Reference', desc: 'Collapsed media and R2 route reference, not live R2 listing' },
-    access: { title: 'Access Runbooks', desc: 'Collapsed access and role reference, not live authorization proof' },
     'ai-lab': { title: 'AI Lab', desc: 'Admin-only AI tests, previews, and model comparisons' },
     'homepage-hero-videos': { title: 'Homepage Hero Videos', desc: 'Operator-managed optimized hero video slots for the public homepage' },
     activity: { title: 'Activity', desc: 'Audit trail and admin actions' },
@@ -58,8 +52,11 @@ const SECTION_ALIASES = {
     'asset-integrity': { section: 'tenant-assets', panel: null },
     'system-status': { section: 'readiness', panel: null },
     'operational-status': { section: 'readiness', panel: null },
-    reference: { section: 'content', panel: null },
-    'help-archive': { section: 'content', panel: null },
+    content: { section: 'dashboard', panel: null },
+    media: { section: 'dashboard', panel: null },
+    access: { section: 'dashboard', panel: null },
+    reference: { section: 'dashboard', panel: null },
+    'help-archive': { section: 'dashboard', panel: null },
 };
 
 function createSectionRefs() {

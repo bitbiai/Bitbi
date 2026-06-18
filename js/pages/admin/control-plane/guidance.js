@@ -77,16 +77,6 @@ const WORKBENCH_TASKS = Object.freeze([
         nextAction: 'Review timeline, evidence index commands, async diagnostics, and manual-review queue signals.',
         blockedReason: 'Triage evidence does not mutate live systems or prove readiness by itself.',
     },
-    {
-        id: 'reference-views',
-        title: 'Help & Archive',
-        status: 'ready_to_review',
-        mode: 'Collapsed reference',
-        href: '#content',
-        probe: null,
-        nextAction: 'Open compact reference groups only when you need handbook, data-model, or runbook context.',
-        blockedReason: 'Archived references do not query live systems, list R2, prove authorization, or unlock production claims.',
-    },
 ]);
 
 function statusVariant(status) {

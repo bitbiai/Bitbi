@@ -19,7 +19,7 @@ This baseline is not production readiness, live billing readiness, tenant isolat
 ## Admin Frontend Structure
 
 - `js/pages/admin/main.js` is a compact bootstrap/composition entrypoint.
-- Top-level Admin modules now include `dashboard.js`, `router.js`, `nav.js`, `activity.js`, `reference-views.js`, `avatar-lightbox.js`, `ui.js`, `security.js`, `settings.js`, `users.js`, `user-actions.js`, and `user-storage.js`.
+- Top-level Admin modules now include `dashboard.js`, `router.js`, `nav.js`, `activity.js`, `avatar-lightbox.js`, `ui.js`, `security.js`, `settings.js`, `users.js`, `user-actions.js`, and `user-storage.js`.
 - Admin Control Plane domains are split under `js/pages/admin/control-plane/`: readiness, billing, AI budget, lifecycle, operations, tenant assets, and guidance.
 - Tenant asset subdomains are split under `js/pages/admin/control-plane/tenant-assets/`: evidence, manual review, backfill/access-switch, and legacy reset.
 - Admin high-risk flows include clearer blocked-state copy, exact confirmations, idempotency expectations, focus/modal/keyboard behavior, and read-only evidence exports where applicable.

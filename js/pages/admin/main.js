@@ -21,7 +21,6 @@ import { createAdminControlPlane } from './control-plane.js?v=__ASSET_VERSION__'
 import { createAdminDashboard } from './dashboard.js?v=__ASSET_VERSION__';
 import { createHomepageHeroVideosAdmin } from './homepage-hero-videos.js?v=__ASSET_VERSION__';
 import { createAdminNav } from './nav.js?v=__ASSET_VERSION__';
-import { createAdminReferenceViews } from './reference-views.js?v=__ASSET_VERSION__';
 import { createAdminRouter } from './router.js?v=__ASSET_VERSION__';
 import {
     ADMIN_MFA_GATE_CODES,
@@ -65,7 +64,6 @@ const homepageHeroVideos = createHomepageHeroVideosAdmin({ showToast, formatDate
 const adminNav = createAdminNav();
 const adminActivity = createAdminActivity({ showToast, formatDate });
 const adminAvatars = createAdminAvatarLightbox();
-const referenceViews = createAdminReferenceViews();
 const adminMfaGate = createAdminMfaGate({ showToast, showGate: showAdminMfaGate });
 const adminUsers = createAdminUsersDomain({
     showToast,
@@ -187,9 +185,6 @@ function loadAdminSection(name) {
     }
     if (name === 'activity') adminActivity.load();
     if (name === 'homepage-hero-videos') homepageHeroVideos.load();
-    if (name === 'content') referenceViews.loadContent();
-    if (name === 'media') referenceViews.loadMedia();
-    if (name === 'access') referenceViews.loadAccess();
     if (name === 'ai-lab') aiLab.show();
     return controlPlanePromise;
 }

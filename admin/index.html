@@ -179,17 +179,6 @@
                 <a href="#settings" class="admin-nav__link" data-section="settings">Settings</a>
             </div>
         </div>
-        <div class="admin-nav__group" role="group" aria-label="Help and archive">
-            <button type="button" class="admin-nav__group-toggle" aria-expanded="false" aria-controls="adminNavGroupReference">
-                <span class="admin-nav__group-label">Help &amp; Archive</span>
-                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
-            </button>
-            <div class="admin-nav__group-items" id="adminNavGroupReference">
-                <a href="#content" class="admin-nav__link" data-section="content">Handbook &amp; Archive</a>
-                <a href="#media" class="admin-nav__link" data-section="media">Media Data Reference</a>
-                <a href="#access" class="admin-nav__link" data-section="access">Access Runbooks</a>
-            </div>
-        </div>
     </div>
 </nav>
 
@@ -293,7 +282,7 @@
                         <div class="admin-operator-guidance__item">
                             <span class="badge badge--user">Read-only</span>
                             <strong>Safe now</strong>
-                            <span>Use Dashboard, Betriebsstatus, Billing Evidence, Operations, and Help &amp; Archive for read-only review before any guarded mutation.</span>
+                            <span>Use Dashboard, Betriebsstatus, Billing Evidence, Operations, and Speicher-Integrität for read-only review before any guarded mutation.</span>
                         </div>
                         <div class="admin-operator-guidance__item">
                             <span class="badge badge--legacy">Guarded</span>
@@ -413,18 +402,6 @@
                     <a href="#operations" class="admin-quick-link glass glass-card reveal" data-nav="operations">
                         <span class="admin-quick-link__icon">Ops</span>
                         <span class="admin-quick-link__label">Operations</span>
-                    </a>
-                    <a href="#content" class="admin-quick-link glass glass-card reveal" data-nav="content">
-                        <span class="admin-quick-link__icon">Ref</span>
-                        <span class="admin-quick-link__label">Help &amp; Archive</span>
-                    </a>
-                    <a href="#media" class="admin-quick-link glass glass-card reveal" data-nav="media">
-                        <span class="admin-quick-link__icon">Media</span>
-                        <span class="admin-quick-link__label">Media Data</span>
-                    </a>
-                    <a href="#access" class="admin-quick-link glass glass-card reveal" data-nav="access">
-                        <span class="admin-quick-link__icon">Access</span>
-                        <span class="admin-quick-link__label">Runbooks</span>
                     </a>
                 </div>
 
@@ -1480,106 +1457,6 @@
                         </div>
                     </div>
                 </div>
-            </div>
-
-            <!-- ═══════════════════════════════════════
-                 CONTENT
-                 ═══════════════════════════════════════ -->
-            <div id="sectionContent" class="admin-section" style="display:none">
-                <div class="admin-control-hero glass glass-card reveal visible">
-                    <div>
-                        <p class="admin-control-hero__eyebrow">Technische Referenz</p>
-                        <h2 class="admin-control-hero__title">Help &amp; Archive</h2>
-                        <p class="admin-control-hero__copy">Kompakte Hilfe und archivierte Codebase-Referenz. Diese Ansicht fragt keine Live-Systeme ab und ist keine aktuelle Runtime-Truth.</p>
-                    </div>
-                    <div class="admin-control-hero__badges">
-                        <span class="badge badge--user">Read-only</span>
-                        <span class="badge badge--legacy">Archiv</span>
-                    </div>
-                </div>
-                <details class="admin-advanced-disclosure admin-reference-disclosure glass glass-card reveal visible">
-                    <summary class="admin-advanced-disclosure__summary">
-                        <span>
-                            <strong>Content Reference öffnen</strong>
-                            <span>Codebase-Definitionen für Gallery, Sound Lab und Video anzeigen.</span>
-                        </span>
-                        <span class="badge badge--legacy">Details anzeigen</span>
-                    </summary>
-                    <div class="admin-advanced-disclosure__body">
-                        <div class="admin-shell-grid">
-                            <div class="admin-shell glass glass-card reveal visible">
-                                <h3 class="admin-section-title">Gallery</h3>
-                                <p class="admin-shell__desc">Public gallery items by category.</p>
-                                <div id="contentGallery"></div>
-                            </div>
-                            <div class="admin-shell glass glass-card reveal visible">
-                                <h3 class="admin-section-title">Sound Lab</h3>
-                                <p class="admin-shell__desc">Audio tracks available in the Sound Lab.</p>
-                                <div id="contentSoundlab"></div>
-                            </div>
-                            <div class="admin-shell glass glass-card reveal visible">
-                                <h3 class="admin-section-title">Video</h3>
-                                <p class="admin-shell__desc">Video content entries.</p>
-                                <div id="contentVideo">
-                                    <div class="admin-shell__empty">
-                                        <span class="admin-shell__empty-icon">&#x1F3AC;</span>
-                                        <span>No video content published yet.</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </details>
-            </div>
-
-            <!-- ═══════════════════════════════════════
-                 MEDIA
-                 ═══════════════════════════════════════ -->
-            <div id="sectionMedia" class="admin-section" style="display:none">
-                <div class="admin-control-hero glass glass-card reveal visible">
-                    <div>
-                        <p class="admin-control-hero__eyebrow">Datenmodell-Archiv</p>
-                        <h2 class="admin-control-hero__title">Media Data Reference</h2>
-                        <p class="admin-control-hero__copy">Codebase-only Medienkontext für Public Gallery, Memtracks und Assets Manager. Live R2-Zustand gehört zur Speicher-Integrität und R2 Drive.</p>
-                    </div>
-                    <div class="admin-control-hero__badges">
-                        <span class="badge badge--user">Read-only</span>
-                        <span class="badge badge--legacy">Nicht live</span>
-                    </div>
-                </div>
-                <details class="admin-advanced-disclosure admin-reference-disclosure glass glass-card reveal visible">
-                    <summary class="admin-advanced-disclosure__summary">
-                        <span>
-                            <strong>Media Reference öffnen</strong>
-                            <span>Statische Medieninventare und Route-Hinweise anzeigen.</span>
-                        </span>
-                        <span class="badge badge--legacy">Details anzeigen</span>
-                    </summary>
-                    <div class="admin-advanced-disclosure__body">
-                        <div class="admin-shell-grid">
-                            <div class="admin-shell glass glass-card reveal visible">
-                                <h3 class="admin-section-title">Gallery Images</h3>
-                                <p class="admin-shell__desc">Public gallery image files across all resolutions.</p>
-                                <div id="mediaGallery"></div>
-                            </div>
-                            <div class="admin-shell glass glass-card reveal visible">
-                                <h3 class="admin-section-title">Audio Files</h3>
-                                <p class="admin-shell__desc">Published member music served through public Memtracks routes.</p>
-                                <div id="mediaAudio"></div>
-                            </div>
-                            <div class="admin-shell glass glass-card reveal visible">
-                                <h3 class="admin-section-title">AI Generated Images</h3>
-                                <p class="admin-shell__desc">User-generated Assets Manager content.</p>
-                                <div id="mediaAiImages">
-                                    <div class="admin-shell__empty">
-                                        <span class="admin-shell__empty-icon">&#x1F916;</span>
-                                        <span>Per-user storage. No global admin view available yet.</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </details>
             </div>
 
             <!-- ═══════════════════════════════════════
@@ -2721,51 +2598,6 @@
                         <div id="homepageHeroVideosAdmin" class="admin-control-stack"></div>
                     </div>
                 </div>
-            </div>
-
-            <!-- ═══════════════════════════════════════
-                 ACCESS
-                 ═══════════════════════════════════════ -->
-            <div id="sectionAccess" class="admin-section" style="display:none">
-                <div class="admin-control-hero glass glass-card reveal visible">
-                    <div>
-                        <p class="admin-control-hero__eyebrow">Runbook-Archiv</p>
-                        <h2 class="admin-control-hero__title">Access Runbooks</h2>
-                        <p class="admin-control-hero__copy">Kompakte Rollen- und Zugriffshilfe. Diese Referenz beweist keine Live-Autorisierung und ändert keine Policies.</p>
-                    </div>
-                    <div class="admin-control-hero__badges">
-                        <span class="badge badge--user">Read-only</span>
-                        <span class="badge badge--legacy">Archiv</span>
-                    </div>
-                </div>
-                <details class="admin-advanced-disclosure admin-reference-disclosure glass glass-card reveal visible">
-                    <summary class="admin-advanced-disclosure__summary">
-                        <span>
-                            <strong>Access Reference öffnen</strong>
-                            <span>Gating, Rollen und Content Access Map anzeigen.</span>
-                        </span>
-                        <span class="badge badge--legacy">Details anzeigen</span>
-                    </summary>
-                    <div class="admin-advanced-disclosure__body">
-                        <div class="admin-shell-grid">
-                            <div class="admin-shell glass glass-card reveal visible">
-                                <h3 class="admin-section-title">Membership Gating</h3>
-                                <p class="admin-shell__desc">Content areas requiring free registration to access.</p>
-                                <div id="accessGating"></div>
-                            </div>
-                            <div class="admin-shell glass glass-card reveal visible">
-                                <h3 class="admin-section-title">Role-Based Access</h3>
-                                <p class="admin-shell__desc">Permissions by user role.</p>
-                                <div id="accessRoles"></div>
-                            </div>
-                            <div class="admin-shell glass glass-card reveal visible">
-                                <h3 class="admin-section-title">Content Access Map</h3>
-                                <p class="admin-shell__desc">Overview of public vs auth-gated content.</p>
-                                <div id="accessMap"></div>
-                            </div>
-                        </div>
-                    </div>
-                </details>
             </div>
 
             <!-- ═══════════════════════════════════════
