@@ -4,22 +4,6 @@ import {
     createAdminIdempotencyKey,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 
-export function renderAdminSettingsPanel({ container, renderCards }) {
-    if (!container || typeof renderCards !== 'function') return;
-    renderCards(container, [
-        {
-            title: 'Admin Settings',
-            badge: { label: 'Deployment-owned', variant: 'legacy' },
-            copy: 'No safe backend admin settings API exists for mutable deployment configuration. Secrets and production flags stay in Cloudflare/deployment workflows.',
-        },
-        {
-            title: 'Local UI Preferences',
-            badge: { label: 'Future', variant: 'user' },
-            copy: 'Table density and saved filters can be added later as local-only preferences without backend mutation.',
-        },
-    ]);
-}
-
 export function createRegistrationAvailabilityPanel({
     showToast,
     formatDate,

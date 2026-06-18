@@ -11,8 +11,6 @@ export const CONTROL_SECTIONS = new Set([
     'operations',
     'object-storage',
     'tenant-assets',
-    'readiness',
-    'settings',
 ]);
 
 export const FEATURE_BADGES = {

@@ -20,7 +20,7 @@ This baseline is not production readiness, live billing readiness, tenant isolat
 
 - `js/pages/admin/main.js` is a compact bootstrap/composition entrypoint.
 - Top-level Admin modules now include `dashboard.js`, `router.js`, `nav.js`, `activity.js`, `avatar-lightbox.js`, `ui.js`, `security.js`, `settings.js`, `users.js`, `user-actions.js`, and `user-storage.js`.
-- Admin Control Plane domains are split under `js/pages/admin/control-plane/`: readiness, billing, AI budget, lifecycle, operations, tenant assets, and guidance.
+- Admin Control Plane domains are split under `js/pages/admin/control-plane/`: billing, AI budget, lifecycle, operations, tenant assets, object storage, and guidance.
 - Tenant asset subdomains are split under `js/pages/admin/control-plane/tenant-assets/`: evidence, manual review, backfill/access-switch, and legacy reset.
 - Admin high-risk flows include clearer blocked-state copy, exact confirmations, idempotency expectations, focus/modal/keyboard behavior, and read-only evidence exports where applicable.
 
@@ -42,7 +42,7 @@ This baseline is not production readiness, live billing readiness, tenant isolat
 
 ## Implemented Current State
 
-- Admin Control Plane surfaces exist for users, billing evidence/reviews/reconciliation, Live Billing Command Center, lifecycle, readiness/evidence, AI Lab, AI usage, platform budget controls, tenant assets, operations, and registration availability.
+- Admin Control Plane surfaces exist for users, billing evidence/reviews/reconciliation, Live Billing Command Center, lifecycle, AI Lab, AI usage, platform budget controls, tenant assets, object storage, operations, and registration availability.
 - Admin Control Plane modularization is complete enough that `main.js` is no longer the large domain implementation file.
 - Release Candidate, release-plan, static-deploy-safety, release-cutover, readiness dossier, Cloudflare resource model, rollback drill, and main-release-readiness tooling exist as local non-mutating aids.
 - Evidence Index classifies local repo evidence without live R2 listing or raw unsafe value output.

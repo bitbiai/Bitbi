@@ -8,26 +8,6 @@ import {
 
 const WORKBENCH_TASKS = Object.freeze([
     {
-        id: 'release-deploy-safety',
-        title: 'Betriebsstatus',
-        status: 'evidence_pending',
-        mode: 'Read-only',
-        href: '#readiness',
-        probe: null,
-        nextAction: 'Run local release-plan checks, inspect deploy order, and collect operator evidence before any deploy request.',
-        blockedReason: 'Deploy approval remains blocked until release-plan order and live evidence are reviewed.',
-    },
-    {
-        id: 'production-evidence',
-        title: 'Production Evidence',
-        status: 'blocked',
-        mode: 'Read-only',
-        href: '#readiness',
-        probe: null,
-        nextAction: 'Review blocked claims and copy-only evidence commands; attach live read-only evidence outside this UI.',
-        blockedReason: 'Repo evidence is not live Cloudflare proof.',
-    },
-    {
         id: 'billing-evidence',
         title: 'Billing Evidence',
         status: 'evidence_pending',

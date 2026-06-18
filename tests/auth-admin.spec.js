@@ -15166,9 +15166,9 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionDashboard')).toContainText('Blocked claims');
     await expect(page.locator('#sectionDashboard')).toContainText('Evidence-index success does not prove production readiness');
     await expect(page.locator('#adminWorkbench')).toContainText('Operator Tasks');
-    await expect(page.locator('#adminWorkbench .admin-workbench-card')).toHaveCount(7);
-    await expect(page.locator('#adminWorkbench')).toContainText('Betriebsstatus');
-    await expect(page.locator('#adminWorkbench')).toContainText('Production Evidence');
+    await expect(page.locator('#adminWorkbench .admin-workbench-card')).toHaveCount(5);
+    await expect(page.locator('#adminWorkbench')).not.toContainText('Betriebsstatus');
+    await expect(page.locator('#adminWorkbench')).not.toContainText('Production Evidence');
     await expect(page.locator('#adminWorkbench')).toContainText('Billing Evidence');
     await expect(page.locator('#adminWorkbench')).toContainText('AI Budget Controls');
     await expect(page.locator('#adminWorkbench')).toContainText('Speicher-Integrität');
@@ -15181,7 +15181,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Data Lifecycle' })).toHaveAttribute('href', '#lifecycle');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Operations Triage' })).toHaveAttribute('href', '#operations');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Speicher-Integrität' })).toHaveAttribute('href', '#tenant-assets');
-    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Betriebsstatus' })).toHaveAttribute('href', '#readiness');
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Betriebsstatus' })).toHaveCount(0);
     await expect(page.locator('#statTotal')).toHaveText('12');
 
     await expect(page.locator('a.admin-nav__link[data-section="security"]')).toBeAttached();
@@ -15193,7 +15193,9 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('a.admin-nav__link[data-section="lifecycle"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="tenant-assets"]')).toHaveText('Speicher-Integrität');
     await expect(page.locator('a.admin-nav__link[data-section="object-storage"]')).toHaveText('R2 Drive');
-    await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toHaveText('Betriebsstatus');
+    await expect(page.locator('a.admin-nav__link[data-section="operations"]')).toHaveText('Operations');
+    await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toHaveCount(0);
+    await expect(page.locator('a.admin-nav__link[data-section="settings"]')).toHaveCount(0);
     await expect(page.locator('a.admin-nav__link[data-section="content"]')).toHaveCount(0);
     await expect(page.locator('a.admin-nav__link[data-section="media"]')).toHaveCount(0);
     await expect(page.locator('a.admin-nav__link[data-section="access"]')).toHaveCount(0);
@@ -15225,6 +15227,8 @@ test.describe('Admin Control Plane', () => {
     await expect(page.getByRole('link', { name: 'Media Data' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Runbooks' })).toHaveCount(0);
     await expect(page.locator('#controlPlaneCapabilityGrid')).not.toContainText('Help & Archive');
+    await expect(page.locator('#controlPlaneCapabilityGrid')).not.toContainText('Operational Status');
+    await expect(page.locator('#controlPlaneCapabilityGrid')).not.toContainText('Admin Settings');
     await expect(page.locator('#controlPlaneCapabilityGrid')).not.toContainText('archived context');
     await expect(page.locator('#adminPanel')).not.toContainText(/OMEGA|P0\/P1 Wave Matrix|P1 Wave|implementation package/);
 
@@ -15702,43 +15706,22 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionTenantAssets').getByRole('button', { name: /list live r2|delete live|enable live billing|deploy|remote migration/i })).toHaveCount(0);
     expect(captures.tenantAssetDomainEvidenceRequests).toHaveLength(1);
 
-    await clickAdminNavSection(page, 'readiness');
-    await expect(page.locator('#sectionReadiness')).toContainText('Betriebsstatus');
-    await expect(page.locator('#sectionReadiness')).toContainText('Aktueller Betriebsstatus');
-    await expect(page.locator('#sectionReadiness')).toContainText('D1/R2 Health');
-    await expect(page.locator('#sectionReadiness')).toContainText('Live Billing');
-    await expect(page.locator('#sectionReadiness')).toContainText('Evidence-Archiv und technische Details anzeigen');
-    const readinessAdvanced = page.locator('#sectionReadiness details.admin-advanced-disclosure').first();
-    await expect(readinessAdvanced).not.toHaveAttribute('open', '');
-    await expect(page.locator('#sectionReadiness').getByRole('button', { name: /enable legacy reset|confirmed reset|ownership backfill|access-switch|live billing enablement/i })).toHaveCount(0);
-    await readinessAdvanced.locator('summary').click();
-    await expect(page.locator('#sectionReadiness')).toContainText('Readiness & Evidence Dashboard');
-    await expect(page.locator('#sectionReadiness')).toContainText('Release evidence workflow');
-    await expect(page.locator('#sectionReadiness')).toContainText('Keep claims blocked');
-    await expect(page.locator('#sectionReadiness')).toContainText(CURRENT_AUTH_MIGRATION);
-    await expect(page.locator('#sectionReadiness')).toContainText('Production readiness');
-    await expect(page.locator('#sectionReadiness')).toContainText('Confirmed legacy media reset readiness');
-    await expect(page.locator('#sectionReadiness')).toContainText('Admin, data, observability, and scale hardening');
-    await expect(page.locator('#sectionReadiness')).toContainText('ENABLE_LEGACY_MEDIA_RESET_CONFIRMED_EXECUTION');
-    await expect(page.locator('#sectionReadiness')).toContainText('Legacy reset sanitized dry-run evidence');
-    await expect(page.locator('#sectionReadiness')).toContainText('Command Center');
-    await expect(page.locator('#sectionReadiness').getByRole('button', { name: /enable legacy reset|confirmed reset|ownership backfill|access-switch|live billing enablement/i })).toHaveCount(0);
-
     await page.goto('/admin/index.html#storage-health');
     await expect(page.locator('#sectionTenantAssets')).toBeVisible();
     await expect(page.locator('#adminHeroTitle')).toHaveText('Speicher-Integrität');
 
-    for (const oldHash of ['content', 'media', 'access', 'reference', 'help-archive']) {
+    for (const oldHash of ['readiness', 'system-status', 'operational-status', 'settings', 'content', 'media', 'access', 'reference', 'help-archive']) {
       await page.goto(`/admin/index.html#${oldHash}`);
       await expect(page.locator('#sectionDashboard')).toBeVisible();
       await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+      await expect(page.locator('#sectionReadiness')).toHaveCount(0);
+      await expect(page.locator('#sectionSettings')).toHaveCount(0);
       await expect(page.locator('#adminPanel')).not.toContainText('Help & Archive');
       await expect(page.locator('#adminPanel')).not.toContainText('Media Data Reference');
       await expect(page.locator('#adminPanel')).not.toContainText('Access Runbooks');
+      await expect(page.locator('#adminPanel')).not.toContainText('Betriebsstatus');
+      await expect(page.locator('#adminPanel')).not.toContainText('Admin Settings');
     }
-
-    await clickAdminNavSection(page, 'settings');
-    await expect(page.locator('#sectionSettings')).toContainText('Deployment-owned');
     await expect(page.getByRole('button', { name: /enable live|activate live|customer portal|checkout/i })).toHaveCount(0);
 
     const renderedText = await page.locator('#adminPanel').innerText();
@@ -15840,9 +15823,8 @@ test.describe('Admin Control Plane', () => {
     const response = await page.goto('/admin/index.html#readiness');
     expect(response.status()).toBe(200);
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#sectionReadiness')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Betriebsstatus');
-    await expect(page.locator('#adminHeroDesc')).toHaveText('Operational readiness, release contract, and archived evidence details');
+    await expect(page.locator('#sectionDashboard')).toBeVisible();
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
 
     await page.goto('/admin/index.html#tenant-assets');
     await expect(page.locator('#sectionTenantAssets')).toBeVisible();
@@ -15857,22 +15839,18 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionActivity')).toBeVisible();
     await expect(page.locator('#adminHeroTitle')).toHaveText('Activity');
 
-    await page.goto('/admin/index.html#settings');
-    await expect(page.locator('#sectionSettings')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Admin Settings');
-
-    for (const oldHash of ['content', 'media', 'access', 'reference', 'help-archive']) {
+    for (const oldHash of ['settings', 'system-status', 'operational-status', 'content', 'media', 'access', 'reference', 'help-archive']) {
       await page.goto(`/admin/index.html#${oldHash}`);
       await expect(page.locator('#sectionDashboard')).toBeVisible();
       await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+      await expect(page.locator('#sectionReadiness')).toHaveCount(0);
+      await expect(page.locator('#sectionSettings')).toHaveCount(0);
     }
 
     await page.goto('/admin/index.html#dashboard');
     await expect(page.locator('#sectionDashboard')).toBeVisible();
-    await page.locator('#adminWorkbench').getByRole('link', { name: 'Open Betriebsstatus' }).click();
-    await expect(page).toHaveURL(/#readiness$/);
-    await expect(page.locator('#sectionReadiness')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Betriebsstatus');
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Betriebsstatus' })).toHaveCount(0);
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Production Evidence' })).toHaveCount(0);
 
     await clickAdminNavSection(page, 'dashboard');
     await expect(page.locator('#sectionDashboard')).toBeVisible();
@@ -16134,6 +16112,8 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#operatorTimelineFilter')).toContainText('Attention');
     await expect(page.locator('#operatorTimelineList')).toContainText('Open Billing Reviews');
     await expect(page.locator('#operatorTimelineList')).toContainText('Open Speicher-Integrität');
+    await expect(page.locator('#operatorTimelineList')).toContainText('Open R2 Drive');
+    await expect(page.locator('#operatorTimelineList')).not.toContainText('Open Betriebsstatus');
     await expect(page.locator('#operatorTimelineList')).toContainText('Copy event ID');
     await expect(page.locator('#operatorTimelineList')).not.toContainText('sk_live_');
     await expect(page.locator('#operatorTimelineList')).not.toContainText('Stripe-Signature');
@@ -16146,122 +16126,25 @@ test.describe('Admin Control Plane', () => {
     await expect.poll(() => readClipboardValue(page)).toContain('docs/runbooks/OPERATOR_TRIAGE_RUNBOOK.md');
   });
 
-  test('readiness evidence dashboard renders blocked claims, safe exports, and copy-only commands', async ({
+  test('removed readiness and settings routes stay hidden and fall back safely', async ({
     page,
   }) => {
-    const captures = {};
-    await installClipboardSpy(page);
-    await mockAdminControlPlane(page, captures);
+    await mockAdminControlPlane(page, {});
 
-    const response = await page.goto('/admin/index.html#readiness');
-    expect(response.status()).toBe(200);
-    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    const readiness = page.locator('#sectionReadiness');
-    await expect(readiness).toBeVisible();
-    await readiness.locator('details.admin-advanced-disclosure').first().locator('summary').click();
-    await expect(readiness).toContainText('Current Release Truth');
-    await expect(readiness).toContainText(CURRENT_AUTH_MIGRATION);
-    await expect(readiness).toContainText('not live deploy proof');
-    await expect(readiness).toContainText('Repo evidence only');
-    await expect(readiness).toContainText('Live Evidence State');
-    await expect(readiness).toContainText('live evidence pending');
-    await expect(readiness).toContainText('Release cutover manifest');
-    await expect(readiness).toContainText('admin readiness status live result');
-    await expect(readiness).toContainText('npm run release:cutover-evidence');
-    await expect(readiness).toContainText('npm run readiness:live-readonly');
-    await expect(readiness).toContainText('Production Execution Framework');
-    await expect(readiness).toContainText('Production Execution State');
-    await expect(readiness).toContainText('Cloudflare Resource Model');
-    await expect(readiness).toContainText('Readiness Dossier');
-    await expect(readiness).toContainText('Post-Deploy Read-Only Verification');
-    await expect(readiness).toContainText('Rollback Drill');
-    await expect(readiness).toContainText('Release Candidate / Go-No-Go');
-    await expect(readiness).toContainText('Release Candidate Status');
-    await expect(readiness).toContainText('Readiness Matrix');
-    await expect(readiness).toContainText('Final RC Commands');
-    await expect(readiness).toContainText('Go/No-Go Checklist');
-    await expect(readiness).toContainText('repo-supported');
-    await expect(readiness).toContainText('deploy-pending');
-    await expect(readiness).toContainText('live-evidence-pending');
-    await expect(readiness).toContainText('npm run rc:check');
-    await expect(readiness).toContainText('npm run release:rc:markdown');
-    await expect(readiness).toContainText('npm run readiness:dossier');
-    await expect(readiness).toContainText('npm run cloudflare:resource-model');
-    await expect(readiness).toContainText('npm run release:rollback-drill');
-    await expect(readiness).toContainText('Blocked Claims');
-    await expect(readiness).toContainText('Production readiness');
-    await expect(readiness).toContainText('Live billing readiness');
-    await expect(readiness).toContainText('Tenant isolation');
-    await expect(readiness).toContainText('Confirmed legacy reset gate');
-    await expect(readiness).toContainText('Sanitized legacy reset dry-run evidence');
-    await expect(readiness).toContainText('Manual-review idempotency evidence');
-    await expect(readiness).toContainText('Security and cost hardening');
-    await expect(readiness).toContainText('Release, canary, billing, and admin mutation hardening');
-    await expect(readiness).toContainText('Admin, data, observability, and scale hardening');
-    await expect(readiness).toContainText('Live evidence and cutover tooling');
-    await expect(readiness).toContainText('Billing evidence and control plane');
-    await expect(readiness).toContainText('Production execution framework');
-    await expect(readiness).toContainText('Release candidate consolidation');
-    await expect(readiness).not.toContainText('P0/P1 Wave Matrix');
-    await expect(readiness).not.toContainText('P1 Wave');
-    await expect(readiness).toContainText('Runtime Safety Gates');
-    await expect(readiness).toContainText('disabled default off');
-    await expect(readiness).toContainText('Fetch Metadata CSRF hardening');
-    await expect(readiness).toContainText('Evidence Center');
-    await expect(readiness).toContainText('Manual Review Idempotency Evidence');
-    await expect(readiness).toContainText('Production Readiness Evidence');
-    await expect(readiness).toContainText('Live Billing Evidence');
-    await expect(readiness).toContainText('Billing evidence/control plane');
-    await expect(readiness).toContainText('Production readiness dossier');
-    await expect(readiness).toContainText('Rollback drill evidence');
-    await expect(readiness).toContainText('Release Candidate Go/No-Go manifest');
-    await expect(readiness).toContainText('Final RC validation matrix');
-    await expect(readiness).toContainText('Command Center');
-    await expect(readiness).toContainText('npm run check:js');
-    await expect(readiness).toContainText('npm run test:tenant-assets');
-    await expect(readiness.getByRole('button', { name: /enable legacy reset|confirmed reset|ownership backfill|access-check switch|live billing enablement|run commands/i })).toHaveCount(0);
-    await expect(readiness.getByRole('button', { name: /deploy now|run remote migration|execute rollback|enable live billing|call stripe|enable reset|run backfill|switch tenant access/i })).toHaveCount(0);
-    await expect(page.locator('a[href*="/de/admin"]')).toHaveCount(0);
-
-    await readiness.getByRole('button', { name: /^Copy resource model$/ }).click();
-    await expect.poll(() => readClipboardValue(page)).toBe('npm run cloudflare:resource-model');
-    await readiness.getByRole('button', { name: 'Copy resource model Markdown' }).click();
-    await expect.poll(() => readClipboardValue(page)).toBe('npm run cloudflare:resource-model:markdown');
-    await readiness.getByRole('button', { name: 'Copy dossier JSON' }).click();
-    await expect.poll(() => readClipboardValue(page)).toBe('npm run readiness:dossier');
-    await readiness.getByRole('button', { name: 'Copy dossier Markdown' }).click();
-    await expect.poll(() => readClipboardValue(page)).toBe('npm run readiness:dossier:markdown');
-    await readiness.getByRole('button', { name: 'Copy live-read-only command' }).click();
-    await expect.poll(() => readClipboardValue(page)).toContain('npm run readiness:live-readonly');
-    await readiness.getByRole('button', { name: 'Copy rollback drill command' }).click();
-    await expect.poll(() => readClipboardValue(page)).toBe('npm run release:rollback-drill');
-    await readiness.getByRole('button', { name: 'Copy RC check' }).click();
-    await expect.poll(() => readClipboardValue(page)).toBe('npm run rc:check');
-    await readiness.getByRole('button', { name: 'Copy RC manifest Markdown' }).click();
-    await expect.poll(() => readClipboardValue(page)).toBe('npm run release:rc:markdown');
-    await readiness.getByRole('button', { name: 'Copy RC dossier Markdown' }).click();
-    await expect.poll(() => readClipboardValue(page)).toBe('npm run readiness:dossier:markdown');
-    await readiness.getByRole('button', { name: 'Copy release plan' }).click();
-    await expect.poll(() => readClipboardValue(page)).toBe('npm run release:plan');
-
-    await readiness.getByRole('button', { name: 'Copy commands' }).first().click();
-    await expect.poll(() => readClipboardValue(page)).toContain('npm run check:js');
-    await expect.poll(() => readClipboardValue(page)).toContain('npm run release:plan');
-
-    await readiness.getByRole('button', { name: 'Copy cutover commands' }).click();
-    await expect.poll(() => readClipboardValue(page)).toContain('npm run release:cutover-evidence');
-    await expect.poll(() => readClipboardValue(page)).toContain('npm run readiness:live-readonly');
-
-    await readiness.getByRole('button', { name: 'Copy evidence save path' }).click();
-    await expect.poll(() => readClipboardValue(page)).toBe('docs/production-readiness/evidence/');
-
-    await readiness.getByRole('button', { name: 'Copy template path' }).first().click();
-    await expect.poll(() => readClipboardValue(page)).toBe('docs/tenant-assets/LEGACY_MEDIA_RESET_SANITIZED_DRY_RUN_EVIDENCE_TEMPLATE.md');
-
-    await readiness.getByRole('button', { name: 'Download dry-run report' }).click();
-    await expect.poll(() => captures.legacyResetDryRunExportRequests.length).toBe(1);
-    await readiness.getByRole('button', { name: 'Export manual-review evidence' }).click();
-    await expect.poll(() => captures.tenantReviewEvidenceExportRequests.length).toBe(1);
+    for (const oldHash of ['readiness', 'system-status', 'operational-status', 'settings']) {
+      const response = await page.goto(`/admin/index.html#${oldHash}`);
+      expect(response.status()).toBe(200);
+      await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('#sectionDashboard')).toBeVisible();
+      await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+      await expect(page.locator('#sectionReadiness')).toHaveCount(0);
+      await expect(page.locator('#sectionSettings')).toHaveCount(0);
+      await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toHaveCount(0);
+      await expect(page.locator('a.admin-nav__link[data-section="settings"]')).toHaveCount(0);
+      await expect(page.locator('#adminPanel')).not.toContainText('Betriebsstatus');
+      await expect(page.locator('#adminPanel')).not.toContainText('Admin Settings');
+      await expect(page.getByRole('button', { name: /deploy now|run remote migration|execute rollback|enable live billing|call stripe|enable reset|run backfill|switch tenant access/i })).toHaveCount(0);
+    }
   });
 
   test('renders billing evidence center with blocked status, safe actions, and no dangerous controls', async ({
@@ -16606,7 +16489,7 @@ test.describe('Admin Control Plane', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/admin/index.html');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(11);
+    await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(10);
     const managementShellWidth = await page.locator('.admin-management-shell').evaluate((node) =>
       Math.round(node.getBoundingClientRect().width)
     );
@@ -16644,13 +16527,15 @@ test.describe('Admin Control Plane', () => {
     }
 
     await page.setViewportSize({ width: 1024, height: 768 });
-    await page.goto('/admin/index.html#readiness');
-    await expect(page.locator('#sectionReadiness')).toBeVisible({ timeout: 10_000 });
-    const readinessNav = page.locator('a.admin-nav__link[data-section="readiness"]');
-    await readinessNav.scrollIntoViewIfNeeded();
-    await expect(readinessNav).toBeVisible();
-    await readinessNav.click();
-    await expect(page.locator('#sectionReadiness')).toContainText('Aktueller Betriebsstatus');
+    await page.goto('/admin/index.html#tenant-assets');
+    await expect(page.locator('#sectionTenantAssets')).toBeVisible({ timeout: 10_000 });
+    const storageHealthNav = page.locator('a.admin-nav__link[data-section="tenant-assets"]');
+    await storageHealthNav.scrollIntoViewIfNeeded();
+    await expect(storageHealthNav).toBeVisible();
+    await storageHealthNav.click();
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Speicher-Integrität');
+    await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toHaveCount(0);
+    await expect(page.locator('a.admin-nav__link[data-section="settings"]')).toHaveCount(0);
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/admin/index.html#orgs');
@@ -17379,7 +17264,7 @@ test.describe('Admin nav accordion behavior', () => {
     const overviewToggle = page.locator('.admin-nav__group:has(a[data-section="dashboard"]) > .admin-nav__group-toggle');
     const usersToggle = page.locator('.admin-nav__group:has(a[data-section="users"]) > .admin-nav__group-toggle');
     const aiToggle = page.locator('.admin-nav__group:has(a[data-section="ai-lab"]) > .admin-nav__group-toggle');
-    const systemToggle = page.locator('.admin-nav__group:has(a[data-section="settings"]) > .admin-nav__group-toggle');
+    const systemToggle = page.locator('.admin-nav__group:has(a[data-section="operations"]) > .admin-nav__group-toggle');
 
     await expect(overviewToggle).toHaveAttribute('aria-expanded', 'false');
     await expect(usersToggle).toHaveAttribute('aria-expanded', 'false');
@@ -17394,7 +17279,7 @@ test.describe('Admin nav accordion behavior', () => {
 
     const usersToggle = page.locator('.admin-nav__group:has(a[data-section="users"]) > .admin-nav__group-toggle');
     const aiToggle = page.locator('.admin-nav__group:has(a[data-section="ai-lab"]) > .admin-nav__group-toggle');
-    const systemToggle = page.locator('.admin-nav__group:has(a[data-section="settings"]) > .admin-nav__group-toggle');
+    const systemToggle = page.locator('.admin-nav__group:has(a[data-section="operations"]) > .admin-nav__group-toggle');
 
     await usersToggle.click();
     await expect(usersToggle).toHaveAttribute('aria-expanded', 'true');
@@ -17430,7 +17315,7 @@ test.describe('Admin nav accordion behavior', () => {
     await expect(usersToggle).toBeFocused();
 
     await page.keyboard.press('End');
-    const systemToggle = page.locator('.admin-nav__group:has(a[data-section="settings"]) > .admin-nav__group-toggle');
+    const systemToggle = page.locator('.admin-nav__group:has(a[data-section="operations"]) > .admin-nav__group-toggle');
     await expect(systemToggle).toBeFocused();
   });
 
@@ -17446,16 +17331,14 @@ test.describe('Admin nav accordion behavior', () => {
     await expect(aiGroup).toHaveClass(/admin-nav__group--active/);
   });
 
-  test('cold deep link to #settings auto-expands the System group on load', async ({ page }) => {
+  test('cold deep link to removed #settings falls back to Dashboard', async ({ page }) => {
     await page.goto('/admin/index.html#settings');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#sectionSettings')).toBeVisible();
-
-    const systemGroup = page.locator('.admin-nav__group:has(a[data-section="settings"])');
-    const systemToggle = systemGroup.locator('> .admin-nav__group-toggle');
-    await expect(systemToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(systemGroup).toHaveClass(/admin-nav__group--expanded/);
-    await expect(systemGroup).toHaveClass(/admin-nav__group--active/);
+    await expect(page.locator('#sectionDashboard')).toBeVisible();
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+    await expect(page.locator('#sectionSettings')).toHaveCount(0);
+    await expect(page.locator('a.admin-nav__link[data-section="settings"]')).toHaveCount(0);
+    await expect(page.locator('.admin-nav__group:has(a[data-section="operations"])')).not.toHaveClass(/admin-nav__group--active/);
   });
 
   test('cold deep link to removed Help & Archive route falls back to Dashboard', async ({ page }) => {
@@ -17514,18 +17397,18 @@ test.describe('Admin nav accordion behavior', () => {
     // AI is no longer the active group.
     await expect(aiGroup).not.toHaveClass(/admin-nav__group--active/);
 
-    // ── System: open heading, click Settings child link ──
-    const systemGroup = page.locator('.admin-nav__group:has(a[data-section="settings"])');
+    // ── System: open heading, click Operations child link ──
+    const systemGroup = page.locator('.admin-nav__group:has(a[data-section="operations"])');
     const systemToggle = systemGroup.locator('> .admin-nav__group-toggle');
-    const settingsLink = systemGroup.locator('a[data-section="settings"]');
+    const operationsLink = systemGroup.locator('a[data-section="operations"]');
 
     await systemToggle.click();
     await expect(systemToggle).toHaveAttribute('aria-expanded', 'true');
 
-    await settingsLink.click();
-    await expect(page).toHaveURL(/#settings$/);
-    await expect(page.locator('#sectionSettings')).toBeVisible();
-    await expect(settingsLink).toHaveClass(/admin-nav__link--active/);
+    await operationsLink.click();
+    await expect(page).toHaveURL(/#operations$/);
+    await expect(page.locator('#sectionOperations')).toBeVisible();
+    await expect(operationsLink).toHaveClass(/admin-nav__link--active/);
 
     await expect(systemToggle).toHaveAttribute('aria-expanded', 'false');
     await expect(systemGroup).not.toHaveClass(/admin-nav__group--expanded/);

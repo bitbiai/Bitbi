@@ -11,16 +11,14 @@ const SECTION_DOM_IDS = {
     operations: 'sectionOperations',
     'object-storage': 'sectionObjectStorage',
     'tenant-assets': 'sectionTenantAssets',
-    readiness: 'sectionReadiness',
     users: 'sectionUsers',
     'ai-lab': 'sectionAiLab',
     'homepage-hero-videos': 'sectionHomepageHeroVideos',
     activity: 'sectionActivity',
-    settings: 'sectionSettings',
 };
 
 const SECTION_META = {
-    dashboard: { title: 'Command Center', desc: 'System overview, readiness, and control-plane entrypoints' },
+    dashboard: { title: 'Command Center', desc: 'System overview, safety status, and control-plane entrypoints' },
     security: { title: 'Security & Policy', desc: 'Route policy, MFA, service auth, and fail-closed guardrails' },
     orgs: { title: 'Organizations', desc: 'Organization, tenant, and membership inspection' },
     billing: { title: 'Billing & Credits', desc: 'Plans, entitlements, balances, and safe manual credit grants' },
@@ -32,12 +30,10 @@ const SECTION_META = {
     operations: { title: 'Operations', desc: 'Operator timeline, triage, async AI video diagnostics, and review queues' },
     'object-storage': { title: 'R2 Object Storage', desc: 'Live admin drive for configured Cloudflare R2 buckets, protected by Admin/MFA/audit controls' },
     'tenant-assets': { title: 'Speicher-Integrität', desc: 'Compact storage health, D1/R2 integrity, and advanced legacy diagnostics' },
-    readiness: { title: 'Betriebsstatus', desc: 'Operational readiness, release contract, and archived evidence details' },
     users: { title: 'User Management', desc: 'Manage users, roles, and sessions' },
     'ai-lab': { title: 'AI Lab', desc: 'Admin-only AI tests, previews, and model comparisons' },
     'homepage-hero-videos': { title: 'Homepage Hero Videos', desc: 'Operator-managed optimized hero video slots for the public homepage' },
     activity: { title: 'Activity', desc: 'Audit trail and admin actions' },
-    settings: { title: 'Admin Settings', desc: 'Safe settings boundaries and deployment-owned configuration' },
 };
 
 const SECTION_ALIASES = {
@@ -50,8 +46,10 @@ const SECTION_ALIASES = {
     triage: { section: 'operations', panel: null },
     'storage-health': { section: 'tenant-assets', panel: null },
     'asset-integrity': { section: 'tenant-assets', panel: null },
-    'system-status': { section: 'readiness', panel: null },
-    'operational-status': { section: 'readiness', panel: null },
+    readiness: { section: 'dashboard', panel: null },
+    'system-status': { section: 'dashboard', panel: null },
+    'operational-status': { section: 'dashboard', panel: null },
+    settings: { section: 'dashboard', panel: null },
     content: { section: 'dashboard', panel: null },
     media: { section: 'dashboard', panel: null },
     access: { section: 'dashboard', panel: null },

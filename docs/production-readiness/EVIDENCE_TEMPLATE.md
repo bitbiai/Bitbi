@@ -91,7 +91,7 @@ This template records current evidence only. It does not approve production read
 
 - `/api/health` result:
 - Static page smoke result:
-- Admin Readiness & Evidence dashboard reviewed (`/admin/#readiness`):
+- Admin Control Plane current operations/storage/billing evidence surfaces reviewed:
 - `GET /api/admin/readiness/status` result, if deployed:
 - `GET /api/admin/billing/evidence/status` result, if admin cookie provided:
 - `GET /api/admin/operations/timeline` result, if admin cookie provided:

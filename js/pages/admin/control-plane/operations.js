@@ -143,7 +143,7 @@ export function createOperationsDomain({ notify, formatDate, loadTenantAssetManu
             ['Open Manual Review Queue', '#operations'],
             ['Open Data Lifecycle', '#lifecycle'],
             ['Open AI Budget Evidence', '#ai-budget-switches'],
-            ['Open Betriebsstatus', '#readiness'],
+            ['Open R2 Drive', '#object-storage'],
         ]) {
             const link = el('a', 'btn-action btn-action--secondary', label);
             link.href = href;

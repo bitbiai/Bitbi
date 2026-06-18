@@ -27,9 +27,6 @@ import {
     renderSecurityPosturePanel,
 } from '../security.js?v=__ASSET_VERSION__';
 import {
-    renderAdminSettingsPanel,
-} from '../settings.js?v=__ASSET_VERSION__';
-import {
     renderAdminWorkbench,
 } from './guidance.js?v=__ASSET_VERSION__';
 import {
@@ -47,9 +44,6 @@ import {
 import {
     createObjectStorageDomain,
 } from './object-storage.js?v=__ASSET_VERSION__';
-import {
-    createReadinessDomain,
-} from './readiness-domain.js?v=__ASSET_VERSION__';
 import {
     createTenantAssetsDomain,
 } from './tenant-assets.js?v=__ASSET_VERSION__';
@@ -70,11 +64,6 @@ export function createAdminControlPlane({ showToast, formatDate }) {
     const operationsDomain = createOperationsDomain({
         ...domainContext,
         loadTenantAssetManualReviewQueue: tenantAssetsDomain.loadTenantAssetManualReviewQueue,
-    });
-    const readinessDomain = createReadinessDomain({
-        ...domainContext,
-        exportLegacyMediaResetDryRunJson: tenantAssetsDomain.exportLegacyMediaResetDryRunJson,
-        exportTenantAssetManualReviewEvidenceJson: tenantAssetsDomain.exportTenantAssetManualReviewEvidenceJson,
     });
 
     async function loadCommandCenter() {
@@ -163,22 +152,11 @@ export function createAdminControlPlane({ showToast, formatDate }) {
                 href: '#object-storage',
                 cta: 'Open drive',
             },
-            {
-                title: 'Operational Status',
-                badge: { label: 'Production blocked', variant: 'disabled' },
-                copy: 'Compact system status for release contract, Cloudflare resource model, D1/R2 health, route-policy signals, and live-evidence prerequisites.',
-                href: '#readiness',
-                cta: 'Open status',
-            },
         ]);
     }
 
     function renderSecurity() {
         renderSecurityPosturePanel({ container: byId('controlSecurity'), renderCards });
-    }
-
-    function renderSettings() {
-        renderAdminSettingsPanel({ container: byId('adminSettingsPanel'), renderCards });
     }
 
     function bind() {
@@ -198,14 +176,6 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         }
         if (sectionName === 'security') {
             renderSecurity();
-            return;
-        }
-        if (sectionName === 'readiness') {
-            await readinessDomain.renderReadiness();
-            return;
-        }
-        if (sectionName === 'settings') {
-            renderSettings();
             return;
         }
         if (loaded.has(sectionName)) return;

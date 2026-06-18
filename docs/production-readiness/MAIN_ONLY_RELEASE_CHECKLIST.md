@@ -124,7 +124,7 @@ Operator action only. Do not deploy from this checklist automatically.
 | If workflow_dispatch acknowledgement was used, exact acknowledgement and dependency evidence were recorded |  | BLOCKED |
 | Pages deployment/build id recorded if available |  | BLOCKED |
 | Admin Control Plane loads |  | BLOCKED |
-| Production Execution Framework panel renders copy-only commands |  | BLOCKED |
+| Production execution local evidence commands are run and outputs recorded |  | BLOCKED |
 | Billing Review Queue UI appears |  | BLOCKED |
 | Billing Reconciliation UI appears |  | BLOCKED |
 | AI Budget Switches panel shows safe master/app/effective status and does not expose Cloudflare values |  | BLOCKED |

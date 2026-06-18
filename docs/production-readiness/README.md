@@ -75,9 +75,9 @@ If Auth Worker code uses these tables/columns, remote migrations must be applied
 - Admin mutation guardrail checks from `npm run check:route-policies`, including high-risk route notes for MFA, same-origin/Fetch Metadata coverage, fail-closed rate limits, confirmation/idempotency rationale, and audit logging.
 - Data lifecycle guardrail evidence from `npm run check:data-lifecycle`: lifecycle approve/export/archive cleanup require `Idempotency-Key` plus `confirm=true`, and `execute-safe` requires `confirm=true` before `dryRun:false`.
 
-## Admin Readiness Dashboard
+## Admin Readiness Evidence
 
-The Admin Control Plane includes a Readiness & Evidence dashboard at `/admin/#readiness`, backed by read-only `GET /api/admin/readiness/status` when the current Auth Worker is deployed. It shows blocked claims, release checkpoint labels, safety gates, evidence status, safe exports, and copy-only local commands. It does not run shell commands, enable reset execution, execute reset/delete, backfill ownership, switch access checks, call Stripe/providers/Cloudflare APIs, apply migrations, deploy, or prove live readiness.
+Readiness evidence remains available through local scripts, release dossiers, evidence files, and the read-only `GET /api/admin/readiness/status` endpoint when the current Auth Worker is deployed. The browser Admin UI no longer exposes a dedicated readiness page; readiness review should use the local commands in this document plus the active Admin Operations, Billing Evidence, Live Billing, and Speicher-Integrität surfaces. None of these paths run shell commands from the browser, enable reset execution, execute reset/delete, backfill ownership, switch access checks, call Stripe/providers/Cloudflare APIs, apply migrations, deploy, or prove live readiness.
 
 The Admin Users delete dialog has two guarded modes: operational delete only, and operational delete plus Data Erasure/GDPR workflow initiation. The workflow option creates a dry-run, approval-required Data Lifecycle delete request for privacy/legal review before operational deletion; it does not immediately complete legal erasure or automatically destroy billing, audit, provider, legal, or compliance records.
 
@@ -91,7 +91,7 @@ The Operations area includes Operator Timeline / Triage backed by read-only `GET
 
 The dashboard now includes a Live Evidence State panel. It distinguishes repo-supported controls from deploy-pending and live-evidence-pending state, links operators to the cutover evidence command, and keeps all commands copy-only.
 
-The dashboard also includes a Production Execution Framework panel. It surfaces repo-supported/deploy-pending/live-evidence-pending state, the Cloudflare resource model, the readiness dossier, post-deploy read-only verification, and rollback drill commands. These are copy-only operator aids; the browser does not deploy, run migrations, mutate Cloudflare, execute rollback, activate live billing, call providers, backfill ownership, switch tenant access checks, or enable reset execution.
+The production execution framework is maintained through local commands. It surfaces repo-supported/deploy-pending/live-evidence-pending state, the Cloudflare resource model, the readiness dossier, post-deploy read-only verification, and rollback drill outputs. These are operator aids; the browser does not deploy, run migrations, mutate Cloudflare, execute rollback, activate live billing, call providers, backfill ownership, switch tenant access checks, or enable reset execution.
 
 The dashboard also includes a Release Candidate / Go-No-Go panel. It shows RC status, CI unknown/pending state, a local validation matrix, copy-only RC commands, and a Go/No-Go checklist. It does not execute commands in the browser and does not offer deploy, migration, rollback, live billing, reset, backfill, access-switch, Stripe, provider, or Cloudflare mutation actions.
 
