@@ -535,6 +535,11 @@ function readAuthState(getAuthState) {
     }
 }
 
+function canRenderForAuthenticatedUser(getAuthState) {
+    const authState = readAuthState(getAuthState);
+    return authState.ready && authState.loggedIn;
+}
+
 export async function initNewsPulse(container = document, { getAuthState } = {}) {
     const roots = [...container.querySelectorAll('[data-news-pulse]')];
     const desktopQuery = window.matchMedia(DESKTOP_MEDIA_QUERY);
@@ -617,6 +622,7 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
 
         const clearForDisabledState = () => {
             mode = 'disabled';
+            hasRenderedDesktop = false;
             fetchToken += 1;
             clearMobileTimers();
             clearDesktopState();
@@ -721,6 +727,11 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
         };
 
         const renderDesktop = async () => {
+            if (!canRenderForAuthenticatedUser(getAuthState)) {
+                clearForDisabledState();
+                return;
+            }
+
             clearMobileTimers();
             mode = 'desktop';
             root.classList.remove('news-pulse--mobile');
@@ -741,6 +752,10 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
             clearDesktopTimer();
             try {
                 const result = await fetchNewsPulse(locale, 'desktop');
+                if (!canRenderForAuthenticatedUser(getAuthState) || !desktopQuery.matches) {
+                    clearForDisabledState();
+                    return;
+                }
                 if (result.enabled === false) {
                     hasRenderedDesktop = false;
                     clearForDisabledState();
@@ -762,8 +777,7 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
             const locale = normalizeLocale(root.dataset.newsPulseLocale || getCurrentLocale());
             root.dataset.newsPulseLocale = locale;
             clearDesktopState();
-            const authState = readAuthState(getAuthState);
-            if (!authState.ready || !authState.loggedIn) {
+            if (!canRenderForAuthenticatedUser(getAuthState)) {
                 clearForDisabledState();
                 return;
             }
@@ -790,7 +804,7 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
                     clearForDisabledState();
                     return;
                 }
-                if (!readAuthState(getAuthState).loggedIn || desktopQuery.matches) {
+                if (!canRenderForAuthenticatedUser(getAuthState) || desktopQuery.matches) {
                     clearForDisabledState();
                     return;
                 }

@@ -298,6 +298,9 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#hero .hero__actions')).toHaveClass(/hero__actions--single-cta/);
     await expect(page.locator('#hero .hero__saas-copy')).toContainText('Create AI images, videos, and music in one studio.');
     await expect(page.locator('#hero .hero__saas-copy')).toContainText('Generate, save, organize, and publish creative media with credits built for real use.');
+    await expect(page.locator('#hero [data-homepage-guest-fallback]')).toContainText('Create AI images, videos and music in one studio.');
+    await expect(page.locator('#hero [data-homepage-guest-fallback]')).toContainText('Generate, save, organize and publish creative media with credits for real usage.');
+    await expect(page.locator('#hero [data-homepage-guest-fallback] .hero__guest-fallback-icon')).toHaveText('⚗️');
     await expect(page.locator('#hero .hero__lab-teaser-text')).toHaveText('Open Generate Lab');
     await expect(page.locator('#hero .hero__lab-teaser-icon')).toHaveText('⚗️');
     await expect(page.locator('#hero .hero__lab-teaser')).toHaveAttribute('href', '/generate-lab/');
@@ -316,6 +319,9 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#hero .hero__actions')).toHaveClass(/hero__actions--single-cta/);
     await expect(page.locator('#hero .hero__saas-copy')).toContainText('Erstelle KI-Bilder, Videos und Musik in einem Studio.');
     await expect(page.locator('#hero .hero__saas-copy')).toContainText('Generiere, speichere, ordne und veröffentliche kreative Medien mit Credits für echte Nutzung.');
+    await expect(page.locator('#hero [data-homepage-guest-fallback]')).toContainText('Erstelle KI-Bilder, Videos und Musik in einem Studio.');
+    await expect(page.locator('#hero [data-homepage-guest-fallback]')).toContainText('Generiere, speichere, ordne und veröffentliche kreative Medien mit Credits für echte Nutzung.');
+    await expect(page.locator('#hero [data-homepage-guest-fallback] .hero__guest-fallback-icon')).toHaveText('⚗️');
     await expect(page.locator('#hero .hero__lab-teaser-text')).toHaveText('Generate Lab öffnen');
     await expect(page.locator('#hero .hero__lab-teaser-icon')).toHaveText('⚗️');
     await expect(page.locator('#hero .hero__lab-teaser')).toHaveAttribute('href', '/de/generate-lab/');
@@ -330,12 +336,20 @@ test.describe('Bilingual locale pages', () => {
     const css = repoFile('css/components/news-pulse.css');
 
     expect(enHome).toContain('data-news-pulse-locale="en"');
+    expect(enHome).toContain('data-homepage-auth-state="loading"');
+    expect(enHome).toContain('data-homepage-guest-fallback');
+    expect(enHome).toContain('Create AI images, videos and music in one studio.');
+    expect(enHome).toContain('Generate, save, organize and publish creative media with credits for real usage.');
     expect(enHome).not.toContain('data-news-pulse-disabled="temporary-homepage-layout"');
     expect(enHome).not.toContain('aria-hidden="true" hidden');
     expect(enHome).toContain('aria-label="Bitbi Live Pulse"');
     expect(enHome).toContain('css/components/news-pulse.css');
     expect(enHome).toMatch(/<section id="hero"[\s\S]*<section id="newsPulse"[\s\S]*<\/section>[\s\S]*<\/section>/);
     expect(deHome).toContain('data-news-pulse-locale="de"');
+    expect(deHome).toContain('data-homepage-auth-state="loading"');
+    expect(deHome).toContain('data-homepage-guest-fallback');
+    expect(deHome).toContain('Erstelle KI-Bilder, Videos und Musik in einem Studio.');
+    expect(deHome).toContain('Generiere, speichere, ordne und veröffentliche kreative Medien mit Credits für echte Nutzung.');
     expect(deHome).not.toContain('data-news-pulse-disabled="temporary-homepage-layout"');
     expect(deHome).not.toContain('aria-hidden="true" hidden');
     expect(deHome).toContain('aria-label="KI-Puls"');
@@ -357,6 +371,8 @@ test.describe('Bilingual locale pages', () => {
     expect(indexCss).toContain('.hero__lab-teaser:hover');
     expect(indexCss).toContain('.hero__lab-teaser:focus-visible');
     expect(indexCss).toContain('.hero__actions--single-cta');
+    expect(indexCss).toContain('.hero__guest-fallback');
+    expect(indexCss).toContain('[data-homepage-auth-state="guest"] .news-pulse');
     expect(indexCss).toContain('prefers-reduced-motion: reduce');
     expect(indexCss).toContain('.hero__lab-teaser::before');
     expect(indexCss).toContain('animation: none');

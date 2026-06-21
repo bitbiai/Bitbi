@@ -89,6 +89,17 @@ function buildNewsPulseItems(prefix = 'mobile-pulse') {
   }));
 }
 
+const HOMEPAGE_GUEST_FALLBACK_COPY = {
+  en: [
+    'Create AI images, videos and music in one studio.',
+    'Generate, save, organize and publish creative media with credits for real usage.',
+  ],
+  de: [
+    'Erstelle KI-Bilder, Videos und Musik in einem Studio.',
+    'Generiere, speichere, ordne und veröffentliche kreative Medien mit Credits für echte Nutzung.',
+  ],
+};
+
 async function mockHomepageAuthState(page, { loggedIn }) {
   await page.route('**/api/me', async (route) => {
     await route.fulfill({
@@ -99,6 +110,23 @@ async function mockHomepageAuthState(page, { loggedIn }) {
         : { loggedIn: false, user: null }),
     });
   });
+}
+
+async function expectHomepageGuestFallback(page, locale = 'en') {
+  const fallback = page.locator('[data-homepage-guest-fallback]');
+  await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'guest');
+  await expect(fallback).toBeVisible();
+  await expect(fallback.locator('.hero__guest-fallback-icon')).toHaveText('⚗️');
+  for (const line of HOMEPAGE_GUEST_FALLBACK_COPY[locale]) {
+    await expect(fallback).toContainText(line);
+  }
+  await expect(page.locator('#hero .hero__saas-copy')).toHaveAttribute('aria-hidden', 'true');
+}
+
+async function expectHomepageGuestFallbackHidden(page) {
+  const fallback = page.locator('[data-homepage-guest-fallback]');
+  await expect(fallback).toBeHidden();
+  await expect(page.locator('#hero .hero__saas-copy')).not.toHaveAttribute('aria-hidden', 'true');
 }
 
 async function dismissCookieBannerIfPresent(page) {
@@ -1240,8 +1268,67 @@ test.describe('Homepage', () => {
     await expect(page).toHaveTitle(/BITBI/);
   });
 
+  test('logged-out desktop homepages hide Live Pulse and show the guest hero fallback without fetching news', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await mockHomepageAuthState(page, { loggedIn: false });
+    const requestedUrls = [];
+    page.on('request', (request) => {
+      if (request.url().includes('/api/public/news-pulse')) requestedUrls.push(request.url());
+    });
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          enabled: true,
+          items: buildNewsPulseItems('logged-out-hidden-pulse'),
+          updated_at: '2026-05-09T08:00:00.000Z',
+        }),
+      });
+    });
+
+    for (const { path, locale } of [
+      { path: '/', locale: 'en' },
+      { path: '/de/', locale: 'de' },
+    ]) {
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
+      await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
+      await expect(page.locator('#newsPulse .news-pulse__slide')).toHaveCount(0);
+      await expect(page.locator('#newsPulse .news-pulse__mobile-item')).toHaveCount(0);
+      await expectHomepageGuestFallback(page, locale);
+      await expect
+        .poll(() => page.locator('[data-homepage-guest-fallback]').evaluate((node) => node.dataset.homepageGuestFallbackPlacement || ''), { timeout: 10_000 })
+        .toBe('ready');
+      const state = await page.locator('[data-homepage-guest-fallback]').evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        const pulse = document.querySelector('#newsPulse');
+        const pulseStyle = window.getComputedStyle(pulse);
+        const pulseRect = pulse.getBoundingClientRect();
+        return {
+          fallbackWidth: rect.width,
+          fallbackHeight: rect.height,
+          pulseDisplay: pulseStyle.display,
+          pulseVisibility: pulseStyle.visibility,
+          pulseWidth: pulseRect.width,
+          pulseHeight: pulseRect.height,
+        };
+      });
+      expect(state.fallbackWidth).toBeGreaterThan(420);
+      expect(state.fallbackHeight).toBeGreaterThan(90);
+      expect(state.pulseDisplay).toBe('none');
+      expect(state.pulseVisibility).toBe('hidden');
+      expect(state.pulseWidth).toBe(0);
+      expect(state.pulseHeight).toBe(0);
+    }
+
+    await page.waitForTimeout(300);
+    expect(requestedUrls).toEqual([]);
+  });
+
   test('homepage KI-PULS renders as a centered hero news box with indicator navigation', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
+    await mockHomepageAuthState(page, { loggedIn: true });
     const requestedLocales = [];
     await page.route('**/api/public/news-pulse**', async (route) => {
       const requestUrl = new URL(route.request().url());
@@ -1262,6 +1349,8 @@ test.describe('Homepage', () => {
       await dismissCookieBannerIfPresent(page);
       const pulse = page.locator('#newsPulse');
       await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
+      await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'user');
+      await expectHomepageGuestFallbackHidden(page);
       await expect(pulse).not.toHaveAttribute('data-news-pulse-disabled', /.+/);
       await expect(pulse).not.toHaveAttribute('hidden', '');
       await expect(pulse.locator('.news-pulse__slide')).toHaveCount(3);
@@ -1368,6 +1457,7 @@ test.describe('Homepage', () => {
   });
 
   test('homepage Live Pulse does not render duplicate visible news items', async ({ page }) => {
+    await mockHomepageAuthState(page, { loggedIn: true });
     await page.route('**/api/public/news-pulse**', async (route) => {
       await route.fulfill({
         status: 200,
@@ -1405,6 +1495,7 @@ test.describe('Homepage', () => {
     });
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#newsPulse .news-pulse__slide')).toHaveCount(2);
     const titles = await page.locator('#newsPulse .news-pulse__slide .news-pulse__title').evaluateAll((nodes) =>
       nodes.map((node) => node.textContent.trim()).filter(Boolean)
     );
@@ -1413,6 +1504,7 @@ test.describe('Homepage', () => {
   });
 
   test('German homepage Live Pulse requests the German endpoint and keeps the localized label non-visual', async ({ page }) => {
+    await mockHomepageAuthState(page, { loggedIn: true });
     const requestedLocales = [];
     await page.route('**/api/public/news-pulse**', async (route) => {
       requestedLocales.push(new URL(route.request().url()).searchParams.get('locale'));
@@ -1494,8 +1586,10 @@ test.describe('Homepage', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockHomepageAuthState(page, { loggedIn: false });
     const requestedUrls = [];
+    page.on('request', (request) => {
+      if (request.url().includes('/api/public/news-pulse')) requestedUrls.push(request.url());
+    });
     await page.route('**/api/public/news-pulse**', async (route) => {
-      requestedUrls.push(route.request().url());
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1513,10 +1607,14 @@ test.describe('Homepage', () => {
       });
     });
 
-    for (const path of ['/', '/de/']) {
+    for (const { path, locale } of [
+      { path: '/', locale: 'en' },
+      { path: '/de/', locale: 'de' },
+    ]) {
       await page.goto(path, { waitUntil: 'domcontentloaded' });
       await expect(page.locator('#hero')).toBeVisible();
       await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
+      await expectHomepageGuestFallback(page, locale);
       const pulseState = await page.locator('#newsPulse').evaluate((node) => {
         const rect = node.getBoundingClientRect();
         const style = window.getComputedStyle(node);
@@ -1565,6 +1663,8 @@ test.describe('Homepage', () => {
 
       await page.goto(path, { waitUntil: 'domcontentloaded' });
       const pulse = page.locator('#newsPulse');
+      await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'user');
+      await expectHomepageGuestFallbackHidden(page);
       await expect(pulse.locator('.news-pulse__mobile-item.is-active')).toHaveCount(1, { timeout: 10_000 });
       const labelState = await pulse.locator('.news-pulse__label').evaluate((node) => {
         const rect = node.getBoundingClientRect();
@@ -1755,6 +1855,7 @@ test.describe('Homepage', () => {
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
+    await expectHomepageGuestFallback(page, 'en');
     await page.waitForTimeout(250);
     expect(requestedUrls).toEqual([]);
 
@@ -1763,6 +1864,7 @@ test.describe('Homepage', () => {
       await authLogin('pulse-transition@bitbi.ai', 'password');
     });
     await expect(page.locator('#newsPulse .news-pulse__mobile-item.is-active')).toContainText('mobile-auth-pulse headline 1');
+    await expectHomepageGuestFallbackHidden(page);
     expect(requestedUrls).toHaveLength(1);
 
     await markLogoutReloadProbe(page);
@@ -1772,6 +1874,7 @@ test.describe('Homepage', () => {
     });
     await expectLogoutHardReload(page);
     await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
+    await expectHomepageGuestFallback(page, 'en');
     const cleared = await page.locator('#newsPulse').evaluate((node) => ({
       childCount: node.children.length,
       focusableLinks: node.querySelectorAll('a[href]:not([tabindex="-1"])').length,
@@ -1784,7 +1887,36 @@ test.describe('Homepage', () => {
     expect(cleared.display).toBe('none');
   });
 
+  test('logged-in homepage keeps Live Pulse hidden when admin visibility disables the feed', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await mockHomepageAuthState(page, { loggedIn: true });
+    const requestedUrls = [];
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      requestedUrls.push(route.request().url());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          enabled: false,
+          surface: 'desktop',
+          items: buildNewsPulseItems('admin-disabled-pulse'),
+          updated_at: '2026-05-10T08:00:00.000Z',
+        }),
+      });
+    });
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'user');
+    await expectHomepageGuestFallbackHidden(page);
+    await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
+    await expect(page.locator('#newsPulse .news-pulse__slide')).toHaveCount(0);
+    await expect(page.locator('#newsPulse .news-pulse__mobile-item')).toHaveCount(0);
+    expect(requestedUrls).toHaveLength(1);
+    expect(new URL(requestedUrls[0]).searchParams.get('surface')).toBe('desktop');
+  });
+
   test('homepage Live Pulse handles failed endpoint responses without breaking the page', async ({ page }) => {
+    await mockHomepageAuthState(page, { loggedIn: true });
     await page.route('**/api/public/news-pulse**', async (route) => {
       await route.fulfill({
         status: 503,
@@ -1870,6 +2002,7 @@ test.describe('Homepage', () => {
       await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
       await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
       await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
+      await expectHomepageGuestFallback(page, path === '/de/' ? 'de' : 'en');
       await expectGlobalHeaderActionOrder(page);
       await expect(page.locator('#navbar .wallet-nav__trigger')).toHaveAttribute('aria-controls', 'walletModal');
 
@@ -1896,6 +2029,7 @@ test.describe('Homepage', () => {
           logo: rect('#navbar .site-nav__logo'),
           pulse: rect('#hero > #newsPulse'),
           pulseDisplay: pulseStyle?.display || null,
+          pulseVisibility: pulseStyle?.visibility || null,
           pulseHidden: pulse?.hasAttribute('hidden') || false,
           gallery: rect('#navbar [data-category-link="gallery"]'),
           video: rect('#navbar [data-category-link="video"]'),
@@ -1909,8 +2043,9 @@ test.describe('Homepage', () => {
       expect(metrics.logo).toBeTruthy();
       expect(metrics.pulse).toBeTruthy();
       expect(metrics.pulseHidden).toBe(false);
-      expect(metrics.pulseDisplay).not.toBe('none');
-      expect(metrics.pulse.width).toBeGreaterThan(320);
+      expect(metrics.pulseDisplay).toBe('none');
+      expect(metrics.pulseVisibility).toBe('hidden');
+      expect(metrics.pulse.width).toBe(0);
       expect(metrics.gallery.left).toBeGreaterThan(metrics.logo.right + 8);
       expect(metrics.gallery.right).toBeLessThan(metrics.video.left);
       expect(metrics.sound.left).toBeGreaterThan(metrics.video.right);
@@ -2940,6 +3075,7 @@ test.describe('Homepage', () => {
   ]) {
     test(`homepage Models video module sits flush right below the header without crowding ${galleryLabel} on ${path}`, async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 720 });
+      await mockHomepageAuthState(page, { loggedIn: true });
       await page.route('**/api/public/news-pulse**', async (route) => {
         await route.fulfill({
           status: 200,
@@ -3704,6 +3840,7 @@ test.describe('Homepage', () => {
   });
 
   test('homepage hero foreground scales from viewport width and keeps side modules edge-attached', async ({ page }) => {
+    await mockHomepageAuthState(page, { loggedIn: true });
     await page.route('**/api/public/news-pulse**', async (route) => {
       const requestUrl = new URL(route.request().url());
       if (requestUrl.pathname.includes('/thumbs/')) {

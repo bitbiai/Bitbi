@@ -308,6 +308,182 @@ function initMobileGuestBanner() {
     renderBanner();
 }
 
+function parseHomepageCssLengthToPixels(value, fallback = 0, context = document.documentElement) {
+    const raw = String(value || '').trim();
+    if (!raw || raw === 'auto') return fallback;
+    const numeric = Number.parseFloat(raw);
+    if (!Number.isFinite(numeric)) return fallback;
+    if (raw.endsWith('px') || /^-?\d+(\.\d+)?$/.test(raw)) return numeric;
+    const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+    if (raw.endsWith('rem')) return numeric * rootFontSize;
+    if (raw.endsWith('em')) {
+        const contextFontSize = Number.parseFloat(window.getComputedStyle(context).fontSize) || rootFontSize;
+        return numeric * contextFontSize;
+    }
+    if (raw.endsWith('vh')) return (numeric / 100) * (window.innerHeight || document.documentElement.clientHeight || 0);
+    if (raw.endsWith('vw')) return (numeric / 100) * (window.innerWidth || document.documentElement.clientWidth || 0);
+    return fallback;
+}
+
+function isVisibleHomepageElement(element) {
+    if (!element) return false;
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+}
+
+function initHomepageGuestFallback() {
+    const hero = document.querySelector('#hero.hero--homepage');
+    const fallback = hero?.querySelector('[data-homepage-guest-fallback]');
+    const centralCopy = hero?.querySelector('.hero__saas-copy');
+    if (!hero || !fallback) return;
+
+    const desktopQuery = window.matchMedia('(min-width: 1024px)');
+    let placementFrame = 0;
+
+    const updateDesktopPlacement = () => {
+        const labels = [...hero.querySelectorAll('.latest-models-video-module__label')]
+            .filter(isVisibleHomepageElement)
+            .map((element) => element.getBoundingClientRect());
+        const scrollHint = hero.querySelector('.hero__scroll-hint');
+        if (!labels.length || !isVisibleHomepageElement(scrollHint)) return false;
+
+        const heroRect = hero.getBoundingClientRect();
+        const heroStyle = window.getComputedStyle(hero);
+        const hintStyle = window.getComputedStyle(scrollHint);
+        const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+        const fallbackBottom = Math.min(Math.max((window.innerHeight || 0) * 0.0145, 10), 16);
+        const bottomOffset = parseHomepageCssLengthToPixels(
+            hintStyle.insetBlockEnd || hintStyle.bottom || heroStyle.getPropertyValue('--homepage-hero-scroll-bottom'),
+            parseHomepageCssLengthToPixels(heroStyle.getPropertyValue('--homepage-hero-scroll-bottom'), fallbackBottom, hero),
+            scrollHint,
+        );
+        const scrollRect = scrollHint.getBoundingClientRect();
+        const scrollTop = heroRect.bottom - bottomOffset - scrollRect.height;
+        const labelBottom = Math.max(...labels.map((rect) => rect.bottom));
+        const available = scrollTop - labelBottom;
+        if (!Number.isFinite(available) || available <= 96) return false;
+
+        const minGap = Math.max(14, Math.min(22, (window.innerHeight || 0) * 0.015));
+        const preferredHeight = Math.min(
+            Math.max(7.25 * rootFontSize, (window.innerHeight || 0) * 0.12),
+            9.5 * rootFontSize,
+        );
+        const height = Math.min(preferredHeight, Math.max(96, available - (minGap * 2)));
+        const centeredTop = labelBottom + ((available - height) / 2);
+        const minTop = labelBottom + minGap;
+        const maxTop = scrollTop - height - minGap;
+        const top = Math.min(Math.max(centeredTop, minTop), Math.max(minTop, maxTop));
+        const topOffset = Math.max(0, top - heroRect.top);
+        const shiftedTopOffset = Math.min(
+            topOffset * 1.1,
+            Math.max(0, maxTop - heroRect.top),
+        );
+
+        fallback.style.setProperty('--homepage-guest-fallback-top', `${shiftedTopOffset.toFixed(2)}px`);
+        fallback.style.setProperty('--homepage-guest-fallback-height', `${Math.max(96, height).toFixed(2)}px`);
+        fallback.dataset.homepageGuestFallbackPlacement = 'ready';
+        return true;
+    };
+
+    const updateMobilePlacement = () => {
+        const header = document.querySelector('#navbar');
+        const heroLogo = hero.querySelector('.hero__title-img') || hero.querySelector('.hero__title');
+        if (!header || !heroLogo) return false;
+
+        const heroRect = hero.getBoundingClientRect();
+        const headerRect = header.getBoundingClientRect();
+        const logoRect = heroLogo.getBoundingClientRect();
+        const distance = logoRect.top - headerRect.bottom;
+        if (!Number.isFinite(distance) || distance <= 0) return false;
+
+        const rangeTop = headerRect.bottom + (distance * 0.055);
+        const rangeBottom = headerRect.bottom + (distance * 0.955);
+        const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+        const height = Math.min(
+            Math.max(6 * rootFontSize, (window.innerHeight || 0) * 0.13),
+            8.25 * rootFontSize,
+            Math.max(0, rangeBottom - rangeTop),
+        );
+        const center = rangeTop + ((rangeBottom - rangeTop) / 2);
+        const top = center - (height / 2);
+        fallback.style.setProperty('--homepage-guest-fallback-mobile-top', `${Math.max(0, top - heroRect.top).toFixed(2)}px`);
+        fallback.style.setProperty('--homepage-guest-fallback-mobile-height', `${Math.max(0, height).toFixed(2)}px`);
+        fallback.dataset.homepageGuestFallbackPlacement = 'ready';
+        return true;
+    };
+
+    const updatePlacement = () => {
+        placementFrame = 0;
+        if (fallback.hidden || hero.dataset.homepageAuthState !== 'guest') return;
+        if (desktopQuery.matches) {
+            updateDesktopPlacement();
+        } else {
+            updateMobilePlacement();
+        }
+    };
+
+    const schedulePlacement = () => {
+        if (placementFrame) window.cancelAnimationFrame(placementFrame);
+        placementFrame = window.requestAnimationFrame(() => {
+            placementFrame = window.requestAnimationFrame(updatePlacement);
+        });
+    };
+
+    const render = () => {
+        const { ready, loggedIn } = getAuthState();
+        const authState = !ready ? 'loading' : loggedIn ? 'user' : 'guest';
+        hero.dataset.homepageAuthState = authState;
+
+        const showGuestFallback = authState === 'guest';
+        fallback.hidden = !showGuestFallback;
+        if (showGuestFallback) {
+            fallback.removeAttribute('aria-hidden');
+            schedulePlacement();
+        } else {
+            fallback.setAttribute('aria-hidden', 'true');
+            delete fallback.dataset.homepageGuestFallbackPlacement;
+        }
+
+        if (centralCopy) {
+            if (showGuestFallback) {
+                centralCopy.setAttribute('aria-hidden', 'true');
+            } else {
+                centralCopy.removeAttribute('aria-hidden');
+            }
+        }
+    };
+
+    const bindQueryChange = (query, listener) => {
+        if (typeof query.addEventListener === 'function') {
+            query.addEventListener('change', listener);
+            return;
+        }
+        if (typeof query.addListener === 'function') {
+            query.addListener(listener);
+        }
+    };
+
+    bindQueryChange(desktopQuery, schedulePlacement);
+    window.addEventListener('resize', schedulePlacement, { passive: true });
+    window.addEventListener('orientationchange', schedulePlacement, { passive: true });
+    window.addEventListener('bitbi:homepage-hero-scale', schedulePlacement, { passive: true });
+    window.addEventListener('load', schedulePlacement, { once: true });
+    document.fonts?.ready?.then(schedulePlacement).catch(() => {});
+
+    if (window.ResizeObserver) {
+        const resizeObserver = new ResizeObserver(schedulePlacement);
+        resizeObserver.observe(hero);
+        resizeObserver.observe(fallback);
+        hero.querySelectorAll('.latest-models-video-module__label, .hero__scroll-hint, .hero__title-img')
+            .forEach((element) => resizeObserver.observe(element));
+    }
+
+    document.addEventListener('bitbi:auth-change', render);
+    render();
+}
+
 function initHeroModelsCtaPlacement() {
     const wrap = document.querySelector('.hero__models-cta-wrap--right, .hero__models-cta-wrap:not(.hero__models-cta-wrap--left)');
     const button = wrap?.querySelector('.hero__models-cta');
@@ -358,6 +534,7 @@ try { initHeroModelsCtaPlacement(); } catch (e) { console.warn('heroModelsCta:',
 try { initCreationStreamAnchor(); } catch (e) { console.warn('creationStreamAnchor:', e); }
 try { initLatestModelsVideoModule(); } catch (e) { console.warn('latestModelsVideoModule:', e); }
 try { initMobileGuestBanner(); } catch (e) { console.warn('guestBanner:', e); }
+try { initHomepageGuestFallback(); } catch (e) { console.warn('guestFallback:', e); }
 
 /* Hero particles (index uses more particles, nebulae, connections) */
 try { initParticles('heroCanvas', {
