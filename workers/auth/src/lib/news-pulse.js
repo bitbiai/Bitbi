@@ -6,6 +6,7 @@ import {
 
 export const NEWS_PULSE_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=1800";
 export const NEWS_PULSE_MAX_ITEMS = 8;
+export const NEWS_PULSE_DISPLAY_SURFACES = Object.freeze(["desktop", "mobile"]);
 const NEWS_PULSE_SOURCE_LIMIT = 5;
 const NEWS_PULSE_FETCH_TIMEOUT_MS = 5000;
 const NEWS_PULSE_MAX_SOURCE_BYTES = 250000;
@@ -121,9 +122,19 @@ export function normalizeNewsPulseLocale(value) {
   return locale === "de" || locale.startsWith("de-") ? "de" : "en";
 }
 
-function isMissingNewsPulseTable(error) {
+export function normalizeNewsPulseSurface(value) {
+  const surface = String(value || "").trim().toLowerCase();
+  return surface === "mobile" ? "mobile" : "desktop";
+}
+
+export function isMissingNewsPulseTable(error) {
   return String(error?.message || error).includes("no such table") &&
     String(error?.message || error).includes("news_pulse_items");
+}
+
+function isMissingNewsPulseDisplaySettingsTable(error) {
+  return String(error?.message || error).includes("no such table") &&
+    String(error?.message || error).includes("news_pulse_display_settings");
 }
 
 function isMissingNewsPulseVisualColumns(error) {
@@ -193,6 +204,178 @@ function cleanPlainText(value) {
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+export function normalizeNewsPulseAdminText(value, { field = "value", maxLength = 160, required = true } = {}) {
+  const text = cleanPlainText(value);
+  if (required && !text) {
+    throw new OpenClawNewsPulseValidationError(`${field} is required.`, { field });
+  }
+  if (/[<>]/.test(text)) {
+    throw new OpenClawNewsPulseValidationError(`${field} must not contain HTML.`, { field });
+  }
+  if (text.length > maxLength) {
+    throw new OpenClawNewsPulseValidationError(`${field} is too long.`, { field });
+  }
+  return text;
+}
+
+export function normalizeNewsPulseAdminUrl(value, { field = "url" } = {}) {
+  const href = normalizeSourceUrl(value);
+  if (!href) {
+    throw new OpenClawNewsPulseValidationError(`${field} must be a valid HTTPS URL without credentials.`, { field });
+  }
+  return href;
+}
+
+export function normalizeNewsPulseAdminIsoDate(value, { field = "published_at", required = true } = {}) {
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    if (required) {
+      throw new OpenClawNewsPulseValidationError(`${field} is required.`, { field });
+    }
+    return null;
+  }
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    throw new OpenClawNewsPulseValidationError(`${field} must be a valid ISO timestamp.`, { field });
+  }
+  return date.toISOString();
+}
+
+export async function buildNewsPulseContentHash({
+  locale,
+  title,
+  summary,
+  source,
+  url,
+  category,
+  published_at: publishedAt,
+  visual_type: visualType = "generated",
+  visual_url: visualUrl = null,
+  external_id: externalId = null,
+}) {
+  return sha256Hex(JSON.stringify({
+    locale: normalizeNewsPulseLocale(locale),
+    title,
+    summary,
+    source,
+    url,
+    category,
+    published_at: normalizeIsoDate(publishedAt),
+    visual_type: normalizeVisualType(visualType),
+    visual_url: visualUrl || null,
+    external_id: externalId || null,
+  }));
+}
+
+function defaultDisplaySettings(now) {
+  return Object.fromEntries(NEWS_PULSE_DISPLAY_SURFACES.map((surface) => [surface, {
+    surface,
+    enabled: true,
+    updated_at: null,
+    updated_by: null,
+    reason: null,
+    defaulted: true,
+    generated_at: now,
+  }]));
+}
+
+export async function getNewsPulseDisplaySettings(env, { now = new Date().toISOString() } = {}) {
+  const settings = defaultDisplaySettings(now);
+  if (!env?.DB) {
+    return {
+      settings,
+      schema_available: false,
+      source: "default_no_db",
+      updated_at: now,
+    };
+  }
+  try {
+    const result = await env.DB.prepare(
+      `SELECT surface, enabled, updated_at, updated_by, reason
+       FROM news_pulse_display_settings
+       WHERE surface IN ('desktop', 'mobile')`
+    ).all();
+    for (const row of result?.results || []) {
+      const surface = normalizeNewsPulseSurface(row?.surface);
+      settings[surface] = {
+        surface,
+        enabled: Number(row?.enabled) !== 0,
+        updated_at: row?.updated_at || null,
+        updated_by: row?.updated_by || null,
+        reason: row?.reason || null,
+        defaulted: false,
+        generated_at: now,
+      };
+    }
+    const updatedAt = Object.values(settings)
+      .map((entry) => entry.updated_at)
+      .filter(Boolean)
+      .sort()
+      .at(-1) || now;
+    return {
+      settings,
+      schema_available: true,
+      source: "db",
+      updated_at: updatedAt,
+    };
+  } catch (error) {
+    if (!isMissingNewsPulseDisplaySettingsTable(error)) throw error;
+    return {
+      settings,
+      schema_available: false,
+      source: "default_missing_table",
+      updated_at: now,
+    };
+  }
+}
+
+export async function getNewsPulseDisplaySetting(env, surface, options = {}) {
+  const normalizedSurface = normalizeNewsPulseSurface(surface);
+  const result = await getNewsPulseDisplaySettings(env, options);
+  return {
+    ...result.settings[normalizedSurface],
+    schema_available: result.schema_available,
+    source: result.source,
+  };
+}
+
+export async function setNewsPulseDisplaySettings(env, {
+  desktopEnabled,
+  mobileEnabled,
+  actorUserId = null,
+  reason = "",
+  now = new Date().toISOString(),
+} = {}) {
+  if (!env?.DB) {
+    throw new OpenClawNewsPulseValidationError("News Pulse display settings storage is not configured.", {
+      status: 503,
+      code: "news_pulse_display_settings_not_configured",
+    });
+  }
+  const updates = [];
+  if (desktopEnabled !== undefined) {
+    updates.push(["desktop", desktopEnabled === true]);
+  }
+  if (mobileEnabled !== undefined) {
+    updates.push(["mobile", mobileEnabled === true]);
+  }
+  if (!updates.length) {
+    return getNewsPulseDisplaySettings(env, { now });
+  }
+  for (const [surface, enabled] of updates) {
+    await env.DB.prepare(
+      `INSERT INTO news_pulse_display_settings (surface, enabled, updated_at, updated_by, reason)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(surface) DO UPDATE SET
+         enabled = excluded.enabled,
+         updated_at = excluded.updated_at,
+         updated_by = excluded.updated_by,
+         reason = excluded.reason`
+    ).bind(surface, enabled ? 1 : 0, now, actorUserId, reason).run();
+  }
+  return getNewsPulseDisplaySettings(env, { now });
 }
 
 function normalizeRequiredOpenClawText(value, { field, maxLength }) {
@@ -466,13 +649,11 @@ export async function getNewsPulseItems(env, locale, { now = new Date().toISOStr
     const items = (result?.results || [])
       .map((row) => normalizeNewsPulseItem(row, normalizedLocale))
       .filter(Boolean);
-    if (items.length > 0) {
-      const updatedAt = (result.results || [])
-        .map((row) => normalizeIsoDate(row.updated_at, now))
-        .sort()
-        .at(-1) || now;
-      return { items, updated_at: updatedAt, source: "cache" };
-    }
+    const updatedAt = (result.results || [])
+      .map((row) => normalizeIsoDate(row.updated_at, now))
+      .sort()
+      .at(-1) || now;
+    return { items, updated_at: updatedAt, source: "cache" };
   } catch (error) {
     if (!isMissingNewsPulseTable(error)) throw error;
   }

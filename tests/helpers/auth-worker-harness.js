@@ -1105,6 +1105,7 @@ class MockD1 {
       billingOperatorCleanupRunItems: [],
       billingOperatorPurgeTombstones: [],
       newsPulseItems: [],
+      newsPulseDisplaySettings: [],
       openClawIngestNonces: [],
       adminRuntimeBudgetSwitches: defaultAdminRuntimeBudgetSwitchRows(),
       adminRuntimeBudgetSwitchEvents: [],
@@ -1419,6 +1420,9 @@ class MockD1 {
     }
     if (this.missingTables.has('news_pulse_items') && query.includes('news_pulse_items')) {
       throw new Error('no such table: news_pulse_items');
+    }
+    if (this.missingTables.has('news_pulse_display_settings') && query.includes('news_pulse_display_settings')) {
+      throw new Error('no such table: news_pulse_display_settings');
     }
     if (this.missingTables.has('openclaw_ingest_nonces') && query.includes('openclaw_ingest_nonces')) {
       throw new Error('no such table: openclaw_ingest_nonces');
@@ -12021,6 +12025,121 @@ class MockD1 {
     if (query === 'SELECT COUNT(*) AS cnt FROM admin_audit_log WHERE target_user_id = ?') {
       const [userId] = bindings;
       return { cnt: this.state.adminAuditLog.filter((row) => row.target_user_id === userId).length };
+    }
+
+    if (query === "SELECT surface, enabled, updated_at, updated_by, reason FROM news_pulse_display_settings WHERE surface IN ('desktop', 'mobile')") {
+      return { results: (this.state.newsPulseDisplaySettings || []).map((row) => ({ ...row })) };
+    }
+
+    if (query === "INSERT INTO news_pulse_display_settings (surface, enabled, updated_at, updated_by, reason) VALUES (?, ?, ?, ?, ?) ON CONFLICT(surface) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at, updated_by = excluded.updated_by, reason = excluded.reason") {
+      const [surface, enabled, updatedAt, updatedBy, reason] = bindings;
+      const existing = this.state.newsPulseDisplaySettings.find((row) => row.surface === surface);
+      const next = {
+        surface,
+        enabled: Number(enabled) ? 1 : 0,
+        updated_at: updatedAt,
+        updated_by: updatedBy,
+        reason,
+      };
+      if (existing) Object.assign(existing, next);
+      else this.state.newsPulseDisplaySettings.push(next);
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT id, locale, status, expires_at, updated_at, visual_status, visual_object_key FROM news_pulse_items') {
+      return { results: (this.state.newsPulseItems || []).map((row) => ({ ...row })) };
+    }
+
+    if (query.startsWith("SELECT id, locale, title, summary, source, url, category, published_at, status, expires_at, visual_type, visual_status, visual_object_key, visual_thumb_url, visual_generated_at, visual_error, visual_attempts, created_at, updated_at FROM news_pulse_items")) {
+      const limit = Number(bindings[bindings.length - 2] || 50);
+      const offset = Number(bindings[bindings.length - 1] || 0);
+      const nowBinding = bindings.find((entry) => typeof entry === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(entry));
+      const localeBinding = bindings.find((entry) => entry === 'en' || entry === 'de');
+      const visualBinding = bindings.find((entry) => ['missing', 'pending', 'ready', 'failed', 'skipped'].includes(entry));
+      let rows = (this.state.newsPulseItems || []).slice();
+      if (localeBinding) rows = rows.filter((row) => row.locale === localeBinding);
+      if (query.includes("status = 'active'")) {
+        rows = rows.filter((row) => row.status === 'active' && (!row.expires_at || row.expires_at > nowBinding));
+      } else if (query.includes("status = 'hidden'")) {
+        rows = rows.filter((row) => row.status === 'hidden');
+      } else if (query.includes('expires_at IS NOT NULL AND expires_at <= ?')) {
+        rows = rows.filter((row) => row.expires_at && row.expires_at <= nowBinding);
+      }
+      if (visualBinding) {
+        rows = rows.filter((row) => (row.visual_status || 'missing') === visualBinding);
+      }
+      rows = rows
+        .sort((a, b) => {
+          const published = String(b.published_at || '').localeCompare(String(a.published_at || ''));
+          if (published !== 0) return published;
+          const updated = String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+          if (updated !== 0) return updated;
+          return String(b.id || '').localeCompare(String(a.id || ''));
+        })
+        .slice(offset, offset + limit)
+        .map((row) => ({ ...row }));
+      return { results: rows };
+    }
+
+    if (query === "SELECT id, locale, title, summary, source, url, category, published_at, status, expires_at, visual_type, visual_url, visual_prompt, visual_status, visual_object_key, visual_thumb_url, visual_generated_at, visual_error, visual_attempts, created_at, updated_at FROM news_pulse_items WHERE id = ? LIMIT 1") {
+      const [id] = bindings;
+      const row = (this.state.newsPulseItems || []).find((item) => item.id === id);
+      return row ? { ...row } : null;
+    }
+
+    if (query === "UPDATE news_pulse_items SET title = ?, summary = ?, source = ?, url = ?, category = ?, published_at = ?, status = ?, expires_at = ?, content_hash = ?, updated_at = ? WHERE id = ?") {
+      const [title, summary, source, url, category, publishedAt, status, expiresAt, contentHash, updatedAt, id] = bindings;
+      const row = this.state.newsPulseItems.find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, {
+        title,
+        summary,
+        source,
+        url,
+        category,
+        published_at: publishedAt,
+        status,
+        expires_at: expiresAt,
+        content_hash: contentHash,
+        updated_at: updatedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "UPDATE news_pulse_items SET title = ?, summary = ?, source = ?, url = ?, category = ?, published_at = ?, status = ?, expires_at = ?, content_hash = ?, updated_at = ?, visual_type = 'generated', visual_url = NULL, visual_prompt = NULL, visual_status = 'missing', visual_object_key = NULL, visual_thumb_url = NULL, visual_generated_at = NULL, visual_error = NULL, visual_attempts = 0, visual_updated_at = ? WHERE id = ?") {
+      const [title, summary, source, url, category, publishedAt, status, expiresAt, contentHash, updatedAt, visualUpdatedAt, id] = bindings;
+      const row = this.state.newsPulseItems.find((item) => item.id === id);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, {
+        title,
+        summary,
+        source,
+        url,
+        category,
+        published_at: publishedAt,
+        status,
+        expires_at: expiresAt,
+        content_hash: contentHash,
+        updated_at: updatedAt,
+        visual_type: 'generated',
+        visual_url: null,
+        visual_prompt: null,
+        visual_status: 'missing',
+        visual_object_key: null,
+        visual_thumb_url: null,
+        visual_generated_at: null,
+        visual_error: null,
+        visual_attempts: 0,
+        visual_updated_at: visualUpdatedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'DELETE FROM news_pulse_items WHERE id = ?') {
+      const [id] = bindings;
+      const before = this.state.newsPulseItems.length;
+      this.state.newsPulseItems = this.state.newsPulseItems.filter((row) => row.id !== id);
+      return { success: true, meta: { changes: before - this.state.newsPulseItems.length } };
     }
 
     if (query === "SELECT id, title, summary, source, url, category, published_at, visual_type, visual_url, visual_status, visual_thumb_url, updated_at FROM news_pulse_items WHERE locale = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) ORDER BY published_at DESC, updated_at DESC LIMIT ?" ||

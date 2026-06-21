@@ -21,6 +21,7 @@ import { createAdminControlPlane } from './control-plane.js?v=__ASSET_VERSION__'
 import { createAdminDashboard } from './dashboard.js?v=__ASSET_VERSION__';
 import { createHomepageHeroVideosAdmin } from './homepage-hero-videos.js?v=__ASSET_VERSION__';
 import { createAdminNav } from './nav.js?v=__ASSET_VERSION__';
+import { createAdminNewsFeedAgent } from './news-feed-agent.js?v=__ASSET_VERSION__';
 import { createAdminRouter } from './router.js?v=__ASSET_VERSION__';
 import {
     ADMIN_MFA_GATE_CODES,
@@ -61,6 +62,7 @@ const aiLab = createAdminAiLab({ showToast });
 const controlPlane = createAdminControlPlane({ showToast, formatDate });
 const dashboard = createAdminDashboard({ showToast });
 const homepageHeroVideos = createHomepageHeroVideosAdmin({ showToast, formatDate, formatApiError });
+const newsFeedAgent = createAdminNewsFeedAgent({ showToast, formatDate, formatApiError });
 const adminNav = createAdminNav();
 const adminActivity = createAdminActivity({ showToast, formatDate });
 const adminAvatars = createAdminAvatarLightbox();
@@ -119,6 +121,7 @@ function bootstrapAdminPanel() {
     adminActivity.bind();
     registrationAvailability.bind();
     homepageHeroVideos.bind();
+    newsFeedAgent.bind();
     controlPlane.bind();
 
     adminNav.bind();
@@ -184,6 +187,7 @@ function loadAdminSection(name) {
         adminUsers.load();
     }
     if (name === 'activity') adminActivity.load();
+    if (name === 'news-feed-agent') newsFeedAgent.load();
     if (name === 'homepage-hero-videos') homepageHeroVideos.load();
     if (name === 'ai-lab') aiLab.show();
     return controlPlanePromise;

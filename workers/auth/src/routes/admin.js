@@ -60,6 +60,7 @@ import { handleAdminAI } from "./admin-ai.js";
 import { handleAdminBilling } from "./admin-billing.js";
 import { handleAdminDataLifecycle } from "./admin-data-lifecycle.js";
 import { handleAdminMfa } from "./admin-mfa.js";
+import { handleAdminNewsPulse } from "./admin-news-pulse.js";
 import { handleAdminOrgs } from "./admin-orgs.js";
 import { handleAdminR2Explorer } from "./admin-r2-explorer.js";
 import { handleAdminStorage } from "./admin-storage.js";
@@ -78,7 +79,7 @@ const ADMIN_DELETE_ERASURE_ACKNOWLEDGEMENT = "ERASURE WORKFLOW";
 const ADMIN_DELETE_ERASURE_DEFAULT_REASON = "Admin initiated GDPR/data erasure workflow from Admin user deletion.";
 // Runtime Workers cannot read config/release-compat.json directly; release
 // compatibility tests keep this dashboard label aligned with the manifest.
-const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0066_add_operator_billing_cleanup.sql";
+const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0067_add_news_pulse_display_settings.sql";
 const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v4";
 
 function adminSettingsIdempotencyKeyOrResponse(request) {
@@ -933,6 +934,11 @@ export async function handleAdmin(ctx) {
   const adminAiResult = await handleAdminAI(ctx);
   if (adminAiResult) {
     return adminAiResult;
+  }
+
+  const adminNewsPulseResult = await handleAdminNewsPulse(ctx);
+  if (adminNewsPulseResult) {
+    return adminNewsPulseResult;
   }
 
   const dataLifecycleResult = await handleAdminDataLifecycle(ctx);

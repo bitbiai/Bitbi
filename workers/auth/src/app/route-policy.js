@@ -1187,6 +1187,41 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "admin_ai_platform_budget_evidence_archive_cleanup_expired" },
     notes: "Phase 4.21 admin-triggered bounded cleanup for expired platform budget evidence archives. Deletes only AUDIT_ARCHIVE objects whose keys pass the approved platform-budget-evidence/ prefix check, marks archive metadata, and refuses unsafe keys. It never touches data-exports, user media, audit chunks, AI media, repairs, usage/source rows, credits, Stripe, providers, Cloudflare, or customer billing.",
   }),
+  adminRead("admin.news-pulse.overview", "/api/admin/news-pulse/overview", "homepage", {
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
+    notes: "Admin-only bounded summary for News Pulse visibility, item counts, visual status, and DB/R2 binding presence. Does not expose item bodies beyond aggregate counts.",
+  }),
+  adminRead("admin.news-pulse.visibility.read", "/api/admin/news-pulse/visibility", "homepage", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    notes: "Admin-only read of desktop/mobile public display toggles. Missing settings rows default enabled and do not affect background ingest.",
+  }),
+  adminJsonWrite("admin.news-pulse.visibility.update", "PATCH", "/api/admin/news-pulse/visibility", "homepage", "smallJson", "admin-news-pulse-action-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "admin_news_pulse_visibility_updated" },
+    notes: "Toggles only public News Pulse display for desktop/mobile. Does not stop OpenClaw ingest, scheduled refresh, D1 storage, or visual generation.",
+  }),
+  adminRead("admin.news-pulse.items.list", "/api/admin/news-pulse/items", "homepage", {
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
+    notes: "Admin-only bounded list of active, hidden, expired, and visual-status-filtered News Pulse rows. Object keys are not accepted from the request.",
+  }),
+  adminJsonWrite("admin.news-pulse.items.delete", "DELETE", "/api/admin/news-pulse/items", "homepage", "smallJson", "admin-news-pulse-action-ip", {
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "admin_news_pulse_items_deleted" },
+    notes: "Irreversibly deletes exact selected News Pulse rows and their validated news-pulse/thumbs/*.webp USER_IMAGES objects. Requires reason, Idempotency-Key, confirmation, Admin/MFA, CSRF, and bounded batch size.",
+  }),
+  adminRead("admin.news-pulse.items.read", "/api/admin/news-pulse/items/:id", "homepage", {
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
+    notes: "Admin-only item detail for editing. The route never accepts R2 object keys and redacts visual key details.",
+  }),
+  adminJsonWrite("admin.news-pulse.items.update", "PATCH", "/api/admin/news-pulse/items/:id", "homepage", "smallJson", "admin-news-pulse-action-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "admin_news_pulse_item_updated" },
+    notes: "Validates and updates editable plain-text/source fields only. Optional visual reset clears visual metadata for later background regeneration and does not call providers.",
+  }),
+  adminRead("admin.news-pulse.thumbs.read", "/api/admin/news-pulse/thumbs/:id", "homepage", {
+    config: ["DB", "USER_IMAGES", "PUBLIC_RATE_LIMITER"],
+    notes: "Admin-only private thumbnail preview for active, hidden, or expired rows. Object key is looked up from D1 and validated against the News Pulse visual prefix.",
+  }),
   adminJsonWrite("admin.ai.test-text", "POST", "/api/admin/ai/test-text", "admin-ai", "adminJson", "admin-ai-text-ip", {
     config: REQUIRED_CONFIG.adminAi,
     billing: {

@@ -96,17 +96,23 @@ function uniqueNewsItems(items) {
     });
 }
 
-async function fetchNewsPulse(locale) {
-    const response = await fetch(`${NEWS_PULSE_ENDPOINT}?locale=${encodeURIComponent(locale)}`, {
+async function fetchNewsPulse(locale, surface = 'desktop') {
+    const params = new URLSearchParams();
+    params.set('locale', locale);
+    params.set('surface', surface === 'mobile' ? 'mobile' : 'desktop');
+    const response = await fetch(`${NEWS_PULSE_ENDPOINT}?${params}`, {
         headers: { Accept: 'application/json' },
         credentials: 'omit',
     });
-    if (!response.ok) return [];
+    if (!response.ok) return { enabled: true, items: [] };
     const data = await response.json();
-    return uniqueNewsItems((Array.isArray(data?.items) ? data.items : [])
-        .map(normalizeItem)
-        .filter(Boolean))
-        .slice(0, MAX_SOURCE_ITEMS);
+    return {
+        enabled: data?.enabled !== false,
+        items: uniqueNewsItems((Array.isArray(data?.items) ? data.items : [])
+            .map(normalizeItem)
+            .filter(Boolean))
+            .slice(0, MAX_SOURCE_ITEMS),
+    };
 }
 
 function createElement(tagName, className, text = '') {
@@ -734,7 +740,13 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
             root.replaceChildren();
             clearDesktopTimer();
             try {
-                renderDesktopNewsPulse(root, await fetchNewsPulse(locale), locale, (index) => {
+                const result = await fetchNewsPulse(locale, 'desktop');
+                if (result.enabled === false) {
+                    hasRenderedDesktop = false;
+                    clearForDisabledState();
+                    return;
+                }
+                renderDesktopNewsPulse(root, result.items, locale, (index) => {
                     showDesktopItem(index, { resetTimer: true });
                 });
                 desktopIndex = 0;
@@ -772,12 +784,17 @@ export async function initNewsPulse(container = document, { getAuthState } = {})
 
             const token = ++fetchToken;
             try {
-                const items = await fetchNewsPulse(locale);
+                const result = await fetchNewsPulse(locale, 'mobile');
                 if (token !== fetchToken || mode !== 'mobile') return;
+                if (result.enabled === false) {
+                    clearForDisabledState();
+                    return;
+                }
                 if (!readAuthState(getAuthState).loggedIn || desktopQuery.matches) {
                     clearForDisabledState();
                     return;
                 }
+                const items = result.items;
                 if (!items.length) {
                     renderMobileEmpty(locale);
                     return;

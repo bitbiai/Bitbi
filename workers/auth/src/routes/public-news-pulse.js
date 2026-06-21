@@ -1,8 +1,10 @@
 import { json } from "../lib/response.js";
 import {
+  getNewsPulseDisplaySetting,
   getNewsPulseItems,
   NEWS_PULSE_CACHE_CONTROL,
   normalizeNewsPulseLocale,
+  normalizeNewsPulseSurface,
 } from "../lib/news-pulse.js";
 import {
   isNewsPulseVisualObjectKey,
@@ -39,9 +41,28 @@ function buildThumbHeaders(object) {
 
 export async function handlePublicNewsPulse(ctx) {
   const locale = normalizeNewsPulseLocale(ctx.url.searchParams.get("locale"));
+  const surface = normalizeNewsPulseSurface(ctx.url.searchParams.get("surface"));
+  const visibility = await getNewsPulseDisplaySetting(ctx.env, surface);
+  if (visibility.enabled === false) {
+    return json(
+      {
+        enabled: false,
+        surface,
+        items: [],
+        updated_at: visibility.updated_at || new Date().toISOString(),
+      },
+      {
+        headers: {
+          "cache-control": "private, no-store",
+        },
+      }
+    );
+  }
   const result = await getNewsPulseItems(ctx.env, locale);
   return json(
     {
+      enabled: true,
+      surface,
       items: result.items,
       updated_at: result.updated_at,
     },

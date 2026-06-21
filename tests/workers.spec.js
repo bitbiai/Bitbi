@@ -5,6 +5,8 @@ const { createHash, createHmac, pbkdf2Sync, randomBytes } = require('crypto');
 const { pathToFileURL } = require('url');
 
 const TEST_FAVORITE_THUMB_URL = '/tests/fixtures/media/favorite-thumb.jpg';
+const RELEASE_COMPAT = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config/release-compat.json'), 'utf8'));
+const CURRENT_AUTH_MIGRATION = RELEASE_COMPAT.release.schemaCheckpoints.auth.latest;
 
 const {
   MockDurableRateLimiterNamespace,
@@ -5050,6 +5052,33 @@ test.describe('Phase 1-E auth route policy registry', () => {
     expect(getRoutePolicy('GET', '/api/public/news-pulse/thumbs/openclaw_en_abc123')).toEqual(expect.objectContaining({
       id: 'public.news_pulse.thumb.read',
       auth: 'anonymous',
+      csrf: 'safe-method',
+      config: expect.arrayContaining(['DB', 'USER_IMAGES']),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/news-pulse/overview')).toEqual(expect.objectContaining({
+      id: 'admin.news-pulse.overview',
+      auth: 'admin',
+      mfa: 'admin-production-required',
+      csrf: 'safe-method',
+      config: expect.arrayContaining(['DB', 'USER_IMAGES']),
+    }));
+    expect(getRoutePolicy('PATCH', '/api/admin/news-pulse/visibility')).toEqual(expect.objectContaining({
+      id: 'admin.news-pulse.visibility.update',
+      auth: 'admin',
+      csrf: 'same-origin-required',
+      body: expect.objectContaining({ kind: 'json', maxBytesName: 'smallJson' }),
+      audit: expect.objectContaining({ event: 'admin_news_pulse_visibility_updated' }),
+    }));
+    expect(getRoutePolicy('DELETE', '/api/admin/news-pulse/items')).toEqual(expect.objectContaining({
+      id: 'admin.news-pulse.items.delete',
+      auth: 'admin',
+      csrf: 'same-origin-required',
+      config: expect.arrayContaining(['DB', 'USER_IMAGES']),
+      audit: expect.objectContaining({ event: 'admin_news_pulse_items_deleted' }),
+    }));
+    expect(getRoutePolicy('GET', '/api/admin/news-pulse/thumbs/openclaw_en_abc123')).toEqual(expect.objectContaining({
+      id: 'admin.news-pulse.thumbs.read',
+      auth: 'admin',
       csrf: 'safe-method',
       config: expect.arrayContaining(['DB', 'USER_IMAGES']),
     }));
@@ -19136,7 +19165,9 @@ test.describe('Worker routes', () => {
         expect(res.status).toBe(200);
         expect(res.headers.get('cache-control')).toContain('public, max-age=300');
         const body = await res.json();
-        expectExactKeys(body, ['items', 'updated_at']);
+        expectExactKeys(body, ['enabled', 'surface', 'items', 'updated_at']);
+        expect(body.enabled).toBe(true);
+        expect(body.surface).toBe('desktop');
         expect(Array.isArray(body.items)).toBe(true);
         expect(body.items.length).toBeGreaterThan(0);
         expect(body.items[0].title).toBe(expectedTitle);
@@ -19187,6 +19218,8 @@ test.describe('Worker routes', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body).toEqual({
+        enabled: true,
+        surface: 'desktop',
         items: [{
           id: 'cached-news-pulse-en',
           title: 'Cached AI news',
@@ -19204,6 +19237,68 @@ test.describe('Worker routes', () => {
       expect(serialized).not.toContain('sk_test_secret_should_not_leak');
       expect(serialized).not.toContain('NEWS_PULSE_SOURCE_URLS');
       expect(serialized).not.toContain('feeds.example.com');
+    });
+
+    test('GET /api/public/news-pulse hides disabled surfaces without listing item or thumbnail data', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({
+        newsPulseDisplaySettings: [{
+          surface: 'mobile',
+          enabled: 0,
+          updated_at: '2026-06-21T08:00:00.000Z',
+          updated_by: 'admin-1',
+          reason: 'Testing mobile visibility switch',
+        }],
+        newsPulseItems: [{
+          id: 'mobile-hidden-news',
+          locale: 'en',
+          title: 'Hidden mobile news',
+          summary: 'This should not be returned when mobile is disabled.',
+          source: 'Source Example',
+          url: 'https://example.com/mobile-hidden-news',
+          category: 'AI',
+          published_at: '2026-05-09T09:00:00.000Z',
+          visual_type: 'generated',
+          visual_status: 'ready',
+          visual_object_key: 'news-pulse/thumbs/mobile-hidden-news.webp',
+          visual_thumb_url: '/api/public/news-pulse/thumbs/mobile-hidden-news',
+          status: 'active',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          updated_at: '2026-05-09T09:15:00.000Z',
+        }],
+      });
+
+      const res = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/public/news-pulse?locale=en&surface=mobile'),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-control')).toBe('private, no-store');
+      const body = await res.json();
+      expect(body).toEqual({
+        enabled: false,
+        surface: 'mobile',
+        items: [],
+        updated_at: '2026-06-21T08:00:00.000Z',
+      });
+      expect(JSON.stringify(body)).not.toContain('mobile-hidden-news.webp');
+    });
+
+    test('GET /api/public/news-pulse does not use seed fallback when the table exists but active rows are empty', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const env = createAuthTestEnv({ newsPulseItems: [] });
+
+      const res = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/public/news-pulse?locale=en&surface=desktop'),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.enabled).toBe(true);
+      expect(body.surface).toBe('desktop');
+      expect(body.items).toEqual([]);
     });
 
     test('refreshNewsPulse decodes plain text entities without double-unescaping feed markup', async () => {
@@ -19375,6 +19470,219 @@ test.describe('Worker routes', () => {
         createExecutionContext().execCtx
       );
       expect(missing.status).toBe(404);
+    });
+
+    test('Admin News Pulse visibility switch is display-only and does not block OpenClaw ingest', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('news-pulse-admin');
+      const env = createAuthTestEnv({
+        users: [admin],
+        OPENCLAW_INGEST_SECRET: OPENCLAW_TEST_SECRET,
+      });
+      const token = await seedSession(env, admin.id);
+      const headers = {
+        Cookie: `bitbi_session=${token}`,
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.210',
+        'Idempotency-Key': 'news-pulse-visibility-disable-mobile',
+      };
+
+      const visibility = await authWorker.fetch(
+        authJsonRequest('/api/admin/news-pulse/visibility', 'PATCH', {
+          mobile_enabled: false,
+          reason: 'Disable mobile public surface only',
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(visibility.status).toBe(200);
+      expect(env.DB.state.newsPulseDisplaySettings).toEqual(expect.arrayContaining([
+        expect.objectContaining({ surface: 'mobile', enabled: 0 }),
+      ]));
+
+      const { request } = buildOpenClawSignedRequest(validOpenClawNewsPulsePayload());
+      const ingest = await authWorker.fetch(request, env, createExecutionContext().execCtx);
+      expect(ingest.status).toBe(200);
+      expect(env.DB.state.newsPulseItems).toHaveLength(1);
+
+      const mobile = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/public/news-pulse?locale=en&surface=mobile'),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(await mobile.json()).toEqual(expect.objectContaining({
+        enabled: false,
+        surface: 'mobile',
+        items: [],
+      }));
+
+      const desktop = await authWorker.fetch(
+        new Request('https://bitbi.ai/api/public/news-pulse?locale=en&surface=desktop'),
+        env,
+        createExecutionContext().execCtx
+      );
+      const desktopBody = await desktop.json();
+      expect(desktopBody.enabled).toBe(true);
+      expect(desktopBody.items).toHaveLength(1);
+      expect(env.ACTIVITY_INGEST_QUEUE.messages.some((row) => row.action === 'admin_news_pulse_visibility_updated')).toBe(true);
+    });
+
+    test('Admin News Pulse edit validates text fields and updates editable row metadata', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('news-pulse-edit-admin');
+      const env = createAuthTestEnv({
+        users: [admin],
+        newsPulseItems: [{
+          id: 'editable-news-pulse-item',
+          locale: 'en',
+          title: 'Editable AI news',
+          summary: 'A source-attributed cached summary.',
+          source: 'Source Example',
+          url: 'https://example.com/editable-news',
+          category: 'AI',
+          published_at: '2026-05-09T09:00:00.000Z',
+          visual_type: 'icon',
+          visual_url: null,
+          visual_status: 'missing',
+          visual_attempts: 0,
+          status: 'active',
+          source_key: 'manual',
+          content_hash: 'old-hash',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          created_at: '2026-05-09T09:00:00.000Z',
+          updated_at: '2026-05-09T09:15:00.000Z',
+        }],
+      });
+      const token = await seedSession(env, admin.id);
+      const headers = {
+        Cookie: `bitbi_session=${token}`,
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.211',
+        'Idempotency-Key': 'news-pulse-edit-item',
+      };
+
+      const invalid = await authWorker.fetch(
+        authJsonRequest('/api/admin/news-pulse/items/editable-news-pulse-item', 'PATCH', {
+          title: '<script>alert(1)</script>',
+          summary: 'Safe summary',
+          source: 'Source Example',
+          url: 'https://example.com/editable-news',
+          category: 'AI',
+          published_at: '2026-05-10T10:00:00.000Z',
+          status: 'active',
+          reason: 'Attempt unsafe title',
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalid.status).toBe(400);
+
+      const updated = await authWorker.fetch(
+        authJsonRequest('/api/admin/news-pulse/items/editable-news-pulse-item', 'PATCH', {
+          title: 'Updated AI news',
+          summary: 'Updated safe summary.',
+          source: 'Updated Source',
+          url: 'https://example.com/updated-news',
+          category: 'Creative AI',
+          published_at: '2026-05-10T10:00:00.000Z',
+          expires_at: null,
+          status: 'hidden',
+          reason: 'Manual News Pulse cleanup edit',
+        }, { ...headers, 'Idempotency-Key': 'news-pulse-edit-item-valid' }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(updated.status).toBe(200);
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        title: 'Updated AI news',
+        status: 'hidden',
+        url: 'https://example.com/updated-news',
+      }));
+      expect(env.ACTIVITY_INGEST_QUEUE.messages.some((row) => row.action === 'admin_news_pulse_item_updated')).toBe(true);
+    });
+
+    test('Admin News Pulse bulk delete removes D1 rows and validated generated thumbnail objects', async () => {
+      const authWorker = await loadWorker('workers/auth/src/index.js');
+      const admin = createAdminUser('news-pulse-delete-admin');
+      const objectKey = 'news-pulse/thumbs/delete-news-pulse-item.webp';
+      const env = createAuthTestEnv({
+        users: [admin],
+        userImages: {
+          [objectKey]: {
+            body: new TextEncoder().encode('delete-webp'),
+            httpMetadata: { contentType: 'image/webp' },
+          },
+        },
+        newsPulseItems: [{
+          id: 'delete-news-pulse-item',
+          locale: 'en',
+          title: 'Delete AI news',
+          summary: 'A source-attributed cached summary.',
+          source: 'Source Example',
+          url: 'https://example.com/delete-news',
+          category: 'AI',
+          published_at: '2026-05-09T09:00:00.000Z',
+          visual_type: 'generated',
+          visual_status: 'ready',
+          visual_object_key: objectKey,
+          visual_thumb_url: '/api/public/news-pulse/thumbs/delete-news-pulse-item',
+          visual_attempts: 1,
+          status: 'active',
+          source_key: 'manual',
+          content_hash: 'delete-hash',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          created_at: '2026-05-09T09:00:00.000Z',
+          updated_at: '2026-05-09T09:15:00.000Z',
+        }],
+      });
+      const token = await seedSession(env, admin.id);
+      const baseHeaders = {
+        Cookie: `bitbi_session=${token}`,
+        Origin: 'https://bitbi.ai',
+        'CF-Connecting-IP': '203.0.113.212',
+      };
+
+      const missingIdempotency = await authWorker.fetch(
+        authJsonRequest('/api/admin/news-pulse/items', 'DELETE', {
+          ids: ['delete-news-pulse-item'],
+          confirmation: 'delete_news_pulse_items',
+          reason: 'Delete selected News Pulse item',
+        }, baseHeaders),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingIdempotency.status).toBe(428);
+
+      const missingConfirmation = await authWorker.fetch(
+        authJsonRequest('/api/admin/news-pulse/items', 'DELETE', {
+          ids: ['delete-news-pulse-item'],
+          confirmation: 'wrong',
+          reason: 'Delete selected News Pulse item',
+        }, { ...baseHeaders, 'Idempotency-Key': 'news-pulse-delete-wrong-confirm' }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(missingConfirmation.status).toBe(409);
+
+      const deleted = await authWorker.fetch(
+        authJsonRequest('/api/admin/news-pulse/items', 'DELETE', {
+          ids: ['delete-news-pulse-item'],
+          confirmation: 'delete_news_pulse_items',
+          reason: 'Delete selected News Pulse item',
+        }, { ...baseHeaders, 'Idempotency-Key': 'news-pulse-delete-valid' }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(deleted.status).toBe(200);
+      const body = await deleted.json();
+      expect(body.data).toEqual(expect.objectContaining({
+        deleted_rows: 1,
+        deleted_visuals: 1,
+        failed_count: 0,
+      }));
+      expect(env.DB.state.newsPulseItems).toHaveLength(0);
+      expect(env.USER_IMAGES.objects.has(objectKey)).toBe(false);
+      expect(env.ACTIVITY_INGEST_QUEUE.messages.some((row) => row.action === 'admin_news_pulse_items_deleted')).toBe(true);
     });
 
     test('POST /api/openclaw/news-pulse/ingest rejects missing secret configuration', async () => {
@@ -20612,7 +20920,7 @@ test.describe('Worker routes', () => {
       expect(body.ok).toBe(true);
       expect(body.releaseTruth).toMatchObject({
         source: 'config/release-compat.json',
-        latestAuthMigration: '0066_add_operator_billing_cleanup.sql',
+        latestAuthMigration: CURRENT_AUTH_MIGRATION,
         repoTruthIsLiveDeployProof: false,
         deployVerificationRequired: true,
       });

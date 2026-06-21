@@ -491,6 +491,56 @@ export function apiAdminUpdateHomepageHeroVideoSlot(slot, payload = {}, { idempo
     });
 }
 
+export function apiAdminNewsPulseOverview(options) {
+    return request('GET', '/admin/news-pulse/overview', undefined, options);
+}
+
+export function apiAdminNewsPulseVisibilityGet(options) {
+    return request('GET', '/admin/news-pulse/visibility', undefined, options);
+}
+
+export function apiAdminNewsPulseVisibilityUpdate(payload = {}, { idempotencyKey } = {}) {
+    return request('PATCH', '/admin/news-pulse/visibility', payload, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('admin-news-pulse-visibility') },
+    });
+}
+
+export function apiAdminNewsPulseListItems({
+    locale,
+    status,
+    visualStatus,
+    surface,
+    limit,
+    cursor,
+    signal,
+} = {}) {
+    const params = new URLSearchParams();
+    if (locale) params.set('locale', locale);
+    if (status) params.set('status', status);
+    if (visualStatus) params.set('visual_status', visualStatus);
+    if (surface) params.set('surface', surface);
+    if (limit) params.set('limit', String(limit));
+    if (cursor) params.set('cursor', cursor);
+    const suffix = params.toString() ? `?${params}` : '';
+    return request('GET', `/admin/news-pulse/items${suffix}`, undefined, { signal });
+}
+
+export function apiAdminNewsPulseGetItem(id, { signal } = {}) {
+    return request('GET', `/admin/news-pulse/items/${encodeURIComponent(id)}`, undefined, { signal });
+}
+
+export function apiAdminNewsPulseUpdateItem(id, payload = {}, { idempotencyKey } = {}) {
+    return request('PATCH', `/admin/news-pulse/items/${encodeURIComponent(id)}`, payload, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('admin-news-pulse-item') },
+    });
+}
+
+export function apiAdminNewsPulseDeleteItems(payload = {}, { idempotencyKey } = {}) {
+    return request('DELETE', '/admin/news-pulse/items', payload, {
+        headers: { 'Idempotency-Key': idempotencyKey || createAdminIdempotencyKey('admin-news-pulse-delete') },
+    });
+}
+
 export function apiAdminChangeRole(userId, role) {
     return request('PATCH', `/admin/users/${userId}/role`, { role });
 }

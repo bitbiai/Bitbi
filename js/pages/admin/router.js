@@ -13,6 +13,7 @@ const SECTION_DOM_IDS = {
     'tenant-assets': 'sectionTenantAssets',
     users: 'sectionUsers',
     'ai-lab': 'sectionAiLab',
+    'news-feed-agent': 'sectionNewsFeedAgent',
     'homepage-hero-videos': 'sectionHomepageHeroVideos',
     activity: 'sectionActivity',
 };
@@ -32,6 +33,7 @@ const SECTION_META = {
     'tenant-assets': { title: 'Speicher-Integrität', desc: 'Compact storage health, D1/R2 integrity, and advanced legacy diagnostics' },
     users: { title: 'User Management', desc: 'Manage users, roles, and sessions' },
     'ai-lab': { title: 'AI Lab', desc: 'Admin-only AI tests, previews, and model comparisons' },
+    'news-feed-agent': { title: 'News Feed Agent', desc: 'News Pulse visibility, active items, and irreversible cleanup' },
     'homepage-hero-videos': { title: 'Homepage Hero Videos', desc: 'Operator-managed optimized hero video slots for the public homepage' },
     activity: { title: 'Activity', desc: 'Audit trail and admin actions' },
 };

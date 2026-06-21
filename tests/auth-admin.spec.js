@@ -2058,6 +2058,9 @@ async function mockAdminControlPlane(page, captures = {}) {
   captures.lifecycleEvidenceRequests = captures.lifecycleEvidenceRequests || [];
   captures.registrationStatusRequests = captures.registrationStatusRequests || [];
   captures.registrationStatusUpdates = captures.registrationStatusUpdates || [];
+  captures.newsPulseVisibilityUpdates = captures.newsPulseVisibilityUpdates || [];
+  captures.newsPulseItemUpdates = captures.newsPulseItemUpdates || [];
+  captures.newsPulseDeleteRequests = captures.newsPulseDeleteRequests || [];
   captures.adminActivityRequests = captures.adminActivityRequests || [];
   captures.userActivityRequests = captures.userActivityRequests || [];
   captures.latestAvatarRequests = captures.latestAvatarRequests || [];
@@ -2426,6 +2429,240 @@ async function mockAdminControlPlane(page, captures = {}) {
       message: registrationAvailability.enabled
         ? 'New user registrations are enabled.'
         : 'New user registrations are disabled for maintenance.',
+    });
+  });
+  let newsPulseVisibility = captures.newsPulseVisibility || {
+    settings: {
+      desktop: {
+        enabled: true,
+        surface: 'desktop',
+        updated_at: '2026-06-21T08:00:00.000Z',
+        updated_by: 'admin_control_user',
+        reason: 'Initial desktop visibility',
+        explicit: true,
+      },
+      mobile: {
+        enabled: true,
+        surface: 'mobile',
+        updated_at: '2026-06-21T08:00:00.000Z',
+        updated_by: 'admin_control_user',
+        reason: 'Initial mobile visibility',
+        explicit: true,
+      },
+    },
+    schema_available: true,
+    source: 'db',
+    updated_at: '2026-06-21T08:00:00.000Z',
+  };
+  let newsPulseItems = captures.newsPulseItems || [
+    {
+      id: 'admin-news-pulse-1',
+      locale: 'en',
+      title: 'Admin-managed AI news',
+      summary: 'Source-attributed News Pulse row for admin editing.',
+      source: 'Source Example',
+      url: 'https://example.com/admin-news',
+      category: 'AI',
+      status: 'active',
+      published_at: '2026-06-21T08:00:00.000Z',
+      expires_at: '2099-01-01T00:00:00.000Z',
+      created_at: '2026-06-21T08:00:00.000Z',
+      updated_at: '2026-06-21T08:15:00.000Z',
+      active: true,
+      expired: false,
+      visual_type: 'generated',
+      visual_status: 'ready',
+      has_visual_object: true,
+      admin_thumb_url: '/api/admin/news-pulse/thumbs/admin-news-pulse-1',
+      public_thumb_url: '/api/public/news-pulse/thumbs/admin-news-pulse-1',
+      visual_generated_at: '2026-06-21T08:10:00.000Z',
+      visual_error: null,
+      visual_attempts: 1,
+    },
+    {
+      id: 'admin-news-pulse-old',
+      locale: 'de',
+      title: 'Alte News Pulse Zeile',
+      summary: 'Abgelaufene News Pulse Zeile zur Bereinigung.',
+      source: 'Quelle',
+      url: 'https://example.com/alte-news',
+      category: 'AI',
+      status: 'hidden',
+      published_at: '2026-06-10T08:00:00.000Z',
+      expires_at: '2026-06-12T08:00:00.000Z',
+      created_at: '2026-06-10T08:00:00.000Z',
+      updated_at: '2026-06-12T08:15:00.000Z',
+      active: false,
+      expired: true,
+      visual_type: 'generated',
+      visual_status: 'ready',
+      has_visual_object: true,
+      admin_thumb_url: '/api/admin/news-pulse/thumbs/admin-news-pulse-old',
+      public_thumb_url: null,
+      visual_generated_at: '2026-06-10T08:10:00.000Z',
+      visual_error: null,
+      visual_attempts: 1,
+    },
+  ];
+  const buildNewsPulseOverview = () => {
+    const counts = {
+      total: newsPulseItems.length,
+      active: newsPulseItems.filter((item) => item.status === 'active' && !item.expired).length,
+      hidden: newsPulseItems.filter((item) => item.status === 'hidden').length,
+      expired: newsPulseItems.filter((item) => item.expired).length,
+      with_visual_object: newsPulseItems.filter((item) => item.has_visual_object).length,
+      en: newsPulseItems.filter((item) => item.locale === 'en').length,
+      de: newsPulseItems.filter((item) => item.locale === 'de').length,
+    };
+    const visualCounts = newsPulseItems.reduce((acc, item) => {
+      const key = item.visual_status || 'missing';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    return {
+      ok: true,
+      data: {
+        generated_at: '2026-06-21T09:00:00.000Z',
+        bindings: { db: true, user_images: true },
+        visibility: newsPulseVisibility,
+        counts,
+        visual_counts: visualCounts,
+        latest_updated_at: newsPulseItems[0]?.updated_at || null,
+      },
+    };
+  };
+  const filterNewsPulseItems = (url) => {
+    const locale = url.searchParams.get('locale') || 'all';
+    const status = url.searchParams.get('status') || 'all';
+    const visualStatus = url.searchParams.get('visual_status') || 'all';
+    return newsPulseItems.filter((item) => {
+      if (locale !== 'all' && item.locale !== locale) return false;
+      if (status === 'active' && !(item.status === 'active' && !item.expired)) return false;
+      if (status === 'hidden' && item.status !== 'hidden') return false;
+      if (status === 'expired' && !item.expired) return false;
+      if (status !== 'all' && !['active', 'hidden', 'expired'].includes(status) && item.status !== status) return false;
+      if (visualStatus !== 'all' && (item.visual_status || 'missing') !== visualStatus) return false;
+      return true;
+    });
+  };
+  await page.route('**/api/admin/news-pulse/overview', async (route) => {
+    await fulfillJson(route, buildNewsPulseOverview());
+  });
+  await page.route('**/api/admin/news-pulse/visibility', async (route) => {
+    const request = route.request();
+    if (request.method() === 'GET') {
+      await fulfillJson(route, { ok: true, data: newsPulseVisibility });
+      return;
+    }
+    const body = request.postDataJSON();
+    const idempotencyKey = request.headers()['idempotency-key'] || null;
+    captures.newsPulseVisibilityUpdates.push({ body, idempotencyKey });
+    newsPulseVisibility = {
+      ...newsPulseVisibility,
+      settings: {
+        desktop: {
+          ...newsPulseVisibility.settings.desktop,
+          enabled: body.desktop_enabled !== false,
+          updated_at: '2026-06-21T09:10:00.000Z',
+          reason: body.reason,
+        },
+        mobile: {
+          ...newsPulseVisibility.settings.mobile,
+          enabled: body.mobile_enabled !== false,
+          updated_at: '2026-06-21T09:10:00.000Z',
+          reason: body.reason,
+        },
+      },
+      updated_at: '2026-06-21T09:10:00.000Z',
+    };
+    await fulfillJson(route, { ok: true, data: newsPulseVisibility });
+  });
+  await page.route(/\/api\/admin\/news-pulse\/items(?:\?.*)?$/, async (route) => {
+    const request = route.request();
+    if (request.method() === 'GET') {
+      const url = new URL(request.url());
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          items: filterNewsPulseItems(url),
+          has_more: false,
+          next_cursor: null,
+          limit: 50,
+          filters: Object.fromEntries(url.searchParams.entries()),
+        },
+      });
+      return;
+    }
+    if (request.method() === 'DELETE') {
+      const body = request.postDataJSON();
+      const idempotencyKey = request.headers()['idempotency-key'] || null;
+      captures.newsPulseDeleteRequests.push({ body, idempotencyKey });
+      const ids = Array.isArray(body.ids) ? body.ids : [];
+      const results = ids.map((id) => ({
+        id,
+        deleted: newsPulseItems.some((item) => item.id === id),
+        r2_deleted: newsPulseItems.some((item) => item.id === id && item.has_visual_object),
+        r2_key_present: newsPulseItems.some((item) => item.id === id && item.has_visual_object),
+      }));
+      newsPulseItems = newsPulseItems.filter((item) => !ids.includes(item.id));
+      await fulfillJson(route, {
+        ok: true,
+        data: {
+          requested: ids.length,
+          deleted: results.filter((result) => result.deleted).length,
+          r2_deleted: results.filter((result) => result.r2_deleted).length,
+          results,
+        },
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.route(/\/api\/admin\/news-pulse\/items\/[^/?]+$/, async (route) => {
+    const request = route.request();
+    const id = decodeURIComponent(new URL(request.url()).pathname.split('/').pop());
+    const item = newsPulseItems.find((entry) => entry.id === id);
+    if (!item) {
+      await fulfillJson(route, { ok: false, error: 'News Pulse item not found.' }, 404);
+      return;
+    }
+    if (request.method() === 'GET') {
+      await fulfillJson(route, { ok: true, data: { item } });
+      return;
+    }
+    if (request.method() === 'PATCH') {
+      const body = request.postDataJSON();
+      const idempotencyKey = request.headers()['idempotency-key'] || null;
+      captures.newsPulseItemUpdates.push({ id, body, idempotencyKey });
+      Object.assign(item, {
+        title: body.title ?? item.title,
+        summary: body.summary ?? item.summary,
+        source: body.source ?? item.source,
+        url: body.url ?? item.url,
+        category: body.category ?? item.category,
+        status: body.status ?? item.status,
+        published_at: body.published_at ?? item.published_at,
+        expires_at: body.expires_at ?? item.expires_at,
+        updated_at: '2026-06-21T09:20:00.000Z',
+      });
+      if (body.reset_visual) {
+        Object.assign(item, {
+          visual_status: 'pending',
+          has_visual_object: false,
+          admin_thumb_url: null,
+          public_thumb_url: null,
+        });
+      }
+      await fulfillJson(route, { ok: true, data: { item } });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.route('**/api/admin/news-pulse/thumbs/*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/webp',
+      body: Buffer.from(ONE_PX_PNG_BASE64, 'base64'),
     });
   });
   await page.route('**/api/admin/readiness/status', async (route) => {
@@ -15188,6 +15425,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('a.admin-nav__link[data-section="orgs"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="billing"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="billing-events"]')).toBeAttached();
+    await expect(page.locator('a.admin-nav__link[data-section="news-feed-agent"]')).toHaveText('News Feed Agent');
     await expect(page.locator('a.admin-nav__link[data-section="ai-usage"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="ai-budget-switches"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="lifecycle"]')).toBeAttached();
@@ -15730,6 +15968,63 @@ test.describe('Admin Control Plane', () => {
     expect(renderedText).not.toContain('idempotencyKeyHash');
     expect(renderedText).not.toContain('requestFingerprintHash');
     expect(consoleErrors).toEqual([]);
+  });
+
+  test('News Feed Agent admin controls visibility, editing, and guarded deletion', async ({
+    page,
+  }) => {
+    const captures = {};
+    await mockAdminControlPlane(page, captures);
+
+    const response = await page.goto('/admin/index.html#news-feed-agent');
+    expect(response.status()).toBe(200);
+    await expect(page.locator('#adminHeroTitle')).toHaveText('News Feed Agent');
+    await expect(page.locator('#newsFeedAgentAdmin')).toContainText('Public visibility');
+    await expect(page.locator('#newsFeedAgentAdmin')).toContainText('OpenClaw ingest, scheduled refresh, D1 storage, and thumbnail generation continue.');
+    await expect(page.locator('#newsFeedAgentAdmin')).toContainText('Admin-managed AI news');
+    await expect(page.locator('#newsFeedAgentAdmin')).toContainText('Active rows');
+    await expect(page.locator('#newsFeedAgentAdmin')).toContainText('Generated images');
+
+    await page.locator('#newsPulseMobileEnabled').setChecked(false);
+    await page.locator('#newsPulseVisibilityReason').fill('Testing mobile visibility switch');
+    await page.getByRole('button', { name: 'Save visibility' }).click();
+    await expect.poll(() => captures.newsPulseVisibilityUpdates.length).toBe(1);
+    expect(captures.newsPulseVisibilityUpdates[0].idempotencyKey).toMatch(/^admin-news-pulse-visibility-/);
+    expect(captures.newsPulseVisibilityUpdates[0].body).toMatchObject({
+      desktop_enabled: true,
+      mobile_enabled: false,
+      reason: 'Testing mobile visibility switch',
+    });
+    await expect(page.locator('#newsFeedAgentAdmin')).toContainText('Mobile visibilityOff');
+
+    await page.locator('[data-news-pulse-edit="admin-news-pulse-1"]').click();
+    await expect(page.locator('#newsPulseEditPanel')).toContainText('Edit: Admin-managed AI news');
+    await page.locator('#newsPulseEditTitle').fill('Edited admin News Pulse row');
+    await page.locator('#newsPulseEditSummary').fill('Updated News Pulse summary for admin control testing.');
+    await page.locator('#newsPulseEditReason').fill('Manual News Pulse edit');
+    await page.getByRole('button', { name: 'Save item' }).click();
+    await expect.poll(() => captures.newsPulseItemUpdates.length).toBe(1);
+    expect(captures.newsPulseItemUpdates[0].idempotencyKey).toMatch(/^admin-news-pulse-item-/);
+    expect(captures.newsPulseItemUpdates[0].body).toMatchObject({
+      title: 'Edited admin News Pulse row',
+      summary: 'Updated News Pulse summary for admin control testing.',
+      reason: 'Manual News Pulse edit',
+      reset_visual: false,
+    });
+    await expect(page.locator('#newsFeedAgentAdmin')).toContainText('Edited admin News Pulse row');
+
+    await page.locator('[data-news-pulse-select="admin-news-pulse-1"]').setChecked(true);
+    await page.locator('#newsPulseDeleteReason').fill('Delete old News Pulse row');
+    await page.locator('#newsPulseDeleteConfirmation').fill('delete_news_pulse_items');
+    await page.getByRole('button', { name: /Delete selected/ }).click();
+    await expect.poll(() => captures.newsPulseDeleteRequests.length).toBe(1);
+    expect(captures.newsPulseDeleteRequests[0].idempotencyKey).toMatch(/^admin-news-pulse-delete-/);
+    expect(captures.newsPulseDeleteRequests[0].body).toEqual({
+      ids: ['admin-news-pulse-1'],
+      reason: 'Delete old News Pulse row',
+      confirmation: 'delete_news_pulse_items',
+    });
+    await expect(page.locator('#newsFeedAgentAdmin')).not.toContainText('Edited admin News Pulse row');
   });
 
   test('Tenant ownership backfill execution stays disabled without one exact ai_images candidate', async ({
