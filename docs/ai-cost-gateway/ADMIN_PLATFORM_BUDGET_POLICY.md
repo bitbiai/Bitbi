@@ -1,6 +1,6 @@
 # Admin And Platform AI Budget Policy
 
-Date: 2026-05-18
+Date: 2026-06-21
 
 Current release truth: `config/release-compat.json` is authoritative for the latest auth D1 migration; use `npm run release:plan` for the concrete checkpoint before deploy.
 
@@ -11,6 +11,7 @@ Status: current policy summary. This document is not a phase log and does not ap
 - AI cost gateway controls exist for implemented member image/music/video scopes.
 - Admin/platform budget controls exist for selected admin/platform provider-cost scopes.
 - `platform_admin_lab_budget` has the first daily/monthly cap foundation, reconciliation, repair, report/export, and sanitized archive evidence tooling.
+- `openclaw_news_pulse_budget` now uses the same platform cap store for News Pulse visual provider work before FLUX thumbnail generation.
 - Platform budget controls are internal spend controls and evidence controls. They are not Stripe billing readiness, customer invoicing, credit refunds, or legal/accounting approval.
 - Production readiness remains BLOCKED.
 - Live billing readiness remains BLOCKED.
@@ -23,7 +24,7 @@ Status: current policy summary. This document is not a phase log and does not ap
 | `organization_credit_account` | Organization AI usage | Existing org attempts/credit policy remain in place. | Not the focus of platform budget caps. |
 | `admin_org_credit_account` | Admin-initiated paid image tests against selected org credits | Charged image branches require selected org, idempotency, credit checks/debits, and safe budget metadata. | Live billing readiness is still blocked. |
 | `platform_admin_lab_budget` | Platform-owned admin lab/testing provider spend | Metadata, caller-policy propagation, runtime switches, D1 app switches, daily/monthly caps, reconciliation, repair, reports, and archives exist for covered operations. | Operator/live evidence and remaining edge-scope review are required. |
-| `openclaw_news_pulse_budget` | OpenClaw/News Pulse visuals | Safe metadata/status and runtime switch controls exist. | Aggregate cap enforcement remains future work. |
+| `openclaw_news_pulse_budget` | OpenClaw/News Pulse visuals | Safe metadata/status, runtime switch controls, daily/monthly cap checks, and usage events exist for provider-cost thumbnail work. | Live/operator evidence and executable repair/reconciliation are still limited. |
 | `platform_background_budget` | Other platform/background jobs | Policy taxonomy exists. | Needs dedicated schema/usage events before cap claims. |
 | `explicit_unmetered_admin` | Intentional uncharged admin exceptions | Classified and switch-controlled for narrow allowed branches. | Keep disabled unless operator explicitly accepts bounded test risk. |
 | `internal_ai_worker_caller_enforced` | Internal AI Worker routes whose caller owns budget enforcement | Provider-cost internal routes require caller-policy metadata before provider execution. | Aggregate cap accounting for this scope remains future work. |
@@ -35,6 +36,7 @@ Status: current policy summary. This document is not a phase log and does not ap
 - Admin/platform routes use default-disabled runtime budget switches where implemented.
 - Covered admin/platform routes require both the Cloudflare master switch and the D1 app switch before provider/queue/durable-attempt work.
 - Covered `platform_admin_lab_budget` routes check active caps before provider-cost work and record bounded usage evidence after successful completion where completion is observable.
+- Covered OpenClaw/News Pulse visual routes check active `openclaw_news_pulse_budget` caps before provider-cost visual work and record bounded usage evidence after successful provider/thumbnail completion.
 - Admin AI usage attempts provide metadata-only idempotency for covered admin text, embeddings, music, compare, and live-agent flows.
 - Admin async video jobs store safe budget metadata and count through the platform budget foundation.
 - Sync admin video debug remains disabled by default and is not a normal budgeted path.
@@ -67,7 +69,7 @@ Remote migration application is not proven by this document. Operators must veri
 
 - Budget evidence endpoint and Admin Control Plane visibility.
 - Budget switch list/update controls for D1 app switches.
-- Platform Budget Caps panel for configured `platform_admin_lab_budget` limits.
+- Platform Budget Caps helpers and admin API validation support configured platform budget limits for the approved platform scopes; the primary visible cap panel remains an operator control surface, not a readiness claim.
 - Reconciliation and repair evidence panels.
 - Explicit repair controls for approved safe candidates.
 - Repair report/export and evidence archive panels.
@@ -85,8 +87,9 @@ These surfaces cannot edit Cloudflare variables, call Stripe, call providers, mu
 
 ## Current Gaps
 
-- Other platform budget scopes are not fully cap-enforced.
 - Internal AI Worker provider-cost routes fail closed without caller policy; aggregate cap accounting for `internal_ai_worker_caller_enforced` remains future work.
+- `explicit_unmetered_admin` remains a narrow switch-controlled exception; durable aggregate accounting remains future work.
+- `platform_background_budget` does not have centralized usage events.
 - Admin result replay remains metadata-only for several admin lab routes.
 - Live/manual Cloudflare evidence is still required before production claims.
 - Platform budget controls do not prove Stripe billing, refunds, invoices, taxes, customer credits, or legal/accounting readiness.

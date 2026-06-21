@@ -296,6 +296,8 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#hero a[href="/pricing.html#pricingJourney"]')).toHaveCount(0);
     await expect(page.locator('#hero a[href="/account/profile.html?source=hero#memberControlCenter"]')).toHaveCount(0);
     await expect(page.locator('#hero .hero__actions')).toHaveClass(/hero__actions--single-cta/);
+    await expect(page.locator('#hero .hero__saas-copy')).toContainText('Create AI images, videos, and music in one studio.');
+    await expect(page.locator('#hero .hero__saas-copy')).toContainText('Generate, save, organize, and publish creative media with credits built for real use.');
     await expect(page.locator('#hero .hero__lab-teaser-text')).toHaveText('Open Generate Lab');
     await expect(page.locator('#hero .hero__lab-teaser-icon')).toHaveText('⚗️');
     await expect(page.locator('#hero .hero__lab-teaser')).toHaveAttribute('href', '/generate-lab/');
@@ -312,7 +314,9 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#hero a[href="/de/pricing.html#pricingJourney"]')).toHaveCount(0);
     await expect(page.locator('#hero a[href="/de/account/profile.html?source=hero#memberControlCenter"]')).toHaveCount(0);
     await expect(page.locator('#hero .hero__actions')).toHaveClass(/hero__actions--single-cta/);
-    await expect(page.locator('#hero .hero__lab-teaser-text')).toHaveText('Open Generate Lab');
+    await expect(page.locator('#hero .hero__saas-copy')).toContainText('Erstelle KI-Bilder, Videos und Musik in einem Studio.');
+    await expect(page.locator('#hero .hero__saas-copy')).toContainText('Generiere, speichere, ordne und veröffentliche kreative Medien mit Credits für echte Nutzung.');
+    await expect(page.locator('#hero .hero__lab-teaser-text')).toHaveText('Generate Lab öffnen');
     await expect(page.locator('#hero .hero__lab-teaser-icon')).toHaveText('⚗️');
     await expect(page.locator('#hero .hero__lab-teaser')).toHaveAttribute('href', '/de/generate-lab/');
     await expect(page.locator('#publicMemberJourney')).toHaveCount(0);
@@ -1468,10 +1472,6 @@ test.describe('Bilingual locale pages', () => {
     for (const file of listHtmlFiles('de')) {
       const visibleText = uiHtmlText(repoFile(file));
       for (const phrase of denylist) {
-        if (file === 'de/index.html' && phrase === 'Open Generate Lab') {
-          expect(visibleText, `${file} keeps the operator-requested homepage CTA label`).toContain(phrase);
-          continue;
-        }
         expect(visibleText, `${file} should not expose "${phrase}"`).not.toContain(phrase);
       }
     }

@@ -202,8 +202,20 @@ function assertDb(env) {
   }
 }
 
+function normalizeRepairReportBudgetScope(value = PLATFORM_ADMIN_LAB_BUDGET_SCOPE) {
+  const scope = normalizePlatformBudgetScope(value || PLATFORM_ADMIN_LAB_BUDGET_SCOPE);
+  if (scope !== PLATFORM_ADMIN_LAB_BUDGET_SCOPE) {
+    throw new PlatformBudgetRepairReportError("Unsupported platform budget repair report scope.", {
+      status: 400,
+      code: "platform_budget_repair_report_scope_unsupported",
+      fields: { budgetScope: scope },
+    });
+  }
+  return scope;
+}
+
 export function normalizePlatformBudgetRepairReportFilters(input = {}) {
-  const budgetScope = normalizePlatformBudgetScope(input.budgetScope || input.budget_scope || PLATFORM_ADMIN_LAB_BUDGET_SCOPE);
+  const budgetScope = normalizeRepairReportBudgetScope(input.budgetScope || input.budget_scope || PLATFORM_ADMIN_LAB_BUDGET_SCOPE);
   const status = normalizeEnumFilter(input.status, ALLOWED_ACTION_STATUSES, "status");
   const candidateType = normalizeEnumFilter(input.candidateType || input.candidate_type, ALLOWED_CANDIDATE_TYPES, "candidateType");
   const requestedAction = normalizeEnumFilter(input.requestedAction || input.requested_action, ALLOWED_REQUESTED_ACTIONS, "requestedAction");

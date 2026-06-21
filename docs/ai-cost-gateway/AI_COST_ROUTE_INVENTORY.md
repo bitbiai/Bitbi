@@ -1,6 +1,6 @@
 # AI Cost Route Inventory
 
-Date: 2026-05-18
+Date: 2026-06-21
 
 Status: current provider-cost route inventory. This document summarizes current route classes and known gaps; detailed historical phase narrative belongs in the audit archive/changelog.
 
@@ -26,7 +26,7 @@ Production readiness remains BLOCKED. Live billing readiness remains BLOCKED.
 | Admin text/embeddings/music/compare/live-agent | `POST /api/admin/ai/test-*`, `/compare`, `/live-agent` | `platform_admin_lab_budget` | Required idempotency, metadata-only durable attempts, caller-policy propagation, switches, D1 app switches, cap foundation, sanitized response metadata. | Full result replay is not claimed; live evidence required. |
 | Admin async video jobs | `POST /api/admin/ai/video-jobs` plus queue consumer | `platform_admin_lab_budget` | Required idempotency for job creation, safe job/queue budget metadata, caller-policy validation, duplicate task suppression, switches, cap foundation, usage evidence. | Live provider/job canary evidence required. |
 | Admin sync video debug | `POST /api/admin/ai/test-video` | emergency/debug only | Disabled by default before provider/proxy work. | Not a supported budgeted path; avoid use outside approved emergency debugging. |
-| OpenClaw/News Pulse visuals | signed ingest waitUntil and scheduled visual backfill | `openclaw_news_pulse_budget` | Safe budget metadata/status, duplicate suppression through item status/attempt caps, runtime switch before provider visual work. | Aggregate cap enforcement remains future work. |
+| OpenClaw/News Pulse visuals | signed ingest waitUntil and scheduled visual backfill | `openclaw_news_pulse_budget` | Safe budget metadata/status, duplicate suppression through item status/attempt caps, runtime switch before provider visual work, daily/monthly platform cap check before provider work, and usage event recording after successful provider/thumbnail completion. | Live/operator evidence and repair/reconciliation execution remain limited. |
 | Internal AI Worker service routes | `/internal/ai/*` provider-cost routes | caller-dependent | Service auth first; caller-policy metadata required before provider execution; reserved metadata stripped before provider payloads; Auth/AI route compatibility is modeled in `config/release-compat.json`. | Aggregate cap accounting for `internal_ai_worker_caller_enforced` remains future work. |
 | Generated asset save/derivatives | image/audio/text save, poster/derivative queue | not AI provider cost | Storage quota/derivative policy, R2/D1 lifecycle, queue leases. | Track storage/transform cost separately from provider AI gateway. |
 
@@ -63,7 +63,6 @@ Evidence/report/archive layers must remain bounded and sanitized. They must not 
 `config/ai-cost-policy-baseline.json` encodes the current technical AI cost policy gaps that remain accepted only under the guarded baseline:
 
 - Internal AI Worker caller-policy enforcement is fail-closed for provider-cost routes; aggregate cap accounting for `internal_ai_worker_caller_enforced` remains future work.
-- OpenClaw/News Pulse visual routes are switch-gated and metadata-countable; aggregate cap enforcement for `openclaw_news_pulse_budget` remains future work.
 - The explicit unmetered Admin Image exception is classified and switch-controlled; durable aggregate accounting for `explicit_unmetered_admin` remains future work.
 
 These baseline allowances do not mark provider-cost coverage complete, do not approve broad unmetered provider use, and are rejected by strict AI-cost policy mode until replaced with durable enforcement.
@@ -71,6 +70,7 @@ These baseline allowances do not mark provider-cost coverage complete, do not ap
 ## Current Evidence / Readiness Gaps Outside The Machine Baseline
 
 - Live/manual evidence for provider behavior, cap behavior, and billing/canary behavior remains required.
+- OpenClaw/News Pulse visual routes are switch-gated and cap-enforced through `openclaw_news_pulse_budget`; live evidence and executable repair/reconciliation remain pending.
 - Legal/accounting/operator readiness for customer billing remains outside the AI cost gateway itself.
 - Production readiness and live billing readiness remain blocked by current baseline rules.
 

@@ -494,13 +494,15 @@ Implemented behavior:
 - records operation ids `platform.news_pulse.visual.ingest` and `platform.news_pulse.visual.scheduled` for ingest-triggered and scheduled paths
 - stores sanitized visual budget metadata on `news_pulse_items`: operation id, actor class/id, budget scope, owner domain, provider family, model resolver key, idempotency policy, plan status, runtime switch target, fingerprint, trigger, item id, locale, content hash, attempt count, and safe runtime status
 - blocks provider execution when budget policy config is invalid
+- enforces `ENABLE_NEWS_PULSE_VISUAL_BUDGET` and the active `openclaw_news_pulse_budget` daily/monthly cap before provider execution
+- records a bounded `platform_budget_usage_events` row after successful provider/thumbnail completion and before storing the generated thumbnail
 - preserves existing ready/pending/status/attempt duplicate suppression so ready visuals and active attempts do not call the provider again
 - keeps public News Pulse read routes compatible; visuals fall back safely when unavailable
 - records provider/storage failures without marking visuals ready or exposing internal R2 keys
 
 Limits:
 
-- Phase 4.15 enforces `ENABLE_NEWS_PULSE_VISUAL_BUDGET` before visual provider generation/backfill; `openclaw_news_pulse_budget` caps remain future work outside the Phase 4.17 `platform_admin_lab_budget` foundation.
+- OpenClaw/News Pulse cap enforcement does not prove live/operator evidence, production readiness, live billing readiness, or executable repair/reconciliation readiness for this scope.
 - Signed OpenClaw ingest authorization, public read route behavior, and internal AI Worker service-auth semantics are unchanged.
 - Broad platform/background AI outside this domain remains unmigrated.
 - No credits are debited, no credit clawback is added, no Stripe APIs are called, no real providers are called in tests, and production/live billing remains blocked.

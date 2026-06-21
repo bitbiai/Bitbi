@@ -88,12 +88,12 @@ const LIVE_PLATFORM_BUDGET_CAP_SCOPE_DESIGN = Object.freeze({
     capRequired: true,
     owner: "OpenClaw / News Pulse platform budget",
     capGranularityTarget: ["daily", "monthly", "source_domain", "provider_model"],
-    countability: "partially_countable",
-    currentDataSources: ["news_pulse_items"],
-    existingDataSufficient: false,
-    migrationLikelyRequired: true,
-    defaultCapPosture: "not_implemented_warn_only_target",
-    futurePhase: "Phase 4.18",
+    countability: "countable_now",
+    currentDataSources: ["news_pulse_items", "platform_budget_limits", "platform_budget_usage_events"],
+    existingDataSufficient: true,
+    migrationLikelyRequired: false,
+    defaultCapPosture: "fail_closed_when_missing_limit",
+    futurePhase: "A1 Wave 2 implemented foundation",
   }),
   [AI_COST_BUDGET_SCOPES.PLATFORM_BACKGROUND_BUDGET]: Object.freeze({
     capRequired: true,
@@ -920,8 +920,7 @@ function livePlatformBudgetCapEvidence(registryEntries, runtimeSwitches, platfor
       const operations = capEvidenceByOperation.filter((entry) => entry.budgetScope === scope);
       return {
         scope,
-        status: scope === AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET
-          && operations.some((entry) => entry.liveBudgetCapStatus === "cap_enforced")
+        status: operations.some((entry) => entry.liveBudgetCapStatus === "cap_enforced")
           ? "cap_enforced"
           : "not_implemented",
         countability: design.countability,
@@ -943,9 +942,11 @@ function livePlatformBudgetCapEvidence(registryEntries, runtimeSwitches, platfor
   return {
     type: "live_platform_budget_cap_design_evidence",
     phase: "Phase 4.17",
-    liveBudgetCapsStatus: capEnforcedOperationIds.length > 0
-      ? "platform_admin_lab_budget_foundation"
-      : "not_implemented",
+    liveBudgetCapsStatus: capEnforcedOperationIds.some((id) => NEWS_PULSE_VISUAL_OPERATION_IDS.includes(id))
+      ? "multi_scope_platform_budget_cap_foundation"
+      : (capEnforcedOperationIds.length > 0
+        ? "platform_admin_lab_budget_foundation"
+        : "not_implemented"),
     liveBudgetCapsEnforced: capEnforcedOperationIds.length > 0,
     runtimeRouteBehaviorChanged: capEnforcedOperationIds.length > 0,
     recommendedFirstCapScope: AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
@@ -974,9 +975,10 @@ function livePlatformBudgetCapEvidence(registryEntries, runtimeSwitches, platfor
       .filter((entry) => entry.liveBudgetCapReadiness === "metadata_only")
       .map((entry) => entry.operationId),
     notes: [
-      "Phase 4.17 implements the first narrow daily/monthly cap foundation for platform_admin_lab_budget only.",
+      "Phase 4.17 implements the first narrow daily/monthly cap foundation for platform_admin_lab_budget.",
+      "A1 Wave 2 extends the same generic daily/monthly cap store to openclaw_news_pulse_budget visual generation.",
       "Runtime route execution still requires Phase 4.15 Cloudflare master flags and Phase 4.15.1 D1 app switches before cap checks.",
-      "Other scopes remain future work; this is not customer billing, Stripe billing, or production readiness.",
+      "explicit_unmetered_admin and internal_ai_worker_caller_enforced remain future work; this is not customer billing, Stripe billing, or production readiness.",
     ],
   };
 }
@@ -1353,13 +1355,13 @@ export function buildAdminPlatformBudgetEvidenceReport(options = {}) {
       "Member image, music, and video remain the migrated member AI Cost Gateway routes.",
       "The charged Admin BFL image-test branch uses admin_org_credit_account metadata; admin async video jobs use platform_admin_lab_budget metadata plus caller-policy metadata for task create/poll; News Pulse visuals use openclaw_news_pulse_budget metadata; admin text/embeddings/music/compare/live-agent now use platform_admin_lab_budget metadata, durable metadata-only idempotency rows, signed caller-policy metadata, and Phase 4.8.2 bounded cleanup/API inspection.",
       "Phase 4.15 enforces runtime budget kill-switches for already budget-classified admin/platform provider-cost routes. Missing or false switch values block provider-cost work before provider, queue, credit, or durable-attempt execution where applicable.",
-      "Phase 4.16 adds live platform budget cap design/evidence only. Phase 4.17 implements the first platform_admin_lab_budget cap foundation; production/live billing readiness remains blocked.",
+      "Phase 4.16 adds live platform budget cap design/evidence only. Phase 4.17 implements the first platform_admin_lab_budget cap foundation; A1 Wave 2 extends cap enforcement to News Pulse visuals; production/live billing readiness remains blocked.",
       "Phase 4.19 adds an explicit admin-approved repair executor for selected platform_admin_lab_budget reconciliation candidates. It has no automatic scheduler and does not call providers, Stripe, Cloudflare, or mutate credits/source rows/customer billing.",
       "Phase 4.20 adds read-only platform budget repair evidence reporting/export. Reports and exports are bounded, sanitized, and cannot apply repairs or mutate usage/source/credit/billing state.",
       "Phase 4.21 adds explicit admin-approved platform budget evidence archives in AUDIT_ARCHIVE under the platform-budget-evidence/ prefix. Archives are sanitized operator evidence snapshots, not production readiness approval, and cleanup is bounded plus approved-prefix-only.",
       "Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs are the supported budgeted admin video path.",
       "Phase 4.14 classifies Admin Image branches: charged priced models stay on the admin_org_credit_account path, FLUX.2 Dev is an explicit_unmetered_admin lab exception with safe metadata, and unclassified Admin Image models are blocked before provider calls.",
-      "Platform/background AI outside News Pulse visuals and aggregate caps for non-platform_admin_lab_budget scopes remain future work.",
+      "Platform/background AI outside News Pulse visuals plus aggregate caps for explicit_unmetered_admin and internal_ai_worker_caller_enforced remain future work.",
       "Production readiness and live billing readiness remain blocked.",
     ],
     limits,

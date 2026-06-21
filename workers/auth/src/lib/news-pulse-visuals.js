@@ -10,6 +10,11 @@ import {
   budgetSwitchLogFields,
 } from "./admin-platform-budget-switches.js";
 import { getAiCostOperationRegistryEntry } from "./ai-cost-operations.js";
+import {
+  checkPlatformBudgetCap,
+  recordPlatformBudgetUsageEvent,
+  withPlatformBudgetCapMetadata,
+} from "./platform-budget-caps.js";
 
 export const NEWS_PULSE_VISUAL_MODEL_ID = "@cf/black-forest-labs/flux-1-schnell";
 export const NEWS_PULSE_VISUAL_INGEST_OPERATION_ID = "platform.news_pulse.visual.ingest";
@@ -70,6 +75,14 @@ function safeIdentifier(value, maxLength = 160) {
   const text = cleanText(value, maxLength);
   if (!text || /\b(secret|token|cookie|authorization|bearer|private key|stripe|r2 key)\b/i.test(text)) return null;
   return text;
+}
+
+function newsPulseVisualAttemptNumber(item = {}) {
+  return Math.max(Number(item?.visual_attempts || 0), 0) + 1;
+}
+
+function newsPulseVisualUsageSourceJobId(item = {}, operationId = "") {
+  return safeIdentifier(`${operationId || "platform.news_pulse.visual"}:${item?.id || "unknown"}:attempt-${newsPulseVisualAttemptNumber(item)}`, 180);
 }
 
 function stripBrandTerms(value, source = "") {
@@ -334,9 +347,9 @@ function newsPulseBudgetOperation({
       notes: "Phase 4.15 enforces this runtime budget switch before News Pulse visual provider generation.",
     },
     budgetLimitPolicy: {
-      mode: "metadata_only",
+      mode: "enforce",
       reservation: "news_pulse_visual_row",
-      runtimeLimitEnforced: false,
+      runtimeLimitEnforced: true,
     },
     routeId: registryConfig.routeId || (trigger === "openclaw_ingest"
       ? "openclaw.news_pulse.ingest"
@@ -384,7 +397,7 @@ function compactNewsPulseVisualBudgetPolicy(plan, fingerprint, {
       item_id: safeIdentifier(item?.id, 128),
       locale: safeIdentifier(item?.locale, 16),
       content_hash: safeIdentifier(item?.content_hash, 160),
-      visual_attempts: Math.max(Number(item?.visual_attempts || 0), 0) + 1,
+      visual_attempts: newsPulseVisualAttemptNumber(item),
     },
     runtime: {
       status: runtimeStatus,
@@ -396,7 +409,7 @@ function compactNewsPulseVisualBudgetPolicy(plan, fingerprint, {
     audit_fields: plan.auditFields || null,
     limitations: [
       "Phase 4.6 records caller-side metadata and validates policy before provider calls.",
-      "Phase 4.15 enforces the runtime env kill-switch before provider calls; live platform budget caps remain future work.",
+      "Runtime env kill-switch and openclaw_news_pulse_budget daily/monthly platform cap checks run before provider calls.",
     ],
   };
 }
@@ -410,6 +423,28 @@ function withBudgetRuntimeStatus(policy, { status, reason = null, now } = {}) {
       status,
       reason: safeIdentifier(reason, 120),
       updated_at: now,
+    },
+  };
+}
+
+function withBudgetCapBlockedMetadata(policy, error) {
+  if (!policy) return null;
+  const fields = error?.fields || {};
+  return {
+    ...policy,
+    runtime_budget_limit_enforced: true,
+    runtime_budget_cap_enforced: true,
+    live_platform_budget_cap: {
+      allowed: false,
+      reason: safeIdentifier(error?.code || "platform_budget_cap_blocked", 120),
+      budget_scope: safeIdentifier(fields.budgetScope || policy.budget_scope, 120),
+      operation_key: safeIdentifier(fields.operationKey || policy.operation_id, 160),
+      window_type: safeIdentifier(fields.windowType, 32),
+      window_value: safeIdentifier(fields.windowValue, 40),
+      limit_units: Number.isFinite(Number(fields.limitUnits)) ? Number(fields.limitUnits) : null,
+      used_units: Number.isFinite(Number(fields.usedUnits)) ? Number(fields.usedUnits) : null,
+      requested_units: Number.isFinite(Number(fields.requestedUnits)) ? Number(fields.requestedUnits) : null,
+      remaining_units_after_request: Number.isFinite(Number(fields.remainingUnits)) ? Number(fields.remainingUnits) : null,
     },
   };
 }
@@ -500,7 +535,7 @@ async function buildNewsPulseVisualBudgetContext({
     runtimeStatus: plan.ok ? "metadata_recorded" : "blocked_by_invalid_policy",
     reason: plan.ok ? "budget_policy_validated" : plan.error?.code || "budget_policy_invalid",
   });
-  return { plan, policy };
+  return { operation, plan, policy };
 }
 
 async function recordNewsPulseVisualBudgetPolicy(env, item, { policy, now }) {
@@ -644,6 +679,7 @@ async function generateNewsPulseVisualForItem(env, item, {
 
   const prompt = buildSafeNewsPulseVisualPrompt(item);
   let budgetPolicy = null;
+  let budgetOperation = null;
   try {
     const budgetContext = await buildNewsPulseVisualBudgetContext({
       item,
@@ -655,6 +691,7 @@ async function generateNewsPulseVisualForItem(env, item, {
       operationId,
       operationOverride,
     });
+    budgetOperation = budgetContext.operation;
     budgetPolicy = budgetContext.policy;
     await recordNewsPulseVisualBudgetPolicy(env, item, { policy: budgetPolicy, now });
     if (!budgetContext.plan.ok) {
@@ -707,6 +744,46 @@ async function generateNewsPulseVisualForItem(env, item, {
         flag: error.fields?.flagName || NEWS_PULSE_VISUAL_BUDGET_KILL_SWITCH,
       };
     }
+    try {
+      const capCheck = await checkPlatformBudgetCap(env, {
+        budgetScope: budgetContext.operation.budgetScope,
+        operationKey: budgetContext.operation.operationId,
+        units: budgetContext.operation.estimatedCostUnits ?? 1,
+        sourceRoute: budgetContext.operation.routePath,
+        actorUserId: actorId,
+        actorRole: actorRole || budgetContext.operation.actorRole,
+        now,
+      });
+      budgetPolicy = withBudgetRuntimeStatus(withPlatformBudgetCapMetadata(budgetPolicy, capCheck), {
+        status: "platform_budget_cap_checked",
+        reason: "platform_budget_cap_allowed",
+        now,
+      });
+      await recordNewsPulseVisualBudgetPolicy(env, item, { policy: budgetPolicy, now });
+    } catch (error) {
+      const blockedPolicy = withBudgetRuntimeStatus(withBudgetCapBlockedMetadata(budgetPolicy, error), {
+        status: "blocked_by_platform_budget_cap",
+        reason: error?.code || "platform_budget_cap_blocked",
+        now,
+      });
+      await recordNewsPulseVisualBudgetPolicyBestEffort(env, item, { policy: blockedPolicy, now });
+      await markNewsPulseVisualFailed(env, item, {
+        error: new Error("News Pulse visual platform budget cap blocked."),
+        now,
+      });
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: COMPONENT,
+        event: "news_pulse_visual_platform_budget_cap_blocked",
+        level: "warn",
+        correlationId,
+        item_id: item.id,
+        operation_id: budgetPolicy.operation_id,
+        budget_scope: budgetPolicy.budget_scope,
+        code: error?.code || "platform_budget_cap_blocked",
+      });
+      return { status: "failed", reason: error?.code || "platform_budget_cap_blocked" };
+    }
   } catch (error) {
     await markNewsPulseVisualFailed(env, item, {
       error: new Error("News Pulse visual budget policy failed."),
@@ -751,6 +828,59 @@ async function generateNewsPulseVisualForItem(env, item, {
       error: sanitizeVisualError(error),
     });
     return { status: "failed", reason: "generation_failed" };
+  }
+
+  try {
+    await recordPlatformBudgetUsageEvent(env, {
+      budgetScope: budgetPolicy.budget_scope,
+      operationKey: budgetPolicy.operation_id,
+      sourceRoute: budgetOperation?.routePath || null,
+      actorUserId: actorId,
+      actorRole: actorRole || budgetOperation?.actorRole || null,
+      units: budgetPolicy.estimated_cost_units ?? 1,
+      requestFingerprint: budgetPolicy.fingerprint || null,
+      sourceJobId: newsPulseVisualUsageSourceJobId(item, budgetPolicy.operation_id),
+      metadata: {
+        trigger,
+        item_id: item.id,
+        locale: item.locale,
+        model_id: NEWS_PULSE_VISUAL_MODEL_ID,
+      },
+      now,
+    });
+    await recordNewsPulseVisualBudgetPolicyBestEffort(env, item, {
+      policy: withBudgetRuntimeStatus(budgetPolicy, {
+        status: "provider_usage_recorded",
+        reason: "provider_result_ready",
+        now,
+      }),
+      now,
+    });
+  } catch (error) {
+    await recordNewsPulseVisualBudgetPolicyBestEffort(env, item, {
+      policy: withBudgetRuntimeStatus(budgetPolicy, {
+        status: "failed",
+        reason: "budget_usage_record_failed",
+        now,
+      }),
+      now,
+    });
+    await markNewsPulseVisualFailed(env, item, {
+      error: new Error("News Pulse visual budget usage recording failed."),
+      now,
+    });
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: COMPONENT,
+      event: "news_pulse_visual_budget_usage_record_failed",
+      level: "warn",
+      correlationId,
+      item_id: item.id,
+      operation_id: budgetPolicy.operation_id,
+      budget_scope: budgetPolicy.budget_scope,
+      error: sanitizeVisualError(error),
+    });
+    return { status: "failed", reason: "budget_usage_record_failed" };
   }
 
   try {

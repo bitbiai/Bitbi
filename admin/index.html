@@ -264,41 +264,20 @@
                     </div>
                 </div>
 
-                <section class="admin-operator-guidance glass glass-card reveal visible" aria-labelledby="dashboardNextSafeActionTitle">
+                <section class="admin-operator-guidance glass glass-card reveal visible" aria-labelledby="dashboardOwnerActionTitle">
                     <div class="admin-operator-guidance__header">
                         <div>
-                            <p class="admin-operator-guidance__eyebrow">Operator clarity</p>
-                            <h3 id="dashboardNextSafeActionTitle" class="admin-section-title">Next Safe Action</h3>
-                            <p class="admin-shell__desc">Start with read-only evidence refreshes. Repo evidence health is operator context, not live production proof.</p>
+                            <p class="admin-operator-guidance__eyebrow">Owner action map</p>
+                            <h3 id="dashboardOwnerActionTitle" class="admin-section-title">What to check first today</h3>
+                            <p class="admin-shell__desc">Start with safe review surfaces, keep blocked claims visible, and open guarded actions only after evidence is current.</p>
                         </div>
                         <div class="admin-control-toolbar__badges" aria-label="Dashboard blocked claims">
-                            <span class="badge badge--disabled">Production readiness blocked</span>
-                            <span class="badge badge--disabled">Live billing readiness blocked</span>
-                            <span class="badge badge--legacy">Tenant isolation unclaimed</span>
+                            <span class="badge badge--user">Safe review first</span>
+                            <span class="badge badge--legacy">Evidence required</span>
+                            <span class="badge badge--disabled">Guarded actions</span>
                         </div>
                     </div>
-                    <div class="admin-operator-guidance__grid">
-                        <div class="admin-operator-guidance__item">
-                            <span class="badge badge--user">Read-only</span>
-                            <strong>Safe now</strong>
-                            <span>Use Dashboard, Billing Evidence, Operations, R2 Drive, and Speicher-Integrität for read-only review before any guarded mutation.</span>
-                        </div>
-                        <div class="admin-operator-guidance__item">
-                            <span class="badge badge--legacy">Guarded</span>
-                            <strong>Guarded mutation</strong>
-                            <span>Mutating controls require admin/MFA, an operator reason, generated Idempotency-Key, and exact backend confirmations where required.</span>
-                        </div>
-                        <div class="admin-operator-guidance__item">
-                            <span class="badge badge--legacy">Evidence</span>
-                            <strong>Operator proof required</strong>
-                            <span>Live Cloudflare, Stripe, migration, header, canary, and rollback evidence must be collected outside repo-local checks.</span>
-                        </div>
-                        <div class="admin-operator-guidance__item">
-                            <span class="badge badge--disabled">Blocked</span>
-                            <strong>Blocked claims</strong>
-                            <span>Evidence-index success does not prove production readiness, live billing readiness, tenant isolation, confirmed reset readiness, or legal completion.</span>
-                        </div>
-                    </div>
+                    <div id="adminOwnerActionSummary" class="admin-owner-summary__grid" aria-label="Owner action summary"></div>
                 </section>
 
                 <section id="adminWorkbench" class="admin-workbench glass glass-card reveal visible" aria-labelledby="adminWorkbenchTitle" aria-live="polite">

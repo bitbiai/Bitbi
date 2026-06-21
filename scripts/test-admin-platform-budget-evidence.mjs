@@ -44,14 +44,14 @@ assert.equal(report.summary.runtimeBudgetSwitchesEnabled, null);
 assert.equal(report.summary.runtimeBudgetSwitchesDisabled, null);
 assert.equal(report.summary.runtimeBudgetSwitchesAppEnabled, null);
 assert.equal(report.summary.runtimeBudgetSwitchesEffectiveEnabled, null);
-assert.equal(report.summary.liveBudgetCapsStatus, "platform_admin_lab_budget_foundation");
+assert.equal(report.summary.liveBudgetCapsStatus, "multi_scope_platform_budget_cap_foundation");
 assert.equal(report.summary.liveBudgetCapsEnforced, true);
 assert.equal(report.summary.recommendedFirstCapScope, "platform_admin_lab_budget");
 assert.equal(report.summary.platformBudgetReconciliationAvailable, false);
 assert.equal(report.summary.platformBudgetReconciliationVerdict, "not_run");
 assert.equal(report.summary.platformBudgetReconciliationRepairCandidates, 0);
-assert(report.summary.switchEnforcedNotCapEnforcedOperations >= 4);
-assert.equal(report.summary.baselineGaps, 3);
+assert(report.summary.switchEnforcedNotCapEnforcedOperations >= 2);
+assert.equal(report.summary.baselineGaps, 2);
 assert.equal(report.summary.blockedCriticalGaps, 0);
 assert.equal(report.summary.routePolicyRegistered, true);
 assert.equal(report.adminAiUsageAttempts.cleanup.registered, true);
@@ -77,13 +77,15 @@ assert(report.runtimeBudgetSwitches.targets.some((entry) =>
   entry.flagName === "ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET"
   && entry.routePath === "/api/admin/ai/test-image"
 ));
-assert.equal(report.livePlatformBudgetCaps.liveBudgetCapsStatus, "platform_admin_lab_budget_foundation");
+assert.equal(report.livePlatformBudgetCaps.liveBudgetCapsStatus, "multi_scope_platform_budget_cap_foundation");
 assert.equal(report.livePlatformBudgetCaps.liveBudgetCapsEnforced, true);
 assert.equal(report.livePlatformBudgetCaps.runtimeRouteBehaviorChanged, true);
 assert.equal(report.livePlatformBudgetCaps.recommendedFirstCapScope, "platform_admin_lab_budget");
 assert.equal(report.livePlatformBudgetCaps.memberRoutesSeparate, true);
 assert(report.livePlatformBudgetCaps.capEnforcedOperationIds.includes("admin.text.test"));
 assert(report.livePlatformBudgetCaps.capEnforcedOperationIds.includes("admin.live_agent"));
+assert(report.livePlatformBudgetCaps.capEnforcedOperationIds.includes("platform.news_pulse.visual.ingest"));
+assert(report.livePlatformBudgetCaps.capEnforcedOperationIds.includes("platform.news_pulse.visual.scheduled"));
 assert(report.livePlatformBudgetCaps.pathsWithEstimatedCostUnits.includes("admin.video.job.create"));
 assert(report.livePlatformBudgetCaps.pathsWithDurableCompletionTimestamps.includes("admin.compare"));
 assert.equal(report.platformBudgetReconciliation.phase, "Phase 4.18/4.19");
@@ -159,8 +161,7 @@ assert.equal(explicitUnmeteredScope.implementedCount, 1);
 const openClawScope = report.budgetScopes.find((entry) => entry.scope === "openclaw_news_pulse_budget");
 assert.equal(openClawScope.operationCount, 2);
 assert.equal(openClawScope.implementedCount, 2);
-assert.equal(openClawScope.baselineGapCount, 1);
-assert(openClawScope.baselineGapIds.includes("openclaw-news-pulse-aggregate-caps"));
+assert.equal(openClawScope.baselineGapCount, 0);
 assert.equal(openClawScope.runtimeEnforcementStatus, "implemented");
 assert(openClawScope.killSwitchTargets.includes("ENABLE_NEWS_PULSE_VISUAL_BUDGET runtime_enforced"));
 
@@ -281,7 +282,6 @@ const baselineIds = gapIds(report.baselinedGaps);
 assert.deepEqual(baselineIds, [
   "admin-explicit-unmetered-aggregate-accounting",
   "internal-ai-worker-aggregate-cap-accounting",
-  "openclaw-news-pulse-aggregate-caps",
 ]);
 const liveAgent = report.implementedOperations.find((entry) => entry.operationId === "admin.live_agent");
 assert.equal(liveAgent.budgetScope, "platform_admin_lab_budget");
@@ -379,14 +379,14 @@ assert(retiredDebug.emergencyCompatibility.some((entry) => entry.includes("not t
     generatedAt,
     limits: {
       maxEvidenceItems: 2,
-      maxBaselinedGaps: 3,
+      maxBaselinedGaps: 2,
       maxImplementedOperations: 2,
       maxBudgetScopeOperationIds: 1,
       maxStringLength: 80,
     },
   });
   assert.equal(bounded.evidenceItems.length, 2);
-  assert.equal(bounded.baselinedGaps.length, 3);
+  assert.equal(bounded.baselinedGaps.length, 2);
   assert.equal(bounded.implementedOperations.length, 2);
   assert(bounded.budgetScopes.some((scope) => scope.operationIds.length <= 1));
   assert(bounded.warnings.some((warning) => warning.includes("truncated")));

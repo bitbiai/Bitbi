@@ -51,6 +51,14 @@ const PHASE_4_17_PLATFORM_ADMIN_LAB_CAP_OPERATION_IDS = new Set([
   "admin.compare",
   "admin.live_agent",
 ]);
+const A1_WAVE_2_NEWS_PULSE_CAP_OPERATION_IDS = new Set([
+  "platform.news_pulse.visual.ingest",
+  "platform.news_pulse.visual.scheduled",
+]);
+const CAP_ENFORCED_OPERATION_IDS = new Set([
+  ...PHASE_4_17_PLATFORM_ADMIN_LAB_CAP_OPERATION_IDS,
+  ...A1_WAVE_2_NEWS_PULSE_CAP_OPERATION_IDS,
+]);
 
 const PROVIDER_CALL_PATTERNS = Object.freeze([
   "env.AI.run",
@@ -469,12 +477,23 @@ function validateLiveBudgetCapMetadata(registryEntries) {
     }
     if (policy.liveBudgetCapStatus === "cap_enforced" || policy.targetEnforcement?.liveBudgetCap === "implemented") {
       if (
-        !PHASE_4_17_PLATFORM_ADMIN_LAB_CAP_OPERATION_IDS.has(operationId)
-        || policy.targetBudgetScope !== AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET
+        !CAP_ENFORCED_OPERATION_IDS.has(operationId)
         || policy.liveBudgetCapStatus !== "cap_enforced"
         || policy.targetEnforcement?.liveBudgetCap !== "implemented"
       ) {
-        issues.push(`${operationId}: live budget cap enforcement is only allowed for Phase 4.17 platform_admin_lab_budget operations.`);
+        issues.push(`${operationId}: live budget cap enforcement is only allowed for approved platform cap operations.`);
+      }
+      if (
+        PHASE_4_17_PLATFORM_ADMIN_LAB_CAP_OPERATION_IDS.has(operationId)
+        && policy.targetBudgetScope !== AI_COST_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET
+      ) {
+        issues.push(`${operationId}: Phase 4.17 cap enforcement must remain platform_admin_lab_budget-scoped.`);
+      }
+      if (
+        A1_WAVE_2_NEWS_PULSE_CAP_OPERATION_IDS.has(operationId)
+        && policy.targetBudgetScope !== AI_COST_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET
+      ) {
+        issues.push(`${operationId}: A1 Wave 2 cap enforcement must remain openclaw_news_pulse_budget-scoped.`);
       }
     }
     if (
@@ -491,11 +510,20 @@ function validateLiveBudgetCapMetadata(registryEntries) {
       if (policy.reconciliationStatus !== "supported" && policy.reconciliationStatus !== "partial") {
         issues.push(`${operationId}: cap-enforced platform budget operation must declare reconciliation-supported or partial status.`);
       }
-      if (!policy.reconciliationEvidence || policy.reconciliationEvidence.repairExecutor !== true) {
-        issues.push(`${operationId}: Phase 4.19 reconciliation metadata must declare the explicit admin-approved repair executor.`);
-      }
-      if (!Array.isArray(policy.reconciliationEvidence?.executableActions) || !policy.reconciliationEvidence.executableActions.includes("create_missing_usage_event")) {
-        issues.push(`${operationId}: Phase 4.19 repair metadata must allow only explicit missing usage event creation as an executable repair.`);
+      if (PHASE_4_17_PLATFORM_ADMIN_LAB_CAP_OPERATION_IDS.has(operationId)) {
+        if (!policy.reconciliationEvidence || policy.reconciliationEvidence.repairExecutor !== true) {
+          issues.push(`${operationId}: Phase 4.19 reconciliation metadata must declare the explicit admin-approved repair executor.`);
+        }
+        if (!Array.isArray(policy.reconciliationEvidence?.executableActions) || !policy.reconciliationEvidence.executableActions.includes("create_missing_usage_event")) {
+          issues.push(`${operationId}: Phase 4.19 repair metadata must allow only explicit missing usage event creation as an executable repair.`);
+        }
+      } else if (A1_WAVE_2_NEWS_PULSE_CAP_OPERATION_IDS.has(operationId)) {
+        if (!policy.reconciliationEvidence || policy.reconciliationEvidence.repairExecutor !== false) {
+          issues.push(`${operationId}: News Pulse cap reconciliation must remain partial and non-executable until scoped repair design exists.`);
+        }
+        if (policy.reconciliationStatus !== "partial") {
+          issues.push(`${operationId}: News Pulse cap reconciliation must be partial, not fully supported.`);
+        }
       }
       if (policy.reconciliationEvidence?.automaticRepair !== false || policy.reconciliationEvidence?.scheduledRepair !== false) {
         issues.push(`${operationId}: Phase 4.19 repair metadata must declare automatic/scheduled repair disabled.`);
@@ -875,22 +903,23 @@ export function renderAiCostPolicyReport(result) {
     renderExplicitUnmeteredAdminOperations(),
     "",
     "Live platform budget cap status:",
-    "- Phase 4.17 implements the first narrow daily/monthly cap foundation for platform_admin_lab_budget only.",
-    "- Other platform/admin budget scopes remain future work and are not cap-enforced.",
+    "- Phase 4.17 implements the first narrow daily/monthly cap foundation for platform_admin_lab_budget.",
+    "- A1 Wave 2 extends daily/monthly cap enforcement to openclaw_news_pulse_budget visual generation.",
+    "- explicit_unmetered_admin and internal_ai_worker_caller_enforced remain accepted baseline gaps.",
     "- Runtime budget kill-switches are separate from live budget caps.",
     renderLiveBudgetCapStatus(),
     "",
     "Read-only admin/platform budget evidence:",
     "- Phase 4.4 evidence collector: `npm run report:ai-budget-evidence` and `GET /api/admin/ai/budget-evidence` expose sanitized local registry/baseline/route-policy coverage.",
     "- Phase 4.5 admin async video job budget metadata is represented in the registry; evidence reporting remains read-only and blocked/verdict-only.",
-    "- Phase 4.6 OpenClaw/News Pulse visual budget controls are represented in the registry and evidence report with metadata-only kill-switch targets.",
+    "- Phase 4.6 OpenClaw/News Pulse visual budget controls are represented in the registry and evidence report; A1 Wave 2 adds platform cap enforcement before visual provider calls.",
     "- Internal AI Worker provider-cost routes are service-only and now require caller-policy metadata before provider execution.",
     "- Phase 4.8.1 admin text/embeddings, Phase 4.9 admin music, Phase 4.10 admin compare, and Phase 4.12 admin live-agent use admin_ai_usage_attempts for durable metadata-only duplicate suppression and conflict detection; Phase 4.8.2 adds bounded non-destructive cleanup and admin-only sanitized inspection; full result replay remains future work.",
     "- Phase 4.12 implements Admin Live-Agent budget metadata, required idempotency, caller-policy propagation, and metadata-only stream-session finalization; Phase 4.17 adds the first platform_admin_lab_budget daily/monthly cap foundation for this route family, while explicit output-token/duration caps remain future work.",
     "- Phase 4.13 retires sync video debug as disabled-by-default/emergency-only; async admin video jobs remain the supported budgeted admin video path.",
     "- Phase 4.14 classifies Admin Image branches: charged priced models remain admin_org_credit_account-covered, FLUX.2 Dev is explicit_unmetered_admin with safe budget/caller-policy metadata, and unclassified Admin Image models are blocked before provider calls.",
     "- Phase 4.15 enforces runtime budget kill-switches for already budget-classified admin/platform provider-cost paths; missing or false switches block before provider, queue, credit, or durable-attempt work where applicable.",
-    "- Phase 4.16 adds live platform budget cap design/evidence only; Phase 4.17 adds the first platform_admin_lab_budget cap foundation without changing member/org billing behavior.",
+    "- Phase 4.16 adds live platform budget cap design/evidence only; Phase 4.17 adds the first platform_admin_lab_budget cap foundation, and A1 Wave 2 extends the same generic cap store to News Pulse visuals without changing member/org billing behavior.",
     "- Phase 4.18 adds read-only platform budget reconciliation evidence; Phase 4.19 adds an explicit admin-approved repair executor only for safe missing usage event evidence and review-only notes. No automatic repair, provider call, Stripe call, credit mutation, or customer billing mutation is allowed.",
     "",
     "Known baseline gaps:",
@@ -960,7 +989,7 @@ export function renderAiCostPolicyReport(result) {
     providerSummary,
     "",
     "Recommended next phase:",
-    "- Later phases should extend caps only after separate scope-specific designs; do not treat admin_org_credit_account, explicit_unmetered_admin, openclaw_news_pulse_budget, or internal_ai_worker_caller_enforced as covered by Phase 4.17.",
+    "- Later phases should extend caps only after separate scope-specific designs; do not treat admin_org_credit_account, explicit_unmetered_admin, platform_background_budget, or internal_ai_worker_caller_enforced as covered by A1 Wave 2.",
     knownBaselineGaps.length > 0
       ? "- Strict mode intentionally remains failing while accepted baseline gaps remain."
       : "- Strict mode has no accepted baseline gaps in the current manifest; keep it enabled for future provider-cost route changes.",

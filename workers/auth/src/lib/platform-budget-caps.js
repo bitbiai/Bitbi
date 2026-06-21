@@ -6,8 +6,15 @@ export const PLATFORM_BUDGET_LIMITS_TABLE = "platform_budget_limits";
 export const PLATFORM_BUDGET_LIMIT_EVENTS_TABLE = "platform_budget_limit_events";
 export const PLATFORM_BUDGET_USAGE_EVENTS_TABLE = "platform_budget_usage_events";
 export const PLATFORM_ADMIN_LAB_BUDGET_SCOPE = ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET;
+export const PLATFORM_BUDGET_CAP_SCOPE_VALUES = Object.freeze([
+  ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+  ADMIN_PLATFORM_BUDGET_SCOPES.OPENCLAW_NEWS_PULSE_BUDGET,
+  ADMIN_PLATFORM_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED,
+  ADMIN_PLATFORM_BUDGET_SCOPES.EXPLICIT_UNMETERED_ADMIN,
+]);
 
 const WINDOW_TYPES = new Set(["daily", "monthly"]);
+const PLATFORM_BUDGET_CAP_SCOPES = new Set(PLATFORM_BUDGET_CAP_SCOPE_VALUES);
 const MAX_LIMIT_UNITS = 1_000_000_000;
 const MAX_REASON_LENGTH = 500;
 const MAX_METADATA_KEYS = 24;
@@ -69,7 +76,7 @@ function parseJsonObject(value) {
 
 export function normalizePlatformBudgetScope(value) {
   const normalized = String(value || "").trim();
-  if (normalized !== PLATFORM_ADMIN_LAB_BUDGET_SCOPE) {
+  if (!PLATFORM_BUDGET_CAP_SCOPES.has(normalized)) {
     throw new PlatformBudgetCapError("Unsupported platform budget scope.", {
       status: 400,
       code: "platform_budget_scope_unsupported",
@@ -77,6 +84,10 @@ export function normalizePlatformBudgetScope(value) {
     });
   }
   return normalized;
+}
+
+export function listPlatformBudgetCapScopes() {
+  return [...PLATFORM_BUDGET_CAP_SCOPE_VALUES];
 }
 
 export function normalizePlatformBudgetWindowType(value) {
@@ -389,7 +400,9 @@ export async function getPlatformBudgetUsageSummary(env, {
 
   return Object.freeze({
     budgetScope: scope,
-    liveBudgetCapsStatus: "platform_admin_lab_budget_foundation",
+    liveBudgetCapsStatus: scope === PLATFORM_ADMIN_LAB_BUDGET_SCOPE
+      ? "platform_admin_lab_budget_foundation"
+      : "platform_budget_cap_foundation",
     capEnforced: true,
     windows: windowsSummary,
     operationUsage: (operationResult?.results || []).map((row) => ({

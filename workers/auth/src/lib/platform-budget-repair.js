@@ -115,8 +115,18 @@ function repairError(message, code, fields = {}, status = 400) {
   return new PlatformBudgetRepairError(message, { status, code, fields });
 }
 
+function normalizeRepairBudgetScope(value = PLATFORM_ADMIN_LAB_BUDGET_SCOPE) {
+  const scope = normalizePlatformBudgetScope(value || PLATFORM_ADMIN_LAB_BUDGET_SCOPE);
+  if (scope !== PLATFORM_ADMIN_LAB_BUDGET_SCOPE) {
+    throw repairError("Unsupported platform budget repair scope.", "platform_budget_repair_scope_unsupported", {
+      budgetScope: scope,
+    });
+  }
+  return scope;
+}
+
 export function normalizePlatformBudgetRepairRequest(input = {}) {
-  const budgetScope = normalizePlatformBudgetScope(input.budgetScope || input.budget_scope || PLATFORM_ADMIN_LAB_BUDGET_SCOPE);
+  const budgetScope = normalizeRepairBudgetScope(input.budgetScope || input.budget_scope || PLATFORM_ADMIN_LAB_BUDGET_SCOPE);
   const candidateId = safeId(input.candidateId || input.candidate_id, 220);
   const candidateType = safeId(input.candidateType || input.candidate_type, 120);
   const requestedAction = safeId(input.requestedAction || input.requested_action, 120);
@@ -757,7 +767,7 @@ export async function listPlatformBudgetRepairActions(env, {
   budgetScope = PLATFORM_ADMIN_LAB_BUDGET_SCOPE,
   limit = 25,
 } = {}) {
-  const scope = normalizePlatformBudgetScope(budgetScope);
+  const scope = normalizeRepairBudgetScope(budgetScope);
   assertDb(env);
   const result = await env.DB.prepare(
     `SELECT id, budget_scope, candidate_id, candidate_type, requested_action, action_status, dry_run,

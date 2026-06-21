@@ -65,6 +65,18 @@ export class PlatformBudgetReconciliationError extends Error {
   }
 }
 
+function normalizeReconciliationBudgetScope(value = PLATFORM_ADMIN_LAB_BUDGET_SCOPE) {
+  const scope = normalizePlatformBudgetScope(value || PLATFORM_ADMIN_LAB_BUDGET_SCOPE);
+  if (scope !== PLATFORM_ADMIN_LAB_BUDGET_SCOPE) {
+    throw new PlatformBudgetReconciliationError("Unsupported platform budget reconciliation scope.", {
+      status: 400,
+      code: "platform_budget_reconciliation_scope_unsupported",
+      fields: { budgetScope: scope },
+    });
+  }
+  return scope;
+}
+
 function boundedLimit(value) {
   const numeric = Number(value);
   if (!Number.isInteger(numeric) || numeric <= 0) return DEFAULT_LIMIT;
@@ -542,7 +554,7 @@ async function runCheck(label, notCheckable, fn) {
 }
 
 export async function reconcilePlatformAdminLabBudget(env, options = {}) {
-  const budgetScope = normalizePlatformBudgetScope(options.budgetScope || PLATFORM_ADMIN_LAB_BUDGET_SCOPE);
+  const budgetScope = normalizeReconciliationBudgetScope(options.budgetScope || PLATFORM_ADMIN_LAB_BUDGET_SCOPE);
   const limit = boundedLimit(options.limit);
   assertDb(env);
   const notCheckable = [];
@@ -617,7 +629,7 @@ export async function reconcilePlatformAdminLabBudget(env, options = {}) {
 
 export async function buildPlatformBudgetReconciliationReport(env, options = {}) {
   const generatedAt = options.generatedAt || nowIso();
-  const budgetScope = normalizePlatformBudgetScope(options.budgetScope || PLATFORM_ADMIN_LAB_BUDGET_SCOPE);
+  const budgetScope = normalizeReconciliationBudgetScope(options.budgetScope || PLATFORM_ADMIN_LAB_BUDGET_SCOPE);
   const includeCandidates = options.includeCandidates !== false;
   try {
     const reconciliation = await reconcilePlatformAdminLabBudget(env, {

@@ -19939,8 +19939,14 @@ test.describe('Worker routes', () => {
         model_id: '@cf/black-forest-labs/flux-1-schnell',
         idempotency_policy: 'inherited',
         kill_switch_flag_name: 'ENABLE_NEWS_PULSE_VISUAL_BUDGET',
-        runtime_budget_limit_enforced: false,
+        runtime_budget_limit_enforced: true,
+        runtime_budget_cap_enforced: true,
         runtime_env_kill_switch_enforced: true,
+        live_platform_budget_cap: expect.objectContaining({
+          status: 'allowed',
+          budget_scope: 'openclaw_news_pulse_budget',
+          operation_key: 'platform.news_pulse.visual.ingest',
+        }),
       }));
       expect(budgetPolicy.runtime).toEqual(expect.objectContaining({
         status: 'ready',
@@ -19957,6 +19963,12 @@ test.describe('Worker routes', () => {
       expect(serializedBudgetPolicy).not.toContain('Cookie');
       expect(serializedBudgetPolicy).not.toContain('news-pulse/thumbs/');
       expect(env.USER_IMAGES.objects.has(env.DB.state.newsPulseItems[0].visual_object_key)).toBe(true);
+      expect(env.DB.state.platformBudgetUsageEvents).toHaveLength(1);
+      expect(env.DB.state.platformBudgetUsageEvents[0]).toEqual(expect.objectContaining({
+        budget_scope: 'openclaw_news_pulse_budget',
+        operation_key: 'platform.news_pulse.visual.ingest',
+        source_job_id: `platform.news_pulse.visual.ingest:${env.DB.state.newsPulseItems[0].id}:attempt-1`,
+      }));
     });
 
     test('POST /api/openclaw/news-pulse/ingest keeps the response successful when immediate visual generation fails', async () => {
@@ -20299,6 +20311,177 @@ test.describe('Worker routes', () => {
       }));
     });
 
+    test('News Pulse visual aggregate cap missing blocks provider calls before generation', async () => {
+      const { processNewsPulseVisualBackfill } = await loadNewsPulseVisualsModule();
+      let aiCalls = 0;
+      const env = createAuthTestEnv({
+        platformBudgetLimits: [],
+        aiRun: async () => {
+          aiCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+        newsPulseItems: [{
+          id: 'missing-cap-visual-item',
+          locale: 'en',
+          title: 'Missing cap visual item',
+          summary: 'A missing platform cap must block before provider work.',
+          source: 'Source Example',
+          url: 'https://example.com/missing-cap-visual-item',
+          category: 'AI',
+          published_at: '2026-05-10T09:00:00.000Z',
+          visual_type: 'icon',
+          visual_url: null,
+          visual_status: 'missing',
+          visual_attempts: 0,
+          status: 'active',
+          content_hash: 'missing-cap-hash',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          created_at: '2026-05-10T09:00:00.000Z',
+          updated_at: '2026-05-10T09:10:00.000Z',
+        }],
+      });
+
+      const result = await processNewsPulseVisualBackfill({
+        env,
+        now: '2026-05-12T03:00:00.000Z',
+        limit: 1,
+      });
+
+      expect(result).toEqual(expect.objectContaining({
+        skipped: false,
+        scannedCount: 1,
+        readyCount: 0,
+        failedCount: 1,
+      }));
+      expect(aiCalls).toBe(0);
+      expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+      expect(env.DB.state.platformBudgetUsageEvents).toHaveLength(0);
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        visual_status: 'failed',
+        visual_attempts: 1,
+        visual_error: 'News Pulse visual platform budget cap blocked.',
+        visual_budget_policy_status: 'blocked_by_platform_budget_cap',
+      }));
+      const budgetPolicy = JSON.parse(env.DB.state.newsPulseItems[0].visual_budget_policy_json);
+      expect(budgetPolicy).toEqual(expect.objectContaining({
+        operation_id: 'platform.news_pulse.visual.scheduled',
+        budget_scope: 'openclaw_news_pulse_budget',
+        runtime_budget_limit_enforced: true,
+        runtime_env_kill_switch_enforced: true,
+      }));
+      expect(budgetPolicy.runtime).toEqual(expect.objectContaining({
+        status: 'blocked_by_platform_budget_cap',
+        reason: 'platform_budget_cap_missing',
+      }));
+    });
+
+    test('News Pulse visual aggregate cap exceeded blocks provider calls before generation', async () => {
+      const { processNewsPulseVisualBackfill } = await loadNewsPulseVisualsModule();
+      let aiCalls = 0;
+      const env = createAuthTestEnv({
+        platformBudgetLimits: [
+          {
+            id: 'pbl_openclaw_daily_exhausted',
+            budget_scope: 'openclaw_news_pulse_budget',
+            window_type: 'daily',
+            limit_units: 1,
+            mode: 'enforce',
+            status: 'active',
+            starts_at: null,
+            ends_at: null,
+            reason: 'test exhausted OpenClaw daily cap',
+            metadata_json: '{}',
+            created_at: '2026-05-12T00:00:00.000Z',
+            updated_at: '2026-05-12T00:00:00.000Z',
+            created_by_user_id: 'test',
+            updated_by_user_id: 'test',
+          },
+          {
+            id: 'pbl_openclaw_monthly_available',
+            budget_scope: 'openclaw_news_pulse_budget',
+            window_type: 'monthly',
+            limit_units: 100,
+            mode: 'enforce',
+            status: 'active',
+            starts_at: null,
+            ends_at: null,
+            reason: 'test OpenClaw monthly cap',
+            metadata_json: '{}',
+            created_at: '2026-05-12T00:00:00.000Z',
+            updated_at: '2026-05-12T00:00:00.000Z',
+            created_by_user_id: 'test',
+            updated_by_user_id: 'test',
+          },
+        ],
+        platformBudgetUsageEvents: [{
+          id: 'pbu_openclaw_used_daily',
+          budget_scope: 'openclaw_news_pulse_budget',
+          operation_key: 'platform.news_pulse.visual.scheduled',
+          source_route: '/scheduled/news-pulse-visuals',
+          actor_user_id: null,
+          actor_role: 'scheduled-job',
+          units: 1,
+          window_day: '2026-05-12',
+          window_month: '2026-05',
+          idempotency_key_hash: null,
+          request_fingerprint: null,
+          source_attempt_id: null,
+          source_job_id: 'already-recorded-news-pulse-job',
+          status: 'recorded',
+          metadata_json: '{}',
+          created_at: '2026-05-12T00:00:00.000Z',
+        }],
+        aiRun: async () => {
+          aiCalls += 1;
+          return { image: ONE_PIXEL_PNG_DATA_URI };
+        },
+        newsPulseItems: [{
+          id: 'exceeded-cap-visual-item',
+          locale: 'en',
+          title: 'Exceeded cap visual item',
+          summary: 'An exhausted platform cap must block before provider work.',
+          source: 'Source Example',
+          url: 'https://example.com/exceeded-cap-visual-item',
+          category: 'AI',
+          published_at: '2026-05-10T09:00:00.000Z',
+          visual_type: 'icon',
+          visual_url: null,
+          visual_status: 'missing',
+          visual_attempts: 0,
+          status: 'active',
+          content_hash: 'exceeded-cap-hash',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          created_at: '2026-05-10T09:00:00.000Z',
+          updated_at: '2026-05-10T09:10:00.000Z',
+        }],
+      });
+
+      const result = await processNewsPulseVisualBackfill({
+        env,
+        now: '2026-05-12T03:00:00.000Z',
+        limit: 1,
+      });
+
+      expect(result).toEqual(expect.objectContaining({
+        skipped: false,
+        scannedCount: 1,
+        readyCount: 0,
+        failedCount: 1,
+      }));
+      expect(aiCalls).toBe(0);
+      expect(env.USER_IMAGES.putCalls).toHaveLength(0);
+      expect(env.DB.state.platformBudgetUsageEvents).toHaveLength(1);
+      expect(env.DB.state.newsPulseItems[0]).toEqual(expect.objectContaining({
+        visual_status: 'failed',
+        visual_budget_policy_status: 'blocked_by_platform_budget_cap',
+      }));
+      const budgetPolicy = JSON.parse(env.DB.state.newsPulseItems[0].visual_budget_policy_json);
+      expect(budgetPolicy.runtime).toEqual(expect.objectContaining({
+        status: 'blocked_by_platform_budget_cap',
+        reason: 'platform_budget_cap_exceeded',
+      }));
+    });
+
     test('News Pulse visual runtime budget switch skips provider work without affecting public reads', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const { processNewsPulseVisualBackfill } = await loadNewsPulseVisualsModule();
@@ -20570,6 +20753,14 @@ test.describe('Worker routes', () => {
         operation_id: 'platform.news_pulse.visual.scheduled',
         budget_scope: 'openclaw_news_pulse_budget',
         kill_switch_flag_name: 'ENABLE_NEWS_PULSE_VISUAL_BUDGET',
+        runtime_budget_limit_enforced: true,
+        runtime_budget_cap_enforced: true,
+      }));
+      expect(env.DB.state.platformBudgetUsageEvents).toHaveLength(1);
+      expect(env.DB.state.platformBudgetUsageEvents[0]).toEqual(expect.objectContaining({
+        budget_scope: 'openclaw_news_pulse_budget',
+        operation_key: 'platform.news_pulse.visual.scheduled',
+        source_job_id: 'platform.news_pulse.visual.scheduled:missing-visual-item:attempt-1',
       }));
       expect(env.USER_IMAGES.objects.has('news-pulse/thumbs/missing-visual-item.webp')).toBe(true);
       expect(env.IMAGES.transformCalls[0]).toEqual(expect.objectContaining({
@@ -23394,7 +23585,8 @@ test.describe('Worker routes', () => {
           runtimeBudgetSwitchesDisabled: 0,
           platformBudgetReconciliationAvailable: true,
           platformBudgetReconciliationRepairCandidates: 0,
-          baselineGaps: 3,
+          baselineGaps: 2,
+          liveBudgetCapsStatus: 'multi_scope_platform_budget_cap_foundation',
           blockedCriticalGaps: 0,
           routePolicyRegistered: true,
         }),
@@ -23410,9 +23602,11 @@ test.describe('Worker routes', () => {
           scope: 'openclaw_news_pulse_budget',
           operationCount: 2,
           implementedCount: 2,
-          baselineGapCount: 1,
-          baselineGapIds: ['openclaw-news-pulse-aggregate-caps'],
+          baselineGapCount: 0,
+          baselineGapIds: [],
           runtimeEnforcementStatus: 'implemented',
+          liveBudgetCapStatus: 'cap_enforced',
+          liveBudgetCapEnforced: true,
         }),
         expect.objectContaining({
           scope: 'internal_ai_worker_caller_enforced',
@@ -23467,11 +23661,10 @@ test.describe('Worker routes', () => {
           runtimeStatus: 'implemented_caller_policy_guard',
         }),
       ]));
-      expect(body.baselinedGaps).toHaveLength(3);
+      expect(body.baselinedGaps).toHaveLength(2);
       expect(body.baselinedGaps).toEqual(expect.arrayContaining([
         expect.objectContaining({ id: 'admin-explicit-unmetered-aggregate-accounting' }),
         expect.objectContaining({ id: 'internal-ai-worker-aggregate-cap-accounting' }),
-        expect.objectContaining({ id: 'openclaw-news-pulse-aggregate-caps' }),
       ]));
       expect(body.baselinedGaps).not.toEqual(expect.arrayContaining([
         expect.objectContaining({ id: 'admin-ai-video-job-create' }),
@@ -23679,7 +23872,7 @@ test.describe('Worker routes', () => {
       });
     });
 
-    test('Admin platform budget cap API lists and updates platform_admin_lab_budget limits', async () => {
+    test('Admin platform budget cap API lists and updates allowed platform budget limits', async () => {
       const nonAdmin = await createAdminAiContractHarness({
         user: createContractUser({ id: 'platform-cap-member', role: 'user' }),
       });
@@ -23751,11 +23944,31 @@ test.describe('Worker routes', () => {
         code: 'idempotency_conflict',
       });
 
-      const invalidScope = await authWorker.fetch(
+      const openClawUpdate = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/platform-budget-caps/openclaw_news_pulse_budget', 'PATCH', {
           window_type: 'daily',
           limit_units: 100,
-          reason: 'Invalid scope should fail.',
+          reason: 'Set bounded OpenClaw News Pulse test cap.',
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'platform-budget-cap-openclaw-daily-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(openClawUpdate.status).toBe(200);
+      const openClawBody = await openClawUpdate.json();
+      expect(openClawBody.limit).toEqual(expect.objectContaining({
+        budgetScope: 'openclaw_news_pulse_budget',
+        windowType: 'daily',
+        limitUnits: 100,
+      }));
+
+      const invalidScope = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/platform-budget-caps/member_credit_account', 'PATCH', {
+          window_type: 'daily',
+          limit_units: 100,
+          reason: 'Member credit scope should fail.',
         }, {
           ...authHeaders,
           'Idempotency-Key': 'platform-budget-cap-invalid-scope-1',

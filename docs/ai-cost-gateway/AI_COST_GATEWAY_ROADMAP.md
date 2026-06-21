@@ -1,6 +1,6 @@
 # AI Cost Gateway Roadmap
 
-Date: 2026-05-21
+Date: 2026-06-21
 
 Status: domain candidate roadmap only. This is not a historical audit plan, not an active audit backlog, and does not approve production readiness or live billing readiness. Future audits must reconfirm any item from current repo state before treating it as active work.
 
@@ -10,7 +10,7 @@ Status: domain candidate roadmap only. This is not a historical audit plan, not 
 - Organization image/text routes retain their established organization-credit attempt policy.
 - Charged admin image tests use selected-organization credits and admin budget metadata.
 - Admin text, embeddings, music, compare, live-agent, and async video jobs use `platform_admin_lab_budget` metadata, idempotency, caller-policy propagation where applicable, switches, D1 app switches, and the first cap foundation.
-- OpenClaw/News Pulse visuals use `openclaw_news_pulse_budget` metadata/status and runtime switch control.
+- OpenClaw/News Pulse visuals use `openclaw_news_pulse_budget` metadata/status, runtime switch control, daily/monthly platform cap checks, and bounded usage events for provider-cost thumbnail work.
 - Platform budget reconciliation, explicit repair, report/export, and sanitized archives exist for `platform_admin_lab_budget`.
 - Production readiness and live billing readiness remain blocked.
 
@@ -34,7 +34,7 @@ Status: domain candidate roadmap only. This is not a historical audit plan, not 
 
 | ID | Goal | Candidate files | Notes |
 | --- | --- | --- | --- |
-| AI-COVERAGE-01 | Extend aggregate caps to `openclaw_news_pulse_budget`. | `news-pulse-visuals`, cap helpers, evidence report, Worker tests. | Start with one scope; preserve public read fallback and no customer billing changes. |
+| AI-COVERAGE-01 | Monitor `openclaw_news_pulse_budget` cap evidence after aggregate cap implementation. | `news-pulse-visuals`, cap helpers, evidence report, Worker tests. | A1 Wave 2 implemented provider-preflight caps for News Pulse visuals; live/operator evidence and repair/reconciliation are still limited. |
 | AI-COVERAGE-02 | Harden remaining internal AI Worker caller-policy gaps. | Auth callers, `workers/ai/src/lib/caller-policy.js`, route-policy, tests. | Migrate one caller family at a time and keep service auth as the first gate. |
 | AI-COVERAGE-03 | Add durable usage accounting for explicit-unmetered admin exceptions before any broader use. | Admin AI route, budget usage helpers, tests. | Keep exceptions disabled unless operator explicitly accepts bounded risk. |
 | AI-COVERAGE-04 | Review admin metadata-only replay policy route by route. | Admin idempotency helper, routes, evidence docs. | Full result replay should be added only where raw output storage is safe and useful. |

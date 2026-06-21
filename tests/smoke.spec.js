@@ -3589,6 +3589,8 @@ test.describe('Homepage', () => {
     await expect(hero.locator('a[href="/account/profile.html?source=hero#memberControlCenter"]')).toHaveCount(0);
     await expect(hero.locator('.hero__conversion-link')).toHaveCount(0);
     await expect(hero.locator('.hero__actions')).toHaveClass(/hero__actions--single-cta/);
+    await expect(hero.locator('.hero__saas-copy')).toContainText('Create AI images, videos, and music in one studio.');
+    await expect(hero.locator('.hero__saas-copy')).toContainText('Generate, save, organize, and publish creative media with credits built for real use.');
     await expect(teaser).toBeVisible();
     await expect(teaser.locator('.hero__lab-teaser-text')).toHaveText('Open Generate Lab');
     await expect(teaser.locator('.hero__lab-teaser-badge')).toHaveCount(0);

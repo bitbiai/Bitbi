@@ -23,6 +23,11 @@ import {
   isBudgetSwitchEnabled,
   normalizeBudgetSwitchValue,
 } from "../workers/auth/src/lib/admin-platform-budget-switches.js";
+import {
+  PlatformBudgetCapError,
+  listPlatformBudgetCapScopes,
+  normalizePlatformBudgetScope,
+} from "../workers/auth/src/lib/platform-budget-caps.js";
 
 function killSwitch(scope, overrides = {}) {
   return {
@@ -57,6 +62,28 @@ function operation(overrides = {}) {
     notes: "Future admin text test budget contract.",
     ...overrides,
   };
+}
+
+{
+  const allowedScopes = listPlatformBudgetCapScopes();
+  assert.deepEqual(allowedScopes, [
+    "platform_admin_lab_budget",
+    "openclaw_news_pulse_budget",
+    "internal_ai_worker_caller_enforced",
+    "explicit_unmetered_admin",
+  ]);
+  for (const scope of allowedScopes) {
+    assert.equal(normalizePlatformBudgetScope(scope), scope);
+  }
+  for (const scope of [
+    "member_credit_account",
+    "organization_credit_account",
+    "admin_org_credit_account",
+    "platform_background_budget",
+    "external_provider_only",
+  ]) {
+    assert.throws(() => normalizePlatformBudgetScope(scope), PlatformBudgetCapError);
+  }
 }
 
 {

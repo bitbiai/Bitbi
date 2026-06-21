@@ -204,9 +204,11 @@ ${inventoryExtra}
   assert(output.includes("Phase 4.15 enforces runtime budget kill-switches"));
   assert(output.includes("Live platform budget cap status:"));
   assert(output.includes("Phase 4.17 implements the first narrow daily/monthly cap foundation"));
+  assert(output.includes("A1 Wave 2 extends daily/monthly cap enforcement to openclaw_news_pulse_budget visual generation"));
   assert(output.includes("Phase 4.19 adds an explicit admin-approved repair executor"));
-  assert(output.includes("Other platform/admin budget scopes remain future work"));
+  assert(output.includes("explicit_unmetered_admin and internal_ai_worker_caller_enforced remain accepted baseline gaps"));
   assert(output.includes("admin.text.test: cap=cap_enforced; readiness=countable_now"));
+  assert(output.includes("platform.news_pulse.visual.ingest: cap=cap_enforced; readiness=countable_now"));
   assert(output.includes("admin.image.test.unmetered: cap=not_implemented; readiness=metadata_only"));
   assert(output.includes("internal.text.generate: cap=not_implemented; readiness=requires_schema"));
   assert(output.includes("Retired/disabled debug paths:"));
@@ -417,7 +419,7 @@ ${inventoryExtra}
   );
   const result = analyzeAiCostPolicy(repoRoot, { registryEntries: regressedRegistry });
   assert.equal(result.ok, false);
-  assert(result.fatalIssues.some((issue) => issue.includes("only allowed for Phase 4.17 platform_admin_lab_budget")));
+  assert(result.fatalIssues.some((issue) => issue.includes("only allowed for approved platform cap operations")));
 }
 
 {

@@ -387,6 +387,8 @@ for (const operationId of [
   );
   const shouldBeCapEnforced = [
     "admin.video.job.create",
+    "platform.news_pulse.visual.ingest",
+    "platform.news_pulse.visual.scheduled",
     "admin.text.test",
     "admin.embeddings.test",
     "admin.music.test",
@@ -405,7 +407,8 @@ for (const [operationId, readiness] of Object.entries({
   "admin.image.test.charged": "countable_now",
   "admin.image.test.unmetered": "metadata_only",
   "admin.video.job.create": "countable_now",
-  "platform.news_pulse.visual.ingest": "partially_countable",
+  "platform.news_pulse.visual.ingest": "countable_now",
+  "platform.news_pulse.visual.scheduled": "countable_now",
   "admin.text.test": "countable_now",
   "admin.embeddings.test": "countable_now",
   "admin.music.test": "countable_now",
@@ -431,6 +434,18 @@ for (const operationId of [
   assert.equal(entry.budgetPolicy.reconciliationEvidence.automaticRepair, false, `${operationId} automatic repair disabled`);
   assert.equal(entry.budgetPolicy.reconciliationEvidence.scheduledRepair, false, `${operationId} scheduled repair disabled`);
   assert(entry.budgetPolicy.reconciliationFuturePhase.includes("Phase 4.19"), `${operationId} reconciliation phase`);
+}
+
+for (const operationId of [
+  "platform.news_pulse.visual.ingest",
+  "platform.news_pulse.visual.scheduled",
+]) {
+  const entry = AI_COST_OPERATION_REGISTRY.find((item) => item.operationConfig.operationId === operationId);
+  assert.equal(entry.budgetPolicy.reconciliationStatus, "partial", `${operationId} reconciliation status`);
+  assert.equal(entry.budgetPolicy.reconciliationEvidence.repairExecutor, false, `${operationId} repair executor remains disabled`);
+  assert.deepEqual(entry.budgetPolicy.reconciliationEvidence.executableActions, [], `${operationId} executable repair actions`);
+  assert.equal(entry.budgetPolicy.reconciliationEvidence.automaticRepair, false, `${operationId} automatic repair disabled`);
+  assert.equal(entry.budgetPolicy.reconciliationEvidence.scheduledRepair, false, `${operationId} scheduled repair disabled`);
 }
 
 const routePolicyBaselines = getAiCostRoutePolicyBaselines();

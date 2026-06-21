@@ -32,27 +32,6 @@
       "external_or_internal_only": true
     },
     {
-      "id": "openclaw-news-pulse-aggregate-caps",
-      "routes": ["/api/openclaw/news-pulse/ingest"],
-      "routePolicyIds": ["openclaw.news_pulse.ingest"],
-      "category": "platform",
-      "reason": "OpenClaw/News Pulse visual provider work has runtime switch and duplicate-suppression metadata, but durable aggregate cap enforcement for openclaw_news_pulse_budget remains future work.",
-      "temporaryAllowanceReason": "Accepted while News Pulse visuals remain switch-gated and metadata-countable; this does not claim live cap enforcement.",
-      "targetBudgetScope": "openclaw_news_pulse_budget",
-      "targetFuturePhase": "Future OpenClaw/News Pulse aggregate cap enforcement",
-      "severity": "P2",
-      "ownerDomain": "news-pulse",
-      "killSwitchTarget": "ENABLE_NEWS_PULSE_VISUAL_BUDGET",
-      "futureEnforcementPath": "Add aggregate cap enforcement over News Pulse visual ingest and scheduled/backfill provider work with bounded evidence and operator rollback notes.",
-      "providerCostBearing": true,
-      "registryOperationIds": [
-        "platform.news_pulse.visual.ingest",
-        "platform.news_pulse.visual.scheduled"
-      ],
-      "coveredByRegistryMetadata": true,
-      "allowedUnmigratedForNow": true
-    },
-    {
       "id": "admin-explicit-unmetered-aggregate-accounting",
       "routes": ["/api/admin/ai/test-image"],
       "routePolicyIds": ["admin.ai.test-image"],

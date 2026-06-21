@@ -1,6 +1,6 @@
 # Live Platform Budget Caps Design
 
-Date: 2026-05-18
+Date: 2026-06-21
 
 Current release truth: `config/release-compat.json` is authoritative for the latest auth D1 migration; use `npm run release:plan` for the concrete checkpoint before deploy.
 
@@ -11,6 +11,7 @@ Status: current design/current-state summary for platform budget caps. This docu
 - Runtime budget switches exist for already classified admin/platform provider-cost paths.
 - D1 app switches exist as an operator-controlled second layer for those paths.
 - `platform_admin_lab_budget` has the first cap foundation for selected admin lab operations.
+- `openclaw_news_pulse_budget` uses the same cap foundation for News Pulse visual provider work.
 - Reconciliation, admin-approved repair, report/export, and sanitized archive evidence exist for the `platform_admin_lab_budget` foundation.
 - Other budget scopes remain future work.
 - These controls are not customer billing, Stripe billing, credit refund logic, or production readiness proof.
@@ -21,7 +22,7 @@ Status: current design/current-state summary for platform budget caps. This docu
 | --- | --- | --- |
 | Cloudflare master switch | May this provider-cost route execute at all? | Missing/false/unrecognized values fail closed for covered routes. |
 | D1 app switch | Has the operator enabled this route in app state? | Missing/disabled/unavailable rows fail closed for covered routes. |
-| Platform cap | Is remaining configured platform spend available in the current window? | Implemented only for selected `platform_admin_lab_budget` operations. |
+| Platform cap | Is remaining configured platform spend available in the current window? | Implemented for selected `platform_admin_lab_budget` operations and News Pulse visual operations under `openclaw_news_pulse_budget`. |
 
 Switches are binary operator controls. Caps require durable usage events, window accounting, active limits, and deterministic exceeded behavior.
 
@@ -35,6 +36,11 @@ Current `platform_admin_lab_budget` cap coverage includes:
 - Admin Compare.
 - Admin Live-Agent.
 - Admin async video jobs.
+
+Current `openclaw_news_pulse_budget` cap coverage includes:
+
+- OpenClaw ingest-triggered News Pulse visual generation.
+- Scheduled News Pulse visual backfill.
 
 Covered paths must pass:
 
@@ -69,7 +75,7 @@ Remote migration application is not proven by this document.
 | Scope | Current countability | Cap status |
 | --- | --- | --- |
 | `platform_admin_lab_budget` | Countable for covered admin lab operations through attempts/jobs and usage events. | First foundation implemented. |
-| `openclaw_news_pulse_budget` | Partially countable through News Pulse visual metadata/status. | Future cap work. |
+| `openclaw_news_pulse_budget` | Countable for covered News Pulse visual provider work through item metadata/status and usage events. | Cap foundation implemented; repair/reconciliation remains limited. |
 | `platform_background_budget` | Not centralized. | Future schema/usage-event work. |
 | `admin_org_credit_account` | Countable through org credit debit evidence. | Separate from platform caps. |
 | `explicit_unmetered_admin` | Metadata only for narrow exception branches. | Keep switch disabled unless intentionally testing. |
@@ -99,7 +105,6 @@ Expected behavior for covered routes:
 
 ## Current Gaps
 
-- `openclaw_news_pulse_budget` does not have aggregate cap enforcement.
 - `platform_background_budget` does not have centralized usage events.
 - Explicit-unmetered admin branches need stronger aggregate accounting before broader use.
 - Internal AI Worker provider-cost routes rely on caller enforcement and now fail closed without caller policy; aggregate cap accounting for `internal_ai_worker_caller_enforced` remains future work.
