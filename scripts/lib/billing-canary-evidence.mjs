@@ -22,7 +22,9 @@ const BILLING_LIVE_ENV_NAMES = Object.freeze([
 
 const REQUIRED_EVIDENCE = Object.freeze([
   ["live_credit_pack_checkout_canary", "Live credit-pack checkout canary"],
+  ["exactly_once_credit_grant_after_verified_webhook", "Exactly-once credit grant after verified webhook"],
   ["live_subscription_checkout_canary", "Live subscription checkout canary"],
+  ["bitbi_pro_subscription_checkout", "BITBI Pro subscription checkout evidence"],
   ["verified_webhook_receipt", "Verified webhook receipt evidence"],
   ["duplicate_webhook_idempotency", "Duplicate webhook idempotency evidence"],
   ["wrong_price_id_rejection", "Wrong Price ID rejection evidence"],
@@ -33,6 +35,7 @@ const REQUIRED_EVIDENCE = Object.freeze([
   ["raw_payload_signature_secret_redaction", "No raw payload/signature/secret rendering evidence"],
   ["customer_portal_session_canary", "Stripe Customer Portal session canary"],
   ["tax_invoice_configuration_review", "Stripe Tax/invoice configuration review"],
+  ["redacted_admin_live_billing_export", "Redacted Admin Live Billing export attachment checklist"],
 ]);
 
 const NEXT_OPERATOR_ACTIONS = Object.freeze([
@@ -78,7 +81,7 @@ export function createBillingCanaryEvidenceSkeleton({
 } = {}) {
   const sanitizedAdminStatus = adminStatus ? sanitizeEvidenceValue(adminStatus) : null;
   return {
-    reportVersion: "current-baseline-billing-canary-evidence-v1",
+    reportVersion: "current-baseline-billing-canary-evidence-v2",
     generatedAt,
     productionReadiness: "blocked",
     liveBillingReadiness: "blocked",
@@ -130,13 +133,16 @@ export function createBillingCanaryEvidenceSkeleton({
     ],
     operatorChecklist: [
       "Attach sanitized live credit-pack checkout canary evidence.",
+      "Attach sanitized exactly-once credit grant evidence after a verified webhook.",
       "Attach sanitized live subscription checkout canary evidence.",
+      "Attach sanitized BITBI Pro subscription checkout evidence.",
       "Attach verified webhook receipt and duplicate idempotency evidence.",
       "Attach wrong Price ID rejection and missing webhook secret fail-closed evidence.",
       "Attach no-credit-before-webhook and invoice.paid grant evidence.",
       "Attach refund/dispute/payment-failure review-only evidence.",
       "Attach customer portal canary evidence if the portal flow is configured.",
       "Attach tax/invoice configuration review evidence if optional Stripe Tax or invoice flags are configured.",
+      "Attach a redacted Admin Live Billing export and confirm no raw payloads, signatures, payment identifiers, cookies, tokens, or secrets are present.",
       "Confirm raw payloads, signatures, secrets, payment methods, cookies, and session tokens are absent.",
     ],
   };

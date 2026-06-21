@@ -42,6 +42,7 @@ Purpose: current engineering retention baseline. This is not legal approval and 
 - Lifecycle evidence exports document current workflow state only. They are not legal advice, do not claim full legal/GDPR completion unless status/evidence says completed, and do not render raw private R2 keys, raw idempotency keys, request hashes, cookies, auth headers, tokens, Stripe/provider payloads, or secrets.
 - Data export/archive evidence should expose private storage references only as redacted categories, hashes, counts, or archive metadata, not raw private R2 keys.
 - Operator Timeline archive visibility is metadata-only. It reports retention policy/count posture from D1 where available and must not list or delete live R2 objects.
+- The D1/R2 clean storage baseline is storage-integrity evidence only. It does not approve ownership backfill, tenant access-switch enforcement, confirmed legacy media reset, legal erasure completion, or live R2 deletion.
 
 ## Evidence Requirements Before Destructive Action
 

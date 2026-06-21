@@ -461,6 +461,69 @@
         box-shadow: 0 0 0 0.35rem rgba(255, 138, 138, 0.1);
     }
 
+    .generate-lab__workflow-guide {
+        display: grid;
+        gap: 0.85rem;
+        margin-block-end: 1rem;
+        padding: 0.9rem;
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 1.1rem;
+        background:
+            linear-gradient(135deg, rgba(var(--lab-accent-rgb), 0.07), rgba(var(--lab-accent-alt-rgb), 0.035)),
+            rgba(0, 0, 0, 0.16);
+    }
+
+    .generate-lab__workflow-guide-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.8rem;
+    }
+
+    .generate-lab__workflow-guide-head strong {
+        color: rgba(255, 255, 255, 0.92);
+        font-size: 0.92rem;
+    }
+
+    .generate-lab__workflow-guide-kicker,
+    .generate-lab__workflow-guide-label {
+        font-family: var(--font-mono);
+        font-size: 0.66rem;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(var(--lab-accent-rgb), 0.72);
+    }
+
+    .generate-lab__workflow-guide-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.62rem;
+    }
+
+    .generate-lab__workflow-guide-item {
+        display: grid;
+        gap: 0.32rem;
+        min-block-size: 7.2rem;
+        padding: 0.74rem;
+        border: 1px solid rgba(255, 255, 255, 0.075);
+        border-radius: 0.9rem;
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .generate-lab__workflow-guide-item strong {
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 0.86rem;
+        overflow-wrap: anywhere;
+    }
+
+    .generate-lab__workflow-guide-item p {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.58);
+        font-size: 0.77rem;
+        line-height: 1.45;
+    }
+
     .generate-lab__label {
         display: block;
         font-family: var(--font-mono);
@@ -1808,6 +1871,10 @@
 
         .generate-lab__workflow-status {
             padding: 0.75rem;
+        }
+
+        .generate-lab__workflow-guide-grid {
+            grid-template-columns: 1fr;
         }
 
         .generate-lab__recent-actions {

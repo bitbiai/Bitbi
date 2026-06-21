@@ -811,6 +811,9 @@ test.describe('Bilingual locale pages', () => {
     expect(enAssets).toContain('Your selection stays available if saving fails.');
     expect(enAssets).toContain('href="/generate-lab/"');
     expect(enAssets).toContain('Sign in to open Assets Manager');
+    expect(enAssets).toContain('Newest first');
+    expect(enAssets).toContain('Private library');
+    expect(enAssets).toContain('Folders and bulk actions');
     expect(enAssets).toContain('data-auth-message-key="authRecovery.assetsMessage"');
     expect(enAssets).toContain('After sign-in, continue here to refresh your saved library');
     expect(enAssets).toContain('data-auth-source="assets-manager"');
@@ -851,6 +854,9 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).toContain('Ihre Auswahl bleibt verfügbar, wenn Speichern fehlschlägt.');
     expect(deAssets).toContain('href="/de/generate-lab/"');
     expect(deAssets).toContain('Anmelden, um den Assets Manager zu öffnen');
+    expect(deAssets).toContain('Neueste zuerst');
+    expect(deAssets).toContain('Private Bibliothek');
+    expect(deAssets).toContain('Ordner und Mehrfachaktionen');
     expect(deAssets).toContain('data-auth-message-key="authRecovery.assetsMessage"');
     expect(deAssets).toContain('Nach der Anmeldung hier fortfahren, um Ihre gespeicherte Bibliothek');
     expect(deAssets).toContain('data-auth-source="assets-manager"');
@@ -886,8 +892,12 @@ test.describe('Bilingual locale pages', () => {
     expect(enGenerate).not.toContain('generate-lab__account-needed');
     expect(enGenerate).not.toContain('Create, preview, save, then manage');
     expect(enGenerate).toContain('Optimized for desktop');
-    expect(enGenerate).toContain('This creation workspace is built for desktop');
+    expect(enGenerate).toContain('This creation workspace is built for precise desktop control');
     expect(enGenerate).toContain('Open BITBI homepage');
+    expect(enGenerate).toContain('Open Assets Manager');
+    expect(enGenerate).toContain('Review Credits');
+    expect(enGenerate).toContain('id="labWorkflowGuide"');
+    expect(enGenerate).toContain('Generation checklist');
     expect(enGenerate).not.toContain('Mobile creation flow');
     expect(enGenerate).not.toContain('The full Generate Lab workspace is available below');
     expect(enGenerate).not.toContain('Start prompt');
@@ -931,8 +941,12 @@ test.describe('Bilingual locale pages', () => {
     expect(deGenerate).not.toContain('generate-lab__account-needed');
     expect(deGenerate).not.toContain('Erstellen, prüfen, speichern, verwalten');
     expect(deGenerate).toContain('Für Desktop optimiert');
-    expect(deGenerate).toContain('Dieser Erstellungsbereich ist für Desktop gebaut');
+    expect(deGenerate).toContain('Dieser Erstellungsbereich ist für präzise Desktop-Steuerung gebaut');
     expect(deGenerate).toContain('BITBI-Startseite öffnen');
+    expect(deGenerate).toContain('Assets Manager öffnen');
+    expect(deGenerate).toContain('Guthaben ansehen');
+    expect(deGenerate).toContain('id="labWorkflowGuide"');
+    expect(deGenerate).toContain('Generierungs-Checkliste');
     expect(deGenerate).not.toContain('Mobiler Erstellungsfluss');
     expect(deGenerate).not.toContain('Der vollständige Generate-Lab-Arbeitsbereich ist unten verfügbar');
     expect(deGenerate).not.toContain('Prompt starten');

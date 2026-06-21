@@ -994,7 +994,7 @@
                         <div>
                             <p class="admin-operator-guidance__eyebrow">Privacy operations</p>
                             <h3 id="lifecycleNextSafeActionTitle" class="admin-section-title">Next Safe Action</h3>
-                            <p class="admin-shell__desc">Inspect requests, generate plans, and export evidence. Full legal/GDPR completion is only claimable per completed request evidence.</p>
+                            <p class="admin-shell__desc">Inspect requests, generate plans, and export evidence. This is engineering evidence for one request at a time; full legal/GDPR completion is only claimable when the specific final state and retained-category evidence support it.</p>
                         </div>
                         <div class="admin-control-toolbar__badges">
                             <span class="badge badge--user">Plan first</span>
@@ -1017,6 +1017,11 @@
                             <span class="badge badge--disabled">Blocked</span>
                             <strong>No blanket completion</strong>
                             <span>One completed lifecycle request does not prove full legal readiness or unrelated data erasure completion.</span>
+                        </div>
+                        <div class="admin-operator-guidance__item">
+                            <span class="badge badge--legacy">Retained categories</span>
+                            <strong>Operational delete is not legal erasure</strong>
+                            <span>Billing, audit, provider, security, lifecycle, and legal records may remain retained or anonymized under policy.</span>
                         </div>
                     </div>
                 </section>

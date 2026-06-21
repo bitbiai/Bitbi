@@ -384,6 +384,82 @@ function setWorkflowStatus(status = 'ready') {
     );
 }
 
+function workflowReferenceCopy(model) {
+    const controls = model.controls || {};
+    if (model.mediaType === 'image') {
+        if (controls.supportsReferenceImages === true) {
+            return localeText('generateLab.workflowGuideReferenceImages', {
+                count: selectedImageReferenceLimit(model),
+            });
+        }
+        return localeText('generateLab.workflowGuideReferenceHidden');
+    }
+    if (model.mediaType === 'video') {
+        return controls.supportsImageInput === true
+            ? localeText('generateLab.workflowGuideVideoReference')
+            : localeText('generateLab.workflowGuideVideoTextOnly');
+    }
+    return localeText('generateLab.workflowGuideMusicInputs');
+}
+
+function workflowResultCopy(model) {
+    if (model.mediaType === 'image') return localeText('generateLab.workflowGuideImageResult');
+    if (model.mediaType === 'video') return localeText('generateLab.workflowGuideVideoResult');
+    return localeText('generateLab.workflowGuideMusicResult');
+}
+
+function renderWorkflowGuide() {
+    if (!refs.workflowGuide) return;
+    const media = selectedMediaType();
+    const model = selectedModel();
+    const price = formatCredits(currentCreditEstimate());
+    const items = [
+        {
+            label: localeText('generateLab.workflowGuideModeLabel'),
+            value: media.label,
+            copy: localeText('generateLab.workflowGuideModeCopy', { mode: media.label }),
+        },
+        {
+            label: localeText('generateLab.workflowGuideModelLabel'),
+            value: model.displayName,
+            copy: model.summary,
+        },
+        {
+            label: localeText('generateLab.workflowGuideCreditsLabel'),
+            value: price,
+            copy: localeText('generateLab.workflowGuideCreditsCopy'),
+        },
+        {
+            label: localeText('generateLab.workflowGuideInputLabel'),
+            value: localeText('generateLab.workflowGuidePromptRequired'),
+            copy: media.promptHelp,
+        },
+        {
+            label: localeText('generateLab.workflowGuideReferencesLabel'),
+            value: localeText('generateLab.workflowGuideCompatibility'),
+            copy: workflowReferenceCopy(model),
+        },
+        {
+            label: localeText('generateLab.workflowGuideNextLabel'),
+            value: localeText('generateLab.assetsManager'),
+            copy: workflowResultCopy(model),
+        },
+    ];
+    refs.workflowGuide.replaceChildren(
+        el('div', { className: 'generate-lab__workflow-guide-head' },
+            el('span', { className: 'generate-lab__workflow-guide-kicker', text: localeText('generateLab.workflowGuideKicker') }),
+            el('strong', { text: localeText('generateLab.workflowGuideTitle') }),
+        ),
+        el('div', { className: 'generate-lab__workflow-guide-grid' },
+            ...items.map((item) => el('article', { className: 'generate-lab__workflow-guide-item' },
+                el('span', { className: 'generate-lab__workflow-guide-label', text: item.label }),
+                el('strong', { text: item.value }),
+                el('p', { text: item.copy }),
+            )),
+        ),
+    );
+}
+
 function setCurrentResultSummary(status = 'empty') {
     void status;
 }
@@ -560,6 +636,7 @@ function updateActionState() {
         refs.generate.disabled = state.loggedIn && insufficient;
         refs.generate.setAttribute('aria-label', localeText('generateLab.generateAria', { label: refs.generate.textContent, cost: formatCredits(price) }));
     }
+    renderWorkflowGuide();
 }
 
 function renderFolderOptions() {
@@ -2154,6 +2231,7 @@ function cacheRefs() {
         promptLabel: byId('labPromptLabel'),
         promptHelp: byId('labPromptHelp'),
         workflowStatus: byId('labWorkflowStatus'),
+        workflowGuide: byId('labWorkflowGuide'),
         currentResult: byId('labCurrentResult'),
         currentResultTitle: byId('labCurrentResultTitle'),
         currentResultCopy: byId('labCurrentResultCopy'),

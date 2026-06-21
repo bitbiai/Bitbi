@@ -4480,6 +4480,10 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labCost')).toHaveText('1 credit');
     await expect(page.locator('#labWorkflowStatus')).toBeHidden();
     await expect(page.locator('#labCostInsight')).toBeHidden();
+    await expect(page.locator('#labWorkflowGuide')).toContainText('Creation checklist');
+    await expect(page.locator('#labWorkflowGuide')).toContainText('Active creation mode: Images.');
+    await expect(page.locator('#labWorkflowGuide')).toContainText('Estimated only. The server confirms the final debit.');
+    await expect(page.locator('#labWorkflowGuide')).toContainText('Generate a preview, then save it as a private Assets Manager item.');
     const expectLabAccent = async (primary, alt) => {
       const values = await page.locator('body').evaluate((node) => {
         const style = window.getComputedStyle(node);
@@ -4510,6 +4514,8 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labImageOutputFormat')).toBeVisible();
     await expect(page.locator('#labImageBackground')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('50 credits');
+    await expect(page.locator('#labWorkflowGuide')).toContainText('50 credits');
+    await expect(page.locator('#labWorkflowGuide')).toContainText('This model accepts up to 16 saved or uploaded reference images.');
     await expect(page.locator('#labCostInsight')).toBeHidden();
     await expect(page.locator('#labImageRefPrimary .generate-lab-ref-images__slot')).toHaveCount(3);
     await expect(page.locator('#labImageRefExtra')).toBeHidden();
@@ -4573,6 +4579,8 @@ test.describe('Homepage', () => {
     await expect(page.locator('body')).toHaveAttribute('data-lab-mode', 'video');
     await expectLabAccent('0, 240, 255', '255, 179, 0');
     await expect(page.locator('#labWorkflowStatus')).toBeHidden();
+    await expect(page.locator('#labWorkflowGuide')).toContainText('Active creation mode: Video.');
+    await expect(page.locator('#labWorkflowGuide')).toContainText('Successful video jobs save as private Assets Manager items');
     await expect(workspace).not.toContainText('Video remains in preview until you save it.');
     await expect(page.locator('#labModelList').getByText('PixVerse V6')).toBeVisible();
     await expect(page.locator('#labModelList').getByText('HappyHorse 1.0 T2V')).toBeVisible();
@@ -4659,6 +4667,8 @@ test.describe('Homepage', () => {
     await expect(page.locator('body')).toHaveAttribute('data-lab-mode', 'music');
     await expectLabAccent('255, 179, 0', '0, 240, 255');
     await expect(page.locator('#labWorkflowStatus')).toBeHidden();
+    await expect(page.locator('#labWorkflowGuide')).toContainText('Active creation mode: Music.');
+    await expect(page.locator('#labWorkflowGuide')).toContainText('Track generation can take up to 2 minutes');
     await expect(workspace).not.toContainText('Music remains in preview until you save it.');
     await expect(page.locator('#labModelList').getByText('MiniMax Music 2.6')).toBeVisible();
     await expect(page.getByLabel('Describe your track')).toBeVisible();
@@ -5516,8 +5526,10 @@ test.describe('Homepage', () => {
 
     await expect(page.locator('.generate-lab__mobile-fallback')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Optimized for desktop' })).toBeVisible();
-    await expect(page.getByText('This creation workspace is built for desktop.')).toBeVisible();
+    await expect(page.getByText('This creation workspace is built for precise desktop control.')).toBeVisible();
     await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Open BITBI homepage' })).toHaveAttribute('href', '/');
+    await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Open Assets Manager' })).toHaveAttribute('href', '/account/assets-manager.html?source=generate-lab-mobile');
+    await expect(page.locator('.generate-lab__mobile-actions').getByRole('link', { name: 'Review Credits' })).toHaveAttribute('href', '/account/credits.html?source=generate-lab-mobile');
     await expect(page.locator('.generate-lab__desktop')).toBeHidden();
     await expect(page.locator('#labPrompt')).toBeHidden();
     await expect(page.locator('#labGenerate')).toBeHidden();

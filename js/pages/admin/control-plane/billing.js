@@ -949,6 +949,82 @@ export function createBillingDomain({ notify, formatDate }) {
         }
     }
 
+    function buildLiveBillingEvidencePosture(status = {}) {
+        const checklist = Array.isArray(status.evidenceChecklist) ? status.evidenceChecklist : [];
+        const pending = checklist.filter((item) => /pending|waived|review/i.test(String(item.status || '')));
+        const openIncidents = checklist.filter((item) => /repair|failure|incident/i.test(String(item.status || item.id || '')));
+        const artifactBacked = checklist.filter((item) => /attached|accepted|verified|operator_confirmed|complete/i.test(String(item.status || '')));
+        const configured = [
+            status.configShapeStatus ? `Config shape: ${readableToken(status.configShapeStatus)}` : 'Config shape must be checked.',
+            status.configuration?.secrets?.liveSecretKey?.present ? 'Live Stripe secret is present; value redacted.' : 'Live Stripe secret presence is missing or not reported.',
+            status.configuration?.secrets?.liveWebhookSecret?.present ? 'Live webhook secret is present; value redacted.' : 'Live webhook secret presence is missing or not reported.',
+            status.customerPortal?.implemented ? 'Customer Portal endpoint exists for signed-in members.' : 'Customer Portal endpoint not reported.',
+        ];
+        return [
+            {
+                title: 'Configured',
+                badge: readableToken(status.configShapeStatus || 'shape_check_pending'),
+                variant: liveBillingBadgeVariant(status.configShapeStatus),
+                copy: configured.join(' '),
+            },
+            {
+                title: 'Operator-approved',
+                badge: readableToken(status.operatorApproval?.status || 'not_recorded'),
+                variant: liveBillingBadgeVariant(status.operatorApproval?.status),
+                copy: status.operatorApproval?.acceptedRemainingEvidenceRisk
+                    ? 'Operator approval is recorded with accepted remaining evidence risk; this is not full production-maturity proof.'
+                    : 'Operator approval is not recorded in this status payload.',
+            },
+            {
+                title: 'Artifact-backed',
+                badge: `${artifactBacked.length} attached/accepted`,
+                variant: artifactBacked.length ? 'active' : 'legacy',
+                copy: 'Only sanitized attachments or accepted operator evidence count here. Raw Stripe payloads, signatures, cards, cookies, and secrets stay out of Admin.',
+            },
+            {
+                title: 'Waived / pending',
+                badge: `${pending.length} item${pending.length === 1 ? '' : 's'}`,
+                variant: pending.length ? 'legacy' : 'active',
+                copy: 'Pending or waived evidence remains visible so the owner knows what to collect next before making stronger readiness claims.',
+            },
+            {
+                title: 'Open incident',
+                badge: openIncidents.length ? 'repair/review required' : 'none reported',
+                variant: openIncidents.length ? 'disabled' : 'active',
+                copy: openIncidents.length
+                    ? 'A live fulfillment or review item still needs dry-run-first repair evidence. No credit repair is applied from this cockpit.'
+                    : 'No open billing incident is reported by this status payload.',
+            },
+            {
+                title: 'Do not do casually',
+                badge: 'guarded',
+                variant: 'disabled',
+                copy: 'No checkout, refund, subscription mutation, credit repair, clawback, Stripe call, or secret editing is exposed by this read-only surface.',
+            },
+        ];
+    }
+
+    function renderLiveBillingEvidencePosture(status) {
+        const card = el('section', 'admin-operator-guidance glass glass-card reveal visible');
+        const header = el('div', 'admin-operator-guidance__header');
+        const heading = el('div');
+        heading.append(
+            el('p', 'admin-operator-guidance__eyebrow', 'Evidence cockpit'),
+            el('h3', 'admin-section-title', 'What is proven, pending, and guarded'),
+            el('p', 'admin-shell__desc', 'This is a read-only owner view. It separates configured support, operator approval, artifact-backed evidence, waived/pending items, and open incidents without calling Stripe or mutating credits.'),
+        );
+        header.append(heading, badge('read-only', 'user'));
+        card.appendChild(header);
+        const grid = el('div', 'admin-operator-guidance__grid');
+        for (const item of buildLiveBillingEvidencePosture(status)) {
+            const node = el('div', 'admin-operator-guidance__item');
+            node.append(badge(item.title, item.variant), el('strong', null, item.badge), el('span', null, item.copy));
+            grid.appendChild(node);
+        }
+        card.appendChild(grid);
+        return card;
+    }
+
     function safeEvidenceExport(status) {
         return JSON.stringify({
             generatedAt: status.generatedAt,
@@ -965,6 +1041,11 @@ export function createBillingDomain({ notify, formatDate }) {
             canaryStatus: status.canaryStatus,
             finalVerdict: status.finalVerdict || {},
             operatorApproval: status.operatorApproval || {},
+            evidencePosture: buildLiveBillingEvidencePosture(status).map((item) => ({
+                title: item.title,
+                badge: item.badge,
+                copy: item.copy,
+            })),
             productionReadinessScope: status.productionReadinessScope || null,
             nextOperatorActions: status.nextOperatorActions || [],
             statusBadges: status.statusBadges || [],
@@ -988,6 +1069,9 @@ export function createBillingDomain({ notify, formatDate }) {
         const badges = (status.statusBadges || [])
             .map((item) => `- ${item.label}: ${item.status}`)
             .join('\n');
+        const posture = buildLiveBillingEvidencePosture(status)
+            .map((item) => `- ${item.title}: ${item.badge} - ${item.copy}`)
+            .join('\n');
         return `# Live Billing Readiness Evidence
 
 Generated: ${formatDate(status.generatedAt)}
@@ -1001,6 +1085,10 @@ ${status.operatorApproval?.acceptedRemainingEvidenceRisk ? 'Operator accepted re
 ## Status
 
 ${badges || '- Not reported'}
+
+## Evidence Posture
+
+${posture || '- Not reported'}
 
 ## Next Operator Actions
 
@@ -1199,6 +1287,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         }
         overview.appendChild(heroGrid);
         panel.appendChild(overview);
+        panel.appendChild(renderLiveBillingEvidencePosture(status));
         panel.appendChild(renderLiveBillingNextActions(status));
 
         const config = status.configuration || {};

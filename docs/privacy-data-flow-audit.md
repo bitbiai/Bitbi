@@ -39,6 +39,13 @@ Do not expose in docs, logs, exports, or test output:
 - Data lifecycle remains user-subject centered for current implementation.
 - Live billing readiness and remediation workflows are incomplete.
 
+## Current Proof Path
+
+- A clean D1/R2 storage baseline proves that currently referenced media objects resolve and retained system/news/audit categories are classified; it does not prove tenant isolation or future access-switch readiness.
+- Admin Data Lifecycle evidence exports document request state, retained categories, pending actions, and redaction guarantees. They are engineering evidence for review, not legal compliance certification.
+- Operational Admin user deletion and Data Lifecycle safe execution are separate concepts. Operational cleanup can disable/remove account access paths while policy-retained billing, audit, provider, security, lifecycle, and legal records remain retained or anonymized.
+- Any future ownership backfill, access-switch enforcement, confirmed legacy media reset, or irreversible legal erasure requires current sanitized evidence, explicit operator approval, idempotency, audit trail, and legal/product review where applicable.
+
 ## Current Evidence Links
 
 - Audit baseline: `docs/audits/NEXT_AUDIT_BASELINE.md`

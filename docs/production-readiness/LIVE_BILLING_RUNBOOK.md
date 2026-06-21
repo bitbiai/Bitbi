@@ -92,7 +92,9 @@ Do not paste raw Stripe secrets, webhook signatures, raw payloads, cards, paymen
 ## Required Operator Evidence
 
 - `live_credit_pack_checkout_canary`
+- `exactly_once_credit_grant_after_verified_webhook`
 - `live_subscription_checkout_canary`
+- `bitbi_pro_subscription_checkout`
 - `verified_webhook_receipt`
 - `duplicate_webhook_idempotency`
 - `wrong_price_id_rejection`
@@ -103,6 +105,7 @@ Do not paste raw Stripe secrets, webhook signatures, raw payloads, cards, paymen
 - `raw_payload_signature_secret_redaction`
 - `customer_portal_session_canary`
 - `tax_invoice_configuration_review`
+- `redacted_admin_live_billing_export`
 
 Each evidence item must be sanitized and reviewed before any live billing readiness claim.
 

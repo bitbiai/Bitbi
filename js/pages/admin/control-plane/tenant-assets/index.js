@@ -161,6 +161,40 @@ export function createTenantAssetsDomain({ notify, formatDate }) {
         actions.appendChild(refresh);
         classifications.appendChild(actions);
         container.appendChild(classifications);
+
+        const proofPath = readinessSection('Beweis-Pfad', 'Die saubere D1/R2-Baseline ist ein Speicherintegritätsbeweis, aber kein globaler Tenant-Isolation-, Backfill-, Access-Switch-, Reset- oder Rechtsabschluss.');
+        proofPath.appendChild(readinessCards([
+            {
+                title: 'Was bewiesen ist',
+                status: 'clean_baseline',
+                copy: 'D1-referenzierte R2-Objekte fehlen nicht; unbekannte Blocker, riskante Prüffälle und Löschkandidaten stehen in der aktuellen Baseline bei 0.',
+                meta: [['Missing R2', baseline.missingR2Objects], ['Risky/delete/unknown', `${baseline.riskyReviewObjects}/${baseline.deleteCandidates}/${baseline.unknownBlocked}`]],
+            },
+            {
+                title: 'Was nicht bewiesen ist',
+                status: 'unclaimed',
+                copy: 'Tenant isolation, runtime access-switch readiness, ownership backfill readiness, confirmed legacy reset readiness, and legal erasure completion remain unclaimed.',
+                meta: [['Tenant isolation', 'not claimed'], ['Access/backfill/reset', 'blocked']],
+            },
+            {
+                title: 'Nächste sichere Evidenz',
+                status: 'read_only',
+                copy: 'Use manual-review supersession dry-runs, redacted evidence exports, selected-user storage checks, and access-switch shadow diagnostics before any execution plan.',
+                meta: [['Live R2 mutation', 'none'], ['D1 mutation', 'none in this view']],
+            },
+            {
+                title: 'Guarded actions',
+                status: 'blocked_by_default',
+                copy: 'Backfill, access switching, confirmed reset, and live R2 cleanup stay hidden behind advanced diagnostics and separate operator approval.',
+                meta: [['First-click actions', 'not exposed'], ['Evidence required', 'yes']],
+            },
+        ], (item) => ({
+            title: item.title,
+            badge: { label: readableToken(item.status), variant: item.status === 'clean_baseline' ? 'active' : item.status === 'read_only' ? 'user' : 'disabled' },
+            copy: item.copy,
+            meta: item.meta,
+        })));
+        container.appendChild(proofPath);
     }
 
     async function renderTenantAssets() {

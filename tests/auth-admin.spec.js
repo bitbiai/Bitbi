@@ -15874,6 +15874,11 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#sectionTenantAssets')).toContainText('current and valid');
     await expect(page.locator('#sectionTenantAssets')).toContainText('news pulse asset');
     await expect(page.locator('#sectionTenantAssets')).toContainText('audit or legal retention keep');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Beweis-Pfad');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Was bewiesen ist');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Was nicht bewiesen ist');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Tenant isolation');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Guarded actions');
     const tenantAdvanced = page.locator('#sectionTenantAssets details.admin-advanced-disclosure').first();
     await expect(tenantAdvanced).not.toHaveAttribute('open', '');
     await expect(page.locator('#sectionTenantAssets').getByRole('button', { name: 'Ownership Backfill danger explanation' })).toHaveCount(0);
@@ -16270,6 +16275,8 @@ test.describe('Admin Control Plane', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#sectionLifecycle')).toBeVisible();
+    await expect(page.locator('#sectionLifecycle')).toContainText('Operational delete is not legal erasure');
+    await expect(page.locator('#sectionLifecycle')).toContainText('Billing, audit, provider, security, lifecycle, and legal records may remain retained or anonymized under policy.');
 
     const deleteRow = page.locator('#lifecycleRequests tr', { hasText: 'delete' }).first();
     await expect(deleteRow).toContainText('submitted');
@@ -16517,6 +16524,14 @@ test.describe('Admin Control Plane', () => {
 	    await expect(section).toContainText('ready for operator canary');
 	    await expect(section).toContainText('Final verdict');
 	    await expect(section).toContainText('operator approved live with evidence waivers');
+	    await expect(section).toContainText('What is proven, pending, and guarded');
+	    await expect(section).toContainText('Configured');
+	    await expect(section).toContainText('Operator-approved');
+	    await expect(section).toContainText('Artifact-backed');
+	    await expect(section).toContainText('Waived / pending');
+	    await expect(section).toContainText('Open incident');
+	    await expect(section).toContainText('Do not do casually');
+	    await expect(section).toContainText('No credit repair is applied from this cockpit');
 	    await expect(section).toContainText('Safe Cutover Path');
 	    await expect(section).toContainText('Attach remaining waived or pending artifact-backed evidence');
 	    await expect(section).toContainText('Configuration Readiness');
