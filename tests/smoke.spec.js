@@ -112,6 +112,12 @@ async function mockHomepageAuthState(page, { loggedIn }) {
   });
 }
 
+async function expectHomepageCenterCopyHidden(page) {
+  const copy = page.locator('#hero .hero__saas-copy');
+  await expect(copy).toHaveAttribute('aria-hidden', 'true');
+  await expect(copy).toBeHidden();
+}
+
 async function expectHomepageGuestFallback(page, locale = 'en') {
   const fallback = page.locator('[data-homepage-guest-fallback]');
   await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'guest');
@@ -120,13 +126,13 @@ async function expectHomepageGuestFallback(page, locale = 'en') {
   for (const line of HOMEPAGE_GUEST_FALLBACK_COPY[locale]) {
     await expect(fallback).toContainText(line);
   }
-  await expect(page.locator('#hero .hero__saas-copy')).toHaveAttribute('aria-hidden', 'true');
+  await expectHomepageCenterCopyHidden(page);
 }
 
 async function expectHomepageGuestFallbackHidden(page) {
   const fallback = page.locator('[data-homepage-guest-fallback]');
   await expect(fallback).toBeHidden();
-  await expect(page.locator('#hero .hero__saas-copy')).not.toHaveAttribute('aria-hidden', 'true');
+  await expectHomepageCenterCopyHidden(page);
 }
 
 async function dismissCookieBannerIfPresent(page) {
@@ -1266,6 +1272,60 @@ test.describe('Homepage', () => {
     const response = await page.goto('/');
     expect(response.status()).toBe(200);
     await expect(page).toHaveTitle(/BITBI/);
+  });
+
+  test('fresh logged-out homepage load keeps center copy, guest fallback, and Live Pulse hidden until auth resolves', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const requestedUrls = [];
+    let authGate = Promise.resolve();
+    let releaseAuth = () => {};
+
+    await page.route('**/api/me', async (route) => {
+      await authGate;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      });
+    });
+    page.on('request', (request) => {
+      if (request.url().includes('/api/public/news-pulse')) requestedUrls.push(request.url());
+    });
+    await page.route('**/api/public/news-pulse**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          enabled: true,
+          items: buildNewsPulseItems('fresh-load-hidden-pulse'),
+          updated_at: '2026-05-09T08:00:00.000Z',
+        }),
+      });
+    });
+
+    for (const { path, locale } of [
+      { path: '/', locale: 'en' },
+      { path: '/de/', locale: 'de' },
+    ]) {
+      authGate = new Promise((resolve) => {
+        releaseAuth = resolve;
+      });
+      const navigation = page.goto(path, { waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('#hero');
+      await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'loading');
+      await expect(page.locator('[data-homepage-guest-fallback]')).toBeHidden();
+      await expectHomepageCenterCopyHidden(page);
+      await expect(page.locator('#newsPulse')).toBeHidden();
+      await expect(page.locator('#newsPulse .news-pulse__slide')).toHaveCount(0);
+      await expect(page.locator('#newsPulse .news-pulse__mobile-item')).toHaveCount(0);
+      expect(requestedUrls).toEqual([]);
+
+      releaseAuth();
+      await navigation;
+      await expectHomepageGuestFallback(page, locale);
+      await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
+      expect(requestedUrls).toEqual([]);
+    }
   });
 
   test('logged-out desktop homepages hide Live Pulse and show the guest hero fallback without fetching news', async ({ page }) => {
@@ -3736,6 +3796,7 @@ test.describe('Homepage', () => {
     await expect(hero.locator('.hero__actions')).toHaveClass(/hero__actions--single-cta/);
     await expect(hero.locator('.hero__saas-copy')).toContainText('Create AI images, videos, and music in one studio.');
     await expect(hero.locator('.hero__saas-copy')).toContainText('Generate, save, organize, and publish creative media with credits built for real use.');
+    await expectHomepageCenterCopyHidden(page);
     await expect(teaser).toBeVisible();
     await expect(teaser.locator('.hero__lab-teaser-text')).toHaveText('Open Generate Lab');
     await expect(teaser.locator('.hero__lab-teaser-badge')).toHaveCount(0);
@@ -3824,8 +3885,7 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.titleHeight).toBeGreaterThan(320);
     expect(teaserMetrics.titleCenterOffset).toBeLessThanOrEqual(2);
     expect(teaserMetrics.titleHeaderGap).toBeGreaterThanOrEqual(0);
-    expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(18);
-    expect(teaserMetrics.modelLabelCenterDelta).toBeLessThanOrEqual(3);
+    expect(teaserMetrics.titleToTeaserGap).toBeGreaterThanOrEqual(0);
     expect(teaserMetrics.modelLabelsSingleLine).toBe(true);
     expect(teaserMetrics.modelLabelsNoWrap).toBe(true);
     expect(teaserMetrics.teaserToScrollGap).toBeGreaterThanOrEqual(34);

@@ -4642,7 +4642,7 @@
         inline-size: min(var(--homepage-news-pulse-width, clamp(26rem, 46vw, 52rem)), calc(100vw - (var(--homepage-hero-side-inset, 1.4rem) * 2)));
         block-size: var(--homepage-guest-fallback-height, clamp(7.25rem, 12vh, 9.5rem));
         min-inline-size: 0;
-        contain: layout paint;
+        contain: layout;
         pointer-events: none;
         transform: translateX(-50%);
     }
@@ -4662,26 +4662,29 @@
         display: grid;
         grid-template-columns: auto minmax(0, 1fr);
         align-items: center;
-        gap: clamp(0.72rem, 1.4vw, 1rem);
+        gap: clamp(0.78rem, 1.45vw, 1.08rem);
         inline-size: 100%;
         min-block-size: 100%;
-        padding: clamp(0.9rem, 1.55vw, 1.2rem) clamp(1rem, 2vw, 1.55rem);
-        border: 1px solid rgba(132, 224, 255, 0.24);
-        border-radius: 8px;
-        overflow: hidden;
+        padding: clamp(0.88rem, 1.45vw, 1.12rem) clamp(1.18rem, 2.25vw, 1.82rem);
+        border: 0;
+        border-radius: 999px;
+        overflow: visible;
         background:
-            linear-gradient(112deg, rgba(255, 255, 255, 0.13), transparent 24% 76%, rgba(255, 226, 158, 0.08)),
-            radial-gradient(110% 150% at 14% 16%, rgba(0, 240, 255, 0.22), transparent 48%),
-            radial-gradient(110% 145% at 86% 80%, rgba(255, 79, 216, 0.18), transparent 50%),
-            linear-gradient(137deg, rgba(5, 13, 24, 0.9), rgba(6, 10, 18, 0.78));
+            radial-gradient(135% 220% at 13% 18%, rgba(0, 240, 255, 0.24), transparent 47%),
+            radial-gradient(120% 190% at 88% 76%, rgba(255, 79, 216, 0.18), transparent 52%),
+            radial-gradient(80% 160% at 58% -6%, rgba(255, 226, 158, 0.12), transparent 45%),
+            linear-gradient(108deg, rgba(255, 255, 255, 0.14), transparent 24% 76%, rgba(255, 226, 158, 0.08)),
+            linear-gradient(137deg, rgba(7, 18, 31, 0.82), rgba(5, 9, 16, 0.68) 58%, rgba(12, 18, 31, 0.76));
         box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.16),
-            inset 0 -1px 0 rgba(0, 240, 255, 0.08),
-            0 18px 48px rgba(0, 0, 0, 0.42),
-            0 0 30px rgba(0, 240, 255, 0.16),
-            0 0 44px rgba(255, 79, 216, 0.1);
-        backdrop-filter: blur(18px) saturate(1.18);
-        -webkit-backdrop-filter: blur(18px) saturate(1.18);
+            inset 0 1px 0 rgba(255, 255, 255, 0.18),
+            inset 0 -18px 36px rgba(0, 240, 255, 0.035),
+            inset 0 0 0 1px rgba(132, 224, 255, 0.11),
+            0 16px 44px rgba(0, 0, 0, 0.36),
+            0 0 28px rgba(0, 240, 255, 0.12),
+            0 0 52px rgba(255, 79, 216, 0.1),
+            0 0 34px rgba(255, 207, 102, 0.055);
+        backdrop-filter: blur(20px) saturate(1.18);
+        -webkit-backdrop-filter: blur(20px) saturate(1.18);
     }
 
     .hero__guest-fallback-inner::before,
@@ -4692,23 +4695,29 @@
     }
 
     .hero__guest-fallback-inner::before {
-        inset: -58% -12% auto -10%;
-        block-size: 160%;
+        z-index: -1;
+        inset: -1.35rem -2.2rem;
+        border-radius: inherit;
         background:
-            linear-gradient(110deg, transparent 8%, rgba(0, 240, 255, 0.18) 24%, rgba(255, 255, 255, 0.08) 36%, rgba(255, 79, 216, 0.12) 52%, transparent 74%),
-            linear-gradient(102deg, transparent 18%, rgba(255, 207, 102, 0.13) 42%, rgba(111, 255, 207, 0.1) 55%, transparent 78%);
-        filter: blur(16px);
-        opacity: 0.78;
-        transform: rotate(-2deg);
+            radial-gradient(ellipse at 20% 44%, rgba(0, 240, 255, 0.34), transparent 62%),
+            radial-gradient(ellipse at 76% 54%, rgba(255, 79, 216, 0.22), transparent 66%),
+            radial-gradient(ellipse at 56% 50%, rgba(255, 207, 102, 0.12), transparent 60%);
+        filter: blur(18px) saturate(1.25);
+        opacity: 0.7;
+        mix-blend-mode: screen;
     }
 
     .hero__guest-fallback-inner::after {
-        inset-inline: 12%;
-        inset-block-end: 0.34rem;
-        block-size: 1px;
-        background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.5), rgba(255, 226, 158, 0.52), rgba(255, 79, 216, 0.38), transparent);
-        filter: drop-shadow(0 0 10px rgba(0, 240, 255, 0.32));
-        opacity: 0.72;
+        z-index: 0;
+        inset: 0;
+        border-radius: inherit;
+        background:
+            linear-gradient(96deg, rgba(255, 255, 255, 0.2), transparent 18% 82%, rgba(255, 226, 158, 0.14)),
+            linear-gradient(90deg, rgba(0, 240, 255, 0.22), rgba(255, 255, 255, 0.04) 36% 64%, rgba(255, 79, 216, 0.18));
+        box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.065),
+            inset 0 0 26px rgba(0, 240, 255, 0.055);
+        opacity: 0.66;
     }
 
     .hero__guest-fallback-icon {
@@ -4716,20 +4725,22 @@
         z-index: 1;
         display: inline-grid;
         place-items: center;
-        inline-size: clamp(2.35rem, 4vw, 3.2rem);
-        block-size: clamp(2.35rem, 4vw, 3.2rem);
-        border: 1px solid rgba(0, 240, 255, 0.26);
-        border-radius: 8px;
+        inline-size: clamp(2.35rem, 3.7vw, 3.08rem);
+        block-size: clamp(2.35rem, 3.7vw, 3.08rem);
+        border: 0;
+        border-radius: 999px;
         color: rgba(248, 253, 255, 0.98);
         font-size: clamp(1.1rem, 1.8vw, 1.45rem);
         line-height: 1;
         background:
-            radial-gradient(circle at 35% 24%, rgba(255, 255, 255, 0.22), transparent 34%),
-            linear-gradient(145deg, rgba(0, 240, 255, 0.2), rgba(211, 84, 255, 0.12));
+            radial-gradient(circle at 35% 24%, rgba(255, 255, 255, 0.28), transparent 34%),
+            radial-gradient(circle at 70% 78%, rgba(255, 207, 102, 0.16), transparent 46%),
+            linear-gradient(145deg, rgba(0, 240, 255, 0.22), rgba(211, 84, 255, 0.13));
         box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.14),
-            0 0 18px rgba(0, 240, 255, 0.18),
-            0 0 24px rgba(255, 179, 0, 0.06);
+            inset 0 1px 0 rgba(255, 255, 255, 0.16),
+            inset 0 0 0 1px rgba(255, 255, 255, 0.075),
+            0 0 18px rgba(0, 240, 255, 0.2),
+            0 0 28px rgba(255, 179, 0, 0.08);
         text-shadow:
             0 0 12px rgba(0, 240, 255, 0.44),
             0 0 18px rgba(255, 179, 0, 0.18);
@@ -4751,7 +4762,7 @@
     .hero__guest-fallback-copy span:first-child {
         color: rgba(255, 255, 255, 0.97);
         font-family: var(--font-display);
-        font-size: clamp(1.08rem, 1.85vw, 1.58rem);
+        font-size: clamp(1.12rem, 1.82vw, 1.56rem);
         font-weight: 800;
         line-height: 1.12;
         text-wrap: balance;
@@ -4759,7 +4770,7 @@
 
     .hero__guest-fallback-copy span:last-child {
         color: rgba(225, 238, 247, 0.78);
-        font-size: clamp(0.82rem, 0.96vw, 0.98rem);
+        font-size: clamp(0.82rem, 0.94vw, 0.96rem);
         font-weight: 650;
         line-height: 1.34;
         text-wrap: pretty;
@@ -4883,8 +4894,9 @@
             0 12px 26px rgba(0, 0, 0, 0.34);
     }
 
-    .hero--homepage[data-homepage-auth-state="guest"] .hero__saas-copy {
-        visibility: hidden;
+    .hero--homepage .hero__saas-copy {
+        display: none !important;
+        visibility: hidden !important;
         pointer-events: none;
     }
 
@@ -5830,24 +5842,33 @@
 
         .hero__guest-fallback-inner {
             grid-template-columns: auto minmax(0, 1fr);
-            gap: 0.58rem;
-            padding: 0.68rem 0.76rem;
-            border-color: rgba(0, 240, 255, 0.2);
+            gap: 0.62rem;
+            padding: 0.7rem 0.86rem;
+            border-radius: 999px;
             background:
-                linear-gradient(135deg, rgba(9, 18, 30, 0.9), rgba(13, 27, 42, 0.72)),
-                radial-gradient(circle at 10% 18%, rgba(0, 240, 255, 0.16), transparent 56%),
-                radial-gradient(circle at 92% 85%, rgba(255, 0, 255, 0.12), transparent 58%);
+                radial-gradient(140% 170% at 12% 18%, rgba(0, 240, 255, 0.22), transparent 52%),
+                radial-gradient(125% 170% at 92% 86%, rgba(255, 79, 216, 0.15), transparent 58%),
+                radial-gradient(86% 130% at 62% -8%, rgba(255, 207, 102, 0.11), transparent 46%),
+                linear-gradient(135deg, rgba(9, 18, 30, 0.84), rgba(6, 10, 18, 0.68));
             box-shadow:
-                inset 0 1px 0 rgba(255, 255, 255, 0.08),
+                inset 0 1px 0 rgba(255, 255, 255, 0.12),
+                inset 0 0 0 1px rgba(132, 224, 255, 0.085),
                 0 12px 34px rgba(0, 0, 0, 0.28),
-                0 0 18px rgba(0, 240, 255, 0.1);
-            backdrop-filter: blur(14px);
-            -webkit-backdrop-filter: blur(14px);
+                0 0 22px rgba(0, 240, 255, 0.12),
+                0 0 28px rgba(255, 79, 216, 0.07);
+            backdrop-filter: blur(16px) saturate(1.12);
+            -webkit-backdrop-filter: blur(16px) saturate(1.12);
+        }
+
+        .hero__guest-fallback-inner::before {
+            inset: -0.8rem -1.1rem;
+            filter: blur(14px) saturate(1.16);
+            opacity: 0.52;
         }
 
         .hero__guest-fallback-icon {
-            inline-size: 2rem;
-            block-size: 2rem;
+            inline-size: 2.06rem;
+            block-size: 2.06rem;
             font-size: 1rem;
         }
 

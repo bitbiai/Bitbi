@@ -338,9 +338,22 @@ function initHomepageGuestFallback() {
     const fallback = hero?.querySelector('[data-homepage-guest-fallback]');
     const centralCopy = hero?.querySelector('.hero__saas-copy');
     if (!hero || !fallback) return;
+    centralCopy?.setAttribute('aria-hidden', 'true');
 
     const desktopQuery = window.matchMedia('(min-width: 1024px)');
     let placementFrame = 0;
+
+    const clearFallbackPlacement = () => {
+        if (placementFrame) {
+            window.cancelAnimationFrame(placementFrame);
+            placementFrame = 0;
+        }
+        delete fallback.dataset.homepageGuestFallbackPlacement;
+        fallback.style.removeProperty('--homepage-guest-fallback-top');
+        fallback.style.removeProperty('--homepage-guest-fallback-height');
+        fallback.style.removeProperty('--homepage-guest-fallback-mobile-top');
+        fallback.style.removeProperty('--homepage-guest-fallback-mobile-height');
+    };
 
     const updateDesktopPlacement = () => {
         const labels = [...hero.querySelectorAll('.latest-models-video-module__label')]
@@ -443,16 +456,10 @@ function initHomepageGuestFallback() {
             schedulePlacement();
         } else {
             fallback.setAttribute('aria-hidden', 'true');
-            delete fallback.dataset.homepageGuestFallbackPlacement;
+            clearFallbackPlacement();
         }
 
-        if (centralCopy) {
-            if (showGuestFallback) {
-                centralCopy.setAttribute('aria-hidden', 'true');
-            } else {
-                centralCopy.removeAttribute('aria-hidden');
-            }
-        }
+        centralCopy?.setAttribute('aria-hidden', 'true');
     };
 
     const bindQueryChange = (query, listener) => {
