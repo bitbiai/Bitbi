@@ -32,7 +32,6 @@ import {
     updateWalletConnection,
 } from './wallet-state.js?v=__ASSET_VERSION__';
 import { initWalletUI } from './wallet-ui.js?v=__ASSET_VERSION__';
-import { initWalletWorkspace } from './wallet-workspace.js?v=__ASSET_VERSION__';
 
 let initialized = false;
 let activeProvider = null;
@@ -45,6 +44,8 @@ let transientDisconnectTimer = null;
 let lifecycleReconcileTimer = null;
 let injectedDiscoverySettleTimer = null;
 let reconcilePromise = null;
+let walletWorkspaceModulePromise = null;
+let walletWorkspaceInitialized = false;
 let disconnectConfirmationFingerprint = '';
 let disconnectConfirmationReason = '';
 let disconnectConfirmationCount = 0;
@@ -1279,6 +1280,38 @@ function closeWalletPanel() {
     patchWalletState({ isOpen: false });
 }
 
+function getWalletWorkspaceActions() {
+    return {
+        openPanel: openWalletPanel,
+        closeWorkspace: closeWalletWorkspace,
+        requestWalletLink,
+        requestWalletLogin,
+        refreshWallet: refreshActiveWalletConnection,
+        sendNativeTransaction,
+        switchToMainnet: switchToEthereumMainnet,
+        unlinkLinkedWallet,
+        estimateMaxSendableAmount,
+    };
+}
+
+async function ensureWalletWorkspaceLoaded() {
+    if (walletWorkspaceInitialized) return;
+    if (!walletWorkspaceModulePromise) {
+        walletWorkspaceModulePromise = import('./wallet-workspace.js?v=__ASSET_VERSION__');
+    }
+    const module = await walletWorkspaceModulePromise;
+    module.initWalletWorkspace(getWalletWorkspaceActions());
+    walletWorkspaceInitialized = true;
+}
+
+function loadWalletWorkspaceForOpen() {
+    void ensureWalletWorkspaceLoaded().catch((error) => {
+        console.warn('walletWorkspace:', error);
+        patchWalletState({ workspaceOpen: false });
+        flashMessage('warning', 'The wallet workspace could not be opened right now.');
+    });
+}
+
 function openWalletWorkspace(options = {}) {
     const { fromHash = false } = options;
     workspaceHashRequested = fromHash || isWalletWorkspaceHashActive();
@@ -1286,6 +1319,7 @@ function openWalletWorkspace(options = {}) {
         workspaceOpen: true,
         isOpen: fromHash ? getWalletState().isOpen : false,
     });
+    loadWalletWorkspaceForOpen();
 }
 
 function closeWalletWorkspace(options = {}) {
@@ -1352,18 +1386,6 @@ export function initWalletController() {
         loginWithWallet: () => performSiweIntent('login'),
         linkWallet: () => performSiweIntent('link'),
         unlinkWallet: unlinkLinkedWallet,
-    });
-
-    initWalletWorkspace({
-        openPanel: openWalletPanel,
-        closeWorkspace: closeWalletWorkspace,
-        requestWalletLink,
-        requestWalletLogin,
-        refreshWallet: refreshActiveWalletConnection,
-        sendNativeTransaction,
-        switchToMainnet: switchToEthereumMainnet,
-        unlinkLinkedWallet,
-        estimateMaxSendableAmount,
     });
 
     beginInjectedDiscoveryScan();

@@ -101,6 +101,14 @@ async function mockHomepageAuthState(page, { loggedIn }) {
   });
 }
 
+async function dismissCookieBannerIfPresent(page) {
+  const accept = page.locator('#ckAcceptAll');
+  if (await accept.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await accept.click();
+    await page.locator('#cookieBanner').waitFor({ state: 'hidden', timeout: 1500 }).catch(() => {});
+  }
+}
+
 async function getExpectedModelCatalog({ homepage = false } = {}) {
   const cacheKey = homepage ? 'homepage' : 'shared';
   if (expectedModelCatalogs.has(cacheKey)) return expectedModelCatalogs.get(cacheKey);
@@ -1251,6 +1259,7 @@ test.describe('Homepage', () => {
 
     for (const path of ['/', '/de/']) {
       await page.goto(path, { waitUntil: 'domcontentloaded' });
+      await dismissCookieBannerIfPresent(page);
       const pulse = page.locator('#newsPulse');
       await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
       await expect(pulse).not.toHaveAttribute('data-news-pulse-disabled', /.+/);
@@ -9011,8 +9020,7 @@ test.describe('Homepage', () => {
     await page.goto('/');
 
     const walletWorkspace = page.locator('#walletWorkspace');
-    await expect(walletWorkspace).toHaveCount(1);
-    await expect(walletWorkspace).toBeHidden();
+    await expect(walletWorkspace).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Toggle menu' }).click();
     await expect(page.locator('#mobileNav')).toHaveClass(/open/);
@@ -9022,6 +9030,7 @@ test.describe('Homepage', () => {
     await walletButton.click();
 
     await expect(page.locator('#mobileNav')).not.toHaveClass(/open/);
+    await expect(walletWorkspace).toHaveCount(1);
     await expect(walletWorkspace).toBeVisible();
     await expect(page.locator('#galleryModal')).not.toHaveClass(/active/);
     await expect.poll(() => popupUrls.length).toBe(0);

@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  checkMaintainabilityFileBudgets,
+  collectLargeMaintainabilityFiles,
   scanDomSinksAgainstBaseline,
   scanSecretText,
   validateToolchainFiles,
@@ -72,6 +74,40 @@ import {
   );
   assert(validateToolchainFiles(tmp).some((issue) => issue.includes("worker dependency audit guard")));
   assert(validateToolchainFiles(tmp).some((issue) => issue.includes("instead of direct worker npm audit")));
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "bitbi-maintainability-"));
+  fs.mkdirSync(path.join(tmp, "js/pages/admin"), { recursive: true });
+  fs.mkdirSync(path.join(tmp, "tests"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "js/pages/admin/ai-lab.js"), "x".repeat(12));
+  fs.writeFileSync(path.join(tmp, "tests/smoke.spec.js"), "x".repeat(8));
+
+  assert.deepEqual(checkMaintainabilityFileBudgets(tmp, [
+    { path: "js/pages/admin/ai-lab.js", maxBytes: 20, reason: "fixture under budget" },
+  ]), []);
+  assert.deepEqual(checkMaintainabilityFileBudgets(tmp, [
+    { path: "js/pages/admin/ai-lab.js", maxBytes: 10, reason: "fixture over budget" },
+  ]), [
+    {
+      path: "js/pages/admin/ai-lab.js",
+      bytes: 12,
+      maxBytes: 10,
+      reason: "fixture over budget",
+    },
+  ]);
+
+  assert.deepEqual(collectLargeMaintainabilityFiles(tmp, { minBytes: 10 }), [
+    {
+      path: "js/pages/admin/ai-lab.js",
+      bytes: 12,
+    },
+  ]);
+}
+
+{
+  const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+  assert.deepEqual(checkMaintainabilityFileBudgets(repoRoot), []);
 }
 
 console.log("Quality gate tests passed.");

@@ -1052,4 +1052,29 @@
         0%, 100% { transform: scale(1); opacity: 1; }
         50% { transform: scale(0.8); opacity: 0.65; }
     }
+
+    @media (prefers-reduced-motion: reduce) {
+        .wallet-nav__trigger,
+        .wallet-nav__mobile-link,
+        .wallet-nav__mobile-trigger,
+        .wallet-modal,
+        .wallet-modal *,
+        .wallet-workspace,
+        .wallet-workspace * {
+            scroll-behavior: auto !important;
+            transition-duration: 0.01ms !important;
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+        }
+
+        .wallet-nav__status-dot.is-busy,
+        .wallet-nav__mobile-status.is-busy,
+        .wallet-modal__spinner {
+            animation: none !important;
+        }
+
+        .wallet-workspace__panel {
+            transform: none !important;
+        }
+    }
 }

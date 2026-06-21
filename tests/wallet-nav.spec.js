@@ -665,6 +665,23 @@ test.describe('Wallet navigation', () => {
     await expect(modal).toBeVisible();
   });
 
+  test('wallet workspace code is deferred until the workspace is opened', async ({ page }) => {
+    await page.goto('/');
+
+    await expect(page.locator('#walletWorkspace')).toHaveCount(0);
+    const beforeOpen = await page.evaluate(() => performance
+      .getEntriesByType('resource')
+      .some((entry) => String(entry.name || '').includes('/js/shared/wallet/wallet-workspace.js')));
+    expect(beforeOpen).toBe(false);
+
+    await openDesktopWalletWorkspace(page);
+
+    const afterOpen = await page.evaluate(() => performance
+      .getEntriesByType('resource')
+      .some((entry) => String(entry.name || '').includes('/js/shared/wallet/wallet-workspace.js')));
+    expect(afterOpen).toBe(true);
+  });
+
   test('legacy wallet route redirects into the hash-open wallet workspace instead of remaining the primary flow', async ({ page }) => {
     await page.goto('/account/wallet.html');
     await expect(page).toHaveURL(/\/#wallet-workspace$/);
@@ -771,6 +788,29 @@ test.describe('Wallet navigation mobile', () => {
 });
 
 test.describe('Wallet workspace', () => {
+  test('wallet workspace honors reduced-motion timing when opened lazily', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+    await openDesktopWalletWorkspace(page);
+
+    const motion = await page.locator('.wallet-workspace__panel').evaluate((node) => {
+      const style = window.getComputedStyle(node);
+      const firstDuration = String(style.transitionDuration || '0s').split(',')[0].trim();
+      const toMilliseconds = (value) => {
+        if (value.endsWith('ms')) return Number.parseFloat(value);
+        if (value.endsWith('s')) return Number.parseFloat(value) * 1000;
+        return Number.parseFloat(value) || 0;
+      };
+      return {
+        transitionMs: toMilliseconds(firstDuration),
+        transform: style.transform,
+      };
+    });
+
+    expect(motion.transitionMs).toBeLessThanOrEqual(0.01);
+    expect(['none', 'matrix(1, 0, 0, 1, 0, 0)']).toContain(motion.transform);
+  });
+
   test('disconnected wallet workspace renders a connect-first state and reuses the wallet modal flow', async ({ page }) => {
     await page.goto('/');
     await openDesktopWalletWorkspace(page);

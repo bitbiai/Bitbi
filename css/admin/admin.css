@@ -6007,4 +6007,21 @@
     min-width: min(100%, 16rem);
 }
 
+@media (prefers-reduced-motion: reduce) {
+    body:has(#adminHeroTitle),
+    body:has(#adminHeroTitle) *,
+    body:has(#adminHeroTitle) *::before,
+    body:has(#adminHeroTitle) *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+
+    body:has(#adminHeroTitle) .admin-ai__spinner,
+    body:has(#adminHeroTitle) .admin-toast__item {
+        animation: none !important;
+    }
+}
+
 }

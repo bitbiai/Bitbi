@@ -74,6 +74,19 @@ const DOM_SINK_PATTERNS = [
   { id: "document.write", pattern: /\bdocument\.write\s*\(/g },
 ];
 
+export const MAINTAINABILITY_FILE_BUDGETS = Object.freeze([
+  { path: "js/pages/admin/ai-lab.js", maxBytes: 340_000, reason: "Admin AI Lab remains a known large owner-maintenance hotspot." },
+  { path: "js/shared/locale.js", maxBytes: 150_000, reason: "Locale copy should not silently absorb unrelated feature logic." },
+  { path: "js/shared/saved-assets-browser.js", maxBytes: 140_000, reason: "Saved assets browser is shared by member/admin media flows." },
+  { path: "css/pages/index.css", maxBytes: 200_000, reason: "Homepage CSS is route-critical for first paint and visual guardrails." },
+  { path: "css/admin/admin.css", maxBytes: 175_000, reason: "Admin CSS is shared across the owner control plane." },
+  { path: "css/pages/generate-lab.css", maxBytes: 65_000, reason: "Generate Lab CSS should stay targeted to the creation workspace." },
+  { path: "css/account/assets-manager.css", maxBytes: 105_000, reason: "Assets Manager CSS carries private media UI complexity." },
+  { path: "tests/workers.spec.js", maxBytes: 2_100_000, reason: "Worker tests are intentionally broad but should not grow unnoticed." },
+  { path: "tests/auth-admin.spec.js", maxBytes: 950_000, reason: "Admin/static integration coverage is broad and should be watched." },
+  { path: "tests/smoke.spec.js", maxBytes: 520_000, reason: "Static smoke coverage should remain navigable for one-owner maintenance." },
+]);
+
 export function normalizeRepoPath(repoRoot, absolutePath) {
   return path.relative(repoRoot, absolutePath).replace(/\\/g, "/");
 }
@@ -176,6 +189,42 @@ export function scanDomSinksAgainstBaseline(repoRoot, baseline) {
     }
   }
   return violations;
+}
+
+export function collectLargeMaintainabilityFiles(repoRoot, {
+  minBytes = 100_000,
+  extensions = new Set([".css", ".html", ".js", ".mjs"]),
+  limit = 30,
+} = {}) {
+  return walkRepoFiles(repoRoot, { extensions })
+    .map((absolutePath) => {
+      const stats = fs.statSync(absolutePath);
+      return {
+        path: normalizeRepoPath(repoRoot, absolutePath),
+        bytes: stats.size,
+      };
+    })
+    .filter((entry) => entry.bytes >= minBytes)
+    .sort((left, right) => right.bytes - left.bytes)
+    .slice(0, limit);
+}
+
+export function checkMaintainabilityFileBudgets(repoRoot, budgets = MAINTAINABILITY_FILE_BUDGETS) {
+  const issues = [];
+  for (const budget of budgets) {
+    const absolutePath = path.join(repoRoot, budget.path);
+    if (!fs.existsSync(absolutePath)) continue;
+    const bytes = fs.statSync(absolutePath).size;
+    if (bytes > budget.maxBytes) {
+      issues.push({
+        path: budget.path,
+        bytes,
+        maxBytes: budget.maxBytes,
+        reason: budget.reason || "Large file budget exceeded.",
+      });
+    }
+  }
+  return issues;
 }
 
 export function stableObjectHash(value) {

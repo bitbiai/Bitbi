@@ -3200,4 +3200,21 @@
             inline-size: 100%;
         }
     }
+
+    @media (prefers-reduced-motion: reduce) {
+        html,
+        .profile-settings-page,
+        .profile-settings-page *,
+        .profile-settings-page *::before,
+        .profile-settings-page *::after {
+            scroll-behavior: auto !important;
+            transition-duration: 0.01ms !important;
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+        }
+
+        .profile-avatar-generate__spinner {
+            animation: none !important;
+        }
+    }
 }
