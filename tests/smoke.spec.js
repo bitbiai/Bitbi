@@ -122,7 +122,7 @@ async function expectHomepageGuestFallback(page, locale = 'en') {
   const fallback = page.locator('[data-homepage-guest-fallback]');
   await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'guest');
   await expect(fallback).toBeVisible();
-  await expect(fallback.locator('.hero__guest-fallback-icon')).toHaveText('⚗️');
+  await expect(fallback.locator('.hero__guest-fallback-icon')).toHaveCount(0);
   for (const line of HOMEPAGE_GUEST_FALLBACK_COPY[locale]) {
     await expect(fallback).toContainText(line);
   }

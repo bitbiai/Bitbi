@@ -302,7 +302,7 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#hero .hero__saas-copy')).toBeHidden();
     await expect(page.locator('#hero [data-homepage-guest-fallback]')).toContainText('Create AI images, videos and music in one studio.');
     await expect(page.locator('#hero [data-homepage-guest-fallback]')).toContainText('Generate, save, organize and publish creative media with credits for real usage.');
-    await expect(page.locator('#hero [data-homepage-guest-fallback] .hero__guest-fallback-icon')).toHaveText('⚗️');
+    await expect(page.locator('#hero [data-homepage-guest-fallback] .hero__guest-fallback-icon')).toHaveCount(0);
     await expect(page.locator('#hero .hero__lab-teaser-text')).toHaveText('Open Generate Lab');
     await expect(page.locator('#hero .hero__lab-teaser-icon')).toHaveText('⚗️');
     await expect(page.locator('#hero .hero__lab-teaser')).toHaveAttribute('href', '/generate-lab/');
@@ -325,7 +325,7 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#hero .hero__saas-copy')).toBeHidden();
     await expect(page.locator('#hero [data-homepage-guest-fallback]')).toContainText('Erstelle KI-Bilder, Videos und Musik in einem Studio.');
     await expect(page.locator('#hero [data-homepage-guest-fallback]')).toContainText('Generiere, speichere, ordne und veröffentliche kreative Medien mit Credits für echte Nutzung.');
-    await expect(page.locator('#hero [data-homepage-guest-fallback] .hero__guest-fallback-icon')).toHaveText('⚗️');
+    await expect(page.locator('#hero [data-homepage-guest-fallback] .hero__guest-fallback-icon')).toHaveCount(0);
     await expect(page.locator('#hero .hero__lab-teaser-text')).toHaveText('Generate Lab öffnen');
     await expect(page.locator('#hero .hero__lab-teaser-icon')).toHaveText('⚗️');
     await expect(page.locator('#hero .hero__lab-teaser')).toHaveAttribute('href', '/de/generate-lab/');

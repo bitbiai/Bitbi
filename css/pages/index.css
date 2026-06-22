@@ -4660,31 +4660,17 @@
         position: relative;
         isolation: isolate;
         display: grid;
-        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr);
         align-items: center;
-        gap: clamp(0.78rem, 1.45vw, 1.08rem);
+        justify-items: center;
         inline-size: 100%;
         min-block-size: 100%;
-        padding: clamp(0.88rem, 1.45vw, 1.12rem) clamp(1.18rem, 2.25vw, 1.82rem);
+        padding: clamp(0.92rem, 1.45vw, 1.16rem) clamp(1.55rem, 3.1vw, 2.7rem);
         border: 0;
         border-radius: 999px;
         overflow: visible;
-        background:
-            radial-gradient(135% 220% at 13% 18%, rgba(0, 240, 255, 0.24), transparent 47%),
-            radial-gradient(120% 190% at 88% 76%, rgba(255, 79, 216, 0.18), transparent 52%),
-            radial-gradient(80% 160% at 58% -6%, rgba(255, 226, 158, 0.12), transparent 45%),
-            linear-gradient(108deg, rgba(255, 255, 255, 0.14), transparent 24% 76%, rgba(255, 226, 158, 0.08)),
-            linear-gradient(137deg, rgba(7, 18, 31, 0.82), rgba(5, 9, 16, 0.68) 58%, rgba(12, 18, 31, 0.76));
-        box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.18),
-            inset 0 -18px 36px rgba(0, 240, 255, 0.035),
-            inset 0 0 0 1px rgba(132, 224, 255, 0.11),
-            0 16px 44px rgba(0, 0, 0, 0.36),
-            0 0 28px rgba(0, 240, 255, 0.12),
-            0 0 52px rgba(255, 79, 216, 0.1),
-            0 0 34px rgba(255, 207, 102, 0.055);
-        backdrop-filter: blur(20px) saturate(1.18);
-        -webkit-backdrop-filter: blur(20px) saturate(1.18);
+        background: transparent;
+        box-shadow: none;
     }
 
     .hero__guest-fallback-inner::before,
@@ -4696,54 +4682,42 @@
 
     .hero__guest-fallback-inner::before {
         z-index: -1;
-        inset: -1.35rem -2.2rem;
+        inset: -2rem -2.65rem -2.4rem;
         border-radius: inherit;
         background:
-            radial-gradient(ellipse at 20% 44%, rgba(0, 240, 255, 0.34), transparent 62%),
-            radial-gradient(ellipse at 76% 54%, rgba(255, 79, 216, 0.22), transparent 66%),
-            radial-gradient(ellipse at 56% 50%, rgba(255, 207, 102, 0.12), transparent 60%);
-        filter: blur(18px) saturate(1.25);
-        opacity: 0.7;
+            radial-gradient(ellipse 62% 58% at 50% 76%, rgba(0, 0, 0, 0.68), transparent 76%),
+            radial-gradient(ellipse 46% 76% at 20% 54%, rgba(0, 240, 255, 0.3), transparent 74%),
+            radial-gradient(ellipse 46% 76% at 80% 54%, rgba(255, 79, 216, 0.21), transparent 76%),
+            radial-gradient(ellipse 34% 42% at 52% 48%, rgba(255, 207, 102, 0.1), transparent 76%);
+        filter: blur(29px) saturate(1.16);
+        opacity: 0.82;
         mix-blend-mode: screen;
+        transform: skewY(-1.6deg) translateY(0.26rem);
+        -webkit-mask-image: radial-gradient(ellipse 78% 72% at 50% 56%, #000 0%, #000 42%, rgba(0, 0, 0, 0.74) 62%, rgba(0, 0, 0, 0.24) 82%, transparent 100%);
+        mask-image: radial-gradient(ellipse 78% 72% at 50% 56%, #000 0%, #000 42%, rgba(0, 0, 0, 0.74) 62%, rgba(0, 0, 0, 0.24) 82%, transparent 100%);
     }
 
     .hero__guest-fallback-inner::after {
         z-index: 0;
-        inset: 0;
+        inset: -0.74rem -1.05rem;
         border-radius: inherit;
         background:
-            linear-gradient(96deg, rgba(255, 255, 255, 0.2), transparent 18% 82%, rgba(255, 226, 158, 0.14)),
-            linear-gradient(90deg, rgba(0, 240, 255, 0.22), rgba(255, 255, 255, 0.04) 36% 64%, rgba(255, 79, 216, 0.18));
+            radial-gradient(ellipse 56% 64% at 50% 50%, rgba(9, 20, 34, 0.98), rgba(5, 10, 18, 0.92) 44%, rgba(5, 10, 18, 0.7) 60%, rgba(5, 10, 18, 0.34) 76%, transparent 94%),
+            radial-gradient(ellipse 48% 78% at 19% 50%, rgba(0, 240, 255, 0.27), transparent 72%),
+            radial-gradient(ellipse 48% 78% at 81% 52%, rgba(255, 79, 216, 0.2), transparent 74%),
+            radial-gradient(ellipse 38% 52% at 58% 36%, rgba(255, 226, 158, 0.11), transparent 74%),
+            linear-gradient(103deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.035) 18%, rgba(255, 255, 255, 0) 42% 70%, rgba(255, 226, 158, 0.08));
         box-shadow:
-            inset 0 0 0 1px rgba(255, 255, 255, 0.065),
-            inset 0 0 26px rgba(0, 240, 255, 0.055);
-        opacity: 0.66;
-    }
-
-    .hero__guest-fallback-icon {
-        position: relative;
-        z-index: 1;
-        display: inline-grid;
-        place-items: center;
-        inline-size: clamp(2.35rem, 3.7vw, 3.08rem);
-        block-size: clamp(2.35rem, 3.7vw, 3.08rem);
-        border: 0;
-        border-radius: 999px;
-        color: rgba(248, 253, 255, 0.98);
-        font-size: clamp(1.1rem, 1.8vw, 1.45rem);
-        line-height: 1;
-        background:
-            radial-gradient(circle at 35% 24%, rgba(255, 255, 255, 0.28), transparent 34%),
-            radial-gradient(circle at 70% 78%, rgba(255, 207, 102, 0.16), transparent 46%),
-            linear-gradient(145deg, rgba(0, 240, 255, 0.22), rgba(211, 84, 255, 0.13));
-        box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.16),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.075),
-            0 0 18px rgba(0, 240, 255, 0.2),
-            0 0 28px rgba(255, 179, 0, 0.08);
-        text-shadow:
-            0 0 12px rgba(0, 240, 255, 0.44),
-            0 0 18px rgba(255, 179, 0, 0.18);
+            inset 0 14px 34px rgba(0, 240, 255, 0.04),
+            inset 0 -24px 42px rgba(0, 0, 0, 0.24),
+            inset 0 1px 0 rgba(255, 255, 255, 0.045);
+        filter: blur(0.55px);
+        opacity: 1;
+        transform: rotate(-0.55deg);
+        backdrop-filter: blur(18px) saturate(1.12);
+        -webkit-backdrop-filter: blur(18px) saturate(1.12);
+        -webkit-mask-image: radial-gradient(ellipse 78% 70% at 50% 50%, #000 0%, #000 42%, rgba(0, 0, 0, 0.86) 58%, rgba(0, 0, 0, 0.46) 76%, rgba(0, 0, 0, 0.16) 88%, transparent 100%);
+        mask-image: radial-gradient(ellipse 78% 70% at 50% 50%, #000 0%, #000 42%, rgba(0, 0, 0, 0.86) 58%, rgba(0, 0, 0, 0.46) 76%, rgba(0, 0, 0, 0.16) 88%, transparent 100%);
     }
 
     .hero__guest-fallback-copy {
@@ -4752,8 +4726,9 @@
         display: grid;
         gap: clamp(0.24rem, 0.5vw, 0.4rem);
         min-inline-size: 0;
+        max-inline-size: min(43rem, 100%);
         margin: 0;
-        text-align: start;
+        text-align: center;
         text-shadow:
             0 0 18px rgba(0, 240, 255, 0.18),
             0 12px 26px rgba(0, 0, 0, 0.34);
@@ -5841,39 +5816,21 @@
         }
 
         .hero__guest-fallback-inner {
-            grid-template-columns: auto minmax(0, 1fr);
-            gap: 0.62rem;
-            padding: 0.7rem 0.86rem;
-            border-radius: 999px;
-            background:
-                radial-gradient(140% 170% at 12% 18%, rgba(0, 240, 255, 0.22), transparent 52%),
-                radial-gradient(125% 170% at 92% 86%, rgba(255, 79, 216, 0.15), transparent 58%),
-                radial-gradient(86% 130% at 62% -8%, rgba(255, 207, 102, 0.11), transparent 46%),
-                linear-gradient(135deg, rgba(9, 18, 30, 0.84), rgba(6, 10, 18, 0.68));
-            box-shadow:
-                inset 0 1px 0 rgba(255, 255, 255, 0.12),
-                inset 0 0 0 1px rgba(132, 224, 255, 0.085),
-                0 12px 34px rgba(0, 0, 0, 0.28),
-                0 0 22px rgba(0, 240, 255, 0.12),
-                0 0 28px rgba(255, 79, 216, 0.07);
-            backdrop-filter: blur(16px) saturate(1.12);
-            -webkit-backdrop-filter: blur(16px) saturate(1.12);
+            grid-template-columns: minmax(0, 1fr);
+            padding: 0.72rem 1.18rem;
+            border-radius: 56% 44% 55% 45% / 58% 48% 52% 42%;
         }
 
         .hero__guest-fallback-inner::before {
-            inset: -0.8rem -1.1rem;
-            filter: blur(14px) saturate(1.16);
-            opacity: 0.52;
-        }
-
-        .hero__guest-fallback-icon {
-            inline-size: 2.06rem;
-            block-size: 2.06rem;
-            font-size: 1rem;
+            inset: -1.25rem -1.45rem -1.55rem;
+            filter: blur(21px) saturate(1.14);
+            opacity: 0.78;
+            transform: skewY(-1.6deg) translateY(0.16rem);
         }
 
         .hero__guest-fallback-copy {
             gap: 0.1rem;
+            max-inline-size: 17.5rem;
         }
 
         .hero__guest-fallback-copy span:first-child {
