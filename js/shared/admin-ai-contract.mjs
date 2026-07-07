@@ -172,6 +172,7 @@ export const FLUX_2_MAX_MIN_SAFETY_TOLERANCE = 0;
 export const FLUX_2_MAX_MAX_SAFETY_TOLERANCE = 5;
 export const FLUX_2_MAX_DEFAULT_SAFETY_TOLERANCE = 2;
 export const ADMIN_AI_MUSIC_MODEL_ID = "minimax/music-2.6";
+export const CLAUDE_FABLE_5_MODEL_ID = "anthropic/claude-fable-5";
 export const ADMIN_AI_VIDEO_MODEL_ID = "pixverse/v6";
 export const ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID = "vidu/q3-pro";
 export const ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID = HAPPYHORSE_T2V_MODEL_ID;
@@ -458,6 +459,41 @@ const TEXT_MODELS = {
     defaultMaxTokens: 400,
     maxTokens: 1000,
     description: "Balanced conversational text model aligned with the live agent surface.",
+  },
+  [CLAUDE_FABLE_5_MODEL_ID]: {
+    id: CLAUDE_FABLE_5_MODEL_ID,
+    task: "text",
+    type: "text",
+    modality: "text",
+    label: "Claude Fable 5",
+    shortLabel: "Fable 5",
+    vendor: "Anthropic",
+    provider: "Anthropic",
+    family: "Claude",
+    inputFormat: "anthropic-messages",
+    requestFormat: "anthropic-messages",
+    architecture: "Transformer",
+    adaptiveThinking: true,
+    contextWindowTokens: 1_000_000,
+    maxOutputTokens: 128_000,
+    defaultMaxTokens: 1024,
+    maxTokens: 128_000,
+    pricingPerMillionTokens: {
+      input: 10,
+      output: 50,
+      cachedInput: 1,
+      cacheCreation: 12.5,
+      currency: "USD",
+    },
+    billing: {
+      provider: "cloudflare-unified-billing",
+      requiresProviderApiKey: false,
+      requiresCloudflareAiGatewayCredits: true,
+    },
+    thirdParty: true,
+    costClass: "high",
+    adminOnly: true,
+    description: "Anthropic text model via Cloudflare AI Gateway Unified Billing with adaptive thinking and a large context window.",
   },
   "@cf/openai/gpt-oss-20b": {
     id: "@cf/openai/gpt-oss-20b",
@@ -1576,6 +1612,26 @@ function toPublicModel(model) {
     providerLabel: model.providerLabel || model.vendor,
     description: model.description,
   };
+  if (model.task === "text") {
+    pub.type = model.type || "text";
+    pub.modality = model.modality || "text";
+    pub.shortLabel = model.shortLabel || model.label;
+    pub.provider = model.provider || model.vendor;
+    pub.family = model.family || null;
+    pub.requestFormat = model.requestFormat || model.inputFormat || "messages";
+    pub.architecture = model.architecture || null;
+    pub.adaptiveThinking = model.adaptiveThinking === true;
+    pub.contextWindowTokens = model.contextWindowTokens || null;
+    pub.maxOutputTokens = model.maxOutputTokens || model.maxTokens || null;
+    pub.defaultMaxTokens = model.defaultMaxTokens || ADMIN_AI_LIMITS.text.defaultMaxTokens;
+    pub.pricingPerMillionTokens = model.pricingPerMillionTokens
+      ? { ...model.pricingPerMillionTokens }
+      : null;
+    pub.billing = model.billing ? { ...model.billing } : null;
+    pub.thirdParty = model.thirdParty === true;
+    pub.costClass = model.costClass || null;
+    pub.adminOnly = model.adminOnly === true;
+  }
   if (model.task === "image") {
     pub.capabilities = {
       supportsSeed: !!model.supportsSeed,

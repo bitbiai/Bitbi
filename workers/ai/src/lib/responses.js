@@ -62,6 +62,13 @@ export function fromError(error, fallbackMessage) {
     });
   }
 
+  if (error?.code === "unified_billing_unavailable") {
+    return errorResponse(error.message || fallbackMessage, {
+      status: error.status || 503,
+      code: "unified_billing_unavailable",
+    });
+  }
+
   const status = error?.status || 502;
   return errorResponse(fallbackMessage, {
     status,

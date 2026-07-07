@@ -489,6 +489,39 @@ function createMockAiCatalog() {
           vendor: 'Google',
           description: 'Balanced conversational text model',
         },
+        {
+          id: 'anthropic/claude-fable-5',
+          task: 'text',
+          type: 'text',
+          modality: 'text',
+          label: 'Claude Fable 5',
+          shortLabel: 'Fable 5',
+          vendor: 'Anthropic',
+          provider: 'Anthropic',
+          family: 'Claude',
+          requestFormat: 'anthropic-messages',
+          architecture: 'Transformer',
+          adaptiveThinking: true,
+          contextWindowTokens: 1_000_000,
+          maxOutputTokens: 128_000,
+          defaultMaxTokens: 1024,
+          pricingPerMillionTokens: {
+            input: 10,
+            output: 50,
+            cachedInput: 1,
+            cacheCreation: 12.5,
+            currency: 'USD',
+          },
+          billing: {
+            provider: 'cloudflare-unified-billing',
+            requiresProviderApiKey: false,
+            requiresCloudflareAiGatewayCredits: true,
+          },
+          thirdParty: true,
+          costClass: 'high',
+          adminOnly: true,
+          description: 'Anthropic model through Cloudflare Unified Billing',
+        },
       ],
       image: [
         {
@@ -1011,6 +1044,7 @@ async function readClipboardValue(page) {
 
 async function mockAdminAiLab(page, captures = {}) {
   const catalog = createMockAiCatalog();
+  const textTestRequests = captures.textTestRequests || [];
   const saveTextAssetRequests = captures.saveTextAssetRequests || [];
   const saveImageRequests = captures.saveImageRequests || [];
   const saveAudioRequests = captures.saveAudioRequests || [];
@@ -1171,6 +1205,7 @@ async function mockAdminAiLab(page, captures = {}) {
 
   await page.route('**/api/admin/ai/test-text', async (route) => {
     const body = route.request().postDataJSON();
+    textTestRequests.push(body);
     if (body.prompt === 'force error') {
       await route.fulfill({
         status: 400,
@@ -1196,21 +1231,32 @@ async function mockAdminAiLab(page, captures = {}) {
       return;
     }
 
+    const selectedModel = catalog.models.text.find((entry) => entry.id === body.model)
+      || catalog.models.text[1];
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         ok: true,
         task: 'text',
-        model: catalog.models.text[1],
+        model: selectedModel,
         preset: body.preset || 'balanced',
         result: {
           text: 'Mocked text output from admin AI Lab.',
           usage: {
-            total_tokens: 42,
+            ...(selectedModel.id === 'anthropic/claude-fable-5'
+              ? { input_tokens: 20, output_tokens: 577 }
+              : { total_tokens: 42 }),
           },
           maxTokens: body.maxTokens,
           temperature: body.temperature,
+          ...(selectedModel.id === 'anthropic/claude-fable-5'
+            ? {
+                responseModel: 'claude-fable-5',
+                stopReason: 'end_turn',
+                gatewayMetadata: { keySource: 'Unified' },
+              }
+            : {}),
         },
         elapsedMs: 123,
         warnings: ['Mock text warning'],
@@ -17785,6 +17831,10 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#sectionAiLab')).toBeVisible();
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
     await expect(page.locator('#aiModelsText')).toContainText('Gemma 4 26B A4B');
+    await expect(page.locator('#aiModelsText')).toContainText('Claude Fable 5');
+    await expect(page.locator('#aiModelsText')).toContainText('1,000,000 token context');
+    await expect(page.locator('#aiModelsText')).toContainText('128,000 max output');
+    await expect(page.locator('#aiModelsText')).toContainText('Cloudflare Unified Billing required');
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.1 Schnell');
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Klein 9B');
     await expect(page.locator('#aiModelsImage')).toContainText('FLUX.2 Dev');
@@ -17890,6 +17940,64 @@ test.describe('Admin AI Lab', () => {
     await clickAdminNavSection(page, 'dashboard');
     await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
     await expect(page.locator('#statTotal')).toHaveText('12');
+  });
+
+  test('selects Claude Fable 5 by its exact id and renders only the sanitized text response', async ({ page }) => {
+    const requests = [];
+    await page.unroute('**/api/admin/ai/test-text');
+    await page.route('**/api/admin/ai/test-text', async (route) => {
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'text',
+          model: {
+            id: 'anthropic/claude-fable-5',
+            task: 'text',
+            label: 'Claude Fable 5',
+            vendor: 'Anthropic',
+          },
+          preset: body.preset || 'balanced',
+          result: {
+            text: 'Sanitized Claude answer.',
+            usage: { input_tokens: 20, output_tokens: 31 },
+            maxTokens: body.maxTokens,
+            temperature: body.temperature,
+            responseModel: 'claude-fable-5',
+            stopReason: 'end_turn',
+            gatewayMetadata: { keySource: 'Unified' },
+          },
+          elapsedMs: 145,
+        }),
+      });
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await clickAiLabMode(page, 'text');
+    await expect(page.locator('#aiTextModel option[value="anthropic/claude-fable-5"]')).toHaveText('Claude Fable 5');
+    await page.selectOption('#aiTextModel', 'anthropic/claude-fable-5');
+    await page.locator('#aiTextPrompt').fill('Summarize BITBI safely.');
+    await page.locator('#aiTextMaxTokens').fill('1024');
+    await page.locator('#aiTextRun').click();
+
+    await expect(page.locator('#aiTextOutput')).toHaveText('Sanitized Claude answer.');
+    await expect(page.locator('#aiTextUsage')).toContainText('input_tokens: 20');
+    await expect(page.locator('#aiTextUsage')).toContainText('output_tokens: 31');
+    await expect(page.locator('#aiTextMeta')).toContainText('end_turn');
+    await expect(page.locator('#aiTextMeta')).toContainText('Unified');
+    await page.locator('#aiTextDebug').evaluate((details) => { details.open = true; });
+    await expect(page.locator('#aiTextRaw')).not.toContainText('thinking');
+    await expect(page.locator('#aiTextRaw')).not.toContainText('signature');
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toEqual(expect.objectContaining({
+      model: 'anthropic/claude-fable-5',
+      maxTokens: 1024,
+      prompt: 'Summarize BITBI safely.',
+    }));
   });
 
   test('shows admin image-test credit labels only inside AI Lab image controls', async ({ page }) => {

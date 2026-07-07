@@ -28195,10 +28195,164 @@ test.describe('Worker routes', () => {
       );
 
       expect(res.status).toBe(200);
-      await expect(res.json()).resolves.toMatchObject({
+      const body = await res.json();
+      expect(body).toMatchObject({
         ok: true,
         task: 'models',
       });
+      expect(body.models.text).toHaveLength(6);
+      const fable = body.models.text.find((model) => model.id === 'anthropic/claude-fable-5');
+      expect(fable).toEqual(expect.objectContaining({
+        id: 'anthropic/claude-fable-5',
+        task: 'text',
+        type: 'text',
+        modality: 'text',
+        label: 'Claude Fable 5',
+        shortLabel: 'Fable 5',
+        vendor: 'Anthropic',
+        provider: 'Anthropic',
+        family: 'Claude',
+        requestFormat: 'anthropic-messages',
+        architecture: 'Transformer',
+        adaptiveThinking: true,
+        contextWindowTokens: 1_000_000,
+        maxOutputTokens: 128_000,
+        pricingPerMillionTokens: {
+          input: 10,
+          output: 50,
+          cachedInput: 1,
+          cacheCreation: 12.5,
+          currency: 'USD',
+        },
+        billing: {
+          provider: 'cloudflare-unified-billing',
+          requiresProviderApiKey: false,
+          requiresCloudflareAiGatewayCredits: true,
+        },
+        thirdParty: true,
+        costClass: 'high',
+        adminOnly: true,
+      }));
+    });
+
+    test('AI worker invokes Claude Fable 5 through Unified Billing and sanitizes Anthropic message responses', async () => {
+      const aiWorker = await loadWorker('workers/ai/src/index.js');
+      const secret = 'test-ai-service-auth-secret';
+      const runCalls = [];
+      const request = await signedInternalAiJsonRequest('/internal/ai/test-text', {
+        model: 'anthropic/claude-fable-5',
+        system: 'You are a concise portfolio editor.',
+        prompt: 'Summarize BITBI.',
+        maxTokens: 1024,
+        temperature: 0.4,
+        __bitbi_ai_caller_policy: {
+          policy_version: 'ai-caller-policy-v1',
+          operation_id: 'admin.text.test',
+          budget_scope: 'platform_admin_lab_budget',
+          enforcement_status: 'budget_metadata_only',
+          caller_class: 'admin',
+          owner_domain: 'admin-ai',
+          provider_family: 'ai_worker',
+          model_id: 'anthropic/claude-fable-5',
+          model_resolver_key: 'admin.text.model_registry',
+          idempotency_policy: 'required',
+          source_route: '/api/admin/ai/test-text',
+          source_component: 'auth-worker-admin-ai',
+          budget_fingerprint: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+          request_fingerprint: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+          kill_switch_target: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+          correlation_id: 'claude-fable-worker-test',
+          reason: 'admin_fable_test',
+        },
+      }, { secret });
+
+      const res = await aiWorker.fetch(
+        request,
+        {
+          AI_SERVICE_AUTH_SECRET: secret,
+          AI_GATEWAY_ID: 'admin-ai-gateway',
+          SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+          AI: {
+            async run(...args) {
+              runCalls.push(args);
+              return {
+                id: 'msg_fable_test',
+                type: 'message',
+                role: 'assistant',
+                content: [
+                  { type: 'thinking', thinking: 'hidden chain of thought', signature: 'sig_hidden_123' },
+                  { type: 'text', text: 'First answer block.' },
+                  { type: 'text', text: 'Second answer block.' },
+                ],
+                model: 'claude-fable-5',
+                stop_reason: 'end_turn',
+                stop_sequence: null,
+                stop_details: {
+                  type: 'end_turn',
+                  thinking: 'hidden stop detail',
+                  signature: 'sig_stop_hidden',
+                },
+                usage: {
+                  input_tokens: 20,
+                  output_tokens: 57,
+                },
+                gatewayMetadata: {
+                  keySource: 'Unified',
+                  internalSecret: 'must-not-leak',
+                },
+              };
+            },
+          },
+        },
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(runCalls).toHaveLength(1);
+      expect(runCalls[0][0]).toBe('anthropic/claude-fable-5');
+      expect(runCalls[0][1]).toEqual({
+        max_tokens: 1024,
+        messages: [{ role: 'user', content: 'Summarize BITBI.' }],
+        system: 'You are a concise portfolio editor.',
+      });
+      expect(runCalls[0][1]).not.toHaveProperty('temperature');
+      expect(runCalls[0][1].messages.every((message) => ['user', 'assistant'].includes(message.role))).toBe(true);
+      expect(runCalls[0][2]).toEqual({
+        gateway: {
+          id: 'admin-ai-gateway',
+          metadata: expect.objectContaining({
+            surface: 'admin-ai-lab',
+            model_id: 'anthropic/claude-fable-5',
+            provider: 'Anthropic',
+            request_id: expect.any(String),
+          }),
+        },
+      });
+
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'text',
+        model: expect.objectContaining({
+          id: 'anthropic/claude-fable-5',
+          label: 'Claude Fable 5',
+          requestFormat: 'anthropic-messages',
+        }),
+        result: expect.objectContaining({
+          text: 'First answer block.\n\nSecond answer block.',
+          usage: { input_tokens: 20, output_tokens: 57 },
+          responseModel: 'claude-fable-5',
+          stopReason: 'end_turn',
+          stopDetails: { type: 'end_turn' },
+          gatewayMetadata: { keySource: 'Unified' },
+        }),
+      }));
+      const serialized = JSON.stringify(body);
+      expect(serialized).not.toContain('hidden chain of thought');
+      expect(serialized).not.toContain('sig_hidden_123');
+      expect(serialized).not.toContain('hidden stop detail');
+      expect(serialized).not.toContain('sig_stop_hidden');
+      expect(serialized).not.toContain('internalSecret');
     });
 
     test('AI worker service auth rejects oversized signed bodies before route dispatch', async () => {
@@ -29025,6 +29179,108 @@ test.describe('Worker routes', () => {
       expect(serializedAttempt).not.toContain('Stubbed output');
       expect(serializedAttempt).not.toContain('Cookie');
       expect(serializedAttempt).not.toContain('Authorization');
+    });
+
+    test('POST /api/admin/ai/test-text keeps Claude Fable 5 behind existing admin budget and idempotency gates', async () => {
+      const providerCalls = [];
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        aiEnv: { AI_GATEWAY_ID: 'admin-ai-gateway' },
+        aiRun: async (...args) => {
+          providerCalls.push(args);
+          return {
+            content: [
+              { type: 'thinking', thinking: 'private reasoning', signature: 'private-signature' },
+              { type: 'text', text: 'Fable admin response.' },
+            ],
+            model: 'claude-fable-5',
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 14, output_tokens: 22 },
+            gatewayMetadata: { keySource: 'Unified' },
+          };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          model: 'anthropic/claude-fable-5',
+          prompt: 'Run the admin-only Fable model.',
+          system: 'Use a concise answer.',
+          maxTokens: 1024,
+          temperature: 0.5,
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'admin-fable-contract-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
+        ok: true,
+        task: 'text',
+        model: expect.objectContaining({ id: 'anthropic/claude-fable-5' }),
+        result: expect.objectContaining({
+          text: 'Fable admin response.',
+          usage: { input_tokens: 14, output_tokens: 22 },
+          stopReason: 'end_turn',
+          gatewayMetadata: { keySource: 'Unified' },
+        }),
+        budget_policy: expect.objectContaining({
+          operation_id: 'admin.text.test',
+          model_id: 'anthropic/claude-fable-5',
+          kill_switch_flag_name: 'ENABLE_ADMIN_AI_TEXT_BUDGET',
+        }),
+      }));
+      expect(providerCalls).toHaveLength(1);
+      expect(aiLabRequests).toHaveLength(1);
+      expect(aiLabRequests[0].body.model).toBe('anthropic/claude-fable-5');
+      expect(env.DB.state.adminAiUsageAttempts).toHaveLength(1);
+      expect(env.DB.state.adminAiUsageAttempts[0].model_key).toBe('anthropic/claude-fable-5');
+      expect(JSON.parse(env.DB.state.adminAiUsageAttempts[0].result_metadata_json).usage).toEqual({
+        prompt_tokens: 14,
+        completion_tokens: 22,
+        total_tokens: 36,
+        input_tokens: 14,
+        output_tokens: 22,
+      });
+      expect(JSON.stringify(body)).not.toContain('private reasoning');
+      expect(JSON.stringify(body)).not.toContain('private-signature');
+    });
+
+    test('POST /api/admin/ai/test-text returns actionable Unified Billing readiness guidance for Claude Fable 5 failures', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          throw new Error('insufficient unified billing credits');
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          model: 'anthropic/claude-fable-5',
+          prompt: 'Check billing readiness.',
+          maxTokens: 128,
+          temperature: 0.5,
+        }, {
+          ...authHeaders,
+          'Idempotency-Key': 'admin-fable-readiness-1',
+        }),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(503);
+      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+        ok: false,
+        code: 'unified_billing_unavailable',
+        error: expect.stringContaining('Unified Billing credits'),
+      }));
+      expect(env.DB.state.adminAiUsageAttempts[0]).toEqual(expect.objectContaining({
+        model_key: 'anthropic/claude-fable-5',
+        status: 'provider_failed',
+        provider_status: 'failed',
+      }));
     });
 
     test('POST /api/admin/ai/test-image returns the image response contract used by the UI', async () => {

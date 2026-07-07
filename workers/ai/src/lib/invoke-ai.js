@@ -1,4 +1,5 @@
 import {
+  CLAUDE_FABLE_5_MODEL_ID,
   buildAdminAiFlux2MaxRequest,
   buildAdminAiGptImage2Request,
   buildAdminAiGrokImagineImageRequest,
@@ -33,6 +34,115 @@ function buildMessages(system, prompt) {
   }
   messages.push({ role: "user", content: prompt });
   return messages;
+}
+
+function isAnthropicMessagesModel(model) {
+  return model?.requestFormat === "anthropic-messages"
+    || model?.inputFormat === "anthropic-messages";
+}
+
+function buildTextInvocation(env, model, input) {
+  const maxTokens = Math.max(1, Math.min(
+    Number(input.maxTokens) || model.defaultMaxTokens || 1024,
+    model.maxOutputTokens || model.maxTokens || 128_000
+  ));
+
+  if (isAnthropicMessagesModel(model)) {
+    const payload = {
+      max_tokens: maxTokens,
+      messages: [{ role: "user", content: input.prompt }],
+    };
+    if (input.system) payload.system = input.system;
+
+    return {
+      payload,
+      runOptions: {
+        gateway: {
+          id: env.AI_GATEWAY_ID || "default",
+          metadata: {
+            surface: "admin-ai-lab",
+            model_id: model.id,
+            provider: model.provider || model.vendor || "Anthropic",
+            ...(input.correlationId ? { request_id: input.correlationId } : {}),
+          },
+        },
+      },
+    };
+  }
+
+  return {
+    payload: {
+      messages: buildMessages(input.system, input.prompt),
+      max_tokens: Math.min(maxTokens, model.maxTokens || maxTokens),
+      temperature: input.temperature,
+    },
+    runOptions: undefined,
+  };
+}
+
+function extractAnthropicMessageText(result) {
+  if (!result || typeof result !== "object") return null;
+  if (typeof result.content === "string") return result.content.trim() || null;
+  if (!Array.isArray(result.content)) return null;
+
+  const text = result.content
+    .filter((block) => (
+      block
+      && typeof block === "object"
+      && block.type === "text"
+      && typeof block.text === "string"
+    ))
+    .map((block) => block.text)
+    .join("\n\n")
+    .trim();
+  return text || null;
+}
+
+function sanitizeAnthropicUsage(usage) {
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
+  const safe = {};
+  for (const key of [
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+  ]) {
+    const value = Number(usage[key]);
+    if (Number.isFinite(value) && value >= 0) safe[key] = value;
+  }
+  return Object.keys(safe).length > 0 ? safe : null;
+}
+
+function sanitizeAnthropicStopDetails(value, depth = 0) {
+  if (value == null) return null;
+  if (typeof value === "string") return value.slice(0, 200);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (depth >= 2) return null;
+  if (Array.isArray(value)) {
+    return value.slice(0, 8)
+      .map((entry) => sanitizeAnthropicStopDetails(entry, depth + 1))
+      .filter((entry) => entry !== null);
+  }
+  if (typeof value !== "object") return null;
+
+  const safe = {};
+  for (const [key, entry] of Object.entries(value).slice(0, 12)) {
+    if (/(?:thinking|signature|content|prompt|message|text)/i.test(key)) continue;
+    const sanitized = sanitizeAnthropicStopDetails(entry, depth + 1);
+    if (sanitized !== null) safe[key] = sanitized;
+  }
+  return Object.keys(safe).length > 0 ? safe : null;
+}
+
+function unifiedBillingReadinessError(error) {
+  if (error?.code === "generation_timeout") return error;
+  const readinessError = new Error(
+    "Claude Fable 5 could not run through Cloudflare Unified Billing. Verify the AI Gateway and available Unified Billing credits, then retry."
+  );
+  readinessError.name = "UnifiedBillingReadinessError";
+  readinessError.code = "unified_billing_unavailable";
+  readinessError.status = 503;
+  return readinessError;
 }
 
 function collectTextContent(value) {
@@ -507,16 +617,15 @@ async function extractMusicResponse(result) {
 export async function invokeText(env, model, input) {
   ensureAI(env);
   const startedAt = Date.now();
-
-  const payload = {
-    messages: buildMessages(input.system, input.prompt),
-    max_tokens: Math.min(input.maxTokens, model.maxTokens || input.maxTokens),
-    temperature: input.temperature,
-  };
+  const { payload, runOptions } = buildTextInvocation(env, model, input);
 
   let raw;
   try {
-    raw = await runWithGenerationTimeout(() => env.AI.run(model.id, payload));
+    raw = await runWithGenerationTimeout(() => (
+      runOptions
+        ? env.AI.run(model.id, payload, runOptions)
+        : env.AI.run(model.id, payload)
+    ));
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
@@ -525,12 +634,19 @@ export async function invokeText(env, model, input) {
       level: "error",
       correlationId: input.correlationId || null,
       model: model.id,
+      provider: model.provider || model.vendor || null,
+      gateway_id: runOptions?.gateway?.id || null,
       duration_ms: getDurationMs(startedAt),
       ...getErrorFields(error, { includeMessage: false }),
     });
-    throw error;
+    throw model.id === CLAUDE_FABLE_5_MODEL_ID
+      ? unifiedBillingReadinessError(error)
+      : error;
   }
-  const text = extractTextResponse(raw);
+  const isAnthropic = isAnthropicMessagesModel(model);
+  const text = isAnthropic
+    ? extractAnthropicMessageText(raw)
+    : extractTextResponse(raw);
 
   if (!text) {
     throw new Error("Model returned no text output.");
@@ -538,7 +654,14 @@ export async function invokeText(env, model, input) {
 
   return {
     text,
-    usage: raw?.usage || raw?.result?.usage || null,
+    usage: isAnthropic
+      ? sanitizeAnthropicUsage(raw?.usage)
+      : raw?.usage || raw?.result?.usage || null,
+    responseModel: isAnthropic ? sanitizeErrorValue(raw?.model) || null : null,
+    stopReason: isAnthropic ? sanitizeErrorValue(raw?.stop_reason) || null : null,
+    stopSequence: isAnthropic ? sanitizeErrorValue(raw?.stop_sequence) || null : null,
+    stopDetails: isAnthropic ? sanitizeAnthropicStopDetails(raw?.stop_details) : null,
+    gatewayMetadata: isAnthropic ? sanitizeGatewayMetadata(raw?.gatewayMetadata) : null,
     elapsedMs: Date.now() - startedAt,
   };
 }

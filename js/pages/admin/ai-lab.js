@@ -137,6 +137,7 @@ const ADMIN_AI_CODE_MESSAGES = {
     request_aborted: 'Request cancelled.',
     request_timeout: 'The request took too long and was cancelled.',
     network_error: 'Network error. Please try again.',
+    unified_billing_unavailable: 'Claude Fable 5 requires a ready Cloudflare AI Gateway with available Unified Billing credits.',
 };
 const DEFAULT_FORMS = {
     text: {
@@ -2882,6 +2883,31 @@ export function createAdminAiLab({ showToast } = {}) {
 
             main.append(name, desc);
 
+            if (item.task === 'text' && item.contextWindowTokens && item.maxOutputTokens) {
+                const pricing = item.pricingPerMillionTokens || {};
+                const tags = document.createElement('div');
+                tags.className = 'admin-ai__catalog-tags';
+                [
+                    item.architecture,
+                    `${Number(item.contextWindowTokens).toLocaleString('en-US')} token context`,
+                    `${Number(item.maxOutputTokens).toLocaleString('en-US')} max output`,
+                    `Adaptive Thinking: ${item.adaptiveThinking ? 'Yes' : 'No'}`,
+                    Number.isFinite(Number(pricing.input)) ? `Input $${Number(pricing.input)} / 1M` : null,
+                    Number.isFinite(Number(pricing.output)) ? `Output $${Number(pricing.output)} / 1M` : null,
+                    Number.isFinite(Number(pricing.cachedInput)) ? `Cached Input $${Number(pricing.cachedInput)} / 1M` : null,
+                    Number.isFinite(Number(pricing.cacheCreation)) ? `Cache Creation $${Number(pricing.cacheCreation).toFixed(2)} / 1M` : null,
+                    item.billing?.requiresCloudflareAiGatewayCredits
+                        ? 'Cloudflare Unified Billing required'
+                        : null,
+                ].filter(Boolean).forEach((label) => {
+                    const tag = document.createElement('span');
+                    tag.className = 'admin-ai__catalog-tag';
+                    tag.textContent = label;
+                    tags.appendChild(tag);
+                });
+                main.appendChild(tags);
+            }
+
             if (item.id === GPT_IMAGE_2_MODEL_ID) {
                 const tags = document.createElement('div');
                 tags.className = 'admin-ai__catalog-tags';
@@ -4177,6 +4203,10 @@ export function createAdminAiLab({ showToast } = {}) {
             { label: 'Received', value: formatTime(result?.receivedAt) },
             { label: 'Temperature', value: response.result?.temperature },
             { label: 'Max Tokens', value: response.result?.maxTokens },
+            { label: 'Response Model', value: response.result?.responseModel },
+            { label: 'Stop Reason', value: response.result?.stopReason },
+            { label: 'Stop Sequence', value: response.result?.stopSequence },
+            { label: 'Billing Source', value: response.result?.gatewayMetadata?.keySource },
         ] : []);
         renderWarnings(refs.text.warnings, response ? getWarnings(response) : []);
         renderUsage(refs.text.usage, response?.result?.usage || null);

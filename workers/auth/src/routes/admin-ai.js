@@ -861,18 +861,31 @@ function adminLiveAgentRequestMetadata(payload) {
   };
 }
 
+function adminTextUsageMetadata(usage) {
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
+  const promptTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0);
+  const completionTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? 0);
+  const totalTokens = Number(usage.total_tokens ?? (promptTokens + completionTokens));
+  const normalized = {
+    prompt_tokens: Number.isFinite(promptTokens) ? promptTokens : 0,
+    completion_tokens: Number.isFinite(completionTokens) ? completionTokens : 0,
+    total_tokens: Number.isFinite(totalTokens) ? totalTokens : 0,
+  };
+  if (Number.isFinite(Number(usage.input_tokens))) {
+    normalized.input_tokens = Number(usage.input_tokens);
+  }
+  if (Number.isFinite(Number(usage.output_tokens))) {
+    normalized.output_tokens = Number(usage.output_tokens);
+  }
+  return normalized;
+}
+
 function adminTextResultMetadata(providerBody) {
   const text = providerBody?.result?.text == null ? "" : String(providerBody.result.text);
   return {
     result_kind: "text",
     text_length: text.length,
-    usage: providerBody?.result?.usage && typeof providerBody.result.usage === "object"
-      ? {
-          prompt_tokens: Number(providerBody.result.usage.prompt_tokens || 0),
-          completion_tokens: Number(providerBody.result.usage.completion_tokens || 0),
-          total_tokens: Number(providerBody.result.usage.total_tokens || 0),
-        }
-      : null,
+    usage: adminTextUsageMetadata(providerBody?.result?.usage),
     max_tokens: providerBody?.result?.maxTokens ?? null,
     temperature: providerBody?.result?.temperature ?? null,
   };
@@ -895,7 +908,7 @@ function adminEmbeddingsResultMetadata(providerBody) {
 function adminCompareResultMetadata(providerBody) {
   const results = Array.isArray(providerBody?.result?.results) ? providerBody.result.results : [];
   const usageTotals = results.reduce((totals, result) => {
-    const usage = result?.usage && typeof result.usage === "object" ? result.usage : {};
+    const usage = adminTextUsageMetadata(result?.usage) || {};
     return {
       prompt_tokens: totals.prompt_tokens + Number(usage.prompt_tokens || 0),
       completion_tokens: totals.completion_tokens + Number(usage.completion_tokens || 0),
