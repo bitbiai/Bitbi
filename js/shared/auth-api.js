@@ -1500,8 +1500,24 @@ export function apiAdminAiModels(options) {
     return request('GET', '/admin/ai/models', undefined, options);
 }
 
-export function apiAdminAiTestText(payload, options) {
-    return request('POST', '/admin/ai/test-text', payload, options);
+function withAdminAiTextIdempotency(options = {}) {
+    const normalizedOptions = options && typeof options === 'object' ? options : {};
+    const headers = {
+        ...(normalizedOptions.headers && typeof normalizedOptions.headers === 'object'
+            ? normalizedOptions.headers
+            : {}),
+    };
+    if (!hasHeader(headers, 'Idempotency-Key')) {
+        headers['Idempotency-Key'] = createAdminIdempotencyKey('admin-ai-text');
+    }
+    return {
+        ...normalizedOptions,
+        headers,
+    };
+}
+
+export function apiAdminAiTestText(payload, options = {}) {
+    return request('POST', '/admin/ai/test-text', payload, withAdminAiTextIdempotency(options));
 }
 
 export function apiAdminAiTestImage(payload, options) {

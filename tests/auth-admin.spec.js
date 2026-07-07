@@ -17942,12 +17942,16 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#statTotal')).toHaveText('12');
   });
 
-  test('selects Claude Fable 5 by its exact id and renders only the sanitized text response', async ({ page }) => {
+  test('sends unique idempotency keys for Claude Fable 5 and normal text model attempts', async ({ page }) => {
     const requests = [];
     await page.unroute('**/api/admin/ai/test-text');
     await page.route('**/api/admin/ai/test-text', async (route) => {
       const body = route.request().postDataJSON();
-      requests.push(body);
+      requests.push({
+        body,
+        idempotencyKey: route.request().headers()['idempotency-key'] || '',
+      });
+      const isFable = body.model === 'anthropic/claude-fable-5';
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -17955,20 +17959,26 @@ test.describe('Admin AI Lab', () => {
           ok: true,
           task: 'text',
           model: {
-            id: 'anthropic/claude-fable-5',
+            id: body.model || '@cf/openai/gpt-oss-20b',
             task: 'text',
-            label: 'Claude Fable 5',
-            vendor: 'Anthropic',
+            label: isFable ? 'Claude Fable 5' : 'GPT OSS 20B',
+            vendor: isFable ? 'Anthropic' : 'OpenAI',
           },
           preset: body.preset || 'balanced',
           result: {
             text: 'Sanitized Claude answer.',
-            usage: { input_tokens: 20, output_tokens: 31 },
+            usage: isFable
+              ? { input_tokens: 20, output_tokens: 31 }
+              : { prompt_tokens: 12, completion_tokens: 18, total_tokens: 30 },
             maxTokens: body.maxTokens,
             temperature: body.temperature,
-            responseModel: 'claude-fable-5',
-            stopReason: 'end_turn',
-            gatewayMetadata: { keySource: 'Unified' },
+            ...(isFable
+              ? {
+                  responseModel: 'claude-fable-5',
+                  stopReason: 'end_turn',
+                  gatewayMetadata: { keySource: 'Unified' },
+                }
+              : {}),
           },
           elapsedMs: 145,
         }),
@@ -17992,12 +18002,27 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiTextDebug').evaluate((details) => { details.open = true; });
     await expect(page.locator('#aiTextRaw')).not.toContainText('thinking');
     await expect(page.locator('#aiTextRaw')).not.toContainText('signature');
-    expect(requests).toHaveLength(1);
-    expect(requests[0]).toEqual(expect.objectContaining({
+
+    await page.selectOption('#aiTextModel', '@cf/openai/gpt-oss-20b');
+    await page.locator('#aiTextPrompt').fill('Run a normal text model safely.');
+    await page.locator('#aiTextMaxTokens').fill('300');
+    await page.locator('#aiTextRun').click();
+    await expect.poll(() => requests.length).toBe(2);
+
+    expect(requests[0].body).toEqual(expect.objectContaining({
       model: 'anthropic/claude-fable-5',
       maxTokens: 1024,
       prompt: 'Summarize BITBI safely.',
     }));
+    expect(requests[1].body).toEqual(expect.objectContaining({
+      model: '@cf/openai/gpt-oss-20b',
+      maxTokens: 300,
+      prompt: 'Run a normal text model safely.',
+    }));
+    expect(requests[0].idempotencyKey).toMatch(/^admin-ai-text-[A-Za-z0-9._:-]+$/);
+    expect(requests[1].idempotencyKey).toMatch(/^admin-ai-text-[A-Za-z0-9._:-]+$/);
+    expect(requests[0].idempotencyKey.length).toBeLessThanOrEqual(128);
+    expect(requests[1].idempotencyKey).not.toBe(requests[0].idempotencyKey);
   });
 
   test('shows admin image-test credit labels only inside AI Lab image controls', async ({ page }) => {
