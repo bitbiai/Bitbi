@@ -519,6 +519,18 @@ const TEXT_MODELS = {
   },
 };
 
+export function getAdminAiTextMaxTokensForModel(modelId) {
+  const normalizedModelId = String(modelId || "").trim();
+  if (normalizedModelId !== CLAUDE_FABLE_5_MODEL_ID) {
+    return ADMIN_AI_LIMITS.text.maxTokens;
+  }
+
+  const modelMaxOutputTokens = TEXT_MODELS[normalizedModelId]?.maxOutputTokens;
+  return Number.isSafeInteger(modelMaxOutputTokens) && modelMaxOutputTokens > 0
+    ? modelMaxOutputTokens
+    : ADMIN_AI_LIMITS.text.maxTokens;
+}
+
 const IMAGE_MODELS = {
   "@cf/black-forest-labs/flux-1-schnell": {
     id: "@cf/black-forest-labs/flux-1-schnell",
@@ -1823,16 +1835,18 @@ export function resolveAdminAiCompareModels(modelIds) {
 
 export function validateAdminAiTextBody(body) {
   const input = ensureObject(body);
+  const preset = optionalString(input.preset, "preset", 64);
+  const model = optionalString(input.model, "model", 120);
   return {
-    preset: optionalString(input.preset, "preset", 64),
-    model: optionalString(input.model, "model", 120),
+    preset,
+    model,
     prompt: requiredString(input.prompt, "prompt", ADMIN_AI_LIMITS.text.maxPromptLength),
     system: optionalString(input.system, "system", ADMIN_AI_LIMITS.text.maxSystemLength),
     maxTokens: optionalInteger(
       input.maxTokens,
       "maxTokens",
       1,
-      ADMIN_AI_LIMITS.text.maxTokens,
+      getAdminAiTextMaxTokensForModel(model),
       ADMIN_AI_LIMITS.text.defaultMaxTokens
     ),
     temperature: optionalNumber(

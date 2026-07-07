@@ -28243,7 +28243,7 @@ test.describe('Worker routes', () => {
         model: 'anthropic/claude-fable-5',
         system: 'You are a concise portfolio editor.',
         prompt: 'Summarize BITBI.',
-        maxTokens: 1024,
+        maxTokens: 128000,
         temperature: 0.4,
         __bitbi_ai_caller_policy: {
           policy_version: 'ai-caller-policy-v1',
@@ -28311,7 +28311,7 @@ test.describe('Worker routes', () => {
       expect(runCalls).toHaveLength(1);
       expect(runCalls[0][0]).toBe('anthropic/claude-fable-5');
       expect(runCalls[0][1]).toEqual({
-        max_tokens: 1024,
+        max_tokens: 128000,
         messages: [{ role: 'user', content: 'Summarize BITBI.' }],
         system: 'You are a concise portfolio editor.',
       });
@@ -28353,6 +28353,35 @@ test.describe('Worker routes', () => {
       expect(serialized).not.toContain('hidden stop detail');
       expect(serialized).not.toContain('sig_stop_hidden');
       expect(serialized).not.toContain('internalSecret');
+    });
+
+    test('Admin AI text validation applies the Fable output limit without changing other model limits', async () => {
+      const { validateAdminAiTextBody } = await loadAdminAiContractModule();
+      const basePayload = {
+        prompt: 'Validate the selected model output limit.',
+      };
+
+      expect(validateAdminAiTextBody({
+        ...basePayload,
+        model: 'anthropic/claude-fable-5',
+        maxTokens: 128000,
+      }).maxTokens).toBe(128000);
+      expect(() => validateAdminAiTextBody({
+        ...basePayload,
+        model: 'anthropic/claude-fable-5',
+        maxTokens: 128001,
+      })).toThrow('maxTokens must be between 1 and 128000.');
+
+      expect(validateAdminAiTextBody({
+        ...basePayload,
+        model: '@cf/openai/gpt-oss-20b',
+        maxTokens: 1200,
+      }).maxTokens).toBe(1200);
+      expect(() => validateAdminAiTextBody({
+        ...basePayload,
+        model: '@cf/openai/gpt-oss-20b',
+        maxTokens: 1201,
+      })).toThrow('maxTokens must be between 1 and 1200.');
     });
 
     test('AI worker service auth rejects oversized signed bodies before route dispatch', async () => {
@@ -29205,7 +29234,7 @@ test.describe('Worker routes', () => {
           model: 'anthropic/claude-fable-5',
           prompt: 'Run the admin-only Fable model.',
           system: 'Use a concise answer.',
-          maxTokens: 1024,
+          maxTokens: 128000,
           temperature: 0.5,
         }, {
           ...authHeaders,
@@ -29234,6 +29263,7 @@ test.describe('Worker routes', () => {
         }),
       }));
       expect(providerCalls).toHaveLength(1);
+      expect(providerCalls[0][1].max_tokens).toBe(128000);
       expect(aiLabRequests).toHaveLength(1);
       expect(aiLabRequests[0].body.model).toBe('anthropic/claude-fable-5');
       expect(env.DB.state.adminAiUsageAttempts).toHaveLength(1);

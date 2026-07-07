@@ -39,6 +39,7 @@ import {
     FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE,
     FLUX_2_MAX_MODEL_ID,
     GPT_IMAGE_2_MODEL_ID,
+    getAdminAiTextMaxTokensForModel,
     getAdminAiVideoModelSpec,
 } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
 import {
@@ -3966,6 +3967,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         refs.text.system.value = state.forms.text.system;
         refs.text.prompt.value = state.forms.text.prompt;
+        syncTextMaxTokensLimit();
         refs.text.maxTokens.value = state.forms.text.maxTokens;
         refs.text.temperature.value = state.forms.text.temperature;
 
@@ -4035,6 +4037,23 @@ export function createAdminAiLab({ showToast } = {}) {
         syncMusicFieldState();
         syncVideoFieldState();
         renderHistories();
+    }
+
+    function getSelectedTextModelId() {
+        if (state.forms.text.model) return state.forms.text.model;
+        const preset = getCatalogPresets(state.catalog.data, 'text')
+            .find((item) => item.name === state.forms.text.preset);
+        return preset?.model || '';
+    }
+
+    function syncTextMaxTokensLimit() {
+        const maxTokens = getAdminAiTextMaxTokensForModel(getSelectedTextModelId());
+        refs.text.maxTokens.max = String(maxTokens);
+
+        const currentValue = Number(state.forms.text.maxTokens);
+        if (Number.isSafeInteger(currentValue) && currentValue > maxTokens) {
+            state.forms.text.maxTokens = maxTokens;
+        }
     }
 
     function updateCounters() {
@@ -6896,6 +6915,16 @@ export function createAdminAiLab({ showToast } = {}) {
         attachFieldSync(refs.text.prompt, 'text', 'prompt');
         attachFieldSync(refs.text.maxTokens, 'text', 'maxTokens', (value) => value === '' ? '' : Number(value));
         attachFieldSync(refs.text.temperature, 'text', 'temperature', (value) => value === '' ? '' : Number(value));
+        refs.text.preset.addEventListener('change', () => {
+            syncTextMaxTokensLimit();
+            refs.text.maxTokens.value = state.forms.text.maxTokens;
+            persistState();
+        });
+        refs.text.model.addEventListener('change', () => {
+            syncTextMaxTokensLimit();
+            refs.text.maxTokens.value = state.forms.text.maxTokens;
+            persistState();
+        });
 
         attachFieldSync(refs.image.preset, 'image', 'preset');
         attachFieldSync(refs.image.model, 'image', 'model');

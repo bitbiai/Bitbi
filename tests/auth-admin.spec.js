@@ -17990,8 +17990,9 @@ test.describe('Admin AI Lab', () => {
     await clickAiLabMode(page, 'text');
     await expect(page.locator('#aiTextModel option[value="anthropic/claude-fable-5"]')).toHaveText('Claude Fable 5');
     await page.selectOption('#aiTextModel', 'anthropic/claude-fable-5');
+    await expect(page.locator('#aiTextMaxTokens')).toHaveAttribute('max', '128000');
     await page.locator('#aiTextPrompt').fill('Summarize BITBI safely.');
-    await page.locator('#aiTextMaxTokens').fill('1024');
+    await page.locator('#aiTextMaxTokens').fill('128000');
     await page.locator('#aiTextRun').click();
 
     await expect(page.locator('#aiTextOutput')).toHaveText('Sanitized Claude answer.');
@@ -18004,6 +18005,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiTextRaw')).not.toContainText('signature');
 
     await page.selectOption('#aiTextModel', '@cf/openai/gpt-oss-20b');
+    await expect(page.locator('#aiTextMaxTokens')).toHaveAttribute('max', '1200');
     await page.locator('#aiTextPrompt').fill('Run a normal text model safely.');
     await page.locator('#aiTextMaxTokens').fill('300');
     await page.locator('#aiTextRun').click();
@@ -18011,7 +18013,7 @@ test.describe('Admin AI Lab', () => {
 
     expect(requests[0].body).toEqual(expect.objectContaining({
       model: 'anthropic/claude-fable-5',
-      maxTokens: 1024,
+      maxTokens: 128000,
       prompt: 'Summarize BITBI safely.',
     }));
     expect(requests[1].body).toEqual(expect.objectContaining({
