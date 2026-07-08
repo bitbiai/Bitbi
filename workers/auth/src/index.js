@@ -24,6 +24,7 @@ import { handlePublicNewsPulse, handlePublicNewsPulseThumb } from "./routes/publ
 import { handleOpenClawNewsPulseIngest } from "./routes/openclaw-news-pulse.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleAccountCredits } from "./routes/account-credits.js";
+import { handleCanvas } from "./routes/canvas.js";
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
 import {
   handleWalletSiweNonce,
@@ -358,6 +359,10 @@ export default {
     if (pathname === "/api/profile" && method === "PATCH") return handleUpdateProfile(ctx);
     if (pathname === "/api/account/credits-dashboard" && method === "GET") {
       const result = await handleAccountCredits(ctx);
+      if (result) return result;
+    }
+    if (pathname.startsWith("/api/account/canvas/")) {
+      const result = await handleCanvas(ctx);
       if (result) return result;
     }
     // route-policy: account.billing.checkout.live-credit-pack

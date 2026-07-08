@@ -68,6 +68,7 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                 }),
                 links: Object.freeze([
                     Object.freeze({ label: Object.freeze({ en: 'Open Generate Lab', de: 'Generate Lab öffnen' }), path: '/generate-lab/', suffix: '?source=help&step=create' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Canvas', de: 'Canvas öffnen' }), path: '/canvas/', suffix: '?source=help' }),
                     Object.freeze({ label: Object.freeze({ en: 'Open Assets Manager', de: 'Assets Manager öffnen' }), path: '/account/assets-manager.html', suffix: '?source=help' }),
                     Object.freeze({ label: Object.freeze({ en: 'Review Credits', de: 'Credits prüfen' }), path: '/account/credits.html', suffix: '?source=help' }),
                 ]),
@@ -180,6 +181,7 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                 }),
                 links: Object.freeze([
                     Object.freeze({ label: Object.freeze({ en: 'Open Generate Lab', de: 'Generate Lab öffnen' }), path: '/generate-lab/', suffix: '?source=help-credits&step=create' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Canvas', de: 'Canvas öffnen' }), path: '/canvas/', suffix: '?source=help-credits' }),
                     Object.freeze({ label: Object.freeze({ en: 'Open Assets Manager', de: 'Assets Manager öffnen' }), path: '/account/assets-manager.html', suffix: '?source=help-credits&recent=1#generate-lab-recent' }),
                 ]),
             }),
@@ -208,6 +210,7 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                 links: Object.freeze([
                     Object.freeze({ label: Object.freeze({ en: 'Open Assets Manager', de: 'Assets Manager öffnen' }), path: '/account/assets-manager.html', suffix: '?source=help-assets&recent=1#generate-lab-recent' }),
                     Object.freeze({ label: Object.freeze({ en: 'Open Generate Lab', de: 'Generate Lab öffnen' }), path: '/generate-lab/', suffix: '?source=help-assets&step=create' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Canvas', de: 'Canvas öffnen' }), path: '/canvas/', suffix: '?source=help-assets' }),
                 ]),
             }),
             Object.freeze({
@@ -232,6 +235,7 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                 links: Object.freeze([
                     Object.freeze({ label: Object.freeze({ en: 'Review Credits', de: 'Credits prüfen' }), path: '/account/credits.html', suffix: '?source=help-assets' }),
                     Object.freeze({ label: Object.freeze({ en: 'Open Generate Lab', de: 'Generate Lab öffnen' }), path: '/generate-lab/', suffix: '?source=help-assets' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Canvas', de: 'Canvas öffnen' }), path: '/canvas/', suffix: '?source=help-assets' }),
                 ]),
             }),
             Object.freeze({
@@ -316,6 +320,7 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                     Object.freeze({ label: Object.freeze({ en: 'Open Profile Settings', de: 'Profileinstellungen öffnen' }), path: '/account/profile-settings.html', suffix: '?returnContext=recovery&source=help-recovery#profileCompletionCard' }),
                     Object.freeze({ label: Object.freeze({ en: 'Review Credits', de: 'Credits prüfen' }), path: '/account/credits.html', suffix: '?scope=member&source=help-recovery' }),
                     Object.freeze({ label: Object.freeze({ en: 'Open Generate Lab', de: 'Generate Lab öffnen' }), path: '/generate-lab/', suffix: '?source=help-recovery' }),
+                    Object.freeze({ label: Object.freeze({ en: 'Open Canvas', de: 'Canvas öffnen' }), path: '/canvas/', suffix: '?source=help-recovery' }),
                 ]),
             }),
         ]),

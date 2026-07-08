@@ -382,6 +382,7 @@ export async function prepareAiUsagePolicy({
 
     if (
       resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_IMAGE_GENERATE.id ||
+      resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_TEXT_GENERATE.id ||
       resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_MUSIC_GENERATE.id ||
       resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_VIDEO_GENERATE.id
     ) {

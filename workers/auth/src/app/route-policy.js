@@ -378,6 +378,76 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB"],
     notes: "Returns only the authenticated member's personal credit balance and sanitized transaction history.",
   }),
+  safeRead("account.canvas.models.read", "GET", "/api/account/canvas/models", "canvas", {
+    config: ["DB"],
+    notes: "Returns sanitized Canvas-visible model metadata after member authentication; no provider secrets, Admin budget state, or Admin evidence fields are exposed.",
+  }),
+  safeRead("account.canvas.projects.read", "GET", "/api/account/canvas/projects", "canvas", {
+    config: ["DB"],
+    notes: "Bounded project list scoped to the authenticated user_id.",
+  }),
+  userJsonWrite("account.canvas.projects.create", "POST", "/api/account/canvas/projects", "canvas", "smallJson", "canvas-write-user", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { noneReason: "The created ownership-scoped project row is the durable state record." },
+  }),
+  safeRead("account.canvas.project.read", "GET", "/api/account/canvas/projects/:projectId", "canvas", {
+    config: ["DB"],
+    notes: "Project, graph, and bounded recent runs are selected by both project id and authenticated user_id.",
+  }),
+  userJsonWrite("account.canvas.project.update", "PATCH", "/api/account/canvas/projects/:projectId", "canvas", "smallJson", "canvas-write-user", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { noneReason: "The updated ownership-scoped project row is the durable state record." },
+  }),
+  userJsonWrite("account.canvas.project.delete", "DELETE", "/api/account/canvas/projects/:projectId", "canvas", null, "canvas-write-user", {
+    body: { kind: "none", noneReason: "Project deletion uses route parameters and the authenticated session only." },
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { noneReason: "Soft-delete timestamps on the ownership-scoped graph are the durable deletion record; referenced assets are preserved." },
+  }),
+  userJsonWrite("account.canvas.nodes.create", "POST", "/api/account/canvas/projects/:projectId/nodes", "canvas", "smallJson", "canvas-write-user", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { noneReason: "The created ownership-scoped node row is the durable state record." },
+  }),
+  userJsonWrite("account.canvas.node.update", "PATCH", "/api/account/canvas/projects/:projectId/nodes/:nodeId", "canvas", "smallJson", "canvas-write-user", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { noneReason: "The updated ownership-scoped node row is the durable state record." },
+  }),
+  userJsonWrite("account.canvas.node.delete", "DELETE", "/api/account/canvas/projects/:projectId/nodes/:nodeId", "canvas", null, "canvas-write-user", {
+    body: { kind: "none", noneReason: "Node deletion uses route parameters and the authenticated session only." },
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { noneReason: "Soft-delete timestamps on the node and connected edges are the durable deletion record; referenced assets are preserved." },
+  }),
+  userJsonWrite("account.canvas.edges.create", "POST", "/api/account/canvas/projects/:projectId/edges", "canvas", "smallJson", "canvas-write-user", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { noneReason: "The created ownership-scoped edge row is the durable state record." },
+  }),
+  userJsonWrite("account.canvas.edge.update", "PATCH", "/api/account/canvas/projects/:projectId/edges/:edgeId", "canvas", "smallJson", "canvas-write-user", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { noneReason: "The updated ownership-scoped edge row is the durable state record." },
+  }),
+  userJsonWrite("account.canvas.edge.delete", "DELETE", "/api/account/canvas/projects/:projectId/edges/:edgeId", "canvas", null, "canvas-write-user", {
+    body: { kind: "none", noneReason: "Edge deletion uses route parameters and the authenticated session only." },
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { noneReason: "The edge soft-delete timestamp is the durable deletion record." },
+  }),
+  userJsonWrite("account.canvas.node.run", "POST", "/api/account/canvas/projects/:projectId/nodes/:nodeId/run", "canvas", "smallJson", "canvas-run-user", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "USER_IMAGES"],
+    audit: { noneReason: "The Canvas run row and existing member AI usage-attempt and credit ledgers provide durable run and billing evidence." },
+    sensitivity: "high",
+    notes: "Requires Idempotency-Key, project/node ownership, a Canvas-runnable model, member credits, and the existing member generation gateway. It delegates in-process to protected /api/ai handlers and never invokes /api/admin routes.",
+  }),
+  safeRead("account.canvas.runs.read", "GET", "/api/account/canvas/projects/:projectId/runs", "canvas", {
+    config: ["DB"],
+    notes: "Returns a bounded run history selected by project id and authenticated user_id.",
+  }),
+  safeRead("account.canvas.node.runs.read", "GET", "/api/account/canvas/projects/:projectId/nodes/:nodeId/runs", "canvas", {
+    config: ["DB"],
+    notes: "Returns bounded node run history after ownership checks on the containing project.",
+  }),
+  userJsonWrite("account.canvas.node.asset-reference", "POST", "/api/account/canvas/projects/:projectId/nodes/:nodeId/asset-reference", "canvas", "smallJson", "canvas-write-user", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { noneReason: "The ownership-validated node asset reference is durably stored on the node row." },
+    notes: "The asset id is resolved by authenticated user_id against existing Assets Manager tables; raw R2 keys are never returned.",
+  }),
   userJsonWrite("account.billing.checkout.live-credit-pack", "POST", "/api/account/billing/checkout/live-credit-pack", "billing", "smallJson", "account-billing-live-checkout-user", {
     config: REQUIRED_CONFIG.stripeLiveCheckout,
     audit: { event: "stripe_live_member_credit_pack_checkout_created" },
@@ -1410,7 +1480,7 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "ai_generate_image" },
     sensitivity: "high",
     billing: {
-      mode: "optional-organization-context",
+      mode: "organization-or-internal-canvas-member-context",
       feature: "ai.image.generate",
       idempotency: "required for member personal and organization-scoped provider-cost image generation; member personal provider execution is guarded by member_ai_usage_attempts and organization provider execution is guarded by ai_usage_attempts",
     },
@@ -1420,9 +1490,9 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "ai_generate_text" },
     sensitivity: "high",
     billing: {
-      mode: "required-organization-context",
+      mode: "optional-organization-context",
       feature: "ai.text.generate",
-      idempotency: "required; provider execution and text replay are guarded by ai_usage_attempts",
+      idempotency: "required; personal member requests use member_ai_usage_attempts and organization requests use ai_usage_attempts before provider execution",
     },
   }),
   userJsonWrite("ai.generate-music", "POST", "/api/ai/generate-music", "ai-studio", "aiGenerateJson", "ai-generate-music-user", {

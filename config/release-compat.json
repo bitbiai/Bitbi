@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0067_add_news_pulse_display_settings.sql",
+        "latest": "0068_add_canvas_workspaces.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -739,6 +739,7 @@
       "/api/internal/homepage/hero-videos/",
       "/api/internal/memvid-stream-previews/",
       "/api/admin/",
+      "/api/account/canvas/",
       "/api/ai/",
       "/api/gallery/",
       "/api/profile/media/",

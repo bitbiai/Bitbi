@@ -115,6 +115,7 @@ function isLocalizedHomePath(pathname) {
 
 export function initSiteHeader(options = {}) {
     const isGenerateLabPage = options.isGenerateLabPage === true || document.body.classList.contains('generate-lab-page');
+    const isCanvasPage = document.body.classList.contains('canvas-page');
     const generateLabContext = !isGenerateLabPage && options.generateLabContext !== false && isGenerateLabContextActive();
     const disableGenerateLabSelfLink = isGenerateLabPage
         && typeof window !== 'undefined'
@@ -183,6 +184,17 @@ export function initSiteHeader(options = {}) {
     if (!showCategoryLinks) {
         const navLinks = header.querySelector('.site-nav__links');
         navLinks?.querySelectorAll('[data-category-link]').forEach((link) => link.remove());
+        if (isCanvasPage && navLinks) {
+            const generateLink = document.createElement('a');
+            generateLink.href = localizedHref('/generate-lab/');
+            generateLink.className = 'site-nav__link nav-link';
+            generateLink.textContent = 'Generate Lab';
+            const canvasLink = document.createElement('span');
+            canvasLink.className = 'site-nav__link nav-link';
+            canvasLink.textContent = 'Canvas';
+            canvasLink.setAttribute('aria-current', 'page');
+            navLinks.append(generateLink, canvasLink);
+        }
         if (!navLinks?.children.length) navLinks?.classList.add('site-nav__links--empty');
     }
 
@@ -233,6 +245,27 @@ export function initSiteHeader(options = {}) {
     initLocaleSwitcher(header);
     if (!showCategoryLinks) {
         mobileNav?.querySelectorAll('[data-category-link]').forEach((link) => link.remove());
+        if (isCanvasPage && mobileNav) {
+            const section = mobileNav.querySelector('.mobile-nav__section');
+            const label = section?.querySelector('.mobile-nav__label');
+            if (section && label) {
+                section.setAttribute('aria-label', document.documentElement.lang === 'de' ? 'Arbeitsbereiche' : 'Workspaces');
+                label.textContent = document.documentElement.lang === 'de' ? 'Arbeitsbereiche' : 'Workspaces';
+                section.querySelectorAll('button, a').forEach((item) => item.remove());
+                for (const [path, text, current] of [
+                    ['/generate-lab/', 'Generate Lab', false],
+                    ['/canvas/', 'Canvas', true],
+                    ['/account/assets-manager.html', 'Assets Manager', false],
+                ]) {
+                    const link = document.createElement('a');
+                    link.href = localizedHref(path);
+                    link.className = 'mobile-nav__link mobile-nav__link--primary';
+                    link.textContent = text;
+                    if (current) link.setAttribute('aria-current', 'page');
+                    section.append(link);
+                }
+            }
+        }
     }
 
     const primeHomeCategoryNav = (event) => {

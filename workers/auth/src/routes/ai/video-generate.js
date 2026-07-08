@@ -1123,6 +1123,7 @@ export async function handleGenerateVideo(ctx) {
     });
     return respond(policyError.body, { status: policyError.status });
   }
+  ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
 
   if (usagePolicy.mode === "organization") {
     return respond({

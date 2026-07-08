@@ -40,47 +40,67 @@ import {
   withCorrelationId,
 } from "../../../../../js/shared/worker-observability.mjs";
 import { hasControlCharacters } from "./helpers.js";
+import {
+  CANVAS_TEXT_DEFAULT_MAX_TOKENS,
+  CANVAS_TEXT_MAX_PROMPT_LENGTH,
+  CANVAS_TEXT_MAX_SYSTEM_PROMPT_LENGTH,
+  estimateCanvasTextCredits,
+  getCanvasModel,
+} from "../../../../../js/shared/canvas-model-contract.mjs";
 
 const ROUTE_PATH = "/api/ai/generate-text";
 const INTERNAL_TEXT_PATH = "/internal/ai/test-text";
 const AI_LAB_BASE_URL = "https://bitbi-ai.internal";
 const MEMBER_TEXT_PRESET = "fast";
-const MAX_PROMPT_LENGTH = 2000;
-const DEFAULT_MAX_TOKENS = 300;
-const MAX_MAX_TOKENS = 600;
+const DEFAULT_TEXT_MODEL_ID = "@cf/meta/llama-3.1-8b-instruct-fast";
+const MAX_PROMPT_LENGTH = CANVAS_TEXT_MAX_PROMPT_LENGTH;
+const MAX_SYSTEM_PROMPT_LENGTH = CANVAS_TEXT_MAX_SYSTEM_PROMPT_LENGTH;
+const DEFAULT_MAX_TOKENS = CANVAS_TEXT_DEFAULT_MAX_TOKENS;
 const DEFAULT_TEMPERATURE = 0.7;
 const MIN_TEMPERATURE = 0;
 const MAX_TEMPERATURE = 1.5;
-const MAX_REPLAY_TEXT_LENGTH = 12_000;
+const MAX_REPLAY_TEXT_LENGTH = 64_000;
+const MAX_MESSAGES = 20;
 const GENERATION_LIMIT = 60;
 const GENERATION_WINDOW_MS = 60 * 60 * 1000;
 const ALLOWED_BODY_FIELDS = new Set([
   "organization_id",
   "organizationId",
+  "model",
   "prompt",
+  "system",
+  "system_prompt",
+  "systemPrompt",
+  "messages",
   "max_tokens",
   "maxTokens",
   "temperature",
 ]);
 
-function buildMemberTextCallerPolicy({ correlationId, budgetFingerprint = null } = {}) {
+function buildMemberTextCallerPolicy({ correlationId, budgetFingerprint = null, modelId, mode } = {}) {
   return {
     policy_version: AI_CALLER_POLICY_VERSION,
     operation_id: AI_USAGE_OPERATIONS.MEMBER_TEXT_GENERATE.id,
-    budget_scope: AI_CALLER_POLICY_BUDGET_SCOPES.ORGANIZATION_CREDIT_ACCOUNT,
+    budget_scope: mode === "organization"
+      ? AI_CALLER_POLICY_BUDGET_SCOPES.ORGANIZATION_CREDIT_ACCOUNT
+      : AI_CALLER_POLICY_BUDGET_SCOPES.MEMBER_CREDIT_ACCOUNT,
     enforcement_status: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.GATEWAY_ENFORCED,
-    caller_class: AI_CALLER_POLICY_CALLER_CLASSES.ORGANIZATION,
+    caller_class: mode === "organization"
+      ? AI_CALLER_POLICY_CALLER_CLASSES.ORGANIZATION
+      : AI_CALLER_POLICY_CALLER_CLASSES.MEMBER,
     owner_domain: "member-text",
     provider_family: "ai_worker",
-    model_id: null,
-    model_resolver_key: "member.text.model",
+    model_id: modelId,
+    model_resolver_key: "member.text.model_catalog",
     idempotency_policy: "required",
     source_route: ROUTE_PATH,
     source_component: "auth-worker-member-text",
     budget_fingerprint: budgetFingerprint,
     request_fingerprint: budgetFingerprint,
     correlation_id: correlationId || null,
-    reason: "member_text_organization_credit_gateway_verified",
+    reason: mode === "organization"
+      ? "member_text_organization_credit_gateway_verified"
+      : "member_text_personal_credit_gateway_verified",
   };
 }
 
@@ -95,12 +115,7 @@ function validationError(error, code = "validation_error") {
 function normalizeOrgContext(body) {
   const hasSnake = Object.prototype.hasOwnProperty.call(body, "organization_id");
   const hasCamel = Object.prototype.hasOwnProperty.call(body, "organizationId");
-  if (!hasSnake && !hasCamel) {
-    throw Object.assign(new Error("Organization context is required."), {
-      status: 400,
-      code: "organization_required",
-    });
-  }
+  if (!hasSnake && !hasCamel) return null;
   if (hasSnake && hasCamel && String(body.organization_id) !== String(body.organizationId)) {
     throw Object.assign(new Error("Organization context is inconsistent."), {
       status: 400,
@@ -108,6 +123,39 @@ function normalizeOrgContext(body) {
     });
   }
   return hasSnake ? body.organization_id : body.organizationId;
+}
+
+function normalizeMessages(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_MESSAGES) {
+    throw Object.assign(new Error(`messages must contain at most ${MAX_MESSAGES} items.`), {
+      status: 400,
+      code: "invalid_messages",
+    });
+  }
+  let totalLength = 0;
+  const messages = value.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw Object.assign(new Error("Each message must be an object."), { status: 400, code: "invalid_messages" });
+    }
+    const role = String(entry.role || "").trim().toLowerCase();
+    if (role !== "user" && role !== "assistant") {
+      throw Object.assign(new Error("Message role must be user or assistant."), { status: 400, code: "invalid_messages" });
+    }
+    const content = String(entry.content || "").trim();
+    if (!content || hasControlCharacters(content)) {
+      throw Object.assign(new Error("Message content must be safe text."), { status: 400, code: "invalid_messages" });
+    }
+    totalLength += content.length;
+    return { role, content };
+  });
+  if (totalLength > MAX_PROMPT_LENGTH) {
+    throw Object.assign(new Error(`Message content must be at most ${MAX_PROMPT_LENGTH} characters.`), {
+      status: 400,
+      code: "invalid_messages",
+    });
+  }
+  return messages;
 }
 
 function optionalInteger(body, snakeName, camelName, { defaultValue, min, max }) {
@@ -145,7 +193,7 @@ function normalizeTemperature(body) {
   return Math.round(value * 100) / 100;
 }
 
-function normalizeTextGenerationBody(body) {
+function normalizeTextGenerationBody(body, { canvasMemberContext = false } = {}) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw Object.assign(new Error("JSON body is required."), {
       status: 400,
@@ -162,35 +210,87 @@ function normalizeTextGenerationBody(body) {
   }
 
   const organizationId = normalizeOrgContext(body);
-  const prompt = String(body.prompt || "").trim();
-  if (!prompt || prompt.length > MAX_PROMPT_LENGTH || hasControlCharacters(prompt)) {
-    throw Object.assign(new Error(`Prompt must be 1-${MAX_PROMPT_LENGTH} safe characters.`), {
+  if (!canvasMemberContext && !organizationId) {
+    throw Object.assign(new Error("Organization context is required."), {
+      status: 400,
+      code: "organization_required",
+    });
+  }
+  const modelId = String(body.model || DEFAULT_TEXT_MODEL_ID).trim();
+  const model = getCanvasModel(modelId);
+  if (!model || model.capability !== "text" || !model.runnable) {
+    throw Object.assign(new Error("Text model is not available for member generation."), {
+      status: 400,
+      code: "model_not_allowed",
+    });
+  }
+  if (!canvasMemberContext && modelId !== DEFAULT_TEXT_MODEL_ID) {
+    throw Object.assign(new Error("This text model is available through BITBI Canvas only."), {
+      status: 400,
+      code: "model_not_allowed",
+    });
+  }
+  if (!canvasMemberContext && (body.messages !== undefined || body.system !== undefined || body.system_prompt !== undefined || body.systemPrompt !== undefined)) {
+    throw Object.assign(new Error("Advanced text controls are available through BITBI Canvas only."), {
+      status: 400,
+      code: "unsupported_option",
+    });
+  }
+  const messages = normalizeMessages(body.messages);
+  const directPrompt = String(body.prompt || "").trim();
+  const prompt = directPrompt || messages.map((entry) => `${entry.role === "user" ? "User" : "Assistant"}: ${entry.content}`).join("\n\n");
+  const promptLimit = canvasMemberContext ? MAX_PROMPT_LENGTH : 2000;
+  if (!prompt || prompt.length > promptLimit || hasControlCharacters(prompt)) {
+    throw Object.assign(new Error(`Prompt must be 1-${promptLimit} safe characters.`), {
       status: 400,
       code: "invalid_prompt",
     });
   }
+  const system = String(body.system ?? body.system_prompt ?? body.systemPrompt ?? "").trim();
+  if (system.length > MAX_SYSTEM_PROMPT_LENGTH || hasControlCharacters(system)) {
+    throw Object.assign(new Error(`System prompt must be at most ${MAX_SYSTEM_PROMPT_LENGTH} safe characters.`), {
+      status: 400,
+      code: "invalid_system_prompt",
+    });
+  }
+  const maxTokenLimit = canvasMemberContext ? Number(model.controls?.maxTokens?.max || DEFAULT_MAX_TOKENS) : 600;
   const maxTokens = optionalInteger(body, "max_tokens", "maxTokens", {
-    defaultValue: DEFAULT_MAX_TOKENS,
+    defaultValue: canvasMemberContext ? Number(model.controls?.maxTokens?.default || DEFAULT_MAX_TOKENS) : 300,
     min: 1,
-    max: MAX_MAX_TOKENS,
+    max: maxTokenLimit,
   });
   const temperature = normalizeTemperature(body);
+  const credits = canvasMemberContext ? estimateCanvasTextCredits(modelId, { prompt, systemPrompt: system, maxTokens }) : 1;
+  if (!Number.isSafeInteger(credits) || credits < 1) {
+    throw Object.assign(new Error("Text model pricing is unavailable."), {
+      status: 503,
+      code: "pricing_unavailable",
+    });
+  }
 
   return {
     organizationId,
+    modelId,
+    model,
     prompt,
+    system,
+    messages,
     maxTokens,
     temperature,
+    credits,
     policyBody: {
-      organization_id: organizationId,
+      ...(organizationId ? { organization_id: organizationId } : {}),
+      ...(canvasMemberContext ? { model: modelId } : { preset: MEMBER_TEXT_PRESET }),
       prompt,
-      preset: MEMBER_TEXT_PRESET,
+      system,
+      messageCount: messages.length,
       maxTokens,
       temperature,
     },
     providerPayload: {
-      preset: MEMBER_TEXT_PRESET,
+      ...(canvasMemberContext ? { model: modelId } : { preset: MEMBER_TEXT_PRESET }),
       prompt,
+      ...(system ? { system } : {}),
       maxTokens,
       temperature,
     },
@@ -198,6 +298,13 @@ function normalizeTextGenerationBody(body) {
 }
 
 function textBillingMetadata(usagePolicy, { replay = false, balanceAfter = null, creditsCharged = null } = {}) {
+  if (typeof usagePolicy.billingMetadata === "function") {
+    return {
+      ...usagePolicy.billingMetadata({ replay, balanceAfter }),
+      credits_charged: creditsCharged == null ? usagePolicy.credits : creditsCharged,
+      idempotent_replay: Boolean(replay),
+    };
+  }
   return {
     organization_id: usagePolicy.organizationId,
     feature: usagePolicy.featureKey,
@@ -342,6 +449,7 @@ async function signedAiLabTextRequest({
     model: body.model || null,
     maxTokens: body.result?.maxTokens ?? payload.maxTokens,
     temperature: body.result?.temperature ?? payload.temperature,
+    usage: body.result?.usage || null,
     elapsedMs: body.elapsedMs ?? null,
   };
 }
@@ -356,7 +464,9 @@ async function replayTextAttempt({ env, usagePolicy, respond }) {
     }, { status: 410 });
   }
 
-  const metadata = await getAiUsageAttemptReplayMetadata(env, usagePolicy.attempt.id);
+  const metadata = usagePolicy.mode === "member"
+    ? usagePolicy.attempt?.metadata
+    : await getAiUsageAttemptReplayMetadata(env, usagePolicy.attempt.id);
   const replay = metadata?.replay;
   if (!replay || replay.kind !== "text" || typeof replay.text !== "string" || !replay.text) {
     return respond({
@@ -403,7 +513,7 @@ export async function handleGenerateText(ctx) {
 
   let input;
   try {
-    input = normalizeTextGenerationBody(parsed.body);
+    input = normalizeTextGenerationBody(parsed.body, { canvasMemberContext: ctx.canvasMemberContext === true });
   } catch (error) {
     return respond(validationError(error.message || "Invalid text generation request.", error.code), {
       status: error.status || 400,
@@ -417,7 +527,12 @@ export async function handleGenerateText(ctx) {
       request,
       user: session.user,
       body: input.policyBody,
-      operation: AI_USAGE_OPERATIONS.MEMBER_TEXT_GENERATE,
+      operation: {
+        ...AI_USAGE_OPERATIONS.MEMBER_TEXT_GENERATE,
+        credits: input.credits,
+        modelId: input.modelId,
+        source: "member_text_generation",
+      },
       route: ROUTE_PATH,
     });
   } catch (error) {
@@ -433,14 +548,7 @@ export async function handleGenerateText(ctx) {
     });
     return respond(policyError.body, { status: policyError.status });
   }
-
-  if (usagePolicy.mode !== "organization") {
-    return respond({
-      ok: false,
-      error: "Organization context is required.",
-      code: "organization_required",
-    }, { status: 400 });
-  }
+  ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
 
   if (usagePolicy.attemptKind === "completed" || usagePolicy.attemptKind === "completed_expired") {
     return replayTextAttempt({ env, usagePolicy, respond });
@@ -469,6 +577,15 @@ export async function handleGenerateText(ctx) {
     }, { status: 503 });
   }
 
+  if (usagePolicy.mode === "member") {
+    try {
+      await usagePolicy.prepareForProvider();
+    } catch (error) {
+      const policyError = aiUsagePolicyErrorResponse(error);
+      return respond(policyError.body, { status: policyError.status });
+    }
+  }
+
   try {
     await usagePolicy.markProviderRunning();
   } catch (error) {
@@ -495,6 +612,8 @@ export async function handleGenerateText(ctx) {
     callerPolicy: buildMemberTextCallerPolicy({
       correlationId,
       budgetFingerprint: usagePolicy.gatewayPlan?.fingerprint || usagePolicy.requestFingerprint || null,
+      modelId: input.modelId,
+      mode: usagePolicy.mode,
     }),
     user: session.user,
     correlationId,
@@ -539,8 +658,11 @@ export async function handleGenerateText(ctx) {
     await usagePolicy.markFinalizing();
     billingMetadata = await usagePolicy.chargeAfterSuccess({
       model: provider.model?.id || null,
-      preset: MEMBER_TEXT_PRESET,
+      preset: null,
       request_mode: "service-binding",
+      pricing_mode: input.modelId === "anthropic/claude-fable-5" ? "estimated_upper_bound" : "fixed_member_credit",
+      requested_max_tokens: input.maxTokens,
+      provider_usage_available: Boolean(provider.usage),
     });
   } catch (error) {
     try {
@@ -577,6 +699,7 @@ export async function handleGenerateText(ctx) {
           model: provider.model || null,
           maxTokens: provider.maxTokens,
           temperature: provider.temperature,
+          estimatedCredits: input.credits,
         },
       },
     });
@@ -597,8 +720,10 @@ export async function handleGenerateText(ctx) {
     ok: true,
     text: provider.text,
     model: provider.model || null,
+    usage: provider.usage || null,
     billing: {
       ...billingMetadata,
+      estimated_credits: input.credits,
       idempotent_replay: false,
     },
   });

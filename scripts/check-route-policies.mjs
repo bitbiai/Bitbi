@@ -43,6 +43,7 @@ const MUTATING_DISPATCH_FILES = [
   "workers/auth/src/routes/media-comments.js",
   "workers/auth/src/routes/media-interactions.js",
   "workers/auth/src/routes/ai.js",
+  "workers/auth/src/routes/canvas.js",
   "workers/auth/src/routes/orgs.js",
 ];
 
@@ -124,6 +125,22 @@ const REQUIRED_LOOKUPS = [
   ["POST", "/api/billing/webhooks/test", "billing.webhooks.test"],
   ["POST", "/api/billing/webhooks/stripe", "billing.webhooks.stripe"],
   ["POST", "/api/ai/generate-text", "ai.generate-text"],
+  ["GET", "/api/account/canvas/models", "account.canvas.models.read"],
+  ["GET", "/api/account/canvas/projects", "account.canvas.projects.read"],
+  ["POST", "/api/account/canvas/projects", "account.canvas.projects.create"],
+  ["GET", "/api/account/canvas/projects/11111111111111111111111111111111", "account.canvas.project.read"],
+  ["PATCH", "/api/account/canvas/projects/11111111111111111111111111111111", "account.canvas.project.update"],
+  ["DELETE", "/api/account/canvas/projects/11111111111111111111111111111111", "account.canvas.project.delete"],
+  ["POST", "/api/account/canvas/projects/11111111111111111111111111111111/nodes", "account.canvas.nodes.create"],
+  ["PATCH", "/api/account/canvas/projects/11111111111111111111111111111111/nodes/22222222222222222222222222222222", "account.canvas.node.update"],
+  ["DELETE", "/api/account/canvas/projects/11111111111111111111111111111111/nodes/22222222222222222222222222222222", "account.canvas.node.delete"],
+  ["POST", "/api/account/canvas/projects/11111111111111111111111111111111/edges", "account.canvas.edges.create"],
+  ["PATCH", "/api/account/canvas/projects/11111111111111111111111111111111/edges/33333333333333333333333333333333", "account.canvas.edge.update"],
+  ["DELETE", "/api/account/canvas/projects/11111111111111111111111111111111/edges/33333333333333333333333333333333", "account.canvas.edge.delete"],
+  ["POST", "/api/account/canvas/projects/11111111111111111111111111111111/nodes/22222222222222222222222222222222/run", "account.canvas.node.run"],
+  ["GET", "/api/account/canvas/projects/11111111111111111111111111111111/runs", "account.canvas.runs.read"],
+  ["GET", "/api/account/canvas/projects/11111111111111111111111111111111/nodes/22222222222222222222222222222222/runs", "account.canvas.node.runs.read"],
+  ["POST", "/api/account/canvas/projects/11111111111111111111111111111111/nodes/22222222222222222222222222222222/asset-reference", "account.canvas.node.asset-reference"],
 ];
 
 const HIGH_RISK_ADMIN_MUTATION_EXPECTATIONS = [

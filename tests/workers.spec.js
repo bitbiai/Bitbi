@@ -6005,6 +6005,197 @@ test.describe('Admin R2 Object Storage Explorer', () => {
   });
 });
 
+test.describe('BITBI Canvas authenticated project and model contract', () => {
+  test('migration is additive, indexed, soft-deleted, and release-compatible', () => {
+    const migration = fs.readFileSync(path.join(process.cwd(), 'workers/auth/migrations/0068_add_canvas_workspaces.sql'), 'utf8');
+    expect(CURRENT_AUTH_MIGRATION).toBe('0068_add_canvas_workspaces.sql');
+    for (const table of ['canvas_projects', 'canvas_nodes', 'canvas_edges', 'canvas_runs']) {
+      expect(migration).toContain(`CREATE TABLE ${table}`);
+      expect(migration).toContain('deleted_at TEXT');
+    }
+    expect(migration).toContain('CREATE UNIQUE INDEX idx_canvas_runs_user_idempotency');
+    expect(migration).toContain('ON canvas_runs(user_id, idempotency_key)');
+    expect(migration).not.toMatch(/DROP\s+TABLE|DELETE\s+FROM/i);
+  });
+
+  test('Canvas model metadata includes runnable member models and fail-closed disabled catalog models', async () => {
+    const modulePath = pathToFileURL(path.join(process.cwd(), 'js/shared/canvas-model-contract.mjs')).href;
+    const { listCanvasModels, getCanvasModel, CANVAS_FABLE_MAX_OUTPUT_TOKENS } = await import(modulePath);
+    const models = listCanvasModels();
+    expect(models.length).toBe(22);
+    for (const model of models) {
+      expect(model).toEqual(expect.objectContaining({ id: expect.any(String), label: expect.any(String), capability: expect.any(String), canvasEnabled: true, runnable: expect.any(Boolean) }));
+      expect(JSON.stringify(model)).not.toMatch(/secret|budget|evidence|adminOnly/i);
+    }
+    for (const id of [
+      '@cf/black-forest-labs/flux-1-schnell',
+      '@cf/black-forest-labs/flux-2-klein-9b',
+      'black-forest-labs/flux-2-max',
+      'openai/gpt-image-2',
+      'pixverse/v6',
+      'alibaba/hh1-t2v',
+      'bytedance/seedance-2.0-fast',
+      'xai/grok-imagine-video',
+      'minimax/music-2.6',
+      'anthropic/claude-fable-5',
+    ]) expect(getCanvasModel(id)?.runnable).toBe(true);
+    for (const id of ['@cf/black-forest-labs/flux-2-dev', 'xai/grok-imagine-image', 'vidu/q3-pro', 'bytedance/seedance-2.0', 'xai/grok-imagine-video-1.5-preview', '@cf/baai/bge-m3', '@cf/google/embeddinggemma-300m']) {
+      expect(getCanvasModel(id)).toEqual(expect.objectContaining({ runnable: false, disabledReason: expect.any(String) }));
+    }
+    expect(CANVAS_FABLE_MAX_OUTPUT_TOKENS).toBe(16384);
+    expect(getCanvasModel('anthropic/claude-fable-5').controls.maxTokens.default).toBeLessThan(CANVAS_FABLE_MAX_OUTPUT_TOKENS);
+  });
+
+  test('Canvas APIs reject logged-out reads before returning projects or model metadata', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv();
+    for (const pathName of ['/api/account/canvas/projects', '/api/account/canvas/models']) {
+      const response = await worker.fetch(authJsonRequest(pathName, 'GET'), env, createExecutionContext().execCtx);
+      expect(response.status).toBe(401);
+      expect(JSON.stringify(await response.json())).not.toContain('canvasProjects');
+    }
+  });
+
+  test('project, node, edge, and asset-reference operations enforce authenticated user ownership', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const userA = createContractUser({ id: 'canvas-user-a', role: 'user' });
+    const userB = createContractUser({ id: 'canvas-user-b', role: 'user' });
+    const assetA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const assetB = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const env = createAuthTestEnv({
+      users: [userA, userB],
+      aiImages: [
+        { id: assetA, user_id: userA.id, prompt: 'owned', model: 'test', r2_key: 'private/a.webp', created_at: nowIso() },
+        { id: assetB, user_id: userB.id, prompt: 'private', model: 'test', r2_key: 'private/b.webp', created_at: nowIso() },
+      ],
+    });
+    const tokenA = await seedSession(env, userA.id);
+    const tokenB = await seedSession(env, userB.id);
+    const headersA = { Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${tokenA}`, 'CF-Connecting-IP': '203.0.113.241' };
+    const headersB = { Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${tokenB}`, 'CF-Connecting-IP': '203.0.113.242' };
+
+    const created = await worker.fetch(authJsonRequest('/api/account/canvas/projects', 'POST', { title: 'Private workflow', locale: 'en' }, headersA), env, createExecutionContext().execCtx);
+    const createdBody = await created.json();
+    expect(created.status).toBe(201);
+    const projectId = createdBody.data.project.id;
+
+    const foreignRead = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}`, 'GET', undefined, headersB), env, createExecutionContext().execCtx);
+    expect(foreignRead.status).toBe(404);
+    const foreignRename = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}`, 'PATCH', { title: 'Stolen' }, headersB), env, createExecutionContext().execCtx);
+    expect(foreignRename.status).toBe(404);
+
+    const promptResponse = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes`, 'POST', { type: 'text_prompt', title: 'Prompt', x: 20, y: 30, content: { prompt: 'A glass city' } }, headersA), env, createExecutionContext().execCtx);
+    const promptBody = await promptResponse.json();
+    expect(promptResponse.status).toBe(201);
+    const promptId = promptBody.data.node.id;
+
+    const imageResponse = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes`, 'POST', { type: 'image_generation', title: 'Image', x: 360, y: 30, model_id: '@cf/black-forest-labs/flux-1-schnell', config: {} }, headersA), env, createExecutionContext().execCtx);
+    const imageBody = await imageResponse.json();
+    expect(imageResponse.status).toBe(201);
+    const imageNodeId = imageBody.data.node.id;
+
+    const moved = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${imageNodeId}`, 'PATCH', { x: 480.5, y: 188.25 }, headersA), env, createExecutionContext().execCtx);
+    expect(moved.status).toBe(200);
+    expect((await moved.json()).data.node).toMatchObject({ x: 480.5, y: 188.25 });
+
+    const edgeResponse = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/edges`, 'POST', { source_node_id: promptId, target_node_id: imageNodeId }, headersA), env, createExecutionContext().execCtx);
+    const edgeBody = await edgeResponse.json();
+    expect(edgeResponse.status).toBe(201);
+    const edgeId = edgeBody.data.edge.id;
+
+    const foreignNodeDelete = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${imageNodeId}`, 'DELETE', undefined, headersB), env, createExecutionContext().execCtx);
+    expect(foreignNodeDelete.status).toBe(404);
+    const foreignEdgeDelete = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/edges/${edgeId}`, 'DELETE', undefined, headersB), env, createExecutionContext().execCtx);
+    expect(foreignEdgeDelete.status).toBe(404);
+
+    const assetNodeResponse = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes`, 'POST', { type: 'asset_reference', title: 'Reference', x: 20, y: 260 }, headersA), env, createExecutionContext().execCtx);
+    const assetNodeId = (await assetNodeResponse.json()).data.node.id;
+    const foreignAsset = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${assetNodeId}/asset-reference`, 'POST', { asset_id: assetB }, headersA), env, createExecutionContext().execCtx);
+    expect(foreignAsset.status).toBe(404);
+    const ownedAsset = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${assetNodeId}/asset-reference`, 'POST', { asset_id: assetA }, headersA), env, createExecutionContext().execCtx);
+    const ownedAssetBody = await ownedAsset.json();
+    expect(ownedAsset.status).toBe(200);
+    expect(ownedAssetBody.data.asset).toMatchObject({ id: assetA, file_url: `/api/ai/images/${assetA}/file` });
+    expect(JSON.stringify(ownedAssetBody)).not.toContain('private/a.webp');
+
+    const reloaded = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}`, 'GET', undefined, headersA), env, createExecutionContext().execCtx);
+    const reloadedBody = await reloaded.json();
+    expect(reloaded.status).toBe(200);
+    expect(reloadedBody.data.nodes).toHaveLength(3);
+    expect(reloadedBody.data.edges).toHaveLength(1);
+    expect(reloadedBody.data.nodes.find((node) => node.id === imageNodeId)).toMatchObject({ x: 480.5, y: 188.25 });
+
+    const renamed = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}`, 'PATCH', { title: 'Renamed workflow' }, headersA), env, createExecutionContext().execCtx);
+    expect(renamed.status).toBe(200);
+    expect((await renamed.json()).data.project.title).toBe('Renamed workflow');
+    const deletedEdge = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/edges/${edgeId}`, 'DELETE', undefined, headersA), env, createExecutionContext().execCtx);
+    expect(deletedEdge.status).toBe(200);
+    const deletedNode = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${assetNodeId}`, 'DELETE', undefined, headersA), env, createExecutionContext().execCtx);
+    expect(deletedNode.status).toBe(200);
+    expect(env.DB.state.aiImages.some((asset) => asset.id === assetA)).toBe(true);
+    const deletedProject = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}`, 'DELETE', undefined, headersA), env, createExecutionContext().execCtx);
+    expect(deletedProject.status).toBe(200);
+    expect((await deletedProject.json()).data.assets_deleted).toBe(false);
+    const afterDelete = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}`, 'GET', undefined, headersA), env, createExecutionContext().execCtx);
+    expect(afterDelete.status).toBe(404);
+  });
+
+  test('Canvas run requires an idempotency key before provider or credit execution', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'canvas-run-user', role: 'user' });
+    const projectId = '11111111111111111111111111111111';
+    const nodeId = '22222222222222222222222222222222';
+    const now = nowIso();
+    const env = createAuthTestEnv({
+      users: [user],
+      canvasProjects: [{ id: projectId, user_id: user.id, title: 'Run', locale: 'en', thumbnail_asset_id: null, created_at: now, updated_at: now, deleted_at: null }],
+      canvasNodes: [{ id: nodeId, project_id: projectId, user_id: user.id, type: 'text_generation', title: 'Text', x: 0, y: 0, width: null, height: null, model_id: 'anthropic/claude-fable-5', config_json: '{"prompt":"Write a scene"}', content_json: '{}', output_json: null, asset_id: null, created_at: now, updated_at: now, deleted_at: null }],
+    });
+    const token = await seedSession(env, user.id);
+    const response = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${nodeId}/run`, 'POST', {}, { Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${token}`, 'CF-Connecting-IP': '203.0.113.243' }), env, createExecutionContext().execCtx);
+    expect(response.status).toBe(428);
+    expect((await response.json()).code).toBe('idempotency_key_required');
+    expect(env.DB.state.memberAiUsageAttempts).toHaveLength(0);
+    expect(env.AI.runCalls || []).toHaveLength(0);
+  });
+
+  test('connected owned images become bounded server-side model inputs without storing base64 or bypassing credits', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'canvas-reference-user', role: 'user' });
+    const projectId = '66666666666666666666666666666666';
+    const sourceNodeId = '77777777777777777777777777777777';
+    const targetNodeId = '88888888888888888888888888888888';
+    const assetId = '99999999999999999999999999999999';
+    const assetKey = 'users/canvas-reference-user/source.png';
+    const createdAt = nowIso();
+    const env = createAuthTestEnv({
+      users: [user],
+      aiImages: [{ id: assetId, user_id: user.id, folder_id: null, r2_key: assetKey, prompt: 'source', model: 'test', size_bytes: 68, created_at: createdAt }],
+      userImages: { [assetKey]: { body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'), httpMetadata: { contentType: 'image/png' } } },
+      canvasProjects: [{ id: projectId, user_id: user.id, title: 'References', locale: 'en', thumbnail_asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null }],
+      canvasNodes: [
+        { id: sourceNodeId, project_id: projectId, user_id: user.id, type: 'asset_reference', title: 'Source', x: 0, y: 0, width: null, height: null, model_id: null, config_json: '{}', content_json: '{}', output_json: null, asset_id: assetId, created_at: createdAt, updated_at: createdAt, deleted_at: null },
+        { id: targetNodeId, project_id: projectId, user_id: user.id, type: 'image_generation', title: 'Variation', x: 300, y: 0, width: null, height: null, model_id: 'openai/gpt-image-2', config_json: '{"prompt":"Create a cinematic variation"}', content_json: '{}', output_json: null, asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null },
+      ],
+      canvasEdges: [{ id: 'abababababababababababababababab', project_id: projectId, user_id: user.id, source_node_id: sourceNodeId, target_node_id: targetNodeId, label: null, config_json: '{}', created_at: createdAt, updated_at: createdAt, deleted_at: null }],
+    });
+    const token = await seedSession(env, user.id);
+    const response = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${targetNodeId}/run`, 'POST', {}, {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${token}`,
+      'CF-Connecting-IP': '203.0.113.245',
+      'Idempotency-Key': 'canvas-owned-reference-run',
+    }), env, createExecutionContext().execCtx);
+    expect(response.status).toBe(402);
+    expect((await response.json()).code).toBe('insufficient_member_credits');
+    expect(env.DB.state.canvasRuns).toHaveLength(1);
+    expect(env.DB.state.canvasRuns[0].status).toBe('failed');
+    expect(env.DB.state.canvasRuns[0].input_json).toContain('connected_reference_image_count');
+    expect(env.DB.state.canvasRuns[0].input_json).not.toContain('data:image');
+    expect(env.DB.state.memberCreditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+  });
+});
+
 test.describe('Phase 2-A organization and basic RBAC foundation', () => {
   test('authenticated user can create, list, and read an organization idempotently', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');
@@ -13766,6 +13957,62 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       providerCallCount: () => providerCalls,
     };
   }
+
+  test('Canvas Fable 5 run charges personal member credits once and replays without another provider call', async () => {
+    const harness = await createMemberTextHarness({
+      user: createContractUser({ id: 'canvas-fable-member', role: 'user' }),
+      creditBalance: 0,
+      aiRun: async () => ({ content: [{ type: 'text', text: 'A safely billed Canvas scene.' }], usage: { input_tokens: 8, output_tokens: 12 } }),
+    });
+    const projectId = '44444444444444444444444444444444';
+    const nodeId = '55555555555555555555555555555555';
+    const createdAt = nowIso();
+    harness.env.DB.state.memberCreditLedger.push({
+      id: 'cl_canvas_fable_seed',
+      user_id: harness.user.id,
+      amount: 100,
+      balance_after: 100,
+      entry_type: 'grant',
+      feature_key: null,
+      source: 'test_grant',
+      idempotency_key: 'canvas-fable-seed',
+      request_hash: 'seed',
+      created_by_user_id: harness.user.id,
+      created_at: createdAt,
+      metadata_json: '{}',
+    });
+    harness.env.DB.state.canvasProjects.push({ id: projectId, user_id: harness.user.id, title: 'Fable', locale: 'en', thumbnail_asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null });
+    harness.env.DB.state.canvasNodes.push({ id: nodeId, project_id: projectId, user_id: harness.user.id, type: 'text_generation', title: 'Story', x: 10, y: 10, width: null, height: null, model_id: 'anthropic/claude-fable-5', config_json: '{"prompt":"Write a short cinematic scene.","systemPrompt":"Be concise.","maxTokens":500,"temperature":0.7}', content_json: '{}', output_json: null, asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null });
+    const headers = {
+      Origin: 'https://bitbi.ai',
+      Cookie: `bitbi_session=${harness.token}`,
+      'CF-Connecting-IP': '203.0.113.244',
+      'Idempotency-Key': 'canvas-fable-run-key',
+    };
+
+    const first = await harness.authWorker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${nodeId}/run`, 'POST', {}, headers), harness.env, createExecutionContext().execCtx);
+    const firstBody = await first.json();
+    expect(first.status).toBe(200);
+    expect(firstBody.data.run).toMatchObject({ status: 'completed', model_id: 'anthropic/claude-fable-5', output: { kind: 'text', text: 'A safely billed Canvas scene.' } });
+    expect(harness.providerCallCount()).toBe(1);
+    expect(harness.env.DB.state.memberAiUsageAttempts).toHaveLength(1);
+    expect(harness.env.DB.state.memberAiUsageAttempts[0]).toMatchObject({ operation_key: 'member.text.generate', status: 'succeeded', billing_status: 'finalized' });
+    expect(harness.env.DB.state.canvasRuns[0].usage_attempt_id).toBe(harness.env.DB.state.memberAiUsageAttempts[0].id);
+    expect(harness.env.DB.state.memberCreditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+    expect(harness.aiLabRequests[0].body.__bitbi_ai_caller_policy).toMatchObject({
+      operation_id: 'member.text.generate',
+      budget_scope: 'member_credit_account',
+      caller_class: 'member',
+      model_id: 'anthropic/claude-fable-5',
+      source_route: '/api/ai/generate-text',
+    });
+
+    const replay = await harness.authWorker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${nodeId}/run`, 'POST', {}, headers), harness.env, createExecutionContext().execCtx);
+    expect(replay.status).toBe(200);
+    expect((await replay.json()).data.idempotent_replay).toBe(true);
+    expect(harness.providerCallCount()).toBe(1);
+    expect(harness.env.DB.state.memberCreditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+  });
 
   async function createMemberMusicHarness({
     user = createContractUser({ id: 'phase2m-music-user', role: 'user' }),

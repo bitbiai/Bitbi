@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 export const SITE_ROOT_FILES = ["index.html", "pricing.html", "robots.txt", "sitemap.xml", "_worker.js"];
-export const SITE_ROOT_DIRS = ["assets", "css", "fonts", "js", "account", "admin", "legal", "generate-lab", "de"];
-const SOURCE_SCAN_ROOTS = ["index.html", "pricing.html", "admin", "account", "legal", "generate-lab", "de", "js", "_worker.js", "CLAUDE.md"];
+export const SITE_ROOT_DIRS = ["assets", "css", "fonts", "js", "account", "admin", "legal", "generate-lab", "canvas", "de"];
+const SOURCE_SCAN_ROOTS = ["index.html", "pricing.html", "admin", "account", "legal", "generate-lab", "canvas", "de", "js", "_worker.js", "CLAUDE.md"];
 const TEXT_EXTENSIONS = new Set([".html", ".js", ".mjs", ".css", ".md"]);
 const MANUAL_TOKEN_PATTERNS = [
   "Keep this token aligned",

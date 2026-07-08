@@ -36,6 +36,8 @@ Latest auth D1 migration: read `release.schemaCheckpoints.auth.latest` from `con
 
 Current high-impact migration dependencies:
 
+- `0068_add_canvas_workspaces.sql` for authenticated Canvas projects, graph nodes/edges, and idempotent run records. Apply it before deploying Auth Worker code that serves `/api/account/canvas/*`.
+
 - `0056_add_ai_folder_image_ownership_metadata.sql` for folder/image ownership metadata columns.
 - `0057_add_ai_asset_manual_review_state.sql` for manual-review item/event tables.
 - `0058_add_legacy_media_reset_actions.sql` for reset action/event tables.

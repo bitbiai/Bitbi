@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>BITBI Canvas | Visual AI Workflows</title>
+    <meta name="description" content="Build and run visual AI workflows with BITBI Canvas.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#080b10">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <link rel="canonical" href="https://bitbi.ai/canvas/">
+    <link rel="alternate" hreflang="en" href="https://bitbi.ai/canvas/">
+    <link rel="alternate" hreflang="de" href="https://bitbi.ai/de/canvas/">
+    <link rel="alternate" hreflang="x-default" href="https://bitbi.ai/canvas/">
+    <link rel="icon" href="/assets/favicons/favicon.ico" sizes="48x48">
+    <link rel="icon" href="/assets/favicons/favicon-32x32.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/assets/favicons/apple-touch-icon.png" sizes="180x180">
+    <link rel="manifest" href="/assets/favicons/site.webmanifest">
+    <link rel="preload" href="../fonts/inter-v20-latin_latin-ext-regular.woff2" as="font" type="font/woff2" crossorigin>
+    <style>@layer tokens, reset, base, components, pages, utilities;</style>
+    <link rel="stylesheet" href="../css/base/tokens.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/base/reset.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/pages/canvas.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
+</head>
+<body class="canvas-page">
+<a href="#main-content" class="skip-link">Skip to Canvas</a>
+<header>
+    <nav id="navbar" class="site-nav glass-nav" aria-label="Main navigation">
+        <div class="container"><div class="site-nav__bar">
+            <a href="/" class="site-nav__logo"><span class="site-nav__logo-text gt-hero">BITBI</span><span class="site-nav__logo-glow" aria-hidden="true"></span></a>
+            <div class="site-nav__links"><a href="/generate-lab/" class="site-nav__link">Generate Lab</a><span class="site-nav__link" aria-current="page">Canvas</span></div>
+            <div class="site-nav__actions"><span class="site-nav__mood">Mood: <span class="site-nav__mood-value">Building</span></span></div>
+            <button type="button" id="mobileMenuBtn" class="site-nav__menu-btn" aria-label="Toggle menu" aria-expanded="false" aria-controls="mobileNav"><span class="site-nav__menu-bar" id="bar1"></span><span class="site-nav__menu-bar" id="bar2"></span><span class="site-nav__menu-bar site-nav__menu-bar--short" id="bar3"></span></button>
+        </div></div>
+    </nav>
+</header>
+<div id="mobileNav" class="mobile-nav-panel" role="dialog" aria-modal="true" aria-label="Navigation menu" aria-hidden="true">
+    <div id="frozenBackdrop" class="mobile-nav__backdrop" aria-hidden="true"></div><div id="frozenRainLayer" class="mobile-nav__rain-layer" aria-hidden="true"></div>
+    <button id="mobileNavClose" class="mobile-nav__close" type="button" aria-label="Close menu">&times;</button>
+    <div class="mobile-nav__inner"><div id="mobileNavAuth" class="mobile-nav__auth"></div><nav class="mobile-nav__section" aria-label="Workspaces"><span class="mobile-nav__label">Workspaces</span><a href="/generate-lab/" class="mobile-nav__link mobile-nav__link--primary">Generate Lab</a><a href="/canvas/" class="mobile-nav__link mobile-nav__link--primary" aria-current="page">Canvas</a><a href="/account/assets-manager.html" class="mobile-nav__link">Assets Manager</a></nav></div>
+</div>
+<main id="main-content" class="bitbi-canvas">
+    <section id="canvasLoading" class="canvas-gate" aria-live="polite"><span class="canvas-spinner" aria-hidden="true"></span><h1>BITBI Canvas</h1><p>Loading your workspace securely…</p></section>
+    <section id="canvasDenied" class="canvas-gate" hidden aria-labelledby="canvasDeniedTitle">
+        <p class="canvas-eyebrow">Member workspace</p><h1 id="canvasDeniedTitle">Sign in to use Canvas</h1><p>Create an account to build AI workflows. Project data, models, prompts, and outputs stay hidden until your account session is verified.</p>
+        <div class="canvas-gate__actions"><button type="button" class="canvas-button canvas-button--primary" data-auth-entry="login" data-auth-source="canvas" data-auth-message-key="authRecovery.canvasMessage" data-auth-message-target="login">Sign in</button><button type="button" class="canvas-button" data-auth-entry="register" data-auth-source="canvas" data-auth-message-key="authRecovery.canvasMessage" data-auth-message-target="register">Create account</button></div>
+    </section>
+    <section id="canvasApp" class="canvas-app" hidden aria-label="BITBI Canvas workflow editor">
+        <div class="canvas-topbar">
+            <div><p class="canvas-eyebrow">BITBI Canvas</p><input id="canvasProjectTitle" class="canvas-project-title" maxlength="120" aria-label="Project title" value="Untitled Canvas"></div>
+            <div class="canvas-topbar__status"><span id="canvasSaveState" class="canvas-save-state" role="status">Saved</span><a href="/account/credits.html?scope=member" class="canvas-status-link" id="canvasCredits">Credits</a><a href="/account/assets-manager.html?source=canvas" class="canvas-status-link">Assets</a></div>
+        </div>
+        <div class="canvas-mobile-note" role="note">Canvas works on mobile with a simplified layout. A desktop or tablet is recommended for precise graph editing.</div>
+        <div class="canvas-layout">
+            <aside class="canvas-panel canvas-projects" aria-labelledby="canvasProjectsTitle">
+                <div class="canvas-panel__head"><div><p class="canvas-eyebrow">Projects</p><h2 id="canvasProjectsTitle">Your Canvas</h2></div><button id="canvasNewProject" class="canvas-icon-button" type="button" aria-label="New Canvas">+</button></div>
+                <div id="canvasProjectList" class="canvas-project-list" aria-live="polite"></div>
+                <div class="canvas-add-node"><label for="canvasNodeType">Add node</label><select id="canvasNodeType" class="canvas-select"><option value="text_prompt">Text prompt</option><option value="text_generation">Text generation</option><option value="image_generation">Image generation</option><option value="video_generation">Video generation</option><option value="music_generation">Music generation</option><option value="asset_reference">Asset reference</option><option value="output_result">Output</option><option value="note">Note</option></select><button id="canvasAddNode" class="canvas-button canvas-button--primary" type="button">Add node</button></div>
+            </aside>
+            <section class="canvas-workspace" aria-label="Workflow">
+                <div class="canvas-workspace__toolbar"><div><strong>Workflow</strong><span id="canvasSelectionHint">Select a node to edit it</span></div><div><button id="canvasConnect" class="canvas-button canvas-button--compact" type="button" aria-pressed="false">Connect nodes</button><button id="canvasDeleteSelection" class="canvas-button canvas-button--compact canvas-button--danger" type="button" disabled>Delete</button></div></div>
+                <div id="canvasViewport" class="canvas-viewport" tabindex="0" aria-label="Workflow graph. Use Tab to reach nodes and Delete to remove the selected item."><div id="canvasSurface" class="canvas-surface"><svg id="canvasEdges" class="canvas-edges" width="2400" height="1600" aria-label="Workflow connections"></svg><div id="canvasNodes" class="canvas-nodes"></div><div id="canvasEmpty" class="canvas-empty"><h2>Build your first workflow</h2><p>Add a prompt, choose a generation node, then connect them. Your positions and settings save automatically.</p></div></div></div>
+            </section>
+            <aside class="canvas-panel canvas-inspector" aria-labelledby="canvasInspectorTitle"><div class="canvas-panel__head"><div><p class="canvas-eyebrow">Inspector</p><h2 id="canvasInspectorTitle">No node selected</h2></div></div><div id="canvasInspectorBody" class="canvas-inspector__body"><p class="canvas-muted">Select a node to edit its prompt, model, settings, and output.</p></div></aside>
+        </div>
+        <section class="canvas-history" aria-labelledby="canvasHistoryTitle"><div class="canvas-history__head"><h2 id="canvasHistoryTitle">Recent runs</h2><span>Latest 40 for this project</span></div><div id="canvasRunHistory" class="canvas-run-list"><p class="canvas-muted">Your run history will appear here.</p></div></section>
+    </section>
+</main>
+<div id="canvasToast" class="canvas-toast" role="status" aria-live="polite" hidden></div>
+<script type="module" src="../js/pages/canvas/main.js?v=__ASSET_VERSION__"></script>
+</body>
+</html>

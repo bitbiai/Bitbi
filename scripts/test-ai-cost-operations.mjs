@@ -113,7 +113,7 @@ const summary = summarizeAiCostOperationRegistry();
 assert.deepEqual(summary, {
   version: "ai-cost-operations-2026-05-15",
   totalOperations: 31,
-  providerCostOperations: 30,
+  providerCostOperations: 31,
   memberOperations: 7,
   organizationOperations: 2,
   adminPlatformOperations: 22,
@@ -149,6 +149,7 @@ for (const entry of AI_COST_OPERATION_REGISTRY.filter((candidate) =>
 const baselineGapOperationIds = new Set(policyBaseline.knownGaps.map((gap) => gap.operationId).filter(Boolean));
 for (const migratedMemberOperationId of [
   "member.image.generate",
+  "member.text.generate",
   "member.music.generate",
   "member.video.generate",
 ]) {

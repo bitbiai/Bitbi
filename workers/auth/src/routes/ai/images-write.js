@@ -898,6 +898,7 @@ export async function handleGenerateImage(ctx) {
     });
     return respond(policyError.body, { status: policyError.status });
   }
+  ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
 
   if (usagePolicy.mode === "organization") {
     if (usagePolicy.attemptKind === "completed" || usagePolicy.attemptKind === "completed_expired") {

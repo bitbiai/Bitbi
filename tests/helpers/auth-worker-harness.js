@@ -69,6 +69,10 @@ const USER_DEPENDENCY_TABLE_STATE = {
   ai_asset_manual_review_events: 'aiAssetManualReviewEvents',
   tenant_asset_media_reset_actions: 'tenantAssetMediaResetActions',
   tenant_asset_media_reset_action_events: 'tenantAssetMediaResetActionEvents',
+  canvas_projects: 'canvasProjects',
+  canvas_nodes: 'canvasNodes',
+  canvas_edges: 'canvasEdges',
+  canvas_runs: 'canvasRuns',
 };
 
 function countUserDependencyRows(state, query, bindings) {
@@ -1166,6 +1170,10 @@ class MockD1 {
       memberCreditBucketEvents: [],
       aiUsageAttempts: [],
       memberAiUsageAttempts: [],
+      canvasProjects: [],
+      canvasNodes: [],
+      canvasEdges: [],
+      canvasRuns: [],
       ...deepClone(seed),
     };
     this.state.profiles = (this.state.profiles || []).map((row) => ({
@@ -13344,6 +13352,248 @@ class MockD1 {
       if (existing) Object.assign(existing, next);
       else this.state.homepageHeroVideoSlots.push(next);
       return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('SELECT nodes.id, nodes.type, nodes.content_json, nodes.output_json, nodes.asset_id FROM canvas_edges edges')) {
+      const [projectId, userId, targetNodeId] = bindings;
+      const sourceIds = this.state.canvasEdges
+        .filter((edge) => edge.project_id === projectId && edge.user_id === userId && edge.target_node_id === targetNodeId && !edge.deleted_at)
+        .map((edge) => edge.source_node_id);
+      const rows = this.state.canvasNodes.filter((node) => sourceIds.includes(node.id) && !node.deleted_at);
+      return { results: deepClone(rows) };
+    }
+
+    if (query.includes('FROM canvas_projects')) {
+      if (query.startsWith('SELECT COUNT(*) AS count')) {
+        const [userId] = bindings;
+        return { count: this.state.canvasProjects.filter((item) => item.user_id === userId && !item.deleted_at).length };
+      }
+      let rows = this.state.canvasProjects.filter((row) => !row.deleted_at);
+      if (query.includes('WHERE id = ? AND user_id = ?')) {
+        const [id, userId] = bindings;
+        const row = rows.find((item) => item.id === id && item.user_id === userId);
+        return row ? deepClone(row) : null;
+      }
+      if (query.includes('WHERE user_id = ?')) {
+        const [userId, limit = 50] = bindings;
+        rows = rows.filter((item) => item.user_id === userId).sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at))).slice(0, Number(limit));
+        return { results: deepClone(rows) };
+      }
+    }
+
+    if (query.startsWith('INSERT INTO canvas_projects')) {
+      const [id, userId, title, locale, createdAt, updatedAt] = bindings;
+      this.state.canvasProjects.push({ id, user_id: userId, title, locale, thumbnail_asset_id: null, created_at: createdAt, updated_at: updatedAt, deleted_at: null });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'DELETE FROM canvas_projects WHERE user_id = ?') {
+      const [userId] = bindings;
+      const projectIds = this.state.canvasProjects.filter((item) => item.user_id === userId).map((item) => item.id);
+      const before = this.state.canvasProjects.length;
+      this.state.canvasProjects = this.state.canvasProjects.filter((item) => item.user_id !== userId);
+      this.state.canvasNodes = this.state.canvasNodes.filter((item) => !projectIds.includes(item.project_id));
+      this.state.canvasEdges = this.state.canvasEdges.filter((item) => !projectIds.includes(item.project_id));
+      this.state.canvasRuns = this.state.canvasRuns.filter((item) => !projectIds.includes(item.project_id));
+      return { success: true, meta: { changes: before - this.state.canvasProjects.length } };
+    }
+
+    if (query.startsWith('UPDATE canvas_projects SET title = ?')) {
+      const [title, thumbnailAssetId, updatedAt, id, userId] = bindings;
+      const row = this.state.canvasProjects.find((item) => item.id === id && item.user_id === userId && !item.deleted_at);
+      if (row) Object.assign(row, { title, thumbnail_asset_id: thumbnailAssetId, updated_at: updatedAt });
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith('UPDATE canvas_projects SET deleted_at = ?')) {
+      const [deletedAt, updatedAt, id, userId] = bindings;
+      const row = this.state.canvasProjects.find((item) => item.id === id && item.user_id === userId && !item.deleted_at);
+      if (row) Object.assign(row, { deleted_at: deletedAt, updated_at: updatedAt });
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith('UPDATE canvas_projects SET updated_at = ?')) {
+      const [updatedAt, id, userId] = bindings;
+      const row = this.state.canvasProjects.find((item) => item.id === id && item.user_id === userId && !item.deleted_at);
+      if (row) row.updated_at = updatedAt;
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith('UPDATE canvas_projects SET thumbnail_asset_id = COALESCE')) {
+      const [assetId, updatedAt, id, userId] = bindings;
+      const row = this.state.canvasProjects.find((item) => item.id === id && item.user_id === userId && !item.deleted_at);
+      if (row) { row.thumbnail_asset_id ||= assetId; row.updated_at = updatedAt; }
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.includes('FROM canvas_nodes')) {
+      if (query.startsWith('SELECT COUNT(*) AS count')) {
+        const [projectId, userId] = bindings;
+        return { count: this.state.canvasNodes.filter((item) => item.project_id === projectId && item.user_id === userId && !item.deleted_at).length };
+      }
+      let rows = this.state.canvasNodes.filter((row) => !row.deleted_at);
+      if (query.includes('WHERE id = ? AND project_id = ? AND user_id = ?')) {
+        const [id, projectId, userId] = bindings;
+        const row = rows.find((item) => item.id === id && item.project_id === projectId && item.user_id === userId);
+        return row ? deepClone(row) : null;
+      }
+      if (query.includes('WHERE project_id = ? AND user_id = ?')) {
+        const [projectId, userId] = bindings;
+        rows = rows.filter((item) => item.project_id === projectId && item.user_id === userId);
+        return { results: deepClone(rows) };
+      }
+    }
+
+    if (query.startsWith('INSERT INTO canvas_nodes')) {
+      const [id, projectId, userId, type, title, x, y, modelId, configJson, contentJson, assetId, createdAt, updatedAt] = bindings;
+      this.state.canvasNodes.push({ id, project_id: projectId, user_id: userId, type, title, x, y, width: null, height: null, model_id: modelId, config_json: configJson, content_json: contentJson, output_json: null, asset_id: assetId, created_at: createdAt, updated_at: updatedAt, deleted_at: null });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE canvas_nodes SET title = ?')) {
+      const [title, x, y, width, height, modelId, configJson, contentJson, assetId, updatedAt, id, projectId, userId] = bindings;
+      const row = this.state.canvasNodes.find((item) => item.id === id && item.project_id === projectId && item.user_id === userId && !item.deleted_at);
+      if (row) Object.assign(row, { title, x, y, width, height, model_id: modelId, config_json: configJson, content_json: contentJson, asset_id: assetId, updated_at: updatedAt });
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith('UPDATE canvas_nodes SET deleted_at = ?')) {
+      const [deletedAt, updatedAt, idOrProjectId, projectOrUserId, maybeUserId] = bindings;
+      const rows = maybeUserId
+        ? this.state.canvasNodes.filter((item) => item.id === idOrProjectId && item.project_id === projectOrUserId && item.user_id === maybeUserId)
+        : this.state.canvasNodes.filter((item) => item.project_id === idOrProjectId && item.user_id === projectOrUserId);
+      for (const row of rows) if (!row.deleted_at) Object.assign(row, { deleted_at: deletedAt, updated_at: updatedAt });
+      return { success: true, meta: { changes: rows.length } };
+    }
+
+    if (query.startsWith('UPDATE canvas_nodes SET asset_id = ?')) {
+      const [assetId, contentJson, updatedAt, id, projectId, userId] = bindings;
+      const row = this.state.canvasNodes.find((item) => item.id === id && item.project_id === projectId && item.user_id === userId && !item.deleted_at);
+      if (row) Object.assign(row, { asset_id: assetId, content_json: contentJson, updated_at: updatedAt });
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith('UPDATE canvas_nodes SET output_json = ?')) {
+      const [outputJson, assetId, updatedAt, id, projectId, userId] = bindings;
+      const row = this.state.canvasNodes.find((item) => item.id === id && item.project_id === projectId && item.user_id === userId && !item.deleted_at);
+      if (row) Object.assign(row, { output_json: outputJson, asset_id: assetId, updated_at: updatedAt });
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.includes('FROM canvas_edges')) {
+      if (query.startsWith('SELECT COUNT(*) AS count')) {
+        const [projectId, userId] = bindings;
+        return { count: this.state.canvasEdges.filter((item) => item.project_id === projectId && item.user_id === userId && !item.deleted_at).length };
+      }
+      let rows = this.state.canvasEdges.filter((row) => !row.deleted_at);
+      if (query.includes('WHERE id = ? AND project_id = ? AND user_id = ?')) {
+        const [id, projectId, userId] = bindings;
+        const row = rows.find((item) => item.id === id && item.project_id === projectId && item.user_id === userId);
+        return row ? deepClone(row) : null;
+      }
+      if (query.includes('WHERE project_id = ? AND user_id = ?')) {
+        const [projectId, userId] = bindings;
+        rows = rows.filter((item) => item.project_id === projectId && item.user_id === userId);
+        return { results: deepClone(rows) };
+      }
+    }
+
+    if (query.startsWith('INSERT INTO canvas_edges')) {
+      const [id, projectId, userId, sourceNodeId, targetNodeId, label, configJson, createdAt, updatedAt] = bindings;
+      this.state.canvasEdges.push({ id, project_id: projectId, user_id: userId, source_node_id: sourceNodeId, target_node_id: targetNodeId, label, config_json: configJson, created_at: createdAt, updated_at: updatedAt, deleted_at: null });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith('UPDATE canvas_edges SET label = ?')) {
+      const [label, configJson, updatedAt, id, projectId, userId] = bindings;
+      const row = this.state.canvasEdges.find((item) => item.id === id && item.project_id === projectId && item.user_id === userId && !item.deleted_at);
+      if (row) Object.assign(row, { label, config_json: configJson, updated_at: updatedAt });
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith('UPDATE canvas_edges SET deleted_at = ?')) {
+      const [deletedAt, updatedAt, firstId, secondId, maybeUserId] = bindings;
+      let rows;
+      if (query.includes('(source_node_id = ? OR target_node_id = ?)')) {
+        const [projectId, userId, sourceId, targetId] = bindings.slice(2);
+        rows = this.state.canvasEdges.filter((item) => item.project_id === projectId && item.user_id === userId && (item.source_node_id === sourceId || item.target_node_id === targetId));
+      } else if (maybeUserId) rows = this.state.canvasEdges.filter((item) => item.id === firstId && item.project_id === secondId && item.user_id === maybeUserId);
+      else rows = this.state.canvasEdges.filter((item) => item.project_id === firstId && item.user_id === secondId);
+      for (const row of rows) if (!row.deleted_at) Object.assign(row, { deleted_at: deletedAt, updated_at: updatedAt });
+      return { success: true, meta: { changes: rows.length } };
+    }
+
+    if (query.includes('FROM canvas_runs')) {
+      let rows = this.state.canvasRuns.filter((row) => !row.deleted_at);
+      if (query.includes('WHERE user_id = ? AND idempotency_key = ?')) {
+        const [userId, key] = bindings;
+        const row = rows.find((item) => item.user_id === userId && item.idempotency_key === key);
+        return row ? deepClone(row) : null;
+      }
+      const [projectId] = bindings;
+      rows = rows.filter((item) => item.project_id === projectId);
+      if (query.includes('AND node_id = ?')) rows = rows.filter((item) => item.node_id === bindings[1] && item.user_id === bindings[2]);
+      else rows = rows.filter((item) => item.user_id === bindings[1]);
+      return { results: deepClone(rows.slice(0, Number(bindings.at(-1) || 40))) };
+    }
+
+    if (query.startsWith('INSERT INTO canvas_runs')) {
+      const [id, projectId, nodeId, userId, modelId, operationType, idempotencyKey, inputJson, createdAt, updatedAt] = bindings;
+      if (this.state.canvasRuns.some((item) => item.user_id === userId && item.idempotency_key === idempotencyKey)) throw new Error('UNIQUE constraint failed: canvas_runs.user_id, canvas_runs.idempotency_key');
+      this.state.canvasRuns.push({ id, project_id: projectId, node_id: nodeId, user_id: userId, model_id: modelId, operation_type: operationType, idempotency_key: idempotencyKey, status: 'queued', input_json: inputJson, output_json: null, asset_id: null, usage_attempt_id: null, error_code: null, error_message: null, created_at: createdAt, updated_at: updatedAt, completed_at: null, deleted_at: null });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT id FROM member_ai_usage_attempts WHERE user_id = ? AND idempotency_key = ? LIMIT 1') {
+      const [userId, idempotencyKey] = bindings;
+      const row = this.state.memberAiUsageAttempts.find((item) => item.user_id === userId && item.idempotency_key === idempotencyKey);
+      return row ? { id: row.id } : null;
+    }
+
+    if (query.startsWith("UPDATE canvas_runs SET status = 'running'")) {
+      const [updatedAt, id, userId] = bindings;
+      const row = this.state.canvasRuns.find((item) => item.id === id && item.user_id === userId && !item.deleted_at);
+      if (row && ['queued', 'running'].includes(row.status)) Object.assign(row, { status: 'running', updated_at: updatedAt });
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith("UPDATE canvas_runs SET status = 'completed'")) {
+      const [outputJson, assetId, usageAttemptId, updatedAt, completedAt, id, projectId, nodeId, userId] = bindings;
+      const row = this.state.canvasRuns.find((item) => item.id === id && item.project_id === projectId && item.node_id === nodeId && item.user_id === userId && !item.deleted_at);
+      if (row) Object.assign(row, { status: 'completed', output_json: outputJson, asset_id: assetId, usage_attempt_id: usageAttemptId, error_code: null, error_message: null, updated_at: updatedAt, completed_at: completedAt });
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith("UPDATE canvas_runs SET status = 'failed'")) {
+      const [usageAttemptId, errorCode, errorMessage, updatedAt, completedAt, id, projectId, nodeId, userId] = bindings;
+      const row = this.state.canvasRuns.find((item) => item.id === id && item.project_id === projectId && item.node_id === nodeId && item.user_id === userId && !item.deleted_at);
+      if (row) Object.assign(row, { status: 'failed', usage_attempt_id: usageAttemptId, error_code: errorCode, error_message: errorMessage, updated_at: updatedAt, completed_at: completedAt });
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
+    if (query.startsWith('UPDATE canvas_runs SET deleted_at = ?')) {
+      const [deletedAt, updatedAt, projectId, userId] = bindings;
+      const rows = this.state.canvasRuns.filter((item) => item.project_id === projectId && item.user_id === userId && !item.deleted_at);
+      for (const row of rows) Object.assign(row, { deleted_at: deletedAt, updated_at: updatedAt });
+      return { success: true, meta: { changes: rows.length } };
+    }
+
+    if (query === "SELECT id, 'image' AS asset_type FROM ai_images WHERE id = ? AND user_id = ? LIMIT 1") {
+      const [id, userId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === id && item.user_id === userId);
+      return row ? { id: row.id, asset_type: 'image' } : null;
+    }
+
+    if (query === 'SELECT id, r2_key, size_bytes FROM ai_images WHERE id = ? AND user_id = ? LIMIT 1') {
+      const [id, userId] = bindings;
+      const row = this.state.aiImages.find((item) => item.id === id && item.user_id === userId);
+      return row ? { id: row.id, r2_key: row.r2_key, size_bytes: row.size_bytes || 0 } : null;
+    }
+
+    if (query === 'SELECT id, source_module, mime_type FROM ai_text_assets WHERE id = ? AND user_id = ? LIMIT 1') {
+      const [id, userId] = bindings;
+      const row = this.state.aiTextAssets.find((item) => item.id === id && item.user_id === userId);
+      return row ? { id: row.id, source_module: row.source_module, mime_type: row.mime_type } : null;
     }
 
     const r2LinkProbeMatch = query.match(/^SELECT\s+id,\s+([a-z0-9_]+)\s+AS\s+owner_user_id\s+FROM\s+([a-z0-9_]+)\s+WHERE\s+([a-z0-9_]+)\s*=\s*\?\s+LIMIT\s+1$/i);

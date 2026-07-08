@@ -79,7 +79,7 @@ const ADMIN_DELETE_ERASURE_ACKNOWLEDGEMENT = "ERASURE WORKFLOW";
 const ADMIN_DELETE_ERASURE_DEFAULT_REASON = "Admin initiated GDPR/data erasure workflow from Admin user deletion.";
 // Runtime Workers cannot read config/release-compat.json directly; release
 // compatibility tests keep this dashboard label aligned with the manifest.
-const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0067_add_news_pulse_display_settings.sql";
+const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0068_add_canvas_workspaces.sql";
 const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v4";
 
 function adminSettingsIdempotencyKeyOrResponse(request) {
@@ -616,6 +616,7 @@ async function buildAdminUserDeleteDependencySummary(env, userId) {
     countAdminUserDependency(env, { id: "ai_daily_quota_usage", sql: "SELECT COUNT(*) AS cnt FROM ai_daily_quota_usage WHERE user_id = ?", bindings: [userId] }),
     countAdminUserDependency(env, { id: "ai_video_jobs", sql: "SELECT COUNT(*) AS cnt FROM ai_video_jobs WHERE user_id = ?", bindings: [userId] }),
     countAdminUserDependency(env, { id: "member_ai_usage_attempts", sql: "SELECT COUNT(*) AS cnt FROM member_ai_usage_attempts WHERE user_id = ?", bindings: [userId] }),
+    countAdminUserDependency(env, { id: "canvas_projects", sql: "SELECT COUNT(*) AS cnt FROM canvas_projects WHERE user_id = ?", bindings: [userId] }),
     countAdminUserDependency(env, { id: "asset_storage_quota", sql: "SELECT COUNT(*) AS cnt FROM user_asset_storage_usage WHERE user_id = ?", bindings: [userId] }),
     countAdminUserDependency(env, { id: "admin_mfa_credentials", sql: "SELECT COUNT(*) AS cnt FROM admin_mfa_credentials WHERE admin_user_id = ?", bindings: [userId] }),
     countAdminUserDependency(env, { id: "admin_mfa_recovery_codes", sql: "SELECT COUNT(*) AS cnt FROM admin_mfa_recovery_codes WHERE admin_user_id = ?", bindings: [userId] }),
@@ -810,6 +811,12 @@ function buildAdminUserOperationalDeleteStatements(env, {
     branch: "member_ai_usage_attempts_delete_failed",
     label: "member_ai_usage_attempts_delete",
     category: "ai_attempt_cleanup",
+  });
+  pushOptional("canvas_projects", {
+    statement: env.DB.prepare("DELETE FROM canvas_projects WHERE user_id = ?").bind(userId),
+    branch: "canvas_projects_delete_failed",
+    label: "canvas_projects_delete",
+    category: "canvas_workspace_cleanup",
   });
   pushOptional("organization_memberships", {
     statement: env.DB.prepare("DELETE FROM organization_memberships WHERE user_id = ?").bind(userId),

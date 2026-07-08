@@ -5,6 +5,7 @@ const SAFE_AUTH_SOURCES = new Set([
     'credits',
     'assets-manager',
     'generate-lab',
+    'canvas',
     'pricing',
     'landing',
 ]);
@@ -14,6 +15,7 @@ const CONTEXT_SOURCE_MAP = Object.freeze({
     'authRecovery.creditsMessage': 'credits',
     'authRecovery.assetsMessage': 'assets-manager',
     'authRecovery.generateMessage': 'generate-lab',
+    'authRecovery.canvasMessage': 'canvas',
     'authRecovery.pricingMessage': 'pricing',
     'authRecovery.publicMessage': 'landing',
 });
@@ -23,6 +25,7 @@ const SOURCE_CONTEXT_MAP = Object.freeze({
     credits: 'authRecovery.creditsMessage',
     'assets-manager': 'authRecovery.assetsMessage',
     'generate-lab': 'authRecovery.generateMessage',
+    canvas: 'authRecovery.canvasMessage',
     pricing: 'authRecovery.pricingMessage',
     landing: 'authRecovery.publicMessage',
 });
@@ -74,6 +77,7 @@ export function authSourceFromPath(pathname = '') {
     if (path.includes('/account/credits')) return 'credits';
     if (path.includes('/account/assets-manager')) return 'assets-manager';
     if (path.includes('/generate-lab')) return 'generate-lab';
+    if (path.includes('/canvas')) return 'canvas';
     if (path.includes('/pricing')) return 'pricing';
     return 'landing';
 }
@@ -113,6 +117,8 @@ export function buildAuthContinuationHref(source) {
             return localHrefWithParams('/account/assets-manager.html', { source: safeSource, recent: '1' }, '#generate-lab-recent');
         case 'generate-lab':
             return localHrefWithParams('/generate-lab/', { source: safeSource });
+        case 'canvas':
+            return localHrefWithParams('/canvas/', { source: safeSource });
         case 'pricing':
             return localHrefWithParams('/pricing.html', { source: safeSource }, '#pricingAccountEntry');
         case 'landing':
@@ -130,6 +136,8 @@ export function buildWorkspaceHref(target, source) {
             return localHrefWithParams('/account/credits.html', { scope: 'member', source: safeSource });
         case 'generate-lab':
             return localHrefWithParams('/generate-lab/', { source: safeSource });
+        case 'canvas':
+            return localHrefWithParams('/canvas/', { source: safeSource });
         case 'assets-manager':
             return localHrefWithParams('/account/assets-manager.html', { source: safeSource, recent: '1' }, '#generate-lab-recent');
         default:
