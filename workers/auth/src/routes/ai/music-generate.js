@@ -733,6 +733,7 @@ export async function handleGenerateMusic(ctx) {
         modelId: MINIMAX_MUSIC_2_6_MODEL_ID,
       },
       route: ROUTE_PATH,
+      allowAdminMemberCredits: ctx.canvasMemberContext === true,
     });
   } catch (error) {
     const policyError = aiUsagePolicyErrorResponse(error);

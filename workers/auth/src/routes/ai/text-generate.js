@@ -534,6 +534,7 @@ export async function handleGenerateText(ctx) {
         source: "member_text_generation",
       },
       route: ROUTE_PATH,
+      allowAdminMemberCredits: ctx.canvasMemberContext === true,
     });
   } catch (error) {
     const policyError = aiUsagePolicyErrorResponse(error);

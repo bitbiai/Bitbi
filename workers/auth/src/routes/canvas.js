@@ -4,7 +4,13 @@ import { BODY_LIMITS, readJsonBodyOrResponse } from "../lib/request.js";
 import { enforceSensitiveUserRateLimit } from "../lib/sensitive-write-limit.js";
 import { nowIso, randomTokenHex } from "../lib/tokens.js";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../js/shared/worker-observability.mjs";
-import { getCanvasModel, listCanvasModels } from "../../../../js/shared/canvas-model-contract.mjs";
+import {
+  getCanvasModel,
+  getCanvasModelForRole,
+  listCanvasModels,
+  listCanvasModelsForRole,
+} from "../../../../js/shared/canvas-model-contract.mjs";
+import { ORG_ROLE_RANK, listUserOrganizations, requireOrgRole } from "../lib/orgs.js";
 import { handleGenerateImage, handleSaveImage } from "./ai/images-write.js";
 import { handleGenerateMusic } from "./ai/music-generate.js";
 import { handleGenerateText } from "./ai/text-generate.js";
@@ -40,6 +46,17 @@ const GENERATION_NODE_CAPABILITY = Object.freeze({
   image_generation: "image",
   video_generation: "video",
   music_generation: "music",
+});
+const CANVAS_DATA_KINDS = Object.freeze({
+  TEXT: "text",
+  PROMPT: "prompt",
+  IMAGE_ASSET: "image_asset",
+  IMAGE_REFERENCE: "image_reference",
+  VIDEO_ASSET: "video_asset",
+  VIDEO_REFERENCE: "video_reference",
+  AUDIO_ASSET: "audio_asset",
+  JSON: "json",
+  NONE: "none",
 });
 
 function respond(ctx, body, init) {
@@ -123,6 +140,25 @@ function normalizeJsonObject(value, { field, maxBytes = MAX_NODE_JSON_BYTES } = 
     throw error;
   }
   return { value: object, encoded };
+}
+
+function normalizeRunOrganizationId(body) {
+  const allowed = new Set(["organization_id", "organizationId"]);
+  if (Object.keys(body).some((key) => !allowed.has(key))) {
+    const error = new Error("Unsupported Canvas run option.");
+    error.status = 400;
+    error.code = "unsupported_option";
+    throw error;
+  }
+  const snake = String(body.organization_id || "").trim();
+  const camel = String(body.organizationId || "").trim();
+  if (snake && camel && snake !== camel) {
+    const error = new Error("Organization context is inconsistent.");
+    error.status = 400;
+    error.code = "organization_context_mismatch";
+    throw error;
+  }
+  return snake || camel || null;
 }
 
 function projectRecord(row) {
@@ -234,12 +270,24 @@ async function assertAssetOwnership(env, userId, assetId) {
   const image = await env.DB.prepare(
     "SELECT id, 'image' AS asset_type FROM ai_images WHERE id = ? AND user_id = ? LIMIT 1"
   ).bind(safeId, userId).first();
-  if (image) return { id: safeId, asset_type: "image", file_url: `/api/ai/images/${safeId}/file`, preview_url: `/api/ai/images/${safeId}/medium` };
+  if (image) return {
+    id: safeId,
+    asset_type: "image",
+    mime_type: "image/*",
+    file_url: `/api/ai/images/${safeId}/file`,
+    preview_url: `/api/ai/images/${safeId}/medium`,
+  };
   const file = await env.DB.prepare(
     "SELECT id, source_module, mime_type FROM ai_text_assets WHERE id = ? AND user_id = ? LIMIT 1"
   ).bind(safeId, userId).first();
   if (file) {
-    const assetType = String(file.source_module || "file");
+    const moduleType = String(file.source_module || "file").toLowerCase();
+    const mimeType = String(file.mime_type || "").toLowerCase();
+    const assetType = moduleType === "music" || moduleType === "audio" || mimeType.startsWith("audio/")
+      ? "audio"
+      : moduleType === "video" || mimeType.startsWith("video/")
+        ? "video"
+        : "file";
     return {
       id: safeId,
       asset_type: assetType,
@@ -289,17 +337,17 @@ async function loadOwnedImageDataUri(env, userId, assetId) {
   return `data:${mimeType};base64,${bytesToBase64(new Uint8Array(buffer))}`;
 }
 
-async function applyConnectedMediaInputs(env, userId, model, inputs, body) {
-  const assetIds = [...new Set(inputs.map((input) => input.asset_id).filter(Boolean))];
-  if (!assetIds.length) return body;
+async function applyConnectedMediaInputs(env, userId, model, resolution, body) {
+  const imageAssetIds = [...new Set(resolution.imageReferences.map((input) => input.assetId).filter(Boolean))];
+  if (!imageAssetIds.length) return body;
   if (model.capability === "video" && model.controls?.supportsImageInput) {
-    const image = await loadOwnedImageDataUri(env, userId, assetIds[0]);
+    const image = await loadOwnedImageDataUri(env, userId, imageAssetIds[0]);
     if (image) body.image_input = image;
   }
   if (model.capability === "image" && model.controls?.supportsReferenceImages) {
     const maxReferences = Math.max(1, Math.min(Number(model.controls.maxReferenceImages || 1), 4));
     const references = [];
-    for (const assetId of assetIds.slice(0, maxReferences)) {
+    for (const assetId of imageAssetIds.slice(0, maxReferences)) {
       const image = await loadOwnedImageDataUri(env, userId, assetId);
       if (image) references.push(image);
     }
@@ -571,15 +619,29 @@ async function deleteEdge(ctx, userId, projectId, edgeId) {
   return respond(ctx, { ok: true, data: { id: edgeId, deleted: true } });
 }
 
-function defaultModelForCapability(capability) {
-  return listCanvasModels().find((model) => model.capability === capability && model.runnable) || null;
+function defaultModelForCapability(capability, role) {
+  return listCanvasModelsForRole(role).find((model) => model.capability === capability && model.runnable) || null;
+}
+
+async function canvasOrganizationContext(env, user) {
+  const organizations = (await listUserOrganizations(env, { userId: user.id, limit: 100 }))
+    .filter((organization) => (ORG_ROLE_RANK[organization.role] || 0) >= ORG_ROLE_RANK.member)
+    .map((organization) => ({ id: organization.id, name: organization.name, role: organization.role }));
+  return {
+    organizations,
+    selectedOrganizationId: organizations.length === 1 ? organizations[0].id : null,
+  };
 }
 
 async function connectedInputs(env, userId, projectId, nodeId) {
   const rows = await env.DB.prepare(
-    `SELECT nodes.id, nodes.type, nodes.content_json, nodes.output_json, nodes.asset_id
+    `SELECT edges.id AS edge_id, edges.created_at AS edge_created_at,
+            nodes.id, nodes.type, nodes.title, nodes.model_id,
+            nodes.content_json, nodes.output_json, nodes.asset_id
      FROM canvas_edges edges
      JOIN canvas_nodes nodes ON nodes.id = edges.source_node_id
+                            AND nodes.project_id = edges.project_id
+                            AND nodes.user_id = edges.user_id
      WHERE edges.project_id = ? AND edges.user_id = ? AND edges.target_node_id = ?
        AND edges.deleted_at IS NULL AND nodes.deleted_at IS NULL
      ORDER BY edges.created_at, edges.id`
@@ -587,24 +649,139 @@ async function connectedInputs(env, userId, projectId, nodeId) {
   return rows.results || [];
 }
 
-function promptFromNode(node, inputs) {
-  const config = safeJsonParse(node.config_json, {});
-  const content = safeJsonParse(node.content_json, {});
-  const direct = String(config.prompt || content.prompt || content.text || "").trim();
-  if (direct) return direct;
-  const parts = [];
-  for (const input of inputs) {
-    const inputContent = safeJsonParse(input.content_json, {});
-    const inputOutput = safeJsonParse(input.output_json, {});
-    const value = String(inputContent.prompt || inputContent.text || inputOutput.text || "").trim();
-    if (value) parts.push(value);
-  }
-  return parts.join("\n\n").trim();
+function expectedOutputKindForNode(type) {
+  if (type === "text_prompt") return CANVAS_DATA_KINDS.PROMPT;
+  if (type === "text_generation" || type === "note") return CANVAS_DATA_KINDS.TEXT;
+  if (type === "image_generation") return CANVAS_DATA_KINDS.IMAGE_ASSET;
+  if (type === "video_generation") return CANVAS_DATA_KINDS.VIDEO_ASSET;
+  if (type === "music_generation") return CANVAS_DATA_KINDS.AUDIO_ASSET;
+  return CANVAS_DATA_KINDS.NONE;
 }
 
-function buildGenerationBody(node, model, inputs) {
+function assetKind(asset) {
+  if (asset?.asset_type === "image" || String(asset?.mime_type || "").startsWith("image/")) return CANVAS_DATA_KINDS.IMAGE_ASSET;
+  if (asset?.asset_type === "video" || String(asset?.mime_type || "").startsWith("video/")) return CANVAS_DATA_KINDS.VIDEO_ASSET;
+  if (asset?.asset_type === "audio" || String(asset?.mime_type || "").startsWith("audio/")) return CANVAS_DATA_KINDS.AUDIO_ASSET;
+  return CANVAS_DATA_KINDS.JSON;
+}
+
+function compatibilityForInput(targetNode, model, kind) {
+  if (kind === CANVAS_DATA_KINDS.TEXT || kind === CANVAS_DATA_KINDS.PROMPT) {
+    return { compatible: true, inputKind: CANVAS_DATA_KINDS.PROMPT, reason: null };
+  }
+  if (kind === CANVAS_DATA_KINDS.IMAGE_ASSET || kind === CANVAS_DATA_KINDS.IMAGE_REFERENCE) {
+    if (targetNode.type === "image_generation" && model.controls?.supportsReferenceImages) {
+      return { compatible: true, inputKind: CANVAS_DATA_KINDS.IMAGE_REFERENCE, reason: null };
+    }
+    if (targetNode.type === "video_generation" && model.controls?.supportsImageInput) {
+      return { compatible: true, inputKind: CANVAS_DATA_KINDS.IMAGE_REFERENCE, reason: null };
+    }
+    return { compatible: false, inputKind: CANVAS_DATA_KINDS.IMAGE_REFERENCE, reason: `${model.label} does not support image input in Canvas.` };
+  }
+  if (kind === CANVAS_DATA_KINDS.VIDEO_ASSET || kind === CANVAS_DATA_KINDS.VIDEO_REFERENCE) {
+    if (targetNode.type === "video_generation" && model.controls?.supportsVideoInput) {
+      return { compatible: true, inputKind: CANVAS_DATA_KINDS.VIDEO_REFERENCE, reason: null };
+    }
+    return { compatible: false, inputKind: CANVAS_DATA_KINDS.VIDEO_REFERENCE, reason: `${model.label} does not support video input, continuation, or extension in Canvas.` };
+  }
+  if (kind === CANVAS_DATA_KINDS.AUDIO_ASSET) {
+    return { compatible: false, inputKind: CANVAS_DATA_KINDS.AUDIO_ASSET, reason: `${model.label} does not accept an audio asset input in Canvas.` };
+  }
+  if (kind === CANVAS_DATA_KINDS.JSON) {
+    return { compatible: false, inputKind: CANVAS_DATA_KINDS.JSON, reason: `${model.label} does not accept JSON workflow input.` };
+  }
+  return { compatible: false, inputKind: CANVAS_DATA_KINDS.NONE, reason: "The connected source has no usable output." };
+}
+
+async function sourceValue(env, userId, input) {
+  const content = safeJsonParse(input.content_json, {});
+  const output = safeJsonParse(input.output_json, null);
+  const base = {
+    edgeId: input.edge_id,
+    sourceNodeId: input.id,
+    sourceTitle: input.title || input.type,
+    sourceType: input.type,
+  };
+  if (input.type === "text_prompt") {
+    const text = String(content.prompt || content.text || "").trim();
+    return text ? { ...base, kind: CANVAS_DATA_KINDS.PROMPT, text } : { ...base, kind: CANVAS_DATA_KINDS.NONE, expectedKind: CANVAS_DATA_KINDS.PROMPT };
+  }
+  if (input.type === "note") {
+    const text = String(content.text || content.prompt || "").trim();
+    return text ? { ...base, kind: CANVAS_DATA_KINDS.TEXT, text } : { ...base, kind: CANVAS_DATA_KINDS.NONE, expectedKind: CANVAS_DATA_KINDS.TEXT };
+  }
+  if (output?.kind === "text" && String(output.text || "").trim()) {
+    return { ...base, kind: CANVAS_DATA_KINDS.TEXT, text: String(output.text).trim(), runId: output.runId || null };
+  }
+  const outputAssetId = input.asset_id || output?.assetId || output?.asset?.id || null;
+  if (outputAssetId) {
+    const asset = await assertAssetOwnership(env, userId, outputAssetId);
+    return {
+      ...base,
+      kind: assetKind(asset),
+      assetId: asset.id,
+      assetType: asset.asset_type,
+      mimeType: asset.mime_type || output?.mimeType || null,
+      previewUrl: asset.preview_url || null,
+      fileUrl: asset.file_url || null,
+      runId: output?.runId || null,
+    };
+  }
+  if (output?.kind === "json") return { ...base, kind: CANVAS_DATA_KINDS.JSON, json: output.json || null, runId: output.runId || null };
+  return { ...base, kind: CANVAS_DATA_KINDS.NONE, expectedKind: expectedOutputKindForNode(input.type) };
+}
+
+async function resolveCanvasNodeInputs(env, userId, projectId, node, model) {
+  const rows = await connectedInputs(env, userId, projectId, node.id);
   const config = safeJsonParse(node.config_json, {});
-  const prompt = promptFromNode(node, inputs);
+  const content = safeJsonParse(node.content_json, {});
+  const directPrompt = String(config.prompt || content.prompt || content.text || "").trim();
+  const sources = [];
+  for (const row of rows) {
+    const value = await sourceValue(env, userId, row);
+    const kindForCompatibility = value.kind === CANVAS_DATA_KINDS.NONE ? value.expectedKind : value.kind;
+    const compatibility = compatibilityForInput(node, model, kindForCompatibility);
+    const status = value.kind === CANVAS_DATA_KINDS.NONE
+      ? (compatibility.compatible ? "unresolved" : "incompatible")
+      : (compatibility.compatible ? "compatible" : "incompatible");
+    sources.push({ ...value, inputKind: compatibility.inputKind, status, reason: status === "unresolved" ? "Run the upstream node first." : compatibility.reason });
+  }
+  const compatible = sources.filter((source) => source.status === "compatible");
+  const connectedPrompt = compatible
+    .filter((source) => source.inputKind === CANVAS_DATA_KINDS.PROMPT && source.text)
+    .map((source) => source.text)
+    .join("\n\n")
+    .trim();
+  return {
+    sources,
+    incompatible: sources.filter((source) => source.status === "incompatible"),
+    unresolved: sources.filter((source) => source.status === "unresolved"),
+    directPrompt,
+    connectedPrompt,
+    effectivePrompt: directPrompt || connectedPrompt,
+    promptSource: directPrompt ? "direct" : (connectedPrompt ? "connected" : "none"),
+    imageReferences: compatible.filter((source) => source.inputKind === CANVAS_DATA_KINDS.IMAGE_REFERENCE),
+    videoReferences: compatible.filter((source) => source.inputKind === CANVAS_DATA_KINDS.VIDEO_REFERENCE),
+  };
+}
+
+function buildGenerationBody(node, model, resolution) {
+  const config = safeJsonParse(node.config_json, {});
+  if (resolution.incompatible.length) {
+    const input = resolution.incompatible[0];
+    const error = new Error(`${input.sourceTitle}: ${input.reason}`);
+    error.status = 409;
+    error.code = "canvas_input_incompatible";
+    throw error;
+  }
+  if (resolution.unresolved.length) {
+    const input = resolution.unresolved[0];
+    const error = new Error(`${input.sourceTitle}: Run the upstream node first.`);
+    error.status = 409;
+    error.code = "canvas_upstream_output_required";
+    throw error;
+  }
+  const prompt = resolution.effectivePrompt;
   if (!prompt) {
     const error = new Error("Add a prompt to this node or connect a Text Prompt node before running.");
     error.status = 400;
@@ -670,7 +847,7 @@ async function callGenerationHandler(ctx, model, body, idempotencyKey) {
     request,
     pathname: target[0],
     method: "POST",
-    canvasMemberContext: model.capability === "text",
+    canvasMemberContext: true,
     captureCanvasUsageAttemptId(value) {
       usageAttemptId = typeof value === "string" && value ? value : null;
     },
@@ -702,29 +879,54 @@ async function saveGeneratedImage(ctx, body, generated) {
   return payload.data;
 }
 
-function safeRunOutput(model, payload, imageAsset = null) {
+function safeRunOutput(model, payload, imageAsset = null, { runId, createdAt } = {}) {
   if (model.capability === "text") {
-    return { kind: "text", text: String(payload.text || "").slice(0, 64_000), model: payload.model || { id: model.id }, billing: payload.billing || null };
+    return {
+      kind: "text",
+      text: String(payload.text || "").slice(0, 64_000),
+      assetId: null,
+      assetType: null,
+      mimeType: "text/plain; charset=utf-8",
+      previewUrl: null,
+      modelId: payload.model?.id || model.id,
+      runId,
+      createdAt,
+      model: payload.model || { id: model.id },
+      billing: payload.billing || null,
+    };
   }
   if (model.capability === "image") {
-    return { kind: "image", asset: { id: imageAsset.id, file_url: `/api/ai/images/${imageAsset.id}/file`, preview_url: `/api/ai/images/${imageAsset.id}/medium` }, model: model.id, billing: payload.billing || null };
+    const asset = { id: imageAsset.id, asset_type: "image", mime_type: "image/*", file_url: `/api/ai/images/${imageAsset.id}/file`, preview_url: `/api/ai/images/${imageAsset.id}/medium` };
+    return { kind: "image", assetId: asset.id, assetType: "image", mimeType: asset.mime_type, previewUrl: asset.preview_url, fileUrl: asset.file_url, modelId: model.id, runId, createdAt, asset, model: model.id, billing: payload.billing || null };
   }
   const data = payload.data || {};
   const asset = data.asset || null;
+  const kind = model.capability === "music" ? "audio" : "video";
+  const safeAsset = asset ? {
+    id: asset.id,
+    asset_type: kind,
+    file_url: asset.file_url || data.audioUrl || data.videoUrl || null,
+    preview_url: asset.poster_url || data.posterUrl || null,
+    mime_type: asset.mime_type || data.mimeType || null,
+  } : null;
   return {
-    kind: model.capability === "music" ? "audio" : "video",
-    asset: asset ? {
-      id: asset.id,
-      file_url: asset.file_url || data.audioUrl || data.videoUrl || null,
-      preview_url: asset.poster_url || data.posterUrl || null,
-      mime_type: asset.mime_type || data.mimeType || null,
-    } : null,
+    kind,
+    assetId: safeAsset?.id || null,
+    assetType: kind,
+    mimeType: safeAsset?.mime_type || null,
+    previewUrl: safeAsset?.preview_url || null,
+    fileUrl: safeAsset?.file_url || null,
+    modelId: data.model?.id || model.id,
+    runId,
+    createdAt,
+    asset: safeAsset,
     model: data.model || { id: model.id },
     billing: payload.billing || null,
   };
 }
 
-async function runNode(ctx, userId, projectId, nodeId) {
+async function runNode(ctx, session, projectId, nodeId) {
+  const userId = session.user.id;
   const limited = await enforceWriteLimit(ctx, userId, { run: true });
   if (limited) return limited;
   if (!await requireProject(ctx.env, userId, projectId)) return respond(ctx, { ok: false, error: "Canvas project not found.", code: "project_not_found" }, { status: 404 });
@@ -732,25 +934,43 @@ async function runNode(ctx, userId, projectId, nodeId) {
   if (!node) return respond(ctx, { ok: false, error: "Canvas node not found.", code: "node_not_found" }, { status: 404 });
   const capability = GENERATION_NODE_CAPABILITY[node.type];
   if (!capability) return respond(ctx, { ok: false, error: "Select a generation node to run.", code: "node_not_runnable" }, { status: 400 });
-  const model = getCanvasModel(node.model_id) || defaultModelForCapability(capability);
+  const model = getCanvasModelForRole(node.model_id, session.user.role) || defaultModelForCapability(capability, session.user.role);
   if (!model || model.capability !== capability) return respond(ctx, { ok: false, error: "Choose a model for this node.", code: "model_required" }, { status: 400 });
   if (!model.runnable) return respond(ctx, { ok: false, error: model.disabledReason || "Model is not runnable in Canvas.", code: "model_not_runnable" }, { status: 409 });
   const idempotencyKey = String(ctx.request.headers.get("Idempotency-Key") || "").trim();
   if (!IDEMPOTENCY_PATTERN.test(idempotencyKey)) return respond(ctx, { ok: false, error: "A valid Idempotency-Key header is required.", code: "idempotency_key_required" }, { status: 428 });
   const parsed = await readBody(ctx);
   if (parsed.response) return parsed.response;
-  const inputs = await connectedInputs(ctx.env, userId, projectId, nodeId);
-  for (const input of inputs) if (input.asset_id) await assertAssetOwnership(ctx.env, userId, input.asset_id);
+  const requestedOrganizationId = normalizeRunOrganizationId(parsed.body);
+  let organizationId = requestedOrganizationId;
+  if (organizationId) {
+    await requireOrgRole(ctx.env, { organizationId, userId, minRole: "member" });
+  } else if (model.requiresOrganization) {
+    const organizationContext = await canvasOrganizationContext(ctx.env, session.user);
+    organizationId = organizationContext.selectedOrganizationId;
+    if (!organizationId) {
+      const error = new Error(organizationContext.organizations.length > 1
+        ? "Select an organization for this model."
+        : "An active organization membership is required for this model.");
+      error.status = 409;
+      error.code = organizationContext.organizations.length > 1 ? "organization_selection_required" : "organization_required";
+      throw error;
+    }
+  }
+  const resolution = await resolveCanvasNodeInputs(ctx.env, userId, projectId, node, model);
   let generationBody;
-  try { generationBody = buildGenerationBody(node, model, inputs); } catch (error) { return respond(ctx, { ok: false, error: error.message, code: error.code || "validation_error" }, { status: error.status || 400 }); }
-  await applyConnectedMediaInputs(ctx.env, userId, model, inputs, generationBody);
+  try { generationBody = buildGenerationBody(node, model, resolution); } catch (error) { return respond(ctx, { ok: false, error: error.message, code: error.code || "validation_error" }, { status: error.status || 400 }); }
+  await applyConnectedMediaInputs(ctx.env, userId, model, resolution, generationBody);
   const requestInput = {
     node_id: nodeId,
     model_id: model.id,
     capability,
     generation: storedGenerationInput(generationBody),
-    connected_node_ids: inputs.map((input) => input.id),
-    connected_asset_ids: inputs.map((input) => input.asset_id).filter(Boolean),
+    organization_id: model.requiresOrganization ? organizationId : null,
+    prompt_source: resolution.promptSource,
+    connected_node_ids: resolution.sources.map((input) => input.sourceNodeId),
+    connected_asset_ids: resolution.sources.map((input) => input.assetId).filter(Boolean),
+    connected_input_kinds: resolution.sources.map((input) => input.inputKind),
   };
   const inputJson = stableJson(requestInput);
   if (new TextEncoder().encode(inputJson).byteLength > MAX_NODE_JSON_BYTES) {
@@ -822,7 +1042,8 @@ async function runNode(ctx, userId, projectId, nodeId) {
       throw error;
     }
     const imageAsset = model.capability === "image" ? await saveGeneratedImage(ctx, generationBody, delegated.payload) : null;
-    const output = safeRunOutput(model, delegated.payload, imageAsset);
+    const completedAt = nowIso();
+    const output = safeRunOutput(model, delegated.payload, imageAsset, { runId, createdAt: completedAt });
     if ((model.capability === "video" || model.capability === "music")) {
       if (!output.asset?.id) {
         throw Object.assign(new Error("Generated media was not persisted to Assets Manager."), {
@@ -831,10 +1052,14 @@ async function runNode(ctx, userId, projectId, nodeId) {
         });
       }
       output.asset = await assertAssetOwnership(ctx.env, userId, output.asset.id);
+      output.assetId = output.asset.id;
+      output.assetType = output.asset.asset_type;
+      output.mimeType = output.asset.mime_type || output.mimeType;
+      output.previewUrl = output.asset.preview_url || null;
+      output.fileUrl = output.asset.file_url || null;
     }
     const outputState = normalizeJsonObject(output, { field: "output", maxBytes: MAX_OUTPUT_JSON_BYTES });
     const assetId = imageAsset?.id || output.asset?.id || null;
-    const completedAt = nowIso();
     await ctx.env.DB.batch([
       ctx.env.DB.prepare(
         `UPDATE canvas_runs SET status = 'completed', output_json = ?, asset_id = ?, usage_attempt_id = ?, error_code = NULL,
@@ -902,7 +1127,19 @@ export async function handleCanvas(ctx) {
   const { pathname, method } = ctx;
   try {
     if (pathname === "/api/account/canvas/models" && method === "GET") {
-      return respond(ctx, { ok: true, data: { models: listCanvasModels() } });
+      const organizationContext = await canvasOrganizationContext(ctx.env, session.user);
+      return respond(ctx, {
+        ok: true,
+        data: {
+          models: listCanvasModelsForRole(session.user.role),
+          access: {
+            role: session.user.role,
+            is_admin: session.user.role === "admin",
+          },
+          organizations: organizationContext.organizations,
+          selected_organization_id: organizationContext.selectedOrganizationId,
+        },
+      });
     }
     if (pathname === "/api/account/canvas/projects" && method === "GET") return await listProjects(ctx, userId);
     // route-policy: account.canvas.projects.create
@@ -935,7 +1172,7 @@ export async function handleCanvas(ctx) {
 
     const runMatch = pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/nodes\/([a-f0-9]{32})\/run$/);
     // route-policy: account.canvas.node.run
-    if (runMatch && method === "POST") return await runNode(ctx, userId, runMatch[1], runMatch[2]);
+    if (runMatch && method === "POST") return await runNode(ctx, session, runMatch[1], runMatch[2]);
     const assetMatch = pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/nodes\/([a-f0-9]{32})\/asset-reference$/);
     // route-policy: account.canvas.node.asset-reference
     if (assetMatch && method === "POST") return await setAssetReference(ctx, userId, assetMatch[1], assetMatch[2]);

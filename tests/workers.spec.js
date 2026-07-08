@@ -6025,7 +6025,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     expect(models.length).toBe(22);
     for (const model of models) {
       expect(model).toEqual(expect.objectContaining({ id: expect.any(String), label: expect.any(String), capability: expect.any(String), canvasEnabled: true, runnable: expect.any(Boolean) }));
-      expect(JSON.stringify(model)).not.toMatch(/secret|budget|evidence|adminOnly/i);
+      expect(JSON.stringify(model).replace('requiresPlatformBudget', '')).not.toMatch(/secret|budget|evidence|adminOnly/i);
     }
     for (const id of [
       '@cf/black-forest-labs/flux-1-schnell',
@@ -6035,13 +6035,17 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
       'pixverse/v6',
       'alibaba/hh1-t2v',
       'bytedance/seedance-2.0-fast',
+      'bytedance/seedance-2.0',
       'xai/grok-imagine-video',
       'minimax/music-2.6',
       'anthropic/claude-fable-5',
     ]) expect(getCanvasModel(id)?.runnable).toBe(true);
-    for (const id of ['@cf/black-forest-labs/flux-2-dev', 'xai/grok-imagine-image', 'vidu/q3-pro', 'bytedance/seedance-2.0', 'xai/grok-imagine-video-1.5-preview', '@cf/baai/bge-m3', '@cf/google/embeddinggemma-300m']) {
+    for (const id of ['@cf/black-forest-labs/flux-2-dev', 'xai/grok-imagine-image', 'vidu/q3-pro', 'xai/grok-imagine-video-1.5-preview', '@cf/baai/bge-m3', '@cf/google/embeddinggemma-300m']) {
       expect(getCanvasModel(id)).toEqual(expect.objectContaining({ runnable: false, disabledReason: expect.any(String) }));
     }
+    expect(getCanvasModel('xai/grok-imagine-video-1.5-preview').disabledReason).toContain('Assets Manager');
+    expect(getCanvasModel('pixverse/v6').controls.supportsImageInput).toBe(true);
+    expect(models.every((model) => typeof model.memberCanvasEnabled === 'boolean' && typeof model.adminCanvasEnabled === 'boolean')).toBe(true);
     expect(CANVAS_FABLE_MAX_OUTPUT_TOKENS).toBe(16384);
     expect(getCanvasModel('anthropic/claude-fable-5').controls.maxTokens.default).toBeLessThan(CANVAS_FABLE_MAX_OUTPUT_TOKENS);
   });
@@ -6193,6 +6197,90 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     expect(env.DB.state.canvasRuns[0].input_json).toContain('connected_reference_image_count');
     expect(env.DB.state.canvasRuns[0].input_json).not.toContain('data:image');
     expect(env.DB.state.memberCreditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
+  });
+
+  test('connected text output becomes the authoritative image prompt when the target has no override', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'canvas-text-flow-user', role: 'user' });
+    const projectId = '10101010101010101010101010101010';
+    const sourceId = '20202020202020202020202020202020';
+    const targetId = '30303030303030303030303030303030';
+    const createdAt = nowIso();
+    const generatedPrompt = 'A precise cinematic portrait with rain-lit neon reflections.';
+    let providerInput = null;
+    const env = createAuthTestEnv({
+      users: [user],
+      aiRun: async (modelId, input) => { providerInput = { modelId, input }; return null; },
+      canvasProjects: [{ id: projectId, user_id: user.id, title: 'Text flow', locale: 'en', thumbnail_asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null }],
+      canvasNodes: [
+        { id: sourceId, project_id: projectId, user_id: user.id, type: 'text_generation', title: 'Prompt writer', x: 0, y: 0, width: null, height: null, model_id: 'anthropic/claude-fable-5', config_json: '{"prompt":"Improve this prompt"}', content_json: '{}', output_json: JSON.stringify({ kind: 'text', text: generatedPrompt, modelId: 'anthropic/claude-fable-5', runId: 'run-source', createdAt }), asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null },
+        { id: targetId, project_id: projectId, user_id: user.id, type: 'image_generation', title: 'Image', x: 300, y: 0, width: null, height: null, model_id: '@cf/black-forest-labs/flux-1-schnell', config_json: '{"prompt":""}', content_json: '{}', output_json: null, asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null },
+      ],
+      canvasEdges: [{ id: '40404040404040404040404040404040', project_id: projectId, user_id: user.id, source_node_id: sourceId, target_node_id: targetId, label: null, config_json: '{}', created_at: createdAt, updated_at: createdAt, deleted_at: null }],
+    });
+    const token = await seedSession(env, user.id);
+    const response = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${targetId}/run`, 'POST', {}, {
+      Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${token}`, 'CF-Connecting-IP': '203.0.113.246', 'Idempotency-Key': 'canvas-text-to-image-flow',
+    }), env, createExecutionContext().execCtx);
+    expect(response.status).toBe(502);
+    const stored = JSON.parse(env.DB.state.canvasRuns[0].input_json);
+    expect(stored.generation.prompt).toBe(generatedPrompt);
+    expect(stored.prompt_source).toBe('connected');
+    expect(stored.connected_input_kinds).toEqual(['prompt']);
+    expect(providerInput).toMatchObject({ modelId: '@cf/black-forest-labs/flux-1-schnell', input: { prompt: generatedPrompt } });
+  });
+
+  test('owned image output becomes PixVerse video input while incompatible image and video edges fail before provider execution', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'canvas-media-flow-user', role: 'user' });
+    const projectId = '50505050505050505050505050505050';
+    const imageNodeId = '60606060606060606060606060606060';
+    const videoNodeId = '70707070707070707070707070707070';
+    const incompatibleNodeId = '80808080808080808080808080808080';
+    const sourceVideoNodeId = '90909090909090909090909090909090';
+    const nextVideoNodeId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const imageAssetId = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const videoAssetId = 'cccccccccccccccccccccccccccccccc';
+    const imageKey = 'users/canvas-media-flow-user/source.png';
+    const createdAt = nowIso();
+    const baseNode = { project_id: projectId, user_id: user.id, x: 0, y: 0, width: null, height: null, content_json: '{}', output_json: null, asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null };
+    const env = createAuthTestEnv({
+      users: [user],
+      aiImages: [{ id: imageAssetId, user_id: user.id, folder_id: null, r2_key: imageKey, prompt: 'source', model: 'test', size_bytes: 68, created_at: createdAt }],
+      aiTextAssets: [{ id: videoAssetId, user_id: user.id, source_module: 'video', mime_type: 'video/mp4', r2_key: 'users/canvas-media-flow-user/source.mp4', created_at: createdAt }],
+      userImages: { [imageKey]: { body: Buffer.from(ONE_PIXEL_PNG_DATA_URI.replace('data:image/png;base64,', ''), 'base64'), httpMetadata: { contentType: 'image/png' } } },
+      canvasProjects: [{ id: projectId, user_id: user.id, title: 'Media flow', locale: 'en', thumbnail_asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null }],
+      canvasNodes: [
+        { ...baseNode, id: imageNodeId, type: 'image_generation', title: 'Source image', model_id: '@cf/black-forest-labs/flux-1-schnell', config_json: '{"prompt":"source"}', output_json: JSON.stringify({ kind: 'image', assetId: imageAssetId, assetType: 'image' }), asset_id: imageAssetId },
+        { ...baseNode, id: videoNodeId, type: 'video_generation', title: 'PixVerse', model_id: 'pixverse/v6', config_json: '{"prompt":"Animate the scene","duration":5,"aspectRatio":"16:9"}' },
+        { ...baseNode, id: incompatibleNodeId, type: 'video_generation', title: 'HappyHorse', model_id: 'alibaba/hh1-t2v', config_json: '{"prompt":"Animate the scene","duration":5,"aspectRatio":"16:9"}' },
+        { ...baseNode, id: sourceVideoNodeId, type: 'video_generation', title: 'Source video', model_id: 'pixverse/v6', config_json: '{"prompt":"source"}', output_json: JSON.stringify({ kind: 'video', assetId: videoAssetId, assetType: 'video' }), asset_id: videoAssetId },
+        { ...baseNode, id: nextVideoNodeId, type: 'video_generation', title: 'Next video', model_id: 'pixverse/v6', config_json: '{"prompt":"Continue","duration":5,"aspectRatio":"16:9"}' },
+      ],
+      canvasEdges: [
+        { id: 'dddddddddddddddddddddddddddddddd', project_id: projectId, user_id: user.id, source_node_id: imageNodeId, target_node_id: videoNodeId, label: null, config_json: '{}', created_at: createdAt, updated_at: createdAt, deleted_at: null },
+        { id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', project_id: projectId, user_id: user.id, source_node_id: imageNodeId, target_node_id: incompatibleNodeId, label: null, config_json: '{}', created_at: createdAt, updated_at: createdAt, deleted_at: null },
+        { id: 'ffffffffffffffffffffffffffffffff', project_id: projectId, user_id: user.id, source_node_id: sourceVideoNodeId, target_node_id: nextVideoNodeId, label: null, config_json: '{}', created_at: createdAt, updated_at: createdAt, deleted_at: null },
+      ],
+    });
+    const token = await seedSession(env, user.id);
+    const headers = { Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${token}`, 'CF-Connecting-IP': '203.0.113.247' };
+    const imageToVideo = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${videoNodeId}/run`, 'POST', {}, { ...headers, 'Idempotency-Key': 'canvas-image-to-video-flow' }), env, createExecutionContext().execCtx);
+    expect(imageToVideo.status).toBe(402);
+    const imageInput = JSON.parse(env.DB.state.canvasRuns[0].input_json);
+    expect(imageInput.generation.has_connected_image_input).toBe(true);
+    expect(imageInput.connected_asset_ids).toEqual([imageAssetId]);
+    expect(imageInput.connected_input_kinds).toEqual(['image_reference']);
+
+    const incompatibleImage = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${incompatibleNodeId}/run`, 'POST', {}, { ...headers, 'Idempotency-Key': 'canvas-image-incompatible-flow' }), env, createExecutionContext().execCtx);
+    expect(incompatibleImage.status).toBe(409);
+    expect((await incompatibleImage.json())).toMatchObject({ code: 'canvas_input_incompatible', error: expect.stringContaining('does not support image input') });
+
+    const videoToVideo = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${nextVideoNodeId}/run`, 'POST', {}, { ...headers, 'Idempotency-Key': 'canvas-video-to-video-flow' }), env, createExecutionContext().execCtx);
+    expect(videoToVideo.status).toBe(409);
+    expect((await videoToVideo.json())).toMatchObject({ code: 'canvas_input_incompatible', error: expect.stringContaining('does not support video input') });
+    expect(env.DB.state.canvasRuns).toHaveLength(1);
+    expect(env.AI.runCalls || []).toHaveLength(0);
   });
 });
 
@@ -14014,6 +14102,62 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(harness.env.DB.state.memberCreditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
   });
 
+  test('admin Canvas resolves active organization membership but bills the trusted Canvas run through personal credits', async () => {
+    const admin = createContractUser({ id: 'canvas-admin-member', email: 'canvas-admin@example.com', role: 'admin' });
+    const harness = await createMemberTextHarness({
+      user: admin,
+      role: 'admin',
+      creditBalance: 0,
+      aiRun: async () => ({ content: [{ type: 'text', text: 'Admin Canvas output.' }], usage: { input_tokens: 5, output_tokens: 8 } }),
+    });
+    const projectId = '12121212121212121212121212121212';
+    const nodeId = '13131313131313131313131313131313';
+    const createdAt = nowIso();
+    harness.env.DB.state.memberCreditLedger.push({
+      id: 'cl_canvas_admin_seed', user_id: admin.id, amount: 100, balance_after: 100, entry_type: 'grant', feature_key: null,
+      source: 'test_grant', idempotency_key: 'canvas-admin-seed', request_hash: 'seed', created_by_user_id: admin.id, created_at: createdAt, metadata_json: '{}',
+    });
+    harness.env.DB.state.canvasProjects.push({ id: projectId, user_id: admin.id, title: 'Admin Canvas', locale: 'en', thumbnail_asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null });
+    harness.env.DB.state.canvasNodes.push({ id: nodeId, project_id: projectId, user_id: admin.id, type: 'text_generation', title: 'Admin text', x: 0, y: 0, width: null, height: null, model_id: 'anthropic/claude-fable-5', config_json: '{"prompt":"Write a concise scene","maxTokens":100}', content_json: '{}', output_json: null, asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null });
+    const baseHeaders = { Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${harness.token}`, 'CF-Connecting-IP': '203.0.113.248' };
+
+    const models = await harness.authWorker.fetch(authJsonRequest('/api/account/canvas/models', 'GET', undefined, baseHeaders), harness.env, createExecutionContext().execCtx);
+    const modelsBody = await models.json();
+    expect(models.status).toBe(200);
+    expect(modelsBody.data).toMatchObject({ access: { role: 'admin', is_admin: true }, selected_organization_id: harness.orgId });
+    expect(modelsBody.data.organizations).toEqual([expect.objectContaining({ id: harness.orgId, role: 'admin' })]);
+    expect(modelsBody.data.models.find((model) => model.id === 'anthropic/claude-fable-5')).toMatchObject({ runnable: true, requiresPersonalCredits: true, requiresOrganization: false });
+    expect(JSON.stringify(modelsBody)).not.toContain('/api/admin/');
+
+    const run = await harness.authWorker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${nodeId}/run`, 'POST', {}, { ...baseHeaders, 'Idempotency-Key': 'canvas-admin-personal-run' }), harness.env, createExecutionContext().execCtx);
+    const runBody = await run.json();
+    expect(run.status).toBe(200);
+    expect(runBody.data.run.output).toMatchObject({ kind: 'text', text: 'Admin Canvas output.' });
+    expect(runBody.code).not.toBe('admin_ai_legacy_unmetered_blocked');
+    expect(harness.env.DB.state.memberCreditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+    expect(harness.providerCallCount()).toBe(1);
+  });
+
+  test('Canvas rejects a supplied organization without active member-or-higher membership', async () => {
+    const user = createContractUser({ id: 'canvas-org-isolation-user', role: 'user' });
+    const foreign = createContractUser({ id: 'canvas-org-foreign-user', role: 'user' });
+    const harness = await createMemberTextHarness({ user, role: 'member', extraUsers: [foreign], creditBalance: 0 });
+    const foreignOrgId = 'org_16161616161616161616161616161616';
+    const createdAt = nowIso();
+    harness.env.DB.state.organizations.push({ id: foreignOrgId, name: 'Foreign', slug: 'foreign', status: 'active', created_by_user_id: foreign.id, created_at: createdAt, updated_at: createdAt });
+    harness.env.DB.state.organizationMemberships.push({ id: 'om_canvas_foreign', organization_id: foreignOrgId, user_id: foreign.id, role: 'owner', status: 'active', created_by_user_id: foreign.id, created_at: createdAt, updated_at: createdAt });
+    const projectId = '14141414141414141414141414141414';
+    const nodeId = '15151515151515151515151515151515';
+    harness.env.DB.state.canvasProjects.push({ id: projectId, user_id: user.id, title: 'Org isolation', locale: 'en', thumbnail_asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null });
+    harness.env.DB.state.canvasNodes.push({ id: nodeId, project_id: projectId, user_id: user.id, type: 'text_generation', title: 'Text', x: 0, y: 0, width: null, height: null, model_id: 'anthropic/claude-fable-5', config_json: '{"prompt":"Test"}', content_json: '{}', output_json: null, asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null });
+    const response = await harness.authWorker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${nodeId}/run`, 'POST', { organization_id: foreignOrgId }, {
+      Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${harness.token}`, 'CF-Connecting-IP': '203.0.113.249', 'Idempotency-Key': 'canvas-foreign-org-run',
+    }), harness.env, createExecutionContext().execCtx);
+    expect(response.status).toBe(404);
+    expect((await response.json()).code).toBe('organization_not_found');
+    expect(harness.providerCallCount()).toBe(0);
+  });
+
   async function createMemberMusicHarness({
     user = createContractUser({ id: 'phase2m-music-user', role: 'user' }),
     creditBalance = 200,
@@ -15985,7 +16129,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(providerFailure.env.DB.state.aiTextAssets).toHaveLength(0);
   });
 
-  test('member Seedance 2.0 Fast rejects standard model, unsupported fields, and 13s or 15s durations', async () => {
+  test('member Seedance routes standard and Fast models while rejecting unsupported fields and invalid Fast options', async () => {
     const { authWorker, env, token, calls } = await createMemberVideoHarness();
 
     const standardModel = await postGenerateVideo({
@@ -15999,12 +16143,12 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
         resolution: '720p',
         aspect_ratio: '16:9',
       },
-      idempotencyKey: 'member-seedance-standard-blocked',
+      idempotencyKey: 'member-seedance-standard-routed',
     });
-    expect(standardModel.status).toBe(400);
+    expect(standardModel.status).toBe(200);
     await expect(standardModel.json()).resolves.toMatchObject({
-      ok: false,
-      code: 'model_not_allowed',
+      ok: true,
+      data: { model: { id: 'bytedance/seedance-2.0' } },
     });
 
     const unsupportedFields = [
@@ -16066,7 +16210,8 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       });
     }
 
-    expect(calls).toHaveLength(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ modelId: 'bytedance/seedance-2.0' });
   });
 
   test('member HappyHorse T2V rejects unsupported models, PixVerse-only fields, and invalid options', async () => {

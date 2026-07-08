@@ -3,6 +3,7 @@ import { initAuthEntryActions } from '../../shared/auth-entry-actions.js?v=__ASS
 import { canvasApi } from './api.js?v=__ASSET_VERSION__';
 import { createCanvasState, createDebouncedTask } from './state.js?v=__ASSET_VERSION__';
 import { createCanvasGraph } from './graph.js?v=__ASSET_VERSION__';
+import { analyzeWorkflow, validationForNode, upstreamDisplayNode } from './workflow.js?v=__ASSET_VERSION__';
 
 const isGerman = document.documentElement.lang === 'de';
 const copy = isGerman ? {
@@ -18,6 +19,11 @@ const copy = isGerman ? {
     run: 'Ausführen', running: 'Wird ausgeführt', failed: 'Fehlgeschlagen', output: 'Ausgabe', outputEmpty: 'Deine Ausgabe erscheint hier', estimated: 'Geschätzte Credits', disabled: 'Nicht ausführbar', selectAsset: 'Asset auswählen', loadingAssets: 'Assets werden geladen…', noAssets: 'Keine Assets gefunden.',
     projectCreated: 'Canvas erstellt.', projectDeleted: 'Canvas gelöscht.', nodeAdded: 'Node hinzugefügt.', runComplete: 'Ausführung abgeschlossen.', projectsEmpty: 'Noch keine Canvas. Erstelle dein erstes Projekt.',
     credits: 'Credits', recentRunsEmpty: 'Dein Verlauf erscheint hier.', networkError: 'Canvas konnte nicht geladen werden.', runInProgress: 'Diese Ausführung läuft bereits.',
+    noInput: 'Kein Input', inputConnected: 'Input verbunden', needsUpstream: 'Upstream ausführen', runUpstream: 'Führe zuerst den Upstream-Node aus.', edgeCompatible: 'Kompatibler Input.',
+    inputHandle: 'Input-Anschluss', outputHandle: 'Output-Anschluss', inputFrom: 'Input von', connectedInput: 'Verbundener Input', effectivePrompt: 'Effektiver Prompt', directOverride: 'Der direkte Prompt überschreibt verbundenen Text.',
+    moveNode: 'Node ziehen oder mit den Pfeiltasten verschieben; Umschalt für größere Schritte.',
+    promptRequired: 'Füge einen direkten Prompt hinzu oder verbinde einen Text-Node.', selectedModel: 'Das ausgewählte Modell', imageInputUnsupported: '{model} unterstützt in Canvas keinen Bild-Input.', videoInputUnsupported: '{model} unterstützt in Canvas keinen Video-Input, keine Fortsetzung und keine Erweiterung.', audioInputUnsupported: 'Das ausgewählte Modell akzeptiert keinen Audio-Asset-Input.', jsonInputUnsupported: 'Das ausgewählte Modell akzeptiert keinen JSON-Workflow-Input.', noUsableOutput: 'Die verbundene Quelle hat noch keine nutzbare Ausgabe.',
+    quickCreated: 'Text → Bild → Video wurde erstellt. Führe die Nodes von links nach rechts aus.', quickFailed: 'Der schnelle Workflow konnte nicht vollständig erstellt werden.', organizationSelect: 'Organisation auswählen', organizationRequired: 'Wähle eine aktive Organisation für dieses Modell.',
 } : {
     saved: 'Saved', saving: 'Saving', unsaved: 'Unsaved changes', saveFailed: 'Save failed',
     newProject: 'New Canvas', projectPrompt: 'Canvas name', renamePrompt: 'Rename Canvas', deleteProject: 'Delete this Canvas? Assets will remain in Assets Manager.',
@@ -31,6 +37,11 @@ const copy = isGerman ? {
     run: 'Run', running: 'Running', failed: 'Failed', output: 'Output', outputEmpty: 'Your output will appear here', estimated: 'Estimated credits', disabled: 'Not runnable', selectAsset: 'Select asset', loadingAssets: 'Loading assets…', noAssets: 'No assets found.',
     projectCreated: 'Canvas created.', projectDeleted: 'Canvas deleted.', nodeAdded: 'Node added.', runComplete: 'Run completed.', projectsEmpty: 'No Canvas projects yet. Create your first project.',
     credits: 'Credits', recentRunsEmpty: 'Your run history will appear here.', networkError: 'Canvas could not be loaded.', runInProgress: 'This run is already in progress.',
+    noInput: 'No input', inputConnected: 'Input connected', needsUpstream: 'Needs upstream', runUpstream: 'Run the upstream node first.', edgeCompatible: 'Compatible input.',
+    inputHandle: 'Input handle', outputHandle: 'Output handle', inputFrom: 'Input from', connectedInput: 'Connected input', effectivePrompt: 'Effective prompt', directOverride: 'The direct prompt overrides connected text.',
+    moveNode: 'Drag the node or use arrow keys to move it; hold Shift for larger steps.',
+    promptRequired: 'Add a direct prompt or connect a text node.', selectedModel: 'The selected model', imageInputUnsupported: '{model} does not support image input in Canvas.', videoInputUnsupported: '{model} does not support video input, continuation, or extension in Canvas.', audioInputUnsupported: 'The selected model does not accept an audio asset input.', jsonInputUnsupported: 'The selected model does not accept JSON workflow input.', noUsableOutput: 'The connected source has no usable output yet.',
+    quickCreated: 'Text → Image → Video was created. Run the nodes from left to right.', quickFailed: 'The quick workflow could not be fully created.', organizationSelect: 'Select organization', organizationRequired: 'Select an active organization for this model.',
 };
 
 const dom = Object.freeze({
@@ -41,6 +52,8 @@ const dom = Object.freeze({
     nodes: document.getElementById('canvasNodes'), edges: document.getElementById('canvasEdges'), empty: document.getElementById('canvasEmpty'), viewport: document.getElementById('canvasViewport'),
     inspectorTitle: document.getElementById('canvasInspectorTitle'), inspector: document.getElementById('canvasInspectorBody'), history: document.getElementById('canvasRunHistory'),
     credits: document.getElementById('canvasCredits'), toast: document.getElementById('canvasToast'),
+    organizationField: document.getElementById('canvasOrganizationField'), organization: document.getElementById('canvasOrganization'),
+    quickTextImageVideo: document.getElementById('canvasQuickTextImageVideo'),
 });
 
 const store = createCanvasState();
@@ -48,6 +61,7 @@ let assetsCache = null;
 let runningNodeId = null;
 let toastTimer = 0;
 const pendingRunKeys = new Map();
+let workflowAnalysis = { byNode: new Map(), edgeStates: new Map() };
 
 function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -134,7 +148,8 @@ function renderProjects() {
 }
 
 function renderGraph() {
-    graph.render({ ...store.state, copy });
+    workflowAnalysis = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy);
+    graph.render({ ...store.state, copy, nodeAnalysis: workflowAnalysis.byNode, edgeStates: workflowAnalysis.edgeStates });
     dom.deleteSelection.disabled = !store.state.selected;
     dom.hint.textContent = store.state.selected?.kind === 'node' ? copy.selectedNode : store.state.selected?.kind === 'edge' ? copy.selectedEdge : copy.selectNode;
     dom.connect.classList.toggle('is-active', store.state.connecting);
@@ -145,11 +160,20 @@ function renderHistory() {
     dom.history.replaceChildren();
     if (!store.state.runs.length) { dom.history.append(el('p', 'canvas-muted', copy.recentRunsEmpty)); return; }
     for (const run of store.state.runs) {
-        const item = el('article', 'canvas-run-item');
+        const node = store.state.nodes.find((candidate) => candidate.id === run.node_id);
+        const item = el('button', 'canvas-run-item');
+        item.type = 'button';
         item.dataset.status = run.status;
         const top = el('div', 'canvas-run-item__top');
-        top.append(el('span', '', run.model_id), el('strong', '', run.status));
-        item.append(top, el('small', '', new Date(run.updated_at).toLocaleString(isGerman ? 'de-DE' : 'en-US')));
+        top.append(el('span', '', node?.title || run.model_id), el('strong', '', run.status));
+        const kind = run.output?.kind ? ` · ${run.output.kind}` : '';
+        item.append(top, el('small', '', `${run.model_id}${kind} · ${new Date(run.updated_at).toLocaleString(isGerman ? 'de-DE' : 'en-US')}`));
+        item.addEventListener('click', () => {
+            if (!node) return;
+            node.output = run.output || node.output;
+            store.state.selected = { kind: 'node', id: node.id };
+            renderGraph(); renderInspector();
+        });
         dom.history.append(item);
     }
 }
@@ -217,25 +241,19 @@ function renderOutput(node) {
 }
 
 function displayNodeOutput(node, visited = new Set()) {
-    if (!node || visited.has(node.id)) return node;
-    visited.add(node.id);
-    if (node.output) return node;
-    if (node.type === 'asset_reference' && node.content?.asset) {
-        const asset = node.content.asset;
+    const resolved = upstreamDisplayNode(node, store.state.nodes, store.state.edges, visited);
+    if (!resolved) return node;
+    if (resolved.type === 'asset_reference' && resolved.content?.asset && !resolved.output) {
+        const asset = resolved.content.asset;
         const mime = String(asset.mime_type || '');
         const kind = asset.asset_type === 'image' || mime.startsWith('image/')
             ? 'image'
             : (asset.asset_type === 'music' || asset.asset_type === 'audio' || mime.startsWith('audio/'))
                 ? 'audio'
                 : 'video';
-        return { ...node, output: { kind, asset } };
+        return { ...resolved, output: { kind, asset } };
     }
-    if (node.type === 'output_result') {
-        const incoming = store.state.edges.find((edge) => edge.target_node_id === node.id);
-        const source = incoming ? store.state.nodes.find((item) => item.id === incoming.source_node_id) : null;
-        if (source) return displayNodeOutput(source, visited);
-    }
-    return node;
+    return resolved;
 }
 
 async function loadAssetOptions(node, select) {
@@ -255,6 +273,31 @@ async function loadAssetOptions(node, select) {
     } catch {
         select.replaceChildren(el('option', '', copy.noAssets));
     }
+}
+
+function renderInputContext(node, analysis) {
+    const section = el('section', 'canvas-input-context');
+    const sourceNames = analysis.sources.map((source) => source.sourceTitle).join(', ');
+    section.append(el('strong', '', sourceNames ? `${copy.inputFrom}: ${sourceNames}` : copy.noInput));
+    if (analysis.sources.length) {
+        for (const source of analysis.sources) {
+            const message = source.status === 'compatible'
+                ? `${source.sourceTitle}: ${source.inputKind}`
+                : `${source.sourceTitle}: ${source.reason}`;
+            section.append(el('p', '', message));
+            if (source.previewUrl && source.kind === 'image_asset') {
+                const image = el('img'); image.src = source.previewUrl; image.alt = source.sourceTitle; image.loading = 'lazy'; section.append(image);
+            }
+        }
+    }
+    if (analysis.connectedPrompt) {
+        section.append(el('strong', '', copy.connectedInput), el('pre', '', analysis.connectedPrompt));
+        if (analysis.directPrompt) section.append(el('p', '', copy.directOverride));
+    }
+    if (analysis.effectivePrompt) section.append(el('strong', '', copy.effectivePrompt), el('pre', '', analysis.effectivePrompt));
+    const validation = validationForNode(node, analysis, copy);
+    if (validation) { section.dataset.state = 'error'; section.append(el('p', '', validation)); }
+    return { section, validation };
 }
 
 function renderInspector() {
@@ -288,6 +331,7 @@ function renderInspector() {
 
     const capability = ({ text_generation: 'text', image_generation: 'image', video_generation: 'video', music_generation: 'music' })[node.type];
     if (capability) {
+        workflowAnalysis = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy);
         const models = store.state.models.filter((model) => model.capability === capability);
         const model = models.find((item) => item.id === node.model_id) || models.find((item) => item.runnable) || null;
         const modelSelect = selectControl(models.map((item) => ({ value: item.id, label: `${item.label}${item.runnable ? '' : ` — ${copy.disabled}`}` })), model?.id);
@@ -303,6 +347,9 @@ function renderInspector() {
         prompt.maxLength = Number(model?.controls?.maxPromptLength || 12000);
         bindConfig(node, prompt, 'prompt');
         dom.inspector.append(field(copy.prompt, prompt));
+
+        const inputContext = renderInputContext(node, workflowAnalysis.byNode.get(node.id));
+        dom.inspector.append(inputContext.section);
 
         if (capability === 'text') {
             const system = textareaControl(node.config?.systemPrompt || ''); system.maxLength = 4000; bindConfig(node, system, 'systemPrompt'); dom.inspector.append(field(copy.systemPrompt, system));
@@ -326,7 +373,11 @@ function renderInspector() {
         }
         const status = el('div', 'canvas-run-status', runningNodeId === node.id ? copy.running : ''); status.id = 'canvasNodeRunStatus'; dom.inspector.append(status);
         const run = el('button', 'canvas-button canvas-button--primary', runningNodeId === node.id ? copy.running : copy.run);
-        run.type = 'button'; run.disabled = runningNodeId === node.id || !model?.runnable; run.addEventListener('click', () => void runSelectedNode(node)); dom.inspector.append(run);
+        run.type = 'button'; run.disabled = runningNodeId === node.id || !model?.runnable || Boolean(inputContext.validation); run.addEventListener('click', () => void runSelectedNode(node)); dom.inspector.append(run);
+        prompt.addEventListener('input', () => {
+            const current = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id);
+            run.disabled = runningNodeId === node.id || !model?.runnable || Boolean(validationForNode(node, current, copy));
+        });
     }
 
     if (node.type === 'asset_reference') {
@@ -342,9 +393,17 @@ function renderAll() { renderProjects(); renderGraph(); renderInspector(); rende
 
 const graph = createCanvasGraph({
     nodesRoot: dom.nodes, edgesRoot: dom.edges, emptyState: dom.empty, copy,
-    onSelect(kind, id) {
+    onSelect(kind, id, options = {}) {
         if (store.state.connecting && kind === 'node' && store.state.connectionSourceId && id !== store.state.connectionSourceId) void connectNodes(store.state.connectionSourceId, id);
-        else { store.state.selected = { kind, id }; renderGraph(); renderInspector(); }
+        else {
+            store.state.selected = { kind, id };
+            if (!options.preserveGraph) renderGraph();
+            else {
+                dom.deleteSelection.disabled = false;
+                dom.hint.textContent = copy.selectedNode;
+            }
+            renderInspector();
+        }
     },
     onMoveEnd(node) { nodeSave.schedule(store.state.project.id, node.id, { x: node.x, y: node.y }); renderSaveState(); },
     onPort(nodeId, direction) {
@@ -411,8 +470,10 @@ async function addNode() {
     const capability = ({ text_generation: 'text', image_generation: 'image', video_generation: 'video', music_generation: 'music' })[type];
     const model = store.state.models.find((item) => item.capability === capability && item.runnable);
     const count = store.state.nodes.length;
+    const visibleX = Math.min(2140, Math.max(30, dom.viewport.scrollLeft + 70 + (count % 3) * 270));
+    const visibleY = Math.min(1420, Math.max(30, dom.viewport.scrollTop + 70 + Math.floor(count / 3) * 180));
     const body = {
-        type, title: copy.nodeTypes[type], x: 80 + (count % 4) * 270, y: 80 + Math.floor(count / 4) * 180,
+        type, title: copy.nodeTypes[type], x: visibleX, y: visibleY,
         model_id: model?.id || null,
         config: capability ? { prompt: '', ...(capability === 'text' ? { maxTokens: model?.controls?.maxTokens?.default || 500, temperature: .7 } : {}) } : {},
         content: {},
@@ -420,6 +481,41 @@ async function addNode() {
     const result = await canvasApi.createNode(store.state.project.id, body);
     if (!result.ok) return showToast(errorMessage(result));
     store.state.nodes.push(result.data.node); store.state.selected = { kind: 'node', id: result.data.node.id }; renderAll(); showToast(copy.nodeAdded);
+}
+
+async function createQuickTextImageVideo() {
+    if (!store.state.project) { await createProject(); if (!store.state.project) return; }
+    const textModel = store.state.models.find((model) => model.capability === 'text' && model.runnable);
+    const imageModel = store.state.models.find((model) => model.capability === 'image' && model.runnable);
+    const videoModel = store.state.models.find((model) => model.capability === 'video' && model.runnable && model.controls?.supportsImageInput);
+    if (!textModel || !imageModel || !videoModel) return showToast(copy.quickFailed);
+    dom.quickTextImageVideo.disabled = true;
+    const startX = Math.min(1450, Math.max(50, dom.viewport.scrollLeft + 70));
+    const startY = Math.min(1350, Math.max(50, dom.viewport.scrollTop + 100));
+    const definitions = [
+        { type: 'text_generation', title: copy.nodeTypes.text_generation, x: startX, y: startY, model_id: textModel.id, config: { prompt: isGerman ? 'Erstelle einen präzisen, filmischen Bildgenerierungs-Prompt für eine leuchtende futuristische Stadt zur blauen Stunde.' : 'Create one precise cinematic image-generation prompt for a luminous futuristic city at blue hour.', maxTokens: textModel.controls?.maxTokens?.default || 500, temperature: .7 }, content: {} },
+        { type: 'image_generation', title: copy.nodeTypes.image_generation, x: startX + 330, y: startY, model_id: imageModel.id, config: { prompt: '' }, content: {} },
+        { type: 'video_generation', title: copy.nodeTypes.video_generation, x: startX + 660, y: startY, model_id: videoModel.id, config: { prompt: isGerman ? 'Animiere das verbundene Bild mit subtiler filmischer Kamerabewegung.' : 'Animate the connected image with subtle cinematic camera movement.', duration: videoModel.controls?.duration?.default || 5, aspectRatio: videoModel.controls?.defaultAspectRatio || '16:9' }, content: {} },
+    ];
+    const created = [];
+    try {
+        for (const definition of definitions) {
+            const result = await canvasApi.createNode(store.state.project.id, definition);
+            if (!result.ok) throw new Error(errorMessage(result));
+            created.push(result.data.node); store.state.nodes.push(result.data.node);
+        }
+        for (let index = 0; index < created.length - 1; index += 1) {
+            const result = await canvasApi.createEdge(store.state.project.id, { source_node_id: created[index].id, target_node_id: created[index + 1].id });
+            if (!result.ok) throw new Error(errorMessage(result));
+            store.state.edges.push(result.data.edge);
+        }
+        store.state.selected = { kind: 'node', id: created[0].id };
+        renderAll(); showToast(copy.quickCreated);
+    } catch (error) {
+        renderAll(); showToast(error?.message || copy.quickFailed);
+    } finally {
+        dom.quickTextImageVideo.disabled = false;
+    }
 }
 
 async function connectNodes(sourceId, targetId) {
@@ -452,12 +548,18 @@ async function assignAsset(node, assetId) {
 
 async function runSelectedNode(node) {
     await Promise.all([nodeSave.flush(), projectSave.flush()]);
+    workflowAnalysis = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy);
+    const validation = validationForNode(node, workflowAnalysis.byNode.get(node.id), copy);
+    if (validation) return showToast(validation);
+    const model = store.state.models.find((item) => item.id === node.model_id);
+    const organizationId = model?.requiresOrganization ? store.state.selectedOrganizationId : null;
+    if (model?.requiresOrganization && !organizationId) return showToast(copy.organizationRequired);
     runningNodeId = node.id; renderInspector();
     const status = document.getElementById('canvasNodeRunStatus');
     if (status) status.textContent = copy.running;
     const idempotencyKey = pendingRunKeys.get(node.id) || `canvas-${crypto.randomUUID()}`;
     pendingRunKeys.set(node.id, idempotencyKey);
-    const result = await canvasApi.runNode(store.state.project.id, node.id, idempotencyKey);
+    const result = await canvasApi.runNode(store.state.project.id, node.id, idempotencyKey, organizationId);
     runningNodeId = null;
     if (!result.ok) {
         if (result.status !== 0 && result.code !== 'canvas_run_in_progress') pendingRunKeys.delete(node.id);
@@ -470,6 +572,21 @@ async function runSelectedNode(node) {
     node.output = run.output; node.asset_id = run.asset_id || node.asset_id;
     store.state.runs = [run, ...store.state.runs.filter((item) => item.id !== run.id)].slice(0, 40);
     renderAll(); showToast(copy.runComplete);
+}
+
+function renderOrganizations() {
+    const organizations = store.state.organizations || [];
+    dom.organizationField.hidden = organizations.length === 0;
+    dom.organization.replaceChildren();
+    if (organizations.length > 1) {
+        const placeholder = el('option', '', copy.organizationSelect); placeholder.value = ''; dom.organization.append(placeholder);
+    }
+    for (const organization of organizations) {
+        const option = el('option', '', `${organization.name} · ${organization.role}`);
+        option.value = organization.id;
+        option.selected = organization.id === store.state.selectedOrganizationId;
+        dom.organization.append(option);
+    }
 }
 
 function resolveCredits(dashboard) {
@@ -492,6 +609,8 @@ async function loadCredits() {
 function bindEvents() {
     dom.newProject.addEventListener('click', () => void createProject());
     dom.addNode.addEventListener('click', () => void addNode());
+    dom.quickTextImageVideo.addEventListener('click', () => void createQuickTextImageVideo());
+    dom.organization.addEventListener('change', () => { store.state.selectedOrganizationId = dom.organization.value || null; renderInspector(); });
     dom.connect.addEventListener('click', () => {
         store.state.connecting = !store.state.connecting; store.state.connectionSourceId = null; dom.hint.textContent = store.state.connecting ? copy.connectStart : copy.selectNode; renderGraph();
     });
@@ -535,7 +654,13 @@ async function init() {
     store.state.projects = projectsResult.data.projects || [];
     const modelsResult = await canvasApi.listModels();
     if (!modelsResult.ok) showToast(errorMessage(modelsResult));
-    else store.state.models = modelsResult.data.models || [];
+    else {
+        store.state.models = modelsResult.data.models || [];
+        store.state.organizations = modelsResult.data.organizations || [];
+        store.state.selectedOrganizationId = modelsResult.data.selected_organization_id || null;
+        store.state.access = modelsResult.data.access || null;
+        renderOrganizations();
+    }
     renderProjects();
     if (store.state.projects[0]) await openProject(store.state.projects[0].id);
     else { dom.title.value = copy.newProject; renderAll(); }

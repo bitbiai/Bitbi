@@ -32,6 +32,8 @@ import {
   SEEDANCE_2_DEFAULT_RESOLUTION,
   SEEDANCE_2_FAST_RESOLUTIONS,
   SEEDANCE_2_FAST_MODEL_ID,
+  SEEDANCE_2_MODEL_ID,
+  SEEDANCE_2_RESOLUTIONS,
   SEEDANCE_2_MAX_DURATION,
   SEEDANCE_2_MIN_DURATION,
 } from "../../../../../js/shared/seedance-2-pricing.mjs";
@@ -109,6 +111,7 @@ const DEFAULT_GENERATE_AUDIO = true;
 const DEFAULT_TITLE = "PixVerse Video";
 const HAPPYHORSE_DEFAULT_TITLE = "HappyHorse Video";
 const SEEDANCE_2_FAST_MODEL_LABEL = "Seedance 2.0 Fast";
+const SEEDANCE_2_MODEL_LABEL = "Seedance 2.0";
 const SEEDANCE_2_FAST_VENDOR = "ByteDance";
 const SEEDANCE_2_FAST_DEFAULT_TITLE = "Seedance Video";
 const SEEDANCE_2_MAX_PROMPT_LENGTH = 5000;
@@ -222,6 +225,7 @@ function normalizeModelId(value) {
     modelId === PIXVERSE_V6_MODEL_ID ||
     modelId === HAPPYHORSE_T2V_MODEL_ID ||
     modelId === SEEDANCE_2_FAST_MODEL_ID ||
+    modelId === SEEDANCE_2_MODEL_ID ||
     modelId === GROK_IMAGINE_VIDEO_MODEL_ID
   ) {
     return modelId;
@@ -440,7 +444,7 @@ function normalizeHappyHorseBody(body) {
   };
 }
 
-function normalizeSeedanceFastBody(body) {
+function normalizeSeedanceBody(body, modelId) {
   assertAllowedBodyFields(body, SEEDANCE_ALLOWED_BODY_FIELDS);
   const prompt = normalizeOptionalString(body.prompt, SEEDANCE_2_MAX_PROMPT_LENGTH, "prompt", { allowNewlines: true });
   if (!prompt) {
@@ -454,7 +458,7 @@ function normalizeSeedanceFastBody(body) {
   });
   const resolution = normalizeEnum(
     body.resolution,
-    enumIncludes(SEEDANCE_2_FAST_RESOLUTIONS),
+    enumIncludes(modelId === SEEDANCE_2_MODEL_ID ? SEEDANCE_2_RESOLUTIONS : SEEDANCE_2_FAST_RESOLUTIONS),
     SEEDANCE_2_DEFAULT_RESOLUTION,
     "resolution"
   );
@@ -467,7 +471,7 @@ function normalizeSeedanceFastBody(body) {
   const title = normalizeOptionalString(body.title, MAX_TITLE_LENGTH, "title")
     || titleFromPrompt(prompt, SEEDANCE_2_FAST_DEFAULT_TITLE);
   const folderId = normalizeFolderId(body);
-  const pricing = calculateAiVideoCreditCost(SEEDANCE_2_FAST_MODEL_ID, {
+  const pricing = calculateAiVideoCreditCost(modelId, {
     duration,
     resolution,
     aspect_ratio: aspectRatio,
@@ -478,11 +482,11 @@ function normalizeSeedanceFastBody(body) {
   const price = pricing.credits;
 
   return {
-    modelId: SEEDANCE_2_FAST_MODEL_ID,
-    modelLabel: SEEDANCE_2_FAST_MODEL_LABEL,
+    modelId,
+    modelLabel: modelId === SEEDANCE_2_MODEL_ID ? SEEDANCE_2_MODEL_LABEL : SEEDANCE_2_FAST_MODEL_LABEL,
     vendor: SEEDANCE_2_FAST_VENDOR,
     provider: "workers-ai",
-    preset: "member_video_seedance_2_fast",
+    preset: modelId === SEEDANCE_2_MODEL_ID ? "member_video_seedance_2" : "member_video_seedance_2_fast",
     pricingSource: "operator_approved_seedance_pricing_2026_05_25",
     prompt,
     duration,
@@ -496,7 +500,7 @@ function normalizeSeedanceFastBody(body) {
     folderId,
     price,
     policyBody: {
-      model: SEEDANCE_2_FAST_MODEL_ID,
+      model: modelId,
       prompt,
       duration,
       aspect_ratio: aspectRatio,
@@ -578,8 +582,8 @@ async function normalizeMemberVideoBody(body) {
   if (modelId === HAPPYHORSE_T2V_MODEL_ID) {
     return normalizeHappyHorseBody(body);
   }
-  if (modelId === SEEDANCE_2_FAST_MODEL_ID) {
-    return normalizeSeedanceFastBody(body);
+  if (modelId === SEEDANCE_2_FAST_MODEL_ID || modelId === SEEDANCE_2_MODEL_ID) {
+    return normalizeSeedanceBody(body, modelId);
   }
   if (modelId === GROK_IMAGINE_VIDEO_MODEL_ID) {
     return normalizeGrokImagineBody(body);
@@ -613,7 +617,7 @@ function buildHappyHorsePayload(input) {
   return payload;
 }
 
-function buildSeedanceFastPayload(input) {
+function buildSeedancePayload(input) {
   return {
     prompt: input.prompt,
     duration: input.duration,
@@ -633,7 +637,7 @@ function buildGrokImaginePayload(input) {
 
 function buildProviderPayload(input) {
   if (input.modelId === GROK_IMAGINE_VIDEO_MODEL_ID) return buildGrokImaginePayload(input);
-  if (input.modelId === SEEDANCE_2_FAST_MODEL_ID) return buildSeedanceFastPayload(input);
+  if (input.modelId === SEEDANCE_2_FAST_MODEL_ID || input.modelId === SEEDANCE_2_MODEL_ID) return buildSeedancePayload(input);
   if (input.modelId === HAPPYHORSE_T2V_MODEL_ID) return buildHappyHorsePayload(input);
   return buildPixversePayload(input);
 }
@@ -1108,6 +1112,7 @@ export async function handleGenerateVideo(ctx) {
         source: "member_video_generation",
       },
       route: ROUTE_PATH,
+      allowAdminMemberCredits: ctx.canvasMemberContext === true,
     });
   } catch (error) {
     const policyError = aiUsagePolicyErrorResponse(error);

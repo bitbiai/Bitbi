@@ -52,13 +52,14 @@
     <section id="canvasApp" class="canvas-app" hidden aria-label="BITBI Canvas workflow editor">
         <div class="canvas-topbar">
             <div><p class="canvas-eyebrow">BITBI Canvas</p><input id="canvasProjectTitle" class="canvas-project-title" maxlength="120" aria-label="Project title" value="Untitled Canvas"></div>
-            <div class="canvas-topbar__status"><span id="canvasSaveState" class="canvas-save-state" role="status">Saved</span><a href="/account/credits.html?scope=member" class="canvas-status-link" id="canvasCredits">Credits</a><a href="/account/assets-manager.html?source=canvas" class="canvas-status-link">Assets</a></div>
+            <div class="canvas-topbar__status"><label id="canvasOrganizationField" class="canvas-organization" hidden><span>Organization</span><select id="canvasOrganization" class="canvas-select" aria-label="Canvas organization"></select></label><span id="canvasSaveState" class="canvas-save-state" role="status">Saved</span><a href="/account/credits.html?scope=member" class="canvas-status-link" id="canvasCredits">Credits</a><a href="/account/assets-manager.html?source=canvas" class="canvas-status-link">Assets</a></div>
         </div>
         <div class="canvas-mobile-note" role="note">Canvas works on mobile with a simplified layout. A desktop or tablet is recommended for precise graph editing.</div>
         <div class="canvas-layout">
             <aside class="canvas-panel canvas-projects" aria-labelledby="canvasProjectsTitle">
                 <div class="canvas-panel__head"><div><p class="canvas-eyebrow">Projects</p><h2 id="canvasProjectsTitle">Your Canvas</h2></div><button id="canvasNewProject" class="canvas-icon-button" type="button" aria-label="New Canvas">+</button></div>
                 <div id="canvasProjectList" class="canvas-project-list" aria-live="polite"></div>
+                <div class="canvas-quick-workflow"><span>Quick workflow</span><button id="canvasQuickTextImageVideo" class="canvas-button" type="button">Text → Image → Video</button></div>
                 <div class="canvas-add-node"><label for="canvasNodeType">Add node</label><select id="canvasNodeType" class="canvas-select"><option value="text_prompt">Text prompt</option><option value="text_generation">Text generation</option><option value="image_generation">Image generation</option><option value="video_generation">Video generation</option><option value="music_generation">Music generation</option><option value="asset_reference">Asset reference</option><option value="output_result">Output</option><option value="note">Note</option></select><button id="canvasAddNode" class="canvas-button canvas-button--primary" type="button">Add node</button></div>
             </aside>
             <section class="canvas-workspace" aria-label="Workflow">

@@ -13354,12 +13354,15 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query.startsWith('SELECT nodes.id, nodes.type, nodes.content_json, nodes.output_json, nodes.asset_id FROM canvas_edges edges')) {
+    if (query.includes('FROM canvas_edges edges') && query.includes('JOIN canvas_nodes nodes')) {
       const [projectId, userId, targetNodeId] = bindings;
-      const sourceIds = this.state.canvasEdges
+      const matchingEdges = this.state.canvasEdges
         .filter((edge) => edge.project_id === projectId && edge.user_id === userId && edge.target_node_id === targetNodeId && !edge.deleted_at)
-        .map((edge) => edge.source_node_id);
-      const rows = this.state.canvasNodes.filter((node) => sourceIds.includes(node.id) && !node.deleted_at);
+        .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)));
+      const rows = matchingEdges.map((edge) => {
+        const node = this.state.canvasNodes.find((candidate) => candidate.id === edge.source_node_id && !candidate.deleted_at);
+        return node ? { ...node, edge_id: edge.id, edge_created_at: edge.created_at } : null;
+      }).filter(Boolean);
       return { results: deepClone(rows) };
     }
 

@@ -45,7 +45,11 @@ export const canvasApi = Object.freeze({
     createEdge: (projectId, body) => request(`/projects/${id(projectId)}/edges`, { method: 'POST', body }),
     updateEdge: (projectId, edgeId, body) => request(`/projects/${id(projectId)}/edges/${id(edgeId)}`, { method: 'PATCH', body }),
     deleteEdge: (projectId, edgeId) => request(`/projects/${id(projectId)}/edges/${id(edgeId)}`, { method: 'DELETE' }),
-    runNode: (projectId, nodeId, idempotencyKey) => request(`/projects/${id(projectId)}/nodes/${id(nodeId)}/run`, { method: 'POST', body: {}, idempotencyKey }),
+    runNode: (projectId, nodeId, idempotencyKey, organizationId = null) => request(`/projects/${id(projectId)}/nodes/${id(nodeId)}/run`, {
+        method: 'POST',
+        body: organizationId ? { organization_id: organizationId } : {},
+        idempotencyKey,
+    }),
     setAssetReference: (projectId, nodeId, assetId) => request(`/projects/${id(projectId)}/nodes/${id(nodeId)}/asset-reference`, { method: 'POST', body: { asset_id: assetId } }),
     listAssets: async () => {
         const result = await requestUrl('/api/ai/assets?limit=60');

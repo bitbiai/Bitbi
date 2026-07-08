@@ -883,6 +883,7 @@ export async function handleGenerateImage(ctx) {
         modelId: modelConfig.id,
       },
       route: "/api/ai/generate-image",
+      allowAdminMemberCredits: ctx.canvasMemberContext === true,
     });
   } catch (error) {
     const policyError = aiUsagePolicyErrorResponse(error);

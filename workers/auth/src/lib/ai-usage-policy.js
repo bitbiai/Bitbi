@@ -367,10 +367,11 @@ export async function prepareAiUsagePolicy({
   body,
   operation,
   route,
+  allowAdminMemberCredits = false,
 }) {
   const resolvedOperation = resolveOperation(operation);
   if (!hasOrganizationContext(body)) {
-    if (user?.role === "admin") {
+    if (user?.role === "admin" && allowAdminMemberCredits !== true) {
       throw new BillingError(
         "Admin AI generation without an organization context is disabled. Use Admin AI lab budget routes or select an organization context.",
         {
