@@ -23,6 +23,12 @@ import {
   fetchWithGenerationTimeout,
   runWithGenerationTimeout,
 } from "./generation-timeout.js";
+import {
+  FABLE_CHAT_GENERATION_TIMEOUT_MS,
+} from "../../../shared/fable-chat-contract.mjs";
+import {
+  extractAnthropicVisibleResult,
+} from "./anthropic-stream.js";
 import { invokeVideo } from "./invoke-ai-video.js";
 
 export { invokeVideo };
@@ -59,6 +65,11 @@ function buildTextInvocation(env, model, input) {
         : [{ role: "user", content: input.prompt }],
     };
     if (input.system) payload.system = input.system;
+    if (input.effort) payload.output_config = { effort: input.effort };
+    if (input.thinkingDisplay) {
+      payload.thinking = { type: "adaptive", display: input.thinkingDisplay };
+    }
+    if (input.stream === true) payload.stream = true;
 
     const gateway = {
       id: env.AI_GATEWAY_ID || "default",
@@ -121,6 +132,10 @@ function sanitizeAnthropicUsage(usage) {
   ]) {
     const value = Number(usage[key]);
     if (Number.isFinite(value) && value >= 0) safe[key] = value;
+  }
+  const thinkingTokens = Number(usage?.output_tokens_details?.thinking_tokens);
+  if (Number.isFinite(thinkingTokens) && thinkingTokens >= 0) {
+    safe.output_tokens_details = { thinking_tokens: thinkingTokens };
   }
   return Object.keys(safe).length > 0 ? safe : null;
 }
@@ -637,7 +652,9 @@ export async function invokeText(env, model, input) {
       runOptions
         ? env.AI.run(model.id, payload, runOptions)
         : env.AI.run(model.id, payload)
-    ));
+    ), {
+      timeoutMs: input.generationTimeoutMs || undefined,
+    });
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
@@ -664,6 +681,13 @@ export async function invokeText(env, model, input) {
     throw new Error("Model returned no text output.");
   }
 
+  const preserved = isAnthropic && input.preserveAnthropicContent === true
+    ? extractAnthropicVisibleResult(raw?.content)
+    : null;
+  if (preserved && preserved.text !== text) {
+    throw new Error("Model returned inconsistent text content.");
+  }
+
   return {
     text,
     usage: isAnthropic
@@ -674,8 +698,46 @@ export async function invokeText(env, model, input) {
     stopSequence: isAnthropic ? sanitizeErrorValue(raw?.stop_sequence) || null : null,
     stopDetails: isAnthropic ? sanitizeAnthropicStopDetails(raw?.stop_details) : null,
     gatewayMetadata: isAnthropic ? sanitizeGatewayMetadata(raw?.gatewayMetadata) : null,
+    ...(preserved ? {
+      providerBlocks: preserved.providerBlocks,
+      reasoningSummary: preserved.reasoningSummary,
+    } : {}),
     elapsedMs: Date.now() - startedAt,
   };
+}
+
+export async function invokeFableChatStream(env, model, input) {
+  ensureAI(env);
+  const startedAt = Date.now();
+  const { payload, runOptions } = buildTextInvocation(env, model, {
+    ...input,
+    stream: true,
+  });
+  try {
+    const stream = await runWithGenerationTimeout(() => env.AI.run(
+      model.id,
+      payload,
+      runOptions
+    ), { timeoutMs: FABLE_CHAT_GENERATION_TIMEOUT_MS });
+    if (!stream || typeof stream.getReader !== "function") {
+      throw new Error("Model did not return a readable stream.");
+    }
+    return { stream, startedAt };
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-fable-chat-stream",
+      event: "workers_ai_stream_start_failed",
+      level: "error",
+      correlationId: input.correlationId || null,
+      model: model.id,
+      provider: model.provider || model.vendor || null,
+      gateway_id: runOptions?.gateway?.id || null,
+      duration_ms: getDurationMs(startedAt),
+      ...getErrorFields(error, { includeMessage: false }),
+    });
+    throw unifiedBillingReadinessError(error);
+  }
 }
 
 export async function invokeImage(env, model, input) {

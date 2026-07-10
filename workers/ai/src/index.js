@@ -16,7 +16,10 @@ import { handleModels } from "./routes/models.js";
 import { handleText } from "./routes/text.js";
 import { handleVideo } from "./routes/video.js";
 import { handleVideoTaskCreate, handleVideoTaskPoll } from "./routes/video-task.js";
-import { INTERNAL_AI_JSON_MAX_BYTES } from "./lib/validate.js";
+import {
+  FABLE_CHAT_INTERNAL_JSON_MAX_BYTES,
+  INTERNAL_AI_JSON_MAX_BYTES,
+} from "./lib/validate.js";
 import { evaluateInternalAiCallerPolicy } from "./lib/caller-policy.js";
 import {
   getCorrelationId,
@@ -58,7 +61,10 @@ export default {
         assertAiWorkerConfig(env);
         await assertValidServiceRequest(request, {
           secret: env.AI_SERVICE_AUTH_SECRET,
-          maxBodyBytes: INTERNAL_AI_JSON_MAX_BYTES,
+          maxBodyBytes: pathname === "/internal/ai/fable-chat"
+            || pathname === "/internal/ai/fable-chat/stream"
+            ? FABLE_CHAT_INTERNAL_JSON_MAX_BYTES
+            : INTERNAL_AI_JSON_MAX_BYTES,
           recordNonce: ({ nonce, replayWindowMs }) => recordServiceAuthNonce(env, {
             nonce,
             replayWindowMs,
@@ -107,6 +113,12 @@ export default {
     }
 
     if (pathname === "/internal/ai/fable-chat") {
+      if (method !== "POST") response = methodNotAllowed(["POST"]);
+      else response = await handleFableChat(ctx);
+      return withCorrelationId(response, ctx.correlationId);
+    }
+
+    if (pathname === "/internal/ai/fable-chat/stream") {
       if (method !== "POST") response = methodNotAllowed(["POST"]);
       else response = await handleFableChat(ctx);
       return withCorrelationId(response, ctx.correlationId);

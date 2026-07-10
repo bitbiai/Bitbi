@@ -204,25 +204,147 @@ async function createFableConversationForTest(worker, env, cookie) {
   return (await response.json()).conversation;
 }
 
+function validFableAiBody(messages, overrides = {}) {
+  return {
+    messages,
+    effort: 'high',
+    maxTokens: 16_384,
+    systemPresetId: 'general',
+    systemPresetVersion: 1,
+    thinkingDisplay: 'omitted',
+    promptCachePolicy: 'auto_5m',
+    promptCacheVersion: 1,
+    contextFormatVersion: 'native-anthropic-turns-v2',
+    ...overrides,
+  };
+}
+
+function providerSseStream({
+  answer,
+  reasoningSummary,
+  signature,
+  stopReason = 'end_turn',
+} = {}) {
+  const events = [
+    {
+      type: 'message_start',
+      message: {
+        model: 'claude-fable-5',
+        usage: { input_tokens: 700, cache_creation_input_tokens: 600 },
+      },
+    },
+    {
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'thinking', thinking: '', signature: '' },
+    },
+    {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'thinking_delta', thinking: reasoningSummary },
+    },
+    {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'signature_delta', signature },
+    },
+    { type: 'content_block_stop', index: 0 },
+    {
+      type: 'content_block_start',
+      index: 1,
+      content_block: { type: 'text', text: '' },
+    },
+    {
+      type: 'content_block_delta',
+      index: 1,
+      delta: { type: 'text_delta', text: answer },
+    },
+    { type: 'content_block_stop', index: 1 },
+    {
+      type: 'message_delta',
+      delta: { stop_reason: stopReason, stop_sequence: null },
+      usage: {
+        output_tokens: 40,
+        cache_read_input_tokens: 512,
+        output_tokens_details: { thinking_tokens: 12 },
+      },
+    },
+    { type: 'message_stop' },
+  ];
+  const encoded = new TextEncoder().encode(events.map((event) => (
+    `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
+  )).join(''));
+  return new ReadableStream({
+    start(controller) {
+      const splitAt = Math.max(1, Math.floor(encoded.byteLength / 3));
+      controller.enqueue(encoded.slice(0, splitAt));
+      controller.enqueue(encoded.slice(splitAt, splitAt * 2));
+      controller.enqueue(encoded.slice(splitAt * 2));
+      controller.close();
+    },
+  });
+}
+
+function parseApplicationSse(value) {
+  return String(value || '').split(/\r?\n\r?\n/).filter(Boolean).map((frame) => {
+    const event = frame.split(/\r?\n/).find((line) => line.startsWith('event: '))?.slice(7);
+    const data = frame.split(/\r?\n/)
+      .filter((line) => line.startsWith('data: '))
+      .map((line) => line.slice(6))
+      .join('\n');
+    return { event, data: JSON.parse(data) };
+  });
+}
+
+function internalApplicationStream(events, { delayAfterFirst = 0 } = {}) {
+  const chunks = events.map(({ event, data }) => new TextEncoder().encode(
+    `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+  ));
+  let index = 0;
+  return new ReadableStream({
+    async pull(controller) {
+      if (index >= chunks.length) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(chunks[index]);
+      index += 1;
+      if (index === 1 && delayAfterFirst > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayAfterFirst));
+      }
+    },
+  });
+}
+
 test.describe('Private admin Fable chat', () => {
   test('migration is additive, ownership-indexed, fixed-model, and release compatible', () => {
-    const migration = fs.readFileSync(
+    const baseMigration = fs.readFileSync(
       path.join(process.cwd(), 'workers/auth/migrations/0069_add_admin_fable_chat.sql'),
       'utf8'
     );
-    expect(CURRENT_AUTH_MIGRATION).toBe('0069_add_admin_fable_chat.sql');
-    expect(migration).toContain('CREATE TABLE fable_chat_conversations');
-    expect(migration).toContain('CREATE TABLE fable_chat_turns');
-    expect(migration).toContain('CREATE TABLE fable_chat_messages');
-    expect(migration).toContain("CHECK (model_id = 'anthropic/claude-fable-5')");
-    expect(migration).toContain('idx_fable_chat_turns_conversation_idempotency');
-    expect(migration).toContain('idx_fable_chat_turns_active_user_message');
-    expect(migration).toContain('idx_fable_chat_turns_active_conversation');
-    expect(migration).toContain('message_group_id TEXT NOT NULL');
-    expect(migration).toContain('retry_of_turn_id TEXT');
-    expect(migration).toContain("'unknown'");
-    expect(migration).toContain('ON DELETE CASCADE');
-    expect(migration).not.toMatch(/DROP\s+TABLE|DELETE\s+FROM|raw_idempotency/i);
+    const advancedMigration = fs.readFileSync(
+      path.join(process.cwd(), 'workers/auth/migrations/0070_add_fable_chat_advanced_inference.sql'),
+      'utf8'
+    );
+    expect(CURRENT_AUTH_MIGRATION).toBe('0070_add_fable_chat_advanced_inference.sql');
+    expect(baseMigration).toContain('CREATE TABLE fable_chat_conversations');
+    expect(baseMigration).toContain('CREATE TABLE fable_chat_turns');
+    expect(baseMigration).toContain('CREATE TABLE fable_chat_messages');
+    expect(baseMigration).toContain("CHECK (model_id = 'anthropic/claude-fable-5')");
+    expect(baseMigration).toContain('idx_fable_chat_turns_conversation_idempotency');
+    expect(baseMigration).toContain('idx_fable_chat_turns_active_user_message');
+    expect(baseMigration).toContain('idx_fable_chat_turns_active_conversation');
+    expect(baseMigration).toContain('message_group_id TEXT NOT NULL');
+    expect(baseMigration).toContain('retry_of_turn_id TEXT');
+    expect(baseMigration).toContain("'unknown'");
+    expect(baseMigration).toContain('ON DELETE CASCADE');
+    expect(advancedMigration).toContain("effort TEXT NOT NULL DEFAULT 'high'");
+    expect(advancedMigration).toContain('CREATE TABLE fable_chat_provider_messages');
+    expect(advancedMigration).toContain('settings_snapshot_json TEXT NOT NULL');
+    expect(advancedMigration).toContain('effective_max_output_tokens INTEGER NOT NULL DEFAULT 16384');
+    expect(`${baseMigration}\n${advancedMigration}`).not.toMatch(
+      /DROP\s+TABLE|DELETE\s+FROM|raw_idempotency/i
+    );
   });
 
   test('strict origin allowlist accepts BITBI and van-ark while rejecting unrelated origins', async () => {
@@ -389,7 +511,16 @@ test.describe('Private admin Fable chat', () => {
       expect(providerCalls[0].body.messages).toEqual([
         { role: 'user', content: 'Remember that the launch code name is Northstar.' },
       ]);
-      expect(providerCalls[0].body.maxTokens).toBe(2048);
+      expect(providerCalls[0].body.maxTokens).toBe(16_384);
+      expect(providerCalls[0].body).toMatchObject({
+        effort: 'high',
+        systemPresetId: 'general',
+        systemPresetVersion: 1,
+        thinkingDisplay: 'omitted',
+        promptCachePolicy: 'auto_5m',
+        promptCacheVersion: 1,
+        contextFormatVersion: 'native-anthropic-turns-v2',
+      });
       expect(providerCalls[0].body.model).toBeUndefined();
       expect(providerCalls[0].body.__bitbi_ai_caller_policy).toMatchObject({
         operation_id: 'admin.fable_chat.send',
@@ -441,7 +572,7 @@ test.describe('Private admin Fable chat', () => {
       expect(second.status).toBe(200);
       expect(providerCalls[1].body.messages).toEqual([
         { role: 'user', content: 'Remember that the launch code name is Northstar.' },
-        { role: 'assistant', content: 'Assistant reply 1' },
+        { role: 'assistant', content: [{ type: 'text', text: 'Assistant reply 1' }] },
         { role: 'user', content: 'What code name did I give you?' },
       ]);
 
@@ -461,7 +592,7 @@ test.describe('Private admin Fable chat', () => {
       }
       expect(providerCalls).toHaveLength(26);
       const finalProviderMessages = providerCalls.at(-1).body.messages;
-      expect(finalProviderMessages).toHaveLength(49);
+      expect(finalProviderMessages).toHaveLength(51);
       expect(finalProviderMessages[0].role).toBe('user');
       expect(finalProviderMessages.at(-1)).toEqual({ role: 'user', content: 'Message 26' });
       const finalResponse = await callFableAuthWorker(
@@ -475,9 +606,9 @@ test.describe('Private admin Fable chat', () => {
           body: { message: 'Message 26' },
         }
       );
-      expect((await finalResponse.json()).context).toEqual({
-        olderTurnsOmitted: true,
-        omittedTurns: 1,
+      expect((await finalResponse.json()).context).toMatchObject({
+        olderTurnsOmitted: false,
+        omittedTurns: 0,
       });
 
       const usageCount = DB.database.prepare(
@@ -499,10 +630,10 @@ test.describe('Private admin Fable chat', () => {
       );
       const newestPage = await newestMessages.json();
       expect(newestPage.messages).toHaveLength(3);
-      expect(newestPage.context).toEqual({
-        includedTurns: 24,
-        omittedTurns: 1,
-        olderTurnsOmitted: true,
+      expect(newestPage.context).toMatchObject({
+        includedTurns: 25,
+        omittedTurns: 0,
+        olderTurnsOmitted: false,
       });
       expect(newestPage.hasMore).toBe(true);
       expect(newestPage.nextCursor).toBeTruthy();
@@ -624,7 +755,7 @@ test.describe('Private admin Fable chat', () => {
       },
     });
     DB.database.exec(
-      "UPDATE platform_budget_limits SET limit_units = 1 WHERE budget_scope = 'platform_admin_lab_budget'"
+      "UPDATE platform_budget_limits SET limit_units = 3 WHERE budget_scope = 'platform_admin_lab_budget'"
     );
     const worker = await loadWorker('workers/auth/src/index.js');
     try {
@@ -671,11 +802,11 @@ test.describe('Private admin Fable chat', () => {
     }
   });
 
-  test('character budget keeps the newest complete turns without truncating messages', async () => {
+  test('token budget keeps the newest complete turns without truncating messages', async () => {
     const assistantReplies = [];
     const { env, DB, providerCalls } = await createFableChatSqliteEnv({
       provider: async ({ callNumber }) => {
-        const text = `Reply ${callNumber}: ${'x'.repeat(30_500)}`;
+        const text = `Reply ${callNumber}: ${'x'.repeat(100_000)}`;
         assistantReplies.push(text);
         return new Response(JSON.stringify({
           ok: true,
@@ -711,12 +842,22 @@ test.describe('Private admin Fable chat', () => {
         finalBody = await response.json();
       }
       const finalMessages = providerCalls.at(-1).body.messages;
-      expect(finalMessages).toHaveLength(7);
-      expect(finalMessages[0]).toEqual({ role: 'user', content: 'Budget message 2' });
-      expect(finalMessages[1]).toEqual({ role: 'assistant', content: assistantReplies[1] });
+      expect(finalMessages).toHaveLength(3);
+      expect(finalMessages[0]).toEqual({ role: 'user', content: 'Budget message 4' });
+      expect(finalMessages[1]).toEqual({
+        role: 'assistant',
+        content: [{
+          type: 'text',
+          text: assistantReplies[3],
+          cache_control: { type: 'ephemeral', ttl: '5m' },
+        }],
+      });
       expect(finalMessages.at(-1)).toEqual({ role: 'user', content: 'Budget message 5' });
       expect(finalMessages.some((message) => message.content === 'Budget message 1')).toBe(false);
-      expect(finalBody.context).toEqual({ olderTurnsOmitted: true, omittedTurns: 1 });
+      expect(finalBody.context).toMatchObject({ olderTurnsOmitted: true, omittedTurns: 3 });
+      expect(finalBody.context.estimatedInputTokens).toBeLessThanOrEqual(
+        finalBody.context.effectiveInputTokenLimit
+      );
     } finally {
       DB.close();
     }
@@ -921,9 +1062,21 @@ test.describe('Private admin Fable chat', () => {
         email: 'stale@example.com',
       });
       const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      const settings = await fableChatModule.getFableChatConversationSettings(
+        env,
+        'admin-fable-stale',
+        conversation.id
+      );
+      const modelContext = await fableChatModule.buildFableChatModelContext(env, {
+        adminUserId: 'admin-fable-stale',
+        conversationId: conversation.id,
+        currentMessage: 'Stale pending content must not be logged.',
+        settings,
+      });
       const requestFingerprint = await fableChatModule.buildFableChatRequestFingerprint({
         conversationId: conversation.id,
         message: 'Stale pending content must not be logged.',
+        settings,
       });
       const pending = await fableChatModule.beginFableChatTurn(env, {
         adminUserId: 'admin-fable-stale',
@@ -931,6 +1084,8 @@ test.describe('Private admin Fable chat', () => {
         idempotencyKey: 'stale-pending-key-0001',
         requestFingerprint,
         message: 'Stale pending content must not be logged.',
+        settings,
+        context: modelContext.context,
       });
       expect(pending.turn.status).toBe('pending');
 
@@ -1071,6 +1226,615 @@ test.describe('Private admin Fable chat', () => {
     }
   });
 
+  test('conversation settings are MFA/owner scoped, lock during active turns, and snapshot immutably', async () => {
+    const { env, DB, providerCalls } = await createFableChatSqliteEnv();
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const fableChatModule = await import(pathToFileURL(
+      path.join(process.cwd(), 'workers/auth/src/lib/fable-chat.js')
+    ).href);
+    try {
+      const admin = await seedFableChatActor(env, {
+        id: 'admin-fable-settings',
+        email: 'settings@example.com',
+      });
+      const otherAdmin = await seedFableChatActor(env, {
+        id: 'admin-fable-settings-other',
+        email: 'settings-other@example.com',
+      });
+      const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      expect(conversation.settings).toMatchObject({
+        effort: 'high',
+        effectiveMaxOutputTokens: 16_384,
+        systemPresetId: 'general',
+        summarizedThinking: false,
+      });
+
+      const missingMfa = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        { cookie: admin.sessionOnlyCookie }
+      );
+      expect(missingMfa.status).toBe(403);
+      expect((await missingMfa.json()).code).toBe('admin_mfa_required');
+
+      const foreign = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        { cookie: otherAdmin.cookie }
+      );
+      expect(foreign.status).toBe(404);
+
+      for (const invalidBody of [
+        { effort: 'low' },
+        { maxTokens: 32_768 },
+        { systemPresetId: 'browser-prompt' },
+        { summarizedThinking: 'yes' },
+      ]) {
+        const invalid = await callFableAuthWorker(
+          worker,
+          env,
+          `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+          { method: 'PATCH', cookie: admin.cookie, body: invalidBody }
+        );
+        expect(invalid.status).toBe(400);
+      }
+
+      const updated = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        {
+          method: 'PATCH',
+          cookie: admin.cookie,
+          body: { effort: 'max', systemPresetId: 'coding', summarizedThinking: true },
+        }
+      );
+      expect(updated.status).toBe(200);
+      const maxSettings = (await updated.json()).settings;
+      expect(maxSettings).toMatchObject({
+        effort: 'max',
+        effectiveMaxOutputTokens: 32_768,
+        systemPresetId: 'coding',
+        systemPresetVersion: 1,
+        summarizedThinking: true,
+        thinkingDisplay: 'summarized',
+        promptCachePolicy: 'auto_5m',
+        promptCacheVersion: 1,
+      });
+
+      const message = 'Snapshot these settings without logging this text.';
+      const modelContext = await fableChatModule.buildFableChatModelContext(env, {
+        adminUserId: 'admin-fable-settings',
+        conversationId: conversation.id,
+        currentMessage: message,
+        settings: maxSettings,
+      });
+      const maxFingerprint = await fableChatModule.buildFableChatRequestFingerprint({
+        conversationId: conversation.id,
+        message,
+        settings: maxSettings,
+      });
+      const differentFingerprint = await fableChatModule.buildFableChatRequestFingerprint({
+        conversationId: conversation.id,
+        message,
+        settings: {
+          ...maxSettings,
+          effort: 'high',
+          effectiveMaxOutputTokens: 16_384,
+        },
+      });
+      expect(differentFingerprint).not.toBe(maxFingerprint);
+
+      const pending = await fableChatModule.beginFableChatTurn(env, {
+        adminUserId: 'admin-fable-settings',
+        conversationId: conversation.id,
+        idempotencyKey: 'settings-snapshot-key-0001',
+        requestFingerprint: maxFingerprint,
+        message,
+        settings: maxSettings,
+        context: modelContext.context,
+      });
+      expect(pending.turn.status).toBe('pending');
+
+      const locked = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        {
+          method: 'PATCH',
+          cookie: admin.cookie,
+          body: { effort: 'medium' },
+        }
+      );
+      expect(locked.status).toBe(409);
+      expect((await locked.json()).code).toBe('fable_chat_settings_locked');
+
+      const snapshotBefore = JSON.parse(DB.database.prepare(
+        'SELECT settings_snapshot_json FROM fable_chat_turns WHERE id = ?'
+      ).get(pending.turn.id).settings_snapshot_json);
+      expect(snapshotBefore).toMatchObject({
+        modelId: 'anthropic/claude-fable-5',
+        effort: 'max',
+        effectiveMaxOutputTokens: 32_768,
+        systemPresetId: 'coding',
+        thinkingDisplay: 'summarized',
+      });
+
+      await fableChatModule.markFableChatTurnFailed(env, pending.turn.id, 'test_failure');
+      const changed = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        {
+          method: 'PATCH',
+          cookie: admin.cookie,
+          body: { effort: 'medium', systemPresetId: 'precise', summarizedThinking: false },
+        }
+      );
+      expect(changed.status).toBe(200);
+      expect((await changed.json()).settings).toMatchObject({
+        effort: 'medium',
+        effectiveMaxOutputTokens: 8_192,
+        systemPresetId: 'precise',
+        thinkingDisplay: 'omitted',
+      });
+      expect(JSON.parse(DB.database.prepare(
+        'SELECT settings_snapshot_json FROM fable_chat_turns WHERE id = ?'
+      ).get(pending.turn.id).settings_snapshot_json)).toEqual(snapshotBefore);
+
+      const conflict = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'settings-snapshot-key-0001',
+          body: { message },
+        }
+      );
+      expect(conflict.status).toBe(409);
+      expect((await conflict.json()).code).toBe('idempotency_conflict');
+      expect(providerCalls).toHaveLength(0);
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('streaming finalizes exactly once, replays durably, and keeps provider signatures private', async () => {
+    const aiWorker = await loadWorker('workers/ai/src/index.js');
+    const runCalls = [];
+    const aiEnv = {
+      AI_SERVICE_AUTH_SECRET: 'test-ai-service-auth-secret-v1-32chars',
+      AI_GATEWAY_ID: 'advanced-fable-test-gateway',
+      SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+      AI: {
+        async run(...args) {
+          runCalls.push(args);
+          const callNumber = runCalls.length;
+          return providerSseStream({
+            answer: `Streamed answer ${callNumber}`,
+            reasoningSummary: `Reasoning summary ${callNumber}`,
+            signature: `opaque-provider-signature-${callNumber}`,
+            stopReason: callNumber === 2 ? 'max_tokens' : 'end_turn',
+          });
+        },
+      },
+    };
+    const { env, DB, activityQueue } = await createFableChatSqliteEnv({
+      provider: async ({ request }) => aiWorker.fetch(
+        request,
+        aiEnv,
+        createExecutionContext().execCtx
+      ),
+    });
+    const worker = await loadWorker('workers/auth/src/index.js');
+    try {
+      const admin = await seedFableChatActor(env, {
+        id: 'admin-fable-stream',
+        email: 'stream@example.com',
+      });
+      const create = await callFableAuthWorker(
+        worker,
+        env,
+        '/api/admin/fable-chat/conversations',
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          body: { effort: 'max', systemPresetId: 'coding', summarizedThinking: true },
+        }
+      );
+      expect(create.status).toBe(201);
+      const conversation = (await create.json()).conversation;
+      const firstMessage = 'Stream a real, durable response.';
+      const first = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages/stream`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'streaming-send-key-0001',
+          body: { message: firstMessage },
+        }
+      );
+      expect(first.status).toBe(200);
+      expect(first.headers.get('content-type')).toContain('text/event-stream');
+      expect(first.headers.get('cache-control')).toContain('no-store');
+      const firstText = await first.text();
+      const firstEvents = parseApplicationSse(firstText);
+      expect(firstEvents.map(({ event }) => event)).toEqual([
+        'accepted', 'thinking_delta', 'text_delta', 'final',
+      ]);
+      expect(firstEvents.find(({ event }) => event === 'thinking_delta').data.text)
+        .toBe('Reasoning summary 1');
+      const firstFinal = firstEvents.find(({ event }) => event === 'final').data;
+      expect(firstFinal.ok).toBe(true);
+      expect(firstFinal.messages).toEqual([
+        expect.objectContaining({ role: 'user', content: firstMessage, state: 'succeeded' }),
+        expect.objectContaining({
+          role: 'assistant',
+          content: 'Streamed answer 1',
+          reasoningSummary: 'Reasoning summary 1',
+          state: 'succeeded',
+        }),
+      ]);
+      expect(firstText).not.toContain('opaque-provider-signature');
+      expect(runCalls).toHaveLength(1);
+      expect(runCalls[0][0]).toBe('anthropic/claude-fable-5');
+      expect(runCalls[0][1]).toMatchObject({
+        max_tokens: 32_768,
+        output_config: { effort: 'max' },
+        thinking: { type: 'adaptive', display: 'summarized' },
+        stream: true,
+        messages: [{ role: 'user', content: firstMessage }],
+      });
+      expect(runCalls[0][1].system).toContain('Conversation preset: Provide technically rigorous');
+      expect(runCalls[0][2].gateway).toMatchObject({
+        id: 'advanced-fable-test-gateway',
+        skipCache: true,
+        collectLog: false,
+      });
+
+      const privateFirst = JSON.parse(DB.database.prepare(
+        'SELECT content_blocks_json FROM fable_chat_provider_messages ORDER BY created_at, message_id LIMIT 1'
+      ).get().content_blocks_json);
+      expect(privateFirst[0]).toEqual({
+        type: 'thinking',
+        thinking: 'Reasoning summary 1',
+        signature: 'opaque-provider-signature-1',
+      });
+
+      const second = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages/stream`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'streaming-send-key-0002',
+          body: { message: 'Continue using the native prior assistant blocks.' },
+        }
+      );
+      expect(second.status).toBe(200);
+      const secondEvents = parseApplicationSse(await second.text());
+      const secondFinal = secondEvents.find(({ event }) => event === 'final').data;
+      expect(secondFinal.turn).toMatchObject({
+        status: 'succeeded',
+        outputTruncated: true,
+      });
+      expect(secondFinal.messages.find(({ role }) => role === 'assistant')).toMatchObject({
+        content: 'Streamed answer 2',
+        reasoningSummary: 'Reasoning summary 2',
+        truncated: true,
+      });
+      expect(runCalls).toHaveLength(2);
+      expect(runCalls[1][1].messages.map(({ role }) => role)).toEqual([
+        'user', 'assistant', 'user',
+      ]);
+      expect(runCalls[1][1].messages[1].content[0]).toEqual({
+        type: 'thinking',
+        thinking: 'Reasoning summary 1',
+        signature: 'opaque-provider-signature-1',
+      });
+
+      const replay = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages/stream`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'streaming-send-key-0001',
+          body: { message: firstMessage },
+        }
+      );
+      expect(replay.status).toBe(200);
+      const replayEvents = parseApplicationSse(await replay.text());
+      expect(replayEvents[0]).toEqual({ event: 'accepted', data: { replayed: true } });
+      expect(replayEvents.at(-1).data.idempotentReplay).toBe(true);
+      expect(runCalls).toHaveLength(2);
+      expect(DB.database.prepare(
+        'SELECT COUNT(*) AS count FROM fable_chat_turns'
+      ).get().count).toBe(2);
+      expect(DB.database.prepare(
+        'SELECT COUNT(*) AS count FROM fable_chat_messages'
+      ).get().count).toBe(4);
+      expect(DB.database.prepare(
+        'SELECT COUNT(*) AS count FROM fable_chat_provider_messages'
+      ).get().count).toBe(2);
+      expect(DB.database.prepare(
+        "SELECT SUM(units) AS units FROM platform_budget_usage_events WHERE operation_key = 'admin.fable_chat.send'"
+      ).get().units).toBe(12);
+
+      const detail = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}?limit=20`,
+        { cookie: admin.cookie }
+      );
+      const detailText = await detail.text();
+      expect(detailText).not.toContain('opaque-provider-signature');
+      expect(detailText).not.toContain('content_blocks_json');
+      expect(JSON.stringify(activityQueue.messages)).not.toContain('opaque-provider-signature');
+
+      const settingsChanged = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        { method: 'PATCH', cookie: admin.cookie, body: { effort: 'high' } }
+      );
+      expect(settingsChanged.status).toBe(200);
+      const settingsConflict = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages/stream`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'streaming-send-key-0001',
+          body: { message: firstMessage },
+        }
+      );
+      expect(settingsConflict.status).toBe(409);
+      expect((await settingsConflict.json()).code).toBe('idempotency_conflict');
+      expect(runCalls).toHaveLength(2);
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('stream failures distinguish definitive failure, ambiguous interruption, and D1 finalization failure', async () => {
+    const { env, DB, providerCalls, activityQueue } = await createFableChatSqliteEnv({
+      provider: async ({ callNumber }) => {
+        let events;
+        if (callNumber === 1) {
+          events = [
+            { event: 'accepted', data: { ok: true } },
+            {
+              event: 'error',
+              data: { code: 'provider_stream_error', outcome: 'failed', private: 'drop' },
+            },
+          ];
+        } else if (callNumber === 2) {
+          events = [
+            { event: 'accepted', data: { ok: true } },
+            { event: 'text_delta', data: { text: 'Ambiguous partial text' } },
+          ];
+        } else {
+          events = [
+            { event: 'accepted', data: { ok: true } },
+            { event: 'text_delta', data: { text: 'Cannot finalize this result' } },
+            {
+              event: 'complete_internal',
+              data: {
+                text: 'Cannot finalize this result',
+                reasoningSummary: null,
+                providerBlocks: [{ type: 'text', text: 'Cannot finalize this result' }],
+                responseModel: 'claude-fable-5',
+                stopReason: 'end_turn',
+                stopSequence: null,
+                usage: { input_tokens: 3, output_tokens: 4 },
+                durationMs: 12,
+              },
+            },
+          ];
+        }
+        return new Response(internalApplicationStream(events), {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+        });
+      },
+    });
+    const worker = await loadWorker('workers/auth/src/index.js');
+    try {
+      const admin = await seedFableChatActor(env, {
+        id: 'admin-fable-stream-failures',
+        email: 'stream-failures@example.com',
+      });
+      const conversations = await Promise.all([
+        createFableConversationForTest(worker, env, admin.cookie),
+        createFableConversationForTest(worker, env, admin.cookie),
+        createFableConversationForTest(worker, env, admin.cookie),
+      ]);
+
+      const missingKey = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversations[0].id}/messages/stream`,
+        { method: 'POST', cookie: admin.cookie, body: { message: 'Reject before provider.' } }
+      );
+      expect(missingKey.status).toBe(428);
+      expect(providerCalls).toHaveLength(0);
+
+      const definitive = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversations[0].id}/messages/stream`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'stream-failed-key-0001',
+          body: { message: 'Definitive stream failure.' },
+        }
+      );
+      const definitiveEvents = parseApplicationSse(await definitive.text());
+      expect(definitiveEvents.at(-1)).toEqual({
+        event: 'error',
+        data: expect.objectContaining({
+          code: 'fable_chat_turn_failed',
+          retryable: true,
+          turn: expect.objectContaining({ status: 'failed' }),
+        }),
+      });
+
+      const ambiguous = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversations[1].id}/messages/stream`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'stream-unknown-key-0001',
+          body: { message: 'Ambiguous stream interruption.' },
+        }
+      );
+      const ambiguousEvents = parseApplicationSse(await ambiguous.text());
+      expect(ambiguousEvents.at(-1)).toEqual({
+        event: 'error',
+        data: expect.objectContaining({
+          code: 'fable_chat_provider_outcome_unknown',
+          retryable: false,
+          turn: expect.objectContaining({ status: 'unknown' }),
+        }),
+      });
+
+      const originalBatch = DB.batch.bind(DB);
+      DB.batch = async (statements) => {
+        if (statements.some((statement) => (
+          /INSERT INTO fable_chat_provider_messages/.test(statement.sql)
+        ))) {
+          throw new Error('simulated finalization failure');
+        }
+        return originalBatch(statements);
+      };
+      const persistenceFailure = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversations[2].id}/messages/stream`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'stream-d1-failure-key-0001',
+          body: { message: 'Provider succeeds but D1 finalization fails.' },
+        }
+      );
+      const persistenceEvents = parseApplicationSse(await persistenceFailure.text());
+      expect(persistenceEvents.at(-1).data).toMatchObject({
+        code: 'fable_chat_provider_outcome_unknown',
+        retryable: false,
+        turn: { status: 'unknown' },
+      });
+
+      expect(providerCalls).toHaveLength(3);
+      expect(DB.database.prepare(
+        'SELECT status, COUNT(*) AS count FROM fable_chat_turns GROUP BY status ORDER BY status'
+      ).all()).toEqual([
+        { status: 'failed', count: 1 },
+        { status: 'unknown', count: 2 },
+      ]);
+      expect(DB.database.prepare(
+        'SELECT COUNT(*) AS count FROM fable_chat_messages WHERE role = ?'
+      ).get('assistant').count).toBe(0);
+      expect(DB.database.prepare(
+        "SELECT COUNT(*) AS count FROM platform_budget_usage_events WHERE operation_key = 'admin.fable_chat.send'"
+      ).get().count).toBe(3);
+      const auditText = JSON.stringify(activityQueue.messages);
+      expect(auditText).not.toContain('Ambiguous partial text');
+      expect(auditText).not.toContain('Cannot finalize this result');
+      expect(auditText).not.toContain('simulated finalization failure');
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('canceling the browser stream after provider admission still reaches a durable result locally', async () => {
+    const { env, DB, providerCalls } = await createFableChatSqliteEnv({
+      provider: async () => new Response(internalApplicationStream([
+        { event: 'accepted', data: { ok: true } },
+        { event: 'text_delta', data: { text: 'Durable after browser cancel' } },
+        {
+          event: 'complete_internal',
+          data: {
+            text: 'Durable after browser cancel',
+            reasoningSummary: null,
+            providerBlocks: [{ type: 'text', text: 'Durable after browser cancel' }],
+            responseModel: 'claude-fable-5',
+            stopReason: 'end_turn',
+            stopSequence: null,
+            usage: { input_tokens: 3, output_tokens: 4 },
+            durationMs: 20,
+          },
+        },
+      ], { delayAfterFirst: 20 }), {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+      }),
+    });
+    const worker = await loadWorker('workers/auth/src/index.js');
+    try {
+      const admin = await seedFableChatActor(env, {
+        id: 'admin-fable-stream-cancel',
+        email: 'stream-cancel@example.com',
+      });
+      const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      const execution = createExecutionContext();
+      const response = await worker.fetch(new Request(
+        `https://van-ark.com/api/admin/fable-chat/conversations/${conversation.id}/messages/stream`,
+        {
+          method: 'POST',
+          headers: {
+            cookie: admin.cookie,
+            origin: 'https://van-ark.com',
+            'sec-fetch-site': 'same-origin',
+            'content-type': 'application/json; charset=utf-8',
+            'idempotency-key': 'stream-browser-cancel-key-0001',
+          },
+          body: JSON.stringify({ message: 'Persist after my browser stream closes.' }),
+        }
+      ), env, execution.execCtx);
+      expect(response.status).toBe(200);
+      await response.body.cancel();
+      await execution.flush();
+      expect(providerCalls).toHaveLength(1);
+      expect(DB.database.prepare(
+        'SELECT status FROM fable_chat_turns LIMIT 1'
+      ).get().status).toBe('succeeded');
+      expect(DB.database.prepare(
+        'SELECT content FROM fable_chat_messages WHERE role = ?'
+      ).get('assistant').content).toBe('Durable after browser cancel');
+
+      const reloaded = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}`,
+        { cookie: admin.cookie }
+      );
+      expect((await reloaded.json()).messages).toEqual([
+        expect.objectContaining({ role: 'user', state: 'succeeded' }),
+        expect.objectContaining({
+          role: 'assistant',
+          content: 'Durable after browser cancel',
+          state: 'succeeded',
+        }),
+      ]);
+    } finally {
+      DB.close();
+    }
+  });
+
   test('AI route preserves native roles, fixes Fable, and disables gateway cache and logging', async () => {
     const routeModule = await import(pathToFileURL(
       path.join(process.cwd(), 'workers/ai/src/routes/fable-chat.js')
@@ -1080,15 +1844,11 @@ test.describe('Private admin Fable chat', () => {
       request: new Request('https://bitbi-ai.internal/internal/ai/fable-chat', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          system: 'Trusted system prompt',
-          messages: [
+        body: JSON.stringify(validFableAiBody([
             { role: 'user', content: 'First' },
             { role: 'assistant', content: '  Second\n' },
             { role: 'user', content: 'Third' },
-          ],
-          maxTokens: 2048,
-        }),
+          ], { thinkingDisplay: 'summarized' })),
       }),
       env: {
         AI: {
@@ -1096,7 +1856,7 @@ test.describe('Private admin Fable chat', () => {
             calls.push(args);
             return {
               content: [
-                { type: 'thinking', thinking: 'private' },
+                { type: 'thinking', thinking: 'Summary', signature: 'private-signature' },
                 { type: 'text', text: 'Final answer' },
               ],
               model: 'claude-fable-5',
@@ -1115,13 +1875,17 @@ test.describe('Private admin Fable chat', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0][0]).toBe('anthropic/claude-fable-5');
     expect(calls[0][1]).toMatchObject({
-      system: 'Trusted system prompt',
+      system: expect.stringContaining(
+        'Conversation preset: Be a natural, helpful general assistant.'
+      ),
       messages: [
         { role: 'user', content: 'First' },
         { role: 'assistant', content: '  Second\n' },
         { role: 'user', content: 'Third' },
       ],
-      max_tokens: 2048,
+      max_tokens: 16_384,
+      output_config: { effort: 'high' },
+      thinking: { type: 'adaptive', display: 'summarized' },
     });
     expect(calls[0][2].gateway).toMatchObject({
       skipCache: true,
@@ -1130,17 +1894,21 @@ test.describe('Private admin Fable chat', () => {
     const payload = await response.json();
     expect(payload.result.text).toBe('Final answer');
     expect(payload.result.gatewayMetadata).toEqual({ keySource: 'Unified' });
-    expect(JSON.stringify(payload)).not.toContain('private');
+    expect(payload.result.reasoningSummary).toBe('Summary');
+    expect(payload.result.providerBlocks).toEqual([
+      { type: 'thinking', thinking: 'Summary', signature: 'private-signature' },
+      { type: 'text', text: 'Final answer' },
+    ]);
 
     const rejected = await routeModule.handleFableChat({
       request: new Request('https://bitbi-ai.internal/internal/ai/fable-chat', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify(validFableAiBody([
+          { role: 'user', content: 'No override' },
+        ], {
           model: 'other/model',
-          messages: [{ role: 'user', content: 'No override' }],
-          maxTokens: 2048,
-        }),
+        })),
       }),
       env: { AI: { run: async () => ({}) } },
       correlationId: 'fable-route-reject',
@@ -1153,10 +1921,11 @@ test.describe('Private admin Fable chat', () => {
       request: new Request('https://bitbi-ai.internal/internal/ai/fable-chat', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: 'Bound the output' }],
+        body: JSON.stringify(validFableAiBody([
+          { role: 'user', content: 'Bound the output' },
+        ], {
           maxTokens: 4097,
-        }),
+        })),
       }),
       env: { AI: { run: async () => ({}) } },
       correlationId: 'fable-route-hard-limit',
@@ -1186,15 +1955,11 @@ test.describe('Private admin Fable chat', () => {
         },
       },
     };
-    const requestBody = {
-      system: 'Trusted system prompt',
-      messages: [
+    const requestBody = validFableAiBody([
         { role: 'user', content: 'First' },
         { role: 'assistant', content: 'Second' },
         { role: 'user', content: 'Third' },
-      ],
-      maxTokens: 2048,
-    };
+      ]);
     const unsigned = await aiWorker.fetch(
       new Request('https://bitbi-ai.internal/internal/ai/fable-chat', {
         method: 'POST',

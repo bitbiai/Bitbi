@@ -1168,6 +1168,21 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { event: "fable_chat_message_succeeded" },
     notes: "Admin/MFA-only same-origin Fable send. Requires Idempotency-Key, one active attempt per conversation, durable pending/running/unknown state, atomic conservative platform-cap admission before provider execution, ownership-scoped server-loaded native message history, fixed Fable model, existing Admin Text switch, HMAC service binding, stored assistant replay, non-retryable unknown outcomes, and content-free logs/audit metadata.",
   }),
+  adminRead("admin.fable-chat.conversations.settings.read", "/api/admin/fable-chat/conversations/:id/settings", "admin-fable-chat", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-fable-chat-read-admin-and-ip", failClosed: true },
+    notes: "Returns only server-owned inference settings and effective limits for an ownership-scoped conversation. Private provider blocks and signatures are never returned.",
+  }),
+  adminJsonWrite("admin.fable-chat.conversations.settings.update", "PATCH", "/api/admin/fable-chat/conversations/:id/settings", "admin-fable-chat", "fableChatJson", "admin-fable-chat-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "fable_chat_conversation_settings_updated" },
+    notes: "Updates only allowlisted effort, server preset, and summarized-thinking preference. Active pending/running attempts lock settings, and prompts or arbitrary provider parameters are not accepted.",
+  }),
+  adminJsonWrite("admin.fable-chat.messages.stream", "POST", "/api/admin/fable-chat/conversations/:id/messages/stream", "admin-fable-chat", "fableChatJson", "admin-fable-chat-send-admin-and-ip", {
+    config: REQUIRED_CONFIG.adminFableChat,
+    audit: { event: "fable_chat_message_succeeded" },
+    notes: "Streaming variant of the same durable Fable operation. It emits only normalized safe events and sends final only after exact-once D1 finalization; private provider signatures remain service-internal.",
+  }),
 
   adminRead("admin.ai.models", "/api/admin/ai/models", "admin-ai", {
     config: REQUIRED_CONFIG.adminAi,

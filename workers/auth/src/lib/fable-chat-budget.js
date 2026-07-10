@@ -21,8 +21,35 @@ import { nowIso, randomTokenHex } from "./tokens.js";
 
 export const FABLE_CHAT_OPERATION_ID = "admin.fable_chat.send";
 export const FABLE_CHAT_SOURCE_ROUTE = "/api/admin/fable-chat/conversations/:id/messages";
+export const FABLE_CHAT_STREAM_SOURCE_ROUTE = "/api/admin/fable-chat/conversations/:id/messages/stream";
 export const FABLE_CHAT_INTERNAL_PATH = "/internal/ai/fable-chat";
+export const FABLE_CHAT_INTERNAL_STREAM_PATH = "/internal/ai/fable-chat/stream";
 export const FABLE_CHAT_BUDGET_SWITCH = "ENABLE_ADMIN_AI_TEXT_BUDGET";
+const FABLE_CHAT_INPUT_UNIT_TOKENS = 32_768;
+const FABLE_CHAT_EFFORT_UNITS = Object.freeze({
+  medium: 1,
+  high: 2,
+  xhigh: 4,
+  max: 5,
+});
+
+export function deriveFableChatBudgetUnits({ effort, estimatedInputTokens }) {
+  const effortUnits = FABLE_CHAT_EFFORT_UNITS[effort];
+  if (!effortUnits) {
+    const error = new Error("Fable chat effort is invalid for budget admission.");
+    error.code = "fable_chat_budget_policy_unavailable";
+    error.status = 503;
+    throw error;
+  }
+  const inputTokens = Math.max(0, Math.floor(Number(estimatedInputTokens) || 0));
+  const inputUnits = Math.max(1, Math.ceil(inputTokens / FABLE_CHAT_INPUT_UNIT_TOKENS));
+  return {
+    units: effortUnits + inputUnits,
+    effortUnits,
+    inputUnits,
+    estimatedInputBucketTokens: inputUnits * FABLE_CHAT_INPUT_UNIT_TOKENS,
+  };
+}
 
 function fableChatBudgetOperation() {
   const registry = getAiCostOperationRegistryEntry(FABLE_CHAT_OPERATION_ID);
@@ -65,6 +92,8 @@ export async function prepareFableChatBudget({
   message,
   retryMessageId = null,
   requestFingerprint,
+  settings,
+  context,
   correlationId = null,
 }) {
   const operation = fableChatBudgetOperation();
@@ -83,6 +112,10 @@ export async function prepareFableChatBudget({
     throw error;
   }
   await assertBudgetSwitchEffectiveEnabled(env, plan);
+  const budgetWeight = deriveFableChatBudgetUnits({
+    effort: settings?.effort,
+    estimatedInputTokens: context?.estimatedInputTokens,
+  });
   const budgetFingerprint = await buildAdminPlatformBudgetFingerprint({
     operation,
     actorId: adminUser.id,
@@ -94,13 +127,22 @@ export async function prepareFableChatBudget({
       conversation_id: conversationId,
       message,
       retry_message_id: retryMessageId,
+      effort: settings?.effort,
+      effective_max_output_tokens: settings?.effectiveMaxOutputTokens,
+      system_preset_id: settings?.systemPresetId,
+      system_preset_version: settings?.systemPresetVersion,
+      thinking_display: settings?.thinkingDisplay,
+      prompt_cache_policy: settings?.promptCachePolicy,
+      prompt_cache_version: settings?.promptCacheVersion,
+      context_format_version: context?.contextFormatVersion,
+      estimated_input_bucket_tokens: budgetWeight.estimatedInputBucketTokens,
     },
     hashFields: ["message"],
   });
   const capCheck = await checkPlatformBudgetCap(env, {
     budgetScope: plan.budgetScope,
     operationKey: FABLE_CHAT_OPERATION_ID,
-    units: plan.estimatedCostUnits || 1,
+    units: budgetWeight.units,
     sourceRoute: FABLE_CHAT_SOURCE_ROUTE,
     actorUserId: adminUser.id,
     actorRole: "admin",
@@ -123,13 +165,26 @@ export async function prepareFableChatBudget({
     kill_switch_target: FABLE_CHAT_BUDGET_SWITCH,
     correlation_id: correlationId,
     reason: "admin_fable_chat_durable_result_replay",
-    notes: "Auth Worker owns chat persistence, duplicate suppression, and platform budget usage.",
+    notes: "Auth Worker owns chat persistence, duplicate suppression, and weighted platform budget usage.",
   };
   return {
     callerPolicy,
     budgetFingerprint,
     budgetScope: plan.budgetScope,
     units: capCheck.requestedUnits,
+    metadata: {
+      phase: "van-ark-fable-chat-v2",
+      source: "provider_attempt_admission",
+      model_id: FABLE_CHAT_MODEL_ID,
+      provider_family: "ai_worker",
+      accounting_basis: "weighted_admitted_before_provider",
+      effort: settings.effort,
+      effective_max_output_tokens: Number(settings.effectiveMaxOutputTokens),
+      estimated_input_bucket_tokens: budgetWeight.estimatedInputBucketTokens,
+      effort_units: budgetWeight.effortUnits,
+      input_units: budgetWeight.inputUnits,
+      final_state: "admitted",
+    },
   };
 }
 
@@ -140,17 +195,19 @@ export async function admitFableChatBudgetUsage({
   idempotencyKeyHash,
   requestFingerprint,
   units = 1,
+  metadata = null,
 }) {
   const requestedUnits = Math.max(1, Math.ceil(Number(units) || 1));
   const createdAt = nowIso();
   const windows = getPlatformBudgetWindows(createdAt);
   const eventId = `pbu_${randomTokenHex(16)}`;
-  const metadataJson = JSON.stringify({
-    phase: "van-ark-fable-chat-v1",
+  const metadataJson = JSON.stringify(metadata || {
+    phase: "van-ark-fable-chat-v2",
     source: "provider_attempt_admission",
     model_id: FABLE_CHAT_MODEL_ID,
     provider_family: "ai_worker",
-    accounting_basis: "admitted_before_provider",
+    accounting_basis: "weighted_admitted_before_provider",
+    final_state: "admitted",
   });
   const result = await env.DB.prepare(
     `INSERT OR IGNORE INTO platform_budget_usage_events (
@@ -239,4 +296,48 @@ export async function admitFableChatBudgetUsage({
       requestedUnits,
     },
   });
+}
+
+export async function recordFableChatBudgetOutcome(env, turnId, {
+  finalState,
+  stopReason = null,
+  durationMs = null,
+  outputTruncated = false,
+  usage = null,
+} = {}) {
+  const safeState = ["succeeded", "failed", "unknown"].includes(finalState)
+    ? finalState
+    : "unknown";
+  const safeStopReason = typeof stopReason === "string" && /^[a-z_]{1,40}$/.test(stopReason)
+    ? stopReason
+    : null;
+  const safeDurationMs = durationMs != null && Number.isFinite(Number(durationMs))
+    ? Math.max(0, Math.floor(Number(durationMs)))
+    : null;
+  const safeUsage = {};
+  for (const key of ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]) {
+    const value = Number(usage?.[key]);
+    if (Number.isFinite(value) && value >= 0) safeUsage[key] = Math.floor(value);
+  }
+  const thinkingTokens = Number(usage?.output_tokens_details?.thinking_tokens);
+  if (Number.isFinite(thinkingTokens) && thinkingTokens >= 0) {
+    safeUsage.thinking_tokens = Math.floor(thinkingTokens);
+  }
+  const patch = {
+    final_state: safeState,
+    provider_stop_reason: safeStopReason,
+    duration_ms: safeDurationMs,
+    output_truncated: outputTruncated === true,
+    ...safeUsage,
+  };
+  await env.DB.prepare(
+    `UPDATE platform_budget_usage_events
+        SET metadata_json = json_patch(metadata_json, ?)
+      WHERE source_attempt_id = ? AND budget_scope = ? AND operation_key = ?`
+  ).bind(
+    JSON.stringify(patch),
+    turnId,
+    ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
+    FABLE_CHAT_OPERATION_ID
+  ).run();
 }

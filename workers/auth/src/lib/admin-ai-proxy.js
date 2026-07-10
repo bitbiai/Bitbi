@@ -27,6 +27,7 @@ import {
   logDiagnostic,
   withCorrelationId,
 } from "../../../../js/shared/worker-observability.mjs";
+import { FABLE_CHAT_GENERATION_TIMEOUT_MS } from "../../../shared/fable-chat-contract.mjs";
 
 const AI_LAB_BASE_URL = "https://bitbi-ai.internal";
 
@@ -214,6 +215,95 @@ export async function proxyLiveAgentToAiLab(env, payload, adminUser, correlation
   }
 
   return withCorrelationId(await withAdminAiCode(response), correlationId);
+}
+
+export async function proxyFableChatStreamToAiLab(
+  env,
+  path,
+  payload,
+  adminUser,
+  correlationId,
+  requestInfo = null,
+  callerPolicy = null
+) {
+  const startedAt = Date.now();
+  if (!env.AI_LAB || typeof env.AI_LAB.fetch !== "function") {
+    return serviceUnavailableResponse(correlationId);
+  }
+  const body = callerPolicy ? withAiCallerPolicy(payload, callerPolicy) : payload;
+  const bodyText = JSON.stringify(body);
+  const serviceAuthHeaders = await buildSignedAiLabHeaders({
+    env,
+    method: "POST",
+    path,
+    bodyText,
+    adminUser,
+    correlationId,
+    requestInfo,
+  });
+  if (!serviceAuthHeaders) return workerConfigUnavailableResponse(correlationId);
+
+  try {
+    const response = await fetchWithGenerationTimeout(
+      env.AI_LAB.fetch.bind(env.AI_LAB),
+      new Request(`${AI_LAB_BASE_URL}${path}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          accept: "text/event-stream",
+          "x-bitbi-admin-user-id": adminUser.id,
+          "x-bitbi-admin-user-email": adminUser.email,
+          [BITBI_CORRELATION_HEADER]: correlationId,
+          ...serviceAuthHeaders,
+        },
+        body: bodyText,
+      }),
+      undefined,
+      { timeoutMs: FABLE_CHAT_GENERATION_TIMEOUT_MS }
+    );
+    const contentType = response.headers.get("content-type") || "";
+    if (response.ok && contentType.includes("text/event-stream")) {
+      return withCorrelationId(response, correlationId);
+    }
+    if (response.status >= 500) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-proxy",
+        event: "admin_fable_chat_stream_upstream_error",
+        level: "error",
+        correlationId,
+        upstream_path: path,
+        admin_user_id: adminUser.id,
+        status: response.status,
+        duration_ms: getDurationMs(startedAt),
+        ...getRequestLogFields(requestInfo),
+      });
+    }
+    return withCorrelationId(await withAdminAiCode(response), correlationId);
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "admin-ai-proxy",
+      event: isGenerationTimeoutError(error)
+        ? "admin_fable_chat_stream_proxy_timeout"
+        : "admin_fable_chat_stream_proxy_failed",
+      level: "error",
+      correlationId,
+      status: isGenerationTimeoutError(error) ? 504 : 503,
+      upstream_path: path,
+      admin_user_id: adminUser.id,
+      duration_ms: getDurationMs(startedAt),
+      ...getRequestLogFields(requestInfo),
+      ...getErrorFields(error, { includeMessage: false }),
+    });
+    return isGenerationTimeoutError(error)
+      ? withCorrelationId(json({
+          ok: false,
+          error: "Fable stream startup timed out.",
+          code: "request_timeout",
+        }, { status: 504 }), correlationId)
+      : serviceUnavailableResponse(correlationId);
+  }
 }
 
 export async function proxyToAiLab(env, path, init, adminUser, correlationId, requestInfo = null) {

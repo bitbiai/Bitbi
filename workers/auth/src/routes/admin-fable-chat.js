@@ -2,7 +2,9 @@ import { enqueueAdminAuditEvent } from "../lib/activity.js";
 import {
   admitFableChatBudgetUsage,
   FABLE_CHAT_INTERNAL_PATH,
+  FABLE_CHAT_INTERNAL_STREAM_PATH,
   prepareFableChatBudget,
+  recordFableChatBudgetOutcome,
 } from "../lib/fable-chat-budget.js";
 import {
   FABLE_CHAT_MODEL_ID,
@@ -16,6 +18,7 @@ import {
   expireStaleFableChatTurns,
   finalizeFableChatTurn,
   getFableChatConversation,
+  getFableChatConversationSettings,
   getFableChatTurnByIdempotencyKey,
   getFableChatTurnResult,
   listFableChatConversations,
@@ -29,8 +32,19 @@ import {
   validateCreateFableChatBody,
   validateRenameFableChatBody,
   validateSendFableChatBody,
+  validateUpdateFableChatSettingsBody,
+  updateFableChatConversationSettings,
 } from "../lib/fable-chat.js";
-import { proxyToAiLab } from "../lib/admin-ai-proxy.js";
+import {
+  proxyFableChatStreamToAiLab,
+  proxyToAiLab,
+} from "../lib/admin-ai-proxy.js";
+import {
+  FableChatInternalStreamError,
+  consumeInternalFableChatStream,
+  encodeFableChatBrowserEvent,
+  fableChatStreamResponse,
+} from "../lib/fable-chat-stream.js";
 import {
   AdminPlatformBudgetSwitchError,
 } from "../lib/admin-platform-budget-switches.js";
@@ -128,22 +142,48 @@ function contextForBrowser(context) {
   return {
     olderTurnsOmitted: context?.olderTurnsOmitted === true,
     omittedTurns: Number(context?.omittedTurns || 0),
+    estimatedInputTokens: Number(context?.estimatedInputTokens || 0),
+    effectiveInputTokenLimit: Number(context?.effectiveInputTokenLimit || 0),
+    estimatorVersion: context?.estimatorVersion || null,
+    cacheApplied: context?.cacheBreakpoint?.enabled === true,
   };
 }
 
-async function successResponse(env, adminUserId, conversationId, result, correlationId, {
+function internalFableChatPayload(modelContext) {
+  return {
+    messages: modelContext.messages,
+    effort: modelContext.effort,
+    maxTokens: modelContext.maxTokens,
+    systemPresetId: modelContext.systemPresetId,
+    systemPresetVersion: modelContext.systemPresetVersion,
+    thinkingDisplay: modelContext.thinkingDisplay,
+    promptCachePolicy: modelContext.promptCachePolicy,
+    promptCacheVersion: modelContext.promptCacheVersion,
+    contextFormatVersion: modelContext.context.contextFormatVersion,
+  };
+}
+
+async function successPayload(env, adminUserId, conversationId, result, {
   replayed = false,
 } = {}) {
   const conversation = await getFableChatConversation(env, adminUserId, conversationId);
-  if (!conversation || !result) return notFound(correlationId);
-  return correlated(json({
+  if (!conversation || !result) return null;
+  return {
     ok: true,
     conversation,
     turn: result.turn,
     messages: result.messages,
     context: contextForBrowser(result.context),
     idempotentReplay: replayed,
-  }), correlationId);
+  };
+}
+
+async function successResponse(env, adminUserId, conversationId, result, correlationId, {
+  replayed = false,
+} = {}) {
+  const payload = await successPayload(env, adminUserId, conversationId, result, { replayed });
+  if (!payload) return notFound(correlationId);
+  return correlated(json(payload), correlationId);
 }
 
 function fableChatErrorResponse(error, correlationId) {
@@ -226,6 +266,9 @@ function auditFableChat(ctx, adminUser, action, {
   turnId = null,
   status = null,
   contextOmittedTurns = null,
+  effort = null,
+  effectiveMaxOutputTokens = null,
+  estimatedInputBucket = null,
 } = {}) {
   const promise = enqueueAdminAuditEvent(
     ctx.env,
@@ -238,6 +281,9 @@ function auditFableChat(ctx, adminUser, action, {
         status,
         model_id: FABLE_CHAT_MODEL_ID,
         context_omitted_turns: contextOmittedTurns,
+        effort,
+        effective_max_output_tokens: effectiveMaxOutputTokens,
+        estimated_input_bucket_tokens: estimatedInputBucket,
       },
     },
     {
@@ -249,7 +295,30 @@ function auditFableChat(ctx, adminUser, action, {
   if (ctx.execCtx?.waitUntil) ctx.execCtx.waitUntil(promise);
 }
 
-async function handleExistingSend(ctx, adminUser, conversationId, turn, requestFingerprint) {
+async function recordBudgetOutcomeSafely(ctx, turnId, outcome) {
+  try {
+    await recordFableChatBudgetOutcome(ctx.env, turnId, outcome);
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-auth",
+      component: "admin-fable-chat-budget",
+      event: "admin_fable_chat_budget_outcome_update_failed",
+      level: "error",
+      correlationId: ctx.correlationId,
+      turn_id: turnId,
+      ...getErrorFields(error, { includeMessage: false }),
+    });
+  }
+}
+
+async function resolveExistingSend(
+  ctx,
+  adminUser,
+  conversationId,
+  turn,
+  requestFingerprint,
+  { streamMode = false } = {}
+) {
   const { env, correlationId } = ctx;
   if (turn.requestFingerprint !== requestFingerprint) {
     throw new FableChatError("Idempotency-Key conflicts with a different chat request.", {
@@ -267,25 +336,36 @@ async function handleExistingSend(ctx, adminUser, conversationId, turn, requestF
   }
   if (current.status === "succeeded") {
     const result = await getFableChatTurnResult(env, adminUser.id, conversationId, current.id);
-    return successResponse(env, adminUser.id, conversationId, result, correlationId, {
-      replayed: true,
-    });
+    if (streamMode) return { kind: "replay", result };
+    return {
+      kind: "response",
+      response: await successResponse(env, adminUser.id, conversationId, result, correlationId, {
+        replayed: true,
+      }),
+    };
   }
-  if (current.status === "failed") return failedTurnResponse(current, correlationId);
-  if (current.status === "unknown") return unknownTurnResponse(current, correlationId);
-  return inProgressResponse(current, correlationId);
+  if (current.status === "failed") {
+    return { kind: "response", response: failedTurnResponse(current, correlationId) };
+  }
+  if (current.status === "unknown") {
+    return { kind: "response", response: unknownTurnResponse(current, correlationId) };
+  }
+  return { kind: "response", response: inProgressResponse(current, correlationId) };
 }
 
-async function handleSend(ctx, adminUser, conversationId) {
+async function prepareSend(ctx, adminUser, conversationId, { streamMode = false } = {}) {
   const { request, env, correlationId } = ctx;
   const parsed = await readChatJsonBody(request, correlationId);
-  if (parsed.response) return parsed.response;
+  if (parsed.response) return { kind: "response", response: parsed.response };
   const input = validateSendFableChatBody(parsed.body);
   const idempotencyKey = normalizeFableChatIdempotencyKey(request.headers.get("Idempotency-Key"));
+  const settings = await getFableChatConversationSettings(env, adminUser.id, conversationId);
+  if (!settings) return { kind: "response", response: notFound(correlationId) };
   const requestFingerprint = await buildFableChatRequestFingerprint({
     conversationId,
     message: input.message,
     retryMessageId: input.retryMessageId,
+    settings,
   });
   const expiredTurns = await expireStaleFableChatTurns(env, adminUser.id, conversationId);
   for (const expiredTurn of expiredTurns) {
@@ -302,15 +382,28 @@ async function handleSend(ctx, adminUser, conversationId) {
     idempotencyKey
   );
   if (existing) {
-    return handleExistingSend(ctx, adminUser, conversationId, existing, requestFingerprint);
+    return resolveExistingSend(
+      ctx,
+      adminUser,
+      conversationId,
+      existing,
+      requestFingerprint,
+      { streamMode }
+    );
   }
 
   const limited = await enforceFableChatRateLimit(ctx, adminUser.id, "send", {
     adminMax: 30,
     ipMax: 60,
   });
-  if (limited) return correlated(limited, correlationId);
+  if (limited) return { kind: "response", response: correlated(limited, correlationId) };
 
+  const modelContext = await buildFableChatModelContext(env, {
+    adminUserId: adminUser.id,
+    conversationId,
+    currentMessage: input.message,
+    settings,
+  });
   const budget = await prepareFableChatBudget({
     env,
     adminUser,
@@ -318,6 +411,8 @@ async function handleSend(ctx, adminUser, conversationId) {
     message: input.message,
     retryMessageId: input.retryMessageId,
     requestFingerprint,
+    settings,
+    context: modelContext.context,
     correlationId,
   });
   const attempt = await beginFableChatTurn(env, {
@@ -327,20 +422,21 @@ async function handleSend(ctx, adminUser, conversationId) {
     requestFingerprint,
     message: input.message,
     retryMessageId: input.retryMessageId,
+    settings,
+    context: modelContext.context,
   });
   if (attempt.kind !== "created") {
-    return handleExistingSend(
+    return resolveExistingSend(
       ctx,
       adminUser,
       conversationId,
       attempt.turn,
-      requestFingerprint
+      requestFingerprint,
+      { streamMode }
     );
   }
 
   let turn = attempt.turn;
-  let finalized = false;
-  let providerStarted = false;
   try {
     await admitFableChatBudgetUsage({
       env,
@@ -349,28 +445,93 @@ async function handleSend(ctx, adminUser, conversationId) {
       idempotencyKeyHash: turn.idempotencyKeyHash,
       requestFingerprint,
       units: budget.units,
+      metadata: budget.metadata,
     });
     turn = await markFableChatTurnRunning(env, turn.id);
-    const modelContext = await buildFableChatModelContext(env, {
-      adminUserId: adminUser.id,
+  } catch (error) {
+    try {
+      turn = await markFableChatTurnFailed(env, turn.id, error?.code || "generation_failed");
+    } catch {
+      // Preserve the original admission error without exposing a persistence detail.
+    }
+    await recordBudgetOutcomeSafely(ctx, turn?.id || attempt.turn.id, { finalState: "failed" });
+    auditFableChat(ctx, adminUser, "fable_chat_message_failed", {
       conversationId,
-      currentMessage: input.message,
+      turnId: turn?.id || attempt.turn.id,
+      status: "failed",
+      effort: settings.effort,
+      effectiveMaxOutputTokens: settings.effectiveMaxOutputTokens,
+      estimatedInputBucket: budget.metadata.estimated_input_bucket_tokens,
     });
+    throw error;
+  }
+  return {
+    kind: "running",
+    input,
+    settings,
+    modelContext,
+    budget,
+    turn,
+  };
+}
+
+async function recordProviderHttpFailure(
+  ctx,
+  adminUser,
+  conversationId,
+  prepared,
+  providerResponse,
+  providerBody
+) {
+  const errorCode = providerBody?.code || `provider_status_${providerResponse.status}`;
+  const unknownOutcome = providerResponse.status >= 500;
+  const turn = unknownOutcome
+    ? await markFableChatTurnUnknown(ctx.env, prepared.turn.id, errorCode)
+    : await markFableChatTurnFailed(ctx.env, prepared.turn.id, errorCode);
+  await recordBudgetOutcomeSafely(ctx, turn.id, {
+    finalState: unknownOutcome ? "unknown" : "failed",
+  });
+  auditFableChat(ctx, adminUser, unknownOutcome
+    ? "fable_chat_message_outcome_unknown"
+    : "fable_chat_message_failed", {
+    conversationId,
+    turnId: turn.id,
+    status: turn.status,
+    effort: prepared.settings.effort,
+    effectiveMaxOutputTokens: prepared.settings.effectiveMaxOutputTokens,
+    estimatedInputBucket: prepared.budget.metadata.estimated_input_bucket_tokens,
+  });
+  return unknownOutcome
+    ? unknownTurnResponse(turn, ctx.correlationId, {
+        status: [502, 503, 504].includes(providerResponse.status)
+          ? providerResponse.status
+          : 503,
+      })
+    : failedTurnResponse(turn, ctx.correlationId, {
+        status: [429, 502, 503, 504].includes(providerResponse.status)
+          ? providerResponse.status
+          : 502,
+      });
+}
+
+async function handleSend(ctx, adminUser, conversationId) {
+  const prepared = await prepareSend(ctx, adminUser, conversationId);
+  if (prepared.kind === "response") return prepared.response;
+  let { turn } = prepared;
+  let finalized = false;
+  let providerStarted = false;
+  try {
     providerStarted = true;
     const providerResponse = await proxyToAiLab(
-      env,
+      ctx.env,
       FABLE_CHAT_INTERNAL_PATH,
       {
         method: "POST",
-        body: {
-          messages: modelContext.messages,
-          system: modelContext.system,
-          maxTokens: modelContext.maxTokens,
-        },
-        callerPolicy: budget.callerPolicy,
+        body: internalFableChatPayload(prepared.modelContext),
+        callerPolicy: prepared.budget.callerPolicy,
       },
       adminUser,
-      correlationId,
+      ctx.correlationId,
       ctx
     );
     let providerBody = null;
@@ -380,76 +541,268 @@ async function handleSend(ctx, adminUser, conversationId) {
       providerBody = null;
     }
     if (!providerResponse.ok || providerBody?.ok !== true) {
-      const errorCode = providerBody?.code || `provider_status_${providerResponse.status}`;
-      const unknownOutcome = providerResponse.status >= 500;
-      turn = unknownOutcome
-        ? await markFableChatTurnUnknown(env, turn.id, errorCode)
-        : await markFableChatTurnFailed(env, turn.id, errorCode);
-      auditFableChat(ctx, adminUser, unknownOutcome
-        ? "fable_chat_message_outcome_unknown"
-        : "fable_chat_message_failed", {
+      return recordProviderHttpFailure(
+        ctx,
+        adminUser,
         conversationId,
-        turnId: turn.id,
-        status: turn.status,
-      });
-      return unknownOutcome
-        ? unknownTurnResponse(turn, correlationId, {
-            status: [502, 503, 504].includes(providerResponse.status)
-              ? providerResponse.status
-              : 503,
-          })
-        : failedTurnResponse(turn, correlationId, {
-        status: [429, 502, 503, 504].includes(providerResponse.status)
-          ? providerResponse.status
-          : 502,
-      });
+        prepared,
+        providerResponse,
+        providerBody
+      );
     }
-    const result = await finalizeFableChatTurn(env, turn.id, {
+    const result = await finalizeFableChatTurn(ctx.env, turn.id, {
       assistantContent: providerBody?.result?.text,
-      context: modelContext.context,
+      providerBlocks: providerBody?.result?.providerBlocks,
+      context: prepared.modelContext.context,
       providerModel: providerBody?.result?.responseModel || providerBody?.model?.id || null,
       stopReason: providerBody?.result?.stopReason || null,
       stopSequence: providerBody?.result?.stopSequence || null,
       usage: providerBody?.result?.usage || null,
       gatewayMetadata: providerBody?.result?.gatewayMetadata || null,
+      providerDurationMs: providerBody?.elapsedMs,
     });
     finalized = true;
     turn = result.turn;
+    await recordBudgetOutcomeSafely(ctx, turn.id, {
+      finalState: "succeeded",
+      stopReason: providerBody?.result?.stopReason || null,
+      durationMs: providerBody?.elapsedMs,
+      outputTruncated: result.turn.outputTruncated === true,
+      usage: providerBody?.result?.usage || null,
+    });
     auditFableChat(ctx, adminUser, "fable_chat_message_succeeded", {
       conversationId,
       turnId: turn.id,
       status: "succeeded",
       contextOmittedTurns: result.context.omittedTurns,
+      effort: prepared.settings.effort,
+      effectiveMaxOutputTokens: prepared.settings.effectiveMaxOutputTokens,
+      estimatedInputBucket: prepared.budget.metadata.estimated_input_bucket_tokens,
     });
-    return successResponse(env, adminUser.id, conversationId, result, correlationId);
+    return successResponse(ctx.env, adminUser.id, conversationId, result, ctx.correlationId);
   } catch (error) {
     if (!finalized) {
       try {
         turn = providerStarted
-          ? await markFableChatTurnUnknown(
-              env,
-              turn.id,
-              error?.code || "provider_outcome_unknown"
-            )
-          : await markFableChatTurnFailed(env, turn.id, error?.code || "generation_failed");
+          ? await markFableChatTurnUnknown(ctx.env, turn.id, error?.code || "provider_outcome_unknown")
+          : await markFableChatTurnFailed(ctx.env, turn.id, error?.code || "generation_failed");
       } catch {
-        // The original failure is reported without exposing a secondary persistence error.
+        // Preserve the original failure without exposing a secondary persistence detail.
       }
+      await recordBudgetOutcomeSafely(ctx, turn?.id || prepared.turn.id, {
+        finalState: providerStarted ? "unknown" : "failed",
+      });
       auditFableChat(ctx, adminUser, providerStarted
         ? "fable_chat_message_outcome_unknown"
         : "fable_chat_message_failed", {
         conversationId,
-        turnId: turn?.id || attempt.turn.id,
+        turnId: turn?.id || prepared.turn.id,
         status: providerStarted ? "unknown" : "failed",
+        effort: prepared.settings.effort,
+        effectiveMaxOutputTokens: prepared.settings.effectiveMaxOutputTokens,
       });
       if (providerStarted && turn?.status === "unknown") {
-        return unknownTurnResponse(turn, correlationId, {
+        return unknownTurnResponse(turn, ctx.correlationId, {
           status: Number(error?.status) === 504 ? 504 : 503,
         });
       }
     }
     throw error;
   }
+}
+
+function replayStreamResponse(ctx, adminUser, conversationId, result) {
+  const stream = new ReadableStream({
+    start(controller) {
+      const processing = (async () => {
+        controller.enqueue(encodeFableChatBrowserEvent("accepted", { replayed: true }));
+        const assistant = result?.messages?.find((message) => message.role === "assistant") || null;
+        if (assistant?.reasoningSummary) {
+          controller.enqueue(encodeFableChatBrowserEvent("thinking_delta", {
+            text: assistant.reasoningSummary,
+          }));
+        }
+        if (assistant?.content) {
+          controller.enqueue(encodeFableChatBrowserEvent("text_delta", { text: assistant.content }));
+        }
+        const payload = await successPayload(ctx.env, adminUser.id, conversationId, result, {
+          replayed: true,
+        });
+        if (!payload) throw new Error("Stored Fable chat result is unavailable.");
+        controller.enqueue(encodeFableChatBrowserEvent("final", payload));
+        controller.close();
+      })().catch(() => {
+        try {
+          controller.enqueue(encodeFableChatBrowserEvent("error", {
+            ok: false,
+            error: "The stored response could not be loaded. Refresh this conversation.",
+            code: "fable_chat_refresh_required",
+            retryable: false,
+          }));
+          controller.close();
+        } catch {
+          // The client disconnected while the durable replay was being loaded.
+        }
+      });
+      if (ctx.execCtx?.waitUntil) ctx.execCtx.waitUntil(processing);
+    },
+  });
+  return correlated(fableChatStreamResponse(stream), ctx.correlationId);
+}
+
+function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalStream) {
+  let clientCanceled = false;
+  const stream = new ReadableStream({
+    start(controller) {
+      const enqueue = (event, data) => {
+        if (clientCanceled) return;
+        try {
+          controller.enqueue(encodeFableChatBrowserEvent(event, data));
+        } catch {
+          clientCanceled = true;
+        }
+      };
+      const processing = (async () => {
+        let turn = prepared.turn;
+        let durablyFinalized = false;
+        try {
+          const complete = await consumeInternalFableChatStream(internalStream, {
+            onAccepted: () => enqueue("accepted", { replayed: false, turn: { id: turn.id } }),
+            onThinkingDelta: (text) => enqueue("thinking_delta", { text }),
+            onTextDelta: (text) => enqueue("text_delta", { text }),
+            onKeepalive: () => enqueue("keepalive", { ok: true }),
+          });
+          const result = await finalizeFableChatTurn(ctx.env, turn.id, {
+            assistantContent: complete.text,
+            providerBlocks: complete.providerBlocks,
+            context: prepared.modelContext.context,
+            providerModel: complete.responseModel || null,
+            stopReason: complete.stopReason || null,
+            stopSequence: complete.stopSequence || null,
+            usage: complete.usage || null,
+            gatewayMetadata: null,
+            providerDurationMs: complete.durationMs,
+          });
+          turn = result.turn;
+          durablyFinalized = true;
+          await recordBudgetOutcomeSafely(ctx, turn.id, {
+            finalState: "succeeded",
+            stopReason: complete.stopReason || null,
+            durationMs: complete.durationMs,
+            outputTruncated: result.turn.outputTruncated === true,
+            usage: complete.usage || null,
+          });
+          auditFableChat(ctx, adminUser, "fable_chat_message_succeeded", {
+            conversationId,
+            turnId: turn.id,
+            status: "succeeded",
+            contextOmittedTurns: result.context.omittedTurns,
+            effort: prepared.settings.effort,
+            effectiveMaxOutputTokens: prepared.settings.effectiveMaxOutputTokens,
+            estimatedInputBucket: prepared.budget.metadata.estimated_input_bucket_tokens,
+          });
+          const payload = await successPayload(ctx.env, adminUser.id, conversationId, result);
+          if (!payload) throw new FableChatInternalStreamError("Durable chat result is unavailable.");
+          enqueue("final", payload);
+        } catch (error) {
+          if (durablyFinalized) {
+            enqueue("error", {
+              ok: false,
+              error: "The response was saved. Refresh this conversation to load it.",
+              code: "fable_chat_refresh_required",
+              retryable: false,
+              turn: { id: turn.id, status: "succeeded" },
+            });
+            return;
+          }
+          const failed = error instanceof FableChatInternalStreamError && error.outcome === "failed";
+          try {
+            turn = failed
+              ? await markFableChatTurnFailed(ctx.env, turn.id, error.code)
+              : await markFableChatTurnUnknown(ctx.env, turn.id, error?.code || "provider_outcome_unknown");
+          } catch {
+            // A stale running row is later converted to unknown; never execute the provider again here.
+          }
+          await recordBudgetOutcomeSafely(ctx, turn?.id || prepared.turn.id, {
+            finalState: failed ? "failed" : "unknown",
+          });
+          auditFableChat(ctx, adminUser, failed
+            ? "fable_chat_message_failed"
+            : "fable_chat_message_outcome_unknown", {
+            conversationId,
+            turnId: turn?.id || prepared.turn.id,
+            status: failed ? "failed" : "unknown",
+            effort: prepared.settings.effort,
+            effectiveMaxOutputTokens: prepared.settings.effectiveMaxOutputTokens,
+          });
+          enqueue("error", failed ? {
+            ok: false,
+            error: "Claude Fable could not complete this response. Retry with a new request.",
+            code: "fable_chat_turn_failed",
+            retryable: true,
+            retryMessageId: turn?.userMessageId || prepared.turn.userMessageId,
+            turn: { id: turn?.id || prepared.turn.id, status: "failed" },
+          } : {
+            ok: false,
+            error: "The provider outcome is unknown. This message cannot be retried automatically.",
+            code: "fable_chat_provider_outcome_unknown",
+            retryable: false,
+            turn: { id: turn?.id || prepared.turn.id, status: "unknown" },
+          });
+        } finally {
+          if (!clientCanceled) {
+            try {
+              controller.close();
+            } catch {
+              // The browser disconnected after provider admission; durable processing already decided state.
+            }
+          }
+        }
+      })();
+      if (ctx.execCtx?.waitUntil) ctx.execCtx.waitUntil(processing);
+    },
+    cancel() {
+      clientCanceled = true;
+    },
+  });
+  return correlated(fableChatStreamResponse(stream), ctx.correlationId);
+}
+
+async function handleStreamSend(ctx, adminUser, conversationId) {
+  const prepared = await prepareSend(ctx, adminUser, conversationId, { streamMode: true });
+  if (prepared.kind === "response") return prepared.response;
+  if (prepared.kind === "replay") {
+    return replayStreamResponse(ctx, adminUser, conversationId, prepared.result);
+  }
+  const providerResponse = await proxyFableChatStreamToAiLab(
+    ctx.env,
+    FABLE_CHAT_INTERNAL_STREAM_PATH,
+    internalFableChatPayload(prepared.modelContext),
+    adminUser,
+    ctx.correlationId,
+    ctx,
+    prepared.budget.callerPolicy
+  );
+  const contentType = providerResponse.headers.get("content-type") || "";
+  if (!providerResponse.ok || !contentType.includes("text/event-stream")) {
+    let providerBody = null;
+    try {
+      providerBody = await providerResponse.clone().json();
+    } catch {
+      providerBody = null;
+    }
+    return recordProviderHttpFailure(
+      ctx,
+      adminUser,
+      conversationId,
+      prepared,
+      providerResponse.ok
+        ? new Response(null, { status: 503 })
+        : providerResponse,
+      providerBody
+    );
+  }
+  return liveStreamResponse(ctx, adminUser, conversationId, prepared, providerResponse.body);
 }
 
 export async function handleAdminFableChat(ctx) {
@@ -479,8 +832,8 @@ export async function handleAdminFableChat(ctx) {
       if (limited) return correlated(limited, correlationId);
       const parsed = await readChatJsonBody(request, correlationId);
       if (parsed.response) return parsed.response;
-      validateCreateFableChatBody(parsed.body);
-      const conversation = await createFableChatConversation(env, admin.user.id);
+      const settings = validateCreateFableChatBody(parsed.body);
+      const conversation = await createFableChatConversation(env, admin.user.id, settings);
       auditFableChat(ctx, admin.user, "fable_chat_conversation_created", {
         conversationId: conversation.id,
         status: "created",
@@ -488,10 +841,70 @@ export async function handleAdminFableChat(ctx) {
       return correlated(json({ ok: true, conversation }, { status: 201 }), correlationId);
     }
 
+    const streamMessageMatch = pathname.match(
+      /^\/api\/admin\/fable-chat\/conversations\/([^/]+)\/messages\/stream$/
+    );
+    // route-policy: admin.fable-chat.messages.stream
+    if (streamMessageMatch && method === "POST") {
+      return await handleStreamSend(
+        ctx,
+        admin.user,
+        normalizeFableChatConversationId(streamMessageMatch[1])
+      );
+    }
+
     const messageMatch = pathname.match(/^\/api\/admin\/fable-chat\/conversations\/([^/]+)\/messages$/);
     // route-policy: admin.fable-chat.messages.send
     if (messageMatch && method === "POST") {
       return await handleSend(ctx, admin.user, normalizeFableChatConversationId(messageMatch[1]));
+    }
+
+    const settingsMatch = pathname.match(
+      /^\/api\/admin\/fable-chat\/conversations\/([^/]+)\/settings$/
+    );
+    if (settingsMatch) {
+      const conversationId = normalizeFableChatConversationId(settingsMatch[1]);
+      if (method === "GET") {
+        const limited = await enforceFableChatRateLimit(ctx, admin.user.id, "read");
+        if (limited) return correlated(limited, correlationId);
+        const conversation = await getFableChatConversation(env, admin.user.id, conversationId);
+        if (!conversation) return notFound(correlationId);
+        return correlated(json({ ok: true, settings: conversation.settings }), correlationId);
+      }
+      // route-policy: admin.fable-chat.conversations.settings.update
+      if (method === "PATCH") {
+        const limited = await enforceFableChatRateLimit(ctx, admin.user.id, "write", {
+          adminMax: 60,
+          ipMax: 120,
+        });
+        if (limited) return correlated(limited, correlationId);
+        const parsed = await readChatJsonBody(request, correlationId);
+        if (parsed.response) return parsed.response;
+        const input = validateUpdateFableChatSettingsBody(parsed.body);
+        const expiredTurns = await expireStaleFableChatTurns(env, admin.user.id, conversationId);
+        for (const expiredTurn of expiredTurns) {
+          auditFableChat(ctx, admin.user, "fable_chat_message_outcome_unknown", {
+            conversationId,
+            turnId: expiredTurn.id,
+            status: "unknown",
+          });
+        }
+        const conversation = await updateFableChatConversationSettings(
+          env,
+          admin.user.id,
+          conversationId,
+          input
+        );
+        if (!conversation) return notFound(correlationId);
+        auditFableChat(ctx, admin.user, "fable_chat_conversation_settings_updated", {
+          conversationId,
+          status: "updated",
+          effort: conversation.settings.effort,
+          effectiveMaxOutputTokens: conversation.settings.effectiveMaxOutputTokens,
+        });
+        return correlated(json({ ok: true, settings: conversation.settings }), correlationId);
+      }
+      return null;
     }
 
     const conversationMatch = pathname.match(/^\/api\/admin\/fable-chat\/conversations\/([^/]+)$/);

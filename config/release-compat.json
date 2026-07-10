@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0069_add_admin_fable_chat.sql",
+        "latest": "0070_add_fable_chat_advanced_inference.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -228,6 +228,17 @@
             {
               "sourceFile": "workers/auth/src/lib/fable-chat-budget.js",
               "sourceRoute": "/api/admin/fable-chat/conversations/:id/messages",
+              "operationIds": ["admin.fable_chat.send"]
+            }
+          ]
+        },
+        {
+          "aiRoute": "/internal/ai/fable-chat/stream",
+          "allowedOperationIds": ["admin.fable_chat.send"],
+          "authSources": [
+            {
+              "sourceFile": "workers/auth/src/lib/fable-chat-budget.js",
+              "sourceRoute": "/api/admin/fable-chat/conversations/:id/messages/stream",
               "operationIds": ["admin.fable_chat.send"]
             }
           ]
@@ -841,6 +852,7 @@
     ],
     "internalOnlyRoutes": [
       "/internal/ai/fable-chat",
+      "/internal/ai/fable-chat/stream",
       "/internal/ai/video-task/create",
       "/internal/ai/video-task/poll"
     ],

@@ -1,8 +1,10 @@
 import { CLAUDE_FABLE_5_MODEL_ID } from "../../../../js/shared/admin-ai-contract.mjs";
-import { invokeText } from "../lib/invoke-ai.js";
+import { invokeFableChatStream, invokeText } from "../lib/invoke-ai.js";
+import { createInternalFableChatStream } from "../lib/anthropic-stream.js";
 import { getModelSummary, resolveModelSelection } from "../lib/model-registry.js";
 import { errorResponse, fromError, ok } from "../lib/responses.js";
-import { readJsonBody, validateFableChatBody } from "../lib/validate.js";
+import { readFableChatJsonBody, validateFableChatBody } from "../lib/validate.js";
+import { FABLE_CHAT_GENERATION_TIMEOUT_MS } from "../../../shared/fable-chat-contract.mjs";
 import {
   getDurationMs,
   getErrorFields,
@@ -13,19 +15,39 @@ import {
 export async function handleFableChat({ request, env, correlationId, pathname, method }) {
   const startedAt = Date.now();
   try {
-    const body = await readJsonBody(request);
+    const body = await readFableChatJsonBody(request);
     if (!body) {
       return errorResponse("Invalid JSON body.", { status: 400, code: "bad_request" });
     }
 
     const input = validateFableChatBody(body);
     const selection = resolveModelSelection("text", { model: CLAUDE_FABLE_5_MODEL_ID });
-    const output = await invokeText(env, selection.model, {
+    const invocationInput = {
       ...input,
       correlationId,
       gatewaySurface: "van-ark-fable-chat",
       skipGatewayCache: true,
       collectGatewayLog: false,
+    };
+
+    if (pathname === "/internal/ai/fable-chat/stream") {
+      const output = await invokeFableChatStream(env, selection.model, invocationInput);
+      return new Response(createInternalFableChatStream(output.stream, {
+        startedAt: output.startedAt,
+      }), {
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-store",
+          "X-Accel-Buffering": "no",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    }
+    const output = await invokeText(env, selection.model, {
+      ...invocationInput,
+      generationTimeoutMs: FABLE_CHAT_GENERATION_TIMEOUT_MS,
+      preserveAnthropicContent: true,
     });
 
     return ok({
@@ -33,6 +55,8 @@ export async function handleFableChat({ request, env, correlationId, pathname, m
       model: getModelSummary(selection.model),
       result: {
         text: output.text,
+        providerBlocks: output.providerBlocks,
+        reasoningSummary: output.reasoningSummary,
         usage: output.usage,
         maxTokens: input.maxTokens,
         ...(output.responseModel ? { responseModel: output.responseModel } : {}),
