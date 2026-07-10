@@ -112,6 +112,8 @@ const authSecretNames = [
   assert(calls.some((call) => call.includes("workers/auth/wrangler.jsonc")));
   assert(calls.some((call) => call.includes("workers/ai/wrangler.jsonc")));
   assert(calls.some((call) => call.includes("workers/contact/wrangler.jsonc")));
+  assert(calls.every((call) => call.includes("--format json")));
+  assert(calls.every((call) => !call.includes("--json")));
 }
 
 {

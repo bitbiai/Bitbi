@@ -342,7 +342,8 @@ function runWranglerSecretList(workerId, workerConfig, runner = spawnSync) {
     "list",
     "--config",
     workerConfig.wranglerPath,
-    "--json",
+    "--format",
+    "json",
   ], {
     cwd: workerConfig.cwd || undefined,
     encoding: "utf8",
