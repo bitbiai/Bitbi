@@ -85,6 +85,7 @@ const BLOCKED_CLAIM_OVERCLAIM_PATTERNS = Object.freeze([
 
 const MARKDOWN_SCAN_IGNORES = Object.freeze([
   "PAY_APP/",
+  "WEB_APP/",
   "playwright-report/",
   "test-results/",
   "js/vendor/",

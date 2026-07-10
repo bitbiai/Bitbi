@@ -6,6 +6,7 @@
 	"vars": {
 		"APP_NAME": "bitbi",
 		"APP_BASE_URL": "https://bitbi.ai",
+		"APP_ALLOWED_ORIGINS": "https://bitbi.ai,https://van-ark.com",
 		"RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>",
 		"BITBI_ENV": "production",
 		"CLOUDFLARE_ACCOUNT_ID": "37b7a2153840c4f1623b9fc39a2680f8",

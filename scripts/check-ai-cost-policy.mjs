@@ -38,6 +38,7 @@ const RUNTIME_BUDGET_SWITCH_OPERATION_IDS = Object.freeze([
   "platform.news_pulse.visual.ingest",
   "platform.news_pulse.visual.scheduled",
   "admin.text.test",
+  "admin.fable_chat.send",
   "admin.embeddings.test",
   "admin.music.test",
   "admin.compare",
@@ -51,12 +52,16 @@ const PHASE_4_17_PLATFORM_ADMIN_LAB_CAP_OPERATION_IDS = new Set([
   "admin.compare",
   "admin.live_agent",
 ]);
+const PRIVATE_FABLE_CHAT_CAP_OPERATION_IDS = new Set([
+  "admin.fable_chat.send",
+]);
 const A1_WAVE_2_NEWS_PULSE_CAP_OPERATION_IDS = new Set([
   "platform.news_pulse.visual.ingest",
   "platform.news_pulse.visual.scheduled",
 ]);
 const CAP_ENFORCED_OPERATION_IDS = new Set([
   ...PHASE_4_17_PLATFORM_ADMIN_LAB_CAP_OPERATION_IDS,
+  ...PRIVATE_FABLE_CHAT_CAP_OPERATION_IDS,
   ...A1_WAVE_2_NEWS_PULSE_CAP_OPERATION_IDS,
 ]);
 

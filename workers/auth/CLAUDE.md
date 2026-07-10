@@ -1,6 +1,6 @@
 # Auth Worker Current Guide
 
-Date: 2026-05-21
+Date: 2026-07-10
 
 Current release truth: `config/release-compat.json` is authoritative for the latest auth D1 migration; use `npm run release:plan` for the concrete checkpoint before deploy.
 
@@ -36,6 +36,7 @@ Latest auth D1 migration: read `release.schemaCheckpoints.auth.latest` from `con
 
 Current high-impact migration dependencies:
 
+- `0069_add_admin_fable_chat.sql` for private, ownership-scoped platform-admin Fable conversations, messages, and durable idempotent send attempts. Apply it before deploying Auth Worker code that serves `/api/admin/fable-chat/*`.
 - `0068_add_canvas_workspaces.sql` for authenticated Canvas projects, graph nodes/edges, and idempotent run records. Apply it before deploying Auth Worker code that serves `/api/account/canvas/*`.
 
 - `0056_add_ai_folder_image_ownership_metadata.sql` for folder/image ownership metadata columns.

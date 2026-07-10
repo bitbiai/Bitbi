@@ -112,11 +112,11 @@ assert.equal(musicParent.currentEnforcement.idempotency, "implemented");
 const summary = summarizeAiCostOperationRegistry();
 assert.deepEqual(summary, {
   version: "ai-cost-operations-2026-05-15",
-  totalOperations: 31,
-  providerCostOperations: 31,
+  totalOperations: 32,
+  providerCostOperations: 32,
   memberOperations: 7,
   organizationOperations: 2,
-  adminPlatformOperations: 22,
+  adminPlatformOperations: 23,
   currentMissingMandatoryIdempotency: 0,
   currentMissingReservation: 0,
   currentNoReplay: 0,
@@ -125,7 +125,7 @@ assert.deepEqual(summary, {
     member_credit_account: 0,
     organization_credit_account: 0,
     admin_org_credit_account: 1,
-    platform_admin_lab_budget: 7,
+    platform_admin_lab_budget: 8,
     platform_background_budget: 0,
     openclaw_news_pulse_budget: 2,
     internal_ai_worker_caller_enforced: 11,
@@ -134,6 +134,17 @@ assert.deepEqual(summary, {
   },
   highRiskOperations: [],
 });
+
+const fableChat = AI_COST_OPERATION_REGISTRY.find((entry) =>
+  entry.operationConfig.operationId === "admin.fable_chat.send"
+);
+assert(fableChat, "Expected the private Fable chat operation in the registry");
+assert.equal(fableChat.operationConfig.modelResolverKey, "admin.fable_chat.fixed_model");
+assert.equal(fableChat.budgetPolicy.targetBudgetScope, "platform_admin_lab_budget");
+assert.equal(fableChat.budgetPolicy.liveBudgetCapStatus, "cap_enforced");
+assert.equal(fableChat.currentEnforcement.idempotency, "implemented");
+assert.equal(fableChat.currentEnforcement.reservation, "implemented");
+assert.equal(fableChat.currentEnforcement.replay, "implemented");
 
 for (const entry of AI_COST_OPERATION_REGISTRY.filter((candidate) =>
   candidate.operationConfig.actorType === "admin" ||

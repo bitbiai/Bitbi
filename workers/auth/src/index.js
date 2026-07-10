@@ -97,13 +97,38 @@ export { AuthPublicRateLimiterDurableObject } from "./lib/public-rate-limiter-do
 const AI_IMAGE_DERIVATIVES_QUEUE_NAME = "bitbi-ai-image-derivatives";
 const MEMVID_STREAM_PREVIEW_CATCHUP_CRON = "*/30 * * * *";
 
-function getAllowedOrigins(env) {
-  const base = env.APP_BASE_URL || "https://bitbi.ai";
+const DEFAULT_APP_ORIGIN = "https://bitbi.ai";
+
+export function normalizeConfiguredAppOrigin(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw.includes("*")) return null;
   try {
-    return [new URL(base).origin];
+    const parsed = new URL(raw);
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      (parsed.pathname !== "/" && parsed.pathname !== "") ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      return null;
+    }
+    return parsed.origin;
   } catch {
-    return ["https://bitbi.ai"];
+    return null;
   }
+}
+
+export function getAllowedOrigins(env) {
+  const origins = new Set();
+  const baseOrigin = normalizeConfiguredAppOrigin(env?.APP_BASE_URL || DEFAULT_APP_ORIGIN);
+  origins.add(baseOrigin || DEFAULT_APP_ORIGIN);
+  for (const entry of String(env?.APP_ALLOWED_ORIGINS || "").split(",")) {
+    const origin = normalizeConfiguredAppOrigin(entry);
+    if (origin) origins.add(origin);
+  }
+  return [...origins];
 }
 
 function requiresTrustedRequestContext(pathname, method) {

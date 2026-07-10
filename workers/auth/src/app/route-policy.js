@@ -14,6 +14,7 @@ const REQUIRED_CONFIG = Object.freeze({
   adminR2: ["DB", "PUBLIC_RATE_LIMITER", "USER_IMAGES", "PRIVATE_MEDIA", "AUDIT_ARCHIVE"],
   adminAi: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET"],
   adminVideoJobs: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "AI_VIDEO_JOBS_QUEUE", "USER_IMAGES"],
+  adminFableChat: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "PAGINATION_SIGNING_SECRET"],
   adminAiVideoSource: ["DB", "USER_IMAGES", "AI_SAVE_REFERENCE_SIGNING_SECRET"],
   stripeTestCheckout: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_ADMIN_STRIPE_TEST_CHECKOUT", "STRIPE_MODE", "STRIPE_SECRET_KEY", "STRIPE_CHECKOUT_SUCCESS_URL", "STRIPE_CHECKOUT_CANCEL_URL"],
   stripeTestWebhook: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_MODE", "STRIPE_WEBHOOK_SECRET"],
@@ -1134,6 +1135,38 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.mfa.recovery.regenerate", "POST", "/api/admin/mfa/recovery-codes/regenerate", "admin-mfa", "smallJson", "admin-mfa-recovery-regenerate-admin-and-ip", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     audit: { event: "admin_mfa_recovery_codes_regenerated" },
+  }),
+
+  adminRead("admin.fable-chat.conversations.list", "/api/admin/fable-chat/conversations", "admin-fable-chat", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "PAGINATION_SIGNING_SECRET"],
+    rateLimit: { id: "admin-fable-chat-read-admin-and-ip", failClosed: true },
+    notes: "Admin/MFA-only bounded conversation list scoped to the authenticated admin_user_id. It returns titles and counts only, with signed cursor pagination and no message content.",
+  }),
+  adminJsonWrite("admin.fable-chat.conversations.create", "POST", "/api/admin/fable-chat/conversations", "admin-fable-chat", "fableChatJson", "admin-fable-chat-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "fable_chat_conversation_created" },
+    notes: "Admin/MFA-only creation of an empty, ownership-scoped Fable conversation. The model is fixed server-side and the bounded JSON body accepts no client model or owner fields.",
+  }),
+  adminRead("admin.fable-chat.conversations.read", "/api/admin/fable-chat/conversations/:id", "admin-fable-chat", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "PAGINATION_SIGNING_SECRET"],
+    rateLimit: { id: "admin-fable-chat-read-admin-and-ip", failClosed: true },
+    notes: "Admin/MFA-only bounded message history scoped by both conversation id and authenticated admin_user_id. Cross-owner ids return the same not-found response.",
+  }),
+  adminJsonWrite("admin.fable-chat.conversations.rename", "PATCH", "/api/admin/fable-chat/conversations/:id", "admin-fable-chat", "fableChatJson", "admin-fable-chat-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "fable_chat_conversation_renamed" },
+    notes: "Admin/MFA-only same-origin rename with a bounded normalized title. The mutation is ownership-scoped and audit metadata excludes title and message content.",
+  }),
+  adminJsonWrite("admin.fable-chat.conversations.delete", "DELETE", "/api/admin/fable-chat/conversations/:id", "admin-fable-chat", null, "admin-fable-chat-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    body: { kind: "none", noneReason: "Soft deletion uses only the ownership-scoped conversation path." },
+    audit: { event: "fable_chat_conversation_deleted" },
+    notes: "Admin/MFA-only same-origin soft deletion. Deleted conversations and all child messages become inaccessible through every chat route; audit metadata contains ids and status only.",
+  }),
+  adminJsonWrite("admin.fable-chat.messages.send", "POST", "/api/admin/fable-chat/conversations/:id/messages", "admin-fable-chat", "fableChatJson", "admin-fable-chat-send-admin-and-ip", {
+    config: REQUIRED_CONFIG.adminFableChat,
+    audit: { event: "fable_chat_message_succeeded" },
+    notes: "Admin/MFA-only same-origin Fable send. Requires Idempotency-Key, one active attempt per conversation, durable pending/running/unknown state, atomic conservative platform-cap admission before provider execution, ownership-scoped server-loaded native message history, fixed Fable model, existing Admin Text switch, HMAC service binding, stored assistant replay, non-retryable unknown outcomes, and content-free logs/audit metadata.",
   }),
 
   adminRead("admin.ai.models", "/api/admin/ai/models", "admin-ai", {

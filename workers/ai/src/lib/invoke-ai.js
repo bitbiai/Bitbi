@@ -27,12 +27,16 @@ import { invokeVideo } from "./invoke-ai-video.js";
 
 export { invokeVideo };
 
-function buildMessages(system, prompt) {
+function buildMessages(system, prompt, nativeMessages = null) {
   const messages = [];
   if (system) {
     messages.push({ role: "system", content: system });
   }
-  messages.push({ role: "user", content: prompt });
+  if (Array.isArray(nativeMessages)) {
+    messages.push(...nativeMessages.map(({ role, content }) => ({ role, content })));
+  } else {
+    messages.push({ role: "user", content: prompt });
+  }
   return messages;
 }
 
@@ -50,29 +54,37 @@ function buildTextInvocation(env, model, input) {
   if (isAnthropicMessagesModel(model)) {
     const payload = {
       max_tokens: maxTokens,
-      messages: [{ role: "user", content: input.prompt }],
+      messages: Array.isArray(input.messages)
+        ? input.messages.map(({ role, content }) => ({ role, content }))
+        : [{ role: "user", content: input.prompt }],
     };
     if (input.system) payload.system = input.system;
+
+    const gateway = {
+      id: env.AI_GATEWAY_ID || "default",
+      ...(input.skipGatewayCache === true ? { skipCache: true } : {}),
+      ...(typeof input.collectGatewayLog === "boolean"
+        ? { collectLog: input.collectGatewayLog }
+        : {}),
+      metadata: {
+        surface: input.gatewaySurface || "admin-ai-lab",
+        model_id: model.id,
+        provider: model.provider || model.vendor || "Anthropic",
+        ...(input.correlationId ? { request_id: input.correlationId } : {}),
+      },
+    };
 
     return {
       payload,
       runOptions: {
-        gateway: {
-          id: env.AI_GATEWAY_ID || "default",
-          metadata: {
-            surface: "admin-ai-lab",
-            model_id: model.id,
-            provider: model.provider || model.vendor || "Anthropic",
-            ...(input.correlationId ? { request_id: input.correlationId } : {}),
-          },
-        },
+        gateway,
       },
     };
   }
 
   return {
     payload: {
-      messages: buildMessages(input.system, input.prompt),
+      messages: buildMessages(input.system, input.prompt, input.messages),
       max_tokens: Math.min(maxTokens, model.maxTokens || maxTokens),
       temperature: input.temperature,
     },

@@ -27,7 +27,7 @@ assert.equal(report.runtimeMutation, false);
 assert.equal(report.providerCalls, false);
 assert.equal(report.billingMutation, false);
 assert.equal(report.summary.memberGatewayMigrated, 3);
-assert.equal(report.summary.adminPlatformImplemented, 9);
+assert.equal(report.summary.adminPlatformImplemented, 10);
 assert.equal(report.summary.adminTextEmbeddingsDurableIdempotency, 2);
 assert.equal(report.summary.adminMusicDurableIdempotency, 1);
 assert.equal(report.summary.adminCompareDurableIdempotency, 1);

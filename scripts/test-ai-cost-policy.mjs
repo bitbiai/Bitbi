@@ -102,6 +102,9 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite("admin.ai.live-agent", "POST", "/api/admin/ai/live-agent", "admin-ai", "adminJson", "admin-ai-liveagent-ip", {
     billing: { idempotency: "Idempotency-Key header is required and backed by admin_ai_usage_attempts metadata-only stream-session duplicate suppression." },
   }),
+  adminJsonWrite("admin.fable-chat.messages.send", "POST", "/api/admin/fable-chat/conversations/:id/messages", "admin-fable-chat", "fableChatJson", "admin-fable-chat-send-ip", {
+    billing: { idempotency: "Idempotency-Key header is required and backed by durable Fable chat turns with stored result replay." },
+  }),
   policy({ id: "openclaw.news_pulse.ingest", method: "POST", path: "/api/openclaw/news-pulse/ingest", billing: { idempotency: "deterministic OpenClaw item id/content hash plus visual status guards suppress duplicate provider calls" }, notes: "OpenClaw HMAC ingest." }),
   ${routePolicyExtra}
 ]);
@@ -122,6 +125,7 @@ export const ROUTE_POLICIES = Object.freeze([
 /api/admin/ai/video-jobs
 /api/admin/ai/compare
 /api/admin/ai/live-agent
+/api/admin/fable-chat/conversations/:id/messages
 /api/openclaw/news-pulse/ingest
 workers/auth/src/routes/ai/images-write.js
 workers/ai/src/routes/text.js
@@ -143,7 +147,7 @@ ${inventoryExtra}
   const repoRoot = makeRepo();
   const result = analyzeAiCostPolicy(repoRoot);
   assert.equal(result.ok, true, JSON.stringify(result.fatalIssues));
-  assert.equal(result.registrySummary.totalOperations, 31);
+  assert.equal(result.registrySummary.totalOperations, 32);
   assert.equal(result.registrySummary.memberOperations, 7);
   assert.equal(result.registrySummary.currentMissingMandatoryIdempotency, 0);
   assert(!result.registrySummary.highRiskOperations.includes("member.image.generate"));
@@ -156,6 +160,7 @@ ${inventoryExtra}
   assert(!result.policyGaps.some((gap) => gap.route === "admin.ai.test-embeddings"));
   assert(!result.policyGaps.some((gap) => gap.route === "admin.ai.compare"));
   assert(!result.policyGaps.some((gap) => gap.route === "admin.ai.live-agent"));
+  assert(!result.policyGaps.some((gap) => gap.route === "admin.fable-chat.messages.send"));
   assert(!result.policyGaps.some((gap) => gap.route === "admin.ai.test-video-debug"));
   const syncDebugRoute = result.routes.find((route) => route.id === "admin.ai.test-video-debug");
   assert.equal(syncDebugRoute.expected, "disabled-by-default");
@@ -193,6 +198,7 @@ ${inventoryExtra}
   assert(output.includes("admin.music.test: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
   assert(output.includes("admin.compare: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
   assert(output.includes("admin.live_agent: partial/budget-metadata+durable-idempotency; scope=platform_admin_lab_budget"));
+  assert(output.includes("admin.fable_chat.send: implemented/hardened; scope=platform_admin_lab_budget"));
   assert(output.includes("admin.video.job.create: implemented/hardened; scope=platform_admin_lab_budget"));
   assert(!output.includes("admin.video.sync_debug: partial/budget-metadata; scope=platform_admin_lab_budget"));
   assert(output.includes("platform.news_pulse.visual.ingest: implemented/hardened; scope=openclaw_news_pulse_budget"));
@@ -208,6 +214,7 @@ ${inventoryExtra}
   assert(output.includes("Phase 4.19 adds an explicit admin-approved repair executor"));
   assert(output.includes("explicit_unmetered_admin and internal_ai_worker_caller_enforced remain accepted baseline gaps"));
   assert(output.includes("admin.text.test: cap=cap_enforced; readiness=countable_now"));
+  assert(output.includes("admin.fable_chat.send: cap=cap_enforced; readiness=countable_now"));
   assert(output.includes("platform.news_pulse.visual.ingest: cap=cap_enforced; readiness=countable_now"));
   assert(output.includes("admin.image.test.unmetered: cap=not_implemented; readiness=metadata_only"));
   assert(output.includes("internal.text.generate: cap=not_implemented; readiness=requires_schema"));

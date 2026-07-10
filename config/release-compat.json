@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0068_add_canvas_workspaces.sql",
+        "latest": "0069_add_admin_fable_chat.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -32,9 +32,10 @@
       "auth": {
         "name": "bitbi-auth",
         "wranglerPath": "workers/auth/wrangler.jsonc",
-        "vars": ["APP_BASE_URL", "RESEND_FROM_EMAIL", "BITBI_ENV", "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET"],
+        "vars": ["APP_BASE_URL", "APP_ALLOWED_ORIGINS", "RESEND_FROM_EMAIL", "BITBI_ENV", "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET"],
         "expectedVars": {
           "APP_BASE_URL": "https://bitbi.ai",
+          "APP_ALLOWED_ORIGINS": "https://bitbi.ai,https://van-ark.com",
           "RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>",
           "BITBI_ENV": "production",
           "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET": "true"
@@ -217,6 +218,17 @@
               "sourceFile": "workers/auth/src/routes/ai/music-generate.js",
               "sourceRoute": "/api/ai/generate-music",
               "operationIds": ["member.music.lyrics.generate"]
+            }
+          ]
+        },
+        {
+          "aiRoute": "/internal/ai/fable-chat",
+          "allowedOperationIds": ["admin.fable_chat.send"],
+          "authSources": [
+            {
+              "sourceFile": "workers/auth/src/lib/fable-chat-budget.js",
+              "sourceRoute": "/api/admin/fable-chat/conversations/:id/messages",
+              "operationIds": ["admin.fable_chat.send"]
             }
           ]
         },
@@ -828,6 +840,7 @@
       "/api/admin/ai/test-video"
     ],
     "internalOnlyRoutes": [
+      "/internal/ai/fable-chat",
       "/internal/ai/video-task/create",
       "/internal/ai/video-task/poll"
     ],

@@ -27,6 +27,7 @@ _site/
 # Local operator tools
 .local/
 /PAY_APP/
+/WEB_APP/
 docs/production-readiness/evidence/bitbi-5000-credit-pack-evidence/
 docs/production-readiness/evidence/operator-live-evidence-2026-06-12/credit-pack-5000-canary/*.pdf
 docs/production-readiness/evidence/operator-live-evidence-2026-06-12/credit-pack-5000-canary/*.zip

@@ -159,6 +159,8 @@ function isValidationOnlyPath(relativePath) {
   return VALIDATION_ONLY_PREFIXES.some((prefix) => normalized.startsWith(prefix))
     || normalized === "package.json"
     || normalized === "package-lock.json"
+    || normalized === "playwright.config.js"
+    || normalized === "playwright.workers.config.js"
     || normalized === ".nvmrc"
     || normalized === ".node-version"
     || normalized === ".gitignore"

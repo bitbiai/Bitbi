@@ -157,6 +157,19 @@ function createContext() {
 
 {
   const plan = createReleasePlanFromRepo(repoRoot, {
+    files: ["playwright.config.js", "playwright.workers.config.js"],
+  });
+  assert.equal(plan.deploySteps.length, 0);
+  assert.deepEqual(plan.impacts.validationOnlyFiles, [
+    "playwright.config.js",
+    "playwright.workers.config.js",
+  ]);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.equal(plan.isNoop, true);
+}
+
+{
+  const plan = createReleasePlanFromRepo(repoRoot, {
     files: [
       "github-actions-stuck-evidence/actions-permissions-before.json",
       "github-actions-stuck-evidence/queued-runs.json",

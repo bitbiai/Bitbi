@@ -36,6 +36,7 @@ const MUTATING_DISPATCH_FILES = [
   "workers/auth/src/routes/admin-tenant-assets.js",
   "workers/auth/src/routes/admin-data-lifecycle.js",
   "workers/auth/src/routes/admin-ai.js",
+  "workers/auth/src/routes/admin-fable-chat.js",
   "workers/auth/src/routes/admin-news-pulse.js",
   "workers/auth/src/routes/admin-mfa.js",
   "workers/auth/src/routes/homepage-hero-videos.js",
@@ -48,6 +49,12 @@ const MUTATING_DISPATCH_FILES = [
 ];
 
 const REQUIRED_LOOKUPS = [
+  ["GET", "/api/admin/fable-chat/conversations", "admin.fable-chat.conversations.list"],
+  ["POST", "/api/admin/fable-chat/conversations", "admin.fable-chat.conversations.create"],
+  ["GET", "/api/admin/fable-chat/conversations/fbc_0123456789abcdef0123456789abcdef", "admin.fable-chat.conversations.read"],
+  ["PATCH", "/api/admin/fable-chat/conversations/fbc_0123456789abcdef0123456789abcdef", "admin.fable-chat.conversations.rename"],
+  ["DELETE", "/api/admin/fable-chat/conversations/fbc_0123456789abcdef0123456789abcdef", "admin.fable-chat.conversations.delete"],
+  ["POST", "/api/admin/fable-chat/conversations/fbc_0123456789abcdef0123456789abcdef/messages", "admin.fable-chat.messages.send"],
   ["POST", "/api/admin/ai/video-jobs", "admin.ai.video-jobs.create"],
   ["POST", "/api/admin/ai/video-jobs/job-123/recover", "admin.ai.video-jobs.recover"],
   ["GET", "/api/admin/ai/video-jobs/poison", "admin.ai.video-jobs.poison.list"],

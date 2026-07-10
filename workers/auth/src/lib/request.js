@@ -22,6 +22,7 @@ export {
 export const BODY_LIMITS = Object.freeze({
   smallJson: 32 * 1024,
   authJson: 64 * 1024,
+  fableChatJson: 24 * 1024,
   adminJson: 512 * 1024,
   adminVideoJobJson: 512 * 1024,
   aiGenerateJson: 32 * 1024,

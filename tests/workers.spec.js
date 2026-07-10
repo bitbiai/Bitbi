@@ -6008,7 +6008,6 @@ test.describe('Admin R2 Object Storage Explorer', () => {
 test.describe('BITBI Canvas authenticated project and model contract', () => {
   test('migration is additive, indexed, soft-deleted, and release-compatible', () => {
     const migration = fs.readFileSync(path.join(process.cwd(), 'workers/auth/migrations/0068_add_canvas_workspaces.sql'), 'utf8');
-    expect(CURRENT_AUTH_MIGRATION).toBe('0068_add_canvas_workspaces.sql');
     for (const table of ['canvas_projects', 'canvas_nodes', 'canvas_edges', 'canvas_runs']) {
       expect(migration).toContain(`CREATE TABLE ${table}`);
       expect(migration).toContain('deleted_at TEXT');
@@ -23970,7 +23969,7 @@ test.describe('Worker routes', () => {
         billingMutation: false,
         summary: expect.objectContaining({
           memberGatewayMigrated: 3,
-          adminPlatformImplemented: 9,
+          adminPlatformImplemented: 10,
           adminImageExplicitUnmeteredBranches: 1,
           runtimeBudgetSwitchTargets: 11,
           runtimeBudgetSwitchesEnabled: 11,
