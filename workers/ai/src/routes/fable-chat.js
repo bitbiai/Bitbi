@@ -35,6 +35,7 @@ export async function handleFableChat({ request, env, correlationId, pathname, m
       return new Response(createInternalFableChatStream(output.stream, {
         startedAt: output.startedAt,
         continueAfterPause: output.continueAfterPause,
+        maxWebSearchUses: input.webSearchMaxUses,
       }), {
         status: 200,
         headers: {

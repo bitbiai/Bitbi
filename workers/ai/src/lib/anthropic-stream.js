@@ -19,7 +19,8 @@ import {
   FABLE_CHAT_MAX_THINKING_SUMMARY_BYTES,
   FABLE_CHAT_MAX_WEB_SEARCH_RESULTS,
   FABLE_CHAT_STREAM_IDLE_TIMEOUT_MS,
-  FABLE_CHAT_WEB_SEARCH_MAX_USES,
+  FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
+  FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS,
   FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
 } from "../../../shared/fable-chat-contract.mjs";
 
@@ -44,6 +45,17 @@ export class AnthropicStreamError extends Error {
 
 function byteLength(value) {
   return ENCODER.encode(String(value || "")).byteLength;
+}
+
+function normalizeWebSearchMaxUses(value) {
+  const maxUses = value ?? 1;
+  if (!Number.isInteger(maxUses) || maxUses < 1 || maxUses > FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES) {
+    throw new AnthropicStreamError("The web-search limit is invalid.", {
+      code: "provider_web_search_limit_invalid",
+      definitive: true,
+    });
+  }
+  return maxUses;
 }
 
 function safeText(value, { maxCharacters, maxBytes, allowEmpty = true } = {}) {
@@ -314,7 +326,9 @@ function extractSafeSources(blocks) {
 function countSearchBlocks(blocks, {
   allowIncomplete = false,
   allowOrphanResults = false,
+  maxWebSearchUses = 1,
 } = {}) {
+  const maxUses = normalizeWebSearchMaxUses(maxWebSearchUses);
   const requests = blocks.filter((block) => block.type === "server_tool_use");
   const requestIds = new Set(requests.map((block) => block.id));
   const results = blocks.filter((block) => block.type === "web_search_tool_result");
@@ -330,7 +344,7 @@ function countSearchBlocks(blocks, {
       definitive: true,
     });
   }
-  if (requests.length > FABLE_CHAT_WEB_SEARCH_MAX_USES || results.length > FABLE_CHAT_WEB_SEARCH_MAX_USES) {
+  if (requests.length > maxUses || results.length > maxUses) {
     throw new AnthropicStreamError("Provider exceeded the web-search limit.", {
       code: "provider_web_search_limit_exceeded",
       definitive: true,
@@ -342,6 +356,7 @@ function countSearchBlocks(blocks, {
 export function extractAnthropicVisibleResult(content, {
   allowMissingText = false,
   allowOrphanSearchResults = false,
+  maxWebSearchUses = 1,
 } = {}) {
   const blocks = sanitizeAnthropicContentBlocks(content);
   const text = blocks
@@ -358,6 +373,7 @@ export function extractAnthropicVisibleResult(content, {
   const search = countSearchBlocks(blocks, {
     allowIncomplete: allowMissingText,
     allowOrphanResults: allowOrphanSearchResults,
+    maxWebSearchUses,
   });
   return {
     text,
@@ -517,7 +533,9 @@ export async function* parseSseJsonEvents(stream, {
 
 export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
   allowOrphanSearchResults = false,
+  maxWebSearchUses = 1,
 } = {}) {
+  const maxUses = normalizeWebSearchMaxUses(maxWebSearchUses);
   const blocks = new Map();
   const stoppedBlocks = new Set();
   let responseModel = null;
@@ -647,7 +665,7 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
           inputJson: initialJson,
         });
         const started = [...blocks.values()].filter((block) => block.type === "server_tool_use").length;
-        if (started > FABLE_CHAT_WEB_SEARCH_MAX_USES) {
+        if (started > maxUses) {
           throw new AnthropicStreamError("Provider exceeded the web-search limit.", {
             code: "provider_web_search_limit_exceeded",
             definitive: true,
@@ -658,7 +676,7 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
         const result = sanitizeSearchToolResult(source);
         blocks.set(index, result);
         const results = [...blocks.values()].filter((block) => block.type === "web_search_tool_result").length;
-        if (results > FABLE_CHAT_WEB_SEARCH_MAX_USES) {
+        if (results > maxUses) {
           throw new AnthropicStreamError("Provider exceeded the web-search limit.", {
             code: "provider_web_search_limit_exceeded",
             definitive: true,
@@ -801,6 +819,7 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
   const visible = extractAnthropicVisibleResult(orderedBlocks, {
     allowMissingText: stopReason === "pause_turn",
     allowOrphanSearchResults,
+    maxWebSearchUses: maxUses,
   });
   return {
     ...visible,
@@ -839,7 +858,7 @@ function sumUsage(left, right) {
   const bSearch = Number(right?.server_tool_use?.web_search_requests);
   if (Number.isFinite(aSearch) || Number.isFinite(bSearch)) {
     output.server_tool_use = {
-      web_search_requests: Math.min(1,
+      web_search_requests: Math.min(FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
         Math.max(0, Math.floor(Number.isFinite(aSearch) ? aSearch : 0))
         + Math.max(0, Math.floor(Number.isFinite(bSearch) ? bSearch : 0))),
     };
@@ -850,7 +869,9 @@ function sumUsage(left, right) {
 export function createInternalFableChatStream(providerStream, {
   startedAt = Date.now(),
   continueAfterPause = null,
+  maxWebSearchUses = 1,
 } = {}) {
+  const maxUses = normalizeWebSearchMaxUses(maxWebSearchUses);
   let canceled = false;
   return new ReadableStream({
     start(controller) {
@@ -869,31 +890,40 @@ export function createInternalFableChatStream(providerStream, {
         onWebSearchStarted: () => enqueue("web_search_started", { ok: true }),
         onKeepalive: () => enqueue("keepalive", { ok: true }),
       };
-      void consumeAnthropicMessageStream(providerStream, callbacks).then(async (initial) => {
+      void consumeAnthropicMessageStream(providerStream, callbacks, {
+        maxWebSearchUses: maxUses,
+      }).then(async (initial) => {
         let result = initial;
-        if (initial.stopReason === "pause_turn") {
+        let continuationCount = 0;
+        let combinedBlocks = [...initial.providerBlocks];
+        let combinedUsage = initial.usage;
+        while (result.stopReason === "pause_turn") {
           if (typeof continueAfterPause !== "function") {
             throw new AnthropicStreamError("Provider paused without a continuation path.", {
               code: "provider_pause_turn_unavailable",
             });
           }
-          const continuationStream = await continueAfterPause(initial.providerBlocks);
-          const continuation = await consumeAnthropicMessageStream(continuationStream, callbacks, {
-            allowOrphanSearchResults: true,
-          });
-          if (continuation.stopReason === "pause_turn") {
+          if (continuationCount >= Math.min(FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS, maxUses)) {
             throw new AnthropicStreamError("Provider exceeded the continuation limit.", {
               code: "provider_pause_turn_limit_exceeded",
             });
           }
-          const combined = extractAnthropicVisibleResult([
-            ...initial.providerBlocks,
-            ...continuation.providerBlocks,
-          ]);
+          const continuationStream = await continueAfterPause(combinedBlocks);
+          const continuation = await consumeAnthropicMessageStream(continuationStream, callbacks, {
+            allowOrphanSearchResults: true,
+            maxWebSearchUses: maxUses,
+          });
+          continuationCount += 1;
+          combinedBlocks = [...combinedBlocks, ...continuation.providerBlocks];
+          combinedUsage = sumUsage(combinedUsage, continuation.usage);
+          const combined = extractAnthropicVisibleResult(combinedBlocks, {
+            allowMissingText: continuation.stopReason === "pause_turn",
+            maxWebSearchUses: maxUses,
+          });
           result = {
             ...continuation,
             ...combined,
-            usage: sumUsage(initial.usage, continuation.usage),
+            usage: combinedUsage,
             responseModel: continuation.responseModel || initial.responseModel,
           };
         }

@@ -55,11 +55,18 @@ export const FABLE_CHAT_PROMPT_CACHE_VERSION = 1;
 export const FABLE_CHAT_PROMPT_CACHE_MINIMUM_TOKENS = 512;
 
 export const FABLE_CHAT_DEFAULT_WEB_SEARCH_ENABLED = false;
-export const FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION = 1;
+export const FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION = 1;
+export const FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION = 2;
 export const FABLE_CHAT_WEB_SEARCH_TOOL_TYPE = "web_search_20250305";
 export const FABLE_CHAT_WEB_SEARCH_TOOL_NAME = "web_search";
-export const FABLE_CHAT_WEB_SEARCH_MAX_USES = 1;
-export const FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS = 1;
+export const FABLE_CHAT_WEB_SEARCH_MAX_USES_BY_EFFORT = Object.freeze({
+  medium: 1,
+  high: 3,
+  xhigh: 5,
+  max: 10,
+});
+export const FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES = 10;
+export const FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS = 10;
 export const FABLE_CHAT_MAX_WEB_SEARCH_RESULTS = 20;
 export const FABLE_CHAT_MAX_CITATIONS = 16;
 export const FABLE_CHAT_MAX_CITATIONS_JSON_BYTES = 64 * 1024;
@@ -79,7 +86,7 @@ export const FABLE_CHAT_CONTEXT_CHARACTER_COMPAT_LIMIT = 384_000;
 export const FABLE_CHAT_INTERNAL_JSON_MAX_BYTES = 4 * 1024 * 1024;
 export const FABLE_CHAT_MAX_PROVIDER_STREAM_BYTES = 4 * 1024 * 1024;
 export const FABLE_CHAT_MAX_PROVIDER_EVENT_BYTES = (3 * 1024 * 1024) + (64 * 1024);
-export const FABLE_CHAT_MAX_PROVIDER_BLOCKS = 24;
+export const FABLE_CHAT_MAX_PROVIDER_BLOCKS = 64;
 export const FABLE_CHAT_MAX_PROVIDER_BLOCKS_JSON_BYTES = 3 * 1024 * 1024;
 export const FABLE_CHAT_MAX_TEXT_OUTPUT_BYTES = 2 * 1024 * 1024;
 export const FABLE_CHAT_MAX_THINKING_SUMMARY_BYTES = 512 * 1024;
@@ -94,6 +101,10 @@ export const FABLE_CHAT_BASE_SYSTEM_PROMPT =
 
 export function getFableChatOutputTokenLimit(effort) {
   return FABLE_CHAT_EFFORT_OUTPUT_TOKENS[effort] || null;
+}
+
+export function getFableChatWebSearchMaxUses(effort) {
+  return FABLE_CHAT_WEB_SEARCH_MAX_USES_BY_EFFORT[effort] || null;
 }
 
 export function getFableChatSystemPreset(presetId, version = FABLE_CHAT_SYSTEM_PRESET_VERSION) {

@@ -38,10 +38,12 @@ import {
   FABLE_CHAT_SYSTEM_PRESET_IDS,
   FABLE_CHAT_SYSTEM_PRESET_VERSION,
   FABLE_CHAT_THINKING_DISPLAYS,
+  FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION,
   FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
   FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
   buildFableChatSystemPrompt,
   getFableChatOutputTokenLimit,
+  getFableChatWebSearchMaxUses,
 } from "../../../shared/fable-chat-contract.mjs";
 
 export const INTERNAL_AI_JSON_MAX_BYTES = 512 * 1024;
@@ -66,6 +68,7 @@ const FABLE_CHAT_ALLOWED_BODY_FIELDS = new Set([
   "promptCacheVersion",
   "contextFormatVersion",
   "webSearchEnabled",
+  "webSearchMaxUses",
   "webSearchContractVersion",
 ]);
 const FABLE_CHAT_ALLOWED_MESSAGE_FIELDS = new Set(["role", "content"]);
@@ -505,6 +508,7 @@ export function validateFableChatBody(body) {
   const webSearchEnabled = input.webSearchEnabled ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_ENABLED;
   const legacyContext = input.contextFormatVersion === FABLE_CHAT_LEGACY_CONTEXT_FORMAT_VERSION
     && input.webSearchEnabled === undefined
+    && input.webSearchMaxUses === undefined
     && input.webSearchContractVersion === undefined;
   if (input.contextFormatVersion !== FABLE_CHAT_CONTEXT_FORMAT_VERSION && !legacyContext) {
     throw new AdminAiValidationError(
@@ -520,10 +524,29 @@ export function validateFableChatBody(body) {
       "validation_error"
     );
   }
-  if (input.webSearchContractVersion !== undefined
-    && input.webSearchContractVersion !== FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION) {
+  const webSearchContractVersion = input.webSearchContractVersion
+    ?? (legacyContext
+      ? FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION
+      : FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION);
+  if (![FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION, FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION]
+    .includes(webSearchContractVersion)) {
     throw new AdminAiValidationError(
       "The Fable chat web-search contract is not supported.",
+      400,
+      "validation_error"
+    );
+  }
+  const expectedWebSearchMaxUses = webSearchContractVersion === FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION
+    ? 1
+    : getFableChatWebSearchMaxUses(input.effort);
+  if (
+    input.webSearchMaxUses !== undefined
+      ? (!Number.isInteger(input.webSearchMaxUses)
+        || input.webSearchMaxUses !== expectedWebSearchMaxUses)
+      : webSearchContractVersion !== FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION
+  ) {
+    throw new AdminAiValidationError(
+      "webSearchMaxUses does not match the selected effort.",
       400,
       "validation_error"
     );
@@ -551,7 +574,8 @@ export function validateFableChatBody(body) {
     promptCacheVersion: input.promptCacheVersion,
     contextFormatVersion: input.contextFormatVersion,
     webSearchEnabled,
-    webSearchContractVersion: input.webSearchContractVersion ?? FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+    webSearchMaxUses: expectedWebSearchMaxUses,
+    webSearchContractVersion,
   };
 }
 

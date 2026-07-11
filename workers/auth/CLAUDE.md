@@ -36,7 +36,8 @@ Latest auth D1 migration: read `release.schemaCheckpoints.auth.latest` from `con
 
 Current high-impact migration dependencies:
 
-- `0071_add_fable_chat_web_search.sql` for the server-owned per-conversation Web search switch, immutable tool settings/counts, and bounded persisted citations. Apply it before deploying native Web search behavior in `/api/admin/fable-chat/*`.
+- `0072_add_fable_web_search_effort_limits.sql` for immutable effort-derived Web search maxima and bounded execution counts through ten. Apply it before deploying effort-scaled Web search behavior in `/api/admin/fable-chat/*`.
+- `0071_add_fable_chat_web_search.sql` for the server-owned per-conversation Web search switch, immutable tool settings/counts, and bounded persisted citations.
 - `0070_add_fable_chat_advanced_inference.sql` for server-owned effort/preset/thinking settings, immutable inference snapshots, estimated token context metadata, and private provider content blocks. Apply it before deploying advanced `/api/admin/fable-chat/*` settings or streaming behavior.
 - `0069_add_admin_fable_chat.sql` for private, ownership-scoped platform-admin Fable conversations, messages, and durable idempotent send attempts. Apply it before deploying Auth Worker code that serves `/api/admin/fable-chat/*`.
 - `0068_add_canvas_workspaces.sql` for authenticated Canvas projects, graph nodes/edges, and idempotent run records. Apply it before deploying Auth Worker code that serves `/api/account/canvas/*`.

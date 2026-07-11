@@ -25,12 +25,14 @@ import {
   FABLE_CHAT_SYSTEM_PRESET_VERSION,
   FABLE_CHAT_THINKING_DISPLAYS,
   FABLE_CHAT_TURN_EXPIRY_MINUTES,
+  FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION,
   FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
-  FABLE_CHAT_WEB_SEARCH_MAX_USES,
+  FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
   FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
   buildFableChatSystemPrompt,
   getFableChatEffectiveInputTokenLimit,
   getFableChatOutputTokenLimit,
+  getFableChatWebSearchMaxUses,
 } from "../../../shared/fable-chat-contract.mjs";
 import {
   extractFableChatAssistantText,
@@ -361,7 +363,9 @@ export function sanitizeFableChatUsage(value) {
   }
   const searchRequests = Number(value?.server_tool_use?.web_search_requests);
   if (Number.isFinite(searchRequests) && searchRequests >= 0) {
-    output.server_tool_use = { web_search_requests: Math.min(1, Math.floor(searchRequests)) };
+    output.server_tool_use = {
+      web_search_requests: Math.min(FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES, Math.floor(searchRequests)),
+    };
   }
   return output;
 }
@@ -383,6 +387,7 @@ export function resolveFableChatConversationSettings(row) {
     ? row.thinking_display
     : FABLE_CHAT_DEFAULT_THINKING_DISPLAY;
   const effectiveMaxOutputTokens = getFableChatOutputTokenLimit(effort);
+  const webSearchMaxUses = getFableChatWebSearchMaxUses(effort);
   return {
     effort,
     effectiveMaxOutputTokens,
@@ -395,10 +400,50 @@ export function resolveFableChatConversationSettings(row) {
     promptCacheVersion: Number(row.prompt_cache_version || FABLE_CHAT_PROMPT_CACHE_VERSION),
     webSearchEnabled: Number(row.web_search_enabled || 0) === 1,
     webSearchToolVersion: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
-    webSearchMaxUses: FABLE_CHAT_WEB_SEARCH_MAX_USES,
+    webSearchMaxUses,
     webSearchContractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
     updatedAt: row.settings_updated_at || row.created_at,
   };
+}
+
+function readTurnWebSearchMaxUses(row) {
+  const value = Number(
+    row?.webSearchMaxUses
+    ?? row?.web_search_effective_max_uses
+    ?? row?.web_search_max_uses
+    ?? 1
+  );
+  return Number.isInteger(value) && value >= 1 && value <= FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES
+    ? value
+    : 1;
+}
+
+function readTurnWebSearchContractVersion(row) {
+  const value = Number(
+    row?.web_search_effective_contract_version
+    ?? row?.web_search_contract_version
+    ?? row?.webSearchContractVersion
+    ?? FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION
+  );
+  return [FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION, FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION]
+    .includes(value)
+    ? value
+    : FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION;
+}
+
+function readTurnWebSearchCount(row, kind) {
+  const legacyContract = readTurnWebSearchContractVersion(row)
+    === FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION;
+  const value = Number(kind === "request"
+    ? (legacyContract
+      ? (row?.web_search_request_count ?? 0)
+      : (row?.web_search_executed_request_count ?? row?.web_search_request_count ?? 0))
+    : (legacyContract
+      ? (row?.web_search_result_count ?? 0)
+      : (row?.web_search_executed_result_count ?? row?.web_search_result_count ?? 0)));
+  return Number.isInteger(value) && value >= 0 && value <= FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES
+    ? value
+    : 0;
 }
 
 export function serializeFableChatConversation(row) {
@@ -467,8 +512,10 @@ function serializeFableChatTurn(row) {
     systemPresetVersion: Number(row.system_preset_version || FABLE_CHAT_SYSTEM_PRESET_VERSION),
     thinkingDisplay: row.thinking_display || FABLE_CHAT_DEFAULT_THINKING_DISPLAY,
     webSearchEnabled: Number(row.web_search_enabled || 0) === 1,
-    webSearchRequestCount: Number(row.web_search_request_count || 0),
-    webSearchResultCount: Number(row.web_search_result_count || 0),
+    webSearchMaxUses: readTurnWebSearchMaxUses(row),
+    webSearchContractVersion: readTurnWebSearchContractVersion(row),
+    webSearchRequestCount: readTurnWebSearchCount(row, "request"),
+    webSearchResultCount: readTurnWebSearchCount(row, "result"),
     outputTruncated: Number(row.output_truncated || 0) === 1,
   };
 }
@@ -789,6 +836,8 @@ async function readTurnByIdempotencyHash(env, adminUserId, conversationId, idemp
             t.effective_input_token_limit, t.context_estimator_version,
             t.web_search_enabled, t.web_search_tool_version, t.web_search_max_uses,
             t.web_search_contract_version, t.web_search_request_count, t.web_search_result_count,
+            t.web_search_effective_max_uses, t.web_search_effective_contract_version,
+            t.web_search_executed_request_count, t.web_search_executed_result_count,
             t.cache_breakpoint_json, t.settings_snapshot_json, t.provider_duration_ms,
             t.output_truncated,
             t.provider_model, t.stop_reason, t.stop_sequence, t.usage_json,
@@ -812,6 +861,8 @@ async function readTurnById(env, turnId) {
             effective_input_token_limit, context_estimator_version, cache_breakpoint_json,
             web_search_enabled, web_search_tool_version, web_search_max_uses,
             web_search_contract_version, web_search_request_count, web_search_result_count,
+            web_search_effective_max_uses, web_search_effective_contract_version,
+            web_search_executed_request_count, web_search_executed_result_count,
             settings_snapshot_json, provider_duration_ms, output_truncated,
             provider_model, stop_reason,
             stop_sequence, usage_json, gateway_metadata_json, error_code, created_at,
@@ -838,6 +889,7 @@ export async function buildFableChatRequestFingerprint({
   message,
   retryMessageId = null,
   settings,
+  fingerprintVersion = 4,
 }) {
   if (!settings || typeof settings !== "object") {
     throw new FableChatError("Conversation settings are unavailable.", {
@@ -845,14 +897,35 @@ export async function buildFableChatRequestFingerprint({
       code: "fable_chat_settings_unavailable",
     });
   }
+  const effort = normalizeFableChatEffort(settings.effort);
+  const webSearchContractVersion = Number(
+    settings.webSearchContractVersion ?? FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION
+  );
+  if (![FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION, FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION]
+    .includes(webSearchContractVersion)) {
+    throw new FableChatError("Conversation Web search settings are unavailable.", {
+      status: 503,
+      code: "fable_chat_settings_unavailable",
+    });
+  }
+  const webSearchMaxUses = webSearchContractVersion === FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION
+    ? 1
+    : getFableChatWebSearchMaxUses(effort);
+  if (settings.webSearchMaxUses !== undefined
+    && Number(settings.webSearchMaxUses) !== webSearchMaxUses) {
+    throw new FableChatError("Conversation Web search settings are unavailable.", {
+      status: 503,
+      code: "fable_chat_settings_unavailable",
+    });
+  }
   return sha256Hex(JSON.stringify({
-    version: 3,
+    version: fingerprintVersion,
     conversation_id: normalizeFableChatConversationId(conversationId),
     message: normalizeFableChatUserMessage(message),
     retry_message_id: retryMessageId ? normalizeFableChatMessageId(retryMessageId) : null,
     model_id: FABLE_CHAT_MODEL_ID,
-    effort: normalizeFableChatEffort(settings.effort),
-    effective_max_output_tokens: getFableChatOutputTokenLimit(settings.effort),
+    effort,
+    effective_max_output_tokens: getFableChatOutputTokenLimit(effort),
     system_preset_id: normalizeFableChatSystemPresetId(settings.systemPresetId),
     system_preset_version: Number(settings.systemPresetVersion),
     thinking_display: FABLE_CHAT_THINKING_DISPLAYS.includes(settings.thinkingDisplay)
@@ -863,9 +936,31 @@ export async function buildFableChatRequestFingerprint({
     context_format_version: FABLE_CHAT_CONTEXT_FORMAT_VERSION,
     web_search_enabled: settings.webSearchEnabled === true,
     web_search_tool_version: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
-    web_search_max_uses: FABLE_CHAT_WEB_SEARCH_MAX_USES,
-    web_search_contract_version: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+    web_search_max_uses: webSearchMaxUses,
+    web_search_contract_version: webSearchContractVersion,
   }));
+}
+
+async function matchesLegacyFableChatFingerprint(existing, request) {
+  if (readTurnWebSearchContractVersion(existing) !== FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION) {
+    return false;
+  }
+  const legacyFingerprint = await buildFableChatRequestFingerprint({
+    ...request,
+    settings: {
+      ...request.settings,
+      webSearchMaxUses: 1,
+      webSearchContractVersion: FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION,
+    },
+    fingerprintVersion: 3,
+  });
+  return (existing.requestFingerprint ?? existing.request_fingerprint) === legacyFingerprint;
+}
+
+export async function matchesFableChatTurnRequest(existing, requestFingerprint, request) {
+  const storedFingerprint = existing?.requestFingerprint ?? existing?.request_fingerprint;
+  return storedFingerprint === requestFingerprint
+    || matchesLegacyFableChatFingerprint(existing, request);
 }
 
 function isUniqueConstraintError(error) {
@@ -891,7 +986,16 @@ export async function beginFableChatTurn(env, {
   const idempotencyKeyHash = await sha256Hex(key);
   const existing = await readTurnByIdempotencyHash(env, adminUserId, id, idempotencyKeyHash);
   if (existing) {
-    if (existing.request_fingerprint !== requestFingerprint) {
+    if (!await matchesFableChatTurnRequest(
+      existing,
+      requestFingerprint,
+      {
+        conversationId: id,
+        message: normalizedMessage,
+        retryMessageId: normalizedRetryMessageId,
+        settings,
+      }
+    )) {
       throw new FableChatError("Idempotency-Key conflicts with a different chat request.", {
         status: 409,
         code: "idempotency_conflict",
@@ -914,6 +1018,8 @@ export async function beginFableChatTurn(env, {
     || appliedSettings.promptCachePolicy !== settings.promptCachePolicy
     || appliedSettings.promptCacheVersion !== Number(settings.promptCacheVersion)
     || appliedSettings.webSearchEnabled !== (settings.webSearchEnabled === true)
+    || appliedSettings.webSearchMaxUses !== Number(settings.webSearchMaxUses)
+    || FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION !== Number(settings.webSearchContractVersion)
   ) {
     throw new FableChatError("Conversation settings changed before this message was admitted.", {
       status: 409,
@@ -944,7 +1050,7 @@ export async function beginFableChatTurn(env, {
     contextFormatVersion: FABLE_CHAT_CONTEXT_FORMAT_VERSION,
     webSearchEnabled: appliedSettings.webSearchEnabled,
     webSearchToolVersion: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
-    webSearchMaxUses: FABLE_CHAT_WEB_SEARCH_MAX_USES,
+    webSearchMaxUses: appliedSettings.webSearchMaxUses,
     webSearchContractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
   };
 
@@ -1002,12 +1108,14 @@ export async function beginFableChatTurn(env, {
            effective_input_token_limit, context_estimator_version, cache_breakpoint_json,
            web_search_enabled, web_search_tool_version, web_search_max_uses,
            web_search_contract_version, web_search_request_count, web_search_result_count,
+           web_search_effective_max_uses, web_search_effective_contract_version,
+           web_search_executed_request_count, web_search_executed_result_count,
            settings_snapshot_json, provider_duration_ms, output_truncated, provider_model, stop_reason,
            stop_sequence, usage_json, gateway_metadata_json, error_code, created_at,
            updated_at, completed_at, expires_at
          )
          SELECT ?, c.id, ?, ?, ?, ?, NULL, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, 0, 0, ?, NULL, 0, NULL, NULL, NULL, '{}', '{}', NULL, ?, ?, NULL, ?
+                ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0, ?, NULL, 0, NULL, NULL, NULL, '{}', '{}', NULL, ?, ?, NULL, ?
            FROM fable_chat_conversations c
           WHERE c.id = ? AND c.admin_user_id = ? AND c.deleted_at IS NULL
             AND c.effort = ? AND c.system_preset_id = ? AND c.system_preset_version = ?
@@ -1038,7 +1146,9 @@ export async function beginFableChatTurn(env, {
         JSON.stringify(safeContext.cacheBreakpoint),
         appliedSettings.webSearchEnabled ? 1 : 0,
         FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
-        FABLE_CHAT_WEB_SEARCH_MAX_USES,
+        1,
+        FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION,
+        appliedSettings.webSearchMaxUses,
         FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
         JSON.stringify(settingsSnapshot),
         createdAt,
@@ -1177,7 +1287,16 @@ export async function beginFableChatTurn(env, {
     }
     const raced = await readTurnByIdempotencyHash(env, adminUserId, id, idempotencyKeyHash);
     if (raced) {
-      if (raced.request_fingerprint !== requestFingerprint) {
+      if (!await matchesFableChatTurnRequest(
+        raced,
+        requestFingerprint,
+        {
+          conversationId: id,
+          message: normalizedMessage,
+          retryMessageId: normalizedRetryMessageId,
+          settings,
+        }
+      )) {
         throw new FableChatError("Idempotency-Key conflicts with a different chat request.", {
           status: 409,
           code: "idempotency_conflict",
@@ -1305,6 +1424,8 @@ export async function buildFableChatModelContext(env, {
     || Number(settings.systemPresetVersion) !== appliedSettings.systemPresetVersion
     || settings.thinkingDisplay !== appliedSettings.thinkingDisplay
     || settings.webSearchEnabled !== appliedSettings.webSearchEnabled
+    || Number(settings.webSearchMaxUses) !== appliedSettings.webSearchMaxUses
+    || Number(settings.webSearchContractVersion) !== FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION
   )) {
     throw new FableChatError("Conversation settings changed before context was prepared.", {
       status: 409,
@@ -1371,6 +1492,7 @@ export async function buildFableChatModelContext(env, {
       promptCachePolicy: appliedSettings.promptCachePolicy,
       promptCacheVersion: appliedSettings.promptCacheVersion,
       webSearchEnabled: appliedSettings.webSearchEnabled,
+      webSearchMaxUses: appliedSettings.webSearchMaxUses,
       webSearchContractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
       context: {
         ...selected.context,
@@ -1458,9 +1580,10 @@ export async function finalizeFableChatTurn(env, turnId, {
       code: "fable_chat_turn_not_running",
     });
   }
+  const webSearchMaxUses = readTurnWebSearchMaxUses(turn);
   if (
-    searchCounts.requestCount > FABLE_CHAT_WEB_SEARCH_MAX_USES
-    || searchCounts.resultCount > FABLE_CHAT_WEB_SEARCH_MAX_USES
+    searchCounts.requestCount > webSearchMaxUses
+    || searchCounts.resultCount > webSearchMaxUses
     || (!turn.web_search_enabled && (searchCounts.requestCount > 0 || searchCounts.resultCount > 0))
     || (webSearchRequestCount != null && Number(webSearchRequestCount) !== searchCounts.requestCount)
     || (webSearchResultCount != null && Number(webSearchResultCount) !== searchCounts.resultCount)
@@ -1562,6 +1685,7 @@ export async function finalizeFableChatTurn(env, turnId, {
               context_estimator_version = ?, cache_breakpoint_json = ?,
               provider_duration_ms = ?, output_truncated = ?,
               web_search_request_count = ?, web_search_result_count = ?,
+              web_search_executed_request_count = ?, web_search_executed_result_count = ?,
               error_code = NULL, updated_at = ?, completed_at = ?
         WHERE id = ? AND status = 'running'
           AND EXISTS (
@@ -1591,6 +1715,8 @@ export async function finalizeFableChatTurn(env, turnId, {
       JSON.stringify(context?.cacheBreakpoint || { enabled: false }),
       safeProviderDurationMs,
       outputTruncated ? 1 : 0,
+      Math.min(1, searchCounts.requestCount),
+      Math.min(1, searchCounts.resultCount),
       searchCounts.requestCount,
       searchCounts.resultCount,
       completedAt,
@@ -1630,6 +1756,8 @@ export async function getFableChatTurnResult(env, adminUserId, conversationId, t
             t.effort, t.effective_max_output_tokens, t.system_preset_id,
             t.system_preset_version, t.thinking_display, t.provider_duration_ms,
             t.web_search_enabled, t.web_search_request_count, t.web_search_result_count,
+            t.web_search_effective_max_uses, t.web_search_effective_contract_version,
+            t.web_search_executed_request_count, t.web_search_executed_result_count,
             t.output_truncated,
             t.usage_json, t.created_at, t.updated_at, t.completed_at, t.expires_at,
             um.id AS user_id, um.role AS user_role, um.content AS user_content,
@@ -1690,8 +1818,10 @@ export async function getFableChatTurnResult(env, adminUserId, conversationId, t
       systemPresetVersion: Number(row.system_preset_version || FABLE_CHAT_SYSTEM_PRESET_VERSION),
       thinkingDisplay: row.thinking_display || FABLE_CHAT_DEFAULT_THINKING_DISPLAY,
       webSearchEnabled: Number(row.web_search_enabled || 0) === 1,
-      webSearchRequestCount: Number(row.web_search_request_count || 0),
-      webSearchResultCount: Number(row.web_search_result_count || 0),
+      webSearchMaxUses: readTurnWebSearchMaxUses(row),
+      webSearchContractVersion: readTurnWebSearchContractVersion(row),
+      webSearchRequestCount: readTurnWebSearchCount(row, "request"),
+      webSearchResultCount: readTurnWebSearchCount(row, "result"),
       outputTruncated: Number(row.output_truncated || 0) === 1,
       providerDurationMs: row.provider_duration_ms == null
         ? null

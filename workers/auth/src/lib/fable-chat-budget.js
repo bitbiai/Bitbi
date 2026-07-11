@@ -17,6 +17,10 @@ import {
   PlatformBudgetCapError,
 } from "./platform-budget-caps.js";
 import { FABLE_CHAT_MODEL_ID } from "./fable-chat.js";
+import {
+  FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
+  getFableChatWebSearchMaxUses,
+} from "../../../shared/fable-chat-contract.mjs";
 import { nowIso, randomTokenHex } from "./tokens.js";
 
 export const FABLE_CHAT_OPERATION_ID = "admin.fable_chat.send";
@@ -44,12 +48,16 @@ export function deriveFableChatBudgetUnits({ effort, estimatedInputTokens, webSe
   }
   const inputTokens = Math.max(0, Math.floor(Number(estimatedInputTokens) || 0));
   const inputUnits = Math.max(1, Math.ceil(inputTokens / FABLE_CHAT_INPUT_UNIT_TOKENS));
-  const webSearchUnits = webSearchEnabled === true ? FABLE_CHAT_WEB_SEARCH_SURCHARGE_UNITS : 0;
+  const webSearchMaxUses = getFableChatWebSearchMaxUses(effort);
+  const webSearchUnits = webSearchEnabled === true
+    ? FABLE_CHAT_WEB_SEARCH_SURCHARGE_UNITS * webSearchMaxUses
+    : 0;
   return {
     units: effortUnits + inputUnits + webSearchUnits,
     effortUnits,
     inputUnits,
     webSearchUnits,
+    webSearchMaxUses,
     estimatedInputBucketTokens: inputUnits * FABLE_CHAT_INPUT_UNIT_TOKENS,
   };
 }
@@ -192,6 +200,7 @@ export async function prepareFableChatBudget({
       effort_units: budgetWeight.effortUnits,
       input_units: budgetWeight.inputUnits,
       web_search_enabled: settings.webSearchEnabled === true,
+      web_search_max_uses: budgetWeight.webSearchMaxUses,
       web_search_units: budgetWeight.webSearchUnits,
       final_state: "admitted",
     },
@@ -340,7 +349,10 @@ export async function recordFableChatBudgetOutcome(env, turnId, {
     duration_ms: safeDurationMs,
     output_truncated: outputTruncated === true,
     ...safeUsage,
-    web_search_request_count: Math.min(1, Math.max(0, Math.floor(Number(webSearchRequestCount) || 0))),
+    web_search_request_count: Math.min(
+      FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
+      Math.max(0, Math.floor(Number(webSearchRequestCount) || 0))
+    ),
   };
   await env.DB.prepare(
     `UPDATE platform_budget_usage_events

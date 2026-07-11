@@ -26,6 +26,7 @@ import {
   markFableChatTurnFailed,
   markFableChatTurnRunning,
   markFableChatTurnUnknown,
+  matchesFableChatTurnRequest,
   normalizeFableChatConversationId,
   normalizeFableChatIdempotencyKey,
   renameFableChatConversation,
@@ -161,6 +162,7 @@ function internalFableChatPayload(modelContext) {
     promptCacheVersion: modelContext.promptCacheVersion,
     contextFormatVersion: modelContext.context.contextFormatVersion,
     webSearchEnabled: modelContext.webSearchEnabled,
+    webSearchMaxUses: modelContext.webSearchMaxUses,
     webSearchContractVersion: modelContext.webSearchContractVersion,
   };
 }
@@ -323,10 +325,15 @@ async function resolveExistingSend(
   conversationId,
   turn,
   requestFingerprint,
-  { streamMode = false } = {}
+  { streamMode = false, message, retryMessageId = null, settings } = {}
 ) {
   const { env, correlationId } = ctx;
-  if (turn.requestFingerprint !== requestFingerprint) {
+  if (!await matchesFableChatTurnRequest(turn, requestFingerprint, {
+    conversationId,
+    message,
+    retryMessageId,
+    settings,
+  })) {
     throw new FableChatError("Idempotency-Key conflicts with a different chat request.", {
       status: 409,
       code: "idempotency_conflict",
@@ -394,7 +401,12 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
       conversationId,
       existing,
       requestFingerprint,
-      { streamMode }
+      {
+        streamMode,
+        message: input.message,
+        retryMessageId: input.retryMessageId,
+        settings,
+      }
     );
   }
 
@@ -438,7 +450,12 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
       conversationId,
       attempt.turn,
       requestFingerprint,
-      { streamMode }
+      {
+        streamMode,
+        message: input.message,
+        retryMessageId: input.retryMessageId,
+        settings,
+      }
     );
   }
 

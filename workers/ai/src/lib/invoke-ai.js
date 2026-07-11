@@ -25,8 +25,8 @@ import {
 } from "./generation-timeout.js";
 import {
   FABLE_CHAT_GENERATION_TIMEOUT_MS,
+  FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
   FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS,
-  FABLE_CHAT_WEB_SEARCH_MAX_USES,
   FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
   FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
 } from "../../../shared/fable-chat-contract.mjs";
@@ -77,7 +77,7 @@ function buildTextInvocation(env, model, input) {
       payload.tools = [{
         type: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
         name: FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
-        max_uses: FABLE_CHAT_WEB_SEARCH_MAX_USES,
+        max_uses: input.webSearchMaxUses,
       }];
     }
     if (input.stream === true) payload.stream = true;
@@ -138,7 +138,7 @@ function addUsageValues(left, right) {
   const bSearch = Number(right?.server_tool_use?.web_search_requests);
   if (Number.isFinite(aSearch) || Number.isFinite(bSearch)) {
     output.server_tool_use = {
-      web_search_requests: Math.min(1,
+      web_search_requests: Math.min(FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
         Math.max(0, Math.floor(Number.isFinite(aSearch) ? aSearch : 0))
         + Math.max(0, Math.floor(Number.isFinite(bSearch) ? bSearch : 0))),
     };
@@ -192,7 +192,9 @@ function sanitizeAnthropicUsage(usage) {
   }
   const searchRequests = Number(usage?.server_tool_use?.web_search_requests);
   if (Number.isFinite(searchRequests) && searchRequests >= 0) {
-    safe.server_tool_use = { web_search_requests: Math.min(1, Math.floor(searchRequests)) };
+    safe.server_tool_use = {
+      web_search_requests: Math.min(FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES, Math.floor(searchRequests)),
+    };
   }
   return Object.keys(safe).length > 0 ? safe : null;
 }
@@ -712,32 +714,49 @@ export async function invokeText(env, model, input) {
     ), {
       timeoutMs: input.generationTimeoutMs || undefined,
     });
-    if (
-      model.id === CLAUDE_FABLE_5_MODEL_ID
-      && input.webSearchEnabled === true
-      && raw?.stop_reason === "pause_turn"
-    ) {
-      const paused = extractAnthropicVisibleResult(raw?.content, { allowMissingText: true });
-      if (FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS < 1) {
-        throw new Error("Fable web search continuation is unavailable.");
+    if (model.id === CLAUDE_FABLE_5_MODEL_ID && input.webSearchEnabled === true) {
+      const maxContinuations = Math.min(
+        FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS,
+        input.webSearchMaxUses
+      );
+      let continuationCount = 0;
+      let accumulatedBlocks = [];
+      let accumulatedUsage = null;
+      let gatewayMetadata = raw?.gatewayMetadata;
+      while (raw?.stop_reason === "pause_turn") {
+        const paused = extractAnthropicVisibleResult(raw?.content, {
+          allowMissingText: true,
+          allowOrphanSearchResults: continuationCount > 0,
+          maxWebSearchUses: input.webSearchMaxUses,
+        });
+        accumulatedBlocks = [...accumulatedBlocks, ...paused.providerBlocks];
+        extractAnthropicVisibleResult(accumulatedBlocks, {
+          allowMissingText: true,
+          maxWebSearchUses: input.webSearchMaxUses,
+        });
+        accumulatedUsage = addUsageValues(accumulatedUsage, raw?.usage);
+        gatewayMetadata = raw?.gatewayMetadata || gatewayMetadata;
+        if (continuationCount >= maxContinuations) {
+          const error = new Error("Fable web search exceeded its continuation limit.");
+          error.code = "provider_pause_turn_limit_exceeded";
+          throw error;
+        }
+        const continuationPayload = buildPauseTurnContinuationPayload(payload, accumulatedBlocks);
+        raw = await runWithGenerationTimeout(() => env.AI.run(
+          model.id,
+          continuationPayload,
+          runOptions
+        ), { timeoutMs: input.generationTimeoutMs || FABLE_CHAT_GENERATION_TIMEOUT_MS });
+        continuationCount += 1;
       }
-      const continuationPayload = buildPauseTurnContinuationPayload(payload, paused.providerBlocks);
-      const continuation = await runWithGenerationTimeout(() => env.AI.run(
-        model.id,
-        continuationPayload,
-        runOptions
-      ), { timeoutMs: input.generationTimeoutMs || FABLE_CHAT_GENERATION_TIMEOUT_MS });
-      if (continuation?.stop_reason === "pause_turn") {
-        const error = new Error("Fable web search exceeded its continuation limit.");
-        error.code = "provider_pause_turn_limit_exceeded";
-        throw error;
+      if (accumulatedBlocks.length > 0) {
+        raw = {
+          ...raw,
+          content: [...accumulatedBlocks, ...(raw?.content || [])],
+          usage: addUsageValues(accumulatedUsage, raw?.usage),
+          gatewayMetadata: raw?.gatewayMetadata || gatewayMetadata,
+        };
       }
-      raw = {
-        ...continuation,
-        content: [...paused.providerBlocks, ...(continuation?.content || [])],
-        usage: addUsageValues(raw?.usage, continuation?.usage),
-        gatewayMetadata: continuation?.gatewayMetadata || raw?.gatewayMetadata,
-      };
     }
   } catch (error) {
     logDiagnostic({
@@ -766,7 +785,9 @@ export async function invokeText(env, model, input) {
   }
 
   const preserved = isAnthropic && input.preserveAnthropicContent === true
-    ? extractAnthropicVisibleResult(raw?.content)
+    ? extractAnthropicVisibleResult(raw?.content, {
+        maxWebSearchUses: input.webSearchMaxUses,
+      })
     : null;
   if (preserved && preserved.text !== text) {
     throw new Error("Model returned inconsistent text content.");

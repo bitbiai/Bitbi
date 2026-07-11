@@ -24,7 +24,8 @@ function validAiBody(messages = [{ role: 'user', content: 'Hello' }], overrides 
     promptCacheVersion: 1,
     contextFormatVersion: 'native-anthropic-turns-v3',
     webSearchEnabled: false,
-    webSearchContractVersion: 1,
+    webSearchMaxUses: 3,
+    webSearchContractVersion: 2,
     ...overrides,
   };
 }
@@ -258,29 +259,157 @@ function webSearchProviderEvents({ stopReason = 'end_turn', includeToolUse = tru
   return events;
 }
 
+function countedWebSearchProviderEvents(count) {
+  const events = [{
+    event: 'message_start',
+    data: {
+      type: 'message_start',
+      message: { model: 'claude-fable-5', usage: { input_tokens: 100 } },
+    },
+  }];
+  let index = 0;
+  for (let search = 0; search < count; search += 1) {
+    const toolId = `srvtoolu_countedsearch${String(search).padStart(3, '0')}`;
+    events.push(
+      {
+        event: 'content_block_start',
+        data: {
+          type: 'content_block_start',
+          index,
+          content_block: { type: 'server_tool_use', id: toolId, name: 'web_search' },
+        },
+      },
+      {
+        event: 'content_block_delta',
+        data: {
+          type: 'content_block_delta',
+          index,
+          delta: { type: 'input_json_delta', partial_json: `{"query":"query ${search}"}` },
+        },
+      },
+      { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    );
+    index += 1;
+    events.push(
+      {
+        event: 'content_block_start',
+        data: {
+          type: 'content_block_start',
+          index,
+          content_block: {
+            type: 'web_search_tool_result',
+            tool_use_id: toolId,
+            content: { type: 'web_search_tool_result_error', error_code: 'max_uses_exceeded' },
+          },
+        },
+      },
+      { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    );
+    index += 1;
+  }
+  events.push(
+    {
+      event: 'content_block_start',
+      data: { type: 'content_block_start', index, content_block: { type: 'text', text: 'Done.' } },
+    },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    {
+      event: 'message_delta',
+      data: { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } },
+    },
+    { event: 'message_stop', data: { type: 'message_stop' } },
+  );
+  return events;
+}
+
 test.describe('Advanced Fable chat contract', () => {
-  test('Web search setting and internal contract are exact and independently validated', async () => {
+  test('Web search effort limits are exact and independently validated through the provider payload', async () => {
     const contract = await import(moduleUrl('workers/shared/fable-chat-contract.mjs'));
     const auth = await import(moduleUrl('workers/auth/src/lib/fable-chat.js'));
     const ai = await import(moduleUrl('workers/ai/src/lib/validate.js'));
+    const route = await import(moduleUrl('workers/ai/src/routes/fable-chat.js'));
+    const budget = await import(moduleUrl('workers/auth/src/lib/fable-chat-budget.js'));
 
     expect(contract.FABLE_CHAT_DEFAULT_WEB_SEARCH_ENABLED).toBe(false);
-    expect({
-      type: contract.FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
-      name: contract.FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
-      max_uses: contract.FABLE_CHAT_WEB_SEARCH_MAX_USES,
-    }).toEqual({ type: 'web_search_20250305', name: 'web_search', max_uses: 1 });
+    expect(contract.FABLE_CHAT_WEB_SEARCH_MAX_USES_BY_EFFORT).toEqual({
+      medium: 1, high: 3, xhigh: 5, max: 10,
+    });
     expect(auth.validateUpdateFableChatSettingsBody({ webSearchEnabled: true }))
       .toEqual({ webSearchEnabled: true });
     expect(() => auth.validateUpdateFableChatSettingsBody({ webSearchEnabled: 'yes' })).toThrow();
     expect(() => auth.validateUpdateFableChatSettingsBody({ tools: [] })).toThrow();
-    expect(ai.validateFableChatBody(validAiBody(undefined, { webSearchEnabled: true })))
-      .toMatchObject({ webSearchEnabled: true, webSearchContractVersion: 1 });
+    for (const field of ['webSearchMaxUses', 'max_uses', 'tools']) {
+      expect(() => auth.validateSendFableChatBody({ message: 'Hello', [field]: 1 })).toThrow();
+    }
     expect(() => ai.validateFableChatBody(validAiBody(undefined, { tools: [] }))).toThrow();
-    expect(() => ai.validateFableChatBody(validAiBody(undefined, {
-      webSearchEnabled: true,
-      webSearchContractVersion: 2,
-    }))).toThrow();
+    const legacyAiBody = validAiBody(undefined, { webSearchContractVersion: 1 });
+    delete legacyAiBody.webSearchMaxUses;
+    expect(ai.validateFableChatBody(legacyAiBody)).toMatchObject({
+      webSearchMaxUses: 1,
+      webSearchContractVersion: 1,
+    });
+
+    const maxTokensByEffort = { medium: 8_192, high: 16_384, xhigh: 32_768, max: 32_768 };
+    for (const [effort, maxUses] of Object.entries(contract.FABLE_CHAT_WEB_SEARCH_MAX_USES_BY_EFFORT)) {
+      const body = validAiBody(undefined, {
+        effort,
+        maxTokens: maxTokensByEffort[effort],
+        webSearchEnabled: true,
+        webSearchMaxUses: maxUses,
+      });
+      expect(ai.validateFableChatBody(body)).toMatchObject({ effort, webSearchMaxUses: maxUses });
+      expect(() => ai.validateFableChatBody({ ...body, webSearchMaxUses: maxUses + 1 })).toThrow();
+      expect(budget.deriveFableChatBudgetUnits({
+        effort,
+        estimatedInputTokens: 1,
+        webSearchEnabled: true,
+      }).webSearchUnits).toBe(maxUses * budget.FABLE_CHAT_WEB_SEARCH_SURCHARGE_UNITS);
+      const calls = [];
+      const response = await route.handleFableChat({
+        request: new Request('https://bitbi-ai.internal/internal/ai/fable-chat', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+        env: { AI: { run: async (...args) => {
+          calls.push(args);
+          return {
+            content: [{ type: 'text', text: 'No search required.' }],
+            model: 'claude-fable-5',
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 2, output_tokens: 3 },
+          };
+        } } },
+        correlationId: `effort-search-${effort}`,
+        pathname: '/internal/ai/fable-chat',
+        method: 'POST',
+      });
+      expect(response.status).toBe(200);
+      expect(calls).toHaveLength(1);
+      expect(calls[0][1].tools).toEqual([{
+        type: 'web_search_20250305', name: 'web_search', max_uses: maxUses,
+      }]);
+    }
+  });
+
+  test('stream parser accepts each effort boundary and rejects the next search count', async () => {
+    const streamModule = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    for (const [maxUses, rejectedCount] of [[1, 2], [3, 4], [5, 6], [10, 11]]) {
+      const accepted = await streamModule.consumeAnthropicMessageStream(
+        byteStream([encodeSseEvents(countedWebSearchProviderEvents(maxUses))]),
+        {},
+        { maxWebSearchUses: maxUses }
+      );
+      expect(accepted).toMatchObject({
+        webSearchRequestCount: maxUses,
+        webSearchResultCount: maxUses,
+      });
+      await expect(streamModule.consumeAnthropicMessageStream(
+        byteStream([encodeSseEvents(countedWebSearchProviderEvents(rejectedCount))]),
+        {},
+        { maxWebSearchUses: maxUses }
+      )).rejects.toMatchObject({ code: 'provider_web_search_limit_exceeded' });
+    }
   });
 
   test('native Web search accepts the empty citation stream placeholder and persists bounded sources', async () => {
@@ -447,7 +576,11 @@ test.describe('Advanced Fable chat contract', () => {
     for (const [effort, maxTokens] of Object.entries(
       contract.FABLE_CHAT_EFFORT_OUTPUT_TOKENS
     )) {
-      expect(ai.validateFableChatBody(validAiBody(undefined, { effort, maxTokens })))
+      expect(ai.validateFableChatBody(validAiBody(undefined, {
+        effort,
+        maxTokens,
+        webSearchMaxUses: contract.getFableChatWebSearchMaxUses(effort),
+      })))
         .toMatchObject({ effort, maxTokens });
     }
     for (const effort of ['low', 'HIGH', '', 'arbitrary']) {
@@ -759,7 +892,7 @@ test.describe('Advanced Fable chat contract', () => {
     }
   });
 
-  test('migration 0071 defaults existing conversations and attempts to Web search disabled', () => {
+  test('migrations 0071 and 0072 preserve legacy one-search defaults and accept effort limits', () => {
     const DB = new SqliteD1Database();
     try {
       applyAuthMigrations(DB, { through: '0070_add_fable_chat_advanced_inference.sql' });
@@ -805,6 +938,37 @@ test.describe('Advanced Fable chat contract', () => {
       expect(DB.database.prepare(
         'SELECT citations_json, content FROM fable_chat_messages'
       ).get()).toEqual({ citations_json: '[]', content: 'Existing message' });
+
+      DB.exec(fs.readFileSync(
+        path.join(process.cwd(), 'workers/auth/migrations/0072_add_fable_web_search_effort_limits.sql'),
+        'utf8'
+      ));
+      expect(DB.database.prepare(
+        `SELECT web_search_effective_max_uses, web_search_effective_contract_version,
+                web_search_executed_request_count, web_search_executed_result_count
+           FROM fable_chat_turns`
+      ).get()).toEqual({
+        web_search_effective_max_uses: 1,
+        web_search_effective_contract_version: 1,
+        web_search_executed_request_count: 0,
+        web_search_executed_result_count: 0,
+      });
+      for (const maxUses of [1, 3, 5, 10]) {
+        DB.database.prepare(
+          `UPDATE fable_chat_turns
+              SET web_search_effective_max_uses = ?,
+                  web_search_executed_request_count = ?,
+                  web_search_executed_result_count = ?`
+        ).run(maxUses, maxUses, maxUses);
+        expect(DB.database.prepare(
+          `SELECT web_search_effective_max_uses, web_search_executed_request_count,
+                  web_search_executed_result_count FROM fable_chat_turns`
+        ).get()).toEqual({
+          web_search_effective_max_uses: maxUses,
+          web_search_executed_request_count: maxUses,
+          web_search_executed_result_count: maxUses,
+        });
+      }
     } finally {
       DB.close();
     }

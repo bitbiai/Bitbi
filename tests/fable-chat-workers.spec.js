@@ -216,7 +216,8 @@ function validFableAiBody(messages, overrides = {}) {
     promptCacheVersion: 1,
     contextFormatVersion: 'native-anthropic-turns-v3',
     webSearchEnabled: false,
-    webSearchContractVersion: 1,
+    webSearchMaxUses: 3,
+    webSearchContractVersion: 2,
     ...overrides,
   };
 }
@@ -332,7 +333,11 @@ test.describe('Private admin Fable chat', () => {
       path.join(process.cwd(), 'workers/auth/migrations/0071_add_fable_chat_web_search.sql'),
       'utf8'
     );
-    expect(CURRENT_AUTH_MIGRATION).toBe('0071_add_fable_chat_web_search.sql');
+    const effortSearchMigration = fs.readFileSync(
+      path.join(process.cwd(), 'workers/auth/migrations/0072_add_fable_web_search_effort_limits.sql'),
+      'utf8'
+    );
+    expect(CURRENT_AUTH_MIGRATION).toBe('0072_add_fable_web_search_effort_limits.sql');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_conversations');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_turns');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_messages');
@@ -351,7 +356,9 @@ test.describe('Private admin Fable chat', () => {
     expect(webSearchMigration).toContain('web_search_enabled INTEGER NOT NULL DEFAULT 0');
     expect(webSearchMigration).toContain("web_search_tool_version TEXT NOT NULL DEFAULT 'web_search_20250305'");
     expect(webSearchMigration).toContain("citations_json TEXT NOT NULL DEFAULT '[]'");
-    expect(`${baseMigration}\n${advancedMigration}\n${webSearchMigration}`).not.toMatch(
+    expect(effortSearchMigration).toContain('web_search_effective_max_uses INTEGER NOT NULL DEFAULT 1');
+    expect(effortSearchMigration).toContain('CHECK (web_search_effective_max_uses BETWEEN 1 AND 10)');
+    expect(`${baseMigration}\n${advancedMigration}\n${webSearchMigration}\n${effortSearchMigration}`).not.toMatch(
       /DROP\s+TABLE|DELETE\s+FROM|raw_idempotency/i
     );
   });
@@ -530,7 +537,8 @@ test.describe('Private admin Fable chat', () => {
         promptCacheVersion: 1,
         contextFormatVersion: 'native-anthropic-turns-v3',
         webSearchEnabled: false,
-        webSearchContractVersion: 1,
+        webSearchMaxUses: 3,
+        webSearchContractVersion: 2,
       });
       expect(providerCalls[0].body.model).toBeUndefined();
       expect(providerCalls[0].body.__bitbi_ai_caller_policy).toMatchObject({
@@ -1284,6 +1292,8 @@ test.describe('Private admin Fable chat', () => {
         { systemPresetId: 'browser-prompt' },
         { summarizedThinking: 'yes' },
         { webSearchEnabled: 'yes' },
+        { webSearchMaxUses: 10 },
+        { max_uses: 10 },
         { tools: [{ type: 'web_search_20250305' }] },
       ]) {
         const invalid = await callFableAuthWorker(
@@ -1323,7 +1333,7 @@ test.describe('Private admin Fable chat', () => {
         promptCacheVersion: 1,
         webSearchEnabled: true,
         webSearchToolVersion: 'web_search_20250305',
-        webSearchMaxUses: 1,
+        webSearchMaxUses: 10,
       });
 
       const message = 'Snapshot these settings without logging this text.';
@@ -1345,6 +1355,7 @@ test.describe('Private admin Fable chat', () => {
           ...maxSettings,
           effort: 'high',
           effectiveMaxOutputTokens: 16_384,
+          webSearchMaxUses: 3,
           webSearchEnabled: false,
         },
       });
@@ -1385,8 +1396,8 @@ test.describe('Private admin Fable chat', () => {
         thinkingDisplay: 'summarized',
         webSearchEnabled: true,
         webSearchToolVersion: 'web_search_20250305',
-        webSearchMaxUses: 1,
-        webSearchContractVersion: 1,
+        webSearchMaxUses: 10,
+        webSearchContractVersion: 2,
       });
 
       await fableChatModule.markFableChatTurnFailed(env, pending.turn.id, 'test_failure');
@@ -1536,7 +1547,8 @@ test.describe('Private admin Fable chat', () => {
       expect(providerCalls).toHaveLength(1);
       expect(providerCalls[0].body).toMatchObject({
         webSearchEnabled: true,
-        webSearchContractVersion: 1,
+        webSearchMaxUses: 3,
+        webSearchContractVersion: 2,
       });
       expect(providerCalls[0].body.tools).toBeUndefined();
       expect(DB.database.prepare(
@@ -1546,10 +1558,11 @@ test.describe('Private admin Fable chat', () => {
         `SELECT units, metadata_json FROM platform_budget_usage_events
           WHERE operation_key = 'admin.fable_chat.send'`
       ).get();
-      expect(usage.units).toBe(5);
+      expect(usage.units).toBe(9);
       expect(JSON.parse(usage.metadata_json)).toMatchObject({
         web_search_enabled: true,
-        web_search_units: 2,
+        web_search_max_uses: 3,
+        web_search_units: 6,
         web_search_request_count: 1,
       });
 
@@ -1593,6 +1606,90 @@ test.describe('Private admin Fable chat', () => {
       expect(conflict.status).toBe(409);
       expect((await conflict.json()).code).toBe('idempotency_conflict');
       expect(providerCalls).toHaveLength(1);
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('legacy one-search attempts replay with their immutable contract-one fingerprint', async () => {
+    const { env, DB } = await createFableChatSqliteEnv();
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const fableChat = await import(pathToFileURL(
+      path.join(process.cwd(), 'workers/auth/src/lib/fable-chat.js')
+    ).href);
+    try {
+      const adminUserId = 'admin-fable-legacy-search-replay';
+      const admin = await seedFableChatActor(env, {
+        id: adminUserId,
+        email: 'legacy-search-replay@example.com',
+      });
+      const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      const enabled = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        { method: 'PATCH', cookie: admin.cookie, body: { webSearchEnabled: true } }
+      );
+      const settings = (await enabled.json()).settings;
+      const message = 'Replay the original one-search attempt.';
+      const context = await fableChat.buildFableChatModelContext(env, {
+        adminUserId,
+        conversationId: conversation.id,
+        currentMessage: message,
+        settings,
+      });
+      const legacyFingerprint = await fableChat.buildFableChatRequestFingerprint({
+        conversationId: conversation.id,
+        message,
+        settings: { ...settings, webSearchMaxUses: 1, webSearchContractVersion: 1 },
+        fingerprintVersion: 3,
+      });
+      const original = await fableChat.beginFableChatTurn(env, {
+        adminUserId,
+        conversationId: conversation.id,
+        idempotencyKey: 'legacy-search-replay-key-0001',
+        requestFingerprint: legacyFingerprint,
+        message,
+        settings,
+        context: context.context,
+      });
+      DB.database.prepare(
+        `UPDATE fable_chat_turns
+            SET web_search_effective_max_uses = 1,
+                web_search_effective_contract_version = 1
+          WHERE id = ?`
+      ).run(original.turn.id);
+      const currentFingerprint = await fableChat.buildFableChatRequestFingerprint({
+        conversationId: conversation.id,
+        message,
+        settings,
+      });
+      const routeReplay = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'legacy-search-replay-key-0001',
+          body: { message },
+        }
+      );
+      expect(routeReplay.status).toBe(409);
+      expect((await routeReplay.json()).code).toBe('fable_chat_message_in_progress');
+      const replay = await fableChat.beginFableChatTurn(env, {
+        adminUserId,
+        conversationId: conversation.id,
+        idempotencyKey: 'legacy-search-replay-key-0001',
+        requestFingerprint: currentFingerprint,
+        message,
+        settings,
+        context: context.context,
+      });
+      expect(replay).toMatchObject({
+        kind: 'existing',
+        turn: { id: original.turn.id, webSearchMaxUses: 1, webSearchContractVersion: 1 },
+      });
     } finally {
       DB.close();
     }
@@ -2125,7 +2222,7 @@ test.describe('Private admin Fable chat', () => {
     expect(calls[1][1].tools).toEqual([{
       type: 'web_search_20250305',
       name: 'web_search',
-      max_uses: 1,
+      max_uses: 3,
     }]);
 
     const rejected = await routeModule.handleFableChat({
