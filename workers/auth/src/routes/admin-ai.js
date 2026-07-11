@@ -882,12 +882,16 @@ function adminTextUsageMetadata(usage) {
 
 function adminTextResultMetadata(providerBody) {
   const text = providerBody?.result?.text == null ? "" : String(providerBody.result.text);
+  const providerCostUsd = Number(providerBody?.result?.providerCostUsd);
   return {
     result_kind: "text",
     text_length: text.length,
     usage: adminTextUsageMetadata(providerBody?.result?.usage),
     max_tokens: providerBody?.result?.maxTokens ?? null,
     temperature: providerBody?.result?.temperature ?? null,
+    ...(Number.isFinite(providerCostUsd) && providerCostUsd >= 0
+      ? { provider_cost_usd: providerCostUsd }
+      : {}),
   };
 }
 

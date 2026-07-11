@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0072_add_fable_web_search_effort_limits.sql",
+        "latest": "0073_add_fable_chat_rolling_memory.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -240,6 +240,17 @@
               "sourceFile": "workers/auth/src/lib/fable-chat-budget.js",
               "sourceRoute": "/api/admin/fable-chat/conversations/:id/messages/stream",
               "operationIds": ["admin.fable_chat.send"]
+            }
+          ]
+        },
+        {
+          "aiRoute": "/internal/ai/fable-chat/memory",
+          "allowedOperationIds": ["admin.fable_chat.compact_memory"],
+          "authSources": [
+            {
+              "sourceFile": "workers/auth/src/lib/fable-chat-memory-budget.js",
+              "sourceRoute": "/api/admin/fable-chat/conversations/:id/messages",
+              "operationIds": ["admin.fable_chat.compact_memory"]
             }
           ]
         },
@@ -853,6 +864,7 @@
     "internalOnlyRoutes": [
       "/internal/ai/fable-chat",
       "/internal/ai/fable-chat/stream",
+      "/internal/ai/fable-chat/memory",
       "/internal/ai/video-task/create",
       "/internal/ai/video-task/poll"
     ],

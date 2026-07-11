@@ -266,7 +266,7 @@ function buildEmbeddingModel(model) {
 function buildCatalog() {
   const catalog = listAdminAiCatalog().models;
   return [
-    ...catalog.text.map(buildTextModel),
+    ...catalog.text.filter((model) => model.canvasEnabled !== false).map(buildTextModel),
     ...catalog.image.map(buildImageModel),
     ...catalog.video.map(buildVideoModel),
     ...catalog.music.map(buildMusicModel),

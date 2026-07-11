@@ -112,11 +112,11 @@ assert.equal(musicParent.currentEnforcement.idempotency, "implemented");
 const summary = summarizeAiCostOperationRegistry();
 assert.deepEqual(summary, {
   version: "ai-cost-operations-2026-05-15",
-  totalOperations: 32,
-  providerCostOperations: 32,
+  totalOperations: 33,
+  providerCostOperations: 33,
   memberOperations: 7,
   organizationOperations: 2,
-  adminPlatformOperations: 23,
+  adminPlatformOperations: 24,
   currentMissingMandatoryIdempotency: 0,
   currentMissingReservation: 0,
   currentNoReplay: 0,
@@ -125,7 +125,7 @@ assert.deepEqual(summary, {
     member_credit_account: 0,
     organization_credit_account: 0,
     admin_org_credit_account: 1,
-    platform_admin_lab_budget: 8,
+    platform_admin_lab_budget: 9,
     platform_background_budget: 0,
     openclaw_news_pulse_budget: 2,
     internal_ai_worker_caller_enforced: 11,
@@ -138,6 +138,18 @@ assert.deepEqual(summary, {
 const fableChat = AI_COST_OPERATION_REGISTRY.find((entry) =>
   entry.operationConfig.operationId === "admin.fable_chat.send"
 );
+const fableChatMemory = AI_COST_OPERATION_REGISTRY.find((entry) =>
+  entry.operationConfig.operationId === "admin.fable_chat.compact_memory"
+);
+assert(fableChatMemory);
+assert.equal(fableChatMemory.currentStatus, "implemented");
+assert.equal(fableChatMemory.operationConfig.modelResolverKey, "admin.fable_chat.memory.fixed_qwen");
+assert.equal(
+  fableChatMemory.operationConfig.routePath,
+  "/internal/ai/fable-chat/memory"
+);
+assert.equal(fableChatMemory.currentEnforcement.idempotency, "implemented");
+assert.equal(fableChatMemory.currentEnforcement.reservation, "implemented");
 assert(fableChat, "Expected the private Fable chat operation in the registry");
 assert.equal(fableChat.operationConfig.modelResolverKey, "admin.fable_chat.fixed_model");
 assert.equal(fableChat.budgetPolicy.targetBudgetScope, "platform_admin_lab_budget");

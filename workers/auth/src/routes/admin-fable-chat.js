@@ -20,6 +20,7 @@ import {
   getFableChatConversation,
   getFableChatConversationSettings,
   getFableChatTurnByIdempotencyKey,
+  getFableChatTurnMemorySelectionByIdempotencyKey,
   getFableChatTurnResult,
   listFableChatConversations,
   listFableChatMessages,
@@ -36,6 +37,10 @@ import {
   validateUpdateFableChatSettingsBody,
   updateFableChatConversationSettings,
 } from "../lib/fable-chat.js";
+import {
+  getFableChatMemorySelection,
+  scheduleFableChatMemoryMaintenance,
+} from "../lib/fable-chat-memory.js";
 import {
   proxyFableChatStreamToAiLab,
   proxyToAiLab,
@@ -164,6 +169,10 @@ function internalFableChatPayload(modelContext) {
     webSearchEnabled: modelContext.webSearchEnabled,
     webSearchMaxUses: modelContext.webSearchMaxUses,
     webSearchContractVersion: modelContext.webSearchContractVersion,
+    memoryMode: modelContext.memoryMode,
+    memoryContractVersion: modelContext.memorySelection.contractVersion,
+    memoryCheckpointVersion: modelContext.memorySelection.checkpointVersion,
+    memorySummary: modelContext.memorySelection.summary,
   };
 }
 
@@ -275,6 +284,7 @@ function auditFableChat(ctx, adminUser, action, {
   estimatedInputBucket = null,
   webSearchEnabled = null,
   webSearchRequestCount = null,
+  memoryMode = null,
 } = {}) {
   const promise = enqueueAdminAuditEvent(
     ctx.env,
@@ -292,6 +302,7 @@ function auditFableChat(ctx, adminUser, action, {
         estimated_input_bucket_tokens: estimatedInputBucket,
         web_search_enabled: webSearchEnabled,
         web_search_request_count: webSearchRequestCount,
+        memory_mode: memoryMode,
       },
     },
     {
@@ -374,12 +385,6 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
   const idempotencyKey = normalizeFableChatIdempotencyKey(request.headers.get("Idempotency-Key"));
   const settings = await getFableChatConversationSettings(env, adminUser.id, conversationId);
   if (!settings) return { kind: "response", response: notFound(correlationId) };
-  const requestFingerprint = await buildFableChatRequestFingerprint({
-    conversationId,
-    message: input.message,
-    retryMessageId: input.retryMessageId,
-    settings,
-  });
   const expiredTurns = await expireStaleFableChatTurns(env, adminUser.id, conversationId);
   for (const expiredTurn of expiredTurns) {
     auditFableChat(ctx, adminUser, "fable_chat_message_outcome_unknown", {
@@ -395,6 +400,19 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
     idempotencyKey
   );
   if (existing) {
+    const memorySelection = await getFableChatTurnMemorySelectionByIdempotencyKey(
+      env,
+      adminUser.id,
+      conversationId,
+      idempotencyKey
+    );
+    const requestFingerprint = await buildFableChatRequestFingerprint({
+      conversationId,
+      message: input.message,
+      retryMessageId: input.retryMessageId,
+      settings,
+      memorySelection,
+    });
     return resolveExistingSend(
       ctx,
       adminUser,
@@ -416,11 +434,25 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
   });
   if (limited) return { kind: "response", response: correlated(limited, correlationId) };
 
+  const memorySelection = await getFableChatMemorySelection(
+    env,
+    adminUser.id,
+    conversationId,
+    settings.memoryMode
+  );
+  const requestFingerprint = await buildFableChatRequestFingerprint({
+    conversationId,
+    message: input.message,
+    retryMessageId: input.retryMessageId,
+    settings,
+    memorySelection,
+  });
   const modelContext = await buildFableChatModelContext(env, {
     adminUserId: adminUser.id,
     conversationId,
     currentMessage: input.message,
     settings,
+    memorySelection,
   });
   const budget = await prepareFableChatBudget({
     env,
@@ -430,6 +462,7 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
     retryMessageId: input.retryMessageId,
     requestFingerprint,
     settings,
+    memorySelection,
     context: modelContext.context,
     correlationId,
   });
@@ -441,6 +474,7 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
     message: input.message,
     retryMessageId: input.retryMessageId,
     settings,
+    memorySelection,
     context: modelContext.context,
   });
   if (attempt.kind !== "created") {
@@ -609,6 +643,7 @@ async function handleSend(ctx, adminUser, conversationId) {
       webSearchEnabled: prepared.settings.webSearchEnabled,
       webSearchRequestCount: result.turn.webSearchRequestCount,
     });
+    scheduleFableChatMemoryMaintenance(ctx, adminUser, conversationId);
     return successResponse(ctx.env, adminUser.id, conversationId, result, ctx.correlationId);
   } catch (error) {
     if (!finalized) {
@@ -741,6 +776,7 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             webSearchEnabled: prepared.settings.webSearchEnabled,
             webSearchRequestCount: result.turn.webSearchRequestCount,
           });
+          scheduleFableChatMemoryMaintenance(ctx, adminUser, conversationId);
           const payload = await successPayload(ctx.env, adminUser.id, conversationId, result);
           if (!payload) throw new FableChatInternalStreamError("Durable chat result is unavailable.");
           enqueue("final", payload);
@@ -942,6 +978,7 @@ export async function handleAdminFableChat(ctx) {
           status: "updated",
           effort: conversation.settings.effort,
           effectiveMaxOutputTokens: conversation.settings.effectiveMaxOutputTokens,
+          memoryMode: conversation.settings.memoryMode,
         });
         return correlated(json({ ok: true, settings: conversation.settings }), correlationId);
       }

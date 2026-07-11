@@ -46,9 +46,25 @@ import {
   getFableChatOutputTokenLimit,
   getFableChatWebSearchMaxUses,
 } from "../../../shared/fable-chat-contract.mjs";
+import {
+  FABLE_CHAT_MEMORY_CONTRACT_VERSION,
+  FABLE_CHAT_DEFAULT_MEMORY_MODE,
+  FABLE_CHAT_MEMORY_INTERNAL_MAX_BYTES,
+  FABLE_CHAT_MEMORY_MAX_SOURCE_CHARACTERS,
+  FABLE_CHAT_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS,
+  FABLE_CHAT_MEMORY_MAX_SOURCE_TURNS,
+  FABLE_CHAT_MEMORY_PROMPT_VERSION,
+  buildFableChatHiddenMemoryInstruction,
+  buildFableChatMemorySummarizerSystemPrompt,
+  escapeFableChatMemoryPromptData,
+  estimateFableChatMemoryInputTokens,
+  normalizeFableChatMemoryMode,
+  normalizeFableChatMemorySummary,
+} from "../../../shared/fable-chat-memory-contract.mjs";
 
 export const INTERNAL_AI_JSON_MAX_BYTES = 512 * 1024;
 export { FABLE_CHAT_INTERNAL_JSON_MAX_BYTES };
+export { FABLE_CHAT_MEMORY_INTERNAL_MAX_BYTES };
 
 export const FABLE_CHAT_LIMITS = Object.freeze({
   maxMessages: (FABLE_CHAT_MAX_CONTEXT_PRIOR_TURNS * 2) + 1,
@@ -71,6 +87,10 @@ const FABLE_CHAT_ALLOWED_BODY_FIELDS = new Set([
   "webSearchEnabled",
   "webSearchMaxUses",
   "webSearchContractVersion",
+  "memoryMode",
+  "memoryContractVersion",
+  "memoryCheckpointVersion",
+  "memorySummary",
 ]);
 const FABLE_CHAT_ALLOWED_MESSAGE_FIELDS = new Set(["role", "content"]);
 const FABLE_CHAT_ALLOWED_TEXT_BLOCK_FIELDS = new Set(["type", "text", "citations", "cache_control"]);
@@ -553,7 +573,67 @@ export function validateFableChatBody(body) {
     );
   }
 
-  const system = buildFableChatSystemPrompt(input.systemPresetId, input.systemPresetVersion);
+  const hasMemoryFields = [
+    input.memoryMode,
+    input.memoryContractVersion,
+    input.memoryCheckpointVersion,
+    input.memorySummary,
+  ].some((value) => value !== undefined);
+  let memoryMode = FABLE_CHAT_DEFAULT_MEMORY_MODE;
+  let memoryContractVersion = FABLE_CHAT_MEMORY_CONTRACT_VERSION;
+  let memoryCheckpointVersion = 0;
+  let memorySummary = null;
+  if (hasMemoryFields) {
+    try {
+      memoryMode = normalizeFableChatMemoryMode(input.memoryMode);
+    } catch {
+      throw new AdminAiValidationError(
+        "memoryMode must be standard or lite.",
+        400,
+        "validation_error"
+      );
+    }
+    if (input.memoryContractVersion !== FABLE_CHAT_MEMORY_CONTRACT_VERSION
+      || !Number.isInteger(input.memoryCheckpointVersion)
+      || input.memoryCheckpointVersion < 0) {
+      throw new AdminAiValidationError(
+        "The Fable memory selection is invalid.",
+        400,
+        "validation_error"
+      );
+    }
+    memoryCheckpointVersion = input.memoryCheckpointVersion;
+    if (memoryCheckpointVersion === 0) {
+      if (input.memorySummary !== null) {
+        throw new AdminAiValidationError(
+          "The Fable memory selection is invalid.",
+          400,
+          "validation_error"
+        );
+      }
+    } else {
+      try {
+        memorySummary = normalizeFableChatMemorySummary(input.memorySummary, {
+          mode: memoryMode,
+        }).canonical;
+      } catch {
+        throw new AdminAiValidationError(
+          "The Fable memory summary is invalid.",
+          400,
+          "validation_error"
+        );
+      }
+    }
+  }
+
+  const baseSystem = buildFableChatSystemPrompt(input.systemPresetId, input.systemPresetVersion);
+  const system = memorySummary
+    ? `${baseSystem}\n\n${buildFableChatHiddenMemoryInstruction(
+        memoryMode,
+        memoryCheckpointVersion,
+        memorySummary
+      )}`
+    : baseSystem;
   counters.totalContentLength += system.length;
   if (counters.totalContentLength > FABLE_CHAT_LIMITS.maxTotalContentLength) {
     throw new AdminAiValidationError(
@@ -577,6 +657,178 @@ export function validateFableChatBody(body) {
     webSearchEnabled,
     webSearchMaxUses: expectedWebSearchMaxUses,
     webSearchContractVersion,
+    memoryMode,
+    memoryContractVersion,
+    memoryCheckpointVersion,
+    memorySummary,
+  };
+}
+
+const FABLE_CHAT_MEMORY_ID_PATTERN = /^(?:fbt|fbm)_[a-f0-9]{32}$/;
+const FABLE_CHAT_MEMORY_ALLOWED_BODY_FIELDS = new Set([
+  "profile", "memoryContractVersion", "promptVersion", "previousSummaryProfile",
+  "previousSummary", "sourceTurns",
+]);
+const FABLE_CHAT_MEMORY_ALLOWED_TURN_FIELDS = new Set([
+  "turnId", "turnOrder", "user", "assistant",
+]);
+const FABLE_CHAT_MEMORY_ALLOWED_MESSAGE_FIELDS = new Set(["id", "role", "text", "sources"]);
+const FABLE_CHAT_MEMORY_ALLOWED_SOURCE_FIELDS = new Set(["title", "url"]);
+
+function validateFableChatMemoryId(value, field) {
+  const id = normalizeFableChatText(value, field, 40);
+  if (!FABLE_CHAT_MEMORY_ID_PATTERN.test(id)) {
+    throw new AdminAiValidationError(`${field} is invalid.`, 400, "validation_error");
+  }
+  return id;
+}
+
+function validateFableChatMemorySource(value, field) {
+  const source = assertPlainObject(value, field);
+  assertOnlyFields(source, FABLE_CHAT_MEMORY_ALLOWED_SOURCE_FIELDS, field);
+  return {
+    title: normalizeFableChatOptionalText(source.title, `${field}.title`, 256),
+    url: validateFableChatHttpsUrl(source.url, `${field}.url`),
+  };
+}
+
+function validateFableChatMemoryMessage(value, field, expectedRole) {
+  const message = assertPlainObject(value, field);
+  assertOnlyFields(message, FABLE_CHAT_MEMORY_ALLOWED_MESSAGE_FIELDS, field);
+  if (message.role !== expectedRole) {
+    throw new AdminAiValidationError(`${field}.role is invalid.`, 400, "validation_error");
+  }
+  const sources = message.sources === undefined ? [] : message.sources;
+  if (!Array.isArray(sources) || sources.length > 16) {
+    throw new AdminAiValidationError(`${field}.sources is invalid.`, 400, "validation_error");
+  }
+  if (expectedRole === "user" && sources.length > 0) {
+    throw new AdminAiValidationError(`${field}.sources is invalid.`, 400, "validation_error");
+  }
+  return {
+    id: validateFableChatMemoryId(message.id, `${field}.id`),
+    role: expectedRole,
+    text: normalizeFableChatText(message.text, `${field}.text`, FABLE_CHAT_MAX_ASSISTANT_MESSAGE_CHARACTERS),
+    ...(expectedRole === "assistant"
+      ? { sources: sources.map((source, index) => validateFableChatMemorySource(
+          source,
+          `${field}.sources[${index}]`
+        )) }
+      : {}),
+  };
+}
+
+export function validateFableChatMemoryBody(body) {
+  const input = assertPlainObject(body, "body");
+  assertOnlyFields(input, FABLE_CHAT_MEMORY_ALLOWED_BODY_FIELDS, "body");
+  let profile;
+  try {
+    profile = normalizeFableChatMemoryMode(input.profile);
+  } catch {
+    throw new AdminAiValidationError(
+      "profile must be standard or lite.",
+      400,
+      "validation_error"
+    );
+  }
+  if (input.memoryContractVersion !== FABLE_CHAT_MEMORY_CONTRACT_VERSION
+    || input.promptVersion !== FABLE_CHAT_MEMORY_PROMPT_VERSION) {
+    throw new AdminAiValidationError(
+      "The Fable memory contract is not supported.",
+      400,
+      "validation_error"
+    );
+  }
+  let previousSummary = null;
+  let previousSummaryProfile = null;
+  if (input.previousSummary !== null && input.previousSummary !== undefined) {
+    try {
+      previousSummaryProfile = normalizeFableChatMemoryMode(input.previousSummaryProfile);
+      if (profile === "standard" && previousSummaryProfile !== "standard") {
+        throw new TypeError("Standard memory cannot be expanded from Lite memory.");
+      }
+      previousSummary = normalizeFableChatMemorySummary(input.previousSummary, {
+        mode: previousSummaryProfile,
+      }).summary;
+    } catch {
+      throw new AdminAiValidationError(
+        "previousSummary is invalid.",
+        400,
+        "validation_error"
+      );
+    }
+  } else if (input.previousSummaryProfile !== null && input.previousSummaryProfile !== undefined) {
+    throw new AdminAiValidationError(
+      "previousSummaryProfile requires previousSummary.",
+      400,
+      "validation_error"
+    );
+  }
+  if (!Array.isArray(input.sourceTurns) || input.sourceTurns.length > FABLE_CHAT_MEMORY_MAX_SOURCE_TURNS) {
+    throw new AdminAiValidationError(
+      `sourceTurns must contain at most ${FABLE_CHAT_MEMORY_MAX_SOURCE_TURNS} complete turns.`,
+      400,
+      "validation_error"
+    );
+  }
+  if (input.sourceTurns.length === 0 && !previousSummary) {
+    throw new AdminAiValidationError(
+      "Memory compaction requires a previous summary or finalized source turns.",
+      400,
+      "validation_error"
+    );
+  }
+  let previousOrder = -1;
+  const seenIds = new Set();
+  const sourceTurns = input.sourceTurns.map((value, index) => {
+    const field = `sourceTurns[${index}]`;
+    const turn = assertPlainObject(value, field);
+    assertOnlyFields(turn, FABLE_CHAT_MEMORY_ALLOWED_TURN_FIELDS, field);
+    if (!Number.isInteger(turn.turnOrder) || turn.turnOrder < 0 || turn.turnOrder <= previousOrder) {
+      throw new AdminAiValidationError(`${field}.turnOrder is invalid.`, 400, "validation_error");
+    }
+    previousOrder = turn.turnOrder;
+    const normalized = {
+      turnId: validateFableChatMemoryId(turn.turnId, `${field}.turnId`),
+      turnOrder: turn.turnOrder,
+      user: validateFableChatMemoryMessage(turn.user, `${field}.user`, "user"),
+      assistant: validateFableChatMemoryMessage(turn.assistant, `${field}.assistant`, "assistant"),
+    };
+    for (const id of [normalized.turnId, normalized.user.id, normalized.assistant.id]) {
+      if (seenIds.has(id)) {
+        throw new AdminAiValidationError(`${field} contains a duplicate ID.`, 400, "validation_error");
+      }
+      seenIds.add(id);
+    }
+    return normalized;
+  });
+  const sourcePayload = JSON.stringify({ previousSummary, sourceTurns });
+  if (sourcePayload.length > FABLE_CHAT_MEMORY_MAX_SOURCE_CHARACTERS) {
+    throw new AdminAiValidationError(
+      "Memory compaction source is too large.",
+      413,
+      "fable_chat_memory_source_too_large"
+    );
+  }
+  const estimatedInputTokens = estimateFableChatMemoryInputTokens(
+    `${buildFableChatMemorySummarizerSystemPrompt(profile)}\n${escapeFableChatMemoryPromptData(sourcePayload)}`
+  );
+  if (estimatedInputTokens > FABLE_CHAT_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS) {
+    throw new AdminAiValidationError(
+      "Memory compaction source exceeds its input budget.",
+      413,
+      "fable_chat_memory_source_too_large"
+    );
+  }
+  return {
+    profile,
+    memoryContractVersion: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
+    promptVersion: FABLE_CHAT_MEMORY_PROMPT_VERSION,
+    previousSummary,
+    previousSummaryProfile,
+    sourceTurns,
+    sourcePayload,
+    estimatedInputTokens,
   };
 }
 
@@ -613,6 +865,25 @@ export async function readFableChatJsonBody(request) {
   try {
     const body = await readJsonBodyLimited(request, {
       maxBytes: FABLE_CHAT_INTERNAL_JSON_MAX_BYTES,
+      requiredContentType: false,
+    });
+    return stripAiCallerPolicyFromBody(body).body;
+  } catch (error) {
+    if (isRequestBodyError(error)) {
+      throw new AdminAiValidationError(
+        error.publicMessage || "Invalid request body.",
+        error.status || 400,
+        error.code === "invalid_json" ? "bad_request" : (error.code || "bad_request")
+      );
+    }
+    return null;
+  }
+}
+
+export async function readFableChatMemoryJsonBody(request) {
+  try {
+    const body = await readJsonBodyLimited(request, {
+      maxBytes: FABLE_CHAT_MEMORY_INTERNAL_MAX_BYTES,
       requiredContentType: false,
     });
     return stripAiCallerPolicyFromBody(body).body;

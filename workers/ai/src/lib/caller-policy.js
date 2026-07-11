@@ -43,6 +43,11 @@ const INTERNAL_AI_CALLER_POLICY_RULES = Object.freeze({
     allowedOperationIds: ["admin.fable_chat.send"],
     allowedStatuses: PROVIDER_COST_STATUSES,
   },
+  "/internal/ai/fable-chat/memory": {
+    required: true,
+    allowedOperationIds: ["admin.fable_chat.compact_memory"],
+    allowedStatuses: PROVIDER_COST_STATUSES,
+  },
   "/internal/ai/test-image": {
     required: true,
     allowedOperationIds: [

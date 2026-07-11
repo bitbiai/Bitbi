@@ -277,6 +277,19 @@ function createContext() {
 
 {
   const plan = createReleasePlanFromRepo(repoRoot, {
+    files: ["workers/shared/fable-chat-memory-contract.mjs"],
+  });
+  assert.deepEqual(Object.keys(plan.impacts.workers).sort(), ["ai", "auth"]);
+  assert.equal(plan.impacts.static.required, false);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.id),
+    ["ai-worker", "auth-worker"]
+  );
+}
+
+{
+  const plan = createReleasePlanFromRepo(repoRoot, {
     files: ["js/shared/request-body.mjs"],
   });
   assert.deepEqual(Object.keys(plan.impacts.workers).sort(), ["ai", "auth", "contact"]);

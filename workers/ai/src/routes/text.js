@@ -36,6 +36,9 @@ export async function handleText({ request, env, correlationId, pathname, method
         ...(output.stopSequence ? { stopSequence: output.stopSequence } : {}),
         ...(output.stopDetails ? { stopDetails: output.stopDetails } : {}),
         ...(output.gatewayMetadata ? { gatewayMetadata: output.gatewayMetadata } : {}),
+        ...(Number.isFinite(output.providerCostUsd)
+          ? { providerCostUsd: output.providerCostUsd }
+          : {}),
       },
       elapsedMs: output.elapsedMs,
       ...(warnings.length > 0 ? { warnings } : {}),

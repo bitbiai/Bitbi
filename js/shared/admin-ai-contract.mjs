@@ -173,6 +173,11 @@ export const FLUX_2_MAX_MAX_SAFETY_TOLERANCE = 5;
 export const FLUX_2_MAX_DEFAULT_SAFETY_TOLERANCE = 2;
 export const ADMIN_AI_MUSIC_MODEL_ID = "minimax/music-2.6";
 export const CLAUDE_FABLE_5_MODEL_ID = "anthropic/claude-fable-5";
+export const QWEN3_30B_A3B_MODEL_ID = "@cf/qwen/qwen3-30b-a3b-fp8";
+export const QWEN3_30B_A3B_CONTEXT_WINDOW_TOKENS = 32_768;
+export const QWEN3_30B_A3B_ADMIN_MAX_OUTPUT_TOKENS = 4_096;
+export const QWEN3_30B_A3B_INPUT_PRICE_PER_MILLION_TOKENS = 0.051;
+export const QWEN3_30B_A3B_OUTPUT_PRICE_PER_MILLION_TOKENS = 0.335;
 export const ADMIN_AI_VIDEO_MODEL_ID = "pixverse/v6";
 export const ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID = "vidu/q3-pro";
 export const ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID = HAPPYHORSE_T2V_MODEL_ID;
@@ -495,6 +500,45 @@ const TEXT_MODELS = {
     adminOnly: true,
     description: "Anthropic text model via Cloudflare AI Gateway Unified Billing with adaptive thinking and a large context window.",
   },
+  [QWEN3_30B_A3B_MODEL_ID]: {
+    id: QWEN3_30B_A3B_MODEL_ID,
+    task: "text",
+    type: "text",
+    modality: "text",
+    label: "Qwen3 30B-A3B",
+    shortLabel: "Qwen3 30B",
+    vendor: "Qwen",
+    provider: "Cloudflare Workers AI",
+    family: "Qwen3",
+    inputFormat: "messages",
+    requestFormat: "messages",
+    architecture: "Mixture of Experts",
+    reasoningCapable: true,
+    multilingual: true,
+    supportsResponseFormat: true,
+    supportsTools: false,
+    supportsWebSearch: false,
+    contextWindowTokens: QWEN3_30B_A3B_CONTEXT_WINDOW_TOKENS,
+    maxOutputTokens: QWEN3_30B_A3B_ADMIN_MAX_OUTPUT_TOKENS,
+    defaultMaxTokens: 1_024,
+    maxTokens: QWEN3_30B_A3B_ADMIN_MAX_OUTPUT_TOKENS,
+    pricingPerMillionTokens: {
+      input: QWEN3_30B_A3B_INPUT_PRICE_PER_MILLION_TOKENS,
+      output: QWEN3_30B_A3B_OUTPUT_PRICE_PER_MILLION_TOKENS,
+      currency: "USD",
+    },
+    billing: {
+      provider: "cloudflare-workers-ai",
+      requiresProviderApiKey: false,
+      requiresCloudflareAiGatewayCredits: false,
+    },
+    availability: "available",
+    thirdParty: false,
+    costClass: "low",
+    adminOnly: true,
+    canvasEnabled: false,
+    description: "Cloudflare-hosted multilingual Qwen text model with optional reasoning and structured response support.",
+  },
   "@cf/openai/gpt-oss-20b": {
     id: "@cf/openai/gpt-oss-20b",
     task: "text",
@@ -521,7 +565,7 @@ const TEXT_MODELS = {
 
 export function getAdminAiTextMaxTokensForModel(modelId) {
   const normalizedModelId = String(modelId || "").trim();
-  if (normalizedModelId !== CLAUDE_FABLE_5_MODEL_ID) {
+  if (![CLAUDE_FABLE_5_MODEL_ID, QWEN3_30B_A3B_MODEL_ID].includes(normalizedModelId)) {
     return ADMIN_AI_LIMITS.text.maxTokens;
   }
 
@@ -529,6 +573,26 @@ export function getAdminAiTextMaxTokensForModel(modelId) {
   return Number.isSafeInteger(modelMaxOutputTokens) && modelMaxOutputTokens > 0
     ? modelMaxOutputTokens
     : ADMIN_AI_LIMITS.text.maxTokens;
+}
+
+export function calculateQwen3UsageCostUsd(usage) {
+  const inputTokens = Math.max(0, Math.floor(Number(
+    usage?.input_tokens ?? usage?.prompt_tokens ?? 0
+  ) || 0));
+  const outputTokens = Math.max(0, Math.floor(Number(
+    usage?.output_tokens ?? usage?.completion_tokens ?? 0
+  ) || 0));
+  const inputCostUsd = inputTokens
+    * QWEN3_30B_A3B_INPUT_PRICE_PER_MILLION_TOKENS / 1_000_000;
+  const outputCostUsd = outputTokens
+    * QWEN3_30B_A3B_OUTPUT_PRICE_PER_MILLION_TOKENS / 1_000_000;
+  return {
+    inputTokens,
+    outputTokens,
+    inputCostUsd,
+    outputCostUsd,
+    totalCostUsd: inputCostUsd + outputCostUsd,
+  };
 }
 
 const IMAGE_MODELS = {
@@ -1633,6 +1697,11 @@ function toPublicModel(model) {
     pub.requestFormat = model.requestFormat || model.inputFormat || "messages";
     pub.architecture = model.architecture || null;
     pub.adaptiveThinking = model.adaptiveThinking === true;
+    pub.reasoningCapable = model.reasoningCapable === true;
+    pub.multilingual = model.multilingual === true;
+    pub.supportsResponseFormat = model.supportsResponseFormat === true;
+    pub.supportsTools = model.supportsTools === true;
+    pub.supportsWebSearch = model.supportsWebSearch === true;
     pub.contextWindowTokens = model.contextWindowTokens || null;
     pub.maxOutputTokens = model.maxOutputTokens || model.maxTokens || null;
     pub.defaultMaxTokens = model.defaultMaxTokens || ADMIN_AI_LIMITS.text.defaultMaxTokens;
@@ -1643,6 +1712,8 @@ function toPublicModel(model) {
     pub.thirdParty = model.thirdParty === true;
     pub.costClass = model.costClass || null;
     pub.adminOnly = model.adminOnly === true;
+    pub.availability = model.availability || "available";
+    if (typeof model.canvasEnabled === "boolean") pub.canvasEnabled = model.canvasEnabled;
   }
   if (model.task === "image") {
     pub.capabilities = {

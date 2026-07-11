@@ -522,6 +522,42 @@ function createMockAiCatalog() {
           adminOnly: true,
           description: 'Anthropic model through Cloudflare Unified Billing',
         },
+        {
+          id: '@cf/qwen/qwen3-30b-a3b-fp8',
+          task: 'text',
+          type: 'text',
+          modality: 'text',
+          label: 'Qwen3 30B-A3B',
+          shortLabel: 'Qwen3 30B',
+          vendor: 'Qwen',
+          provider: 'Cloudflare Workers AI',
+          family: 'Qwen3',
+          requestFormat: 'messages',
+          architecture: 'Mixture of Experts',
+          reasoningCapable: true,
+          multilingual: true,
+          supportsResponseFormat: true,
+          supportsTools: false,
+          supportsWebSearch: false,
+          contextWindowTokens: 32_768,
+          maxOutputTokens: 4_096,
+          defaultMaxTokens: 1_024,
+          pricingPerMillionTokens: {
+            input: 0.051,
+            output: 0.335,
+            currency: 'USD',
+          },
+          billing: {
+            provider: 'cloudflare-workers-ai',
+            requiresProviderApiKey: false,
+            requiresCloudflareAiGatewayCredits: false,
+          },
+          availability: 'available',
+          thirdParty: false,
+          costClass: 'low',
+          adminOnly: true,
+          description: 'Cloudflare-hosted Qwen text model',
+        },
       ],
       image: [
         {
@@ -17832,6 +17868,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiModelsText')).toContainText('GPT OSS 20B');
     await expect(page.locator('#aiModelsText')).toContainText('Gemma 4 26B A4B');
     await expect(page.locator('#aiModelsText')).toContainText('Claude Fable 5');
+    await expect(page.locator('#aiModelsText')).toContainText('Qwen3 30B-A3B');
     await expect(page.locator('#aiModelsText')).toContainText('1,000,000 token context');
     await expect(page.locator('#aiModelsText')).toContainText('128,000 max output');
     await expect(page.locator('#aiModelsText')).toContainText('Cloudflare Unified Billing required');

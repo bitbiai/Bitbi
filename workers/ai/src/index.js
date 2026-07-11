@@ -9,6 +9,7 @@ import { errorResponse, methodNotAllowed, notFound } from "./lib/responses.js";
 import { handleCompare } from "./routes/compare.js";
 import { handleEmbeddings } from "./routes/embeddings.js";
 import { handleFableChat } from "./routes/fable-chat.js";
+import { handleFableChatMemory } from "./routes/fable-chat-memory.js";
 import { handleImage } from "./routes/image.js";
 import { handleLiveAgent } from "./routes/live-agent.js";
 import { handleMusic } from "./routes/music.js";
@@ -18,6 +19,7 @@ import { handleVideo } from "./routes/video.js";
 import { handleVideoTaskCreate, handleVideoTaskPoll } from "./routes/video-task.js";
 import {
   FABLE_CHAT_INTERNAL_JSON_MAX_BYTES,
+  FABLE_CHAT_MEMORY_INTERNAL_MAX_BYTES,
   INTERNAL_AI_JSON_MAX_BYTES,
 } from "./lib/validate.js";
 import { evaluateInternalAiCallerPolicy } from "./lib/caller-policy.js";
@@ -61,7 +63,9 @@ export default {
         assertAiWorkerConfig(env);
         await assertValidServiceRequest(request, {
           secret: env.AI_SERVICE_AUTH_SECRET,
-          maxBodyBytes: pathname === "/internal/ai/fable-chat"
+          maxBodyBytes: pathname === "/internal/ai/fable-chat/memory"
+            ? FABLE_CHAT_MEMORY_INTERNAL_MAX_BYTES
+            : pathname === "/internal/ai/fable-chat"
             || pathname === "/internal/ai/fable-chat/stream"
             ? FABLE_CHAT_INTERNAL_JSON_MAX_BYTES
             : INTERNAL_AI_JSON_MAX_BYTES,
@@ -121,6 +125,12 @@ export default {
     if (pathname === "/internal/ai/fable-chat/stream") {
       if (method !== "POST") response = methodNotAllowed(["POST"]);
       else response = await handleFableChat(ctx);
+      return withCorrelationId(response, ctx.correlationId);
+    }
+
+    if (pathname === "/internal/ai/fable-chat/memory") {
+      if (method !== "POST") response = methodNotAllowed(["POST"]);
+      else response = await handleFableChatMemory(ctx);
       return withCorrelationId(response, ctx.correlationId);
     }
 

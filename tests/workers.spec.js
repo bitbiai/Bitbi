@@ -6047,6 +6047,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     expect(models.every((model) => typeof model.memberCanvasEnabled === 'boolean' && typeof model.adminCanvasEnabled === 'boolean')).toBe(true);
     expect(CANVAS_FABLE_MAX_OUTPUT_TOKENS).toBe(16384);
     expect(getCanvasModel('anthropic/claude-fable-5').controls.maxTokens.default).toBeLessThan(CANVAS_FABLE_MAX_OUTPUT_TOKENS);
+    expect(getCanvasModel('@cf/qwen/qwen3-30b-a3b-fp8')).toBeNull();
   });
 
   test('Canvas APIs reject logged-out reads before returning projects or model metadata', async () => {
@@ -23969,7 +23970,7 @@ test.describe('Worker routes', () => {
         billingMutation: false,
         summary: expect.objectContaining({
           memberGatewayMigrated: 3,
-          adminPlatformImplemented: 10,
+          adminPlatformImplemented: 11,
           adminImageExplicitUnmeteredBranches: 1,
           runtimeBudgetSwitchTargets: 11,
           runtimeBudgetSwitchesEnabled: 11,
@@ -24033,6 +24034,10 @@ test.describe('Worker routes', () => {
           budgetScope: 'platform_admin_lab_budget',
           runtimeStatus: 'implemented_job_budget_metadata',
           killSwitchTarget: 'ENABLE_ADMIN_AI_VIDEO_JOB_BUDGET',
+        }),
+        expect.objectContaining({
+          operationId: 'admin.fable_chat.compact_memory',
+          budgetScope: 'platform_admin_lab_budget',
         }),
         expect.objectContaining({
           operationId: 'platform.news_pulse.visual.ingest',
@@ -28591,7 +28596,7 @@ test.describe('Worker routes', () => {
         ok: true,
         task: 'models',
       });
-      expect(body.models.text).toHaveLength(6);
+      expect(body.models.text).toHaveLength(7);
       const fable = body.models.text.find((model) => model.id === 'anthropic/claude-fable-5');
       expect(fable).toEqual(expect.objectContaining({
         id: 'anthropic/claude-fable-5',
@@ -28623,6 +28628,26 @@ test.describe('Worker routes', () => {
         thirdParty: true,
         costClass: 'high',
         adminOnly: true,
+      }));
+      const qwen = body.models.text.find((model) => model.id === '@cf/qwen/qwen3-30b-a3b-fp8');
+      expect(qwen).toEqual(expect.objectContaining({
+        id: '@cf/qwen/qwen3-30b-a3b-fp8',
+        label: 'Qwen3 30B-A3B',
+        vendor: 'Qwen',
+        provider: 'Cloudflare Workers AI',
+        contextWindowTokens: 32_768,
+        maxOutputTokens: 4_096,
+        pricingPerMillionTokens: {
+          input: 0.051,
+          output: 0.335,
+          currency: 'USD',
+        },
+        reasoningCapable: true,
+        multilingual: true,
+        supportsTools: false,
+        supportsWebSearch: false,
+        adminOnly: true,
+        canvasEnabled: false,
       }));
     });
 

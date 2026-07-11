@@ -152,6 +152,10 @@ export async function prepareFableChatBudget({
       web_search_tool_version: settings?.webSearchToolVersion,
       web_search_max_uses: settings?.webSearchMaxUses,
       web_search_contract_version: settings?.webSearchContractVersion,
+      memory_mode: settings?.memoryMode,
+      memory_contract_version: context?.memory?.contractVersion,
+      memory_checkpoint_id: context?.memory?.checkpointId,
+      memory_checkpoint_version: context?.memory?.checkpointVersion,
     },
     hashFields: ["message"],
   });
@@ -202,6 +206,8 @@ export async function prepareFableChatBudget({
       web_search_enabled: settings.webSearchEnabled === true,
       web_search_max_uses: budgetWeight.webSearchMaxUses,
       web_search_units: budgetWeight.webSearchUnits,
+      memory_mode: settings.memoryMode,
+      memory_checkpoint_version: Math.max(0, Number(context?.memory?.checkpointVersion || 0)),
       final_state: "admitted",
     },
   };

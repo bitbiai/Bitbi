@@ -1,5 +1,7 @@
 import {
   CLAUDE_FABLE_5_MODEL_ID,
+  QWEN3_30B_A3B_MODEL_ID,
+  calculateQwen3UsageCostUsd,
   buildAdminAiFlux2MaxRequest,
   buildAdminAiGptImage2Request,
   buildAdminAiGrokImagineImageRequest,
@@ -30,6 +32,14 @@ import {
   FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
   FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
 } from "../../../shared/fable-chat-contract.mjs";
+import {
+  FABLE_CHAT_MEMORY_TIMEOUT_MS,
+  buildFableChatMemorySummarizerSystemPrompt,
+  calculateFableChatMemoryCostUsd,
+  escapeFableChatMemoryPromptData,
+  getFableChatMemoryProviderMaxTokens,
+  normalizeFableChatMemorySummary,
+} from "../../../shared/fable-chat-memory-contract.mjs";
 import {
   extractAnthropicVisibleResult,
 } from "./anthropic-stream.js";
@@ -793,11 +803,12 @@ export async function invokeText(env, model, input) {
     throw new Error("Model returned inconsistent text content.");
   }
 
+  const usage = isAnthropic
+    ? sanitizeAnthropicUsage(raw?.usage)
+    : raw?.usage || raw?.result?.usage || null;
   return {
     text,
-    usage: isAnthropic
-      ? sanitizeAnthropicUsage(raw?.usage)
-      : raw?.usage || raw?.result?.usage || null,
+    usage,
     responseModel: isAnthropic ? sanitizeErrorValue(raw?.model) || null : null,
     stopReason: isAnthropic ? sanitizeErrorValue(raw?.stop_reason) || null : null,
     stopSequence: isAnthropic ? sanitizeErrorValue(raw?.stop_sequence) || null : null,
@@ -810,6 +821,137 @@ export async function invokeText(env, model, input) {
       webSearchRequestCount: preserved.webSearchRequestCount,
       webSearchResultCount: preserved.webSearchResultCount,
     } : {}),
+    ...(model.id === QWEN3_30B_A3B_MODEL_ID
+      ? { providerCostUsd: calculateQwen3UsageCostUsd(usage).totalCostUsd }
+      : {}),
+    elapsedMs: Date.now() - startedAt,
+  };
+}
+
+function sanitizeQwenUsage(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const promptTokens = Math.max(0, Math.floor(Number(value.prompt_tokens) || 0));
+  const completionTokens = Math.max(0, Math.floor(Number(value.completion_tokens) || 0));
+  const totalTokens = Math.max(
+    promptTokens + completionTokens,
+    Math.floor(Number(value.total_tokens) || 0)
+  );
+  return {
+    input_tokens: promptTokens,
+    output_tokens: completionTokens,
+    total_tokens: totalTokens,
+  };
+}
+
+export async function invokeFableChatMemory(env, input) {
+  ensureAI(env);
+  const startedAt = Date.now();
+  const system = buildFableChatMemorySummarizerSystemPrompt(input.profile);
+  const maxTokens = getFableChatMemoryProviderMaxTokens(input.profile);
+  const payload = {
+    messages: [
+      { role: "system", content: system },
+      {
+        role: "user",
+        content: [
+          "Summarize the following server-delimited memory source according to the system contract.",
+          "<van_ark_memory_source>",
+          escapeFableChatMemoryPromptData(input.sourcePayload),
+          "</van_ark_memory_source>",
+          "/no_think",
+        ].join("\n"),
+      },
+    ],
+    max_tokens: maxTokens,
+    temperature: 0.7,
+    top_p: 0.8,
+    top_k: 20,
+    response_format: { type: "json_object" },
+    stream: false,
+  };
+  const runOptions = {
+    gateway: {
+      id: env.AI_GATEWAY_ID || "default",
+      skipCache: true,
+      collectLog: false,
+      metadata: {
+        surface: "van-ark-fable-memory",
+        model_id: QWEN3_30B_A3B_MODEL_ID,
+        profile: input.profile,
+        ...(input.correlationId ? { request_id: input.correlationId } : {}),
+      },
+    },
+  };
+  let raw;
+  try {
+    raw = await runWithGenerationTimeout(() => env.AI.run(
+      QWEN3_30B_A3B_MODEL_ID,
+      payload,
+      runOptions
+    ), { timeoutMs: FABLE_CHAT_MEMORY_TIMEOUT_MS });
+  } catch (error) {
+    logDiagnostic({
+      service: "bitbi-ai",
+      component: "invoke-fable-chat-memory",
+      event: "workers_ai_memory_run_failed",
+      level: "error",
+      correlationId: input.correlationId || null,
+      model: QWEN3_30B_A3B_MODEL_ID,
+      profile: input.profile,
+      gateway_id: runOptions.gateway.id,
+      duration_ms: getDurationMs(startedAt),
+      ...getErrorFields(error, { includeMessage: false }),
+    });
+    throw error;
+  }
+  const choice = raw?.choices?.[0];
+  const message = choice?.message;
+  const content = typeof message?.content === "string" ? message.content.trim() : "";
+  const hasReasoningValue = (value) => {
+    if (value == null) return false;
+    if (typeof value === "string") {
+      const normalized = value.trim();
+      return Boolean(normalized && !["[]", "{}"].includes(normalized));
+    }
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === "object") return Object.keys(value).length > 0;
+    return Boolean(value);
+  };
+  const hasReasoningContent = hasReasoningValue(message?.reasoning_content)
+    || hasReasoningValue(message?.reasoning);
+  if (
+    choice?.finish_reason !== "stop"
+    || !content
+    || hasReasoningContent
+    || /<\/?think>/i.test(content)
+    || (typeof message?.refusal === "string" && message.refusal.trim())
+  ) {
+    const error = new Error("Qwen memory response did not satisfy the bounded output contract.");
+    error.code = choice?.finish_reason === "length"
+      ? "fable_chat_memory_truncated"
+      : "fable_chat_memory_invalid_provider_result";
+    error.status = 502;
+    throw error;
+  }
+  let normalized;
+  try {
+    normalized = normalizeFableChatMemorySummary(content, { mode: input.profile });
+  } catch (cause) {
+    const error = new Error("Qwen memory response did not satisfy the bounded output contract.");
+    error.code = "fable_chat_memory_invalid_provider_result";
+    error.status = 502;
+    error.cause = cause;
+    throw error;
+  }
+  const usage = sanitizeQwenUsage(raw?.usage);
+  const cost = calculateFableChatMemoryCostUsd(usage);
+  return {
+    canonicalSummary: normalized.canonical,
+    estimatedSummaryTokens: normalized.estimatedTokens,
+    usage,
+    providerCostUsd: cost.totalCostUsd,
+    responseModel: sanitizeErrorValue(raw?.model) || QWEN3_30B_A3B_MODEL_ID,
+    finishReason: "stop",
     elapsedMs: Date.now() - startedAt,
   };
 }
