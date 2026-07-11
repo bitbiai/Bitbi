@@ -160,6 +160,8 @@ function internalFableChatPayload(modelContext) {
     promptCachePolicy: modelContext.promptCachePolicy,
     promptCacheVersion: modelContext.promptCacheVersion,
     contextFormatVersion: modelContext.context.contextFormatVersion,
+    webSearchEnabled: modelContext.webSearchEnabled,
+    webSearchContractVersion: modelContext.webSearchContractVersion,
   };
 }
 
@@ -269,6 +271,8 @@ function auditFableChat(ctx, adminUser, action, {
   effort = null,
   effectiveMaxOutputTokens = null,
   estimatedInputBucket = null,
+  webSearchEnabled = null,
+  webSearchRequestCount = null,
 } = {}) {
   const promise = enqueueAdminAuditEvent(
     ctx.env,
@@ -284,6 +288,8 @@ function auditFableChat(ctx, adminUser, action, {
         effort,
         effective_max_output_tokens: effectiveMaxOutputTokens,
         estimated_input_bucket_tokens: estimatedInputBucket,
+        web_search_enabled: webSearchEnabled,
+        web_search_request_count: webSearchRequestCount,
       },
     },
     {
@@ -462,6 +468,7 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
       effort: settings.effort,
       effectiveMaxOutputTokens: settings.effectiveMaxOutputTokens,
       estimatedInputBucket: budget.metadata.estimated_input_bucket_tokens,
+      webSearchEnabled: settings.webSearchEnabled,
     });
     throw error;
   }
@@ -500,6 +507,7 @@ async function recordProviderHttpFailure(
     effort: prepared.settings.effort,
     effectiveMaxOutputTokens: prepared.settings.effectiveMaxOutputTokens,
     estimatedInputBucket: prepared.budget.metadata.estimated_input_bucket_tokens,
+    webSearchEnabled: prepared.settings.webSearchEnabled,
   });
   return unknownOutcome
     ? unknownTurnResponse(turn, ctx.correlationId, {
@@ -560,6 +568,8 @@ async function handleSend(ctx, adminUser, conversationId) {
       usage: providerBody?.result?.usage || null,
       gatewayMetadata: providerBody?.result?.gatewayMetadata || null,
       providerDurationMs: providerBody?.elapsedMs,
+      webSearchRequestCount: providerBody?.result?.webSearchRequestCount,
+      webSearchResultCount: providerBody?.result?.webSearchResultCount,
     });
     finalized = true;
     turn = result.turn;
@@ -569,6 +579,7 @@ async function handleSend(ctx, adminUser, conversationId) {
       durationMs: providerBody?.elapsedMs,
       outputTruncated: result.turn.outputTruncated === true,
       usage: providerBody?.result?.usage || null,
+      webSearchRequestCount: result.turn.webSearchRequestCount,
     });
     auditFableChat(ctx, adminUser, "fable_chat_message_succeeded", {
       conversationId,
@@ -578,6 +589,8 @@ async function handleSend(ctx, adminUser, conversationId) {
       effort: prepared.settings.effort,
       effectiveMaxOutputTokens: prepared.settings.effectiveMaxOutputTokens,
       estimatedInputBucket: prepared.budget.metadata.estimated_input_bucket_tokens,
+      webSearchEnabled: prepared.settings.webSearchEnabled,
+      webSearchRequestCount: result.turn.webSearchRequestCount,
     });
     return successResponse(ctx.env, adminUser.id, conversationId, result, ctx.correlationId);
   } catch (error) {
@@ -600,6 +613,7 @@ async function handleSend(ctx, adminUser, conversationId) {
         status: providerStarted ? "unknown" : "failed",
         effort: prepared.settings.effort,
         effectiveMaxOutputTokens: prepared.settings.effectiveMaxOutputTokens,
+        webSearchEnabled: prepared.settings.webSearchEnabled,
       });
       if (providerStarted && turn?.status === "unknown") {
         return unknownTurnResponse(turn, ctx.correlationId, {
@@ -621,6 +635,9 @@ function replayStreamResponse(ctx, adminUser, conversationId, result) {
           controller.enqueue(encodeFableChatBrowserEvent("thinking_delta", {
             text: assistant.reasoningSummary,
           }));
+        }
+        if (result?.turn?.webSearchRequestCount > 0) {
+          controller.enqueue(encodeFableChatBrowserEvent("web_search_started", { replayed: true }));
         }
         if (assistant?.content) {
           controller.enqueue(encodeFableChatBrowserEvent("text_delta", { text: assistant.content }));
@@ -670,6 +687,7 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             onAccepted: () => enqueue("accepted", { replayed: false, turn: { id: turn.id } }),
             onThinkingDelta: (text) => enqueue("thinking_delta", { text }),
             onTextDelta: (text) => enqueue("text_delta", { text }),
+            onWebSearchStarted: () => enqueue("web_search_started", { ok: true }),
             onKeepalive: () => enqueue("keepalive", { ok: true }),
           });
           const result = await finalizeFableChatTurn(ctx.env, turn.id, {
@@ -682,6 +700,8 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             usage: complete.usage || null,
             gatewayMetadata: null,
             providerDurationMs: complete.durationMs,
+            webSearchRequestCount: complete.webSearchRequestCount,
+            webSearchResultCount: complete.webSearchResultCount,
           });
           turn = result.turn;
           durablyFinalized = true;
@@ -691,6 +711,7 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             durationMs: complete.durationMs,
             outputTruncated: result.turn.outputTruncated === true,
             usage: complete.usage || null,
+            webSearchRequestCount: result.turn.webSearchRequestCount,
           });
           auditFableChat(ctx, adminUser, "fable_chat_message_succeeded", {
             conversationId,
@@ -700,6 +721,8 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             effort: prepared.settings.effort,
             effectiveMaxOutputTokens: prepared.settings.effectiveMaxOutputTokens,
             estimatedInputBucket: prepared.budget.metadata.estimated_input_bucket_tokens,
+            webSearchEnabled: prepared.settings.webSearchEnabled,
+            webSearchRequestCount: result.turn.webSearchRequestCount,
           });
           const payload = await successPayload(ctx.env, adminUser.id, conversationId, result);
           if (!payload) throw new FableChatInternalStreamError("Durable chat result is unavailable.");
@@ -734,6 +757,7 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             status: failed ? "failed" : "unknown",
             effort: prepared.settings.effort,
             effectiveMaxOutputTokens: prepared.settings.effectiveMaxOutputTokens,
+            webSearchEnabled: prepared.settings.webSearchEnabled,
           });
           enqueue("error", failed ? {
             ok: false,

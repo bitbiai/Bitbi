@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0070_add_fable_chat_advanced_inference.sql",
+        "latest": "0071_add_fable_chat_web_search.sql",
         "databaseName": "bitbi-auth-db"
       }
     },

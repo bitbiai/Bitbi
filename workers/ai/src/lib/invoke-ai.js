@@ -25,6 +25,10 @@ import {
 } from "./generation-timeout.js";
 import {
   FABLE_CHAT_GENERATION_TIMEOUT_MS,
+  FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS,
+  FABLE_CHAT_WEB_SEARCH_MAX_USES,
+  FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+  FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
 } from "../../../shared/fable-chat-contract.mjs";
 import {
   extractAnthropicVisibleResult,
@@ -69,6 +73,13 @@ function buildTextInvocation(env, model, input) {
     if (input.thinkingDisplay) {
       payload.thinking = { type: "adaptive", display: input.thinkingDisplay };
     }
+    if (input.webSearchEnabled === true) {
+      payload.tools = [{
+        type: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+        name: FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+        max_uses: FABLE_CHAT_WEB_SEARCH_MAX_USES,
+      }];
+    }
     if (input.stream === true) payload.stream = true;
 
     const gateway = {
@@ -100,6 +111,48 @@ function buildTextInvocation(env, model, input) {
       temperature: input.temperature,
     },
     runOptions: undefined,
+  };
+}
+
+function addUsageValues(left, right) {
+  const output = {};
+  for (const key of [
+    "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens",
+  ]) {
+    const a = Number(left?.[key]);
+    const b = Number(right?.[key]);
+    if (Number.isFinite(a) || Number.isFinite(b)) {
+      output[key] = Math.max(0, Math.floor(Number.isFinite(a) ? a : 0))
+        + Math.max(0, Math.floor(Number.isFinite(b) ? b : 0));
+    }
+  }
+  const aThinking = Number(left?.output_tokens_details?.thinking_tokens);
+  const bThinking = Number(right?.output_tokens_details?.thinking_tokens);
+  if (Number.isFinite(aThinking) || Number.isFinite(bThinking)) {
+    output.output_tokens_details = {
+      thinking_tokens: Math.max(0, Math.floor(Number.isFinite(aThinking) ? aThinking : 0))
+        + Math.max(0, Math.floor(Number.isFinite(bThinking) ? bThinking : 0)),
+    };
+  }
+  const aSearch = Number(left?.server_tool_use?.web_search_requests);
+  const bSearch = Number(right?.server_tool_use?.web_search_requests);
+  if (Number.isFinite(aSearch) || Number.isFinite(bSearch)) {
+    output.server_tool_use = {
+      web_search_requests: Math.min(1,
+        Math.max(0, Math.floor(Number.isFinite(aSearch) ? aSearch : 0))
+        + Math.max(0, Math.floor(Number.isFinite(bSearch) ? bSearch : 0))),
+    };
+  }
+  return Object.keys(output).length > 0 ? output : null;
+}
+
+function buildPauseTurnContinuationPayload(payload, providerBlocks) {
+  return {
+    ...payload,
+    messages: [
+      ...payload.messages,
+      { role: "assistant", content: providerBlocks },
+    ],
   };
 }
 
@@ -136,6 +189,10 @@ function sanitizeAnthropicUsage(usage) {
   const thinkingTokens = Number(usage?.output_tokens_details?.thinking_tokens);
   if (Number.isFinite(thinkingTokens) && thinkingTokens >= 0) {
     safe.output_tokens_details = { thinking_tokens: thinkingTokens };
+  }
+  const searchRequests = Number(usage?.server_tool_use?.web_search_requests);
+  if (Number.isFinite(searchRequests) && searchRequests >= 0) {
+    safe.server_tool_use = { web_search_requests: Math.min(1, Math.floor(searchRequests)) };
   }
   return Object.keys(safe).length > 0 ? safe : null;
 }
@@ -655,6 +712,33 @@ export async function invokeText(env, model, input) {
     ), {
       timeoutMs: input.generationTimeoutMs || undefined,
     });
+    if (
+      model.id === CLAUDE_FABLE_5_MODEL_ID
+      && input.webSearchEnabled === true
+      && raw?.stop_reason === "pause_turn"
+    ) {
+      const paused = extractAnthropicVisibleResult(raw?.content, { allowMissingText: true });
+      if (FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS < 1) {
+        throw new Error("Fable web search continuation is unavailable.");
+      }
+      const continuationPayload = buildPauseTurnContinuationPayload(payload, paused.providerBlocks);
+      const continuation = await runWithGenerationTimeout(() => env.AI.run(
+        model.id,
+        continuationPayload,
+        runOptions
+      ), { timeoutMs: input.generationTimeoutMs || FABLE_CHAT_GENERATION_TIMEOUT_MS });
+      if (continuation?.stop_reason === "pause_turn") {
+        const error = new Error("Fable web search exceeded its continuation limit.");
+        error.code = "provider_pause_turn_limit_exceeded";
+        throw error;
+      }
+      raw = {
+        ...continuation,
+        content: [...paused.providerBlocks, ...(continuation?.content || [])],
+        usage: addUsageValues(raw?.usage, continuation?.usage),
+        gatewayMetadata: continuation?.gatewayMetadata || raw?.gatewayMetadata,
+      };
+    }
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
@@ -701,6 +785,9 @@ export async function invokeText(env, model, input) {
     ...(preserved ? {
       providerBlocks: preserved.providerBlocks,
       reasoningSummary: preserved.reasoningSummary,
+      sources: preserved.sources,
+      webSearchRequestCount: preserved.webSearchRequestCount,
+      webSearchResultCount: preserved.webSearchResultCount,
     } : {}),
     elapsedMs: Date.now() - startedAt,
   };
@@ -722,7 +809,24 @@ export async function invokeFableChatStream(env, model, input) {
     if (!stream || typeof stream.getReader !== "function") {
       throw new Error("Model did not return a readable stream.");
     }
-    return { stream, startedAt };
+    return {
+      stream,
+      startedAt,
+      continueAfterPause: input.webSearchEnabled === true
+        ? async (providerBlocks) => {
+            const continuationPayload = buildPauseTurnContinuationPayload(payload, providerBlocks);
+            const continuation = await runWithGenerationTimeout(() => env.AI.run(
+              model.id,
+              continuationPayload,
+              runOptions
+            ), { timeoutMs: FABLE_CHAT_GENERATION_TIMEOUT_MS });
+            if (!continuation || typeof continuation.getReader !== "function") {
+              throw new Error("Model did not return a readable continuation stream.");
+            }
+            return continuation;
+          }
+        : null,
+    };
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",

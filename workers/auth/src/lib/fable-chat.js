@@ -6,11 +6,15 @@ import {
   FABLE_CHAT_DEFAULT_SYSTEM_PRESET_ID,
   FABLE_CHAT_DEFAULT_THINKING_DISPLAY,
   FABLE_CHAT_DEFAULT_TITLE,
+  FABLE_CHAT_DEFAULT_WEB_SEARCH_ENABLED,
   FABLE_CHAT_EFFORTS,
   FABLE_CHAT_HARD_OUTPUT_TOKEN_LIMIT,
   FABLE_CHAT_MAX_ASSISTANT_MESSAGE_CHARACTERS,
+  FABLE_CHAT_MAX_CITATIONS,
   FABLE_CHAT_MAX_CONTEXT_PRIOR_TURNS,
   FABLE_CHAT_MAX_REASONING_SUMMARY_CHARACTERS,
+  FABLE_CHAT_MAX_SOURCE_TITLE_CHARACTERS,
+  FABLE_CHAT_MAX_SOURCE_URL_CHARACTERS,
   FABLE_CHAT_MAX_TITLE_CHARACTERS,
   FABLE_CHAT_MAX_USER_MESSAGE_CHARACTERS,
   FABLE_CHAT_MODEL_ID,
@@ -21,13 +25,18 @@ import {
   FABLE_CHAT_SYSTEM_PRESET_VERSION,
   FABLE_CHAT_THINKING_DISPLAYS,
   FABLE_CHAT_TURN_EXPIRY_MINUTES,
+  FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+  FABLE_CHAT_WEB_SEARCH_MAX_USES,
+  FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
   buildFableChatSystemPrompt,
   getFableChatEffectiveInputTokenLimit,
   getFableChatOutputTokenLimit,
 } from "../../../shared/fable-chat-contract.mjs";
 import {
   extractFableChatAssistantText,
+  extractFableChatCitations,
   extractFableChatReasoningSummary,
+  countFableChatWebSearchBlocks,
   normalizeFableChatProviderBlocks,
   selectFableChatModelContext,
   utf8ByteLength,
@@ -173,9 +182,20 @@ function normalizeSummarizedThinking(value) {
   return value ? "summarized" : "omitted";
 }
 
+export function normalizeFableChatWebSearchEnabled(value) {
+  if (typeof value !== "boolean") {
+    throw new FableChatError("webSearchEnabled must be a boolean.", {
+      code: "validation_error",
+    });
+  }
+  return value;
+}
+
 function validateFableChatSettingsFields(body, { allowEmpty = false } = {}) {
   assertPlainObject(body);
-  assertOnlyFields(body, new Set(["effort", "systemPresetId", "summarizedThinking"]));
+  assertOnlyFields(body, new Set([
+    "effort", "systemPresetId", "summarizedThinking", "webSearchEnabled",
+  ]));
   if (!allowEmpty && Object.keys(body).length === 0) {
     throw new FableChatError("At least one conversation setting is required.", {
       code: "validation_error",
@@ -189,6 +209,9 @@ function validateFableChatSettingsFields(body, { allowEmpty = false } = {}) {
     ...(body.summarizedThinking === undefined
       ? {}
       : { thinkingDisplay: normalizeSummarizedThinking(body.summarizedThinking) }),
+    ...(body.webSearchEnabled === undefined
+      ? {}
+      : { webSearchEnabled: normalizeFableChatWebSearchEnabled(body.webSearchEnabled) }),
   };
 }
 
@@ -277,6 +300,37 @@ function parseJsonObject(value) {
   }
 }
 
+function normalizeStoredSources(value) {
+  if (!Array.isArray(value)) return [];
+  const sources = new Map();
+  for (const entry of value.slice(0, FABLE_CHAT_MAX_CITATIONS)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    if (Object.keys(entry).some((key) => !["url", "title", "type"].includes(key))) continue;
+    if (entry.type !== "web_search_result_location") continue;
+    if (typeof entry.url !== "string" || entry.url.length > FABLE_CHAT_MAX_SOURCE_URL_CHARACTERS) {
+      continue;
+    }
+    let url;
+    try {
+      url = new URL(entry.url);
+    } catch {
+      continue;
+    }
+    if (url.protocol !== "https:" || url.username || url.password) continue;
+    const title = typeof entry.title === "string"
+      ? entry.title.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, FABLE_CHAT_MAX_SOURCE_TITLE_CHARACTERS)
+      : "";
+    if (!sources.has(url.href)) {
+      sources.set(url.href, {
+        url: url.href,
+        title,
+        type: "web_search_result_location",
+      });
+    }
+  }
+  return [...sources.values()];
+}
+
 function safeProviderString(value, maxLength = 160) {
   if (value == null || value === "") return null;
   return String(value).replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, maxLength) || null;
@@ -304,6 +358,10 @@ export function sanitizeFableChatUsage(value) {
   const thinkingTokens = Number(value?.output_tokens_details?.thinking_tokens);
   if (Number.isFinite(thinkingTokens) && thinkingTokens >= 0) {
     output.output_tokens_details = { thinking_tokens: Math.floor(thinkingTokens) };
+  }
+  const searchRequests = Number(value?.server_tool_use?.web_search_requests);
+  if (Number.isFinite(searchRequests) && searchRequests >= 0) {
+    output.server_tool_use = { web_search_requests: Math.min(1, Math.floor(searchRequests)) };
   }
   return output;
 }
@@ -335,6 +393,10 @@ export function resolveFableChatConversationSettings(row) {
     thinkingDisplay,
     promptCachePolicy: row.prompt_cache_policy || FABLE_CHAT_PROMPT_CACHE_POLICY,
     promptCacheVersion: Number(row.prompt_cache_version || FABLE_CHAT_PROMPT_CACHE_VERSION),
+    webSearchEnabled: Number(row.web_search_enabled || 0) === 1,
+    webSearchToolVersion: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+    webSearchMaxUses: FABLE_CHAT_WEB_SEARCH_MAX_USES,
+    webSearchContractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
     updatedAt: row.settings_updated_at || row.created_at,
   };
 }
@@ -356,6 +418,15 @@ export function serializeFableChatConversation(row) {
 export function serializeFableChatMessage(row) {
   if (!row) return null;
   const metadata = parseJsonObject(row.metadata_json);
+  let sources = [];
+  if (row.role === "assistant" && typeof row.citations_json === "string") {
+    try {
+      const parsed = JSON.parse(row.citations_json);
+      if (Array.isArray(parsed)) sources = normalizeStoredSources(parsed);
+    } catch {
+      sources = [];
+    }
+  }
   return {
     id: row.id,
     role: row.role,
@@ -368,6 +439,7 @@ export function serializeFableChatMessage(row) {
     ...(row.role === "assistant" && metadata.output_truncated === true
       ? { truncated: true }
       : {}),
+    ...(row.role === "assistant" && sources.length > 0 ? { sources } : {}),
   };
 }
 
@@ -394,6 +466,9 @@ function serializeFableChatTurn(row) {
     systemPresetId: row.system_preset_id || FABLE_CHAT_DEFAULT_SYSTEM_PRESET_ID,
     systemPresetVersion: Number(row.system_preset_version || FABLE_CHAT_SYSTEM_PRESET_VERSION),
     thinkingDisplay: row.thinking_display || FABLE_CHAT_DEFAULT_THINKING_DISPLAY,
+    webSearchEnabled: Number(row.web_search_enabled || 0) === 1,
+    webSearchRequestCount: Number(row.web_search_request_count || 0),
+    webSearchResultCount: Number(row.web_search_result_count || 0),
     outputTruncated: Number(row.output_truncated || 0) === 1,
   };
 }
@@ -402,7 +477,7 @@ async function readConversationRow(env, adminUserId, conversationId) {
   return env.DB.prepare(
     `SELECT id, admin_user_id, model_id, title, title_source, turn_count,
             effort, system_preset_id, system_preset_version, thinking_display,
-            prompt_cache_policy, prompt_cache_version, settings_updated_at,
+            prompt_cache_policy, prompt_cache_version, web_search_enabled, settings_updated_at,
             created_at, updated_at, deleted_at
        FROM fable_chat_conversations
       WHERE id = ? AND admin_user_id = ? AND deleted_at IS NULL
@@ -431,13 +506,14 @@ export async function createFableChatConversation(env, adminUserId, settings = {
   const effort = settings.effort || FABLE_CHAT_DEFAULT_EFFORT;
   const systemPresetId = settings.systemPresetId || FABLE_CHAT_DEFAULT_SYSTEM_PRESET_ID;
   const thinkingDisplay = settings.thinkingDisplay || FABLE_CHAT_DEFAULT_THINKING_DISPLAY;
+  const webSearchEnabled = settings.webSearchEnabled ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_ENABLED;
   await env.DB.prepare(
     `INSERT INTO fable_chat_conversations (
        id, admin_user_id, model_id, title, title_source, turn_count,
        effort, system_preset_id, system_preset_version, thinking_display,
-       prompt_cache_policy, prompt_cache_version, settings_updated_at,
+       prompt_cache_policy, prompt_cache_version, web_search_enabled, settings_updated_at,
        created_at, updated_at, deleted_at
-     ) VALUES (?, ?, ?, ?, 'automatic', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
+     ) VALUES (?, ?, ?, ?, 'automatic', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
   ).bind(
     id,
     adminUserId,
@@ -449,6 +525,7 @@ export async function createFableChatConversation(env, adminUserId, settings = {
     thinkingDisplay,
     FABLE_CHAT_PROMPT_CACHE_POLICY,
     FABLE_CHAT_PROMPT_CACHE_VERSION,
+    webSearchEnabled ? 1 : 0,
     now,
     now,
     now
@@ -485,7 +562,7 @@ export async function listFableChatConversations(env, adminUserId, {
   const rows = await env.DB.prepare(
     `SELECT id, admin_user_id, model_id, title, title_source, turn_count,
             effort, system_preset_id, system_preset_version, thinking_display,
-            prompt_cache_policy, prompt_cache_version, settings_updated_at,
+            prompt_cache_policy, prompt_cache_version, web_search_enabled, settings_updated_at,
             created_at, updated_at, deleted_at
        FROM fable_chat_conversations
       WHERE admin_user_id = ?
@@ -536,12 +613,13 @@ export async function updateFableChatConversationSettings(
   const thinkingDisplay = updates.thinkingDisplay
     || current.thinking_display
     || FABLE_CHAT_DEFAULT_THINKING_DISPLAY;
+  const webSearchEnabled = updates.webSearchEnabled ?? (Number(current.web_search_enabled || 0) === 1);
   const updatedAt = nowIso();
   const result = await env.DB.prepare(
     `UPDATE fable_chat_conversations
         SET effort = ?, system_preset_id = ?, system_preset_version = ?,
             thinking_display = ?, prompt_cache_policy = ?, prompt_cache_version = ?,
-            settings_updated_at = ?, updated_at = ?
+            web_search_enabled = ?, settings_updated_at = ?, updated_at = ?
       WHERE id = ? AND admin_user_id = ? AND deleted_at IS NULL
         AND NOT EXISTS (
           SELECT 1 FROM fable_chat_turns t
@@ -555,6 +633,7 @@ export async function updateFableChatConversationSettings(
     thinkingDisplay,
     FABLE_CHAT_PROMPT_CACHE_POLICY,
     FABLE_CHAT_PROMPT_CACHE_VERSION,
+    webSearchEnabled ? 1 : 0,
     updatedAt,
     updatedAt,
     id,
@@ -628,7 +707,7 @@ export async function listFableChatMessages(env, adminUserId, conversationId, {
 
   const rows = await env.DB.prepare(
     `SELECT m.id, m.turn_order, m.role, m.role_order, m.content, m.state,
-            m.metadata_json, m.reasoning_summary, m.created_at, m.updated_at
+            m.metadata_json, m.reasoning_summary, m.citations_json, m.created_at, m.updated_at
        FROM fable_chat_messages m
        INNER JOIN fable_chat_conversations c ON c.id = m.conversation_id
       WHERE m.conversation_id = ?
@@ -708,6 +787,8 @@ async function readTurnByIdempotencyHash(env, adminUserId, conversationId, idemp
             t.system_preset_version, t.thinking_display, t.prompt_cache_policy,
             t.prompt_cache_version, t.context_format_version, t.estimated_input_tokens,
             t.effective_input_token_limit, t.context_estimator_version,
+            t.web_search_enabled, t.web_search_tool_version, t.web_search_max_uses,
+            t.web_search_contract_version, t.web_search_request_count, t.web_search_result_count,
             t.cache_breakpoint_json, t.settings_snapshot_json, t.provider_duration_ms,
             t.output_truncated,
             t.provider_model, t.stop_reason, t.stop_sequence, t.usage_json,
@@ -729,6 +810,8 @@ async function readTurnById(env, turnId) {
             system_preset_id, system_preset_version, thinking_display, prompt_cache_policy,
             prompt_cache_version, context_format_version, estimated_input_tokens,
             effective_input_token_limit, context_estimator_version, cache_breakpoint_json,
+            web_search_enabled, web_search_tool_version, web_search_max_uses,
+            web_search_contract_version, web_search_request_count, web_search_result_count,
             settings_snapshot_json, provider_duration_ms, output_truncated,
             provider_model, stop_reason,
             stop_sequence, usage_json, gateway_metadata_json, error_code, created_at,
@@ -763,7 +846,7 @@ export async function buildFableChatRequestFingerprint({
     });
   }
   return sha256Hex(JSON.stringify({
-    version: 2,
+    version: 3,
     conversation_id: normalizeFableChatConversationId(conversationId),
     message: normalizeFableChatUserMessage(message),
     retry_message_id: retryMessageId ? normalizeFableChatMessageId(retryMessageId) : null,
@@ -778,6 +861,10 @@ export async function buildFableChatRequestFingerprint({
     prompt_cache_policy: settings.promptCachePolicy,
     prompt_cache_version: Number(settings.promptCacheVersion),
     context_format_version: FABLE_CHAT_CONTEXT_FORMAT_VERSION,
+    web_search_enabled: settings.webSearchEnabled === true,
+    web_search_tool_version: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+    web_search_max_uses: FABLE_CHAT_WEB_SEARCH_MAX_USES,
+    web_search_contract_version: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
   }));
 }
 
@@ -826,6 +913,7 @@ export async function beginFableChatTurn(env, {
     || appliedSettings.thinkingDisplay !== settings.thinkingDisplay
     || appliedSettings.promptCachePolicy !== settings.promptCachePolicy
     || appliedSettings.promptCacheVersion !== Number(settings.promptCacheVersion)
+    || appliedSettings.webSearchEnabled !== (settings.webSearchEnabled === true)
   ) {
     throw new FableChatError("Conversation settings changed before this message was admitted.", {
       status: 409,
@@ -854,6 +942,10 @@ export async function beginFableChatTurn(env, {
     promptCachePolicy: appliedSettings.promptCachePolicy,
     promptCacheVersion: appliedSettings.promptCacheVersion,
     contextFormatVersion: FABLE_CHAT_CONTEXT_FORMAT_VERSION,
+    webSearchEnabled: appliedSettings.webSearchEnabled,
+    webSearchToolVersion: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+    webSearchMaxUses: FABLE_CHAT_WEB_SEARCH_MAX_USES,
+    webSearchContractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
   };
 
   const userMessageId = normalizedRetryMessageId || opaqueId("fbm");
@@ -908,17 +1000,19 @@ export async function beginFableChatTurn(env, {
            system_preset_id, system_preset_version, thinking_display, prompt_cache_policy,
            prompt_cache_version, context_format_version, estimated_input_tokens,
            effective_input_token_limit, context_estimator_version, cache_breakpoint_json,
+           web_search_enabled, web_search_tool_version, web_search_max_uses,
+           web_search_contract_version, web_search_request_count, web_search_result_count,
            settings_snapshot_json, provider_duration_ms, output_truncated, provider_model, stop_reason,
            stop_sequence, usage_json, gateway_metadata_json, error_code, created_at,
            updated_at, completed_at, expires_at
          )
          SELECT ?, c.id, ?, ?, ?, ?, NULL, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, NULL, 0, NULL, NULL, NULL, '{}', '{}', NULL, ?, ?, NULL, ?
+                ?, ?, ?, ?, ?, 0, 0, ?, NULL, 0, NULL, NULL, NULL, '{}', '{}', NULL, ?, ?, NULL, ?
            FROM fable_chat_conversations c
           WHERE c.id = ? AND c.admin_user_id = ? AND c.deleted_at IS NULL
             AND c.effort = ? AND c.system_preset_id = ? AND c.system_preset_version = ?
             AND c.thinking_display = ? AND c.prompt_cache_policy = ?
-            AND c.prompt_cache_version = ?`
+            AND c.prompt_cache_version = ? AND c.web_search_enabled = ?`
       ).bind(
         turnId,
         adminUserId,
@@ -942,6 +1036,10 @@ export async function beginFableChatTurn(env, {
         safeContext.effectiveInputTokenLimit,
         safeContext.estimatorVersion,
         JSON.stringify(safeContext.cacheBreakpoint),
+        appliedSettings.webSearchEnabled ? 1 : 0,
+        FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+        FABLE_CHAT_WEB_SEARCH_MAX_USES,
+        FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
         JSON.stringify(settingsSnapshot),
         createdAt,
         createdAt,
@@ -953,7 +1051,8 @@ export async function beginFableChatTurn(env, {
         appliedSettings.systemPresetVersion,
         appliedSettings.thinkingDisplay,
         appliedSettings.promptCachePolicy,
-        appliedSettings.promptCacheVersion
+        appliedSettings.promptCacheVersion,
+        appliedSettings.webSearchEnabled ? 1 : 0
       );
     const statements = [];
     if (normalizedRetryMessageId) {
@@ -971,7 +1070,7 @@ export async function beginFableChatTurn(env, {
                    AND c.deleted_at IS NULL AND c.effort = ?
                    AND c.system_preset_id = ? AND c.system_preset_version = ?
                    AND c.thinking_display = ? AND c.prompt_cache_policy = ?
-                   AND c.prompt_cache_version = ?
+                   AND c.prompt_cache_version = ? AND c.web_search_enabled = ?
               )`
         ).bind(
           createdAt,
@@ -983,7 +1082,8 @@ export async function beginFableChatTurn(env, {
           appliedSettings.systemPresetVersion,
           appliedSettings.thinkingDisplay,
           appliedSettings.promptCachePolicy,
-          appliedSettings.promptCacheVersion
+          appliedSettings.promptCacheVersion,
+          appliedSettings.webSearchEnabled ? 1 : 0
         )
       );
       statements.push(
@@ -992,7 +1092,7 @@ export async function beginFableChatTurn(env, {
             WHERE id = ? AND admin_user_id = ? AND deleted_at IS NULL
               AND effort = ? AND system_preset_id = ? AND system_preset_version = ?
               AND thinking_display = ? AND prompt_cache_policy = ?
-              AND prompt_cache_version = ?`
+              AND prompt_cache_version = ? AND web_search_enabled = ?`
         ).bind(
           createdAt,
           id,
@@ -1002,7 +1102,8 @@ export async function beginFableChatTurn(env, {
           appliedSettings.systemPresetVersion,
           appliedSettings.thinkingDisplay,
           appliedSettings.promptCachePolicy,
-          appliedSettings.promptCacheVersion
+          appliedSettings.promptCacheVersion,
+          appliedSettings.webSearchEnabled ? 1 : 0
         )
       );
     } else {
@@ -1017,7 +1118,7 @@ export async function beginFableChatTurn(env, {
             WHERE c.id = ? AND c.admin_user_id = ? AND c.deleted_at IS NULL
               AND c.effort = ? AND c.system_preset_id = ? AND c.system_preset_version = ?
               AND c.thinking_display = ? AND c.prompt_cache_policy = ?
-              AND c.prompt_cache_version = ?`
+              AND c.prompt_cache_version = ? AND c.web_search_enabled = ?`
         ).bind(
           userMessageId,
           messageGroupId,
@@ -1033,7 +1134,8 @@ export async function beginFableChatTurn(env, {
           appliedSettings.systemPresetVersion,
           appliedSettings.thinkingDisplay,
           appliedSettings.promptCachePolicy,
-          appliedSettings.promptCacheVersion
+          appliedSettings.promptCacheVersion,
+          appliedSettings.webSearchEnabled ? 1 : 0
         )
       );
       statements.push(turnStatement);
@@ -1049,7 +1151,7 @@ export async function beginFableChatTurn(env, {
             WHERE id = ? AND admin_user_id = ? AND deleted_at IS NULL
               AND effort = ? AND system_preset_id = ? AND system_preset_version = ?
               AND thinking_display = ? AND prompt_cache_policy = ?
-              AND prompt_cache_version = ?`
+              AND prompt_cache_version = ? AND web_search_enabled = ?`
         ).bind(
           title,
           createdAt,
@@ -1060,7 +1162,8 @@ export async function beginFableChatTurn(env, {
           appliedSettings.systemPresetVersion,
           appliedSettings.thinkingDisplay,
           appliedSettings.promptCachePolicy,
-          appliedSettings.promptCacheVersion
+          appliedSettings.promptCacheVersion,
+          appliedSettings.webSearchEnabled ? 1 : 0
         )
       );
     }
@@ -1201,6 +1304,7 @@ export async function buildFableChatModelContext(env, {
     || settings.systemPresetId !== appliedSettings.systemPresetId
     || Number(settings.systemPresetVersion) !== appliedSettings.systemPresetVersion
     || settings.thinkingDisplay !== appliedSettings.thinkingDisplay
+    || settings.webSearchEnabled !== appliedSettings.webSearchEnabled
   )) {
     throw new FableChatError("Conversation settings changed before context was prepared.", {
       status: 409,
@@ -1266,6 +1370,8 @@ export async function buildFableChatModelContext(env, {
       thinkingDisplay: appliedSettings.thinkingDisplay,
       promptCachePolicy: appliedSettings.promptCachePolicy,
       promptCacheVersion: appliedSettings.promptCacheVersion,
+      webSearchEnabled: appliedSettings.webSearchEnabled,
+      webSearchContractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
       context: {
         ...selected.context,
         characterLimit: FABLE_CHAT_CONTEXT_CHARACTER_LIMIT,
@@ -1301,6 +1407,8 @@ export async function finalizeFableChatTurn(env, turnId, {
   usage = null,
   gatewayMetadata = null,
   providerDurationMs = null,
+  webSearchRequestCount = null,
+  webSearchResultCount = null,
 }) {
   if (typeof assistantContent !== "string") {
     throw new FableChatError("Assistant response is invalid.", {
@@ -1335,6 +1443,8 @@ export async function finalizeFableChatTurn(env, turnId, {
   }
   const providerBlocksJson = JSON.stringify(privateProviderBlocks);
   const providerBlocksBytes = utf8ByteLength(providerBlocksJson);
+  const safeCitations = extractFableChatCitations(privateProviderBlocks);
+  const searchCounts = countFableChatWebSearchBlocks(privateProviderBlocks);
   const turn = await readTurnById(env, turnId);
   if (!turn) {
     throw new FableChatError("Chat turn not found.", { status: 404, code: "not_found" });
@@ -1346,6 +1456,18 @@ export async function finalizeFableChatTurn(env, turnId, {
     throw new FableChatError("Chat turn cannot be finalized.", {
       status: 409,
       code: "fable_chat_turn_not_running",
+    });
+  }
+  if (
+    searchCounts.requestCount > FABLE_CHAT_WEB_SEARCH_MAX_USES
+    || searchCounts.resultCount > FABLE_CHAT_WEB_SEARCH_MAX_USES
+    || (!turn.web_search_enabled && (searchCounts.requestCount > 0 || searchCounts.resultCount > 0))
+    || (webSearchRequestCount != null && Number(webSearchRequestCount) !== searchCounts.requestCount)
+    || (webSearchResultCount != null && Number(webSearchResultCount) !== searchCounts.resultCount)
+  ) {
+    throw new FableChatError("Assistant web-search metadata is invalid.", {
+      status: 502,
+      code: "fable_chat_invalid_provider_result",
     });
   }
   const reasoningSummary = turn.thinking_display === "summarized"
@@ -1375,10 +1497,10 @@ export async function finalizeFableChatTurn(env, turnId, {
     env.DB.prepare(
       `INSERT INTO fable_chat_messages (
          id, conversation_id, message_group_id, admin_user_id, turn_order, role, role_order,
-         content, state, model_id, metadata_json, reasoning_summary, created_at, updated_at
+         content, state, model_id, metadata_json, reasoning_summary, citations_json, created_at, updated_at
        )
        SELECT ?, t.conversation_id, ?, t.admin_user_id, ?, 'assistant', 1,
-              ?, 'succeeded', ?, ?, ?, ?, ?
+              ?, 'succeeded', ?, ?, ?, ?, ?, ?
          FROM fable_chat_turns t
          INNER JOIN fable_chat_conversations c ON c.id = t.conversation_id
         WHERE t.id = ? AND t.status = 'running'
@@ -1391,6 +1513,7 @@ export async function finalizeFableChatTurn(env, turnId, {
       FABLE_CHAT_MODEL_ID,
       JSON.stringify({ output_truncated: outputTruncated }),
       reasoningSummary,
+      JSON.stringify(safeCitations),
       completedAt,
       completedAt,
       turnId
@@ -1438,6 +1561,7 @@ export async function finalizeFableChatTurn(env, turnId, {
               estimated_input_tokens = ?, effective_input_token_limit = ?,
               context_estimator_version = ?, cache_breakpoint_json = ?,
               provider_duration_ms = ?, output_truncated = ?,
+              web_search_request_count = ?, web_search_result_count = ?,
               error_code = NULL, updated_at = ?, completed_at = ?
         WHERE id = ? AND status = 'running'
           AND EXISTS (
@@ -1467,6 +1591,8 @@ export async function finalizeFableChatTurn(env, turnId, {
       JSON.stringify(context?.cacheBreakpoint || { enabled: false }),
       safeProviderDurationMs,
       outputTruncated ? 1 : 0,
+      searchCounts.requestCount,
+      searchCounts.resultCount,
       completedAt,
       completedAt,
       turnId,
@@ -1503,6 +1629,7 @@ export async function getFableChatTurnResult(env, adminUserId, conversationId, t
             t.context_estimator_version, t.cache_breakpoint_json,
             t.effort, t.effective_max_output_tokens, t.system_preset_id,
             t.system_preset_version, t.thinking_display, t.provider_duration_ms,
+            t.web_search_enabled, t.web_search_request_count, t.web_search_result_count,
             t.output_truncated,
             t.usage_json, t.created_at, t.updated_at, t.completed_at, t.expires_at,
             um.id AS user_id, um.role AS user_role, um.content AS user_content,
@@ -1511,6 +1638,7 @@ export async function getFableChatTurnResult(env, adminUserId, conversationId, t
             am.id AS assistant_id, am.role AS assistant_role, am.content AS assistant_content,
             am.state AS assistant_state, am.metadata_json AS assistant_metadata_json,
             am.reasoning_summary AS assistant_reasoning_summary,
+            am.citations_json AS assistant_citations_json,
             am.created_at AS assistant_created_at
        FROM fable_chat_turns t
        INNER JOIN fable_chat_conversations c ON c.id = t.conversation_id
@@ -1541,6 +1669,7 @@ export async function getFableChatTurnResult(env, adminUserId, conversationId, t
       state: row.assistant_state,
       metadata_json: row.assistant_metadata_json,
       reasoning_summary: row.assistant_reasoning_summary,
+      citations_json: row.assistant_citations_json,
       created_at: row.assistant_created_at,
     }));
   }
@@ -1560,6 +1689,9 @@ export async function getFableChatTurnResult(env, adminUserId, conversationId, t
       systemPresetId: row.system_preset_id || FABLE_CHAT_DEFAULT_SYSTEM_PRESET_ID,
       systemPresetVersion: Number(row.system_preset_version || FABLE_CHAT_SYSTEM_PRESET_VERSION),
       thinkingDisplay: row.thinking_display || FABLE_CHAT_DEFAULT_THINKING_DISPLAY,
+      webSearchEnabled: Number(row.web_search_enabled || 0) === 1,
+      webSearchRequestCount: Number(row.web_search_request_count || 0),
+      webSearchResultCount: Number(row.web_search_result_count || 0),
       outputTruncated: Number(row.output_truncated || 0) === 1,
       providerDurationMs: row.provider_duration_ms == null
         ? null

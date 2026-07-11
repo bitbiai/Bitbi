@@ -34,6 +34,7 @@ export async function handleFableChat({ request, env, correlationId, pathname, m
       const output = await invokeFableChatStream(env, selection.model, invocationInput);
       return new Response(createInternalFableChatStream(output.stream, {
         startedAt: output.startedAt,
+        continueAfterPause: output.continueAfterPause,
       }), {
         status: 200,
         headers: {
@@ -57,6 +58,9 @@ export async function handleFableChat({ request, env, correlationId, pathname, m
         text: output.text,
         providerBlocks: output.providerBlocks,
         reasoningSummary: output.reasoningSummary,
+        sources: output.sources,
+        webSearchRequestCount: output.webSearchRequestCount,
+        webSearchResultCount: output.webSearchResultCount,
         usage: output.usage,
         maxTokens: input.maxTokens,
         ...(output.responseModel ? { responseModel: output.responseModel } : {}),

@@ -214,7 +214,9 @@ function validFableAiBody(messages, overrides = {}) {
     thinkingDisplay: 'omitted',
     promptCachePolicy: 'auto_5m',
     promptCacheVersion: 1,
-    contextFormatVersion: 'native-anthropic-turns-v2',
+    contextFormatVersion: 'native-anthropic-turns-v3',
+    webSearchEnabled: false,
+    webSearchContractVersion: 1,
     ...overrides,
   };
 }
@@ -326,7 +328,11 @@ test.describe('Private admin Fable chat', () => {
       path.join(process.cwd(), 'workers/auth/migrations/0070_add_fable_chat_advanced_inference.sql'),
       'utf8'
     );
-    expect(CURRENT_AUTH_MIGRATION).toBe('0070_add_fable_chat_advanced_inference.sql');
+    const webSearchMigration = fs.readFileSync(
+      path.join(process.cwd(), 'workers/auth/migrations/0071_add_fable_chat_web_search.sql'),
+      'utf8'
+    );
+    expect(CURRENT_AUTH_MIGRATION).toBe('0071_add_fable_chat_web_search.sql');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_conversations');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_turns');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_messages');
@@ -342,7 +348,10 @@ test.describe('Private admin Fable chat', () => {
     expect(advancedMigration).toContain('CREATE TABLE fable_chat_provider_messages');
     expect(advancedMigration).toContain('settings_snapshot_json TEXT NOT NULL');
     expect(advancedMigration).toContain('effective_max_output_tokens INTEGER NOT NULL DEFAULT 16384');
-    expect(`${baseMigration}\n${advancedMigration}`).not.toMatch(
+    expect(webSearchMigration).toContain('web_search_enabled INTEGER NOT NULL DEFAULT 0');
+    expect(webSearchMigration).toContain("web_search_tool_version TEXT NOT NULL DEFAULT 'web_search_20250305'");
+    expect(webSearchMigration).toContain("citations_json TEXT NOT NULL DEFAULT '[]'");
+    expect(`${baseMigration}\n${advancedMigration}\n${webSearchMigration}`).not.toMatch(
       /DROP\s+TABLE|DELETE\s+FROM|raw_idempotency/i
     );
   });
@@ -519,7 +528,9 @@ test.describe('Private admin Fable chat', () => {
         thinkingDisplay: 'omitted',
         promptCachePolicy: 'auto_5m',
         promptCacheVersion: 1,
-        contextFormatVersion: 'native-anthropic-turns-v2',
+        contextFormatVersion: 'native-anthropic-turns-v3',
+        webSearchEnabled: false,
+        webSearchContractVersion: 1,
       });
       expect(providerCalls[0].body.model).toBeUndefined();
       expect(providerCalls[0].body.__bitbi_ai_caller_policy).toMatchObject({
@@ -1247,6 +1258,7 @@ test.describe('Private admin Fable chat', () => {
         effectiveMaxOutputTokens: 16_384,
         systemPresetId: 'general',
         summarizedThinking: false,
+        webSearchEnabled: false,
       });
 
       const missingMfa = await callFableAuthWorker(
@@ -1271,6 +1283,8 @@ test.describe('Private admin Fable chat', () => {
         { maxTokens: 32_768 },
         { systemPresetId: 'browser-prompt' },
         { summarizedThinking: 'yes' },
+        { webSearchEnabled: 'yes' },
+        { tools: [{ type: 'web_search_20250305' }] },
       ]) {
         const invalid = await callFableAuthWorker(
           worker,
@@ -1288,7 +1302,12 @@ test.describe('Private admin Fable chat', () => {
         {
           method: 'PATCH',
           cookie: admin.cookie,
-          body: { effort: 'max', systemPresetId: 'coding', summarizedThinking: true },
+          body: {
+            effort: 'max',
+            systemPresetId: 'coding',
+            summarizedThinking: true,
+            webSearchEnabled: true,
+          },
         }
       );
       expect(updated.status).toBe(200);
@@ -1302,6 +1321,9 @@ test.describe('Private admin Fable chat', () => {
         thinkingDisplay: 'summarized',
         promptCachePolicy: 'auto_5m',
         promptCacheVersion: 1,
+        webSearchEnabled: true,
+        webSearchToolVersion: 'web_search_20250305',
+        webSearchMaxUses: 1,
       });
 
       const message = 'Snapshot these settings without logging this text.';
@@ -1323,6 +1345,7 @@ test.describe('Private admin Fable chat', () => {
           ...maxSettings,
           effort: 'high',
           effectiveMaxOutputTokens: 16_384,
+          webSearchEnabled: false,
         },
       });
       expect(differentFingerprint).not.toBe(maxFingerprint);
@@ -1360,6 +1383,10 @@ test.describe('Private admin Fable chat', () => {
         effectiveMaxOutputTokens: 32_768,
         systemPresetId: 'coding',
         thinkingDisplay: 'summarized',
+        webSearchEnabled: true,
+        webSearchToolVersion: 'web_search_20250305',
+        webSearchMaxUses: 1,
+        webSearchContractVersion: 1,
       });
 
       await fableChatModule.markFableChatTurnFailed(env, pending.turn.id, 'test_failure');
@@ -1370,7 +1397,12 @@ test.describe('Private admin Fable chat', () => {
         {
           method: 'PATCH',
           cookie: admin.cookie,
-          body: { effort: 'medium', systemPresetId: 'precise', summarizedThinking: false },
+          body: {
+            effort: 'medium',
+            systemPresetId: 'precise',
+            summarizedThinking: false,
+            webSearchEnabled: false,
+          },
         }
       );
       expect(changed.status).toBe(200);
@@ -1379,6 +1411,7 @@ test.describe('Private admin Fable chat', () => {
         effectiveMaxOutputTokens: 8_192,
         systemPresetId: 'precise',
         thinkingDisplay: 'omitted',
+        webSearchEnabled: false,
       });
       expect(JSON.parse(DB.database.prepare(
         'SELECT settings_snapshot_json FROM fable_chat_turns WHERE id = ?'
@@ -1398,6 +1431,168 @@ test.describe('Private admin Fable chat', () => {
       expect(conflict.status).toBe(409);
       expect((await conflict.json()).code).toBe('idempotency_conflict');
       expect(providerCalls).toHaveLength(0);
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('native Web search is server-owned, budgeted, persisted, and replayed without a second search', async () => {
+    const toolId = 'srvtoolu_workersearch123';
+    const { env, DB, providerCalls } = await createFableChatSqliteEnv({
+      provider: async ({ body }) => new Response(JSON.stringify({
+        ok: true,
+        task: 'fable-chat',
+        model: { id: 'anthropic/claude-fable-5' },
+        result: body.webSearchEnabled ? {
+          text: 'Cloudflare builds for the agent era.',
+          providerBlocks: [
+            {
+              type: 'server_tool_use',
+              id: toolId,
+              name: 'web_search',
+              input: { query: 'current Cloudflare homepage title' },
+            },
+            {
+              type: 'web_search_tool_result',
+              tool_use_id: toolId,
+              caller: { type: 'direct' },
+              content: [{
+                type: 'web_search_result',
+                url: 'https://www.cloudflare.com/',
+                title: 'Cloudflare',
+                encrypted_content: 'private-encrypted-result',
+                page_age: null,
+              }],
+            },
+            {
+              type: 'text',
+              text: 'Cloudflare builds for the agent era.',
+              citations: [{
+                type: 'web_search_result_location',
+                url: 'https://www.cloudflare.com/',
+                title: 'Cloudflare',
+                encrypted_index: 'private-encrypted-index',
+                cited_text: 'Build for the agent era',
+              }],
+            },
+          ],
+          usage: { input_tokens: 10_567, output_tokens: 265 },
+          responseModel: 'claude-fable-5',
+          stopReason: 'end_turn',
+          webSearchRequestCount: 1,
+          webSearchResultCount: 1,
+        } : {
+          text: 'Normal answer.',
+          providerBlocks: [{ type: 'text', text: 'Normal answer.' }],
+          usage: { input_tokens: 40, output_tokens: 10 },
+          responseModel: 'claude-fable-5',
+          stopReason: 'end_turn',
+          webSearchRequestCount: 0,
+          webSearchResultCount: 0,
+        },
+        elapsedMs: 100,
+      }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    });
+    const worker = await loadWorker('workers/auth/src/index.js');
+    try {
+      const admin = await seedFableChatActor(env, {
+        id: 'admin-fable-web-search',
+        email: 'web-search@example.com',
+      });
+      const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      const enabled = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        { method: 'PATCH', cookie: admin.cookie, body: { webSearchEnabled: true } }
+      );
+      expect(enabled.status).toBe(200);
+      expect((await enabled.json()).settings.webSearchEnabled).toBe(true);
+
+      const send = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'web-search-idempotency-0001',
+          body: { message: 'What is Cloudflare current homepage title?' },
+        }
+      );
+      expect(send.status).toBe(200);
+      const sent = await send.json();
+      expect(sent.turn).toMatchObject({
+        webSearchEnabled: true,
+        webSearchRequestCount: 1,
+        webSearchResultCount: 1,
+      });
+      expect(sent.messages[1].sources).toEqual([{
+        url: 'https://www.cloudflare.com/',
+        title: 'Cloudflare',
+        type: 'web_search_result_location',
+      }]);
+      expect(JSON.stringify(sent)).not.toContain('private-encrypted');
+      expect(providerCalls).toHaveLength(1);
+      expect(providerCalls[0].body).toMatchObject({
+        webSearchEnabled: true,
+        webSearchContractVersion: 1,
+      });
+      expect(providerCalls[0].body.tools).toBeUndefined();
+      expect(DB.database.prepare(
+        'SELECT content_blocks_json FROM fable_chat_provider_messages'
+      ).get().content_blocks_json).toContain('private-encrypted-result');
+      const usage = DB.database.prepare(
+        `SELECT units, metadata_json FROM platform_budget_usage_events
+          WHERE operation_key = 'admin.fable_chat.send'`
+      ).get();
+      expect(usage.units).toBe(5);
+      expect(JSON.parse(usage.metadata_json)).toMatchObject({
+        web_search_enabled: true,
+        web_search_units: 2,
+        web_search_request_count: 1,
+      });
+
+      const replay = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'web-search-idempotency-0001',
+          body: { message: 'What is Cloudflare current homepage title?' },
+        }
+      );
+      expect(replay.status).toBe(200);
+      expect((await replay.json()).idempotentReplay).toBe(true);
+      expect(providerCalls).toHaveLength(1);
+      expect(DB.database.prepare(
+        `SELECT COUNT(*) AS count FROM platform_budget_usage_events
+          WHERE operation_key = 'admin.fable_chat.send'`
+      ).get().count).toBe(1);
+
+      const disabled = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        { method: 'PATCH', cookie: admin.cookie, body: { webSearchEnabled: false } }
+      );
+      expect(disabled.status).toBe(200);
+      const conflict = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'web-search-idempotency-0001',
+          body: { message: 'What is Cloudflare current homepage title?' },
+        }
+      );
+      expect(conflict.status).toBe(409);
+      expect((await conflict.json()).code).toBe('idempotency_conflict');
+      expect(providerCalls).toHaveLength(1);
     } finally {
       DB.close();
     }
@@ -1887,6 +2082,7 @@ test.describe('Private admin Fable chat', () => {
       output_config: { effort: 'high' },
       thinking: { type: 'adaptive', display: 'summarized' },
     });
+    expect(calls[0][1].tools).toBeUndefined();
     expect(calls[0][2].gateway).toMatchObject({
       skipCache: true,
       collectLog: false,
@@ -1899,6 +2095,38 @@ test.describe('Private admin Fable chat', () => {
       { type: 'thinking', thinking: 'Summary', signature: 'private-signature' },
       { type: 'text', text: 'Final answer' },
     ]);
+
+    const searchResponse = await routeModule.handleFableChat({
+      request: new Request('https://bitbi-ai.internal/internal/ai/fable-chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(validFableAiBody([
+          { role: 'user', content: 'Search once' },
+        ], { webSearchEnabled: true })),
+      }),
+      env: {
+        AI: {
+          async run(...args) {
+            calls.push(args);
+            return {
+              content: [{ type: 'text', text: 'No search needed.' }],
+              model: 'claude-fable-5',
+              stop_reason: 'end_turn',
+              usage: { input_tokens: 3, output_tokens: 2 },
+            };
+          },
+        },
+      },
+      correlationId: 'fable-route-search-test',
+      pathname: '/internal/ai/fable-chat',
+      method: 'POST',
+    });
+    expect(searchResponse.status).toBe(200);
+    expect(calls[1][1].tools).toEqual([{
+      type: 'web_search_20250305',
+      name: 'web_search',
+      max_uses: 1,
+    }]);
 
     const rejected = await routeModule.handleFableChat({
       request: new Request('https://bitbi-ai.internal/internal/ai/fable-chat', {

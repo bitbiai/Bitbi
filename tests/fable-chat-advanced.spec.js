@@ -22,7 +22,9 @@ function validAiBody(messages = [{ role: 'user', content: 'Hello' }], overrides 
     thinkingDisplay: 'omitted',
     promptCachePolicy: 'auto_5m',
     promptCacheVersion: 1,
-    contextFormatVersion: 'native-anthropic-turns-v2',
+    contextFormatVersion: 'native-anthropic-turns-v3',
+    webSearchEnabled: false,
+    webSearchContractVersion: 1,
     ...overrides,
   };
 }
@@ -153,7 +155,265 @@ function completeProviderEvents({ stopReason = 'end_turn' } = {}) {
   ];
 }
 
+function webSearchProviderEvents({ stopReason = 'end_turn', includeToolUse = true } = {}) {
+  const toolId = 'srvtoolu_search123456';
+  const events = [{
+    event: 'message_start',
+    data: {
+      type: 'message_start',
+      message: { model: 'claude-fable-5', usage: { input_tokens: 10_567 } },
+    },
+  }];
+  let index = 0;
+  if (includeToolUse) {
+    events.push(
+      {
+        event: 'content_block_start',
+        data: {
+          type: 'content_block_start',
+          index,
+          content_block: { type: 'server_tool_use', id: toolId, name: 'web_search' },
+        },
+      },
+      {
+        event: 'content_block_delta',
+        data: {
+          type: 'content_block_delta',
+          index,
+          delta: { type: 'input_json_delta', partial_json: '{"query":"current Cloudflare title"}' },
+        },
+      },
+      { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    );
+    index += 1;
+  }
+  events.push(
+    {
+      event: 'content_block_start',
+      data: {
+        type: 'content_block_start',
+        index,
+        content_block: {
+          type: 'web_search_tool_result',
+          tool_use_id: toolId,
+          caller: { type: 'direct' },
+          content: [{
+            type: 'web_search_result',
+            url: 'https://www.cloudflare.com/',
+            title: 'Cloudflare',
+            encrypted_content: 'encrypted-result-content',
+            page_age: null,
+          }],
+        },
+      },
+    },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+  );
+  index += 1;
+  events.push(
+    {
+      event: 'content_block_start',
+      data: { type: 'content_block_start', index, content_block: { type: 'text', text: '' } },
+    },
+    {
+      event: 'content_block_delta',
+      data: {
+        type: 'content_block_delta',
+        index,
+        delta: { type: 'text_delta', text: 'Cloudflare builds for the agent era.' },
+      },
+    },
+    {
+      event: 'content_block_delta',
+      data: {
+        type: 'content_block_delta',
+        index,
+        delta: {
+          type: 'citations_delta',
+          citation: {
+            type: 'web_search_result_location',
+            url: 'https://www.cloudflare.com/',
+            title: 'Cloudflare',
+            encrypted_index: 'encrypted-citation-index',
+            cited_text: 'Build for the agent era',
+          },
+        },
+      },
+    },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    {
+      event: 'message_delta',
+      data: {
+        type: 'message_delta',
+        delta: { stop_reason: stopReason, stop_sequence: null },
+        usage: { output_tokens: 265 },
+      },
+    },
+    { event: 'message_stop', data: { type: 'message_stop' } },
+  );
+  return events;
+}
+
 test.describe('Advanced Fable chat contract', () => {
+  test('Web search setting and internal contract are exact and independently validated', async () => {
+    const contract = await import(moduleUrl('workers/shared/fable-chat-contract.mjs'));
+    const auth = await import(moduleUrl('workers/auth/src/lib/fable-chat.js'));
+    const ai = await import(moduleUrl('workers/ai/src/lib/validate.js'));
+
+    expect(contract.FABLE_CHAT_DEFAULT_WEB_SEARCH_ENABLED).toBe(false);
+    expect({
+      type: contract.FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+      name: contract.FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+      max_uses: contract.FABLE_CHAT_WEB_SEARCH_MAX_USES,
+    }).toEqual({ type: 'web_search_20250305', name: 'web_search', max_uses: 1 });
+    expect(auth.validateUpdateFableChatSettingsBody({ webSearchEnabled: true }))
+      .toEqual({ webSearchEnabled: true });
+    expect(() => auth.validateUpdateFableChatSettingsBody({ webSearchEnabled: 'yes' })).toThrow();
+    expect(() => auth.validateUpdateFableChatSettingsBody({ tools: [] })).toThrow();
+    expect(ai.validateFableChatBody(validAiBody(undefined, { webSearchEnabled: true })))
+      .toMatchObject({ webSearchEnabled: true, webSearchContractVersion: 1 });
+    expect(() => ai.validateFableChatBody(validAiBody(undefined, { tools: [] }))).toThrow();
+    expect(() => ai.validateFableChatBody(validAiBody(undefined, {
+      webSearchEnabled: true,
+      webSearchContractVersion: 2,
+    }))).toThrow();
+  });
+
+  test('native Web search blocks stream safely, preserve private continuity, and expose bounded sources', async () => {
+    const streamModule = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const bytes = encodeSseEvents(webSearchProviderEvents(), { crlf: true, comment: true });
+    const statuses = [];
+    const result = await streamModule.consumeAnthropicMessageStream(
+      byteStream([bytes.slice(0, 17), bytes.slice(17, 63), bytes.slice(63)]),
+      { onWebSearchStarted: () => statuses.push('search') }
+    );
+    expect(statuses).toEqual(['search']);
+    expect(result).toMatchObject({
+      text: 'Cloudflare builds for the agent era.',
+      webSearchRequestCount: 1,
+      webSearchResultCount: 1,
+      sources: [{ url: 'https://www.cloudflare.com/', title: 'Cloudflare' }],
+    });
+    expect(result.providerBlocks[0]).toMatchObject({
+      type: 'server_tool_use',
+      name: 'web_search',
+      input: { query: 'current Cloudflare title' },
+    });
+    expect(result.providerBlocks[1].content[0].encrypted_content)
+      .toBe('encrypted-result-content');
+    expect(result.providerBlocks[2].citations[0].encrypted_index)
+      .toBe('encrypted-citation-index');
+    expect(JSON.stringify(result.sources)).not.toContain('encrypted');
+  });
+
+  test('search-result context is conservatively estimated without mutating private blocks or cache order', async () => {
+    const context = await import(moduleUrl('workers/auth/src/lib/fable-chat-context.js'));
+    const toolId = 'srvtoolu_contextsearch1';
+    const providerBlocks = [
+      { type: 'server_tool_use', id: toolId, name: 'web_search', input: { query: 'current data' } },
+      {
+        type: 'web_search_tool_result',
+        tool_use_id: toolId,
+        content: [{
+          type: 'web_search_result',
+          url: 'https://example.com/source',
+          title: 'Source',
+          encrypted_content: 'x'.repeat(8_192),
+          page_age: null,
+        }],
+      },
+      { type: 'text', text: 'Cited answer' },
+    ];
+    const textOnly = context.estimateFableChatInputTokens({
+      system: 'System',
+      messages: [{ role: 'user', content: 'Question' }, { role: 'assistant', content: 'Answer' }],
+    });
+    const withSearch = context.estimateFableChatInputTokens({
+      system: 'System',
+      messages: [{ role: 'user', content: 'Question' }, { role: 'assistant', content: providerBlocks }],
+    });
+    expect(withSearch.estimatedInputTokens).toBeGreaterThan(textOnly.estimatedInputTokens + 4_000);
+
+    const selected = context.selectFableChatModelContext({
+      system: 'System '.repeat(700),
+      priorTurnsNewestFirst: [{ userContent: 'Question', assistantProviderBlocks: providerBlocks }],
+      currentMessage: 'Follow up',
+      effectiveInputTokenLimit: 30_000,
+      totalPriorTurns: 1,
+    });
+    const storedResult = selected.messages[1].content[1];
+    expect(storedResult.content[0].encrypted_content).toBe('x'.repeat(8_192));
+    expect(selected.messages.map((message) => message.role)).toEqual(['user', 'assistant', 'user']);
+    expect(selected.messages.at(-1).content).toBe('Follow up');
+    expect(JSON.stringify(selected.messages.at(-1))).not.toContain('cache_control');
+
+    const omitted = context.selectFableChatModelContext({
+      system: 'System',
+      priorTurnsNewestFirst: [{ userContent: 'Question', assistantProviderBlocks: providerBlocks }],
+      currentMessage: 'Short follow up',
+      effectiveInputTokenLimit: 1_000,
+      totalPriorTurns: 1,
+    });
+    expect(omitted.messages).toEqual([{ role: 'user', content: 'Short follow up' }]);
+    expect(omitted.context).toMatchObject({ includedTurns: 0, omittedTurns: 1 });
+  });
+
+  test('pause_turn resumes once with the same logical search and normalizes only one browser status', async () => {
+    const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const authStream = await import(moduleUrl('workers/auth/src/lib/fable-chat-stream.js'));
+    const pausedEvents = [
+      {
+        event: 'message_start',
+        data: { type: 'message_start', message: { model: 'claude-fable-5', usage: {} } },
+      },
+      {
+        event: 'content_block_start',
+        data: {
+          type: 'content_block_start',
+          index: 0,
+          content_block: {
+            type: 'server_tool_use',
+            id: 'srvtoolu_search123456',
+            name: 'web_search',
+          },
+        },
+      },
+      {
+        event: 'content_block_delta',
+        data: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'input_json_delta', partial_json: '{"query":"current Cloudflare title"}' },
+        },
+      },
+      { event: 'content_block_stop', data: { type: 'content_block_stop', index: 0 } },
+      {
+        event: 'message_delta',
+        data: { type: 'message_delta', delta: { stop_reason: 'pause_turn' }, usage: {} },
+      },
+      { event: 'message_stop', data: { type: 'message_stop' } },
+    ];
+    const paused = encodeSseEvents(pausedEvents);
+    const continuation = encodeSseEvents(webSearchProviderEvents({ includeToolUse: false }));
+    let continuationCalls = 0;
+    const internal = aiStream.createInternalFableChatStream(byteStream([paused]), {
+      continueAfterPause: async () => {
+        continuationCalls += 1;
+        return byteStream([continuation]);
+      },
+    });
+    let searchStatuses = 0;
+    const complete = await authStream.consumeInternalFableChatStream(internal, {
+      onWebSearchStarted: () => { searchStatuses += 1; },
+    });
+    expect(continuationCalls).toBe(1);
+    expect(searchStatuses).toBe(1);
+    expect(complete.webSearchRequestCount).toBe(1);
+    expect(complete.sources).toEqual([
+      expect.objectContaining({ url: 'https://www.cloudflare.com/' }),
+    ]);
+  });
+
   test('effort mapping, high default, presets, and adaptive-only controls are exact', async () => {
     const contract = await import(moduleUrl('workers/shared/fable-chat-contract.mjs'));
     const auth = await import(moduleUrl('workers/auth/src/lib/fable-chat.js'));
@@ -233,7 +493,7 @@ test.describe('Advanced Fable chat contract', () => {
       messages: [{ role: 'user', content }],
     }));
     for (const estimate of estimates) {
-      expect(estimate.estimatorVersion).toBe('utf8-conservative-v1');
+      expect(estimate.estimatorVersion).toBe('utf8-conservative-v2');
       expect(estimate.estimatedInputTokens).toBeGreaterThan(estimate.rawTokens);
       expect(estimate.estimatedInputTokens).toBeGreaterThan(256);
     }
@@ -263,7 +523,7 @@ test.describe('Advanced Fable chat contract', () => {
       includedTurns: 1,
       omittedTurns: 2,
       olderTurnsOmitted: true,
-      estimatorVersion: 'utf8-conservative-v1',
+      estimatorVersion: 'utf8-conservative-v2',
     });
     expect(selected.context.estimatedInputTokens).toBeLessThanOrEqual(5_000);
   });
@@ -397,6 +657,36 @@ test.describe('Advanced Fable chat contract', () => {
       code: 'provider_stream_timeout',
       definitive: false,
     });
+
+    expect(streamModule.sanitizeAnthropicContentBlocks([
+      {
+        type: 'server_tool_use',
+        id: 'srvtoolu_errorsearch1',
+        name: 'web_search',
+        input: { query: 'current data' },
+      },
+      {
+        type: 'web_search_tool_result',
+        tool_use_id: 'srvtoolu_errorsearch1',
+        content: { type: 'web_search_tool_result_error', error_code: 'unavailable' },
+      },
+      { type: 'text', text: 'Search was unavailable.' },
+    ])).toHaveLength(3);
+    expect(() => streamModule.extractAnthropicVisibleResult([
+      {
+        type: 'server_tool_use',
+        id: 'srvtoolu_searchlimit1',
+        name: 'web_search',
+        input: { query: 'one' },
+      },
+      {
+        type: 'server_tool_use',
+        id: 'srvtoolu_searchlimit2',
+        name: 'web_search',
+        input: { query: 'two' },
+      },
+      { type: 'text', text: 'Too many.' },
+    ])).toThrow(/web-search (?:limit|blocks)/i);
   });
 
   test('migration 0070 preserves legacy text-only success, failure, unknown, and deletion state', () => {
@@ -460,6 +750,57 @@ test.describe('Advanced Fable chat contract', () => {
       expect(DB.database.prepare(
         'SELECT COUNT(*) AS count FROM fable_chat_provider_messages'
       ).get().count).toBe(0);
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('migration 0071 defaults existing conversations and attempts to Web search disabled', () => {
+    const DB = new SqliteD1Database();
+    try {
+      applyAuthMigrations(DB, { through: '0070_add_fable_chat_advanced_inference.sql' });
+      const now = '2026-07-11T00:00:00.000Z';
+      DB.exec(`
+        INSERT INTO users (id, email, password_hash, created_at, status, role, updated_at)
+        VALUES ('web-admin', 'web-admin@example.com', 'unused', '${now}', 'active', 'admin', '${now}');
+        INSERT INTO fable_chat_conversations (
+          id, admin_user_id, title, title_source, turn_count, created_at, updated_at
+        ) VALUES (
+          'fbc_10000000000000000000000000000001', 'web-admin', 'Existing', 'manual', 1, '${now}', '${now}'
+        );
+        INSERT INTO fable_chat_messages (
+          id, conversation_id, message_group_id, admin_user_id, turn_order, role, role_order,
+          content, state, metadata_json, created_at, updated_at
+        ) VALUES (
+          'fbm_10000000000000000000000000000001', 'fbc_10000000000000000000000000000001',
+          'fbg_existing', 'web-admin', 0, 'user', 0, 'Existing message', 'failed', '{}', '${now}', '${now}'
+        );
+        INSERT INTO fable_chat_turns (
+          id, conversation_id, admin_user_id, idempotency_key_hash, request_fingerprint,
+          user_message_id, status, usage_json, gateway_metadata_json, created_at, updated_at, expires_at
+        ) VALUES (
+          'fbt_10000000000000000000000000000001', 'fbc_10000000000000000000000000000001',
+          'web-admin', 'hash-existing', 'fingerprint-existing', 'fbm_10000000000000000000000000000001',
+          'failed', '{}', '{}', '${now}', '${now}', '${now}'
+        );
+      `);
+      DB.exec(fs.readFileSync(
+        path.join(process.cwd(), 'workers/auth/migrations/0071_add_fable_chat_web_search.sql'),
+        'utf8'
+      ));
+      expect(DB.database.prepare(
+        'SELECT web_search_enabled FROM fable_chat_conversations WHERE admin_user_id = ?'
+      ).get('web-admin').web_search_enabled).toBe(0);
+      expect(DB.database.prepare(
+        'SELECT web_search_enabled, web_search_tool_version, web_search_max_uses FROM fable_chat_turns'
+      ).get()).toMatchObject({
+        web_search_enabled: 0,
+        web_search_tool_version: 'web_search_20250305',
+        web_search_max_uses: 1,
+      });
+      expect(DB.database.prepare(
+        'SELECT citations_json, content FROM fable_chat_messages'
+      ).get()).toEqual({ citations_json: '[]', content: 'Existing message' });
     } finally {
       DB.close();
     }

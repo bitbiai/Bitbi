@@ -158,6 +158,13 @@ export async function consumeInternalFableChatStream(stream, callbacks = {}) {
       callbacks.onKeepalive?.();
       continue;
     }
+    if (event === "web_search_started") {
+      if (!accepted || data.ok !== true) {
+        throw new FableChatInternalStreamError("The internal web-search event is invalid.");
+      }
+      callbacks.onWebSearchStarted?.();
+      continue;
+    }
     if (event === "thinking_delta" || event === "text_delta") {
       if (!accepted || typeof data.text !== "string") {
         throw new FableChatInternalStreamError("The internal Fable delta is invalid.");

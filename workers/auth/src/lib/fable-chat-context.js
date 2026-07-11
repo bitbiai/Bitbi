@@ -1,13 +1,23 @@
 import {
   FABLE_CHAT_CONTEXT_ESTIMATOR_VERSION,
   FABLE_CHAT_CONTEXT_FORMAT_VERSION,
+  FABLE_CHAT_MAX_CITATIONS,
+  FABLE_CHAT_MAX_CITATIONS_JSON_BYTES,
   FABLE_CHAT_MAX_PROVIDER_BLOCKS,
   FABLE_CHAT_MAX_PROVIDER_BLOCKS_JSON_BYTES,
   FABLE_CHAT_MAX_REASONING_SUMMARY_CHARACTERS,
+  FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS,
+  FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
+  FABLE_CHAT_MAX_SEARCH_RESULT_ERROR_CODE_CHARACTERS,
+  FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS,
+  FABLE_CHAT_MAX_SOURCE_TITLE_CHARACTERS,
+  FABLE_CHAT_MAX_SOURCE_URL_CHARACTERS,
   FABLE_CHAT_MAX_THINKING_SIGNATURE_BYTES,
+  FABLE_CHAT_MAX_WEB_SEARCH_RESULTS,
   FABLE_CHAT_PROMPT_CACHE_MINIMUM_TOKENS,
   FABLE_CHAT_PROMPT_CACHE_POLICY,
   FABLE_CHAT_PROMPT_CACHE_VERSION,
+  FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
 } from "../../../shared/fable-chat-contract.mjs";
 
 const TEXT_ENCODER = new TextEncoder();
@@ -16,6 +26,15 @@ const ESTIMATOR_MARGIN_MULTIPLIER = 1.12;
 const ESTIMATOR_FIXED_MARGIN_TOKENS = 256;
 const MESSAGE_OVERHEAD_TOKENS = 12;
 const CONTENT_BLOCK_OVERHEAD_TOKENS = 8;
+const TOOL_ID_PATTERN = /^srvtoolu_[A-Za-z0-9_-]{8,160}$/;
+const SEARCH_ERROR_CODES = new Set([
+  "too_many_requests",
+  "invalid_tool_input",
+  "max_uses_exceeded",
+  "query_too_long",
+  "request_too_large",
+  "unavailable",
+]);
 
 export function utf8ByteLength(value) {
   return TEXT_ENCODER.encode(String(value || "")).byteLength;
@@ -39,6 +58,118 @@ function assertSafeProviderText(value, field, maxCharacters) {
   return value;
 }
 
+function assertOnlyProviderFields(value, allowed, field) {
+  if (Object.keys(value).some((key) => !allowed.includes(key))) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+}
+
+function normalizeHttpsUrl(value, field) {
+  const url = assertSafeProviderText(value, field, FABLE_CHAT_MAX_SOURCE_URL_CHARACTERS);
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  return url;
+}
+
+function normalizePrivateCitation(value, field) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  assertOnlyProviderFields(
+    value,
+    ["type", "url", "title", "encrypted_index", "cited_text"],
+    field
+  );
+  if (value.type !== "web_search_result_location") {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  return {
+    type: "web_search_result_location",
+    url: normalizeHttpsUrl(value.url, `${field}.url`),
+    title: assertSafeProviderText(
+      value.title,
+      `${field}.title`,
+      FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS
+    ),
+    encrypted_index: assertSafeProviderText(
+      value.encrypted_index,
+      `${field}.encrypted_index`,
+      FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES
+    ),
+    cited_text: assertSafeProviderText(value.cited_text, `${field}.cited_text`, 2_048),
+  };
+}
+
+function normalizePrivateCitations(value, field) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > FABLE_CHAT_MAX_CITATIONS) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  return value.map((citation, index) => normalizePrivateCitation(citation, `${field}[${index}]`));
+}
+
+function normalizeToolId(value, field) {
+  const id = assertSafeProviderText(value, field, 180);
+  if (!TOOL_ID_PATTERN.test(id)) throw new TypeError(`${field} is invalid.`);
+  return id;
+}
+
+function normalizeSearchResult(value, field) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  assertOnlyProviderFields(
+    value,
+    ["type", "url", "title", "encrypted_content", "page_age"],
+    field
+  );
+  if (value.type !== "web_search_result") throw new TypeError(`${field} is invalid.`);
+  const pageAge = value.page_age == null
+    ? null
+    : assertSafeProviderText(value.page_age, `${field}.page_age`, 160);
+  return {
+    type: "web_search_result",
+    url: normalizeHttpsUrl(value.url, `${field}.url`),
+    title: assertSafeProviderText(
+      value.title,
+      `${field}.title`,
+      FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS
+    ),
+    encrypted_content: assertSafeProviderText(
+      value.encrypted_content,
+      `${field}.encrypted_content`,
+      FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES
+    ),
+    page_age: pageAge,
+  };
+}
+
+function normalizeSearchResultContent(value, field) {
+  if (Array.isArray(value)) {
+    if (value.length > FABLE_CHAT_MAX_WEB_SEARCH_RESULTS) {
+      throw new TypeError(`${field} is invalid.`);
+    }
+    return value.map((result, index) => normalizeSearchResult(result, `${field}[${index}]`));
+  }
+  if (!value || typeof value !== "object") throw new TypeError(`${field} is invalid.`);
+  assertOnlyProviderFields(value, ["type", "error_code"], field);
+  const errorCode = assertSafeProviderText(
+    value.error_code,
+    `${field}.error_code`,
+    FABLE_CHAT_MAX_SEARCH_RESULT_ERROR_CODE_CHARACTERS
+  );
+  if (value.type !== "web_search_tool_result_error" || !SEARCH_ERROR_CODES.has(errorCode)) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  return { type: "web_search_tool_result_error", error_code: errorCode };
+}
+
 export function normalizeFableChatProviderBlocks(value, {
   allowEmptyThinking = true,
 } = {}) {
@@ -59,11 +190,15 @@ export function normalizeFableChatProviderBlocks(value, {
       throw new TypeError(`Provider content block ${index} is invalid.`);
     }
     if (block.type === "text") {
-      if (Object.keys(block).some((key) => !["type", "text"].includes(key))) {
-        throw new TypeError(`Provider text block ${index} is invalid.`);
-      }
+      assertOnlyProviderFields(block, ["type", "text", "citations"], `Provider text block ${index}`);
       const text = assertSafeProviderText(block.text, `Provider text block ${index}`, 524_288);
-      return { type: "text", text };
+      return {
+        type: "text",
+        text,
+        ...(block.citations === undefined
+          ? {}
+          : { citations: normalizePrivateCitations(block.citations, `Provider text citations ${index}`) }),
+      };
     }
     if (block.type === "thinking") {
       if (Object.keys(block).some((key) => !["type", "thinking", "signature"].includes(key))) {
@@ -87,14 +222,109 @@ export function normalizeFableChatProviderBlocks(value, {
       }
       return { type: "thinking", thinking, signature };
     }
+    if (block.type === "server_tool_use") {
+      assertOnlyProviderFields(
+        block,
+        ["type", "id", "name", "input"],
+        `Provider server tool block ${index}`
+      );
+      if (block.name !== FABLE_CHAT_WEB_SEARCH_TOOL_NAME) {
+        throw new TypeError(`Provider server tool block ${index} is invalid.`);
+      }
+      if (!block.input || typeof block.input !== "object" || Array.isArray(block.input)) {
+        throw new TypeError(`Provider server tool block ${index} is invalid.`);
+      }
+      assertOnlyProviderFields(block.input, ["query"], `Provider server tool input ${index}`);
+      return {
+        type: "server_tool_use",
+        id: normalizeToolId(block.id, `Provider server tool id ${index}`),
+        name: FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+        input: {
+          query: assertSafeProviderText(
+            block.input.query,
+            `Provider server tool query ${index}`,
+            FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS
+          ),
+        },
+      };
+    }
+    if (block.type === "web_search_tool_result") {
+      assertOnlyProviderFields(
+        block,
+        ["type", "tool_use_id", "content", "caller"],
+        `Provider search result block ${index}`
+      );
+      let caller;
+      if (block.caller !== undefined) {
+        if (!block.caller || typeof block.caller !== "object" || Array.isArray(block.caller)) {
+          throw new TypeError(`Provider search result caller ${index} is invalid.`);
+        }
+        assertOnlyProviderFields(block.caller, ["type"], `Provider search result caller ${index}`);
+        if (block.caller.type !== "direct") {
+          throw new TypeError(`Provider search result caller ${index} is invalid.`);
+        }
+        caller = { type: "direct" };
+      }
+      return {
+        type: "web_search_tool_result",
+        tool_use_id: normalizeToolId(block.tool_use_id, `Provider search result id ${index}`),
+        content: normalizeSearchResultContent(block.content, `Provider search result content ${index}`),
+        ...(caller ? { caller } : {}),
+      };
+    }
     throw new TypeError(`Provider content block ${index} has an unsupported type.`);
   });
 
   const serialized = JSON.stringify(normalized);
+  const citationCount = normalized.reduce((total, block) => total + (block.citations?.length || 0), 0);
+  if (citationCount > FABLE_CHAT_MAX_CITATIONS) {
+    throw new TypeError("Provider citations exceed their safe limit.");
+  }
   if (utf8ByteLength(serialized) > FABLE_CHAT_MAX_PROVIDER_BLOCKS_JSON_BYTES) {
     throw new TypeError("Provider content blocks are too large.");
   }
   return normalized;
+}
+
+export function extractFableChatCitations(blocks) {
+  const deduplicated = new Map();
+  for (const block of normalizeFableChatProviderBlocks(blocks)) {
+    if (block.type !== "text") continue;
+    for (const citation of block.citations || []) {
+      if (deduplicated.has(citation.url)) continue;
+      deduplicated.set(citation.url, {
+        url: citation.url,
+        title: citation.title.slice(0, FABLE_CHAT_MAX_SOURCE_TITLE_CHARACTERS),
+        type: citation.type,
+      });
+      if (deduplicated.size >= FABLE_CHAT_MAX_CITATIONS) break;
+    }
+    if (deduplicated.size >= FABLE_CHAT_MAX_CITATIONS) break;
+  }
+  const citations = [...deduplicated.values()];
+  if (utf8ByteLength(JSON.stringify(citations)) > FABLE_CHAT_MAX_CITATIONS_JSON_BYTES) {
+    throw new TypeError("Provider citations are too large.");
+  }
+  return citations;
+}
+
+export function countFableChatWebSearchBlocks(blocks) {
+  const normalized = normalizeFableChatProviderBlocks(blocks);
+  const requests = normalized.filter((block) => (
+    block.type === "server_tool_use" && block.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME
+  ));
+  const requestIds = new Set(requests.map((block) => block.id));
+  const allResults = normalized.filter((block) => block.type === "web_search_tool_result");
+  const resultIds = new Set(allResults.map((block) => block.tool_use_id));
+  if (
+    requestIds.size !== requests.length
+    || resultIds.size !== allResults.length
+    || allResults.some((block) => !requestIds.has(block.tool_use_id))
+    || requests.length !== allResults.length
+  ) {
+    throw new TypeError("Provider web-search blocks are inconsistent.");
+  }
+  return { requestCount: requests.length, resultCount: allResults.length };
 }
 
 export function extractFableChatAssistantText(blocks) {
@@ -125,9 +355,12 @@ function estimateContentTokens(content) {
     tokens += CONTENT_BLOCK_OVERHEAD_TOKENS;
     if (block?.type === "text") {
       tokens += estimateFableChatTextTokens(block.text);
+      if (block.citations) tokens += Math.ceil(utf8ByteLength(JSON.stringify(block.citations)) / 2);
     } else if (block?.type === "thinking") {
       tokens += estimateFableChatTextTokens(block.thinking);
       tokens += Math.ceil(utf8ByteLength(block.signature) / 2);
+    } else if (block?.type === "server_tool_use" || block?.type === "web_search_tool_result") {
+      tokens += Math.ceil(utf8ByteLength(JSON.stringify(block)) / 2);
     } else {
       throw new TypeError("Message content block is invalid.");
     }
@@ -153,7 +386,7 @@ function cloneMessage(message) {
     role: message.role,
     content: typeof message.content === "string"
       ? message.content
-      : message.content.map((block) => ({ ...block })),
+      : JSON.parse(JSON.stringify(message.content)),
   };
 }
 
@@ -165,7 +398,7 @@ function addCacheControlToLastStableMessage(messages) {
   if (typeof content === "string") {
     content = [{ type: "text", text: content }];
   } else {
-    content = content.map((block) => ({ ...block }));
+    content = JSON.parse(JSON.stringify(content));
   }
   let blockIndex = -1;
   for (let index = content.length - 1; index >= 0; index -= 1) {
@@ -193,6 +426,10 @@ function textCharacterCount(system, messages) {
     for (const block of message.content || []) {
       if (block.type === "text") characters += String(block.text || "").length;
       if (block.type === "thinking") characters += String(block.thinking || "").length;
+      if (block.type === "server_tool_use" || block.type === "web_search_tool_result") {
+        characters += JSON.stringify(block).length;
+      }
+      if (block.type === "text" && block.citations) characters += JSON.stringify(block.citations).length;
     }
   }
   return characters;
@@ -209,6 +446,12 @@ export function estimateFableChatCacheEligibilityTokens({ system, messages }) {
       if (block.type === "text") bytes += utf8ByteLength(block.text);
       if (block.type === "thinking") {
         bytes += utf8ByteLength(block.thinking) + utf8ByteLength(block.signature);
+      }
+      if (block.type === "server_tool_use" || block.type === "web_search_tool_result") {
+        bytes += utf8ByteLength(JSON.stringify(block));
+      }
+      if (block.type === "text" && block.citations) {
+        bytes += utf8ByteLength(JSON.stringify(block.citations));
       }
     }
   }

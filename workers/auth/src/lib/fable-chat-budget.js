@@ -26,6 +26,7 @@ export const FABLE_CHAT_INTERNAL_PATH = "/internal/ai/fable-chat";
 export const FABLE_CHAT_INTERNAL_STREAM_PATH = "/internal/ai/fable-chat/stream";
 export const FABLE_CHAT_BUDGET_SWITCH = "ENABLE_ADMIN_AI_TEXT_BUDGET";
 const FABLE_CHAT_INPUT_UNIT_TOKENS = 32_768;
+export const FABLE_CHAT_WEB_SEARCH_SURCHARGE_UNITS = 2;
 const FABLE_CHAT_EFFORT_UNITS = Object.freeze({
   medium: 1,
   high: 2,
@@ -33,7 +34,7 @@ const FABLE_CHAT_EFFORT_UNITS = Object.freeze({
   max: 5,
 });
 
-export function deriveFableChatBudgetUnits({ effort, estimatedInputTokens }) {
+export function deriveFableChatBudgetUnits({ effort, estimatedInputTokens, webSearchEnabled = false }) {
   const effortUnits = FABLE_CHAT_EFFORT_UNITS[effort];
   if (!effortUnits) {
     const error = new Error("Fable chat effort is invalid for budget admission.");
@@ -43,10 +44,12 @@ export function deriveFableChatBudgetUnits({ effort, estimatedInputTokens }) {
   }
   const inputTokens = Math.max(0, Math.floor(Number(estimatedInputTokens) || 0));
   const inputUnits = Math.max(1, Math.ceil(inputTokens / FABLE_CHAT_INPUT_UNIT_TOKENS));
+  const webSearchUnits = webSearchEnabled === true ? FABLE_CHAT_WEB_SEARCH_SURCHARGE_UNITS : 0;
   return {
-    units: effortUnits + inputUnits,
+    units: effortUnits + inputUnits + webSearchUnits,
     effortUnits,
     inputUnits,
+    webSearchUnits,
     estimatedInputBucketTokens: inputUnits * FABLE_CHAT_INPUT_UNIT_TOKENS,
   };
 }
@@ -115,6 +118,7 @@ export async function prepareFableChatBudget({
   const budgetWeight = deriveFableChatBudgetUnits({
     effort: settings?.effort,
     estimatedInputTokens: context?.estimatedInputTokens,
+    webSearchEnabled: settings?.webSearchEnabled,
   });
   const budgetFingerprint = await buildAdminPlatformBudgetFingerprint({
     operation,
@@ -136,6 +140,10 @@ export async function prepareFableChatBudget({
       prompt_cache_version: settings?.promptCacheVersion,
       context_format_version: context?.contextFormatVersion,
       estimated_input_bucket_tokens: budgetWeight.estimatedInputBucketTokens,
+      web_search_enabled: settings?.webSearchEnabled === true,
+      web_search_tool_version: settings?.webSearchToolVersion,
+      web_search_max_uses: settings?.webSearchMaxUses,
+      web_search_contract_version: settings?.webSearchContractVersion,
     },
     hashFields: ["message"],
   });
@@ -173,7 +181,7 @@ export async function prepareFableChatBudget({
     budgetScope: plan.budgetScope,
     units: capCheck.requestedUnits,
     metadata: {
-      phase: "van-ark-fable-chat-v2",
+      phase: "van-ark-fable-chat-v3",
       source: "provider_attempt_admission",
       model_id: FABLE_CHAT_MODEL_ID,
       provider_family: "ai_worker",
@@ -183,6 +191,8 @@ export async function prepareFableChatBudget({
       estimated_input_bucket_tokens: budgetWeight.estimatedInputBucketTokens,
       effort_units: budgetWeight.effortUnits,
       input_units: budgetWeight.inputUnits,
+      web_search_enabled: settings.webSearchEnabled === true,
+      web_search_units: budgetWeight.webSearchUnits,
       final_state: "admitted",
     },
   };
@@ -202,7 +212,7 @@ export async function admitFableChatBudgetUsage({
   const windows = getPlatformBudgetWindows(createdAt);
   const eventId = `pbu_${randomTokenHex(16)}`;
   const metadataJson = JSON.stringify(metadata || {
-    phase: "van-ark-fable-chat-v2",
+    phase: "van-ark-fable-chat-v3",
     source: "provider_attempt_admission",
     model_id: FABLE_CHAT_MODEL_ID,
     provider_family: "ai_worker",
@@ -304,6 +314,7 @@ export async function recordFableChatBudgetOutcome(env, turnId, {
   durationMs = null,
   outputTruncated = false,
   usage = null,
+  webSearchRequestCount = 0,
 } = {}) {
   const safeState = ["succeeded", "failed", "unknown"].includes(finalState)
     ? finalState
@@ -329,6 +340,7 @@ export async function recordFableChatBudgetOutcome(env, turnId, {
     duration_ms: safeDurationMs,
     output_truncated: outputTruncated === true,
     ...safeUsage,
+    web_search_request_count: Math.min(1, Math.max(0, Math.floor(Number(webSearchRequestCount) || 0))),
   };
   await env.DB.prepare(
     `UPDATE platform_budget_usage_events
