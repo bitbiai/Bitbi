@@ -8,8 +8,8 @@ export const FABLE_CHAT_MEMORY_MODEL_ID = QWEN3_30B_A3B_MODEL_ID;
 export const FABLE_CHAT_MEMORY_MODEL_CONTEXT_TOKENS = QWEN3_30B_A3B_CONTEXT_WINDOW_TOKENS;
 export const FABLE_CHAT_MEMORY_CONTRACT_VERSION = 1;
 export const FABLE_CHAT_MEMORY_PROMPT_VERSION = 1;
-export const FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION = 2;
-export const FABLE_CHAT_MEMORY_SUPPORTED_DIAGNOSTIC_VERSIONS = Object.freeze([1, 2]);
+export const FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION = 3;
+export const FABLE_CHAT_MEMORY_SUPPORTED_DIAGNOSTIC_VERSIONS = Object.freeze([1, 2, 3]);
 export const FABLE_CHAT_MEMORY_ESTIMATOR_VERSION = "utf8-visible-memory-v1";
 export const FABLE_CHAT_MEMORY_MODES = Object.freeze(["standard", "lite"]);
 export const FABLE_CHAT_DEFAULT_MEMORY_MODE = "standard";
@@ -88,7 +88,14 @@ const SUMMARY_FIELDS = Object.freeze([
 const SUMMARY_MAX_ARRAY_ITEMS = 48;
 const SUMMARY_MAX_ITEM_CHARACTERS = 600;
 const SUMMARY_MAX_LANGUAGE_CHARACTERS = 80;
-const SUMMARY_MAX_SOURCES = 16;
+export const FABLE_CHAT_MEMORY_MAX_SOURCES = 16;
+export const FABLE_CHAT_MEMORY_SOURCE_ID_PATTERN = /^src_\d{3}$/;
+const FABLE_CHAT_MEMORY_SOURCE_ID_FIELDS = Object.freeze([
+  "version",
+  "language",
+  ...SUMMARY_ARRAY_FIELDS,
+  "source_ids",
+]);
 const SUMMARY_MAX_SOURCE_TITLE_CHARACTERS = 256;
 const SUMMARY_MAX_SOURCE_URL_CHARACTERS = 2_048;
 const DISALLOWED_CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
@@ -223,7 +230,7 @@ function normalizeSummaryUrl(value, field) {
 }
 
 function normalizeSummarySources(value) {
-  if (!Array.isArray(value) || value.length > SUMMARY_MAX_SOURCES) {
+  if (!Array.isArray(value) || value.length > FABLE_CHAT_MEMORY_MAX_SOURCES) {
     throw new FableChatMemoryContractError("sources must be a bounded array.", undefined, {
       rejectionCategory: "invalid_source_shape",
     });
@@ -311,7 +318,186 @@ export function normalizeFableChatMemorySummary(value, { mode } = {}) {
   return { summary: normalized, canonical, estimatedTokens };
 }
 
-export function buildFableChatMemorySummarizerSystemPrompt(mode) {
+function normalizeCatalogSource(value) {
+  try {
+    return normalizeSummarySources([value])[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+export function buildFableChatMemorySourceCatalog({
+  previousSummary = null,
+  sourceTurns = [],
+} = {}) {
+  const candidates = [
+    ...(Array.isArray(previousSummary?.sources) ? previousSummary.sources : []),
+    ...sourceTurns.flatMap((turn) => (
+      Array.isArray(turn?.assistant?.sources) ? turn.assistant.sources : []
+    )),
+  ];
+  const entries = [];
+  const idByUrl = new Map();
+  for (const candidate of candidates) {
+    if (entries.length >= FABLE_CHAT_MEMORY_MAX_SOURCES) break;
+    const source = normalizeCatalogSource(candidate);
+    if (!source || idByUrl.has(source.url)) continue;
+    const id = `src_${String(entries.length + 1).padStart(3, "0")}`;
+    entries.push({ id, title: source.title, url: source.url });
+    idByUrl.set(source.url, id);
+  }
+  return { entries, idByUrl };
+}
+
+function sourceIdsForCatalog(value, idByUrl) {
+  if (!Array.isArray(value)) return [];
+  const ids = [];
+  const seen = new Set();
+  for (const candidate of value) {
+    const source = normalizeCatalogSource(candidate);
+    const id = source ? idByUrl.get(source.url) : null;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+export function buildFableChatMemoryProviderSourcePayload({
+  previousSummary = null,
+  sourceTurns = [],
+} = {}) {
+  const catalog = buildFableChatMemorySourceCatalog({ previousSummary, sourceTurns });
+  const providerPreviousSummary = previousSummary ? {
+    ...previousSummary,
+    source_ids: sourceIdsForCatalog(previousSummary.sources, catalog.idByUrl),
+  } : null;
+  if (providerPreviousSummary) delete providerPreviousSummary.sources;
+  const providerSourceTurns = sourceTurns.map((turn) => ({
+    ...turn,
+    user: { ...turn.user },
+    assistant: {
+      ...turn.assistant,
+      source_ids: sourceIdsForCatalog(turn.assistant?.sources, catalog.idByUrl),
+    },
+  }));
+  for (const turn of providerSourceTurns) delete turn.assistant.sources;
+  const payload = {
+    previousSummary: providerPreviousSummary,
+    sourceCatalog: catalog.entries,
+    sourceTurns: providerSourceTurns,
+  };
+  return {
+    sourcePayload: JSON.stringify(payload),
+    sourceCatalog: catalog.entries,
+  };
+}
+
+function sourceIdDiagnostics(overrides = {}) {
+  return {
+    source_catalog_count: Math.max(0, Math.floor(Number(overrides.source_catalog_count) || 0)),
+    returned_source_id_count: Math.max(0, Math.floor(Number(overrides.returned_source_id_count) || 0)),
+    resolved_source_id_count: Math.max(0, Math.floor(Number(overrides.resolved_source_id_count) || 0)),
+    unknown_source_id_count: Math.max(0, Math.floor(Number(overrides.unknown_source_id_count) || 0)),
+    duplicate_source_id_count: Math.max(0, Math.floor(Number(overrides.duplicate_source_id_count) || 0)),
+    malformed_source_id_count: Math.max(0, Math.floor(Number(overrides.malformed_source_id_count) || 0)),
+    source_id_shape_valid: overrides.source_id_shape_valid === true,
+  };
+}
+
+export function normalizeFableChatMemoryProviderSummary(value, {
+  mode,
+  sourceCatalog = [],
+} = {}) {
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      throw new FableChatMemoryContractError("Memory summary is not valid JSON.", undefined, {
+        rejectionCategory: "json_parse_failed",
+      });
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new FableChatMemoryContractError("Memory summary must be an object.", undefined, {
+      rejectionCategory: "json_not_object",
+    });
+  }
+  if (Object.keys(parsed).length !== FABLE_CHAT_MEMORY_SOURCE_ID_FIELDS.length
+    || FABLE_CHAT_MEMORY_SOURCE_ID_FIELDS.some((field) => !Object.hasOwn(parsed, field))
+    || Object.keys(parsed).some((field) => !FABLE_CHAT_MEMORY_SOURCE_ID_FIELDS.includes(field))) {
+    throw new FableChatMemoryContractError("Memory summary has an unsupported shape.", undefined, {
+      rejectionCategory: "schema_invalid",
+    });
+  }
+  const returnedSourceIds = parsed.source_ids;
+  const diagnostics = sourceIdDiagnostics({
+    source_catalog_count: Array.isArray(sourceCatalog) ? sourceCatalog.length : 0,
+    returned_source_id_count: Array.isArray(returnedSourceIds) ? returnedSourceIds.length : 0,
+    malformed_source_id_count: Array.isArray(returnedSourceIds) ? 0 : 1,
+    source_id_shape_valid: Array.isArray(returnedSourceIds),
+  });
+  if (!Array.isArray(returnedSourceIds)
+    || returnedSourceIds.length > FABLE_CHAT_MEMORY_MAX_SOURCES) {
+    throw Object.assign(
+      new FableChatMemoryContractError("source_ids must be a bounded array.", undefined, {
+        rejectionCategory: "invalid_source_shape",
+      }),
+      { sourceDiagnostics: diagnostics }
+    );
+  }
+  const malformedCount = returnedSourceIds.filter((id) => (
+    typeof id !== "string" || !FABLE_CHAT_MEMORY_SOURCE_ID_PATTERN.test(id)
+  )).length;
+  diagnostics.malformed_source_id_count = malformedCount;
+  diagnostics.source_id_shape_valid = malformedCount === 0;
+  if (malformedCount > 0) {
+    throw Object.assign(
+      new FableChatMemoryContractError("source_ids contains an invalid ID.", undefined, {
+        rejectionCategory: "invalid_source_shape",
+      }),
+      { sourceDiagnostics: diagnostics }
+    );
+  }
+  const catalogById = new Map();
+  for (const entry of Array.isArray(sourceCatalog) ? sourceCatalog : []) {
+    if (!entry || !FABLE_CHAT_MEMORY_SOURCE_ID_PATTERN.test(entry.id)) continue;
+    const source = normalizeCatalogSource({ title: entry.title, url: entry.url });
+    if (source) catalogById.set(entry.id, source);
+  }
+  const seen = new Set();
+  const resolvedSources = [];
+  for (const id of returnedSourceIds) {
+    if (seen.has(id)) {
+      diagnostics.duplicate_source_id_count += 1;
+      continue;
+    }
+    seen.add(id);
+    const source = catalogById.get(id);
+    if (!source) {
+      diagnostics.unknown_source_id_count += 1;
+      continue;
+    }
+    resolvedSources.push(source);
+  }
+  diagnostics.resolved_source_id_count = resolvedSources.length;
+  const durableSummary = { ...parsed, sources: resolvedSources };
+  delete durableSummary.source_ids;
+  try {
+    return {
+      ...normalizeFableChatMemorySummary(durableSummary, { mode }),
+      sourceDiagnostics: diagnostics,
+    };
+  } catch (error) {
+    error.sourceDiagnostics = diagnostics;
+    throw error;
+  }
+}
+
+export function buildFableChatMemorySummarizerSystemPrompt(mode, {
+  sourceIdContract = false,
+} = {}) {
   const normalizedMode = normalizeFableChatMemoryMode(mode);
   const maxTokens = getFableChatMemorySummaryMaxTokens(normalizedMode);
   return [
@@ -330,11 +516,17 @@ export function buildFableChatMemorySummarizerSystemPrompt(mode) {
       open_items: [],
       constraints: [],
       corrections_uncertainties: [],
-      sources: [],
+      ...(sourceIdContract ? { source_ids: [] } : { sources: [] }),
     }),
-    "Preserve confirmed facts, preferences, names, dates, locations, important numbers, decisions, commitments, unresolved questions, active tasks, follow-ups, constraints, corrections, superseded information, uncertainty, disagreements, useful sanitized source titles and HTTPS URLs, and conversation language.",
+    sourceIdContract
+      ? "Preserve confirmed facts, preferences, names, dates, locations, important numbers, decisions, commitments, unresolved questions, active tasks, follow-ups, constraints, corrections, superseded information, uncertainty, disagreements, relevant catalog source IDs, and conversation language."
+      : "Preserve confirmed facts, preferences, names, dates, locations, important numbers, decisions, commitments, unresolved questions, active tasks, follow-ups, constraints, corrections, superseded information, uncertainty, disagreements, useful sanitized source titles and HTTPS URLs, and conversation language.",
     "Merge the previous summary with only the supplied new finalized turns. Prefer later corrections. Never invent facts or turn uncertainty into certainty.",
     "Exclude filler, private reasoning, signatures, tool payloads, credentials, cookies, MFA data, and internal errors.",
+    ...(sourceIdContract ? [
+      "The source catalog is server-owned. Return only source_ids that appear in that catalog.",
+      "Never return source titles, URLs, source objects, or invented IDs. Use an empty source_ids array when no source applies.",
+    ] : []),
     `Keep the entire JSON object within ${maxTokens} conservatively estimated tokens for the ${normalizedMode} profile.`,
     "/no_think",
   ].join("\n");

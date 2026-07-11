@@ -41,6 +41,7 @@ import {
   getFableChatMemoryProviderMaxTokens,
   getFableChatMemorySummaryMaxTokens,
   normalizeFableChatMemoryRejectionCategory,
+  normalizeFableChatMemoryProviderSummary,
   normalizeFableChatMemorySummary,
 } from "../../../shared/fable-chat-memory-contract.mjs";
 import {
@@ -909,11 +910,23 @@ function createFableChatMemoryProviderRejection(category, diagnostics = {}) {
     ),
     provider_usage: sanitizeQwenDiagnosticUsage(diagnostics.provider_usage),
     duration_ms: Math.max(0, Math.floor(Number(diagnostics.duration_ms) || 0)),
+    source_catalog_count: Math.max(0, Math.floor(Number(diagnostics.source_catalog_count) || 0)),
+    returned_source_id_count: Math.max(0, Math.floor(Number(diagnostics.returned_source_id_count) || 0)),
+    resolved_source_id_count: Math.max(0, Math.floor(Number(diagnostics.resolved_source_id_count) || 0)),
+    unknown_source_id_count: Math.max(0, Math.floor(Number(diagnostics.unknown_source_id_count) || 0)),
+    duplicate_source_id_count: Math.max(0, Math.floor(Number(diagnostics.duplicate_source_id_count) || 0)),
+    malformed_source_id_count: Math.max(0, Math.floor(Number(diagnostics.malformed_source_id_count) || 0)),
+    source_id_shape_valid: diagnostics.source_id_shape_valid === true,
   });
   return error;
 }
 
-export function validateFableChatMemoryProviderResult(raw, { profile, startedAt = Date.now() } = {}) {
+export function validateFableChatMemoryProviderResult(raw, {
+  profile,
+  diagnosticVersion = 1,
+  sourceCatalog = [],
+  startedAt = Date.now(),
+} = {}) {
   const choice = Array.isArray(raw?.choices) ? raw.choices[0] : null;
   const choicePresent = Boolean(choice && typeof choice === "object" && !Array.isArray(choice));
   const message = choicePresent && choice.message && typeof choice.message === "object"
@@ -941,6 +954,8 @@ export function validateFableChatMemoryProviderResult(raw, { profile, startedAt 
     configured_profile_limit: getFableChatMemorySummaryMaxTokens(profile),
     provider_usage: raw?.usage,
     duration_ms: getDurationMs(startedAt),
+    source_catalog_count: Array.isArray(sourceCatalog) ? sourceCatalog.length : 0,
+    source_id_shape_valid: diagnosticVersion < 3,
   };
   if (!choicePresent) {
     throw createFableChatMemoryProviderRejection("missing_choice", diagnostics);
@@ -983,13 +998,19 @@ export function validateFableChatMemoryProviderResult(raw, { profile, startedAt 
     throw createFableChatMemoryProviderRejection("json_not_object", diagnostics);
   }
   try {
-    return normalizeFableChatMemorySummary(parsed, { mode: profile });
+    return diagnosticVersion >= 3
+      ? normalizeFableChatMemoryProviderSummary(parsed, {
+          mode: profile,
+          sourceCatalog,
+        })
+      : normalizeFableChatMemorySummary(parsed, { mode: profile });
   } catch (cause) {
     throw createFableChatMemoryProviderRejection(
       cause?.rejectionCategory,
       {
         ...diagnostics,
         estimated_summary_tokens: cause?.estimatedSummaryTokens,
+        ...(cause?.sourceDiagnostics || {}),
       }
     );
   }
@@ -998,7 +1019,10 @@ export function validateFableChatMemoryProviderResult(raw, { profile, startedAt 
 export async function invokeFableChatMemory(env, input) {
   ensureAI(env);
   const startedAt = Date.now();
-  const system = buildFableChatMemorySummarizerSystemPrompt(input.profile);
+  const usesSourceIdContract = input.diagnosticVersion >= 3;
+  const system = buildFableChatMemorySummarizerSystemPrompt(input.profile, {
+    sourceIdContract: usesSourceIdContract,
+  });
   const maxTokens = getFableChatMemoryProviderMaxTokens(input.profile);
   const payload = {
     messages: [
@@ -1007,6 +1031,9 @@ export async function invokeFableChatMemory(env, input) {
         role: "user",
         content: [
           "Summarize the following server-delimited memory source according to the system contract.",
+          ...(usesSourceIdContract ? [
+            "Select only source IDs from sourceCatalog and return them in source_ids; return no source titles, URLs, or objects.",
+          ] : []),
           "<van_ark_memory_source>",
           escapeFableChatMemoryPromptData(input.sourcePayload),
           "</van_ark_memory_source>",
@@ -1058,6 +1085,8 @@ export async function invokeFableChatMemory(env, input) {
   }
   const normalized = validateFableChatMemoryProviderResult(raw, {
     profile: input.profile,
+    diagnosticVersion: input.diagnosticVersion,
+    sourceCatalog: input.sourceCatalog,
     startedAt,
   });
   const usage = sanitizeQwenUsage(raw?.usage);
@@ -1065,6 +1094,7 @@ export async function invokeFableChatMemory(env, input) {
   return {
     canonicalSummary: normalized.canonical,
     estimatedSummaryTokens: normalized.estimatedTokens,
+    sourceDiagnostics: normalized.sourceDiagnostics || null,
     usage,
     providerCostUsd: cost.totalCostUsd,
     responseModel: sanitizeErrorValue(raw?.model) || QWEN3_30B_A3B_MODEL_ID,

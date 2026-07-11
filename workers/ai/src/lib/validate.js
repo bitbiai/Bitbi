@@ -55,6 +55,7 @@ import {
   FABLE_CHAT_MEMORY_MAX_SOURCE_TURNS,
   FABLE_CHAT_MEMORY_PROMPT_VERSION,
   FABLE_CHAT_MEMORY_SUPPORTED_DIAGNOSTIC_VERSIONS,
+  buildFableChatMemoryProviderSourcePayload,
   buildFableChatHiddenMemoryInstruction,
   buildFableChatMemorySummarizerSystemPrompt,
   escapeFableChatMemoryPromptData,
@@ -814,7 +815,14 @@ export function validateFableChatMemoryBody(body) {
     }
     return normalized;
   });
-  const sourcePayload = JSON.stringify({ previousSummary, sourceTurns });
+  const usesSourceIdContract = diagnosticVersion >= 3;
+  const providerSource = usesSourceIdContract
+    ? buildFableChatMemoryProviderSourcePayload({ previousSummary, sourceTurns })
+    : {
+        sourcePayload: JSON.stringify({ previousSummary, sourceTurns }),
+        sourceCatalog: [],
+      };
+  const { sourcePayload, sourceCatalog } = providerSource;
   if (sourcePayload.length > FABLE_CHAT_MEMORY_MAX_SOURCE_CHARACTERS) {
     throw new AdminAiValidationError(
       "Memory compaction source is too large.",
@@ -823,7 +831,9 @@ export function validateFableChatMemoryBody(body) {
     );
   }
   const estimatedInputTokens = estimateFableChatMemoryInputTokens(
-    `${buildFableChatMemorySummarizerSystemPrompt(profile)}\n${escapeFableChatMemoryPromptData(sourcePayload)}`
+    `${buildFableChatMemorySummarizerSystemPrompt(profile, {
+      sourceIdContract: usesSourceIdContract,
+    })}\n${escapeFableChatMemoryPromptData(sourcePayload)}`
   );
   if (estimatedInputTokens > FABLE_CHAT_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS) {
     throw new AdminAiValidationError(
@@ -841,6 +851,7 @@ export function validateFableChatMemoryBody(body) {
     previousSummaryProfile,
     sourceTurns,
     sourcePayload,
+    sourceCatalog,
     estimatedInputTokens,
   };
 }

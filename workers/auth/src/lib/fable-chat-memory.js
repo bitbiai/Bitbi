@@ -24,6 +24,7 @@ import {
   FABLE_CHAT_STANDARD_MEMORY_RAW_MIN_TOKENS,
   FABLE_CHAT_STANDARD_MEMORY_TRIGGER_TOKENS,
   buildFableChatHiddenMemoryInstruction,
+  buildFableChatMemoryProviderSourcePayload,
   buildFableChatMemorySummarizerSystemPrompt,
   calculateFableChatMemoryCostUsd,
   escapeFableChatMemoryPromptData,
@@ -396,9 +397,14 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
   };
   const cleanTurns = sourceTurns.map(({ estimatedTokens, ...turn }) => turn);
   const previousSummary = previous?.summary || null;
-  const sourcePayload = JSON.stringify({ previousSummary, sourceTurns: cleanTurns });
+  const { sourcePayload } = buildFableChatMemoryProviderSourcePayload({
+    previousSummary,
+    sourceTurns: cleanTurns,
+  });
   const estimatedInputTokens = estimateFableChatMemoryInputTokens(
-    `${buildFableChatMemorySummarizerSystemPrompt(profile)}\n${escapeFableChatMemoryPromptData(sourcePayload)}`
+    `${buildFableChatMemorySummarizerSystemPrompt(profile, {
+      sourceIdContract: true,
+    })}\n${escapeFableChatMemoryPromptData(sourcePayload)}`
   );
   if (
     sourcePayload.length > FABLE_CHAT_MEMORY_MAX_SOURCE_CHARACTERS
@@ -741,6 +747,31 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
       estimated_input_tokens: candidate.estimatedInputTokens,
       estimated_summary_tokens: finalized.estimatedSummaryTokens,
       provider_duration_ms: Math.max(0, Math.floor(Number(body?.elapsedMs) || 0)),
+      source_catalog_count: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.source_catalog_count) || 0)
+      ),
+      returned_source_id_count: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.returned_source_id_count) || 0)
+      ),
+      resolved_source_id_count: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.resolved_source_id_count) || 0)
+      ),
+      unknown_source_id_count: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.unknown_source_id_count) || 0)
+      ),
+      duplicate_source_id_count: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.duplicate_source_id_count) || 0)
+      ),
+      malformed_source_id_count: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.malformed_source_id_count) || 0)
+      ),
+      source_id_shape_valid: body?.result?.sourceDiagnostics?.source_id_shape_valid === true,
     });
     return { attempted: true, succeeded: true };
   } catch (error) {

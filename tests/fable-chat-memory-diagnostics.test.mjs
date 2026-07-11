@@ -7,6 +7,9 @@ import {
   FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
   FABLE_CHAT_MEMORY_REJECTION_CATEGORIES,
   FABLE_CHAT_STANDARD_MEMORY_SUMMARY_MAX_TOKENS,
+  buildFableChatMemoryProviderSourcePayload,
+  buildFableChatMemorySourceCatalog,
+  normalizeFableChatMemoryProviderSummary,
   normalizeFableChatMemorySummary,
 } from "../workers/shared/fable-chat-memory-contract.mjs";
 import {
@@ -59,6 +62,11 @@ function providerResult({ choice = {}, usage = null } = {}) {
     }],
     usage: usage || { prompt_tokens: 100, completion_tokens: 40, total_tokens: 140 },
   };
+}
+
+function providerSourceSummary(overrides = {}) {
+  const { sources: _sources, ...base } = summary();
+  return { ...base, source_ids: [], ...overrides };
 }
 
 function rejectionCategory(raw, profile = "standard") {
@@ -183,22 +191,149 @@ test("strict summary schema and Standard/Lite limits remain unchanged", () => {
   );
 });
 
+test("source catalog is deterministic, bounded, deduplicated, and excludes unsafe input", () => {
+  const cloudflare = { title: "Cloudflare", url: "https://www.cloudflare.com" };
+  const docs = { title: "Workers docs", url: "https://developers.cloudflare.com/workers/" };
+  const input = {
+    previousSummary: summary({ sources: [cloudflare] }),
+    sourceTurns: [{
+      assistant: {
+        sources: [
+          { title: "Duplicate title is not authoritative", url: "https://www.cloudflare.com/" },
+          docs,
+          { title: "Unsafe", url: "http://example.com/" },
+          { title: "Credential URL", url: "https://user:password@example.com/" },
+        ],
+      },
+    }],
+  };
+  const first = buildFableChatMemorySourceCatalog(input);
+  const second = buildFableChatMemorySourceCatalog(input);
+  assert.deepEqual(first.entries, second.entries);
+  assert.deepEqual(first.entries, [
+    { id: "src_001", title: "Cloudflare", url: "https://www.cloudflare.com/" },
+    { id: "src_002", title: "Workers docs", url: "https://developers.cloudflare.com/workers/" },
+  ]);
+  assert.equal(JSON.stringify(first.entries).includes("http://example.com"), false);
+  assert.equal(JSON.stringify(first.entries).includes("password"), false);
+
+  const bounded = buildFableChatMemorySourceCatalog({
+    sourceTurns: [{
+      assistant: {
+        sources: Array.from({ length: 20 }, (_, index) => ({
+          title: `Source ${index}`,
+          url: `https://example.com/source-${index}`,
+        })),
+      },
+    }],
+  });
+  assert.equal(bounded.entries.length, 16);
+  assert.equal(bounded.entries.at(-1).id, "src_016");
+
+  const provider = buildFableChatMemoryProviderSourcePayload(input);
+  const parsed = JSON.parse(provider.sourcePayload);
+  assert.deepEqual(parsed.previousSummary.source_ids, ["src_001"]);
+  assert.equal(Object.hasOwn(parsed.previousSummary, "sources"), false);
+  assert.deepEqual(parsed.sourceTurns[0].assistant.source_ids, ["src_001", "src_002"]);
+  assert.equal(Object.hasOwn(parsed.sourceTurns[0].assistant, "sources"), false);
+  assert.deepEqual(parsed.sourceCatalog, first.entries);
+});
+
+test("provider source IDs resolve only through the server catalog", () => {
+  const sourceCatalog = [
+    { id: "src_001", title: "Cloudflare", url: "https://www.cloudflare.com/" },
+    { id: "src_002", title: "Workers docs", url: "https://developers.cloudflare.com/workers/" },
+  ];
+  const normalized = normalizeFableChatMemoryProviderSummary(providerSourceSummary({
+    source_ids: ["src_001", "src_999", "src_001", "src_002"],
+  }), { mode: "standard", sourceCatalog });
+  assert.deepEqual(normalized.summary.sources, [
+    { title: "Cloudflare", url: "https://www.cloudflare.com/" },
+    { title: "Workers docs", url: "https://developers.cloudflare.com/workers/" },
+  ]);
+  assert.deepEqual(normalized.sourceDiagnostics, {
+    source_catalog_count: 2,
+    returned_source_id_count: 4,
+    resolved_source_id_count: 2,
+    unknown_source_id_count: 1,
+    duplicate_source_id_count: 1,
+    malformed_source_id_count: 0,
+    source_id_shape_valid: true,
+  });
+
+  const allUnknown = normalizeFableChatMemoryProviderSummary(providerSourceSummary({
+    source_ids: ["src_998", "src_999"],
+  }), { mode: "lite", sourceCatalog });
+  assert.deepEqual(allUnknown.summary.sources, []);
+  assert.equal(allUnknown.sourceDiagnostics.unknown_source_id_count, 2);
+
+  const empty = normalizeFableChatMemoryProviderSummary(providerSourceSummary(), {
+    mode: "lite",
+    sourceCatalog: [],
+  });
+  assert.deepEqual(empty.summary.sources, []);
+  assert.equal(empty.sourceDiagnostics.source_id_shape_valid, true);
+});
+
+test("malformed IDs and provider-generated source objects remain rejected", () => {
+  assert.throws(
+    () => normalizeFableChatMemoryProviderSummary(providerSourceSummary({
+      source_ids: ["not-a-server-source-id"],
+    }), { mode: "standard", sourceCatalog: [] }),
+    (error) => error.rejectionCategory === "invalid_source_shape"
+      && error.sourceDiagnostics.malformed_source_id_count === 1
+      && error.sourceDiagnostics.source_id_shape_valid === false
+  );
+  assert.throws(
+    () => normalizeFableChatMemoryProviderSummary({
+      ...summary({ sources: [{ title: "Invented", url: "https://attacker.example/" }] }),
+    }, { mode: "standard", sourceCatalog: [] }),
+    (error) => error.rejectionCategory === "schema_invalid"
+  );
+});
+
 test("Qwen request configuration remains fixed while diagnostics change", async () => {
   const calls = [];
+  const providerSource = buildFableChatMemoryProviderSourcePayload({
+    previousSummary: null,
+    sourceTurns: [{
+      turnId: "synthetic-turn",
+      user: { id: "synthetic-user", role: "user", text: "Synthetic" },
+      assistant: {
+        id: "synthetic-assistant",
+        role: "assistant",
+        text: "Synthetic",
+        sources: [{ title: "Cloudflare", url: "https://www.cloudflare.com/" }],
+      },
+    }],
+  });
   const output = await invokeFableChatMemory({
     AI_GATEWAY_ID: "default",
     AI: {
       async run(...args) {
         calls.push(args);
-        return providerResult();
+        return providerResult({ choice: {
+          message: {
+            role: "assistant",
+            content: JSON.stringify(providerSourceSummary({ source_ids: ["src_001"] })),
+            reasoning_content: "[]",
+            refusal: null,
+          },
+        } });
       },
     },
   }, {
     profile: "standard",
-    sourcePayload: JSON.stringify({ previousSummary: null, sourceTurns: [] }),
+    diagnosticVersion: FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
+    sourcePayload: providerSource.sourcePayload,
+    sourceCatalog: providerSource.sourceCatalog,
     correlationId: "configuration-regression",
   });
   assert.equal(output.finishReason, "stop");
+  assert.deepEqual(JSON.parse(output.canonicalSummary).sources, [{
+    title: "Cloudflare",
+    url: "https://www.cloudflare.com/",
+  }]);
   assert.equal(calls.length, 1);
   const [modelId, payload, options] = calls[0];
   assert.equal(modelId, FIXED_MODEL_ID);
@@ -222,15 +357,20 @@ test("Qwen request configuration remains fixed while diagnostics change", async 
   assert.equal(options.gateway.id, "default");
   assert.equal(options.gateway.skipCache, true);
   assert.equal(options.gateway.collectLog, false);
+  assert.match(payload.messages[0].content, /"source_ids":\[\]/);
+  assert.doesNotMatch(payload.messages[0].content, /"sources":\[\]/);
+  assert.match(payload.messages[1].content, /sourceCatalog/);
+  assert.match(payload.messages[1].content, /src_001/);
 });
 
 test("AI validation accepts legacy diagnostics during rollout and rejects unsupported versions", () => {
   assert.equal(validateFableChatMemoryBody(memoryRequestBody(1)).diagnosticVersion, 1);
+  assert.equal(validateFableChatMemoryBody(memoryRequestBody(2)).diagnosticVersion, 2);
   assert.equal(
     validateFableChatMemoryBody(memoryRequestBody(FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION)).diagnosticVersion,
     FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION
   );
-  assert.throws(() => validateFableChatMemoryBody(memoryRequestBody(3)), /not supported/i);
+  assert.throws(() => validateFableChatMemoryBody(memoryRequestBody(4)), /not supported/i);
 });
 
 test("diagnostic version changes only the immutable compaction fingerprint input", () => {
@@ -244,14 +384,14 @@ test("diagnostic version changes only the immutable compaction fingerprint input
   };
   const legacy = buildFableChatMemoryCompactionFingerprintInput({
     ...common,
-    diagnosticVersion: 1,
+    diagnosticVersion: 2,
   });
   const current = buildFableChatMemoryCompactionFingerprintInput(common);
-  assert.equal(legacy.diagnostic_version, 1);
-  assert.equal(current.diagnostic_version, 2);
+  assert.equal(legacy.diagnostic_version, 2);
+  assert.equal(current.diagnostic_version, 3);
   assert.notEqual(JSON.stringify(legacy), JSON.stringify(current));
   assert.deepEqual(
-    { ...current, diagnostic_version: 1 },
+    { ...current, diagnostic_version: 2 },
     legacy
   );
 
@@ -314,6 +454,13 @@ test("Auth preserves only allowlisted diagnostics for durable checkpoint state",
 
 test("AI route keeps the error generic while logging only content-free diagnostics", async () => {
   const privateMarker = "never-log-provider-text-marker";
+  const privateSourceTitle = "never-log-source-title";
+  const privateSourceUrl = "https://never-log-source.example/private";
+  const requestBody = memoryRequestBody();
+  requestBody.sourceTurns[0].assistant.sources = [{
+    title: privateSourceTitle,
+    url: privateSourceUrl,
+  }];
   const originalError = console.error;
   const logged = [];
   console.error = (...args) => logged.push(args.join(" "));
@@ -322,7 +469,7 @@ test("AI route keeps the error generic while logging only content-free diagnosti
       request: new Request("https://bitbi-ai.internal/internal/ai/fable-chat/memory", {
         method: "POST",
         headers: { "content-type": "application/json", "cf-ray": "safe-ray-id" },
-        body: JSON.stringify(memoryRequestBody()),
+        body: JSON.stringify(requestBody),
       }),
       env: {
         AI_GATEWAY_ID: "default",
@@ -331,7 +478,9 @@ test("AI route keeps the error generic while logging only content-free diagnosti
             return providerResult({ choice: {
               message: {
                 role: "assistant",
-                content: privateMarker,
+                content: JSON.stringify(providerSourceSummary({
+                  source_ids: [privateMarker],
+                })),
                 reasoning_content: "[]",
                 refusal: null,
               },
@@ -349,13 +498,16 @@ test("AI route keeps the error generic while logging only content-free diagnosti
       ok: false,
       error: "Fable memory compaction failed",
       code: "upstream_error",
-      diagnosticCategory: "json_parse_failed",
+      diagnosticCategory: "invalid_source_shape",
     });
     const serializedLogs = logged.join("\n");
     assert.match(serializedLogs, /fable_chat_memory_provider_rejected/);
-    assert.match(serializedLogs, /json_parse_failed/);
+    assert.match(serializedLogs, /invalid_source_shape/);
+    assert.match(serializedLogs, /malformed_source_id_count/);
     assert.match(serializedLogs, /diagnostic-correlation-id/);
     assert.doesNotMatch(serializedLogs, new RegExp(privateMarker));
+    assert.doesNotMatch(serializedLogs, new RegExp(privateSourceTitle));
+    assert.doesNotMatch(serializedLogs, new RegExp(privateSourceUrl));
     assert.doesNotMatch(serializedLogs, /Synthetic source data/);
     assert.doesNotMatch(serializedLogs, /Synthetic assistant data/);
   } finally {

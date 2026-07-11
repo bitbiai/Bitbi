@@ -34,6 +34,7 @@ export async function handleFableChatMemory({ request, env, correlationId, pathn
       result: {
         summary: output.canonicalSummary,
         estimatedSummaryTokens: output.estimatedSummaryTokens,
+        sourceDiagnostics: output.sourceDiagnostics,
         usage: output.usage,
         providerCostUsd: output.providerCostUsd,
         responseModel: output.responseModel,
