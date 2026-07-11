@@ -15,6 +15,8 @@ import {
   FABLE_CHAT_MAX_THINKING_SIGNATURE_BYTES,
   FABLE_CHAT_MAX_WEB_SEARCH_RESULTS,
   FABLE_CHAT_PROMPT_CACHE_MINIMUM_TOKENS,
+  FABLE_CHAT_PROMPT_CACHE_LOOKBACK_BLOCKS,
+  FABLE_CHAT_PROMPT_CACHE_MAX_BREAKPOINTS,
   FABLE_CHAT_PROMPT_CACHE_POLICY,
   FABLE_CHAT_PROMPT_CACHE_VERSION,
   FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
@@ -390,30 +392,70 @@ function cloneMessage(message) {
   };
 }
 
-function addCacheControlToLastStableMessage(messages) {
-  if (messages.length < 2) return null;
-  const stableMessageIndex = messages.length - 2;
-  const stableMessage = messages[stableMessageIndex];
-  let content = stableMessage.content;
-  if (typeof content === "string") {
-    content = [{ type: "text", text: content }];
-  } else {
-    content = JSON.parse(JSON.stringify(content));
-  }
-  let blockIndex = -1;
-  for (let index = content.length - 1; index >= 0; index -= 1) {
-    if (content[index]?.type === "text") {
-      blockIndex = index;
-      break;
+function findStableAssistantCacheCandidates(messages) {
+  const candidates = [];
+  let contentBlockPosition = 0;
+  for (let messageIndex = 0; messageIndex < messages.length - 1; messageIndex += 1) {
+    const message = messages[messageIndex];
+    const content = typeof message.content === "string"
+      ? [{ type: "text", text: message.content }]
+      : message.content;
+    if (!Array.isArray(content)) continue;
+    if (message.role === "assistant") {
+      let blockIndex = -1;
+      for (let index = content.length - 1; index >= 0; index -= 1) {
+        if (content[index]?.type === "text") {
+          blockIndex = index;
+          break;
+        }
+      }
+      if (blockIndex >= 0) {
+        candidates.push({
+          messageIndex,
+          blockIndex,
+          contentBlockPosition: contentBlockPosition + blockIndex,
+        });
+      }
     }
+    contentBlockPosition += content.length;
   }
-  if (blockIndex < 0) return null;
+  return candidates;
+}
+
+function addCacheControlAt(messages, { messageIndex, blockIndex }) {
+  const stableMessage = messages[messageIndex];
+  const content = typeof stableMessage.content === "string"
+    ? [{ type: "text", text: stableMessage.content }]
+    : JSON.parse(JSON.stringify(stableMessage.content));
   content[blockIndex] = {
     ...content[blockIndex],
     cache_control: { type: "ephemeral", ttl: "5m" },
   };
   stableMessage.content = content;
-  return { messageIndex: stableMessageIndex, blockIndex };
+}
+
+function addCacheControlsToStableMessages({ system, messages }) {
+  const candidates = findStableAssistantCacheCandidates(messages);
+  const latest = candidates.at(-1);
+  if (!latest) return [];
+
+  const locations = [latest];
+  const previous = candidates.at(-2);
+  if (
+    previous
+    && latest.contentBlockPosition - previous.contentBlockPosition
+      >= FABLE_CHAT_PROMPT_CACHE_LOOKBACK_BLOCKS
+    && estimateFableChatCacheEligibilityTokens({
+      system,
+      messages: messages.slice(0, previous.messageIndex + 1),
+    }) >= FABLE_CHAT_PROMPT_CACHE_MINIMUM_TOKENS
+  ) {
+    locations.unshift(previous);
+  }
+
+  const boundedLocations = locations.slice(-FABLE_CHAT_PROMPT_CACHE_MAX_BREAKPOINTS);
+  for (const location of boundedLocations) addCacheControlAt(messages, location);
+  return boundedLocations.map(({ messageIndex, blockIndex }) => ({ messageIndex, blockIndex }));
 }
 
 function textCharacterCount(system, messages) {
@@ -511,8 +553,16 @@ export function selectFableChatModelContext({
     && promptCacheVersion === FABLE_CHAT_PROMPT_CACHE_VERSION
     && stablePrefixEstimate >= FABLE_CHAT_PROMPT_CACHE_MINIMUM_TOKENS
   ) {
-    const location = addCacheControlToLastStableMessage(messages);
-    if (location) cacheBreakpoint = { ...cacheBreakpoint, enabled: true, ...location };
+    const locations = addCacheControlsToStableMessages({ system, messages });
+    const latestLocation = locations.at(-1);
+    if (latestLocation) {
+      cacheBreakpoint = {
+        ...cacheBreakpoint,
+        enabled: true,
+        ...latestLocation,
+        locations,
+      };
+    }
   }
 
   const estimate = estimateFableChatInputTokens({ system, messages });

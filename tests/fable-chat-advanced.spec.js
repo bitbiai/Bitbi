@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
+const { createHash } = require('crypto');
 const { pathToFileURL } = require('url');
 
 const {
@@ -707,6 +708,168 @@ test.describe('Advanced Fable chat contract', () => {
     });
     expect(short.context.cacheBreakpoint.enabled).toBe(false);
     expect(JSON.stringify(short.messages)).not.toContain('cache_control');
+  });
+
+  test('prompt-cache stable prefixes are deterministic and independent of the current user message', async () => {
+    const context = await import(moduleUrl('workers/auth/src/lib/fable-chat-context.js'));
+    const providerBlocks = [
+      { type: 'thinking', thinking: 'Summary', signature: 'opaque-cache-signature' },
+      { type: 'text', text: `Stable answer ${'a'.repeat(4_500)}` },
+    ];
+    const select = (currentMessage) => context.selectFableChatModelContext({
+      system: 'Trusted deterministic system',
+      priorTurnsNewestFirst: [{
+        userContent: `Stable question ${'q'.repeat(2_000)}`,
+        assistantProviderBlocks: providerBlocks,
+      }],
+      currentMessage,
+      effectiveInputTokenLimit: 20_000,
+      totalPriorTurns: 1,
+    });
+    const first = select('Current message one');
+    const second = select('Different current message two');
+    const stableHash = (selection) => createHash('sha256')
+      .update(JSON.stringify({ system: selection.system, messages: selection.messages.slice(0, -1) }))
+      .digest('hex');
+
+    expect(stableHash(first)).toBe(stableHash(second));
+    expect(first.context.cacheBreakpoint).toEqual(second.context.cacheBreakpoint);
+    expect(first.messages.at(-1)).toEqual({ role: 'user', content: 'Current message one' });
+    expect(JSON.stringify(first.messages.at(-1))).not.toContain('cache_control');
+    expect(providerBlocks[0].signature).toBe('opaque-cache-signature');
+    expect(providerBlocks[1].cache_control).toBeUndefined();
+  });
+
+  test('prompt caching retains the prior stable breakpoint beyond the 20-block lookback', async () => {
+    const context = await import(moduleUrl('workers/auth/src/lib/fable-chat-context.js'));
+    const ai = await import(moduleUrl('workers/ai/src/lib/validate.js'));
+    const searchBlocks = [];
+    for (let index = 0; index < 10; index += 1) {
+      const toolId = `srvtoolu_cache_search_${String(index).padStart(2, '0')}`;
+      searchBlocks.push(
+        {
+          type: 'server_tool_use',
+          id: toolId,
+          name: 'web_search',
+          input: { query: `public query ${index}` },
+        },
+        {
+          type: 'web_search_tool_result',
+          tool_use_id: toolId,
+          content: [{
+            type: 'web_search_result',
+            url: `https://example.com/source-${index}`,
+            title: `Source ${index}`,
+            encrypted_content: `opaque-result-${index}`,
+            page_age: null,
+          }],
+          caller: { type: 'direct' },
+        },
+      );
+    }
+    searchBlocks.push(
+      { type: 'text', text: 'Search synthesis preface.' },
+      { type: 'text', text: `Search synthesis ${'s'.repeat(3_000)}` },
+    );
+    const selected = context.selectFableChatModelContext({
+      system: 'Trusted system',
+      priorTurnsNewestFirst: [
+        { userContent: 'Search-heavy follow-up', assistantProviderBlocks: searchBlocks },
+        { userContent: 'Earlier stable question', assistantContent: `Earlier stable answer ${'e'.repeat(5_000)}` },
+      ],
+      currentMessage: 'Current message remains uncached',
+      effectiveInputTokenLimit: 96_000,
+      totalPriorTurns: 2,
+    });
+    const cacheLocations = selected.context.cacheBreakpoint.locations;
+
+    expect(cacheLocations).toHaveLength(2);
+    expect(cacheLocations[0]).toEqual({ messageIndex: 1, blockIndex: 0 });
+    expect(cacheLocations[1]).toEqual({ messageIndex: 3, blockIndex: 21 });
+    expect(selected.messages[1].content[0].cache_control).toEqual({ type: 'ephemeral', ttl: '5m' });
+    expect(selected.messages[3].content[21].cache_control).toEqual({ type: 'ephemeral', ttl: '5m' });
+    expect(ai.validateFableChatBody(validAiBody(selected.messages))).toMatchObject({
+      messages: selected.messages,
+    });
+
+    const overMarked = JSON.parse(JSON.stringify(selected.messages));
+    overMarked[3].content[20].cache_control = { type: 'ephemeral', ttl: '5m' };
+    expect(() => ai.validateFableChatBody(validAiBody(overMarked))).toThrow(
+      /At most 2 server-owned prompt-cache breakpoints/
+    );
+  });
+
+  test('provider cache identity changes only for inference-affecting conversation settings', async () => {
+    const route = await import(moduleUrl('workers/ai/src/routes/fable-chat.js'));
+    const messages = [
+      { role: 'user', content: `Stable question ${'q'.repeat(2_000)}` },
+      {
+        role: 'assistant',
+        content: [{
+          type: 'text',
+          text: `Stable answer ${'a'.repeat(3_000)}`,
+          cache_control: { type: 'ephemeral', ttl: '5m' },
+        }],
+      },
+      { role: 'user', content: 'Current message' },
+    ];
+    const capturePayload = async (overrides = {}) => {
+      const calls = [];
+      const body = validAiBody(messages, overrides);
+      const response = await route.handleFableChat({
+        request: new Request('https://bitbi-ai.internal/internal/ai/fable-chat', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+        env: { AI: { run: async (...args) => {
+          calls.push(args);
+          return {
+            content: [{ type: 'text', text: 'Bounded response.' }],
+            model: 'claude-fable-5',
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 2, output_tokens: 3 },
+          };
+        } } },
+        correlationId: 'cache-identity-test',
+        pathname: '/internal/ai/fable-chat',
+        method: 'POST',
+      });
+      expect(response.status).toBe(200);
+      expect(calls).toHaveLength(1);
+      return calls[0][1];
+    };
+    const identity = (payload) => createHash('sha256').update(JSON.stringify({
+      tools: payload.tools || null,
+      system: payload.system,
+      messages: payload.messages,
+      output_config: payload.output_config,
+      thinking: payload.thinking,
+    })).digest('hex');
+    const baseline = await capturePayload();
+    const searchEnabled = await capturePayload({ webSearchEnabled: true });
+    const mediumSearch = await capturePayload({
+      effort: 'medium',
+      maxTokens: 8_192,
+      webSearchEnabled: true,
+      webSearchMaxUses: 1,
+    });
+    const codingPreset = await capturePayload({ systemPresetId: 'coding' });
+    const summarizedThinking = await capturePayload({ thinkingDisplay: 'summarized' });
+
+    expect(searchEnabled.tools).toEqual([{
+      type: 'web_search_20250305', name: 'web_search', max_uses: 3,
+    }]);
+    expect(mediumSearch.tools).toEqual([{
+      type: 'web_search_20250305', name: 'web_search', max_uses: 1,
+    }]);
+    for (const changed of [searchEnabled, mediumSearch, codingPreset, summarizedThinking]) {
+      expect(identity(changed)).not.toBe(identity(baseline));
+    }
+    expect(identity(mediumSearch)).not.toBe(identity(searchEnabled));
+    expect(baseline.messages).toEqual(searchEnabled.messages);
+    expect(baseline.messages).toEqual(codingPreset.messages);
+    expect(baseline.messages).toEqual(summarizedThinking.messages);
   });
 
   test('stream parser handles fragmented UTF-8, CRLF, thinking, text, usage, and max-token completion', async () => {

@@ -34,6 +34,7 @@ import {
   FABLE_CHAT_MAX_USER_MESSAGE_CHARACTERS,
   FABLE_CHAT_MAX_WEB_SEARCH_RESULTS,
   FABLE_CHAT_PROMPT_CACHE_POLICY,
+  FABLE_CHAT_PROMPT_CACHE_MAX_BREAKPOINTS,
   FABLE_CHAT_PROMPT_CACHE_VERSION,
   FABLE_CHAT_SYSTEM_PRESET_IDS,
   FABLE_CHAT_SYSTEM_PRESET_VERSION,
@@ -459,9 +460,9 @@ export function validateFableChatBody(body) {
     );
   }
 
-  if (counters.cacheBreakpoints > 1) {
+  if (counters.cacheBreakpoints > FABLE_CHAT_PROMPT_CACHE_MAX_BREAKPOINTS) {
     throw new AdminAiValidationError(
-      "At most one server-owned prompt-cache breakpoint is allowed.",
+      `At most ${FABLE_CHAT_PROMPT_CACHE_MAX_BREAKPOINTS} server-owned prompt-cache breakpoints are allowed.`,
       400,
       "validation_error"
     );
