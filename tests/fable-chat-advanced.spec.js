@@ -213,7 +213,11 @@ function webSearchProviderEvents({ stopReason = 'end_turn', includeToolUse = tru
   events.push(
     {
       event: 'content_block_start',
-      data: { type: 'content_block_start', index, content_block: { type: 'text', text: '' } },
+      data: {
+        type: 'content_block_start',
+        index,
+        content_block: { type: 'text', text: '', citations: [] },
+      },
     },
     {
       event: 'content_block_delta',
@@ -279,7 +283,7 @@ test.describe('Advanced Fable chat contract', () => {
     }))).toThrow();
   });
 
-  test('native Web search blocks stream safely, preserve private continuity, and expose bounded sources', async () => {
+  test('native Web search accepts the empty citation stream placeholder and persists bounded sources', async () => {
     const streamModule = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
     const bytes = encodeSseEvents(webSearchProviderEvents(), { crlf: true, comment: true });
     const statuses = [];

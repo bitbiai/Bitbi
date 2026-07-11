@@ -107,8 +107,10 @@ function sanitizeCitation(value) {
   };
 }
 
-function sanitizeCitations(value) {
-  if (!Array.isArray(value) || value.length === 0 || value.length > FABLE_CHAT_MAX_CITATIONS) {
+function sanitizeCitations(value, { allowEmpty = false } = {}) {
+  if (!Array.isArray(value)
+    || (!allowEmpty && value.length === 0)
+    || value.length > FABLE_CHAT_MAX_CITATIONS) {
     throw new AnthropicStreamError("Provider citations are invalid.");
   }
   return value.map(sanitizeCitation);
@@ -605,7 +607,9 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
         blocks.set(index, {
           type: "text",
           text,
-          ...(source.citations === undefined ? {} : { citations: sanitizeCitations(source.citations) }),
+          ...(source.citations === undefined ? {} : {
+            citations: sanitizeCitations(source.citations, { allowEmpty: true }),
+          }),
         });
         if (text) callbacks.onTextDelta?.(text);
       } else if (source?.type === "thinking") {
