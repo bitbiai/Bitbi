@@ -21,6 +21,7 @@ import {
   getFableChatConversationSettings,
   getFableChatTurnByIdempotencyKey,
   getFableChatTurnMemorySelectionByIdempotencyKey,
+  getFableChatTurnWebReplaySelectionByIdempotencyKey,
   getFableChatTurnResult,
   listFableChatConversations,
   listFableChatMessages,
@@ -37,6 +38,7 @@ import {
   validateUpdateFableChatSettingsBody,
   updateFableChatConversationSettings,
 } from "../lib/fable-chat.js";
+import { getFableChatWebReplaySelection } from "../lib/fable-chat-web-replay.js";
 import {
   getFableChatMemorySelection,
   scheduleFableChatMemoryMaintenance,
@@ -336,7 +338,13 @@ async function resolveExistingSend(
   conversationId,
   turn,
   requestFingerprint,
-  { streamMode = false, message, retryMessageId = null, settings } = {}
+  {
+    streamMode = false,
+    message,
+    retryMessageId = null,
+    settings,
+    webReplaySelection = null,
+  } = {}
 ) {
   const { env, correlationId } = ctx;
   if (!await matchesFableChatTurnRequest(turn, requestFingerprint, {
@@ -344,6 +352,7 @@ async function resolveExistingSend(
     message,
     retryMessageId,
     settings,
+    webReplaySelection,
   })) {
     throw new FableChatError("Idempotency-Key conflicts with a different chat request.", {
       status: 409,
@@ -406,12 +415,19 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
       conversationId,
       idempotencyKey
     );
+    const webReplaySelection = await getFableChatTurnWebReplaySelectionByIdempotencyKey(
+      env,
+      adminUser.id,
+      conversationId,
+      idempotencyKey
+    );
     const requestFingerprint = await buildFableChatRequestFingerprint({
       conversationId,
       message: input.message,
       retryMessageId: input.retryMessageId,
       settings,
       memorySelection,
+      webReplaySelection,
     });
     return resolveExistingSend(
       ctx,
@@ -424,6 +440,7 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
         message: input.message,
         retryMessageId: input.retryMessageId,
         settings,
+        webReplaySelection,
       }
     );
   }
@@ -440,12 +457,22 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
     conversationId,
     settings.memoryMode
   );
+  const webReplaySelection = await getFableChatWebReplaySelection(
+    env,
+    adminUser.id,
+    conversationId,
+    { advanceIfIdle: true }
+  );
+  if (!webReplaySelection) {
+    return { kind: "response", response: notFound(correlationId) };
+  }
   const requestFingerprint = await buildFableChatRequestFingerprint({
     conversationId,
     message: input.message,
     retryMessageId: input.retryMessageId,
     settings,
     memorySelection,
+    webReplaySelection,
   });
   const modelContext = await buildFableChatModelContext(env, {
     adminUserId: adminUser.id,
@@ -453,6 +480,7 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
     currentMessage: input.message,
     settings,
     memorySelection,
+    webReplaySelection,
   });
   const budget = await prepareFableChatBudget({
     env,
@@ -475,6 +503,7 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
     retryMessageId: input.retryMessageId,
     settings,
     memorySelection,
+    webReplaySelection,
     context: modelContext.context,
   });
   if (attempt.kind !== "created") {
@@ -489,6 +518,7 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
         message: input.message,
         retryMessageId: input.retryMessageId,
         settings,
+        webReplaySelection,
       }
     );
   }

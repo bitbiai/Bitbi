@@ -492,6 +492,72 @@ test.describe('Advanced Fable chat contract', () => {
     expect(omitted.context).toMatchObject({ includedTurns: 0, omittedTurns: 1 });
   });
 
+  test('stale replay projection removes only complete web-search pairs and preserves safe continuity', async () => {
+    const context = await import(moduleUrl('workers/auth/src/lib/fable-chat-context.js'));
+    const signature = 'opaque-signature-remains-byte-identical';
+    const toolId = 'srvtoolu_stale_replay_001';
+    const providerBlocks = [
+      { type: 'thinking', thinking: 'Summary only', signature },
+      { type: 'server_tool_use', id: toolId, name: 'web_search', input: { query: 'private query' } },
+      {
+        type: 'web_search_tool_result',
+        tool_use_id: toolId,
+        caller: { type: 'direct' },
+        content: [{
+          type: 'web_search_result',
+          url: 'https://example.com/private-result',
+          title: 'Private result',
+          encrypted_content: 'opaque-encrypted-result',
+          page_age: null,
+        }],
+      },
+      {
+        type: 'text',
+        text: 'Visible answer',
+        citations: [{
+          type: 'web_search_result_location',
+          url: 'https://example.com/source',
+          title: 'Example source',
+          encrypted_index: 'opaque-index',
+          cited_text: 'Private cited text',
+        }],
+      },
+    ];
+    const projected = context.projectFableChatProviderReplay({
+      providerBlocks,
+      assistantContent: 'Visible answer',
+      citations: [{
+        type: 'web_search_result_location',
+        title: 'Example source',
+        url: 'https://example.com/source',
+      }],
+      pruneCompletedWebSearch: true,
+    });
+
+    expect(projected.prunedPairCount).toBe(1);
+    expect(projected.prunedEstimatedTokens).toBeGreaterThan(0);
+    expect(projected.blocks).toEqual([
+      { type: 'thinking', thinking: 'Summary only', signature },
+      {
+        type: 'text',
+        text: 'Visible answer\n\nSources:\n- Example source: https://example.com/source',
+      },
+    ]);
+    expect(JSON.stringify(projected.blocks)).not.toContain('server_tool_use');
+    expect(JSON.stringify(projected.blocks)).not.toContain('web_search_tool_result');
+    expect(JSON.stringify(projected.blocks)).not.toContain('opaque-encrypted-result');
+    expect(JSON.stringify(providerBlocks)).toContain('opaque-encrypted-result');
+
+    const unmatched = providerBlocks.filter((block) => block.type !== 'web_search_tool_result');
+    const preserved = context.projectFableChatProviderReplay({
+      providerBlocks: unmatched,
+      assistantContent: 'Visible answer',
+      pruneCompletedWebSearch: true,
+    });
+    expect(preserved.prunedPairCount).toBe(0);
+    expect(preserved.blocks).toEqual(context.normalizeFableChatProviderBlocks(unmatched));
+  });
+
   test('pause_turn resumes once with the same logical search and normalizes only one browser status', async () => {
     const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
     const authStream = await import(moduleUrl('workers/auth/src/lib/fable-chat-stream.js'));

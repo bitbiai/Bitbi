@@ -370,6 +370,91 @@ function estimateContentTokens(content) {
   return tokens;
 }
 
+function normalizeReplaySources(value) {
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      parsed = [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  const sources = new Map();
+  for (const entry of parsed.slice(0, FABLE_CHAT_MAX_CITATIONS)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    if (entry.type !== "web_search_result_location") continue;
+    if (typeof entry.url !== "string" || entry.url.length > FABLE_CHAT_MAX_SOURCE_URL_CHARACTERS) {
+      continue;
+    }
+    let url;
+    try {
+      url = new URL(entry.url);
+    } catch {
+      continue;
+    }
+    if (url.protocol !== "https:" || url.username || url.password) continue;
+    const title = typeof entry.title === "string"
+      ? entry.title.replace(/[\u0000-\u001f\u007f]/g, " ").trim()
+        .slice(0, FABLE_CHAT_MAX_SOURCE_TITLE_CHARACTERS)
+      : "";
+    if (!sources.has(url.href)) {
+      sources.set(url.href, { title: title || url.hostname, url: url.href });
+    }
+  }
+  return [...sources.values()];
+}
+
+export function projectFableChatProviderReplay({
+  providerBlocks,
+  assistantContent,
+  citations = [],
+  pruneCompletedWebSearch = false,
+}) {
+  const normalized = normalizeFableChatProviderBlocks(providerBlocks);
+  if (!pruneCompletedWebSearch) {
+    return {
+      blocks: normalized,
+      prunedPairCount: 0,
+      prunedEstimatedTokens: 0,
+    };
+  }
+  let counts;
+  try {
+    counts = countFableChatWebSearchBlocks(normalized);
+  } catch {
+    return {
+      blocks: normalized,
+      prunedPairCount: 0,
+      prunedEstimatedTokens: 0,
+    };
+  }
+  if (counts.requestCount === 0) {
+    return {
+      blocks: normalized,
+      prunedPairCount: 0,
+      prunedEstimatedTokens: 0,
+    };
+  }
+
+  const visibleAnswer = String(assistantContent || "").trim();
+  const sources = normalizeReplaySources(citations);
+  const sourceText = sources.length > 0
+    ? `\n\nSources:\n${sources.map(({ title, url }) => `- ${title}: ${url}`).join("\n")}`
+    : "";
+  const projected = [
+    ...normalized.filter((block) => block.type === "thinking"),
+    { type: "text", text: `${visibleAnswer}${sourceText}`.trim() },
+  ];
+  const beforeTokens = estimateContentTokens(normalized);
+  const afterTokens = estimateContentTokens(projected);
+  return {
+    blocks: projected,
+    prunedPairCount: counts.requestCount,
+    prunedEstimatedTokens: Math.max(0, beforeTokens - afterTokens),
+  };
+}
+
 export function estimateFableChatInputTokens({ system, messages }) {
   let rawTokens = MESSAGE_OVERHEAD_TOKENS + estimateFableChatTextTokens(system);
   for (const message of messages) {
@@ -522,6 +607,11 @@ export function selectFableChatModelContext({
       {
         user: { role: "user", content: String(turn.userContent || "") },
         assistant: { role: "assistant", content: assistantContent },
+        webReplayPrunedPairCount: Math.max(0, Number(turn.webReplayPrunedPairCount || 0)),
+        webReplayPrunedEstimatedTokens: Math.max(
+          0,
+          Number(turn.webReplayPrunedEstimatedTokens || 0)
+        ),
       },
     ];
     const candidateMessages = candidateNewestFirst
@@ -571,6 +661,14 @@ export function selectFableChatModelContext({
   }
   const includedTurns = selected.length;
   const omittedTurns = Math.max(0, Number(totalPriorTurns || 0) - includedTurns);
+  const webReplayPrunedPairCount = selected.reduce(
+    (total, entry) => total + entry.webReplayPrunedPairCount,
+    0
+  );
+  const webReplayPrunedEstimatedTokens = selected.reduce(
+    (total, entry) => total + entry.webReplayPrunedEstimatedTokens,
+    0
+  );
   return {
     system,
     messages,
@@ -584,6 +682,8 @@ export function selectFableChatModelContext({
       estimatorVersion: FABLE_CHAT_CONTEXT_ESTIMATOR_VERSION,
       contextFormatVersion: FABLE_CHAT_CONTEXT_FORMAT_VERSION,
       cacheBreakpoint,
+      webReplayPrunedPairCount,
+      webReplayPrunedEstimatedTokens,
     },
   };
 }

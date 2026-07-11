@@ -455,7 +455,11 @@ test.describe('Private admin Fable chat', () => {
       path.join(process.cwd(), 'workers/auth/migrations/0073_add_fable_chat_rolling_memory.sql'),
       'utf8'
     );
-    expect(CURRENT_AUTH_MIGRATION).toBe('0073_add_fable_chat_rolling_memory.sql');
+    const replayPruningMigration = fs.readFileSync(
+      path.join(process.cwd(), 'workers/auth/migrations/0074_add_fable_web_replay_pruning.sql'),
+      'utf8'
+    );
+    expect(CURRENT_AUTH_MIGRATION).toBe('0074_add_fable_web_replay_pruning.sql');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_conversations');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_turns');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_messages');
@@ -480,7 +484,11 @@ test.describe('Private admin Fable chat', () => {
     expect(memoryMigration).toContain('CREATE TABLE fable_chat_memory_checkpoints');
     expect(memoryMigration).toContain('idx_fable_chat_memory_checkpoint_active');
     expect(memoryMigration).toContain("summarizer_model_id TEXT NOT NULL DEFAULT '@cf/qwen/qwen3-30b-a3b-fp8'");
-    expect(`${baseMigration}\n${advancedMigration}\n${webSearchMigration}\n${effortSearchMigration}\n${memoryMigration}`).not.toMatch(
+    expect(replayPruningMigration).toContain(
+      'web_replay_pruned_through_turn_order INTEGER NOT NULL DEFAULT -1'
+    );
+    expect(replayPruningMigration).toContain('web_replay_pruned_at TEXT');
+    expect(`${baseMigration}\n${advancedMigration}\n${webSearchMigration}\n${effortSearchMigration}\n${memoryMigration}\n${replayPruningMigration}`).not.toMatch(
       /DROP\s+TABLE|DELETE\s+FROM|raw_idempotency/i
     );
   });
@@ -2469,6 +2477,290 @@ test.describe('Private admin Fable chat', () => {
       );
       expect(conflict.status).toBe(409);
       expect((await conflict.json()).code).toBe('idempotency_conflict');
+      expect(providerCalls).toHaveLength(1);
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('completed Web-search replay is pruned durably at the five-minute inactivity boundary', async () => {
+    const { env, DB, providerCalls } = await createFableChatSqliteEnv();
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const fableChat = await import(pathToFileURL(
+      path.join(process.cwd(), 'workers/auth/src/lib/fable-chat.js')
+    ).href);
+    const webReplay = await import(pathToFileURL(
+      path.join(process.cwd(), 'workers/auth/src/lib/fable-chat-web-replay.js')
+    ).href);
+    const adminUserId = 'admin-fable-stale-web-replay';
+    try {
+      const admin = await seedFableChatActor(env, {
+        id: adminUserId,
+        email: 'stale-web-replay@example.com',
+      });
+      const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      const baseMs = Date.UTC(2026, 6, 11, 10, 0, 0);
+
+      const seedSearchTurn = async (turnOrder, completedMs, marker) => {
+        const visibleAnswer = `Visible answer ${marker} ${'v'.repeat(5_000)}`;
+        const source = {
+          type: 'web_search_result_location',
+          url: `https://example.com/source-${marker}`,
+          title: `Source ${marker}`,
+        };
+        const ids = await seedSucceededMemoryTurn(DB, {
+          conversationId: conversation.id,
+          adminUserId,
+          turnOrder,
+          userText: `Question ${marker}`,
+          assistantText: visibleAnswer,
+          citations: [source],
+        });
+        const toolId = `srvtoolu_stale_${marker}_0001`;
+        const blocks = [
+          { type: 'thinking', thinking: 'Summary only', signature: `signature-${marker}` },
+          { type: 'server_tool_use', id: toolId, name: 'web_search', input: { query: `query ${marker}` } },
+          {
+            type: 'web_search_tool_result',
+            tool_use_id: toolId,
+            caller: { type: 'direct' },
+            content: [{
+              type: 'web_search_result',
+              url: source.url,
+              title: source.title,
+              encrypted_content: `opaque-${marker}-${'x'.repeat(8_192)}`,
+              page_age: null,
+            }],
+          },
+          { type: 'text', text: visibleAnswer },
+        ];
+        const serialized = JSON.stringify(blocks);
+        const completedAt = new Date(completedMs).toISOString();
+        await DB.batch([
+          DB.prepare(
+            `UPDATE fable_chat_turns SET created_at = ?, updated_at = ?, completed_at = ?
+              WHERE id = ?`
+          ).bind(completedAt, completedAt, completedAt, ids.turnId),
+          DB.prepare(
+            `INSERT INTO fable_chat_provider_messages (
+               message_id, conversation_id, admin_user_id, content_blocks_json,
+               serialized_bytes, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?)`
+          ).bind(
+            ids.assistantMessageId,
+            conversation.id,
+            adminUserId,
+            serialized,
+            Buffer.byteLength(serialized),
+            completedAt
+          ),
+        ]);
+        return { ...ids, blocks, serialized, visibleAnswer, source };
+      };
+
+      const first = await seedSearchTurn(0, baseMs, 'first');
+      const beforeBoundary = await webReplay.getFableChatWebReplaySelection(
+        env,
+        adminUserId,
+        conversation.id,
+        { nowMs: baseMs + 299_999, advanceIfIdle: true }
+      );
+      expect(beforeBoundary).toMatchObject({
+        prunedThroughTurnOrder: -1,
+        advanced: false,
+        inactivityMs: 299_999,
+      });
+      const settingsBefore = await fableChat.getFableChatConversationSettings(
+        env,
+        adminUserId,
+        conversation.id
+      );
+      const activeContext = await fableChat.buildFableChatModelContext(env, {
+        adminUserId,
+        conversationId: conversation.id,
+        currentMessage: 'Active-window follow-up',
+        settings: settingsBefore,
+        webReplaySelection: beforeBoundary,
+      });
+      expect(JSON.stringify(activeContext.messages)).toContain('web_search_tool_result');
+
+      const atBoundary = await webReplay.getFableChatWebReplaySelection(
+        env,
+        adminUserId,
+        conversation.id,
+        { nowMs: baseMs + 300_000, advanceIfIdle: true }
+      );
+      expect(atBoundary).toMatchObject({
+        prunedThroughTurnOrder: 0,
+        prunedThroughMessageId: first.assistantMessageId,
+        advanced: true,
+        inactivityMs: 300_000,
+      });
+      const prunedContext = await fableChat.buildFableChatModelContext(env, {
+        adminUserId,
+        conversationId: conversation.id,
+        currentMessage: 'Stale-window follow-up',
+        settings: settingsBefore,
+        webReplaySelection: atBoundary,
+      });
+      const prunedJson = JSON.stringify(prunedContext.messages);
+      expect(prunedJson).not.toContain('server_tool_use');
+      expect(prunedJson).not.toContain('web_search_tool_result');
+      expect(prunedJson).not.toContain('opaque-first');
+      expect(prunedJson).toContain('signature-first');
+      expect(prunedJson).toContain(first.visibleAnswer);
+      expect(prunedJson).toContain(first.source.url);
+      expect(prunedContext.context.webReplay).toMatchObject({
+        prunedPairCount: 1,
+        prunedThroughTurnOrder: 0,
+      });
+      expect(prunedContext.context.estimatedInputTokens)
+        .toBeLessThan(activeContext.context.estimatedInputTokens);
+      const storedEvidence = DB.database.prepare(
+        `SELECT content_blocks_json FROM fable_chat_provider_messages WHERE message_id = ?`
+      ).get(first.assistantMessageId);
+      expect(storedEvidence.content_blocks_json).toBe(first.serialized);
+
+      const disabledSelection = await webReplay.getFableChatWebReplaySelection(
+        env,
+        adminUserId,
+        conversation.id,
+        { nowMs: baseMs + 300_001, advanceIfIdle: true }
+      );
+      expect(disabledSelection).toMatchObject({
+        prunedThroughTurnOrder: 0,
+        advanced: false,
+      });
+      const repeatedContext = await fableChat.buildFableChatModelContext(env, {
+        adminUserId,
+        conversationId: conversation.id,
+        currentMessage: 'Immediate follow-up',
+        settings: settingsBefore,
+        webReplaySelection: disabledSelection,
+      });
+      expect(JSON.stringify(repeatedContext.messages)).not.toContain('web_search_tool_result');
+      expect(repeatedContext.webSearchEnabled).toBe(false);
+      expect(prunedContext.context.cacheBreakpoint.enabled).toBe(true);
+      expect(repeatedContext.context.cacheBreakpoint).toEqual(prunedContext.context.cacheBreakpoint);
+      expect(JSON.stringify(repeatedContext.messages.slice(0, -1)))
+        .toBe(JSON.stringify(prunedContext.messages.slice(0, -1)));
+
+      const enabledResponse = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        { method: 'PATCH', cookie: admin.cookie, body: { webSearchEnabled: true } }
+      );
+      expect(enabledResponse.status).toBe(200);
+      const enabledSettings = await fableChat.getFableChatConversationSettings(
+        env,
+        adminUserId,
+        conversation.id
+      );
+      const enabledContext = await fableChat.buildFableChatModelContext(env, {
+        adminUserId,
+        conversationId: conversation.id,
+        currentMessage: 'Search-enabled follow-up',
+        settings: enabledSettings,
+        webReplaySelection: disabledSelection,
+      });
+      expect(enabledContext.webSearchEnabled).toBe(true);
+      expect(JSON.stringify(enabledContext.messages)).not.toContain('web_search_tool_result');
+
+      const secondCompletedMs = baseMs + 300_001;
+      await seedSearchTurn(1, secondCompletedMs, 'second');
+      const secondActive = await webReplay.getFableChatWebReplaySelection(
+        env,
+        adminUserId,
+        conversation.id,
+        { nowMs: secondCompletedMs + 299_999, advanceIfIdle: true }
+      );
+      expect(secondActive.prunedThroughTurnOrder).toBe(0);
+      const mixedContext = await fableChat.buildFableChatModelContext(env, {
+        adminUserId,
+        conversationId: conversation.id,
+        currentMessage: 'New search remains active',
+        settings: enabledSettings,
+        webReplaySelection: secondActive,
+      });
+      expect(JSON.stringify(mixedContext.messages).match(/web_search_tool_result/g)).toHaveLength(1);
+
+      const secondStale = await webReplay.getFableChatWebReplaySelection(
+        env,
+        adminUserId,
+        conversation.id,
+        { nowMs: secondCompletedMs + 300_000, advanceIfIdle: true }
+      );
+      expect(secondStale).toMatchObject({ prunedThroughTurnOrder: 1, advanced: true });
+      const fullyPruned = await fableChat.buildFableChatModelContext(env, {
+        adminUserId,
+        conversationId: conversation.id,
+        currentMessage: 'Both searches are stale',
+        settings: enabledSettings,
+        webReplaySelection: secondStale,
+      });
+      expect(JSON.stringify(fullyPruned.messages)).not.toContain('web_search_tool_result');
+
+      const fingerprintA = await fableChat.buildFableChatRequestFingerprint({
+        conversationId: conversation.id,
+        message: 'Fingerprint probe',
+        settings: enabledSettings,
+        webReplaySelection: secondActive,
+      });
+      const fingerprintB = await fableChat.buildFableChatRequestFingerprint({
+        conversationId: conversation.id,
+        message: 'Fingerprint probe',
+        settings: enabledSettings,
+        webReplaySelection: secondStale,
+      });
+      expect(fingerprintA).not.toBe(fingerprintB);
+
+      const sent = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'stale-web-replay-idempotency-0001',
+          body: { message: 'Persist the frozen pruning cursor' },
+        }
+      );
+      expect(sent.status).toBe(200);
+      expect(JSON.stringify(await sent.json())).not.toMatch(/webReplay|web_replay|prunedThrough/i);
+      expect(providerCalls).toHaveLength(1);
+      const frozen = DB.database.prepare(
+        `SELECT web_replay_pruning_version, web_replay_pruned_through_turn_order,
+                web_replay_pruned_through_message_id, web_replay_pruned_at,
+                web_replay_pruned_pair_count, web_replay_pruned_estimated_tokens,
+                settings_snapshot_json
+           FROM fable_chat_turns
+          ORDER BY created_at DESC, id DESC LIMIT 1`
+      ).get();
+      expect(frozen).toMatchObject({
+        web_replay_pruning_version: 1,
+        web_replay_pruned_through_turn_order: 1,
+        web_replay_pruned_pair_count: 2,
+      });
+      expect(frozen.web_replay_pruned_through_message_id).not.toBeNull();
+      expect(frozen.web_replay_pruned_at).not.toBeNull();
+      expect(frozen.web_replay_pruned_estimated_tokens).toBeGreaterThan(0);
+      expect(JSON.parse(frozen.settings_snapshot_json)).toMatchObject({
+        webReplayPruningVersion: 1,
+        webReplayPrunedThroughTurnOrder: 1,
+      });
+      const replayed = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'stale-web-replay-idempotency-0001',
+          body: { message: 'Persist the frozen pruning cursor' },
+        }
+      );
+      expect(replayed.status).toBe(200);
       expect(providerCalls).toHaveLength(1);
     } finally {
       DB.close();

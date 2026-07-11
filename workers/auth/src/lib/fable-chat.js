@@ -51,9 +51,13 @@ import {
   extractFableChatReasoningSummary,
   countFableChatWebSearchBlocks,
   normalizeFableChatProviderBlocks,
+  projectFableChatProviderReplay,
   selectFableChatModelContext,
   utf8ByteLength,
 } from "./fable-chat-context.js";
+import {
+  normalizeFableChatWebReplaySelection,
+} from "./fable-chat-web-replay.js";
 import {
   decodePaginationCursor,
   encodePaginationCursor,
@@ -880,6 +884,9 @@ async function readTurnByIdempotencyHash(env, adminUserId, conversationId, idemp
             t.web_search_executed_request_count, t.web_search_executed_result_count,
             t.memory_mode, t.memory_contract_version, t.memory_checkpoint_id,
             t.memory_checkpoint_version, t.memory_coverage_turn_order,
+            t.web_replay_pruning_version, t.web_replay_pruned_through_turn_order,
+            t.web_replay_pruned_through_message_id, t.web_replay_pruned_at,
+            t.web_replay_pruned_pair_count, t.web_replay_pruned_estimated_tokens,
             t.cache_breakpoint_json, t.settings_snapshot_json, t.provider_duration_ms,
             t.output_truncated,
             t.provider_model, t.stop_reason, t.stop_sequence, t.usage_json,
@@ -907,6 +914,9 @@ async function readTurnById(env, turnId) {
             web_search_executed_request_count, web_search_executed_result_count,
             memory_mode, memory_contract_version, memory_checkpoint_id,
             memory_checkpoint_version, memory_coverage_turn_order,
+            web_replay_pruning_version, web_replay_pruned_through_turn_order,
+            web_replay_pruned_through_message_id, web_replay_pruned_at,
+            web_replay_pruned_pair_count, web_replay_pruned_estimated_tokens,
             settings_snapshot_json, provider_duration_ms, output_truncated,
             provider_model, stop_reason,
             stop_sequence, usage_json, gateway_metadata_json, error_code, created_at,
@@ -953,13 +963,31 @@ export async function getFableChatTurnMemorySelectionByIdempotencyKey(
   };
 }
 
+export async function getFableChatTurnWebReplaySelectionByIdempotencyKey(
+  env,
+  adminUserId,
+  conversationId,
+  idempotencyKey
+) {
+  const id = normalizeFableChatConversationId(conversationId);
+  const key = normalizeFableChatIdempotencyKey(idempotencyKey);
+  const row = await readTurnByIdempotencyHash(
+    env,
+    adminUserId,
+    id,
+    await sha256Hex(key)
+  );
+  return row ? normalizeFableChatWebReplaySelection(row) : null;
+}
+
 export async function buildFableChatRequestFingerprint({
   conversationId,
   message,
   retryMessageId = null,
   settings,
   memorySelection = null,
-  fingerprintVersion = 5,
+  webReplaySelection = null,
+  fingerprintVersion = 6,
 }) {
   if (!settings || typeof settings !== "object") {
     throw new FableChatError("Conversation settings are unavailable.", {
@@ -1030,6 +1058,15 @@ export async function buildFableChatRequestFingerprint({
       memory_coverage_turn_order: Math.max(-1, Number(appliedMemory.coverageTurnOrder ?? -1)),
     });
   }
+  if (fingerprintVersion >= 6) {
+    const appliedWebReplay = normalizeFableChatWebReplaySelection(webReplaySelection);
+    Object.assign(fingerprint, {
+      web_replay_pruning_version: appliedWebReplay.version,
+      web_replay_pruned_through_turn_order: appliedWebReplay.prunedThroughTurnOrder,
+      web_replay_pruned_through_message_id: appliedWebReplay.prunedThroughMessageId,
+      web_replay_pruned_at: appliedWebReplay.prunedAt,
+    });
+  }
   return sha256Hex(JSON.stringify(fingerprint));
 }
 
@@ -1055,11 +1092,19 @@ async function matchesStoredMemoryFableChatFingerprint(existing, request) {
     checkpointVersion: Math.max(0, Number(existing.memory_checkpoint_version || 0)),
     coverageTurnOrder: Math.max(-1, Number(existing.memory_coverage_turn_order ?? -1)),
   };
+  const storedWebReplaySelection = normalizeFableChatWebReplaySelection(existing);
   const storedMemoryFingerprint = await buildFableChatRequestFingerprint({
     ...request,
     memorySelection: storedMemorySelection,
+    webReplaySelection: storedWebReplaySelection,
   });
-  return stored === storedMemoryFingerprint;
+  if (stored === storedMemoryFingerprint) return true;
+  const preReplayFingerprint = await buildFableChatRequestFingerprint({
+    ...request,
+    memorySelection: storedMemorySelection,
+    fingerprintVersion: 5,
+  });
+  return stored === preReplayFingerprint;
 }
 
 async function matchesLegacyFableChatFingerprint(existing, request) {
@@ -1102,6 +1147,7 @@ export async function beginFableChatTurn(env, {
   retryMessageId = null,
   settings,
   memorySelection,
+  webReplaySelection,
   context,
 }) {
   const id = normalizeFableChatConversationId(conversationId);
@@ -1121,6 +1167,7 @@ export async function beginFableChatTurn(env, {
         message: normalizedMessage,
         retryMessageId: normalizedRetryMessageId,
         settings,
+        webReplaySelection,
       }
     )) {
       throw new FableChatError("Idempotency-Key conflicts with a different chat request.", {
@@ -1179,6 +1226,14 @@ export async function beginFableChatTurn(env, {
       ? context.cacheBreakpoint
       : { enabled: false },
     memory: appliedMemory,
+    webReplay: {
+      ...normalizeFableChatWebReplaySelection(webReplaySelection),
+      prunedPairCount: Math.max(0, Number(context?.webReplay?.prunedPairCount || 0)),
+      prunedEstimatedTokens: Math.max(
+        0,
+        Number(context?.webReplay?.prunedEstimatedTokens || 0)
+      ),
+    },
   };
   const settingsSnapshot = {
     modelId: FABLE_CHAT_MODEL_ID,
@@ -1199,6 +1254,10 @@ export async function beginFableChatTurn(env, {
     memoryCheckpointId: appliedMemory.checkpointId,
     memoryCheckpointVersion: appliedMemory.checkpointVersion,
     memoryCoverageTurnOrder: appliedMemory.coverageTurnOrder,
+    webReplayPruningVersion: safeContext.webReplay.version,
+    webReplayPrunedThroughTurnOrder: safeContext.webReplay.prunedThroughTurnOrder,
+    webReplayPrunedThroughMessageId: safeContext.webReplay.prunedThroughMessageId,
+    webReplayPrunedAt: safeContext.webReplay.prunedAt,
   };
 
   const userMessageId = normalizedRetryMessageId || opaqueId("fbm");
@@ -1259,12 +1318,15 @@ export async function beginFableChatTurn(env, {
            web_search_executed_request_count, web_search_executed_result_count,
            memory_mode, memory_contract_version, memory_checkpoint_id,
            memory_checkpoint_version, memory_coverage_turn_order,
+           web_replay_pruning_version, web_replay_pruned_through_turn_order,
+           web_replay_pruned_through_message_id, web_replay_pruned_at,
+           web_replay_pruned_pair_count, web_replay_pruned_estimated_tokens,
            settings_snapshot_json, provider_duration_ms, output_truncated, provider_model, stop_reason,
            stop_sequence, usage_json, gateway_metadata_json, error_code, created_at,
            updated_at, completed_at, expires_at
          )
          SELECT ?, c.id, ?, ?, ?, ?, NULL, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, NULL, 0, NULL, NULL, NULL, '{}', '{}', NULL, ?, ?, NULL, ?
+                ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL, NULL, NULL, '{}', '{}', NULL, ?, ?, NULL, ?
            FROM fable_chat_conversations c
           WHERE c.id = ? AND c.admin_user_id = ? AND c.deleted_at IS NULL
             AND c.effort = ? AND c.system_preset_id = ? AND c.system_preset_version = ?
@@ -1305,6 +1367,12 @@ export async function beginFableChatTurn(env, {
         appliedMemory.checkpointId,
         appliedMemory.checkpointVersion,
         appliedMemory.coverageTurnOrder,
+        safeContext.webReplay.version,
+        safeContext.webReplay.prunedThroughTurnOrder,
+        safeContext.webReplay.prunedThroughMessageId,
+        safeContext.webReplay.prunedAt,
+        safeContext.webReplay.prunedPairCount,
+        safeContext.webReplay.prunedEstimatedTokens,
         JSON.stringify(settingsSnapshot),
         createdAt,
         createdAt,
@@ -1459,6 +1527,7 @@ export async function beginFableChatTurn(env, {
           message: normalizedMessage,
           retryMessageId: normalizedRetryMessageId,
           settings,
+          webReplaySelection,
         }
       )) {
         throw new FableChatError("Idempotency-Key conflicts with a different chat request.", {
@@ -1575,6 +1644,7 @@ export async function buildFableChatModelContext(env, {
   currentMessage,
   settings = null,
   memorySelection = null,
+  webReplaySelection = null,
 }) {
   const id = normalizeFableChatConversationId(conversationId);
   const message = normalizeFableChatUserMessage(currentMessage);
@@ -1606,7 +1676,7 @@ export async function buildFableChatModelContext(env, {
         AND c.admin_user_id = ? AND c.deleted_at IS NULL`
   ).bind(id, adminUserId, adminUserId).first();
   const rows = await env.DB.prepare(
-    `SELECT t.id, um.turn_order,
+    `SELECT t.id, t.completed_at, um.turn_order,
             um.content AS user_content,
             am.content AS assistant_content,
             am.citations_json,
@@ -1649,16 +1719,42 @@ export async function buildFableChatModelContext(env, {
     appliedSettings.effectiveMaxOutputTokens
   );
   try {
-    const priorTurnsNewestFirst = (rows?.results || []).map((row) => ({
-      turnOrder: Number(row.turn_order),
-      userContent: row.user_content,
-      assistantContent: row.assistant_content,
-      assistantProviderBlocks: row.provider_content_blocks_json || null,
-      visibleEstimatedTokens: 24
-        + estimateFableChatMemoryTextTokens(row.user_content)
-        + estimateFableChatMemoryTextTokens(row.assistant_content)
-        + estimateFableChatMemoryTextTokens(row.citations_json || "[]"),
-    }));
+    const appliedWebReplay = normalizeFableChatWebReplaySelection(webReplaySelection);
+    const prunedAtMs = Date.parse(appliedWebReplay.prunedAt || "");
+    const priorTurnsNewestFirst = (rows?.results || []).map((row) => {
+      let assistantProviderBlocks = row.provider_content_blocks_json || null;
+      let webReplayPrunedPairCount = 0;
+      let webReplayPrunedEstimatedTokens = 0;
+      const pruneCompletedWebSearch = Boolean(
+        assistantProviderBlocks
+        && Number(row.turn_order) <= appliedWebReplay.prunedThroughTurnOrder
+        && Number.isFinite(prunedAtMs)
+        && Date.parse(row.completed_at || "") <= prunedAtMs
+      );
+      if (pruneCompletedWebSearch) {
+        const projected = projectFableChatProviderReplay({
+          providerBlocks: assistantProviderBlocks,
+          assistantContent: row.assistant_content,
+          citations: row.citations_json,
+          pruneCompletedWebSearch: true,
+        });
+        assistantProviderBlocks = projected.blocks;
+        webReplayPrunedPairCount = projected.prunedPairCount;
+        webReplayPrunedEstimatedTokens = projected.prunedEstimatedTokens;
+      }
+      return {
+        turnOrder: Number(row.turn_order),
+        userContent: row.user_content,
+        assistantContent: row.assistant_content,
+        assistantProviderBlocks,
+        webReplayPrunedPairCount,
+        webReplayPrunedEstimatedTokens,
+        visibleEstimatedTokens: 24
+          + estimateFableChatMemoryTextTokens(row.user_content)
+          + estimateFableChatMemoryTextTokens(row.assistant_content)
+          + estimateFableChatMemoryTextTokens(row.citations_json || "[]"),
+      };
+    });
     const selected = selectFableChatModelContext({
       system,
       priorTurnsNewestFirst: selectFableChatMemoryRawTurns(
@@ -1697,6 +1793,11 @@ export async function buildFableChatModelContext(env, {
           checkpointId: selectedMemory.checkpointId,
           checkpointVersion: selectedMemory.checkpointVersion,
           coverageTurnOrder: selectedMemory.coverageTurnOrder,
+        },
+        webReplay: {
+          ...appliedWebReplay,
+          prunedPairCount: selected.context.webReplayPrunedPairCount,
+          prunedEstimatedTokens: selected.context.webReplayPrunedEstimatedTokens,
         },
       },
     };

@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0073_add_fable_chat_rolling_memory.sql",
+        "latest": "0074_add_fable_web_replay_pruning.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
