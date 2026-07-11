@@ -42,15 +42,20 @@ export async function handleFableChatMemory({ request, env, correlationId, pathn
       elapsedMs: output.elapsedMs,
     });
   } catch (error) {
+    const rejected = Boolean(error?.rejectionCategory);
     logDiagnostic({
       service: "bitbi-ai",
       component: "route-fable-chat-memory",
-      event: "admin_fable_chat_memory_failed",
+      event: rejected
+        ? "fable_chat_memory_provider_rejected"
+        : "admin_fable_chat_memory_failed",
       level: "error",
       correlationId,
       duration_ms: getDurationMs(startedAt),
+      cf_ray_id: request.headers.get("cf-ray") || null,
       ...getRequestLogFields({ request, pathname, method }),
       ...getErrorFields(error, { includeMessage: false }),
+      ...(rejected ? error.memoryDiagnostic : {}),
     });
     return fromError(error, "Fable memory compaction failed");
   }

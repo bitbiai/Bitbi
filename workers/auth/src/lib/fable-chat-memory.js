@@ -9,6 +9,7 @@ import {
   FABLE_CHAT_LITE_MEMORY_RAW_MIN_TURNS,
   FABLE_CHAT_LITE_MEMORY_TRIGGER_TOKENS,
   FABLE_CHAT_MEMORY_CONTRACT_VERSION,
+  FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
   FABLE_CHAT_MEMORY_ESTIMATOR_VERSION,
   FABLE_CHAT_MEMORY_LEASE_MINUTES,
   FABLE_CHAT_MEMORY_MAX_COMPACTIONS_PER_MAINTENANCE,
@@ -29,6 +30,7 @@ import {
   estimateFableChatMemoryInputTokens,
   estimateFableChatMemoryTextTokens,
   normalizeFableChatMemoryMode,
+  normalizeFableChatMemoryRejectionCategory,
   normalizeFableChatMemorySummary,
 } from "../../../shared/fable-chat-memory-contract.mjs";
 import { proxyToAiLab } from "./admin-ai-proxy.js";
@@ -65,6 +67,51 @@ function isUniqueConstraintError(error) {
 function safeErrorCode(value, fallback = "fable_chat_memory_failed") {
   const code = String(value || "").toLowerCase().replace(/[^a-z0-9_]+/g, "_").slice(0, 80);
   return code || fallback;
+}
+
+export function resolveFableChatMemoryDiagnosticCategory(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  return normalizeFableChatMemoryRejectionCategory(value);
+}
+
+export function classifyFableChatMemoryProviderFailure(responseStatus, body) {
+  const status = Math.max(0, Math.floor(Number(responseStatus) || 0));
+  const rejectionCategory = resolveFableChatMemoryDiagnosticCategory(
+    body?.diagnosticCategory
+  );
+  return {
+    state: status >= 500 ? "unknown" : "failed",
+    errorCode: rejectionCategory || safeErrorCode(
+      body?.code,
+      `memory_provider_status_${status}`
+    ),
+    rejectionCategory,
+  };
+}
+
+export function buildFableChatMemoryCompactionFingerprintInput({
+  profile,
+  current,
+  sourceBaseProfile,
+  previous,
+  previousSummary,
+  sourceTurns,
+  diagnosticVersion = FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
+}) {
+  return {
+    contract_version: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
+    prompt_version: FABLE_CHAT_MEMORY_PROMPT_VERSION,
+    diagnostic_version: diagnosticVersion,
+    model_id: FABLE_CHAT_MEMORY_MODEL_ID,
+    profile,
+    base_checkpoint_id: current?.id || null,
+    source_base_profile: sourceBaseProfile,
+    source_base_checkpoint_id: sourceBaseProfile === "standard" && !current
+      ? previous?.id || null
+      : null,
+    previous_summary: previousSummary,
+    source_turns: sourceTurns,
+  };
 }
 
 function parseStoredSources(value) {
@@ -357,17 +404,16 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
     sourcePayload.length > FABLE_CHAT_MEMORY_MAX_SOURCE_CHARACTERS
     || estimatedInputTokens > FABLE_CHAT_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS
   ) return null;
-  const inputFingerprint = await sha256Hex(JSON.stringify({
-    contract_version: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
-    prompt_version: FABLE_CHAT_MEMORY_PROMPT_VERSION,
-    model_id: FABLE_CHAT_MEMORY_MODEL_ID,
-    profile,
-    base_checkpoint_id: current?.id || null,
-    source_base_profile: sourceBaseProfile,
-    source_base_checkpoint_id: sourceBaseProfile === "standard" && !current ? previous?.id : null,
-    previous_summary: previousSummary,
-    source_turns: cleanTurns,
-  }));
+  const inputFingerprint = await sha256Hex(JSON.stringify(
+    buildFableChatMemoryCompactionFingerprintInput({
+      profile,
+      current,
+      sourceBaseProfile,
+      previous,
+      previousSummary,
+      sourceTurns: cleanTurns,
+    })
+  ));
   return {
     profile,
     current,
@@ -606,6 +652,7 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
           profile,
           memoryContractVersion: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
           promptVersion: FABLE_CHAT_MEMORY_PROMPT_VERSION,
+          diagnosticVersion: FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
           previousSummaryProfile: candidate.previous ? candidate.sourceBaseProfile : null,
           previousSummary: candidate.previous?.summary || null,
           sourceTurns: candidate.sourceTurns,
@@ -623,21 +670,40 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
       body = null;
     }
     if (!response.ok || body?.ok !== true) {
-      const unknown = response.status >= 500;
+      const failure = classifyFableChatMemoryProviderFailure(response.status, body);
       await markCompactionState(
         ctx.env,
         claim.id,
-        unknown ? "unknown" : "failed",
-        body?.code || `memory_provider_status_${response.status}`
+        failure.state,
+        failure.errorCode
       );
       await recordFableChatMemoryBudgetOutcome(ctx.env, claim.id, {
-        finalState: unknown ? "unknown" : "failed",
+        finalState: failure.state,
       });
+      if (failure.rejectionCategory) {
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "fable-chat-memory",
+          event: "fable_chat_memory_compaction_rejected",
+          level: "warn",
+          correlationId: ctx.correlationId,
+          admin_user_id: adminUser.id,
+          conversation_id: conversationId,
+          checkpoint_id: claim.id,
+          checkpoint_version: claim.version,
+          profile,
+          final_state: failure.state,
+          rejection_category: failure.rejectionCategory,
+          diagnostic_version: FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
+          upstream_status: response.status,
+        });
+      }
       return { attempted: true, succeeded: false };
     }
     if (body?.model?.id !== FABLE_CHAT_MEMORY_MODEL_ID) {
       throw Object.assign(new TypeError("Memory model identity is invalid."), {
         code: "fable_chat_memory_invalid_provider_result",
+        rejectionCategory: "invalid_model_identity",
       });
     }
     const finalized = await finalizeCompaction(
@@ -680,7 +746,12 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
   } catch (error) {
     const state = providerStarted ? "unknown" : "failed";
     try {
-      await markCompactionState(ctx.env, claim.id, state, error?.code);
+      await markCompactionState(
+        ctx.env,
+        claim.id,
+        state,
+        error?.rejectionCategory || error?.code
+      );
       await recordFableChatMemoryBudgetOutcome(ctx.env, claim.id, { finalState: state });
     } catch {
       // The durable lease later resolves a stranded provider attempt to unknown.
@@ -696,6 +767,10 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
       checkpoint_id: claim.id,
       profile,
       final_state: state,
+      rejection_category: resolveFableChatMemoryDiagnosticCategory(
+        error?.rejectionCategory
+      ),
+      diagnostic_version: FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
       ...getErrorFields(error, { includeMessage: false }),
     });
     return { attempted: true, succeeded: false };

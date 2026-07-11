@@ -18,6 +18,7 @@ import {
 } from "./platform-budget-caps.js";
 import {
   FABLE_CHAT_MEMORY_CONTRACT_VERSION,
+  FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
   FABLE_CHAT_MEMORY_MODEL_ID,
   FABLE_CHAT_MEMORY_PROMPT_VERSION,
   calculateFableChatMemoryCostUsd,
@@ -120,6 +121,7 @@ export async function prepareFableChatMemoryBudget({
       input_fingerprint: inputFingerprint,
       memory_contract_version: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
       prompt_version: FABLE_CHAT_MEMORY_PROMPT_VERSION,
+      diagnostic_version: FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
       estimated_input_bucket_tokens: weight.estimatedInputBucketTokens,
       reserved_output_tokens: weight.reservedOutputTokens,
     },
@@ -164,6 +166,7 @@ export async function prepareFableChatMemoryBudget({
       profile,
       memory_contract_version: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
       prompt_version: FABLE_CHAT_MEMORY_PROMPT_VERSION,
+      diagnostic_version: FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
       estimated_input_bucket_tokens: weight.estimatedInputBucketTokens,
       reserved_output_tokens: weight.reservedOutputTokens,
       estimated_provider_cost_usd: weight.estimatedCostUsd,

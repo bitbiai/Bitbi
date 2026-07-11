@@ -1,3 +1,7 @@
+import {
+  normalizeFableChatMemoryRejectionCategory,
+} from "../../../shared/fable-chat-memory-contract.mjs";
+
 export function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
     status: init.status || 200,
@@ -29,6 +33,11 @@ export function errorResponse(error, init = {}) {
 
   if (init.code) body.code = init.code;
   if (init.warnings?.length) body.warnings = init.warnings;
+  if (init.diagnosticCategory) {
+    body.diagnosticCategory = normalizeFableChatMemoryRejectionCategory(
+      init.diagnosticCategory
+    );
+  }
 
   return json(body, init);
 }
@@ -66,6 +75,14 @@ export function fromError(error, fallbackMessage) {
     return errorResponse(error.message || fallbackMessage, {
       status: error.status || 503,
       code: "unified_billing_unavailable",
+    });
+  }
+
+  if (error?.rejectionCategory) {
+    return errorResponse(fallbackMessage, {
+      status: error.status || 502,
+      code: "upstream_error",
+      diagnosticCategory: error.rejectionCategory,
     });
   }
 

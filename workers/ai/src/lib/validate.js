@@ -54,6 +54,7 @@ import {
   FABLE_CHAT_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS,
   FABLE_CHAT_MEMORY_MAX_SOURCE_TURNS,
   FABLE_CHAT_MEMORY_PROMPT_VERSION,
+  FABLE_CHAT_MEMORY_SUPPORTED_DIAGNOSTIC_VERSIONS,
   buildFableChatHiddenMemoryInstruction,
   buildFableChatMemorySummarizerSystemPrompt,
   escapeFableChatMemoryPromptData,
@@ -666,7 +667,7 @@ export function validateFableChatBody(body) {
 
 const FABLE_CHAT_MEMORY_ID_PATTERN = /^(?:fbt|fbm)_[a-f0-9]{32}$/;
 const FABLE_CHAT_MEMORY_ALLOWED_BODY_FIELDS = new Set([
-  "profile", "memoryContractVersion", "promptVersion", "previousSummaryProfile",
+  "profile", "memoryContractVersion", "promptVersion", "diagnosticVersion", "previousSummaryProfile",
   "previousSummary", "sourceTurns",
 ]);
 const FABLE_CHAT_MEMORY_ALLOWED_TURN_FIELDS = new Set([
@@ -735,6 +736,17 @@ export function validateFableChatMemoryBody(body) {
     || input.promptVersion !== FABLE_CHAT_MEMORY_PROMPT_VERSION) {
     throw new AdminAiValidationError(
       "The Fable memory contract is not supported.",
+      400,
+      "validation_error"
+    );
+  }
+  const diagnosticVersion = input.diagnosticVersion === undefined
+    ? 1
+    : input.diagnosticVersion;
+  if (!Number.isInteger(diagnosticVersion)
+    || !FABLE_CHAT_MEMORY_SUPPORTED_DIAGNOSTIC_VERSIONS.includes(diagnosticVersion)) {
+    throw new AdminAiValidationError(
+      "The Fable memory diagnostic contract is not supported.",
       400,
       "validation_error"
     );
@@ -824,6 +836,7 @@ export function validateFableChatMemoryBody(body) {
     profile,
     memoryContractVersion: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
     promptVersion: FABLE_CHAT_MEMORY_PROMPT_VERSION,
+    diagnosticVersion,
     previousSummary,
     previousSummaryProfile,
     sourceTurns,

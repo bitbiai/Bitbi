@@ -33,11 +33,14 @@ import {
   FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
 } from "../../../shared/fable-chat-contract.mjs";
 import {
+  FABLE_CHAT_MEMORY_MODEL_ID,
   FABLE_CHAT_MEMORY_TIMEOUT_MS,
   buildFableChatMemorySummarizerSystemPrompt,
   calculateFableChatMemoryCostUsd,
   escapeFableChatMemoryPromptData,
   getFableChatMemoryProviderMaxTokens,
+  getFableChatMemorySummaryMaxTokens,
+  normalizeFableChatMemoryRejectionCategory,
   normalizeFableChatMemorySummary,
 } from "../../../shared/fable-chat-memory-contract.mjs";
 import {
@@ -843,6 +846,155 @@ function sanitizeQwenUsage(value) {
   };
 }
 
+function sanitizeQwenDiagnosticUsage(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const output = {};
+  for (const [providerField, safeField] of [
+    ["prompt_tokens", "input_tokens"],
+    ["completion_tokens", "output_tokens"],
+    ["total_tokens", "total_tokens"],
+  ]) {
+    const tokens = Number(value[providerField]);
+    if (Number.isFinite(tokens) && tokens >= 0) {
+      output[safeField] = Math.floor(tokens);
+    }
+  }
+  return output;
+}
+
+function hasFableChatMemoryReasoningValue(value) {
+  if (value == null) return false;
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    return Boolean(normalized && !["[]", "{}"].includes(normalized));
+  }
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return Boolean(value);
+}
+
+function sanitizeFableChatMemoryFinishReason(value) {
+  if (typeof value !== "string" || !value.trim()) return "missing";
+  const normalized = value.trim().toLowerCase();
+  return ["stop", "length", "max_tokens"].includes(normalized)
+    ? normalized
+    : "other";
+}
+
+function createFableChatMemoryProviderRejection(category, diagnostics = {}) {
+  const rejectionCategory = normalizeFableChatMemoryRejectionCategory(category);
+  const error = new Error("Qwen memory response did not satisfy the bounded output contract.");
+  error.code = rejectionCategory === "provider_length_truncation"
+    ? "fable_chat_memory_truncated"
+    : "fable_chat_memory_invalid_provider_result";
+  error.status = 502;
+  error.rejectionCategory = rejectionCategory;
+  error.memoryDiagnostic = Object.freeze({
+    rejection_category: rejectionCategory,
+    finish_reason: diagnostics.finish_reason || "missing",
+    model_id: FABLE_CHAT_MEMORY_MODEL_ID,
+    choice_present: diagnostics.choice_present === true,
+    content_present: diagnostics.content_present === true,
+    reasoning_content_present: diagnostics.reasoning_content_present === true,
+    reasoning_present: diagnostics.reasoning_present === true,
+    refusal_present: diagnostics.refusal_present === true,
+    think_tag_present: diagnostics.think_tag_present === true,
+    json_parse_success: diagnostics.json_parse_success === true,
+    ...(Number.isFinite(Number(diagnostics.estimated_summary_tokens))
+      ? { estimated_summary_tokens: Math.max(0, Math.floor(Number(diagnostics.estimated_summary_tokens))) }
+      : {}),
+    configured_profile_limit: Math.max(
+      0,
+      Math.floor(Number(diagnostics.configured_profile_limit) || 0)
+    ),
+    provider_usage: sanitizeQwenDiagnosticUsage(diagnostics.provider_usage),
+    duration_ms: Math.max(0, Math.floor(Number(diagnostics.duration_ms) || 0)),
+  });
+  return error;
+}
+
+export function validateFableChatMemoryProviderResult(raw, { profile, startedAt = Date.now() } = {}) {
+  const choice = Array.isArray(raw?.choices) ? raw.choices[0] : null;
+  const choicePresent = Boolean(choice && typeof choice === "object" && !Array.isArray(choice));
+  const message = choicePresent && choice.message && typeof choice.message === "object"
+    && !Array.isArray(choice.message)
+    ? choice.message
+    : null;
+  const contentPresent = Boolean(message && Object.hasOwn(message, "content"));
+  const rawContent = typeof message?.content === "string" ? message.content : null;
+  const content = rawContent == null ? "" : rawContent.trim();
+  const reasoningContentPresent = hasFableChatMemoryReasoningValue(message?.reasoning_content);
+  const reasoningPresent = hasFableChatMemoryReasoningValue(message?.reasoning);
+  const refusalPresent = typeof message?.refusal === "string"
+    && Boolean(message.refusal.trim());
+  const thinkTagPresent = typeof rawContent === "string" && /<\/?think>/i.test(rawContent);
+  const finishReason = sanitizeFableChatMemoryFinishReason(choice?.finish_reason);
+  const diagnostics = {
+    finish_reason: finishReason,
+    choice_present: choicePresent,
+    content_present: contentPresent,
+    reasoning_content_present: reasoningContentPresent,
+    reasoning_present: reasoningPresent,
+    refusal_present: refusalPresent,
+    think_tag_present: thinkTagPresent,
+    json_parse_success: false,
+    configured_profile_limit: getFableChatMemorySummaryMaxTokens(profile),
+    provider_usage: raw?.usage,
+    duration_ms: getDurationMs(startedAt),
+  };
+  if (!choicePresent) {
+    throw createFableChatMemoryProviderRejection("missing_choice", diagnostics);
+  }
+  if (finishReason === "missing") {
+    throw createFableChatMemoryProviderRejection("missing_finish_reason", diagnostics);
+  }
+  if (["length", "max_tokens"].includes(finishReason)) {
+    throw createFableChatMemoryProviderRejection("provider_length_truncation", diagnostics);
+  }
+  if (finishReason !== "stop") {
+    throw createFableChatMemoryProviderRejection("invalid_finish_reason", diagnostics);
+  }
+  if (!contentPresent || typeof rawContent !== "string") {
+    throw createFableChatMemoryProviderRejection("missing_content", diagnostics);
+  }
+  if (!content) {
+    throw createFableChatMemoryProviderRejection("empty_content", diagnostics);
+  }
+  if (reasoningContentPresent) {
+    throw createFableChatMemoryProviderRejection("reasoning_content_present", diagnostics);
+  }
+  if (reasoningPresent) {
+    throw createFableChatMemoryProviderRejection("reasoning_present", diagnostics);
+  }
+  if (thinkTagPresent) {
+    throw createFableChatMemoryProviderRejection("think_tag_present", diagnostics);
+  }
+  if (refusalPresent) {
+    throw createFableChatMemoryProviderRejection("refusal_present", diagnostics);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+    diagnostics.json_parse_success = true;
+  } catch {
+    throw createFableChatMemoryProviderRejection("json_parse_failed", diagnostics);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw createFableChatMemoryProviderRejection("json_not_object", diagnostics);
+  }
+  try {
+    return normalizeFableChatMemorySummary(parsed, { mode: profile });
+  } catch (cause) {
+    throw createFableChatMemoryProviderRejection(
+      cause?.rejectionCategory,
+      {
+        ...diagnostics,
+        estimated_summary_tokens: cause?.estimatedSummaryTokens,
+      }
+    );
+  }
+}
+
 export async function invokeFableChatMemory(env, input) {
   ensureAI(env);
   const startedAt = Date.now();
@@ -904,45 +1056,10 @@ export async function invokeFableChatMemory(env, input) {
     });
     throw error;
   }
-  const choice = raw?.choices?.[0];
-  const message = choice?.message;
-  const content = typeof message?.content === "string" ? message.content.trim() : "";
-  const hasReasoningValue = (value) => {
-    if (value == null) return false;
-    if (typeof value === "string") {
-      const normalized = value.trim();
-      return Boolean(normalized && !["[]", "{}"].includes(normalized));
-    }
-    if (Array.isArray(value)) return value.length > 0;
-    if (typeof value === "object") return Object.keys(value).length > 0;
-    return Boolean(value);
-  };
-  const hasReasoningContent = hasReasoningValue(message?.reasoning_content)
-    || hasReasoningValue(message?.reasoning);
-  if (
-    choice?.finish_reason !== "stop"
-    || !content
-    || hasReasoningContent
-    || /<\/?think>/i.test(content)
-    || (typeof message?.refusal === "string" && message.refusal.trim())
-  ) {
-    const error = new Error("Qwen memory response did not satisfy the bounded output contract.");
-    error.code = choice?.finish_reason === "length"
-      ? "fable_chat_memory_truncated"
-      : "fable_chat_memory_invalid_provider_result";
-    error.status = 502;
-    throw error;
-  }
-  let normalized;
-  try {
-    normalized = normalizeFableChatMemorySummary(content, { mode: input.profile });
-  } catch (cause) {
-    const error = new Error("Qwen memory response did not satisfy the bounded output contract.");
-    error.code = "fable_chat_memory_invalid_provider_result";
-    error.status = 502;
-    error.cause = cause;
-    throw error;
-  }
+  const normalized = validateFableChatMemoryProviderResult(raw, {
+    profile: input.profile,
+    startedAt,
+  });
   const usage = sanitizeQwenUsage(raw?.usage);
   const cost = calculateFableChatMemoryCostUsd(usage);
   return {

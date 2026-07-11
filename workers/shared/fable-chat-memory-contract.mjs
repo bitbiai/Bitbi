@@ -8,6 +8,8 @@ export const FABLE_CHAT_MEMORY_MODEL_ID = QWEN3_30B_A3B_MODEL_ID;
 export const FABLE_CHAT_MEMORY_MODEL_CONTEXT_TOKENS = QWEN3_30B_A3B_CONTEXT_WINDOW_TOKENS;
 export const FABLE_CHAT_MEMORY_CONTRACT_VERSION = 1;
 export const FABLE_CHAT_MEMORY_PROMPT_VERSION = 1;
+export const FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION = 2;
+export const FABLE_CHAT_MEMORY_SUPPORTED_DIAGNOSTIC_VERSIONS = Object.freeze([1, 2]);
 export const FABLE_CHAT_MEMORY_ESTIMATOR_VERSION = "utf8-visible-memory-v1";
 export const FABLE_CHAT_MEMORY_MODES = Object.freeze(["standard", "lite"]);
 export const FABLE_CHAT_DEFAULT_MEMORY_MODE = "standard";
@@ -42,6 +44,30 @@ export const FABLE_CHAT_MEMORY_QWEN_MAX_OUTPUT_TOKENS = Object.freeze({
   standard: 2_048,
   lite: 1_024,
 });
+export const FABLE_CHAT_MEMORY_REJECTION_CATEGORIES = Object.freeze([
+  "missing_finish_reason",
+  "invalid_finish_reason",
+  "provider_length_truncation",
+  "missing_choice",
+  "missing_content",
+  "empty_content",
+  "reasoning_content_present",
+  "reasoning_present",
+  "think_tag_present",
+  "refusal_present",
+  "json_parse_failed",
+  "json_not_object",
+  "schema_invalid",
+  "unsupported_summary_version",
+  "invalid_source_shape",
+  "unsafe_source_url",
+  "summary_limit_exceeded",
+  "invalid_model_identity",
+  "unknown_invalid_provider_result",
+]);
+const FABLE_CHAT_MEMORY_REJECTION_CATEGORY_SET = new Set(
+  FABLE_CHAT_MEMORY_REJECTION_CATEGORIES
+);
 
 const SUMMARY_ARRAY_FIELDS = Object.freeze([
   "facts",
@@ -70,11 +96,32 @@ const SENSITIVE_SUMMARY_PATTERN = /(?:-----BEGIN [A-Z ]*PRIVATE KEY-----|(?:api[
 const TEXT_ENCODER = new TextEncoder();
 
 export class FableChatMemoryContractError extends Error {
-  constructor(message, code = "fable_chat_memory_invalid") {
+  constructor(message, code = "fable_chat_memory_invalid", options = {}) {
     super(message);
     this.name = "FableChatMemoryContractError";
     this.code = code;
+    this.rejectionCategory = normalizeFableChatMemoryRejectionCategory(
+      options.rejectionCategory,
+      "schema_invalid"
+    );
+    if (Number.isFinite(Number(options.estimatedSummaryTokens))) {
+      this.estimatedSummaryTokens = Math.max(
+        0,
+        Math.floor(Number(options.estimatedSummaryTokens))
+      );
+    }
   }
+}
+
+export function normalizeFableChatMemoryRejectionCategory(
+  value,
+  fallback = "unknown_invalid_provider_result"
+) {
+  const category = String(value || "").trim();
+  if (FABLE_CHAT_MEMORY_REJECTION_CATEGORY_SET.has(category)) return category;
+  return FABLE_CHAT_MEMORY_REJECTION_CATEGORY_SET.has(fallback)
+    ? fallback
+    : "unknown_invalid_provider_result";
 }
 
 export function normalizeFableChatMemoryMode(value) {
@@ -119,7 +166,9 @@ export function getFableChatMemoryProviderMaxTokens(mode) {
 
 function normalizeSummaryString(value, field, maxCharacters, { allowEmpty = false } = {}) {
   if (typeof value !== "string") {
-    throw new FableChatMemoryContractError(`${field} must be a string.`);
+    throw new FableChatMemoryContractError(`${field} must be a string.`, undefined, {
+      rejectionCategory: "schema_invalid",
+    });
   }
   const normalized = value.replace(/\r\n?/g, "\n").trim();
   if ((!allowEmpty && !normalized) || normalized.length > maxCharacters) {
@@ -136,7 +185,9 @@ function normalizeSummaryString(value, field, maxCharacters, { allowEmpty = fals
 
 function normalizeSummaryArray(value, field) {
   if (!Array.isArray(value) || value.length > SUMMARY_MAX_ARRAY_ITEMS) {
-    throw new FableChatMemoryContractError(`${field} must be a bounded array.`);
+    throw new FableChatMemoryContractError(`${field} must be a bounded array.`, undefined, {
+      rejectionCategory: "schema_invalid",
+    });
   }
   const seen = new Set();
   const output = [];
@@ -159,27 +210,37 @@ function normalizeSummaryUrl(value, field) {
   try {
     parsed = new URL(url);
   } catch {
-    throw new FableChatMemoryContractError(`${field} must be a valid HTTPS URL.`);
+    throw new FableChatMemoryContractError(`${field} must be a valid HTTPS URL.`, undefined, {
+      rejectionCategory: "unsafe_source_url",
+    });
   }
   if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
-    throw new FableChatMemoryContractError(`${field} must be a valid HTTPS URL.`);
+    throw new FableChatMemoryContractError(`${field} must be a valid HTTPS URL.`, undefined, {
+      rejectionCategory: "unsafe_source_url",
+    });
   }
   return parsed.toString();
 }
 
 function normalizeSummarySources(value) {
   if (!Array.isArray(value) || value.length > SUMMARY_MAX_SOURCES) {
-    throw new FableChatMemoryContractError("sources must be a bounded array.");
+    throw new FableChatMemoryContractError("sources must be a bounded array.", undefined, {
+      rejectionCategory: "invalid_source_shape",
+    });
   }
   const seen = new Set();
   const sources = [];
   for (let index = 0; index < value.length; index += 1) {
     const source = value[index];
     if (!source || typeof source !== "object" || Array.isArray(source)) {
-      throw new FableChatMemoryContractError(`sources[${index}] is invalid.`);
+      throw new FableChatMemoryContractError(`sources[${index}] is invalid.`, undefined, {
+        rejectionCategory: "invalid_source_shape",
+      });
     }
     if (Object.keys(source).some((key) => !["title", "url"].includes(key))) {
-      throw new FableChatMemoryContractError(`sources[${index}] is invalid.`);
+      throw new FableChatMemoryContractError(`sources[${index}] is invalid.`, undefined, {
+        rejectionCategory: "invalid_source_shape",
+      });
     }
     const url = normalizeSummaryUrl(source.url, `sources[${index}].url`);
     if (seen.has(url)) continue;
@@ -204,19 +265,27 @@ export function normalizeFableChatMemorySummary(value, { mode } = {}) {
     try {
       parsed = JSON.parse(parsed);
     } catch {
-      throw new FableChatMemoryContractError("Memory summary is not valid JSON.");
+      throw new FableChatMemoryContractError("Memory summary is not valid JSON.", undefined, {
+        rejectionCategory: "json_parse_failed",
+      });
     }
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new FableChatMemoryContractError("Memory summary must be an object.");
+    throw new FableChatMemoryContractError("Memory summary must be an object.", undefined, {
+      rejectionCategory: "json_not_object",
+    });
   }
   if (Object.keys(parsed).length !== SUMMARY_FIELDS.length
     || SUMMARY_FIELDS.some((field) => !Object.hasOwn(parsed, field))
     || Object.keys(parsed).some((field) => !SUMMARY_FIELDS.includes(field))) {
-    throw new FableChatMemoryContractError("Memory summary has an unsupported shape.");
+    throw new FableChatMemoryContractError("Memory summary has an unsupported shape.", undefined, {
+      rejectionCategory: "schema_invalid",
+    });
   }
   if (parsed.version !== FABLE_CHAT_MEMORY_PROMPT_VERSION) {
-    throw new FableChatMemoryContractError("Memory summary version is unsupported.");
+    throw new FableChatMemoryContractError("Memory summary version is unsupported.", undefined, {
+      rejectionCategory: "unsupported_summary_version",
+    });
   }
   const normalized = {
     version: FABLE_CHAT_MEMORY_PROMPT_VERSION,
@@ -234,7 +303,10 @@ export function normalizeFableChatMemorySummary(value, { mode } = {}) {
   const canonical = JSON.stringify(normalized);
   const estimatedTokens = Math.ceil(estimateFableChatMemoryTextTokens(canonical) * 1.08) + 16;
   if (estimatedTokens > getFableChatMemorySummaryMaxTokens(normalizedMode)) {
-    throw new FableChatMemoryContractError("Memory summary exceeds its profile limit.");
+    throw new FableChatMemoryContractError("Memory summary exceeds its profile limit.", undefined, {
+      rejectionCategory: "summary_limit_exceeded",
+      estimatedSummaryTokens: estimatedTokens,
+    });
   }
   return { summary: normalized, canonical, estimatedTokens };
 }
