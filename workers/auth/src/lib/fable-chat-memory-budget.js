@@ -18,10 +18,15 @@ import {
 } from "./platform-budget-caps.js";
 import {
   FABLE_CHAT_MEMORY_CONTRACT_VERSION,
+  FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS,
   FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
+  FABLE_CHAT_MEMORY_MINIMUM_VIABLE_TARGETS,
   FABLE_CHAT_MEMORY_MODEL_ID,
   FABLE_CHAT_MEMORY_PROMPT_VERSION,
+  FABLE_CHAT_MEMORY_SAFETY_MARGINS,
   calculateFableChatMemoryCostUsd,
+  getFableChatMemoryAcceptanceCeiling,
+  getFableChatMemoryPlanningCeiling,
   getFableChatMemoryProviderMaxTokens,
   normalizeFableChatMemoryMode,
 } from "../../../shared/fable-chat-memory-contract.mjs";
@@ -87,6 +92,7 @@ export async function prepareFableChatMemoryBudget({
   profile,
   inputFingerprint,
   estimatedInputTokens,
+  summaryPlan = null,
   correlationId = null,
 }) {
   const operation = memoryBudgetOperation();
@@ -106,6 +112,17 @@ export async function prepareFableChatMemoryBudget({
   }
   await assertBudgetSwitchEffectiveEnabled(env, plan);
   const weight = deriveFableChatMemoryBudgetUnits({ profile, estimatedInputTokens });
+  const summaryLimits = {
+    planning_ceiling: getFableChatMemoryPlanningCeiling(profile),
+    base_soft_target: FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS[profile],
+    acceptance_ceiling: getFableChatMemoryAcceptanceCeiling(profile),
+    safety_margin: FABLE_CHAT_MEMORY_SAFETY_MARGINS[profile],
+    minimum_viable_target: FABLE_CHAT_MEMORY_MINIMUM_VIABLE_TARGETS[profile],
+    fixed_schema_overhead: Math.max(0, Number(summaryPlan?.fixedSchemaOverhead) || 0),
+    source_overhead_estimate: Math.max(0, Number(summaryPlan?.sourceOverheadEstimate) || 0),
+    effective_soft_target: Math.max(0, Number(summaryPlan?.effectiveSoftTarget) || 0),
+    source_catalog_count: Math.max(0, Number(summaryPlan?.sourceCatalog?.length) || 0),
+  };
   const budgetFingerprint = await buildAdminPlatformBudgetFingerprint({
     operation,
     actorId: adminUser.id,
@@ -122,6 +139,7 @@ export async function prepareFableChatMemoryBudget({
       memory_contract_version: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
       prompt_version: FABLE_CHAT_MEMORY_PROMPT_VERSION,
       diagnostic_version: FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
+      ...summaryLimits,
       estimated_input_bucket_tokens: weight.estimatedInputBucketTokens,
       reserved_output_tokens: weight.reservedOutputTokens,
     },
@@ -167,6 +185,7 @@ export async function prepareFableChatMemoryBudget({
       memory_contract_version: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
       prompt_version: FABLE_CHAT_MEMORY_PROMPT_VERSION,
       diagnostic_version: FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
+      ...summaryLimits,
       estimated_input_bucket_tokens: weight.estimatedInputBucketTokens,
       reserved_output_tokens: weight.reservedOutputTokens,
       estimated_provider_cost_usd: weight.estimatedCostUsd,

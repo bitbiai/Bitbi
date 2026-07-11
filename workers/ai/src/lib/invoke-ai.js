@@ -39,7 +39,8 @@ import {
   calculateFableChatMemoryCostUsd,
   escapeFableChatMemoryPromptData,
   getFableChatMemoryProviderMaxTokens,
-  getFableChatMemorySummaryMaxTokens,
+  getFableChatMemoryAcceptanceCeiling,
+  getFableChatMemoryPlanningCeiling,
   normalizeFableChatMemoryRejectionCategory,
   normalizeFableChatMemoryProviderSummary,
   normalizeFableChatMemorySummary,
@@ -920,10 +921,14 @@ function createFableChatMemoryProviderRejection(category, diagnostics = {}) {
     profile: ["standard", "lite"].includes(diagnostics.profile)
       ? diagnostics.profile
       : null,
-    profile_hard_limit: Math.max(0, Math.floor(Number(diagnostics.profile_hard_limit) || 0)),
-    profile_base_soft_target: Math.max(
+    planning_ceiling: Math.max(0, Math.floor(Number(diagnostics.planning_ceiling) || 0)),
+    base_soft_target: Math.max(
       0,
-      Math.floor(Number(diagnostics.profile_base_soft_target) || 0)
+      Math.floor(Number(diagnostics.base_soft_target) || 0)
+    ),
+    acceptance_ceiling: Math.max(
+      0,
+      Math.floor(Number(diagnostics.acceptance_ceiling) || 0)
     ),
     fixed_schema_overhead: Math.max(
       0,
@@ -937,6 +942,10 @@ function createFableChatMemoryProviderRejection(category, diagnostics = {}) {
     effective_summary_target: Math.max(
       0,
       Math.floor(Number(diagnostics.effective_summary_target) || 0)
+    ),
+    effective_soft_target: Math.max(
+      0,
+      Math.floor(Number(diagnostics.effective_soft_target) || 0)
     ),
     final_estimated_summary_size: Math.max(
       0,
@@ -954,6 +963,9 @@ export function validateFableChatMemoryProviderResult(raw, {
   memoryBudgetPlan = null,
   startedAt = Date.now(),
 } = {}) {
+  const appliedAcceptanceCeiling = diagnosticVersion >= 5
+    ? getFableChatMemoryAcceptanceCeiling(profile)
+    : getFableChatMemoryPlanningCeiling(profile);
   const choice = Array.isArray(raw?.choices) ? raw.choices[0] : null;
   const choicePresent = Boolean(choice && typeof choice === "object" && !Array.isArray(choice));
   const message = choicePresent && choice.message && typeof choice.message === "object"
@@ -978,18 +990,20 @@ export function validateFableChatMemoryProviderResult(raw, {
     refusal_present: refusalPresent,
     think_tag_present: thinkTagPresent,
     json_parse_success: false,
-    configured_profile_limit: getFableChatMemorySummaryMaxTokens(profile),
+    configured_profile_limit: appliedAcceptanceCeiling,
     provider_usage: raw?.usage,
     duration_ms: getDurationMs(startedAt),
     source_catalog_count: Array.isArray(sourceCatalog) ? sourceCatalog.length : 0,
     source_id_shape_valid: diagnosticVersion < 3,
     profile,
-    profile_hard_limit: memoryBudgetPlan?.profileHardLimit,
-    profile_base_soft_target: memoryBudgetPlan?.profileBaseSoftTarget,
+    planning_ceiling: memoryBudgetPlan?.planningCeiling,
+    base_soft_target: memoryBudgetPlan?.profileBaseSoftTarget,
+    acceptance_ceiling: appliedAcceptanceCeiling,
     fixed_schema_overhead: memoryBudgetPlan?.fixedSchemaOverhead,
     source_overhead_estimate: memoryBudgetPlan?.sourceOverheadEstimate,
     safety_margin: memoryBudgetPlan?.safetyMargin,
     effective_summary_target: memoryBudgetPlan?.effectiveSoftTarget,
+    effective_soft_target: memoryBudgetPlan?.effectiveSoftTarget,
   };
   if (!choicePresent) {
     throw createFableChatMemoryProviderRejection("missing_choice", diagnostics);
@@ -1036,18 +1050,21 @@ export function validateFableChatMemoryProviderResult(raw, {
       ? normalizeFableChatMemoryProviderSummary(parsed, {
           mode: profile,
           sourceCatalog,
+          acceptanceCeiling: appliedAcceptanceCeiling,
         })
       : normalizeFableChatMemorySummary(parsed, { mode: profile });
     if (diagnosticVersion >= 4) {
       normalized.sourceDiagnostics = {
         ...(normalized.sourceDiagnostics || {}),
         profile,
-        profile_hard_limit: memoryBudgetPlan?.profileHardLimit || 0,
-        profile_base_soft_target: memoryBudgetPlan?.profileBaseSoftTarget || 0,
+        planning_ceiling: memoryBudgetPlan?.planningCeiling || 0,
+        base_soft_target: memoryBudgetPlan?.profileBaseSoftTarget || 0,
+        acceptance_ceiling: appliedAcceptanceCeiling,
         fixed_schema_overhead: memoryBudgetPlan?.fixedSchemaOverhead || 0,
         source_overhead_estimate: memoryBudgetPlan?.sourceOverheadEstimate || 0,
         safety_margin: memoryBudgetPlan?.safetyMargin || 0,
         effective_summary_target: memoryBudgetPlan?.effectiveSoftTarget || 0,
+        effective_soft_target: memoryBudgetPlan?.effectiveSoftTarget || 0,
         final_estimated_summary_size: normalized.estimatedTokens,
         final_limit_exceeded: false,
       };

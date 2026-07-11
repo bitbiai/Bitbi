@@ -9,6 +9,7 @@ import {
   FABLE_CHAT_LITE_MEMORY_RAW_MIN_TURNS,
   FABLE_CHAT_LITE_MEMORY_TRIGGER_TOKENS,
   FABLE_CHAT_MEMORY_CONTRACT_VERSION,
+  FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS,
   FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
   FABLE_CHAT_MEMORY_ESTIMATOR_VERSION,
   FABLE_CHAT_MEMORY_LEASE_MINUTES,
@@ -18,6 +19,8 @@ import {
   FABLE_CHAT_MEMORY_MAX_SOURCE_TURNS,
   FABLE_CHAT_MEMORY_MODEL_ID,
   FABLE_CHAT_MEMORY_PROMPT_VERSION,
+  FABLE_CHAT_MEMORY_MINIMUM_VIABLE_TARGETS,
+  FABLE_CHAT_MEMORY_SAFETY_MARGINS,
   FABLE_CHAT_STANDARD_MEMORY_CHUNK_MAX_TOKENS,
   FABLE_CHAT_STANDARD_MEMORY_CHUNK_MIN_TOKENS,
   FABLE_CHAT_STANDARD_MEMORY_CHUNK_TARGET_TOKENS,
@@ -30,6 +33,8 @@ import {
   escapeFableChatMemoryPromptData,
   estimateFableChatMemoryInputTokens,
   estimateFableChatMemoryTextTokens,
+  getFableChatMemoryAcceptanceCeiling,
+  getFableChatMemoryPlanningCeiling,
   normalizeFableChatMemoryMode,
   normalizeFableChatMemoryRejectionCategory,
   normalizeFableChatMemorySummary,
@@ -97,9 +102,10 @@ export function buildFableChatMemoryCompactionFingerprintInput({
   previous,
   previousSummary,
   sourceTurns,
+  summaryPlan = null,
   diagnosticVersion = FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
 }) {
-  return {
+  const fingerprint = {
     contract_version: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
     prompt_version: FABLE_CHAT_MEMORY_PROMPT_VERSION,
     diagnostic_version: diagnosticVersion,
@@ -113,6 +119,21 @@ export function buildFableChatMemoryCompactionFingerprintInput({
     previous_summary: previousSummary,
     source_turns: sourceTurns,
   };
+  if (diagnosticVersion >= 5) {
+    const normalizedProfile = normalizeFableChatMemoryMode(profile);
+    Object.assign(fingerprint, {
+      planning_ceiling: getFableChatMemoryPlanningCeiling(normalizedProfile),
+      base_soft_target: FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS[normalizedProfile],
+      acceptance_ceiling: getFableChatMemoryAcceptanceCeiling(normalizedProfile),
+      safety_margin: FABLE_CHAT_MEMORY_SAFETY_MARGINS[normalizedProfile],
+      minimum_viable_target: FABLE_CHAT_MEMORY_MINIMUM_VIABLE_TARGETS[normalizedProfile],
+      fixed_schema_overhead: Math.max(0, Number(summaryPlan?.fixedSchemaOverhead) || 0),
+      source_overhead_estimate: Math.max(0, Number(summaryPlan?.sourceOverheadEstimate) || 0),
+      effective_soft_target: Math.max(0, Number(summaryPlan?.effectiveSoftTarget) || 0),
+      source_catalog_count: Math.max(0, Number(summaryPlan?.sourceCatalog?.length) || 0),
+    });
+  }
+  return fingerprint;
 }
 
 function parseStoredSources(value) {
@@ -421,6 +442,7 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
       previous,
       previousSummary,
       sourceTurns: cleanTurns,
+      summaryPlan: budgetPlan,
     })
   ));
   return {
@@ -612,6 +634,7 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
       profile,
       inputFingerprint: candidate.inputFingerprint,
       estimatedInputTokens: candidate.estimatedInputTokens,
+      summaryPlan: candidate.budgetPlan,
       correlationId: ctx.correlationId,
     });
   } catch (error) {
@@ -776,13 +799,17 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
         Math.floor(Number(body?.result?.sourceDiagnostics?.malformed_source_id_count) || 0)
       ),
       source_id_shape_valid: body?.result?.sourceDiagnostics?.source_id_shape_valid === true,
-      profile_hard_limit: Math.max(
+      planning_ceiling: Math.max(
         0,
-        Math.floor(Number(body?.result?.sourceDiagnostics?.profile_hard_limit) || 0)
+        Math.floor(Number(body?.result?.sourceDiagnostics?.planning_ceiling) || 0)
       ),
-      profile_base_soft_target: Math.max(
+      base_soft_target: Math.max(
         0,
-        Math.floor(Number(body?.result?.sourceDiagnostics?.profile_base_soft_target) || 0)
+        Math.floor(Number(body?.result?.sourceDiagnostics?.base_soft_target) || 0)
+      ),
+      acceptance_ceiling: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.acceptance_ceiling) || 0)
       ),
       fixed_schema_overhead: Math.max(
         0,
@@ -799,6 +826,10 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
       effective_summary_target: Math.max(
         0,
         Math.floor(Number(body?.result?.sourceDiagnostics?.effective_summary_target) || 0)
+      ),
+      effective_soft_target: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.effective_soft_target) || 0)
       ),
       final_estimated_summary_size: Math.max(
         0,
