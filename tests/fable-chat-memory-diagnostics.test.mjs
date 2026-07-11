@@ -4,13 +4,18 @@ import test from "node:test";
 
 import {
   FABLE_CHAT_LITE_MEMORY_SUMMARY_MAX_TOKENS,
+  FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS,
   FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
+  FABLE_CHAT_MEMORY_MINIMUM_VIABLE_TARGETS,
   FABLE_CHAT_MEMORY_REJECTION_CATEGORIES,
+  FABLE_CHAT_MEMORY_SAFETY_MARGINS,
   FABLE_CHAT_STANDARD_MEMORY_SUMMARY_MAX_TOKENS,
   buildFableChatMemoryProviderSourcePayload,
   buildFableChatMemorySourceCatalog,
+  estimateFableChatMemoryCanonicalSummaryTokens,
   normalizeFableChatMemoryProviderSummary,
   normalizeFableChatMemorySummary,
+  planFableChatMemorySummaryBudget,
 } from "../workers/shared/fable-chat-memory-contract.mjs";
 import {
   invokeFableChatMemory,
@@ -69,9 +74,13 @@ function providerSourceSummary(overrides = {}) {
   return { ...base, source_ids: [], ...overrides };
 }
 
-function rejectionCategory(raw, profile = "standard") {
+function rejectionCategoryForVersion(raw, options = {}) {
   try {
-    validateFableChatMemoryProviderResult(raw, { profile, startedAt: Date.now() });
+    validateFableChatMemoryProviderResult(raw, {
+      profile: "standard",
+      startedAt: Date.now(),
+      ...options,
+    });
   } catch (error) {
     return {
       category: error.rejectionCategory,
@@ -80,6 +89,10 @@ function rejectionCategory(raw, profile = "standard") {
     };
   }
   assert.fail("Expected provider result rejection.");
+}
+
+function rejectionCategory(raw, profile = "standard") {
+  return rejectionCategoryForVersion(raw, { profile });
 }
 
 function memoryRequestBody(diagnosticVersion = FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION) {
@@ -239,6 +252,85 @@ test("source catalog is deterministic, bounded, deduplicated, and excludes unsaf
   assert.deepEqual(parsed.sourceCatalog, first.entries);
 });
 
+test("dynamic Standard and Lite targets reserve identical estimator overhead", () => {
+  assert.equal(FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS.standard, 1_100);
+  assert.equal(FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS.lite, 500);
+  assert.equal(FABLE_CHAT_MEMORY_SAFETY_MARGINS.standard, 150);
+  assert.equal(FABLE_CHAT_MEMORY_SAFETY_MARGINS.lite, 100);
+  assert.equal(FABLE_CHAT_MEMORY_MINIMUM_VIABLE_TARGETS.standard, 400);
+  assert.equal(FABLE_CHAT_MEMORY_MINIMUM_VIABLE_TARGETS.lite, 240);
+
+  const elevenSources = Array.from({ length: 11 }, (_, index) => ({
+    id: `src_${String(index + 1).padStart(3, "0")}`,
+    title: `Reference ${index + 1}`,
+    url: `https://example.com/reference-${index + 1}/${"path".repeat(20)}`,
+  }));
+  for (const profile of ["standard", "lite"]) {
+    const plan = planFableChatMemorySummaryBudget(profile, elevenSources);
+    const emptyDurable = normalizeFableChatMemorySummary(
+      summary({ language: "", sources: [] }),
+      { mode: profile }
+    ).summary;
+    const withSources = normalizeFableChatMemorySummary(summary({
+      language: "",
+      sources: plan.sourceCatalog.map(({ title, url }) => ({ title, url })),
+    }), { mode: profile }).summary;
+    assert.equal(
+      plan.fixedSchemaOverhead,
+      estimateFableChatMemoryCanonicalSummaryTokens(emptyDurable)
+    );
+    assert.equal(
+      plan.sourceOverheadEstimate,
+      estimateFableChatMemoryCanonicalSummaryTokens(withSources)
+        - estimateFableChatMemoryCanonicalSummaryTokens(emptyDurable)
+    );
+    assert.equal(
+      plan.availableNonSourceBudget,
+      plan.profileHardLimit
+        - plan.fixedSchemaOverhead
+        - plan.sourceOverheadEstimate
+        - plan.safetyMargin
+    );
+    assert.equal(
+      plan.effectiveSoftTarget,
+      Math.min(plan.profileBaseSoftTarget, plan.availableNonSourceBudget)
+    );
+    assert.ok(plan.effectiveSoftTarget >= plan.minimumViableTarget);
+    assert.ok(plan.effectiveSoftTarget < plan.profileHardLimit);
+  }
+});
+
+test("large hidden-memory sources are trimmed deterministically without mutating citations", () => {
+  const originalSources = Array.from({ length: 16 }, (_, index) => ({
+    title: `Large source ${index}`,
+    url: `https://example.com/${index}/${"x".repeat(1_800)}`,
+  }));
+  const sourceTurns = [{ assistant: { sources: originalSources.map((source) => ({ ...source })) } }];
+  const before = structuredClone(sourceTurns);
+  const first = buildFableChatMemoryProviderSourcePayload({
+    mode: "standard",
+    dynamicBudget: true,
+    sourceTurns,
+  });
+  const second = buildFableChatMemoryProviderSourcePayload({
+    mode: "standard",
+    dynamicBudget: true,
+    sourceTurns,
+  });
+  assert.deepEqual(sourceTurns, before);
+  assert.deepEqual(first.sourceCatalog, second.sourceCatalog);
+  assert.ok(first.sourceCatalog.length < 16);
+  assert.ok(first.budgetPlan.effectiveSoftTarget >= 400);
+  assert.ok(first.budgetPlan.safetyMargin >= 150);
+  assert.deepEqual(
+    first.sourceCatalog.map((entry) => entry.id),
+    Array.from(
+      { length: first.sourceCatalog.length },
+      (_, index) => `src_${String(index + 1).padStart(3, "0")}`
+    )
+  );
+});
+
 test("provider source IDs resolve only through the server catalog", () => {
   const sourceCatalog = [
     { id: "src_001", title: "Cloudflare", url: "https://www.cloudflare.com/" },
@@ -292,9 +384,61 @@ test("malformed IDs and provider-generated source objects remain rejected", () =
   );
 });
 
+test("version 4 accepts bounded Standard and Lite summaries and rejects oversized output", () => {
+  for (const profile of ["standard", "lite"]) {
+    const plan = planFableChatMemorySummaryBudget(profile, []);
+    const valid = providerResult({ choice: {
+      message: {
+        role: "assistant",
+        content: JSON.stringify(providerSourceSummary({
+          facts: ["One durable fact."],
+          source_ids: [],
+        })),
+        reasoning_content: "[]",
+        refusal: null,
+      },
+    } });
+    const accepted = validateFableChatMemoryProviderResult(valid, {
+      profile,
+      diagnosticVersion: 4,
+      sourceCatalog: [],
+      memoryBudgetPlan: plan,
+    });
+    assert.ok(accepted.estimatedTokens <= plan.profileHardLimit);
+    assert.equal(accepted.sourceDiagnostics.final_limit_exceeded, false);
+    assert.equal(
+      accepted.sourceDiagnostics.final_estimated_summary_size,
+      accepted.estimatedTokens
+    );
+  }
+
+  const plan = planFableChatMemorySummaryBudget("standard", []);
+  const oversized = providerResult({ choice: {
+    message: {
+      role: "assistant",
+      content: JSON.stringify(providerSourceSummary({
+        facts: Array.from({ length: 24 }, (_, index) => `${index}-${"x".repeat(590)}`),
+      })),
+      reasoning_content: "[]",
+      refusal: null,
+    },
+  } });
+  const rejected = rejectionCategoryForVersion(oversized, {
+    profile: "standard",
+    diagnosticVersion: 4,
+    sourceCatalog: [],
+    memoryBudgetPlan: plan,
+  });
+  assert.equal(rejected.category, "summary_limit_exceeded");
+  assert.equal(rejected.diagnostic.final_limit_exceeded, true);
+  assert.ok(rejected.diagnostic.final_estimated_summary_size > 1_500);
+});
+
 test("Qwen request configuration remains fixed while diagnostics change", async () => {
   const calls = [];
   const providerSource = buildFableChatMemoryProviderSourcePayload({
+    mode: "standard",
+    dynamicBudget: true,
     previousSummary: null,
     sourceTurns: [{
       turnId: "synthetic-turn",
@@ -327,6 +471,7 @@ test("Qwen request configuration remains fixed while diagnostics change", async 
     diagnosticVersion: FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
     sourcePayload: providerSource.sourcePayload,
     sourceCatalog: providerSource.sourceCatalog,
+    memoryBudgetPlan: providerSource.budgetPlan,
     correlationId: "configuration-regression",
   });
   assert.equal(output.finishReason, "stop");
@@ -361,16 +506,26 @@ test("Qwen request configuration remains fixed while diagnostics change", async 
   assert.doesNotMatch(payload.messages[0].content, /"sources":\[\]/);
   assert.match(payload.messages[1].content, /sourceCatalog/);
   assert.match(payload.messages[1].content, /src_001/);
+  assert.match(
+    payload.messages[1].content,
+    new RegExp(String(providerSource.budgetPlan.effectiveSoftTarget))
+  );
 });
 
 test("AI validation accepts legacy diagnostics during rollout and rejects unsupported versions", () => {
   assert.equal(validateFableChatMemoryBody(memoryRequestBody(1)).diagnosticVersion, 1);
   assert.equal(validateFableChatMemoryBody(memoryRequestBody(2)).diagnosticVersion, 2);
-  assert.equal(
-    validateFableChatMemoryBody(memoryRequestBody(FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION)).diagnosticVersion,
-    FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION
+  const versionThree = validateFableChatMemoryBody(memoryRequestBody(3));
+  assert.equal(versionThree.diagnosticVersion, 3);
+  assert.equal(versionThree.memoryBudgetPlan, null);
+  const current = validateFableChatMemoryBody(
+    memoryRequestBody(FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION)
   );
-  assert.throws(() => validateFableChatMemoryBody(memoryRequestBody(4)), /not supported/i);
+  assert.equal(current.diagnosticVersion, FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION);
+  assert.equal(current.memoryBudgetPlan.profileHardLimit, 1_500);
+  assert.equal(current.memoryBudgetPlan.profileBaseSoftTarget, 1_100);
+  assert.ok(current.memoryBudgetPlan.effectiveSoftTarget <= 1_100);
+  assert.throws(() => validateFableChatMemoryBody(memoryRequestBody(5)), /not supported/i);
 });
 
 test("diagnostic version changes only the immutable compaction fingerprint input", () => {
@@ -384,14 +539,14 @@ test("diagnostic version changes only the immutable compaction fingerprint input
   };
   const legacy = buildFableChatMemoryCompactionFingerprintInput({
     ...common,
-    diagnosticVersion: 2,
+    diagnosticVersion: 3,
   });
   const current = buildFableChatMemoryCompactionFingerprintInput(common);
-  assert.equal(legacy.diagnostic_version, 2);
-  assert.equal(current.diagnostic_version, 3);
+  assert.equal(legacy.diagnostic_version, 3);
+  assert.equal(current.diagnostic_version, 4);
   assert.notEqual(JSON.stringify(legacy), JSON.stringify(current));
   assert.deepEqual(
-    { ...current, diagnostic_version: 2 },
+    { ...current, diagnostic_version: 3 },
     legacy
   );
 
@@ -504,6 +659,12 @@ test("AI route keeps the error generic while logging only content-free diagnosti
     assert.match(serializedLogs, /fable_chat_memory_provider_rejected/);
     assert.match(serializedLogs, /invalid_source_shape/);
     assert.match(serializedLogs, /malformed_source_id_count/);
+    assert.match(serializedLogs, /profile_hard_limit/);
+    assert.match(serializedLogs, /profile_base_soft_target/);
+    assert.match(serializedLogs, /fixed_schema_overhead/);
+    assert.match(serializedLogs, /source_overhead_estimate/);
+    assert.match(serializedLogs, /safety_margin/);
+    assert.match(serializedLogs, /effective_summary_target/);
     assert.match(serializedLogs, /diagnostic-correlation-id/);
     assert.doesNotMatch(serializedLogs, new RegExp(privateMarker));
     assert.doesNotMatch(serializedLogs, new RegExp(privateSourceTitle));

@@ -8,8 +8,8 @@ export const FABLE_CHAT_MEMORY_MODEL_ID = QWEN3_30B_A3B_MODEL_ID;
 export const FABLE_CHAT_MEMORY_MODEL_CONTEXT_TOKENS = QWEN3_30B_A3B_CONTEXT_WINDOW_TOKENS;
 export const FABLE_CHAT_MEMORY_CONTRACT_VERSION = 1;
 export const FABLE_CHAT_MEMORY_PROMPT_VERSION = 1;
-export const FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION = 3;
-export const FABLE_CHAT_MEMORY_SUPPORTED_DIAGNOSTIC_VERSIONS = Object.freeze([1, 2, 3]);
+export const FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION = 4;
+export const FABLE_CHAT_MEMORY_SUPPORTED_DIAGNOSTIC_VERSIONS = Object.freeze([1, 2, 3, 4]);
 export const FABLE_CHAT_MEMORY_ESTIMATOR_VERSION = "utf8-visible-memory-v1";
 export const FABLE_CHAT_MEMORY_MODES = Object.freeze(["standard", "lite"]);
 export const FABLE_CHAT_DEFAULT_MEMORY_MODE = "standard";
@@ -32,6 +32,19 @@ export const FABLE_CHAT_LITE_MEMORY_RAW_MIN_TOKENS = 1_500;
 export const FABLE_CHAT_LITE_MEMORY_RAW_MAX_TOKENS = 3_000;
 export const FABLE_CHAT_LITE_MEMORY_RAW_MIN_TURNS = 2;
 export const FABLE_CHAT_LITE_MEMORY_RAW_MAX_TURNS = 3;
+
+export const FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS = Object.freeze({
+  standard: 1_100,
+  lite: 500,
+});
+export const FABLE_CHAT_MEMORY_SAFETY_MARGINS = Object.freeze({
+  standard: 150,
+  lite: 100,
+});
+export const FABLE_CHAT_MEMORY_MINIMUM_VIABLE_TARGETS = Object.freeze({
+  standard: 400,
+  lite: 240,
+});
 
 export const FABLE_CHAT_MEMORY_MAX_COMPACTIONS_PER_MAINTENANCE = 4;
 export const FABLE_CHAT_MEMORY_MAX_SOURCE_TURNS = 512;
@@ -152,6 +165,11 @@ export function estimateFableChatMemoryTextTokens(value) {
 
 export function estimateFableChatMemoryInputTokens(value) {
   return Math.ceil(estimateFableChatMemoryTextTokens(value) * 1.12) + 256;
+}
+
+export function estimateFableChatMemoryCanonicalSummaryTokens(value) {
+  const canonical = typeof value === "string" ? value : JSON.stringify(value);
+  return Math.ceil(estimateFableChatMemoryTextTokens(canonical) * 1.08) + 16;
 }
 
 export function escapeFableChatMemoryPromptData(value) {
@@ -308,7 +326,7 @@ export function normalizeFableChatMemorySummary(value, { mode } = {}) {
   }
   normalized.sources = normalizeSummarySources(parsed.sources);
   const canonical = JSON.stringify(normalized);
-  const estimatedTokens = Math.ceil(estimateFableChatMemoryTextTokens(canonical) * 1.08) + 16;
+  const estimatedTokens = estimateFableChatMemoryCanonicalSummaryTokens(canonical);
   if (estimatedTokens > getFableChatMemorySummaryMaxTokens(normalizedMode)) {
     throw new FableChatMemoryContractError("Memory summary exceeds its profile limit.", undefined, {
       rejectionCategory: "summary_limit_exceeded",
@@ -349,6 +367,71 @@ export function buildFableChatMemorySourceCatalog({
   return { entries, idByUrl };
 }
 
+function emptyFableChatMemorySummary(sources = []) {
+  return {
+    version: FABLE_CHAT_MEMORY_PROMPT_VERSION,
+    language: "",
+    ...Object.fromEntries(SUMMARY_ARRAY_FIELDS.map((field) => [field, []])),
+    sources,
+  };
+}
+
+export function planFableChatMemorySummaryBudget(mode, sourceCatalog = []) {
+  const profile = normalizeFableChatMemoryMode(mode);
+  const hardLimit = getFableChatMemorySummaryMaxTokens(profile);
+  const baseSoftTarget = FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS[profile];
+  const safetyMargin = FABLE_CHAT_MEMORY_SAFETY_MARGINS[profile];
+  const minimumViableTarget = FABLE_CHAT_MEMORY_MINIMUM_VIABLE_TARGETS[profile];
+  const fixedSchemaOverhead = estimateFableChatMemoryCanonicalSummaryTokens(
+    emptyFableChatMemorySummary()
+  );
+  const selectedSourceCatalog = [];
+  for (const entry of Array.isArray(sourceCatalog) ? sourceCatalog : []) {
+    if (selectedSourceCatalog.length >= FABLE_CHAT_MEMORY_MAX_SOURCES) break;
+    if (!entry || !FABLE_CHAT_MEMORY_SOURCE_ID_PATTERN.test(entry.id)) continue;
+    const source = normalizeCatalogSource({ title: entry.title, url: entry.url });
+    if (!source) continue;
+    selectedSourceCatalog.push({ id: entry.id, ...source });
+  }
+  const sourceOverheadFor = (catalog) => Math.max(
+    0,
+    estimateFableChatMemoryCanonicalSummaryTokens(emptyFableChatMemorySummary(
+      catalog.map(({ title, url }) => ({ title, url }))
+    )) - fixedSchemaOverhead
+  );
+  let sourceOverheadEstimate = sourceOverheadFor(selectedSourceCatalog);
+  let availableNonSourceBudget = hardLimit
+    - fixedSchemaOverhead
+    - sourceOverheadEstimate
+    - safetyMargin;
+  while (selectedSourceCatalog.length > 0 && availableNonSourceBudget < minimumViableTarget) {
+    selectedSourceCatalog.pop();
+    sourceOverheadEstimate = sourceOverheadFor(selectedSourceCatalog);
+    availableNonSourceBudget = hardLimit
+      - fixedSchemaOverhead
+      - sourceOverheadEstimate
+      - safetyMargin;
+  }
+  if (availableNonSourceBudget < minimumViableTarget) {
+    throw new FableChatMemoryContractError(
+      "Memory summary profile cannot satisfy its minimum safe target.",
+      "fable_chat_memory_budget_invalid"
+    );
+  }
+  return {
+    profile,
+    profileHardLimit: hardLimit,
+    profileBaseSoftTarget: baseSoftTarget,
+    fixedSchemaOverhead,
+    sourceOverheadEstimate,
+    safetyMargin,
+    minimumViableTarget,
+    availableNonSourceBudget,
+    effectiveSoftTarget: Math.min(baseSoftTarget, availableNonSourceBudget),
+    sourceCatalog: selectedSourceCatalog,
+  };
+}
+
 function sourceIdsForCatalog(value, idByUrl) {
   if (!Array.isArray(value)) return [];
   const ids = [];
@@ -364,13 +447,20 @@ function sourceIdsForCatalog(value, idByUrl) {
 }
 
 export function buildFableChatMemoryProviderSourcePayload({
+  mode = FABLE_CHAT_DEFAULT_MEMORY_MODE,
+  dynamicBudget = false,
   previousSummary = null,
   sourceTurns = [],
 } = {}) {
-  const catalog = buildFableChatMemorySourceCatalog({ previousSummary, sourceTurns });
+  const fullCatalog = buildFableChatMemorySourceCatalog({ previousSummary, sourceTurns });
+  const budgetPlan = dynamicBudget
+    ? planFableChatMemorySummaryBudget(mode, fullCatalog.entries)
+    : null;
+  const sourceCatalog = budgetPlan?.sourceCatalog || fullCatalog.entries;
+  const idByUrl = new Map(sourceCatalog.map((entry) => [entry.url, entry.id]));
   const providerPreviousSummary = previousSummary ? {
     ...previousSummary,
-    source_ids: sourceIdsForCatalog(previousSummary.sources, catalog.idByUrl),
+    source_ids: sourceIdsForCatalog(previousSummary.sources, idByUrl),
   } : null;
   if (providerPreviousSummary) delete providerPreviousSummary.sources;
   const providerSourceTurns = sourceTurns.map((turn) => ({
@@ -378,18 +468,19 @@ export function buildFableChatMemoryProviderSourcePayload({
     user: { ...turn.user },
     assistant: {
       ...turn.assistant,
-      source_ids: sourceIdsForCatalog(turn.assistant?.sources, catalog.idByUrl),
+      source_ids: sourceIdsForCatalog(turn.assistant?.sources, idByUrl),
     },
   }));
   for (const turn of providerSourceTurns) delete turn.assistant.sources;
   const payload = {
     previousSummary: providerPreviousSummary,
-    sourceCatalog: catalog.entries,
+    sourceCatalog,
     sourceTurns: providerSourceTurns,
   };
   return {
     sourcePayload: JSON.stringify(payload),
-    sourceCatalog: catalog.entries,
+    sourceCatalog,
+    budgetPlan,
   };
 }
 
@@ -497,6 +588,7 @@ export function normalizeFableChatMemoryProviderSummary(value, {
 
 export function buildFableChatMemorySummarizerSystemPrompt(mode, {
   sourceIdContract = false,
+  effectiveSoftTarget = null,
 } = {}) {
   const normalizedMode = normalizeFableChatMemoryMode(mode);
   const maxTokens = getFableChatMemorySummaryMaxTokens(normalizedMode);
@@ -526,6 +618,13 @@ export function buildFableChatMemorySummarizerSystemPrompt(mode, {
     ...(sourceIdContract ? [
       "The source catalog is server-owned. Return only source_ids that appear in that catalog.",
       "Never return source titles, URLs, source objects, or invented IDs. Use an empty source_ids array when no source applies.",
+    ] : []),
+    ...(Number.isInteger(effectiveSoftTarget) && effectiveSoftTarget > 0 ? [
+      `Keep all non-source summary content combined within ${effectiveSoftTarget} conservatively estimated tokens for this request.`,
+      "This is a strict soft target: source_ids do not permit a longer narrative.",
+      "Prioritize durable facts, user preferences, decisions, unresolved tasks, constraints, and essential context.",
+      "Omit repetition, conversational filler, greetings, and redundant explanations.",
+      "Return one complete JSON object, finish normally, and stay well below the hard profile limit.",
     ] : []),
     `Keep the entire JSON object within ${maxTokens} conservatively estimated tokens for the ${normalizedMode} profile.`,
     "/no_think",

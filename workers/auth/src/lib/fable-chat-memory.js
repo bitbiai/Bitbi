@@ -397,13 +397,16 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
   };
   const cleanTurns = sourceTurns.map(({ estimatedTokens, ...turn }) => turn);
   const previousSummary = previous?.summary || null;
-  const { sourcePayload } = buildFableChatMemoryProviderSourcePayload({
+  const { sourcePayload, budgetPlan } = buildFableChatMemoryProviderSourcePayload({
+    mode: profile,
+    dynamicBudget: true,
     previousSummary,
     sourceTurns: cleanTurns,
   });
   const estimatedInputTokens = estimateFableChatMemoryInputTokens(
     `${buildFableChatMemorySummarizerSystemPrompt(profile, {
       sourceIdContract: true,
+      effectiveSoftTarget: budgetPlan.effectiveSoftTarget,
     })}\n${escapeFableChatMemoryPromptData(sourcePayload)}`
   );
   if (
@@ -427,6 +430,7 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
     sourceBaseProfile,
     sourceTurns: cleanTurns,
     sourcePayload,
+    budgetPlan,
     estimatedInputTokens,
     inputFingerprint,
     coverage: nextCoverage,
@@ -772,6 +776,35 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
         Math.floor(Number(body?.result?.sourceDiagnostics?.malformed_source_id_count) || 0)
       ),
       source_id_shape_valid: body?.result?.sourceDiagnostics?.source_id_shape_valid === true,
+      profile_hard_limit: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.profile_hard_limit) || 0)
+      ),
+      profile_base_soft_target: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.profile_base_soft_target) || 0)
+      ),
+      fixed_schema_overhead: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.fixed_schema_overhead) || 0)
+      ),
+      source_overhead_estimate: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.source_overhead_estimate) || 0)
+      ),
+      safety_margin: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.safety_margin) || 0)
+      ),
+      effective_summary_target: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.effective_summary_target) || 0)
+      ),
+      final_estimated_summary_size: Math.max(
+        0,
+        Math.floor(Number(body?.result?.sourceDiagnostics?.final_estimated_summary_size) || 0)
+      ),
+      final_limit_exceeded: body?.result?.sourceDiagnostics?.final_limit_exceeded === true,
     });
     return { attempted: true, succeeded: true };
   } catch (error) {

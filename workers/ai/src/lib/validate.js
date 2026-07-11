@@ -816,8 +816,14 @@ export function validateFableChatMemoryBody(body) {
     return normalized;
   });
   const usesSourceIdContract = diagnosticVersion >= 3;
+  const usesDynamicSummaryBudget = diagnosticVersion >= 4;
   const providerSource = usesSourceIdContract
-    ? buildFableChatMemoryProviderSourcePayload({ previousSummary, sourceTurns })
+    ? buildFableChatMemoryProviderSourcePayload({
+        mode: profile,
+        dynamicBudget: usesDynamicSummaryBudget,
+        previousSummary,
+        sourceTurns,
+      })
     : {
         sourcePayload: JSON.stringify({ previousSummary, sourceTurns }),
         sourceCatalog: [],
@@ -833,6 +839,7 @@ export function validateFableChatMemoryBody(body) {
   const estimatedInputTokens = estimateFableChatMemoryInputTokens(
     `${buildFableChatMemorySummarizerSystemPrompt(profile, {
       sourceIdContract: usesSourceIdContract,
+      effectiveSoftTarget: providerSource.budgetPlan?.effectiveSoftTarget || null,
     })}\n${escapeFableChatMemoryPromptData(sourcePayload)}`
   );
   if (estimatedInputTokens > FABLE_CHAT_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS) {
@@ -852,6 +859,7 @@ export function validateFableChatMemoryBody(body) {
     sourceTurns,
     sourcePayload,
     sourceCatalog,
+    memoryBudgetPlan: providerSource.budgetPlan,
     estimatedInputTokens,
   };
 }

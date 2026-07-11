@@ -917,6 +917,32 @@ function createFableChatMemoryProviderRejection(category, diagnostics = {}) {
     duplicate_source_id_count: Math.max(0, Math.floor(Number(diagnostics.duplicate_source_id_count) || 0)),
     malformed_source_id_count: Math.max(0, Math.floor(Number(diagnostics.malformed_source_id_count) || 0)),
     source_id_shape_valid: diagnostics.source_id_shape_valid === true,
+    profile: ["standard", "lite"].includes(diagnostics.profile)
+      ? diagnostics.profile
+      : null,
+    profile_hard_limit: Math.max(0, Math.floor(Number(diagnostics.profile_hard_limit) || 0)),
+    profile_base_soft_target: Math.max(
+      0,
+      Math.floor(Number(diagnostics.profile_base_soft_target) || 0)
+    ),
+    fixed_schema_overhead: Math.max(
+      0,
+      Math.floor(Number(diagnostics.fixed_schema_overhead) || 0)
+    ),
+    source_overhead_estimate: Math.max(
+      0,
+      Math.floor(Number(diagnostics.source_overhead_estimate) || 0)
+    ),
+    safety_margin: Math.max(0, Math.floor(Number(diagnostics.safety_margin) || 0)),
+    effective_summary_target: Math.max(
+      0,
+      Math.floor(Number(diagnostics.effective_summary_target) || 0)
+    ),
+    final_estimated_summary_size: Math.max(
+      0,
+      Math.floor(Number(diagnostics.final_estimated_summary_size) || 0)
+    ),
+    final_limit_exceeded: diagnostics.final_limit_exceeded === true,
   });
   return error;
 }
@@ -925,6 +951,7 @@ export function validateFableChatMemoryProviderResult(raw, {
   profile,
   diagnosticVersion = 1,
   sourceCatalog = [],
+  memoryBudgetPlan = null,
   startedAt = Date.now(),
 } = {}) {
   const choice = Array.isArray(raw?.choices) ? raw.choices[0] : null;
@@ -956,6 +983,13 @@ export function validateFableChatMemoryProviderResult(raw, {
     duration_ms: getDurationMs(startedAt),
     source_catalog_count: Array.isArray(sourceCatalog) ? sourceCatalog.length : 0,
     source_id_shape_valid: diagnosticVersion < 3,
+    profile,
+    profile_hard_limit: memoryBudgetPlan?.profileHardLimit,
+    profile_base_soft_target: memoryBudgetPlan?.profileBaseSoftTarget,
+    fixed_schema_overhead: memoryBudgetPlan?.fixedSchemaOverhead,
+    source_overhead_estimate: memoryBudgetPlan?.sourceOverheadEstimate,
+    safety_margin: memoryBudgetPlan?.safetyMargin,
+    effective_summary_target: memoryBudgetPlan?.effectiveSoftTarget,
   };
   if (!choicePresent) {
     throw createFableChatMemoryProviderRejection("missing_choice", diagnostics);
@@ -998,18 +1032,35 @@ export function validateFableChatMemoryProviderResult(raw, {
     throw createFableChatMemoryProviderRejection("json_not_object", diagnostics);
   }
   try {
-    return diagnosticVersion >= 3
+    const normalized = diagnosticVersion >= 3
       ? normalizeFableChatMemoryProviderSummary(parsed, {
           mode: profile,
           sourceCatalog,
         })
       : normalizeFableChatMemorySummary(parsed, { mode: profile });
+    if (diagnosticVersion >= 4) {
+      normalized.sourceDiagnostics = {
+        ...(normalized.sourceDiagnostics || {}),
+        profile,
+        profile_hard_limit: memoryBudgetPlan?.profileHardLimit || 0,
+        profile_base_soft_target: memoryBudgetPlan?.profileBaseSoftTarget || 0,
+        fixed_schema_overhead: memoryBudgetPlan?.fixedSchemaOverhead || 0,
+        source_overhead_estimate: memoryBudgetPlan?.sourceOverheadEstimate || 0,
+        safety_margin: memoryBudgetPlan?.safetyMargin || 0,
+        effective_summary_target: memoryBudgetPlan?.effectiveSoftTarget || 0,
+        final_estimated_summary_size: normalized.estimatedTokens,
+        final_limit_exceeded: false,
+      };
+    }
+    return normalized;
   } catch (cause) {
     throw createFableChatMemoryProviderRejection(
       cause?.rejectionCategory,
       {
         ...diagnostics,
         estimated_summary_tokens: cause?.estimatedSummaryTokens,
+        final_estimated_summary_size: cause?.estimatedSummaryTokens,
+        final_limit_exceeded: cause?.rejectionCategory === "summary_limit_exceeded",
         ...(cause?.sourceDiagnostics || {}),
       }
     );
@@ -1020,8 +1071,12 @@ export async function invokeFableChatMemory(env, input) {
   ensureAI(env);
   const startedAt = Date.now();
   const usesSourceIdContract = input.diagnosticVersion >= 3;
+  const usesDynamicSummaryBudget = input.diagnosticVersion >= 4;
   const system = buildFableChatMemorySummarizerSystemPrompt(input.profile, {
     sourceIdContract: usesSourceIdContract,
+    effectiveSoftTarget: usesDynamicSummaryBudget
+      ? input.memoryBudgetPlan?.effectiveSoftTarget
+      : null,
   });
   const maxTokens = getFableChatMemoryProviderMaxTokens(input.profile);
   const payload = {
@@ -1033,6 +1088,10 @@ export async function invokeFableChatMemory(env, input) {
           "Summarize the following server-delimited memory source according to the system contract.",
           ...(usesSourceIdContract ? [
             "Select only source IDs from sourceCatalog and return them in source_ids; return no source titles, URLs, or objects.",
+          ] : []),
+          ...(usesDynamicSummaryBudget ? [
+            `Keep all non-source summary content combined within ${input.memoryBudgetPlan.effectiveSoftTarget} conservatively estimated tokens.`,
+            "Produce one complete concise JSON object; do not use source_ids to expand the narrative.",
           ] : []),
           "<van_ark_memory_source>",
           escapeFableChatMemoryPromptData(input.sourcePayload),
@@ -1087,6 +1146,7 @@ export async function invokeFableChatMemory(env, input) {
     profile: input.profile,
     diagnosticVersion: input.diagnosticVersion,
     sourceCatalog: input.sourceCatalog,
+    memoryBudgetPlan: input.memoryBudgetPlan,
     startedAt,
   });
   const usage = sanitizeQwenUsage(raw?.usage);
