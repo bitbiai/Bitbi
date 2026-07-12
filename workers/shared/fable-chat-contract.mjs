@@ -88,7 +88,9 @@ export const FABLE_CHAT_CONTEXT_CHARACTER_COMPAT_LIMIT = 384_000;
 export const FABLE_CHAT_INTERNAL_JSON_MAX_BYTES = 4 * 1024 * 1024;
 export const FABLE_CHAT_MAX_PROVIDER_STREAM_BYTES = 4 * 1024 * 1024;
 export const FABLE_CHAT_MAX_PROVIDER_EVENT_BYTES = (3 * 1024 * 1024) + (64 * 1024);
-export const FABLE_CHAT_MAX_PROVIDER_BLOCKS = 64;
+// Native Fable responses can interleave thinking, web-search, and text blocks.
+// Keep one hard ceiling for stream parsing, durable validation, and replay.
+export const FABLE_CHAT_MAX_PROVIDER_BLOCKS = 128;
 export const FABLE_CHAT_MAX_PROVIDER_BLOCKS_JSON_BYTES = 3 * 1024 * 1024;
 export const FABLE_CHAT_MAX_TEXT_OUTPUT_BYTES = 2 * 1024 * 1024;
 export const FABLE_CHAT_MAX_THINKING_SUMMARY_BYTES = 512 * 1024;

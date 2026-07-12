@@ -1,4 +1,5 @@
 import {
+  FABLE_CHAT_MAX_PROVIDER_BLOCKS,
   FABLE_CHAT_MAX_PROVIDER_BLOCKS_JSON_BYTES,
   FABLE_CHAT_MAX_TEXT_OUTPUT_BYTES,
   FABLE_CHAT_MAX_THINKING_SUMMARY_BYTES,
@@ -200,7 +201,10 @@ function normalizeAiTerminalWitness(value) {
   const phase = SAFE_TERMINATION_PHASES.has(value.termination_phase)
     ? value.termination_phase
     : "provider_stream_error";
-  const count = (entry) => Math.min(64, Math.max(0, Number.isInteger(entry) ? entry : 0));
+  const count = (entry) => Math.min(
+    FABLE_CHAT_MAX_PROVIDER_BLOCKS,
+    Math.max(0, Number.isInteger(entry) ? entry : 0)
+  );
   const bucket = (entry) => typeof entry === "string" && /^((le|gt)_\d+)$/.test(entry)
     ? entry.slice(0, 16)
     : "le_0";

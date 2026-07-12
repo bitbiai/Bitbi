@@ -337,6 +337,38 @@ function countedWebSearchProviderEvents(count) {
   return events;
 }
 
+function sequentialTextBlockProviderEvents(count, {
+  leaveLastBlockOpen = false,
+  duplicateIndex = false,
+} = {}) {
+  const events = [{
+    event: 'message_start',
+    data: { type: 'message_start', message: { model: 'claude-fable-5', usage: {} } },
+  }];
+  for (let index = 0; index < count; index += 1) {
+    const providerIndex = duplicateIndex && index === count - 1 ? index - 1 : index;
+    events.push({
+      event: 'content_block_start',
+      data: {
+        type: 'content_block_start',
+        index: providerIndex,
+        content_block: { type: 'text', text: `synthetic block ${index}` },
+      },
+    });
+    if (!leaveLastBlockOpen || index !== count - 1) {
+      events.push({ event: 'content_block_stop', data: { type: 'content_block_stop', index: providerIndex } });
+    }
+  }
+  events.push(
+    {
+      event: 'message_delta',
+      data: { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: count } },
+    },
+    { event: 'message_stop', data: { type: 'message_stop' } },
+  );
+  return events;
+}
+
 function largeTerminalProviderEvents() {
   const events = [{
     event: 'message_start',
@@ -1146,6 +1178,7 @@ test.describe('Advanced Fable chat contract', () => {
   test('a valid 48-block terminal stream with 10 searches and split Unicode constructs complete_internal once', async () => {
     const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
     const authStream = await import(moduleUrl('workers/auth/src/lib/fable-chat-stream.js'));
+    const context = await import(moduleUrl('workers/auth/src/lib/fable-chat-context.js'));
     const bytes = encodeSseEvents(largeTerminalProviderEvents());
     const chunks = [...bytes].map((byte) => Uint8Array.of(byte));
     const direct = await aiStream.consumeAnthropicMessageStream(byteStream(chunks), {}, {
@@ -1158,6 +1191,7 @@ test.describe('Advanced Fable chat contract', () => {
     const complete = await authStream.consumeInternalFableChatStream(internal);
 
     expect(complete.providerBlocks).toHaveLength(48);
+    expect(context.normalizeFableChatProviderBlocks(complete.providerBlocks)).toHaveLength(48);
     expect(complete.webSearchRequestCount).toBe(10);
     expect(complete.webSearchResultCount).toBe(10);
     expect(complete.text).toContain('München 🎵 — e\u0301');
@@ -1184,6 +1218,39 @@ test.describe('Advanced Fable chat contract', () => {
       byteStream([...escapedSurrogate].map((byte) => Uint8Array.of(byte)))
     );
     expect(escapedResult.text).toBe('🎵');
+  });
+
+  test('uses the canonical 128-block ceiling without weakening stream lifecycle validation', async () => {
+    const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const authStream = await import(moduleUrl('workers/auth/src/lib/fable-chat-stream.js'));
+    const context = await import(moduleUrl('workers/auth/src/lib/fable-chat-context.js'));
+    const contract = await import(moduleUrl('workers/shared/fable-chat-contract.mjs'));
+
+    expect(contract.FABLE_CHAT_MAX_PROVIDER_BLOCKS).toBe(128);
+    expect(contract.FABLE_CHAT_MAX_PROVIDER_STREAM_BYTES).toBe(4 * 1024 * 1024);
+    expect(contract.FABLE_CHAT_MAX_PROVIDER_EVENT_BYTES).toBe((3 * 1024 * 1024) + (64 * 1024));
+    expect(contract.FABLE_PROVIDER_STREAM_IDLE_TIMEOUT_MS).toBe(300_000);
+    expect(authStream.FABLE_AUTH_INTERNAL_STREAM_IDLE_TIMEOUT_MS).toBe(330_000);
+
+    for (const count of [64, 65, 128]) {
+      const result = await aiStream.consumeAnthropicMessageStream(
+        byteStream([encodeSseEvents(sequentialTextBlockProviderEvents(count))]),
+      );
+      expect(result.providerBlocks).toHaveLength(count);
+      expect(context.normalizeFableChatProviderBlocks(result.providerBlocks)).toHaveLength(count);
+    }
+
+    await expect(aiStream.consumeAnthropicMessageStream(
+      byteStream([encodeSseEvents(sequentialTextBlockProviderEvents(129))]),
+    )).rejects.toMatchObject({ code: 'provider_invalid_block_lifecycle' });
+
+    await expect(aiStream.consumeAnthropicMessageStream(
+      byteStream([encodeSseEvents(sequentialTextBlockProviderEvents(128, { leaveLastBlockOpen: true }))]),
+    )).rejects.toMatchObject({ code: 'provider_invalid_block_lifecycle' });
+
+    await expect(aiStream.consumeAnthropicMessageStream(
+      byteStream([encodeSseEvents(sequentialTextBlockProviderEvents(2, { duplicateIndex: true }))]),
+    )).rejects.toMatchObject({ code: 'provider_invalid_block_lifecycle' });
   });
 
   test('normalized internal stream never emits signatures and retains them only in final service data', async () => {

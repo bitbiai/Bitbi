@@ -109,8 +109,10 @@ function normalizePrivateCitation(value, field) {
   };
 }
 
-function normalizePrivateCitations(value, field) {
-  if (!Array.isArray(value) || value.length === 0 || value.length > FABLE_CHAT_MAX_CITATIONS) {
+function normalizePrivateCitations(value, field, { allowEmpty = false } = {}) {
+  if (!Array.isArray(value)
+    || (!allowEmpty && value.length === 0)
+    || value.length > FABLE_CHAT_MAX_CITATIONS) {
     throw new TypeError(`${field} is invalid.`);
   }
   return value.map((citation, index) => normalizePrivateCitation(citation, `${field}[${index}]`));
@@ -199,7 +201,14 @@ export function normalizeFableChatProviderBlocks(value, {
         text,
         ...(block.citations === undefined
           ? {}
-          : { citations: normalizePrivateCitations(block.citations, `Provider text citations ${index}`) }),
+          : {
+            // Preserve the valid Anthropic empty citation placeholder accepted by the stream parser.
+            citations: normalizePrivateCitations(
+              block.citations,
+              `Provider text citations ${index}`,
+              { allowEmpty: true }
+            ),
+          }),
       };
     }
     if (block.type === "thinking") {
