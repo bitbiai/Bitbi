@@ -36,6 +36,15 @@ export async function handleFableChat({ request, env, correlationId, pathname, m
         startedAt: output.startedAt,
         continueAfterPause: output.continueAfterPause,
         maxWebSearchUses: input.webSearchMaxUses,
+        onTerminalWitness: (witness) => {
+          logDiagnostic({
+            service: "bitbi-ai",
+            component: "fable-chat-stream",
+            event: "fable_chat_stream_terminal_witness",
+            correlationId,
+            stream_terminal_witness: witness,
+          });
+        },
       }), {
         status: 200,
         headers: {

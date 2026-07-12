@@ -95,7 +95,9 @@ export const FABLE_CHAT_MAX_THINKING_SUMMARY_BYTES = 512 * 1024;
 export const FABLE_CHAT_MAX_THINKING_SIGNATURE_BYTES = 512 * 1024;
 
 export const FABLE_CHAT_GENERATION_TIMEOUT_MS = 25 * 60_000;
-export const FABLE_CHAT_STREAM_IDLE_TIMEOUT_MS = 2 * 60_000;
+// Applies only to the Fable provider stream and its internal AI-to-Auth proxy.
+// It is intentionally independent from the absolute generation deadline.
+export const FABLE_PROVIDER_STREAM_IDLE_TIMEOUT_MS = 5 * 60_000;
 export const FABLE_CHAT_TURN_EXPIRY_MINUTES = 30;
 
 export const FABLE_CHAT_BASE_SYSTEM_PROMPT =

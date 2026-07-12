@@ -18,7 +18,7 @@ import {
   FABLE_CHAT_MAX_THINKING_SIGNATURE_BYTES,
   FABLE_CHAT_MAX_THINKING_SUMMARY_BYTES,
   FABLE_CHAT_MAX_WEB_SEARCH_RESULTS,
-  FABLE_CHAT_STREAM_IDLE_TIMEOUT_MS,
+  FABLE_PROVIDER_STREAM_IDLE_TIMEOUT_MS,
   FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
   FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS,
   FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
@@ -33,6 +33,92 @@ const SEARCH_ERROR_CODES = new Set([
   "too_many_requests", "invalid_tool_input", "max_uses_exceeded",
   "query_too_long", "request_too_large", "unavailable",
 ]);
+const SAFE_PROVIDER_EVENT_TYPES = new Set([
+  "none", "ping", "message_start", "content_block_start", "content_block_delta",
+  "content_block_stop", "message_delta", "message_stop", "error",
+]);
+const SAFE_NORMALIZED_EVENT_TYPES = new Set([
+  "none", "accepted", "keepalive", "thinking_delta", "text_delta",
+  "web_search_started", "complete_internal", "error",
+]);
+const SAFE_STREAM_ERROR_CODES = new Set([
+  "provider_stream_interrupted", "provider_stream_idle_timeout", "provider_stream_timeout",
+  "provider_stream_malformed", "provider_stream_error", "provider_web_search_limit_exceeded",
+  "provider_web_search_limit_invalid", "provider_pause_turn_unavailable",
+  "provider_pause_turn_limit_exceeded",
+]);
+
+function boundedBucket(value, thresholds) {
+  const number = Math.max(0, Number(value) || 0);
+  for (const threshold of thresholds) {
+    if (number <= threshold) return `le_${threshold}`;
+  }
+  return `gt_${thresholds[thresholds.length - 1]}`;
+}
+
+function safeProviderEventType(value) {
+  return SAFE_PROVIDER_EVENT_TYPES.has(value) ? value : "none";
+}
+
+function safeNormalizedEventType(value) {
+  return SAFE_NORMALIZED_EVENT_TYPES.has(value) ? value : "none";
+}
+
+function safeStreamErrorCode(value) {
+  return SAFE_STREAM_ERROR_CODES.has(value) ? value : "provider_stream_interrupted";
+}
+
+function createStreamWitness(startedAt) {
+  return {
+    startedAt: Number(startedAt) || Date.now(),
+    lastProviderActivityAt: Number(startedAt) || Date.now(),
+    lastProviderEventType: "none",
+    lastNormalizedEventType: "accepted",
+    messageStartSeen: false,
+    messageDeltaSeen: false,
+    messageStopSeen: false,
+    providerPingSeen: false,
+    contentBlockCount: 0,
+    stoppedContentBlockCount: 0,
+    upstreamEofSeen: false,
+    upstreamAbortSeen: false,
+    upstreamErrorSeen: false,
+    downstreamCancelSeen: false,
+    completeInternalConstructed: false,
+    completeInternalEmitted: false,
+    parserErrorCode: null,
+    normalizedEventCount: 1,
+    streamedBytes: 0,
+  };
+}
+
+function snapshotStreamWitness(witness, terminationPhase) {
+  const now = Date.now();
+  return {
+    termination_phase: terminationPhase,
+    last_provider_event_type: safeProviderEventType(witness.lastProviderEventType),
+    last_normalized_event_type: safeNormalizedEventType(witness.lastNormalizedEventType),
+    message_start_seen: witness.messageStartSeen === true,
+    message_delta_seen: witness.messageDeltaSeen === true,
+    message_stop_seen: witness.messageStopSeen === true,
+    provider_ping_seen: witness.providerPingSeen === true,
+    content_block_count: Math.min(FABLE_CHAT_MAX_PROVIDER_BLOCKS, witness.contentBlockCount),
+    stopped_content_block_count: Math.min(FABLE_CHAT_MAX_PROVIDER_BLOCKS, witness.stoppedContentBlockCount),
+    all_blocks_stopped: witness.contentBlockCount > 0
+      && witness.contentBlockCount === witness.stoppedContentBlockCount,
+    upstream_eof_seen: witness.upstreamEofSeen === true,
+    upstream_abort_seen: witness.upstreamAbortSeen === true,
+    upstream_error_seen: witness.upstreamErrorSeen === true,
+    downstream_cancel_seen: witness.downstreamCancelSeen === true,
+    complete_internal_constructed: witness.completeInternalConstructed === true,
+    complete_internal_emitted: witness.completeInternalEmitted === true,
+    parser_error_code: witness.parserErrorCode ? safeStreamErrorCode(witness.parserErrorCode) : null,
+    elapsed_ms_bucket: boundedBucket(now - witness.startedAt, [30_000, 60_000, 120_000, 180_000, 300_000]),
+    final_idle_duration_ms_bucket: boundedBucket(now - witness.lastProviderActivityAt, [5_000, 30_000, 60_000, 120_000, 300_000]),
+    normalized_event_count_bucket: boundedBucket(witness.normalizedEventCount, [1, 8, 32, 64, 128]),
+    streamed_byte_count_bucket: boundedBucket(witness.streamedBytes, [4_096, 65_536, 262_144, 1_048_576, 4_194_304]),
+  };
+}
 
 export class AnthropicStreamError extends Error {
   constructor(message, { code = "provider_stream_interrupted", definitive = false } = {}) {
@@ -424,8 +510,11 @@ async function readWithIdleTimeout(reader, timeoutMs, timeoutCode = "provider_st
 export async function* parseSseJsonEvents(stream, {
   maxStreamBytes = FABLE_CHAT_MAX_PROVIDER_STREAM_BYTES,
   maxEventBytes = FABLE_CHAT_MAX_PROVIDER_EVENT_BYTES,
-  idleTimeoutMs = FABLE_CHAT_STREAM_IDLE_TIMEOUT_MS,
+  idleTimeoutMs = FABLE_PROVIDER_STREAM_IDLE_TIMEOUT_MS,
   maxDurationMs = FABLE_CHAT_GENERATION_TIMEOUT_MS,
+  onStreamChunkBytes = null,
+  onUpstreamEof = null,
+  onUpstreamAbort = null,
 } = {}) {
   if (!stream || typeof stream.getReader !== "function") {
     throw new AnthropicStreamError("Provider did not return a readable stream.");
@@ -438,6 +527,11 @@ export async function* parseSseJsonEvents(stream, {
   let dataLines = [];
   const deadline = Date.now() + Math.max(1, Number(maxDurationMs) || FABLE_CHAT_GENERATION_TIMEOUT_MS);
   let streamCompleted = false;
+  let lastValidActivityAt = Date.now();
+
+  const markValidActivity = () => {
+    lastValidActivityAt = Date.now();
+  };
 
   const dispatch = () => {
     if (dataLines.length === 0) {
@@ -479,14 +573,16 @@ export async function* parseSseJsonEvents(stream, {
           code: "provider_stream_timeout",
         });
       }
-      const waitMs = Math.min(idleTimeoutMs, remainingMs);
+      const idleRemainingMs = Math.max(1, idleTimeoutMs - (Date.now() - lastValidActivityAt));
+      const waitMs = Math.min(idleRemainingMs, remainingMs);
       const { value, done } = await readWithIdleTimeout(
         reader,
         waitMs,
-        remainingMs <= idleTimeoutMs ? "provider_stream_timeout" : "provider_stream_idle_timeout"
+        remainingMs <= idleRemainingMs ? "provider_stream_timeout" : "provider_stream_idle_timeout"
       );
       if (done) {
         streamCompleted = true;
+        onUpstreamEof?.();
         break;
       }
       const bytes = typeof value === "string" ? ENCODER.encode(value) : value;
@@ -494,6 +590,7 @@ export async function* parseSseJsonEvents(stream, {
         throw new AnthropicStreamError("Provider stream chunk is invalid.");
       }
       totalBytes += bytes.byteLength;
+      onStreamChunkBytes?.(bytes.byteLength);
       if (totalBytes > maxStreamBytes) {
         throw new AnthropicStreamError("Provider stream exceeds its safe limit.");
       }
@@ -503,7 +600,7 @@ export async function* parseSseJsonEvents(stream, {
         if (!parsed) break;
         textBuffer = parsed.rest;
         const event = processLine(parsed.line);
-        if (event) yield event;
+        if (event) yield { ...event, markValidActivity };
       }
     }
     textBuffer += decoder.decode();
@@ -512,12 +609,13 @@ export async function* parseSseJsonEvents(stream, {
       if (!parsed) break;
       textBuffer = parsed.rest;
       const event = processLine(parsed.line);
-      if (event) yield event;
+      if (event) yield { ...event, markValidActivity };
     }
     const trailing = dispatch();
-    if (trailing) yield trailing;
+    if (trailing) yield { ...trailing, markValidActivity };
   } catch (error) {
     if (error instanceof AnthropicStreamError) throw error;
+    if (error?.name === "AbortError") onUpstreamAbort?.();
     throw new AnthropicStreamError("Provider stream was interrupted.");
   } finally {
     if (!streamCompleted) {
@@ -534,6 +632,8 @@ export async function* parseSseJsonEvents(stream, {
 export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
   allowOrphanSearchResults = false,
   maxWebSearchUses = 1,
+  streamWitness = null,
+  providerIdleTimeoutMs = FABLE_PROVIDER_STREAM_IDLE_TIMEOUT_MS,
 } = {}) {
   const maxUses = normalizeWebSearchMaxUses(maxWebSearchUses);
   const blocks = new Map();
@@ -580,7 +680,25 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
     block[field] = next;
   };
 
-  for await (const event of parseSseJsonEvents(stream)) {
+  const markProviderActivity = (event, type) => {
+    event.markValidActivity?.();
+    if (!streamWitness) return;
+    streamWitness.lastProviderActivityAt = Date.now();
+    streamWitness.lastProviderEventType = safeProviderEventType(type);
+  };
+
+  for await (const event of parseSseJsonEvents(stream, {
+    idleTimeoutMs: providerIdleTimeoutMs,
+    onStreamChunkBytes: (bytes) => {
+      if (streamWitness) streamWitness.streamedBytes += Math.max(0, Number(bytes) || 0);
+    },
+    onUpstreamEof: () => {
+      if (streamWitness) streamWitness.upstreamEofSeen = true;
+    },
+    onUpstreamAbort: () => {
+      if (streamWitness) streamWitness.upstreamAbortSeen = true;
+    },
+  })) {
     if (event.done) continue;
     const value = event.data;
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -588,10 +706,14 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
     }
     const type = String(value.type || event.event || "");
     if (type === "ping") {
+      if (streamWitness) streamWitness.providerPingSeen = true;
+      markProviderActivity(event, type);
       callbacks.onKeepalive?.();
       continue;
     }
     if (type === "error") {
+      if (streamWitness) streamWitness.upstreamErrorSeen = true;
+      markProviderActivity(event, type);
       throw new AnthropicStreamError("Provider returned a definitive stream error.", {
         code: "provider_stream_error",
         definitive: true,
@@ -605,6 +727,8 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
       const model = value.message?.model;
       responseModel = typeof model === "string" && SAFE_MODEL.test(model) ? model : null;
       usage = mergeUsage(usage, value.message?.usage);
+      if (streamWitness) streamWitness.messageStartSeen = true;
+      markProviderActivity(event, type);
       continue;
     }
     if (type === "content_block_start") {
@@ -685,6 +809,8 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
       } else {
         throw new AnthropicStreamError("Provider content block type is unsupported.");
       }
+      if (streamWitness) streamWitness.contentBlockCount += 1;
+      markProviderActivity(event, type);
       continue;
     }
     if (type === "content_block_delta") {
@@ -758,6 +884,7 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
       } else {
         throw new AnthropicStreamError("Provider content block delta is invalid.");
       }
+      markProviderActivity(event, type);
       continue;
     }
     if (type === "content_block_stop") {
@@ -787,6 +914,8 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
         }));
       }
       stoppedBlocks.add(index);
+      if (streamWitness) streamWitness.stoppedContentBlockCount += 1;
+      markProviderActivity(event, type);
       continue;
     }
     if (type === "message_delta") {
@@ -798,6 +927,8 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
       const sequence = value.delta?.stop_sequence;
       stopSequence = typeof sequence === "string" ? sequence.slice(0, 160) : null;
       usage = mergeUsage(usage, value.usage);
+      if (streamWitness) streamWitness.messageDeltaSeen = true;
+      markProviderActivity(event, type);
       continue;
     }
     if (type === "message_stop") {
@@ -805,6 +936,8 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
         throw new AnthropicStreamError("Provider message stop is out of order.");
       }
       sawMessageStop = true;
+      if (streamWitness) streamWitness.messageStopSeen = true;
+      markProviderActivity(event, type);
       continue;
     }
     // Unknown provider events are ignored only after their JSON and size have been validated.
@@ -870,17 +1003,38 @@ export function createInternalFableChatStream(providerStream, {
   startedAt = Date.now(),
   continueAfterPause = null,
   maxWebSearchUses = 1,
+  onTerminalWitness = null,
 } = {}) {
   const maxUses = normalizeWebSearchMaxUses(maxWebSearchUses);
   let canceled = false;
+  const witness = createStreamWitness(startedAt);
   return new ReadableStream({
     start(controller) {
       const enqueue = (event, data) => {
         if (canceled) return;
         try {
           controller.enqueue(encodeSseEvent(event, data));
+          if (SAFE_NORMALIZED_EVENT_TYPES.has(event)) {
+            witness.lastNormalizedEventType = event;
+            witness.normalizedEventCount += 1;
+          }
+          return true;
         } catch {
           canceled = true;
+          witness.downstreamCancelSeen = true;
+          return false;
+        }
+      };
+      const emitTerminalWitness = (terminationPhase) => {
+        const snapshot = snapshotStreamWitness(witness, terminationPhase);
+        onTerminalWitness?.(snapshot);
+        if (!canceled) {
+          try {
+            controller.enqueue(encodeSseEvent("terminal_witness", snapshot));
+          } catch {
+            canceled = true;
+            witness.downstreamCancelSeen = true;
+          }
         }
       };
       enqueue("accepted", { ok: true });
@@ -892,6 +1046,7 @@ export function createInternalFableChatStream(providerStream, {
       };
       void consumeAnthropicMessageStream(providerStream, callbacks, {
         maxWebSearchUses: maxUses,
+        streamWitness: witness,
       }).then(async (initial) => {
         let result = initial;
         let continuationCount = 0;
@@ -912,6 +1067,7 @@ export function createInternalFableChatStream(providerStream, {
           const continuation = await consumeAnthropicMessageStream(continuationStream, callbacks, {
             allowOrphanSearchResults: true,
             maxWebSearchUses: maxUses,
+            streamWitness: witness,
           });
           continuationCount += 1;
           combinedBlocks = [...combinedBlocks, ...continuation.providerBlocks];
@@ -927,12 +1083,16 @@ export function createInternalFableChatStream(providerStream, {
             responseModel: continuation.responseModel || initial.responseModel,
           };
         }
-        enqueue("complete_internal", {
+        witness.completeInternalConstructed = true;
+        witness.completeInternalEmitted = enqueue("complete_internal", {
           ...result,
           durationMs: Math.max(0, Date.now() - startedAt),
-        });
+        }) === true;
+        emitTerminalWitness("complete_internal");
         if (!canceled) controller.close();
       }).catch((error) => {
+        witness.parserErrorCode = safeStreamErrorCode(error?.code);
+        emitTerminalWitness("provider_stream_error");
         enqueue("error", {
           code: error?.code || "provider_stream_interrupted",
           outcome: error?.definitive === true ? "failed" : "unknown",
@@ -942,6 +1102,7 @@ export function createInternalFableChatStream(providerStream, {
     },
     cancel() {
       canceled = true;
+      witness.downstreamCancelSeen = true;
     },
   });
 }

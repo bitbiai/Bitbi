@@ -76,9 +76,22 @@ import {
 } from "../../../../js/shared/worker-observability.mjs";
 
 const ROUTE_PREFIX = "/api/admin/fable-chat";
+const SAFE_STREAM_WITNESS_ERROR_CODES = new Set([
+  "provider_stream_interrupted", "provider_stream_idle_timeout", "provider_stream_timeout",
+  "provider_stream_malformed", "provider_stream_error", "provider_web_search_limit_exceeded",
+  "provider_web_search_limit_invalid", "provider_pause_turn_unavailable",
+  "provider_pause_turn_limit_exceeded", "fable_chat_invalid_provider_result",
+  "fable_chat_persistence_unavailable", "fable_chat_provider_outcome_unknown",
+]);
 
 function correlated(response, correlationId) {
   return withCorrelationId(response, correlationId);
+}
+
+function safeStreamWitnessErrorCode(value) {
+  return SAFE_STREAM_WITNESS_ERROR_CODES.has(value)
+    ? value
+    : "provider_stream_interrupted";
 }
 
 function notFound(correlationId) {
@@ -314,6 +327,33 @@ function auditFableChat(ctx, adminUser, action, {
     }
   );
   if (ctx.execCtx?.waitUntil) ctx.execCtx.waitUntil(promise);
+}
+
+function streamTerminalWitnessForLog(witness, {
+  downstreamClientDisconnected = false,
+  finalizationStarted = false,
+  finalizationSucceeded = false,
+  finalizationFailed = false,
+  unknownClassificationReason = null,
+} = {}) {
+  const source = witness && typeof witness === "object" ? witness : {};
+  return {
+    last_internal_event_type: source.last_internal_event_type || "none",
+    accepted_seen: source.accepted_seen === true,
+    complete_internal_seen: source.complete_internal_seen === true,
+    error_event_seen: source.error_event_seen === true,
+    downstream_client_disconnected: downstreamClientDisconnected === true,
+    ai_response_body_ended: source.ai_response_body_ended === true,
+    ai_stream_read_error: source.ai_stream_read_error === true,
+    finalization_started: finalizationStarted === true,
+    finalization_succeeded: finalizationSucceeded === true,
+    finalization_failed: finalizationFailed === true,
+    unknown_classification_reason: unknownClassificationReason
+      ? safeStreamWitnessErrorCode(unknownClassificationReason)
+      : null,
+    elapsed_ms_bucket: source.elapsed_ms_bucket || "le_0",
+    final_idle_duration_ms_bucket: source.final_idle_duration_ms_bucket || "le_0",
+  };
 }
 
 async function recordBudgetOutcomeSafely(ctx, turnId, outcome) {
@@ -764,6 +804,8 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
       const processing = (async () => {
         let turn = prepared.turn;
         let durablyFinalized = false;
+        let finalizationStarted = false;
+        let aiTerminalWitness = null;
         try {
           const complete = await consumeInternalFableChatStream(internalStream, {
             onAccepted: () => enqueue("accepted", { replayed: false, turn: { id: turn.id } }),
@@ -771,7 +813,9 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             onTextDelta: (text) => enqueue("text_delta", { text }),
             onWebSearchStarted: () => enqueue("web_search_started", { ok: true }),
             onKeepalive: () => enqueue("keepalive", { ok: true }),
+            onTerminalWitness: (witness) => { aiTerminalWitness = witness; },
           });
+          finalizationStarted = true;
           const result = await finalizeFableChatTurn(ctx.env, turn.id, {
             assistantContent: complete.text,
             providerBlocks: complete.providerBlocks,
@@ -787,6 +831,19 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
           });
           turn = result.turn;
           durablyFinalized = true;
+          logDiagnostic({
+            service: "bitbi-auth",
+            component: "admin-fable-chat-stream",
+            event: "fable_chat_stream_terminal_witness",
+            correlationId: ctx.correlationId,
+            turn_id: turn.id,
+            auth_stream_terminal_witness: streamTerminalWitnessForLog(complete.authTerminalWitness, {
+              downstreamClientDisconnected: clientCanceled,
+              finalizationStarted,
+              finalizationSucceeded: true,
+            }),
+            ai_stream_terminal_witness: complete.aiTerminalWitness || aiTerminalWitness || null,
+          });
           await recordBudgetOutcomeSafely(ctx, turn.id, {
             finalState: "succeeded",
             stopReason: complete.stopReason || null,
@@ -811,6 +868,21 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
           if (!payload) throw new FableChatInternalStreamError("Durable chat result is unavailable.");
           enqueue("final", payload);
         } catch (error) {
+          logDiagnostic({
+            service: "bitbi-auth",
+            component: "admin-fable-chat-stream",
+            event: "fable_chat_stream_terminal_witness",
+            level: "warn",
+            correlationId: ctx.correlationId,
+            turn_id: turn?.id || prepared.turn.id,
+            auth_stream_terminal_witness: streamTerminalWitnessForLog(error?.terminalWitness, {
+              downstreamClientDisconnected: clientCanceled,
+              finalizationStarted,
+              finalizationFailed: finalizationStarted && !durablyFinalized,
+              unknownClassificationReason: error?.code || "provider_stream_interrupted",
+            }),
+            ai_stream_terminal_witness: error?.aiTerminalWitness || aiTerminalWitness || null,
+          });
           if (durablyFinalized) {
             enqueue("error", {
               ok: false,

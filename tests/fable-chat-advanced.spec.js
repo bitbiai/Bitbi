@@ -40,6 +40,20 @@ function byteStream(chunks) {
   });
 }
 
+function delayedByteStream(entries) {
+  return new ReadableStream({
+    start(controller) {
+      void (async () => {
+        for (const { chunk, delayMs = 0 } of entries) {
+          if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+          controller.enqueue(chunk);
+        }
+        controller.close();
+      })();
+    },
+  });
+}
+
 function encodeSseEvents(events, { crlf = false, comment = false } = {}) {
   const newline = crlf ? '\r\n' : '\n';
   const prefix = comment ? `: provider ping${newline}${newline}` : '';
@@ -973,6 +987,78 @@ test.describe('Advanced Fable chat contract', () => {
     });
     expect(result.providerBlocks[0].signature).toBe('opaque-signature-v1');
     expect(JSON.stringify(result.usage)).not.toContain('unsafe');
+  });
+
+  test('Fable provider idle policy is 300 seconds and valid ping, thinking, and search activity reset it', async () => {
+    const contract = await import(moduleUrl('workers/shared/fable-chat-contract.mjs'));
+    const streamModule = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    expect(contract.FABLE_PROVIDER_STREAM_IDLE_TIMEOUT_MS).toBe(300_000);
+
+    const completeEvents = completeProviderEvents();
+    const thinkingResult = await streamModule.consumeAnthropicMessageStream(delayedByteStream([
+      { chunk: encodeSseEvents(completeEvents.slice(0, 2)) },
+      { chunk: encodeSseEvents(completeEvents.slice(2, 5)), delayMs: 20 },
+      { chunk: encodeSseEvents(completeEvents.slice(5)), delayMs: 20 },
+    ]), {}, { providerIdleTimeoutMs: 30 });
+    expect(thinkingResult.stopReason).toBe('end_turn');
+
+    const searchEvents = webSearchProviderEvents();
+    const searchResult = await streamModule.consumeAnthropicMessageStream(delayedByteStream([
+      { chunk: encodeSseEvents(searchEvents.slice(0, 2)) },
+      { chunk: encodeSseEvents(searchEvents.slice(2)), delayMs: 20 },
+    ]), {}, { providerIdleTimeoutMs: 30 });
+    expect(searchResult.webSearchRequestCount).toBe(1);
+
+    const deadStream = new ReadableStream({ pull() {} });
+    await expect(streamModule.consumeAnthropicMessageStream(deadStream, {}, {
+      providerIdleTimeoutMs: 5,
+    })).rejects.toMatchObject({ code: 'provider_stream_idle_timeout', definitive: false });
+  });
+
+  test('terminal witnesses are bounded and never expose provider content', async () => {
+    const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const authStream = await import(moduleUrl('workers/auth/src/lib/fable-chat-stream.js'));
+    const aiWitnesses = [];
+    const authWitnesses = [];
+    const internal = aiStream.createInternalFableChatStream(byteStream([
+      encodeSseEvents(completeProviderEvents()),
+    ]), {
+      onTerminalWitness: (witness) => aiWitnesses.push(witness),
+    });
+    const complete = await authStream.consumeInternalFableChatStream(internal, {
+      onTerminalWitness: (witness) => authWitnesses.push(witness),
+    });
+
+    expect(aiWitnesses).toHaveLength(1);
+    expect(authWitnesses).toHaveLength(1);
+    expect(complete.authTerminalWitness).toMatchObject({
+      accepted_seen: true,
+      complete_internal_seen: true,
+      ai_response_body_ended: true,
+    });
+    expect(complete.aiTerminalWitness).toMatchObject({
+      termination_phase: 'complete_internal',
+      message_start_seen: true,
+      message_stop_seen: true,
+      all_blocks_stopped: true,
+      complete_internal_emitted: true,
+    });
+    const diagnostics = JSON.stringify({ aiWitnesses, authWitnesses, complete: complete.aiTerminalWitness });
+    expect(diagnostics).not.toContain('Grüße');
+    expect(diagnostics).not.toContain('opaque-signature');
+    expect(diagnostics).not.toContain('encrypted');
+
+    const incomplete = aiStream.createInternalFableChatStream(byteStream([
+      encodeSseEvents(completeProviderEvents().slice(0, -1)),
+    ]));
+    await expect(authStream.consumeInternalFableChatStream(incomplete)).rejects.toMatchObject({
+      code: 'provider_stream_interrupted',
+      outcome: 'unknown',
+      terminalWitness: expect.objectContaining({
+        accepted_seen: true,
+        complete_internal_seen: false,
+      }),
+    });
   });
 
   test('normalized internal stream never emits signatures and retains them only in final service data', async () => {
