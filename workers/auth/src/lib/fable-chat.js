@@ -516,6 +516,9 @@ export function serializeFableChatMessage(row) {
     content: row.content,
     state: row.state,
     createdAt: row.created_at,
+    ...(row.role === "assistant" && row.completed_at
+      ? { completedAt: row.completed_at }
+      : {}),
     ...(row.role === "assistant" && row.reasoning_summary
       ? { reasoningSummary: row.reasoning_summary }
       : {}),
@@ -804,7 +807,15 @@ export async function listFableChatMessages(env, adminUserId, conversationId, {
             m.state, m.metadata_json, m.reasoning_summary,
             COALESCE((SELECT r.citations_json FROM fable_chat_admin_message_revisions r
               WHERE r.message_id = m.id ORDER BY r.revision_number DESC, r.id DESC LIMIT 1), m.citations_json) AS citations_json,
-            m.created_at, m.updated_at
+            m.created_at, m.updated_at,
+            CASE WHEN m.role = 'assistant' THEN (
+              SELECT t.completed_at FROM fable_chat_turns t
+               WHERE t.assistant_message_id = m.id
+                 AND t.conversation_id = m.conversation_id
+                 AND t.admin_user_id = m.admin_user_id
+                 AND t.status = 'succeeded'
+               ORDER BY t.completed_at DESC, t.id DESC LIMIT 1
+            ) END AS completed_at
        FROM fable_chat_messages m
        INNER JOIN fable_chat_conversations c ON c.id = m.conversation_id
       WHERE m.conversation_id = ?
@@ -2147,6 +2158,7 @@ export async function getFableChatTurnResult(env, adminUserId, conversationId, t
       reasoning_summary: row.assistant_reasoning_summary,
       citations_json: row.assistant_citations_json,
       created_at: row.assistant_created_at,
+      completed_at: row.completed_at,
     }));
   }
   return {

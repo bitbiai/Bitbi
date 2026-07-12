@@ -757,6 +757,17 @@ test.describe('Private admin Fable chat', () => {
       const firstBody = await first.json();
       expect(firstBody.idempotentReplay).toBe(false);
       expect(firstBody.messages.map((message) => message.role)).toEqual(['user', 'assistant']);
+      expect(firstBody.messages[0].completedAt).toBeUndefined();
+      expect(firstBody.messages[1].completedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      const history = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}`,
+        { cookie: admin.cookie }
+      );
+      expect(history.status).toBe(200);
+      const historyAssistant = (await history.json()).messages.find((message) => message.role === 'assistant');
+      expect(historyAssistant.completedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(firstBody.conversation.title).toBe('Remember that the launch code name is Northstar.');
       expect(providerCalls).toHaveLength(1);
       expect(providerCalls[0].url).toBe('https://bitbi-ai.internal/internal/ai/fable-chat');
