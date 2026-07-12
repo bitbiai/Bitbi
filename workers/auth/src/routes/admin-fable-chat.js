@@ -114,6 +114,7 @@ function publicFailureType(code) {
   }
   if (value.includes("timeout")) return "request_timeout";
   if (value.includes("interrupted")) return "interrupted";
+  if (value === "provider_invalid_replayed_context") return "generation_failed";
   if (value.includes("unified_billing") || value.includes("upstream") || value.includes("provider")) {
     return "provider_unavailable";
   }

@@ -237,6 +237,14 @@ function sanitizeAnthropicStopDetails(value, depth = 0) {
 
 function unifiedBillingReadinessError(error) {
   if (error?.code === "generation_timeout") return error;
+  const providerMessage = typeof error?.message === "string" ? error.message : "";
+  if (/(?:thinking|redacted_thinking)[\s\S]{0,160}latest assistant message[\s\S]{0,160}cannot be modified/i.test(providerMessage)) {
+    const contextError = new Error("Fable request context is invalid.");
+    contextError.name = "FableReplayedContextError";
+    contextError.code = "provider_invalid_replayed_context";
+    contextError.status = 400;
+    return contextError;
+  }
   const readinessError = new Error(
     "Claude Fable 5 could not run through Cloudflare Unified Billing. Verify the AI Gateway and available Unified Billing credits, then retry."
   );
@@ -774,6 +782,9 @@ export async function invokeText(env, model, input) {
       }
     }
   } catch (error) {
+    const classifiedError = model.id === CLAUDE_FABLE_5_MODEL_ID
+      ? unifiedBillingReadinessError(error)
+      : error;
     logDiagnostic({
       service: "bitbi-ai",
       component: "invoke-text",
@@ -784,11 +795,9 @@ export async function invokeText(env, model, input) {
       provider: model.provider || model.vendor || null,
       gateway_id: runOptions?.gateway?.id || null,
       duration_ms: getDurationMs(startedAt),
-      ...getErrorFields(error, { includeMessage: false }),
+      ...getErrorFields(classifiedError, { includeMessage: false }),
     });
-    throw model.id === CLAUDE_FABLE_5_MODEL_ID
-      ? unifiedBillingReadinessError(error)
-      : error;
+    throw classifiedError;
   }
   const isAnthropic = isAnthropicMessagesModel(model);
   const text = isAnthropic
@@ -1215,6 +1224,7 @@ export async function invokeFableChatStream(env, model, input) {
         : null,
     };
   } catch (error) {
+    const classifiedError = unifiedBillingReadinessError(error);
     logDiagnostic({
       service: "bitbi-ai",
       component: "invoke-fable-chat-stream",
@@ -1225,9 +1235,9 @@ export async function invokeFableChatStream(env, model, input) {
       provider: model.provider || model.vendor || null,
       gateway_id: runOptions?.gateway?.id || null,
       duration_ms: getDurationMs(startedAt),
-      ...getErrorFields(error, { includeMessage: false }),
+      ...getErrorFields(classifiedError, { includeMessage: false }),
     });
-    throw unifiedBillingReadinessError(error);
+    throw classifiedError;
   }
 }
 

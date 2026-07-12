@@ -461,10 +461,9 @@ export function projectFableChatProviderReplay({
   const sourceText = sources.length > 0
     ? `\n\nSources:\n${sources.map(({ title, url }) => `- ${title}: ${url}`).join("\n")}`
     : "";
-  const projected = [
-    ...normalized.filter((block) => block.type === "thinking"),
-    { type: "text", text: `${visibleAnswer}${sourceText}`.trim() },
-  ];
+  // A pruned native turn must be wholly text-only. Retaining a thinking/signature
+  // block beside altered tool/text blocks violates Anthropic replay invariants.
+  const projected = [{ type: "text", text: `${visibleAnswer}${sourceText}`.trim() }];
   const beforeTokens = estimateContentTokens(normalized);
   const afterTokens = estimateContentTokens(projected);
   return {

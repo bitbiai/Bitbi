@@ -78,6 +78,13 @@ export function fromError(error, fallbackMessage) {
     });
   }
 
+  if (error?.code === "provider_invalid_replayed_context") {
+    return errorResponse("Fable request context is invalid.", {
+      status: 400,
+      code: "provider_invalid_replayed_context",
+    });
+  }
+
   if (error?.rejectionCategory) {
     return errorResponse(fallbackMessage, {
       status: error.status || 502,

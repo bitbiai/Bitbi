@@ -2518,6 +2518,18 @@ test.describe('Private admin Fable chat', () => {
         email: 'stale-web-replay@example.com',
       });
       const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      const initialEnableResponse = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        { method: 'PATCH', cookie: admin.cookie, body: { webSearchEnabled: true } }
+      );
+      expect(initialEnableResponse.status).toBe(200);
+      const initialEnabledSettings = await fableChat.getFableChatConversationSettings(
+        env,
+        adminUserId,
+        conversation.id
+      );
       const baseMs = Date.UTC(2026, 6, 11, 10, 0, 0);
 
       const seedSearchTurn = async (turnOrder, completedMs, marker) => {
@@ -2589,19 +2601,16 @@ test.describe('Private admin Fable chat', () => {
         advanced: false,
         inactivityMs: 299_999,
       });
-      const settingsBefore = await fableChat.getFableChatConversationSettings(
-        env,
-        adminUserId,
-        conversation.id
-      );
       const activeContext = await fableChat.buildFableChatModelContext(env, {
         adminUserId,
         conversationId: conversation.id,
         currentMessage: 'Active-window follow-up',
-        settings: settingsBefore,
+        settings: initialEnabledSettings,
         webReplaySelection: beforeBoundary,
       });
       expect(JSON.stringify(activeContext.messages)).toContain('web_search_tool_result');
+      expect(activeContext.messages.find((message) => message.role === 'assistant').content[0])
+        .toEqual(first.blocks[0]);
 
       const atBoundary = await webReplay.getFableChatWebReplaySelection(
         env,
@@ -2619,14 +2628,15 @@ test.describe('Private admin Fable chat', () => {
         adminUserId,
         conversationId: conversation.id,
         currentMessage: 'Stale-window follow-up',
-        settings: settingsBefore,
+        settings: initialEnabledSettings,
         webReplaySelection: atBoundary,
       });
       const prunedJson = JSON.stringify(prunedContext.messages);
       expect(prunedJson).not.toContain('server_tool_use');
       expect(prunedJson).not.toContain('web_search_tool_result');
       expect(prunedJson).not.toContain('opaque-first');
-      expect(prunedJson).toContain('signature-first');
+      expect(prunedJson).not.toContain('signature-first');
+      expect(prunedJson).not.toContain('"thinking"');
       expect(prunedJson).toContain(first.visibleAnswer);
       expect(prunedJson).toContain(first.source.url);
       expect(prunedContext.context.webReplay).toMatchObject({
@@ -2639,6 +2649,19 @@ test.describe('Private admin Fable chat', () => {
         `SELECT content_blocks_json FROM fable_chat_provider_messages WHERE message_id = ?`
       ).get(first.assistantMessageId);
       expect(storedEvidence.content_blocks_json).toBe(first.serialized);
+
+      const disableResponse = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        { method: 'PATCH', cookie: admin.cookie, body: { webSearchEnabled: false } }
+      );
+      expect(disableResponse.status).toBe(200);
+      const disabledSettings = await fableChat.getFableChatConversationSettings(
+        env,
+        adminUserId,
+        conversation.id
+      );
 
       const disabledSelection = await webReplay.getFableChatWebReplaySelection(
         env,
@@ -2654,7 +2677,7 @@ test.describe('Private admin Fable chat', () => {
         adminUserId,
         conversationId: conversation.id,
         currentMessage: 'Immediate follow-up',
-        settings: settingsBefore,
+        settings: disabledSettings,
         webReplaySelection: disabledSelection,
       });
       expect(JSON.stringify(repeatedContext.messages)).not.toContain('web_search_tool_result');
@@ -3399,6 +3422,36 @@ test.describe('Private admin Fable chat', () => {
       name: 'web_search',
       max_uses: 3,
     }]);
+
+    const invalidReplayedContext = await routeModule.handleFableChat({
+      request: new Request('https://bitbi-ai.internal/internal/ai/fable-chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(validFableAiBody([
+          { role: 'user', content: 'Use a synthetic follow-up.' },
+        ])),
+      }),
+      env: {
+        AI: {
+          async run() {
+            const error = new Error('thinking blocks in the latest assistant message cannot be modified');
+            error.status = 400;
+            throw error;
+          },
+        },
+      },
+      correlationId: 'fable-invalid-replayed-context-test',
+      pathname: '/internal/ai/fable-chat',
+      method: 'POST',
+    });
+    expect(invalidReplayedContext.status).toBe(400);
+    const invalidReplayedContextBody = await invalidReplayedContext.json();
+    expect(invalidReplayedContextBody).toMatchObject({
+      ok: false,
+      error: 'Fable request context is invalid.',
+      code: 'provider_invalid_replayed_context',
+    });
+    expect(JSON.stringify(invalidReplayedContextBody)).not.toContain('thinking blocks');
 
     const rejected = await routeModule.handleFableChat({
       request: new Request('https://bitbi-ai.internal/internal/ai/fable-chat', {

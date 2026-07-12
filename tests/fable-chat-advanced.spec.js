@@ -810,7 +810,6 @@ test.describe('Advanced Fable chat contract', () => {
     expect(projected.prunedPairCount).toBe(1);
     expect(projected.prunedEstimatedTokens).toBeGreaterThan(0);
     expect(projected.blocks).toEqual([
-      { type: 'thinking', thinking: 'Summary only', signature },
       {
         type: 'text',
         text: 'Visible answer\n\nSources:\n- Example source: https://example.com/source',
@@ -819,7 +818,14 @@ test.describe('Advanced Fable chat contract', () => {
     expect(JSON.stringify(projected.blocks)).not.toContain('server_tool_use');
     expect(JSON.stringify(projected.blocks)).not.toContain('web_search_tool_result');
     expect(JSON.stringify(projected.blocks)).not.toContain('opaque-encrypted-result');
+    expect(JSON.stringify(projected.blocks)).not.toContain(signature);
+    expect(JSON.stringify(projected.blocks)).not.toContain('thinking');
     expect(JSON.stringify(providerBlocks)).toContain('opaque-encrypted-result');
+    expect(context.projectFableChatProviderReplay({
+      providerBlocks,
+      assistantContent: 'Visible answer',
+      pruneCompletedWebSearch: false,
+    }).blocks).toEqual(context.normalizeFableChatProviderBlocks(providerBlocks));
 
     const unmatched = providerBlocks.filter((block) => block.type !== 'web_search_tool_result');
     const preserved = context.projectFableChatProviderReplay({
