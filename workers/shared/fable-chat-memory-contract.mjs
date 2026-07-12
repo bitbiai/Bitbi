@@ -13,6 +13,8 @@ export const FABLE_CHAT_MEMORY_SUPPORTED_DIAGNOSTIC_VERSIONS = Object.freeze([1,
 export const FABLE_CHAT_MEMORY_ESTIMATOR_VERSION = "utf8-visible-memory-v1";
 export const FABLE_CHAT_MEMORY_MODES = Object.freeze(["standard", "lite"]);
 export const FABLE_CHAT_DEFAULT_MEMORY_MODE = "standard";
+export const FABLE_CHAT_LITE_MEMORY_PLAN_VERSION = 2;
+export const FABLE_CHAT_LITE_MEMORY_SUPPORTED_PLAN_VERSIONS = Object.freeze([1, 2]);
 
 export const FABLE_CHAT_STANDARD_MEMORY_TRIGGER_TOKENS = 16_000;
 export const FABLE_CHAT_STANDARD_MEMORY_RAW_TARGET_TOKENS = 5_000;
@@ -27,9 +29,11 @@ export const FABLE_CHAT_STANDARD_MEMORY_SUMMARY_MAX_TOKENS =
   FABLE_CHAT_STANDARD_MEMORY_ACCEPTANCE_CEILING;
 
 export const FABLE_CHAT_LITE_MEMORY_TRIGGER_TOKENS = 5_000;
-export const FABLE_CHAT_LITE_MEMORY_CHUNK_TARGET_TOKENS = 5_000;
-export const FABLE_CHAT_LITE_MEMORY_CHUNK_MIN_TOKENS = 4_000;
-export const FABLE_CHAT_LITE_MEMORY_CHUNK_MAX_TOKENS = 6_000;
+export const FABLE_CHAT_LITE_MEMORY_CHUNK_TARGET_TOKENS = 2_500;
+export const FABLE_CHAT_LITE_MEMORY_CHUNK_MIN_TOKENS = 1_500;
+export const FABLE_CHAT_LITE_MEMORY_CHUNK_MAX_TOKENS = 3_000;
+export const FABLE_CHAT_LITE_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS = 6_500;
+export const FABLE_CHAT_LITE_MEMORY_COMPACTION_SOFT_TARGET_TOKENS = 360;
 export const FABLE_CHAT_LITE_MEMORY_PLANNING_CEILING = 800;
 export const FABLE_CHAT_LITE_MEMORY_ACCEPTANCE_CEILING = 1_000;
 export const FABLE_CHAT_LITE_MEMORY_SUMMARY_MAX_TOKENS =
@@ -210,6 +214,18 @@ export function isFableChatMemorySummarySizeAccepted(mode, estimatedSize) {
 
 export function getFableChatMemoryProviderMaxTokens(mode) {
   return FABLE_CHAT_MEMORY_QWEN_MAX_OUTPUT_TOKENS[normalizeFableChatMemoryMode(mode)];
+}
+
+export function normalizeFableChatLiteMemoryPlanVersion(value = 1) {
+  const version = Number(value);
+  if (!Number.isInteger(version)
+    || !FABLE_CHAT_LITE_MEMORY_SUPPORTED_PLAN_VERSIONS.includes(version)) {
+    throw new FableChatMemoryContractError(
+      "Lite memory plan version is invalid.",
+      "validation_error"
+    );
+  }
+  return version;
 }
 
 function normalizeSummaryString(value, field, maxCharacters, { allowEmpty = false } = {}) {
@@ -399,11 +415,18 @@ function emptyFableChatMemorySummary(sources = []) {
   };
 }
 
-export function planFableChatMemorySummaryBudget(mode, sourceCatalog = []) {
+export function planFableChatMemorySummaryBudget(mode, sourceCatalog = [], {
+  litePlanVersion = 1,
+} = {}) {
   const profile = normalizeFableChatMemoryMode(mode);
+  const appliedLitePlanVersion = profile === "lite"
+    ? normalizeFableChatLiteMemoryPlanVersion(litePlanVersion)
+    : 1;
   const planningCeiling = getFableChatMemoryPlanningCeiling(profile);
   const acceptanceCeiling = getFableChatMemoryAcceptanceCeiling(profile);
-  const baseSoftTarget = FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS[profile];
+  const baseSoftTarget = profile === "lite" && appliedLitePlanVersion >= 2
+    ? FABLE_CHAT_LITE_MEMORY_COMPACTION_SOFT_TARGET_TOKENS
+    : FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS[profile];
   const safetyMargin = FABLE_CHAT_MEMORY_SAFETY_MARGINS[profile];
   const minimumViableTarget = FABLE_CHAT_MEMORY_MINIMUM_VIABLE_TARGETS[profile];
   const fixedSchemaOverhead = estimateFableChatMemoryCanonicalSummaryTokens(
@@ -444,6 +467,7 @@ export function planFableChatMemorySummaryBudget(mode, sourceCatalog = []) {
   }
   return {
     profile,
+    litePlanVersion: appliedLitePlanVersion,
     planningCeiling,
     acceptanceCeiling,
     profileBaseSoftTarget: baseSoftTarget,
@@ -474,12 +498,13 @@ function sourceIdsForCatalog(value, idByUrl) {
 export function buildFableChatMemoryProviderSourcePayload({
   mode = FABLE_CHAT_DEFAULT_MEMORY_MODE,
   dynamicBudget = false,
+  litePlanVersion = 1,
   previousSummary = null,
   sourceTurns = [],
 } = {}) {
   const fullCatalog = buildFableChatMemorySourceCatalog({ previousSummary, sourceTurns });
   const budgetPlan = dynamicBudget
-    ? planFableChatMemorySummaryBudget(mode, fullCatalog.entries)
+    ? planFableChatMemorySummaryBudget(mode, fullCatalog.entries, { litePlanVersion })
     : null;
   const sourceCatalog = budgetPlan?.sourceCatalog || fullCatalog.entries;
   const idByUrl = new Map(sourceCatalog.map((entry) => [entry.url, entry.id]));
@@ -629,8 +654,12 @@ export function normalizeFableChatMemoryProviderSummary(value, {
 export function buildFableChatMemorySummarizerSystemPrompt(mode, {
   sourceIdContract = false,
   effectiveSoftTarget = null,
+  litePlanVersion = 1,
 } = {}) {
   const normalizedMode = normalizeFableChatMemoryMode(mode);
+  const appliedLitePlanVersion = normalizedMode === "lite"
+    ? normalizeFableChatLiteMemoryPlanVersion(litePlanVersion)
+    : 1;
   const planningCeiling = getFableChatMemoryPlanningCeiling(normalizedMode);
   return [
     "You maintain hidden rolling memory for a private administrator conversation.",
@@ -665,6 +694,10 @@ export function buildFableChatMemorySummarizerSystemPrompt(mode, {
       "Prioritize durable facts, user preferences, decisions, unresolved tasks, constraints, and essential context.",
       "Omit repetition, conversational filler, greetings, and redundant explanations.",
       "Return one complete JSON object, finish normally, and stay well below the hard profile limit.",
+    ] : []),
+    ...(normalizedMode === "lite" && appliedLitePlanVersion >= 2 ? [
+      "Lite memory must be exceptionally concise: retain only durable facts, decisions, preferences, constraints, and unresolved tasks needed for later continuity.",
+      "Omit narrative retelling, examples, stylistic detail, repetition, and conversational prose even when they appear prominently in the source turns.",
     ] : []),
     `Keep the entire JSON object within the ${planningCeiling}-token planning ceiling for the ${normalizedMode} profile.`,
     "/no_think",

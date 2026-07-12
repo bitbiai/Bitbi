@@ -52,9 +52,11 @@ import {
   FABLE_CHAT_MEMORY_INTERNAL_MAX_BYTES,
   FABLE_CHAT_MEMORY_MAX_SOURCE_CHARACTERS,
   FABLE_CHAT_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS,
+  FABLE_CHAT_LITE_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS,
   FABLE_CHAT_MEMORY_MAX_SOURCE_TURNS,
   FABLE_CHAT_MEMORY_PROMPT_VERSION,
   FABLE_CHAT_MEMORY_SUPPORTED_DIAGNOSTIC_VERSIONS,
+  FABLE_CHAT_LITE_MEMORY_SUPPORTED_PLAN_VERSIONS,
   buildFableChatMemoryProviderSourcePayload,
   buildFableChatHiddenMemoryInstruction,
   buildFableChatMemorySummarizerSystemPrompt,
@@ -670,7 +672,7 @@ export function validateFableChatBody(body) {
 const FABLE_CHAT_MEMORY_ID_PATTERN = /^(?:fbt|fbm)_[a-f0-9]{32}$/;
 const FABLE_CHAT_MEMORY_ALLOWED_BODY_FIELDS = new Set([
   "profile", "memoryContractVersion", "promptVersion", "diagnosticVersion", "previousSummaryProfile",
-  "previousSummary", "sourceTurns",
+  "previousSummary", "sourceTurns", "litePlanVersion",
 ]);
 const FABLE_CHAT_MEMORY_ALLOWED_TURN_FIELDS = new Set([
   "turnId", "turnOrder", "user", "assistant",
@@ -738,6 +740,16 @@ export function validateFableChatMemoryBody(body) {
     || input.promptVersion !== FABLE_CHAT_MEMORY_PROMPT_VERSION) {
     throw new AdminAiValidationError(
       "The Fable memory contract is not supported.",
+      400,
+      "validation_error"
+    );
+  }
+  const litePlanVersion = input.litePlanVersion === undefined ? 1 : input.litePlanVersion;
+  if ((profile !== "lite" && input.litePlanVersion !== undefined)
+    || !Number.isInteger(litePlanVersion)
+    || !FABLE_CHAT_LITE_MEMORY_SUPPORTED_PLAN_VERSIONS.includes(litePlanVersion)) {
+    throw new AdminAiValidationError(
+      "The Lite memory plan is not supported.",
       400,
       "validation_error"
     );
@@ -819,9 +831,10 @@ export function validateFableChatMemoryBody(body) {
   const usesSourceIdContract = diagnosticVersion >= 3;
   const usesDynamicSummaryBudget = diagnosticVersion >= 4;
   const providerSource = usesSourceIdContract
-    ? buildFableChatMemoryProviderSourcePayload({
+      ? buildFableChatMemoryProviderSourcePayload({
         mode: profile,
         dynamicBudget: usesDynamicSummaryBudget,
+        litePlanVersion,
         previousSummary,
         sourceTurns,
       })
@@ -841,6 +854,7 @@ export function validateFableChatMemoryBody(body) {
     `${buildFableChatMemorySummarizerSystemPrompt(profile, {
       sourceIdContract: usesSourceIdContract,
       effectiveSoftTarget: providerSource.budgetPlan?.effectiveSoftTarget || null,
+      litePlanVersion,
     })}\n${escapeFableChatMemoryPromptData(sourcePayload)}`
   );
   if (estimatedInputTokens > FABLE_CHAT_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS) {
@@ -850,11 +864,20 @@ export function validateFableChatMemoryBody(body) {
       "fable_chat_memory_source_too_large"
     );
   }
+  if (profile === "lite" && litePlanVersion >= 2
+    && estimatedInputTokens > FABLE_CHAT_LITE_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS) {
+    throw new AdminAiValidationError(
+      "Lite memory compaction source exceeds its input budget.",
+      413,
+      "fable_chat_memory_source_too_large"
+    );
+  }
   return {
     profile,
     memoryContractVersion: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
     promptVersion: FABLE_CHAT_MEMORY_PROMPT_VERSION,
     diagnosticVersion,
+    litePlanVersion,
     previousSummary,
     previousSummaryProfile,
     sourceTurns,

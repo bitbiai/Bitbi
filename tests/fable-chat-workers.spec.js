@@ -1953,12 +1953,13 @@ test.describe('Private admin Fable chat', () => {
       expect(updated.status).toBe(200);
       expect((await updated.json()).settings.memoryMode).toBe('lite');
       for (let order = 0; order < 3; order += 1) {
+        const contentSize = order === 2 ? 4_000 : 5_980;
         await seedSucceededMemoryTurn(DB, {
           conversationId: conversation.id,
           adminUserId: 'admin-fable-memory-lite',
           turnOrder: order,
-          userText: `lite-user-${order}-${'u'.repeat(5_980)}`,
-          assistantText: `lite-assistant-${order}-${'a'.repeat(5_980)}`,
+          userText: `lite-user-${order}-${'u'.repeat(contentSize)}`,
+          assistantText: `lite-assistant-${order}-${'a'.repeat(contentSize)}`,
         });
       }
       const adminUser = { id: 'admin-fable-memory-lite', email: 'memory-lite@example.com' };
@@ -2067,6 +2068,111 @@ test.describe('Private admin Fable chat', () => {
     }
   });
 
+  test('Lite plan v2 compacts a smaller deterministic complete-turn chunk after prior truncation', async () => {
+    const { env, DB, providerCalls } = await createFableChatSqliteEnv({
+      provider: async ({ body, callNumber }) => memoryProviderResult(body, callNumber),
+    });
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const memoryModule = await import(pathToFileURL(
+      path.join(process.cwd(), 'workers/auth/src/lib/fable-chat-memory.js')
+    ).href);
+    try {
+      const adminUserId = 'admin-fable-memory-lite-v2';
+      const admin = await seedFableChatActor(env, {
+        id: adminUserId,
+        email: 'memory-lite-v2@example.com',
+      });
+      const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      const updated = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        { method: 'PATCH', cookie: admin.cookie, body: { memoryMode: 'lite' } }
+      );
+      expect(updated.status).toBe(200);
+      const seeded = [];
+      for (let order = 0; order < 3; order += 1) {
+        seeded.push(await seedSucceededMemoryTurn(DB, {
+          conversationId: conversation.id,
+          adminUserId,
+          turnOrder: order,
+          userText: `lite-v2-user-${order}-${'u'.repeat(2_700)}`,
+          assistantText: `lite-v2-assistant-${order}-${'a'.repeat(2_700)}`,
+        }));
+      }
+      const priorId = `fbk_${'9'.repeat(32)}`;
+      const timestamp = nowIso();
+      await DB.prepare(
+        `INSERT INTO fable_chat_memory_checkpoints (
+           id, conversation_id, admin_user_id, profile, summary_version,
+           summarizer_model_id, summarizer_prompt_version, status,
+           coverage_turn_order, coverage_through_turn_id, coverage_through_message_id,
+           source_start_turn_id, source_end_turn_id, source_start_turn_order,
+           source_end_turn_order, source_turn_count, estimated_input_tokens,
+           input_fingerprint, usage_json, error_code, created_at, updated_at,
+           completed_at, expires_at
+         ) VALUES (?, ?, ?, 'lite', 1, '@cf/qwen/qwen3-30b-a3b-fp8', 1, 'unknown',
+           2, ?, ?, ?, ?, 0, 2, 3, 8045, ?, '{}', 'provider_length_truncation',
+           ?, ?, ?, ?)`
+      ).bind(
+        priorId,
+        conversation.id,
+        adminUserId,
+        seeded[2].turnId,
+        seeded[2].assistantMessageId,
+        seeded[0].turnId,
+        seeded[2].turnId,
+        'legacy-lite-truncation-fingerprint',
+        timestamp,
+        timestamp,
+        timestamp,
+        new Date(Date.now() + 300_000).toISOString()
+      ).run();
+
+      await memoryModule.maintainFableChatMemory(
+        memoryMaintenanceContext(env, 'lite-v2-after-truncation'),
+        { id: adminUserId, email: 'memory-lite-v2@example.com' },
+        conversation.id
+      );
+
+      expect(providerCalls).toHaveLength(1);
+      expect(providerCalls[0].body).toMatchObject({
+        profile: 'lite',
+        litePlanVersion: 2,
+      });
+      expect(providerCalls[0].body.sourceTurns.map((turn) => turn.turnOrder)).toEqual([0]);
+      const checkpoints = DB.database.prepare(
+        `SELECT id, summary_version, status, error_code, coverage_turn_order,
+                source_turn_count, estimated_input_tokens, input_fingerprint
+           FROM fable_chat_memory_checkpoints
+          WHERE conversation_id = ? AND profile = 'lite'
+          ORDER BY summary_version`
+      ).all(conversation.id);
+      expect(checkpoints).toHaveLength(2);
+      expect(checkpoints[0]).toMatchObject({
+        id: priorId,
+        summary_version: 1,
+        status: 'unknown',
+        error_code: 'provider_length_truncation',
+        coverage_turn_order: 2,
+        source_turn_count: 3,
+        estimated_input_tokens: 8045,
+        input_fingerprint: 'legacy-lite-truncation-fingerprint',
+      });
+      expect(checkpoints[1]).toMatchObject({
+        summary_version: 2,
+        status: 'succeeded',
+        error_code: null,
+        coverage_turn_order: 0,
+        source_turn_count: 1,
+      });
+      expect(checkpoints[1].estimated_input_tokens).toBeLessThan(6_500);
+      expect(checkpoints[1].input_fingerprint).not.toBe(checkpoints[0].input_fingerprint);
+    } finally {
+      DB.close();
+    }
+  });
+
   test('memory compaction is concurrency-safe and provider failure preserves raw Fable context', async () => {
     const successEnv = await createFableChatSqliteEnv({
       provider: async ({ body, callNumber }) => memoryProviderResult(
@@ -2104,13 +2210,19 @@ test.describe('Private admin Fable chat', () => {
           fixture.env,
           `admin-memory-${suffix}`
         );
+        if (suffix === 'failure') {
+          await fixture.env.DB.prepare(
+            `UPDATE fable_chat_conversations SET memory_mode = 'lite' WHERE id = ?`
+          ).bind(conversation.id).run();
+        }
+        const contentSize = suffix === 'failure' ? 3_500 : 5_980;
         for (let order = 0; order < 3; order += 1) {
           await seedSucceededMemoryTurn(fixture.DB, {
             conversationId: conversation.id,
             adminUserId: `admin-memory-${suffix}`,
             turnOrder: order,
-            userText: `${suffix}-user-${order}-${'u'.repeat(5_980)}`,
-            assistantText: `${suffix}-assistant-${order}-${'a'.repeat(5_980)}`,
+            userText: `${suffix}-user-${order}-${'u'.repeat(contentSize)}`,
+            assistantText: `${suffix}-assistant-${order}-${'a'.repeat(contentSize)}`,
           });
         }
         fixture.conversation = conversation;
@@ -2145,6 +2257,10 @@ test.describe('Private admin Fable chat', () => {
         failureEnv.conversation.id
       );
       expect(failureEnv.providerCalls).toHaveLength(1);
+      expect(failureEnv.providerCalls[0].body).toMatchObject({
+        profile: 'lite',
+        litePlanVersion: 2,
+      });
       expect(failureEnv.DB.database.prepare(
         `SELECT COUNT(*) AS count FROM fable_chat_memory_checkpoints
           WHERE conversation_id = ? AND status = 'succeeded'`

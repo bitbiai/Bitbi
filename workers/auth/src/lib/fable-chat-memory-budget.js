@@ -114,7 +114,11 @@ export async function prepareFableChatMemoryBudget({
   const weight = deriveFableChatMemoryBudgetUnits({ profile, estimatedInputTokens });
   const summaryLimits = {
     planning_ceiling: getFableChatMemoryPlanningCeiling(profile),
-    base_soft_target: FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS[profile],
+    base_soft_target: Math.max(
+      0,
+      Number(summaryPlan?.profileBaseSoftTarget)
+        || FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS[profile]
+    ),
     acceptance_ceiling: getFableChatMemoryAcceptanceCeiling(profile),
     safety_margin: FABLE_CHAT_MEMORY_SAFETY_MARGINS[profile],
     minimum_viable_target: FABLE_CHAT_MEMORY_MINIMUM_VIABLE_TARGETS[profile],
@@ -122,6 +126,9 @@ export async function prepareFableChatMemoryBudget({
     source_overhead_estimate: Math.max(0, Number(summaryPlan?.sourceOverheadEstimate) || 0),
     effective_soft_target: Math.max(0, Number(summaryPlan?.effectiveSoftTarget) || 0),
     source_catalog_count: Math.max(0, Number(summaryPlan?.sourceCatalog?.length) || 0),
+    ...(profile === "lite" && Number.isInteger(summaryPlan?.litePlanVersion)
+      ? { lite_plan_version: summaryPlan.litePlanVersion }
+      : {}),
   };
   const budgetFingerprint = await buildAdminPlatformBudgetFingerprint({
     operation,

@@ -3,6 +3,8 @@ import {
   FABLE_CHAT_LITE_MEMORY_CHUNK_MAX_TOKENS,
   FABLE_CHAT_LITE_MEMORY_CHUNK_MIN_TOKENS,
   FABLE_CHAT_LITE_MEMORY_CHUNK_TARGET_TOKENS,
+  FABLE_CHAT_LITE_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS,
+  FABLE_CHAT_LITE_MEMORY_PLAN_VERSION,
   FABLE_CHAT_LITE_MEMORY_RAW_MAX_TOKENS,
   FABLE_CHAT_LITE_MEMORY_RAW_MAX_TURNS,
   FABLE_CHAT_LITE_MEMORY_RAW_MIN_TOKENS,
@@ -104,6 +106,7 @@ export function buildFableChatMemoryCompactionFingerprintInput({
   sourceTurns,
   summaryPlan = null,
   diagnosticVersion = FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
+  litePlanVersion = profile === "lite" ? FABLE_CHAT_LITE_MEMORY_PLAN_VERSION : 1,
   adminRevisionVersion = 0,
 }) {
   const fingerprint = {
@@ -124,7 +127,11 @@ export function buildFableChatMemoryCompactionFingerprintInput({
     const normalizedProfile = normalizeFableChatMemoryMode(profile);
     Object.assign(fingerprint, {
       planning_ceiling: getFableChatMemoryPlanningCeiling(normalizedProfile),
-      base_soft_target: FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS[normalizedProfile],
+      base_soft_target: Math.max(
+        0,
+        Number(summaryPlan?.profileBaseSoftTarget)
+          || FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS[normalizedProfile]
+      ),
       acceptance_ceiling: getFableChatMemoryAcceptanceCeiling(normalizedProfile),
       safety_margin: FABLE_CHAT_MEMORY_SAFETY_MARGINS[normalizedProfile],
       minimum_viable_target: FABLE_CHAT_MEMORY_MINIMUM_VIABLE_TARGETS[normalizedProfile],
@@ -133,6 +140,9 @@ export function buildFableChatMemoryCompactionFingerprintInput({
       effective_soft_target: Math.max(0, Number(summaryPlan?.effectiveSoftTarget) || 0),
       source_catalog_count: Math.max(0, Number(summaryPlan?.sourceCatalog?.length) || 0),
     });
+  }
+  if (profile === "lite") {
+    fingerprint.lite_plan_version = litePlanVersion;
   }
   if (Number(adminRevisionVersion) > 0) {
     fingerprint.admin_revision_version = Math.floor(Number(adminRevisionVersion));
@@ -310,7 +320,17 @@ async function readConversationMemoryMode(env, adminUserId, conversationId) {
   }
 }
 
-async function readVisibleTurnsAfter(env, adminUserId, conversationId, coverageTurnOrder) {
+async function readVisibleTurnsAfter(
+  env,
+  adminUserId,
+  conversationId,
+  coverageTurnOrder,
+  { preserveZero = false } = {}
+) {
+  const numericCoverage = Number(coverageTurnOrder);
+  const appliedCoverage = preserveZero && Number.isFinite(numericCoverage)
+    ? Math.max(-1, numericCoverage)
+    : Math.max(-1, numericCoverage || -1);
   const rows = await env.DB.prepare(
     `SELECT t.id AS turn_id, um.turn_order,
             um.id AS user_message_id,
@@ -341,7 +361,7 @@ async function readVisibleTurnsAfter(env, adminUserId, conversationId, coverageT
     conversationId,
     adminUserId,
     adminUserId,
-    Math.max(-1, Number(coverageTurnOrder) || -1),
+    appliedCoverage,
     MEMORY_SCAN_TURN_LIMIT
   ).all();
   return (rows?.results || []).map(rowToSourceTurn);
@@ -400,7 +420,8 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
     env,
     adminUserId,
     conversationId,
-    coverageTurnOrder
+    coverageTurnOrder,
+    { preserveZero: profile === "lite" }
   );
   const totalTokens = totalTurnTokens(turns);
   let sourceTurns = [];
@@ -437,9 +458,11 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
   };
   const cleanTurns = sourceTurns.map(({ estimatedTokens, ...turn }) => turn);
   const previousSummary = previous?.summary || null;
+  const litePlanVersion = profile === "lite" ? FABLE_CHAT_LITE_MEMORY_PLAN_VERSION : 1;
   const { sourcePayload, budgetPlan } = buildFableChatMemoryProviderSourcePayload({
     mode: profile,
     dynamicBudget: true,
+    litePlanVersion,
     previousSummary,
     sourceTurns: cleanTurns,
   });
@@ -447,11 +470,14 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
     `${buildFableChatMemorySummarizerSystemPrompt(profile, {
       sourceIdContract: true,
       effectiveSoftTarget: budgetPlan.effectiveSoftTarget,
+      litePlanVersion,
     })}\n${escapeFableChatMemoryPromptData(sourcePayload)}`
   );
   if (
     sourcePayload.length > FABLE_CHAT_MEMORY_MAX_SOURCE_CHARACTERS
     || estimatedInputTokens > FABLE_CHAT_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS
+    || (profile === "lite"
+      && estimatedInputTokens > FABLE_CHAT_LITE_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS)
   ) return null;
   const inputFingerprint = await sha256Hex(JSON.stringify(
     buildFableChatMemoryCompactionFingerprintInput({
@@ -462,6 +488,7 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
       previousSummary,
       sourceTurns: cleanTurns,
       summaryPlan: budgetPlan,
+      litePlanVersion,
       adminRevisionVersion: conversationState.adminRevisionVersion,
     })
   ));
@@ -473,6 +500,7 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
     sourceTurns: cleanTurns,
     sourcePayload,
     budgetPlan,
+    litePlanVersion,
     estimatedInputTokens,
     inputFingerprint,
     coverage: nextCoverage,
@@ -706,6 +734,7 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
           memoryContractVersion: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
           promptVersion: FABLE_CHAT_MEMORY_PROMPT_VERSION,
           diagnosticVersion: FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
+          ...(profile === "lite" ? { litePlanVersion: candidate.litePlanVersion } : {}),
           previousSummaryProfile: candidate.previous ? candidate.sourceBaseProfile : null,
           previousSummary: candidate.previous?.summary || null,
           sourceTurns: candidate.sourceTurns,
@@ -901,11 +930,7 @@ export async function maintainFableChatMemory(ctx, adminUser, conversationId) {
   const firstStandard = await runOneCompaction(ctx, adminUser, id, "standard");
   if (firstStandard.attempted) remaining -= 1;
   if (mode === "lite") {
-    while (remaining > 0) {
-      const result = await runOneCompaction(ctx, adminUser, id, "lite");
-      if (!result.attempted || !result.succeeded) break;
-      remaining -= 1;
-    }
+    if (remaining > 0) await runOneCompaction(ctx, adminUser, id, "lite");
     return;
   }
   while (remaining > 0 && firstStandard.succeeded) {

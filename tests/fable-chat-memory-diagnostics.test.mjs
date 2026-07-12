@@ -5,6 +5,12 @@ import test from "node:test";
 import {
   FABLE_CHAT_LITE_MEMORY_SUMMARY_MAX_TOKENS,
   FABLE_CHAT_LITE_MEMORY_ACCEPTANCE_CEILING,
+  FABLE_CHAT_LITE_MEMORY_CHUNK_MAX_TOKENS,
+  FABLE_CHAT_LITE_MEMORY_CHUNK_MIN_TOKENS,
+  FABLE_CHAT_LITE_MEMORY_CHUNK_TARGET_TOKENS,
+  FABLE_CHAT_LITE_MEMORY_COMPACTION_SOFT_TARGET_TOKENS,
+  FABLE_CHAT_LITE_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS,
+  FABLE_CHAT_LITE_MEMORY_PLAN_VERSION,
   FABLE_CHAT_LITE_MEMORY_PLANNING_CEILING,
   FABLE_CHAT_MEMORY_BASE_SOFT_TARGETS,
   FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
@@ -15,6 +21,7 @@ import {
   FABLE_CHAT_STANDARD_MEMORY_ACCEPTANCE_CEILING,
   FABLE_CHAT_STANDARD_MEMORY_PLANNING_CEILING,
   buildFableChatHiddenMemoryInstruction,
+  buildFableChatMemorySummarizerSystemPrompt,
   buildFableChatMemoryProviderSourcePayload,
   buildFableChatMemorySourceCatalog,
   estimateFableChatMemoryCanonicalSummaryTokens,
@@ -235,6 +242,50 @@ test("planning and final acceptance ceilings remain independently strict", () =>
     () => normalizeFableChatMemorySummary("not-json", { mode: "standard" }),
     (error) => error.rejectionCategory === "json_parse_failed"
   );
+});
+
+test("Lite plan v2 uses the smaller complete-turn budget without changing Standard", () => {
+  assert.equal(FABLE_CHAT_LITE_MEMORY_PLAN_VERSION, 2);
+  assert.equal(FABLE_CHAT_LITE_MEMORY_CHUNK_TARGET_TOKENS, 2_500);
+  assert.equal(FABLE_CHAT_LITE_MEMORY_CHUNK_MIN_TOKENS, 1_500);
+  assert.equal(FABLE_CHAT_LITE_MEMORY_CHUNK_MAX_TOKENS, 3_000);
+  assert.equal(FABLE_CHAT_LITE_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS, 6_500);
+  assert.equal(FABLE_CHAT_LITE_MEMORY_COMPACTION_SOFT_TARGET_TOKENS, 360);
+
+  const standard = planFableChatMemorySummaryBudget("standard", []);
+  const standardWithLiteVersion = planFableChatMemorySummaryBudget("standard", [], {
+    litePlanVersion: FABLE_CHAT_LITE_MEMORY_PLAN_VERSION,
+  });
+  assert.deepEqual(standardWithLiteVersion, standard);
+  assert.equal(standard.profileBaseSoftTarget, 1_100);
+  assert.equal(standard.acceptanceCeiling, 2_048);
+
+  const legacyLite = planFableChatMemorySummaryBudget("lite", [], { litePlanVersion: 1 });
+  const currentLite = planFableChatMemorySummaryBudget("lite", [], {
+    litePlanVersion: FABLE_CHAT_LITE_MEMORY_PLAN_VERSION,
+  });
+  assert.equal(legacyLite.profileBaseSoftTarget, 500);
+  assert.equal(currentLite.profileBaseSoftTarget, 360);
+  assert.equal(currentLite.acceptanceCeiling, 1_000);
+  assert.ok(currentLite.effectiveSoftTarget <= 360);
+  assert.match(buildFableChatMemorySummarizerSystemPrompt("lite", {
+    sourceIdContract: true,
+    effectiveSoftTarget: currentLite.effectiveSoftTarget,
+    litePlanVersion: FABLE_CHAT_LITE_MEMORY_PLAN_VERSION,
+  }), /exceptionally concise/);
+
+  const validated = validateFableChatMemoryBody({
+    ...memoryRequestBody(),
+    profile: "lite",
+    litePlanVersion: FABLE_CHAT_LITE_MEMORY_PLAN_VERSION,
+  });
+  assert.equal(validated.litePlanVersion, 2);
+  assert.equal(validated.memoryBudgetPlan.profileBaseSoftTarget, 360);
+  assert.ok(validated.estimatedInputTokens <= FABLE_CHAT_LITE_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS);
+  assert.throws(() => validateFableChatMemoryBody({
+    ...memoryRequestBody(),
+    litePlanVersion: FABLE_CHAT_LITE_MEMORY_PLAN_VERSION,
+  }), /Lite memory plan is not supported/i);
 });
 
 test("source catalog is deterministic, bounded, deduplicated, and excludes unsafe input", () => {
@@ -670,6 +721,62 @@ test("diagnostic version changes only the immutable compaction fingerprint input
       { ...database.prepare("SELECT status, error_code FROM checkpoints WHERE id = ?")
         .get("legacy-attempt") },
       { status: "unknown", error_code: "upstream_error" }
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test("Lite plan v2 leaves a prior truncation attempt immutable and permits one new fingerprint", () => {
+  const common = {
+    profile: "lite",
+    current: null,
+    sourceBaseProfile: null,
+    previous: null,
+    previousSummary: null,
+    sourceTurns: [{ turnId: "synthetic-lite-turn" }],
+  };
+  const legacy = buildFableChatMemoryCompactionFingerprintInput({
+    ...common,
+    litePlanVersion: 1,
+    summaryPlan: planFableChatMemorySummaryBudget("lite", [], { litePlanVersion: 1 }),
+  });
+  const current = buildFableChatMemoryCompactionFingerprintInput({
+    ...common,
+    litePlanVersion: FABLE_CHAT_LITE_MEMORY_PLAN_VERSION,
+    summaryPlan: planFableChatMemorySummaryBudget("lite", [], {
+      litePlanVersion: FABLE_CHAT_LITE_MEMORY_PLAN_VERSION,
+    }),
+  });
+  assert.equal(legacy.lite_plan_version, 1);
+  assert.equal(current.lite_plan_version, 2);
+  assert.equal(current.base_soft_target, 360);
+  assert.notEqual(JSON.stringify(legacy), JSON.stringify(current));
+
+  const database = new DatabaseSync(":memory:");
+  try {
+    database.exec(`
+      CREATE TABLE checkpoints (
+        id TEXT PRIMARY KEY,
+        input_fingerprint TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        error_code TEXT
+      );
+    `);
+    const legacyFingerprint = JSON.stringify(legacy);
+    const currentFingerprint = JSON.stringify(current);
+    database.prepare(
+      "INSERT INTO checkpoints (id, input_fingerprint, status, error_code) VALUES (?, ?, ?, ?)"
+    ).run("lite-v1", legacyFingerprint, "unknown", "provider_length_truncation");
+    database.prepare(
+      "INSERT INTO checkpoints (id, input_fingerprint, status, error_code) VALUES (?, ?, ?, ?)"
+    ).run("lite-v2", currentFingerprint, "pending", null);
+    assert.throws(() => database.prepare(
+      "INSERT INTO checkpoints (id, input_fingerprint, status, error_code) VALUES (?, ?, ?, ?)"
+    ).run("lite-v2-duplicate", currentFingerprint, "pending", null), /UNIQUE/);
+    assert.deepEqual(
+      { ...database.prepare("SELECT status, error_code FROM checkpoints WHERE id = 'lite-v1'").get() },
+      { status: "unknown", error_code: "provider_length_truncation" }
     );
   } finally {
     database.close();

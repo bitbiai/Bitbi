@@ -1103,6 +1103,7 @@ export async function invokeFableChatMemory(env, input) {
     effectiveSoftTarget: usesDynamicSummaryBudget
       ? input.memoryBudgetPlan?.effectiveSoftTarget
       : null,
+    litePlanVersion: input.litePlanVersion,
   });
   const maxTokens = getFableChatMemoryProviderMaxTokens(input.profile);
   const payload = {
@@ -1118,6 +1119,9 @@ export async function invokeFableChatMemory(env, input) {
           ...(usesDynamicSummaryBudget ? [
             `Keep all non-source summary content combined within ${input.memoryBudgetPlan.effectiveSoftTarget} conservatively estimated tokens.`,
             "Produce one complete concise JSON object; do not use source_ids to expand the narrative.",
+          ] : []),
+          ...(input.profile === "lite" && input.litePlanVersion >= 2 ? [
+            "For Lite memory, keep only durable facts, decisions, preferences, constraints, and unresolved tasks; omit narrative and repetition.",
           ] : []),
           "<van_ark_memory_source>",
           escapeFableChatMemoryPromptData(input.sourcePayload),
