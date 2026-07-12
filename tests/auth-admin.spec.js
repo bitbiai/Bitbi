@@ -2088,6 +2088,102 @@ async function mockAdminAiLab(page, captures = {}) {
   });
 }
 
+async function mockAdminFableDataCenter(page, captures = {}) {
+  const conversationId = 'fbc_11111111111111111111111111111111';
+  const turnId = 'fbt_22222222222222222222222222222222';
+  const userMessageId = 'fbm_33333333333333333333333333333333';
+  const assistantMessageId = 'fbm_44444444444444444444444444444444';
+  const checkpointId = 'fbk_55555555555555555555555555555555';
+  const writes = captures.writes || [];
+  let revealRequests = 0;
+  const settings = {
+    effort: 'high', effectiveMaxOutputTokens: 16384, preset: 'general', presetVersion: 1,
+    reasoningSummaryEnabled: true, thinkingDisplay: 'summarized', webSearchEnabled: true,
+    webSearchMaxUses: 3, memoryMode: 'standard', promptCachePolicy: 'auto_5m', promptCacheVersion: 1,
+  };
+  const detail = {
+    ok: true,
+    conversation: {
+      id: conversationId, ownerId: 'admin-owner-1', ownerEmail: 'owner@example.com',
+      title: '<img src=x onerror=window.__fableXss=1>', modelId: 'anthropic/claude-fable-5',
+      state: 'active', titleSource: 'manual', createdAt: '2026-07-10T10:00:00.000Z',
+      updatedAt: '2026-07-12T10:00:00.000Z', deletedAt: null, settingsUpdatedAt: null,
+      adminRevisionVersion: 0, settings,
+      webReplay: { prunedThroughTurnOrder: -1, prunedThroughMessageId: null, prunedAt: null, version: 1 },
+    },
+    counts: { messages: { user_succeeded: 1, assistant_succeeded: 1 }, turns: { succeeded: 1 } },
+    memory: {
+      activeProfile: 'standard',
+      standard: { checkpointId, version: 5, coverageTurnOrder: 0 }, lite: null,
+      uncoveredEstimatedTokens: 42, triggerThreshold: 16000,
+    },
+    latestAttempt: { id: turnId, status: 'succeeded' },
+    storage: { transcriptBytes: 256, privateProviderBytes: 128 },
+  };
+
+  await page.route('**/api/admin/fable-chat-data/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const pathName = url.pathname;
+    const json = async (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    if (pathName.endsWith('/overview')) return json({
+      ok: true,
+      statistics: {
+        activeConversations: 1, deletedConversations: 0, visibleMessages: 2,
+        completedTurns: 1, attempts: { pending: 0, running: 0, succeeded: 1, failed: 0, unknown: 0 },
+        standardCheckpoints: 1, liteCheckpoints: 0, compactionFailures: 0,
+        estimatedTranscriptBytes: 256, mostRecentActivity: '2026-07-12T10:00:00.000Z',
+        webSearchConversations: 1,
+      },
+    });
+    if (pathName.endsWith('/conversations')) return json({
+      ok: true, total: 1, limit: 24, offset: 0,
+      conversations: [{
+        id: conversationId, ownerId: 'admin-owner-1', ownerEmail: 'owner@example.com',
+        title: detail.conversation.title, modelId: 'anthropic/claude-fable-5', state: 'active',
+        settings, counts: { messages: 2, turns: 1 }, latestAttemptStatus: 'succeeded',
+        latestCheckpointState: 'standard:succeeded', coverageTurnOrder: 0,
+        adminRevisionVersion: 0, createdAt: detail.conversation.createdAt,
+        updatedAt: detail.conversation.updatedAt, lastMessageAt: detail.conversation.updatedAt,
+        deletedAt: null, webReplay: { prunedThroughTurnOrder: -1, prunedAt: null },
+      }],
+    });
+    if (pathName.endsWith(`/conversations/${conversationId}`) && request.method() === 'GET') return json(detail);
+    if (pathName.endsWith('/transcript')) return json({
+      ok: true, total: 2, limit: 50, offset: 0,
+      messages: [
+        { id: userMessageId, turnId, turnOrder: 0, role: 'user', state: 'succeeded', turnStatus: 'succeeded', content: '<script>window.__fableXss=2</script>', citations: [], reasoningSummary: null, createdAt: detail.conversation.createdAt, updatedAt: detail.conversation.createdAt, revision: 0, turnRevision: 0, administrativelyDeleted: false },
+        { id: assistantMessageId, turnId, turnOrder: 0, role: 'assistant', state: 'succeeded', turnStatus: 'succeeded', content: 'Visible assistant response', citations: [{ title: 'Cloudflare', url: 'https://www.cloudflare.com/' }], reasoningSummary: null, createdAt: detail.conversation.createdAt, updatedAt: detail.conversation.createdAt, revision: 0, turnRevision: 0, administrativelyDeleted: false },
+      ],
+    });
+    if (pathName.endsWith('/attempts')) return json({ ok: true, attempts: [], total: 0, limit: 50, offset: 0 });
+    if (pathName.endsWith('/checkpoints')) return json({
+      ok: true, total: 1, limit: 50, offset: 0,
+      checkpoints: [{
+        id: checkpointId, profile: 'standard', version: 5, status: 'succeeded', validForContext: true,
+        modelId: '@cf/qwen/qwen3-30b-a3b-fp8', promptVersion: 5, estimatedSummaryTokens: 900,
+        acceptanceCeiling: 2048, coverageTurnOrder: 0, sourceCount: 1, estimatedInputTokens: 1000,
+        providerDurationMs: 8000, providerCostUsd: 0.001, errorCode: null, fingerprintPresent: true,
+        invalidation: null, createdAt: detail.conversation.createdAt, updatedAt: detail.conversation.updatedAt,
+        completedAt: detail.conversation.updatedAt, expiresAt: '2027-07-12T10:00:00.000Z',
+      }],
+    });
+    if (pathName.endsWith(`/checkpoints/${checkpointId}/reveal`)) {
+      revealRequests += 1;
+      return json({ ok: true, checkpointId, profile: 'standard', status: 'succeeded', modelId: '@cf/qwen/qwen3-30b-a3b-fp8', estimatedSummaryTokens: 900, coverageTurnOrder: 0, summary: '<script>window.__fableXss=3</script>' });
+    }
+    if (pathName.endsWith('/web-search')) return json({ ok: true, conversation: { webSearchEnabled: true, maxUses: 3, replayPrunedThroughTurnOrder: -1, replayPrunedAt: null }, turns: [] });
+    if (pathName.endsWith('/usage')) return json({ ok: true, usage: [], total: 0, limit: 50, offset: 0 });
+    if (pathName.includes('/records/')) return json({ ok: true, kind: 'conversation', record: { id: conversationId, title: detail.conversation.title, request_fingerprint: '[REDACTED]', created_at: detail.conversation.createdAt } });
+    if (request.method() !== 'GET') {
+      writes.push({ path: pathName, method: request.method(), body: request.postDataJSON(), headers: request.headers() });
+      return json({ ok: true, result: { operation: request.postDataJSON()?.operation || 'recorded', conversationId, revision: 1, idempotentReplay: false } });
+    }
+    return json({ ok: false, error: 'Not found.' }, 404);
+  });
+  return { conversationId, checkpointId, writes, revealCount: () => revealRequests };
+}
+
 async function fulfillJson(route, body, status = 200) {
   await route.fulfill({
     status,
@@ -17831,6 +17927,54 @@ test.describe('Admin AI Lab', () => {
     await seedCookieConsent(page);
     await installClipboardSpy(page);
     await mockAdminAiLab(page);
+  });
+
+  test('manages Fable Web App data with safe rendering and deferred hidden-memory access', async ({ page }) => {
+    const captures = { writes: [] };
+    const fableData = await mockAdminFableDataCenter(page, captures);
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#fableDataCard')).toBeVisible();
+    await expect(page.locator('#fableDataCardStats')).toContainText('Active');
+
+    await page.locator('#fableDataOpen').click();
+    await expect(page.locator('#fableDataWorkspace')).toBeVisible();
+    await expect(page.locator('#fableDataConversationList')).toContainText('<img src=x onerror=window.__fableXss=1>');
+    await page.locator('.admin-fable-data__conversation').click();
+    await page.locator('[data-fable-tab="transcript"]').click();
+    await expect(page.locator('#fableDataPanelTranscript')).toContainText('<script>window.__fableXss=2</script>');
+    expect(await page.evaluate(() => window.__fableXss || 0)).toBe(0);
+
+    await page.locator('[data-fable-tab="memory"]').click();
+    await page.getByRole('button', { name: 'Reveal hidden summary' }).click();
+    expect(fableData.revealCount()).toBe(0);
+    await expect(page.locator('#fableDataDialog')).toBeVisible();
+    await page.locator('#fableDataDialogConfirm').click();
+    await expect(page.locator('.admin-fable-data__revealed')).toContainText('<script>window.__fableXss=3</script>');
+    expect(fableData.revealCount()).toBe(1);
+    expect(await page.evaluate(() => window.__fableXss || 0)).toBe(0);
+    await page.getByRole('button', { name: 'Hide summary' }).click();
+    await expect(page.locator('.admin-fable-data__revealed')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.selectOption('#fableDataDialog select[name="effort"]', 'xhigh');
+    await page.locator('#fableDataDialog textarea[name="reason"]').fill('Review approved settings change');
+    await page.locator('#fableDataDialogConfirm').click();
+    await expect.poll(() => captures.writes.length).toBe(1);
+    expect(captures.writes[0].body).toMatchObject({
+      operation: 'settings', effort: 'xhigh', preset: 'general', memoryMode: 'standard',
+      reasoningSummaryEnabled: true, webSearchEnabled: true, expectedRevision: 0,
+    });
+    expect(captures.writes[0].headers['idempotency-key']).toMatch(/^fable-data-/);
+    await expect(page.locator('#fableDataDialog')).toBeHidden();
+
+    await page.locator('[data-fable-tab="raw"]').click();
+    await expect(page.locator('#fableDataPanelRaw')).toContainText('Request Fingerprint');
+    await expect(page.locator('#fableDataPanelRaw')).toContainText('[REDACTED]');
+    await expect(page.locator('#fableDataPanelRaw')).toContainText('Show UTC timestamps');
+    await page.locator('#fableDataClose').click();
+    await expect(page.locator('#fableDataWorkspace')).toBeHidden();
+    await expect(page.locator('#fableDataCard')).toBeVisible();
   });
 
   test('admin sub-navigation stays visible below the main header while scrolling', async ({

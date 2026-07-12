@@ -16,6 +16,7 @@ import {
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { createAdminActivity } from './activity.js?v=__ASSET_VERSION__';
 import { createAdminAiLab } from './ai-lab.js?v=__ASSET_VERSION__';
+import { createAdminFableDataCenter } from './fable-data-center.js?v=__ASSET_VERSION__';
 import { createAdminAvatarLightbox } from './avatar-lightbox.js?v=__ASSET_VERSION__';
 import { createAdminControlPlane } from './control-plane.js?v=__ASSET_VERSION__';
 import { createAdminDashboard } from './dashboard.js?v=__ASSET_VERSION__';
@@ -59,6 +60,11 @@ function showToast(message, type = 'success') {
 }
 
 const aiLab = createAdminAiLab({ showToast });
+const fableDataCenter = createAdminFableDataCenter({
+    showToast,
+    formatDate: (value) => formatDate(value),
+    onClose: () => aiLab.show(),
+});
 const controlPlane = createAdminControlPlane({ showToast, formatDate });
 const dashboard = createAdminDashboard({ showToast });
 const homepageHeroVideos = createHomepageHeroVideosAdmin({ showToast, formatDate, formatApiError });
@@ -123,6 +129,7 @@ function bootstrapAdminPanel() {
     homepageHeroVideos.bind();
     newsFeedAgent.bind();
     controlPlane.bind();
+    fableDataCenter.bind();
 
     adminNav.bind();
     router.bind();
@@ -189,7 +196,10 @@ function loadAdminSection(name) {
     if (name === 'activity') adminActivity.load();
     if (name === 'news-feed-agent') newsFeedAgent.load();
     if (name === 'homepage-hero-videos') homepageHeroVideos.load();
-    if (name === 'ai-lab') aiLab.show();
+    if (name === 'ai-lab') {
+        aiLab.show();
+        fableDataCenter.show();
+    }
     return controlPlanePromise;
 }
 

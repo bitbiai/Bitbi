@@ -459,7 +459,11 @@ test.describe('Private admin Fable chat', () => {
       path.join(process.cwd(), 'workers/auth/migrations/0074_add_fable_web_replay_pruning.sql'),
       'utf8'
     );
-    expect(CURRENT_AUTH_MIGRATION).toBe('0074_add_fable_web_replay_pruning.sql');
+    const adminDataMigration = fs.readFileSync(
+      path.join(process.cwd(), 'workers/auth/migrations/0075_add_fable_admin_data_center.sql'),
+      'utf8'
+    );
+    expect(CURRENT_AUTH_MIGRATION).toBe('0075_add_fable_admin_data_center.sql');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_conversations');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_turns');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_messages');
@@ -483,6 +487,10 @@ test.describe('Private admin Fable chat', () => {
     expect(memoryMigration).toContain("memory_mode TEXT NOT NULL DEFAULT 'standard'");
     expect(memoryMigration).toContain('CREATE TABLE fable_chat_memory_checkpoints');
     expect(memoryMigration).toContain('idx_fable_chat_memory_checkpoint_active');
+    expect(adminDataMigration).toContain('CREATE TABLE fable_chat_admin_message_revisions');
+    expect(adminDataMigration).toContain('CREATE TABLE fable_chat_admin_turn_revisions');
+    expect(adminDataMigration).toContain('CREATE TABLE fable_chat_memory_checkpoint_invalidations');
+    expect(adminDataMigration).toContain('CREATE TABLE fable_chat_admin_write_receipts');
     expect(memoryMigration).toContain("summarizer_model_id TEXT NOT NULL DEFAULT '@cf/qwen/qwen3-30b-a3b-fp8'");
     expect(replayPruningMigration).toContain(
       'web_replay_pruned_through_turn_order INTEGER NOT NULL DEFAULT -1'
@@ -3492,5 +3500,385 @@ test.describe('Private admin Fable chat', () => {
     expect(runCalls[0][0]).toBe('anthropic/claude-fable-5');
     expect(runCalls[0][1].messages).toEqual(requestBody.messages);
     expect(JSON.stringify(runCalls[0][1])).not.toContain('__bitbi_ai_caller_policy');
+  });
+
+  test('Admin Fable data center requires MFA and records append-only transcript revisions', async () => {
+    const { env, DB } = await createFableChatSqliteEnv();
+    const worker = await loadWorker('workers/auth/src/index.js');
+    try {
+      const admin = await seedFableChatActor(env, {
+        id: 'admin-fable-data-center',
+        email: 'fable-data-center@example.com',
+      });
+      const member = await seedFableChatActor(env, {
+        id: 'member-fable-data-center',
+        email: 'member-fable-data-center@example.com',
+        role: 'user',
+        withMfa: false,
+      });
+      const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      const turn = await seedSucceededMemoryTurn(DB, {
+        conversationId: conversation.id,
+        adminUserId: 'admin-fable-data-center',
+        turnOrder: 0,
+        userText: '<img src=x onerror=alert(1)> user text',
+        assistantText: 'Original assistant answer',
+        citations: [{ title: 'Cloudflare', url: 'https://www.cloudflare.com/' }],
+      });
+      await DB.prepare(
+        `INSERT INTO fable_chat_provider_messages (
+           message_id, conversation_id, admin_user_id, model_id, content_blocks_json,
+           serialized_bytes, format_version, created_at
+         ) VALUES (?, ?, ?, 'anthropic/claude-fable-5', ?, ?, 'anthropic-content-v1', ?)`
+      ).bind(
+        turn.assistantMessageId,
+        conversation.id,
+        'admin-fable-data-center',
+        JSON.stringify([{ type: 'text', text: 'Original assistant answer' }]),
+        54,
+        nowIso()
+      ).run();
+
+      expect((await callFableAuthWorker(worker, env, '/api/admin/fable-chat-data/overview')).status)
+        .toBe(401);
+      expect((await callFableAuthWorker(worker, env, '/api/admin/fable-chat-data/overview', {
+        cookie: member.cookie,
+      })).status).toBe(403);
+      expect((await callFableAuthWorker(worker, env, '/api/admin/fable-chat-data/overview', {
+        cookie: admin.sessionOnlyCookie,
+      })).status).toBe(403);
+      const overview = await callFableAuthWorker(worker, env, '/api/admin/fable-chat-data/overview', {
+        cookie: admin.cookie,
+      });
+      expect(overview.status).toBe(200);
+      expect(overview.headers.get('cache-control')).toBe('no-store');
+
+      const injection = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat-data/conversations?search=${encodeURIComponent("%' OR 1=1 --")}`,
+        { cookie: admin.cookie }
+      );
+      expect(injection.status).toBe(200);
+      expect((await injection.json()).conversations).toEqual([]);
+
+      const payload = {
+        content: '<script>alert(1)</script> revised answer',
+        citations: [{ title: 'Official docs', url: 'https://developers.cloudflare.com/' }],
+        reason: 'Correct finalized visible answer',
+        expectedRevision: 0,
+        expectedMessageRevision: 0,
+      };
+      const edit = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat-data/conversations/${conversation.id}/messages/${turn.assistantMessageId}`,
+        { method: 'PATCH', cookie: admin.cookie, body: payload, idempotencyKey: 'fable-data-edit-0001' }
+      );
+      expect(edit.status).toBe(200);
+      expect((await edit.json()).result.idempotentReplay).toBe(false);
+      const replay = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat-data/conversations/${conversation.id}/messages/${turn.assistantMessageId}`,
+        { method: 'PATCH', cookie: admin.cookie, body: payload, idempotencyKey: 'fable-data-edit-0001' }
+      );
+      expect(replay.status).toBe(200);
+      expect((await replay.json()).result.idempotentReplay).toBe(true);
+      const conflictingReplay = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat-data/conversations/${conversation.id}/messages/${turn.assistantMessageId}`,
+        {
+          method: 'PATCH', cookie: admin.cookie, idempotencyKey: 'fable-data-edit-0001',
+          body: { ...payload, content: 'Different content under the same key' },
+        }
+      );
+      expect(conflictingReplay.status).toBe(409);
+      expect((await conflictingReplay.json()).code).toBe('idempotency_conflict');
+      expect(DB.database.prepare('SELECT content FROM fable_chat_messages WHERE id = ?')
+        .get(turn.assistantMessageId).content).toBe('Original assistant answer');
+      expect(DB.database.prepare('SELECT COUNT(*) AS count FROM fable_chat_admin_message_revisions WHERE message_id = ?')
+        .get(turn.assistantMessageId).count).toBe(1);
+      expect(DB.database.prepare('SELECT COUNT(*) AS count FROM fable_chat_provider_messages WHERE message_id = ?')
+        .get(turn.assistantMessageId).count).toBe(1);
+
+      const adminTranscript = await callFableAuthWorker(
+        worker, env, `/api/admin/fable-chat-data/conversations/${conversation.id}/transcript`,
+        { cookie: admin.cookie }
+      );
+      expect(adminTranscript.status).toBe(200);
+      const adminTranscriptBody = await adminTranscript.json();
+      const assistant = adminTranscriptBody.messages.find((item) => (
+        item.id === turn.assistantMessageId
+      ));
+      expect(adminTranscriptBody.messages.map((item) => item.id)).toContain(turn.assistantMessageId);
+      expect(assistant.content).toBe('<script>alert(1)</script> revised answer');
+      expect(assistant.citations).toEqual([
+        { title: 'Official docs', url: 'https://developers.cloudflare.com/' },
+      ]);
+      const ownerTranscript = await callFableAuthWorker(
+        worker, env, `/api/admin/fable-chat/conversations/${conversation.id}`,
+        { cookie: admin.cookie }
+      );
+      expect((await ownerTranscript.json()).messages.find((item) => item.id === turn.assistantMessageId).content)
+        .toBe('<script>alert(1)</script> revised answer');
+
+      const deleteTurn = await callFableAuthWorker(
+        worker, env,
+        `/api/admin/fable-chat-data/conversations/${conversation.id}/turns/${turn.turnId}/delete`,
+        {
+          method: 'POST', cookie: admin.cookie, idempotencyKey: 'fable-turn-delete-0001',
+          body: { reason: 'Delete complete visible turn', expectedRevision: 1, expectedTurnRevision: 0 },
+        }
+      );
+      expect(deleteTurn.status).toBe(200);
+      const hidden = await callFableAuthWorker(
+        worker, env, `/api/admin/fable-chat/conversations/${conversation.id}`, { cookie: admin.cookie }
+      );
+      expect((await hidden.json()).messages).toEqual([]);
+      const restoreTurn = await callFableAuthWorker(
+        worker, env,
+        `/api/admin/fable-chat-data/conversations/${conversation.id}/turns/${turn.turnId}/restore`,
+        {
+          method: 'POST', cookie: admin.cookie, idempotencyKey: 'fable-turn-restore-0001',
+          body: { reason: 'Restore complete visible turn', expectedRevision: 2, expectedTurnRevision: 1 },
+        }
+      );
+      expect(restoreTurn.status).toBe(200);
+      const restored = await callFableAuthWorker(
+        worker, env, `/api/admin/fable-chat/conversations/${conversation.id}`, { cookie: admin.cookie }
+      );
+      expect((await restored.json()).messages).toHaveLength(2);
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('Admin Fable data center preserves checkpoint, concurrency, owner, and purge invariants', async () => {
+    const { env, DB } = await createFableChatSqliteEnv();
+    const worker = await loadWorker('workers/auth/src/index.js');
+    try {
+      const admin = await seedFableChatActor(env, {
+        id: 'admin-fable-data-safety', email: 'fable-data-safety@example.com',
+      });
+      const otherAdmin = await seedFableChatActor(env, {
+        id: 'admin-fable-data-other', email: 'fable-data-other@example.com',
+      });
+      const first = await createFableConversationForTest(worker, env, admin.cookie);
+      const second = await createFableConversationForTest(worker, env, otherAdmin.cookie);
+      const firstTurn = await seedSucceededMemoryTurn(DB, {
+        conversationId: first.id, adminUserId: 'admin-fable-data-safety', turnOrder: 0,
+        userText: 'Safe user text', assistantText: 'Safe assistant text',
+      });
+      const secondTurn = await seedSucceededMemoryTurn(DB, {
+        conversationId: second.id, adminUserId: 'admin-fable-data-other', turnOrder: 10,
+        userText: 'Other owner user text', assistantText: 'Other owner assistant text',
+      });
+      const checkpointId = 'fbk_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const timestamp = nowIso();
+      const contract = await import(pathToFileURL(
+        path.join(process.cwd(), 'workers/shared/fable-chat-memory-contract.mjs')
+      ).href);
+      const normalized = contract.normalizeFableChatMemorySummary(memorySummary('admin-data-center'), {
+        mode: 'standard',
+      });
+      await DB.prepare(
+        `INSERT INTO fable_chat_memory_checkpoints (
+           id, conversation_id, admin_user_id, profile, summary_version,
+           summarizer_model_id, summarizer_prompt_version, status,
+           hidden_summary_content, estimated_summary_tokens, coverage_turn_order,
+           coverage_through_turn_id, coverage_through_message_id,
+           source_start_turn_id, source_end_turn_id, source_start_turn_order,
+           source_end_turn_order, source_turn_count, estimated_input_tokens,
+           input_fingerprint, usage_json, provider_duration_ms, provider_cost_usd_micros,
+           created_at, updated_at, completed_at, expires_at
+         ) VALUES (?, ?, ?, 'standard', 1, '@cf/qwen/qwen3-30b-a3b-fp8', 5,
+           'succeeded', ?, ?, 0, ?, ?, ?, ?, 0, 0, 1, 1000,
+           ?, '{"input_tokens":1000,"output_tokens":100}', 8000, 1000,
+           ?, ?, ?, ?)`
+      ).bind(
+        checkpointId, first.id, 'admin-fable-data-safety', normalized.canonical,
+        normalized.estimatedTokens, firstTurn.turnId, firstTurn.assistantMessageId,
+        firstTurn.turnId, firstTurn.turnId, 'f'.repeat(64), timestamp, timestamp,
+        timestamp, new Date(Date.now() + 60 * 60_000).toISOString()
+      ).run();
+
+      const crossOrigin = await callFableAuthWorker(
+        worker, env, `/api/admin/fable-chat-data/conversations/${first.id}`,
+        {
+          method: 'PATCH', cookie: admin.cookie, origin: 'https://attacker.example',
+          fetchSite: 'cross-site', idempotencyKey: 'fable-cross-origin-0001',
+          body: { operation: 'rename', title: 'Rejected', reason: 'Cross origin attempt', expectedRevision: 0 },
+        }
+      );
+      expect(crossOrigin.status).toBe(403);
+
+      const reveal = await callFableAuthWorker(
+        worker, env,
+        `/api/admin/fable-chat-data/conversations/${first.id}/checkpoints/${checkpointId}/reveal`,
+        { method: 'POST', cookie: admin.cookie }
+      );
+      expect(reveal.status).toBe(200);
+      expect(reveal.headers.get('cache-control')).toBe('no-store');
+      expect((await reveal.json()).summary).toBe(normalized.canonical);
+      const ordinaryConversation = await callFableAuthWorker(
+        worker, env, `/api/admin/fable-chat/conversations/${first.id}`, { cookie: admin.cookie }
+      );
+      expect(JSON.stringify(await ordinaryConversation.json())).not.toContain(normalized.canonical);
+
+      const renameBodies = ['First safe rename', 'Second safe rename'].map((title, index) => (
+        callFableAuthWorker(worker, env, `/api/admin/fable-chat-data/conversations/${first.id}`, {
+          method: 'PATCH', cookie: admin.cookie, idempotencyKey: `fable-concurrent-rename-000${index + 1}`,
+          body: { operation: 'rename', title, reason: 'Concurrent revision safety', expectedRevision: 0 },
+        })
+      ));
+      const renameResponses = await Promise.all(renameBodies);
+      expect(renameResponses.map((response) => response.status).sort()).toEqual([200, 409]);
+      expect(DB.database.prepare(
+        'SELECT COUNT(*) AS count FROM fable_chat_admin_mutation_claims WHERE conversation_id = ? AND from_revision = 0'
+      ).get(first.id).count).toBe(1);
+
+      const invalidate = await callFableAuthWorker(
+        worker, env,
+        `/api/admin/fable-chat-data/conversations/${first.id}/checkpoints/${checkpointId}/invalidate`,
+        {
+          method: 'POST', cookie: admin.cookie, idempotencyKey: 'fable-checkpoint-invalidate-0001',
+          body: { reason: 'Invalidate derived checkpoint', expectedRevision: 1 },
+        }
+      );
+      expect(invalidate.status).toBe(200);
+      const checkpoints = await callFableAuthWorker(
+        worker, env, `/api/admin/fable-chat-data/conversations/${first.id}/checkpoints`,
+        { cookie: admin.cookie }
+      );
+      expect((await checkpoints.json()).checkpoints[0].validForContext).toBe(false);
+
+      const crossOwner = await callFableAuthWorker(
+        worker, env, `/api/admin/fable-chat/conversations/${first.id}`, { cookie: otherAdmin.cookie }
+      );
+      expect(crossOwner.status).toBe(404);
+
+      const softDelete = await callFableAuthWorker(
+        worker, env, `/api/admin/fable-chat-data/conversations/${second.id}`,
+        {
+          method: 'PATCH', cookie: admin.cookie, idempotencyKey: 'fable-soft-delete-other-0001',
+          body: { operation: 'soft_delete', reason: 'Prepare isolated purge', expectedRevision: 0 },
+        }
+      );
+      expect(softDelete.status).toBe(200);
+      const purge = await callFableAuthWorker(
+        worker, env, `/api/admin/fable-chat-data/conversations/${second.id}/purge`,
+        {
+          method: 'POST', cookie: admin.cookie, idempotencyKey: 'fable-purge-other-0001',
+          body: { reason: 'Purge isolated test conversation', confirmation: second.id, expectedRevision: 1 },
+        }
+      );
+      expect(purge.status).toBe(200);
+      expect(DB.database.prepare('SELECT COUNT(*) AS count FROM fable_chat_conversations WHERE id = ?')
+        .get(second.id).count).toBe(0);
+      expect(DB.database.prepare('SELECT COUNT(*) AS count FROM fable_chat_turns WHERE id = ?')
+        .get(secondTurn.turnId).count).toBe(0);
+      expect(DB.database.prepare('SELECT COUNT(*) AS count FROM fable_chat_conversations WHERE id = ?')
+        .get(first.id).count).toBe(1);
+      expect(DB.database.prepare(
+        `SELECT COUNT(*) AS count FROM fable_chat_admin_write_receipts
+          WHERE conversation_id = ? AND operation = 'conversation_purge'`
+      ).get(second.id).count).toBe(1);
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('Admin transcript revisions suppress only provider replay derived from older revisions', async () => {
+    const { env, DB } = await createFableChatSqliteEnv();
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const fableChat = await import(pathToFileURL(
+      path.join(process.cwd(), 'workers/auth/src/lib/fable-chat.js')
+    ).href);
+    try {
+      const adminUserId = 'admin-fable-replay-revision';
+      const admin = await seedFableChatActor(env, {
+        id: adminUserId, email: 'fable-replay-revision@example.com',
+      });
+      const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      const first = await seedSucceededMemoryTurn(DB, {
+        conversationId: conversation.id, adminUserId, turnOrder: 0,
+        userText: 'First visible user', assistantText: 'First visible assistant',
+      });
+      const second = await seedSucceededMemoryTurn(DB, {
+        conversationId: conversation.id, adminUserId, turnOrder: 1,
+        userText: 'Second visible user', assistantText: 'Second visible assistant',
+      });
+      for (const [messageId, marker] of [
+        [first.assistantMessageId, 'provider-native-before-edit-0'],
+        [second.assistantMessageId, 'provider-native-before-edit-1'],
+      ]) {
+        const serialized = JSON.stringify([{ type: 'text', text: marker }]);
+        await DB.prepare(
+          `INSERT INTO fable_chat_provider_messages (
+             message_id, conversation_id, admin_user_id, model_id,
+             content_blocks_json, serialized_bytes, format_version, created_at
+           ) VALUES (?, ?, ?, 'anthropic/claude-fable-5', ?, ?, 'anthropic-content-v1', ?)`
+        ).bind(messageId, conversation.id, adminUserId, serialized, serialized.length, nowIso()).run();
+      }
+
+      const beforeSettings = await fableChat.getFableChatConversationSettings(env, adminUserId, conversation.id);
+      const before = await fableChat.buildFableChatModelContext(env, {
+        adminUserId, conversationId: conversation.id, currentMessage: 'Before revision', settings: beforeSettings,
+      });
+      expect(JSON.stringify(before.messages)).toContain('provider-native-before-edit-1');
+
+      const edit = await callFableAuthWorker(
+        worker, env,
+        `/api/admin/fable-chat-data/conversations/${conversation.id}/messages/${first.userMessageId}`,
+        {
+          method: 'PATCH', cookie: admin.cookie, idempotencyKey: 'fable-replay-revision-edit-0001',
+          body: {
+            content: 'First revised visible user', reason: 'Correct early transcript fact',
+            expectedRevision: 0, expectedMessageRevision: 0,
+          },
+        }
+      );
+      expect(edit.status).toBe(200);
+
+      const third = await seedSucceededMemoryTurn(DB, {
+        conversationId: conversation.id, adminUserId, turnOrder: 2,
+        userText: 'Third visible user', assistantText: 'Third visible assistant',
+      });
+      await DB.prepare('UPDATE fable_chat_turns SET admin_revision_version = 1 WHERE id = ?')
+        .bind(third.turnId).run();
+      const futureSerialized = JSON.stringify([{ type: 'text', text: 'provider-native-after-edit-2' }]);
+      await DB.prepare(
+        `INSERT INTO fable_chat_provider_messages (
+           message_id, conversation_id, admin_user_id, model_id,
+           content_blocks_json, serialized_bytes, format_version, created_at
+         ) VALUES (?, ?, ?, 'anthropic/claude-fable-5', ?, ?, 'anthropic-content-v1', ?)`
+      ).bind(
+        third.assistantMessageId, conversation.id, adminUserId, futureSerialized,
+        futureSerialized.length, nowIso()
+      ).run();
+
+      const settings = await fableChat.getFableChatConversationSettings(env, adminUserId, conversation.id);
+      const after = await fableChat.buildFableChatModelContext(env, {
+        adminUserId, conversationId: conversation.id, currentMessage: 'After revision', settings,
+      });
+      const afterJson = JSON.stringify(after.messages);
+      expect(afterJson).not.toContain('provider-native-before-edit-0');
+      expect(afterJson).not.toContain('provider-native-before-edit-1');
+      expect(afterJson).toContain('provider-native-after-edit-2');
+      expect(afterJson).toContain('First revised visible user');
+      expect(afterJson).toContain('Second visible assistant');
+      expect(DB.database.prepare(
+        'SELECT COUNT(*) AS count FROM fable_chat_provider_messages WHERE conversation_id = ?'
+      ).get(conversation.id).count).toBe(3);
+      const claim = DB.database.prepare(
+        `SELECT invalidated_from_turn_order, to_revision
+           FROM fable_chat_admin_mutation_claims WHERE conversation_id = ?`
+      ).get(conversation.id);
+      expect(claim).toMatchObject({ invalidated_from_turn_order: 0, to_revision: 1 });
+    } finally {
+      DB.close();
+    }
   });
 });

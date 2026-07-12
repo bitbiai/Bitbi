@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0074_add_fable_web_replay_pruning.sql",
+        "latest": "0075_add_fable_admin_data_center.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -948,6 +948,8 @@
       "GET /api/admin/data-lifecycle/exports",
       "POST /api/admin/data-lifecycle/exports/cleanup-expired",
       "GET /api/admin/mfa/status",
+      "GET /api/admin/fable-chat-data/overview",
+      "GET /api/admin/fable-chat-data/conversations",
       "POST /api/admin/mfa/setup",
       "POST /api/admin/mfa/enable",
       "POST /api/admin/mfa/verify",
@@ -955,6 +957,20 @@
       "POST /api/admin/mfa/recovery-codes/regenerate"
     ],
     "patternRoutes": [
+      "GET /api/admin/fable-chat-data/conversations/:id",
+      "PATCH /api/admin/fable-chat-data/conversations/:id",
+      "GET /api/admin/fable-chat-data/conversations/:id/transcript",
+      "GET /api/admin/fable-chat-data/conversations/:id/attempts",
+      "GET /api/admin/fable-chat-data/conversations/:id/checkpoints",
+      "GET /api/admin/fable-chat-data/conversations/:id/web-search",
+      "GET /api/admin/fable-chat-data/conversations/:id/usage",
+      "PATCH /api/admin/fable-chat-data/conversations/:id/messages/:id",
+      "POST /api/admin/fable-chat-data/conversations/:id/turns/:id/delete",
+      "POST /api/admin/fable-chat-data/conversations/:id/turns/:id/restore",
+      "POST /api/admin/fable-chat-data/conversations/:id/checkpoints/:id/invalidate",
+      "POST /api/admin/fable-chat-data/conversations/:id/checkpoints/:id/reveal",
+      "GET /api/admin/fable-chat-data/conversations/:id/records/:kind/:id",
+      "POST /api/admin/fable-chat-data/conversations/:id/purge",
       "GET /api/admin/data-lifecycle/requests/:id",
       "GET /api/admin/orgs/:id",
       "GET /api/admin/orgs/:id/user-access",

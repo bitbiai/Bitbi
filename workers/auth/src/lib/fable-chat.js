@@ -431,6 +431,7 @@ export function resolveFableChatConversationSettings(row) {
     webSearchMaxUses,
     webSearchContractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
     memoryMode: safeFableChatMemoryMode(row.memory_mode),
+    adminRevisionVersion: Math.max(0, Number(row.admin_revision_version || 0)),
     updatedAt: row.settings_updated_at || row.created_at,
   };
 }
@@ -562,7 +563,7 @@ async function readConversationRow(env, adminUserId, conversationId) {
     `SELECT id, admin_user_id, model_id, title, title_source, turn_count,
             effort, system_preset_id, system_preset_version, thinking_display,
             prompt_cache_policy, prompt_cache_version, web_search_enabled, memory_mode,
-            settings_updated_at,
+            settings_updated_at, admin_revision_version, admin_revision_updated_at,
             created_at, updated_at, deleted_at
        FROM fable_chat_conversations
       WHERE id = ? AND admin_user_id = ? AND deleted_at IS NULL
@@ -651,7 +652,7 @@ export async function listFableChatConversations(env, adminUserId, {
     `SELECT id, admin_user_id, model_id, title, title_source, turn_count,
             effort, system_preset_id, system_preset_version, thinking_display,
             prompt_cache_policy, prompt_cache_version, web_search_enabled, memory_mode,
-            settings_updated_at,
+            settings_updated_at, admin_revision_version, admin_revision_updated_at,
             created_at, updated_at, deleted_at
        FROM fable_chat_conversations
       WHERE admin_user_id = ?
@@ -797,14 +798,28 @@ export async function listFableChatMessages(env, adminUserId, conversationId, {
   }
 
   const rows = await env.DB.prepare(
-    `SELECT m.id, m.turn_order, m.role, m.role_order, m.content, m.state,
-            m.metadata_json, m.reasoning_summary, m.citations_json, m.created_at, m.updated_at
+    `SELECT m.id, m.turn_order, m.role, m.role_order,
+            COALESCE((SELECT r.content FROM fable_chat_admin_message_revisions r
+              WHERE r.message_id = m.id ORDER BY r.revision_number DESC, r.id DESC LIMIT 1), m.content) AS content,
+            m.state, m.metadata_json, m.reasoning_summary,
+            COALESCE((SELECT r.citations_json FROM fable_chat_admin_message_revisions r
+              WHERE r.message_id = m.id ORDER BY r.revision_number DESC, r.id DESC LIMIT 1), m.citations_json) AS citations_json,
+            m.created_at, m.updated_at
        FROM fable_chat_messages m
        INNER JOIN fable_chat_conversations c ON c.id = m.conversation_id
       WHERE m.conversation_id = ?
         AND m.admin_user_id = ?
         AND c.admin_user_id = ?
         AND c.deleted_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM fable_chat_turns tx
+           WHERE tx.conversation_id = m.conversation_id AND tx.admin_user_id = m.admin_user_id
+             AND tx.status = 'succeeded'
+             AND (tx.user_message_id = m.id OR tx.assistant_message_id = m.id)
+             AND COALESCE((SELECT CASE tr.action WHEN 'delete' THEN 1 ELSE 0 END
+               FROM fable_chat_admin_turn_revisions tr WHERE tr.turn_id = tx.id
+               ORDER BY tr.revision_number DESC, tr.id DESC LIMIT 1), 0) = 1
+        )
         AND (
           ? IS NULL OR m.turn_order < ? OR
           (m.turn_order = ? AND m.role_order < ?) OR
@@ -887,6 +902,7 @@ async function readTurnByIdempotencyHash(env, adminUserId, conversationId, idemp
             t.web_replay_pruning_version, t.web_replay_pruned_through_turn_order,
             t.web_replay_pruned_through_message_id, t.web_replay_pruned_at,
             t.web_replay_pruned_pair_count, t.web_replay_pruned_estimated_tokens,
+            t.admin_revision_version,
             t.cache_breakpoint_json, t.settings_snapshot_json, t.provider_duration_ms,
             t.output_truncated,
             t.provider_model, t.stop_reason, t.stop_sequence, t.usage_json,
@@ -917,6 +933,7 @@ async function readTurnById(env, turnId) {
             web_replay_pruning_version, web_replay_pruned_through_turn_order,
             web_replay_pruned_through_message_id, web_replay_pruned_at,
             web_replay_pruned_pair_count, web_replay_pruned_estimated_tokens,
+            admin_revision_version,
             settings_snapshot_json, provider_duration_ms, output_truncated,
             provider_model, stop_reason,
             stop_sequence, usage_json, gateway_metadata_json, error_code, created_at,
@@ -987,7 +1004,7 @@ export async function buildFableChatRequestFingerprint({
   settings,
   memorySelection = null,
   webReplaySelection = null,
-  fingerprintVersion = 6,
+  fingerprintVersion = 7,
 }) {
   if (!settings || typeof settings !== "object") {
     throw new FableChatError("Conversation settings are unavailable.", {
@@ -1067,6 +1084,12 @@ export async function buildFableChatRequestFingerprint({
       web_replay_pruned_at: appliedWebReplay.prunedAt,
     });
   }
+  if (fingerprintVersion >= 7) {
+    fingerprint.admin_revision_version = Math.max(
+      0,
+      Number(settings.adminRevisionVersion || 0)
+    );
+  }
   return sha256Hex(JSON.stringify(fingerprint));
 }
 
@@ -1129,6 +1152,7 @@ async function matchesLegacyFableChatFingerprint(existing, request) {
 export async function matchesFableChatTurnRequest(existing, requestFingerprint, request) {
   const storedFingerprint = existing?.requestFingerprint ?? existing?.request_fingerprint;
   if (storedFingerprint === requestFingerprint) return true;
+  if (Number(request?.settings?.adminRevisionVersion || 0) > 0) return false;
   if (await matchesStoredMemoryFableChatFingerprint(existing, request)) return true;
   if (await matchesPreMemoryFableChatFingerprint(existing, request)) return true;
   return matchesLegacyFableChatFingerprint(existing, request);
@@ -1195,6 +1219,7 @@ export async function beginFableChatTurn(env, {
     || appliedSettings.webSearchMaxUses !== Number(settings.webSearchMaxUses)
     || FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION !== Number(settings.webSearchContractVersion)
     || appliedSettings.memoryMode !== settings.memoryMode
+    || appliedSettings.adminRevisionVersion !== Number(settings.adminRevisionVersion || 0)
   ) {
     throw new FableChatError("Conversation settings changed before this message was admitted.", {
       status: 409,
@@ -1258,6 +1283,7 @@ export async function beginFableChatTurn(env, {
     webReplayPrunedThroughTurnOrder: safeContext.webReplay.prunedThroughTurnOrder,
     webReplayPrunedThroughMessageId: safeContext.webReplay.prunedThroughMessageId,
     webReplayPrunedAt: safeContext.webReplay.prunedAt,
+    adminRevisionVersion: appliedSettings.adminRevisionVersion,
   };
 
   const userMessageId = normalizedRetryMessageId || opaqueId("fbm");
@@ -1321,18 +1347,20 @@ export async function beginFableChatTurn(env, {
            web_replay_pruning_version, web_replay_pruned_through_turn_order,
            web_replay_pruned_through_message_id, web_replay_pruned_at,
            web_replay_pruned_pair_count, web_replay_pruned_estimated_tokens,
-           settings_snapshot_json, provider_duration_ms, output_truncated, provider_model, stop_reason,
+           admin_revision_version, settings_snapshot_json,
+           provider_duration_ms, output_truncated, provider_model, stop_reason,
            stop_sequence, usage_json, gateway_metadata_json, error_code, created_at,
            updated_at, completed_at, expires_at
          )
          SELECT ?, c.id, ?, ?, ?, ?, NULL, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL, NULL, NULL, '{}', '{}', NULL, ?, ?, NULL, ?
+                ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, c.admin_revision_version,
+                ?, NULL, 0, NULL, NULL, NULL, '{}', '{}', NULL, ?, ?, NULL, ?
            FROM fable_chat_conversations c
           WHERE c.id = ? AND c.admin_user_id = ? AND c.deleted_at IS NULL
             AND c.effort = ? AND c.system_preset_id = ? AND c.system_preset_version = ?
             AND c.thinking_display = ? AND c.prompt_cache_policy = ?
             AND c.prompt_cache_version = ? AND c.web_search_enabled = ?
-            AND c.memory_mode = ?`
+            AND c.memory_mode = ? AND c.admin_revision_version = ?`
       ).bind(
         turnId,
         adminUserId,
@@ -1386,7 +1414,8 @@ export async function beginFableChatTurn(env, {
         appliedSettings.promptCachePolicy,
         appliedSettings.promptCacheVersion,
         appliedSettings.webSearchEnabled ? 1 : 0,
-        appliedMemory.mode
+        appliedMemory.mode,
+        appliedSettings.adminRevisionVersion
       );
     const statements = [];
     if (normalizedRetryMessageId) {
@@ -1662,6 +1691,7 @@ export async function buildFableChatModelContext(env, {
     || Number(settings.webSearchMaxUses) !== appliedSettings.webSearchMaxUses
     || Number(settings.webSearchContractVersion) !== FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION
     || settings.memoryMode !== appliedSettings.memoryMode
+    || Number(settings.adminRevisionVersion || 0) !== appliedSettings.adminRevisionVersion
   )) {
     throw new FableChatError("Conversation settings changed before context was prepared.", {
       status: 409,
@@ -1673,14 +1703,30 @@ export async function buildFableChatModelContext(env, {
        FROM fable_chat_turns t
        INNER JOIN fable_chat_conversations c ON c.id = t.conversation_id
       WHERE t.conversation_id = ? AND t.admin_user_id = ? AND t.status = 'succeeded'
-        AND c.admin_user_id = ? AND c.deleted_at IS NULL`
+        AND c.admin_user_id = ? AND c.deleted_at IS NULL
+        AND COALESCE((SELECT CASE tr.action WHEN 'delete' THEN 1 ELSE 0 END
+          FROM fable_chat_admin_turn_revisions tr WHERE tr.turn_id = t.id
+          ORDER BY tr.revision_number DESC, tr.id DESC LIMIT 1), 0) = 0`
   ).bind(id, adminUserId, adminUserId).first();
   const rows = await env.DB.prepare(
     `SELECT t.id, t.completed_at, um.turn_order,
-            um.content AS user_content,
-            am.content AS assistant_content,
-            am.citations_json,
-            pm.content_blocks_json AS provider_content_blocks_json
+            COALESCE((SELECT r.content FROM fable_chat_admin_message_revisions r
+              WHERE r.message_id = um.id ORDER BY r.revision_number DESC, r.id DESC LIMIT 1), um.content) AS user_content,
+            COALESCE((SELECT r.content FROM fable_chat_admin_message_revisions r
+              WHERE r.message_id = am.id ORDER BY r.revision_number DESC, r.id DESC LIMIT 1), am.content) AS assistant_content,
+            COALESCE((SELECT r.citations_json FROM fable_chat_admin_message_revisions r
+              WHERE r.message_id = am.id ORDER BY r.revision_number DESC, r.id DESC LIMIT 1), am.citations_json) AS citations_json,
+            CASE WHEN EXISTS (
+              SELECT 1 FROM fable_chat_admin_mutation_claims mc
+               WHERE mc.conversation_id = t.conversation_id
+                 AND mc.invalidated_from_turn_order IS NOT NULL
+                 AND um.turn_order >= mc.invalidated_from_turn_order
+                 AND t.admin_revision_version < mc.to_revision
+            ) THEN NULL
+              WHEN EXISTS (
+              SELECT 1 FROM fable_chat_admin_message_revisions r
+               WHERE r.message_id IN (um.id, am.id)
+            ) THEN NULL ELSE pm.content_blocks_json END AS provider_content_blocks_json
        FROM fable_chat_turns t
        INNER JOIN fable_chat_conversations c ON c.id = t.conversation_id
        INNER JOIN fable_chat_messages um ON um.id = t.user_message_id
@@ -1694,6 +1740,9 @@ export async function buildFableChatModelContext(env, {
       WHERE t.conversation_id = ? AND t.admin_user_id = ? AND t.status = 'succeeded'
         AND c.admin_user_id = ? AND c.deleted_at IS NULL
         AND um.state = 'succeeded' AND am.state = 'succeeded'
+        AND COALESCE((SELECT CASE tr.action WHEN 'delete' THEN 1 ELSE 0 END
+          FROM fable_chat_admin_turn_revisions tr WHERE tr.turn_id = t.id
+          ORDER BY tr.revision_number DESC, tr.id DESC LIMIT 1), 0) = 0
       ORDER BY um.turn_order DESC, t.id DESC
       LIMIT ?`
   ).bind(id, adminUserId, adminUserId, FABLE_CHAT_MAX_CONTEXT_PRIOR_TURNS).all();

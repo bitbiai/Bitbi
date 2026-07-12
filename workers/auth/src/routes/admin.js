@@ -58,6 +58,7 @@ import {
 } from "../lib/pagination.js";
 import { handleAdminAI } from "./admin-ai.js";
 import { handleAdminFableChat } from "./admin-fable-chat.js";
+import { handleAdminFableChatData } from "./admin-fable-chat-data.js";
 import { handleAdminBilling } from "./admin-billing.js";
 import { handleAdminDataLifecycle } from "./admin-data-lifecycle.js";
 import { handleAdminMfa } from "./admin-mfa.js";
@@ -80,7 +81,7 @@ const ADMIN_DELETE_ERASURE_ACKNOWLEDGEMENT = "ERASURE WORKFLOW";
 const ADMIN_DELETE_ERASURE_DEFAULT_REASON = "Admin initiated GDPR/data erasure workflow from Admin user deletion.";
 // Runtime Workers cannot read config/release-compat.json directly; release
 // compatibility tests keep this dashboard label aligned with the manifest.
-const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0074_add_fable_web_replay_pruning.sql";
+const CURRENT_AUTH_SCHEMA_CHECKPOINT = "0075_add_fable_admin_data_center.sql";
 const READINESS_STATUS_VERSION = "omega-p1-readiness-dashboard-v4";
 
 function adminSettingsIdempotencyKeyOrResponse(request) {
@@ -942,6 +943,11 @@ export async function handleAdmin(ctx) {
   const adminFableChatResult = await handleAdminFableChat(ctx);
   if (adminFableChatResult) {
     return adminFableChatResult;
+  }
+
+  const adminFableChatDataResult = await handleAdminFableChatData(ctx);
+  if (adminFableChatDataResult) {
+    return adminFableChatDataResult;
   }
 
   const adminAiResult = await handleAdminAI(ctx);

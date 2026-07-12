@@ -5917,6 +5917,344 @@
 }
 
 @layer pages {
+    .admin-fable-data-card,
+    .admin-fable-data {
+        margin-top: 1rem;
+    }
+
+    .admin-fable-data-card {
+        display: grid;
+        grid-template-columns: minmax(0, 1.3fr) minmax(18rem, 2fr) auto;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem;
+    }
+
+    .admin-fable-data-card__eyebrow {
+        margin: 0 0 .25rem;
+        color: var(--color-text-muted, #9ba3ad);
+        font-size: .75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+
+    .admin-fable-data-card__stats,
+    .admin-fable-data__stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+        gap: .5rem;
+    }
+
+    .admin-fable-data__stat {
+        min-width: 0;
+        padding: .55rem .65rem;
+        border: 1px solid rgba(255, 255, 255, .1);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, .025);
+    }
+
+    .admin-fable-data__stat span,
+    .admin-fable-data__stat strong {
+        display: block;
+        overflow-wrap: anywhere;
+    }
+
+    .admin-fable-data__stat span {
+        color: var(--color-text-muted, #9ba3ad);
+        font-size: .72rem;
+    }
+
+    .admin-fable-data__header,
+    .admin-fable-data__detail-head,
+    .admin-fable-data__section-head,
+    .admin-fable-data__record > header,
+    .admin-fable-data__message > header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: .75rem;
+    }
+
+    .admin-fable-data__header-actions,
+    .admin-fable-data__detail-actions,
+    .admin-fable-data__row-actions,
+    .admin-fable-data__badges {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: .45rem;
+    }
+
+    .admin-fable-data__filters {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+        gap: .7rem;
+        margin: 1rem 0;
+        padding: .8rem;
+        border-block: 1px solid rgba(255, 255, 255, .1);
+    }
+
+    .admin-fable-data__filters label,
+    .admin-fable-data__dialog-field {
+        display: grid;
+        gap: .3rem;
+        min-width: 0;
+        color: var(--color-text-muted, #aab0b8);
+        font-size: .78rem;
+    }
+
+    .admin-fable-data__filters input,
+    .admin-fable-data__filters select,
+    .admin-fable-data__dialog-field input,
+    .admin-fable-data__dialog-field select,
+    .admin-fable-data__dialog-field textarea {
+        min-height: 44px;
+        width: 100%;
+        border: 1px solid rgba(255, 255, 255, .16);
+        border-radius: 6px;
+        background: #101215;
+        color: #f4f6f8;
+        padding: .65rem;
+    }
+
+    .admin-fable-data__dialog-field textarea {
+        min-height: 8rem;
+        resize: vertical;
+    }
+
+    .admin-fable-data__layout {
+        display: grid;
+        grid-template-columns: minmax(17rem, 23rem) minmax(0, 1fr);
+        gap: 1rem;
+        min-height: 32rem;
+    }
+
+    .admin-fable-data__list,
+    .admin-fable-data__detail {
+        min-width: 0;
+        padding: .75rem;
+        border: 1px solid rgba(255, 255, 255, .1);
+        border-radius: 6px;
+        background: rgba(8, 10, 12, .7);
+    }
+
+    .admin-fable-data__conversation-list,
+    .admin-fable-data__record-list {
+        display: grid;
+        gap: .55rem;
+    }
+
+    .admin-fable-data__conversation {
+        display: grid;
+        min-height: 44px;
+        width: 100%;
+        gap: .4rem;
+        padding: .75rem;
+        border: 1px solid rgba(255, 255, 255, .1);
+        border-radius: 6px;
+        background: #111418;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .admin-fable-data__conversation[data-selected="true"] {
+        border-color: #73c7ff;
+        box-shadow: 0 0 0 2px rgba(115, 199, 255, .18);
+    }
+
+    .admin-fable-data__conversation-head {
+        display: flex;
+        justify-content: space-between;
+        gap: .5rem;
+    }
+
+    .admin-fable-data__muted,
+    .admin-fable-data__notice,
+    .admin-fable-data__empty {
+        color: var(--color-text-muted, #aab0b8);
+        font-size: .8rem;
+    }
+
+    .admin-fable-data__pager {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: .5rem;
+        margin-top: .75rem;
+    }
+
+    .admin-fable-data__tabs {
+        display: flex;
+        gap: .35rem;
+        margin: 1rem 0;
+        padding-bottom: .45rem;
+        overflow-x: auto;
+        border-bottom: 1px solid rgba(255, 255, 255, .1);
+    }
+
+    .admin-fable-data__tabs button {
+        min-height: 44px;
+        flex: 0 0 auto;
+        border: 1px solid rgba(255, 255, 255, .1);
+        border-radius: 6px;
+        background: transparent;
+        color: #c7ccd2;
+        padding: .55rem .75rem;
+    }
+
+    .admin-fable-data__tabs button[aria-selected="true"] {
+        border-color: #73c7ff;
+        color: #fff;
+        background: rgba(115, 199, 255, .1);
+    }
+
+    .admin-fable-data__definition-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+        gap: .5rem;
+        margin: 0;
+    }
+
+    .admin-fable-data__definition-list > div {
+        padding: .55rem;
+        border-bottom: 1px solid rgba(255, 255, 255, .08);
+    }
+
+    .admin-fable-data__definition-list dt {
+        color: var(--color-text-muted, #aab0b8);
+        font-size: .72rem;
+    }
+
+    .admin-fable-data__definition-list dd {
+        margin: .2rem 0 0;
+        overflow-wrap: anywhere;
+    }
+
+    .admin-fable-data__message,
+    .admin-fable-data__record,
+    .admin-fable-data__revealed {
+        margin-bottom: .65rem;
+        padding: .75rem;
+        border: 1px solid rgba(255, 255, 255, .1);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, .025);
+    }
+
+    .admin-fable-data__message--user {
+        border-left: 3px solid #73c7ff;
+    }
+
+    .admin-fable-data__message--assistant {
+        border-left: 3px solid #89d3a1;
+    }
+
+    .admin-fable-data__content,
+    .admin-fable-data__json {
+        max-width: 100%;
+        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font: inherit;
+        line-height: 1.55;
+        color: #eef1f4;
+    }
+
+    .admin-fable-data__json {
+        max-height: 32rem;
+        padding: .7rem;
+        background: #090b0d;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: .76rem;
+    }
+
+    .admin-fable-data__sources {
+        margin: .6rem 0;
+        padding-left: 1.2rem;
+    }
+
+    .admin-fable-data__sources a {
+        color: #8ed1ff;
+        overflow-wrap: anywhere;
+    }
+
+    .admin-fable-data__danger {
+        border-color: #d86b73 !important;
+        color: #ffd8da !important;
+    }
+
+    .admin-fable-data-dialog[hidden] {
+        display: none;
+    }
+
+    .admin-fable-data-dialog {
+        position: fixed;
+        inset: 0;
+        z-index: 10020;
+        display: grid;
+        place-items: center;
+        padding: 1rem;
+    }
+
+    .admin-fable-data-dialog__backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, .78);
+    }
+
+    .admin-fable-data-dialog__panel {
+        position: relative;
+        width: min(42rem, 100%);
+        max-height: min(42rem, calc(100dvh - 2rem));
+        overflow: auto;
+        padding: 1rem;
+        border-radius: 6px;
+        background: #111418;
+    }
+
+    .admin-fable-data-dialog__panel > header,
+    .admin-fable-data-dialog__actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: .75rem;
+    }
+
+    .admin-fable-data-dialog__panel > header button {
+        width: 44px;
+        height: 44px;
+        border: 0;
+        background: transparent;
+        color: #fff;
+        font-size: 1.6rem;
+    }
+
+    .admin-fable-data__dialog-form {
+        display: grid;
+        gap: .75rem;
+        margin: 1rem 0;
+    }
+
+    @media (max-width: 900px) {
+        .admin-fable-data-card,
+        .admin-fable-data__layout {
+            grid-template-columns: 1fr;
+        }
+
+        .admin-fable-data__header,
+        .admin-fable-data__detail-head {
+            align-items: stretch;
+            flex-direction: column;
+        }
+
+        .admin-fable-data__list {
+            max-height: 24rem;
+            overflow: auto;
+        }
+    }
+}
+
+@layer pages {
 
 .admin-news-feed__header,
 .admin-news-feed__filter-row,

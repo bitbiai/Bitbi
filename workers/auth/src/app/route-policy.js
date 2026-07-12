@@ -1184,6 +1184,79 @@ export const ROUTE_POLICIES = Object.freeze([
     notes: "Streaming variant of the same durable Fable operation. It emits only normalized safe events and sends final only after exact-once D1 finalization; private provider signatures remain service-internal.",
   }),
 
+  adminRead("admin.fable-chat-data.overview", "/api/admin/fable-chat-data/overview", "admin-fable-chat-data", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-fable-chat-data-read-admin-and-ip", failClosed: true },
+    notes: "Bounded, cross-owner Admin/MFA metadata aggregates for the dedicated Van Ark Fable domain. No provider or private block content is returned.",
+  }),
+  adminRead("admin.fable-chat-data.conversations.list", "/api/admin/fable-chat-data/conversations", "admin-fable-chat-data", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-fable-chat-data-read-admin-and-ip", failClosed: true },
+    notes: "Allowlisted server-side filters, sorting, and pagination across Fable conversations for verified platform administrators only.",
+  }),
+  adminRead("admin.fable-chat-data.conversations.read", "/api/admin/fable-chat-data/conversations/:id", "admin-fable-chat-data", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-fable-chat-data-read-admin-and-ip", failClosed: true },
+  }),
+  adminRead("admin.fable-chat-data.transcript.list", "/api/admin/fable-chat-data/conversations/:id/transcript", "admin-fable-chat-data", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-fable-chat-data-read-admin-and-ip", failClosed: true },
+    notes: "Returns the bounded effective visible transcript and administrative revision state. Private provider blocks remain redacted.",
+  }),
+  adminRead("admin.fable-chat-data.attempts.list", "/api/admin/fable-chat-data/conversations/:id/attempts", "admin-fable-chat-data", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-fable-chat-data-read-admin-and-ip", failClosed: true },
+  }),
+  adminRead("admin.fable-chat-data.checkpoints.list", "/api/admin/fable-chat-data/conversations/:id/checkpoints", "admin-fable-chat-data", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-fable-chat-data-read-admin-and-ip", failClosed: true },
+  }),
+  adminRead("admin.fable-chat-data.web-search.read", "/api/admin/fable-chat-data/conversations/:id/web-search", "admin-fable-chat-data", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-fable-chat-data-read-admin-and-ip", failClosed: true },
+  }),
+  adminRead("admin.fable-chat-data.usage.list", "/api/admin/fable-chat-data/conversations/:id/usage", "admin-fable-chat-data", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-fable-chat-data-read-admin-and-ip", failClosed: true },
+  }),
+  adminRead("admin.fable-chat-data.records.read", "/api/admin/fable-chat-data/conversations/:id/records/:kind/:recordId", "admin-fable-chat-data", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-fable-chat-data-read-admin-and-ip", failClosed: true },
+    notes: "Allowlisted record/column inspector only. Fingerprints, hashes, gateway metadata, private provider blocks, and hidden summaries are redacted.",
+  }),
+  adminJsonWrite("admin.fable-chat-data.conversation.update", "PATCH", "/api/admin/fable-chat-data/conversations/:id", "admin-fable-chat-data", "adminJson", "admin-fable-chat-data-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "fable_chat_admin_conversation_updated" },
+    notes: "Domain-aware rename, settings, soft-delete, and restore only. Requires reason, Idempotency-Key, optimistic revision, Admin MFA, and no active turn.",
+  }),
+  adminJsonWrite("admin.fable-chat-data.message.update", "PATCH", "/api/admin/fable-chat-data/conversations/:id/messages/:messageId", "admin-fable-chat-data", "adminJson", "admin-fable-chat-data-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "fable_chat_admin_message_revised" },
+    notes: "Append-only visible transcript revision; original message and immutable provider/accounting evidence remain unchanged. Dependent checkpoints are invalidated.",
+  }),
+  adminJsonWrite("admin.fable-chat-data.turn.delete", "POST", "/api/admin/fable-chat-data/conversations/:id/turns/:turnId/delete", "admin-fable-chat-data", "adminJson", "admin-fable-chat-data-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "fable_chat_admin_turn_deleted" },
+  }),
+  adminJsonWrite("admin.fable-chat-data.turn.restore", "POST", "/api/admin/fable-chat-data/conversations/:id/turns/:turnId/restore", "admin-fable-chat-data", "adminJson", "admin-fable-chat-data-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "fable_chat_admin_turn_restored" },
+  }),
+  adminJsonWrite("admin.fable-chat-data.checkpoint.invalidate", "POST", "/api/admin/fable-chat-data/conversations/:id/checkpoints/:checkpointId/invalidate", "admin-fable-chat-data", "adminJson", "admin-fable-chat-data-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "fable_chat_admin_checkpoint_invalidated" },
+  }),
+  adminJsonWrite("admin.fable-chat-data.checkpoint.reveal", "POST", "/api/admin/fable-chat-data/conversations/:id/checkpoints/:checkpointId/reveal", "admin-fable-chat-data", null, "admin-fable-chat-data-reveal-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    body: { kind: "none", noneReason: "Reveal is keyed only by the allowlisted checkpoint path and returns no-store data after current Admin MFA verification." },
+    audit: { event: "fable_chat_admin_hidden_summary_revealed" },
+  }),
+  adminJsonWrite("admin.fable-chat-data.conversation.purge", "POST", "/api/admin/fable-chat-data/conversations/:id/purge", "admin-fable-chat-data", "adminJson", "admin-fable-chat-data-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "fable_chat_admin_conversation_purged" },
+    notes: "Requires prior soft deletion, exact typed conversation id, reason, Idempotency-Key, optimistic revision, and no active turn. External audit and budget evidence remain retained.",
+  }),
+
   adminRead("admin.ai.models", "/api/admin/ai/models", "admin-ai", {
     config: REQUIRED_CONFIG.adminAi,
     rateLimit: { id: "admin-ai-models-ip", failClosed: true },

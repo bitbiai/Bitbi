@@ -124,6 +124,15 @@ function extractLiteralMethodRoutes(source) {
   return [...routes].sort();
 }
 
+function extractDeclaredReleaseRoutes(source) {
+  const routes = new Set();
+  const pattern = /\/\/\s*release-route:\s*([A-Z]+)\s+(\/api\/[^\s]+)/g;
+  for (const match of String(source || "").matchAll(pattern)) {
+    routes.add(`${match[1]} ${match[2]}`);
+  }
+  return [...routes].sort();
+}
+
 function extractDelegatedLiteralPaths(source) {
   const paths = new Set();
   const pattern = /pathname\s*===\s*"([^"]+)"\s*\)\s*\{/g;
@@ -1122,6 +1131,8 @@ function validateAdminAuthCompatibility(manifest, context) {
   const actualLiteralRoutes = [
     ...extractLiteralMethodRoutes(context.authAdminSource || ""),
     ...extractLiteralMethodRoutes(context.authAdminMfaSource || ""),
+    ...extractDeclaredReleaseRoutes(context.authAdminSource || "")
+      .filter((route) => !route.includes(":")),
   ].filter((route) => route.includes("/api/admin/"));
 
   compareExactStringSets(
@@ -1132,7 +1143,11 @@ function validateAdminAuthCompatibility(manifest, context) {
   );
   compareExactStringSets(
     contract.patternRoutes || [],
-    extractPatternMethodRoutes(context.authAdminSource || ""),
+    [
+      ...extractPatternMethodRoutes(context.authAdminSource || ""),
+      ...extractDeclaredReleaseRoutes(context.authAdminSource || "")
+        .filter((route) => route.includes(":")),
+    ],
     "Admin auth pattern route contract",
     issues
   );
@@ -1301,6 +1316,7 @@ export function loadReleaseCompatibilityContext(repoRoot) {
       "workers/auth/src/routes/admin.js",
       "workers/auth/src/routes/admin-billing.js",
       "workers/auth/src/routes/admin-data-lifecycle.js",
+      "workers/auth/src/routes/admin-fable-chat-data.js",
       "workers/auth/src/routes/admin-orgs.js",
     ].map((relativePath) => fs.readFileSync(path.join(repoRoot, relativePath), "utf8")).join("\n"),
     authAdminMfaSource: fs.readFileSync(

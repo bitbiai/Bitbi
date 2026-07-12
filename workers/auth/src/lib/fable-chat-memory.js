@@ -104,6 +104,7 @@ export function buildFableChatMemoryCompactionFingerprintInput({
   sourceTurns,
   summaryPlan = null,
   diagnosticVersion = FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
+  adminRevisionVersion = 0,
 }) {
   const fingerprint = {
     contract_version: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
@@ -132,6 +133,9 @@ export function buildFableChatMemoryCompactionFingerprintInput({
       effective_soft_target: Math.max(0, Number(summaryPlan?.effectiveSoftTarget) || 0),
       source_catalog_count: Math.max(0, Number(summaryPlan?.sourceCatalog?.length) || 0),
     });
+  }
+  if (Number(adminRevisionVersion) > 0) {
+    fingerprint.admin_revision_version = Math.floor(Number(adminRevisionVersion));
   }
   return fingerprint;
 }
@@ -222,8 +226,10 @@ async function readLatestCheckpoint(env, adminUserId, conversationId, profile) {
             m.input_fingerprint
        FROM fable_chat_memory_checkpoints m
        INNER JOIN fable_chat_conversations c ON c.id = m.conversation_id
+       LEFT JOIN fable_chat_memory_checkpoint_invalidations i ON i.checkpoint_id = m.id
       WHERE m.conversation_id = ? AND m.admin_user_id = ? AND m.profile = ?
-        AND m.status = 'succeeded' AND c.admin_user_id = ? AND c.deleted_at IS NULL
+        AND m.status = 'succeeded' AND i.checkpoint_id IS NULL
+        AND c.admin_user_id = ? AND c.deleted_at IS NULL
       ORDER BY m.summary_version DESC, m.id DESC
       LIMIT 1`
   ).bind(conversationId, adminUserId, profile, adminUserId).first();
@@ -289,24 +295,32 @@ export function selectFableChatMemoryRawTurns(priorTurnsNewestFirst, selection) 
 
 async function readConversationMemoryMode(env, adminUserId, conversationId) {
   const row = await env.DB.prepare(
-    `SELECT memory_mode FROM fable_chat_conversations
+    `SELECT memory_mode, admin_revision_version FROM fable_chat_conversations
       WHERE id = ? AND admin_user_id = ? AND deleted_at IS NULL
       LIMIT 1`
   ).bind(conversationId, adminUserId).first();
   if (!row) return null;
   try {
-    return normalizeFableChatMemoryMode(row.memory_mode || FABLE_CHAT_DEFAULT_MEMORY_MODE);
+    return {
+      mode: normalizeFableChatMemoryMode(row.memory_mode || FABLE_CHAT_DEFAULT_MEMORY_MODE),
+      adminRevisionVersion: Math.max(0, Number(row.admin_revision_version || 0)),
+    };
   } catch {
-    return FABLE_CHAT_DEFAULT_MEMORY_MODE;
+    return { mode: FABLE_CHAT_DEFAULT_MEMORY_MODE, adminRevisionVersion: 0 };
   }
 }
 
 async function readVisibleTurnsAfter(env, adminUserId, conversationId, coverageTurnOrder) {
   const rows = await env.DB.prepare(
     `SELECT t.id AS turn_id, um.turn_order,
-            um.id AS user_message_id, um.content AS user_content,
-            am.id AS assistant_message_id, am.content AS assistant_content,
-            am.citations_json
+            um.id AS user_message_id,
+            COALESCE((SELECT r.content FROM fable_chat_admin_message_revisions r
+              WHERE r.message_id = um.id ORDER BY r.revision_number DESC, r.id DESC LIMIT 1), um.content) AS user_content,
+            am.id AS assistant_message_id,
+            COALESCE((SELECT r.content FROM fable_chat_admin_message_revisions r
+              WHERE r.message_id = am.id ORDER BY r.revision_number DESC, r.id DESC LIMIT 1), am.content) AS assistant_content,
+            COALESCE((SELECT r.citations_json FROM fable_chat_admin_message_revisions r
+              WHERE r.message_id = am.id ORDER BY r.revision_number DESC, r.id DESC LIMIT 1), am.citations_json) AS citations_json
        FROM fable_chat_turns t
        INNER JOIN fable_chat_conversations c ON c.id = t.conversation_id
        INNER JOIN fable_chat_messages um ON um.id = t.user_message_id
@@ -318,6 +332,9 @@ async function readVisibleTurnsAfter(env, adminUserId, conversationId, coverageT
       WHERE t.conversation_id = ? AND t.admin_user_id = ? AND t.status = 'succeeded'
         AND c.admin_user_id = ? AND c.deleted_at IS NULL
         AND um.turn_order > ?
+        AND COALESCE((SELECT CASE tr.action WHEN 'delete' THEN 1 ELSE 0 END
+          FROM fable_chat_admin_turn_revisions tr WHERE tr.turn_id = t.id
+          ORDER BY tr.revision_number DESC, tr.id DESC LIMIT 1), 0) = 0
       ORDER BY um.turn_order ASC, t.id ASC
       LIMIT ?`
   ).bind(
@@ -365,6 +382,8 @@ function chooseSequentialChunk(turns, {
 }
 
 async function buildCompactionCandidate(env, adminUserId, conversationId, profile) {
+  const conversationState = await readConversationMemoryMode(env, adminUserId, conversationId);
+  if (!conversationState) return null;
   const current = await readLatestCheckpoint(env, adminUserId, conversationId, profile);
   let previous = current;
   let sourceBaseProfile = current ? profile : null;
@@ -443,6 +462,7 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
       previousSummary,
       sourceTurns: cleanTurns,
       summaryPlan: budgetPlan,
+      adminRevisionVersion: conversationState.adminRevisionVersion,
     })
   ));
   return {
@@ -874,8 +894,9 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
 
 export async function maintainFableChatMemory(ctx, adminUser, conversationId) {
   const id = normalizeConversationId(conversationId);
-  const mode = await readConversationMemoryMode(ctx.env, adminUser.id, id);
-  if (!mode) return;
+  const conversationState = await readConversationMemoryMode(ctx.env, adminUser.id, id);
+  if (!conversationState) return;
+  const mode = conversationState.mode;
   let remaining = FABLE_CHAT_MEMORY_MAX_COMPACTIONS_PER_MAINTENANCE;
   const firstStandard = await runOneCompaction(ctx, adminUser, id, "standard");
   if (firstStandard.attempted) remaining -= 1;

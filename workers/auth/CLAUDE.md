@@ -36,6 +36,8 @@ Latest auth D1 migration: read `release.schemaCheckpoints.auth.latest` from `con
 
 Current high-impact migration dependencies:
 
+- `0075_add_fable_admin_data_center.sql` for append-only Admin transcript revisions, complete-turn tombstones/restoration, checkpoint invalidations, mutation-version snapshots, and idempotent Admin write receipts. Apply it before deploying `/api/admin/fable-chat-data/*`.
+
 - `0073_add_fable_chat_rolling_memory.sql` for the Standard/Lite conversation setting, immutable inference checkpoint snapshots, and private versioned Qwen rolling-memory checkpoints. Apply it before deploying rolling-memory behavior in `/api/admin/fable-chat/*`.
 - `0074_add_fable_web_replay_pruning.sql` for the private monotonic cursor and immutable attempt snapshot used to omit completed historical web-search blocks after five minutes of conversation inactivity. Apply it before deploying the corresponding Auth Worker context projection.
 - `0072_add_fable_web_search_effort_limits.sql` for immutable effort-derived Web search maxima and bounded execution counts through ten. Apply it before deploying effort-scaled Web search behavior in `/api/admin/fable-chat/*`.

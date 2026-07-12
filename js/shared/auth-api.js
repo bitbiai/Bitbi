@@ -200,6 +200,82 @@ export function apiLogout() {
     return request('POST', '/logout');
 }
 
+/* ── Admin Fable Web App Data Center ── */
+
+function fableDataQuery(path, params = {}) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+    }
+    return request('GET', `/admin/fable-chat-data${path}${query.size ? `?${query}` : ''}`);
+}
+
+function fableDataWrite(method, path, payload, idempotencyKey) {
+    return request(method, `/admin/fable-chat-data${path}`, payload, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+    });
+}
+
+export function apiAdminFableDataOverview() {
+    return fableDataQuery('/overview');
+}
+
+export function apiAdminFableDataConversations(params) {
+    return fableDataQuery('/conversations', params);
+}
+
+export function apiAdminFableDataConversation(conversationId) {
+    return fableDataQuery(`/conversations/${encodeURIComponent(conversationId)}`);
+}
+
+export function apiAdminFableDataTranscript(conversationId, params) {
+    return fableDataQuery(`/conversations/${encodeURIComponent(conversationId)}/transcript`, params);
+}
+
+export function apiAdminFableDataAttempts(conversationId, params) {
+    return fableDataQuery(`/conversations/${encodeURIComponent(conversationId)}/attempts`, params);
+}
+
+export function apiAdminFableDataCheckpoints(conversationId, params) {
+    return fableDataQuery(`/conversations/${encodeURIComponent(conversationId)}/checkpoints`, params);
+}
+
+export function apiAdminFableDataWebSearch(conversationId) {
+    return fableDataQuery(`/conversations/${encodeURIComponent(conversationId)}/web-search`);
+}
+
+export function apiAdminFableDataUsage(conversationId, params) {
+    return fableDataQuery(`/conversations/${encodeURIComponent(conversationId)}/usage`, params);
+}
+
+export function apiAdminFableDataRawRecord(conversationId, kind, recordId) {
+    return fableDataQuery(`/conversations/${encodeURIComponent(conversationId)}/records/${encodeURIComponent(kind)}/${encodeURIComponent(recordId)}`);
+}
+
+export function apiAdminFableDataRevealSummary(conversationId, checkpointId) {
+    return request('POST', `/admin/fable-chat-data/conversations/${encodeURIComponent(conversationId)}/checkpoints/${encodeURIComponent(checkpointId)}/reveal`);
+}
+
+export function apiAdminFableDataConversationMutation(conversationId, payload, idempotencyKey) {
+    return fableDataWrite('PATCH', `/conversations/${encodeURIComponent(conversationId)}`, payload, idempotencyKey);
+}
+
+export function apiAdminFableDataMessageMutation(conversationId, messageId, payload, idempotencyKey) {
+    return fableDataWrite('PATCH', `/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`, payload, idempotencyKey);
+}
+
+export function apiAdminFableDataTurnMutation(conversationId, turnId, action, payload, idempotencyKey) {
+    return fableDataWrite('POST', `/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}/${encodeURIComponent(action)}`, payload, idempotencyKey);
+}
+
+export function apiAdminFableDataCheckpointInvalidate(conversationId, checkpointId, payload, idempotencyKey) {
+    return fableDataWrite('POST', `/conversations/${encodeURIComponent(conversationId)}/checkpoints/${encodeURIComponent(checkpointId)}/invalidate`, payload, idempotencyKey);
+}
+
+export function apiAdminFableDataPurge(conversationId, payload, idempotencyKey) {
+    return fableDataWrite('POST', `/conversations/${encodeURIComponent(conversationId)}/purge`, payload, idempotencyKey);
+}
+
 /* ── Wallet / SIWE ── */
 
 export function apiWalletStatus() {
