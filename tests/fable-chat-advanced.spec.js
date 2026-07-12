@@ -337,6 +337,85 @@ function countedWebSearchProviderEvents(count) {
   return events;
 }
 
+function largeTerminalProviderEvents() {
+  const events = [{
+    event: 'message_start',
+    data: { type: 'message_start', message: { model: 'claude-fable-5', usage: {} } },
+  }];
+  const text = 'München 🎵 — e\u0301';
+  for (let index = 0; index < 10; index += 1) {
+    const toolId = `srvtoolu_large_${String(index).padStart(8, '0')}`;
+    events.push(
+      {
+        event: 'content_block_start',
+        data: {
+          type: 'content_block_start', index,
+          content_block: { type: 'server_tool_use', id: toolId, name: 'web_search' },
+        },
+      },
+      {
+        event: 'content_block_delta',
+        data: { type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: `{"query":"test-${index}"}` } },
+      },
+      { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+      {
+        event: 'content_block_start',
+        data: {
+          type: 'content_block_start', index: index + 10,
+          content_block: {
+            type: 'web_search_tool_result', tool_use_id: toolId, caller: { type: 'direct' },
+            content: [{
+              type: 'web_search_result', url: `https://example.test/${index}`,
+              title: `Source ${index}`, encrypted_content: 'synthetic-encrypted', page_age: null,
+            }],
+          },
+        },
+      },
+      { event: 'content_block_stop', data: { type: 'content_block_stop', index: index + 10 } },
+    );
+  }
+  events.push(
+    {
+      event: 'content_block_start',
+      data: {
+        type: 'content_block_start', index: 20,
+        content_block: { type: 'thinking', thinking: 'synthetic', signature: 'synthetic-signature' },
+      },
+    },
+    {
+      event: 'content_block_delta',
+      data: { type: 'content_block_delta', index: 20, delta: { type: 'thinking_delta', thinking: ' detail' } },
+    },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index: 20 } },
+  );
+  for (let index = 21; index < 48; index += 1) {
+    const citation = index < 31 ? [{
+      type: 'web_search_result_location', url: `https://example.test/${index - 21}`,
+      title: `Source ${index - 21}`, encrypted_index: 'synthetic-index', cited_text: 'synthetic text',
+    }] : [];
+    events.push(
+      {
+        event: 'content_block_start',
+        data: { type: 'content_block_start', index, content_block: { type: 'text', text: '', citations: [] } },
+      },
+      {
+        event: 'content_block_delta',
+        data: { type: 'content_block_delta', index, delta: { type: 'text_delta', text } },
+      },
+      ...citation.map((entry) => ({
+        event: 'content_block_delta',
+        data: { type: 'content_block_delta', index, delta: { type: 'citations_delta', citation: entry } },
+      })),
+      { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    );
+  }
+  events.push(
+    { event: 'message_delta', data: { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {} } },
+    { event: 'message_stop', data: { type: 'message_stop' } },
+  );
+  return events;
+}
+
 test.describe('Advanced Fable chat contract', () => {
   test('Web search effort limits are exact and independently validated through the provider payload', async () => {
     const contract = await import(moduleUrl('workers/shared/fable-chat-contract.mjs'));
@@ -1055,13 +1134,56 @@ test.describe('Advanced Fable chat contract', () => {
       encodeSseEvents(completeProviderEvents().slice(0, -1)),
     ]));
     await expect(authStream.consumeInternalFableChatStream(incomplete)).rejects.toMatchObject({
-      code: 'provider_stream_interrupted',
+      code: 'provider_upstream_eof_before_message_stop',
       outcome: 'unknown',
       terminalWitness: expect.objectContaining({
         accepted_seen: true,
         complete_internal_seen: false,
       }),
     });
+  });
+
+  test('a valid 48-block terminal stream with 10 searches and split Unicode constructs complete_internal once', async () => {
+    const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const authStream = await import(moduleUrl('workers/auth/src/lib/fable-chat-stream.js'));
+    const bytes = encodeSseEvents(largeTerminalProviderEvents());
+    const chunks = [...bytes].map((byte) => Uint8Array.of(byte));
+    const direct = await aiStream.consumeAnthropicMessageStream(byteStream(chunks), {}, {
+      maxWebSearchUses: 10,
+    });
+    expect(direct.providerBlocks).toHaveLength(48);
+    const internal = aiStream.createInternalFableChatStream(byteStream(chunks), {
+      maxWebSearchUses: 10,
+    });
+    const complete = await authStream.consumeInternalFableChatStream(internal);
+
+    expect(complete.providerBlocks).toHaveLength(48);
+    expect(complete.webSearchRequestCount).toBe(10);
+    expect(complete.webSearchResultCount).toBe(10);
+    expect(complete.text).toContain('München 🎵 — e\u0301');
+    expect(complete.text).not.toContain('\uFFFD');
+    expect(complete.aiTerminalWitness).toMatchObject({
+      message_delta_seen: true,
+      message_stop_seen: true,
+      all_blocks_stopped: true,
+      content_block_count: 48,
+      stopped_content_block_count: 48,
+      complete_internal_constructed: true,
+      complete_internal_emitted: true,
+    });
+
+    const escapedSurrogate = new TextEncoder().encode([
+      'event: message_start\ndata: {"type":"message_start","message":{"model":"claude-fable-5","usage":{}}}\n\n',
+      'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+      'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"\\ud83c\\udfb5"}}\n\n',
+      'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
+      'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{}}\n\n',
+      'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+    ].join(''));
+    const escapedResult = await aiStream.consumeAnthropicMessageStream(
+      byteStream([...escapedSurrogate].map((byte) => Uint8Array.of(byte)))
+    );
+    expect(escapedResult.text).toBe('🎵');
   });
 
   test('normalized internal stream never emits signatures and retains them only in final service data', async () => {

@@ -45,7 +45,12 @@ const SAFE_STREAM_ERROR_CODES = new Set([
   "provider_stream_interrupted", "provider_stream_idle_timeout", "provider_stream_timeout",
   "provider_stream_malformed", "provider_stream_error", "provider_web_search_limit_exceeded",
   "provider_web_search_limit_invalid", "provider_pause_turn_unavailable",
-  "provider_pause_turn_limit_exceeded",
+  "provider_pause_turn_limit_exceeded", "provider_upstream_eof_before_message_stop",
+  "provider_unfinished_content_blocks", "provider_invalid_citation_structure",
+  "provider_invalid_web_search_structure", "provider_unsupported_block_type",
+  "provider_final_normalized_response_limit_exceeded", "provider_terminal_assembly_failure",
+  "provider_invalid_block_lifecycle", "provider_unicode_decode_failure",
+  "provider_web_search_blocks_invalid",
 ]);
 
 function boundedBucket(value, thresholds) {
@@ -355,7 +360,11 @@ export function sanitizeAnthropicContentBlocks(value) {
           maxCharacters: FABLE_CHAT_MAX_ASSISTANT_MESSAGE_CHARACTERS,
           maxBytes: FABLE_CHAT_MAX_TEXT_OUTPUT_BYTES,
         }),
-        ...(block.citations === undefined ? {} : { citations: sanitizeCitations(block.citations) }),
+        ...(block.citations === undefined ? {} : {
+          // Anthropic can include an empty citation placeholder at block start.
+          // The streaming path already accepts it before later citation deltas arrive.
+          citations: sanitizeCitations(block.citations, { allowEmpty: true }),
+        }),
       };
     }
     if (block.type === "thinking") {
@@ -384,6 +393,19 @@ export function sanitizeAnthropicContentBlocks(value) {
     throw new AnthropicStreamError("Provider content blocks exceed their safe limit.");
   }
   return blocks;
+}
+
+function postTerminalAssemblyErrorCode(error) {
+  const message = error instanceof AnthropicStreamError ? error.message : "";
+  if (message.includes("citation")) return "provider_invalid_citation_structure";
+  if (message.includes("web-search") || message.includes("search result") || message.includes("tool")) {
+    return "provider_invalid_web_search_structure";
+  }
+  if (message.includes("content block type")) return "provider_unsupported_block_type";
+  if (message.includes("exceed") || message.includes("safe limit")) {
+    return "provider_final_normalized_response_limit_exceeded";
+  }
+  return "provider_terminal_assembly_failure";
 }
 
 function extractSafeSources(blocks) {
@@ -616,7 +638,9 @@ export async function* parseSseJsonEvents(stream, {
   } catch (error) {
     if (error instanceof AnthropicStreamError) throw error;
     if (error?.name === "AbortError") onUpstreamAbort?.();
-    throw new AnthropicStreamError("Provider stream was interrupted.");
+    throw new AnthropicStreamError("Provider stream was interrupted.", {
+      code: error instanceof TypeError ? "provider_unicode_decode_failure" : "provider_stream_interrupted",
+    });
   } finally {
     if (!streamCompleted) {
       try {
@@ -733,11 +757,15 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
     }
     if (type === "content_block_start") {
       if (!sawMessageStart || sawMessageStop) {
-        throw new AnthropicStreamError("Provider content block started out of order.");
+        throw new AnthropicStreamError("Provider content block started out of order.", {
+          code: "provider_invalid_block_lifecycle",
+        });
       }
       const index = Number(value.index);
       if (!Number.isInteger(index) || index < 0 || index >= FABLE_CHAT_MAX_PROVIDER_BLOCKS || blocks.has(index)) {
-        throw new AnthropicStreamError("Provider content block index is invalid.");
+        throw new AnthropicStreamError("Provider content block index is invalid.", {
+          code: "provider_invalid_block_lifecycle",
+        });
       }
       const source = value.content_block;
       if (source?.type === "text") {
@@ -807,7 +835,9 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
           });
         }
       } else {
-        throw new AnthropicStreamError("Provider content block type is unsupported.");
+        throw new AnthropicStreamError("Provider content block type is unsupported.", {
+          code: "provider_unsupported_block_type",
+        });
       }
       if (streamWitness) streamWitness.contentBlockCount += 1;
       markProviderActivity(event, type);
@@ -815,12 +845,16 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
     }
     if (type === "content_block_delta") {
       if (!sawMessageStart || sawMessageStop) {
-        throw new AnthropicStreamError("Provider content block delta is out of order.");
+        throw new AnthropicStreamError("Provider content block delta is out of order.", {
+          code: "provider_invalid_block_lifecycle",
+        });
       }
       const index = Number(value.index);
       const block = blocks.get(index);
       if (!block || stoppedBlocks.has(index)) {
-        throw new AnthropicStreamError("Provider content block delta is out of order.");
+        throw new AnthropicStreamError("Provider content block delta is out of order.", {
+          code: "provider_invalid_block_lifecycle",
+        });
       }
       const delta = value.delta;
       if (delta?.type === "text_delta" && block.type === "text") {
@@ -882,18 +916,24 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
           throw new AnthropicStreamError("Provider citations exceed their safe limit.");
         }
       } else {
-        throw new AnthropicStreamError("Provider content block delta is invalid.");
+        throw new AnthropicStreamError("Provider content block delta is invalid.", {
+          code: "provider_invalid_block_lifecycle",
+        });
       }
       markProviderActivity(event, type);
       continue;
     }
     if (type === "content_block_stop") {
       if (!sawMessageStart || sawMessageStop) {
-        throw new AnthropicStreamError("Provider content block stop is out of order.");
+        throw new AnthropicStreamError("Provider content block stop is out of order.", {
+          code: "provider_invalid_block_lifecycle",
+        });
       }
       const index = Number(value.index);
       if (!blocks.has(index) || stoppedBlocks.has(index)) {
-        throw new AnthropicStreamError("Provider content block stop is out of order.");
+        throw new AnthropicStreamError("Provider content block stop is out of order.", {
+          code: "provider_invalid_block_lifecycle",
+        });
       }
       const block = blocks.get(index);
       if (block.type === "server_tool_use") {
@@ -920,7 +960,9 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
     }
     if (type === "message_delta") {
       if (!sawMessageStart || sawMessageStop) {
-        throw new AnthropicStreamError("Provider message delta is out of order.");
+        throw new AnthropicStreamError("Provider message delta is out of order.", {
+          code: "provider_invalid_block_lifecycle",
+        });
       }
       const reason = value.delta?.stop_reason;
       stopReason = typeof reason === "string" && SAFE_STOP_REASON.test(reason) ? reason : null;
@@ -933,7 +975,9 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
     }
     if (type === "message_stop") {
       if (!sawMessageStart || sawMessageStop || stoppedBlocks.size !== blocks.size) {
-        throw new AnthropicStreamError("Provider message stop is out of order.");
+        throw new AnthropicStreamError("Provider message stop is out of order.", {
+          code: "provider_invalid_block_lifecycle",
+        });
       }
       sawMessageStop = true;
       if (streamWitness) streamWitness.messageStopSeen = true;
@@ -943,17 +987,32 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
     // Unknown provider events are ignored only after their JSON and size have been validated.
   }
 
-  if (!sawMessageStart || !sawMessageStop || blocks.size === 0 || stoppedBlocks.size !== blocks.size) {
-    throw new AnthropicStreamError("Provider stream ended without a definitive completion.");
+  if (!sawMessageStart || !sawMessageStop) {
+    throw new AnthropicStreamError("Provider stream ended without a definitive completion.", {
+      code: "provider_upstream_eof_before_message_stop",
+    });
+  }
+  if (blocks.size === 0 || stoppedBlocks.size !== blocks.size) {
+    throw new AnthropicStreamError("Provider stream ended without a definitive completion.", {
+      code: "provider_unfinished_content_blocks",
+    });
   }
   const orderedBlocks = [...blocks.entries()]
     .sort(([left], [right]) => left - right)
     .map(([, block]) => block);
-  const visible = extractAnthropicVisibleResult(orderedBlocks, {
-    allowMissingText: stopReason === "pause_turn",
-    allowOrphanSearchResults,
-    maxWebSearchUses: maxUses,
-  });
+  let visible;
+  try {
+    visible = extractAnthropicVisibleResult(orderedBlocks, {
+      allowMissingText: stopReason === "pause_turn",
+      allowOrphanSearchResults,
+      maxWebSearchUses: maxUses,
+    });
+  } catch (error) {
+    if (error instanceof AnthropicStreamError && error.code === "provider_stream_interrupted") {
+      error.code = postTerminalAssemblyErrorCode(error);
+    }
+    throw error;
+  }
   return {
     ...visible,
     usage,

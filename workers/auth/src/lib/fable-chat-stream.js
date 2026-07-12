@@ -171,7 +171,12 @@ const SAFE_STREAM_ERROR_CODES = new Set([
   "provider_stream_interrupted", "provider_stream_idle_timeout", "provider_stream_timeout",
   "provider_stream_malformed", "provider_stream_error", "provider_web_search_limit_exceeded",
   "provider_web_search_limit_invalid", "provider_pause_turn_unavailable",
-  "provider_pause_turn_limit_exceeded",
+  "provider_pause_turn_limit_exceeded", "provider_upstream_eof_before_message_stop",
+  "provider_unfinished_content_blocks", "provider_invalid_citation_structure",
+  "provider_invalid_web_search_structure", "provider_unsupported_block_type",
+  "provider_final_normalized_response_limit_exceeded", "provider_terminal_assembly_failure",
+  "provider_invalid_block_lifecycle", "provider_unicode_decode_failure",
+  "provider_web_search_blocks_invalid",
 ]);
 
 function boundedBucket(value, thresholds) {
