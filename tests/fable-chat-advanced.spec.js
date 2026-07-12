@@ -992,7 +992,10 @@ test.describe('Advanced Fable chat contract', () => {
   test('Fable provider idle policy is 300 seconds and valid ping, thinking, and search activity reset it', async () => {
     const contract = await import(moduleUrl('workers/shared/fable-chat-contract.mjs'));
     const streamModule = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const authStream = await import(moduleUrl('workers/auth/src/lib/fable-chat-stream.js'));
     expect(contract.FABLE_PROVIDER_STREAM_IDLE_TIMEOUT_MS).toBe(300_000);
+    expect(authStream.FABLE_AUTH_INTERNAL_STREAM_IDLE_TIMEOUT_MS).toBe(330_000);
+    expect(contract.FABLE_CHAT_GENERATION_TIMEOUT_MS).toBe(25 * 60_000);
 
     const completeEvents = completeProviderEvents();
     const thinkingResult = await streamModule.consumeAnthropicMessageStream(delayedByteStream([

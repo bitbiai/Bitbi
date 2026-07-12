@@ -2,12 +2,12 @@ import {
   FABLE_CHAT_MAX_PROVIDER_BLOCKS_JSON_BYTES,
   FABLE_CHAT_MAX_TEXT_OUTPUT_BYTES,
   FABLE_CHAT_MAX_THINKING_SUMMARY_BYTES,
-  FABLE_PROVIDER_STREAM_IDLE_TIMEOUT_MS,
 } from "../../../shared/fable-chat-contract.mjs";
 
 const ENCODER = new TextEncoder();
 const INTERNAL_STREAM_MAX_BYTES = 8 * 1024 * 1024;
 const INTERNAL_EVENT_MAX_BYTES = FABLE_CHAT_MAX_PROVIDER_BLOCKS_JSON_BYTES + (256 * 1024);
+export const FABLE_AUTH_INTERNAL_STREAM_IDLE_TIMEOUT_MS = 330_000;
 
 export class FableChatInternalStreamError extends Error {
   constructor(message, {
@@ -118,7 +118,7 @@ async function* parseInternalEvents(stream, {
     while (true) {
       const remainingIdleMs = Math.max(
         1,
-        FABLE_PROVIDER_STREAM_IDLE_TIMEOUT_MS - (Date.now() - lastValidActivityAt)
+        FABLE_AUTH_INTERNAL_STREAM_IDLE_TIMEOUT_MS - (Date.now() - lastValidActivityAt)
       );
       const { value, done } = await readWithTimeout(reader, remainingIdleMs);
       if (done) {
