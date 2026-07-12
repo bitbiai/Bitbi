@@ -33,6 +33,7 @@ const SEARCH_ERROR_CODES = new Set([
   "too_many_requests", "invalid_tool_input", "max_uses_exceeded",
   "query_too_long", "request_too_large", "unavailable",
 ]);
+const WEB_SEARCH_CITATION_TITLE_FALLBACK = "Web source";
 const SAFE_PROVIDER_EVENT_TYPES = new Set([
   "none", "ping", "message_start", "content_block_start", "content_block_delta",
   "content_block_stop", "message_delta", "message_stop", "error",
@@ -188,6 +189,14 @@ function safeToolId(value) {
   return id;
 }
 
+function safeNativeCitationTitle(value) {
+  if (value === null) return null;
+  return safeText(value, {
+    maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS,
+    maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS * 4,
+  });
+}
+
 function sanitizeCitation(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)
     || !onlyFields(value, ["type", "url", "title", "encrypted_index", "cited_text"])
@@ -197,10 +206,8 @@ function sanitizeCitation(value) {
   return {
     type: "web_search_result_location",
     url: safeHttpsUrl(value.url),
-    title: safeText(value.title, {
-      maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS,
-      maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS * 4,
-    }),
+    // Anthropic's native web-search citation title is nullable.
+    title: safeNativeCitationTitle(value.title),
     encrypted_index: safeText(value.encrypted_index, {
       maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
       maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
@@ -217,6 +224,20 @@ function sanitizeCitations(value, { allowEmpty = false } = {}) {
     throw new AnthropicStreamError("Provider citations are invalid.");
   }
   return value.map(sanitizeCitation);
+}
+
+function canonicalSourceUrlKey(url) {
+  return new URL(url).href;
+}
+
+function countDistinctCitationSources(blocks) {
+  const sources = new Set();
+  for (const block of blocks) {
+    for (const citation of block.citations || []) {
+      sources.add(canonicalSourceUrlKey(citation.url));
+    }
+  }
+  return sources.size;
 }
 
 function sanitizeSearchResult(value) {
@@ -385,8 +406,7 @@ export function sanitizeAnthropicContentBlocks(value) {
     if (block.type === "web_search_tool_result") return sanitizeSearchToolResult(block);
     throw new AnthropicStreamError("Provider content block type is unsupported.");
   });
-  const citationCount = blocks.reduce((total, block) => total + (block.citations?.length || 0), 0);
-  if (citationCount > FABLE_CHAT_MAX_CITATIONS) {
+  if (countDistinctCitationSources(blocks) > FABLE_CHAT_MAX_CITATIONS) {
     throw new AnthropicStreamError("Provider citations exceed their safe limit.");
   }
   if (byteLength(JSON.stringify(blocks)) > FABLE_CHAT_MAX_PROVIDER_BLOCKS_JSON_BYTES) {
@@ -408,13 +428,41 @@ function postTerminalAssemblyErrorCode(error) {
   return "provider_terminal_assembly_failure";
 }
 
+function resolveNativeWebSearchCitationTitles(blocks) {
+  const titlesByUrl = new Map();
+  for (const block of blocks) {
+    if (block.type !== "web_search_tool_result" || !Array.isArray(block.content)) continue;
+    for (const result of block.content) {
+      const key = canonicalSourceUrlKey(result.url);
+      if (!titlesByUrl.has(key)) {
+        titlesByUrl.set(key, result.title || WEB_SEARCH_CITATION_TITLE_FALLBACK);
+      }
+    }
+  }
+  return blocks.map((block) => {
+    if (block.type !== "text" || !block.citations?.length) return block;
+    return {
+      ...block,
+      citations: block.citations.map((citation) => {
+        const title = titlesByUrl.get(canonicalSourceUrlKey(citation.url));
+        if (!title) {
+          throw new AnthropicStreamError("Provider citation does not match a web-search result.");
+        }
+        // The validated native result, not citation metadata, provides the durable source title.
+        return { ...citation, title };
+      }),
+    };
+  });
+}
+
 function extractSafeSources(blocks) {
   const sources = new Map();
   for (const block of blocks) {
     if (block.type !== "text") continue;
     for (const citation of block.citations || []) {
-      if (!sources.has(citation.url)) {
-        sources.set(citation.url, {
+      const key = canonicalSourceUrlKey(citation.url);
+      if (!sources.has(key)) {
+        sources.set(key, {
           url: citation.url,
           title: citation.title.slice(0, FABLE_CHAT_MAX_SOURCE_TITLE_CHARACTERS),
           type: citation.type,
@@ -466,7 +514,7 @@ export function extractAnthropicVisibleResult(content, {
   allowOrphanSearchResults = false,
   maxWebSearchUses = 1,
 } = {}) {
-  const blocks = sanitizeAnthropicContentBlocks(content);
+  const blocks = resolveNativeWebSearchCitationTitles(sanitizeAnthropicContentBlocks(content));
   const text = blocks
     .filter((block) => block.type === "text")
     .map((block) => block.text)

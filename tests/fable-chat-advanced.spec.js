@@ -448,6 +448,73 @@ function largeTerminalProviderEvents() {
   return events;
 }
 
+function repeatedNativeCitationTerminalEvents({
+  blockCount = 73,
+  citation = null,
+  sourceTitle = 'Synthetic source',
+} = {}) {
+  const events = [{
+    event: 'message_start',
+    data: { type: 'message_start', message: { model: 'claude-fable-5', usage: {} } },
+  }];
+  const toolId = 'srvtoolu_nativecitation0001';
+  events.push(
+    {
+      event: 'content_block_start',
+      data: {
+        type: 'content_block_start', index: 0,
+        content_block: { type: 'server_tool_use', id: toolId, name: 'web_search' },
+      },
+    },
+    {
+      event: 'content_block_delta',
+      data: { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"query":"synthetic"}' } },
+    },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index: 0 } },
+    {
+      event: 'content_block_start',
+      data: {
+        type: 'content_block_start', index: 1,
+        content_block: {
+          type: 'web_search_tool_result', tool_use_id: toolId, caller: { type: 'direct' },
+          content: [{
+            type: 'web_search_result', url: 'https://source.test/article', title: sourceTitle,
+            encrypted_content: 'synthetic-encrypted', page_age: null,
+          }],
+        },
+      },
+    },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index: 1 } },
+    {
+      event: 'content_block_start',
+      data: { type: 'content_block_start', index: 2, content_block: { type: 'thinking', thinking: 'synthetic', signature: 'synthetic-signature' } },
+    },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index: 2 } },
+  );
+  for (let index = 3; index < blockCount; index += 1) {
+    events.push(
+      {
+        event: 'content_block_start',
+        data: { type: 'content_block_start', index, content_block: { type: 'text', text: '', citations: [] } },
+      },
+      {
+        event: 'content_block_delta',
+        data: { type: 'content_block_delta', index, delta: { type: 'text_delta', text: `synthetic ${index}` } },
+      },
+      ...(citation ? [{
+        event: 'content_block_delta',
+        data: { type: 'content_block_delta', index, delta: { type: 'citations_delta', citation } },
+      }] : []),
+      { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    );
+  }
+  events.push(
+    { event: 'message_delta', data: { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {} } },
+    { event: 'message_stop', data: { type: 'message_stop' } },
+  );
+  return events;
+}
+
 test.describe('Advanced Fable chat contract', () => {
   test('Web search effort limits are exact and independently validated through the provider payload', async () => {
     const contract = await import(moduleUrl('workers/shared/fable-chat-contract.mjs'));
@@ -563,6 +630,87 @@ test.describe('Advanced Fable chat contract', () => {
     expect(result.providerBlocks[2].citations[0].encrypted_index)
       .toBe('encrypted-citation-index');
     expect(JSON.stringify(result.sources)).not.toContain('encrypted');
+  });
+
+  test('native Web-search citations deduplicate by safe source and finalize a valid 73-block terminal stream', async () => {
+    const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const aiValidation = await import(moduleUrl('workers/ai/src/lib/validate.js'));
+    const authStream = await import(moduleUrl('workers/auth/src/lib/fable-chat-stream.js'));
+    const context = await import(moduleUrl('workers/auth/src/lib/fable-chat-context.js'));
+    const citation = {
+      type: 'web_search_result_location',
+      url: 'https://source.test/article',
+      title: null,
+      encrypted_index: 'synthetic-index',
+      cited_text: 'synthetic cited text',
+    };
+    const internal = aiStream.createInternalFableChatStream(byteStream([
+      encodeSseEvents(repeatedNativeCitationTerminalEvents({ citation })),
+    ]));
+    const complete = await authStream.consumeInternalFableChatStream(internal);
+
+    expect(complete.providerBlocks).toHaveLength(73);
+    expect(context.normalizeFableChatProviderBlocks(complete.providerBlocks)).toHaveLength(73);
+    expect(complete.sources).toEqual([{
+      type: 'web_search_result_location', url: 'https://source.test/article', title: 'Synthetic source',
+    }]);
+    expect(complete.providerBlocks.find((block) => block.type === 'text' && block.citations?.length)
+      .citations[0].title).toBe('Synthetic source');
+    expect(complete.aiTerminalWitness).toMatchObject({
+      content_block_count: 73,
+      stopped_content_block_count: 73,
+      all_blocks_stopped: true,
+      message_stop_seen: true,
+      upstream_eof_seen: true,
+      complete_internal_constructed: true,
+      complete_internal_emitted: true,
+    });
+    expect(JSON.stringify(complete.aiTerminalWitness)).not.toContain('source.test');
+    expect(JSON.stringify(complete.aiTerminalWitness)).not.toContain('synthetic-index');
+
+    const replayCitation = complete.providerBlocks.find((block) => block.type === 'text' && block.citations?.length)
+      .citations[0];
+    expect(aiValidation.validateFableChatBody(validAiBody([
+      { role: 'user', content: 'previous synthetic turn' },
+      {
+        role: 'assistant',
+        content: Array.from({ length: 17 }, (_, index) => ({
+          type: 'text', text: `replayed ${index}`, citations: [replayCitation],
+        })),
+      },
+      { role: 'user', content: 'next synthetic turn' },
+    ], { webSearchEnabled: true, webSearchMaxUses: 3 }))).toBeTruthy();
+
+    const fallback = await aiStream.consumeAnthropicMessageStream(byteStream([encodeSseEvents(
+      repeatedNativeCitationTerminalEvents({ citation, sourceTitle: '' }),
+    )]));
+    expect(fallback.sources[0].title).toBe('Web source');
+  });
+
+  test('native Web-search citation validation retains strict shape, field, title, URL, and source association checks', async () => {
+    const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const valid = {
+      type: 'web_search_result_location',
+      url: 'https://source.test/article',
+      title: null,
+      encrypted_index: 'synthetic-index',
+      cited_text: 'synthetic cited text',
+    };
+    const invalidCitations = [
+      { ...valid, type: 'search_result_location' },
+      { ...valid, url: undefined },
+      { ...valid, url: 'http://source.test/article' },
+      { ...valid, url: 'not a url' },
+      { ...valid, title: 'bad\u0000title' },
+      { ...valid, title: 'x'.repeat(513) },
+      { ...valid, unexpected: 'field' },
+      { ...valid, url: 'https://unmatched.test/article' },
+    ];
+    for (const citation of invalidCitations) {
+      await expect(aiStream.consumeAnthropicMessageStream(byteStream([encodeSseEvents(
+        repeatedNativeCitationTerminalEvents({ blockCount: 4, citation }),
+      )]))).rejects.toThrow();
+    }
   });
 
   test('search-result context is conservatively estimated without mutating private blocks or cache order', async () => {

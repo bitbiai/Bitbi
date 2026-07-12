@@ -118,6 +118,16 @@ function normalizePrivateCitations(value, field, { allowEmpty = false } = {}) {
   return value.map((citation, index) => normalizePrivateCitation(citation, `${field}[${index}]`));
 }
 
+function countDistinctPrivateCitationSources(blocks) {
+  const sources = new Set();
+  for (const block of blocks) {
+    for (const citation of block.citations || []) {
+      sources.add(new URL(citation.url).href);
+    }
+  }
+  return sources.size;
+}
+
 function normalizeToolId(value, field) {
   const id = assertSafeProviderText(value, field, 180);
   if (!TOOL_ID_PATTERN.test(id)) throw new TypeError(`${field} is invalid.`);
@@ -287,8 +297,7 @@ export function normalizeFableChatProviderBlocks(value, {
   });
 
   const serialized = JSON.stringify(normalized);
-  const citationCount = normalized.reduce((total, block) => total + (block.citations?.length || 0), 0);
-  if (citationCount > FABLE_CHAT_MAX_CITATIONS) {
+  if (countDistinctPrivateCitationSources(normalized) > FABLE_CHAT_MAX_CITATIONS) {
     throw new TypeError("Provider citations exceed their safe limit.");
   }
   if (utf8ByteLength(serialized) > FABLE_CHAT_MAX_PROVIDER_BLOCKS_JSON_BYTES) {
@@ -302,8 +311,9 @@ export function extractFableChatCitations(blocks) {
   for (const block of normalizeFableChatProviderBlocks(blocks)) {
     if (block.type !== "text") continue;
     for (const citation of block.citations || []) {
-      if (deduplicated.has(citation.url)) continue;
-      deduplicated.set(citation.url, {
+      const key = new URL(citation.url).href;
+      if (deduplicated.has(key)) continue;
+      deduplicated.set(key, {
         url: citation.url,
         title: citation.title.slice(0, FABLE_CHAT_MAX_SOURCE_TITLE_CHARACTERS),
         type: citation.type,

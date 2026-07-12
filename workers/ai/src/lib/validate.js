@@ -194,11 +194,7 @@ function validateFableChatCitations(value, field, counters) {
   if (!Array.isArray(value) || value.length === 0 || value.length > 16) {
     throw new AdminAiValidationError(`${field} is invalid.`, 400, "validation_error");
   }
-  counters.citations += value.length;
-  if (counters.citations > 16) {
-    throw new AdminAiValidationError(`${field} exceeds the citation limit.`, 400, "validation_error");
-  }
-  return value.map((citation, index) => {
+  const citations = value.map((citation, index) => {
     const itemField = `${field}[${index}]`;
     const entry = assertPlainObject(citation, itemField);
     assertOnlyFields(
@@ -220,9 +216,14 @@ function validateFableChatCitations(value, field, counters) {
       ),
       cited_text: normalizeFableChatOptionalText(entry.cited_text, `${itemField}.cited_text`, 2_048),
     };
+    counters.citationSources.add(new URL(normalized.url).href);
+    if (counters.citationSources.size > 16) {
+      throw new AdminAiValidationError(`${field} exceeds the citation limit.`, 400, "validation_error");
+    }
     counters.totalContentLength += JSON.stringify(normalized).length;
     return normalized;
   });
+  return citations;
 }
 
 function validateFableChatToolId(value, field) {
@@ -439,7 +440,7 @@ export function validateFableChatBody(body) {
     );
   }
 
-  const counters = { totalContentLength: 0, cacheBreakpoints: 0, citations: 0 };
+  const counters = { totalContentLength: 0, cacheBreakpoints: 0, citationSources: new Set() };
   const messages = input.messages.map((message, index) => {
     const entry = assertPlainObject(message, `messages[${index}]`);
     assertOnlyFields(entry, FABLE_CHAT_ALLOWED_MESSAGE_FIELDS, `messages[${index}]`);
