@@ -36,11 +36,15 @@ import {
   estimateFableChatMemoryInputTokens,
   estimateFableChatMemoryTextTokens,
   getFableChatMemoryAcceptanceCeiling,
+  getFableChatMemoryProviderMaxTokens,
   getFableChatMemoryPlanningCeiling,
   normalizeFableChatMemoryMode,
   normalizeFableChatMemoryRejectionCategory,
   normalizeFableChatMemorySummary,
 } from "../../../shared/fable-chat-memory-contract.mjs";
+import {
+  FABLE_CHAT_TOTAL_TOKEN_ENVELOPE,
+} from "../../../shared/fable-chat-contract.mjs";
 import { proxyToAiLab } from "./admin-ai-proxy.js";
 import {
   FABLE_CHAT_MEMORY_INTERNAL_PATH,
@@ -57,6 +61,65 @@ import {
 const MEMORY_SCAN_TURN_LIMIT = 768;
 const MEMORY_ID_PATTERN = /^fbc_[a-f0-9]{32}$/;
 const DISALLOWED_CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
+export const FABLE_CHAT_STANDARD_PROVIDER_CACHE_TRIGGER_TOKENS = 18_000;
+export const FABLE_CHAT_STANDARD_PROVIDER_CACHE_TARGET_TOKENS = 14_000;
+export const FABLE_CHAT_STANDARD_PROVIDER_MIN_REMOVABLE_TOKENS = 4_000;
+export const FABLE_CHAT_STANDARD_PROVIDER_MIN_SAVINGS_USD = 0.025;
+const FABLE_CHAT_CACHE_WRITE_USD_PER_MILLION_TOKENS = 12.5;
+const FABLE_CHAT_PROVIDER_CONTEXT_PRESSURE_RATIO = 0.9;
+
+export function evaluateFableChatStandardProviderTrigger({
+  predictedCacheWriteTokens,
+  totalEnvelopeTokens,
+  selectedSourceTokens,
+  estimatedCompactionInputTokens,
+}) {
+  const predictedWrite = Math.max(0, Math.floor(Number(predictedCacheWriteTokens) || 0));
+  const envelope = Math.max(0, Math.floor(Number(totalEnvelopeTokens) || 0));
+  const selectedSource = Math.max(0, Math.floor(Number(selectedSourceTokens) || 0));
+  const acceptanceCeiling = getFableChatMemoryAcceptanceCeiling("standard");
+  const removableTokens = Math.max(0, selectedSource - acceptanceCeiling);
+  const predictedAfterTokens = Math.max(0, predictedWrite - removableTokens);
+  const expectedSavingsUsd = removableTokens
+    * FABLE_CHAT_CACHE_WRITE_USD_PER_MILLION_TOKENS / 1_000_000;
+  const maximumCompactionCostUsd = calculateFableChatMemoryCostUsd({
+    input_tokens: Math.max(0, Math.floor(Number(estimatedCompactionInputTokens) || 0)),
+    output_tokens: getFableChatMemoryProviderMaxTokens("standard"),
+  }).totalCostUsd;
+  const pressureEligible = predictedWrite
+      >= FABLE_CHAT_STANDARD_PROVIDER_CACHE_TRIGGER_TOKENS
+    || envelope >= FABLE_CHAT_TOTAL_TOKEN_ENVELOPE
+      * FABLE_CHAT_PROVIDER_CONTEXT_PRESSURE_RATIO;
+  const savingsEligible = removableTokens
+      >= FABLE_CHAT_STANDARD_PROVIDER_MIN_REMOVABLE_TOKENS
+    && expectedSavingsUsd >= Math.max(
+      FABLE_CHAT_STANDARD_PROVIDER_MIN_SAVINGS_USD,
+      maximumCompactionCostUsd * 8
+    );
+  const hysteresisEligible = predictedAfterTokens
+      <= FABLE_CHAT_STANDARD_PROVIDER_CACHE_TARGET_TOKENS
+    || removableTokens >= (
+      FABLE_CHAT_STANDARD_PROVIDER_CACHE_TRIGGER_TOKENS
+      - FABLE_CHAT_STANDARD_PROVIDER_CACHE_TARGET_TOKENS
+    ) * 2;
+  const eligible = pressureEligible && savingsEligible && hysteresisEligible;
+  return {
+    eligible,
+    triggerReason: eligible && envelope >= FABLE_CHAT_TOTAL_TOKEN_ENVELOPE
+      * FABLE_CHAT_PROVIDER_CONTEXT_PRESSURE_RATIO
+      ? "provider_context_pressure"
+      : eligible ? "predicted_cold_cache_write" : null,
+    predictedCacheWriteTokens: predictedWrite,
+    predictedAfterTokens,
+    selectedSourceTokens: selectedSource,
+    removableTokens,
+    expectedSavingsUsd,
+    maximumCompactionCostUsd,
+    pressureEligible,
+    savingsEligible,
+    hysteresisEligible,
+  };
+}
 
 function checkpointId() {
   return `fbk_${randomTokenHex(16)}`;
@@ -401,7 +464,9 @@ function chooseSequentialChunk(turns, {
   return turns.slice(0, pool[0].count);
 }
 
-async function buildCompactionCandidate(env, adminUserId, conversationId, profile) {
+async function buildCompactionCandidate(env, adminUserId, conversationId, profile, {
+  providerTrigger = null,
+} = {}) {
   const conversationState = await readConversationMemoryMode(env, adminUserId, conversationId);
   if (!conversationState) return null;
   const current = await readLatestCheckpoint(env, adminUserId, conversationId, profile);
@@ -425,8 +490,9 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
   );
   const totalTokens = totalTurnTokens(turns);
   let sourceTurns = [];
+  const visibleTriggerEligible = totalTokens >= FABLE_CHAT_STANDARD_MEMORY_TRIGGER_TOKENS;
   if (profile === "standard") {
-    if (totalTokens < FABLE_CHAT_STANDARD_MEMORY_TRIGGER_TOKENS) return null;
+    if (!visibleTriggerEligible && !providerTrigger) return null;
     sourceTurns = chooseSequentialChunk(turns, {
       targetTokens: FABLE_CHAT_STANDARD_MEMORY_CHUNK_TARGET_TOKENS,
       minTokens: FABLE_CHAT_STANDARD_MEMORY_CHUNK_MIN_TOKENS,
@@ -479,6 +545,37 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
     || (profile === "lite"
       && estimatedInputTokens > FABLE_CHAT_LITE_MEMORY_MAX_SOURCE_ESTIMATED_TOKENS)
   ) return null;
+  let triggerReason = profile === "standard" && visibleTriggerEligible
+    ? "visible_uncovered"
+    : profile;
+  let providerTriggerDiagnostics = null;
+  if (profile === "standard" && !visibleTriggerEligible) {
+    const selectedTurns = new Map(
+      (Array.isArray(providerTrigger?.selectedTurnTokenBreakdown)
+        ? providerTrigger.selectedTurnTokenBreakdown
+        : []).map((entry) => [Number(entry?.turnOrder), entry])
+    );
+    const selectedSourceTokens = sourceTurns.reduce((total, turn) => (
+      total + Math.max(0, Number(selectedTurns.get(Number(turn.turnOrder))?.totalTokens) || 0)
+    ), 0);
+    const predictedCacheWriteTokens = Math.max(
+      0,
+      Math.floor(Number(providerTrigger?.predictedCacheWriteTokens) || 0)
+    );
+    const totalEnvelopeTokens = Math.max(
+      0,
+      Math.floor(Number(providerTrigger?.totalEnvelopeTokens) || 0)
+    );
+    const decision = evaluateFableChatStandardProviderTrigger({
+      predictedCacheWriteTokens,
+      totalEnvelopeTokens,
+      selectedSourceTokens,
+      estimatedCompactionInputTokens: estimatedInputTokens,
+    });
+    if (!decision.eligible) return null;
+    triggerReason = decision.triggerReason;
+    providerTriggerDiagnostics = decision;
+  }
   const inputFingerprint = await sha256Hex(JSON.stringify(
     buildFableChatMemoryCompactionFingerprintInput({
       profile,
@@ -504,6 +601,8 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
     estimatedInputTokens,
     inputFingerprint,
     coverage: nextCoverage,
+    triggerReason,
+    providerTriggerDiagnostics,
   };
 }
 
@@ -657,12 +756,13 @@ async function finalizeCompaction(env, adminUserId, conversationId, claim, candi
   };
 }
 
-async function runOneCompaction(ctx, adminUser, conversationId, profile) {
+async function runOneCompaction(ctx, adminUser, conversationId, profile, options = {}) {
   const candidate = await buildCompactionCandidate(
     ctx.env,
     adminUser.id,
     conversationId,
-    profile
+    profile,
+    options
   );
   if (!candidate) return { attempted: false, succeeded: false };
   const provisionalId = checkpointId();
@@ -780,7 +880,12 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
           upstream_status: response.status,
         });
       }
-      return { attempted: true, succeeded: false };
+      return {
+        attempted: true,
+        succeeded: false,
+        triggerReason: candidate.triggerReason,
+        providerTriggerDiagnostics: candidate.providerTriggerDiagnostics,
+      };
     }
     if (body?.model?.id !== FABLE_CHAT_MEMORY_MODEL_ID) {
       throw Object.assign(new TypeError("Memory model identity is invalid."), {
@@ -886,7 +991,12 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
       ),
       final_limit_exceeded: body?.result?.sourceDiagnostics?.final_limit_exceeded === true,
     });
-    return { attempted: true, succeeded: true };
+    return {
+      attempted: true,
+      succeeded: true,
+      triggerReason: candidate.triggerReason,
+      providerTriggerDiagnostics: candidate.providerTriggerDiagnostics,
+    };
   } catch (error) {
     const state = providerStarted ? "unknown" : "failed";
     try {
@@ -917,22 +1027,32 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile) {
       diagnostic_version: FABLE_CHAT_MEMORY_DIAGNOSTIC_VERSION,
       ...getErrorFields(error, { includeMessage: false }),
     });
-    return { attempted: true, succeeded: false };
+    return {
+      attempted: true,
+      succeeded: false,
+      triggerReason: candidate.triggerReason,
+      providerTriggerDiagnostics: candidate.providerTriggerDiagnostics,
+    };
   }
 }
 
-export async function maintainFableChatMemory(ctx, adminUser, conversationId) {
+export async function maintainFableChatMemory(ctx, adminUser, conversationId, {
+  skipStandardOnce = false,
+} = {}) {
   const id = normalizeConversationId(conversationId);
   const conversationState = await readConversationMemoryMode(ctx.env, adminUser.id, id);
   if (!conversationState) return;
   const mode = conversationState.mode;
   let remaining = FABLE_CHAT_MEMORY_MAX_COMPACTIONS_PER_MAINTENANCE;
-  const firstStandard = await runOneCompaction(ctx, adminUser, id, "standard");
+  const firstStandard = skipStandardOnce
+    ? { attempted: false, succeeded: false }
+    : await runOneCompaction(ctx, adminUser, id, "standard");
   if (firstStandard.attempted) remaining -= 1;
   if (mode === "lite") {
     if (remaining > 0) await runOneCompaction(ctx, adminUser, id, "lite");
     return;
   }
+  if (skipStandardOnce) return;
   while (remaining > 0 && firstStandard.succeeded) {
     const result = await runOneCompaction(ctx, adminUser, id, "standard");
     if (!result.attempted || !result.succeeded) break;
@@ -940,8 +1060,58 @@ export async function maintainFableChatMemory(ctx, adminUser, conversationId) {
   }
 }
 
-export function scheduleFableChatMemoryMaintenance(ctx, adminUser, conversationId) {
-  const promise = maintainFableChatMemory(ctx, adminUser, conversationId).catch((error) => {
+export async function maintainFableChatStandardMemoryBeforeColdRequest(
+  ctx,
+  adminUser,
+  conversationId,
+  providerTrigger
+) {
+  const id = normalizeConversationId(conversationId);
+  const result = await runOneCompaction(ctx, adminUser, id, "standard", {
+    providerTrigger,
+  });
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: "fable-chat-memory",
+    event: "fable_chat_memory_provider_trigger_decision",
+    level: "info",
+    correlationId: ctx.correlationId,
+    admin_user_id: adminUser.id,
+    conversation_id: id,
+    profile: "standard",
+    attempted: result.attempted === true,
+    succeeded: result.succeeded === true,
+    predicted_cache_write_size: Math.max(
+      0,
+      Math.floor(Number(providerTrigger?.predictedCacheWriteTokens) || 0)
+    ),
+    total_envelope_size: Math.max(
+      0,
+      Math.floor(Number(providerTrigger?.totalEnvelopeTokens) || 0)
+    ),
+    trigger_reason: result.triggerReason || null,
+    predicted_after_size: Math.max(
+      0,
+      Math.floor(Number(result.providerTriggerDiagnostics?.predictedAfterTokens) || 0)
+    ),
+    removable_size: Math.max(
+      0,
+      Math.floor(Number(result.providerTriggerDiagnostics?.removableTokens) || 0)
+    ),
+    expected_cache_write_savings_usd: Math.max(
+      0,
+      Number(result.providerTriggerDiagnostics?.expectedSavingsUsd) || 0
+    ),
+    maximum_compaction_cost_usd: Math.max(
+      0,
+      Number(result.providerTriggerDiagnostics?.maximumCompactionCostUsd) || 0
+    ),
+  });
+  return result;
+}
+
+export function scheduleFableChatMemoryMaintenance(ctx, adminUser, conversationId, options = {}) {
+  const promise = maintainFableChatMemory(ctx, adminUser, conversationId, options).catch((error) => {
     logDiagnostic({
       service: "bitbi-auth",
       component: "fable-chat-memory",

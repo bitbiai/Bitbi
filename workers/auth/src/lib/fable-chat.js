@@ -20,6 +20,7 @@ import {
   FABLE_CHAT_MODEL_ID,
   FABLE_CHAT_PROMPT_CACHE_POLICY,
   FABLE_CHAT_PROMPT_CACHE_VERSION,
+  FABLE_CHAT_PROTOCOL_SAFETY_TOKENS,
   FABLE_CHAT_PROVIDER_BLOCKS_VERSION,
   FABLE_CHAT_SYSTEM_PRESET_IDS,
   FABLE_CHAT_SYSTEM_PRESET_VERSION,
@@ -46,6 +47,7 @@ import {
   selectFableChatMemoryRawTurns,
 } from "./fable-chat-memory.js";
 import {
+  estimateFableChatProviderConfigurationTokens,
   extractFableChatAssistantText,
   extractFableChatCitations,
   extractFableChatReasoningSummary,
@@ -1737,7 +1739,9 @@ export async function buildFableChatModelContext(env, {
               WHEN EXISTS (
               SELECT 1 FROM fable_chat_admin_message_revisions r
                WHERE r.message_id IN (um.id, am.id)
-            ) THEN NULL ELSE pm.content_blocks_json END AS provider_content_blocks_json
+            ) THEN NULL ELSE pm.content_blocks_json END AS provider_content_blocks_json,
+            json_extract(t.usage_json, '$.output_tokens_details.thinking_tokens')
+              AS recorded_thinking_tokens
        FROM fable_chat_turns t
        INNER JOIN fable_chat_conversations c ON c.id = t.conversation_id
        INNER JOIN fable_chat_messages um ON um.id = t.user_message_id
@@ -1783,30 +1787,45 @@ export async function buildFableChatModelContext(env, {
     const prunedAtMs = Date.parse(appliedWebReplay.prunedAt || "");
     const priorTurnsNewestFirst = (rows?.results || []).map((row) => {
       let assistantProviderBlocks = row.provider_content_blocks_json || null;
+      let recordedThinkingTokens = Number.isFinite(Number(row.recorded_thinking_tokens))
+        ? Math.max(0, Math.floor(Number(row.recorded_thinking_tokens)))
+        : null;
       let webReplayPrunedPairCount = 0;
       let webReplayPrunedEstimatedTokens = 0;
-      const pruneCompletedWebSearch = Boolean(
+      let projectedNativeTurn = false;
+      const completedBeforeReplayBoundary = Boolean(
         assistantProviderBlocks
         && Number(row.turn_order) <= appliedWebReplay.prunedThroughTurnOrder
         && Number.isFinite(prunedAtMs)
         && Date.parse(row.completed_at || "") <= prunedAtMs
       );
-      if (pruneCompletedWebSearch) {
+      const projectCompletedNativeTurn = completedBeforeReplayBoundary
+        && Number(row.turn_order) < appliedWebReplay.prunedThroughTurnOrder;
+      if (completedBeforeReplayBoundary || projectCompletedNativeTurn) {
         const projected = projectFableChatProviderReplay({
           providerBlocks: assistantProviderBlocks,
           assistantContent: row.assistant_content,
           citations: row.citations_json,
-          pruneCompletedWebSearch: true,
+          pruneCompletedWebSearch: completedBeforeReplayBoundary,
+          projectCompletedNativeTurn,
+          recordedThinkingTokens,
         });
         assistantProviderBlocks = projected.blocks;
         webReplayPrunedPairCount = projected.prunedPairCount;
         webReplayPrunedEstimatedTokens = projected.prunedEstimatedTokens;
+        projectedNativeTurn = projected.projectedNativeTurn === true;
+        if (projectedNativeTurn) recordedThinkingTokens = 0;
       }
       return {
         turnOrder: Number(row.turn_order),
         userContent: row.user_content,
         assistantContent: row.assistant_content,
         assistantProviderBlocks,
+        recordedThinkingTokens,
+        projectedNativeTurn,
+        nativeReplayRemovedEstimatedTokens: projectedNativeTurn
+          ? webReplayPrunedEstimatedTokens
+          : 0,
         webReplayPrunedPairCount,
         webReplayPrunedEstimatedTokens,
         visibleEstimatedTokens: 24
@@ -1817,6 +1836,7 @@ export async function buildFableChatModelContext(env, {
     });
     const selected = selectFableChatModelContext({
       system,
+      baseSystem,
       priorTurnsNewestFirst: selectFableChatMemoryRawTurns(
         priorTurnsNewestFirst,
         selectedMemory
@@ -1826,6 +1846,12 @@ export async function buildFableChatModelContext(env, {
       totalPriorTurns: Number(countRow?.total_count || 0),
       promptCachePolicy: appliedSettings.promptCachePolicy,
       promptCacheVersion: appliedSettings.promptCacheVersion,
+      providerConfigurationTokens: estimateFableChatProviderConfigurationTokens({
+        effort: appliedSettings.effort,
+        thinkingDisplay: appliedSettings.thinkingDisplay,
+        webSearchEnabled: appliedSettings.webSearchEnabled,
+        webSearchMaxUses: appliedSettings.webSearchMaxUses,
+      }),
     });
     return {
       ...selected,
@@ -1847,6 +1873,11 @@ export async function buildFableChatModelContext(env, {
         priorTurnLimit: FABLE_CHAT_CONTEXT_PRIOR_TURN_LIMIT,
         outputTokenLimit: appliedSettings.effectiveMaxOutputTokens,
         hardOutputTokenLimit: FABLE_CHAT_HARD_OUTPUT_TOKEN_LIMIT,
+        outputReserveTokens: appliedSettings.effectiveMaxOutputTokens,
+        protocolSafetyTokens: FABLE_CHAT_PROTOCOL_SAFETY_TOKENS,
+        estimatedTotalEnvelopeTokens: selected.context.estimatedInputTokens
+          + appliedSettings.effectiveMaxOutputTokens
+          + FABLE_CHAT_PROTOCOL_SAFETY_TOKENS,
         memory: {
           mode: selectedMemory.mode,
           contractVersion: selectedMemory.contractVersion,
@@ -1969,6 +2000,54 @@ export async function finalizeFableChatTurn(env, turnId, {
   const assistantMessageId = opaqueId("fbm");
   const completedAt = nowIso();
   const safeUsage = sanitizeFableChatUsage(usage);
+  const predictedCacheWriteSize = Math.max(
+    0,
+    Math.floor(Number(context?.predictedCacheWriteTokens || 0))
+  );
+  const actualCacheCreationSize = Math.max(
+    0,
+    Math.floor(Number(safeUsage.cache_creation_input_tokens || 0))
+  );
+  const cacheEstimatorErrorRatio = predictedCacheWriteSize > 0
+    && actualCacheCreationSize > 0
+    ? Math.round((actualCacheCreationSize / predictedCacheWriteSize) * 10_000) / 10_000
+    : null;
+  const cacheBreakpointMetadata = {
+    ...(context?.cacheBreakpoint || { enabled: false }),
+    actual_ordinary_input_size: Math.max(
+      0,
+      Math.floor(Number(safeUsage.input_tokens || 0))
+    ),
+    actual_cache_creation_size: actualCacheCreationSize,
+    actual_cache_read_size: Math.max(
+      0,
+      Math.floor(Number(safeUsage.cache_read_input_tokens || 0))
+    ),
+    estimator_error_ratio: cacheEstimatorErrorRatio,
+    native_replay_projection_version: Number(
+      context?.nativeReplayProjectionVersion || 0
+    ),
+    projected_native_turn_count: Math.max(
+      0,
+      Math.floor(Number(context?.projectedNativeTurnCount || 0))
+    ),
+    native_replay_removed_estimate: Math.max(
+      0,
+      Math.floor(Number(context?.nativeReplayRemovedEstimatedTokens || 0))
+    ),
+    output_reserve_size: Math.max(
+      0,
+      Math.floor(Number(context?.outputReserveTokens || 0))
+    ),
+    protocol_safety_size: Math.max(
+      0,
+      Math.floor(Number(context?.protocolSafetyTokens || 0))
+    ),
+    estimated_total_envelope_size: Math.max(
+      0,
+      Math.floor(Number(context?.estimatedTotalEnvelopeTokens || 0))
+    ),
+  };
   const safeGatewayMetadata = sanitizeFableChatGatewayMetadata(gatewayMetadata);
   const safeStopReason = safeProviderString(stopReason, 80);
   const outputTruncated = safeStopReason === "max_tokens";
@@ -2071,7 +2150,7 @@ export async function finalizeFableChatTurn(env, turnId, {
       Number(context?.estimatedInputTokens || 0),
       Number(context?.effectiveInputTokenLimit || 1),
       context?.estimatorVersion || FABLE_CHAT_CONTEXT_ESTIMATOR_VERSION,
-      JSON.stringify(context?.cacheBreakpoint || { enabled: false }),
+      JSON.stringify(cacheBreakpointMetadata),
       safeProviderDurationMs,
       outputTruncated ? 1 : 0,
       Math.min(1, searchCounts.requestCount),

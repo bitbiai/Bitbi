@@ -976,7 +976,7 @@ test.describe('Advanced Fable chat contract', () => {
       messages: [{ role: 'user', content }],
     }));
     for (const estimate of estimates) {
-      expect(estimate.estimatorVersion).toBe('utf8-conservative-v2');
+      expect(estimate.estimatorVersion).toBe('provider-weighted-v3');
       expect(estimate.estimatedInputTokens).toBeGreaterThan(estimate.rawTokens);
       expect(estimate.estimatedInputTokens).toBeGreaterThan(256);
     }
@@ -1006,7 +1006,7 @@ test.describe('Advanced Fable chat contract', () => {
       includedTurns: 1,
       omittedTurns: 2,
       olderTurnsOmitted: true,
-      estimatorVersion: 'utf8-conservative-v2',
+      estimatorVersion: 'provider-weighted-v3',
     });
     expect(selected.context.estimatedInputTokens).toBeLessThanOrEqual(5_000);
   });
@@ -1053,6 +1053,83 @@ test.describe('Advanced Fable chat contract', () => {
     });
     expect(short.context.cacheBreakpoint.enabled).toBe(false);
     expect(JSON.stringify(short.messages)).not.toContain('cache_control');
+  });
+
+  test('provider-weighted estimation and cold projection remove only complete older native turns', async () => {
+    const context = await import(moduleUrl('workers/auth/src/lib/fable-chat-context.js'));
+    const memory = await import(moduleUrl('workers/auth/src/lib/fable-chat-memory.js'));
+    const providerBlocks = [
+      { type: 'thinking', thinking: '', signature: 'opaque-native-signature' },
+      {
+        type: 'text',
+        text: 'Keep command npm test, ID svc_001, date 2026-07-13, and USD 42.00.',
+      },
+    ];
+    const weighted = context.estimateFableChatInputTokens({
+      system: 'Trusted system',
+      messages: [
+        { role: 'user', content: 'Preserve exact constraints.' },
+        { role: 'assistant', content: providerBlocks },
+      ],
+      messageMetadata: [{}, { recordedThinkingTokens: 6_000 }],
+    });
+    expect(weighted.breakdown.thinkingSignatureTokens).toBe(6_000);
+    expect(weighted.breakdown.visibleMessageTokens).toBeGreaterThan(0);
+    expect(weighted.breakdown.visibleUserTokens).toBeGreaterThan(0);
+    expect(weighted.breakdown.visibleAssistantTokens).toBeGreaterThan(0);
+    expect(weighted.breakdown.protocolOverheadTokens).toBeGreaterThan(0);
+    const withoutSearchConfiguration = context.estimateFableChatProviderConfigurationTokens({
+      effort: 'max',
+      thinkingDisplay: 'omitted',
+      webSearchEnabled: false,
+      webSearchMaxUses: 10,
+    });
+    const withSearchConfiguration = context.estimateFableChatProviderConfigurationTokens({
+      effort: 'max',
+      thinkingDisplay: 'omitted',
+      webSearchEnabled: true,
+      webSearchMaxUses: 10,
+    });
+    expect(withSearchConfiguration).toBeGreaterThan(withoutSearchConfiguration);
+
+    const hot = context.projectFableChatProviderReplay({
+      providerBlocks,
+      assistantContent: providerBlocks[1].text,
+    });
+    expect(hot.blocks).toEqual(providerBlocks);
+    const cold = context.projectFableChatProviderReplay({
+      providerBlocks,
+      assistantContent: providerBlocks[1].text,
+      projectCompletedNativeTurn: true,
+      recordedThinkingTokens: 6_000,
+    });
+    expect(cold.projectedNativeTurn).toBe(true);
+    expect(cold.blocks).toEqual([{ type: 'text', text: providerBlocks[1].text }]);
+    expect(cold.prunedEstimatedTokens).toBeGreaterThan(5_900);
+    expect(JSON.stringify(cold.blocks)).not.toContain('thinking');
+    expect(JSON.stringify(cold.blocks)).not.toContain('signature');
+    expect(providerBlocks[0].signature).toBe('opaque-native-signature');
+
+    const eligible = memory.evaluateFableChatStandardProviderTrigger({
+      predictedCacheWriteTokens: 33_373,
+      totalEnvelopeTokens: 56_313 + 32_768 + 4_096,
+      selectedSourceTokens: 16_000,
+      estimatedCompactionInputTokens: 12_000,
+    });
+    expect(eligible).toMatchObject({
+      eligible: true,
+      triggerReason: 'predicted_cold_cache_write',
+      pressureEligible: true,
+      savingsEligible: true,
+      hysteresisEligible: true,
+    });
+    expect(eligible.expectedSavingsUsd).toBeGreaterThan(0.1);
+    expect(memory.evaluateFableChatStandardProviderTrigger({
+      predictedCacheWriteTokens: 17_999,
+      totalEnvelopeTokens: 90_000,
+      selectedSourceTokens: 16_000,
+      estimatedCompactionInputTokens: 12_000,
+    }).eligible).toBe(false);
   });
 
   test('prompt-cache stable prefixes are deterministic and independent of the current user message', async () => {

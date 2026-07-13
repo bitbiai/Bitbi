@@ -1927,6 +1927,77 @@ test.describe('Private admin Fable chat', () => {
     }
   });
 
+  test('cold provider-weighted Standard preflight compacts below the visible trigger exactly once', async () => {
+    const { env, DB, providerCalls } = await createFableChatSqliteEnv({
+      provider: async ({ body, callNumber }) => memoryProviderResult(body, callNumber),
+    });
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const memory = await import(pathToFileURL(
+      path.join(process.cwd(), 'workers/auth/src/lib/fable-chat-memory.js')
+    ).href);
+    try {
+      const adminUser = {
+        id: 'admin-fable-memory-provider-weighted',
+        email: 'provider-weighted@example.com',
+      };
+      const admin = await seedFableChatActor(env, adminUser);
+      const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      for (let order = 0; order < 2; order += 1) {
+        await seedSucceededMemoryTurn(DB, {
+          conversationId: conversation.id,
+          adminUserId: adminUser.id,
+          turnOrder: order,
+          userText: `provider-user-${order}-${'u'.repeat(7_000)}`,
+          assistantText: `provider-assistant-${order}-${'a'.repeat(7_000)}`,
+        });
+      }
+      const providerTrigger = {
+        predictedCacheWriteTokens: 33_373,
+        totalEnvelopeTokens: 93_177,
+        selectedTurnTokenBreakdown: [0, 1].map((turnOrder) => ({
+          turnOrder,
+          totalTokens: 12_000,
+        })),
+      };
+      const first = await memory.maintainFableChatStandardMemoryBeforeColdRequest(
+        memoryMaintenanceContext(env, 'provider-weighted-first'),
+        adminUser,
+        conversation.id,
+        providerTrigger
+      );
+      expect(first).toMatchObject({
+        attempted: true,
+        succeeded: true,
+        triggerReason: 'predicted_cold_cache_write',
+      });
+      expect(providerCalls).toHaveLength(1);
+      expect(providerCalls[0].body.profile).toBe('standard');
+      const coveredTurnOrders = providerCalls[0].body.sourceTurns
+        .map(({ turnOrder }) => turnOrder);
+      expect(coveredTurnOrders[0]).toBe(0);
+      expect(coveredTurnOrders.length).toBeGreaterThanOrEqual(1);
+      const checkpoint = DB.database.prepare(
+        `SELECT status, profile, coverage_turn_order
+           FROM fable_chat_memory_checkpoints WHERE conversation_id = ?`
+      ).get(conversation.id);
+      expect(checkpoint).toEqual({
+        status: 'succeeded',
+        profile: 'standard',
+        coverage_turn_order: coveredTurnOrders.at(-1),
+      });
+
+      await memory.maintainFableChatMemory(
+        memoryMaintenanceContext(env, 'provider-weighted-post-turn'),
+        adminUser,
+        conversation.id,
+        { skipStandardOnce: true }
+      );
+      expect(providerCalls).toHaveLength(1);
+    } finally {
+      DB.close();
+    }
+  });
+
   test('Lite memory keeps an independent checkpoint, replays only recent raw turns, and remains browser-hidden', async () => {
     const { env, DB, providerCalls } = await createFableChatSqliteEnv({
       provider: async ({ body, callNumber }) => memoryProviderResult(body, callNumber),
@@ -2799,7 +2870,13 @@ test.describe('Private admin Fable chat', () => {
       expect(JSON.stringify(repeatedContext.messages)).not.toContain('web_search_tool_result');
       expect(repeatedContext.webSearchEnabled).toBe(false);
       expect(prunedContext.context.cacheBreakpoint.enabled).toBe(true);
-      expect(repeatedContext.context.cacheBreakpoint).toEqual(prunedContext.context.cacheBreakpoint);
+      expect(repeatedContext.context.cacheBreakpoint.locations)
+        .toEqual(prunedContext.context.cacheBreakpoint.locations);
+      expect(repeatedContext.context.cacheBreakpoint.providerTokenBreakdown
+        .providerConfigurationTokens).toBeLessThan(
+        prunedContext.context.cacheBreakpoint.providerTokenBreakdown
+          .providerConfigurationTokens
+      );
       expect(JSON.stringify(repeatedContext.messages.slice(0, -1)))
         .toBe(JSON.stringify(prunedContext.messages.slice(0, -1)));
 
@@ -2891,7 +2968,7 @@ test.describe('Private admin Fable chat', () => {
         `SELECT web_replay_pruning_version, web_replay_pruned_through_turn_order,
                 web_replay_pruned_through_message_id, web_replay_pruned_at,
                 web_replay_pruned_pair_count, web_replay_pruned_estimated_tokens,
-                settings_snapshot_json
+                settings_snapshot_json, cache_breakpoint_json
            FROM fable_chat_turns
           ORDER BY created_at DESC, id DESC LIMIT 1`
       ).get();
@@ -2907,6 +2984,16 @@ test.describe('Private admin Fable chat', () => {
         webReplayPruningVersion: 1,
         webReplayPrunedThroughTurnOrder: 1,
       });
+      const cacheMetadata = JSON.parse(frozen.cache_breakpoint_json);
+      expect(cacheMetadata).toMatchObject({
+        actual_ordinary_input_size: 10,
+        actual_cache_creation_size: 0,
+        actual_cache_read_size: 0,
+        native_replay_projection_version: 1,
+      });
+      expect(JSON.stringify(cacheMetadata)).not.toMatch(
+        /Visible answer|private|signature|https:\/\//
+      );
       const replayed = await callFableAuthWorker(
         worker,
         env,

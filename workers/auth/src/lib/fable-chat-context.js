@@ -14,12 +14,14 @@ import {
   FABLE_CHAT_MAX_SOURCE_URL_CHARACTERS,
   FABLE_CHAT_MAX_THINKING_SIGNATURE_BYTES,
   FABLE_CHAT_MAX_WEB_SEARCH_RESULTS,
+  FABLE_CHAT_NATIVE_REPLAY_PROJECTION_VERSION,
   FABLE_CHAT_PROMPT_CACHE_MINIMUM_TOKENS,
   FABLE_CHAT_PROMPT_CACHE_LOOKBACK_BLOCKS,
   FABLE_CHAT_PROMPT_CACHE_MAX_BREAKPOINTS,
   FABLE_CHAT_PROMPT_CACHE_POLICY,
   FABLE_CHAT_PROMPT_CACHE_VERSION,
   FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+  FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
 } from "../../../shared/fable-chat-contract.mjs";
 
 const TEXT_ENCODER = new TextEncoder();
@@ -369,24 +371,58 @@ export function extractFableChatReasoningSummary(blocks) {
 }
 
 function estimateContentTokens(content) {
-  if (typeof content === "string") return estimateFableChatTextTokens(content);
+  return estimateContentTokenBreakdown(content).totalTokens;
+}
+
+function emptyTokenBreakdown() {
+  return {
+    visibleMessageTokens: 0,
+    citationTokens: 0,
+    thinkingSignatureTokens: 0,
+    toolTokens: 0,
+    protocolOverheadTokens: 0,
+    totalTokens: 0,
+  };
+}
+
+function estimateContentTokenBreakdown(content, { recordedThinkingTokens = null } = {}) {
+  const breakdown = emptyTokenBreakdown();
+  if (typeof content === "string") {
+    breakdown.visibleMessageTokens = estimateFableChatTextTokens(content);
+    breakdown.totalTokens = breakdown.visibleMessageTokens;
+    return breakdown;
+  }
   if (!Array.isArray(content)) throw new TypeError("Message content is invalid.");
-  let tokens = 0;
+  let fallbackThinkingTokens = 0;
   for (const block of content) {
-    tokens += CONTENT_BLOCK_OVERHEAD_TOKENS;
+    breakdown.protocolOverheadTokens += CONTENT_BLOCK_OVERHEAD_TOKENS;
     if (block?.type === "text") {
-      tokens += estimateFableChatTextTokens(block.text);
-      if (block.citations) tokens += Math.ceil(utf8ByteLength(JSON.stringify(block.citations)) / 2);
+      breakdown.visibleMessageTokens += estimateFableChatTextTokens(block.text);
+      if (block.citations) {
+        breakdown.citationTokens += Math.ceil(
+          utf8ByteLength(JSON.stringify(block.citations)) / 2
+        );
+      }
     } else if (block?.type === "thinking") {
-      tokens += estimateFableChatTextTokens(block.thinking);
-      tokens += Math.ceil(utf8ByteLength(block.signature) / 2);
+      fallbackThinkingTokens += estimateFableChatTextTokens(block.thinking);
+      fallbackThinkingTokens += Math.ceil(utf8ByteLength(block.signature) / 2);
     } else if (block?.type === "server_tool_use" || block?.type === "web_search_tool_result") {
-      tokens += Math.ceil(utf8ByteLength(JSON.stringify(block)) / 2);
+      breakdown.toolTokens += Math.ceil(utf8ByteLength(JSON.stringify(block)) / 2);
     } else {
       throw new TypeError("Message content block is invalid.");
     }
   }
-  return tokens;
+  const authoritativeThinkingTokens = Number(recordedThinkingTokens);
+  breakdown.thinkingSignatureTokens = Number.isFinite(authoritativeThinkingTokens)
+    && authoritativeThinkingTokens > 0
+    ? Math.floor(authoritativeThinkingTokens)
+    : fallbackThinkingTokens;
+  breakdown.totalTokens = breakdown.visibleMessageTokens
+    + breakdown.citationTokens
+    + breakdown.thinkingSignatureTokens
+    + breakdown.toolTokens
+    + breakdown.protocolOverheadTokens;
+  return breakdown;
 }
 
 function normalizeReplaySources(value) {
@@ -429,13 +465,17 @@ export function projectFableChatProviderReplay({
   assistantContent,
   citations = [],
   pruneCompletedWebSearch = false,
+  projectCompletedNativeTurn = false,
+  recordedThinkingTokens = null,
 }) {
   const normalized = normalizeFableChatProviderBlocks(providerBlocks);
-  if (!pruneCompletedWebSearch) {
+  if (!pruneCompletedWebSearch && !projectCompletedNativeTurn) {
     return {
       blocks: normalized,
       prunedPairCount: 0,
       prunedEstimatedTokens: 0,
+      projectedNativeTurn: false,
+      projectionVersion: FABLE_CHAT_NATIVE_REPLAY_PROJECTION_VERSION,
     };
   }
   let counts;
@@ -446,13 +486,31 @@ export function projectFableChatProviderReplay({
       blocks: normalized,
       prunedPairCount: 0,
       prunedEstimatedTokens: 0,
+      projectedNativeTurn: false,
+      projectionVersion: FABLE_CHAT_NATIVE_REPLAY_PROJECTION_VERSION,
     };
   }
-  if (counts.requestCount === 0) {
+  if (counts.requestCount === 0 && !projectCompletedNativeTurn) {
     return {
       blocks: normalized,
       prunedPairCount: 0,
       prunedEstimatedTokens: 0,
+      projectedNativeTurn: false,
+      projectionVersion: FABLE_CHAT_NATIVE_REPLAY_PROJECTION_VERSION,
+    };
+  }
+  const hasPrivateNativeReplay = normalized.some((block) => (
+    block.type === "thinking"
+    || block.type === "server_tool_use"
+    || block.type === "web_search_tool_result"
+  ));
+  if (counts.requestCount === 0 && !hasPrivateNativeReplay) {
+    return {
+      blocks: normalized,
+      prunedPairCount: 0,
+      prunedEstimatedTokens: 0,
+      projectedNativeTurn: false,
+      projectionVersion: FABLE_CHAT_NATIVE_REPLAY_PROJECTION_VERSION,
     };
   }
 
@@ -464,26 +522,119 @@ export function projectFableChatProviderReplay({
   // A pruned native turn must be wholly text-only. Retaining a thinking/signature
   // block beside altered tool/text blocks violates Anthropic replay invariants.
   const projected = [{ type: "text", text: `${visibleAnswer}${sourceText}`.trim() }];
-  const beforeTokens = estimateContentTokens(normalized);
+  const beforeTokens = estimateContentTokenBreakdown(normalized, {
+    recordedThinkingTokens,
+  }).totalTokens;
   const afterTokens = estimateContentTokens(projected);
   return {
     blocks: projected,
     prunedPairCount: counts.requestCount,
     prunedEstimatedTokens: Math.max(0, beforeTokens - afterTokens),
+    projectedNativeTurn: true,
+    projectionVersion: FABLE_CHAT_NATIVE_REPLAY_PROJECTION_VERSION,
   };
 }
 
-export function estimateFableChatInputTokens({ system, messages }) {
-  let rawTokens = MESSAGE_OVERHEAD_TOKENS + estimateFableChatTextTokens(system);
-  for (const message of messages) {
-    rawTokens += MESSAGE_OVERHEAD_TOKENS + estimateContentTokens(message.content);
+export function estimateFableChatProviderTokenBreakdown({
+  system,
+  baseSystem = system,
+  messages,
+  messageMetadata = [],
+  providerConfigurationTokens = 0,
+}) {
+  const baseSystemTokens = estimateFableChatTextTokens(baseSystem);
+  const fullSystemTokens = estimateFableChatTextTokens(system);
+  const breakdown = {
+    systemTokens: Math.min(baseSystemTokens, fullSystemTokens),
+    hiddenMemoryTokens: Math.max(0, fullSystemTokens - baseSystemTokens),
+    providerConfigurationTokens: Math.max(
+      0,
+      Math.floor(Number(providerConfigurationTokens) || 0)
+    ),
+    visibleMessageTokens: 0,
+    visibleUserTokens: 0,
+    visibleAssistantTokens: 0,
+    currentUserTokens: 0,
+    citationTokens: 0,
+    thinkingSignatureTokens: 0,
+    toolTokens: 0,
+    protocolOverheadTokens: MESSAGE_OVERHEAD_TOKENS,
+    totalTokens: 0,
+  };
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    const metadata = messageMetadata[index] || {};
+    const content = estimateContentTokenBreakdown(message.content, {
+      recordedThinkingTokens: metadata.recordedThinkingTokens,
+    });
+    breakdown.visibleMessageTokens += content.visibleMessageTokens;
+    if (message.role === "user") {
+      breakdown.visibleUserTokens += content.visibleMessageTokens;
+    } else if (message.role === "assistant") {
+      breakdown.visibleAssistantTokens += content.visibleMessageTokens;
+    }
+    if (metadata.current === true) {
+      breakdown.currentUserTokens += content.visibleMessageTokens;
+    }
+    breakdown.citationTokens += content.citationTokens;
+    breakdown.thinkingSignatureTokens += content.thinkingSignatureTokens;
+    breakdown.toolTokens += content.toolTokens;
+    breakdown.protocolOverheadTokens += MESSAGE_OVERHEAD_TOKENS
+      + content.protocolOverheadTokens;
   }
+  breakdown.totalTokens = breakdown.systemTokens
+    + breakdown.hiddenMemoryTokens
+    + breakdown.providerConfigurationTokens
+    + breakdown.visibleMessageTokens
+    + breakdown.citationTokens
+    + breakdown.thinkingSignatureTokens
+    + breakdown.toolTokens
+    + breakdown.protocolOverheadTokens;
+  return breakdown;
+}
+
+export function estimateFableChatInputTokens({
+  system,
+  baseSystem = system,
+  messages,
+  messageMetadata = [],
+  providerConfigurationTokens = 0,
+}) {
+  const breakdown = estimateFableChatProviderTokenBreakdown({
+    system,
+    baseSystem,
+    messages,
+    messageMetadata,
+    providerConfigurationTokens,
+  });
   return {
-    rawTokens,
-    estimatedInputTokens: Math.ceil(rawTokens * ESTIMATOR_MARGIN_MULTIPLIER)
+    rawTokens: breakdown.totalTokens,
+    estimatedInputTokens: Math.ceil(breakdown.totalTokens * ESTIMATOR_MARGIN_MULTIPLIER)
       + ESTIMATOR_FIXED_MARGIN_TOKENS,
     estimatorVersion: FABLE_CHAT_CONTEXT_ESTIMATOR_VERSION,
+    breakdown,
   };
+}
+
+export function estimateFableChatProviderConfigurationTokens({
+  effort,
+  thinkingDisplay,
+  webSearchEnabled,
+  webSearchMaxUses,
+}) {
+  const configuration = {
+    output_config: { effort },
+    thinking: { type: "adaptive", display: thinkingDisplay },
+    ...(webSearchEnabled === true ? {
+      tools: [{
+        type: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+        name: FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+        max_uses: Number(webSearchMaxUses),
+      }],
+    } : {}),
+  };
+  return estimateFableChatTextTokens(JSON.stringify(configuration))
+    + CONTENT_BLOCK_OVERHEAD_TOKENS;
 }
 
 function cloneMessage(message) {
@@ -537,7 +688,13 @@ function addCacheControlAt(messages, { messageIndex, blockIndex }) {
   stableMessage.content = content;
 }
 
-function addCacheControlsToStableMessages({ system, messages }) {
+function addCacheControlsToStableMessages({
+  system,
+  baseSystem = system,
+  messages,
+  messageMetadata = [],
+  providerConfigurationTokens = 0,
+}) {
   const candidates = findStableAssistantCacheCandidates(messages);
   const latest = candidates.at(-1);
   if (!latest) return [];
@@ -550,7 +707,10 @@ function addCacheControlsToStableMessages({ system, messages }) {
       >= FABLE_CHAT_PROMPT_CACHE_LOOKBACK_BLOCKS
     && estimateFableChatCacheEligibilityTokens({
       system,
+      baseSystem,
       messages: messages.slice(0, previous.messageIndex + 1),
+      messageMetadata: messageMetadata.slice(0, previous.messageIndex + 1),
+      providerConfigurationTokens,
     }) >= FABLE_CHAT_PROMPT_CACHE_MINIMUM_TOKENS
   ) {
     locations.unshift(previous);
@@ -580,38 +740,32 @@ function textCharacterCount(system, messages) {
   return characters;
 }
 
-export function estimateFableChatCacheEligibilityTokens({ system, messages }) {
-  let bytes = utf8ByteLength(system);
-  for (const message of messages) {
-    if (typeof message.content === "string") {
-      bytes += utf8ByteLength(message.content);
-      continue;
-    }
-    for (const block of message.content || []) {
-      if (block.type === "text") bytes += utf8ByteLength(block.text);
-      if (block.type === "thinking") {
-        bytes += utf8ByteLength(block.thinking) + utf8ByteLength(block.signature);
-      }
-      if (block.type === "server_tool_use" || block.type === "web_search_tool_result") {
-        bytes += utf8ByteLength(JSON.stringify(block));
-      }
-      if (block.type === "text" && block.citations) {
-        bytes += utf8ByteLength(JSON.stringify(block.citations));
-      }
-    }
-  }
-  // This deliberately under-estimates typical Fable tokenization for cache admission.
-  return Math.floor(bytes / 8);
+export function estimateFableChatCacheEligibilityTokens({
+  system,
+  baseSystem = system,
+  messages,
+  messageMetadata = [],
+  providerConfigurationTokens = 0,
+}) {
+  return estimateFableChatProviderTokenBreakdown({
+    system,
+    baseSystem,
+    messages,
+    messageMetadata,
+    providerConfigurationTokens,
+  }).totalTokens;
 }
 
 export function selectFableChatModelContext({
   system,
+  baseSystem = system,
   priorTurnsNewestFirst,
   currentMessage,
   effectiveInputTokenLimit,
   totalPriorTurns,
   promptCachePolicy = FABLE_CHAT_PROMPT_CACHE_POLICY,
   promptCacheVersion = FABLE_CHAT_PROMPT_CACHE_VERSION,
+  providerConfigurationTokens = 0,
 }) {
   const current = { role: "user", content: currentMessage };
   const selectedNewestFirst = [];
@@ -625,6 +779,15 @@ export function selectFableChatModelContext({
       {
         user: { role: "user", content: String(turn.userContent || "") },
         assistant: { role: "assistant", content: assistantContent },
+        turnOrder: Number(turn.turnOrder),
+        recordedThinkingTokens: Number.isFinite(Number(turn.recordedThinkingTokens))
+          ? Math.max(0, Math.floor(Number(turn.recordedThinkingTokens)))
+          : null,
+        projectedNativeTurn: turn.projectedNativeTurn === true,
+        nativeReplayRemovedEstimatedTokens: Math.max(
+          0,
+          Number(turn.nativeReplayRemovedEstimatedTokens || 0)
+        ),
         webReplayPrunedPairCount: Math.max(0, Number(turn.webReplayPrunedPairCount || 0)),
         webReplayPrunedEstimatedTokens: Math.max(
           0,
@@ -637,7 +800,21 @@ export function selectFableChatModelContext({
       .reverse()
       .flatMap((entry) => [cloneMessage(entry.user), cloneMessage(entry.assistant)]);
     candidateMessages.push(current);
-    const estimate = estimateFableChatInputTokens({ system, messages: candidateMessages });
+    const candidateMetadata = candidateNewestFirst
+      .slice()
+      .reverse()
+      .flatMap((entry) => [
+        {},
+        { recordedThinkingTokens: entry.recordedThinkingTokens },
+      ]);
+    candidateMetadata.push({ current: true });
+    const estimate = estimateFableChatInputTokens({
+      system,
+      baseSystem,
+      messages: candidateMessages,
+      messageMetadata: candidateMetadata,
+      providerConfigurationTokens,
+    });
     if (estimate.estimatedInputTokens > effectiveInputTokenLimit) break;
     selectedNewestFirst.push(candidateNewestFirst.at(-1));
   }
@@ -645,23 +822,44 @@ export function selectFableChatModelContext({
   const selected = selectedNewestFirst.slice().reverse();
   const messages = selected.flatMap((entry) => [cloneMessage(entry.user), cloneMessage(entry.assistant)]);
   messages.push(current);
+  const messageMetadata = selected.flatMap((entry) => [
+    {},
+    { recordedThinkingTokens: entry.recordedThinkingTokens },
+  ]);
+  messageMetadata.push({ current: true });
 
   const stablePrefixMessages = messages.slice(0, -1);
+  const stablePrefixMetadata = messageMetadata.slice(0, -1);
+  const stablePrefixBreakdown = estimateFableChatProviderTokenBreakdown({
+    system,
+    baseSystem,
+    messages: stablePrefixMessages,
+    messageMetadata: stablePrefixMetadata,
+    providerConfigurationTokens,
+  });
   const stablePrefixEstimate = stablePrefixMessages.length > 0
-    ? estimateFableChatCacheEligibilityTokens({ system, messages: stablePrefixMessages })
+    ? stablePrefixBreakdown.totalTokens
     : 0;
   let cacheBreakpoint = {
     enabled: false,
     policy: promptCachePolicy,
     version: promptCacheVersion,
     estimatedPrefixTokens: stablePrefixEstimate,
+    predictedCacheWriteTokens: stablePrefixEstimate,
+    providerTokenBreakdown: stablePrefixBreakdown,
   };
   if (
     promptCachePolicy === FABLE_CHAT_PROMPT_CACHE_POLICY
     && promptCacheVersion === FABLE_CHAT_PROMPT_CACHE_VERSION
     && stablePrefixEstimate >= FABLE_CHAT_PROMPT_CACHE_MINIMUM_TOKENS
   ) {
-    const locations = addCacheControlsToStableMessages({ system, messages });
+    const locations = addCacheControlsToStableMessages({
+      system,
+      baseSystem,
+      messages,
+      messageMetadata,
+      providerConfigurationTokens,
+    });
     const latestLocation = locations.at(-1);
     if (latestLocation) {
       cacheBreakpoint = {
@@ -673,7 +871,13 @@ export function selectFableChatModelContext({
     }
   }
 
-  const estimate = estimateFableChatInputTokens({ system, messages });
+  const estimate = estimateFableChatInputTokens({
+    system,
+    baseSystem,
+    messages,
+    messageMetadata,
+    providerConfigurationTokens,
+  });
   if (estimate.estimatedInputTokens > effectiveInputTokenLimit) {
     throw new RangeError("The current message exceeds the Fable chat input budget.");
   }
@@ -687,6 +891,30 @@ export function selectFableChatModelContext({
     (total, entry) => total + entry.webReplayPrunedEstimatedTokens,
     0
   );
+  const nativeReplayRemovedEstimatedTokens = selected.reduce(
+    (total, entry) => total + entry.nativeReplayRemovedEstimatedTokens,
+    0
+  );
+  const selectedTurnTokenBreakdown = selected.map((entry) => {
+    const turnBreakdown = estimateFableChatProviderTokenBreakdown({
+      system: "",
+      messages: [entry.user, entry.assistant],
+      messageMetadata: [{}, { recordedThinkingTokens: entry.recordedThinkingTokens }],
+    });
+    turnBreakdown.protocolOverheadTokens = Math.max(
+      0,
+      turnBreakdown.protocolOverheadTokens - MESSAGE_OVERHEAD_TOKENS
+    );
+    turnBreakdown.totalTokens = Math.max(
+      0,
+      turnBreakdown.totalTokens - MESSAGE_OVERHEAD_TOKENS
+    );
+    return {
+      turnOrder: entry.turnOrder,
+      projectedNativeTurn: entry.projectedNativeTurn,
+      ...turnBreakdown,
+    };
+  });
   return {
     system,
     messages,
@@ -698,6 +926,12 @@ export function selectFableChatModelContext({
       estimatedInputTokens: estimate.estimatedInputTokens,
       effectiveInputTokenLimit,
       estimatorVersion: FABLE_CHAT_CONTEXT_ESTIMATOR_VERSION,
+      providerTokenBreakdown: estimate.breakdown,
+      selectedTurnTokenBreakdown,
+      predictedCacheWriteTokens: stablePrefixEstimate,
+      nativeReplayProjectionVersion: FABLE_CHAT_NATIVE_REPLAY_PROJECTION_VERSION,
+      projectedNativeTurnCount: selected.filter((entry) => entry.projectedNativeTurn).length,
+      nativeReplayRemovedEstimatedTokens,
       contextFormatVersion: FABLE_CHAT_CONTEXT_FORMAT_VERSION,
       cacheBreakpoint,
       webReplayPrunedPairCount,

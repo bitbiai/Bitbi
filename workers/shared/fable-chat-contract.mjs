@@ -3,7 +3,7 @@ import { CLAUDE_FABLE_5_MODEL_ID } from "../../js/shared/admin-ai-contract.mjs";
 export const FABLE_CHAT_MODEL_ID = CLAUDE_FABLE_5_MODEL_ID;
 export const FABLE_CHAT_CONTRACT_VERSION = "van-ark-fable-chat-v3";
 export const FABLE_CHAT_CONTEXT_FORMAT_VERSION = "native-anthropic-turns-v3";
-export const FABLE_CHAT_CONTEXT_ESTIMATOR_VERSION = "utf8-conservative-v2";
+export const FABLE_CHAT_CONTEXT_ESTIMATOR_VERSION = "provider-weighted-v3";
 export const FABLE_CHAT_PROVIDER_BLOCKS_VERSION = "anthropic-content-v2";
 
 export const FABLE_CHAT_DEFAULT_TITLE = "New conversation";
@@ -55,6 +55,7 @@ export const FABLE_CHAT_PROMPT_CACHE_VERSION = 1;
 export const FABLE_CHAT_PROMPT_CACHE_MINIMUM_TOKENS = 512;
 export const FABLE_CHAT_PROMPT_CACHE_LOOKBACK_BLOCKS = 20;
 export const FABLE_CHAT_PROMPT_CACHE_MAX_BREAKPOINTS = 2;
+export const FABLE_CHAT_NATIVE_REPLAY_PROJECTION_VERSION = 1;
 
 export const FABLE_CHAT_DEFAULT_WEB_SEARCH_ENABLED = false;
 export const FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION = 1;
