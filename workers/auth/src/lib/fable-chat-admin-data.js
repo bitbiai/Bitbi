@@ -14,6 +14,10 @@ import {
   FABLE_CHAT_EFFORTS,
   FABLE_CHAT_SYSTEM_PRESET_IDS,
   FABLE_CHAT_THINKING_DISPLAYS,
+  FABLE_CHAT_WEB_FETCH_CONTRACT_VERSION,
+  FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS,
+  FABLE_CHAT_WEB_FETCH_MAX_USES,
+  FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
   getFableChatOutputTokenLimit,
   getFableChatWebSearchMaxUses,
 } from "../../../shared/fable-chat-contract.mjs";
@@ -198,6 +202,10 @@ function safeUsage(value) {
     const number = Number(parsed[key]);
     if (Number.isFinite(number) && number >= 0) output[key] = Math.floor(number);
   }
+  const fetchRequests = Number(parsed?.server_tool_use?.web_fetch_requests);
+  if (Number.isFinite(fetchRequests) && fetchRequests >= 0) {
+    output.web_fetch_requests = Math.min(FABLE_CHAT_WEB_FETCH_MAX_USES, Math.floor(fetchRequests));
+  }
   return output;
 }
 
@@ -209,6 +217,8 @@ function safeBudgetMetadata(value) {
     "duration_ms", "input_tokens", "output_tokens", "total_tokens", "provider_cost_usd",
     "estimated_input_bucket_tokens", "reserved_output_tokens", "estimated_provider_cost_usd",
     "planning_ceiling", "acceptance_ceiling", "effective_soft_target",
+    "web_fetch_enabled", "web_fetch_max_uses", "web_fetch_reserved_input_tokens",
+    "web_fetch_request_count",
   ];
   return Object.fromEntries(allowed.filter((key) => parsed[key] != null).map((key) => [key, parsed[key]]));
 }
@@ -220,6 +230,7 @@ export async function getFableChatAdminOverview(env) {
          SUM(CASE WHEN deleted_at IS NULL THEN 1 ELSE 0 END) AS active_conversations,
          SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END) AS deleted_conversations,
          SUM(CASE WHEN web_search_enabled = 1 THEN 1 ELSE 0 END) AS web_search_conversations,
+         SUM(CASE WHEN web_fetch_enabled = 1 THEN 1 ELSE 0 END) AS web_fetch_conversations,
          MAX(updated_at) AS most_recent_activity
        FROM fable_chat_conversations`
     ).first(),
@@ -260,6 +271,7 @@ export async function getFableChatAdminOverview(env) {
     estimatedTranscriptBytes: Number(sizes?.transcript_bytes || 0),
     mostRecentActivity: conversations.most_recent_activity || null,
     webSearchConversations: Number(conversations.web_search_conversations || 0),
+    webFetchConversations: Number(conversations.web_fetch_conversations || 0),
   };
 }
 
@@ -338,6 +350,7 @@ export async function listFableChatAdminConversations(env, input = {}) {
     env.DB.prepare(
       `SELECT c.id, c.admin_user_id, u.email AS owner_email, c.title, c.model_id,
               c.effort, c.system_preset_id, c.thinking_display, c.web_search_enabled,
+              c.web_fetch_enabled,
               c.memory_mode, c.turn_count, c.created_at, c.updated_at, c.deleted_at,
               c.settings_updated_at, c.admin_revision_version,
               c.web_replay_pruned_through_turn_order, c.web_replay_pruned_at,
@@ -386,6 +399,8 @@ export async function listFableChatAdminConversations(env, input = {}) {
         reasoningSummaryEnabled: row.thinking_display === "summarized",
         webSearchEnabled: Number(row.web_search_enabled) === 1,
         webSearchMaxUses: getFableChatWebSearchMaxUses(row.effort),
+        webFetchEnabled: Number(row.web_fetch_enabled) === 1,
+        webFetchMaxUses: FABLE_CHAT_WEB_FETCH_MAX_USES,
         memoryMode: row.memory_mode || FABLE_CHAT_DEFAULT_MEMORY_MODE,
       },
       counts: {
@@ -470,6 +485,9 @@ export async function getFableChatAdminConversationDetail(env, conversationId) {
     env.DB.prepare(
       `SELECT id, status, error_code, effort, system_preset_id, thinking_display,
               web_search_enabled, web_search_effective_max_uses, memory_mode,
+              web_fetch_enabled, web_fetch_tool_version, web_fetch_max_uses,
+              web_fetch_max_content_tokens, web_fetch_contract_version,
+              web_fetch_request_count, web_fetch_result_count, web_fetch_error_result_count,
               estimated_input_tokens, provider_duration_ms, completed_at, created_at
          FROM fable_chat_turns WHERE conversation_id = ? AND admin_user_id = ?
          ORDER BY created_at DESC, id DESC LIMIT 1`
@@ -509,6 +527,11 @@ export async function getFableChatAdminConversationDetail(env, conversationId) {
         thinkingDisplay: row.thinking_display,
         webSearchEnabled: Number(row.web_search_enabled) === 1,
         webSearchMaxUses: getFableChatWebSearchMaxUses(row.effort),
+        webFetchEnabled: Number(row.web_fetch_enabled) === 1,
+        webFetchToolVersion: FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
+        webFetchMaxUses: FABLE_CHAT_WEB_FETCH_MAX_USES,
+        webFetchMaxContentTokens: FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS,
+        webFetchContractVersion: FABLE_CHAT_WEB_FETCH_CONTRACT_VERSION,
         memoryMode: activeProfile,
         promptCachePolicy: row.prompt_cache_policy,
         promptCacheVersion: Number(row.prompt_cache_version || 1),
@@ -542,6 +565,10 @@ export async function getFableChatAdminConversationDetail(env, conversationId) {
       reasoningSummaryEnabled: latestTurn.thinking_display === "summarized",
       webSearchEnabled: Number(latestTurn.web_search_enabled) === 1,
       webSearchMaxUses: Number(latestTurn.web_search_effective_max_uses || 1),
+      webFetchEnabled: Number(latestTurn.web_fetch_enabled) === 1,
+      webFetchRequestCount: Number(latestTurn.web_fetch_request_count || 0),
+      webFetchResultCount: Number(latestTurn.web_fetch_result_count || 0),
+      webFetchErrorResultCount: Number(latestTurn.web_fetch_error_result_count || 0),
       memoryMode: latestTurn.memory_mode,
       estimatedInputTokens: Number(latestTurn.estimated_input_tokens || 0),
       providerDurationMs: latestTurn.provider_duration_ms == null ? null : Number(latestTurn.provider_duration_ms),
@@ -627,6 +654,10 @@ export async function listFableChatAdminAttempts(env, conversationId, input = {}
             t.effective_max_output_tokens, t.system_preset_id, t.system_preset_version,
             t.thinking_display, t.web_search_enabled, t.web_search_effective_max_uses,
             t.web_search_executed_request_count, t.web_search_executed_result_count,
+            t.web_fetch_enabled, t.web_fetch_tool_version, t.web_fetch_max_uses,
+            t.web_fetch_max_content_tokens, t.web_fetch_contract_version,
+            t.web_fetch_request_count, t.web_fetch_result_count,
+            t.web_fetch_error_result_count,
             t.memory_mode, t.memory_contract_version, t.memory_checkpoint_id,
             t.memory_checkpoint_version, t.memory_coverage_turn_order,
             t.context_included_turns, t.context_omitted_turns, t.estimated_input_tokens,
@@ -672,6 +703,20 @@ export async function listFableChatAdminAttempts(env, conversationId, input = {}
         maxUses: Number(row.web_search_effective_max_uses || 1),
         requestCount: Number(row.web_search_executed_request_count || 0),
         resultCount: Number(row.web_search_executed_result_count || 0),
+      },
+      webFetch: {
+        enabled: Number(row.web_fetch_enabled) === 1,
+        toolVersion: row.web_fetch_tool_version || FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
+        maxUses: Number(row.web_fetch_max_uses || FABLE_CHAT_WEB_FETCH_MAX_USES),
+        maxContentTokens: Number(
+          row.web_fetch_max_content_tokens || FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS
+        ),
+        contractVersion: Number(
+          row.web_fetch_contract_version || FABLE_CHAT_WEB_FETCH_CONTRACT_VERSION
+        ),
+        requestCount: Number(row.web_fetch_request_count || 0),
+        resultCount: Number(row.web_fetch_result_count || 0),
+        errorResultCount: Number(row.web_fetch_error_result_count || 0),
       },
       memory: {
         mode: row.memory_mode,
@@ -854,6 +899,11 @@ export async function getFableChatAdminWebSearch(env, conversationId) {
     `SELECT t.id, t.status, t.web_search_enabled, t.web_search_tool_version,
             t.web_search_effective_max_uses, t.web_search_executed_request_count,
             t.web_search_executed_result_count, t.web_search_effective_contract_version,
+            t.web_fetch_enabled, t.web_fetch_tool_version, t.web_fetch_max_uses,
+            t.web_fetch_max_content_tokens, t.web_fetch_contract_version,
+            t.web_fetch_request_count, t.web_fetch_result_count,
+            t.web_fetch_error_result_count, t.web_fetch_replay_pruned_pair_count,
+            t.web_fetch_replay_pruned_estimated_tokens,
             t.web_replay_pruning_version, t.web_replay_pruned_through_turn_order,
             t.web_replay_pruned_through_message_id, t.web_replay_pruned_at,
             t.web_replay_pruned_pair_count, t.web_replay_pruned_estimated_tokens,
@@ -865,13 +915,19 @@ export async function getFableChatAdminWebSearch(env, conversationId) {
        LEFT JOIN fable_chat_messages am ON am.id = t.assistant_message_id
       WHERE t.conversation_id = ? AND t.admin_user_id = ?
         AND (t.web_search_enabled = 1 OR t.web_search_executed_request_count > 0
-          OR t.web_replay_pruned_pair_count > 0)
+          OR t.web_replay_pruned_pair_count > 0 OR t.web_fetch_enabled = 1
+          OR t.web_fetch_request_count > 0 OR t.web_fetch_replay_pruned_pair_count > 0)
       ORDER BY t.created_at DESC, t.id DESC LIMIT 100`
   ).bind(conversation.id, conversation.admin_user_id).all();
   return {
     conversation: {
       webSearchEnabled: Number(conversation.web_search_enabled) === 1,
       maxUses: getFableChatWebSearchMaxUses(conversation.effort),
+      webFetchEnabled: Number(conversation.web_fetch_enabled) === 1,
+      webFetchToolVersion: FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
+      webFetchMaxUses: FABLE_CHAT_WEB_FETCH_MAX_USES,
+      webFetchMaxContentTokens: FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS,
+      webFetchContractVersion: FABLE_CHAT_WEB_FETCH_CONTRACT_VERSION,
       replayPrunedThroughTurnOrder: Number(conversation.web_replay_pruned_through_turn_order ?? -1),
       replayPrunedAt: conversation.web_replay_pruned_at || null,
     },
@@ -884,6 +940,24 @@ export async function getFableChatAdminWebSearch(env, conversationId) {
       requestCount: Number(row.web_search_executed_request_count || 0),
       resultCount: Number(row.web_search_executed_result_count || 0),
       contractVersion: Number(row.web_search_effective_contract_version || 1),
+      webFetch: {
+        enabled: Number(row.web_fetch_enabled) === 1,
+        toolVersion: row.web_fetch_tool_version || FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
+        maxUses: Number(row.web_fetch_max_uses || FABLE_CHAT_WEB_FETCH_MAX_USES),
+        maxContentTokens: Number(
+          row.web_fetch_max_content_tokens || FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS
+        ),
+        contractVersion: Number(
+          row.web_fetch_contract_version || FABLE_CHAT_WEB_FETCH_CONTRACT_VERSION
+        ),
+        requestCount: Number(row.web_fetch_request_count || 0),
+        resultCount: Number(row.web_fetch_result_count || 0),
+        errorResultCount: Number(row.web_fetch_error_result_count || 0),
+        replayPrunedPairCount: Number(row.web_fetch_replay_pruned_pair_count || 0),
+        replayPrunedEstimatedTokens: Number(
+          row.web_fetch_replay_pruned_estimated_tokens || 0
+        ),
+      },
       citations: parseCitations(row.citations_json),
       replay: {
         version: Number(row.web_replay_pruning_version || 1),
@@ -1064,6 +1138,7 @@ export async function mutateFableChatAdminConversation(env, {
     preset: body?.preset ?? null,
     reasoningSummaryEnabled: body?.reasoningSummaryEnabled ?? null,
     webSearchEnabled: body?.webSearchEnabled ?? null,
+    webFetchEnabled: body?.webFetchEnabled ?? null,
     memoryMode: body?.memoryMode ?? null,
   });
   const replay = await readWriteReceipt(env, identity);
@@ -1088,19 +1163,23 @@ export async function mutateFableChatAdminConversation(env, {
       || !FABLE_CHAT_SYSTEM_PRESET_IDS.includes(preset)
       || !FABLE_CHAT_THINKING_DISPLAYS.includes(thinking)
       || !["standard", "lite"].includes(memoryMode)
-      || (body?.webSearchEnabled != null && typeof body.webSearchEnabled !== "boolean")) {
+      || (body?.webSearchEnabled != null && typeof body.webSearchEnabled !== "boolean")
+      || (body?.webFetchEnabled != null && typeof body.webFetchEnabled !== "boolean")) {
       throw new FableChatAdminDataError("Conversation settings are invalid.");
     }
     const webSearch = body?.webSearchEnabled == null
       ? Number(conversation.web_search_enabled || 0)
       : body.webSearchEnabled ? 1 : 0;
+    const webFetch = body?.webFetchEnabled == null
+      ? Number(conversation.web_fetch_enabled || 0)
+      : body.webFetchEnabled ? 1 : 0;
     extraSql = `, effort = ?, system_preset_id = ?, thinking_display = ?,
-      web_search_enabled = ?, memory_mode = ?, settings_updated_at = ?`;
-    extraBindings = [effort, preset, thinking, webSearch, memoryMode, timestamp];
+      web_search_enabled = ?, web_fetch_enabled = ?, memory_mode = ?, settings_updated_at = ?`;
+    extraBindings = [effort, preset, thinking, webSearch, webFetch, memoryMode, timestamp];
     Object.assign(result, {
       settings: {
         effort, preset, reasoningSummaryEnabled: thinking === "summarized",
-        webSearchEnabled: webSearch === 1, memoryMode,
+        webSearchEnabled: webSearch === 1, webFetchEnabled: webFetch === 1, memoryMode,
       },
     });
   } else if (operation === "soft_delete") {
@@ -1383,7 +1462,8 @@ const RAW_RECORDS = Object.freeze({
     safeColumns: [
       "id", "admin_user_id", "model_id", "title", "title_source", "turn_count",
       "effort", "system_preset_id", "system_preset_version", "thinking_display",
-      "prompt_cache_policy", "prompt_cache_version", "web_search_enabled", "memory_mode",
+      "prompt_cache_policy", "prompt_cache_version", "web_search_enabled", "web_fetch_enabled",
+      "memory_mode",
       "settings_updated_at", "web_replay_pruned_through_turn_order",
       "web_replay_pruned_through_message_id", "web_replay_pruned_at",
       "web_replay_pruning_version", "admin_revision_version", "admin_revision_updated_at",
@@ -1418,6 +1498,11 @@ const RAW_RECORDS = Object.freeze({
       "web_search_contract_version", "web_search_request_count", "web_search_result_count",
       "web_search_effective_max_uses", "web_search_effective_contract_version",
       "web_search_executed_request_count", "web_search_executed_result_count",
+      "web_fetch_enabled", "web_fetch_tool_version", "web_fetch_max_uses",
+      "web_fetch_max_content_tokens", "web_fetch_contract_version",
+      "web_fetch_direct_only", "web_fetch_use_cache", "web_fetch_request_count",
+      "web_fetch_result_count", "web_fetch_error_result_count",
+      "web_fetch_replay_pruned_pair_count", "web_fetch_replay_pruned_estimated_tokens",
       "memory_mode", "memory_contract_version", "memory_checkpoint_id",
       "memory_checkpoint_version", "memory_coverage_turn_order", "web_replay_pruning_version",
       "web_replay_pruned_through_turn_order", "web_replay_pruned_through_message_id",

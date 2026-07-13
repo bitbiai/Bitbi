@@ -80,6 +80,29 @@ export const FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS = 512;
 export const FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES = 512 * 1024;
 export const FABLE_CHAT_MAX_SEARCH_RESULT_ERROR_CODE_CHARACTERS = 80;
 
+export const FABLE_CHAT_DEFAULT_WEB_FETCH_ENABLED = false;
+export const FABLE_CHAT_WEB_FETCH_CONTRACT_VERSION = 1;
+export const FABLE_CHAT_WEB_FETCH_TOOL_TYPE = "web_fetch_20260318";
+export const FABLE_CHAT_WEB_FETCH_TOOL_NAME = "web_fetch";
+export const FABLE_CHAT_WEB_FETCH_MAX_USES = 2;
+export const FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS = 8_000;
+export const FABLE_CHAT_WEB_FETCH_MAX_URL_CHARACTERS = 250;
+export const FABLE_CHAT_WEB_FETCH_ALLOWED_CALLERS = Object.freeze(["direct"]);
+export const FABLE_CHAT_WEB_FETCH_USE_CACHE = true;
+export const FABLE_CHAT_WEB_FETCH_MAX_CONTINUATIONS = 2;
+export const FABLE_CHAT_MAX_WEB_FETCH_DOCUMENT_DATA_BYTES = 3 * 1024 * 1024;
+export const FABLE_CHAT_WEB_FETCH_ERROR_CODES = Object.freeze([
+  "invalid_tool_input",
+  "url_too_long",
+  "url_not_allowed",
+  "url_not_in_prior_context",
+  "url_not_accessible",
+  "too_many_requests",
+  "unsupported_content_type",
+  "max_uses_exceeded",
+  "unavailable",
+]);
+
 export const FABLE_CHAT_CONTEXT_INPUT_TOKEN_CAP = 96_000;
 export const FABLE_CHAT_TOTAL_TOKEN_ENVELOPE = 131_072;
 export const FABLE_CHAT_PROTOCOL_SAFETY_TOKENS = 4_096;

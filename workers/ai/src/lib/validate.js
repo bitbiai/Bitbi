@@ -18,6 +18,7 @@ import { AdminAiValidationError } from "../../../../js/shared/admin-ai-contract.
 import { stripAiCallerPolicyFromBody } from "../../../shared/ai-caller-policy.mjs";
 import {
   FABLE_CHAT_CONTEXT_FORMAT_VERSION,
+  FABLE_CHAT_DEFAULT_WEB_FETCH_ENABLED,
   FABLE_CHAT_DEFAULT_WEB_SEARCH_ENABLED,
   FABLE_CHAT_EFFORTS,
   FABLE_CHAT_INTERNAL_JSON_MAX_BYTES,
@@ -33,6 +34,7 @@ import {
   FABLE_CHAT_MAX_THINKING_SIGNATURE_BYTES,
   FABLE_CHAT_MAX_USER_MESSAGE_CHARACTERS,
   FABLE_CHAT_MAX_WEB_SEARCH_RESULTS,
+  FABLE_CHAT_MAX_WEB_FETCH_DOCUMENT_DATA_BYTES,
   FABLE_CHAT_PROMPT_CACHE_POLICY,
   FABLE_CHAT_PROMPT_CACHE_MAX_BREAKPOINTS,
   FABLE_CHAT_PROMPT_CACHE_VERSION,
@@ -42,6 +44,15 @@ import {
   FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION,
   FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
   FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+  FABLE_CHAT_WEB_FETCH_ALLOWED_CALLERS,
+  FABLE_CHAT_WEB_FETCH_CONTRACT_VERSION,
+  FABLE_CHAT_WEB_FETCH_ERROR_CODES,
+  FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS,
+  FABLE_CHAT_WEB_FETCH_MAX_USES,
+  FABLE_CHAT_WEB_FETCH_MAX_URL_CHARACTERS,
+  FABLE_CHAT_WEB_FETCH_TOOL_NAME,
+  FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
+  FABLE_CHAT_WEB_FETCH_USE_CACHE,
   buildFableChatSystemPrompt,
   getFableChatOutputTokenLimit,
   getFableChatWebSearchMaxUses,
@@ -91,6 +102,13 @@ const FABLE_CHAT_ALLOWED_BODY_FIELDS = new Set([
   "webSearchEnabled",
   "webSearchMaxUses",
   "webSearchContractVersion",
+  "webFetchEnabled",
+  "webFetchToolVersion",
+  "webFetchMaxUses",
+  "webFetchMaxContentTokens",
+  "webFetchAllowedCallers",
+  "webFetchUseCache",
+  "webFetchContractVersion",
   "memoryMode",
   "memoryContractVersion",
   "memoryCheckpointVersion",
@@ -101,11 +119,13 @@ const FABLE_CHAT_ALLOWED_TEXT_BLOCK_FIELDS = new Set(["type", "text", "citations
 const FABLE_CHAT_ALLOWED_THINKING_BLOCK_FIELDS = new Set(["type", "thinking", "signature"]);
 const FABLE_CHAT_ALLOWED_SERVER_TOOL_FIELDS = new Set(["type", "id", "name", "input"]);
 const FABLE_CHAT_ALLOWED_SEARCH_RESULT_FIELDS = new Set(["type", "tool_use_id", "content", "caller"]);
+const FABLE_CHAT_ALLOWED_FETCH_RESULT_FIELDS = new Set(["type", "tool_use_id", "content", "caller"]);
 const FABLE_CHAT_TOOL_ID_PATTERN = /^srvtoolu_[A-Za-z0-9_-]{8,160}$/;
 const FABLE_CHAT_SEARCH_ERROR_CODES = new Set([
   "too_many_requests", "invalid_tool_input", "max_uses_exceeded",
   "query_too_long", "request_too_large", "unavailable",
 ]);
+const FABLE_CHAT_FETCH_ERROR_CODES = new Set(FABLE_CHAT_WEB_FETCH_ERROR_CODES);
 const FABLE_CHAT_LEGACY_CONTEXT_FORMAT_VERSION = "native-anthropic-turns-v2";
 const UNSAFE_TEXT_CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 
@@ -199,33 +219,130 @@ function validateFableChatCitations(value, field, counters) {
   const citations = value.map((citation, index) => {
     const itemField = `${field}[${index}]`;
     const entry = assertPlainObject(citation, itemField);
-    assertOnlyFields(
-      entry,
-      new Set(["type", "url", "title", "encrypted_index", "cited_text"]),
-      itemField
-    );
-    if (entry.type !== "web_search_result_location") {
-      throw new AdminAiValidationError(`${itemField}.type is not supported.`, 400, "validation_error");
+    if (entry.type === "web_search_result_location") {
+      assertOnlyFields(
+        entry,
+        new Set(["type", "url", "title", "encrypted_index", "cited_text"]),
+        itemField
+      );
+      const normalized = {
+        type: "web_search_result_location",
+        url: validateFableChatHttpsUrl(entry.url, `${itemField}.url`),
+        title: normalizeFableChatOptionalText(entry.title, `${itemField}.title`, 512),
+        encrypted_index: normalizeFableChatText(
+          entry.encrypted_index,
+          `${itemField}.encrypted_index`,
+          FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES
+        ),
+        cited_text: normalizeFableChatOptionalText(entry.cited_text, `${itemField}.cited_text`, 2_048),
+      };
+      counters.citationSources.add(new URL(normalized.url).href);
+      if (counters.citationSources.size > 16) {
+        throw new AdminAiValidationError(`${field} exceeds the citation limit.`, 400, "validation_error");
+      }
+      counters.totalContentLength += JSON.stringify(normalized).length;
+      return normalized;
     }
-    const normalized = {
-      type: "web_search_result_location",
-      url: validateFableChatHttpsUrl(entry.url, `${itemField}.url`),
-      title: normalizeFableChatOptionalText(entry.title, `${itemField}.title`, 512),
-      encrypted_index: normalizeFableChatText(
-        entry.encrypted_index,
-        `${itemField}.encrypted_index`,
-        FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES
-      ),
-      cited_text: normalizeFableChatOptionalText(entry.cited_text, `${itemField}.cited_text`, 2_048),
-    };
-    counters.citationSources.add(new URL(normalized.url).href);
-    if (counters.citationSources.size > 16) {
-      throw new AdminAiValidationError(`${field} exceeds the citation limit.`, 400, "validation_error");
+    if (entry.type === "char_location") {
+      assertOnlyFields(
+        entry,
+        new Set([
+          "type", "document_index", "document_title", "start_char_index", "end_char_index",
+          "cited_text",
+        ]),
+        itemField
+      );
+      if (!Number.isInteger(entry.document_index) || entry.document_index < 0 || entry.document_index >= 16
+        || !Number.isInteger(entry.start_char_index) || entry.start_char_index < 0
+        || !Number.isInteger(entry.end_char_index) || entry.end_char_index < entry.start_char_index) {
+        throw new AdminAiValidationError(`${itemField} is invalid.`, 400, "validation_error");
+      }
+      const normalized = {
+        type: "char_location",
+        document_index: entry.document_index,
+        document_title: normalizeFableChatOptionalText(
+          entry.document_title,
+          `${itemField}.document_title`,
+          FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS
+        ),
+        start_char_index: entry.start_char_index,
+        end_char_index: entry.end_char_index,
+        cited_text: normalizeFableChatOptionalText(entry.cited_text, `${itemField}.cited_text`, 2_048),
+      };
+      counters.totalContentLength += JSON.stringify(normalized).length;
+      return normalized;
     }
-    counters.totalContentLength += JSON.stringify(normalized).length;
-    return normalized;
+    throw new AdminAiValidationError(`${itemField}.type is not supported.`, 400, "validation_error");
   });
   return citations;
+}
+
+function validateFableChatFetchResultContent(value, field, counters) {
+  const entry = assertPlainObject(value, field);
+  if (entry.type === "web_fetch_tool_result_error") {
+    assertOnlyFields(entry, new Set(["type", "error_code"]), field);
+    const errorCode = normalizeFableChatText(
+      entry.error_code,
+      `${field}.error_code`,
+      FABLE_CHAT_MAX_SEARCH_RESULT_ERROR_CODE_CHARACTERS
+    );
+    if (!FABLE_CHAT_FETCH_ERROR_CODES.has(errorCode)) {
+      throw new AdminAiValidationError(`${field} is invalid.`, 400, "validation_error");
+    }
+    return { type: "web_fetch_tool_result_error", error_code: errorCode };
+  }
+  assertOnlyFields(entry, new Set(["type", "url", "content", "retrieved_at"]), field);
+  if (entry.type !== "web_fetch_result") {
+    throw new AdminAiValidationError(`${field}.type is invalid.`, 400, "validation_error");
+  }
+  const document = assertPlainObject(entry.content, `${field}.content`);
+  assertOnlyFields(document, new Set(["type", "source", "title", "citations"]), `${field}.content`);
+  if (document.type !== "document") {
+    throw new AdminAiValidationError(`${field}.content.type is invalid.`, 400, "validation_error");
+  }
+  const source = assertPlainObject(document.source, `${field}.content.source`);
+  assertOnlyFields(source, new Set(["type", "media_type", "data"]), `${field}.content.source`);
+  const data = normalizeFableChatText(
+    source.data,
+    `${field}.content.source.data`,
+    FABLE_CHAT_MAX_WEB_FETCH_DOCUMENT_DATA_BYTES
+  );
+  if ((source.type === "text" && source.media_type !== "text/plain")
+    || (source.type === "base64" && source.media_type !== "application/pdf")
+    || !["text", "base64"].includes(source.type)
+    || (source.type === "base64" && (data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)))) {
+    throw new AdminAiValidationError(`${field}.content.source is invalid.`, 400, "validation_error");
+  }
+  if (document.citations !== undefined) {
+    const citations = assertPlainObject(document.citations, `${field}.content.citations`);
+    assertOnlyFields(citations, new Set(["enabled"]), `${field}.content.citations`);
+    if (citations.enabled !== true) {
+      throw new AdminAiValidationError(`${field}.content.citations is invalid.`, 400, "validation_error");
+    }
+  }
+  const retrievedAt = normalizeFableChatText(entry.retrieved_at, `${field}.retrieved_at`, 64);
+  if (!Number.isFinite(Date.parse(retrievedAt))) {
+    throw new AdminAiValidationError(`${field}.retrieved_at is invalid.`, 400, "validation_error");
+  }
+  const normalized = {
+    type: "web_fetch_result",
+    url: validateFableChatHttpsUrl(entry.url, `${field}.url`),
+    content: {
+      type: "document",
+      source: { type: source.type, media_type: source.media_type, data },
+      ...(document.title == null ? {} : {
+        title: normalizeFableChatOptionalText(
+          document.title,
+          `${field}.content.title`,
+          FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS
+        ),
+      }),
+      ...(document.citations === undefined ? {} : { citations: { enabled: true } }),
+    },
+    retrieved_at: retrievedAt,
+  };
+  counters.totalContentLength += JSON.stringify(normalized).length;
+  return normalized;
 }
 
 function validateFableChatToolId(value, field) {
@@ -369,22 +486,35 @@ function validateFableChatContent(content, { role, messageIndex, lastMessageInde
         throw new AdminAiValidationError(`${field}.type is not supported.`, 400, "validation_error");
       }
       assertOnlyFields(entry, FABLE_CHAT_ALLOWED_SERVER_TOOL_FIELDS, field);
-      if (entry.name !== FABLE_CHAT_WEB_SEARCH_TOOL_NAME) {
+      if (![FABLE_CHAT_WEB_SEARCH_TOOL_NAME, FABLE_CHAT_WEB_FETCH_TOOL_NAME].includes(entry.name)) {
         throw new AdminAiValidationError(`${field}.name is not supported.`, 400, "validation_error");
       }
       const input = assertPlainObject(entry.input, `${field}.input`);
-      assertOnlyFields(input, new Set(["query"]), `${field}.input`);
-      const query = normalizeFableChatText(
-        input.query,
-        `${field}.input.query`,
-        FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS
-      );
-      counters.totalContentLength += query.length;
+      const inputField = `${field}.input`;
+      const normalizedInput = entry.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME
+        ? (() => {
+            assertOnlyFields(input, new Set(["query"]), inputField);
+            const query = normalizeFableChatText(
+              input.query,
+              `${inputField}.query`,
+              FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS
+            );
+            return { query };
+          })()
+        : (() => {
+            assertOnlyFields(input, new Set(["url"]), inputField);
+            const url = validateFableChatHttpsUrl(input.url, `${inputField}.url`);
+            if (url.length > FABLE_CHAT_WEB_FETCH_MAX_URL_CHARACTERS) {
+              throw new AdminAiValidationError(`${inputField}.url is invalid.`, 400, "validation_error");
+            }
+            return { url };
+          })();
+      counters.totalContentLength += JSON.stringify(normalizedInput).length;
       return {
         type: "server_tool_use",
         id: validateFableChatToolId(entry.id, `${field}.id`),
-        name: FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
-        input: { query },
+        name: entry.name,
+        input: normalizedInput,
       };
     }
     if (entry.type === "web_search_tool_result") {
@@ -404,6 +534,26 @@ function validateFableChatContent(content, { role, messageIndex, lastMessageInde
         type: "web_search_tool_result",
         tool_use_id: validateFableChatToolId(entry.tool_use_id, `${field}.tool_use_id`),
         content: validateFableChatSearchResultContent(entry.content, `${field}.content`, counters),
+        ...(caller ? { caller: { type: "direct" } } : {}),
+      };
+    }
+    if (entry.type === "web_fetch_tool_result") {
+      if (role !== "assistant") {
+        throw new AdminAiValidationError(`${field}.type is not supported.`, 400, "validation_error");
+      }
+      assertOnlyFields(entry, FABLE_CHAT_ALLOWED_FETCH_RESULT_FIELDS, field);
+      let caller;
+      if (entry.caller !== undefined) {
+        caller = assertPlainObject(entry.caller, `${field}.caller`);
+        assertOnlyFields(caller, new Set(["type"]), `${field}.caller`);
+        if (caller.type !== "direct") {
+          throw new AdminAiValidationError(`${field}.caller is invalid.`, 400, "validation_error");
+        }
+      }
+      return {
+        type: "web_fetch_tool_result",
+        tool_use_id: validateFableChatToolId(entry.tool_use_id, `${field}.tool_use_id`),
+        content: validateFableChatFetchResultContent(entry.content, `${field}.content`, counters),
         ...(caller ? { caller: { type: "direct" } } : {}),
       };
     }
@@ -578,6 +728,35 @@ export function validateFableChatBody(body) {
     );
   }
 
+  const webFetchEnabled = input.webFetchEnabled ?? FABLE_CHAT_DEFAULT_WEB_FETCH_ENABLED;
+  if (typeof webFetchEnabled !== "boolean") {
+    throw new AdminAiValidationError("webFetchEnabled must be a boolean.", 400, "validation_error");
+  }
+  const webFetchConfiguration = {
+    webFetchToolVersion: input.webFetchToolVersion ?? FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
+    webFetchMaxUses: input.webFetchMaxUses ?? FABLE_CHAT_WEB_FETCH_MAX_USES,
+    webFetchMaxContentTokens: input.webFetchMaxContentTokens ?? FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS,
+    webFetchAllowedCallers: input.webFetchAllowedCallers ?? [...FABLE_CHAT_WEB_FETCH_ALLOWED_CALLERS],
+    webFetchUseCache: input.webFetchUseCache ?? FABLE_CHAT_WEB_FETCH_USE_CACHE,
+    webFetchContractVersion: input.webFetchContractVersion ?? FABLE_CHAT_WEB_FETCH_CONTRACT_VERSION,
+  };
+  if (webFetchConfiguration.webFetchToolVersion !== FABLE_CHAT_WEB_FETCH_TOOL_TYPE
+    || webFetchConfiguration.webFetchMaxUses !== FABLE_CHAT_WEB_FETCH_MAX_USES
+    || webFetchConfiguration.webFetchMaxContentTokens !== FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS
+    || !Array.isArray(webFetchConfiguration.webFetchAllowedCallers)
+    || webFetchConfiguration.webFetchAllowedCallers.length !== FABLE_CHAT_WEB_FETCH_ALLOWED_CALLERS.length
+    || webFetchConfiguration.webFetchAllowedCallers.some(
+      (caller, index) => caller !== FABLE_CHAT_WEB_FETCH_ALLOWED_CALLERS[index]
+    )
+    || webFetchConfiguration.webFetchUseCache !== FABLE_CHAT_WEB_FETCH_USE_CACHE
+    || webFetchConfiguration.webFetchContractVersion !== FABLE_CHAT_WEB_FETCH_CONTRACT_VERSION) {
+    throw new AdminAiValidationError(
+      "The Fable chat Web Fetch configuration is not supported.",
+      400,
+      "validation_error"
+    );
+  }
+
   const hasMemoryFields = [
     input.memoryMode,
     input.memoryContractVersion,
@@ -662,6 +841,8 @@ export function validateFableChatBody(body) {
     webSearchEnabled,
     webSearchMaxUses: expectedWebSearchMaxUses,
     webSearchContractVersion,
+    webFetchEnabled,
+    ...webFetchConfiguration,
     memoryMode,
     memoryContractVersion,
     memoryCheckpointVersion,

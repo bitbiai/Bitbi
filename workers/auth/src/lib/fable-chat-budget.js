@@ -19,6 +19,8 @@ import {
 import { FABLE_CHAT_MODEL_ID } from "./fable-chat.js";
 import {
   FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
+  FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS,
+  FABLE_CHAT_WEB_FETCH_MAX_USES,
   getFableChatWebSearchMaxUses,
 } from "../../../shared/fable-chat-contract.mjs";
 import { nowIso, randomTokenHex } from "./tokens.js";
@@ -38,7 +40,12 @@ const FABLE_CHAT_EFFORT_UNITS = Object.freeze({
   max: 5,
 });
 
-export function deriveFableChatBudgetUnits({ effort, estimatedInputTokens, webSearchEnabled = false }) {
+export function deriveFableChatBudgetUnits({
+  effort,
+  estimatedInputTokens,
+  webSearchEnabled = false,
+  webFetchEnabled = false,
+}) {
   const effortUnits = FABLE_CHAT_EFFORT_UNITS[effort];
   if (!effortUnits) {
     const error = new Error("Fable chat effort is invalid for budget admission.");
@@ -46,7 +53,11 @@ export function deriveFableChatBudgetUnits({ effort, estimatedInputTokens, webSe
     error.status = 503;
     throw error;
   }
-  const inputTokens = Math.max(0, Math.floor(Number(estimatedInputTokens) || 0));
+  const baseInputTokens = Math.max(0, Math.floor(Number(estimatedInputTokens) || 0));
+  const webFetchReservedTokens = webFetchEnabled === true
+    ? FABLE_CHAT_WEB_FETCH_MAX_USES * FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS
+    : 0;
+  const inputTokens = baseInputTokens + webFetchReservedTokens;
   const inputUnits = Math.max(1, Math.ceil(inputTokens / FABLE_CHAT_INPUT_UNIT_TOKENS));
   const webSearchMaxUses = getFableChatWebSearchMaxUses(effort);
   const webSearchUnits = webSearchEnabled === true
@@ -58,6 +69,7 @@ export function deriveFableChatBudgetUnits({ effort, estimatedInputTokens, webSe
     inputUnits,
     webSearchUnits,
     webSearchMaxUses,
+    webFetchReservedTokens,
     estimatedInputBucketTokens: inputUnits * FABLE_CHAT_INPUT_UNIT_TOKENS,
   };
 }
@@ -127,6 +139,7 @@ export async function prepareFableChatBudget({
     effort: settings?.effort,
     estimatedInputTokens: context?.estimatedInputTokens,
     webSearchEnabled: settings?.webSearchEnabled,
+    webFetchEnabled: settings?.webFetchEnabled,
   });
   const budgetFingerprint = await buildAdminPlatformBudgetFingerprint({
     operation,
@@ -152,6 +165,13 @@ export async function prepareFableChatBudget({
       web_search_tool_version: settings?.webSearchToolVersion,
       web_search_max_uses: settings?.webSearchMaxUses,
       web_search_contract_version: settings?.webSearchContractVersion,
+      web_fetch_enabled: settings?.webFetchEnabled === true,
+      web_fetch_tool_version: settings?.webFetchToolVersion,
+      web_fetch_max_uses: settings?.webFetchMaxUses,
+      web_fetch_max_content_tokens: settings?.webFetchMaxContentTokens,
+      web_fetch_allowed_callers: settings?.webFetchAllowedCallers,
+      web_fetch_use_cache: settings?.webFetchUseCache,
+      web_fetch_contract_version: settings?.webFetchContractVersion,
       memory_mode: settings?.memoryMode,
       memory_contract_version: context?.memory?.contractVersion,
       memory_checkpoint_id: context?.memory?.checkpointId,
@@ -206,6 +226,9 @@ export async function prepareFableChatBudget({
       web_search_enabled: settings.webSearchEnabled === true,
       web_search_max_uses: budgetWeight.webSearchMaxUses,
       web_search_units: budgetWeight.webSearchUnits,
+      web_fetch_enabled: settings.webFetchEnabled === true,
+      web_fetch_max_uses: FABLE_CHAT_WEB_FETCH_MAX_USES,
+      web_fetch_reserved_input_tokens: budgetWeight.webFetchReservedTokens,
       memory_mode: settings.memoryMode,
       memory_checkpoint_version: Math.max(0, Number(context?.memory?.checkpointVersion || 0)),
       final_state: "admitted",
@@ -330,6 +353,7 @@ export async function recordFableChatBudgetOutcome(env, turnId, {
   outputTruncated = false,
   usage = null,
   webSearchRequestCount = 0,
+  webFetchRequestCount = 0,
 } = {}) {
   const safeState = ["succeeded", "failed", "unknown"].includes(finalState)
     ? finalState
@@ -358,6 +382,10 @@ export async function recordFableChatBudgetOutcome(env, turnId, {
     web_search_request_count: Math.min(
       FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
       Math.max(0, Math.floor(Number(webSearchRequestCount) || 0))
+    ),
+    web_fetch_request_count: Math.min(
+      FABLE_CHAT_WEB_FETCH_MAX_USES,
+      Math.max(0, Math.floor(Number(webFetchRequestCount) || 0))
     ),
   };
   await env.DB.prepare(

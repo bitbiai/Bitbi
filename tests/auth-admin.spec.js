@@ -2099,7 +2099,9 @@ async function mockAdminFableDataCenter(page, captures = {}) {
   const settings = {
     effort: 'high', effectiveMaxOutputTokens: 16384, preset: 'general', presetVersion: 1,
     reasoningSummaryEnabled: true, thinkingDisplay: 'summarized', webSearchEnabled: true,
-    webSearchMaxUses: 3, memoryMode: 'standard', promptCachePolicy: 'auto_5m', promptCacheVersion: 1,
+    webSearchMaxUses: 3, webFetchEnabled: true, webFetchMaxUses: 2,
+    webFetchMaxContentTokens: 8000, webFetchToolVersion: 'web_fetch_20260318',
+    memoryMode: 'standard', promptCachePolicy: 'auto_5m', promptCacheVersion: 1,
   };
   const detail = {
     ok: true,
@@ -2134,6 +2136,7 @@ async function mockAdminFableDataCenter(page, captures = {}) {
         standardCheckpoints: 1, liteCheckpoints: 0, compactionFailures: 0,
         estimatedTranscriptBytes: 256, mostRecentActivity: '2026-07-12T10:00:00.000Z',
         webSearchConversations: 1,
+        webFetchConversations: 1,
       },
     });
     if (pathName.endsWith('/conversations')) return json({
@@ -2172,7 +2175,7 @@ async function mockAdminFableDataCenter(page, captures = {}) {
       revealRequests += 1;
       return json({ ok: true, checkpointId, profile: 'standard', status: 'succeeded', modelId: '@cf/qwen/qwen3-30b-a3b-fp8', estimatedSummaryTokens: 900, coverageTurnOrder: 0, summary: '<script>window.__fableXss=3</script>' });
     }
-    if (pathName.endsWith('/web-search')) return json({ ok: true, conversation: { webSearchEnabled: true, maxUses: 3, replayPrunedThroughTurnOrder: -1, replayPrunedAt: null }, turns: [] });
+    if (pathName.endsWith('/web-search')) return json({ ok: true, conversation: { webSearchEnabled: true, maxUses: 3, webFetchEnabled: true, webFetchToolVersion: 'web_fetch_20260318', webFetchMaxUses: 2, webFetchMaxContentTokens: 8000, replayPrunedThroughTurnOrder: -1, replayPrunedAt: null }, turns: [] });
     if (pathName.endsWith('/usage')) return json({ ok: true, usage: [], total: 0, limit: 50, offset: 0 });
     if (pathName.includes('/records/')) return json({ ok: true, kind: 'conversation', record: { id: conversationId, title: detail.conversation.title, request_fingerprint: '[REDACTED]', created_at: detail.conversation.createdAt } });
     if (request.method() !== 'GET') {
@@ -17963,7 +17966,8 @@ test.describe('Admin AI Lab', () => {
     await expect.poll(() => captures.writes.length).toBe(1);
     expect(captures.writes[0].body).toMatchObject({
       operation: 'settings', effort: 'xhigh', preset: 'general', memoryMode: 'standard',
-      reasoningSummaryEnabled: true, webSearchEnabled: true, expectedRevision: 0,
+      reasoningSummaryEnabled: true, webSearchEnabled: true, webFetchEnabled: true,
+      expectedRevision: 0,
     });
     expect(captures.writes[0].headers['idempotency-key']).toMatch(/^fable-data-/);
     await expect(page.locator('#fableDataDialog')).toBeHidden();

@@ -164,7 +164,7 @@ async function* parseInternalEvents(stream, {
 }
 
 const SAFE_INTERNAL_EVENTS = new Set([
-  "none", "accepted", "keepalive", "web_search_started", "thinking_delta",
+  "none", "accepted", "keepalive", "web_search_started", "web_fetch_started", "thinking_delta",
   "text_delta", "terminal_witness", "complete_internal", "error",
 ]);
 const SAFE_TERMINATION_PHASES = new Set(["complete_internal", "provider_stream_error"]);
@@ -174,10 +174,13 @@ const SAFE_STREAM_ERROR_CODES = new Set([
   "provider_web_search_limit_invalid", "provider_pause_turn_unavailable",
   "provider_pause_turn_limit_exceeded", "provider_upstream_eof_before_message_stop",
   "provider_unfinished_content_blocks", "provider_invalid_citation_structure",
-  "provider_invalid_web_search_structure", "provider_unsupported_block_type",
+  "provider_invalid_web_search_structure", "provider_invalid_web_fetch_structure",
+  "provider_unsupported_block_type",
   "provider_final_normalized_response_limit_exceeded", "provider_terminal_assembly_failure",
   "provider_invalid_block_lifecycle", "provider_unicode_decode_failure",
   "provider_web_search_blocks_invalid",
+  "provider_web_fetch_blocks_invalid", "provider_web_fetch_limit_exceeded",
+  "provider_web_fetch_limit_invalid",
 ]);
 
 function boundedBucket(value, thresholds) {
@@ -334,6 +337,14 @@ export async function consumeInternalFableChatStream(stream, callbacks = {}) {
         }
         markInternalActivity(internalEvent, event);
         callbacks.onWebSearchStarted?.();
+        continue;
+      }
+      if (event === "web_fetch_started") {
+        if (!accepted || data.ok !== true) {
+          throw new FableChatInternalStreamError("The internal Web Fetch event is invalid.");
+        }
+        markInternalActivity(internalEvent, event);
+        callbacks.onWebFetchStarted?.();
         continue;
       }
       if (event === "thinking_delta" || event === "text_delta") {

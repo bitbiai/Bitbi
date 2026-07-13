@@ -188,6 +188,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
             ['Succeeded attempts', data.attempts?.succeeded], ['Failed', data.attempts?.failed],
             ['Unknown', data.attempts?.unknown], ['Standard memory', data.standardCheckpoints],
             ['Lite memory', data.liteCheckpoints], ['Web search', data.webSearchConversations],
+            ['Web fetch', data.webFetchConversations],
             ['Compaction failures', data.compactionFailures], ['Transcript', formatBytes(data.estimatedTranscriptBytes)],
         ];
         target.replaceChildren(...stats.map(([label, value]) => {
@@ -225,6 +226,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
                 badge(item.settings.effort), badge(item.settings.preset),
                 badge(item.settings.memoryMode),
                 badge(item.settings.webSearchEnabled ? `Search ${item.settings.webSearchMaxUses}` : 'Search off'),
+                badge(item.settings.webFetchEnabled ? `Fetch ${item.settings.webFetchMaxUses || 2}` : 'Fetch off'),
             );
             card.append(
                 head,
@@ -265,6 +267,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
                 ['Preset', `${settings.preset} v${settings.presetVersion}`],
                 ['Reasoning summary', settings.reasoningSummaryEnabled ? 'Enabled' : 'Disabled'],
                 ['Web search', settings.webSearchEnabled ? `Enabled · up to ${settings.webSearchMaxUses}` : 'Disabled'],
+                ['Web fetch', settings.webFetchEnabled ? `Enabled · up to ${settings.webFetchMaxUses || 2} · ${Number(settings.webFetchMaxContentTokens || 8000).toLocaleString()} text tokens` : 'Disabled'],
                 ['Memory', settings.memoryMode], ['Administrative revision', c.adminRevisionVersion],
                 ['Uncovered visible estimate', `${detail.memory.uncoveredEstimatedTokens.toLocaleString()} tokens`],
                 ['Transcript storage', formatBytes(detail.storage.transcriptBytes)],
@@ -352,6 +355,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
             details.append(summary, definitionList([
                 ['Model', attempt.modelId], ['Effort / preset', `${attempt.effort} / ${attempt.preset}`],
                 ['Web search', attempt.webSearch.enabled ? `${attempt.webSearch.requestCount}/${attempt.webSearch.maxUses} requests` : 'Disabled'],
+                ['Web fetch', attempt.webFetch?.enabled ? `${attempt.webFetch.requestCount}/${attempt.webFetch.maxUses} requests · ${attempt.webFetch.errorResultCount} errors` : 'Disabled'],
                 ['Memory snapshot', `${attempt.memory.mode} · checkpoint v${attempt.memory.checkpointVersion}`],
                 ['Context', `${attempt.context.estimatedInputTokens.toLocaleString()} estimated input tokens`],
                 ['Stop reason', attempt.stopReason], ['Safe error', attempt.errorCode],
@@ -406,7 +410,9 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     function renderSearch(data) {
         const fragment = document.createDocumentFragment();
         fragment.append(definitionList([
-            ['Current setting', data.conversation.webSearchEnabled ? `Enabled · max ${data.conversation.maxUses}` : 'Disabled'],
+            ['Web search setting', data.conversation.webSearchEnabled ? `Enabled · max ${data.conversation.maxUses}` : 'Disabled'],
+            ['Web fetch setting', data.conversation.webFetchEnabled ? `Enabled · max ${data.conversation.webFetchMaxUses}` : 'Disabled'],
+            ['Web fetch tool', `${data.conversation.webFetchToolVersion || 'web_fetch_20260318'} · ${Number(data.conversation.webFetchMaxContentTokens || 8000).toLocaleString()} text tokens`],
             ['Replay pruned through', data.conversation.replayPrunedThroughTurnOrder],
             ['Last pruning', data.conversation.replayPrunedAt ? formatDate(data.conversation.replayPrunedAt) : null],
         ]));
@@ -415,6 +421,10 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
             const summary = node('summary', '', `${shortId(turn.id)} · ${turn.requestCount}/${turn.maxUses} searches · ${formatDate(turn.createdAt)}`);
             record.append(summary, definitionList([
                 ['Tool', turn.toolVersion], ['Result count', turn.resultCount],
+                ['Web fetch', turn.webFetch?.enabled ? `${turn.webFetch.requestCount}/${turn.webFetch.maxUses} requests · ${turn.webFetch.resultCount} results · ${turn.webFetch.errorResultCount} errors` : 'Disabled'],
+                ['Web fetch tool', `${turn.webFetch?.toolVersion || 'web_fetch_20260318'} · ${Number(turn.webFetch?.maxContentTokens || 8000).toLocaleString()} text tokens`],
+                ['Fetch pairs pruned', turn.webFetch?.replayPrunedPairCount || 0],
+                ['Fetch replay estimate removed', `${Number(turn.webFetch?.replayPrunedEstimatedTokens || 0).toLocaleString()} tokens`],
                 ['Pruned pairs', turn.replay.pairCount], ['Estimated provider tokens removed', turn.replay.estimatedTokensRemoved],
             ]));
             if (turn.citations?.length) record.append(sourceList(turn.citations));
@@ -617,8 +627,9 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
                 ['standard', 'lite'].forEach((value) => { const option = node('option', '', value); option.value = value; option.selected = current.memoryMode === value; memory.append(option); });
                 const reasoning = node('input'); reasoning.type = 'checkbox'; reasoning.name = 'reasoning'; reasoning.checked = current.reasoningSummaryEnabled;
                 const search = node('input'); search.type = 'checkbox'; search.name = 'search'; search.checked = current.webSearchEnabled;
+                const fetch = node('input'); fetch.type = 'checkbox'; fetch.name = 'fetch'; fetch.checked = current.webFetchEnabled;
                 const reason = node('textarea'); reason.name = 'reason'; reason.maxLength = 500;
-                container.append(makeField('Effort', effort), makeField('Preset', preset), makeField('Memory mode', memory), makeField('Reasoning summary', reasoning), makeField('Web search', search), makeField('Administrative reason', reason));
+                container.append(makeField('Effort', effort), makeField('Preset', preset), makeField('Memory mode', memory), makeField('Reasoning summary', reasoning), makeField('Web search', search), makeField('Web fetch', fetch), makeField('Administrative reason', reason));
             } });
             if (!form) return;
             payload = {
@@ -627,6 +638,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
                 memoryMode: form.querySelector('[name="memoryMode"]').value,
                 reasoningSummaryEnabled: form.querySelector('[name="reasoning"]').checked,
                 webSearchEnabled: form.querySelector('[name="search"]').checked,
+                webFetchEnabled: form.querySelector('[name="fetch"]').checked,
                 reason: form.querySelector('[name="reason"]').value,
             };
         } else {

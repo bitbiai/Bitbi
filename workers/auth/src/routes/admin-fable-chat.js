@@ -88,9 +88,12 @@ const SAFE_STREAM_WITNESS_ERROR_CODES = new Set([
   "fable_chat_persistence_unavailable", "fable_chat_provider_outcome_unknown",
   "provider_upstream_eof_before_message_stop", "provider_unfinished_content_blocks",
   "provider_invalid_citation_structure", "provider_invalid_web_search_structure",
+  "provider_invalid_web_fetch_structure",
   "provider_unsupported_block_type", "provider_final_normalized_response_limit_exceeded",
   "provider_terminal_assembly_failure", "provider_invalid_block_lifecycle",
   "provider_unicode_decode_failure", "provider_web_search_blocks_invalid",
+  "provider_web_fetch_blocks_invalid", "provider_web_fetch_limit_exceeded",
+  "provider_web_fetch_limit_invalid",
 ]);
 
 function correlated(response, correlationId) {
@@ -194,6 +197,13 @@ function internalFableChatPayload(modelContext) {
     webSearchEnabled: modelContext.webSearchEnabled,
     webSearchMaxUses: modelContext.webSearchMaxUses,
     webSearchContractVersion: modelContext.webSearchContractVersion,
+    webFetchEnabled: modelContext.webFetchEnabled,
+    webFetchToolVersion: modelContext.webFetchToolVersion,
+    webFetchMaxUses: modelContext.webFetchMaxUses,
+    webFetchMaxContentTokens: modelContext.webFetchMaxContentTokens,
+    webFetchAllowedCallers: modelContext.webFetchAllowedCallers,
+    webFetchUseCache: modelContext.webFetchUseCache,
+    webFetchContractVersion: modelContext.webFetchContractVersion,
     memoryMode: modelContext.memoryMode,
     memoryContractVersion: modelContext.memorySelection.contractVersion,
     memoryCheckpointVersion: modelContext.memorySelection.checkpointVersion,
@@ -309,6 +319,8 @@ function auditFableChat(ctx, adminUser, action, {
   estimatedInputBucket = null,
   webSearchEnabled = null,
   webSearchRequestCount = null,
+  webFetchEnabled = null,
+  webFetchRequestCount = null,
   memoryMode = null,
 } = {}) {
   const promise = enqueueAdminAuditEvent(
@@ -327,6 +339,8 @@ function auditFableChat(ctx, adminUser, action, {
         estimated_input_bucket_tokens: estimatedInputBucket,
         web_search_enabled: webSearchEnabled,
         web_search_request_count: webSearchRequestCount,
+        web_fetch_enabled: webFetchEnabled,
+        web_fetch_request_count: webFetchRequestCount,
         memory_mode: memoryMode,
       },
     },
@@ -747,6 +761,9 @@ async function handleSend(ctx, adminUser, conversationId) {
       providerDurationMs: providerBody?.elapsedMs,
       webSearchRequestCount: providerBody?.result?.webSearchRequestCount,
       webSearchResultCount: providerBody?.result?.webSearchResultCount,
+      webFetchRequestCount: providerBody?.result?.webFetchRequestCount,
+      webFetchResultCount: providerBody?.result?.webFetchResultCount,
+      webFetchErrorResultCount: providerBody?.result?.webFetchErrorResultCount,
     });
     finalized = true;
     turn = result.turn;
@@ -757,6 +774,7 @@ async function handleSend(ctx, adminUser, conversationId) {
       outputTruncated: result.turn.outputTruncated === true,
       usage: providerBody?.result?.usage || null,
       webSearchRequestCount: result.turn.webSearchRequestCount,
+      webFetchRequestCount: result.turn.webFetchRequestCount,
     });
     auditFableChat(ctx, adminUser, "fable_chat_message_succeeded", {
       conversationId,
@@ -768,6 +786,8 @@ async function handleSend(ctx, adminUser, conversationId) {
       estimatedInputBucket: prepared.budget.metadata.estimated_input_bucket_tokens,
       webSearchEnabled: prepared.settings.webSearchEnabled,
       webSearchRequestCount: result.turn.webSearchRequestCount,
+      webFetchEnabled: prepared.settings.webFetchEnabled,
+      webFetchRequestCount: result.turn.webFetchRequestCount,
     });
     scheduleFableChatMemoryMaintenance(ctx, adminUser, conversationId, {
       skipStandardOnce: prepared.standardMemoryPreflightAttempted,
@@ -818,6 +838,9 @@ function replayStreamResponse(ctx, adminUser, conversationId, result) {
         }
         if (result?.turn?.webSearchRequestCount > 0) {
           controller.enqueue(encodeFableChatBrowserEvent("web_search_started", { replayed: true }));
+        }
+        if (result?.turn?.webFetchRequestCount > 0) {
+          controller.enqueue(encodeFableChatBrowserEvent("web_fetch_started", { replayed: true }));
         }
         if (assistant?.content) {
           controller.enqueue(encodeFableChatBrowserEvent("text_delta", { text: assistant.content }));
@@ -870,6 +893,7 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             onThinkingDelta: (text) => enqueue("thinking_delta", { text }),
             onTextDelta: (text) => enqueue("text_delta", { text }),
             onWebSearchStarted: () => enqueue("web_search_started", { ok: true }),
+            onWebFetchStarted: () => enqueue("web_fetch_started", { ok: true }),
             onKeepalive: () => enqueue("keepalive", { ok: true }),
             onTerminalWitness: (witness) => { aiTerminalWitness = witness; },
           });
@@ -886,6 +910,9 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             providerDurationMs: complete.durationMs,
             webSearchRequestCount: complete.webSearchRequestCount,
             webSearchResultCount: complete.webSearchResultCount,
+            webFetchRequestCount: complete.webFetchRequestCount,
+            webFetchResultCount: complete.webFetchResultCount,
+            webFetchErrorResultCount: complete.webFetchErrorResultCount,
           });
           turn = result.turn;
           durablyFinalized = true;
@@ -909,6 +936,7 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             outputTruncated: result.turn.outputTruncated === true,
             usage: complete.usage || null,
             webSearchRequestCount: result.turn.webSearchRequestCount,
+            webFetchRequestCount: result.turn.webFetchRequestCount,
           });
           auditFableChat(ctx, adminUser, "fable_chat_message_succeeded", {
             conversationId,
@@ -920,6 +948,8 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             estimatedInputBucket: prepared.budget.metadata.estimated_input_bucket_tokens,
             webSearchEnabled: prepared.settings.webSearchEnabled,
             webSearchRequestCount: result.turn.webSearchRequestCount,
+            webFetchEnabled: prepared.settings.webFetchEnabled,
+            webFetchRequestCount: result.turn.webFetchRequestCount,
           });
           scheduleFableChatMemoryMaintenance(ctx, adminUser, conversationId, {
             skipStandardOnce: prepared.standardMemoryPreflightAttempted,

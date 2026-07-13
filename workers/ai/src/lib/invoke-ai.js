@@ -27,6 +27,13 @@ import {
 } from "./generation-timeout.js";
 import {
   FABLE_CHAT_GENERATION_TIMEOUT_MS,
+  FABLE_CHAT_WEB_FETCH_ALLOWED_CALLERS,
+  FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS,
+  FABLE_CHAT_WEB_FETCH_MAX_CONTINUATIONS,
+  FABLE_CHAT_WEB_FETCH_MAX_USES,
+  FABLE_CHAT_WEB_FETCH_TOOL_NAME,
+  FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
+  FABLE_CHAT_WEB_FETCH_USE_CACHE,
   FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
   FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS,
   FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
@@ -88,13 +95,26 @@ function buildTextInvocation(env, model, input) {
     if (input.thinkingDisplay) {
       payload.thinking = { type: "adaptive", display: input.thinkingDisplay };
     }
+    const tools = [];
     if (input.webSearchEnabled === true) {
-      payload.tools = [{
+      tools.push({
         type: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
         name: FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
         max_uses: input.webSearchMaxUses,
-      }];
+      });
     }
+    if (input.webFetchEnabled === true) {
+      tools.push({
+        type: FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
+        name: FABLE_CHAT_WEB_FETCH_TOOL_NAME,
+        max_uses: FABLE_CHAT_WEB_FETCH_MAX_USES,
+        citations: { enabled: true },
+        max_content_tokens: FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS,
+        allowed_callers: [...FABLE_CHAT_WEB_FETCH_ALLOWED_CALLERS],
+        use_cache: FABLE_CHAT_WEB_FETCH_USE_CACHE,
+      });
+    }
+    if (tools.length > 0) payload.tools = tools;
     if (input.stream === true) payload.stream = true;
 
     const gateway = {
@@ -151,11 +171,21 @@ function addUsageValues(left, right) {
   }
   const aSearch = Number(left?.server_tool_use?.web_search_requests);
   const bSearch = Number(right?.server_tool_use?.web_search_requests);
-  if (Number.isFinite(aSearch) || Number.isFinite(bSearch)) {
+  const aFetch = Number(left?.server_tool_use?.web_fetch_requests);
+  const bFetch = Number(right?.server_tool_use?.web_fetch_requests);
+  if (Number.isFinite(aSearch) || Number.isFinite(bSearch)
+    || Number.isFinite(aFetch) || Number.isFinite(bFetch)) {
     output.server_tool_use = {
+      ...(Number.isFinite(aSearch) || Number.isFinite(bSearch) ? {
       web_search_requests: Math.min(FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
         Math.max(0, Math.floor(Number.isFinite(aSearch) ? aSearch : 0))
         + Math.max(0, Math.floor(Number.isFinite(bSearch) ? bSearch : 0))),
+      } : {}),
+      ...(Number.isFinite(aFetch) || Number.isFinite(bFetch) ? {
+        web_fetch_requests: Math.min(FABLE_CHAT_WEB_FETCH_MAX_USES,
+          Math.max(0, Math.floor(Number.isFinite(aFetch) ? aFetch : 0))
+          + Math.max(0, Math.floor(Number.isFinite(bFetch) ? bFetch : 0))),
+      } : {}),
     };
   }
   return Object.keys(output).length > 0 ? output : null;
@@ -206,9 +236,16 @@ function sanitizeAnthropicUsage(usage) {
     safe.output_tokens_details = { thinking_tokens: thinkingTokens };
   }
   const searchRequests = Number(usage?.server_tool_use?.web_search_requests);
-  if (Number.isFinite(searchRequests) && searchRequests >= 0) {
+  const fetchRequests = Number(usage?.server_tool_use?.web_fetch_requests);
+  if ((Number.isFinite(searchRequests) && searchRequests >= 0)
+    || (Number.isFinite(fetchRequests) && fetchRequests >= 0)) {
     safe.server_tool_use = {
+      ...(Number.isFinite(searchRequests) && searchRequests >= 0 ? {
       web_search_requests: Math.min(FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES, Math.floor(searchRequests)),
+      } : {}),
+      ...(Number.isFinite(fetchRequests) && fetchRequests >= 0 ? {
+        web_fetch_requests: Math.min(FABLE_CHAT_WEB_FETCH_MAX_USES, Math.floor(fetchRequests)),
+      } : {}),
     };
   }
   return Object.keys(safe).length > 0 ? safe : null;
@@ -737,11 +774,11 @@ export async function invokeText(env, model, input) {
     ), {
       timeoutMs: input.generationTimeoutMs || undefined,
     });
-    if (model.id === CLAUDE_FABLE_5_MODEL_ID && input.webSearchEnabled === true) {
-      const maxContinuations = Math.min(
-        FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS,
-        input.webSearchMaxUses
-      );
+    if (model.id === CLAUDE_FABLE_5_MODEL_ID
+      && (input.webSearchEnabled === true || input.webFetchEnabled === true)) {
+      const maxContinuations = (input.webSearchEnabled === true
+        ? Math.min(FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS, input.webSearchMaxUses)
+        : 0) + (input.webFetchEnabled === true ? FABLE_CHAT_WEB_FETCH_MAX_CONTINUATIONS : 0);
       let continuationCount = 0;
       let accumulatedBlocks = [];
       let accumulatedUsage = null;
@@ -750,12 +787,15 @@ export async function invokeText(env, model, input) {
         const paused = extractAnthropicVisibleResult(raw?.content, {
           allowMissingText: true,
           allowOrphanSearchResults: continuationCount > 0,
-          maxWebSearchUses: input.webSearchMaxUses,
+          allowOrphanFetchResults: continuationCount > 0,
+          maxWebSearchUses: input.webSearchEnabled === true ? input.webSearchMaxUses : 0,
+          maxWebFetchUses: input.webFetchEnabled === true ? input.webFetchMaxUses : 0,
         });
         accumulatedBlocks = [...accumulatedBlocks, ...paused.providerBlocks];
         extractAnthropicVisibleResult(accumulatedBlocks, {
           allowMissingText: true,
-          maxWebSearchUses: input.webSearchMaxUses,
+          maxWebSearchUses: input.webSearchEnabled === true ? input.webSearchMaxUses : 0,
+          maxWebFetchUses: input.webFetchEnabled === true ? input.webFetchMaxUses : 0,
         });
         accumulatedUsage = addUsageValues(accumulatedUsage, raw?.usage);
         gatewayMetadata = raw?.gatewayMetadata || gatewayMetadata;
@@ -809,8 +849,9 @@ export async function invokeText(env, model, input) {
   }
 
   const preserved = isAnthropic && input.preserveAnthropicContent === true
-    ? extractAnthropicVisibleResult(raw?.content, {
-        maxWebSearchUses: input.webSearchMaxUses,
+      ? extractAnthropicVisibleResult(raw?.content, {
+        maxWebSearchUses: input.webSearchEnabled === true ? input.webSearchMaxUses : 0,
+        maxWebFetchUses: input.webFetchEnabled === true ? input.webFetchMaxUses : 0,
       })
     : null;
   if (preserved && preserved.text !== text) {
@@ -834,6 +875,9 @@ export async function invokeText(env, model, input) {
       sources: preserved.sources,
       webSearchRequestCount: preserved.webSearchRequestCount,
       webSearchResultCount: preserved.webSearchResultCount,
+      webFetchRequestCount: preserved.webFetchRequestCount,
+      webFetchResultCount: preserved.webFetchResultCount,
+      webFetchErrorResultCount: preserved.webFetchErrorResultCount,
     } : {}),
     ...(model.id === QWEN3_30B_A3B_MODEL_ID
       ? { providerCostUsd: calculateQwen3UsageCostUsd(usage).totalCostUsd }
@@ -1212,7 +1256,7 @@ export async function invokeFableChatStream(env, model, input) {
     return {
       stream,
       startedAt,
-      continueAfterPause: input.webSearchEnabled === true
+      continueAfterPause: input.webSearchEnabled === true || input.webFetchEnabled === true
         ? async (providerBlocks) => {
             const continuationPayload = buildPauseTurnContinuationPayload(payload, providerBlocks);
             const continuation = await runWithGenerationTimeout(() => env.AI.run(

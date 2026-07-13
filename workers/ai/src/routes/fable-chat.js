@@ -35,7 +35,8 @@ export async function handleFableChat({ request, env, correlationId, pathname, m
       return new Response(createInternalFableChatStream(output.stream, {
         startedAt: output.startedAt,
         continueAfterPause: output.continueAfterPause,
-        maxWebSearchUses: input.webSearchMaxUses,
+        maxWebSearchUses: input.webSearchEnabled ? input.webSearchMaxUses : 0,
+        maxWebFetchUses: input.webFetchEnabled ? input.webFetchMaxUses : 0,
         onTerminalWitness: (witness) => {
           logDiagnostic({
             service: "bitbi-ai",
@@ -71,6 +72,9 @@ export async function handleFableChat({ request, env, correlationId, pathname, m
         sources: output.sources,
         webSearchRequestCount: output.webSearchRequestCount,
         webSearchResultCount: output.webSearchResultCount,
+        webFetchRequestCount: output.webFetchRequestCount,
+        webFetchResultCount: output.webFetchResultCount,
+        webFetchErrorResultCount: output.webFetchErrorResultCount,
         usage: output.usage,
         maxTokens: input.maxTokens,
         ...(output.responseModel ? { responseModel: output.responseModel } : {}),

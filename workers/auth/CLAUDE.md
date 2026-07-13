@@ -36,6 +36,7 @@ Latest auth D1 migration: read `release.schemaCheckpoints.auth.latest` from `con
 
 Current high-impact migration dependencies:
 
+- `0076_add_fable_chat_web_fetch.sql` for the default-off Web Fetch conversation switch and immutable, content-free per-turn Fetch configuration, usage, and replay-pruning metadata.
 - `0075_add_fable_admin_data_center.sql` for append-only Admin transcript revisions, complete-turn tombstones/restoration, checkpoint invalidations, mutation-version snapshots, and idempotent Admin write receipts. Apply it before deploying `/api/admin/fable-chat-data/*`.
 
 - `0073_add_fable_chat_rolling_memory.sql` for the Standard/Lite conversation setting, immutable inference checkpoint snapshots, and private versioned Qwen rolling-memory checkpoints. Apply it before deploying rolling-memory behavior in `/api/admin/fable-chat/*`.

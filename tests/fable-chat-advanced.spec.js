@@ -274,6 +274,99 @@ function webSearchProviderEvents({ stopReason = 'end_turn', includeToolUse = tru
   return events;
 }
 
+function webFetchProviderEvents({
+  stopReason = 'end_turn', includeToolUse = true, errorCode = null,
+} = {}) {
+  const toolId = 'srvtoolu_fetch1234567';
+  const events = [{
+    event: 'message_start',
+    data: {
+      type: 'message_start',
+      message: { model: 'claude-fable-5', usage: { input_tokens: 120 } },
+    },
+  }];
+  let index = 0;
+  if (includeToolUse) {
+    events.push(
+      {
+        event: 'content_block_start',
+        data: {
+          type: 'content_block_start', index,
+          content_block: { type: 'server_tool_use', id: toolId, name: 'web_fetch' },
+        },
+      },
+      {
+        event: 'content_block_delta',
+        data: {
+          type: 'content_block_delta', index,
+          delta: { type: 'input_json_delta', partial_json: '{"url":"https://example.test/page"}' },
+        },
+      },
+      { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    );
+    index += 1;
+  }
+  events.push(
+    {
+      event: 'content_block_start',
+      data: {
+        type: 'content_block_start', index,
+        content_block: {
+          type: 'web_fetch_tool_result', tool_use_id: toolId,
+          content: errorCode ? {
+            type: 'web_fetch_tool_result_error', error_code: errorCode,
+          } : {
+            type: 'web_fetch_result',
+            url: 'https://example.test/page',
+            content: {
+              type: 'document',
+              source: { type: 'text', media_type: 'text/plain', data: 'Synthetic public page body.' },
+              title: 'Synthetic page',
+              citations: { enabled: true },
+            },
+            retrieved_at: '2026-07-13T10:00:00Z',
+          },
+        },
+      },
+    },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+  );
+  index += 1;
+  events.push(
+    {
+      event: 'content_block_start',
+      data: { type: 'content_block_start', index, content_block: { type: 'text', text: '', citations: [] } },
+    },
+    {
+      event: 'content_block_delta',
+      data: { type: 'content_block_delta', index, delta: { type: 'text_delta', text: 'Fetch completed.' } },
+    },
+    ...(errorCode ? [] : [{
+      event: 'content_block_delta',
+      data: {
+        type: 'content_block_delta', index,
+        delta: {
+          type: 'citations_delta',
+          citation: {
+            type: 'char_location', document_index: 0, document_title: 'Synthetic page',
+            start_char_index: 0, end_char_index: 9, cited_text: 'Synthetic',
+          },
+        },
+      },
+    }]),
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    {
+      event: 'message_delta',
+      data: {
+        type: 'message_delta', delta: { stop_reason: stopReason },
+        usage: { output_tokens: 12, server_tool_use: { web_fetch_requests: 1 } },
+      },
+    },
+    { event: 'message_stop', data: { type: 'message_stop' } },
+  );
+  return events;
+}
+
 function countedWebSearchProviderEvents(count) {
   const events = [{
     event: 'message_start',
@@ -516,6 +609,224 @@ function repeatedNativeCitationTerminalEvents({
 }
 
 test.describe('Advanced Fable chat contract', () => {
+  test('Web Fetch is default-off, independently server-owned, and composes without changing Search-only payloads', async () => {
+    const contract = await import(moduleUrl('workers/shared/fable-chat-contract.mjs'));
+    const auth = await import(moduleUrl('workers/auth/src/lib/fable-chat.js'));
+    const ai = await import(moduleUrl('workers/ai/src/lib/validate.js'));
+    const route = await import(moduleUrl('workers/ai/src/routes/fable-chat.js'));
+    const expectedFetch = {
+      type: 'web_fetch_20260318', name: 'web_fetch', max_uses: 2,
+      citations: { enabled: true }, max_content_tokens: 8_000,
+      allowed_callers: ['direct'], use_cache: true,
+    };
+    expect(contract.FABLE_CHAT_DEFAULT_WEB_FETCH_ENABLED).toBe(false);
+    expect(auth.validateCreateFableChatBody({})).toEqual({});
+    expect(auth.validateUpdateFableChatSettingsBody({ webFetchEnabled: true }))
+      .toEqual({ webFetchEnabled: true });
+    for (const value of ['yes', 1, null]) {
+      expect(() => auth.validateUpdateFableChatSettingsBody({ webFetchEnabled: value })).toThrow();
+    }
+    for (const field of ['webFetchMaxUses', 'webFetchToolVersion', 'allowed_callers', 'tools']) {
+      expect(() => auth.validateSendFableChatBody({ message: 'Hello', [field]: 1 })).toThrow();
+    }
+    const exactConfig = {
+      webFetchEnabled: true,
+      webFetchToolVersion: 'web_fetch_20260318',
+      webFetchMaxUses: 2,
+      webFetchMaxContentTokens: 8_000,
+      webFetchAllowedCallers: ['direct'],
+      webFetchUseCache: true,
+      webFetchContractVersion: 1,
+    };
+    expect(ai.validateFableChatBody(validAiBody(undefined, exactConfig))).toMatchObject(exactConfig);
+    for (const override of [
+      { webFetchToolVersion: 'web_fetch_20250910' }, { webFetchMaxUses: 3 },
+      { webFetchMaxContentTokens: 9_000 }, { webFetchAllowedCallers: ['code_execution_20250825'] },
+      { webFetchUseCache: false }, { webFetchContractVersion: 2 },
+    ]) {
+      expect(() => ai.validateFableChatBody(validAiBody(undefined, { ...exactConfig, ...override })))
+        .toThrow();
+    }
+
+    const capture = async (overrides) => {
+      const calls = [];
+      const response = await route.handleFableChat({
+        request: new Request('https://bitbi-ai.internal/internal/ai/fable-chat', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(validAiBody(undefined, overrides)),
+        }),
+        env: { AI: { run: async (...args) => {
+          calls.push(args);
+          return { content: [{ type: 'text', text: 'Synthetic.' }], stop_reason: 'end_turn', usage: {} };
+        } } },
+        correlationId: 'fetch-payload-test', pathname: '/internal/ai/fable-chat', method: 'POST',
+      });
+      expect(response.status).toBe(200);
+      return calls[0][1];
+    };
+    const none = await capture({ webSearchEnabled: false, webFetchEnabled: false });
+    const search = await capture({ webSearchEnabled: true, webFetchEnabled: false });
+    const fetch = await capture({ webSearchEnabled: false, webFetchEnabled: true });
+    const both = await capture({ webSearchEnabled: true, webFetchEnabled: true });
+    expect(none.tools).toBeUndefined();
+    expect(search.tools).toEqual([{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }]);
+    expect(fetch.tools).toEqual([expectedFetch]);
+    expect(both.tools).toEqual([search.tools[0], expectedFetch]);
+  });
+
+  test('Web Fetch streaming, tool errors, citations, and private result handling are strict', async () => {
+    const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const authStream = await import(moduleUrl('workers/auth/src/lib/fable-chat-stream.js'));
+    const context = await import(moduleUrl('workers/auth/src/lib/fable-chat-context.js'));
+    const statuses = [];
+    const result = await aiStream.consumeAnthropicMessageStream(byteStream([
+      encodeSseEvents(webFetchProviderEvents()),
+    ]), { onWebFetchStarted: () => statuses.push('fetch') }, { maxWebFetchUses: 2 });
+    expect(statuses).toEqual(['fetch']);
+    expect(result).toMatchObject({
+      text: 'Fetch completed.', webFetchRequestCount: 1, webFetchResultCount: 1,
+      webFetchErrorResultCount: 0,
+      sources: [{ url: 'https://example.test/page', title: 'Synthetic page' }],
+      usage: { server_tool_use: { web_fetch_requests: 1 } },
+    });
+    expect(result.providerBlocks[1].content.content.source.data).toBe('Synthetic public page body.');
+    expect(JSON.stringify(result.sources)).not.toContain('page body');
+    expect(context.extractFableChatCitations(result.providerBlocks)).toEqual([
+      { type: 'web_search_result_location', url: 'https://example.test/page', title: 'Synthetic page' },
+    ]);
+
+    const internal = aiStream.createInternalFableChatStream(byteStream([
+      encodeSseEvents(webFetchProviderEvents()),
+    ]), { maxWebFetchUses: 2 });
+    let normalizedStatuses = 0;
+    const complete = await authStream.consumeInternalFableChatStream(internal, {
+      onWebFetchStarted: () => { normalizedStatuses += 1; },
+    });
+    expect(normalizedStatuses).toBe(1);
+    expect(complete.webFetchRequestCount).toBe(1);
+    expect(complete.aiTerminalWitness).toMatchObject({
+      message_stop_seen: true, all_blocks_stopped: true,
+      complete_internal_constructed: true, complete_internal_emitted: true,
+    });
+
+    for (const errorCode of [
+      'invalid_tool_input', 'url_too_long', 'url_not_allowed', 'url_not_in_prior_context',
+      'url_not_accessible', 'too_many_requests', 'unsupported_content_type',
+      'max_uses_exceeded', 'unavailable',
+    ]) {
+      const failedFetch = await aiStream.consumeAnthropicMessageStream(byteStream([
+        encodeSseEvents(webFetchProviderEvents({ errorCode })),
+      ]), {}, { maxWebFetchUses: 2 });
+      expect(failedFetch).toMatchObject({
+        stopReason: 'end_turn', webFetchRequestCount: 1, webFetchResultCount: 1,
+        webFetchErrorResultCount: 1,
+      });
+    }
+    const serialized = JSON.stringify(complete.aiTerminalWitness);
+    expect(serialized).not.toContain('example.test');
+    expect(serialized).not.toContain('page body');
+  });
+
+  test('Web Fetch accepts bounded PDF documents and rejects unsafe provider URLs', async () => {
+    const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const pdfBlocks = [
+      {
+        type: 'server_tool_use', id: 'srvtoolu_pdf12345678', name: 'web_fetch',
+        input: { url: 'https://example.test/document.pdf' },
+      },
+      {
+        type: 'web_fetch_tool_result', tool_use_id: 'srvtoolu_pdf12345678',
+        content: {
+          type: 'web_fetch_result', url: 'https://example.test/document.pdf',
+          content: {
+            type: 'document',
+            source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0xLjQ=' },
+            citations: { enabled: true },
+          },
+          retrieved_at: '2026-07-13T10:00:00Z',
+        },
+      },
+      { type: 'text', text: 'Synthetic PDF result.', citations: [] },
+    ];
+    expect(aiStream.sanitizeAnthropicContentBlocks(pdfBlocks)[1])
+      .toEqual(pdfBlocks[1]);
+    expect(() => aiStream.sanitizeAnthropicContentBlocks([
+      { ...pdfBlocks[0], input: { url: 'http://example.test/document.pdf' } },
+    ])).toThrow();
+    expect(() => aiStream.sanitizeAnthropicContentBlocks([
+      {
+        ...pdfBlocks[1],
+        content: { ...pdfBlocks[1].content, url: 'file:///private/document.pdf' },
+      },
+    ])).toThrow();
+  });
+
+  test('Web Fetch pause_turn reuses the identical server-owned tool configuration', async () => {
+    const route = await import(moduleUrl('workers/ai/src/routes/fable-chat.js'));
+    const authStream = await import(moduleUrl('workers/auth/src/lib/fable-chat-stream.js'));
+    const paused = webFetchProviderEvents().slice(0, 4);
+    paused.push(
+      { event: 'message_delta', data: { type: 'message_delta', delta: { stop_reason: 'pause_turn' }, usage: {} } },
+      { event: 'message_stop', data: { type: 'message_stop' } },
+    );
+    const calls = [];
+    const streams = [
+      byteStream([encodeSseEvents(paused)]),
+      byteStream([encodeSseEvents(webFetchProviderEvents({ includeToolUse: false }))]),
+    ];
+    const response = await route.handleFableChat({
+      request: new Request('https://bitbi-ai.internal/internal/ai/fable-chat/stream', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(validAiBody(undefined, { webFetchEnabled: true })),
+      }),
+      env: { AI: { run: async (...args) => {
+        calls.push(args);
+        return streams.shift();
+      } } },
+      correlationId: 'fetch-pause-test', pathname: '/internal/ai/fable-chat/stream', method: 'POST',
+    });
+    expect(response.status).toBe(200);
+    const complete = await authStream.consumeInternalFableChatStream(response.body);
+    expect(calls).toHaveLength(2);
+    expect(calls[1][1].tools).toEqual(calls[0][1].tools);
+    expect(calls[1][1].messages.at(-1)).toEqual({
+      role: 'assistant', content: complete.providerBlocks.slice(0, 1),
+    });
+    expect(complete).toMatchObject({
+      webFetchRequestCount: 1, webFetchResultCount: 1, stopReason: 'end_turn',
+    });
+  });
+
+  test('stale Web Fetch replay is projected only as a complete text-only turn', async () => {
+    const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const context = await import(moduleUrl('workers/auth/src/lib/fable-chat-context.js'));
+    const result = await aiStream.consumeAnthropicMessageStream(byteStream([
+      encodeSseEvents(webFetchProviderEvents()),
+    ]), {}, { maxWebFetchUses: 2 });
+    const unchanged = context.projectFableChatProviderReplay({
+      providerBlocks: result.providerBlocks,
+      assistantContent: result.text,
+      citations: result.sources,
+    });
+    expect(unchanged.blocks).toEqual(result.providerBlocks);
+    const projected = context.projectFableChatProviderReplay({
+      providerBlocks: result.providerBlocks,
+      assistantContent: result.text,
+      citations: result.sources,
+      pruneCompletedWebSearch: true,
+    });
+    expect(projected).toMatchObject({
+      prunedPairCount: 1, prunedWebFetchPairCount: 1, projectedNativeTurn: true,
+    });
+    expect(projected.prunedEstimatedTokens).toBeGreaterThan(0);
+    expect(projected.blocks).toEqual([{
+      type: 'text',
+      text: 'Fetch completed.\n\nSources:\n- Synthetic page: https://example.test/page',
+    }]);
+    expect(JSON.stringify(projected.blocks)).not.toContain('web_fetch');
+    expect(JSON.stringify(projected.blocks)).not.toContain('page body');
+    expect(result.providerBlocks[1].content.content.source.data).toBe('Synthetic public page body.');
+  });
   test('Web search effort limits are exact and independently validated through the provider payload', async () => {
     const contract = await import(moduleUrl('workers/shared/fable-chat-contract.mjs'));
     const auth = await import(moduleUrl('workers/auth/src/lib/fable-chat.js'));

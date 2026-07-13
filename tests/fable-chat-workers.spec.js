@@ -463,7 +463,11 @@ test.describe('Private admin Fable chat', () => {
       path.join(process.cwd(), 'workers/auth/migrations/0075_add_fable_admin_data_center.sql'),
       'utf8'
     );
-    expect(CURRENT_AUTH_MIGRATION).toBe('0075_add_fable_admin_data_center.sql');
+    const webFetchMigration = fs.readFileSync(
+      path.join(process.cwd(), 'workers/auth/migrations/0076_add_fable_chat_web_fetch.sql'),
+      'utf8'
+    );
+    expect(CURRENT_AUTH_MIGRATION).toBe('0076_add_fable_chat_web_fetch.sql');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_conversations');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_turns');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_messages');
@@ -491,12 +495,16 @@ test.describe('Private admin Fable chat', () => {
     expect(adminDataMigration).toContain('CREATE TABLE fable_chat_admin_turn_revisions');
     expect(adminDataMigration).toContain('CREATE TABLE fable_chat_memory_checkpoint_invalidations');
     expect(adminDataMigration).toContain('CREATE TABLE fable_chat_admin_write_receipts');
+    expect(webFetchMigration).toContain('web_fetch_enabled INTEGER NOT NULL DEFAULT 0');
+    expect(webFetchMigration).toContain("web_fetch_tool_version TEXT NOT NULL DEFAULT 'web_fetch_20260318'");
+    expect(webFetchMigration).toContain('web_fetch_max_uses INTEGER NOT NULL DEFAULT 2');
+    expect(webFetchMigration).toContain('web_fetch_max_content_tokens INTEGER NOT NULL DEFAULT 8000');
     expect(memoryMigration).toContain("summarizer_model_id TEXT NOT NULL DEFAULT '@cf/qwen/qwen3-30b-a3b-fp8'");
     expect(replayPruningMigration).toContain(
       'web_replay_pruned_through_turn_order INTEGER NOT NULL DEFAULT -1'
     );
     expect(replayPruningMigration).toContain('web_replay_pruned_at TEXT');
-    expect(`${baseMigration}\n${advancedMigration}\n${webSearchMigration}\n${effortSearchMigration}\n${memoryMigration}\n${replayPruningMigration}`).not.toMatch(
+    expect(`${baseMigration}\n${advancedMigration}\n${webSearchMigration}\n${effortSearchMigration}\n${memoryMigration}\n${replayPruningMigration}\n${adminDataMigration}\n${webFetchMigration}`).not.toMatch(
       /DROP\s+TABLE|DELETE\s+FROM|raw_idempotency/i
     );
   });
@@ -4144,6 +4152,116 @@ test.describe('Private admin Fable chat', () => {
            FROM fable_chat_admin_mutation_claims WHERE conversation_id = ?`
       ).get(conversation.id);
       expect(claim).toMatchObject({ invalidated_from_turn_order: 0, to_revision: 1 });
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('Web Fetch settings, private evidence, citations, budget, and exact-once finalization are durable', async () => {
+    const fetchId = 'srvtoolu_fetchdurable1';
+    const providerBlocks = [
+      { type: 'server_tool_use', id: fetchId, name: 'web_fetch', input: { url: 'https://example.test/page' } },
+      {
+        type: 'web_fetch_tool_result', tool_use_id: fetchId,
+        content: {
+          type: 'web_fetch_result', url: 'https://example.test/page',
+          content: {
+            type: 'document',
+            source: { type: 'text', media_type: 'text/plain', data: 'Synthetic private fetched body.' },
+            title: 'Synthetic page', citations: { enabled: true },
+          },
+          retrieved_at: '2026-07-13T10:00:00Z',
+        },
+      },
+      {
+        type: 'text', text: 'Durable visible answer.', citations: [{
+          type: 'char_location', document_index: 0, document_title: 'Synthetic page',
+          start_char_index: 0, end_char_index: 9, cited_text: 'Synthetic',
+        }],
+      },
+    ];
+    const { env, DB, providerCalls } = await createFableChatSqliteEnv({
+      provider: async ({ body }) => new Response(JSON.stringify({
+        ok: true,
+        task: 'fable-chat',
+        model: { id: 'anthropic/claude-fable-5' },
+        result: {
+          text: 'Durable visible answer.', providerBlocks,
+          sources: [{ type: 'web_search_result_location', url: 'https://example.test/page', title: 'Synthetic page' }],
+          webSearchRequestCount: 0, webSearchResultCount: 0,
+          webFetchRequestCount: body.webFetchEnabled ? 1 : 0,
+          webFetchResultCount: body.webFetchEnabled ? 1 : 0,
+          webFetchErrorResultCount: 0,
+          usage: { input_tokens: 20, output_tokens: 10, server_tool_use: { web_fetch_requests: 1 } },
+          responseModel: 'claude-fable-5', stopReason: 'end_turn',
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    });
+    try {
+      const worker = await loadWorker('workers/auth/src/index.js');
+      const adminUserId = 'admin-fable-web-fetch';
+      const admin = await seedFableChatActor(env, {
+        id: adminUserId, email: 'fable-web-fetch@example.com',
+      });
+      const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      expect(conversation.settings.webFetchEnabled).toBe(false);
+      const enabled = await callFableAuthWorker(
+        worker, env, `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        { method: 'PATCH', cookie: admin.cookie, body: { webFetchEnabled: true } }
+      );
+      expect(enabled.status).toBe(200);
+      expect((await enabled.json()).settings.webFetchEnabled).toBe(true);
+
+      const send = async () => callFableAuthWorker(
+        worker, env, `/api/admin/fable-chat/conversations/${conversation.id}/messages`,
+        {
+          method: 'POST', cookie: admin.cookie, idempotencyKey: 'web-fetch-durable-send-0001',
+          body: { message: 'Fetch https://example.test/page' },
+        }
+      );
+      const first = await send();
+      expect(first.status).toBe(200);
+      const firstBody = await first.json();
+      expect(firstBody.turn).toMatchObject({
+        status: 'succeeded', webFetchEnabled: true, webFetchToolVersion: 'web_fetch_20260318',
+        webFetchMaxUses: 2, webFetchMaxContentTokens: 8_000,
+        webFetchRequestCount: 1, webFetchResultCount: 1, webFetchErrorResultCount: 0,
+      });
+      expect(firstBody.messages[1].sources).toEqual([
+        { type: 'web_search_result_location', url: 'https://example.test/page', title: 'Synthetic page' },
+      ]);
+      expect(JSON.stringify(firstBody)).not.toContain('Synthetic private fetched body.');
+      expect(providerCalls).toHaveLength(1);
+      expect(providerCalls[0].body).toMatchObject({
+        webFetchEnabled: true, webFetchToolVersion: 'web_fetch_20260318',
+        webFetchMaxUses: 2, webFetchMaxContentTokens: 8_000,
+        webFetchAllowedCallers: ['direct'], webFetchUseCache: true, webFetchContractVersion: 1,
+      });
+      expect(providerCalls[0].body.webSearchEnabled).toBe(false);
+
+      const replay = await send();
+      expect(replay.status).toBe(200);
+      expect((await replay.json()).idempotentReplay).toBe(true);
+      expect(providerCalls).toHaveLength(1);
+      const turn = DB.database.prepare(
+        `SELECT status, web_fetch_enabled, web_fetch_tool_version, web_fetch_max_uses,
+                web_fetch_max_content_tokens, web_fetch_request_count, web_fetch_result_count,
+                web_fetch_error_result_count
+           FROM fable_chat_turns WHERE id = ?`
+      ).get(firstBody.turn.id);
+      expect(turn).toMatchObject({
+        status: 'succeeded', web_fetch_enabled: 1, web_fetch_tool_version: 'web_fetch_20260318',
+        web_fetch_max_uses: 2, web_fetch_max_content_tokens: 8_000,
+        web_fetch_request_count: 1, web_fetch_result_count: 1, web_fetch_error_result_count: 0,
+      });
+      expect(DB.database.prepare(
+        'SELECT COUNT(*) AS count FROM fable_chat_provider_messages WHERE conversation_id = ?'
+      ).get(conversation.id).count).toBe(1);
+      expect(DB.database.prepare(
+        `SELECT COUNT(*) AS count FROM platform_budget_usage_events
+          WHERE source_attempt_id = ? AND json_extract(metadata_json, '$.web_fetch_enabled') = 1
+            AND json_extract(metadata_json, '$.web_fetch_reserved_input_tokens') = 16000`
+      ).get(firstBody.turn.id).count).toBe(1);
     } finally {
       DB.close();
     }

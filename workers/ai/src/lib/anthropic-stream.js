@@ -18,10 +18,16 @@ import {
   FABLE_CHAT_MAX_THINKING_SIGNATURE_BYTES,
   FABLE_CHAT_MAX_THINKING_SUMMARY_BYTES,
   FABLE_CHAT_MAX_WEB_SEARCH_RESULTS,
+  FABLE_CHAT_MAX_WEB_FETCH_DOCUMENT_DATA_BYTES,
   FABLE_PROVIDER_STREAM_IDLE_TIMEOUT_MS,
   FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
   FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS,
   FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+  FABLE_CHAT_WEB_FETCH_ERROR_CODES,
+  FABLE_CHAT_WEB_FETCH_MAX_CONTINUATIONS,
+  FABLE_CHAT_WEB_FETCH_MAX_USES,
+  FABLE_CHAT_WEB_FETCH_MAX_URL_CHARACTERS,
+  FABLE_CHAT_WEB_FETCH_TOOL_NAME,
 } from "../../../shared/fable-chat-contract.mjs";
 
 const ENCODER = new TextEncoder();
@@ -33,14 +39,16 @@ const SEARCH_ERROR_CODES = new Set([
   "too_many_requests", "invalid_tool_input", "max_uses_exceeded",
   "query_too_long", "request_too_large", "unavailable",
 ]);
+const FETCH_ERROR_CODES = new Set(FABLE_CHAT_WEB_FETCH_ERROR_CODES);
 const WEB_SEARCH_CITATION_TITLE_FALLBACK = "Web source";
+const WEB_FETCH_CITATION_TITLE_FALLBACK = "Fetched source";
 const SAFE_PROVIDER_EVENT_TYPES = new Set([
   "none", "ping", "message_start", "content_block_start", "content_block_delta",
   "content_block_stop", "message_delta", "message_stop", "error",
 ]);
 const SAFE_NORMALIZED_EVENT_TYPES = new Set([
   "none", "accepted", "keepalive", "thinking_delta", "text_delta",
-  "web_search_started", "complete_internal", "error",
+  "web_search_started", "web_fetch_started", "complete_internal", "error",
 ]);
 const SAFE_STREAM_ERROR_CODES = new Set([
   "provider_stream_interrupted", "provider_stream_idle_timeout", "provider_stream_timeout",
@@ -48,10 +56,12 @@ const SAFE_STREAM_ERROR_CODES = new Set([
   "provider_web_search_limit_invalid", "provider_pause_turn_unavailable",
   "provider_pause_turn_limit_exceeded", "provider_upstream_eof_before_message_stop",
   "provider_unfinished_content_blocks", "provider_invalid_citation_structure",
-  "provider_invalid_web_search_structure", "provider_unsupported_block_type",
+  "provider_invalid_web_search_structure", "provider_invalid_web_fetch_structure",
+  "provider_unsupported_block_type",
   "provider_final_normalized_response_limit_exceeded", "provider_terminal_assembly_failure",
   "provider_invalid_block_lifecycle", "provider_unicode_decode_failure",
-  "provider_web_search_blocks_invalid",
+  "provider_web_search_blocks_invalid", "provider_web_fetch_blocks_invalid",
+  "provider_web_fetch_limit_exceeded", "provider_web_fetch_limit_invalid",
 ]);
 
 function boundedBucket(value, thresholds) {
@@ -141,9 +151,20 @@ function byteLength(value) {
 
 function normalizeWebSearchMaxUses(value) {
   const maxUses = value ?? 1;
-  if (!Number.isInteger(maxUses) || maxUses < 1 || maxUses > FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES) {
+  if (!Number.isInteger(maxUses) || maxUses < 0 || maxUses > FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES) {
     throw new AnthropicStreamError("The web-search limit is invalid.", {
       code: "provider_web_search_limit_invalid",
+      definitive: true,
+    });
+  }
+  return maxUses;
+}
+
+function normalizeWebFetchMaxUses(value) {
+  const maxUses = value ?? 0;
+  if (!Number.isInteger(maxUses) || ![0, FABLE_CHAT_WEB_FETCH_MAX_USES].includes(maxUses)) {
+    throw new AnthropicStreamError("The Web Fetch limit is invalid.", {
+      code: "provider_web_fetch_limit_invalid",
       definitive: true,
     });
   }
@@ -198,23 +219,49 @@ function safeNativeCitationTitle(value) {
 }
 
 function sanitizeCitation(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)
-    || !onlyFields(value, ["type", "url", "title", "encrypted_index", "cited_text"])
-    || value.type !== "web_search_result_location") {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new AnthropicStreamError("Provider citation is invalid.");
   }
-  return {
-    type: "web_search_result_location",
-    url: safeHttpsUrl(value.url),
-    // Anthropic's native web-search citation title is nullable.
-    title: safeNativeCitationTitle(value.title),
-    encrypted_index: safeText(value.encrypted_index, {
-      maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
-      maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
-      allowEmpty: false,
-    }),
-    cited_text: safeText(value.cited_text, { maxCharacters: 2_048, maxBytes: 8_192 }),
-  };
+  if (value.type === "web_search_result_location") {
+    if (!onlyFields(value, ["type", "url", "title", "encrypted_index", "cited_text"])) {
+      throw new AnthropicStreamError("Provider citation is invalid.");
+    }
+    return {
+      type: "web_search_result_location",
+      url: safeHttpsUrl(value.url),
+      // Anthropic's native web-search citation title is nullable.
+      title: safeNativeCitationTitle(value.title),
+      encrypted_index: safeText(value.encrypted_index, {
+        maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
+        maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
+        allowEmpty: false,
+      }),
+      cited_text: safeText(value.cited_text, { maxCharacters: 2_048, maxBytes: 8_192 }),
+    };
+  }
+  if (value.type === "char_location") {
+    if (!onlyFields(value, [
+      "type", "document_index", "document_title", "start_char_index", "end_char_index",
+      "cited_text",
+    ]) || !Number.isInteger(value.document_index) || value.document_index < 0
+      || value.document_index >= FABLE_CHAT_MAX_CITATIONS
+      || !Number.isInteger(value.start_char_index) || value.start_char_index < 0
+      || !Number.isInteger(value.end_char_index) || value.end_char_index < value.start_char_index) {
+      throw new AnthropicStreamError("Provider citation is invalid.");
+    }
+    return {
+      type: "char_location",
+      document_index: value.document_index,
+      document_title: safeText(value.document_title, {
+        maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS,
+        maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS * 4,
+      }),
+      start_char_index: value.start_char_index,
+      end_char_index: value.end_char_index,
+      cited_text: safeText(value.cited_text, { maxCharacters: 2_048, maxBytes: 8_192 }),
+    };
+  }
+  throw new AnthropicStreamError("Provider citation is invalid.");
 }
 
 function sanitizeCitations(value, { allowEmpty = false } = {}) {
@@ -234,6 +281,7 @@ function countDistinctCitationSources(blocks) {
   const sources = new Set();
   for (const block of blocks) {
     for (const citation of block.citations || []) {
+      if (citation.type !== "web_search_result_location") continue;
       sources.add(canonicalSourceUrlKey(citation.url));
     }
   }
@@ -288,22 +336,39 @@ function sanitizeSearchResultContent(value) {
 
 function sanitizeServerToolUse(value) {
   if (!onlyFields(value, ["type", "id", "name", "input"])
-    || value.name !== FABLE_CHAT_WEB_SEARCH_TOOL_NAME
     || !value.input || typeof value.input !== "object" || Array.isArray(value.input)
-    || !onlyFields(value.input, ["query"])) {
+    || ![FABLE_CHAT_WEB_SEARCH_TOOL_NAME, FABLE_CHAT_WEB_FETCH_TOOL_NAME].includes(value.name)) {
     throw new AnthropicStreamError("Provider server tool use is invalid.");
+  }
+  if (value.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME) {
+    if (!onlyFields(value.input, ["query"])) {
+      throw new AnthropicStreamError("Provider server tool use is invalid.");
+    }
+    return {
+      type: "server_tool_use",
+      id: safeToolId(value.id),
+      name: FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+      input: {
+        query: safeText(value.input.query, {
+          maxCharacters: FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS,
+          maxBytes: FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS * 4,
+          allowEmpty: false,
+        }),
+      },
+    };
+  }
+  if (!onlyFields(value.input, ["url"])) {
+    throw new AnthropicStreamError("Provider server tool use is invalid.");
+  }
+  const url = safeHttpsUrl(value.input.url);
+  if (url.length > FABLE_CHAT_WEB_FETCH_MAX_URL_CHARACTERS) {
+    throw new AnthropicStreamError("Provider Web Fetch URL exceeds its safe limit.");
   }
   return {
     type: "server_tool_use",
     id: safeToolId(value.id),
-    name: FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
-    input: {
-      query: safeText(value.input.query, {
-        maxCharacters: FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS,
-        maxBytes: FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS * 4,
-        allowEmpty: false,
-      }),
-    },
+    name: FABLE_CHAT_WEB_FETCH_TOOL_NAME,
+    input: { url },
   };
 }
 
@@ -327,6 +392,107 @@ function sanitizeSearchToolResult(value) {
   };
 }
 
+function safeFetchDocumentData(value, sourceType) {
+  const data = safeText(value, {
+    maxCharacters: FABLE_CHAT_MAX_WEB_FETCH_DOCUMENT_DATA_BYTES,
+    maxBytes: FABLE_CHAT_MAX_WEB_FETCH_DOCUMENT_DATA_BYTES,
+    allowEmpty: false,
+  });
+  if (sourceType === "base64" && (data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data))) {
+    throw new AnthropicStreamError("Provider Web Fetch PDF data is invalid.");
+  }
+  return data;
+}
+
+function sanitizeFetchResultContent(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AnthropicStreamError("Provider Web Fetch result is invalid.");
+  }
+  if (value.type === "web_fetch_tool_result_error") {
+    if (!onlyFields(value, ["type", "error_code"])) {
+      throw new AnthropicStreamError("Provider Web Fetch result error is invalid.");
+    }
+    const errorCode = safeText(value.error_code, {
+      maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_ERROR_CODE_CHARACTERS,
+      maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_ERROR_CODE_CHARACTERS,
+      allowEmpty: false,
+    });
+    if (!FETCH_ERROR_CODES.has(errorCode)) {
+      throw new AnthropicStreamError("Provider Web Fetch result error is invalid.");
+    }
+    return { type: "web_fetch_tool_result_error", error_code: errorCode };
+  }
+  if (!onlyFields(value, ["type", "url", "content", "retrieved_at"])
+    || value.type !== "web_fetch_result") {
+    throw new AnthropicStreamError("Provider Web Fetch result is invalid.");
+  }
+  const document = value.content;
+  if (!document || typeof document !== "object" || Array.isArray(document)
+    || !onlyFields(document, ["type", "source", "title", "citations"])
+    || document.type !== "document") {
+    throw new AnthropicStreamError("Provider Web Fetch document is invalid.");
+  }
+  const source = document.source;
+  if (!source || typeof source !== "object" || Array.isArray(source)
+    || !onlyFields(source, ["type", "media_type", "data"])
+    || !["text", "base64"].includes(source.type)
+    || (source.type === "text" && source.media_type !== "text/plain")
+    || (source.type === "base64" && source.media_type !== "application/pdf")) {
+    throw new AnthropicStreamError("Provider Web Fetch document source is invalid.");
+  }
+  if (document.citations !== undefined
+    && (!document.citations || typeof document.citations !== "object"
+      || Array.isArray(document.citations)
+      || !onlyFields(document.citations, ["enabled"])
+      || document.citations.enabled !== true)) {
+    throw new AnthropicStreamError("Provider Web Fetch document citations are invalid.");
+  }
+  const retrievedAt = safeText(value.retrieved_at, { maxCharacters: 64, maxBytes: 64, allowEmpty: false });
+  if (!Number.isFinite(Date.parse(retrievedAt))) {
+    throw new AnthropicStreamError("Provider Web Fetch retrieval timestamp is invalid.");
+  }
+  return {
+    type: "web_fetch_result",
+    url: safeHttpsUrl(value.url),
+    content: {
+      type: "document",
+      source: {
+        type: source.type,
+        media_type: source.media_type,
+        data: safeFetchDocumentData(source.data, source.type),
+      },
+      ...(document.title == null ? {} : {
+        title: safeText(document.title, {
+          maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS,
+          maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS * 4,
+        }),
+      }),
+      ...(document.citations === undefined ? {} : { citations: { enabled: true } }),
+    },
+    retrieved_at: retrievedAt,
+  };
+}
+
+function sanitizeFetchToolResult(value) {
+  if (!onlyFields(value, ["type", "tool_use_id", "content", "caller"])) {
+    throw new AnthropicStreamError("Provider Web Fetch result block is invalid.");
+  }
+  let caller;
+  if (value.caller !== undefined) {
+    if (!value.caller || typeof value.caller !== "object" || Array.isArray(value.caller)
+      || !onlyFields(value.caller, ["type"]) || value.caller.type !== "direct") {
+      throw new AnthropicStreamError("Provider Web Fetch result caller is invalid.");
+    }
+    caller = { type: "direct" };
+  }
+  return {
+    type: "web_fetch_tool_result",
+    tool_use_id: safeToolId(value.tool_use_id),
+    content: sanitizeFetchResultContent(value.content),
+    ...(caller ? { caller } : {}),
+  };
+}
+
 export function sanitizeAnthropicUsage(usage) {
   if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
   const safe = {};
@@ -344,8 +510,17 @@ export function sanitizeAnthropicUsage(usage) {
     safe.output_tokens_details = { thinking_tokens: Math.floor(thinkingTokens) };
   }
   const searchRequests = Number(usage?.server_tool_use?.web_search_requests);
-  if (Number.isFinite(searchRequests) && searchRequests >= 0) {
-    safe.server_tool_use = { web_search_requests: Math.min(1, Math.floor(searchRequests)) };
+  const fetchRequests = Number(usage?.server_tool_use?.web_fetch_requests);
+  if ((Number.isFinite(searchRequests) && searchRequests >= 0)
+    || (Number.isFinite(fetchRequests) && fetchRequests >= 0)) {
+    safe.server_tool_use = {
+      ...(Number.isFinite(searchRequests) && searchRequests >= 0 ? {
+        web_search_requests: Math.min(1, Math.floor(searchRequests)),
+      } : {}),
+      ...(Number.isFinite(fetchRequests) && fetchRequests >= 0 ? {
+        web_fetch_requests: Math.min(FABLE_CHAT_WEB_FETCH_MAX_USES, Math.floor(fetchRequests)),
+      } : {}),
+    };
   }
   return Object.keys(safe).length > 0 ? safe : null;
 }
@@ -404,6 +579,7 @@ export function sanitizeAnthropicContentBlocks(value) {
     }
     if (block.type === "server_tool_use") return sanitizeServerToolUse(block);
     if (block.type === "web_search_tool_result") return sanitizeSearchToolResult(block);
+    if (block.type === "web_fetch_tool_result") return sanitizeFetchToolResult(block);
     throw new AnthropicStreamError("Provider content block type is unsupported.");
   });
   if (countDistinctCitationSources(blocks) > FABLE_CHAT_MAX_CITATIONS) {
@@ -417,8 +593,14 @@ export function sanitizeAnthropicContentBlocks(value) {
 
 function postTerminalAssemblyErrorCode(error) {
   const message = error instanceof AnthropicStreamError ? error.message : "";
-  if (message.includes("citation")) return "provider_invalid_citation_structure";
-  if (message.includes("web-search") || message.includes("search result") || message.includes("tool")) {
+  const normalizedMessage = message.toLowerCase();
+  if (normalizedMessage.includes("citation")) return "provider_invalid_citation_structure";
+  if (normalizedMessage.includes("web fetch") || normalizedMessage.includes("web-fetch")
+    || normalizedMessage.includes("fetch result")) {
+    return "provider_invalid_web_fetch_structure";
+  }
+  if (normalizedMessage.includes("web-search") || normalizedMessage.includes("search result")
+    || normalizedMessage.includes("tool")) {
     return "provider_invalid_web_search_structure";
   }
   if (message.includes("content block type")) return "provider_unsupported_block_type";
@@ -444,6 +626,7 @@ function resolveNativeWebSearchCitationTitles(blocks) {
     return {
       ...block,
       citations: block.citations.map((citation) => {
+        if (citation.type !== "web_search_result_location") return citation;
         const title = titlesByUrl.get(canonicalSourceUrlKey(citation.url));
         if (!title) {
           throw new AnthropicStreamError("Provider citation does not match a web-search result.");
@@ -456,16 +639,32 @@ function resolveNativeWebSearchCitationTitles(blocks) {
 }
 
 function extractSafeSources(blocks) {
+  const fetchDocuments = blocks
+    .filter((block) => block.type === "web_fetch_tool_result"
+      && block.content?.type === "web_fetch_result")
+    .map((block) => ({
+      url: block.content.url,
+      title: block.content.content?.title || WEB_FETCH_CITATION_TITLE_FALLBACK,
+    }));
   const sources = new Map();
   for (const block of blocks) {
     if (block.type !== "text") continue;
     for (const citation of block.citations || []) {
-      const key = canonicalSourceUrlKey(citation.url);
+      const resolved = citation.type === "char_location"
+        ? fetchDocuments[citation.document_index]
+        : citation;
+      if (!resolved) {
+        throw new AnthropicStreamError("Provider citation does not match a Web Fetch result.");
+      }
+      const key = canonicalSourceUrlKey(resolved.url);
       if (!sources.has(key)) {
         sources.set(key, {
-          url: citation.url,
-          title: citation.title.slice(0, FABLE_CHAT_MAX_SOURCE_TITLE_CHARACTERS),
-          type: citation.type,
+          url: resolved.url,
+          title: (resolved.title || WEB_FETCH_CITATION_TITLE_FALLBACK)
+            .slice(0, FABLE_CHAT_MAX_SOURCE_TITLE_CHARACTERS),
+          type: citation.type === "char_location"
+            ? "web_search_result_location"
+            : citation.type,
         });
       }
       if (sources.size >= FABLE_CHAT_MAX_CITATIONS) break;
@@ -485,7 +684,8 @@ function countSearchBlocks(blocks, {
   maxWebSearchUses = 1,
 } = {}) {
   const maxUses = normalizeWebSearchMaxUses(maxWebSearchUses);
-  const requests = blocks.filter((block) => block.type === "server_tool_use");
+  const requests = blocks.filter((block) => block.type === "server_tool_use"
+    && block.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME);
   const requestIds = new Set(requests.map((block) => block.id));
   const results = blocks.filter((block) => block.type === "web_search_tool_result");
   const resultIds = new Set(results.map((block) => block.tool_use_id));
@@ -509,10 +709,47 @@ function countSearchBlocks(blocks, {
   return { requestCount: requests.length, resultCount: results.length };
 }
 
+function countFetchBlocks(blocks, {
+  allowIncomplete = false,
+  allowOrphanResults = false,
+  maxWebFetchUses = 0,
+} = {}) {
+  const maxUses = normalizeWebFetchMaxUses(maxWebFetchUses);
+  const requests = blocks.filter((block) => block.type === "server_tool_use"
+    && block.name === FABLE_CHAT_WEB_FETCH_TOOL_NAME);
+  const requestIds = new Set(requests.map((block) => block.id));
+  const results = blocks.filter((block) => block.type === "web_fetch_tool_result");
+  const resultIds = new Set(results.map((block) => block.tool_use_id));
+  if (requestIds.size !== requests.length
+    || resultIds.size !== results.length
+    || (!allowOrphanResults && results.some((block) => !requestIds.has(block.tool_use_id)))
+    || (!allowIncomplete && !allowOrphanResults && requests.length !== results.length)) {
+    throw new AnthropicStreamError("Provider Web Fetch blocks are inconsistent.", {
+      code: "provider_web_fetch_blocks_invalid",
+      definitive: true,
+    });
+  }
+  if (requests.length > maxUses || results.length > maxUses) {
+    throw new AnthropicStreamError("Provider exceeded the Web Fetch limit.", {
+      code: "provider_web_fetch_limit_exceeded",
+      definitive: true,
+    });
+  }
+  return {
+    requestCount: requests.length,
+    resultCount: results.length,
+    errorResultCount: results.filter(
+      (block) => block.content?.type === "web_fetch_tool_result_error"
+    ).length,
+  };
+}
+
 export function extractAnthropicVisibleResult(content, {
   allowMissingText = false,
   allowOrphanSearchResults = false,
+  allowOrphanFetchResults = false,
   maxWebSearchUses = 1,
+  maxWebFetchUses = 0,
 } = {}) {
   const blocks = resolveNativeWebSearchCitationTitles(sanitizeAnthropicContentBlocks(content));
   const text = blocks
@@ -531,6 +768,11 @@ export function extractAnthropicVisibleResult(content, {
     allowOrphanResults: allowOrphanSearchResults,
     maxWebSearchUses,
   });
+  const fetch = countFetchBlocks(blocks, {
+    allowIncomplete: allowMissingText,
+    allowOrphanResults: allowOrphanFetchResults,
+    maxWebFetchUses,
+  });
   return {
     text,
     reasoningSummary,
@@ -538,6 +780,9 @@ export function extractAnthropicVisibleResult(content, {
     sources: extractSafeSources(blocks),
     webSearchRequestCount: search.requestCount,
     webSearchResultCount: search.resultCount,
+    webFetchRequestCount: fetch.requestCount,
+    webFetchResultCount: fetch.resultCount,
+    webFetchErrorResultCount: fetch.errorResultCount,
   };
 }
 
@@ -703,11 +948,14 @@ export async function* parseSseJsonEvents(stream, {
 
 export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
   allowOrphanSearchResults = false,
+  allowOrphanFetchResults = false,
   maxWebSearchUses = 1,
+  maxWebFetchUses = 0,
   streamWitness = null,
   providerIdleTimeoutMs = FABLE_PROVIDER_STREAM_IDLE_TIMEOUT_MS,
 } = {}) {
   const maxUses = normalizeWebSearchMaxUses(maxWebSearchUses);
+  const maxFetchUses = normalizeWebFetchMaxUses(maxWebFetchUses);
   const blocks = new Map();
   const stoppedBlocks = new Set();
   let responseModel = null;
@@ -847,7 +1095,7 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
         if (thinking) callbacks.onThinkingDelta?.(thinking);
       } else if (source?.type === "server_tool_use") {
         if (!onlyFields(source, ["type", "id", "name", "input"])
-          || source.name !== FABLE_CHAT_WEB_SEARCH_TOOL_NAME) {
+          || ![FABLE_CHAT_WEB_SEARCH_TOOL_NAME, FABLE_CHAT_WEB_FETCH_TOOL_NAME].includes(source.name)) {
           throw new AnthropicStreamError("Provider server tool block is invalid.");
         }
         const input = source.input === undefined ? {} : source.input;
@@ -855,23 +1103,31 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
           throw new AnthropicStreamError("Provider server tool input is invalid.");
         }
         const initialJson = Object.keys(input).length > 0 ? JSON.stringify(input) : "";
-        if (byteLength(initialJson) > FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS * 4) {
+        const maxInputBytes = source.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME
+          ? FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS * 4
+          : FABLE_CHAT_WEB_FETCH_MAX_URL_CHARACTERS * 4;
+        if (byteLength(initialJson) > maxInputBytes) {
           throw new AnthropicStreamError("Provider server tool input is too large.");
         }
         blocks.set(index, {
           type: "server_tool_use",
           id: safeToolId(source.id),
-          name: FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+          name: source.name,
           inputJson: initialJson,
         });
-        const started = [...blocks.values()].filter((block) => block.type === "server_tool_use").length;
-        if (started > maxUses) {
+        const started = [...blocks.values()].filter((block) => block.type === "server_tool_use"
+          && block.name === source.name).length;
+        const toolLimit = source.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME ? maxUses : maxFetchUses;
+        if (started > toolLimit) {
           throw new AnthropicStreamError("Provider exceeded the web-search limit.", {
-            code: "provider_web_search_limit_exceeded",
+            code: source.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME
+              ? "provider_web_search_limit_exceeded"
+              : "provider_web_fetch_limit_exceeded",
             definitive: true,
           });
         }
-        callbacks.onWebSearchStarted?.();
+        if (source.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME) callbacks.onWebSearchStarted?.();
+        if (source.name === FABLE_CHAT_WEB_FETCH_TOOL_NAME) callbacks.onWebFetchStarted?.();
       } else if (source?.type === "web_search_tool_result") {
         const result = sanitizeSearchToolResult(source);
         blocks.set(index, result);
@@ -879,6 +1135,18 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
         if (results > maxUses) {
           throw new AnthropicStreamError("Provider exceeded the web-search limit.", {
             code: "provider_web_search_limit_exceeded",
+            definitive: true,
+          });
+        }
+      } else if (source?.type === "web_fetch_tool_result") {
+        const result = sanitizeFetchToolResult(source);
+        blocks.set(index, result);
+        const results = [...blocks.values()].filter(
+          (block) => block.type === "web_fetch_tool_result"
+        ).length;
+        if (results > maxFetchUses) {
+          throw new AnthropicStreamError("Provider exceeded the Web Fetch limit.", {
+            code: "provider_web_fetch_limit_exceeded",
             definitive: true,
           });
         }
@@ -946,16 +1214,19 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
           FABLE_CHAT_MAX_THINKING_SIGNATURE_BYTES
         );
       } else if (delta?.type === "input_json_delta" && block.type === "server_tool_use") {
+        const inputLimit = block.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME
+          ? FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS * 4
+          : FABLE_CHAT_WEB_FETCH_MAX_URL_CHARACTERS * 4;
         const partial = safeText(delta.partial_json, {
-          maxCharacters: FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS * 4,
-          maxBytes: FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS * 4,
+          maxCharacters: inputLimit,
+          maxBytes: inputLimit,
         });
         append(
           block,
           "inputJson",
           partial,
-          FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS * 4,
-          FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS * 4
+          inputLimit,
+          inputLimit
         );
       } else if (delta?.type === "citations_delta" && block.type === "text") {
         const citation = sanitizeCitation(delta.citation);
@@ -1053,7 +1324,9 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
     visible = extractAnthropicVisibleResult(orderedBlocks, {
       allowMissingText: stopReason === "pause_turn",
       allowOrphanSearchResults,
+      allowOrphanFetchResults,
       maxWebSearchUses: maxUses,
+      maxWebFetchUses: maxFetchUses,
     });
   } catch (error) {
     if (error instanceof AnthropicStreamError && error.code === "provider_stream_interrupted") {
@@ -1096,11 +1369,21 @@ function sumUsage(left, right) {
   }
   const aSearch = Number(left?.server_tool_use?.web_search_requests);
   const bSearch = Number(right?.server_tool_use?.web_search_requests);
-  if (Number.isFinite(aSearch) || Number.isFinite(bSearch)) {
+  const aFetch = Number(left?.server_tool_use?.web_fetch_requests);
+  const bFetch = Number(right?.server_tool_use?.web_fetch_requests);
+  if (Number.isFinite(aSearch) || Number.isFinite(bSearch)
+    || Number.isFinite(aFetch) || Number.isFinite(bFetch)) {
     output.server_tool_use = {
-      web_search_requests: Math.min(FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
+      ...(Number.isFinite(aSearch) || Number.isFinite(bSearch) ? {
+        web_search_requests: Math.min(FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
         Math.max(0, Math.floor(Number.isFinite(aSearch) ? aSearch : 0))
         + Math.max(0, Math.floor(Number.isFinite(bSearch) ? bSearch : 0))),
+      } : {}),
+      ...(Number.isFinite(aFetch) || Number.isFinite(bFetch) ? {
+        web_fetch_requests: Math.min(FABLE_CHAT_WEB_FETCH_MAX_USES,
+          Math.max(0, Math.floor(Number.isFinite(aFetch) ? aFetch : 0))
+          + Math.max(0, Math.floor(Number.isFinite(bFetch) ? bFetch : 0))),
+      } : {}),
     };
   }
   return Object.keys(output).length > 0 ? output : null;
@@ -1110,9 +1393,11 @@ export function createInternalFableChatStream(providerStream, {
   startedAt = Date.now(),
   continueAfterPause = null,
   maxWebSearchUses = 1,
+  maxWebFetchUses = 0,
   onTerminalWitness = null,
 } = {}) {
   const maxUses = normalizeWebSearchMaxUses(maxWebSearchUses);
+  const maxFetchUses = normalizeWebFetchMaxUses(maxWebFetchUses);
   let canceled = false;
   const witness = createStreamWitness(startedAt);
   return new ReadableStream({
@@ -1149,10 +1434,12 @@ export function createInternalFableChatStream(providerStream, {
         onThinkingDelta: (text) => enqueue("thinking_delta", { text }),
         onTextDelta: (text) => enqueue("text_delta", { text }),
         onWebSearchStarted: () => enqueue("web_search_started", { ok: true }),
+        onWebFetchStarted: () => enqueue("web_fetch_started", { ok: true }),
         onKeepalive: () => enqueue("keepalive", { ok: true }),
       };
       void consumeAnthropicMessageStream(providerStream, callbacks, {
         maxWebSearchUses: maxUses,
+        maxWebFetchUses: maxFetchUses,
         streamWitness: witness,
       }).then(async (initial) => {
         let result = initial;
@@ -1165,7 +1452,9 @@ export function createInternalFableChatStream(providerStream, {
               code: "provider_pause_turn_unavailable",
             });
           }
-          if (continuationCount >= Math.min(FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS, maxUses)) {
+          const maxContinuations = Math.min(FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS, maxUses)
+            + (maxFetchUses > 0 ? FABLE_CHAT_WEB_FETCH_MAX_CONTINUATIONS : 0);
+          if (continuationCount >= maxContinuations) {
             throw new AnthropicStreamError("Provider exceeded the continuation limit.", {
               code: "provider_pause_turn_limit_exceeded",
             });
@@ -1173,7 +1462,9 @@ export function createInternalFableChatStream(providerStream, {
           const continuationStream = await continueAfterPause(combinedBlocks);
           const continuation = await consumeAnthropicMessageStream(continuationStream, callbacks, {
             allowOrphanSearchResults: true,
+            allowOrphanFetchResults: true,
             maxWebSearchUses: maxUses,
+            maxWebFetchUses: maxFetchUses,
             streamWitness: witness,
           });
           continuationCount += 1;
@@ -1182,6 +1473,7 @@ export function createInternalFableChatStream(providerStream, {
           const combined = extractAnthropicVisibleResult(combinedBlocks, {
             allowMissingText: continuation.stopReason === "pause_turn",
             maxWebSearchUses: maxUses,
+            maxWebFetchUses: maxFetchUses,
           });
           result = {
             ...continuation,
