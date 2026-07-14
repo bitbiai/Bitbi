@@ -37,6 +37,8 @@ export async function handleFableChat({ request, env, correlationId, pathname, m
         continueAfterPause: output.continueAfterPause,
         maxWebSearchUses: input.webSearchEnabled ? input.webSearchMaxUses : 0,
         maxWebFetchUses: input.webFetchEnabled ? input.webFetchMaxUses : 0,
+        allowDynamicSearch: ["dynamic", "both"].includes(input.webSearchCallerMode),
+        allowExcludedSearchResults: input.webSearchEffectiveResponseInclusion === "excluded",
         onTerminalWitness: (witness) => {
           logDiagnostic({
             service: "bitbi-ai",
@@ -71,6 +73,7 @@ export async function handleFableChat({ request, env, correlationId, pathname, m
         reasoningSummary: output.reasoningSummary,
         sources: output.sources,
         webSearchRequestCount: output.webSearchRequestCount,
+        webSearchExecutedRequestCount: output.webSearchExecutedRequestCount,
         webSearchResultCount: output.webSearchResultCount,
         webFetchRequestCount: output.webFetchRequestCount,
         webFetchResultCount: output.webFetchResultCount,

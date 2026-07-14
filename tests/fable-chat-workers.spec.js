@@ -467,7 +467,11 @@ test.describe('Private admin Fable chat', () => {
       path.join(process.cwd(), 'workers/auth/migrations/0076_add_fable_chat_web_fetch.sql'),
       'utf8'
     );
-    expect(CURRENT_AUTH_MIGRATION).toBe('0076_add_fable_chat_web_fetch.sql');
+    const upgradedWebSearchMigration = fs.readFileSync(
+      path.join(process.cwd(), 'workers/auth/migrations/0077_upgrade_fable_web_search.sql'),
+      'utf8'
+    );
+    expect(CURRENT_AUTH_MIGRATION).toBe('0077_upgrade_fable_web_search.sql');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_conversations');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_turns');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_messages');
@@ -499,12 +503,15 @@ test.describe('Private admin Fable chat', () => {
     expect(webFetchMigration).toContain("web_fetch_tool_version TEXT NOT NULL DEFAULT 'web_fetch_20260318'");
     expect(webFetchMigration).toContain('web_fetch_max_uses INTEGER NOT NULL DEFAULT 2');
     expect(webFetchMigration).toContain('web_fetch_max_content_tokens INTEGER NOT NULL DEFAULT 8000');
+    expect(upgradedWebSearchMigration).toContain('web_search_settings_json TEXT NOT NULL');
+    expect(upgradedWebSearchMigration).toContain('web_search_20260318');
+    expect(upgradedWebSearchMigration).toContain("fable_tool_choice TEXT NOT NULL DEFAULT 'auto'");
     expect(memoryMigration).toContain("summarizer_model_id TEXT NOT NULL DEFAULT '@cf/qwen/qwen3-30b-a3b-fp8'");
     expect(replayPruningMigration).toContain(
       'web_replay_pruned_through_turn_order INTEGER NOT NULL DEFAULT -1'
     );
     expect(replayPruningMigration).toContain('web_replay_pruned_at TEXT');
-    expect(`${baseMigration}\n${advancedMigration}\n${webSearchMigration}\n${effortSearchMigration}\n${memoryMigration}\n${replayPruningMigration}\n${adminDataMigration}\n${webFetchMigration}`).not.toMatch(
+    expect(`${baseMigration}\n${advancedMigration}\n${webSearchMigration}\n${effortSearchMigration}\n${memoryMigration}\n${replayPruningMigration}\n${adminDataMigration}\n${webFetchMigration}\n${upgradedWebSearchMigration}`).not.toMatch(
       /DROP\s+TABLE|DELETE\s+FROM|raw_idempotency/i
     );
   });
@@ -794,7 +801,12 @@ test.describe('Private admin Fable chat', () => {
         contextFormatVersion: 'native-anthropic-turns-v3',
         webSearchEnabled: false,
         webSearchMaxUses: 3,
-        webSearchContractVersion: 2,
+        webSearchContractVersion: 3,
+        webSearchCallerMode: 'direct',
+        webSearchAllowedCallers: ['direct'],
+        webSearchResponseInclusion: 'full',
+        webSearchEffectiveResponseInclusion: 'full',
+        toolChoice: 'auto',
       });
       expect(providerCalls[0].body.model).toBeUndefined();
       expect(providerCalls[0].body.__bitbi_ai_caller_policy).toMatchObject({
@@ -1575,6 +1587,14 @@ test.describe('Private admin Fable chat', () => {
             systemPresetId: 'coding',
             summarizedThinking: true,
             webSearchEnabled: true,
+            webSearchCallerMode: 'dynamic',
+            webSearchResponseInclusion: 'excluded',
+            webSearchDomainFilterMode: 'allowed',
+            webSearchAllowedDomains: ['Docs.Example.com/*'],
+            webSearchBlockedDomains: ['ads.example.com'],
+            webSearchLocationEnabled: true,
+            webSearchLocation: { city: 'Berlin', country: 'DE', timezone: 'Europe/Berlin' },
+            toolChoice: 'none',
           },
         }
       );
@@ -1590,8 +1610,19 @@ test.describe('Private admin Fable chat', () => {
         promptCachePolicy: 'auto_5m',
         promptCacheVersion: 1,
         webSearchEnabled: true,
-        webSearchToolVersion: 'web_search_20250305',
+        webSearchToolVersion: 'web_search_20260318',
         webSearchMaxUses: 10,
+        webSearchCallerMode: 'dynamic',
+        webSearchAllowedCallers: ['code_execution_20260120'],
+        webSearchResponseInclusion: 'excluded',
+        webSearchEffectiveResponseInclusion: 'excluded',
+        webSearchDomainFilterMode: 'allowed',
+        webSearchAllowedDomains: ['docs.example.com/*'],
+        webSearchBlockedDomains: ['ads.example.com'],
+        webSearchActiveDomains: ['docs.example.com/*'],
+        webSearchLocationEnabled: true,
+        webSearchLocation: { city: 'Berlin', country: 'DE', timezone: 'Europe/Berlin' },
+        toolChoice: 'none',
       });
 
       const message = 'Snapshot these settings without logging this text.';
@@ -1618,6 +1649,11 @@ test.describe('Private admin Fable chat', () => {
         },
       });
       expect(differentFingerprint).not.toBe(maxFingerprint);
+      expect(await fableChatModule.buildFableChatRequestFingerprint({
+        conversationId: conversation.id,
+        message,
+        settings: { ...maxSettings, toolChoice: 'auto' },
+      })).not.toBe(maxFingerprint);
 
       const pending = await fableChatModule.beginFableChatTurn(env, {
         adminUserId: 'admin-fable-settings',
@@ -1653,9 +1689,19 @@ test.describe('Private admin Fable chat', () => {
         systemPresetId: 'coding',
         thinkingDisplay: 'summarized',
         webSearchEnabled: true,
-        webSearchToolVersion: 'web_search_20250305',
+        webSearchToolVersion: 'web_search_20260318',
         webSearchMaxUses: 10,
-        webSearchContractVersion: 2,
+        webSearchContractVersion: 3,
+        webSearchCallerMode: 'dynamic',
+        webSearchAllowedCallers: ['code_execution_20260120'],
+        webSearchResponseInclusion: 'excluded',
+        webSearchEffectiveResponseInclusion: 'excluded',
+        webSearchDomainFilterMode: 'allowed',
+        webSearchAllowedDomains: ['docs.example.com/*'],
+        webSearchBlockedDomains: ['ads.example.com'],
+        webSearchLocationEnabled: true,
+        webSearchLocation: { city: 'Berlin', country: 'DE', timezone: 'Europe/Berlin' },
+        toolChoice: 'none',
         memoryMode: 'standard',
         memoryContractVersion: 1,
         memoryCheckpointVersion: 0,
@@ -2634,7 +2680,10 @@ test.describe('Private admin Fable chat', () => {
       expect(providerCalls[0].body).toMatchObject({
         webSearchEnabled: true,
         webSearchMaxUses: 3,
-        webSearchContractVersion: 2,
+        webSearchContractVersion: 3,
+        webSearchCallerMode: 'direct',
+        webSearchEffectiveResponseInclusion: 'full',
+        toolChoice: 'auto',
       });
       expect(providerCalls[0].body.tools).toBeUndefined();
       expect(DB.database.prepare(

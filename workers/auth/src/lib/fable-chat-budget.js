@@ -45,6 +45,7 @@ export function deriveFableChatBudgetUnits({
   estimatedInputTokens,
   webSearchEnabled = false,
   webFetchEnabled = false,
+  toolChoice = "auto",
 }) {
   const effortUnits = FABLE_CHAT_EFFORT_UNITS[effort];
   if (!effortUnits) {
@@ -54,13 +55,14 @@ export function deriveFableChatBudgetUnits({
     throw error;
   }
   const baseInputTokens = Math.max(0, Math.floor(Number(estimatedInputTokens) || 0));
-  const webFetchReservedTokens = webFetchEnabled === true
+  const providerToolsEnabled = toolChoice !== "none";
+  const webFetchReservedTokens = webFetchEnabled === true && providerToolsEnabled
     ? FABLE_CHAT_WEB_FETCH_MAX_USES * FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS
     : 0;
   const inputTokens = baseInputTokens + webFetchReservedTokens;
   const inputUnits = Math.max(1, Math.ceil(inputTokens / FABLE_CHAT_INPUT_UNIT_TOKENS));
   const webSearchMaxUses = getFableChatWebSearchMaxUses(effort);
-  const webSearchUnits = webSearchEnabled === true
+  const webSearchUnits = webSearchEnabled === true && providerToolsEnabled
     ? FABLE_CHAT_WEB_SEARCH_SURCHARGE_UNITS * webSearchMaxUses
     : 0;
   return {
@@ -140,6 +142,7 @@ export async function prepareFableChatBudget({
     estimatedInputTokens: context?.estimatedInputTokens,
     webSearchEnabled: settings?.webSearchEnabled,
     webFetchEnabled: settings?.webFetchEnabled,
+    toolChoice: settings?.toolChoice,
   });
   const budgetFingerprint = await buildAdminPlatformBudgetFingerprint({
     operation,
@@ -165,6 +168,17 @@ export async function prepareFableChatBudget({
       web_search_tool_version: settings?.webSearchToolVersion,
       web_search_max_uses: settings?.webSearchMaxUses,
       web_search_contract_version: settings?.webSearchContractVersion,
+      web_search_caller_mode: settings?.webSearchCallerMode,
+      web_search_allowed_callers: settings?.webSearchAllowedCallers,
+      web_search_response_inclusion_preference: settings?.webSearchResponseInclusion,
+      web_search_effective_response_inclusion:
+        settings?.webSearchEffectiveResponseInclusion,
+      web_search_domain_filter_mode: settings?.webSearchDomainFilterMode,
+      web_search_allowed_domains: settings?.webSearchAllowedDomains,
+      web_search_blocked_domains: settings?.webSearchBlockedDomains,
+      web_search_location_enabled: settings?.webSearchLocationEnabled === true,
+      web_search_location: settings?.webSearchLocation,
+      tool_choice: settings?.toolChoice,
       web_fetch_enabled: settings?.webFetchEnabled === true,
       web_fetch_tool_version: settings?.webFetchToolVersion,
       web_fetch_max_uses: settings?.webFetchMaxUses,
@@ -213,7 +227,7 @@ export async function prepareFableChatBudget({
     budgetScope: plan.budgetScope,
     units: capCheck.requestedUnits,
     metadata: {
-      phase: "van-ark-fable-chat-v3",
+      phase: "van-ark-fable-chat-v4",
       source: "provider_attempt_admission",
       model_id: FABLE_CHAT_MODEL_ID,
       provider_family: "ai_worker",
@@ -226,6 +240,18 @@ export async function prepareFableChatBudget({
       web_search_enabled: settings.webSearchEnabled === true,
       web_search_max_uses: budgetWeight.webSearchMaxUses,
       web_search_units: budgetWeight.webSearchUnits,
+      web_search_tool_version: settings.webSearchToolVersion,
+      web_search_contract_version: settings.webSearchContractVersion,
+      web_search_caller_mode: settings.webSearchCallerMode,
+      web_search_allowed_callers: settings.webSearchAllowedCallers,
+      web_search_response_inclusion_preference: settings.webSearchResponseInclusion,
+      web_search_effective_response_inclusion: settings.webSearchEffectiveResponseInclusion,
+      web_search_domain_filter_mode: settings.webSearchDomainFilterMode,
+      web_search_allowed_domains: settings.webSearchAllowedDomains,
+      web_search_blocked_domains: settings.webSearchBlockedDomains,
+      web_search_location_enabled: settings.webSearchLocationEnabled === true,
+      web_search_location: settings.webSearchLocation,
+      tool_choice: settings.toolChoice,
       web_fetch_enabled: settings.webFetchEnabled === true,
       web_fetch_max_uses: FABLE_CHAT_WEB_FETCH_MAX_USES,
       web_fetch_reserved_input_tokens: budgetWeight.webFetchReservedTokens,
@@ -250,7 +276,7 @@ export async function admitFableChatBudgetUsage({
   const windows = getPlatformBudgetWindows(createdAt);
   const eventId = `pbu_${randomTokenHex(16)}`;
   const metadataJson = JSON.stringify(metadata || {
-    phase: "van-ark-fable-chat-v3",
+    phase: "van-ark-fable-chat-v4",
     source: "provider_attempt_admission",
     model_id: FABLE_CHAT_MODEL_ID,
     provider_family: "ai_worker",

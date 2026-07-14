@@ -1,5 +1,8 @@
 import {
   FABLE_CHAT_MAX_ASSISTANT_MESSAGE_CHARACTERS,
+  FABLE_CHAT_MAX_CODE_EXECUTION_INPUT_CHARACTERS,
+  FABLE_CHAT_MAX_CODE_EXECUTION_OUTPUT_FILES,
+  FABLE_CHAT_MAX_CODE_EXECUTION_RESULT_CHARACTERS,
   FABLE_CHAT_GENERATION_TIMEOUT_MS,
   FABLE_CHAT_MAX_CITATIONS,
   FABLE_CHAT_MAX_CITATIONS_JSON_BYTES,
@@ -40,6 +43,11 @@ const SEARCH_ERROR_CODES = new Set([
   "query_too_long", "request_too_large", "unavailable",
 ]);
 const FETCH_ERROR_CODES = new Set(FABLE_CHAT_WEB_FETCH_ERROR_CODES);
+const CODE_EXECUTION_TOOL_NAME = "code_execution";
+const CODE_EXECUTION_CALLER_TYPE = "code_execution_20260120";
+const CODE_EXECUTION_ERROR_CODES = new Set([
+  "invalid_tool_input", "unavailable", "too_many_requests", "execution_time_exceeded",
+]);
 const WEB_SEARCH_CITATION_TITLE_FALLBACK = "Web source";
 const WEB_FETCH_CITATION_TITLE_FALLBACK = "Fetched source";
 const SAFE_PROVIDER_EVENT_TYPES = new Set([
@@ -335,11 +343,19 @@ function sanitizeSearchResultContent(value) {
 }
 
 function sanitizeServerToolUse(value) {
-  if (!onlyFields(value, ["type", "id", "name", "input"])
+  if (!onlyFields(value, ["type", "id", "name", "input", "caller"])
     || !value.input || typeof value.input !== "object" || Array.isArray(value.input)
-    || ![FABLE_CHAT_WEB_SEARCH_TOOL_NAME, FABLE_CHAT_WEB_FETCH_TOOL_NAME].includes(value.name)) {
+    || ![
+      FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+      FABLE_CHAT_WEB_FETCH_TOOL_NAME,
+      CODE_EXECUTION_TOOL_NAME,
+    ].includes(value.name)) {
     throw new AnthropicStreamError("Provider server tool use is invalid.");
   }
+  const caller = sanitizeServerToolCaller(value.caller, {
+    allowMissing: true,
+    allowCodeExecution: value.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+  });
   if (value.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME) {
     if (!onlyFields(value.input, ["query"])) {
       throw new AnthropicStreamError("Provider server tool use is invalid.");
@@ -355,7 +371,29 @@ function sanitizeServerToolUse(value) {
           allowEmpty: false,
         }),
       },
+      ...(caller ? { caller } : {}),
     };
+  }
+  if (value.name === CODE_EXECUTION_TOOL_NAME) {
+    if (!onlyFields(value.input, ["code"])) {
+      throw new AnthropicStreamError("Provider code-execution tool use is invalid.");
+    }
+    return {
+      type: "server_tool_use",
+      id: safeToolId(value.id),
+      name: CODE_EXECUTION_TOOL_NAME,
+      input: {
+        code: safeText(value.input.code, {
+          maxCharacters: FABLE_CHAT_MAX_CODE_EXECUTION_INPUT_CHARACTERS,
+          maxBytes: FABLE_CHAT_MAX_CODE_EXECUTION_INPUT_CHARACTERS,
+          allowEmpty: false,
+        }),
+      },
+      ...(caller ? { caller } : {}),
+    };
+  }
+  if (caller && caller.type !== "direct") {
+    throw new AnthropicStreamError("Provider Web Fetch caller is invalid.");
   }
   if (!onlyFields(value.input, ["url"])) {
     throw new AnthropicStreamError("Provider server tool use is invalid.");
@@ -369,26 +407,122 @@ function sanitizeServerToolUse(value) {
     id: safeToolId(value.id),
     name: FABLE_CHAT_WEB_FETCH_TOOL_NAME,
     input: { url },
+    ...(caller ? { caller } : {}),
   };
+}
+
+function sanitizeServerToolCaller(value, {
+  allowMissing = false,
+  allowCodeExecution = true,
+} = {}) {
+  if (value === undefined && allowMissing) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AnthropicStreamError("Provider server-tool caller is invalid.");
+  }
+  if (value.type === "direct") {
+    if (!onlyFields(value, ["type"])) {
+      throw new AnthropicStreamError("Provider server-tool caller is invalid.");
+    }
+    return { type: "direct" };
+  }
+  if (!allowCodeExecution || value.type !== CODE_EXECUTION_CALLER_TYPE
+    || !onlyFields(value, ["type", "tool_id"])) {
+    throw new AnthropicStreamError("Provider server-tool caller is invalid.");
+  }
+  return { type: CODE_EXECUTION_CALLER_TYPE, tool_id: safeToolId(value.tool_id) };
 }
 
 function sanitizeSearchToolResult(value) {
   if (!onlyFields(value, ["type", "tool_use_id", "content", "caller"])) {
     throw new AnthropicStreamError("Provider search result block is invalid.");
   }
-  let caller;
-  if (value.caller !== undefined) {
-    if (!value.caller || typeof value.caller !== "object" || Array.isArray(value.caller)
-      || !onlyFields(value.caller, ["type"]) || value.caller.type !== "direct") {
-      throw new AnthropicStreamError("Provider search result caller is invalid.");
-    }
-    caller = { type: "direct" };
-  }
+  const caller = sanitizeServerToolCaller(value.caller, { allowMissing: true });
   return {
     type: "web_search_tool_result",
     tool_use_id: safeToolId(value.tool_use_id),
     content: sanitizeSearchResultContent(value.content),
     ...(caller ? { caller } : {}),
+  };
+}
+
+function sanitizeCodeExecutionOutput(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || !onlyFields(value, ["type", "file_id"])
+    || value.type !== "code_execution_output") {
+    throw new AnthropicStreamError("Provider code-execution output is invalid.");
+  }
+  const fileId = safeText(value.file_id, { maxCharacters: 180, maxBytes: 180, allowEmpty: false });
+  if (!/^[A-Za-z0-9_-]+$/.test(fileId)) {
+    throw new AnthropicStreamError("Provider code-execution output is invalid.");
+  }
+  return { type: "code_execution_output", file_id: fileId };
+}
+
+function sanitizeCodeExecutionContent(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AnthropicStreamError("Provider code-execution result is invalid.");
+  }
+  if (value.type === "code_execution_tool_result_error") {
+    if (!onlyFields(value, ["type", "error_code"]) || !CODE_EXECUTION_ERROR_CODES.has(value.error_code)) {
+      throw new AnthropicStreamError("Provider code-execution result is invalid.");
+    }
+    return { type: "code_execution_tool_result_error", error_code: value.error_code };
+  }
+  const encrypted = value.type === "encrypted_code_execution_result";
+  if (!encrypted && value.type !== "code_execution_result") {
+    throw new AnthropicStreamError("Provider code-execution result is invalid.");
+  }
+  const allowed = encrypted
+    ? ["type", "encrypted_stdout", "stderr", "return_code", "content"]
+    : ["type", "stdout", "stderr", "return_code", "content"];
+  if (!onlyFields(value, allowed)
+    || !Number.isInteger(value.return_code)
+    || value.return_code < -2_147_483_648
+    || value.return_code > 2_147_483_647
+    || !Array.isArray(value.content)
+    || value.content.length > FABLE_CHAT_MAX_CODE_EXECUTION_OUTPUT_FILES) {
+    throw new AnthropicStreamError("Provider code-execution result is invalid.");
+  }
+  const content = value.content.map(sanitizeCodeExecutionOutput);
+  const stderr = safeText(value.stderr, {
+    maxCharacters: FABLE_CHAT_MAX_CODE_EXECUTION_RESULT_CHARACTERS,
+    maxBytes: FABLE_CHAT_MAX_CODE_EXECUTION_RESULT_CHARACTERS,
+  });
+  if (encrypted) {
+    return {
+      type: "encrypted_code_execution_result",
+      encrypted_stdout: safeText(value.encrypted_stdout, {
+        maxCharacters: FABLE_CHAT_MAX_CODE_EXECUTION_RESULT_CHARACTERS,
+        maxBytes: FABLE_CHAT_MAX_CODE_EXECUTION_RESULT_CHARACTERS,
+        allowEmpty: false,
+      }),
+      stderr,
+      return_code: value.return_code,
+      content,
+    };
+  }
+  return {
+    type: "code_execution_result",
+    stdout: safeText(value.stdout, {
+      maxCharacters: FABLE_CHAT_MAX_CODE_EXECUTION_RESULT_CHARACTERS,
+      maxBytes: FABLE_CHAT_MAX_CODE_EXECUTION_RESULT_CHARACTERS,
+    }),
+    stderr,
+    return_code: value.return_code,
+    content,
+  };
+}
+
+function sanitizeCodeExecutionToolResult(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || !onlyFields(value, ["type", "tool_use_id", "content"])
+    || value.type !== "code_execution_tool_result") {
+    throw new AnthropicStreamError("Provider code-execution result block is invalid.");
+  }
+  return {
+    type: "code_execution_tool_result",
+    tool_use_id: safeToolId(value.tool_use_id),
+    content: sanitizeCodeExecutionContent(value.content),
   };
 }
 
@@ -515,7 +649,10 @@ export function sanitizeAnthropicUsage(usage) {
     || (Number.isFinite(fetchRequests) && fetchRequests >= 0)) {
     safe.server_tool_use = {
       ...(Number.isFinite(searchRequests) && searchRequests >= 0 ? {
-        web_search_requests: Math.min(1, Math.floor(searchRequests)),
+        web_search_requests: Math.min(
+          FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
+          Math.floor(searchRequests)
+        ),
       } : {}),
       ...(Number.isFinite(fetchRequests) && fetchRequests >= 0 ? {
         web_fetch_requests: Math.min(FABLE_CHAT_WEB_FETCH_MAX_USES, Math.floor(fetchRequests)),
@@ -580,6 +717,9 @@ export function sanitizeAnthropicContentBlocks(value) {
     if (block.type === "server_tool_use") return sanitizeServerToolUse(block);
     if (block.type === "web_search_tool_result") return sanitizeSearchToolResult(block);
     if (block.type === "web_fetch_tool_result") return sanitizeFetchToolResult(block);
+    if (block.type === "code_execution_tool_result") {
+      return sanitizeCodeExecutionToolResult(block);
+    }
     throw new AnthropicStreamError("Provider content block type is unsupported.");
   });
   if (countDistinctCitationSources(blocks) > FABLE_CHAT_MAX_CITATIONS) {
@@ -610,7 +750,7 @@ function postTerminalAssemblyErrorCode(error) {
   return "provider_terminal_assembly_failure";
 }
 
-function resolveNativeWebSearchCitationTitles(blocks) {
+function resolveNativeWebSearchCitationTitles(blocks, { allowFallback = false } = {}) {
   const titlesByUrl = new Map();
   for (const block of blocks) {
     if (block.type !== "web_search_tool_result" || !Array.isArray(block.content)) continue;
@@ -628,11 +768,11 @@ function resolveNativeWebSearchCitationTitles(blocks) {
       citations: block.citations.map((citation) => {
         if (citation.type !== "web_search_result_location") return citation;
         const title = titlesByUrl.get(canonicalSourceUrlKey(citation.url));
-        if (!title) {
+        if (!title && !allowFallback) {
           throw new AnthropicStreamError("Provider citation does not match a web-search result.");
         }
         // The validated native result, not citation metadata, provides the durable source title.
-        return { ...citation, title };
+        return { ...citation, title: title || WEB_SEARCH_CITATION_TITLE_FALLBACK };
       }),
     };
   });
@@ -681,6 +821,7 @@ function extractSafeSources(blocks) {
 function countSearchBlocks(blocks, {
   allowIncomplete = false,
   allowOrphanResults = false,
+  allowDynamicSearch = false,
   maxWebSearchUses = 1,
 } = {}) {
   const maxUses = normalizeWebSearchMaxUses(maxWebSearchUses);
@@ -689,6 +830,10 @@ function countSearchBlocks(blocks, {
   const requestIds = new Set(requests.map((block) => block.id));
   const results = blocks.filter((block) => block.type === "web_search_tool_result");
   const resultIds = new Set(results.map((block) => block.tool_use_id));
+  const codeRequests = blocks.filter((block) => block.type === "server_tool_use"
+    && block.name === CODE_EXECUTION_TOOL_NAME);
+  const codeRequestIds = new Set(codeRequests.map((block) => block.id));
+  const requestById = new Map(requests.map((block) => [block.id, block]));
   if (
     requestIds.size !== requests.length
     || resultIds.size !== results.length
@@ -700,12 +845,92 @@ function countSearchBlocks(blocks, {
       definitive: true,
     });
   }
+  for (const request of requests) {
+    const caller = request.caller || { type: "direct" };
+    if (caller.type === CODE_EXECUTION_CALLER_TYPE) {
+      if (!allowDynamicSearch
+        || (!codeRequestIds.has(caller.tool_id) && !allowOrphanResults)) {
+        throw new AnthropicStreamError("Provider web-search caller is inconsistent.", {
+          code: "provider_web_search_blocks_invalid",
+          definitive: true,
+        });
+      }
+    } else if (caller.type !== "direct") {
+      throw new AnthropicStreamError("Provider web-search caller is inconsistent.", {
+        code: "provider_web_search_blocks_invalid",
+        definitive: true,
+      });
+    }
+  }
+  for (const result of results) {
+    const caller = result.caller || { type: "direct" };
+    const request = requestById.get(result.tool_use_id);
+    if (caller.type === CODE_EXECUTION_CALLER_TYPE) {
+      if (!allowDynamicSearch
+        || (!codeRequestIds.has(caller.tool_id) && !allowOrphanResults)
+        || (request?.caller && (request.caller.type !== caller.type
+          || request.caller.tool_id !== caller.tool_id))) {
+        throw new AnthropicStreamError("Provider web-search caller is inconsistent.", {
+          code: "provider_web_search_blocks_invalid",
+          definitive: true,
+        });
+      }
+    } else if (caller.type !== "direct" || request?.caller?.type === CODE_EXECUTION_CALLER_TYPE) {
+      throw new AnthropicStreamError("Provider web-search caller is inconsistent.", {
+        code: "provider_web_search_blocks_invalid",
+        definitive: true,
+      });
+    }
+  }
   if (requests.length > maxUses || results.length > maxUses) {
     throw new AnthropicStreamError("Provider exceeded the web-search limit.", {
       code: "provider_web_search_limit_exceeded",
       definitive: true,
     });
   }
+  return { requestCount: requests.length, resultCount: results.length };
+}
+
+function countCodeExecutionBlocks(blocks, {
+  allowIncomplete = false,
+  allowOrphanResults = false,
+  allowDynamicSearch = false,
+} = {}) {
+  const requests = blocks.filter((block) => block.type === "server_tool_use"
+    && block.name === CODE_EXECUTION_TOOL_NAME);
+  const results = blocks.filter((block) => block.type === "code_execution_tool_result");
+  if (!allowDynamicSearch && (requests.length > 0 || results.length > 0)) {
+    throw new AnthropicStreamError("Provider code-execution blocks are not enabled.", {
+      code: "provider_web_search_blocks_invalid",
+      definitive: true,
+    });
+  }
+  const requestIds = new Set(requests.map((block) => block.id));
+  const resultIds = new Set(results.map((block) => block.tool_use_id));
+  if (requestIds.size !== requests.length
+    || resultIds.size !== results.length
+    || (!allowOrphanResults && results.some((block) => !requestIds.has(block.tool_use_id)))
+    || (!allowIncomplete && !allowOrphanResults && requests.length !== results.length)) {
+    throw new AnthropicStreamError("Provider code-execution blocks are inconsistent.", {
+      code: "provider_web_search_blocks_invalid",
+      definitive: true,
+    });
+  }
+  const requestPositions = new Map();
+  blocks.forEach((block, index) => {
+    if (block.type === "server_tool_use" && block.name === CODE_EXECUTION_TOOL_NAME) {
+      requestPositions.set(block.id, index);
+    }
+    if (block.type === "code_execution_tool_result"
+      && ((!allowOrphanResults && !requestPositions.has(block.tool_use_id))
+        || (requestPositions.has(block.tool_use_id)
+          && Number(requestPositions.get(block.tool_use_id)) >= index))) {
+      throw new AnthropicStreamError("Provider code-execution blocks are inconsistent.", {
+        code: "provider_web_search_blocks_invalid",
+        definitive: true,
+      });
+    }
+  });
   return { requestCount: requests.length, resultCount: results.length };
 }
 
@@ -748,10 +973,16 @@ export function extractAnthropicVisibleResult(content, {
   allowMissingText = false,
   allowOrphanSearchResults = false,
   allowOrphanFetchResults = false,
+  allowOrphanCodeExecutionResults = false,
   maxWebSearchUses = 1,
   maxWebFetchUses = 0,
+  allowDynamicSearch = false,
+  allowExcludedSearchResults = false,
 } = {}) {
-  const blocks = resolveNativeWebSearchCitationTitles(sanitizeAnthropicContentBlocks(content));
+  const blocks = resolveNativeWebSearchCitationTitles(
+    sanitizeAnthropicContentBlocks(content),
+    { allowFallback: allowExcludedSearchResults }
+  );
   const text = blocks
     .filter((block) => block.type === "text")
     .map((block) => block.text)
@@ -766,12 +997,18 @@ export function extractAnthropicVisibleResult(content, {
   const search = countSearchBlocks(blocks, {
     allowIncomplete: allowMissingText,
     allowOrphanResults: allowOrphanSearchResults,
+    allowDynamicSearch,
     maxWebSearchUses,
   });
   const fetch = countFetchBlocks(blocks, {
     allowIncomplete: allowMissingText,
     allowOrphanResults: allowOrphanFetchResults,
     maxWebFetchUses,
+  });
+  const codeExecution = countCodeExecutionBlocks(blocks, {
+    allowIncomplete: allowMissingText,
+    allowOrphanResults: allowOrphanCodeExecutionResults,
+    allowDynamicSearch,
   });
   return {
     text,
@@ -780,6 +1017,8 @@ export function extractAnthropicVisibleResult(content, {
     sources: extractSafeSources(blocks),
     webSearchRequestCount: search.requestCount,
     webSearchResultCount: search.resultCount,
+    codeExecutionRequestCount: codeExecution.requestCount,
+    codeExecutionResultCount: codeExecution.resultCount,
     webFetchRequestCount: fetch.requestCount,
     webFetchResultCount: fetch.resultCount,
     webFetchErrorResultCount: fetch.errorResultCount,
@@ -949,8 +1188,11 @@ export async function* parseSseJsonEvents(stream, {
 export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
   allowOrphanSearchResults = false,
   allowOrphanFetchResults = false,
+  allowOrphanCodeExecutionResults = false,
   maxWebSearchUses = 1,
   maxWebFetchUses = 0,
+  allowDynamicSearch = false,
+  allowExcludedSearchResults = false,
   streamWitness = null,
   providerIdleTimeoutMs = FABLE_PROVIDER_STREAM_IDLE_TIMEOUT_MS,
 } = {}) {
@@ -1094,8 +1336,12 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
         });
         if (thinking) callbacks.onThinkingDelta?.(thinking);
       } else if (source?.type === "server_tool_use") {
-        if (!onlyFields(source, ["type", "id", "name", "input"])
-          || ![FABLE_CHAT_WEB_SEARCH_TOOL_NAME, FABLE_CHAT_WEB_FETCH_TOOL_NAME].includes(source.name)) {
+        if (!onlyFields(source, ["type", "id", "name", "input", "caller"])
+          || ![
+            FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+            FABLE_CHAT_WEB_FETCH_TOOL_NAME,
+            ...(allowDynamicSearch ? [CODE_EXECUTION_TOOL_NAME] : []),
+          ].includes(source.name)) {
           throw new AnthropicStreamError("Provider server tool block is invalid.");
         }
         const input = source.input === undefined ? {} : source.input;
@@ -1105,7 +1351,9 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
         const initialJson = Object.keys(input).length > 0 ? JSON.stringify(input) : "";
         const maxInputBytes = source.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME
           ? FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS * 4
-          : FABLE_CHAT_WEB_FETCH_MAX_URL_CHARACTERS * 4;
+          : (source.name === FABLE_CHAT_WEB_FETCH_TOOL_NAME
+            ? FABLE_CHAT_WEB_FETCH_MAX_URL_CHARACTERS * 4
+            : FABLE_CHAT_MAX_CODE_EXECUTION_INPUT_CHARACTERS);
         if (byteLength(initialJson) > maxInputBytes) {
           throw new AnthropicStreamError("Provider server tool input is too large.");
         }
@@ -1114,11 +1362,18 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
           id: safeToolId(source.id),
           name: source.name,
           inputJson: initialJson,
+          ...(source.caller === undefined ? {} : {
+            caller: sanitizeServerToolCaller(source.caller, {
+              allowCodeExecution: source.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+            }),
+          }),
         });
         const started = [...blocks.values()].filter((block) => block.type === "server_tool_use"
           && block.name === source.name).length;
-        const toolLimit = source.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME ? maxUses : maxFetchUses;
-        if (started > toolLimit) {
+        const toolLimit = source.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME
+          ? maxUses
+          : (source.name === FABLE_CHAT_WEB_FETCH_TOOL_NAME ? maxFetchUses : null);
+        if (toolLimit !== null && started > toolLimit) {
           throw new AnthropicStreamError("Provider exceeded the web-search limit.", {
             code: source.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME
               ? "provider_web_search_limit_exceeded"
@@ -1150,6 +1405,8 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
             definitive: true,
           });
         }
+      } else if (source?.type === "code_execution_tool_result" && allowDynamicSearch) {
+        blocks.set(index, sanitizeCodeExecutionToolResult(source));
       } else {
         throw new AnthropicStreamError("Provider content block type is unsupported.", {
           code: "provider_unsupported_block_type",
@@ -1216,7 +1473,9 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
       } else if (delta?.type === "input_json_delta" && block.type === "server_tool_use") {
         const inputLimit = block.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME
           ? FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS * 4
-          : FABLE_CHAT_WEB_FETCH_MAX_URL_CHARACTERS * 4;
+          : (block.name === FABLE_CHAT_WEB_FETCH_TOOL_NAME
+            ? FABLE_CHAT_WEB_FETCH_MAX_URL_CHARACTERS * 4
+            : FABLE_CHAT_MAX_CODE_EXECUTION_INPUT_CHARACTERS);
         const partial = safeText(delta.partial_json, {
           maxCharacters: inputLimit,
           maxBytes: inputLimit,
@@ -1270,6 +1529,7 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
           id: block.id,
           name: block.name,
           input,
+          ...(block.caller ? { caller: block.caller } : {}),
         }));
       }
       stoppedBlocks.add(index);
@@ -1325,8 +1585,11 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
       allowMissingText: stopReason === "pause_turn",
       allowOrphanSearchResults,
       allowOrphanFetchResults,
+      allowOrphanCodeExecutionResults,
       maxWebSearchUses: maxUses,
       maxWebFetchUses: maxFetchUses,
+      allowDynamicSearch,
+      allowExcludedSearchResults,
     });
   } catch (error) {
     if (error instanceof AnthropicStreamError && error.code === "provider_stream_interrupted") {
@@ -1334,8 +1597,27 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
     }
     throw error;
   }
+  const usageSearchRequests = Number(usage?.server_tool_use?.web_search_requests);
+  if (Number.isFinite(usageSearchRequests)
+    && (usageSearchRequests < 0 || usageSearchRequests > maxUses)) {
+    throw new AnthropicStreamError("Provider exceeded the web-search limit.", {
+      code: "provider_web_search_limit_exceeded",
+      definitive: true,
+    });
+  }
+  const executedSearchRequestCount = Number.isFinite(usageSearchRequests)
+    ? Math.floor(usageSearchRequests)
+    : visible.webSearchRequestCount;
+  if (!allowExcludedSearchResults
+    && executedSearchRequestCount !== visible.webSearchRequestCount) {
+    throw new AnthropicStreamError("Provider web-search usage is inconsistent.", {
+      code: "provider_web_search_blocks_invalid",
+      definitive: true,
+    });
+  }
   return {
     ...visible,
+    webSearchExecutedRequestCount: executedSearchRequestCount,
     usage,
     responseModel,
     stopReason,
@@ -1394,6 +1676,8 @@ export function createInternalFableChatStream(providerStream, {
   continueAfterPause = null,
   maxWebSearchUses = 1,
   maxWebFetchUses = 0,
+  allowDynamicSearch = false,
+  allowExcludedSearchResults = false,
   onTerminalWitness = null,
 } = {}) {
   const maxUses = normalizeWebSearchMaxUses(maxWebSearchUses);
@@ -1440,6 +1724,8 @@ export function createInternalFableChatStream(providerStream, {
       void consumeAnthropicMessageStream(providerStream, callbacks, {
         maxWebSearchUses: maxUses,
         maxWebFetchUses: maxFetchUses,
+        allowDynamicSearch,
+        allowExcludedSearchResults,
         streamWitness: witness,
       }).then(async (initial) => {
         let result = initial;
@@ -1463,8 +1749,11 @@ export function createInternalFableChatStream(providerStream, {
           const continuation = await consumeAnthropicMessageStream(continuationStream, callbacks, {
             allowOrphanSearchResults: true,
             allowOrphanFetchResults: true,
+            allowOrphanCodeExecutionResults: true,
             maxWebSearchUses: maxUses,
             maxWebFetchUses: maxFetchUses,
+            allowDynamicSearch,
+            allowExcludedSearchResults,
             streamWitness: witness,
           });
           continuationCount += 1;
@@ -1474,10 +1763,17 @@ export function createInternalFableChatStream(providerStream, {
             allowMissingText: continuation.stopReason === "pause_turn",
             maxWebSearchUses: maxUses,
             maxWebFetchUses: maxFetchUses,
+            allowDynamicSearch,
+            allowExcludedSearchResults,
           });
           result = {
             ...continuation,
             ...combined,
+            webSearchExecutedRequestCount: Number.isFinite(
+              Number(combinedUsage?.server_tool_use?.web_search_requests)
+            )
+              ? Number(combinedUsage.server_tool_use.web_search_requests)
+              : combined.webSearchRequestCount,
             usage: combinedUsage,
             responseModel: continuation.responseModel || initial.responseModel,
           };

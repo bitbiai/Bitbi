@@ -14,12 +14,20 @@ import {
   FABLE_CHAT_EFFORTS,
   FABLE_CHAT_SYSTEM_PRESET_IDS,
   FABLE_CHAT_THINKING_DISPLAYS,
+  FABLE_CHAT_DEFAULT_TOOL_CHOICE,
+  FABLE_CHAT_DEFAULT_WEB_SEARCH_CALLER_MODE,
+  FABLE_CHAT_DEFAULT_WEB_SEARCH_DOMAIN_FILTER_MODE,
+  FABLE_CHAT_DEFAULT_WEB_SEARCH_RESPONSE_INCLUSION,
+  FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+  FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
   FABLE_CHAT_WEB_FETCH_CONTRACT_VERSION,
   FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS,
   FABLE_CHAT_WEB_FETCH_MAX_USES,
   FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
   getFableChatOutputTokenLimit,
   getFableChatWebSearchMaxUses,
+  normalizeFableChatToolChoice,
+  normalizeFableChatWebSearchConfiguration,
 } from "../../../shared/fable-chat-contract.mjs";
 import { nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
 
@@ -37,6 +45,62 @@ const MAX_MESSAGE = 400_000;
 const MAX_CITATIONS = 16;
 const MAX_URL = 2_048;
 const MAX_SOURCE_TITLE = 256;
+
+function parseJsonObject(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value !== "string") return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function safeAdminWebSearchSettings(json, toolChoice = FABLE_CHAT_DEFAULT_TOOL_CHOICE) {
+  const stored = parseJsonObject(json);
+  let config;
+  try {
+    config = normalizeFableChatWebSearchConfiguration({
+      callerMode: stored.callerMode ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_CALLER_MODE,
+      responseInclusion: stored.responseInclusionPreference
+        ?? stored.responseInclusion
+        ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_RESPONSE_INCLUSION,
+      domainFilterMode: stored.domainFilterMode
+        ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_DOMAIN_FILTER_MODE,
+      allowedDomains: stored.allowedDomains ?? [],
+      blockedDomains: stored.blockedDomains ?? [],
+      locationEnabled: stored.locationEnabled ?? false,
+      location: stored.location ?? null,
+    });
+  } catch {
+    config = normalizeFableChatWebSearchConfiguration();
+  }
+  let normalizedToolChoice = FABLE_CHAT_DEFAULT_TOOL_CHOICE;
+  try {
+    normalizedToolChoice = normalizeFableChatToolChoice(toolChoice);
+  } catch {
+    // Preserve a safe server-owned default for malformed historical metadata.
+  }
+  return {
+    toolVersion: stored.toolVersion || FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+    contractVersion: Number(stored.contractVersion || FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION),
+    callerMode: config.callerMode,
+    allowedCallers: config.allowedCallers,
+    responseInclusionPreference: config.responseInclusionPreference,
+    effectiveResponseInclusion: config.effectiveResponseInclusion,
+    domainFilterMode: config.domainFilterMode,
+    allowedDomains: config.allowedDomains,
+    blockedDomains: config.blockedDomains,
+    activeDomains: config.activeDomains,
+    allowedDomainCount: config.allowedDomains.length,
+    blockedDomainCount: config.blockedDomains.length,
+    locationEnabled: config.locationEnabled,
+    location: config.location,
+    locationFieldCount: config.location ? Object.keys(config.location).length : 0,
+    toolChoice: normalizedToolChoice,
+  };
+}
 
 export class FableChatAdminDataError extends Error {
   constructor(message, { status = 400, code = "validation_error" } = {}) {
@@ -138,16 +202,6 @@ function normalizeCitations(value) {
   return output;
 }
 
-function parseJsonObject(value) {
-  if (typeof value !== "string" || !value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
 function parseCitations(value) {
   try {
     return normalizeCitations(JSON.parse(value || "[]"));
@@ -219,6 +273,12 @@ function safeBudgetMetadata(value) {
     "planning_ceiling", "acceptance_ceiling", "effective_soft_target",
     "web_fetch_enabled", "web_fetch_max_uses", "web_fetch_reserved_input_tokens",
     "web_fetch_request_count",
+    "web_search_enabled", "web_search_max_uses", "web_search_units",
+    "web_search_tool_version", "web_search_contract_version", "web_search_caller_mode",
+    "web_search_allowed_callers", "web_search_response_inclusion_preference",
+    "web_search_effective_response_inclusion", "web_search_domain_filter_mode",
+    "web_search_allowed_domains", "web_search_blocked_domains",
+    "web_search_location_enabled", "web_search_location", "tool_choice",
   ];
   return Object.fromEntries(allowed.filter((key) => parsed[key] != null).map((key) => [key, parsed[key]]));
 }
@@ -350,6 +410,7 @@ export async function listFableChatAdminConversations(env, input = {}) {
     env.DB.prepare(
       `SELECT c.id, c.admin_user_id, u.email AS owner_email, c.title, c.model_id,
               c.effort, c.system_preset_id, c.thinking_display, c.web_search_enabled,
+              c.web_search_settings_json, c.fable_tool_choice,
               c.web_fetch_enabled,
               c.memory_mode, c.turn_count, c.created_at, c.updated_at, c.deleted_at,
               c.settings_updated_at, c.admin_revision_version,
@@ -399,6 +460,10 @@ export async function listFableChatAdminConversations(env, input = {}) {
         reasoningSummaryEnabled: row.thinking_display === "summarized",
         webSearchEnabled: Number(row.web_search_enabled) === 1,
         webSearchMaxUses: getFableChatWebSearchMaxUses(row.effort),
+        webSearch: safeAdminWebSearchSettings(
+          row.web_search_settings_json,
+          row.fable_tool_choice
+        ),
         webFetchEnabled: Number(row.web_fetch_enabled) === 1,
         webFetchMaxUses: FABLE_CHAT_WEB_FETCH_MAX_USES,
         memoryMode: row.memory_mode || FABLE_CHAT_DEFAULT_MEMORY_MODE,
@@ -484,7 +549,8 @@ export async function getFableChatAdminConversationDetail(env, conversationId) {
     latestCoverage(env, row.id, row.admin_user_id, "lite"),
     env.DB.prepare(
       `SELECT id, status, error_code, effort, system_preset_id, thinking_display,
-              web_search_enabled, web_search_effective_max_uses, memory_mode,
+              web_search_enabled, web_search_effective_max_uses,
+              web_search_effective_settings_json, fable_tool_choice, memory_mode,
               web_fetch_enabled, web_fetch_tool_version, web_fetch_max_uses,
               web_fetch_max_content_tokens, web_fetch_contract_version,
               web_fetch_request_count, web_fetch_result_count, web_fetch_error_result_count,
@@ -527,6 +593,10 @@ export async function getFableChatAdminConversationDetail(env, conversationId) {
         thinkingDisplay: row.thinking_display,
         webSearchEnabled: Number(row.web_search_enabled) === 1,
         webSearchMaxUses: getFableChatWebSearchMaxUses(row.effort),
+        webSearch: safeAdminWebSearchSettings(
+          row.web_search_settings_json,
+          row.fable_tool_choice
+        ),
         webFetchEnabled: Number(row.web_fetch_enabled) === 1,
         webFetchToolVersion: FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
         webFetchMaxUses: FABLE_CHAT_WEB_FETCH_MAX_USES,
@@ -565,6 +635,10 @@ export async function getFableChatAdminConversationDetail(env, conversationId) {
       reasoningSummaryEnabled: latestTurn.thinking_display === "summarized",
       webSearchEnabled: Number(latestTurn.web_search_enabled) === 1,
       webSearchMaxUses: Number(latestTurn.web_search_effective_max_uses || 1),
+      webSearch: safeAdminWebSearchSettings(
+        latestTurn.web_search_effective_settings_json,
+        latestTurn.fable_tool_choice
+      ),
       webFetchEnabled: Number(latestTurn.web_fetch_enabled) === 1,
       webFetchRequestCount: Number(latestTurn.web_fetch_request_count || 0),
       webFetchResultCount: Number(latestTurn.web_fetch_result_count || 0),
@@ -654,6 +728,7 @@ export async function listFableChatAdminAttempts(env, conversationId, input = {}
             t.effective_max_output_tokens, t.system_preset_id, t.system_preset_version,
             t.thinking_display, t.web_search_enabled, t.web_search_effective_max_uses,
             t.web_search_executed_request_count, t.web_search_executed_result_count,
+            t.web_search_effective_settings_json, t.fable_tool_choice,
             t.web_fetch_enabled, t.web_fetch_tool_version, t.web_fetch_max_uses,
             t.web_fetch_max_content_tokens, t.web_fetch_contract_version,
             t.web_fetch_request_count, t.web_fetch_result_count,
@@ -703,6 +778,10 @@ export async function listFableChatAdminAttempts(env, conversationId, input = {}
         maxUses: Number(row.web_search_effective_max_uses || 1),
         requestCount: Number(row.web_search_executed_request_count || 0),
         resultCount: Number(row.web_search_executed_result_count || 0),
+        ...safeAdminWebSearchSettings(
+          row.web_search_effective_settings_json,
+          row.fable_tool_choice
+        ),
       },
       webFetch: {
         enabled: Number(row.web_fetch_enabled) === 1,
@@ -899,6 +978,7 @@ export async function getFableChatAdminWebSearch(env, conversationId) {
     `SELECT t.id, t.status, t.web_search_enabled, t.web_search_tool_version,
             t.web_search_effective_max_uses, t.web_search_executed_request_count,
             t.web_search_executed_result_count, t.web_search_effective_contract_version,
+            t.web_search_effective_settings_json, t.fable_tool_choice,
             t.web_fetch_enabled, t.web_fetch_tool_version, t.web_fetch_max_uses,
             t.web_fetch_max_content_tokens, t.web_fetch_contract_version,
             t.web_fetch_request_count, t.web_fetch_result_count,
@@ -923,6 +1003,10 @@ export async function getFableChatAdminWebSearch(env, conversationId) {
     conversation: {
       webSearchEnabled: Number(conversation.web_search_enabled) === 1,
       maxUses: getFableChatWebSearchMaxUses(conversation.effort),
+      webSearch: safeAdminWebSearchSettings(
+        conversation.web_search_settings_json,
+        conversation.fable_tool_choice
+      ),
       webFetchEnabled: Number(conversation.web_fetch_enabled) === 1,
       webFetchToolVersion: FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
       webFetchMaxUses: FABLE_CHAT_WEB_FETCH_MAX_USES,
@@ -940,6 +1024,10 @@ export async function getFableChatAdminWebSearch(env, conversationId) {
       requestCount: Number(row.web_search_executed_request_count || 0),
       resultCount: Number(row.web_search_executed_result_count || 0),
       contractVersion: Number(row.web_search_effective_contract_version || 1),
+      webSearch: safeAdminWebSearchSettings(
+        row.web_search_effective_settings_json,
+        row.fable_tool_choice
+      ),
       webFetch: {
         enabled: Number(row.web_fetch_enabled) === 1,
         toolVersion: row.web_fetch_tool_version || FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
@@ -1462,7 +1550,8 @@ const RAW_RECORDS = Object.freeze({
     safeColumns: [
       "id", "admin_user_id", "model_id", "title", "title_source", "turn_count",
       "effort", "system_preset_id", "system_preset_version", "thinking_display",
-      "prompt_cache_policy", "prompt_cache_version", "web_search_enabled", "web_fetch_enabled",
+      "prompt_cache_policy", "prompt_cache_version", "web_search_enabled",
+      "web_search_settings_json", "fable_tool_choice", "web_fetch_enabled",
       "memory_mode",
       "settings_updated_at", "web_replay_pruned_through_turn_order",
       "web_replay_pruned_through_message_id", "web_replay_pruned_at",
@@ -1498,6 +1587,7 @@ const RAW_RECORDS = Object.freeze({
       "web_search_contract_version", "web_search_request_count", "web_search_result_count",
       "web_search_effective_max_uses", "web_search_effective_contract_version",
       "web_search_executed_request_count", "web_search_executed_result_count",
+      "web_search_effective_settings_json", "fable_tool_choice",
       "web_fetch_enabled", "web_fetch_tool_version", "web_fetch_max_uses",
       "web_fetch_max_content_tokens", "web_fetch_contract_version",
       "web_fetch_direct_only", "web_fetch_use_cache", "web_fetch_request_count",

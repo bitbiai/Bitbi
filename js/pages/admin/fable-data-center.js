@@ -97,6 +97,26 @@ function rawLabel(column) {
     return String(column).split('_').map((part) => part ? `${part[0].toUpperCase()}${part.slice(1)}` : '').join(' ');
 }
 
+function webSearchDetails(value) {
+    const settings = value || {};
+    const mode = settings.callerMode || 'direct';
+    const inclusion = settings.effectiveResponseInclusion || 'full';
+    const filterMode = settings.domainFilterMode || 'none';
+    const domainCount = Number(
+        filterMode === 'allowed' ? settings.allowedDomainCount : settings.blockedDomainCount
+    ) || 0;
+    return {
+        mode,
+        inclusion,
+        domains: filterMode === 'none' ? 'None' : `${filterMode} · ${domainCount}`,
+        location: settings.locationEnabled
+            ? `Enabled · ${Number(settings.locationFieldCount || 0)} fields`
+            : 'Disabled',
+        toolChoice: settings.toolChoice || 'auto',
+        tool: `${settings.toolVersion || 'web_search_20260318'} · contract v${Number(settings.contractVersion || 3)}`,
+    };
+}
+
 export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     const refs = {
         card: document.getElementById('fableDataCard'),
@@ -259,6 +279,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     function renderOverview(detail) {
         const c = detail.conversation;
         const settings = c.settings;
+        const web = webSearchDetails(settings.webSearch);
         panels.overview.replaceChildren(
             definitionList([
                 ['Owner', `${c.ownerEmail} (${c.ownerId})`], ['Conversation ID', c.id],
@@ -267,6 +288,9 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
                 ['Preset', `${settings.preset} v${settings.presetVersion}`],
                 ['Reasoning summary', settings.reasoningSummaryEnabled ? 'Enabled' : 'Disabled'],
                 ['Web search', settings.webSearchEnabled ? `Enabled · up to ${settings.webSearchMaxUses}` : 'Disabled'],
+                ['Search mode / inclusion', `${web.mode} / ${web.inclusion}`],
+                ['Search domains / location', `${web.domains} / ${web.location}`],
+                ['Provider tool choice', web.toolChoice],
                 ['Web fetch', settings.webFetchEnabled ? `Enabled · up to ${settings.webFetchMaxUses || 2} · ${Number(settings.webFetchMaxContentTokens || 8000).toLocaleString()} text tokens` : 'Disabled'],
                 ['Memory', settings.memoryMode], ['Administrative revision', c.adminRevisionVersion],
                 ['Uncovered visible estimate', `${detail.memory.uncoveredEstimatedTokens.toLocaleString()} tokens`],
@@ -349,12 +373,16 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     function renderAttempts(attempts) {
         const list = node('div', 'admin-fable-data__record-list');
         for (const attempt of attempts) {
+            const web = webSearchDetails(attempt.webSearch);
             const details = node('details', 'admin-fable-data__record');
             const summary = node('summary');
             summary.append(badge(attempt.status, statusTone(attempt.status)), node('strong', '', shortId(attempt.id)), node('span', '', formatDate(attempt.createdAt)));
             details.append(summary, definitionList([
                 ['Model', attempt.modelId], ['Effort / preset', `${attempt.effort} / ${attempt.preset}`],
                 ['Web search', attempt.webSearch.enabled ? `${attempt.webSearch.requestCount}/${attempt.webSearch.maxUses} requests` : 'Disabled'],
+                ['Search contract', `${web.tool} · ${web.mode} / ${web.inclusion}`],
+                ['Search domains / location', `${web.domains} / ${web.location}`],
+                ['Provider tool choice', web.toolChoice],
                 ['Web fetch', attempt.webFetch?.enabled ? `${attempt.webFetch.requestCount}/${attempt.webFetch.maxUses} requests · ${attempt.webFetch.errorResultCount} errors` : 'Disabled'],
                 ['Memory snapshot', `${attempt.memory.mode} · checkpoint v${attempt.memory.checkpointVersion}`],
                 ['Context', `${attempt.context.estimatedInputTokens.toLocaleString()} estimated input tokens`],
@@ -409,18 +437,27 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
 
     function renderSearch(data) {
         const fragment = document.createDocumentFragment();
+        const conversationWeb = webSearchDetails(data.conversation.webSearch);
         fragment.append(definitionList([
             ['Web search setting', data.conversation.webSearchEnabled ? `Enabled · max ${data.conversation.maxUses}` : 'Disabled'],
+            ['Search contract', conversationWeb.tool],
+            ['Search mode / inclusion', `${conversationWeb.mode} / ${conversationWeb.inclusion}`],
+            ['Search domains / location', `${conversationWeb.domains} / ${conversationWeb.location}`],
+            ['Provider tool choice', conversationWeb.toolChoice],
             ['Web fetch setting', data.conversation.webFetchEnabled ? `Enabled · max ${data.conversation.webFetchMaxUses}` : 'Disabled'],
             ['Web fetch tool', `${data.conversation.webFetchToolVersion || 'web_fetch_20260318'} · ${Number(data.conversation.webFetchMaxContentTokens || 8000).toLocaleString()} text tokens`],
             ['Replay pruned through', data.conversation.replayPrunedThroughTurnOrder],
             ['Last pruning', data.conversation.replayPrunedAt ? formatDate(data.conversation.replayPrunedAt) : null],
         ]));
         for (const turn of data.turns || []) {
+            const web = webSearchDetails(turn.webSearch);
             const record = node('details', 'admin-fable-data__record');
             const summary = node('summary', '', `${shortId(turn.id)} · ${turn.requestCount}/${turn.maxUses} searches · ${formatDate(turn.createdAt)}`);
             record.append(summary, definitionList([
-                ['Tool', turn.toolVersion], ['Result count', turn.resultCount],
+                ['Tool', web.tool], ['Result count', turn.resultCount],
+                ['Effective Search', `${web.mode} / ${web.inclusion}`],
+                ['Domains / location', `${web.domains} / ${web.location}`],
+                ['Provider tool choice', web.toolChoice],
                 ['Web fetch', turn.webFetch?.enabled ? `${turn.webFetch.requestCount}/${turn.webFetch.maxUses} requests · ${turn.webFetch.resultCount} results · ${turn.webFetch.errorResultCount} errors` : 'Disabled'],
                 ['Web fetch tool', `${turn.webFetch?.toolVersion || 'web_fetch_20260318'} · ${Number(turn.webFetch?.maxContentTokens || 8000).toLocaleString()} text tokens`],
                 ['Fetch pairs pruned', turn.webFetch?.replayPrunedPairCount || 0],

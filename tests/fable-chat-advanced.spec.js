@@ -31,6 +31,150 @@ function validAiBody(messages = [{ role: 'user', content: 'Hello' }], overrides 
   };
 }
 
+function currentWebSearchAiBody(overrides = {}) {
+  return validAiBody(undefined, {
+    webSearchEnabled: true,
+    webSearchContractVersion: 3,
+    webSearchCallerMode: 'direct',
+    webSearchAllowedCallers: ['direct'],
+    webSearchResponseInclusion: 'full',
+    webSearchEffectiveResponseInclusion: 'full',
+    webSearchDomainFilterMode: 'none',
+    webSearchAllowedDomains: [],
+    webSearchBlockedDomains: [],
+    webSearchLocationEnabled: false,
+    webSearchLocation: null,
+    toolChoice: 'auto',
+    ...overrides,
+  });
+}
+
+function dynamicSearchProviderEvents({ includeNestedResults = false } = {}) {
+  const codeId = 'srvtoolu_code12345678';
+  const searchId = 'srvtoolu_search123456';
+  const caller = { type: 'code_execution_20260120', tool_id: codeId };
+  const events = [
+    {
+      event: 'message_start',
+      data: {
+        type: 'message_start',
+        message: { model: 'claude-fable-5', usage: { input_tokens: 100 } },
+      },
+    },
+    {
+      event: 'content_block_start',
+      data: {
+        type: 'content_block_start', index: 0,
+        content_block: { type: 'server_tool_use', id: codeId, name: 'code_execution', input: {} },
+      },
+    },
+    {
+      event: 'content_block_delta',
+      data: {
+        type: 'content_block_delta', index: 0,
+        delta: { type: 'input_json_delta', partial_json: '{"code":"synthetic filter"}' },
+      },
+    },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index: 0 } },
+  ];
+  let index = 1;
+  if (includeNestedResults) {
+    events.push(
+      {
+        event: 'content_block_start',
+        data: {
+          type: 'content_block_start', index,
+          content_block: {
+            type: 'server_tool_use', id: searchId, name: 'web_search', input: {}, caller,
+          },
+        },
+      },
+      {
+        event: 'content_block_delta',
+        data: {
+          type: 'content_block_delta', index,
+          delta: { type: 'input_json_delta', partial_json: '{"query":"synthetic query"}' },
+        },
+      },
+      { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    );
+    index += 1;
+    events.push(
+      {
+        event: 'content_block_start',
+        data: {
+          type: 'content_block_start', index,
+          content_block: {
+            type: 'web_search_tool_result', tool_use_id: searchId, caller,
+            content: [{
+              type: 'web_search_result', url: 'https://example.test/result',
+              title: 'Synthetic result', encrypted_content: 'opaque-result', page_age: null,
+            }],
+          },
+        },
+      },
+      { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    );
+    index += 1;
+  }
+  events.push(
+    {
+      event: 'content_block_start',
+      data: {
+        type: 'content_block_start', index,
+        content_block: {
+          type: 'code_execution_tool_result', tool_use_id: codeId,
+          content: {
+            type: 'encrypted_code_execution_result', encrypted_stdout: 'opaque-code-result',
+            stderr: '', return_code: 0, content: [],
+          },
+        },
+      },
+    },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+  );
+  index += 1;
+  events.push(
+    {
+      event: 'content_block_start',
+      data: {
+        type: 'content_block_start', index,
+        content_block: { type: 'text', text: '', citations: [] },
+      },
+    },
+    {
+      event: 'content_block_delta',
+      data: {
+        type: 'content_block_delta', index,
+        delta: { type: 'text_delta', text: 'Synthetic answer.' },
+      },
+    },
+    {
+      event: 'content_block_delta',
+      data: {
+        type: 'content_block_delta', index,
+        delta: {
+          type: 'citations_delta',
+          citation: {
+            type: 'web_search_result_location', url: 'https://example.test/result',
+            title: null, encrypted_index: 'opaque-index', cited_text: 'synthetic excerpt',
+          },
+        },
+      },
+    },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    {
+      event: 'message_delta',
+      data: {
+        type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null },
+        usage: { output_tokens: 20, server_tool_use: { web_search_requests: 1 } },
+      },
+    },
+    { event: 'message_stop', data: { type: 'message_stop' } },
+  );
+  return events;
+}
+
 function byteStream(chunks) {
   return new ReadableStream({
     start(controller) {
@@ -894,6 +1038,181 @@ test.describe('Advanced Fable chat contract', () => {
         type: 'web_search_20250305', name: 'web_search', max_uses: maxUses,
       }]);
     }
+  });
+
+  test('Web Search 20260318 settings are server-owned and dynamic filtering remains private', async () => {
+    const contract = await import(moduleUrl('workers/shared/fable-chat-contract.mjs'));
+    const auth = await import(moduleUrl('workers/auth/src/lib/fable-chat.js'));
+    const ai = await import(moduleUrl('workers/ai/src/lib/validate.js'));
+    const route = await import(moduleUrl('workers/ai/src/routes/fable-chat.js'));
+    const stream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+
+    expect(contract.FABLE_CHAT_WEB_SEARCH_TOOL_TYPE).toBe('web_search_20260318');
+    expect(auth.validateUpdateFableChatSettingsBody({
+      webSearchCallerMode: 'dynamic',
+      webSearchResponseInclusion: 'excluded',
+      webSearchDomainFilterMode: 'allowed',
+      webSearchAllowedDomains: ['Docs.Example.com/*', 'docs.example.com/*'],
+      webSearchBlockedDomains: ['ads.example.com'],
+      webSearchLocationEnabled: true,
+      webSearchLocation: { city: 'Berlin', country: 'DE', timezone: 'Europe/Berlin' },
+      toolChoice: 'none',
+    })).toMatchObject({
+      webSearchCallerMode: 'dynamic',
+      webSearchResponseInclusion: 'excluded',
+      webSearchDomainFilterMode: 'allowed',
+      webSearchAllowedDomains: ['docs.example.com/*'],
+      webSearchBlockedDomains: ['ads.example.com'],
+      webSearchLocationEnabled: true,
+      toolChoice: 'none',
+    });
+    for (const invalidDomain of [
+      'https://example.com', '*.example.com', 'ex*.com', 'example.com?query=1',
+      'example.com:443', 'exаmple.com',
+    ]) {
+      expect(() => auth.validateUpdateFableChatSettingsBody({
+        webSearchAllowedDomains: [invalidDomain],
+      })).toThrow();
+    }
+    expect(() => auth.validateUpdateFableChatSettingsBody({
+      webSearchLocationEnabled: true,
+      webSearchLocation: { country: 'de' },
+    })).toThrow();
+    expect(() => auth.validateUpdateFableChatSettingsBody({ toolChoice: 'any' })).toThrow();
+    expect(() => auth.validateUpdateFableChatSettingsBody({
+      tools: [{ type: 'web_search_20260318' }],
+    })).toThrow();
+
+    const capture = async (body) => {
+      const calls = [];
+      const response = await route.handleFableChat({
+        request: new Request('https://bitbi-ai.internal/internal/ai/fable-chat', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+        env: { AI: { run: async (...args) => {
+          calls.push(args);
+          return {
+            content: [{ type: 'text', text: 'Synthetic.' }],
+            model: 'claude-fable-5', stop_reason: 'end_turn', usage: {},
+          };
+        } } },
+        correlationId: 'search-20260318-payload',
+        pathname: '/internal/ai/fable-chat', method: 'POST',
+      });
+      expect(response.status).toBe(200);
+      expect(calls).toHaveLength(1);
+      return calls[0][1];
+    };
+
+    const direct = await capture(currentWebSearchAiBody({
+      webSearchResponseInclusion: 'excluded',
+      webSearchEffectiveResponseInclusion: 'full',
+    }));
+    expect(direct.tools).toEqual([{
+      type: 'web_search_20260318', name: 'web_search', max_uses: 3,
+      allowed_callers: ['direct'], response_inclusion: 'full',
+    }]);
+    expect(direct.tool_choice).toEqual({ type: 'auto' });
+
+    const dynamic = await capture(currentWebSearchAiBody({
+      webSearchCallerMode: 'dynamic',
+      webSearchAllowedCallers: ['code_execution_20260120'],
+      webSearchResponseInclusion: 'excluded',
+      webSearchEffectiveResponseInclusion: 'excluded',
+      webSearchDomainFilterMode: 'allowed',
+      webSearchAllowedDomains: ['docs.example.com/*'],
+      webSearchBlockedDomains: ['ads.example.com'],
+      webSearchLocationEnabled: true,
+      webSearchLocation: { city: 'Berlin', country: 'DE', timezone: 'Europe/Berlin' },
+    }));
+    expect(dynamic.tools).toEqual([{
+      type: 'web_search_20260318', name: 'web_search', max_uses: 3,
+      allowed_callers: ['code_execution_20260120'], response_inclusion: 'excluded',
+      allowed_domains: ['docs.example.com/*'],
+      user_location: {
+        type: 'approximate', city: 'Berlin', country: 'DE', timezone: 'Europe/Berlin',
+      },
+    }]);
+    expect(JSON.stringify(dynamic)).not.toContain('ads.example.com');
+    expect(dynamic.tools).not.toContainEqual(expect.objectContaining({ type: 'code_execution_20260120' }));
+
+    const both = await capture(currentWebSearchAiBody({
+      webSearchCallerMode: 'both',
+      webSearchAllowedCallers: ['direct', 'code_execution_20260120'],
+    }));
+    expect(both.tools[0].allowed_callers).toEqual(['direct', 'code_execution_20260120']);
+
+    const noTools = await capture(currentWebSearchAiBody({
+      webSearchEnabled: false,
+      webFetchEnabled: true,
+      toolChoice: 'none',
+    }));
+    expect(noTools.tools).toEqual([expect.objectContaining({ type: 'web_fetch_20260318' })]);
+    expect(noTools.tool_choice).toEqual({ type: 'none' });
+
+    for (const override of [
+      { webSearchAllowedCallers: ['direct'] },
+      { webSearchEffectiveResponseInclusion: 'full' },
+      { webSearchLocation: { city: 'Berlin', type: 'approximate' } },
+      { toolChoice: 'tool' },
+    ]) {
+      expect(() => ai.validateFableChatBody(currentWebSearchAiBody({
+        webSearchCallerMode: 'dynamic',
+        webSearchAllowedCallers: ['code_execution_20260120'],
+        webSearchResponseInclusion: 'excluded',
+        webSearchEffectiveResponseInclusion: 'excluded',
+        ...override,
+      }))).toThrow();
+    }
+
+    const excluded = await stream.consumeAnthropicMessageStream(byteStream([
+      encodeSseEvents(dynamicSearchProviderEvents()),
+    ]), {}, {
+      maxWebSearchUses: 3,
+      allowDynamicSearch: true,
+      allowExcludedSearchResults: true,
+    });
+    expect(excluded).toMatchObject({
+      text: 'Synthetic answer.', webSearchRequestCount: 0,
+      webSearchExecutedRequestCount: 1,
+      codeExecutionRequestCount: 1, codeExecutionResultCount: 1,
+      stopReason: 'end_turn',
+    });
+    expect(excluded.sources).toEqual([{
+      type: 'web_search_result_location',
+      url: 'https://example.test/result',
+      title: 'Web source',
+    }]);
+    const full = await stream.consumeAnthropicMessageStream(byteStream([
+      encodeSseEvents(dynamicSearchProviderEvents({ includeNestedResults: true })),
+    ]), {}, {
+      maxWebSearchUses: 3,
+      allowDynamicSearch: true,
+    });
+    expect(full).toMatchObject({
+      webSearchRequestCount: 1, webSearchResultCount: 1,
+      webSearchExecutedRequestCount: 1,
+    });
+    await expect(stream.consumeAnthropicMessageStream(byteStream([
+      encodeSseEvents(dynamicSearchProviderEvents({ includeNestedResults: true }).map((entry) => {
+        if (entry.data?.content_block?.name !== 'web_search') return entry;
+        return {
+          ...entry,
+          data: {
+            ...entry.data,
+            content_block: {
+              ...entry.data.content_block,
+              caller: { type: 'code_execution_20260120', tool_id: 'srvtoolu_wrong123456' },
+            },
+          },
+        };
+      })),
+    ]), {}, {
+      maxWebSearchUses: 3,
+      allowDynamicSearch: true,
+    })).rejects.toMatchObject({ code: 'provider_web_search_blocks_invalid' });
+    expect(JSON.stringify(excluded.sources)).not.toContain('opaque');
   });
 
   test('stream parser accepts each effort boundary and rejects the next search count', async () => {
@@ -2018,6 +2337,71 @@ test.describe('Advanced Fable chat contract', () => {
           web_search_executed_result_count: maxUses,
         });
       }
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('migration 0077 preserves existing Direct behavior and immutable prior turn contracts', () => {
+    const DB = new SqliteD1Database();
+    try {
+      applyAuthMigrations(DB, { through: '0076_add_fable_chat_web_fetch.sql' });
+      const now = '2026-07-14T00:00:00.000Z';
+      DB.exec(`
+        INSERT INTO users (id, email, password_hash, created_at, status, role, updated_at)
+        VALUES ('search-upgrade-admin', 'upgrade@example.com', 'unused', '${now}', 'active', 'admin', '${now}');
+        INSERT INTO fable_chat_conversations (
+          id, admin_user_id, title, title_source, turn_count, web_search_enabled,
+          created_at, updated_at
+        ) VALUES (
+          'fbc_20000000000000000000000000000001', 'search-upgrade-admin', 'Existing',
+          'manual', 1, 1, '${now}', '${now}'
+        );
+        INSERT INTO fable_chat_messages (
+          id, conversation_id, message_group_id, admin_user_id, turn_order, role, role_order,
+          content, state, metadata_json, created_at, updated_at
+        ) VALUES (
+          'fbm_20000000000000000000000000000001',
+          'fbc_20000000000000000000000000000001', 'fbg_upgrade', 'search-upgrade-admin',
+          0, 'user', 0, 'Synthetic', 'failed', '{}', '${now}', '${now}'
+        );
+        INSERT INTO fable_chat_turns (
+          id, conversation_id, admin_user_id, idempotency_key_hash, request_fingerprint,
+          user_message_id, status, web_search_enabled, web_search_effective_max_uses,
+          web_search_effective_contract_version, usage_json, gateway_metadata_json,
+          created_at, updated_at, expires_at
+        ) VALUES (
+          'fbt_20000000000000000000000000000001',
+          'fbc_20000000000000000000000000000001', 'search-upgrade-admin',
+          'hash-upgrade', 'fingerprint-upgrade', 'fbm_20000000000000000000000000000001',
+          'failed', 1, 3, 2, '{}', '{}', '${now}', '${now}', '${now}'
+        );
+      `);
+      DB.exec(fs.readFileSync(
+        path.join(process.cwd(), 'workers/auth/migrations/0077_upgrade_fable_web_search.sql'),
+        'utf8'
+      ));
+      const conversation = DB.database.prepare(
+        `SELECT web_search_enabled, web_search_settings_json, fable_tool_choice
+           FROM fable_chat_conversations`
+      ).get();
+      expect(conversation.web_search_enabled).toBe(1);
+      expect(JSON.parse(conversation.web_search_settings_json)).toEqual({
+        toolVersion: 'web_search_20260318', contractVersion: 3, callerMode: 'direct',
+        responseInclusion: 'full', domainFilterMode: 'none', allowedDomains: [],
+        blockedDomains: [], locationEnabled: false, location: null,
+      });
+      expect(conversation.fable_tool_choice).toBe('auto');
+      const turn = DB.database.prepare(
+        `SELECT web_search_effective_contract_version, web_search_effective_settings_json,
+                fable_tool_choice FROM fable_chat_turns`
+      ).get();
+      expect(turn.web_search_effective_contract_version).toBe(2);
+      expect(JSON.parse(turn.web_search_effective_settings_json)).toMatchObject({
+        toolVersion: 'web_search_20250305', contractVersion: 2, callerMode: 'direct',
+        effectiveResponseInclusion: 'full',
+      });
+      expect(turn.fable_tool_choice).toBe('auto');
     } finally {
       DB.close();
     }

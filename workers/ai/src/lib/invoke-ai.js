@@ -35,6 +35,8 @@ import {
   FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
   FABLE_CHAT_WEB_FETCH_USE_CACHE,
   FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
+  FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+  FABLE_CHAT_LEGACY_WEB_SEARCH_TOOL_TYPE,
   FABLE_CHAT_WEB_SEARCH_MAX_CONTINUATIONS,
   FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
   FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
@@ -97,11 +99,30 @@ function buildTextInvocation(env, model, input) {
     }
     const tools = [];
     if (input.webSearchEnabled === true) {
-      tools.push({
-        type: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
-        name: FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
-        max_uses: input.webSearchMaxUses,
-      });
+      if (input.webSearchContractVersion >= FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION) {
+        tools.push({
+          type: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+          name: FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+          max_uses: input.webSearchMaxUses,
+          allowed_callers: [...input.webSearchAllowedCallers],
+          response_inclusion: input.webSearchEffectiveResponseInclusion,
+          ...(input.webSearchDomainFilterMode === "allowed" ? {
+            allowed_domains: [...input.webSearchActiveDomains],
+          } : {}),
+          ...(input.webSearchDomainFilterMode === "blocked" ? {
+            blocked_domains: [...input.webSearchActiveDomains],
+          } : {}),
+          ...(input.webSearchLocationEnabled === true ? {
+            user_location: { type: "approximate", ...input.webSearchLocation },
+          } : {}),
+        });
+      } else {
+        tools.push({
+          type: FABLE_CHAT_LEGACY_WEB_SEARCH_TOOL_TYPE,
+          name: FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+          max_uses: input.webSearchMaxUses,
+        });
+      }
     }
     if (input.webFetchEnabled === true) {
       tools.push({
@@ -115,6 +136,10 @@ function buildTextInvocation(env, model, input) {
       });
     }
     if (tools.length > 0) payload.tools = tools;
+    if (tools.length > 0
+      && input.webSearchContractVersion >= FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION) {
+      payload.tool_choice = { type: input.toolChoice };
+    }
     if (input.stream === true) payload.stream = true;
 
     const gateway = {
@@ -788,14 +813,19 @@ export async function invokeText(env, model, input) {
           allowMissingText: true,
           allowOrphanSearchResults: continuationCount > 0,
           allowOrphanFetchResults: continuationCount > 0,
+          allowOrphanCodeExecutionResults: continuationCount > 0,
           maxWebSearchUses: input.webSearchEnabled === true ? input.webSearchMaxUses : 0,
           maxWebFetchUses: input.webFetchEnabled === true ? input.webFetchMaxUses : 0,
+          allowDynamicSearch: ["dynamic", "both"].includes(input.webSearchCallerMode),
+          allowExcludedSearchResults: input.webSearchEffectiveResponseInclusion === "excluded",
         });
         accumulatedBlocks = [...accumulatedBlocks, ...paused.providerBlocks];
         extractAnthropicVisibleResult(accumulatedBlocks, {
           allowMissingText: true,
           maxWebSearchUses: input.webSearchEnabled === true ? input.webSearchMaxUses : 0,
           maxWebFetchUses: input.webFetchEnabled === true ? input.webFetchMaxUses : 0,
+          allowDynamicSearch: ["dynamic", "both"].includes(input.webSearchCallerMode),
+          allowExcludedSearchResults: input.webSearchEffectiveResponseInclusion === "excluded",
         });
         accumulatedUsage = addUsageValues(accumulatedUsage, raw?.usage);
         gatewayMetadata = raw?.gatewayMetadata || gatewayMetadata;
@@ -852,6 +882,8 @@ export async function invokeText(env, model, input) {
       ? extractAnthropicVisibleResult(raw?.content, {
         maxWebSearchUses: input.webSearchEnabled === true ? input.webSearchMaxUses : 0,
         maxWebFetchUses: input.webFetchEnabled === true ? input.webFetchMaxUses : 0,
+        allowDynamicSearch: ["dynamic", "both"].includes(input.webSearchCallerMode),
+        allowExcludedSearchResults: input.webSearchEffectiveResponseInclusion === "excluded",
       })
     : null;
   if (preserved && preserved.text !== text) {
@@ -874,6 +906,11 @@ export async function invokeText(env, model, input) {
       reasoningSummary: preserved.reasoningSummary,
       sources: preserved.sources,
       webSearchRequestCount: preserved.webSearchRequestCount,
+      webSearchExecutedRequestCount: Number.isFinite(
+        Number(usage?.server_tool_use?.web_search_requests)
+      )
+        ? Number(usage.server_tool_use.web_search_requests)
+        : preserved.webSearchRequestCount,
       webSearchResultCount: preserved.webSearchResultCount,
       webFetchRequestCount: preserved.webFetchRequestCount,
       webFetchResultCount: preserved.webFetchResultCount,

@@ -3,6 +3,9 @@ import {
   FABLE_CHAT_CONTEXT_FORMAT_VERSION,
   FABLE_CHAT_MAX_CITATIONS,
   FABLE_CHAT_MAX_CITATIONS_JSON_BYTES,
+  FABLE_CHAT_MAX_CODE_EXECUTION_INPUT_CHARACTERS,
+  FABLE_CHAT_MAX_CODE_EXECUTION_OUTPUT_FILES,
+  FABLE_CHAT_MAX_CODE_EXECUTION_RESULT_CHARACTERS,
   FABLE_CHAT_MAX_PROVIDER_BLOCKS,
   FABLE_CHAT_MAX_PROVIDER_BLOCKS_JSON_BYTES,
   FABLE_CHAT_MAX_REASONING_SUMMARY_CHARACTERS,
@@ -23,6 +26,9 @@ import {
   FABLE_CHAT_PROMPT_CACHE_VERSION,
   FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
   FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+  FABLE_CHAT_LEGACY_WEB_SEARCH_TOOL_TYPE,
+  FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+  FABLE_CHAT_WEB_SEARCH_CODE_EXECUTION_CALLER,
   FABLE_CHAT_WEB_FETCH_ALLOWED_CALLERS,
   FABLE_CHAT_WEB_FETCH_ERROR_CODES,
   FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS,
@@ -49,6 +55,13 @@ const SEARCH_ERROR_CODES = new Set([
   "unavailable",
 ]);
 const FETCH_ERROR_CODES = new Set(FABLE_CHAT_WEB_FETCH_ERROR_CODES);
+const CODE_EXECUTION_TOOL_NAME = "code_execution";
+const CODE_EXECUTION_ERROR_CODES = new Set([
+  "invalid_tool_input",
+  "unavailable",
+  "too_many_requests",
+  "execution_time_exceeded",
+]);
 const WEB_FETCH_SOURCE_TITLE_FALLBACK = "Fetched source";
 
 export function utf8ByteLength(value) {
@@ -170,6 +183,143 @@ function normalizeToolId(value, field) {
   const id = assertSafeProviderText(value, field, 180);
   if (!TOOL_ID_PATTERN.test(id)) throw new TypeError(`${field} is invalid.`);
   return id;
+}
+
+function normalizeServerToolCaller(value, field, {
+  allowMissing = false,
+  allowCodeExecution = true,
+} = {}) {
+  if (value === undefined && allowMissing) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  if (value.type === "direct") {
+    assertOnlyProviderFields(value, ["type"], field);
+    return { type: "direct" };
+  }
+  if (!allowCodeExecution || value.type !== FABLE_CHAT_WEB_SEARCH_CODE_EXECUTION_CALLER) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  assertOnlyProviderFields(value, ["type", "tool_id"], field);
+  return {
+    type: FABLE_CHAT_WEB_SEARCH_CODE_EXECUTION_CALLER,
+    tool_id: normalizeToolId(value.tool_id, `${field}.tool_id`),
+  };
+}
+
+function normalizeCodeExecutionOutput(value, field) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  assertOnlyProviderFields(value, ["type", "file_id"], field);
+  const fileId = assertSafeProviderText(value.file_id, `${field}.file_id`, 180);
+  if (value.type !== "code_execution_output" || !/^[A-Za-z0-9_-]+$/.test(fileId)) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  return { type: "code_execution_output", file_id: fileId };
+}
+
+function normalizeCodeExecutionResultContent(value, field) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  if (value.type === "code_execution_tool_result_error") {
+    assertOnlyProviderFields(value, ["type", "error_code"], field);
+    if (!CODE_EXECUTION_ERROR_CODES.has(value.error_code)) {
+      throw new TypeError(`${field} is invalid.`);
+    }
+    return { type: "code_execution_tool_result_error", error_code: value.error_code };
+  }
+  const encrypted = value.type === "encrypted_code_execution_result";
+  if (!encrypted && value.type !== "code_execution_result") {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  assertOnlyProviderFields(
+    value,
+    encrypted
+      ? ["type", "encrypted_stdout", "stderr", "return_code", "content"]
+      : ["type", "stdout", "stderr", "return_code", "content"],
+    field
+  );
+  if (!Number.isInteger(value.return_code)
+    || value.return_code < -2_147_483_648
+    || value.return_code > 2_147_483_647
+    || !Array.isArray(value.content)
+    || value.content.length > FABLE_CHAT_MAX_CODE_EXECUTION_OUTPUT_FILES) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  const result = {
+    type: value.type,
+    stderr: assertSafeProviderText(
+      value.stderr,
+      `${field}.stderr`,
+      FABLE_CHAT_MAX_CODE_EXECUTION_RESULT_CHARACTERS
+    ),
+    return_code: value.return_code,
+    content: value.content.map((entry, index) => (
+      normalizeCodeExecutionOutput(entry, `${field}.content[${index}]`)
+    )),
+  };
+  if (encrypted) {
+    result.encrypted_stdout = assertSafeProviderText(
+      value.encrypted_stdout,
+      `${field}.encrypted_stdout`,
+      FABLE_CHAT_MAX_CODE_EXECUTION_RESULT_CHARACTERS
+    );
+    if (!result.encrypted_stdout) throw new TypeError(`${field} is invalid.`);
+  } else {
+    result.stdout = assertSafeProviderText(
+      value.stdout,
+      `${field}.stdout`,
+      FABLE_CHAT_MAX_CODE_EXECUTION_RESULT_CHARACTERS
+    );
+  }
+  return result;
+}
+
+function validateProviderBlockRelationships(blocks, { requireComplete = false } = {}) {
+  const requests = new Map();
+  const results = new Set();
+  blocks.forEach((block, index) => {
+    if (block.type === "server_tool_use") {
+      if (requests.has(block.id)) throw new TypeError("Provider tool identifiers are invalid.");
+      requests.set(block.id, { block, index });
+      if (block.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME
+        && block.caller?.type === FABLE_CHAT_WEB_SEARCH_CODE_EXECUTION_CALLER) {
+        const parent = requests.get(block.caller.tool_id);
+        if (!parent || parent.block.name !== CODE_EXECUTION_TOOL_NAME) {
+          throw new TypeError("Provider web-search caller is invalid.");
+        }
+      }
+      return;
+    }
+    if (!["web_search_tool_result", "web_fetch_tool_result", "code_execution_tool_result"]
+      .includes(block.type)) return;
+    if (results.has(block.tool_use_id)) throw new TypeError("Provider tool results are invalid.");
+    results.add(block.tool_use_id);
+    const request = requests.get(block.tool_use_id);
+    const expectedName = block.type === "web_search_tool_result"
+      ? FABLE_CHAT_WEB_SEARCH_TOOL_NAME
+      : (block.type === "web_fetch_tool_result"
+        ? FABLE_CHAT_WEB_FETCH_TOOL_NAME
+        : CODE_EXECUTION_TOOL_NAME);
+    if (!request || request.block.name !== expectedName || request.index >= index) {
+      throw new TypeError("Provider tool lifecycle is invalid.");
+    }
+    if (block.type === "web_search_tool_result") {
+      const requestCaller = request.block.caller || { type: "direct" };
+      const resultCaller = block.caller || { type: "direct" };
+      if (requestCaller.type !== resultCaller.type
+        || requestCaller.tool_id !== resultCaller.tool_id) {
+        throw new TypeError("Provider web-search caller is invalid.");
+      }
+    }
+  });
+  if (requireComplete) {
+    for (const [id] of requests) {
+      if (!results.has(id)) throw new TypeError("Provider tool lifecycle is incomplete.");
+    }
+  }
 }
 
 function normalizeSearchResult(value, field) {
@@ -294,6 +444,7 @@ function normalizeFetchResultContent(value, field) {
 
 export function normalizeFableChatProviderBlocks(value, {
   allowEmptyThinking = true,
+  requireCompleteToolLifecycle = false,
 } = {}) {
   let blocks = value;
   if (typeof blocks === "string") {
@@ -354,19 +505,24 @@ export function normalizeFableChatProviderBlocks(value, {
     if (block.type === "server_tool_use") {
       assertOnlyProviderFields(
         block,
-        ["type", "id", "name", "input"],
+        ["type", "id", "name", "input", "caller"],
         `Provider server tool block ${index}`
       );
-      if (![FABLE_CHAT_WEB_SEARCH_TOOL_NAME, FABLE_CHAT_WEB_FETCH_TOOL_NAME].includes(block.name)) {
+      if (![
+        FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
+        FABLE_CHAT_WEB_FETCH_TOOL_NAME,
+        CODE_EXECUTION_TOOL_NAME,
+      ].includes(block.name)) {
         throw new TypeError(`Provider server tool block ${index} is invalid.`);
       }
       if (!block.input || typeof block.input !== "object" || Array.isArray(block.input)) {
         throw new TypeError(`Provider server tool block ${index} is invalid.`);
       }
       const isSearch = block.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME;
+      const isCodeExecution = block.name === CODE_EXECUTION_TOOL_NAME;
       assertOnlyProviderFields(
         block.input,
-        isSearch ? ["query"] : ["url"],
+        isSearch ? ["query"] : (isCodeExecution ? ["code"] : ["url"]),
         `Provider server tool input ${index}`
       );
       const input = isSearch
@@ -377,18 +533,35 @@ export function normalizeFableChatProviderBlocks(value, {
               FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS
             ),
           }
-        : (() => {
+        : isCodeExecution
+          ? {
+              code: assertSafeProviderText(
+                block.input.code,
+                `Provider code-execution input ${index}`,
+                FABLE_CHAT_MAX_CODE_EXECUTION_INPUT_CHARACTERS
+              ),
+            }
+          : (() => {
             const url = normalizeHttpsUrl(block.input.url, `Provider server tool URL ${index}`);
             if (url.length > FABLE_CHAT_WEB_FETCH_MAX_URL_CHARACTERS) {
               throw new TypeError(`Provider server tool URL ${index} is invalid.`);
             }
             return { url };
           })();
+      if (isCodeExecution && !input.code) {
+        throw new TypeError(`Provider code-execution input ${index} is invalid.`);
+      }
+      const caller = normalizeServerToolCaller(
+        block.caller,
+        `Provider server tool caller ${index}`,
+        { allowMissing: true, allowCodeExecution: isSearch }
+      );
       return {
         type: "server_tool_use",
         id: normalizeToolId(block.id, `Provider server tool id ${index}`),
         name: block.name,
         input,
+        ...(caller ? { caller } : {}),
       };
     }
     if (block.type === "web_search_tool_result") {
@@ -397,17 +570,11 @@ export function normalizeFableChatProviderBlocks(value, {
         ["type", "tool_use_id", "content", "caller"],
         `Provider search result block ${index}`
       );
-      let caller;
-      if (block.caller !== undefined) {
-        if (!block.caller || typeof block.caller !== "object" || Array.isArray(block.caller)) {
-          throw new TypeError(`Provider search result caller ${index} is invalid.`);
-        }
-        assertOnlyProviderFields(block.caller, ["type"], `Provider search result caller ${index}`);
-        if (block.caller.type !== "direct") {
-          throw new TypeError(`Provider search result caller ${index} is invalid.`);
-        }
-        caller = { type: "direct" };
-      }
+      const caller = normalizeServerToolCaller(
+        block.caller,
+        `Provider search result caller ${index}`,
+        { allowMissing: true }
+      );
       return {
         type: "web_search_tool_result",
         tool_use_id: normalizeToolId(block.tool_use_id, `Provider search result id ${index}`),
@@ -439,9 +606,28 @@ export function normalizeFableChatProviderBlocks(value, {
         ...(caller ? { caller } : {}),
       };
     }
+    if (block.type === "code_execution_tool_result") {
+      assertOnlyProviderFields(
+        block,
+        ["type", "tool_use_id", "content"],
+        `Provider code-execution result block ${index}`
+      );
+      return {
+        type: "code_execution_tool_result",
+        tool_use_id: normalizeToolId(
+          block.tool_use_id,
+          `Provider code-execution result id ${index}`
+        ),
+        content: normalizeCodeExecutionResultContent(
+          block.content,
+          `Provider code-execution result content ${index}`
+        ),
+      };
+    }
     throw new TypeError(`Provider content block ${index} has an unsupported type.`);
   });
 
+  validateProviderBlockRelationships(normalized, { requireComplete: requireCompleteToolLifecycle });
   const serialized = JSON.stringify(normalized);
   if (countDistinctPrivateCitationSources(normalized) > FABLE_CHAT_MAX_CITATIONS) {
     throw new TypeError("Provider citations exceed their safe limit.");
@@ -530,6 +716,15 @@ export function countFableChatWebFetchBlocks(blocks) {
   };
 }
 
+function countFableChatCodeExecutionBlocks(blocks) {
+  const normalized = normalizeFableChatProviderBlocks(blocks);
+  const requests = normalized.filter((block) => (
+    block.type === "server_tool_use" && block.name === CODE_EXECUTION_TOOL_NAME
+  ));
+  const results = normalized.filter((block) => block.type === "code_execution_tool_result");
+  return { requestCount: requests.length, resultCount: results.length };
+}
+
 export function extractFableChatAssistantText(blocks) {
   return normalizeFableChatProviderBlocks(blocks)
     .filter((block) => block.type === "text")
@@ -588,7 +783,8 @@ function estimateContentTokenBreakdown(content, { recordedThinkingTokens = null 
       fallbackThinkingTokens += Math.ceil(utf8ByteLength(block.signature) / 2);
     } else if (block?.type === "server_tool_use"
       || block?.type === "web_search_tool_result"
-      || block?.type === "web_fetch_tool_result") {
+      || block?.type === "web_fetch_tool_result"
+      || block?.type === "code_execution_tool_result") {
       breakdown.toolTokens += Math.ceil(utf8ByteLength(JSON.stringify(block)) / 2);
     } else {
       throw new TypeError("Message content block is invalid.");
@@ -663,9 +859,11 @@ export function projectFableChatProviderReplay({
   }
   let counts;
   let fetchCounts;
+  let codeExecutionCounts;
   try {
     counts = countFableChatWebSearchBlocks(normalized);
     fetchCounts = countFableChatWebFetchBlocks(normalized);
+    codeExecutionCounts = countFableChatCodeExecutionBlocks(normalized);
   } catch {
     return {
       blocks: normalized,
@@ -676,7 +874,10 @@ export function projectFableChatProviderReplay({
       projectionVersion: FABLE_CHAT_NATIVE_REPLAY_PROJECTION_VERSION,
     };
   }
-  if (counts.requestCount === 0 && fetchCounts.requestCount === 0 && !projectCompletedNativeTurn) {
+  if (counts.requestCount === 0
+    && fetchCounts.requestCount === 0
+    && codeExecutionCounts.requestCount === 0
+    && !projectCompletedNativeTurn) {
     return {
       blocks: normalized,
       prunedPairCount: 0,
@@ -691,6 +892,7 @@ export function projectFableChatProviderReplay({
     || block.type === "server_tool_use"
     || block.type === "web_search_tool_result"
     || block.type === "web_fetch_tool_result"
+    || block.type === "code_execution_tool_result"
   ));
   if (counts.requestCount === 0 && fetchCounts.requestCount === 0 && !hasPrivateNativeReplay) {
     return {
@@ -811,15 +1013,39 @@ export function estimateFableChatProviderConfigurationTokens({
   thinkingDisplay,
   webSearchEnabled,
   webSearchMaxUses,
+  webSearchContractVersion = FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+  webSearchAllowedCallers = ["direct"],
+  webSearchEffectiveResponseInclusion = "full",
+  webSearchDomainFilterMode = "none",
+  webSearchActiveDomains = [],
+  webSearchLocation = null,
+  toolChoice = "auto",
   webFetchEnabled = false,
 }) {
   const tools = [];
   if (webSearchEnabled === true) {
-    tools.push({
-      type: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+    const currentContract = Number(webSearchContractVersion)
+      >= FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION;
+    const searchTool = {
+      type: currentContract
+        ? FABLE_CHAT_WEB_SEARCH_TOOL_TYPE
+        : FABLE_CHAT_LEGACY_WEB_SEARCH_TOOL_TYPE,
       name: FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
       max_uses: Number(webSearchMaxUses),
-    });
+      ...(currentContract ? {
+        allowed_callers: [...webSearchAllowedCallers],
+        response_inclusion: webSearchEffectiveResponseInclusion,
+      } : {}),
+    };
+    if (currentContract && webSearchDomainFilterMode === "allowed") {
+      searchTool.allowed_domains = [...webSearchActiveDomains];
+    } else if (currentContract && webSearchDomainFilterMode === "blocked") {
+      searchTool.blocked_domains = [...webSearchActiveDomains];
+    }
+    if (currentContract && webSearchLocation) {
+      searchTool.user_location = { type: "approximate", ...webSearchLocation };
+    }
+    tools.push(searchTool);
   }
   if (webFetchEnabled === true) {
     tools.push({
@@ -836,6 +1062,10 @@ export function estimateFableChatProviderConfigurationTokens({
     output_config: { effort },
     thinking: { type: "adaptive", display: thinkingDisplay },
     ...(tools.length > 0 ? { tools } : {}),
+    ...(tools.length > 0 && Number(webSearchContractVersion)
+      >= FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION
+      ? { tool_choice: { type: toolChoice } }
+      : {}),
   };
   return estimateFableChatTextTokens(JSON.stringify(configuration))
     + CONTENT_BLOCK_OVERHEAD_TOKENS;
@@ -937,7 +1167,8 @@ function textCharacterCount(system, messages) {
       if (block.type === "thinking") characters += String(block.thinking || "").length;
       if (block.type === "server_tool_use"
         || block.type === "web_search_tool_result"
-        || block.type === "web_fetch_tool_result") {
+        || block.type === "web_fetch_tool_result"
+        || block.type === "code_execution_tool_result") {
         characters += JSON.stringify(block).length;
       }
       if (block.type === "text" && block.citations) characters += JSON.stringify(block.citations).length;

@@ -7,6 +7,10 @@ import {
   FABLE_CHAT_DEFAULT_THINKING_DISPLAY,
   FABLE_CHAT_DEFAULT_TITLE,
   FABLE_CHAT_DEFAULT_WEB_SEARCH_ENABLED,
+  FABLE_CHAT_DEFAULT_TOOL_CHOICE,
+  FABLE_CHAT_DEFAULT_WEB_SEARCH_CALLER_MODE,
+  FABLE_CHAT_DEFAULT_WEB_SEARCH_DOMAIN_FILTER_MODE,
+  FABLE_CHAT_DEFAULT_WEB_SEARCH_RESPONSE_INCLUSION,
   FABLE_CHAT_DEFAULT_WEB_FETCH_ENABLED,
   FABLE_CHAT_EFFORTS,
   FABLE_CHAT_HARD_OUTPUT_TOKEN_LIMIT,
@@ -28,7 +32,10 @@ import {
   FABLE_CHAT_THINKING_DISPLAYS,
   FABLE_CHAT_TURN_EXPIRY_MINUTES,
   FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION,
+  FABLE_CHAT_LEGACY_WEB_SEARCH_TOOL_TYPE,
+  FABLE_CHAT_PREVIOUS_WEB_SEARCH_CONTRACT_VERSION,
   FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+  FABLE_CHAT_WEB_SEARCH_CODE_EXECUTION_CALLER,
   FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
   FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
   FABLE_CHAT_WEB_FETCH_ALLOWED_CALLERS,
@@ -41,6 +48,13 @@ import {
   getFableChatEffectiveInputTokenLimit,
   getFableChatOutputTokenLimit,
   getFableChatWebSearchMaxUses,
+  normalizeFableChatToolChoice,
+  normalizeFableChatWebSearchCallerMode,
+  normalizeFableChatWebSearchConfiguration,
+  normalizeFableChatWebSearchDomainFilterMode,
+  normalizeFableChatWebSearchDomainList,
+  normalizeFableChatWebSearchLocation,
+  normalizeFableChatWebSearchResponseInclusion,
 } from "../../../shared/fable-chat-contract.mjs";
 import {
   FABLE_CHAT_DEFAULT_MEMORY_MODE,
@@ -227,6 +241,26 @@ export function normalizeFableChatWebFetchEnabled(value) {
   return value;
 }
 
+function normalizeWebSearchSetting(value, normalizer) {
+  try {
+    return normalizer(value);
+  } catch (error) {
+    throw new FableChatError(error?.message || "Web Search settings are invalid.", {
+      code: "validation_error",
+    });
+  }
+}
+
+function normalizeFableChatWebSearchLocationSetting(value) {
+  if (value === null) return null;
+  const normalized = normalizeWebSearchSetting(
+    value,
+    (input) => normalizeFableChatWebSearchLocation(input, { enabled: true })
+  );
+  const { type: _type, ...location } = normalized;
+  return location;
+}
+
 export function normalizeFableChatMemoryModeSetting(value) {
   try {
     return normalizeFableChatMemoryMode(value);
@@ -241,7 +275,9 @@ function validateFableChatSettingsFields(body, { allowEmpty = false } = {}) {
   assertPlainObject(body);
   assertOnlyFields(body, new Set([
     "effort", "systemPresetId", "summarizedThinking", "webSearchEnabled", "webFetchEnabled",
-    "memoryMode",
+    "webSearchCallerMode", "webSearchResponseInclusion", "webSearchDomainFilterMode",
+    "webSearchAllowedDomains", "webSearchBlockedDomains", "webSearchLocationEnabled",
+    "webSearchLocation", "toolChoice", "memoryMode",
   ]));
   if (!allowEmpty && Object.keys(body).length === 0) {
     throw new FableChatError("At least one conversation setting is required.", {
@@ -259,6 +295,52 @@ function validateFableChatSettingsFields(body, { allowEmpty = false } = {}) {
     ...(body.webSearchEnabled === undefined
       ? {}
       : { webSearchEnabled: normalizeFableChatWebSearchEnabled(body.webSearchEnabled) }),
+    ...(body.webSearchCallerMode === undefined ? {} : {
+      webSearchCallerMode: normalizeWebSearchSetting(
+        body.webSearchCallerMode,
+        normalizeFableChatWebSearchCallerMode
+      ),
+    }),
+    ...(body.webSearchResponseInclusion === undefined ? {} : {
+      webSearchResponseInclusion: normalizeWebSearchSetting(
+        body.webSearchResponseInclusion,
+        normalizeFableChatWebSearchResponseInclusion
+      ),
+    }),
+    ...(body.webSearchDomainFilterMode === undefined ? {} : {
+      webSearchDomainFilterMode: normalizeWebSearchSetting(
+        body.webSearchDomainFilterMode,
+        normalizeFableChatWebSearchDomainFilterMode
+      ),
+    }),
+    ...(body.webSearchAllowedDomains === undefined ? {} : {
+      webSearchAllowedDomains: normalizeWebSearchSetting(
+        body.webSearchAllowedDomains,
+        (value) => normalizeFableChatWebSearchDomainList(value, "webSearchAllowedDomains")
+      ),
+    }),
+    ...(body.webSearchBlockedDomains === undefined ? {} : {
+      webSearchBlockedDomains: normalizeWebSearchSetting(
+        body.webSearchBlockedDomains,
+        (value) => normalizeFableChatWebSearchDomainList(value, "webSearchBlockedDomains")
+      ),
+    }),
+    ...(body.webSearchLocationEnabled === undefined ? {} : {
+      webSearchLocationEnabled: (() => {
+        if (typeof body.webSearchLocationEnabled !== "boolean") {
+          throw new FableChatError("webSearchLocationEnabled must be a boolean.", {
+            code: "validation_error",
+          });
+        }
+        return body.webSearchLocationEnabled;
+      })(),
+    }),
+    ...(body.webSearchLocation === undefined ? {} : {
+      webSearchLocation: normalizeFableChatWebSearchLocationSetting(body.webSearchLocation),
+    }),
+    ...(body.toolChoice === undefined ? {} : {
+      toolChoice: normalizeWebSearchSetting(body.toolChoice, normalizeFableChatToolChoice),
+    }),
     ...(body.webFetchEnabled === undefined
       ? {}
       : { webFetchEnabled: normalizeFableChatWebFetchEnabled(body.webFetchEnabled) }),
@@ -351,6 +433,112 @@ function parseJsonObject(value) {
   } catch {
     return {};
   }
+}
+
+function normalizeStoredFableWebSearchConfiguration(value) {
+  const stored = typeof value === "string" ? parseJsonObject(value) : (value || {});
+  try {
+    return normalizeFableChatWebSearchConfiguration({
+      callerMode: stored.callerMode ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_CALLER_MODE,
+      responseInclusion: stored.responseInclusion
+        ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_RESPONSE_INCLUSION,
+      domainFilterMode: stored.domainFilterMode
+        ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_DOMAIN_FILTER_MODE,
+      allowedDomains: stored.allowedDomains ?? [],
+      blockedDomains: stored.blockedDomains ?? [],
+      locationEnabled: stored.locationEnabled ?? false,
+      location: stored.location ?? null,
+    });
+  } catch {
+    return normalizeFableChatWebSearchConfiguration({
+      callerMode: FABLE_CHAT_DEFAULT_WEB_SEARCH_CALLER_MODE,
+      responseInclusion: FABLE_CHAT_DEFAULT_WEB_SEARCH_RESPONSE_INCLUSION,
+      domainFilterMode: FABLE_CHAT_DEFAULT_WEB_SEARCH_DOMAIN_FILTER_MODE,
+      allowedDomains: [],
+      blockedDomains: [],
+      locationEnabled: false,
+      location: null,
+    });
+  }
+}
+
+function serializeStoredFableWebSearchConfiguration(configuration) {
+  const config = normalizeFableChatWebSearchConfiguration({
+    callerMode: configuration?.callerMode,
+    responseInclusion: configuration?.responseInclusionPreference
+      ?? configuration?.responseInclusion,
+    domainFilterMode: configuration?.domainFilterMode,
+    allowedDomains: configuration?.allowedDomains,
+    blockedDomains: configuration?.blockedDomains,
+    locationEnabled: configuration?.locationEnabled,
+    location: configuration?.location,
+  });
+  const { type: _type, ...location } = config.location || {};
+  return JSON.stringify({
+    toolVersion: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+    contractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+    callerMode: config.callerMode,
+    responseInclusion: config.responseInclusionPreference,
+    domainFilterMode: config.domainFilterMode,
+    allowedDomains: config.allowedDomains,
+    blockedDomains: config.blockedDomains,
+    locationEnabled: config.locationEnabled,
+    location: config.location ? location : null,
+  });
+}
+
+function buildFableChatEffectiveWebSearchSettings(configuration) {
+  const config = normalizeFableChatWebSearchConfiguration({
+    callerMode: configuration?.callerMode,
+    responseInclusion: configuration?.responseInclusionPreference
+      ?? configuration?.responseInclusion,
+    domainFilterMode: configuration?.domainFilterMode,
+    allowedDomains: configuration?.allowedDomains,
+    blockedDomains: configuration?.blockedDomains,
+    locationEnabled: configuration?.locationEnabled,
+    location: configuration?.location,
+  });
+  const { type: _type, ...location } = config.location || {};
+  return {
+    webSearchCallerMode: config.callerMode,
+    webSearchAllowedCallers: config.allowedCallers,
+    webSearchResponseInclusion: config.responseInclusionPreference,
+    webSearchEffectiveResponseInclusion: config.effectiveResponseInclusion,
+    webSearchDomainFilterMode: config.domainFilterMode,
+    webSearchAllowedDomains: config.allowedDomains,
+    webSearchBlockedDomains: config.blockedDomains,
+    webSearchActiveDomains: config.activeDomains,
+    webSearchLocationEnabled: config.locationEnabled,
+    webSearchLocation: config.location ? location : null,
+  };
+}
+
+function serializeTurnFableWebSearchConfiguration(configuration) {
+  const config = normalizeFableChatWebSearchConfiguration({
+    callerMode: configuration?.callerMode,
+    responseInclusion: configuration?.responseInclusionPreference
+      ?? configuration?.responseInclusion,
+    domainFilterMode: configuration?.domainFilterMode,
+    allowedDomains: configuration?.allowedDomains,
+    blockedDomains: configuration?.blockedDomains,
+    locationEnabled: configuration?.locationEnabled,
+    location: configuration?.location,
+  });
+  const { type: _type, ...location } = config.location || {};
+  return JSON.stringify({
+    toolVersion: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+    contractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+    callerMode: config.callerMode,
+    allowedCallers: config.allowedCallers,
+    responseInclusionPreference: config.responseInclusionPreference,
+    effectiveResponseInclusion: config.effectiveResponseInclusion,
+    domainFilterMode: config.domainFilterMode,
+    allowedDomains: config.allowedDomains,
+    blockedDomains: config.blockedDomains,
+    activeDomains: config.activeDomains,
+    locationEnabled: config.locationEnabled,
+    location: config.location ? location : null,
+  });
 }
 
 function normalizeStoredSources(value) {
@@ -446,6 +634,9 @@ export function resolveFableChatConversationSettings(row) {
     : FABLE_CHAT_DEFAULT_THINKING_DISPLAY;
   const effectiveMaxOutputTokens = getFableChatOutputTokenLimit(effort);
   const webSearchMaxUses = getFableChatWebSearchMaxUses(effort);
+  const webSearchConfiguration = normalizeStoredFableWebSearchConfiguration(
+    row.web_search_settings_json
+  );
   return {
     effort,
     effectiveMaxOutputTokens,
@@ -460,6 +651,14 @@ export function resolveFableChatConversationSettings(row) {
     webSearchToolVersion: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
     webSearchMaxUses,
     webSearchContractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+    ...buildFableChatEffectiveWebSearchSettings(webSearchConfiguration),
+    toolChoice: (() => {
+      try {
+        return normalizeFableChatToolChoice(row.fable_tool_choice || FABLE_CHAT_DEFAULT_TOOL_CHOICE);
+      } catch {
+        return FABLE_CHAT_DEFAULT_TOOL_CHOICE;
+      }
+    })(),
     webFetchEnabled: Number(row.web_fetch_enabled || 0) === 1,
     webFetchToolVersion: FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
     webFetchMaxUses: FABLE_CHAT_WEB_FETCH_MAX_USES,
@@ -494,16 +693,57 @@ function readTurnWebSearchMaxUses(row) {
 }
 
 function readTurnWebSearchContractVersion(row) {
-  const value = Number(
+  const effective = parseJsonObject(
+    row?.web_search_effective_settings_json ?? row?.webSearchEffectiveSettingsJson
+  );
+  const immutableLegacyVersion = Number(
     row?.web_search_effective_contract_version
     ?? row?.web_search_contract_version
     ?? row?.webSearchContractVersion
+  );
+  if (immutableLegacyVersion === FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION) {
+    return FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION;
+  }
+  const value = Number(
+    effective.contractVersion
+    ?? immutableLegacyVersion
     ?? FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION
   );
-  return [FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION, FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION]
+  return [
+    FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION,
+    FABLE_CHAT_PREVIOUS_WEB_SEARCH_CONTRACT_VERSION,
+    FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+  ]
     .includes(value)
     ? value
     : FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION;
+}
+
+function readTurnWebSearchConfiguration(row) {
+  const stored = parseJsonObject(row?.web_search_effective_settings_json);
+  try {
+    return normalizeFableChatWebSearchConfiguration({
+      callerMode: stored.callerMode ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_CALLER_MODE,
+      responseInclusion: stored.responseInclusionPreference
+        ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_RESPONSE_INCLUSION,
+      domainFilterMode: stored.domainFilterMode
+        ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_DOMAIN_FILTER_MODE,
+      allowedDomains: stored.allowedDomains ?? [],
+      blockedDomains: stored.blockedDomains ?? [],
+      locationEnabled: stored.locationEnabled ?? false,
+      location: stored.location ?? null,
+    });
+  } catch {
+    return normalizeFableChatWebSearchConfiguration({
+      callerMode: FABLE_CHAT_DEFAULT_WEB_SEARCH_CALLER_MODE,
+      responseInclusion: FABLE_CHAT_DEFAULT_WEB_SEARCH_RESPONSE_INCLUSION,
+      domainFilterMode: FABLE_CHAT_DEFAULT_WEB_SEARCH_DOMAIN_FILTER_MODE,
+      allowedDomains: [],
+      blockedDomains: [],
+      locationEnabled: false,
+      location: null,
+    });
+  }
 }
 
 function readTurnWebSearchCount(row, kind) {
@@ -592,6 +832,14 @@ function serializeFableChatTurn(row) {
     webSearchEnabled: Number(row.web_search_enabled || 0) === 1,
     webSearchMaxUses: readTurnWebSearchMaxUses(row),
     webSearchContractVersion: readTurnWebSearchContractVersion(row),
+    ...buildFableChatEffectiveWebSearchSettings(readTurnWebSearchConfiguration(row)),
+    toolChoice: (() => {
+      try {
+        return normalizeFableChatToolChoice(row.fable_tool_choice || FABLE_CHAT_DEFAULT_TOOL_CHOICE);
+      } catch {
+        return FABLE_CHAT_DEFAULT_TOOL_CHOICE;
+      }
+    })(),
     webSearchRequestCount: readTurnWebSearchCount(row, "request"),
     webSearchResultCount: readTurnWebSearchCount(row, "result"),
     webFetchEnabled: Number(row.web_fetch_enabled || 0) === 1,
@@ -615,6 +863,7 @@ async function readConversationRow(env, adminUserId, conversationId) {
     `SELECT id, admin_user_id, model_id, title, title_source, turn_count,
             effort, system_preset_id, system_preset_version, thinking_display,
             prompt_cache_policy, prompt_cache_version, web_search_enabled, web_fetch_enabled,
+            web_search_settings_json, fable_tool_choice,
             memory_mode,
             settings_updated_at, admin_revision_version, admin_revision_updated_at,
             created_at, updated_at, deleted_at
@@ -647,15 +896,28 @@ export async function createFableChatConversation(env, adminUserId, settings = {
   const thinkingDisplay = settings.thinkingDisplay || FABLE_CHAT_DEFAULT_THINKING_DISPLAY;
   const webSearchEnabled = settings.webSearchEnabled ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_ENABLED;
   const webFetchEnabled = settings.webFetchEnabled ?? FABLE_CHAT_DEFAULT_WEB_FETCH_ENABLED;
+  const webSearchConfiguration = normalizeFableChatWebSearchConfiguration({
+    callerMode: settings.webSearchCallerMode ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_CALLER_MODE,
+    responseInclusion: settings.webSearchResponseInclusion
+      ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_RESPONSE_INCLUSION,
+    domainFilterMode: settings.webSearchDomainFilterMode
+      ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_DOMAIN_FILTER_MODE,
+    allowedDomains: settings.webSearchAllowedDomains ?? [],
+    blockedDomains: settings.webSearchBlockedDomains ?? [],
+    locationEnabled: settings.webSearchLocationEnabled ?? false,
+    location: settings.webSearchLocation ?? null,
+  });
+  const toolChoice = settings.toolChoice ?? FABLE_CHAT_DEFAULT_TOOL_CHOICE;
   const memoryMode = settings.memoryMode || FABLE_CHAT_DEFAULT_MEMORY_MODE;
   await env.DB.prepare(
     `INSERT INTO fable_chat_conversations (
        id, admin_user_id, model_id, title, title_source, turn_count,
        effort, system_preset_id, system_preset_version, thinking_display,
-       prompt_cache_policy, prompt_cache_version, web_search_enabled, web_fetch_enabled, memory_mode,
+       prompt_cache_policy, prompt_cache_version, web_search_enabled, web_fetch_enabled,
+       web_search_settings_json, fable_tool_choice, memory_mode,
        settings_updated_at,
        created_at, updated_at, deleted_at
-     ) VALUES (?, ?, ?, ?, 'automatic', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
+     ) VALUES (?, ?, ?, ?, 'automatic', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
   ).bind(
     id,
     adminUserId,
@@ -669,6 +931,8 @@ export async function createFableChatConversation(env, adminUserId, settings = {
     FABLE_CHAT_PROMPT_CACHE_VERSION,
     webSearchEnabled ? 1 : 0,
     webFetchEnabled ? 1 : 0,
+    serializeStoredFableWebSearchConfiguration(webSearchConfiguration),
+    normalizeFableChatToolChoice(toolChoice),
     memoryMode,
     now,
     now,
@@ -707,6 +971,7 @@ export async function listFableChatConversations(env, adminUserId, {
     `SELECT id, admin_user_id, model_id, title, title_source, turn_count,
             effort, system_preset_id, system_preset_version, thinking_display,
             prompt_cache_policy, prompt_cache_version, web_search_enabled, web_fetch_enabled,
+            web_search_settings_json, fable_tool_choice,
             memory_mode,
             settings_updated_at, admin_revision_version, admin_revision_updated_at,
             created_at, updated_at, deleted_at
@@ -761,13 +1026,46 @@ export async function updateFableChatConversationSettings(
     || FABLE_CHAT_DEFAULT_THINKING_DISPLAY;
   const webSearchEnabled = updates.webSearchEnabled ?? (Number(current.web_search_enabled || 0) === 1);
   const webFetchEnabled = updates.webFetchEnabled ?? (Number(current.web_fetch_enabled || 0) === 1);
+  const currentWebSearchConfiguration = normalizeStoredFableWebSearchConfiguration(
+    current.web_search_settings_json
+  );
+  const currentLocation = currentWebSearchConfiguration.location
+    ? (() => {
+        const { type: _type, ...location } = currentWebSearchConfiguration.location;
+        return location;
+      })()
+    : null;
+  let webSearchConfiguration;
+  try {
+    webSearchConfiguration = normalizeFableChatWebSearchConfiguration({
+      callerMode: updates.webSearchCallerMode ?? currentWebSearchConfiguration.callerMode,
+      responseInclusion: updates.webSearchResponseInclusion
+        ?? currentWebSearchConfiguration.responseInclusionPreference,
+      domainFilterMode: updates.webSearchDomainFilterMode
+        ?? currentWebSearchConfiguration.domainFilterMode,
+      allowedDomains: updates.webSearchAllowedDomains ?? currentWebSearchConfiguration.allowedDomains,
+      blockedDomains: updates.webSearchBlockedDomains ?? currentWebSearchConfiguration.blockedDomains,
+      locationEnabled: updates.webSearchLocationEnabled
+        ?? currentWebSearchConfiguration.locationEnabled,
+      location: updates.webSearchLocation === undefined ? currentLocation : updates.webSearchLocation,
+    });
+  } catch (error) {
+    throw new FableChatError(error?.message || "Web Search settings are invalid.", {
+      code: "validation_error",
+    });
+  }
+  const toolChoice = normalizeWebSearchSetting(
+    updates.toolChoice ?? current.fable_tool_choice ?? FABLE_CHAT_DEFAULT_TOOL_CHOICE,
+    normalizeFableChatToolChoice
+  );
   const memoryMode = updates.memoryMode || current.memory_mode || FABLE_CHAT_DEFAULT_MEMORY_MODE;
   const updatedAt = nowIso();
   const result = await env.DB.prepare(
     `UPDATE fable_chat_conversations
         SET effort = ?, system_preset_id = ?, system_preset_version = ?,
             thinking_display = ?, prompt_cache_policy = ?, prompt_cache_version = ?,
-            web_search_enabled = ?, web_fetch_enabled = ?, memory_mode = ?, settings_updated_at = ?,
+            web_search_enabled = ?, web_fetch_enabled = ?, web_search_settings_json = ?,
+            fable_tool_choice = ?, memory_mode = ?, settings_updated_at = ?,
             updated_at = ?
       WHERE id = ? AND admin_user_id = ? AND deleted_at IS NULL
         AND NOT EXISTS (
@@ -784,6 +1082,8 @@ export async function updateFableChatConversationSettings(
     FABLE_CHAT_PROMPT_CACHE_VERSION,
     webSearchEnabled ? 1 : 0,
     webFetchEnabled ? 1 : 0,
+    serializeStoredFableWebSearchConfiguration(webSearchConfiguration),
+    toolChoice,
     memoryMode,
     updatedAt,
     updatedAt,
@@ -964,6 +1264,7 @@ async function readTurnByIdempotencyHash(env, adminUserId, conversationId, idemp
             t.web_search_contract_version, t.web_search_request_count, t.web_search_result_count,
             t.web_search_effective_max_uses, t.web_search_effective_contract_version,
             t.web_search_executed_request_count, t.web_search_executed_result_count,
+            t.web_search_effective_settings_json, t.fable_tool_choice,
             t.web_fetch_enabled, t.web_fetch_tool_version, t.web_fetch_max_uses,
             t.web_fetch_max_content_tokens, t.web_fetch_contract_version,
             t.web_fetch_direct_only, t.web_fetch_use_cache, t.web_fetch_request_count,
@@ -1000,6 +1301,7 @@ async function readTurnById(env, turnId) {
             web_search_contract_version, web_search_request_count, web_search_result_count,
             web_search_effective_max_uses, web_search_effective_contract_version,
             web_search_executed_request_count, web_search_executed_result_count,
+            web_search_effective_settings_json, fable_tool_choice,
             web_fetch_enabled, web_fetch_tool_version, web_fetch_max_uses,
             web_fetch_max_content_tokens, web_fetch_contract_version,
             web_fetch_direct_only, web_fetch_use_cache, web_fetch_request_count,
@@ -1081,7 +1383,7 @@ export async function buildFableChatRequestFingerprint({
   settings,
   memorySelection = null,
   webReplaySelection = null,
-  fingerprintVersion = 8,
+  fingerprintVersion = 9,
 }) {
   if (!settings || typeof settings !== "object") {
     throw new FableChatError("Conversation settings are unavailable.", {
@@ -1090,16 +1392,25 @@ export async function buildFableChatRequestFingerprint({
     });
   }
   const effort = normalizeFableChatEffort(settings.effort);
-  const webSearchContractVersion = Number(
+  const requestedWebSearchContractVersion = Number(
     settings.webSearchContractVersion ?? FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION
   );
-  if (![FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION, FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION]
-    .includes(webSearchContractVersion)) {
+  if (![
+    FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION,
+    FABLE_CHAT_PREVIOUS_WEB_SEARCH_CONTRACT_VERSION,
+    FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+  ]
+    .includes(requestedWebSearchContractVersion)) {
     throw new FableChatError("Conversation Web search settings are unavailable.", {
       status: 503,
       code: "fable_chat_settings_unavailable",
     });
   }
+  const webSearchContractVersion = fingerprintVersion >= 9
+    ? requestedWebSearchContractVersion
+    : (requestedWebSearchContractVersion === FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION
+      ? FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION
+      : FABLE_CHAT_PREVIOUS_WEB_SEARCH_CONTRACT_VERSION);
   const webSearchMaxUses = webSearchContractVersion === FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION
     ? 1
     : getFableChatWebSearchMaxUses(effort);
@@ -1159,7 +1470,9 @@ export async function buildFableChatRequestFingerprint({
     prompt_cache_version: Number(settings.promptCacheVersion),
     context_format_version: FABLE_CHAT_CONTEXT_FORMAT_VERSION,
     web_search_enabled: settings.webSearchEnabled === true,
-    web_search_tool_version: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+    web_search_tool_version: webSearchContractVersion >= FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION
+      ? FABLE_CHAT_WEB_SEARCH_TOOL_TYPE
+      : FABLE_CHAT_LEGACY_WEB_SEARCH_TOOL_TYPE,
     web_search_max_uses: webSearchMaxUses,
     web_search_contract_version: webSearchContractVersion,
   };
@@ -1200,6 +1513,41 @@ export async function buildFableChatRequestFingerprint({
       web_fetch_contract_version: FABLE_CHAT_WEB_FETCH_CONTRACT_VERSION,
     });
   }
+  if (fingerprintVersion >= 9) {
+    let webSearchConfiguration;
+    try {
+      webSearchConfiguration = normalizeFableChatWebSearchConfiguration({
+        callerMode: settings.webSearchCallerMode,
+        responseInclusion: settings.webSearchResponseInclusion,
+        domainFilterMode: settings.webSearchDomainFilterMode,
+        allowedDomains: settings.webSearchAllowedDomains,
+        blockedDomains: settings.webSearchBlockedDomains,
+        locationEnabled: settings.webSearchLocationEnabled,
+        location: settings.webSearchLocation,
+      });
+    } catch {
+      throw new FableChatError("Conversation Web Search settings are unavailable.", {
+        status: 503,
+        code: "fable_chat_settings_unavailable",
+      });
+    }
+    Object.assign(fingerprint, {
+      web_search_caller_mode: webSearchConfiguration.callerMode,
+      web_search_allowed_callers: webSearchConfiguration.allowedCallers,
+      web_search_response_inclusion_preference:
+        webSearchConfiguration.responseInclusionPreference,
+      web_search_effective_response_inclusion:
+        webSearchConfiguration.effectiveResponseInclusion,
+      web_search_domain_filter_mode: webSearchConfiguration.domainFilterMode,
+      web_search_allowed_domains: webSearchConfiguration.allowedDomains,
+      web_search_blocked_domains: webSearchConfiguration.blockedDomains,
+      web_search_location_enabled: webSearchConfiguration.locationEnabled,
+      web_search_location: webSearchConfiguration.location,
+      tool_choice: normalizeFableChatToolChoice(
+        settings.toolChoice ?? FABLE_CHAT_DEFAULT_TOOL_CHOICE
+      ),
+    });
+  }
   return sha256Hex(JSON.stringify(fingerprint));
 }
 
@@ -1233,6 +1581,13 @@ async function matchesStoredMemoryFableChatFingerprint(existing, request) {
     webReplaySelection: storedWebReplaySelection,
   });
   if (stored === storedMemoryFingerprint) return true;
+  const preSearchUpgradeFingerprint = await buildFableChatRequestFingerprint({
+    ...request,
+    memorySelection: storedMemorySelection,
+    webReplaySelection: storedWebReplaySelection,
+    fingerprintVersion: 8,
+  });
+  if (stored === preSearchUpgradeFingerprint) return true;
   if (request.settings?.webFetchEnabled !== true) {
     const preFetchFingerprint = await buildFableChatRequestFingerprint({
       ...request,
@@ -1328,6 +1683,35 @@ export async function beginFableChatTurn(env, {
     throw new FableChatError("Conversation not found.", { status: 404, code: "not_found" });
   }
   const appliedSettings = resolveFableChatConversationSettings(conversation);
+  let requestedWebSearchConfiguration;
+  try {
+    requestedWebSearchConfiguration = normalizeFableChatWebSearchConfiguration({
+      callerMode: settings?.webSearchCallerMode,
+      responseInclusion: settings?.webSearchResponseInclusion,
+      domainFilterMode: settings?.webSearchDomainFilterMode,
+      allowedDomains: settings?.webSearchAllowedDomains,
+      blockedDomains: settings?.webSearchBlockedDomains,
+      locationEnabled: settings?.webSearchLocationEnabled,
+      location: settings?.webSearchLocation,
+    });
+  } catch {
+    throw new FableChatError("Conversation settings changed before this message was admitted.", {
+      status: 409,
+      code: "fable_chat_settings_conflict",
+    });
+  }
+  const appliedWebSearchConfiguration = normalizeFableChatWebSearchConfiguration({
+    callerMode: appliedSettings.webSearchCallerMode,
+    responseInclusion: appliedSettings.webSearchResponseInclusion,
+    domainFilterMode: appliedSettings.webSearchDomainFilterMode,
+    allowedDomains: appliedSettings.webSearchAllowedDomains,
+    blockedDomains: appliedSettings.webSearchBlockedDomains,
+    locationEnabled: appliedSettings.webSearchLocationEnabled,
+    location: appliedSettings.webSearchLocation,
+  });
+  const appliedWebSearchStoredJson = serializeStoredFableWebSearchConfiguration(
+    appliedWebSearchConfiguration
+  );
   if (
     !settings
     || appliedSettings.effort !== settings.effort
@@ -1339,6 +1723,9 @@ export async function beginFableChatTurn(env, {
     || appliedSettings.webSearchEnabled !== (settings.webSearchEnabled === true)
     || appliedSettings.webSearchMaxUses !== Number(settings.webSearchMaxUses)
     || FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION !== Number(settings.webSearchContractVersion)
+    || serializeStoredFableWebSearchConfiguration(appliedWebSearchConfiguration)
+      !== serializeStoredFableWebSearchConfiguration(requestedWebSearchConfiguration)
+    || appliedSettings.toolChoice !== settings.toolChoice
     || appliedSettings.webFetchEnabled !== (settings.webFetchEnabled === true)
     || appliedSettings.memoryMode !== settings.memoryMode
     || appliedSettings.adminRevisionVersion !== Number(settings.adminRevisionVersion || 0)
@@ -1404,6 +1791,8 @@ export async function beginFableChatTurn(env, {
     webSearchToolVersion: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
     webSearchMaxUses: appliedSettings.webSearchMaxUses,
     webSearchContractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+    ...buildFableChatEffectiveWebSearchSettings(appliedWebSearchConfiguration),
+    toolChoice: appliedSettings.toolChoice,
     webFetchEnabled: appliedSettings.webFetchEnabled,
     webFetchToolVersion: FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
     webFetchMaxUses: FABLE_CHAT_WEB_FETCH_MAX_USES,
@@ -1479,6 +1868,7 @@ export async function beginFableChatTurn(env, {
            web_search_contract_version, web_search_request_count, web_search_result_count,
            web_search_effective_max_uses, web_search_effective_contract_version,
            web_search_executed_request_count, web_search_executed_result_count,
+           web_search_effective_settings_json, fable_tool_choice,
            web_fetch_enabled, web_fetch_tool_version, web_fetch_max_uses,
            web_fetch_max_content_tokens, web_fetch_contract_version,
            web_fetch_direct_only, web_fetch_use_cache, web_fetch_request_count,
@@ -1495,7 +1885,7 @@ export async function beginFableChatTurn(env, {
            updated_at, completed_at, expires_at
          )
          SELECT ?, c.id, ?, ?, ?, ?, NULL, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0,
+                ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0, ?, ?,
                 ?, ?, ?, ?, ?, 1, 1, 0, 0, 0, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, c.admin_revision_version,
                 ?, NULL, 0, NULL, NULL, NULL, '{}', '{}', NULL, ?, ?, NULL, ?
@@ -1504,6 +1894,7 @@ export async function beginFableChatTurn(env, {
             AND c.effort = ? AND c.system_preset_id = ? AND c.system_preset_version = ?
             AND c.thinking_display = ? AND c.prompt_cache_policy = ?
             AND c.prompt_cache_version = ? AND c.web_search_enabled = ?
+            AND c.web_search_settings_json = ? AND c.fable_tool_choice = ?
             AND c.web_fetch_enabled = ?
             AND c.memory_mode = ? AND c.admin_revision_version = ?`
       ).bind(
@@ -1530,11 +1921,13 @@ export async function beginFableChatTurn(env, {
         safeContext.estimatorVersion,
         JSON.stringify(safeContext.cacheBreakpoint),
         appliedSettings.webSearchEnabled ? 1 : 0,
-        FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
+        FABLE_CHAT_LEGACY_WEB_SEARCH_TOOL_TYPE,
         1,
         FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION,
         appliedSettings.webSearchMaxUses,
-        FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+        FABLE_CHAT_PREVIOUS_WEB_SEARCH_CONTRACT_VERSION,
+        serializeTurnFableWebSearchConfiguration(appliedWebSearchConfiguration),
+        appliedSettings.toolChoice,
         appliedSettings.webFetchEnabled ? 1 : 0,
         FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
         FABLE_CHAT_WEB_FETCH_MAX_USES,
@@ -1566,6 +1959,8 @@ export async function beginFableChatTurn(env, {
         appliedSettings.promptCachePolicy,
         appliedSettings.promptCacheVersion,
         appliedSettings.webSearchEnabled ? 1 : 0,
+        appliedWebSearchStoredJson,
+        appliedSettings.toolChoice,
         appliedSettings.webFetchEnabled ? 1 : 0,
         appliedMemory.mode,
         appliedSettings.adminRevisionVersion
@@ -1587,6 +1982,7 @@ export async function beginFableChatTurn(env, {
                    AND c.system_preset_id = ? AND c.system_preset_version = ?
                    AND c.thinking_display = ? AND c.prompt_cache_policy = ?
                    AND c.prompt_cache_version = ? AND c.web_search_enabled = ?
+                   AND c.web_search_settings_json = ? AND c.fable_tool_choice = ?
                    AND c.web_fetch_enabled = ?
                    AND c.memory_mode = ?
               )`
@@ -1602,6 +1998,8 @@ export async function beginFableChatTurn(env, {
           appliedSettings.promptCachePolicy,
           appliedSettings.promptCacheVersion,
           appliedSettings.webSearchEnabled ? 1 : 0,
+          appliedWebSearchStoredJson,
+          appliedSettings.toolChoice,
           appliedSettings.webFetchEnabled ? 1 : 0,
           appliedMemory.mode
         )
@@ -1613,6 +2011,7 @@ export async function beginFableChatTurn(env, {
               AND effort = ? AND system_preset_id = ? AND system_preset_version = ?
               AND thinking_display = ? AND prompt_cache_policy = ?
               AND prompt_cache_version = ? AND web_search_enabled = ?
+              AND web_search_settings_json = ? AND fable_tool_choice = ?
               AND web_fetch_enabled = ?
               AND memory_mode = ?`
         ).bind(
@@ -1626,6 +2025,8 @@ export async function beginFableChatTurn(env, {
           appliedSettings.promptCachePolicy,
           appliedSettings.promptCacheVersion,
           appliedSettings.webSearchEnabled ? 1 : 0,
+          appliedWebSearchStoredJson,
+          appliedSettings.toolChoice,
           appliedSettings.webFetchEnabled ? 1 : 0,
           appliedMemory.mode
         )
@@ -1643,6 +2044,7 @@ export async function beginFableChatTurn(env, {
               AND c.effort = ? AND c.system_preset_id = ? AND c.system_preset_version = ?
               AND c.thinking_display = ? AND c.prompt_cache_policy = ?
               AND c.prompt_cache_version = ? AND c.web_search_enabled = ?
+              AND c.web_search_settings_json = ? AND c.fable_tool_choice = ?
               AND c.web_fetch_enabled = ?
               AND c.memory_mode = ?`
         ).bind(
@@ -1662,6 +2064,8 @@ export async function beginFableChatTurn(env, {
           appliedSettings.promptCachePolicy,
           appliedSettings.promptCacheVersion,
           appliedSettings.webSearchEnabled ? 1 : 0,
+          appliedWebSearchStoredJson,
+          appliedSettings.toolChoice,
           appliedSettings.webFetchEnabled ? 1 : 0,
           appliedMemory.mode
         )
@@ -1680,6 +2084,7 @@ export async function beginFableChatTurn(env, {
               AND effort = ? AND system_preset_id = ? AND system_preset_version = ?
               AND thinking_display = ? AND prompt_cache_policy = ?
               AND prompt_cache_version = ? AND web_search_enabled = ?
+              AND web_search_settings_json = ? AND fable_tool_choice = ?
               AND web_fetch_enabled = ?
               AND memory_mode = ?`
         ).bind(
@@ -1694,6 +2099,8 @@ export async function beginFableChatTurn(env, {
           appliedSettings.promptCachePolicy,
           appliedSettings.promptCacheVersion,
           appliedSettings.webSearchEnabled ? 1 : 0,
+          appliedWebSearchStoredJson,
+          appliedSettings.toolChoice,
           appliedSettings.webFetchEnabled ? 1 : 0,
           appliedMemory.mode
         )
@@ -1843,6 +2250,22 @@ export async function buildFableChatModelContext(env, {
     throw new FableChatError("Conversation not found.", { status: 404, code: "not_found" });
   }
   const appliedSettings = resolveFableChatConversationSettings(conversation);
+  let requestedWebSearchStoredJson = null;
+  if (settings) {
+    try {
+      requestedWebSearchStoredJson = serializeStoredFableWebSearchConfiguration({
+        callerMode: settings.webSearchCallerMode,
+        responseInclusion: settings.webSearchResponseInclusion,
+        domainFilterMode: settings.webSearchDomainFilterMode,
+        allowedDomains: settings.webSearchAllowedDomains,
+        blockedDomains: settings.webSearchBlockedDomains,
+        locationEnabled: settings.webSearchLocationEnabled,
+        location: settings.webSearchLocation,
+      });
+    } catch {
+      requestedWebSearchStoredJson = "invalid";
+    }
+  }
   if (settings && (
     settings.effort !== appliedSettings.effort
     || settings.systemPresetId !== appliedSettings.systemPresetId
@@ -1851,6 +2274,16 @@ export async function buildFableChatModelContext(env, {
     || settings.webSearchEnabled !== appliedSettings.webSearchEnabled
     || Number(settings.webSearchMaxUses) !== appliedSettings.webSearchMaxUses
     || Number(settings.webSearchContractVersion) !== FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION
+    || requestedWebSearchStoredJson !== serializeStoredFableWebSearchConfiguration({
+      callerMode: appliedSettings.webSearchCallerMode,
+      responseInclusion: appliedSettings.webSearchResponseInclusion,
+      domainFilterMode: appliedSettings.webSearchDomainFilterMode,
+      allowedDomains: appliedSettings.webSearchAllowedDomains,
+      blockedDomains: appliedSettings.webSearchBlockedDomains,
+      locationEnabled: appliedSettings.webSearchLocationEnabled,
+      location: appliedSettings.webSearchLocation,
+    })
+    || settings.toolChoice !== appliedSettings.toolChoice
     || settings.webFetchEnabled !== appliedSettings.webFetchEnabled
     || settings.memoryMode !== appliedSettings.memoryMode
     || Number(settings.adminRevisionVersion || 0) !== appliedSettings.adminRevisionVersion
@@ -2008,7 +2441,17 @@ export async function buildFableChatModelContext(env, {
         thinkingDisplay: appliedSettings.thinkingDisplay,
         webSearchEnabled: appliedSettings.webSearchEnabled,
         webSearchMaxUses: appliedSettings.webSearchMaxUses,
+        webSearchContractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+        webSearchAllowedCallers: appliedSettings.webSearchAllowedCallers,
+        webSearchEffectiveResponseInclusion:
+          appliedSettings.webSearchEffectiveResponseInclusion,
+        webSearchDomainFilterMode: appliedSettings.webSearchDomainFilterMode,
+        webSearchActiveDomains: appliedSettings.webSearchActiveDomains,
+        webSearchLocation: appliedSettings.webSearchLocationEnabled
+          ? appliedSettings.webSearchLocation
+          : null,
         webFetchEnabled: appliedSettings.webFetchEnabled,
+        toolChoice: appliedSettings.toolChoice,
       }),
     });
     return {
@@ -2023,6 +2466,16 @@ export async function buildFableChatModelContext(env, {
       webSearchEnabled: appliedSettings.webSearchEnabled,
       webSearchMaxUses: appliedSettings.webSearchMaxUses,
       webSearchContractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
+      webSearchCallerMode: appliedSettings.webSearchCallerMode,
+      webSearchAllowedCallers: appliedSettings.webSearchAllowedCallers,
+      webSearchResponseInclusion: appliedSettings.webSearchResponseInclusion,
+      webSearchEffectiveResponseInclusion: appliedSettings.webSearchEffectiveResponseInclusion,
+      webSearchDomainFilterMode: appliedSettings.webSearchDomainFilterMode,
+      webSearchAllowedDomains: appliedSettings.webSearchAllowedDomains,
+      webSearchBlockedDomains: appliedSettings.webSearchBlockedDomains,
+      webSearchLocationEnabled: appliedSettings.webSearchLocationEnabled,
+      webSearchLocation: appliedSettings.webSearchLocation,
+      toolChoice: appliedSettings.toolChoice,
       webFetchEnabled: appliedSettings.webFetchEnabled,
       webFetchToolVersion: FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
       webFetchMaxUses: FABLE_CHAT_WEB_FETCH_MAX_USES,
@@ -2088,6 +2541,7 @@ export async function finalizeFableChatTurn(env, turnId, {
   gatewayMetadata = null,
   providerDurationMs = null,
   webSearchRequestCount = null,
+  webSearchExecutedRequestCount = null,
   webSearchResultCount = null,
   webFetchRequestCount = null,
   webFetchResultCount = null,
@@ -2113,7 +2567,7 @@ export async function finalizeFableChatTurn(env, turnId, {
   let privateProviderBlocks;
   try {
     privateProviderBlocks = providerBlocks
-      ? normalizeFableChatProviderBlocks(providerBlocks)
+      ? normalizeFableChatProviderBlocks(providerBlocks, { requireCompleteToolLifecycle: true })
       : [{ type: "text", text: content }];
     if (extractFableChatAssistantText(privateProviderBlocks) !== content) {
       throw new TypeError("Provider text does not match the visible assistant response.");
@@ -2143,12 +2597,27 @@ export async function finalizeFableChatTurn(env, turnId, {
     });
   }
   const webSearchMaxUses = readTurnWebSearchMaxUses(turn);
+  const webSearchConfiguration = readTurnWebSearchConfiguration(turn);
+  const executedSearchRequestCount = webSearchExecutedRequestCount == null
+    ? searchCounts.requestCount
+    : Number(webSearchExecutedRequestCount);
+  const excludedDynamicSearch = readTurnWebSearchContractVersion(turn)
+    >= FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION
+    && webSearchConfiguration.effectiveResponseInclusion === "excluded"
+    && webSearchConfiguration.allowedCallers.includes(
+      FABLE_CHAT_WEB_SEARCH_CODE_EXECUTION_CALLER
+    );
   if (
     searchCounts.requestCount > webSearchMaxUses
     || searchCounts.resultCount > webSearchMaxUses
+    || !Number.isInteger(executedSearchRequestCount)
+    || executedSearchRequestCount < searchCounts.requestCount
+    || executedSearchRequestCount > webSearchMaxUses
     || (!turn.web_search_enabled && (searchCounts.requestCount > 0 || searchCounts.resultCount > 0))
+    || (!turn.web_search_enabled && executedSearchRequestCount > 0)
     || (webSearchRequestCount != null && Number(webSearchRequestCount) !== searchCounts.requestCount)
     || (webSearchResultCount != null && Number(webSearchResultCount) !== searchCounts.resultCount)
+    || (!excludedDynamicSearch && executedSearchRequestCount !== searchCounts.requestCount)
   ) {
     throw new FableChatError("Assistant web-search metadata is invalid.", {
       status: 502,
@@ -2341,7 +2810,7 @@ export async function finalizeFableChatTurn(env, turnId, {
       outputTruncated ? 1 : 0,
       Math.min(1, searchCounts.requestCount),
       Math.min(1, searchCounts.resultCount),
-      searchCounts.requestCount,
+      executedSearchRequestCount,
       searchCounts.resultCount,
       fetchCounts.requestCount,
       fetchCounts.resultCount,
@@ -2385,6 +2854,7 @@ export async function getFableChatTurnResult(env, adminUserId, conversationId, t
             t.web_search_enabled, t.web_search_request_count, t.web_search_result_count,
             t.web_search_effective_max_uses, t.web_search_effective_contract_version,
             t.web_search_executed_request_count, t.web_search_executed_result_count,
+            t.web_search_effective_settings_json, t.fable_tool_choice,
             t.web_fetch_enabled, t.web_fetch_tool_version, t.web_fetch_max_uses,
             t.web_fetch_max_content_tokens, t.web_fetch_contract_version,
             t.web_fetch_request_count, t.web_fetch_result_count,

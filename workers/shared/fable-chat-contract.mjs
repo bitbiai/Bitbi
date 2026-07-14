@@ -59,9 +59,23 @@ export const FABLE_CHAT_NATIVE_REPLAY_PROJECTION_VERSION = 1;
 
 export const FABLE_CHAT_DEFAULT_WEB_SEARCH_ENABLED = false;
 export const FABLE_CHAT_LEGACY_WEB_SEARCH_CONTRACT_VERSION = 1;
-export const FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION = 2;
-export const FABLE_CHAT_WEB_SEARCH_TOOL_TYPE = "web_search_20250305";
+export const FABLE_CHAT_PREVIOUS_WEB_SEARCH_CONTRACT_VERSION = 2;
+export const FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION = 3;
+export const FABLE_CHAT_LEGACY_WEB_SEARCH_TOOL_TYPE = "web_search_20250305";
+export const FABLE_CHAT_WEB_SEARCH_TOOL_TYPE = "web_search_20260318";
 export const FABLE_CHAT_WEB_SEARCH_TOOL_NAME = "web_search";
+export const FABLE_CHAT_WEB_SEARCH_CODE_EXECUTION_CALLER = "code_execution_20260120";
+export const FABLE_CHAT_WEB_SEARCH_CALLER_MODES = Object.freeze(["direct", "dynamic", "both"]);
+export const FABLE_CHAT_DEFAULT_WEB_SEARCH_CALLER_MODE = "direct";
+export const FABLE_CHAT_WEB_SEARCH_RESPONSE_INCLUSIONS = Object.freeze(["full", "excluded"]);
+export const FABLE_CHAT_DEFAULT_WEB_SEARCH_RESPONSE_INCLUSION = "full";
+export const FABLE_CHAT_WEB_SEARCH_DOMAIN_FILTER_MODES = Object.freeze(["none", "allowed", "blocked"]);
+export const FABLE_CHAT_DEFAULT_WEB_SEARCH_DOMAIN_FILTER_MODE = "none";
+export const FABLE_CHAT_WEB_SEARCH_MAX_DOMAIN_ENTRIES = 20;
+export const FABLE_CHAT_WEB_SEARCH_MAX_DOMAIN_PATTERN_CHARACTERS = 512;
+export const FABLE_CHAT_WEB_SEARCH_MAX_LOCATION_FIELD_CHARACTERS = 120;
+export const FABLE_CHAT_TOOL_CHOICES = Object.freeze(["auto", "none"]);
+export const FABLE_CHAT_DEFAULT_TOOL_CHOICE = "auto";
 export const FABLE_CHAT_WEB_SEARCH_MAX_USES_BY_EFFORT = Object.freeze({
   medium: 1,
   high: 3,
@@ -79,6 +93,9 @@ export const FABLE_CHAT_MAX_SEARCH_QUERY_CHARACTERS = 1_024;
 export const FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS = 512;
 export const FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES = 512 * 1024;
 export const FABLE_CHAT_MAX_SEARCH_RESULT_ERROR_CODE_CHARACTERS = 80;
+export const FABLE_CHAT_MAX_CODE_EXECUTION_INPUT_CHARACTERS = 128 * 1024;
+export const FABLE_CHAT_MAX_CODE_EXECUTION_RESULT_CHARACTERS = 512 * 1024;
+export const FABLE_CHAT_MAX_CODE_EXECUTION_OUTPUT_FILES = 32;
 
 export const FABLE_CHAT_DEFAULT_WEB_FETCH_ENABLED = false;
 export const FABLE_CHAT_WEB_FETCH_CONTRACT_VERSION = 1;
@@ -135,6 +152,224 @@ export function getFableChatOutputTokenLimit(effort) {
 
 export function getFableChatWebSearchMaxUses(effort) {
   return FABLE_CHAT_WEB_SEARCH_MAX_USES_BY_EFFORT[effort] || null;
+}
+
+function assertPlainConfiguration(value, field) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(`${field} must be an object.`);
+  }
+  return value;
+}
+
+function assertOnlyConfigurationFields(value, allowed, field) {
+  const unsupported = Object.keys(value).find((key) => !allowed.has(key));
+  if (unsupported) throw new TypeError(`${field}.${unsupported} is not supported.`);
+}
+
+function normalizeBoundedConfigurationText(value, field, maxLength, { allowEmpty = true } = {}) {
+  if (typeof value !== "string") throw new TypeError(`${field} must be a string.`);
+  const normalized = value.trim();
+  if ((!allowEmpty && !normalized) || normalized.length > maxLength
+    || /[\u0000-\u001f\u007f]/.test(normalized)) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  return normalized;
+}
+
+export function normalizeFableChatWebSearchCallerMode(value) {
+  const normalized = String(value || "").trim();
+  if (!FABLE_CHAT_WEB_SEARCH_CALLER_MODES.includes(normalized)) {
+    throw new TypeError("webSearchCallerMode is not supported.");
+  }
+  return normalized;
+}
+
+export function getFableChatWebSearchAllowedCallers(mode) {
+  const normalized = normalizeFableChatWebSearchCallerMode(mode);
+  if (normalized === "direct") return ["direct"];
+  if (normalized === "dynamic") return [FABLE_CHAT_WEB_SEARCH_CODE_EXECUTION_CALLER];
+  return ["direct", FABLE_CHAT_WEB_SEARCH_CODE_EXECUTION_CALLER];
+}
+
+export function normalizeFableChatWebSearchResponseInclusion(value) {
+  const normalized = String(value || "").trim();
+  if (!FABLE_CHAT_WEB_SEARCH_RESPONSE_INCLUSIONS.includes(normalized)) {
+    throw new TypeError("webSearchResponseInclusion is not supported.");
+  }
+  return normalized;
+}
+
+export function getFableChatEffectiveWebSearchResponseInclusion(mode, preference) {
+  const normalizedMode = normalizeFableChatWebSearchCallerMode(mode);
+  const normalizedPreference = normalizeFableChatWebSearchResponseInclusion(preference);
+  return normalizedMode === "direct" ? "full" : normalizedPreference;
+}
+
+export function normalizeFableChatWebSearchDomainFilterMode(value) {
+  const normalized = String(value || "").trim();
+  if (!FABLE_CHAT_WEB_SEARCH_DOMAIN_FILTER_MODES.includes(normalized)) {
+    throw new TypeError("webSearchDomainFilterMode is not supported.");
+  }
+  return normalized;
+}
+
+export function normalizeFableChatWebSearchDomainPattern(value, field = "domain") {
+  if (typeof value !== "string") throw new TypeError(`${field} must be a string.`);
+  const pattern = value.trim();
+  if (!pattern || pattern.length > FABLE_CHAT_WEB_SEARCH_MAX_DOMAIN_PATTERN_CHARACTERS
+    || !/^[\x21-\x7e]+$/.test(pattern)
+    || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(pattern)
+    || /[?#@:%\\]/.test(pattern)) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  const slash = pattern.indexOf("/");
+  const host = (slash < 0 ? pattern : pattern.slice(0, slash)).toLowerCase();
+  const path = slash < 0 ? "" : pattern.slice(slash);
+  if (host.length > 253 || host.includes("*") || !host.includes(".")
+    || host.split(".").some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  if (path && (!path.startsWith("/") || /\s/.test(path)
+    || !/^\/[A-Za-z0-9._~!$&'()*+,;=\/-]*$/.test(path))) {
+    throw new TypeError(`${field} is invalid.`);
+  }
+  return `${host}${path}`;
+}
+
+export function normalizeFableChatWebSearchDomainList(value, field) {
+  if (!Array.isArray(value) || value.length > FABLE_CHAT_WEB_SEARCH_MAX_DOMAIN_ENTRIES) {
+    throw new TypeError(`${field} must be a bounded array.`);
+  }
+  const normalized = [];
+  const seen = new Set();
+  value.forEach((entry, index) => {
+    const domain = normalizeFableChatWebSearchDomainPattern(entry, `${field}[${index}]`);
+    if (!seen.has(domain)) {
+      seen.add(domain);
+      normalized.push(domain);
+    }
+  });
+  return normalized;
+}
+
+const FABLE_CHAT_ISO_COUNTRY_CODES = new Set(
+  "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW".split(" ")
+);
+
+export function normalizeFableChatWebSearchLocation(value, { enabled = true } = {}) {
+  if (!enabled) {
+    if (value !== null && value !== undefined) {
+      const location = assertPlainConfiguration(value, "webSearchLocation");
+      if (Object.values(location).some((entry) => entry != null && String(entry).trim())) {
+        throw new TypeError("webSearchLocation must be empty when localization is disabled.");
+      }
+    }
+    return null;
+  }
+  const location = assertPlainConfiguration(value, "webSearchLocation");
+  assertOnlyConfigurationFields(
+    location,
+    new Set(["city", "region", "country", "timezone"]),
+    "webSearchLocation"
+  );
+  const normalized = {};
+  for (const field of ["city", "region"]) {
+    if (location[field] != null && String(location[field]).trim()) {
+      normalized[field] = normalizeBoundedConfigurationText(
+        location[field],
+        `webSearchLocation.${field}`,
+        FABLE_CHAT_WEB_SEARCH_MAX_LOCATION_FIELD_CHARACTERS,
+        { allowEmpty: false }
+      );
+    }
+  }
+  if (location.country != null && String(location.country).trim()) {
+    const country = normalizeBoundedConfigurationText(
+      location.country, "webSearchLocation.country", 2, { allowEmpty: false }
+    );
+    if (!/^[A-Z]{2}$/.test(country) || !FABLE_CHAT_ISO_COUNTRY_CODES.has(country)) {
+      throw new TypeError("webSearchLocation.country must be an uppercase ISO country code.");
+    }
+    normalized.country = country;
+  }
+  if (location.timezone != null && String(location.timezone).trim()) {
+    const timezone = normalizeBoundedConfigurationText(
+      location.timezone, "webSearchLocation.timezone", 64, { allowEmpty: false }
+    );
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: timezone }).format(0);
+    } catch {
+      throw new TypeError("webSearchLocation.timezone must be a valid IANA timezone.");
+    }
+    normalized.timezone = timezone;
+  }
+  if (Object.keys(normalized).length === 0) {
+    throw new TypeError("webSearchLocation requires at least one field.");
+  }
+  return normalized;
+}
+
+export function normalizeFableChatToolChoice(value) {
+  const normalized = String(value || "").trim();
+  if (!FABLE_CHAT_TOOL_CHOICES.includes(normalized)) {
+    throw new TypeError("toolChoice is not supported.");
+  }
+  return normalized;
+}
+
+export function normalizeFableChatWebSearchConfiguration(value = {}) {
+  const input = assertPlainConfiguration(value, "webSearchConfiguration");
+  assertOnlyConfigurationFields(input, new Set([
+    "callerMode", "responseInclusion", "domainFilterMode", "allowedDomains",
+    "blockedDomains", "locationEnabled", "location",
+  ]), "webSearchConfiguration");
+  const callerMode = normalizeFableChatWebSearchCallerMode(
+    input.callerMode ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_CALLER_MODE
+  );
+  const responseInclusionPreference = normalizeFableChatWebSearchResponseInclusion(
+    input.responseInclusion ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_RESPONSE_INCLUSION
+  );
+  const domainFilterMode = normalizeFableChatWebSearchDomainFilterMode(
+    input.domainFilterMode ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_DOMAIN_FILTER_MODE
+  );
+  const allowedDomains = normalizeFableChatWebSearchDomainList(
+    input.allowedDomains ?? [], "webSearchAllowedDomains"
+  );
+  const blockedDomains = normalizeFableChatWebSearchDomainList(
+    input.blockedDomains ?? [], "webSearchBlockedDomains"
+  );
+  if (domainFilterMode === "allowed" && allowedDomains.length === 0) {
+    throw new TypeError("Allowed-domain filtering requires at least one domain.");
+  }
+  if (domainFilterMode === "blocked" && blockedDomains.length === 0) {
+    throw new TypeError("Blocked-domain filtering requires at least one domain.");
+  }
+  const locationEnabled = input.locationEnabled ?? false;
+  if (typeof locationEnabled !== "boolean") {
+    throw new TypeError("webSearchLocationEnabled must be a boolean.");
+  }
+  const location = input.location == null
+    ? (locationEnabled
+      ? normalizeFableChatWebSearchLocation(null, { enabled: true })
+      : null)
+    : normalizeFableChatWebSearchLocation(input.location, { enabled: true });
+  return {
+    callerMode,
+    allowedCallers: getFableChatWebSearchAllowedCallers(callerMode),
+    responseInclusionPreference,
+    effectiveResponseInclusion: getFableChatEffectiveWebSearchResponseInclusion(
+      callerMode,
+      responseInclusionPreference
+    ),
+    domainFilterMode,
+    allowedDomains,
+    blockedDomains,
+    activeDomains: domainFilterMode === "allowed"
+      ? allowedDomains
+      : (domainFilterMode === "blocked" ? blockedDomains : []),
+    locationEnabled,
+    location,
+  };
 }
 
 export function getFableChatSystemPreset(presetId, version = FABLE_CHAT_SYSTEM_PRESET_VERSION) {
