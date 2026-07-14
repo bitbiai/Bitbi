@@ -471,7 +471,11 @@ test.describe('Private admin Fable chat', () => {
       path.join(process.cwd(), 'workers/auth/migrations/0077_upgrade_fable_web_search.sql'),
       'utf8'
     );
-    expect(CURRENT_AUTH_MIGRATION).toBe('0077_upgrade_fable_web_search.sql');
+    const globalLocationMigration = fs.readFileSync(
+      path.join(process.cwd(), 'workers/auth/migrations/0078_add_fable_global_location.sql'),
+      'utf8'
+    );
+    expect(CURRENT_AUTH_MIGRATION).toBe('0078_add_fable_global_location.sql');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_conversations');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_turns');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_messages');
@@ -506,6 +510,10 @@ test.describe('Private admin Fable chat', () => {
     expect(upgradedWebSearchMigration).toContain('web_search_settings_json TEXT NOT NULL');
     expect(upgradedWebSearchMigration).toContain('web_search_20260318');
     expect(upgradedWebSearchMigration).toContain("fable_tool_choice TEXT NOT NULL DEFAULT 'auto'");
+    expect(globalLocationMigration).toContain('CREATE TABLE fable_chat_user_settings');
+    expect(globalLocationMigration).toContain('web_search_location_json TEXT');
+    expect(globalLocationMigration).toContain('FOREIGN KEY (admin_user_id) REFERENCES users(id) ON DELETE CASCADE');
+    expect(globalLocationMigration).not.toMatch(/DROP\s+TABLE|ALTER\s+TABLE\s+\S+\s+DROP/i);
     expect(memoryMigration).toContain("summarizer_model_id TEXT NOT NULL DEFAULT '@cf/qwen/qwen3-30b-a3b-fp8'");
     expect(replayPruningMigration).toContain(
       'web_replay_pruned_through_turn_order INTEGER NOT NULL DEFAULT -1'
@@ -1749,6 +1757,196 @@ test.describe('Private admin Fable chat', () => {
       expect(conflict.status).toBe(409);
       expect((await conflict.json()).code).toBe('idempotency_conflict');
       expect(providerCalls).toHaveLength(0);
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('configured Web Search location is owner-scoped while activation remains conversation-scoped', async () => {
+    const { env, DB } = await createFableChatSqliteEnv();
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const fableModule = await import(pathToFileURL(
+      path.join(process.cwd(), 'workers/auth/src/lib/fable-chat.js')
+    ).href);
+    try {
+      const admin = await seedFableChatActor(env, {
+        id: 'admin-fable-global-location',
+        email: 'global-location@example.com',
+      });
+      const otherAdmin = await seedFableChatActor(env, {
+        id: 'admin-fable-global-location-other',
+        email: 'global-location-other@example.com',
+      });
+      const first = await createFableConversationForTest(worker, env, admin.cookie);
+      expect(first.settings).toMatchObject({
+        webSearchLocationEnabled: false,
+        webSearchLocation: null,
+        webSearchLocationVersion: 0,
+      });
+
+      const configuredLocation = {
+        city: 'Trossingen',
+        region: 'Baden-Württemberg',
+        country: 'DE',
+        timezone: 'Europe/Berlin',
+      };
+      const enabledResponse = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${first.id}/settings`,
+        {
+          method: 'PATCH',
+          cookie: admin.cookie,
+          body: {
+            webSearchEnabled: true,
+            webSearchLocationEnabled: true,
+            webSearchLocation: configuredLocation,
+          },
+        }
+      );
+      expect(enabledResponse.status).toBe(200);
+      const enabled = (await enabledResponse.json()).settings;
+      expect(enabled).toMatchObject({
+        webSearchLocationEnabled: true,
+        webSearchLocation: configuredLocation,
+        webSearchLocationVersion: 1,
+      });
+      expect(JSON.parse(DB.database.prepare(
+        'SELECT web_search_location_json FROM fable_chat_user_settings WHERE admin_user_id = ?'
+      ).get('admin-fable-global-location').web_search_location_json)).toEqual(configuredLocation);
+      expect(JSON.parse(DB.database.prepare(
+        'SELECT web_search_settings_json FROM fable_chat_conversations WHERE id = ?'
+      ).get(first.id).web_search_settings_json)).toMatchObject({
+        locationEnabled: true,
+        location: null,
+      });
+
+      const nearMeContext = await fableModule.buildFableChatModelContext(env, {
+        adminUserId: 'admin-fable-global-location',
+        conversationId: first.id,
+        currentMessage: 'Find a public place near me.',
+        settings: enabled,
+      });
+      const locationLine = 'Approximate configured location: Trossingen, Baden-Württemberg, DE (Europe/Berlin). Use for local requests; do not ask again.';
+      expect(nearMeContext.system).toContain(locationLine);
+      expect(nearMeContext.webSearchLocation).toEqual(configuredLocation);
+      const originalFingerprint = await fableModule.buildFableChatRequestFingerprint({
+        conversationId: first.id,
+        message: 'Find a public place near me.',
+        settings: enabled,
+      });
+
+      const second = await createFableConversationForTest(worker, env, admin.cookie);
+      expect(second.settings).toMatchObject({
+        webSearchLocationEnabled: false,
+        webSearchLocation: configuredLocation,
+        webSearchLocationVersion: 1,
+      });
+      const secondContext = await fableModule.buildFableChatModelContext(env, {
+        adminUserId: 'admin-fable-global-location',
+        conversationId: second.id,
+        currentMessage: 'Keep this request general.',
+        settings: second.settings,
+      });
+      expect(secondContext.system).not.toContain('Approximate configured location:');
+
+      const replacement = {
+        city: 'Freiburg',
+        region: 'Baden-Württemberg',
+        country: 'DE',
+        timezone: 'Europe/Berlin',
+      };
+      const overwrittenResponse = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${second.id}/settings`,
+        {
+          method: 'PATCH',
+          cookie: admin.cookie,
+          body: {
+            webSearchLocationEnabled: true,
+            webSearchLocation: replacement,
+          },
+        }
+      );
+      expect(overwrittenResponse.status).toBe(200);
+      const firstSettingsResponse = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${first.id}/settings`,
+        { cookie: admin.cookie }
+      );
+      const firstAfterOverwrite = (await firstSettingsResponse.json()).settings;
+      expect(firstAfterOverwrite).toMatchObject({
+        webSearchLocationEnabled: true,
+        webSearchLocation: replacement,
+        webSearchLocationVersion: 2,
+      });
+      expect(await fableModule.buildFableChatRequestFingerprint({
+        conversationId: first.id,
+        message: 'Find a public place near me.',
+        settings: firstAfterOverwrite,
+      })).not.toBe(originalFingerprint);
+
+      const foreignList = await callFableAuthWorker(
+        worker,
+        env,
+        '/api/admin/fable-chat/conversations?limit=10',
+        { cookie: otherAdmin.cookie }
+      );
+      expect(await foreignList.json()).toMatchObject({
+        conversations: [],
+        webSearchLocation: null,
+        webSearchLocationVersion: 0,
+      });
+
+      const clearedResponse = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${second.id}/settings`,
+        {
+          method: 'PATCH',
+          cookie: admin.cookie,
+          body: {
+            webSearchLocationEnabled: false,
+            webSearchLocation: null,
+            clearWebSearchLocation: true,
+          },
+        }
+      );
+      expect(clearedResponse.status).toBe(200);
+      expect((await clearedResponse.json()).settings).toMatchObject({
+        webSearchLocationEnabled: false,
+        webSearchLocation: null,
+        webSearchLocationVersion: 3,
+      });
+      expect(DB.database.prepare(
+        'SELECT web_search_location_json, location_revision FROM fable_chat_user_settings WHERE admin_user_id = ?'
+      ).get('admin-fable-global-location')).toEqual({
+        web_search_location_json: null,
+        location_revision: 3,
+      });
+
+      const firstAfterClearResponse = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${first.id}/settings`,
+        { cookie: admin.cookie }
+      );
+      const firstAfterClear = (await firstAfterClearResponse.json()).settings;
+      expect(firstAfterClear).toMatchObject({
+        webSearchLocationEnabled: true,
+        webSearchLocation: null,
+        webSearchLocationVersion: 3,
+      });
+      const noLocationContext = await fableModule.buildFableChatModelContext(env, {
+        adminUserId: 'admin-fable-global-location',
+        conversationId: first.id,
+        currentMessage: 'Find a public place near me.',
+        settings: firstAfterClear,
+      });
+      expect(noLocationContext.system).not.toContain('Approximate configured location:');
+      expect(noLocationContext.webSearchLocation).toBeNull();
     } finally {
       DB.close();
     }

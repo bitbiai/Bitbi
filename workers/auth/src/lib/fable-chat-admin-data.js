@@ -57,8 +57,16 @@ function parseJsonObject(value) {
   }
 }
 
-function safeAdminWebSearchSettings(json, toolChoice = FABLE_CHAT_DEFAULT_TOOL_CHOICE) {
+function safeAdminWebSearchSettings(
+  json,
+  toolChoice = FABLE_CHAT_DEFAULT_TOOL_CHOICE,
+  ownerLocationJson = undefined,
+  ownerLocationRevision = 0
+) {
   const stored = parseJsonObject(json);
+  const ownerLocation = Number(ownerLocationRevision || 0) > 0
+    ? parseJsonObject(ownerLocationJson)
+    : stored.location;
   let config;
   try {
     config = normalizeFableChatWebSearchConfiguration({
@@ -71,7 +79,7 @@ function safeAdminWebSearchSettings(json, toolChoice = FABLE_CHAT_DEFAULT_TOOL_C
       allowedDomains: stored.allowedDomains ?? [],
       blockedDomains: stored.blockedDomains ?? [],
       locationEnabled: stored.locationEnabled ?? false,
-      location: stored.location ?? null,
+      location: Object.keys(ownerLocation || {}).length > 0 ? ownerLocation : null,
     });
   } catch {
     config = normalizeFableChatWebSearchConfiguration();
@@ -411,6 +419,12 @@ export async function listFableChatAdminConversations(env, input = {}) {
       `SELECT c.id, c.admin_user_id, u.email AS owner_email, c.title, c.model_id,
               c.effort, c.system_preset_id, c.thinking_display, c.web_search_enabled,
               c.web_search_settings_json, c.fable_tool_choice,
+              (SELECT s.web_search_location_json FROM fable_chat_user_settings s
+                WHERE s.admin_user_id = c.admin_user_id LIMIT 1)
+                AS owner_web_search_location_json,
+              (SELECT s.location_revision FROM fable_chat_user_settings s
+                WHERE s.admin_user_id = c.admin_user_id LIMIT 1)
+                AS owner_location_revision,
               c.web_fetch_enabled,
               c.memory_mode, c.turn_count, c.created_at, c.updated_at, c.deleted_at,
               c.settings_updated_at, c.admin_revision_version,
@@ -462,7 +476,9 @@ export async function listFableChatAdminConversations(env, input = {}) {
         webSearchMaxUses: getFableChatWebSearchMaxUses(row.effort),
         webSearch: safeAdminWebSearchSettings(
           row.web_search_settings_json,
-          row.fable_tool_choice
+          row.fable_tool_choice,
+          row.owner_web_search_location_json,
+          row.owner_location_revision
         ),
         webFetchEnabled: Number(row.web_fetch_enabled) === 1,
         webFetchMaxUses: FABLE_CHAT_WEB_FETCH_MAX_USES,
@@ -494,7 +510,13 @@ export async function listFableChatAdminConversations(env, input = {}) {
 async function readAdminConversationRow(env, conversationId, { includeDeleted = true } = {}) {
   const id = normalizeAdminFableConversationId(conversationId);
   return env.DB.prepare(
-    `SELECT c.*, u.email AS owner_email
+    `SELECT c.*, u.email AS owner_email,
+            (SELECT s.web_search_location_json FROM fable_chat_user_settings s
+              WHERE s.admin_user_id = c.admin_user_id LIMIT 1)
+              AS owner_web_search_location_json,
+            (SELECT s.location_revision FROM fable_chat_user_settings s
+              WHERE s.admin_user_id = c.admin_user_id LIMIT 1)
+              AS owner_location_revision
        FROM fable_chat_conversations c INNER JOIN users u ON u.id = c.admin_user_id
       WHERE c.id = ? ${includeDeleted ? "" : "AND c.deleted_at IS NULL"} LIMIT 1`
   ).bind(id).first();
@@ -595,7 +617,9 @@ export async function getFableChatAdminConversationDetail(env, conversationId) {
         webSearchMaxUses: getFableChatWebSearchMaxUses(row.effort),
         webSearch: safeAdminWebSearchSettings(
           row.web_search_settings_json,
-          row.fable_tool_choice
+          row.fable_tool_choice,
+          row.owner_web_search_location_json,
+          row.owner_location_revision
         ),
         webFetchEnabled: Number(row.web_fetch_enabled) === 1,
         webFetchToolVersion: FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
@@ -1005,7 +1029,9 @@ export async function getFableChatAdminWebSearch(env, conversationId) {
       maxUses: getFableChatWebSearchMaxUses(conversation.effort),
       webSearch: safeAdminWebSearchSettings(
         conversation.web_search_settings_json,
-        conversation.fable_tool_choice
+        conversation.fable_tool_choice,
+        conversation.owner_web_search_location_json,
+        conversation.owner_location_revision
       ),
       webFetchEnabled: Number(conversation.web_fetch_enabled) === 1,
       webFetchToolVersion: FABLE_CHAT_WEB_FETCH_TOOL_TYPE,

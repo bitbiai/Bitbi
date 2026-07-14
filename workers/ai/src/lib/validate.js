@@ -61,6 +61,7 @@ import {
   FABLE_CHAT_WEB_FETCH_TOOL_NAME,
   FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
   FABLE_CHAT_WEB_FETCH_USE_CACHE,
+  buildFableChatConfiguredLocationContext,
   buildFableChatSystemPrompt,
   getFableChatOutputTokenLimit,
   getFableChatWebSearchMaxUses,
@@ -1057,7 +1058,13 @@ export function validateFableChatBody(body) {
     }
   }
 
-  const baseSystem = buildFableChatSystemPrompt(input.systemPresetId, input.systemPresetVersion);
+  const presetSystem = buildFableChatSystemPrompt(input.systemPresetId, input.systemPresetVersion);
+  const configuredLocationContext = webSearchConfiguration.locationEnabled
+    ? buildFableChatConfiguredLocationContext(webSearchConfiguration.location)
+    : "";
+  const baseSystem = configuredLocationContext
+    ? `${presetSystem}\n\n${configuredLocationContext}`
+    : presetSystem;
   const system = memorySummary
     ? `${baseSystem}\n\n${buildFableChatHiddenMemoryInstruction(
         memoryMode,

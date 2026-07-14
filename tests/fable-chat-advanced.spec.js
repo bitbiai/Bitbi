@@ -1114,6 +1114,7 @@ test.describe('Advanced Fable chat contract', () => {
       allowed_callers: ['direct'], response_inclusion: 'full',
     }]);
     expect(direct.tool_choice).toEqual({ type: 'auto' });
+    expect(direct.system).not.toContain('Approximate configured location:');
 
     const dynamic = await capture(currentWebSearchAiBody({
       webSearchCallerMode: 'dynamic',
@@ -1124,18 +1125,42 @@ test.describe('Advanced Fable chat contract', () => {
       webSearchAllowedDomains: ['docs.example.com/*'],
       webSearchBlockedDomains: ['ads.example.com'],
       webSearchLocationEnabled: true,
-      webSearchLocation: { city: 'Berlin', country: 'DE', timezone: 'Europe/Berlin' },
+      webSearchLocation: {
+        city: 'Trossingen', region: 'Baden-Württemberg',
+        country: 'DE', timezone: 'Europe/Berlin',
+      },
     }));
     expect(dynamic.tools).toEqual([{
       type: 'web_search_20260318', name: 'web_search', max_uses: 3,
       allowed_callers: ['code_execution_20260120'], response_inclusion: 'excluded',
       allowed_domains: ['docs.example.com/*'],
       user_location: {
-        type: 'approximate', city: 'Berlin', country: 'DE', timezone: 'Europe/Berlin',
+        type: 'approximate', city: 'Trossingen', region: 'Baden-Württemberg',
+        country: 'DE', timezone: 'Europe/Berlin',
       },
     }]);
+    expect(dynamic.system).toContain(
+      'Approximate configured location: Trossingen, Baden-Württemberg, DE (Europe/Berlin). Use for local requests; do not ask again.'
+    );
     expect(JSON.stringify(dynamic)).not.toContain('ads.example.com');
     expect(dynamic.tools).not.toContainEqual(expect.objectContaining({ type: 'code_execution_20260120' }));
+
+    const clearedLocation = await capture(currentWebSearchAiBody({
+      webSearchLocationEnabled: true,
+      webSearchLocation: null,
+    }));
+    expect(clearedLocation.tools[0]).not.toHaveProperty('user_location');
+    expect(clearedLocation.system).not.toContain('Approximate configured location:');
+
+    const inactiveLocation = await capture(currentWebSearchAiBody({
+      webSearchLocationEnabled: false,
+      webSearchLocation: {
+        city: 'Trossingen', region: 'Baden-Württemberg',
+        country: 'DE', timezone: 'Europe/Berlin',
+      },
+    }));
+    expect(inactiveLocation.tools[0]).not.toHaveProperty('user_location');
+    expect(inactiveLocation.system).not.toContain('Approximate configured location:');
 
     const both = await capture(currentWebSearchAiBody({
       webSearchCallerMode: 'both',
@@ -2402,6 +2427,62 @@ test.describe('Advanced Fable chat contract', () => {
         effectiveResponseInclusion: 'full',
       });
       expect(turn.fable_tool_choice).toBe('auto');
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('migration 0078 promotes the newest owner location without changing conversation activation', () => {
+    const DB = new SqliteD1Database();
+    try {
+      applyAuthMigrations(DB, { through: '0077_upgrade_fable_web_search.sql' });
+      const firstLocation = JSON.stringify({
+        toolVersion: 'web_search_20260318', contractVersion: 3, callerMode: 'direct',
+        responseInclusion: 'full', domainFilterMode: 'none', allowedDomains: [],
+        blockedDomains: [], locationEnabled: true,
+        location: { city: 'Trossingen', country: 'DE' },
+      });
+      const newestLocation = JSON.stringify({
+        toolVersion: 'web_search_20260318', contractVersion: 3, callerMode: 'direct',
+        responseInclusion: 'full', domainFilterMode: 'none', allowedDomains: [],
+        blockedDomains: [], locationEnabled: false,
+        location: {
+          city: 'Freiburg', region: 'Baden-Württemberg',
+          country: 'DE', timezone: 'Europe/Berlin',
+        },
+      });
+      DB.database.prepare(
+        `INSERT INTO users (id, email, password_hash, created_at, status, role, updated_at)
+         VALUES (?, ?, 'unused', ?, 'active', 'admin', ?)`
+      ).run('location-upgrade-admin', 'location-upgrade@example.com',
+        '2026-07-14T08:00:00.000Z', '2026-07-14T08:00:00.000Z');
+      for (const [id, json, updatedAt] of [
+        ['fbc_30000000000000000000000000000001', firstLocation, '2026-07-14T08:01:00.000Z'],
+        ['fbc_30000000000000000000000000000002', newestLocation, '2026-07-14T08:02:00.000Z'],
+      ]) {
+        DB.database.prepare(
+          `INSERT INTO fable_chat_conversations (
+             id, admin_user_id, title, title_source, turn_count,
+             web_search_settings_json, created_at, updated_at, settings_updated_at
+           ) VALUES (?, 'location-upgrade-admin', 'Existing', 'manual', 0, ?, ?, ?, ?)`
+        ).run(id, json, updatedAt, updatedAt, updatedAt);
+      }
+      DB.exec(fs.readFileSync(
+        path.join(process.cwd(), 'workers/auth/migrations/0078_add_fable_global_location.sql'),
+        'utf8'
+      ));
+      expect(JSON.parse(DB.database.prepare(
+        'SELECT web_search_location_json FROM fable_chat_user_settings WHERE admin_user_id = ?'
+      ).get('location-upgrade-admin').web_search_location_json)).toEqual({
+        city: 'Freiburg', region: 'Baden-Württemberg',
+        country: 'DE', timezone: 'Europe/Berlin',
+      });
+      expect(DB.database.prepare(
+        'SELECT web_search_settings_json FROM fable_chat_conversations WHERE id = ?'
+      ).get('fbc_30000000000000000000000000000001').web_search_settings_json).toBe(firstLocation);
+      expect(DB.database.prepare(
+        'SELECT web_search_settings_json FROM fable_chat_conversations WHERE id = ?'
+      ).get('fbc_30000000000000000000000000000002').web_search_settings_json).toBe(newestLocation);
     } finally {
       DB.close();
     }

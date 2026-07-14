@@ -44,6 +44,7 @@ import {
   FABLE_CHAT_WEB_FETCH_MAX_USES,
   FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
   FABLE_CHAT_WEB_FETCH_USE_CACHE,
+  buildFableChatConfiguredLocationContext,
   buildFableChatSystemPrompt,
   getFableChatEffectiveInputTokenLimit,
   getFableChatOutputTokenLimit,
@@ -277,7 +278,7 @@ function validateFableChatSettingsFields(body, { allowEmpty = false } = {}) {
     "effort", "systemPresetId", "summarizedThinking", "webSearchEnabled", "webFetchEnabled",
     "webSearchCallerMode", "webSearchResponseInclusion", "webSearchDomainFilterMode",
     "webSearchAllowedDomains", "webSearchBlockedDomains", "webSearchLocationEnabled",
-    "webSearchLocation", "toolChoice", "memoryMode",
+    "webSearchLocation", "clearWebSearchLocation", "toolChoice", "memoryMode",
   ]));
   if (!allowEmpty && Object.keys(body).length === 0) {
     throw new FableChatError("At least one conversation setting is required.", {
@@ -337,6 +338,21 @@ function validateFableChatSettingsFields(body, { allowEmpty = false } = {}) {
     }),
     ...(body.webSearchLocation === undefined ? {} : {
       webSearchLocation: normalizeFableChatWebSearchLocationSetting(body.webSearchLocation),
+    }),
+    ...(body.clearWebSearchLocation === undefined ? {} : {
+      clearWebSearchLocation: (() => {
+        if (body.clearWebSearchLocation !== true) {
+          throw new FableChatError("clearWebSearchLocation must be true when supplied.", {
+            code: "validation_error",
+          });
+        }
+        if (body.webSearchLocation !== undefined && body.webSearchLocation !== null) {
+          throw new FableChatError("Location cannot be set and cleared together.", {
+            code: "validation_error",
+          });
+        }
+        return true;
+      })(),
     }),
     ...(body.toolChoice === undefined ? {} : {
       toolChoice: normalizeWebSearchSetting(body.toolChoice, normalizeFableChatToolChoice),
@@ -435,6 +451,94 @@ function parseJsonObject(value) {
   }
 }
 
+function normalizeStoredFableChatOwnerLocation(value, revision = 0) {
+  const stored = typeof value === "string" ? parseJsonObject(value) : (value || null);
+  const normalizedRevision = Math.max(0, Number(revision || 0));
+  if (!stored) return { location: null, revision: normalizedRevision };
+  try {
+    return {
+      location: normalizeFableChatWebSearchLocation(stored, { enabled: true }),
+      revision: Math.max(1, normalizedRevision),
+    };
+  } catch {
+    return { location: null, revision: 0 };
+  }
+}
+
+function serializeFableChatOwnerLocation(location) {
+  return JSON.stringify(normalizeFableChatWebSearchLocation(location, { enabled: true }));
+}
+
+async function readFableChatOwnerLocation(env, adminUserId) {
+  const row = await env.DB.prepare(
+    `SELECT web_search_location_json, location_revision
+       FROM fable_chat_user_settings
+      WHERE admin_user_id = ?
+      LIMIT 1`
+  ).bind(adminUserId).first();
+  return normalizeStoredFableChatOwnerLocation(
+    row?.web_search_location_json,
+    row?.location_revision
+  );
+}
+
+function resolveFableChatOwnerLocationMutation(settings, current) {
+  if (settings?.clearWebSearchLocation === true) {
+    return current.location ? { kind: "clear", location: null, json: null } : { kind: "none" };
+  }
+  if (settings?.webSearchLocation == null) return { kind: "none" };
+  const json = serializeFableChatOwnerLocation(settings.webSearchLocation);
+  const currentJson = current.location ? serializeFableChatOwnerLocation(current.location) : null;
+  return json === currentJson
+    ? { kind: "none" }
+    : { kind: "set", location: settings.webSearchLocation, json };
+}
+
+function buildFableChatOwnerLocationMutationStatement(
+  env,
+  adminUserId,
+  mutation,
+  updatedAt
+) {
+  if (mutation.kind === "set") {
+    return env.DB.prepare(
+      `INSERT INTO fable_chat_user_settings (
+         admin_user_id, web_search_location_json, location_revision, created_at, updated_at
+       )
+       SELECT ?, ?, 1, ?, ?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM fable_chat_turns
+           WHERE admin_user_id = ? AND status IN ('pending', 'running')
+        )
+       ON CONFLICT(admin_user_id) DO UPDATE SET
+         web_search_location_json = excluded.web_search_location_json,
+         location_revision = fable_chat_user_settings.location_revision + 1,
+         updated_at = excluded.updated_at
+       WHERE fable_chat_user_settings.web_search_location_json
+             <> excluded.web_search_location_json
+         AND NOT EXISTS (
+           SELECT 1 FROM fable_chat_turns
+            WHERE admin_user_id = excluded.admin_user_id
+              AND status IN ('pending', 'running')
+         )`
+    ).bind(adminUserId, mutation.json, updatedAt, updatedAt, adminUserId);
+  }
+  if (mutation.kind === "clear") {
+    return env.DB.prepare(
+      `UPDATE fable_chat_user_settings
+          SET web_search_location_json = NULL,
+              location_revision = location_revision + 1,
+              updated_at = ?
+        WHERE admin_user_id = ? AND web_search_location_json IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM fable_chat_turns
+             WHERE admin_user_id = ? AND status IN ('pending', 'running')
+          )`
+    ).bind(updatedAt, adminUserId, adminUserId);
+  }
+  return null;
+}
+
 function normalizeStoredFableWebSearchConfiguration(value) {
   const stored = typeof value === "string" ? parseJsonObject(value) : (value || {});
   try {
@@ -473,7 +577,6 @@ function serializeStoredFableWebSearchConfiguration(configuration) {
     locationEnabled: configuration?.locationEnabled,
     location: configuration?.location,
   });
-  const { type: _type, ...location } = config.location || {};
   return JSON.stringify({
     toolVersion: FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
     contractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
@@ -483,7 +586,7 @@ function serializeStoredFableWebSearchConfiguration(configuration) {
     allowedDomains: config.allowedDomains,
     blockedDomains: config.blockedDomains,
     locationEnabled: config.locationEnabled,
-    location: config.location ? location : null,
+    location: null,
   });
 }
 
@@ -634,9 +737,22 @@ export function resolveFableChatConversationSettings(row) {
     : FABLE_CHAT_DEFAULT_THINKING_DISPLAY;
   const effectiveMaxOutputTokens = getFableChatOutputTokenLimit(effort);
   const webSearchMaxUses = getFableChatWebSearchMaxUses(effort);
-  const webSearchConfiguration = normalizeStoredFableWebSearchConfiguration(
+  const storedWebSearchConfiguration = normalizeStoredFableWebSearchConfiguration(
     row.web_search_settings_json
   );
+  const ownerLocation = normalizeStoredFableChatOwnerLocation(
+    row.owner_web_search_location_json,
+    row.owner_location_revision
+  );
+  const webSearchConfiguration = normalizeFableChatWebSearchConfiguration({
+    callerMode: storedWebSearchConfiguration.callerMode,
+    responseInclusion: storedWebSearchConfiguration.responseInclusionPreference,
+    domainFilterMode: storedWebSearchConfiguration.domainFilterMode,
+    allowedDomains: storedWebSearchConfiguration.allowedDomains,
+    blockedDomains: storedWebSearchConfiguration.blockedDomains,
+    locationEnabled: storedWebSearchConfiguration.locationEnabled,
+    location: ownerLocation.location,
+  });
   return {
     effort,
     effectiveMaxOutputTokens,
@@ -652,6 +768,7 @@ export function resolveFableChatConversationSettings(row) {
     webSearchMaxUses,
     webSearchContractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
     ...buildFableChatEffectiveWebSearchSettings(webSearchConfiguration),
+    webSearchLocationVersion: ownerLocation.revision,
     toolChoice: (() => {
       try {
         return normalizeFableChatToolChoice(row.fable_tool_choice || FABLE_CHAT_DEFAULT_TOOL_CHOICE);
@@ -865,6 +982,12 @@ async function readConversationRow(env, adminUserId, conversationId) {
             prompt_cache_policy, prompt_cache_version, web_search_enabled, web_fetch_enabled,
             web_search_settings_json, fable_tool_choice,
             memory_mode,
+            (SELECT s.web_search_location_json FROM fable_chat_user_settings s
+              WHERE s.admin_user_id = fable_chat_conversations.admin_user_id LIMIT 1)
+              AS owner_web_search_location_json,
+            (SELECT s.location_revision FROM fable_chat_user_settings s
+              WHERE s.admin_user_id = fable_chat_conversations.admin_user_id LIMIT 1)
+              AS owner_location_revision,
             settings_updated_at, admin_revision_version, admin_revision_updated_at,
             created_at, updated_at, deleted_at
        FROM fable_chat_conversations
@@ -896,6 +1019,8 @@ export async function createFableChatConversation(env, adminUserId, settings = {
   const thinkingDisplay = settings.thinkingDisplay || FABLE_CHAT_DEFAULT_THINKING_DISPLAY;
   const webSearchEnabled = settings.webSearchEnabled ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_ENABLED;
   const webFetchEnabled = settings.webFetchEnabled ?? FABLE_CHAT_DEFAULT_WEB_FETCH_ENABLED;
+  const ownerLocation = await readFableChatOwnerLocation(env, adminUserId);
+  const ownerLocationMutation = resolveFableChatOwnerLocationMutation(settings, ownerLocation);
   const webSearchConfiguration = normalizeFableChatWebSearchConfiguration({
     callerMode: settings.webSearchCallerMode ?? FABLE_CHAT_DEFAULT_WEB_SEARCH_CALLER_MODE,
     responseInclusion: settings.webSearchResponseInclusion
@@ -905,11 +1030,11 @@ export async function createFableChatConversation(env, adminUserId, settings = {
     allowedDomains: settings.webSearchAllowedDomains ?? [],
     blockedDomains: settings.webSearchBlockedDomains ?? [],
     locationEnabled: settings.webSearchLocationEnabled ?? false,
-    location: settings.webSearchLocation ?? null,
+    location: null,
   });
   const toolChoice = settings.toolChoice ?? FABLE_CHAT_DEFAULT_TOOL_CHOICE;
   const memoryMode = settings.memoryMode || FABLE_CHAT_DEFAULT_MEMORY_MODE;
-  await env.DB.prepare(
+  const conversationStatement = env.DB.prepare(
     `INSERT INTO fable_chat_conversations (
        id, admin_user_id, model_id, title, title_source, turn_count,
        effort, system_preset_id, system_preset_version, thinking_display,
@@ -917,7 +1042,12 @@ export async function createFableChatConversation(env, adminUserId, settings = {
        web_search_settings_json, fable_tool_choice, memory_mode,
        settings_updated_at,
        created_at, updated_at, deleted_at
-     ) VALUES (?, ?, ?, ?, 'automatic', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
+     )
+     SELECT ?, ?, ?, ?, 'automatic', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
+      WHERE ? = 0 OR NOT EXISTS (
+        SELECT 1 FROM fable_chat_turns
+         WHERE admin_user_id = ? AND status IN ('pending', 'running')
+      )`
   ).bind(
     id,
     adminUserId,
@@ -936,9 +1066,27 @@ export async function createFableChatConversation(env, adminUserId, settings = {
     memoryMode,
     now,
     now,
+    now,
+    ownerLocationMutation.kind === "none" ? 0 : 1,
+    adminUserId
+  );
+  const ownerStatement = buildFableChatOwnerLocationMutationStatement(
+    env,
+    adminUserId,
+    ownerLocationMutation,
     now
-  ).run();
-  return getFableChatConversation(env, adminUserId, id);
+  );
+  await env.DB.batch(ownerStatement
+    ? [ownerStatement, conversationStatement]
+    : [conversationStatement]);
+  const conversation = await getFableChatConversation(env, adminUserId, id);
+  if (!conversation) {
+    throw new FableChatError("Location settings cannot change while a message is running.", {
+      status: 409,
+      code: "fable_chat_settings_locked",
+    });
+  }
+  return conversation;
 }
 
 function validateCursorOwner(cursor, adminUserId) {
@@ -973,6 +1121,12 @@ export async function listFableChatConversations(env, adminUserId, {
             prompt_cache_policy, prompt_cache_version, web_search_enabled, web_fetch_enabled,
             web_search_settings_json, fable_tool_choice,
             memory_mode,
+            (SELECT s.web_search_location_json FROM fable_chat_user_settings s
+              WHERE s.admin_user_id = fable_chat_conversations.admin_user_id LIMIT 1)
+              AS owner_web_search_location_json,
+            (SELECT s.location_revision FROM fable_chat_user_settings s
+              WHERE s.admin_user_id = fable_chat_conversations.admin_user_id LIMIT 1)
+              AS owner_location_revision,
             settings_updated_at, admin_revision_version, admin_revision_updated_at,
             created_at, updated_at, deleted_at
        FROM fable_chat_conversations
@@ -993,8 +1147,11 @@ export async function listFableChatConversations(env, adminUserId, {
   const hasMore = values.length > appliedLimit;
   const page = hasMore ? values.slice(0, appliedLimit) : values;
   const last = page.at(-1) || null;
+  const ownerLocation = await readFableChatOwnerLocation(env, adminUserId);
   return {
     conversations: page.map(serializeFableChatConversation),
+    webSearchLocation: ownerLocation.location,
+    webSearchLocationVersion: ownerLocation.revision,
     appliedLimit,
     hasMore,
     nextCursor: hasMore && last
@@ -1029,12 +1186,11 @@ export async function updateFableChatConversationSettings(
   const currentWebSearchConfiguration = normalizeStoredFableWebSearchConfiguration(
     current.web_search_settings_json
   );
-  const currentLocation = currentWebSearchConfiguration.location
-    ? (() => {
-        const { type: _type, ...location } = currentWebSearchConfiguration.location;
-        return location;
-      })()
-    : null;
+  const currentOwnerLocation = normalizeStoredFableChatOwnerLocation(
+    current.owner_web_search_location_json,
+    current.owner_location_revision
+  );
+  const ownerLocationMutation = resolveFableChatOwnerLocationMutation(updates, currentOwnerLocation);
   let webSearchConfiguration;
   try {
     webSearchConfiguration = normalizeFableChatWebSearchConfiguration({
@@ -1047,7 +1203,7 @@ export async function updateFableChatConversationSettings(
       blockedDomains: updates.webSearchBlockedDomains ?? currentWebSearchConfiguration.blockedDomains,
       locationEnabled: updates.webSearchLocationEnabled
         ?? currentWebSearchConfiguration.locationEnabled,
-      location: updates.webSearchLocation === undefined ? currentLocation : updates.webSearchLocation,
+      location: null,
     });
   } catch (error) {
     throw new FableChatError(error?.message || "Web Search settings are invalid.", {
@@ -1060,7 +1216,7 @@ export async function updateFableChatConversationSettings(
   );
   const memoryMode = updates.memoryMode || current.memory_mode || FABLE_CHAT_DEFAULT_MEMORY_MODE;
   const updatedAt = nowIso();
-  const result = await env.DB.prepare(
+  const conversationStatement = env.DB.prepare(
     `UPDATE fable_chat_conversations
         SET effort = ?, system_preset_id = ?, system_preset_version = ?,
             thinking_display = ?, prompt_cache_policy = ?, prompt_cache_version = ?,
@@ -1072,7 +1228,11 @@ export async function updateFableChatConversationSettings(
           SELECT 1 FROM fable_chat_turns t
            WHERE t.conversation_id = fable_chat_conversations.id
              AND t.admin_user_id = ? AND t.status IN ('pending', 'running')
-        )`
+        )
+        AND (? = 0 OR NOT EXISTS (
+          SELECT 1 FROM fable_chat_turns t
+           WHERE t.admin_user_id = ? AND t.status IN ('pending', 'running')
+        ))`
   ).bind(
     effort,
     systemPresetId,
@@ -1089,8 +1249,20 @@ export async function updateFableChatConversationSettings(
     updatedAt,
     id,
     adminUserId,
+    adminUserId,
+    ownerLocationMutation.kind === "none" ? 0 : 1,
     adminUserId
-  ).run();
+  );
+  const ownerStatement = buildFableChatOwnerLocationMutationStatement(
+    env,
+    adminUserId,
+    ownerLocationMutation,
+    updatedAt
+  );
+  const results = await env.DB.batch(ownerStatement
+    ? [ownerStatement, conversationStatement]
+    : [conversationStatement]);
+  const result = results.at(-1);
   if (!Number(result?.meta?.changes || 0)) {
     const existing = await readConversationRow(env, adminUserId, id);
     if (!existing) return null;
@@ -1723,8 +1895,10 @@ export async function beginFableChatTurn(env, {
     || appliedSettings.webSearchEnabled !== (settings.webSearchEnabled === true)
     || appliedSettings.webSearchMaxUses !== Number(settings.webSearchMaxUses)
     || FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION !== Number(settings.webSearchContractVersion)
-    || serializeStoredFableWebSearchConfiguration(appliedWebSearchConfiguration)
-      !== serializeStoredFableWebSearchConfiguration(requestedWebSearchConfiguration)
+    || serializeTurnFableWebSearchConfiguration(appliedWebSearchConfiguration)
+      !== serializeTurnFableWebSearchConfiguration(requestedWebSearchConfiguration)
+    || appliedSettings.webSearchLocationVersion
+      !== Number(settings.webSearchLocationVersion || 0)
     || appliedSettings.toolChoice !== settings.toolChoice
     || appliedSettings.webFetchEnabled !== (settings.webFetchEnabled === true)
     || appliedSettings.memoryMode !== settings.memoryMode
@@ -1792,6 +1966,7 @@ export async function beginFableChatTurn(env, {
     webSearchMaxUses: appliedSettings.webSearchMaxUses,
     webSearchContractVersion: FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION,
     ...buildFableChatEffectiveWebSearchSettings(appliedWebSearchConfiguration),
+    webSearchLocationVersion: appliedSettings.webSearchLocationVersion,
     toolChoice: appliedSettings.toolChoice,
     webFetchEnabled: appliedSettings.webFetchEnabled,
     webFetchToolVersion: FABLE_CHAT_WEB_FETCH_TOOL_TYPE,
@@ -1896,7 +2071,11 @@ export async function beginFableChatTurn(env, {
             AND c.prompt_cache_version = ? AND c.web_search_enabled = ?
             AND c.web_search_settings_json = ? AND c.fable_tool_choice = ?
             AND c.web_fetch_enabled = ?
-            AND c.memory_mode = ? AND c.admin_revision_version = ?`
+            AND c.memory_mode = ? AND c.admin_revision_version = ?
+            AND COALESCE((
+              SELECT s.location_revision FROM fable_chat_user_settings s
+               WHERE s.admin_user_id = c.admin_user_id LIMIT 1
+            ), 0) = ?`
       ).bind(
         turnId,
         adminUserId,
@@ -1963,7 +2142,8 @@ export async function beginFableChatTurn(env, {
         appliedSettings.toolChoice,
         appliedSettings.webFetchEnabled ? 1 : 0,
         appliedMemory.mode,
-        appliedSettings.adminRevisionVersion
+        appliedSettings.adminRevisionVersion,
+        appliedSettings.webSearchLocationVersion
       );
     const statements = [];
     if (normalizedRetryMessageId) {
@@ -1985,6 +2165,10 @@ export async function beginFableChatTurn(env, {
                    AND c.web_search_settings_json = ? AND c.fable_tool_choice = ?
                    AND c.web_fetch_enabled = ?
                    AND c.memory_mode = ?
+                   AND COALESCE((
+                     SELECT s.location_revision FROM fable_chat_user_settings s
+                      WHERE s.admin_user_id = c.admin_user_id LIMIT 1
+                   ), 0) = ?
               )`
         ).bind(
           createdAt,
@@ -2001,7 +2185,8 @@ export async function beginFableChatTurn(env, {
           appliedWebSearchStoredJson,
           appliedSettings.toolChoice,
           appliedSettings.webFetchEnabled ? 1 : 0,
-          appliedMemory.mode
+          appliedMemory.mode,
+          appliedSettings.webSearchLocationVersion
         )
       );
       statements.push(
@@ -2013,7 +2198,11 @@ export async function beginFableChatTurn(env, {
               AND prompt_cache_version = ? AND web_search_enabled = ?
               AND web_search_settings_json = ? AND fable_tool_choice = ?
               AND web_fetch_enabled = ?
-              AND memory_mode = ?`
+              AND memory_mode = ?
+              AND COALESCE((
+                SELECT s.location_revision FROM fable_chat_user_settings s
+                 WHERE s.admin_user_id = fable_chat_conversations.admin_user_id LIMIT 1
+              ), 0) = ?`
         ).bind(
           createdAt,
           id,
@@ -2028,7 +2217,8 @@ export async function beginFableChatTurn(env, {
           appliedWebSearchStoredJson,
           appliedSettings.toolChoice,
           appliedSettings.webFetchEnabled ? 1 : 0,
-          appliedMemory.mode
+          appliedMemory.mode,
+          appliedSettings.webSearchLocationVersion
         )
       );
     } else {
@@ -2046,7 +2236,11 @@ export async function beginFableChatTurn(env, {
               AND c.prompt_cache_version = ? AND c.web_search_enabled = ?
               AND c.web_search_settings_json = ? AND c.fable_tool_choice = ?
               AND c.web_fetch_enabled = ?
-              AND c.memory_mode = ?`
+              AND c.memory_mode = ?
+              AND COALESCE((
+                SELECT s.location_revision FROM fable_chat_user_settings s
+                 WHERE s.admin_user_id = c.admin_user_id LIMIT 1
+              ), 0) = ?`
         ).bind(
           userMessageId,
           messageGroupId,
@@ -2067,7 +2261,8 @@ export async function beginFableChatTurn(env, {
           appliedWebSearchStoredJson,
           appliedSettings.toolChoice,
           appliedSettings.webFetchEnabled ? 1 : 0,
-          appliedMemory.mode
+          appliedMemory.mode,
+          appliedSettings.webSearchLocationVersion
         )
       );
       statements.push(turnStatement);
@@ -2086,7 +2281,11 @@ export async function beginFableChatTurn(env, {
               AND prompt_cache_version = ? AND web_search_enabled = ?
               AND web_search_settings_json = ? AND fable_tool_choice = ?
               AND web_fetch_enabled = ?
-              AND memory_mode = ?`
+              AND memory_mode = ?
+              AND COALESCE((
+                SELECT s.location_revision FROM fable_chat_user_settings s
+                 WHERE s.admin_user_id = fable_chat_conversations.admin_user_id LIMIT 1
+              ), 0) = ?`
         ).bind(
           title,
           createdAt,
@@ -2102,7 +2301,8 @@ export async function beginFableChatTurn(env, {
           appliedWebSearchStoredJson,
           appliedSettings.toolChoice,
           appliedSettings.webFetchEnabled ? 1 : 0,
-          appliedMemory.mode
+          appliedMemory.mode,
+          appliedSettings.webSearchLocationVersion
         )
       );
     }
@@ -2253,7 +2453,7 @@ export async function buildFableChatModelContext(env, {
   let requestedWebSearchStoredJson = null;
   if (settings) {
     try {
-      requestedWebSearchStoredJson = serializeStoredFableWebSearchConfiguration({
+      requestedWebSearchStoredJson = serializeTurnFableWebSearchConfiguration({
         callerMode: settings.webSearchCallerMode,
         responseInclusion: settings.webSearchResponseInclusion,
         domainFilterMode: settings.webSearchDomainFilterMode,
@@ -2274,7 +2474,7 @@ export async function buildFableChatModelContext(env, {
     || settings.webSearchEnabled !== appliedSettings.webSearchEnabled
     || Number(settings.webSearchMaxUses) !== appliedSettings.webSearchMaxUses
     || Number(settings.webSearchContractVersion) !== FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION
-    || requestedWebSearchStoredJson !== serializeStoredFableWebSearchConfiguration({
+    || requestedWebSearchStoredJson !== serializeTurnFableWebSearchConfiguration({
       callerMode: appliedSettings.webSearchCallerMode,
       responseInclusion: appliedSettings.webSearchResponseInclusion,
       domainFilterMode: appliedSettings.webSearchDomainFilterMode,
@@ -2283,6 +2483,8 @@ export async function buildFableChatModelContext(env, {
       locationEnabled: appliedSettings.webSearchLocationEnabled,
       location: appliedSettings.webSearchLocation,
     })
+    || Number(settings.webSearchLocationVersion || 0)
+      !== appliedSettings.webSearchLocationVersion
     || settings.toolChoice !== appliedSettings.toolChoice
     || settings.webFetchEnabled !== appliedSettings.webFetchEnabled
     || settings.memoryMode !== appliedSettings.memoryMode
@@ -2356,10 +2558,16 @@ export async function buildFableChatModelContext(env, {
       code: "fable_chat_settings_conflict",
     });
   }
-  const baseSystem = buildFableChatSystemPrompt(
+  const presetSystem = buildFableChatSystemPrompt(
     appliedSettings.systemPresetId,
     appliedSettings.systemPresetVersion
   );
+  const configuredLocationContext = appliedSettings.webSearchLocationEnabled
+    ? buildFableChatConfiguredLocationContext(appliedSettings.webSearchLocation)
+    : "";
+  const baseSystem = configuredLocationContext
+    ? `${presetSystem}\n\n${configuredLocationContext}`
+    : presetSystem;
   const system = buildFableChatSystemWithMemory(baseSystem, selectedMemory);
   const effectiveInputTokenLimit = getFableChatEffectiveInputTokenLimit(
     appliedSettings.effectiveMaxOutputTokens

@@ -112,7 +112,7 @@ function buildTextInvocation(env, model, input) {
           ...(input.webSearchDomainFilterMode === "blocked" ? {
             blocked_domains: [...input.webSearchActiveDomains],
           } : {}),
-          ...(input.webSearchLocationEnabled === true ? {
+          ...(input.webSearchLocationEnabled === true && input.webSearchLocation ? {
             user_location: { type: "approximate", ...input.webSearchLocation },
           } : {}),
         });

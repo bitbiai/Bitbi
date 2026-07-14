@@ -349,9 +349,7 @@ export function normalizeFableChatWebSearchConfiguration(value = {}) {
     throw new TypeError("webSearchLocationEnabled must be a boolean.");
   }
   const location = input.location == null
-    ? (locationEnabled
-      ? normalizeFableChatWebSearchLocation(null, { enabled: true })
-      : null)
+    ? null
     : normalizeFableChatWebSearchLocation(input.location, { enabled: true });
   return {
     callerMode,
@@ -370,6 +368,18 @@ export function normalizeFableChatWebSearchConfiguration(value = {}) {
     locationEnabled,
     location,
   };
+}
+
+export function buildFableChatConfiguredLocationContext(location) {
+  if (location == null) return "";
+  const normalized = normalizeFableChatWebSearchLocation(location, { enabled: true });
+  const place = [normalized.city, normalized.region, normalized.country]
+    .filter(Boolean)
+    .join(", ");
+  const description = normalized.timezone
+    ? (place ? `${place} (${normalized.timezone})` : normalized.timezone)
+    : place;
+  return `Approximate configured location: ${description}. Use for local requests; do not ask again.`;
 }
 
 export function getFableChatSystemPreset(presetId, version = FABLE_CHAT_SYSTEM_PRESET_VERSION) {
