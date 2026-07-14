@@ -418,6 +418,109 @@ function webSearchProviderEvents({ stopReason = 'end_turn', includeToolUse = tru
   return events;
 }
 
+function incidentShapedSearchEventsBeforeTerminal() {
+  const events = [{
+    event: 'message_start',
+    data: {
+      type: 'message_start',
+      message: { model: 'claude-fable-5', usage: { input_tokens: 100 } },
+    },
+  }];
+  const resultCounts = [10, 10, 9];
+  let index = 0;
+  for (let search = 0; search < resultCounts.length; search += 1) {
+    const toolId = `srvtoolu_incidentsearch${String(search).padStart(3, '0')}`;
+    events.push(
+      {
+        event: 'content_block_start',
+        data: {
+          type: 'content_block_start', index,
+          content_block: { type: 'server_tool_use', id: toolId, name: 'web_search' },
+        },
+      },
+      {
+        event: 'content_block_delta',
+        data: {
+          type: 'content_block_delta', index,
+          delta: { type: 'input_json_delta', partial_json: `{"query":"synthetic-${search}"}` },
+        },
+      },
+      { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    );
+    index += 1;
+    const content = Array.from({ length: resultCounts[search] }, (_, result) => ({
+      type: 'web_search_result',
+      url: search === 0 && result === 9
+        ? 'http://unsafe.invalid/private-one'
+        : search === 2 && result === 8
+          ? 'data:text/plain,private-two'
+          : `https://example.test/incident-${search}-${result}`,
+      title: `Synthetic source ${search}-${result}`,
+      encrypted_content: `synthetic-encrypted-${search}-${result}`,
+      page_age: null,
+    }));
+    events.push(
+      {
+        event: 'content_block_start',
+        data: {
+          type: 'content_block_start', index,
+          content_block: {
+            type: 'web_search_tool_result',
+            tool_use_id: toolId,
+            caller: { type: 'direct' },
+            content,
+          },
+        },
+      },
+      { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+    );
+    index += 1;
+  }
+  events.push(
+    {
+      event: 'content_block_start',
+      data: {
+        type: 'content_block_start', index,
+        content_block: { type: 'thinking', thinking: '', signature: '' },
+      },
+    },
+    {
+      event: 'content_block_delta',
+      data: {
+        type: 'content_block_delta', index,
+        delta: { type: 'thinking_delta', thinking: 'Synthetic reasoning.' },
+      },
+    },
+    {
+      event: 'content_block_delta',
+      data: {
+        type: 'content_block_delta', index,
+        delta: { type: 'signature_delta', signature: 'synthetic-private-signature' },
+      },
+    },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+  );
+  index += 1;
+  events.push(
+    {
+      event: 'content_block_start',
+      data: {
+        type: 'content_block_start', index,
+        content_block: { type: 'text', text: '' },
+      },
+    },
+    {
+      event: 'content_block_delta',
+      data: {
+        type: 'content_block_delta', index,
+        delta: { type: 'text_delta', text: 'Synthetic partial answer.' },
+      },
+    },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index } },
+  );
+  return events;
+}
+
 function webFetchProviderEvents({
   stopReason = 'end_turn', includeToolUse = true, errorCode = null,
 } = {}) {
@@ -2013,6 +2116,20 @@ test.describe('Advanced Fable chat contract', () => {
     await expect(streamModule.consumeAnthropicMessageStream(deadStream, {}, {
       providerIdleTimeoutMs: 5,
     })).rejects.toMatchObject({ code: 'provider_stream_idle_timeout', definitive: false });
+
+    const timeoutReadLifecycle = [];
+    const timeoutIterator = streamModule.parseSseJsonEvents(
+      new ReadableStream({ pull() {} }),
+      {
+        idleTimeoutMs: 5,
+        maxDurationMs: 100,
+        onReadLifecycle: (diagnostic) => timeoutReadLifecycle.push(diagnostic),
+      },
+    );
+    await expect(timeoutIterator.next()).rejects.toMatchObject({
+      code: 'provider_stream_idle_timeout',
+    });
+    expect(timeoutReadLifecycle).toEqual(['read_started']);
   });
 
   test('terminal witnesses are bounded and never expose provider content', async () => {
@@ -2111,15 +2228,23 @@ test.describe('Advanced Fable chat contract', () => {
     expect(accepted.witness.sse_parse_succeeded_count).toBe(delayedEvents.length);
 
     const privateReaderMarker = 'private-reader-error-marker';
+    const privateReaderCauseMarker = 'private-reader-cause-marker';
+    const privateReaderError = new Error(privateReaderMarker, {
+      cause: new TypeError(privateReaderCauseMarker),
+    });
+    privateReaderError.name = 'NetworkError';
+    privateReaderError.code = 'ECONNRESET';
+    privateReaderError.status = 502;
+    privateReaderError.stack = `private-reader-stack-marker\n${privateReaderMarker}`;
     let readerChunkSent = false;
     const rejectingStream = new ReadableStream({
       pull(controller) {
         if (!readerChunkSent) {
           readerChunkSent = true;
-          controller.enqueue(encodeSseEvents(webSearchProviderEvents().slice(0, 4)));
+          controller.enqueue(encodeSseEvents(completeProviderEvents().slice(0, 2)));
           return;
         }
-        throw new Error(privateReaderMarker);
+        throw privateReaderError;
       },
     });
     const rejectedRead = await consumeWithWitness(rejectingStream);
@@ -2132,6 +2257,47 @@ test.describe('Advanced Fable chat contract', () => {
       last_read_lifecycle: 'read_rejected',
       read_rejected_seen: true,
       read_done_seen: false,
+      read_rejection_category: 'network_error',
+      read_rejection_name: 'network_error',
+      read_rejection_code: 'connection_reset',
+      read_rejection_status: 502,
+      read_rejection_cause_name: 'type_error',
+      read_rejection_abort_error: false,
+      read_rejection_timeout_error: false,
+      read_rejection_source_stage: 'workers_ai_stream_reader_read',
+      read_rejection_signal_state: 'not_attached',
+      complete_internal_emitted: false,
+    });
+
+    let incidentChunkSent = false;
+    const incidentReadError = new Error('private-incident-reader-marker');
+    incidentReadError.code = 'ERR_STREAM_PREMATURE_CLOSE';
+    const rejectedAfterSearch = await consumeWithWitness(new ReadableStream({
+      pull(controller) {
+        if (!incidentChunkSent) {
+          incidentChunkSent = true;
+          controller.enqueue(encodeSseEvents(incidentShapedSearchEventsBeforeTerminal()));
+          return;
+        }
+        throw incidentReadError;
+      },
+    }));
+    expect(rejectedAfterSearch.error).toMatchObject({
+      code: 'provider_stream_interrupted',
+      outcome: 'unknown',
+    });
+    expect(rejectedAfterSearch.witness).toMatchObject({
+      stream_boundary_category: 'provider_stream_read_rejected',
+      last_read_lifecycle: 'read_rejected',
+      read_rejection_category: 'network_error',
+      read_rejection_code: 'stream_premature_close',
+      web_search_received_result_count: 29,
+      web_search_accepted_result_count: 27,
+      web_search_quarantined_invalid_url_count: 2,
+      all_blocks_stopped: true,
+      message_delta_seen: false,
+      message_stop_seen: false,
+      complete_internal_constructed: false,
       complete_internal_emitted: false,
     });
 
@@ -2204,6 +2370,11 @@ test.describe('Advanced Fable chat contract', () => {
     ]);
     for (const privateValue of [
       privateReaderMarker,
+      privateReaderCauseMarker,
+      'private-reader-stack-marker',
+      'private-incident-reader-marker',
+      'private-one',
+      'private-two',
       'private-shape-marker',
       'private-title-marker',
       'private-result-marker',

@@ -70,6 +70,37 @@ const SAFE_PROVIDER_BLOCK_TYPES = new Set([
 const SAFE_READ_LIFECYCLE_STATES = new Set([
   "none", "read_started", "read_resolved", "read_done", "read_rejected",
 ]);
+const SAFE_READ_REJECTION_CATEGORIES = new Set([
+  "none", "abort_error", "timeout_error", "network_error", "type_error",
+  "dom_exception", "generic_error", "unknown",
+]);
+const SAFE_READ_REJECTION_NAMES = new Map([
+  ["Error", "error"],
+  ["TypeError", "type_error"],
+  ["RangeError", "range_error"],
+  ["AggregateError", "aggregate_error"],
+  ["DOMException", "dom_exception"],
+  ["AbortError", "abort_error"],
+  ["TimeoutError", "timeout_error"],
+  ["NetworkError", "network_error"],
+  ["InvalidStateError", "invalid_state_error"],
+  ["OperationError", "operation_error"],
+]);
+const SAFE_READ_REJECTION_NAME_VALUES = new Set([
+  "none", "unknown", ...SAFE_READ_REJECTION_NAMES.values(),
+]);
+const SAFE_READ_REJECTION_CODES = new Map([
+  ["ABORT_ERR", "abort_err"],
+  ["TIMEOUT_ERR", "timeout_err"],
+  ["ECONNRESET", "connection_reset"],
+  ["ETIMEDOUT", "timed_out"],
+  ["EPIPE", "broken_pipe"],
+  ["ERR_STREAM_PREMATURE_CLOSE", "stream_premature_close"],
+  ["ERR_STREAM_DESTROYED", "stream_destroyed"],
+]);
+const SAFE_READ_REJECTION_CODE_VALUES = new Set([
+  "none", ...SAFE_READ_REJECTION_CODES.values(),
+]);
 const SAFE_SSE_PARSE_LIFECYCLE_STATES = new Set([
   "none", "event_received", "sse_parse_started", "sse_parse_succeeded", "sse_parse_failed",
 ]);
@@ -133,6 +164,79 @@ function safeReadLifecycleState(value) {
   return SAFE_READ_LIFECYCLE_STATES.has(value) ? value : "none";
 }
 
+function safeReadRejectionCategory(value) {
+  return SAFE_READ_REJECTION_CATEGORIES.has(value) ? value : "unknown";
+}
+
+function safeReadRejectionName(value) {
+  if (SAFE_READ_REJECTION_NAME_VALUES.has(value)) return value;
+  return SAFE_READ_REJECTION_NAMES.get(value) || "unknown";
+}
+
+function safeReadRejectionCode(value) {
+  if (SAFE_READ_REJECTION_CODE_VALUES.has(value)) return value;
+  return SAFE_READ_REJECTION_CODES.get(value) || "none";
+}
+
+function classifyReadRejection(error) {
+  const fallback = {
+    category: "unknown",
+    name: "unknown",
+    code: "none",
+    status: null,
+    causeName: "unknown",
+    abortError: false,
+    timeoutError: false,
+    sourceStage: "workers_ai_stream_reader_read",
+    signalState: "not_attached",
+  };
+  try {
+    const directName = safeReadRejectionName(error?.name);
+    const constructorName = safeReadRejectionName(error?.constructor?.name);
+    const name = directName !== "unknown" ? directName : constructorName;
+    const code = safeReadRejectionCode(error?.code);
+    const cause = error?.cause;
+    const causeDirectName = cause == null ? "none" : safeReadRejectionName(cause?.name);
+    const causeConstructorName = cause == null
+      ? "none"
+      : safeReadRejectionName(cause?.constructor?.name);
+    const causeName = causeDirectName !== "unknown" ? causeDirectName : causeConstructorName;
+    const abortError = name === "abort_error" || code === "abort_err";
+    const timeoutError = name === "timeout_error"
+      || code === "timeout_err"
+      || code === "timed_out";
+    const networkError = name === "network_error"
+      || ["connection_reset", "broken_pipe", "stream_premature_close", "stream_destroyed"]
+        .includes(code);
+    const status = Number(error?.status);
+    return {
+      category: abortError
+        ? "abort_error"
+        : timeoutError
+          ? "timeout_error"
+          : networkError
+            ? "network_error"
+            : name === "type_error"
+              ? "type_error"
+              : name === "dom_exception"
+                ? "dom_exception"
+                : name === "error"
+                  ? "generic_error"
+                  : "unknown",
+      name,
+      code,
+      status: Number.isInteger(status) && status >= 400 && status <= 599 ? status : null,
+      causeName,
+      abortError,
+      timeoutError,
+      sourceStage: fallback.sourceStage,
+      signalState: fallback.signalState,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 function safeSseParseLifecycleState(value) {
   return SAFE_SSE_PARSE_LIFECYCLE_STATES.has(value) ? value : "none";
 }
@@ -194,6 +298,15 @@ function createStreamWitness(startedAt) {
     readResolvedCount: 0,
     readDoneSeen: false,
     readRejectedSeen: false,
+    readRejectionCategory: "none",
+    readRejectionName: "none",
+    readRejectionCode: "none",
+    readRejectionStatus: null,
+    readRejectionCauseName: "none",
+    readRejectionAbortError: false,
+    readRejectionTimeoutError: false,
+    readRejectionSourceStage: "none",
+    readRejectionSignalState: "none",
     providerEventReceivedCount: 0,
     lastSseParseLifecycle: "none",
     sseParseStartedCount: 0,
@@ -246,6 +359,36 @@ function snapshotStreamWitness(witness, terminationPhase) {
     read_resolved_count: boundedCount(witness.readResolvedCount),
     read_done_seen: witness.readDoneSeen === true,
     read_rejected_seen: witness.readRejectedSeen === true,
+    read_rejection_category: witness.readRejectedSeen === true
+      ? safeReadRejectionCategory(witness.readRejectionCategory)
+      : "none",
+    read_rejection_name: witness.readRejectedSeen === true
+      ? safeReadRejectionName(witness.readRejectionName)
+      : "none",
+    read_rejection_code: witness.readRejectedSeen === true
+      ? safeReadRejectionCode(witness.readRejectionCode)
+      : "none",
+    read_rejection_status: witness.readRejectedSeen === true
+      && Number.isInteger(witness.readRejectionStatus)
+      && witness.readRejectionStatus >= 400
+      && witness.readRejectionStatus <= 599
+      ? witness.readRejectionStatus
+      : null,
+    read_rejection_cause_name: witness.readRejectedSeen === true
+      ? safeReadRejectionName(witness.readRejectionCauseName)
+      : "none",
+    read_rejection_abort_error: witness.readRejectedSeen === true
+      && witness.readRejectionAbortError === true,
+    read_rejection_timeout_error: witness.readRejectedSeen === true
+      && witness.readRejectionTimeoutError === true,
+    read_rejection_source_stage: witness.readRejectedSeen === true
+      && witness.readRejectionSourceStage === "workers_ai_stream_reader_read"
+      ? "workers_ai_stream_reader_read"
+      : "none",
+    read_rejection_signal_state: witness.readRejectedSeen === true
+      && witness.readRejectionSignalState === "not_attached"
+      ? "not_attached"
+      : "none",
     provider_event_received_count: boundedCount(witness.providerEventReceivedCount),
     last_sse_parse_lifecycle: safeSseParseLifecycleState(witness.lastSseParseLifecycle),
     sse_parse_started_count: boundedCount(witness.sseParseStartedCount),
@@ -1331,16 +1474,35 @@ function safeReceivedSseMetadata(value, eventName) {
   return { providerEventType, contentBlockIndex, blockType };
 }
 
-async function readWithIdleTimeout(reader, timeoutMs, timeoutCode = "provider_stream_idle_timeout") {
+async function readWithIdleTimeout(reader, timeoutMs, timeoutCode = "provider_stream_idle_timeout", {
+  onReaderRejected = null,
+} = {}) {
   let timeoutId;
+  let timeoutWon = false;
+  let readPromise;
+  try {
+    readPromise = reader.read();
+  } catch (error) {
+    notifyStreamLifecycle(onReaderRejected, classifyReadRejection(error));
+    throw error;
+  }
+  const observedRead = Promise.resolve(readPromise).catch((error) => {
+    if (!timeoutWon) {
+      notifyStreamLifecycle(onReaderRejected, classifyReadRejection(error));
+    }
+    throw error;
+  });
   try {
     return await Promise.race([
-      reader.read(),
+      observedRead,
       new Promise((_, reject) => {
-        timeoutId = setTimeout(() => reject(new AnthropicStreamError(
-          "Provider stream was idle for too long.",
-          { code: timeoutCode }
-        )), timeoutMs);
+        timeoutId = setTimeout(() => {
+          timeoutWon = true;
+          reject(new AnthropicStreamError(
+            "Provider stream was idle for too long.",
+            { code: timeoutCode }
+          ));
+        }, timeoutMs);
       }),
     ]);
   } finally {
@@ -1442,18 +1604,18 @@ export async function* parseSseJsonEvents(stream, {
       const idleRemainingMs = Math.max(1, idleTimeoutMs - (Date.now() - lastValidActivityAt));
       const waitMs = Math.min(idleRemainingMs, remainingMs);
       notifyStreamLifecycle(onReadLifecycle, "read_started");
-      let readResult;
-      try {
-        readResult = await readWithIdleTimeout(
-          reader,
-          waitMs,
-          remainingMs <= idleRemainingMs ? "provider_stream_timeout" : "provider_stream_idle_timeout"
-        );
-        notifyStreamLifecycle(onReadLifecycle, "read_resolved");
-      } catch (error) {
-        notifyStreamLifecycle(onReadLifecycle, "read_rejected");
-        throw error;
-      }
+      const readResult = await readWithIdleTimeout(
+        reader,
+        waitMs,
+        remainingMs <= idleRemainingMs ? "provider_stream_timeout" : "provider_stream_idle_timeout",
+        {
+          onReaderRejected: (diagnostic) => notifyStreamLifecycle(onReadLifecycle, {
+            state: "read_rejected",
+            ...diagnostic,
+          }),
+        }
+      );
+      notifyStreamLifecycle(onReadLifecycle, "read_resolved");
       const { value, done } = readResult;
       if (done) {
         notifyStreamLifecycle(onReadLifecycle, "read_done");
@@ -1572,8 +1734,9 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
     streamWitness.lastProviderEventType = safeProviderEventType(type);
   };
 
-  const markReadLifecycle = (state) => {
+  const markReadLifecycle = (diagnostic) => {
     if (!streamWitness) return;
+    const state = typeof diagnostic === "string" ? diagnostic : diagnostic?.state;
     const safeState = safeReadLifecycleState(state);
     streamWitness.lastReadLifecycle = safeState;
     if (safeState === "read_started") streamWitness.readStartedCount += 1;
@@ -1582,6 +1745,17 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
     if (safeState === "read_rejected") {
       streamWitness.readRejectedSeen = true;
       streamWitness.streamBoundaryCategory = "provider_stream_read_rejected";
+      streamWitness.readRejectionCategory = safeReadRejectionCategory(diagnostic?.category);
+      streamWitness.readRejectionName = safeReadRejectionName(diagnostic?.name);
+      streamWitness.readRejectionCode = safeReadRejectionCode(diagnostic?.code);
+      streamWitness.readRejectionStatus = Number.isInteger(diagnostic?.status)
+        ? diagnostic.status
+        : null;
+      streamWitness.readRejectionCauseName = safeReadRejectionName(diagnostic?.causeName);
+      streamWitness.readRejectionAbortError = diagnostic?.abortError === true;
+      streamWitness.readRejectionTimeoutError = diagnostic?.timeoutError === true;
+      streamWitness.readRejectionSourceStage = diagnostic?.sourceStage;
+      streamWitness.readRejectionSignalState = diagnostic?.signalState;
     }
   };
 
