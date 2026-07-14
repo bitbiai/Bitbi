@@ -58,6 +58,39 @@ const SAFE_NORMALIZED_EVENT_TYPES = new Set([
   "none", "accepted", "keepalive", "thinking_delta", "text_delta",
   "web_search_started", "web_fetch_started", "complete_internal", "error",
 ]);
+const SAFE_RECEIVED_PROVIDER_EVENT_TYPES = new Set([
+  ...SAFE_PROVIDER_EVENT_TYPES,
+  "unsupported",
+]);
+const SAFE_PROVIDER_BLOCK_TYPES = new Set([
+  "none", "text", "thinking", "redacted_thinking", "server_tool_use",
+  "web_search_tool_result", "web_fetch_tool_result", "code_execution_tool_result",
+  "unsupported",
+]);
+const SAFE_READ_LIFECYCLE_STATES = new Set([
+  "none", "read_started", "read_resolved", "read_done", "read_rejected",
+]);
+const SAFE_SSE_PARSE_LIFECYCLE_STATES = new Set([
+  "none", "event_received", "sse_parse_started", "sse_parse_succeeded", "sse_parse_failed",
+]);
+const SAFE_WEB_SEARCH_VALIDATION_STATES = new Set([
+  "none", "validation_started", "validation_succeeded", "validation_failed",
+]);
+const SAFE_STREAM_BOUNDARY_CATEGORIES = new Set([
+  "none", "provider_stream_read_rejected", "provider_stream_unexpected_done",
+  "provider_sse_parse_failed", "provider_web_search_result_invalid",
+  "provider_web_search_result_accepted",
+]);
+const SAFE_SSE_PARSE_FAILURE_CATEGORIES = new Set([
+  "none", "event_too_large", "malformed_json",
+]);
+const SAFE_WEB_SEARCH_RESULT_REJECTION_CATEGORIES = new Set([
+  "none", "invalid_block_shape", "invalid_caller", "invalid_tool_use_id",
+  "invalid_content_shape", "result_count_exceeded", "invalid_result_shape",
+  "invalid_result_url", "invalid_result_title", "invalid_encrypted_content",
+  "invalid_page_age", "invalid_error_shape", "invalid_error_code", "unsupported_error_code",
+  "validation_exception",
+]);
 const SAFE_STREAM_ERROR_CODES = new Set([
   "provider_stream_interrupted", "provider_stream_idle_timeout", "provider_stream_timeout",
   "provider_stream_malformed", "provider_stream_error", "provider_web_search_limit_exceeded",
@@ -88,8 +121,51 @@ function safeNormalizedEventType(value) {
   return SAFE_NORMALIZED_EVENT_TYPES.has(value) ? value : "none";
 }
 
+function safeReceivedProviderEventType(value) {
+  return SAFE_RECEIVED_PROVIDER_EVENT_TYPES.has(value) ? value : "unsupported";
+}
+
+function safeProviderBlockType(value) {
+  return SAFE_PROVIDER_BLOCK_TYPES.has(value) ? value : "unsupported";
+}
+
+function safeReadLifecycleState(value) {
+  return SAFE_READ_LIFECYCLE_STATES.has(value) ? value : "none";
+}
+
+function safeSseParseLifecycleState(value) {
+  return SAFE_SSE_PARSE_LIFECYCLE_STATES.has(value) ? value : "none";
+}
+
+function safeWebSearchValidationState(value) {
+  return SAFE_WEB_SEARCH_VALIDATION_STATES.has(value) ? value : "none";
+}
+
+function safeStreamBoundaryCategory(value) {
+  return SAFE_STREAM_BOUNDARY_CATEGORIES.has(value) ? value : "none";
+}
+
+function safeSseParseFailureCategory(value) {
+  return SAFE_SSE_PARSE_FAILURE_CATEGORIES.has(value) ? value : "none";
+}
+
+function safeWebSearchResultRejectionCategory(value) {
+  return SAFE_WEB_SEARCH_RESULT_REJECTION_CATEGORIES.has(value) ? value : "none";
+}
+
 function safeStreamErrorCode(value) {
   return SAFE_STREAM_ERROR_CODES.has(value) ? value : "provider_stream_interrupted";
+}
+
+function boundedCount(value) {
+  return Math.min(65_535, Math.max(0, Math.floor(Number(value) || 0)));
+}
+
+function boundedProviderBlockIndex(value) {
+  const index = Number(value);
+  return Number.isInteger(index) && index >= 0 && index < FABLE_CHAT_MAX_PROVIDER_BLOCKS
+    ? index
+    : null;
 }
 
 function createStreamWitness(startedAt) {
@@ -113,6 +189,26 @@ function createStreamWitness(startedAt) {
     parserErrorCode: null,
     normalizedEventCount: 1,
     streamedBytes: 0,
+    lastReadLifecycle: "none",
+    readStartedCount: 0,
+    readResolvedCount: 0,
+    readDoneSeen: false,
+    readRejectedSeen: false,
+    providerEventReceivedCount: 0,
+    lastSseParseLifecycle: "none",
+    sseParseStartedCount: 0,
+    sseParseSucceededCount: 0,
+    sseParseFailedCount: 0,
+    sseParseFailureCategory: "none",
+    lastReceivedProviderEventType: "none",
+    lastReceivedContentBlockIndex: null,
+    lastReceivedBlockType: "none",
+    webSearchResultValidationLifecycle: "none",
+    webSearchResultValidationStartedCount: 0,
+    webSearchResultValidationSucceededCount: 0,
+    webSearchResultValidationFailedCount: 0,
+    webSearchResultRejectionCategory: "none",
+    streamBoundaryCategory: "none",
   };
 }
 
@@ -141,6 +237,40 @@ function snapshotStreamWitness(witness, terminationPhase) {
     final_idle_duration_ms_bucket: boundedBucket(now - witness.lastProviderActivityAt, [5_000, 30_000, 60_000, 120_000, 300_000]),
     normalized_event_count_bucket: boundedBucket(witness.normalizedEventCount, [1, 8, 32, 64, 128]),
     streamed_byte_count_bucket: boundedBucket(witness.streamedBytes, [4_096, 65_536, 262_144, 1_048_576, 4_194_304]),
+    stream_boundary_category: safeStreamBoundaryCategory(witness.streamBoundaryCategory),
+    last_read_lifecycle: safeReadLifecycleState(witness.lastReadLifecycle),
+    read_started_count: boundedCount(witness.readStartedCount),
+    read_resolved_count: boundedCount(witness.readResolvedCount),
+    read_done_seen: witness.readDoneSeen === true,
+    read_rejected_seen: witness.readRejectedSeen === true,
+    provider_event_received_count: boundedCount(witness.providerEventReceivedCount),
+    last_sse_parse_lifecycle: safeSseParseLifecycleState(witness.lastSseParseLifecycle),
+    sse_parse_started_count: boundedCount(witness.sseParseStartedCount),
+    sse_parse_succeeded_count: boundedCount(witness.sseParseSucceededCount),
+    sse_parse_failed_count: boundedCount(witness.sseParseFailedCount),
+    sse_parse_failure_category: safeSseParseFailureCategory(witness.sseParseFailureCategory),
+    last_received_provider_event_type: safeReceivedProviderEventType(
+      witness.lastReceivedProviderEventType
+    ),
+    last_received_content_block_index: boundedProviderBlockIndex(
+      witness.lastReceivedContentBlockIndex
+    ),
+    last_received_block_type: safeProviderBlockType(witness.lastReceivedBlockType),
+    web_search_result_validation_lifecycle: safeWebSearchValidationState(
+      witness.webSearchResultValidationLifecycle
+    ),
+    web_search_result_validation_started_count: boundedCount(
+      witness.webSearchResultValidationStartedCount
+    ),
+    web_search_result_validation_succeeded_count: boundedCount(
+      witness.webSearchResultValidationSucceededCount
+    ),
+    web_search_result_validation_failed_count: boundedCount(
+      witness.webSearchResultValidationFailedCount
+    ),
+    web_search_result_rejection_category: safeWebSearchResultRejectionCategory(
+      witness.webSearchResultRejectionCategory
+    ),
   };
 }
 
@@ -296,48 +426,82 @@ function countDistinctCitationSources(blocks) {
   return sources.size;
 }
 
+function withWebSearchResultRejectionCategory(category, callback) {
+  try {
+    return callback();
+  } catch (error) {
+    if (error instanceof AnthropicStreamError
+      && safeWebSearchResultRejectionCategory(error.webSearchResultRejectionCategory) === "none") {
+      error.webSearchResultRejectionCategory = safeWebSearchResultRejectionCategory(category);
+    }
+    throw error;
+  }
+}
+
 function sanitizeSearchResult(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)
     || !onlyFields(value, ["type", "url", "title", "encrypted_content", "page_age"])
     || value.type !== "web_search_result") {
-    throw new AnthropicStreamError("Provider search result is invalid.");
+    const error = new AnthropicStreamError("Provider search result is invalid.");
+    error.webSearchResultRejectionCategory = "invalid_result_shape";
+    throw error;
   }
   return {
     type: "web_search_result",
-    url: safeHttpsUrl(value.url),
-    title: safeText(value.title, {
+    url: withWebSearchResultRejectionCategory("invalid_result_url", () => safeHttpsUrl(value.url)),
+    title: withWebSearchResultRejectionCategory("invalid_result_title", () => safeText(value.title, {
       maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS,
       maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS * 4,
-    }),
-    encrypted_content: safeText(value.encrypted_content, {
+    })),
+    encrypted_content: withWebSearchResultRejectionCategory(
+      "invalid_encrypted_content",
+      () => safeText(value.encrypted_content, {
       maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
       maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
       allowEmpty: false,
-    }),
+      })
+    ),
     page_age: value.page_age == null
       ? null
-      : safeText(value.page_age, { maxCharacters: 160, maxBytes: 640 }),
+      : withWebSearchResultRejectionCategory(
+        "invalid_page_age",
+        () => safeText(value.page_age, { maxCharacters: 160, maxBytes: 640 })
+      ),
   };
 }
 
 function sanitizeSearchResultContent(value) {
   if (Array.isArray(value)) {
     if (value.length > FABLE_CHAT_MAX_WEB_SEARCH_RESULTS) {
-      throw new AnthropicStreamError("Provider search results exceed their safe limit.");
+      const error = new AnthropicStreamError("Provider search results exceed their safe limit.");
+      error.webSearchResultRejectionCategory = "result_count_exceeded";
+      throw error;
     }
     return value.map(sanitizeSearchResult);
   }
   if (!value || typeof value !== "object" || Array.isArray(value)
     || !onlyFields(value, ["type", "error_code"])) {
-    throw new AnthropicStreamError("Provider search result error is invalid.");
+    const error = new AnthropicStreamError("Provider search result error is invalid.");
+    error.webSearchResultRejectionCategory = "invalid_error_shape";
+    throw error;
   }
-  const errorCode = safeText(value.error_code, {
-    maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_ERROR_CODE_CHARACTERS,
-    maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_ERROR_CODE_CHARACTERS,
-    allowEmpty: false,
-  });
-  if (value.type !== "web_search_tool_result_error" || !SEARCH_ERROR_CODES.has(errorCode)) {
-    throw new AnthropicStreamError("Provider search result error is invalid.");
+  const errorCode = withWebSearchResultRejectionCategory(
+    "invalid_error_code",
+    () => safeText(value.error_code, {
+      maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_ERROR_CODE_CHARACTERS,
+      maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_ERROR_CODE_CHARACTERS,
+      allowEmpty: false,
+    })
+  );
+  if (value.type !== "web_search_tool_result_error") {
+    const error = new AnthropicStreamError("Provider search result error is invalid.");
+    error.webSearchResultRejectionCategory = "invalid_error_shape";
+    throw error;
+  }
+  if (!SEARCH_ERROR_CODES.has(errorCode)) {
+    const error = new AnthropicStreamError("Provider search result error is invalid.");
+    error.webSearchResultRejectionCategory = "unsupported_error_code";
+    throw error;
   }
   return { type: "web_search_tool_result_error", error_code: errorCode };
 }
@@ -433,14 +597,26 @@ function sanitizeServerToolCaller(value, {
 }
 
 function sanitizeSearchToolResult(value) {
-  if (!onlyFields(value, ["type", "tool_use_id", "content", "caller"])) {
-    throw new AnthropicStreamError("Provider search result block is invalid.");
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || !onlyFields(value, ["type", "tool_use_id", "content", "caller"])) {
+    const error = new AnthropicStreamError("Provider search result block is invalid.");
+    error.webSearchResultRejectionCategory = "invalid_block_shape";
+    throw error;
   }
-  const caller = sanitizeServerToolCaller(value.caller, { allowMissing: true });
+  const caller = withWebSearchResultRejectionCategory(
+    "invalid_caller",
+    () => sanitizeServerToolCaller(value.caller, { allowMissing: true })
+  );
   return {
     type: "web_search_tool_result",
-    tool_use_id: safeToolId(value.tool_use_id),
-    content: sanitizeSearchResultContent(value.content),
+    tool_use_id: withWebSearchResultRejectionCategory(
+      "invalid_tool_use_id",
+      () => safeToolId(value.tool_use_id)
+    ),
+    content: withWebSearchResultRejectionCategory(
+      "invalid_content_shape",
+      () => sanitizeSearchResultContent(value.content)
+    ),
     ...(caller ? { caller } : {}),
   };
 }
@@ -1044,6 +1220,24 @@ function takeSseLine(buffer, final = false) {
   return null;
 }
 
+function notifyStreamLifecycle(callback, value) {
+  if (typeof callback !== "function") return;
+  try {
+    callback(value);
+  } catch {
+    // Diagnostic observers must never affect provider stream behavior.
+  }
+}
+
+function safeReceivedSseMetadata(value, eventName) {
+  const providerEventType = safeReceivedProviderEventType(String(value?.type || eventName || ""));
+  const contentBlockIndex = boundedProviderBlockIndex(value?.index);
+  const blockType = providerEventType === "content_block_start"
+    ? safeProviderBlockType(value?.content_block?.type)
+    : "none";
+  return { providerEventType, contentBlockIndex, blockType };
+}
+
 async function readWithIdleTimeout(reader, timeoutMs, timeoutCode = "provider_stream_idle_timeout") {
   let timeoutId;
   try {
@@ -1069,6 +1263,8 @@ export async function* parseSseJsonEvents(stream, {
   onStreamChunkBytes = null,
   onUpstreamEof = null,
   onUpstreamAbort = null,
+  onReadLifecycle = null,
+  onSseLifecycle = null,
 } = {}) {
   if (!stream || typeof stream.getReader !== "function") {
     throw new AnthropicStreamError("Provider did not return a readable stream.");
@@ -1096,13 +1292,36 @@ export async function* parseSseJsonEvents(stream, {
     dataLines = [];
     const dispatchedName = eventName;
     eventName = "message";
+    notifyStreamLifecycle(onSseLifecycle, { state: "event_received" });
+    notifyStreamLifecycle(onSseLifecycle, { state: "sse_parse_started" });
     if (byteLength(data) > maxEventBytes) {
+      notifyStreamLifecycle(onSseLifecycle, {
+        state: "sse_parse_failed",
+        failureCategory: "event_too_large",
+      });
       throw new AnthropicStreamError("Provider stream event is too large.");
     }
-    if (data === "[DONE]") return { event: dispatchedName, data: null, done: true };
+    if (data === "[DONE]") {
+      notifyStreamLifecycle(onSseLifecycle, {
+        state: "sse_parse_succeeded",
+        providerEventType: "none",
+        contentBlockIndex: null,
+        blockType: "none",
+      });
+      return { event: dispatchedName, data: null, done: true };
+    }
     try {
-      return { event: dispatchedName, data: JSON.parse(data), done: false };
+      const parsed = JSON.parse(data);
+      notifyStreamLifecycle(onSseLifecycle, {
+        state: "sse_parse_succeeded",
+        ...safeReceivedSseMetadata(parsed, dispatchedName),
+      });
+      return { event: dispatchedName, data: parsed, done: false };
     } catch {
+      notifyStreamLifecycle(onSseLifecycle, {
+        state: "sse_parse_failed",
+        failureCategory: "malformed_json",
+      });
       throw new AnthropicStreamError("Provider stream event is malformed.");
     }
   };
@@ -1129,12 +1348,22 @@ export async function* parseSseJsonEvents(stream, {
       }
       const idleRemainingMs = Math.max(1, idleTimeoutMs - (Date.now() - lastValidActivityAt));
       const waitMs = Math.min(idleRemainingMs, remainingMs);
-      const { value, done } = await readWithIdleTimeout(
-        reader,
-        waitMs,
-        remainingMs <= idleRemainingMs ? "provider_stream_timeout" : "provider_stream_idle_timeout"
-      );
+      notifyStreamLifecycle(onReadLifecycle, "read_started");
+      let readResult;
+      try {
+        readResult = await readWithIdleTimeout(
+          reader,
+          waitMs,
+          remainingMs <= idleRemainingMs ? "provider_stream_timeout" : "provider_stream_idle_timeout"
+        );
+        notifyStreamLifecycle(onReadLifecycle, "read_resolved");
+      } catch (error) {
+        notifyStreamLifecycle(onReadLifecycle, "read_rejected");
+        throw error;
+      }
+      const { value, done } = readResult;
       if (done) {
+        notifyStreamLifecycle(onReadLifecycle, "read_done");
         streamCompleted = true;
         onUpstreamEof?.();
         break;
@@ -1249,6 +1478,44 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
     streamWitness.lastProviderEventType = safeProviderEventType(type);
   };
 
+  const markReadLifecycle = (state) => {
+    if (!streamWitness) return;
+    const safeState = safeReadLifecycleState(state);
+    streamWitness.lastReadLifecycle = safeState;
+    if (safeState === "read_started") streamWitness.readStartedCount += 1;
+    if (safeState === "read_resolved") streamWitness.readResolvedCount += 1;
+    if (safeState === "read_done") streamWitness.readDoneSeen = true;
+    if (safeState === "read_rejected") {
+      streamWitness.readRejectedSeen = true;
+      streamWitness.streamBoundaryCategory = "provider_stream_read_rejected";
+    }
+  };
+
+  const markSseLifecycle = (diagnostic) => {
+    if (!streamWitness || !diagnostic || typeof diagnostic !== "object") return;
+    const state = safeSseParseLifecycleState(diagnostic.state);
+    streamWitness.lastSseParseLifecycle = state;
+    if (state === "event_received") streamWitness.providerEventReceivedCount += 1;
+    if (state === "sse_parse_started") streamWitness.sseParseStartedCount += 1;
+    if (state === "sse_parse_succeeded") {
+      streamWitness.sseParseSucceededCount += 1;
+      streamWitness.lastReceivedProviderEventType = safeReceivedProviderEventType(
+        diagnostic.providerEventType
+      );
+      streamWitness.lastReceivedContentBlockIndex = boundedProviderBlockIndex(
+        diagnostic.contentBlockIndex
+      );
+      streamWitness.lastReceivedBlockType = safeProviderBlockType(diagnostic.blockType);
+    }
+    if (state === "sse_parse_failed") {
+      streamWitness.sseParseFailedCount += 1;
+      streamWitness.sseParseFailureCategory = safeSseParseFailureCategory(
+        diagnostic.failureCategory
+      );
+      streamWitness.streamBoundaryCategory = "provider_sse_parse_failed";
+    }
+  };
+
   for await (const event of parseSseJsonEvents(stream, {
     idleTimeoutMs: providerIdleTimeoutMs,
     onStreamChunkBytes: (bytes) => {
@@ -1260,6 +1527,8 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
     onUpstreamAbort: () => {
       if (streamWitness) streamWitness.upstreamAbortSeen = true;
     },
+    onReadLifecycle: markReadLifecycle,
+    onSseLifecycle: markSseLifecycle,
   })) {
     if (event.done) continue;
     const value = event.data;
@@ -1384,7 +1653,33 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
         if (source.name === FABLE_CHAT_WEB_SEARCH_TOOL_NAME) callbacks.onWebSearchStarted?.();
         if (source.name === FABLE_CHAT_WEB_FETCH_TOOL_NAME) callbacks.onWebFetchStarted?.();
       } else if (source?.type === "web_search_tool_result") {
-        const result = sanitizeSearchToolResult(source);
+        if (streamWitness) {
+          streamWitness.webSearchResultValidationLifecycle = "validation_started";
+          streamWitness.webSearchResultValidationStartedCount += 1;
+        }
+        let result;
+        try {
+          result = sanitizeSearchToolResult(source);
+        } catch (error) {
+          if (streamWitness) {
+            streamWitness.webSearchResultValidationLifecycle = "validation_failed";
+            streamWitness.webSearchResultValidationFailedCount += 1;
+            const rejectionCategory = safeWebSearchResultRejectionCategory(
+              error?.webSearchResultRejectionCategory
+            );
+            streamWitness.webSearchResultRejectionCategory = rejectionCategory === "none"
+              ? "validation_exception"
+              : rejectionCategory;
+            streamWitness.streamBoundaryCategory = "provider_web_search_result_invalid";
+          }
+          throw error;
+        }
+        if (streamWitness) {
+          streamWitness.webSearchResultValidationLifecycle = "validation_succeeded";
+          streamWitness.webSearchResultValidationSucceededCount += 1;
+          streamWitness.webSearchResultRejectionCategory = "none";
+          streamWitness.streamBoundaryCategory = "provider_web_search_result_accepted";
+        }
         blocks.set(index, result);
         const results = [...blocks.values()].filter((block) => block.type === "web_search_tool_result").length;
         if (results > maxUses) {
@@ -1567,6 +1862,9 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
   }
 
   if (!sawMessageStart || !sawMessageStop) {
+    if (streamWitness?.readDoneSeen) {
+      streamWitness.streamBoundaryCategory = "provider_stream_unexpected_done";
+    }
     throw new AnthropicStreamError("Provider stream ended without a definitive completion.", {
       code: "provider_upstream_eof_before_message_stop",
     });

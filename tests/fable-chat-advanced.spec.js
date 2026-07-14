@@ -2061,6 +2061,158 @@ test.describe('Advanced Fable chat contract', () => {
     });
   });
 
+  test('stream boundary diagnostics distinguish reads, SSE parsing, and Web Search validation', async () => {
+    const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const authStream = await import(moduleUrl('workers/auth/src/lib/fable-chat-stream.js'));
+
+    const consumeWithWitness = async (providerStream, options = {}) => {
+      const witnesses = [];
+      const internal = aiStream.createInternalFableChatStream(providerStream, {
+        maxWebSearchUses: 3,
+        onTerminalWitness: (witness) => witnesses.push(witness),
+        ...options,
+      });
+      try {
+        const complete = await authStream.consumeInternalFableChatStream(internal);
+        return { complete, error: null, witness: witnesses[0] };
+      } catch (error) {
+        return { complete: null, error, witness: witnesses[0] };
+      }
+    };
+
+    const delayedEvents = webSearchProviderEvents();
+    const delayedResultIndex = delayedEvents.findIndex(
+      ({ data }) => data?.content_block?.type === 'web_search_tool_result'
+    );
+    const accepted = await consumeWithWitness(delayedByteStream([
+      { chunk: encodeSseEvents(delayedEvents.slice(0, delayedResultIndex)) },
+      { chunk: encodeSseEvents(delayedEvents.slice(delayedResultIndex)), delayMs: 1 },
+    ]));
+    expect(accepted.error).toBeNull();
+    expect(accepted.complete.webSearchResultCount).toBe(1);
+    expect(accepted.witness).toMatchObject({
+      termination_phase: 'complete_internal',
+      stream_boundary_category: 'provider_web_search_result_accepted',
+      last_read_lifecycle: 'read_done',
+      read_done_seen: true,
+      read_rejected_seen: false,
+      last_sse_parse_lifecycle: 'sse_parse_succeeded',
+      last_received_provider_event_type: 'message_stop',
+      web_search_result_validation_lifecycle: 'validation_succeeded',
+      web_search_result_validation_started_count: 1,
+      web_search_result_validation_succeeded_count: 1,
+      web_search_result_validation_failed_count: 0,
+      web_search_result_rejection_category: 'none',
+      complete_internal_emitted: true,
+    });
+    expect(accepted.witness.read_started_count).toBeGreaterThan(1);
+    expect(accepted.witness.read_resolved_count).toBe(accepted.witness.read_started_count);
+    expect(accepted.witness.provider_event_received_count).toBe(delayedEvents.length);
+    expect(accepted.witness.sse_parse_succeeded_count).toBe(delayedEvents.length);
+
+    const privateReaderMarker = 'private-reader-error-marker';
+    let readerChunkSent = false;
+    const rejectingStream = new ReadableStream({
+      pull(controller) {
+        if (!readerChunkSent) {
+          readerChunkSent = true;
+          controller.enqueue(encodeSseEvents(webSearchProviderEvents().slice(0, 4)));
+          return;
+        }
+        throw new Error(privateReaderMarker);
+      },
+    });
+    const rejectedRead = await consumeWithWitness(rejectingStream);
+    expect(rejectedRead.error).toMatchObject({
+      code: 'provider_stream_interrupted',
+      outcome: 'unknown',
+    });
+    expect(rejectedRead.witness).toMatchObject({
+      stream_boundary_category: 'provider_stream_read_rejected',
+      last_read_lifecycle: 'read_rejected',
+      read_rejected_seen: true,
+      read_done_seen: false,
+      complete_internal_emitted: false,
+    });
+
+    const unexpectedlyDone = await consumeWithWitness(byteStream([
+      encodeSseEvents(webSearchProviderEvents().slice(0, 4)),
+    ]));
+    expect(unexpectedlyDone.error).toMatchObject({
+      code: 'provider_upstream_eof_before_message_stop',
+      outcome: 'unknown',
+    });
+    expect(unexpectedlyDone.witness).toMatchObject({
+      stream_boundary_category: 'provider_stream_unexpected_done',
+      last_read_lifecycle: 'read_done',
+      read_done_seen: true,
+      read_rejected_seen: false,
+      complete_internal_emitted: false,
+    });
+
+    const invalidEvents = webSearchProviderEvents();
+    const invalidResult = invalidEvents.find(
+      ({ data }) => data?.content_block?.type === 'web_search_tool_result'
+    );
+    invalidResult.data.content_block.content[0] = {
+      ...invalidResult.data.content_block.content[0],
+      url: 'http://private.invalid/private-url-marker',
+      title: 'private-title-marker',
+      encrypted_content: 'private-result-marker',
+    };
+    const invalidSearchResult = await consumeWithWitness(byteStream([
+      encodeSseEvents(invalidEvents),
+    ]));
+    expect(invalidSearchResult.error).toMatchObject({
+      code: 'provider_stream_interrupted',
+      outcome: 'unknown',
+    });
+    expect(invalidSearchResult.witness).toMatchObject({
+      stream_boundary_category: 'provider_web_search_result_invalid',
+      last_received_provider_event_type: 'content_block_start',
+      last_received_content_block_index: 1,
+      last_received_block_type: 'web_search_tool_result',
+      web_search_result_validation_lifecycle: 'validation_failed',
+      web_search_result_validation_started_count: 1,
+      web_search_result_validation_succeeded_count: 0,
+      web_search_result_validation_failed_count: 1,
+      web_search_result_rejection_category: 'invalid_result_url',
+      complete_internal_emitted: false,
+    });
+
+    const malformedSse = await consumeWithWitness(byteStream([
+      new TextEncoder().encode('event: content_block_start\ndata: {private-raw-sse-marker}\n\n'),
+    ]));
+    expect(malformedSse.error).toMatchObject({
+      code: 'provider_stream_interrupted',
+      outcome: 'unknown',
+    });
+    expect(malformedSse.witness).toMatchObject({
+      stream_boundary_category: 'provider_sse_parse_failed',
+      last_sse_parse_lifecycle: 'sse_parse_failed',
+      sse_parse_failed_count: 1,
+      sse_parse_failure_category: 'malformed_json',
+      complete_internal_emitted: false,
+    });
+
+    const diagnostics = JSON.stringify([
+      accepted.witness,
+      rejectedRead.witness,
+      unexpectedlyDone.witness,
+      invalidSearchResult.witness,
+      malformedSse.witness,
+    ]);
+    for (const privateValue of [
+      privateReaderMarker,
+      'private-url-marker',
+      'private-title-marker',
+      'private-result-marker',
+      'private-raw-sse-marker',
+    ]) {
+      expect(diagnostics).not.toContain(privateValue);
+    }
+  });
+
   test('a valid 48-block terminal stream with 10 searches and split Unicode constructs complete_internal once', async () => {
     const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
     const authStream = await import(moduleUrl('workers/auth/src/lib/fable-chat-stream.js'));
