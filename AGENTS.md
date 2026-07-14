@@ -133,6 +133,7 @@ If you cannot run something, state exactly what was not run and why.
 - Apply auth migrations before deploying auth code that depends on them.
 - Do not assume secrets/bindings/dashboard rules exist; verify in repo docs/config and call out manual requirements.
 - Preserve current deploy ordering expectations (migrations, workers, then static) unless task explicitly changes release design.
+- Monitor a mandatory static smoke workflow for no more than five minutes total. Never use `gh run watch` or continue repeated polling beyond that limit; report the workflow URL and last observed status, then stop waiting.
 
 ---
 
