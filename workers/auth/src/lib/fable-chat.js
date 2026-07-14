@@ -2798,8 +2798,6 @@ export async function finalizeFableChatTurn(env, turnId, {
       code: "fable_chat_invalid_provider_result",
     });
   }
-  const providerBlocksJson = JSON.stringify(privateProviderBlocks);
-  const providerBlocksBytes = utf8ByteLength(providerBlocksJson);
   const safeCitations = extractFableChatCitations(privateProviderBlocks);
   const searchCounts = countFableChatWebSearchBlocks(privateProviderBlocks);
   const safeSearchResultCount = countFableChatWebSearchSafeResults(privateProviderBlocks);
@@ -2877,6 +2875,25 @@ export async function finalizeFableChatTurn(env, turnId, {
       code: "fable_chat_invalid_provider_result",
     });
   }
+  let persistedProviderBlocks = privateProviderBlocks;
+  if (quarantinedInvalidUrlCount > 0) {
+    const projected = projectFableChatProviderReplay({
+      providerBlocks: privateProviderBlocks,
+      assistantContent: content,
+      citations: safeCitations,
+      projectCompletedNativeTurn: true,
+    });
+    if (projected.projectedNativeTurn !== true
+      || projected.blocks.some((block) => block.type !== "text")) {
+      throw new FableChatError("Assistant provider evidence cannot be projected safely.", {
+        status: 502,
+        code: "fable_chat_invalid_provider_result",
+      });
+    }
+    persistedProviderBlocks = projected.blocks;
+  }
+  const providerBlocksJson = JSON.stringify(persistedProviderBlocks);
+  const providerBlocksBytes = utf8ByteLength(providerBlocksJson);
   const reasoningSummary = turn.thinking_display === "summarized"
     ? extractFableChatReasoningSummary(privateProviderBlocks)
     : null;

@@ -3725,8 +3725,12 @@ test.describe('Private admin Fable chat', () => {
       });
       expect(JSON.parse(stored.citations_json)).toHaveLength(2);
       const privateBlocks = JSON.parse(stored.content_blocks_json);
-      expect(privateBlocks.find((block) => block.type === 'web_search_tool_result').content)
-        .toHaveLength(2);
+      expect(privateBlocks).toHaveLength(1);
+      expect(privateBlocks[0]).toMatchObject({ type: 'text' });
+      expect(privateBlocks[0].text).toContain('Safe searched answer');
+      expect(JSON.stringify(privateBlocks)).not.toContain('thinking');
+      expect(JSON.stringify(privateBlocks)).not.toContain('server_tool_use');
+      expect(JSON.stringify(privateBlocks)).not.toContain('web_search_tool_result');
 
       const second = await callFableAuthWorker(
         worker,
