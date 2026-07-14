@@ -79,7 +79,7 @@ const SAFE_WEB_SEARCH_VALIDATION_STATES = new Set([
 const SAFE_STREAM_BOUNDARY_CATEGORIES = new Set([
   "none", "provider_stream_read_rejected", "provider_stream_unexpected_done",
   "provider_sse_parse_failed", "provider_web_search_result_invalid",
-  "provider_web_search_result_accepted",
+  "provider_web_search_result_accepted", "provider_web_search_result_quarantined",
 ]);
 const SAFE_SSE_PARSE_FAILURE_CATEGORIES = new Set([
   "none", "event_too_large", "malformed_json",
@@ -208,6 +208,9 @@ function createStreamWitness(startedAt) {
     webSearchResultValidationSucceededCount: 0,
     webSearchResultValidationFailedCount: 0,
     webSearchResultRejectionCategory: "none",
+    webSearchReceivedResultCount: 0,
+    webSearchAcceptedResultCount: 0,
+    webSearchQuarantinedInvalidUrlCount: 0,
     streamBoundaryCategory: "none",
   };
 }
@@ -270,6 +273,11 @@ function snapshotStreamWitness(witness, terminationPhase) {
     ),
     web_search_result_rejection_category: safeWebSearchResultRejectionCategory(
       witness.webSearchResultRejectionCategory
+    ),
+    web_search_received_result_count: boundedCount(witness.webSearchReceivedResultCount),
+    web_search_accepted_result_count: boundedCount(witness.webSearchAcceptedResultCount),
+    web_search_quarantined_invalid_url_count: boundedCount(
+      witness.webSearchQuarantinedInvalidUrlCount
     ),
   };
 }
@@ -342,6 +350,37 @@ function safeHttpsUrl(value) {
   return url;
 }
 
+function safeQuarantinableSearchResultUrl(value) {
+  const url = safeText(value, {
+    maxCharacters: FABLE_CHAT_MAX_SOURCE_URL_CHARACTERS,
+    maxBytes: FABLE_CHAT_MAX_SOURCE_URL_CHARACTERS * 4,
+    allowEmpty: false,
+  });
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    const error = new AnthropicStreamError("Provider search result URL is invalid.");
+    error.quarantinableInvalidSearchResultUrl = true;
+    throw error;
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port) {
+    const error = new AnthropicStreamError("Provider search result URL is invalid.");
+    error.quarantinableInvalidSearchResultUrl = true;
+    throw error;
+  }
+  return url;
+}
+
+function createWebSearchResultSanitizationState() {
+  return {
+    receivedResultCount: 0,
+    acceptedResultCount: 0,
+    quarantinedInvalidUrlCount: 0,
+    quarantinedInvalidUrls: new Set(),
+  };
+}
+
 function safeToolId(value) {
   const id = safeText(value, { maxCharacters: 180, maxBytes: 720, allowEmpty: false });
   if (!TOOL_ID_PATTERN.test(id)) throw new AnthropicStreamError("Provider tool id is invalid.");
@@ -356,7 +395,7 @@ function safeNativeCitationTitle(value) {
   });
 }
 
-function sanitizeCitation(value) {
+function sanitizeCitation(value, { webSearchResultState = null } = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new AnthropicStreamError("Provider citation is invalid.");
   }
@@ -364,17 +403,21 @@ function sanitizeCitation(value) {
     if (!onlyFields(value, ["type", "url", "title", "encrypted_index", "cited_text"])) {
       throw new AnthropicStreamError("Provider citation is invalid.");
     }
+    const title = safeNativeCitationTitle(value.title);
+    const encryptedIndex = safeText(value.encrypted_index, {
+      maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
+      maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
+      allowEmpty: false,
+    });
+    const citedText = safeText(value.cited_text, { maxCharacters: 2_048, maxBytes: 8_192 });
+    if (webSearchResultState?.quarantinedInvalidUrls?.has(value.url)) return null;
     return {
       type: "web_search_result_location",
       url: safeHttpsUrl(value.url),
       // Anthropic's native web-search citation title is nullable.
-      title: safeNativeCitationTitle(value.title),
-      encrypted_index: safeText(value.encrypted_index, {
-        maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
-        maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
-        allowEmpty: false,
-      }),
-      cited_text: safeText(value.cited_text, { maxCharacters: 2_048, maxBytes: 8_192 }),
+      title,
+      encrypted_index: encryptedIndex,
+      cited_text: citedText,
     };
   }
   if (value.type === "char_location") {
@@ -402,13 +445,18 @@ function sanitizeCitation(value) {
   throw new AnthropicStreamError("Provider citation is invalid.");
 }
 
-function sanitizeCitations(value, { allowEmpty = false } = {}) {
+function sanitizeCitations(value, {
+  allowEmpty = false,
+  webSearchResultState = null,
+} = {}) {
   if (!Array.isArray(value)
     || (!allowEmpty && value.length === 0)
     || value.length > FABLE_CHAT_MAX_CITATIONS) {
     throw new AnthropicStreamError("Provider citations are invalid.");
   }
-  return value.map(sanitizeCitation);
+  return value
+    .map((citation) => sanitizeCitation(citation, { webSearchResultState }))
+    .filter(Boolean);
 }
 
 function canonicalSourceUrlKey(url) {
@@ -446,38 +494,62 @@ function sanitizeSearchResult(value) {
     error.webSearchResultRejectionCategory = "invalid_result_shape";
     throw error;
   }
-  return {
-    type: "web_search_result",
-    url: withWebSearchResultRejectionCategory("invalid_result_url", () => safeHttpsUrl(value.url)),
-    title: withWebSearchResultRejectionCategory("invalid_result_title", () => safeText(value.title, {
+  const title = withWebSearchResultRejectionCategory("invalid_result_title", () => safeText(value.title, {
       maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS,
       maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_TITLE_CHARACTERS * 4,
-    })),
-    encrypted_content: withWebSearchResultRejectionCategory(
+    }));
+  const encryptedContent = withWebSearchResultRejectionCategory(
       "invalid_encrypted_content",
       () => safeText(value.encrypted_content, {
       maxCharacters: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
       maxBytes: FABLE_CHAT_MAX_SEARCH_RESULT_ENCRYPTED_CONTENT_BYTES,
       allowEmpty: false,
       })
-    ),
-    page_age: value.page_age == null
-      ? null
-      : withWebSearchResultRejectionCategory(
+    );
+  const pageAge = value.page_age == null
+    ? null
+    : withWebSearchResultRejectionCategory(
         "invalid_page_age",
         () => safeText(value.page_age, { maxCharacters: 160, maxBytes: 640 })
-      ),
+      );
+  const url = withWebSearchResultRejectionCategory(
+    "invalid_result_url",
+    () => safeQuarantinableSearchResultUrl(value.url)
+  );
+  return {
+    type: "web_search_result",
+    url,
+    title,
+    encrypted_content: encryptedContent,
+    page_age: pageAge,
   };
 }
 
-function sanitizeSearchResultContent(value) {
+function sanitizeSearchResultContent(value, { webSearchResultState = null } = {}) {
   if (Array.isArray(value)) {
     if (value.length > FABLE_CHAT_MAX_WEB_SEARCH_RESULTS) {
       const error = new AnthropicStreamError("Provider search results exceed their safe limit.");
       error.webSearchResultRejectionCategory = "result_count_exceeded";
       throw error;
     }
-    return value.map(sanitizeSearchResult);
+    const state = webSearchResultState || createWebSearchResultSanitizationState();
+    const accepted = [];
+    for (const result of value) {
+      state.receivedResultCount += 1;
+      try {
+        accepted.push(sanitizeSearchResult(result));
+        state.acceptedResultCount += 1;
+      } catch (error) {
+        if (error?.quarantinableInvalidSearchResultUrl === true
+          && typeof result?.url === "string") {
+          state.quarantinedInvalidUrlCount += 1;
+          state.quarantinedInvalidUrls.add(result.url);
+          continue;
+        }
+        throw error;
+      }
+    }
+    return accepted;
   }
   if (!value || typeof value !== "object" || Array.isArray(value)
     || !onlyFields(value, ["type", "error_code"])) {
@@ -596,7 +668,7 @@ function sanitizeServerToolCaller(value, {
   return { type: CODE_EXECUTION_CALLER_TYPE, tool_id: safeToolId(value.tool_id) };
 }
 
-function sanitizeSearchToolResult(value) {
+function sanitizeSearchToolResult(value, { webSearchResultState = null } = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value)
     || !onlyFields(value, ["type", "tool_use_id", "content", "caller"])) {
     const error = new AnthropicStreamError("Provider search result block is invalid.");
@@ -615,7 +687,7 @@ function sanitizeSearchToolResult(value) {
     ),
     content: withWebSearchResultRejectionCategory(
       "invalid_content_shape",
-      () => sanitizeSearchResultContent(value.content)
+      () => sanitizeSearchResultContent(value.content, { webSearchResultState })
     ),
     ...(caller ? { caller } : {}),
   };
@@ -851,7 +923,10 @@ function mergeUsage(current, next) {
   };
 }
 
-export function sanitizeAnthropicContentBlocks(value) {
+export function sanitizeAnthropicContentBlocks(value, {
+  webSearchResultState = null,
+} = {}) {
+  const searchResultState = webSearchResultState || createWebSearchResultSanitizationState();
   if (!Array.isArray(value) || value.length === 0 || value.length > FABLE_CHAT_MAX_PROVIDER_BLOCKS) {
     throw new AnthropicStreamError("Provider content blocks are invalid.");
   }
@@ -872,7 +947,10 @@ export function sanitizeAnthropicContentBlocks(value) {
         ...(block.citations === undefined ? {} : {
           // Anthropic can include an empty citation placeholder at block start.
           // The streaming path already accepts it before later citation deltas arrive.
-          citations: sanitizeCitations(block.citations, { allowEmpty: true }),
+          citations: sanitizeCitations(block.citations, {
+            allowEmpty: true,
+            webSearchResultState: searchResultState,
+          }),
         }),
       };
     }
@@ -891,7 +969,17 @@ export function sanitizeAnthropicContentBlocks(value) {
       };
     }
     if (block.type === "server_tool_use") return sanitizeServerToolUse(block);
-    if (block.type === "web_search_tool_result") return sanitizeSearchToolResult(block);
+    if (block.type === "web_search_tool_result") {
+      try {
+        return sanitizeSearchToolResult(block, { webSearchResultState: searchResultState });
+      } catch (error) {
+        if (error instanceof AnthropicStreamError
+          && error.code === "provider_stream_interrupted") {
+          error.code = "provider_invalid_web_search_structure";
+        }
+        throw error;
+      }
+    }
     if (block.type === "web_fetch_tool_result") return sanitizeFetchToolResult(block);
     if (block.type === "code_execution_tool_result") {
       return sanitizeCodeExecutionToolResult(block);
@@ -1154,9 +1242,11 @@ export function extractAnthropicVisibleResult(content, {
   maxWebFetchUses = 0,
   allowDynamicSearch = false,
   allowExcludedSearchResults = false,
+  webSearchResultState = null,
 } = {}) {
+  const searchResultState = webSearchResultState || createWebSearchResultSanitizationState();
   const blocks = resolveNativeWebSearchCitationTitles(
-    sanitizeAnthropicContentBlocks(content),
+    sanitizeAnthropicContentBlocks(content, { webSearchResultState: searchResultState }),
     { allowFallback: allowExcludedSearchResults }
   );
   const text = blocks
@@ -1193,6 +1283,9 @@ export function extractAnthropicVisibleResult(content, {
     sources: extractSafeSources(blocks),
     webSearchRequestCount: search.requestCount,
     webSearchResultCount: search.resultCount,
+    webSearchReceivedResultCount: searchResultState.receivedResultCount,
+    webSearchAcceptedResultCount: searchResultState.acceptedResultCount,
+    webSearchQuarantinedInvalidUrlCount: searchResultState.quarantinedInvalidUrlCount,
     codeExecutionRequestCount: codeExecution.requestCount,
     codeExecutionResultCount: codeExecution.resultCount,
     webFetchRequestCount: fetch.requestCount,
@@ -1429,6 +1522,7 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
   const maxFetchUses = normalizeWebFetchMaxUses(maxWebFetchUses);
   const blocks = new Map();
   const stoppedBlocks = new Set();
+  const webSearchResultState = createWebSearchResultSanitizationState();
   let responseModel = null;
   let usage = null;
   let stopReason = null;
@@ -1585,7 +1679,10 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
           type: "text",
           text,
           ...(source.citations === undefined ? {} : {
-            citations: sanitizeCitations(source.citations, { allowEmpty: true }),
+            citations: sanitizeCitations(source.citations, {
+              allowEmpty: true,
+              webSearchResultState,
+            }),
           }),
         });
         if (text) callbacks.onTextDelta?.(text);
@@ -1659,7 +1756,7 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
         }
         let result;
         try {
-          result = sanitizeSearchToolResult(source);
+          result = sanitizeSearchToolResult(source, { webSearchResultState });
         } catch (error) {
           if (streamWitness) {
             streamWitness.webSearchResultValidationLifecycle = "validation_failed";
@@ -1670,15 +1767,33 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
             streamWitness.webSearchResultRejectionCategory = rejectionCategory === "none"
               ? "validation_exception"
               : rejectionCategory;
+            streamWitness.webSearchReceivedResultCount = webSearchResultState.receivedResultCount;
+            streamWitness.webSearchAcceptedResultCount = webSearchResultState.acceptedResultCount;
+            streamWitness.webSearchQuarantinedInvalidUrlCount =
+              webSearchResultState.quarantinedInvalidUrlCount;
             streamWitness.streamBoundaryCategory = "provider_web_search_result_invalid";
+          }
+          if (error instanceof AnthropicStreamError
+            && error.code === "provider_stream_interrupted") {
+            error.code = "provider_invalid_web_search_structure";
           }
           throw error;
         }
         if (streamWitness) {
           streamWitness.webSearchResultValidationLifecycle = "validation_succeeded";
           streamWitness.webSearchResultValidationSucceededCount += 1;
-          streamWitness.webSearchResultRejectionCategory = "none";
-          streamWitness.streamBoundaryCategory = "provider_web_search_result_accepted";
+          streamWitness.webSearchReceivedResultCount = webSearchResultState.receivedResultCount;
+          streamWitness.webSearchAcceptedResultCount = webSearchResultState.acceptedResultCount;
+          streamWitness.webSearchQuarantinedInvalidUrlCount =
+            webSearchResultState.quarantinedInvalidUrlCount;
+          streamWitness.webSearchResultRejectionCategory =
+            webSearchResultState.quarantinedInvalidUrlCount > 0
+            ? "invalid_result_url"
+            : "none";
+          streamWitness.streamBoundaryCategory =
+            webSearchResultState.quarantinedInvalidUrlCount > 0
+            ? "provider_web_search_result_quarantined"
+            : "provider_web_search_result_accepted";
         }
         blocks.set(index, result);
         const results = [...blocks.values()].filter((block) => block.type === "web_search_tool_result").length;
@@ -1783,9 +1898,9 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
           inputLimit
         );
       } else if (delta?.type === "citations_delta" && block.type === "text") {
-        const citation = sanitizeCitation(delta.citation);
-        block.citations = [...(block.citations || []), citation];
-        if (block.citations.length > FABLE_CHAT_MAX_CITATIONS) {
+        const citation = sanitizeCitation(delta.citation, { webSearchResultState });
+        if (citation) block.citations = [...(block.citations || []), citation];
+        if ((block.citations || []).length > FABLE_CHAT_MAX_CITATIONS) {
           throw new AnthropicStreamError("Provider citations exceed their safe limit.");
         }
       } else {
@@ -1915,6 +2030,9 @@ export async function consumeAnthropicMessageStream(stream, callbacks = {}, {
   }
   return {
     ...visible,
+    webSearchReceivedResultCount: webSearchResultState.receivedResultCount,
+    webSearchAcceptedResultCount: webSearchResultState.acceptedResultCount,
+    webSearchQuarantinedInvalidUrlCount: webSearchResultState.quarantinedInvalidUrlCount,
     webSearchExecutedRequestCount: executedSearchRequestCount,
     usage,
     responseModel,
@@ -2030,6 +2148,8 @@ export function createInternalFableChatStream(providerStream, {
         let continuationCount = 0;
         let combinedBlocks = [...initial.providerBlocks];
         let combinedUsage = initial.usage;
+        let combinedQuarantinedInvalidUrlCount =
+          initial.webSearchQuarantinedInvalidUrlCount;
         while (result.stopReason === "pause_turn") {
           if (typeof continueAfterPause !== "function") {
             throw new AnthropicStreamError("Provider paused without a continuation path.", {
@@ -2057,6 +2177,8 @@ export function createInternalFableChatStream(providerStream, {
           continuationCount += 1;
           combinedBlocks = [...combinedBlocks, ...continuation.providerBlocks];
           combinedUsage = sumUsage(combinedUsage, continuation.usage);
+          combinedQuarantinedInvalidUrlCount +=
+            continuation.webSearchQuarantinedInvalidUrlCount;
           const combined = extractAnthropicVisibleResult(combinedBlocks, {
             allowMissingText: continuation.stopReason === "pause_turn",
             maxWebSearchUses: maxUses,
@@ -2067,6 +2189,10 @@ export function createInternalFableChatStream(providerStream, {
           result = {
             ...continuation,
             ...combined,
+            webSearchReceivedResultCount: combined.webSearchAcceptedResultCount
+              + combinedQuarantinedInvalidUrlCount,
+            webSearchAcceptedResultCount: combined.webSearchAcceptedResultCount,
+            webSearchQuarantinedInvalidUrlCount: combinedQuarantinedInvalidUrlCount,
             webSearchExecutedRequestCount: Number.isFinite(
               Number(combinedUsage?.server_tool_use?.web_search_requests)
             )

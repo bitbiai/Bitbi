@@ -693,6 +693,12 @@ export function countFableChatWebSearchBlocks(blocks) {
   return { requestCount: requests.length, resultCount: allResults.length };
 }
 
+export function countFableChatWebSearchSafeResults(blocks) {
+  return normalizeFableChatProviderBlocks(blocks)
+    .filter((block) => block.type === "web_search_tool_result" && Array.isArray(block.content))
+    .reduce((count, block) => count + block.content.length, 0);
+}
+
 export function countFableChatWebFetchBlocks(blocks) {
   const normalized = normalizeFableChatProviderBlocks(blocks);
   const requests = normalized.filter((block) => (

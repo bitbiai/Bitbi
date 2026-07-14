@@ -75,6 +75,10 @@ export async function handleFableChat({ request, env, correlationId, pathname, m
         webSearchRequestCount: output.webSearchRequestCount,
         webSearchExecutedRequestCount: output.webSearchExecutedRequestCount,
         webSearchResultCount: output.webSearchResultCount,
+        webSearchReceivedResultCount: output.webSearchReceivedResultCount,
+        webSearchAcceptedResultCount: output.webSearchAcceptedResultCount,
+        webSearchQuarantinedInvalidUrlCount:
+          output.webSearchQuarantinedInvalidUrlCount,
         webFetchRequestCount: output.webFetchRequestCount,
         webFetchResultCount: output.webFetchResultCount,
         webFetchErrorResultCount: output.webFetchErrorResultCount,

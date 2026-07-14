@@ -22,6 +22,7 @@ import {
   FABLE_CHAT_MAX_SOURCE_URL_CHARACTERS,
   FABLE_CHAT_MAX_TITLE_CHARACTERS,
   FABLE_CHAT_MAX_USER_MESSAGE_CHARACTERS,
+  FABLE_CHAT_MAX_WEB_SEARCH_RESULTS,
   FABLE_CHAT_MODEL_ID,
   FABLE_CHAT_PROMPT_CACHE_POLICY,
   FABLE_CHAT_PROMPT_CACHE_VERSION,
@@ -74,6 +75,7 @@ import {
   extractFableChatCitations,
   extractFableChatReasoningSummary,
   countFableChatWebSearchBlocks,
+  countFableChatWebSearchSafeResults,
   countFableChatWebFetchBlocks,
   normalizeFableChatProviderBlocks,
   projectFableChatProviderReplay,
@@ -111,6 +113,7 @@ export const FABLE_CHAT_SYSTEM_PROMPT = buildFableChatSystemPrompt(
 
 const CONVERSATION_CURSOR_TYPE = "admin_fable_chat_conversations";
 const MESSAGE_CURSOR_TYPE = "admin_fable_chat_messages";
+const FABLE_CHAT_SAFE_TEXT_REPLAY_POLICY = "safe_text_projection";
 const CURSOR_TTL_MS = 24 * 60 * 60_000;
 const TURN_EXPIRY_MINUTES = FABLE_CHAT_TURN_EXPIRY_MINUTES;
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
@@ -2525,7 +2528,9 @@ export async function buildFableChatModelContext(env, {
                WHERE r.message_id IN (um.id, am.id)
             ) THEN NULL ELSE pm.content_blocks_json END AS provider_content_blocks_json,
             json_extract(t.usage_json, '$.output_tokens_details.thinking_tokens')
-              AS recorded_thinking_tokens
+              AS recorded_thinking_tokens,
+            json_extract(am.metadata_json, '$.provider_replay_policy')
+              AS provider_replay_policy
        FROM fable_chat_turns t
        INNER JOIN fable_chat_conversations c ON c.id = t.conversation_id
        INNER JOIN fable_chat_messages um ON um.id = t.user_message_id
@@ -2585,14 +2590,18 @@ export async function buildFableChatModelContext(env, {
       let webReplayPrunedWebFetchPairCount = 0;
       let webReplayPrunedWebFetchEstimatedTokens = 0;
       let projectedNativeTurn = false;
+      const requiresSafeProjection = assistantProviderBlocks
+        && row.provider_replay_policy === FABLE_CHAT_SAFE_TEXT_REPLAY_POLICY;
       const completedBeforeReplayBoundary = Boolean(
         assistantProviderBlocks
         && Number(row.turn_order) <= appliedWebReplay.prunedThroughTurnOrder
         && Number.isFinite(prunedAtMs)
         && Date.parse(row.completed_at || "") <= prunedAtMs
       );
-      const projectCompletedNativeTurn = completedBeforeReplayBoundary
-        && Number(row.turn_order) < appliedWebReplay.prunedThroughTurnOrder;
+      const projectCompletedNativeTurn = requiresSafeProjection || (
+        completedBeforeReplayBoundary
+        && Number(row.turn_order) < appliedWebReplay.prunedThroughTurnOrder
+      );
       if (completedBeforeReplayBoundary || projectCompletedNativeTurn) {
         const projected = projectFableChatProviderReplay({
           providerBlocks: assistantProviderBlocks,
@@ -2751,6 +2760,9 @@ export async function finalizeFableChatTurn(env, turnId, {
   webSearchRequestCount = null,
   webSearchExecutedRequestCount = null,
   webSearchResultCount = null,
+  webSearchReceivedResultCount = null,
+  webSearchAcceptedResultCount = null,
+  webSearchQuarantinedInvalidUrlCount = null,
   webFetchRequestCount = null,
   webFetchResultCount = null,
   webFetchErrorResultCount = null,
@@ -2790,6 +2802,7 @@ export async function finalizeFableChatTurn(env, turnId, {
   const providerBlocksBytes = utf8ByteLength(providerBlocksJson);
   const safeCitations = extractFableChatCitations(privateProviderBlocks);
   const searchCounts = countFableChatWebSearchBlocks(privateProviderBlocks);
+  const safeSearchResultCount = countFableChatWebSearchSafeResults(privateProviderBlocks);
   const fetchCounts = countFableChatWebFetchBlocks(privateProviderBlocks);
   const turn = await readTurnById(env, turnId);
   if (!turn) {
@@ -2809,6 +2822,17 @@ export async function finalizeFableChatTurn(env, turnId, {
   const executedSearchRequestCount = webSearchExecutedRequestCount == null
     ? searchCounts.requestCount
     : Number(webSearchExecutedRequestCount);
+  const acceptedSearchResultCount = webSearchAcceptedResultCount == null
+    ? safeSearchResultCount
+    : Number(webSearchAcceptedResultCount);
+  const quarantinedInvalidUrlCount = webSearchQuarantinedInvalidUrlCount == null
+    ? 0
+    : Number(webSearchQuarantinedInvalidUrlCount);
+  const receivedSearchResultCount = webSearchReceivedResultCount == null
+    ? acceptedSearchResultCount + quarantinedInvalidUrlCount
+    : Number(webSearchReceivedResultCount);
+  const maxSearchResultEntries = FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES
+    * FABLE_CHAT_MAX_WEB_SEARCH_RESULTS;
   const excludedDynamicSearch = readTurnWebSearchContractVersion(turn)
     >= FABLE_CHAT_WEB_SEARCH_CONTRACT_VERSION
     && webSearchConfiguration.effectiveResponseInclusion === "excluded"
@@ -2825,6 +2849,15 @@ export async function finalizeFableChatTurn(env, turnId, {
     || (!turn.web_search_enabled && executedSearchRequestCount > 0)
     || (webSearchRequestCount != null && Number(webSearchRequestCount) !== searchCounts.requestCount)
     || (webSearchResultCount != null && Number(webSearchResultCount) !== searchCounts.resultCount)
+    || !Number.isInteger(acceptedSearchResultCount)
+    || acceptedSearchResultCount !== safeSearchResultCount
+    || !Number.isInteger(quarantinedInvalidUrlCount)
+    || quarantinedInvalidUrlCount < 0
+    || !Number.isInteger(receivedSearchResultCount)
+    || receivedSearchResultCount !== acceptedSearchResultCount + quarantinedInvalidUrlCount
+    || receivedSearchResultCount > maxSearchResultEntries
+    || (quarantinedInvalidUrlCount > 0
+      && (searchCounts.requestCount === 0 || searchCounts.resultCount === 0))
     || (!excludedDynamicSearch && executedSearchRequestCount !== searchCounts.requestCount)
   ) {
     throw new FableChatError("Assistant web-search metadata is invalid.", {
@@ -2933,7 +2966,15 @@ export async function finalizeFableChatTurn(env, turnId, {
       Number(userMessage.turn_order),
       content,
       FABLE_CHAT_MODEL_ID,
-      JSON.stringify({ output_truncated: outputTruncated }),
+      JSON.stringify({
+        output_truncated: outputTruncated,
+        ...(quarantinedInvalidUrlCount > 0 ? {
+          provider_replay_policy: FABLE_CHAT_SAFE_TEXT_REPLAY_POLICY,
+          web_search_received_result_count: receivedSearchResultCount,
+          web_search_accepted_result_count: acceptedSearchResultCount,
+          web_search_quarantined_invalid_url_count: quarantinedInvalidUrlCount,
+        } : {}),
+      }),
       reasoningSummary,
       JSON.stringify(safeCitations),
       completedAt,

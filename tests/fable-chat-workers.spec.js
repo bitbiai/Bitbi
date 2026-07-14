@@ -288,6 +288,86 @@ function providerSseStream({
   });
 }
 
+function providerWebSearchSseStream() {
+  const toolId = 'srvtoolu_quarantine1234';
+  const invalidUrl = 'http://unsafe.invalid/quarantined-result';
+  const events = [
+    {
+      type: 'message_start',
+      message: { model: 'claude-fable-5', usage: { input_tokens: 120 } },
+    },
+    {
+      type: 'content_block_start', index: 0,
+      content_block: { type: 'thinking', thinking: 'Synthetic summary', signature: 'opaque-safe-signature' },
+    },
+    { type: 'content_block_stop', index: 0 },
+    {
+      type: 'content_block_start', index: 1,
+      content_block: {
+        type: 'server_tool_use', id: toolId, name: 'web_search',
+        input: { query: 'synthetic query' }, caller: { type: 'direct' },
+      },
+    },
+    { type: 'content_block_stop', index: 1 },
+    {
+      type: 'content_block_start', index: 2,
+      content_block: {
+        type: 'web_search_tool_result', tool_use_id: toolId, caller: { type: 'direct' },
+        content: [
+          {
+            type: 'web_search_result', url: 'https://example.test/safe-one',
+            title: 'Safe one', encrypted_content: 'opaque-safe-one', page_age: null,
+          },
+          {
+            type: 'web_search_result', url: invalidUrl,
+            title: 'Unsafe result', encrypted_content: 'opaque-unsafe-result', page_age: null,
+          },
+          {
+            type: 'web_search_result', url: 'https://example.test/safe-two',
+            title: 'Safe two', encrypted_content: 'opaque-safe-two', page_age: null,
+          },
+        ],
+      },
+    },
+    { type: 'content_block_stop', index: 2 },
+    {
+      type: 'content_block_start', index: 3,
+      content_block: {
+        type: 'text', text: 'Safe searched answer', citations: [
+          {
+            type: 'web_search_result_location', url: 'https://example.test/safe-one',
+            title: 'Safe one', encrypted_index: 'safe-index-one', cited_text: 'safe excerpt one',
+          },
+          {
+            type: 'web_search_result_location', url: 'https://example.test/safe-two',
+            title: 'Safe two', encrypted_index: 'safe-index-two', cited_text: 'safe excerpt two',
+          },
+        ],
+      },
+    },
+    { type: 'content_block_stop', index: 3 },
+    {
+      type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null },
+      usage: { output_tokens: 30, server_tool_use: { web_search_requests: 1 } },
+    },
+    { type: 'message_stop' },
+  ];
+  const encoded = new TextEncoder().encode(events.map((event) => (
+    `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
+  )).join(''));
+  return {
+    invalidUrl,
+    stream: new ReadableStream({
+      start(controller) {
+        const splitAt = Math.floor(encoded.byteLength / 2);
+        controller.enqueue(encoded.slice(0, splitAt));
+        controller.enqueue(encoded.slice(splitAt));
+        controller.close();
+      },
+    }),
+  };
+}
+
 function parseApplicationSse(value) {
   return String(value || '').split(/\r?\n\r?\n/).filter(Boolean).map((frame) => {
     const event = frame.split(/\r?\n/).find((line) => line.startsWith('event: '))?.slice(7);
@@ -3549,6 +3629,160 @@ test.describe('Private admin Fable chat', () => {
       expect(settingsConflict.status).toBe(409);
       expect((await settingsConflict.json()).code).toBe('idempotency_conflict');
       expect(runCalls).toHaveLength(2);
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('invalid Web Search result URLs are quarantined and the completed turn is replayed only as a whole safe projection', async () => {
+    const aiWorker = await loadWorker('workers/ai/src/index.js');
+    const runCalls = [];
+    let quarantinedUrl;
+    const aiEnv = {
+      AI_SERVICE_AUTH_SECRET: 'test-ai-service-auth-secret-v1-32chars',
+      AI_GATEWAY_ID: 'advanced-fable-test-gateway',
+      SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+      AI: {
+        async run(...args) {
+          runCalls.push(args);
+          if (runCalls.length === 1) {
+            const fixture = providerWebSearchSseStream();
+            quarantinedUrl = fixture.invalidUrl;
+            return fixture.stream;
+          }
+          return providerSseStream({
+            answer: 'Follow-up answer',
+            reasoningSummary: 'Follow-up summary',
+            signature: 'opaque-follow-up-signature',
+          });
+        },
+      },
+    };
+    const { env, DB, activityQueue } = await createFableChatSqliteEnv({
+      provider: async ({ request }) => aiWorker.fetch(
+        request,
+        aiEnv,
+        createExecutionContext().execCtx
+      ),
+    });
+    const worker = await loadWorker('workers/auth/src/index.js');
+    try {
+      const admin = await seedFableChatActor(env, {
+        id: 'admin-fable-search-quarantine',
+        email: 'search-quarantine@example.com',
+      });
+      const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      const enabled = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/settings`,
+        { method: 'PATCH', cookie: admin.cookie, body: { webSearchEnabled: true } }
+      );
+      expect(enabled.status).toBe(200);
+
+      const firstMessage = 'Use the synthetic Web Search fixture.';
+      const first = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages/stream`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'search-quarantine-key-0001',
+          body: { message: firstMessage },
+        }
+      );
+      expect(first.status).toBe(200);
+      const firstEvents = parseApplicationSse(await first.text());
+      const firstFinal = firstEvents.find(({ event }) => event === 'final').data;
+      const firstAssistant = firstFinal.messages.find(({ role }) => role === 'assistant');
+      expect(firstAssistant).toMatchObject({
+        content: 'Safe searched answer',
+        sources: [
+          { title: 'Safe one', url: 'https://example.test/safe-one' },
+          { title: 'Safe two', url: 'https://example.test/safe-two' },
+        ],
+      });
+      expect(firstFinal.turn).toMatchObject({
+        status: 'succeeded',
+        webSearchRequestCount: 1,
+        webSearchResultCount: 1,
+      });
+
+      const stored = DB.database.prepare(
+        `SELECT am.metadata_json, am.citations_json, pm.content_blocks_json
+           FROM fable_chat_turns t
+           INNER JOIN fable_chat_messages am ON am.id = t.assistant_message_id
+           INNER JOIN fable_chat_provider_messages pm ON pm.message_id = am.id
+          WHERE t.conversation_id = ? AND t.status = 'succeeded'
+          ORDER BY t.created_at LIMIT 1`
+      ).get(conversation.id);
+      expect(JSON.parse(stored.metadata_json)).toMatchObject({
+        provider_replay_policy: 'safe_text_projection',
+        web_search_received_result_count: 3,
+        web_search_accepted_result_count: 2,
+        web_search_quarantined_invalid_url_count: 1,
+      });
+      expect(JSON.parse(stored.citations_json)).toHaveLength(2);
+      const privateBlocks = JSON.parse(stored.content_blocks_json);
+      expect(privateBlocks.find((block) => block.type === 'web_search_tool_result').content)
+        .toHaveLength(2);
+
+      const second = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages/stream`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'search-quarantine-key-0002',
+          body: { message: 'Continue from the safe completed answer.' },
+        }
+      );
+      expect(second.status).toBe(200);
+      const secondEvents = parseApplicationSse(await second.text());
+      expect(secondEvents.find(({ event }) => event === 'final').data.turn.status).toBe('succeeded');
+      expect(runCalls).toHaveLength(2);
+      const replayedAssistant = runCalls[1][1].messages.find(({ role }) => role === 'assistant');
+      expect(replayedAssistant.content).toHaveLength(1);
+      expect(replayedAssistant.content[0].type).toBe('text');
+      expect(replayedAssistant.content[0].text).toContain('Safe searched answer');
+      expect(JSON.stringify(replayedAssistant)).not.toContain('thinking');
+      expect(JSON.stringify(replayedAssistant)).not.toContain('server_tool_use');
+      expect(JSON.stringify(replayedAssistant)).not.toContain('web_search_tool_result');
+
+      const replay = await callFableAuthWorker(
+        worker,
+        env,
+        `/api/admin/fable-chat/conversations/${conversation.id}/messages/stream`,
+        {
+          method: 'POST',
+          cookie: admin.cookie,
+          idempotencyKey: 'search-quarantine-key-0001',
+          body: { message: firstMessage },
+        }
+      );
+      expect(replay.status).toBe(200);
+      expect(parseApplicationSse(await replay.text()).at(-1).data.idempotentReplay).toBe(true);
+      expect(runCalls).toHaveLength(2);
+      expect(DB.database.prepare(
+        'SELECT COUNT(*) AS count FROM fable_chat_messages WHERE conversation_id = ? AND role = ?'
+      ).get(conversation.id, 'assistant').count).toBe(2);
+      expect(DB.database.prepare(
+        'SELECT COUNT(*) AS count FROM fable_chat_provider_messages WHERE conversation_id = ?'
+      ).get(conversation.id).count).toBe(2);
+      expect(DB.database.prepare(
+        "SELECT COUNT(*) AS count FROM platform_budget_usage_events WHERE operation_key = 'admin.fable_chat.send'"
+      ).get().count).toBe(2);
+
+      const safeSurfaces = JSON.stringify({
+        firstFinal,
+        stored,
+        replayedAssistant,
+        activity: activityQueue.messages,
+      });
+      expect(safeSurfaces).not.toContain(quarantinedUrl);
+      expect(safeSurfaces).not.toContain('opaque-unsafe-result');
     } finally {
       DB.close();
     }

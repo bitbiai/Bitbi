@@ -1,8 +1,10 @@
 import {
   FABLE_CHAT_MAX_PROVIDER_BLOCKS,
   FABLE_CHAT_MAX_PROVIDER_BLOCKS_JSON_BYTES,
+  FABLE_CHAT_MAX_WEB_SEARCH_RESULTS,
   FABLE_CHAT_MAX_TEXT_OUTPUT_BYTES,
   FABLE_CHAT_MAX_THINKING_SUMMARY_BYTES,
+  FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
 } from "../../../shared/fable-chat-contract.mjs";
 
 const ENCODER = new TextEncoder();
@@ -208,6 +210,10 @@ function normalizeAiTerminalWitness(value) {
     FABLE_CHAT_MAX_PROVIDER_BLOCKS,
     Math.max(0, Number.isInteger(entry) ? entry : 0)
   );
+  const resultCount = (entry) => Math.min(
+    FABLE_CHAT_MAX_WEB_SEARCH_RESULTS * FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
+    Math.max(0, Number.isInteger(entry) ? entry : 0)
+  );
   const bucket = (entry) => typeof entry === "string" && /^((le|gt)_\d+)$/.test(entry)
     ? entry.slice(0, 16)
     : "le_0";
@@ -233,6 +239,11 @@ function normalizeAiTerminalWitness(value) {
     complete_internal_constructed: value.complete_internal_constructed === true,
     complete_internal_emitted: value.complete_internal_emitted === true,
     parser_error_code: value.parser_error_code == null ? null : safeStreamErrorCode(value.parser_error_code),
+    web_search_received_result_count: resultCount(value.web_search_received_result_count),
+    web_search_accepted_result_count: resultCount(value.web_search_accepted_result_count),
+    web_search_quarantined_invalid_url_count: resultCount(
+      value.web_search_quarantined_invalid_url_count
+    ),
     elapsed_ms_bucket: bucket(value.elapsed_ms_bucket),
     final_idle_duration_ms_bucket: bucket(value.final_idle_duration_ms_bucket),
     normalized_event_count_bucket: bucket(value.normalized_event_count_bucket),

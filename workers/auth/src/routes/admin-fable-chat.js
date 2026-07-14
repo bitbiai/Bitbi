@@ -772,6 +772,10 @@ async function handleSend(ctx, adminUser, conversationId) {
       webSearchRequestCount: providerBody?.result?.webSearchRequestCount,
       webSearchExecutedRequestCount: providerBody?.result?.webSearchExecutedRequestCount,
       webSearchResultCount: providerBody?.result?.webSearchResultCount,
+      webSearchReceivedResultCount: providerBody?.result?.webSearchReceivedResultCount,
+      webSearchAcceptedResultCount: providerBody?.result?.webSearchAcceptedResultCount,
+      webSearchQuarantinedInvalidUrlCount:
+        providerBody?.result?.webSearchQuarantinedInvalidUrlCount,
       webFetchRequestCount: providerBody?.result?.webFetchRequestCount,
       webFetchResultCount: providerBody?.result?.webFetchResultCount,
       webFetchErrorResultCount: providerBody?.result?.webFetchErrorResultCount,
@@ -922,6 +926,10 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             webSearchRequestCount: complete.webSearchRequestCount,
             webSearchExecutedRequestCount: complete.webSearchExecutedRequestCount,
             webSearchResultCount: complete.webSearchResultCount,
+            webSearchReceivedResultCount: complete.webSearchReceivedResultCount,
+            webSearchAcceptedResultCount: complete.webSearchAcceptedResultCount,
+            webSearchQuarantinedInvalidUrlCount:
+              complete.webSearchQuarantinedInvalidUrlCount,
             webFetchRequestCount: complete.webFetchRequestCount,
             webFetchResultCount: complete.webFetchResultCount,
             webFetchErrorResultCount: complete.webFetchErrorResultCount,

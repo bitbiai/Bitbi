@@ -791,6 +791,7 @@ export async function invokeText(env, model, input) {
   const { payload, runOptions } = buildTextInvocation(env, model, input);
 
   let raw;
+  let accumulatedQuarantinedInvalidUrlCount = 0;
   try {
     raw = await runWithGenerationTimeout(() => (
       runOptions
@@ -820,6 +821,8 @@ export async function invokeText(env, model, input) {
           allowExcludedSearchResults: input.webSearchEffectiveResponseInclusion === "excluded",
         });
         accumulatedBlocks = [...accumulatedBlocks, ...paused.providerBlocks];
+        accumulatedQuarantinedInvalidUrlCount +=
+          paused.webSearchQuarantinedInvalidUrlCount;
         extractAnthropicVisibleResult(accumulatedBlocks, {
           allowMissingText: true,
           maxWebSearchUses: input.webSearchEnabled === true ? input.webSearchMaxUses : 0,
@@ -878,13 +881,23 @@ export async function invokeText(env, model, input) {
     throw new Error("Model returned no text output.");
   }
 
-  const preserved = isAnthropic && input.preserveAnthropicContent === true
-      ? extractAnthropicVisibleResult(raw?.content, {
+  const preservedResult = isAnthropic && input.preserveAnthropicContent === true
+    ? extractAnthropicVisibleResult(raw?.content, {
         maxWebSearchUses: input.webSearchEnabled === true ? input.webSearchMaxUses : 0,
         maxWebFetchUses: input.webFetchEnabled === true ? input.webFetchMaxUses : 0,
         allowDynamicSearch: ["dynamic", "both"].includes(input.webSearchCallerMode),
         allowExcludedSearchResults: input.webSearchEffectiveResponseInclusion === "excluded",
       })
+    : null;
+  const preserved = preservedResult
+    ? {
+      ...preservedResult,
+      webSearchReceivedResultCount: preservedResult.webSearchReceivedResultCount
+        + accumulatedQuarantinedInvalidUrlCount,
+      webSearchQuarantinedInvalidUrlCount:
+        preservedResult.webSearchQuarantinedInvalidUrlCount
+        + accumulatedQuarantinedInvalidUrlCount,
+    }
     : null;
   if (preserved && preserved.text !== text) {
     throw new Error("Model returned inconsistent text content.");
@@ -912,6 +925,10 @@ export async function invokeText(env, model, input) {
         ? Number(usage.server_tool_use.web_search_requests)
         : preserved.webSearchRequestCount,
       webSearchResultCount: preserved.webSearchResultCount,
+      webSearchReceivedResultCount: preserved.webSearchReceivedResultCount,
+      webSearchAcceptedResultCount: preserved.webSearchAcceptedResultCount,
+      webSearchQuarantinedInvalidUrlCount:
+        preserved.webSearchQuarantinedInvalidUrlCount,
       webFetchRequestCount: preserved.webFetchRequestCount,
       webFetchResultCount: preserved.webFetchResultCount,
       webFetchErrorResultCount: preserved.webFetchErrorResultCount,

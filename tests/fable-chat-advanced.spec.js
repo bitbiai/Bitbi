@@ -2156,7 +2156,7 @@ test.describe('Advanced Fable chat contract', () => {
     );
     invalidResult.data.content_block.content[0] = {
       ...invalidResult.data.content_block.content[0],
-      url: 'http://private.invalid/private-url-marker',
+      unsupported_private_field: 'private-shape-marker',
       title: 'private-title-marker',
       encrypted_content: 'private-result-marker',
     };
@@ -2164,7 +2164,7 @@ test.describe('Advanced Fable chat contract', () => {
       encodeSseEvents(invalidEvents),
     ]));
     expect(invalidSearchResult.error).toMatchObject({
-      code: 'provider_stream_interrupted',
+      code: 'provider_invalid_web_search_structure',
       outcome: 'unknown',
     });
     expect(invalidSearchResult.witness).toMatchObject({
@@ -2176,7 +2176,7 @@ test.describe('Advanced Fable chat contract', () => {
       web_search_result_validation_started_count: 1,
       web_search_result_validation_succeeded_count: 0,
       web_search_result_validation_failed_count: 1,
-      web_search_result_rejection_category: 'invalid_result_url',
+      web_search_result_rejection_category: 'invalid_result_shape',
       complete_internal_emitted: false,
     });
 
@@ -2204,13 +2204,150 @@ test.describe('Advanced Fable chat contract', () => {
     ]);
     for (const privateValue of [
       privateReaderMarker,
-      'private-url-marker',
+      'private-shape-marker',
       'private-title-marker',
       'private-result-marker',
       'private-raw-sse-marker',
     ]) {
       expect(diagnostics).not.toContain(privateValue);
     }
+  });
+
+  test('quarantines one invalid Web Search result URL and completes with safe results only', async () => {
+    const aiStream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const authStream = await import(moduleUrl('workers/auth/src/lib/fable-chat-stream.js'));
+    const context = await import(moduleUrl('workers/auth/src/lib/fable-chat-context.js'));
+    const invalidUrl = 'http://unsafe.invalid/private-result';
+    const events = webSearchProviderEvents();
+    const resultEvent = events.find(
+      ({ data }) => data?.content_block?.type === 'web_search_tool_result'
+    );
+    const first = resultEvent.data.content_block.content[0];
+    resultEvent.data.content_block.content = [
+      first,
+      {
+        type: 'web_search_result',
+        url: invalidUrl,
+        title: 'Quarantined synthetic result',
+        encrypted_content: 'quarantined-encrypted-content',
+        page_age: null,
+      },
+      {
+        type: 'web_search_result',
+        url: 'https://example.test/second-safe-result',
+        title: 'Second safe result',
+        encrypted_content: 'second-safe-encrypted-content',
+        page_age: null,
+      },
+    ];
+    const textStopIndex = events.findIndex(({ data }) => (
+      data?.type === 'content_block_stop' && data.index === 2
+    ));
+    events.splice(textStopIndex, 0, {
+      event: 'content_block_delta',
+      data: {
+        type: 'content_block_delta',
+        index: 2,
+        delta: {
+          type: 'citations_delta',
+          citation: {
+            type: 'web_search_result_location',
+            url: 'https://example.test/second-safe-result',
+            title: 'Second safe result',
+            encrypted_index: 'second-safe-index',
+            cited_text: 'second safe excerpt',
+          },
+        },
+      },
+    });
+
+    const witnesses = [];
+    const internal = aiStream.createInternalFableChatStream(byteStream([
+      encodeSseEvents(events),
+    ]), {
+      maxWebSearchUses: 3,
+      onTerminalWitness: (witness) => witnesses.push(witness),
+    });
+    const complete = await authStream.consumeInternalFableChatStream(internal);
+    const privateSearchBlock = complete.providerBlocks.find(
+      (block) => block.type === 'web_search_tool_result'
+    );
+
+    expect(complete).toMatchObject({
+      stopReason: 'end_turn',
+      webSearchReceivedResultCount: 3,
+      webSearchAcceptedResultCount: 2,
+      webSearchQuarantinedInvalidUrlCount: 1,
+      webSearchRequestCount: 1,
+      webSearchResultCount: 1,
+    });
+    expect(privateSearchBlock.content).toHaveLength(2);
+    expect(complete.sources).toEqual([
+      expect.objectContaining({ url: 'https://www.cloudflare.com/' }),
+      expect.objectContaining({ url: 'https://example.test/second-safe-result' }),
+    ]);
+    expect(witnesses).toHaveLength(1);
+    expect(witnesses[0]).toMatchObject({
+      termination_phase: 'complete_internal',
+      message_delta_seen: true,
+      message_stop_seen: true,
+      complete_internal_constructed: true,
+      complete_internal_emitted: true,
+      stream_boundary_category: 'provider_web_search_result_quarantined',
+      web_search_received_result_count: 3,
+      web_search_accepted_result_count: 2,
+      web_search_quarantined_invalid_url_count: 1,
+    });
+
+    const projected = context.projectFableChatProviderReplay({
+      providerBlocks: complete.providerBlocks,
+      assistantContent: complete.text,
+      citations: complete.sources,
+      projectCompletedNativeTurn: true,
+    });
+    expect(projected.projectedNativeTurn).toBe(true);
+    expect(projected.blocks).toHaveLength(1);
+    const safeRepresentations = JSON.stringify({
+      complete,
+      witness: witnesses[0],
+      projected: projected.blocks,
+    });
+    expect(safeRepresentations).not.toContain(invalidUrl);
+    expect(safeRepresentations).not.toContain('quarantined-encrypted-content');
+
+    const allInvalidEvents = webSearchProviderEvents();
+    const allInvalidResult = allInvalidEvents.find(
+      ({ data }) => data?.content_block?.type === 'web_search_tool_result'
+    );
+    allInvalidResult.data.content_block.content = [
+      { ...first, url: 'http://unsafe.invalid/one' },
+      { ...first, url: 'data:text/plain,unsafe' },
+    ];
+    const withoutCitations = allInvalidEvents.filter(
+      ({ data }) => data?.delta?.type !== 'citations_delta'
+    );
+    const allInvalid = await aiStream.consumeAnthropicMessageStream(byteStream([
+      encodeSseEvents(withoutCitations),
+    ]), {}, { maxWebSearchUses: 3 });
+    expect(allInvalid.text).toBe('Cloudflare builds for the agent era.');
+    expect(allInvalid.webSearchAcceptedResultCount).toBe(0);
+    expect(allInvalid.webSearchQuarantinedInvalidUrlCount).toBe(2);
+    expect(allInvalid.sources).toEqual([]);
+
+    const structurallyUnsafeEvents = webSearchProviderEvents();
+    const structurallyUnsafeResult = structurallyUnsafeEvents.find(
+      ({ data }) => data?.content_block?.type === 'web_search_tool_result'
+    );
+    structurallyUnsafeResult.data.content_block.content[0] = {
+      ...first,
+      url: 'http://unsafe.invalid/also-has-an-oversized-title',
+      title: 'x'.repeat(513),
+    };
+    await expect(aiStream.consumeAnthropicMessageStream(byteStream([
+      encodeSseEvents(structurallyUnsafeEvents),
+    ]), {}, { maxWebSearchUses: 3 })).rejects.toMatchObject({
+      code: 'provider_invalid_web_search_structure',
+    });
   });
 
   test('a valid 48-block terminal stream with 10 searches and split Unicode constructs complete_internal once', async () => {
