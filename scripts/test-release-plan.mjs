@@ -157,10 +157,15 @@ function createContext() {
 
 {
   const plan = createReleasePlanFromRepo(repoRoot, {
-    files: ["playwright.config.js", "playwright.workers.config.js"],
+    files: [
+      "playwright.config.js",
+      "playwright.carousel.config.js",
+      "playwright.workers.config.js",
+    ],
   });
   assert.equal(plan.deploySteps.length, 0);
   assert.deepEqual(plan.impacts.validationOnlyFiles, [
+    "playwright.carousel.config.js",
     "playwright.config.js",
     "playwright.workers.config.js",
   ]);

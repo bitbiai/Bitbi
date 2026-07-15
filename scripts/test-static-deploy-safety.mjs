@@ -94,6 +94,22 @@ function writeJsonFixture(name, value) {
 }
 
 {
+  const { plan, safety } = safetyFor([
+    "css/pages/index.css",
+    "playwright.carousel.config.js",
+  ]);
+  assert.equal(plan.impacts.static.required, true);
+  assert.deepEqual(plan.impacts.validationOnlyFiles, ["playwright.carousel.config.js"]);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.equal(safety.ok, true);
+  assert.equal(safety.allowed, true);
+  assert.equal(safety.mode, "static_only");
+  assert.equal(safety.staticRequired, true);
+  assert.equal(safety.acknowledgementAccepted, false);
+  assert.equal(safety.bypassedByAcknowledgement, false);
+}
+
+{
   const { safety } = safetyFor(["workers/auth/src/index.js", "admin/index.html"]);
   assert.equal(safety.ok, false);
   assert.equal(safety.skipped, false);

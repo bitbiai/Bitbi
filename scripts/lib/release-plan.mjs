@@ -162,6 +162,7 @@ function isValidationOnlyPath(relativePath) {
     || normalized === "package.json"
     || normalized === "package-lock.json"
     || normalized === "playwright.config.js"
+    || normalized === "playwright.carousel.config.js"
     || normalized === "playwright.workers.config.js"
     || normalized === ".nvmrc"
     || normalized === ".node-version"
