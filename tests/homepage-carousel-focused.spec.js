@@ -747,6 +747,101 @@ test.describe('Populated homepage carousel', () => {
     expect(stableNarrowToken).toBe(narrowGallery.token);
   });
 
+  test('uses transform-invariant wall geometry and recovers a pending zero-width layout', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    const initial = await page.evaluate(async () => {
+      const {
+        calculateFixedMediaWallMetrics,
+        renderFixedMediaWallColumns,
+      } = await import('/js/pages/index/public-media-wall.js?v=__ASSET_VERSION__');
+      const host = document.createElement('div');
+      host.id = 'mediaWallGeometryFixture';
+      host.style.cssText = 'display:none;width:1395px;padding:0;';
+      const grid = document.createElement('div');
+      grid.id = 'mediaWallGeometryGrid';
+      grid.style.cssText = 'display:grid;width:100%;column-gap:2px;';
+      grid.style.setProperty('--fixture-column-width', '297px');
+      const cards = Array.from({ length: 5 }, (_, index) => {
+        const card = document.createElement('div');
+        card.dataset.fixtureCard = String(index);
+        card.style.cssText = 'height:200px;';
+        card.style.setProperty('--fixture-aspect', '1.4');
+        return card;
+      });
+      host.appendChild(grid);
+      document.body.appendChild(host);
+      const options = {
+        countProperty: '--fixture-column-count',
+        targetWidthProperty: '--fixture-column-width',
+        fallbackColumnWidth: 297,
+        aspectProperty: '--fixture-aspect',
+        fallbackAspectRatio: 1.4,
+        contentSignature: 'fixture-v1',
+      };
+      renderFixedMediaWallColumns(grid, cards, options);
+      const hidden = {
+        ready: grid.dataset.mediaWallReady,
+        width: grid.dataset.mediaWallAvailableWidth || '',
+        columns: grid.querySelectorAll(':scope > .public-media-wall__column').length,
+      };
+      host.style.display = 'block';
+      const beforeTransform = calculateFixedMediaWallMetrics(grid, {
+        targetWidthProperty: '--fixture-column-width',
+        fallbackColumnWidth: 297,
+        itemCount: cards.length,
+      });
+      host.style.transform = 'translate3d(180px, 0, 0) rotateY(14deg) scale(0.72)';
+      const duringTransform = calculateFixedMediaWallMetrics(grid, {
+        targetWidthProperty: '--fixture-column-width',
+        fallbackColumnWidth: 297,
+        itemCount: cards.length,
+      });
+      renderFixedMediaWallColumns(grid, cards, options);
+      const renderToken = grid.dataset.mediaWallRenderToken;
+      host.style.visibility = 'hidden';
+      return {
+        hidden,
+        beforeTransform,
+        duringTransform,
+        renderToken,
+      };
+    });
+
+    expect(initial.hidden).toEqual({ ready: 'false', width: '', columns: 0 });
+    expect(initial.duringTransform.availableWidthPx).toBe(initial.beforeTransform.availableWidthPx);
+    expect(initial.duringTransform.resolvedWidthPx).toBe(initial.beforeTransform.resolvedWidthPx);
+    expect(initial.duringTransform.columnCount).toBe(initial.beforeTransform.columnCount);
+    await page.waitForTimeout(100);
+    await expect(page.locator('#mediaWallGeometryGrid')).toHaveAttribute('data-media-wall-ready', 'false');
+
+    const recovery = await page.evaluate(async () => {
+      const { renderFixedMediaWallColumns } = await import('/js/pages/index/public-media-wall.js?v=__ASSET_VERSION__');
+      const host = document.getElementById('mediaWallGeometryFixture');
+      const grid = document.getElementById('mediaWallGeometryGrid');
+      const cards = Array.from(grid.querySelectorAll('[data-fixture-card]'))
+        .sort((left, right) => Number(left.dataset.fixtureCard) - Number(right.dataset.fixtureCard));
+      host.style.visibility = 'visible';
+      renderFixedMediaWallColumns(grid, cards, {
+        countProperty: '--fixture-column-count',
+        targetWidthProperty: '--fixture-column-width',
+        fallbackColumnWidth: 297,
+        aspectProperty: '--fixture-aspect',
+        fallbackAspectRatio: 1.4,
+        contentSignature: 'fixture-v1',
+      });
+      return {
+        renderToken: grid.dataset.mediaWallRenderToken,
+        columns: grid.querySelectorAll(':scope > .public-media-wall__column').length,
+        width: Number(grid.dataset.mediaWallAvailableWidth || 0),
+      };
+    });
+    expect(recovery.renderToken).toBe(initial.renderToken);
+    expect(recovery.columns).toBeGreaterThan(1);
+    expect(recovery.width).toBe(1395);
+    await expect(page.locator('#mediaWallGeometryGrid')).toHaveAttribute('data-media-wall-ready', 'true');
+  });
+
   test('ignores transient zero width and preserves reduced-motion, mobile, and localized layouts', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.setViewportSize({ width: 1440, height: 900 });

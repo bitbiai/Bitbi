@@ -52,14 +52,29 @@ export function getStableMediaWallAvailableWidth(grid) {
     const widths = [];
     for (const container of stableContainers) {
         const style = window.getComputedStyle(container);
-        const rect = container.getBoundingClientRect();
-        if (style.display === 'none' || style.visibility === 'hidden' || rect.width <= 0) {
+        if (style.display === 'none' || style.visibility === 'hidden') {
             continue;
         }
-        if (finiteViewportWidth > 0 && rect.width > finiteViewportWidth + 1) {
+        const clientWidth = Number(container.clientWidth) || 0;
+        const offsetWidth = Number(container.offsetWidth) || 0;
+        const computedWidth = Number.parseFloat(style.width) || 0;
+        const hasLayoutBox = container.getClientRects?.().length > 0;
+        const paddingWidth = (Number.parseFloat(style.paddingInlineStart) || 0)
+            + (Number.parseFloat(style.paddingInlineEnd) || 0);
+        const layoutWidth = clientWidth > 0
+            ? clientWidth
+            : offsetWidth > 0
+                ? offsetWidth
+                : hasLayoutBox && computedWidth > 0
+                    ? computedWidth + (style.boxSizing === 'content-box' ? paddingWidth : 0)
+                    : 0;
+        if (layoutWidth <= 0) {
             continue;
         }
-        widths.push(rect.width);
+        if (finiteViewportWidth > 0 && layoutWidth > finiteViewportWidth + 1) {
+            continue;
+        }
+        widths.push(layoutWidth);
     }
 
     if (widths.length) return Math.min(...widths);
@@ -210,10 +225,11 @@ function metricsChanged(previous, next) {
         || Number(previous?.columnCount || 0) !== Number(next?.columnCount || 0);
 }
 
-function visibleRects(nodes) {
+function visibleLayoutWidths(nodes) {
     return nodes
         .filter((node) => node?.offsetParent !== null)
-        .map((node) => node.getBoundingClientRect());
+        .map((node) => Number(node.clientWidth) || Number(node.offsetWidth) || 0)
+        .filter((width) => width > 0);
 }
 
 function validateRenderedLayout(grid, cards, metrics, {
@@ -238,12 +254,12 @@ function validateRenderedLayout(grid, cards, metrics, {
     }
 
     const expectedWidth = currentMetrics.resolvedWidthPx;
-    const cardRects = visibleRects(cards);
-    const columnRects = visibleRects(Array.from(grid.querySelectorAll('.public-media-wall__column')));
+    const cardWidths = visibleLayoutWidths(cards);
+    const columnWidths = visibleLayoutWidths(Array.from(grid.querySelectorAll('.public-media-wall__column')));
     const cardsReady = !cards.length
-        || (cardRects.length === cards.length && cardRects.every((rect) => Math.abs(rect.width - expectedWidth) <= 2));
+        || (cardWidths.length === cards.length && cardWidths.every((width) => Math.abs(width - expectedWidth) <= 2));
     const columnsReady = !cards.length
-        || (columnRects.length === currentMetrics.columnCount && columnRects.every((rect) => Math.abs(rect.width - expectedWidth) <= 2));
+        || (columnWidths.length === currentMetrics.columnCount && columnWidths.every((width) => Math.abs(width - expectedWidth) <= 2));
     return {
         ready: cardsReady && columnsReady,
         stale: false,
@@ -384,6 +400,30 @@ function sameCardSequence(previousCards, nextCards) {
         && previousCards.every((card, index) => card === nextCards[index]);
 }
 
+function hasActiveValidation(state) {
+    return !!(
+        state?.validationTimer
+        || state?.validationFrame
+        || state?.validationNestedFrame
+    );
+}
+
+function clearStoredLayoutMetrics(grid, countProperty) {
+    if (countProperty) grid.style.removeProperty(countProperty);
+    grid.style.removeProperty('--bitbi-public-media-wall-base-column-width');
+    grid.style.removeProperty('--bitbi-public-media-wall-resolved-column-width');
+    grid.style.gridTemplateColumns = '';
+    delete grid.dataset.mediaWallAvailableWidth;
+    delete grid.dataset.mediaWallColumnCount;
+    delete grid.dataset.mediaWallBaseWidth;
+    delete grid.dataset.mediaWallResolvedWidth;
+    delete grid.dataset.mediaWallGap;
+    delete grid.dataset.mediaWallCapacity;
+    delete grid.dataset.mediaWallItemCount;
+    delete grid.dataset.publicMediaWallWidthPx;
+    delete grid.dataset.publicMediaWallColumnCount;
+}
+
 export function renderFixedMediaWallColumns(grid, cards, {
     countProperty,
     targetWidthProperty,
@@ -404,17 +444,30 @@ export function renderFixedMediaWallColumns(grid, cards, {
     });
     const previousState = MEDIA_WALL_LAYOUT_STATE.get(grid);
     if (!metrics.availableWidthPx) {
-        cancelReadyValidation(previousState);
         const cardsAlreadyMounted = safeCards.every((card) => grid.contains(card));
-        const cachedCardsChanged = previousState
-            && !sameCardSequence(previousState.cards, safeCards);
-        if (cachedCardsChanged || !cardsAlreadyMounted) {
-            grid.replaceChildren(...safeCards);
-            setReadyState(grid, false);
-        } else if (!previousState) {
-            setReadyState(grid, false);
+        const sameCards = sameCardSequence(previousState?.cards, safeCards);
+        if (previousState?.ready && sameCards && cardsAlreadyMounted) {
+            return previousState.columnCount || metrics.columnCount;
         }
-        return previousState?.columnCount || metrics.columnCount;
+        cancelReadyValidation(previousState);
+        if (!sameCards || !cardsAlreadyMounted) {
+            grid.replaceChildren(...safeCards);
+        }
+        clearStoredLayoutMetrics(grid, countProperty);
+        const pendingState = {
+            layoutSignature: '',
+            contentSignature: String(contentSignature || ''),
+            cards: safeCards.slice(),
+            columnCount: previousState?.columnCount || metrics.columnCount,
+            ready: false,
+            pending: true,
+            validationTimer: 0,
+            validationFrame: 0,
+            validationNestedFrame: 0,
+        };
+        MEDIA_WALL_LAYOUT_STATE.set(grid, pendingState);
+        setReadyState(grid, false);
+        return pendingState.columnCount;
     }
     const layoutSignature = createLayoutSignature(metrics, {
         contentSignature,
@@ -431,6 +484,17 @@ export function renderFixedMediaWallColumns(grid, cards, {
         && sameCardSequence(previousState.cards, safeCards)
         && safeCards.every((card) => grid.contains(card))
         && columnStructureIntact) {
+        if (!previousState.ready && !hasActiveValidation(previousState)) {
+            scheduleReadyValidation(grid, safeCards, {
+                countProperty,
+                targetWidthProperty,
+                fallbackColumnWidth,
+                aspectProperty,
+                fallbackAspectRatio,
+                estimatedExtraHeight,
+                contentSignature,
+            }, grid.dataset.mediaWallRenderToken || '0', correctionAttempt, previousState);
+        }
         return previousState.columnCount || metrics.columnCount;
     }
 
@@ -438,9 +502,11 @@ export function renderFixedMediaWallColumns(grid, cards, {
     const renderToken = String((Number(grid.dataset.mediaWallRenderToken) || 0) + 1);
     const state = {
         layoutSignature,
+        contentSignature: String(contentSignature || ''),
         cards: safeCards.slice(),
         columnCount: metrics.columnCount,
         ready: false,
+        pending: false,
         validationTimer: 0,
         validationFrame: 0,
         validationNestedFrame: 0,

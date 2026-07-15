@@ -63,6 +63,9 @@ export function initGallery() {
     let mempicsObserver = null;
     let mempicsResizeObserver = null;
     let mempicsResizeFrame = 0;
+    let mempicsLayoutDirty = false;
+    let mempicsLayoutRequestSeq = 0;
+    let mempicsLayoutInFlight = null;
     let mempicsBreakpointRenderFrame = 0;
     let renderedMempicsCards = [];
     let renderedMempicsContentSignature = '';
@@ -125,20 +128,56 @@ export function initGallery() {
                 && stage.dataset.activeCategory === 'gallery');
     }
 
-    function syncMempicsWideLimitForLayout() {
+    function completeMempicsLayoutRequest(requestSeq) {
+        if (requestSeq !== mempicsLayoutRequestSeq) return;
+        if ((Number(grid.dataset.mediaWallAvailableWidth) || 0) <= 0) return;
+        mempicsLayoutDirty = false;
+    }
+
+    function flushMempicsLayoutRequest({ allowInactive = false } = {}) {
+        if (!mempicsLayoutDirty) return false;
+        if (mempicsLayoutInFlight) {
+            return mempicsLayoutInFlight.then(() => flushMempicsLayoutRequest({ allowInactive }));
+        }
         if (!isPublicWideLayoutEnabled()
-            || !isMempicsLayoutActive()
+            || (!allowInactive && !isMempicsLayoutActive())
             || currentFilter !== MEMPICS_CATEGORY
-            || !mempicsState.loaded) return;
-        reflowMempicsFromCache();
+            || !mempicsState.loaded) return false;
+        const requestSeq = mempicsLayoutRequestSeq;
+        const result = reflowMempicsFromCache();
+        if (!result || typeof result.then !== 'function') {
+            completeMempicsLayoutRequest(requestSeq);
+            return result;
+        }
+        mempicsLayoutInFlight = Promise.resolve(result)
+            .then((changed) => {
+                completeMempicsLayoutRequest(requestSeq);
+                return changed;
+            })
+            .finally(() => {
+                mempicsLayoutInFlight = null;
+                if (mempicsLayoutDirty
+                    && requestSeq !== mempicsLayoutRequestSeq
+                    && isMempicsLayoutActive()) {
+                    scheduleMempicsLayoutFrame();
+                }
+            });
+        return mempicsLayoutInFlight;
+    }
+
+    function scheduleMempicsLayoutFrame() {
+        if (mempicsResizeFrame || mempicsLayoutInFlight) return;
+        mempicsResizeFrame = window.requestAnimationFrame(() => {
+            mempicsResizeFrame = 0;
+            const result = flushMempicsLayoutRequest();
+            if (result && typeof result.catch === 'function') result.catch(() => {});
+        });
     }
 
     function scheduleMempicsWideLimitSync() {
-        if (mempicsResizeFrame) return;
-        mempicsResizeFrame = window.requestAnimationFrame(() => {
-            mempicsResizeFrame = 0;
-            syncMempicsWideLimitForLayout();
-        });
+        mempicsLayoutDirty = true;
+        mempicsLayoutRequestSeq += 1;
+        scheduleMempicsLayoutFrame();
     }
 
     function scheduleMempicsBreakpointRender() {
@@ -939,7 +978,9 @@ export function initGallery() {
     const handleMempicsCategoryLayoutRequest = (event) => {
         if (event?.detail?.category !== 'gallery') return;
         if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY || !mempicsState.loaded) return;
-        const preparation = reflowMempicsFromCache();
+        mempicsLayoutDirty = true;
+        mempicsLayoutRequestSeq += 1;
+        const preparation = flushMempicsLayoutRequest({ allowInactive: true });
         if (preparation && typeof preparation.then === 'function') {
             event.detail.waitUntil?.(preparation);
         } else if (preparation === true) {
@@ -1075,6 +1116,9 @@ export function initGallery() {
         window.removeEventListener('scroll', handleMempicsProgressiveScroll);
         window.cancelAnimationFrame(mempicsResizeFrame);
         window.cancelAnimationFrame(mempicsBreakpointRenderFrame);
+        mempicsLayoutDirty = false;
+        mempicsLayoutRequestSeq += 1;
+        mempicsLayoutInFlight = null;
         disconnectMempicsObserver();
     });
 }

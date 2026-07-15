@@ -66,6 +66,9 @@ export function initVideoGallery() {
     let memvidsObserver = null;
     let memvidsResizeObserver = null;
     let memvidsResizeFrame = 0;
+    let memvidsLayoutDirty = false;
+    let memvidsLayoutRequestSeq = 0;
+    let memvidsLayoutInFlight = null;
     let renderedMemvidCards = [];
     let renderedMemvidContentSignature = '';
     let activeHoverPreview = null;
@@ -145,17 +148,55 @@ export function initVideoGallery() {
                 && stage.dataset.activeCategory === 'video');
     }
 
-    function syncMemvidsWideLimitForLayout() {
-        if (!isPublicWideLayoutEnabled() || !isMemvidsLayoutActive() || !memvidsState.loaded) return;
-        reflowMemvidsFromCache();
+    function completeMemvidsLayoutRequest(requestSeq) {
+        if (requestSeq !== memvidsLayoutRequestSeq) return;
+        if ((Number(grid.dataset.mediaWallAvailableWidth) || 0) <= 0) return;
+        memvidsLayoutDirty = false;
+    }
+
+    function flushMemvidsLayoutRequest({ allowInactive = false } = {}) {
+        if (!memvidsLayoutDirty) return false;
+        if (memvidsLayoutInFlight) {
+            return memvidsLayoutInFlight.then(() => flushMemvidsLayoutRequest({ allowInactive }));
+        }
+        if (!isPublicWideLayoutEnabled()
+            || (!allowInactive && !isMemvidsLayoutActive())
+            || !memvidsState.loaded) return false;
+        const requestSeq = memvidsLayoutRequestSeq;
+        const result = reflowMemvidsFromCache();
+        if (!result || typeof result.then !== 'function') {
+            completeMemvidsLayoutRequest(requestSeq);
+            return result;
+        }
+        memvidsLayoutInFlight = Promise.resolve(result)
+            .then((changed) => {
+                completeMemvidsLayoutRequest(requestSeq);
+                return changed;
+            })
+            .finally(() => {
+                memvidsLayoutInFlight = null;
+                if (memvidsLayoutDirty
+                    && requestSeq !== memvidsLayoutRequestSeq
+                    && isMemvidsLayoutActive()) {
+                    scheduleMemvidsLayoutFrame();
+                }
+            });
+        return memvidsLayoutInFlight;
+    }
+
+    function scheduleMemvidsLayoutFrame() {
+        if (memvidsResizeFrame || memvidsLayoutInFlight) return;
+        memvidsResizeFrame = window.requestAnimationFrame(() => {
+            memvidsResizeFrame = 0;
+            const result = flushMemvidsLayoutRequest();
+            if (result && typeof result.catch === 'function') result.catch(() => {});
+        });
     }
 
     function scheduleMemvidsWideLimitSync() {
-        if (memvidsResizeFrame) return;
-        memvidsResizeFrame = window.requestAnimationFrame(() => {
-            memvidsResizeFrame = 0;
-            syncMemvidsWideLimitForLayout();
-        });
+        memvidsLayoutDirty = true;
+        memvidsLayoutRequestSeq += 1;
+        scheduleMemvidsLayoutFrame();
     }
 
     function handleMemvidsCategoryActivation(event) {
@@ -173,7 +214,9 @@ export function initVideoGallery() {
     function handleMemvidsCategoryLayoutRequest(event) {
         if (event?.detail?.category !== 'video') return;
         if (!isPublicWideLayoutEnabled() || !memvidsState.loaded) return;
-        const preparation = reflowMemvidsFromCache();
+        memvidsLayoutDirty = true;
+        memvidsLayoutRequestSeq += 1;
+        const preparation = flushMemvidsLayoutRequest({ allowInactive: true });
         if (preparation && typeof preparation.then === 'function') {
             event.detail.waitUntil?.(preparation);
         } else if (preparation === true) {
@@ -1182,6 +1225,9 @@ export function initVideoGallery() {
         window.removeEventListener('resize', scheduleMemvidsWideLimitSync);
         window.removeEventListener('scroll', handleMemvidsProgressiveScroll);
         window.cancelAnimationFrame(memvidsResizeFrame);
+        memvidsLayoutDirty = false;
+        memvidsLayoutRequestSeq += 1;
+        memvidsLayoutInFlight = null;
         disconnectMemvidsObserver();
     });
 
