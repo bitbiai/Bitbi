@@ -71,8 +71,11 @@ export function initSoundLab(revealObserver) {
     let syncDeck = null;
     let memtrackWidthFrame = 0;
     let memtrackWidthValidationToken = 0;
+    let memtrackWidthValidationJob = null;
+    let memtrackLayoutGeneration = 0;
+    let memtrackAppliedLayoutSignature = '';
+    let memtrackReadyLayoutSignature = '';
     let memtrackResizeObserver = null;
-    let memtrackStageObserver = null;
     let memtrackModal = null;
     let memtrackFocusTrapCleanup = null;
     let memtrackDetailPanel = null;
@@ -177,6 +180,31 @@ export function initSoundLab(revealObserver) {
             .filter((card) => card.classList.contains('snd-card--memtrack'));
     }
 
+    function getMemtrackLayoutSignature(metrics) {
+        const cards = getVisibleMemtrackCards();
+        const rounded = (value, factor = 1) => Math.round((Number(value) || 0) * factor) / factor;
+        return [
+            metrics.isDesktopLayout ? 'desktop' : 'stacked',
+            memtrackLayoutGeneration,
+            cards.length,
+            rounded(metrics.availableWidthPx),
+            rounded(metrics.baseWidthPx, 10),
+            rounded(metrics.gapPx, 10),
+            Number(metrics.capacity || 0),
+            Number(metrics.columnCount || 0),
+            rounded(metrics.resolvedWidthPx),
+        ].join(':');
+    }
+
+    function cancelMemtrackWidthValidation() {
+        const job = memtrackWidthValidationJob;
+        if (!job) return;
+        if (job.frameId) window.cancelAnimationFrame(job.frameId);
+        if (job.timerId) window.clearTimeout(job.timerId);
+        job.cancelled = true;
+        memtrackWidthValidationJob = null;
+    }
+
     function storeMemtrackWidthMetrics(metrics) {
         ctn.dataset.soundWallAvailableWidth = String(metrics.availableWidthPx || 0);
         ctn.dataset.soundWallBaseWidth = String(metrics.baseWidthPx);
@@ -195,6 +223,10 @@ export function initSoundLab(revealObserver) {
         if (!current.isDesktopLayout || !current.availableWidthPx) {
             return { ready: false, stale: false, current };
         }
+        const stage = ctn.closest?.('#homeCategories');
+        if (stage?.classList.contains('is-transitioning')) {
+            return { ready: false, stale: false, deferred: true, current };
+        }
         if (differs('availableWidthPx', 0.5)
             || differs('gapPx', 0.1)
             || differs('baseWidthPx', 0.1)
@@ -202,10 +234,6 @@ export function initSoundLab(revealObserver) {
             || Number(metrics?.capacity || 0) !== Number(current.capacity || 0)
             || Number(metrics?.columnCount || 0) !== Number(current.columnCount || 0)) {
             return { ready: false, stale: true, current };
-        }
-        const stage = ctn.closest?.('#homeCategories');
-        if (stage?.classList.contains('is-transitioning')) {
-            return { ready: false, stale: false, current };
         }
         const cards = getVisibleMemtrackCards();
         const cardRects = cards
@@ -216,35 +244,78 @@ export function initSoundLab(revealObserver) {
         return { ready: cardsReady, stale: false, current };
     }
 
-    function scheduleMemtrackWidthReadyValidation(metrics, token, correctionAttempt = 0) {
-        let validationAttempts = 0;
+    function scheduleMemtrackWidthReadyValidation(metrics, signature, token, correctionAttempt = 0) {
+        cancelMemtrackWidthValidation();
+        const job = {
+            cancelled: false,
+            frameId: 0,
+            timerId: 0,
+            signature,
+            token,
+            validationAttempts: 0,
+        };
+        memtrackWidthValidationJob = job;
+
+        const isCurrent = () => (
+            !job.cancelled
+            && memtrackWidthValidationJob === job
+            && memtrackWidthValidationToken === token
+            && memtrackAppliedLayoutSignature === signature
+        );
+        const finish = () => {
+            if (!isCurrent()) return;
+            if (job.frameId) window.cancelAnimationFrame(job.frameId);
+            if (job.timerId) window.clearTimeout(job.timerId);
+            job.frameId = 0;
+            job.timerId = 0;
+            memtrackWidthValidationJob = null;
+        };
         const validate = () => {
-            if (memtrackWidthValidationToken !== token) return;
-            validationAttempts += 1;
+            if (!isCurrent()) return;
+            job.frameId = 0;
+            job.timerId = 0;
+            job.validationAttempts += 1;
             const result = validateMemtrackWidthMetrics(metrics);
-            if (result.stale && correctionAttempt < 2) {
-                syncMemtrackCardWidths(correctionAttempt + 1);
+            if (result.deferred) {
+                finish();
+                return;
+            }
+            if (result.stale) {
+                const shouldCorrect = correctionAttempt < 1;
+                finish();
+                if (shouldCorrect) {
+                    syncMemtrackCardWidths(correctionAttempt + 1);
+                }
                 return;
             }
             if (result.ready) {
                 storeMemtrackWidthMetrics(result.current);
                 ctn.dataset.soundWallReady = 'true';
                 ctn.dataset.soundWidthReady = 'true';
+                memtrackReadyLayoutSignature = signature;
+                finish();
                 return;
             }
             ctn.dataset.soundWallReady = 'false';
             ctn.dataset.soundWidthReady = 'false';
-            if (validationAttempts < 10) {
-                window.setTimeout(validate, 120);
+            if (job.validationAttempts < 2) {
+                job.timerId = window.setTimeout(validate, 680);
+                return;
             }
+            finish();
         };
-        window.requestAnimationFrame(() => {
-            window.requestAnimationFrame(validate);
+        job.frameId = window.requestAnimationFrame(() => {
+            if (!isCurrent()) return;
+            job.frameId = window.requestAnimationFrame(validate);
         });
-        window.setTimeout(validate, 180);
     }
 
-    function syncMemtrackCardWidths(correctionAttempt = 0) {
+    function syncMemtrackCardWidths(correctionAttempt = 0, { allowDuringTransition = false } = {}) {
+        const stage = ctn.closest?.('#homeCategories');
+        if (!allowDuringTransition && stage?.classList.contains('is-transitioning')) {
+            return false;
+        }
+        const metrics = getMemtrackWidthMetrics();
         const {
             isDesktopLayout,
             availableWidthPx,
@@ -254,11 +325,34 @@ export function initSoundLab(revealObserver) {
             columnCount,
             resolvedWidthPx,
             widthValue,
-        } = getMemtrackWidthMetrics();
+        } = metrics;
+        if (isDesktopLayout && !(availableWidthPx > 0)) {
+            return false;
+        }
+        const signature = getMemtrackLayoutSignature(metrics);
+        if (signature === memtrackAppliedLayoutSignature) {
+            if (isDesktopLayout
+                && memtrackReadyLayoutSignature !== signature
+                && !memtrackWidthValidationJob) {
+                scheduleMemtrackWidthReadyValidation({
+                    availableWidthPx,
+                    baseWidthPx,
+                    gapPx,
+                    capacity,
+                    columnCount,
+                    resolvedWidthPx,
+                }, signature, memtrackWidthValidationToken, correctionAttempt);
+            }
+            return false;
+        }
+
+        cancelMemtrackWidthValidation();
         ctn.dataset.soundWallReady = 'false';
         ctn.dataset.soundWidthReady = 'false';
         memtrackWidthValidationToken += 1;
         const validationToken = memtrackWidthValidationToken;
+        memtrackAppliedLayoutSignature = signature;
+        memtrackReadyLayoutSignature = '';
         if (isDesktopLayout) {
             ctn.style.gridTemplateColumns = `repeat(${columnCount}, ${widthValue})`;
             ctn.style.setProperty('--bitbi-public-sound-card-resolved-width', widthValue);
@@ -292,8 +386,11 @@ export function initSoundLab(revealObserver) {
                 capacity,
                 columnCount,
                 resolvedWidthPx,
-            }, validationToken, correctionAttempt);
+            }, signature, validationToken, correctionAttempt);
+        } else {
+            memtrackReadyLayoutSignature = signature;
         }
+        return true;
     }
 
     function scheduleMemtrackWidthSync() {
@@ -307,12 +404,19 @@ export function initSoundLab(revealObserver) {
     function handleMemtracksCategoryLayoutRequest(event) {
         if (event?.detail?.category !== 'sound') return;
         if (!desktopSoundLayoutQuery?.matches || !memtracksState.loaded) return;
-        syncMemtrackCardWidths();
+        const layoutChanged = syncMemtrackCardWidths(0, { allowDuringTransition: true });
+        if (!layoutChanged) return;
         event.detail.waitUntil?.(new Promise((resolve) => {
             window.requestAnimationFrame(() => {
                 window.requestAnimationFrame(resolve);
             });
         }));
+    }
+
+    function handleMemtracksCategoryActivation(event) {
+        if (event?.detail?.category !== 'sound') return;
+        if (!desktopSoundLayoutQuery?.matches || !memtracksState.loaded) return;
+        scheduleMemtrackWidthSync();
     }
 
     function getMemtrackTrack(item) {
@@ -1049,6 +1153,10 @@ export function initSoundLab(revealObserver) {
 
     function renderVisibleMemtracks() {
         const visibleItems = getVisibleMemtracks();
+        cancelMemtrackWidthValidation();
+        memtrackLayoutGeneration += 1;
+        memtrackAppliedLayoutSignature = '';
+        memtrackReadyLayoutSignature = '';
         ctn.replaceChildren();
         visibleItems.forEach((item) => {
             const card = createMemtrackCard(item);
@@ -1352,20 +1460,13 @@ export function initSoundLab(revealObserver) {
 
     syncDeck = initSndDeck();
     ctn.addEventListener('snd:tracks-refresh', scheduleMemtrackWidthSync);
+    document.addEventListener('bitbi:homepage-category-activated', handleMemtracksCategoryActivation);
     document.addEventListener('bitbi:homepage-category-layout-request', handleMemtracksCategoryLayoutRequest);
     if (typeof ResizeObserver === 'function') {
         memtrackResizeObserver = new ResizeObserver(scheduleMemtrackWidthSync);
         memtrackResizeObserver.observe(ctn);
     } else {
         window.addEventListener('resize', scheduleMemtrackWidthSync, { passive: true });
-    }
-    const categoryStage = document.getElementById('homeCategories');
-    if (categoryStage && 'MutationObserver' in window) {
-        memtrackStageObserver = new MutationObserver(scheduleMemtrackWidthSync);
-        memtrackStageObserver.observe(categoryStage, {
-            attributes: true,
-            attributeFilter: ['class', 'data-active-category', 'data-stage-mode'],
-        });
     }
     if (desktopSoundLayoutQuery) {
         if (typeof desktopSoundLayoutQuery.addEventListener === 'function') {
@@ -1375,14 +1476,16 @@ export function initSoundLab(revealObserver) {
         }
     }
     document.fonts?.ready?.then(scheduleMemtrackWidthSync).catch(() => {});
-    window.addEventListener('pagehide', () => {
+    window.addEventListener('pagehide', (event) => {
         closeMemtrackModal();
+        if (event.persisted) return;
         if (memtrackResizeObserver) { memtrackResizeObserver.disconnect(); memtrackResizeObserver = null; }
-        if (memtrackStageObserver) { memtrackStageObserver.disconnect(); memtrackStageObserver = null; }
         window.removeEventListener('resize', scheduleMemtrackWidthSync);
+        document.removeEventListener('bitbi:homepage-category-activated', handleMemtracksCategoryActivation);
         document.removeEventListener('bitbi:homepage-category-layout-request', handleMemtracksCategoryLayoutRequest);
         window.cancelAnimationFrame(memtrackWidthFrame);
-    }, { once: true });
+        cancelMemtrackWidthValidation();
+    });
     paginationStatus.addEventListener('click', openMemtracksOverlay);
     paginationMore.addEventListener('click', loadMoreMemtracks);
     if (mobileMediaQuery) {

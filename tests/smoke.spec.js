@@ -1177,7 +1177,6 @@ async function readHomepageResponsiveStageState(page) {
               || className.startsWith('is-leave')
               || className.startsWith('is-enter')
               || className === 'is-layout-preparing'
-              || className === 'is-webkit-preparing'
           ))
           : [],
         visible: Boolean(rect && rect.width > 0 && rect.height > 0 && style?.visibility !== 'hidden'),
@@ -1192,8 +1191,6 @@ async function readHomepageResponsiveStageState(page) {
       ready: stage?.classList.contains('is-ready') || false,
       bodyStageClass: document.body.classList.contains('home-categories-desktop-stage'),
       transitioning: stage?.classList.contains('is-transitioning') || false,
-      webKitSwitching: stage?.classList.contains('is-webkit-switching') || false,
-      webKitRevealing: stage?.classList.contains('is-webkit-revealing') || false,
       viewportHeightStyle: stage?.querySelector('.home-categories__viewport')?.style.height || '',
       viewportMinHeightStyle: stage?.querySelector('.home-categories__viewport')?.style.minHeight || '',
       overflowX: Math.max(
@@ -2537,26 +2534,15 @@ test.describe('Homepage', () => {
     await expectHomepageHeaderCategoryGlow(page, 'video');
   });
 
-  test('homepage WebKit safe switch settles without heavy carousel state', async ({ page }) => {
+  test('homepage capability-based motion settles with standard and reduced-motion instant paths', async ({ page }) => {
     test.setTimeout(45_000);
-
-    await page.addInitScript(() => {
-      Object.defineProperty(window.navigator, 'vendor', {
-        configurable: true,
-        get: () => 'Apple Computer, Inc.',
-      });
-      Object.defineProperty(window.navigator, 'userAgent', {
-        configurable: true,
-        get: () => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
-      });
-    });
 
     await page.goto('/');
     await expect(page.locator('#homeCategories')).toHaveAttribute('data-stage-mode', 'desktop');
     await waitForHomepageCategoryStage(page);
 
     let state = await readHomepageResponsiveStageState(page);
-    expect(state.motionEngine).toBe('webkit-safe');
+    expect(state.motionEngine).toBe('standard');
 
     for (const category of ['gallery', 'video', 'sound']) {
       await page.locator('#navbar .site-nav__links').getByRole('link', {
@@ -2579,8 +2565,6 @@ test.describe('Homepage', () => {
           metrics.motionEngine,
           metrics.activeCategory,
           String(metrics.transitioning),
-          String(state.webKitSwitching),
-          String(state.webKitRevealing),
           `${state.viewportHeightStyle}|${state.viewportMinHeightStyle}`,
           String(stageAligned),
           String(headerVisible),
@@ -2589,7 +2573,7 @@ test.describe('Homepage', () => {
           String(mediaNotPinnedUnderNav),
           String(noTransientPanelClasses),
         ].join('|');
-      }, { timeout: 10_000 }).toBe(`webkit-safe|${category}|false|false|false|||true|true|true|true|true|true`);
+      }, { timeout: 10_000 }).toBe(`standard|${category}|false|||true|true|true|true|true|true`);
       state = await readHomepageResponsiveStageState(page);
       expectSingleInteractiveHomepagePanel(state, category);
     }
@@ -2609,14 +2593,30 @@ test.describe('Homepage', () => {
         state.motionEngine,
         state.activeCategory,
         String(state.transitioning),
-        String(state.webKitSwitching),
-        String(state.webKitRevealing),
         `${state.viewportHeightStyle}|${state.viewportMinHeightStyle}`,
         String(state.panels.every((panel) => panel.transientClasses.length === 0)),
       ].join('|');
-    }, { timeout: 10_000 }).toBe('webkit-safe|sound|false|false|false|||true');
+    }, { timeout: 10_000 }).toBe('standard|sound|false|||true');
     state = await readHomepageResponsiveStageState(page);
     expectSingleInteractiveHomepagePanel(state, 'sound');
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const instantState = await page.evaluate(() => {
+      document.querySelector('#navbar .site-nav__links [data-category-link="gallery"]')?.click();
+      const stage = document.getElementById('homeCategories');
+      return {
+        activeCategory: stage?.dataset.activeCategory || '',
+        motionEngine: stage?.dataset.motionEngine || '',
+        transitioning: stage?.classList.contains('is-transitioning') || false,
+        viewportHeight: stage?.querySelector('.home-categories__viewport')?.style.height || '',
+      };
+    });
+    expect(instantState).toEqual({
+      activeCategory: 'gallery',
+      motionEngine: 'instant',
+      transitioning: false,
+      viewportHeight: '',
+    });
   });
 
   test('mobile homepage categories remain stacked in document flow with no desktop carousel controls', async ({ page }) => {

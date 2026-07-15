@@ -62,9 +62,10 @@ export function initGallery() {
     let mempicsVisibleLimit = PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT;
     let mempicsObserver = null;
     let mempicsResizeObserver = null;
-    let mempicsStageObserver = null;
     let mempicsResizeFrame = 0;
-    let mempicsResizeSettledTimer = 0;
+    let mempicsBreakpointRenderFrame = 0;
+    let renderedMempicsCards = [];
+    let renderedMempicsContentSignature = '';
     let suppressNextGalleryCardClick = false;
 
     const mobileMediaQuery = getMobileMediaGridQuery();
@@ -116,36 +117,37 @@ export function initGallery() {
         });
     }
 
+    function isMempicsLayoutActive() {
+        const stage = grid.closest('#homeCategories');
+        return !stage
+            || stage.dataset.stageMode !== 'desktop'
+            || (!stage.classList.contains('is-transitioning')
+                && stage.dataset.activeCategory === 'gallery');
+    }
+
     function syncMempicsWideLimitForLayout() {
-        const previousColumnCount = grid.style.getPropertyValue('--bitbi-public-gallery-column-count');
-        const visibleCount = getVisibleMempicsCount();
-        const nextMetrics = isPublicWideLayoutEnabled()
-            ? getWideLayoutMetrics(visibleCount)
-            : { columnCount: 1, resolvedWidthPx: 0 };
-        const nextColumnCount = nextMetrics.columnCount;
-        const columnCountChanged = isPublicWideLayoutEnabled()
-            && !!previousColumnCount
-            && previousColumnCount !== String(nextColumnCount);
-        const previousAvailableWidth = Number(grid.dataset.mediaWallAvailableWidth) || 0;
-        const availableWidthBecameReady = isPublicWideLayoutEnabled()
-            && nextMetrics.availableWidthPx > 0
-            && previousAvailableWidth <= 0;
-        const previousResolvedWidth = Number(grid.dataset.mediaWallResolvedWidth) || 0;
-        const resolvedWidthChanged = isPublicWideLayoutEnabled()
-            && previousResolvedWidth > 0
-            && Math.abs(previousResolvedWidth - nextMetrics.resolvedWidthPx) > 0.1;
-        if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY || !mempicsState.loaded) return;
-        if (!columnCountChanged && !resolvedWidthChanged && !availableWidthBecameReady) return;
-        render(currentFilter);
+        if (!isPublicWideLayoutEnabled()
+            || !isMempicsLayoutActive()
+            || currentFilter !== MEMPICS_CATEGORY
+            || !mempicsState.loaded) return;
+        reflowMempicsFromCache();
     }
 
     function scheduleMempicsWideLimitSync() {
-        window.clearTimeout(mempicsResizeSettledTimer);
-        mempicsResizeSettledTimer = window.setTimeout(syncMempicsWideLimitForLayout, 90);
         if (mempicsResizeFrame) return;
         mempicsResizeFrame = window.requestAnimationFrame(() => {
             mempicsResizeFrame = 0;
             syncMempicsWideLimitForLayout();
+        });
+    }
+
+    function scheduleMempicsBreakpointRender() {
+        if (mempicsBreakpointRenderFrame || !mempicsState.loaded) return;
+        mempicsBreakpointRenderFrame = window.requestAnimationFrame(() => {
+            mempicsBreakpointRenderFrame = 0;
+            render(currentFilter).then(() => {
+                if (galIsDeck) galRenderDeck();
+            });
         });
     }
 
@@ -162,6 +164,20 @@ export function initGallery() {
 
     function getMempicIdentity(item) {
         return String(item?.id || item?.slug || item?.thumb?.url || item?.preview?.url || '').trim();
+    }
+
+    function getMempicsContentSignature(items) {
+        return JSON.stringify((Array.isArray(items) ? items : []).map((item) => [
+            getMempicIdentity(item),
+            item?.thumb?.url || '',
+            Number(item?.thumb?.w || item?.preview?.w) || 0,
+            Number(item?.thumb?.h || item?.preview?.h) || 0,
+            item?.title || '',
+            item?.caption || '',
+            item?.publisher?.display_name || '',
+            item?.publisher?.avatar?.url || '',
+            item?.publicCollection || '',
+        ]));
     }
 
     function getMempicDimensions(item) {
@@ -604,8 +620,10 @@ export function initGallery() {
         return card;
     }
 
-    function renderGalleryCards(items) {
+    function renderGalleryCards(items, contentSignature) {
         const cards = items.map(buildGalleryCard);
+        renderedMempicsCards = cards;
+        renderedMempicsContentSignature = contentSignature;
         if (!isPublicWideLayoutEnabled()) {
             clearFixedMediaWallLayout(grid, {
                 countProperty: '--bitbi-public-gallery-column-count',
@@ -619,7 +637,30 @@ export function initGallery() {
             fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
             aspectProperty: '--gallery-item-aspect',
             fallbackAspectRatio: 1.333,
+            contentSignature,
         });
+    }
+
+    function reflowMempicsFromCache() {
+        if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY || !mempicsState.loaded) return false;
+        const items = mempicsState.items.slice(0, getVisibleMempicsCount());
+        const contentSignature = getMempicsContentSignature(items);
+        const cardsAreReusable = contentSignature === renderedMempicsContentSignature
+            && renderedMempicsCards.length === items.length
+            && renderedMempicsCards.every((card) => grid.contains(card));
+        if (!cardsAreReusable) {
+            return render(MEMPICS_CATEGORY).then(() => true);
+        }
+        const previousRenderToken = grid.dataset.mediaWallRenderToken || '';
+        renderFixedMediaWallColumns(grid, renderedMempicsCards, {
+            countProperty: '--bitbi-public-gallery-column-count',
+            targetWidthProperty: '--bitbi-public-gallery-active-column-width',
+            fallbackColumnWidth: WIDE_COLUMN_FALLBACK_PX,
+            aspectProperty: '--gallery-item-aspect',
+            fallbackAspectRatio: 1.333,
+            contentSignature,
+        });
+        return (grid.dataset.mediaWallRenderToken || '') !== previousRenderToken;
     }
 
     async function render(filter) {
@@ -627,6 +668,8 @@ export function initGallery() {
         const seq = ++renderSeq;
         updateMempicsPagination(filter);
         grid.innerHTML = '';
+        renderedMempicsCards = [];
+        renderedMempicsContentSignature = '';
 
         let list = [];
         if (filter === MEMPICS_CATEGORY) {
@@ -653,7 +696,7 @@ export function initGallery() {
             return;
         }
 
-        renderGalleryCards(list);
+        renderGalleryCards(list, getMempicsContentSignature(list));
         syncCategoryGhostModels('gallery', list);
         updateMempicsPagination(filter);
         scheduleMempicsWideLimitSync();
@@ -876,7 +919,7 @@ export function initGallery() {
     }
 
     bindMediaQueryChange(publicWideLayoutQuery, () => {
-        render(currentFilter);
+        scheduleMempicsBreakpointRender();
     });
     bindMediaQueryChange(mobileMediaQuery, () => {
         updateMempicsPagination(currentFilter);
@@ -889,25 +932,19 @@ export function initGallery() {
     } else {
         window.addEventListener('resize', scheduleMempicsWideLimitSync, { passive: true });
     }
-    const categoryStage = document.getElementById('homeCategories');
-    if (categoryStage && 'MutationObserver' in window) {
-        mempicsStageObserver = new MutationObserver(scheduleMempicsWideLimitSync);
-        mempicsStageObserver.observe(categoryStage, {
-            attributes: true,
-            attributeFilter: ['class', 'data-active-category', 'data-stage-mode'],
-        });
-    }
     const handleMempicsCategoryActivation = (event) => {
         if (event?.detail?.category !== 'gallery') return;
         scheduleMempicsWideLimitSync();
-        [120, 240, 480, 900, 1400].forEach((delay) => {
-            window.setTimeout(scheduleMempicsWideLimitSync, delay);
-        });
     };
     const handleMempicsCategoryLayoutRequest = (event) => {
         if (event?.detail?.category !== 'gallery') return;
         if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY || !mempicsState.loaded) return;
-        event.detail.waitUntil?.(render(MEMPICS_CATEGORY));
+        const preparation = reflowMempicsFromCache();
+        if (preparation && typeof preparation.then === 'function') {
+            event.detail.waitUntil?.(preparation);
+        } else if (preparation === true) {
+            event.detail.waitUntil?.(Promise.resolve());
+        }
     };
     document.addEventListener('bitbi:homepage-category-activated', handleMempicsCategoryActivation);
     document.addEventListener('bitbi:homepage-category-layout-request', handleMempicsCategoryLayoutRequest);
@@ -918,8 +955,11 @@ export function initGallery() {
         galIsDeck = true;
         galActive = 0;
         grid.classList.add('gal-deck');
-        render(MEMPICS_CATEGORY);
-        galRenderDeck();
+        if (mempicsState.loaded) {
+            scheduleMempicsBreakpointRender();
+        } else {
+            galRenderDeck();
+        }
     }
 
     function galDisengage() {
@@ -934,7 +974,7 @@ export function initGallery() {
             c.style.transition = '';
         });
         if (galDotsEl) { galDotsEl.remove(); galDotsEl = null; }
-        render(MEMPICS_CATEGORY);
+        scheduleMempicsBreakpointRender();
     }
 
     /* Touch handling */
@@ -1025,16 +1065,16 @@ export function initGallery() {
 
     if (galMql.matches) galEngage();
 
-    window.addEventListener('pagehide', () => {
+    window.addEventListener('pagehide', (event) => {
+        if (event.persisted) return;
         if (galGridObserver) { galGridObserver.disconnect(); galGridObserver = null; }
         if (mempicsResizeObserver) { mempicsResizeObserver.disconnect(); mempicsResizeObserver = null; }
-        if (mempicsStageObserver) { mempicsStageObserver.disconnect(); mempicsStageObserver = null; }
         document.removeEventListener('bitbi:homepage-category-activated', handleMempicsCategoryActivation);
         document.removeEventListener('bitbi:homepage-category-layout-request', handleMempicsCategoryLayoutRequest);
         window.removeEventListener('resize', scheduleMempicsWideLimitSync);
         window.removeEventListener('scroll', handleMempicsProgressiveScroll);
-        window.clearTimeout(mempicsResizeSettledTimer);
         window.cancelAnimationFrame(mempicsResizeFrame);
+        window.cancelAnimationFrame(mempicsBreakpointRenderFrame);
         disconnectMempicsObserver();
     });
 }

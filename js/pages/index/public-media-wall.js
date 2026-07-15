@@ -2,6 +2,9 @@
    BITBI — Fixed-width public media wall helpers
    ============================================================ */
 
+const MEDIA_WALL_LAYOUT_STATE = new WeakMap();
+const MEDIA_WALL_SETTLED_VERIFICATION_DELAY_MS = 680;
+
 export function parseCssLengthToPixels(value, fallback, basisElement = document.documentElement) {
     const text = String(value || '').trim();
     const parsed = Number.parseFloat(text);
@@ -142,6 +145,13 @@ export function clearFixedMediaWallLayout(grid, {
     countProperty,
 } = {}) {
     if (!grid) return;
+    const state = MEDIA_WALL_LAYOUT_STATE.get(grid);
+    if (state) {
+        if (state.validationTimer) window.clearTimeout(state.validationTimer);
+        if (state.validationFrame) window.cancelAnimationFrame(state.validationFrame);
+        if (state.validationNestedFrame) window.cancelAnimationFrame(state.validationNestedFrame);
+        MEDIA_WALL_LAYOUT_STATE.delete(grid);
+    }
     if (countProperty) grid.style.removeProperty(countProperty);
     grid.style.removeProperty('--bitbi-public-media-wall-base-column-width');
     grid.style.removeProperty('--bitbi-public-media-wall-resolved-column-width');
@@ -162,8 +172,10 @@ export function clearFixedMediaWallLayout(grid, {
 
 function readCardAspectRatio(card, aspectProperty, fallbackRatio) {
     const inlineValue = card?.style?.getPropertyValue(aspectProperty);
+    const inlineRatio = Number.parseFloat(inlineValue);
+    if (Number.isFinite(inlineRatio) && inlineRatio > 0) return inlineRatio;
     const computedValue = window.getComputedStyle?.(card)?.getPropertyValue(aspectProperty);
-    const ratio = Number.parseFloat(inlineValue || computedValue);
+    const ratio = Number.parseFloat(computedValue);
     return Number.isFinite(ratio) && ratio > 0 ? ratio : fallbackRatio;
 }
 
@@ -239,12 +251,49 @@ function validateRenderedLayout(grid, cards, metrics, {
     };
 }
 
-function scheduleReadyValidation(grid, cards, options, token, correctionAttempt) {
+function cancelReadyValidation(state) {
+    if (!state) return;
+    if (state.validationTimer) window.clearTimeout(state.validationTimer);
+    if (state.validationFrame) window.cancelAnimationFrame(state.validationFrame);
+    if (state.validationNestedFrame) window.cancelAnimationFrame(state.validationNestedFrame);
+    state.validationTimer = 0;
+    state.validationFrame = 0;
+    state.validationNestedFrame = 0;
+}
+
+function scheduleReadyValidation(grid, cards, options, token, correctionAttempt, state) {
     const safeCards = Array.isArray(cards) ? cards : [];
-    let validationAttempts = 0;
+    let validationFinished = false;
+    let delayedVerificationUsed = false;
+
+    const isCurrent = () => (
+        !validationFinished
+        && MEDIA_WALL_LAYOUT_STATE.get(grid) === state
+        && grid.dataset.mediaWallRenderToken === token
+    );
+
+    const finish = (ready) => {
+        if (!isCurrent()) return;
+        validationFinished = true;
+        cancelReadyValidation(state);
+        state.ready = ready === true;
+        setReadyState(grid, state.ready);
+    };
+
+    const scheduleDelayedVerification = () => {
+        if (!isCurrent() || delayedVerificationUsed) {
+            finish(false);
+            return;
+        }
+        delayedVerificationUsed = true;
+        state.validationTimer = window.setTimeout(() => {
+            state.validationTimer = 0;
+            validate();
+        }, MEDIA_WALL_SETTLED_VERIFICATION_DELAY_MS);
+    };
+
     const validate = () => {
-        if (grid.dataset.mediaWallRenderToken !== token) return;
-        validationAttempts += 1;
+        if (!isCurrent()) return;
         const storedMetrics = {
             availableWidthPx: Number(grid.dataset.mediaWallAvailableWidth) || 0,
             gapPx: Number(grid.dataset.mediaWallGap) || 0,
@@ -255,11 +304,22 @@ function scheduleReadyValidation(grid, cards, options, token, correctionAttempt)
             columnCount: Number(grid.dataset.mediaWallColumnCount) || 1,
         };
         const validation = validateRenderedLayout(grid, safeCards, storedMetrics, options);
-        if (validation.stale && correctionAttempt < 2) {
+        if (!validation.currentMetrics.availableWidthPx) {
+            finish(false);
+            return;
+        }
+        if (validation.stale && correctionAttempt < 1) {
+            validationFinished = true;
+            cancelReadyValidation(state);
             renderFixedMediaWallColumns(grid, safeCards, {
                 ...options,
                 correctionAttempt: correctionAttempt + 1,
+                forceLayout: true,
             });
+            return;
+        }
+        if (validation.stale) {
+            finish(false);
             return;
         }
         if (validation.ready) {
@@ -267,19 +327,61 @@ function scheduleReadyValidation(grid, cards, options, token, correctionAttempt)
                 ...validation.currentMetrics,
                 itemCount: safeCards.length,
             });
-            setReadyState(grid, true);
+            finish(true);
             return;
         }
         setReadyState(grid, false);
-        if (validationAttempts < 10) {
-            window.setTimeout(validate, 120);
-        }
+        scheduleDelayedVerification();
     };
 
-    window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(validate);
+    const runInitialValidation = () => {
+        if (!isCurrent()) return;
+        cancelReadyValidation(state);
+        validate();
+    };
+    state.validationFrame = window.requestAnimationFrame(() => {
+        state.validationFrame = 0;
+        state.validationNestedFrame = window.requestAnimationFrame(() => {
+            state.validationNestedFrame = 0;
+            runInitialValidation();
+        });
     });
-    window.setTimeout(validate, 180);
+}
+
+function normalizedMetricSignature(value, precision = 10) {
+    const numeric = Number(value) || 0;
+    return Math.round(numeric * precision) / precision;
+}
+
+function createLayoutSignature(metrics, {
+    contentSignature = '',
+    countProperty = '',
+    targetWidthProperty = '',
+    aspectProperty = '',
+    fallbackAspectRatio = 1,
+    estimatedExtraHeight = 0,
+} = {}) {
+    return JSON.stringify([
+        String(contentSignature || ''),
+        String(countProperty || ''),
+        String(targetWidthProperty || ''),
+        String(aspectProperty || ''),
+        normalizedMetricSignature(metrics.availableWidthPx),
+        normalizedMetricSignature(metrics.gapPx),
+        normalizedMetricSignature(metrics.baseWidthPx),
+        normalizedMetricSignature(metrics.resolvedWidthPx),
+        Number(metrics.capacity) || 0,
+        Number(metrics.columnCount) || 0,
+        Number(metrics.itemCount) || 0,
+        normalizedMetricSignature(fallbackAspectRatio, 1000),
+        normalizedMetricSignature(estimatedExtraHeight, 1000),
+    ]);
+}
+
+function sameCardSequence(previousCards, nextCards) {
+    return Array.isArray(previousCards)
+        && previousCards.length === nextCards.length
+        && previousCards.every((card, index) => card === nextCards[index]);
 }
 
 export function renderFixedMediaWallColumns(grid, cards, {
@@ -290,18 +392,64 @@ export function renderFixedMediaWallColumns(grid, cards, {
     fallbackAspectRatio = 1,
     estimatedExtraHeight = 0,
     correctionAttempt = 0,
+    contentSignature = '',
+    forceLayout = false,
 } = {}) {
     if (!grid) return 1;
     const safeCards = Array.isArray(cards) ? cards : [];
-    const renderToken = String((Number(grid.dataset.mediaWallRenderToken) || 0) + 1);
-    grid.dataset.mediaWallRenderToken = renderToken;
-    setReadyState(grid, false);
     const metrics = calculateFixedMediaWallMetrics(grid, {
         targetWidthProperty,
         fallbackColumnWidth,
         itemCount: safeCards.length,
     });
+    const previousState = MEDIA_WALL_LAYOUT_STATE.get(grid);
+    if (!metrics.availableWidthPx) {
+        cancelReadyValidation(previousState);
+        const cardsAlreadyMounted = safeCards.every((card) => grid.contains(card));
+        const cachedCardsChanged = previousState
+            && !sameCardSequence(previousState.cards, safeCards);
+        if (cachedCardsChanged || !cardsAlreadyMounted) {
+            grid.replaceChildren(...safeCards);
+            setReadyState(grid, false);
+        } else if (!previousState) {
+            setReadyState(grid, false);
+        }
+        return previousState?.columnCount || metrics.columnCount;
+    }
+    const layoutSignature = createLayoutSignature(metrics, {
+        contentSignature,
+        countProperty,
+        targetWidthProperty,
+        aspectProperty,
+        fallbackAspectRatio,
+        estimatedExtraHeight,
+    });
+    const columnStructureIntact = !safeCards.length
+        || grid.querySelectorAll(':scope > .public-media-wall__column').length === previousState?.columnCount;
+    if (!forceLayout
+        && previousState?.layoutSignature === layoutSignature
+        && sameCardSequence(previousState.cards, safeCards)
+        && safeCards.every((card) => grid.contains(card))
+        && columnStructureIntact) {
+        return previousState.columnCount || metrics.columnCount;
+    }
+
+    cancelReadyValidation(previousState);
+    const renderToken = String((Number(grid.dataset.mediaWallRenderToken) || 0) + 1);
+    const state = {
+        layoutSignature,
+        cards: safeCards.slice(),
+        columnCount: metrics.columnCount,
+        ready: false,
+        validationTimer: 0,
+        validationFrame: 0,
+        validationNestedFrame: 0,
+    };
+    MEDIA_WALL_LAYOUT_STATE.set(grid, state);
+    grid.dataset.mediaWallRenderToken = renderToken;
+    setReadyState(grid, false);
     const { columnCount, baseWidthPx, resolvedWidthPx: resolvedWidth } = metrics;
+
     const baseWidthValue = toPixelString(baseWidthPx);
     const resolvedWidthPx = toPixelString(resolvedWidth);
     if (countProperty) {
@@ -324,7 +472,8 @@ export function renderFixedMediaWallColumns(grid, cards, {
             aspectProperty,
             fallbackAspectRatio,
             estimatedExtraHeight,
-        }, renderToken, correctionAttempt);
+            contentSignature,
+        }, renderToken, correctionAttempt, state);
         return columnCount;
     }
 
@@ -353,6 +502,7 @@ export function renderFixedMediaWallColumns(grid, cards, {
         aspectProperty,
         fallbackAspectRatio,
         estimatedExtraHeight,
-    }, renderToken, correctionAttempt);
+        contentSignature,
+    }, renderToken, correctionAttempt, state);
     return columnCount;
 }

@@ -30,9 +30,6 @@ const CATEGORY_META = {
 
 const TRANSITION_MS = 560;
 const LAYOUT_PREPARE_TIMEOUT_MS = 160;
-const WEBKIT_LAYOUT_PREPARE_TIMEOUT_MS = 320;
-const WEBKIT_SAFE_REVEAL_MS = 160;
-const WEBKIT_FINAL_ALIGNMENT_TOLERANCE_PX = 2;
 
 function resolveCategoryFromHash(hash) {
     return CATEGORY_ORDER.find((key) => CATEGORY_META[key].hash === hash) || null;
@@ -51,6 +48,17 @@ function bindMediaQueryChange(query, listener) {
     }
     if (typeof query.addListener === 'function') {
         query.addListener(listener);
+    }
+}
+
+function unbindMediaQueryChange(query, listener) {
+    if (!query) return;
+    if (typeof query.removeEventListener === 'function') {
+        query.removeEventListener('change', listener);
+        return;
+    }
+    if (typeof query.removeListener === 'function') {
+        query.removeListener(listener);
     }
 }
 
@@ -75,16 +83,11 @@ function shouldHonorInitialCategoryHash() {
     return navEntry?.type !== 'reload';
 }
 
-function isWebKitMotionEngine() {
-    // Safari/WebKit needs a quieter staged-category transition path; keep this
-    // centralized so Chromium's existing scroll/height choreography is unchanged.
-    const ua = navigator.userAgent || '';
-    const vendor = navigator.vendor || '';
-    const isAppleVendor = /Apple/i.test(vendor);
-    const isAppleTouchWebKit = /AppleWebKit/i.test(ua) && /\b(iPad|iPhone|iPod)\b/i.test(ua);
-    const isChromiumFamily = /\b(?:Chrome|Chromium|CriOS|Edg|OPR|SamsungBrowser)\b/i.test(ua);
-    if (isAppleTouchWebKit) return true;
-    return isAppleVendor && !isChromiumFamily;
+function supportsStagedCategoryMotion() {
+    if (typeof window.CSS?.supports !== 'function') return false;
+    return window.CSS.supports('perspective', '1px')
+        && window.CSS.supports('transform', 'translate3d(0, 0, 0) rotateY(1deg) scale(1)')
+        && window.CSS.supports('transition', 'transform 1ms linear');
 }
 
 export function initCategoryCarousel() {
@@ -92,6 +95,7 @@ export function initCategoryCarousel() {
     const viewport = stage?.querySelector('.home-categories__viewport');
     const navbar = document.getElementById('navbar');
     const stagedLayoutQuery = window.matchMedia?.(STAGED_LAYOUT_MEDIA);
+    const reducedMotionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)');
     const categoryLinks = new Map(
         CATEGORY_ORDER.map((key) => [key, Array.from(document.querySelectorAll(`[data-category-link="${key}"]`))]),
     );
@@ -116,14 +120,22 @@ export function initCategoryCarousel() {
     let contentAlignmentFrame = 0;
     let stagedLayoutEnabled = false;
     let transitionEndCleanup = null;
-    let webKitSwitchTimer = 0;
-    let queuedWebKitSwitch = null;
-    const webKitMotionMode = isWebKitMotionEngine();
+    let queuedSwitch = null;
+    let activeTransition = null;
+    let activationFrame = 0;
+    let postTransitionFrame = 0;
+    let destroyed = false;
+    const layoutWaits = new Set();
+    const frameWaits = new Set();
+    const stagedMotionSupported = supportsStagedCategoryMotion();
 
-    if (webKitMotionMode) {
-        stage.classList.add('is-webkit-motion');
+    function syncMotionEngine() {
+        stage.dataset.motionEngine = stagedMotionSupported && !reducedMotionQuery?.matches
+            ? 'standard'
+            : 'instant';
     }
-    stage.dataset.motionEngine = webKitMotionMode ? 'webkit-safe' : 'standard';
+
+    syncMotionEngine();
 
     function getPanel(category) {
         return panels.get(category) || null;
@@ -144,7 +156,7 @@ export function initCategoryCarousel() {
             'is-leave-left',
             'is-leave-right',
             'is-enter-active',
-            'is-webkit-preparing',
+            'is-layout-preparing',
         );
     }
 
@@ -158,29 +170,6 @@ export function initCategoryCarousel() {
         const navBottom = navbar?.getBoundingClientRect().bottom || 0;
         const stageTop = stage.getBoundingClientRect().top;
         return stageTop - navBottom;
-    }
-
-    function getWebKitStageTargetY() {
-        const navBottom = navbar?.getBoundingClientRect().bottom || 0;
-        const stageTop = stage.getBoundingClientRect().top;
-        const rawTarget = (window.scrollY || window.pageYOffset || 0)
-            + stageTop
-            - navBottom;
-        const maxScrollY = Math.max(
-            0,
-            document.documentElement.scrollHeight - window.innerHeight,
-            document.body.scrollHeight - window.innerHeight,
-        );
-        return Math.min(Math.max(0, rawTarget), maxScrollY);
-    }
-
-    function alignWebKitStageToNavOnce({ force = false } = {}) {
-        stopStageAlignmentAnimation();
-        const targetY = getWebKitStageTargetY();
-        if (!Number.isFinite(targetY)) return;
-        const currentY = window.scrollY || window.pageYOffset || 0;
-        if (!force && Math.abs(targetY - currentY) <= WEBKIT_FINAL_ALIGNMENT_TOLERANCE_PX) return;
-        window.scrollTo({ top: targetY, behavior: 'auto' });
     }
 
     function easeInOutCubic(value) {
@@ -206,20 +195,6 @@ export function initCategoryCarousel() {
         transitionEndCleanup = null;
     }
 
-    function stopWebKitSwitchTimer() {
-        if (!webKitSwitchTimer) return;
-        window.clearTimeout(webKitSwitchTimer);
-        webKitSwitchTimer = 0;
-    }
-
-    function clearWebKitSwitchState() {
-        stopWebKitSwitchTimer();
-        stage.classList.remove('is-webkit-switching', 'is-webkit-revealing');
-        panels.forEach((panel) => {
-            panel.classList.remove('is-webkit-preparing');
-        });
-    }
-
     function alignStageToHeaderEdge() {
         stopStageAlignmentAnimation();
         const alignmentDelta = getStageAlignmentDelta();
@@ -231,7 +206,7 @@ export function initCategoryCarousel() {
         stopContentAlignmentWatch();
         const stopAt = performance.now() + durationMs;
         const step = () => {
-            if (!stagedLayoutEnabled) {
+            if (destroyed || !stagedLayoutEnabled) {
                 contentAlignmentFrame = 0;
                 return;
             }
@@ -252,6 +227,10 @@ export function initCategoryCarousel() {
         const startTime = performance.now();
 
         const step = (now) => {
+            if (destroyed || !stagedLayoutEnabled) {
+                scrollFrame = 0;
+                return;
+            }
             const progress = Math.min(1, (now - startTime) / TRANSITION_MS);
             const eased = easeInOutCubic(progress);
             const desiredDelta = Math.abs(initialDelta) <= 1
@@ -283,27 +262,17 @@ export function initCategoryCarousel() {
     }
 
     function alignStageForSameCategory() {
-        if (webKitMotionMode) {
-            alignWebKitStageToNavOnce();
-            scheduleWebKitStageVerification(activeCategory);
-            return;
-        }
         animateStageAlignment();
     }
 
-    function scheduleWebKitStageVerification(category) {
-        stopContentAlignmentWatch();
-        const step = () => {
-            if (!stagedLayoutEnabled || isTransitioning || activeCategory !== category) {
-                contentAlignmentFrame = 0;
-                return;
-            }
-            alignWebKitStageToNavOnce();
-            contentAlignmentFrame = 0;
-        };
-        window.requestAnimationFrame(() => {
-            contentAlignmentFrame = window.requestAnimationFrame(step);
-        });
+    function dispatchCategoryDeactivating(nextCategory) {
+        document.dispatchEvent(new CustomEvent('bitbi:homepage-category-deactivating', {
+            detail: {
+                category: activeCategory,
+                nextCategory,
+                stageMode: stage.dataset.stageMode || '',
+            },
+        }));
     }
 
     function applyCategoryState() {
@@ -316,7 +285,10 @@ export function initCategoryCarousel() {
         });
         stage.dataset.activeCategory = activeCategory;
         syncVisibleReveals(getPanel(activeCategory));
-        window.requestAnimationFrame(() => {
+        if (activationFrame) window.cancelAnimationFrame(activationFrame);
+        activationFrame = window.requestAnimationFrame(() => {
+            activationFrame = 0;
+            if (destroyed) return;
             document.dispatchEvent(new CustomEvent('bitbi:homepage-category-activated', {
                 detail: {
                     category: activeCategory,
@@ -330,39 +302,59 @@ export function initCategoryCarousel() {
         const safeCount = Math.max(1, Number(count) || 1);
         return new Promise((resolve) => {
             let remaining = safeCount;
+            let frame = 0;
+            let settled = false;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                if (frame) window.cancelAnimationFrame(frame);
+                frameWaits.delete(wait);
+                resolve();
+            };
+            const wait = { finish };
+            frameWaits.add(wait);
             const step = () => {
+                frame = 0;
                 remaining -= 1;
                 if (remaining <= 0) {
-                    resolve();
+                    finish();
                     return;
                 }
-                window.requestAnimationFrame(step);
+                frame = window.requestAnimationFrame(step);
             };
-            window.requestAnimationFrame(step);
+            frame = window.requestAnimationFrame(step);
         });
     }
 
     function withTimeout(promise, ms = LAYOUT_PREPARE_TIMEOUT_MS) {
         return new Promise((resolve) => {
             let settled = false;
-            const timer = window.setTimeout(() => {
+            let timer = 0;
+            const finish = () => {
+                if (settled) return;
                 settled = true;
+                if (timer) window.clearTimeout(timer);
+                layoutWaits.delete(wait);
                 resolve();
-            }, ms);
+            };
+            const wait = { finish };
+            layoutWaits.add(wait);
+            timer = window.setTimeout(finish, ms);
             Promise.resolve(promise)
                 .catch((error) => {
                     console.warn('category layout preparation:', error);
                 })
-                .then(() => {
-                    if (settled) return;
-                    settled = true;
-                    window.clearTimeout(timer);
-                    resolve();
-                });
+                .then(finish);
         });
     }
 
+    function settlePendingWaits() {
+        Array.from(layoutWaits).forEach((wait) => wait.finish());
+        Array.from(frameWaits).forEach((wait) => wait.finish());
+    }
+
     async function requestCategoryLayout(category, panel, phase = 'before-transition') {
+        const requestSeq = transitionSeq;
         const pending = [];
         const detail = {
             category,
@@ -375,8 +367,10 @@ export function initCategoryCarousel() {
             },
         };
         document.dispatchEvent(new CustomEvent('bitbi:homepage-category-layout-request', { detail }));
-        await withTimeout(Promise.allSettled(pending), webKitMotionMode ? WEBKIT_LAYOUT_PREPARE_TIMEOUT_MS : LAYOUT_PREPARE_TIMEOUT_MS);
-        await waitForAnimationFrame(2);
+        const requiresSettledFrames = pending.length > 0;
+        await withTimeout(Promise.allSettled(pending), LAYOUT_PREPARE_TIMEOUT_MS);
+        if (destroyed || requestSeq !== transitionSeq) return;
+        if (requiresSettledFrames) await waitForAnimationFrame(2);
     }
 
     function updateCategoryLinkState() {
@@ -390,7 +384,7 @@ export function initCategoryCarousel() {
             return;
         }
 
-        const highlightedCategory = pendingCategory || activeCategory;
+        const highlightedCategory = queuedSwitch?.nextCategory || pendingCategory || activeCategory;
         categoryLinks.forEach((links, key) => {
             const isActive = key === highlightedCategory;
             links.forEach((link) => {
@@ -413,16 +407,53 @@ export function initCategoryCarousel() {
         );
     }
 
-    function setStackedStageState() {
+    function clearTransitionPanelState() {
+        panels.forEach((panel) => {
+            panel.classList.remove(
+                'is-transition-current',
+                'is-transition-next',
+                'is-from-left',
+                'is-from-right',
+                'is-leave-left',
+                'is-leave-right',
+                'is-enter-active',
+                'is-layout-preparing',
+            );
+        });
+    }
+
+    function cancelTransitionWork({ clearQueued = false } = {}) {
+        transitionSeq += 1;
         stopStageAlignmentAnimation();
         stopContentAlignmentWatch();
         stopTransitionEndWatch();
-        clearWebKitSwitchState();
         window.clearTimeout(transitionTimer);
         transitionTimer = 0;
+        if (activationFrame) {
+            window.cancelAnimationFrame(activationFrame);
+            activationFrame = 0;
+        }
+        if (postTransitionFrame) {
+            window.cancelAnimationFrame(postTransitionFrame);
+            postTransitionFrame = 0;
+        }
+        settlePendingWaits();
         isTransitioning = false;
         pendingCategory = null;
-        queuedWebKitSwitch = null;
+        activeTransition = null;
+        if (clearQueued) queuedSwitch = null;
+        stage.classList.remove('is-transitioning');
+        clearTransitionPanelState();
+        viewport.style.height = '';
+        viewport.style.minHeight = '';
+    }
+
+    function setStackedStageState() {
+        const latestSwitch = queuedSwitch || activeTransition;
+        if (latestSwitch?.nextCategory) activeCategory = latestSwitch.nextCategory;
+        const shouldClearHash = !!latestSwitch?.clearHash;
+        const shouldAlignStage = !!latestSwitch?.alignStage;
+        cancelTransitionWork({ clearQueued: true });
         stagedLayoutEnabled = false;
         document.body.classList.remove('home-categories-desktop-stage');
         stage.classList.remove('is-ready', 'is-transitioning');
@@ -438,11 +469,12 @@ export function initCategoryCarousel() {
 
         stage.dataset.activeCategory = activeCategory;
         updateCategoryLinkState();
+        if (shouldClearHash) clearCategoryHash();
+        if (shouldAlignStage) alignStageToHeaderEdge();
     }
 
     function setStagedLayoutState() {
-        stopTransitionEndWatch();
-        clearWebKitSwitchState();
+        cancelTransitionWork({ clearQueued: true });
         stagedLayoutEnabled = true;
         document.body.classList.add('home-categories-desktop-stage');
         stage.classList.add('is-ready');
@@ -455,15 +487,12 @@ export function initCategoryCarousel() {
         applyCategoryState();
         updateCategoryLinkState();
         if (hashCategory || activeCategory !== 'video') {
-            if (webKitMotionMode) {
-                scheduleWebKitStageVerification(activeCategory);
-            } else {
-                startContentAlignmentWatch();
-            }
+            startContentAlignmentWatch();
         }
     }
 
     function syncStageMode() {
+        if (destroyed) return;
         const shouldUseStagedLayout = !!stagedLayoutQuery?.matches;
         if (shouldUseStagedLayout) {
             setStagedLayoutState();
@@ -472,19 +501,25 @@ export function initCategoryCarousel() {
         setStackedStageState();
     }
 
-    function finishTransition(nextCategory) {
+    function finishTransition(nextCategory, expectedSeq) {
+        if (expectedSeq !== transitionSeq) return;
         stopTransitionEndWatch();
         window.clearTimeout(transitionTimer);
         transitionTimer = 0;
         activeCategory = nextCategory;
         pendingCategory = null;
+        activeTransition = null;
         applyCategoryState();
         isTransitioning = false;
         stage.classList.remove('is-transitioning');
         updateCategoryLinkState();
-        requestAnimationFrame(() => {
+        if (postTransitionFrame) window.cancelAnimationFrame(postTransitionFrame);
+        postTransitionFrame = window.requestAnimationFrame(() => {
+            postTransitionFrame = 0;
+            if (destroyed || expectedSeq !== transitionSeq) return;
             viewport.style.height = '';
             viewport.style.minHeight = '';
+            runQueuedSwitchIfNeeded();
         });
     }
 
@@ -494,7 +529,7 @@ export function initCategoryCarousel() {
         const complete = () => {
             if (finished || expectedSeq !== transitionSeq) return;
             finished = true;
-            finishTransition(nextCategory);
+            finishTransition(nextCategory, expectedSeq);
         };
         const handleTransitionEnd = (event) => {
             if (event.target !== panelsToWatch.current && event.target !== panelsToWatch.next) return;
@@ -514,123 +549,29 @@ export function initCategoryCarousel() {
         };
     }
 
-    function queueLatestWebKitSwitch(nextCategory, options) {
-        queuedWebKitSwitch = {
+    function queueLatestSwitch(nextCategory, options) {
+        queuedSwitch = {
             nextCategory,
             alignStage: !!options.alignStage,
             clearHash: !!options.clearHash,
         };
-        pendingCategory = nextCategory;
         updateCategoryLinkState();
     }
 
-    function runQueuedWebKitSwitchIfNeeded() {
-        const queuedSwitch = queuedWebKitSwitch;
-        queuedWebKitSwitch = null;
-        if (queuedSwitch && queuedSwitch.nextCategory !== activeCategory) {
-            startWebKitSafeSwitch(queuedSwitch.nextCategory, queuedSwitch);
-            return true;
-        }
-        if (queuedSwitch?.alignStage) {
-            alignStageForSameCategory();
-        }
-        return false;
-    }
-
-    function finishWebKitSafeSwitch(nextCategory, expectedSeq) {
-        if (expectedSeq !== transitionSeq) return;
-        stage.classList.remove('is-webkit-switching');
-        stage.classList.add('is-webkit-revealing');
-        webKitSwitchTimer = window.setTimeout(() => {
-            if (expectedSeq !== transitionSeq) return;
-            webKitSwitchTimer = 0;
-            stage.classList.remove('is-webkit-revealing');
-            alignWebKitStageToNavOnce();
-            isTransitioning = false;
-            pendingCategory = null;
-            updateCategoryLinkState();
-            runQueuedWebKitSwitchIfNeeded();
-        }, WEBKIT_SAFE_REVEAL_MS + 40);
-    }
-
-    async function startWebKitSafeSwitch(nextCategory, { alignStage = false, clearHash = false } = {}) {
-        const nextPanel = getPanel(nextCategory);
-        if (!nextPanel) return;
-        if (isTransitioning) {
-            queueLatestWebKitSwitch(nextCategory, { alignStage, clearHash });
-            return;
-        }
-
-        const thisTransitionSeq = ++transitionSeq;
-        isTransitioning = true;
-        pendingCategory = nextCategory;
-        stopStageAlignmentAnimation();
-        stopContentAlignmentWatch();
-        stopTransitionEndWatch();
-        clearWebKitSwitchState();
-        window.clearTimeout(transitionTimer);
-        transitionTimer = 0;
-        viewport.style.height = '';
-        viewport.style.minHeight = '';
-        stage.classList.remove('is-transitioning');
-        stage.classList.add('is-webkit-switching');
-        updateCategoryLinkState();
-
-        panels.forEach((panel) => {
-            panel.classList.remove(
-                'is-transition-current',
-                'is-transition-next',
-                'is-from-left',
-                'is-from-right',
-                'is-leave-left',
-                'is-leave-right',
-                'is-enter-active',
-                'is-layout-preparing',
-                'is-webkit-preparing',
-            );
-        });
-
-        nextPanel.classList.add('is-webkit-preparing');
-        nextPanel.setAttribute('aria-hidden', 'true');
-        setPanelInert(nextPanel, true);
-
-        if (clearHash) clearCategoryHash();
-
-        await requestCategoryLayout(nextCategory, nextPanel, 'webkit-safe-switch');
-        if (thisTransitionSeq !== transitionSeq || pendingCategory !== nextCategory) {
-            nextPanel.classList.remove('is-webkit-preparing');
-            nextPanel.setAttribute('aria-hidden', String(nextCategory !== activeCategory));
-            setPanelInert(nextPanel, nextCategory !== activeCategory);
-            stage.classList.remove('is-webkit-switching', 'is-webkit-revealing');
-            isTransitioning = false;
-            pendingCategory = null;
-            viewport.style.height = '';
-            viewport.style.minHeight = '';
-            updateCategoryLinkState();
-            runQueuedWebKitSwitchIfNeeded();
-            return;
-        }
-
-        nextPanel.classList.remove('is-webkit-preparing');
-        activeCategory = nextCategory;
-        pendingCategory = null;
-        applyCategoryState();
-        updateCategoryLinkState();
-        viewport.style.height = '';
-        viewport.style.minHeight = '';
-        if (alignStage) {
-            alignWebKitStageToNavOnce({ force: true });
-        }
-        await waitForAnimationFrame(2);
-        if (thisTransitionSeq !== transitionSeq || activeCategory !== nextCategory) return;
-        alignWebKitStageToNavOnce();
-        finishWebKitSafeSwitch(nextCategory, thisTransitionSeq);
+    function runQueuedSwitchIfNeeded() {
+        const nextSwitch = queuedSwitch;
+        queuedSwitch = null;
+        if (!nextSwitch || destroyed || !stagedLayoutEnabled) return false;
+        setActiveCategory(nextSwitch.nextCategory, nextSwitch);
+        return true;
     }
 
     function setActiveCategory(nextCategory, { alignStage = false, clearHash = false } = {}) {
-        if (!CATEGORY_META[nextCategory]) {
+        if (destroyed || !CATEGORY_META[nextCategory]) {
             return;
         }
+
+        syncMotionEngine();
 
         if (!stagedLayoutEnabled) {
             activeCategory = nextCategory;
@@ -640,9 +581,7 @@ export function initCategoryCarousel() {
         }
 
         if (isTransitioning) {
-            if (webKitMotionMode) {
-                queueLatestWebKitSwitch(nextCategory, { alignStage, clearHash });
-            }
+            queueLatestSwitch(nextCategory, { alignStage, clearHash });
             return;
         }
 
@@ -651,13 +590,8 @@ export function initCategoryCarousel() {
             pendingCategory = null;
             updateCategoryLinkState();
             if (alignStage) {
-                const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-                if (prefersReducedMotion || !stage.classList.contains('is-ready')) {
-                    if (webKitMotionMode) {
-                        alignWebKitStageToNavOnce();
-                    } else {
-                        alignStageToHeaderEdge();
-                    }
+                if (reducedMotionQuery?.matches || !stagedMotionSupported || !stage.classList.contains('is-ready')) {
+                    alignStageToHeaderEdge();
                 } else {
                     alignStageForSameCategory();
                 }
@@ -665,28 +599,20 @@ export function initCategoryCarousel() {
             return;
         }
 
-        const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        const prefersReducedMotion = !!reducedMotionQuery?.matches;
         const currentPanel = getPanel(activeCategory);
         const nextPanel = getPanel(nextCategory);
 
-        if (!currentPanel || !nextPanel || prefersReducedMotion || !stage.classList.contains('is-ready')) {
+        if (!currentPanel || !nextPanel || prefersReducedMotion || !stagedMotionSupported || !stage.classList.contains('is-ready')) {
+            dispatchCategoryDeactivating(nextCategory);
             activeCategory = nextCategory;
             pendingCategory = null;
             applyCategoryState();
             updateCategoryLinkState();
             if (clearHash) clearCategoryHash();
             if (alignStage) {
-                if (webKitMotionMode) {
-                    alignWebKitStageToNavOnce();
-                } else {
-                    alignStageToHeaderEdge();
-                }
+                alignStageToHeaderEdge();
             }
-            return;
-        }
-
-        if (webKitMotionMode) {
-            startWebKitSafeSwitch(nextCategory, { alignStage, clearHash });
             return;
         }
 
@@ -694,8 +620,16 @@ export function initCategoryCarousel() {
         const nextIndex = CATEGORY_ORDER.indexOf(nextCategory);
         const nextFromLeft = nextIndex < currentIndex;
 
+        dispatchCategoryDeactivating(nextCategory);
+        const thisTransitionSeq = ++transitionSeq;
         isTransitioning = true;
         pendingCategory = nextCategory;
+        activeTransition = {
+            nextCategory,
+            alignStage: !!alignStage,
+            clearHash: !!clearHash,
+            seq: thisTransitionSeq,
+        };
         stage.classList.add('is-transitioning');
         updateCategoryLinkState();
 
@@ -706,14 +640,12 @@ export function initCategoryCarousel() {
         });
 
         currentPanel.classList.add('is-transition-current');
-        currentPanel.setAttribute('aria-hidden', 'false');
 
         nextPanel.classList.add(
             'is-transition-next',
             'is-layout-preparing',
             nextFromLeft ? 'is-from-left' : 'is-from-right',
         );
-        nextPanel.setAttribute('aria-hidden', 'false');
 
         const currentHeight = currentPanel.offsetHeight;
 
@@ -721,7 +653,6 @@ export function initCategoryCarousel() {
 
         if (clearHash) clearCategoryHash();
 
-        const thisTransitionSeq = ++transitionSeq;
         requestCategoryLayout(nextCategory, nextPanel).then(() => {
             if (!isTransitioning || pendingCategory !== nextCategory || thisTransitionSeq !== transitionSeq) {
                 return;
@@ -741,7 +672,7 @@ export function initCategoryCarousel() {
         });
     }
 
-    document.addEventListener('click', (event) => {
+    function handleCategoryClick(event) {
         const anchor = event.target.closest('a[data-category-link]');
         if (!anchor) return;
         if (!stagedLayoutEnabled) return;
@@ -751,30 +682,65 @@ export function initCategoryCarousel() {
 
         event.preventDefault();
         setActiveCategory(nextCategory, { alignStage: true, clearHash: true });
-    }, true);
+    }
 
-    window.addEventListener('hashchange', () => {
+    function handleCategoryHashChange() {
         if (!stagedLayoutEnabled) return;
         const nextCategory = resolveCategoryFromHash(window.location.hash);
         if (!nextCategory) return;
         setActiveCategory(nextCategory, { alignStage: true });
-    });
+    }
 
     const alignActiveCategoryAfterContentReady = () => {
-        if (!stagedLayoutEnabled) return;
-        if (webKitMotionMode) {
-            scheduleWebKitStageVerification(activeCategory);
-            return;
-        }
+        if (destroyed || !stagedLayoutEnabled) return;
         startContentAlignmentWatch();
     };
 
-    document.addEventListener('bitbi:homepage-category-content-ready', (event) => {
+    function handleCategoryContentReady(event) {
         if (event?.detail?.category !== activeCategory) return;
         alignActiveCategoryAfterContentReady();
-    });
+    }
+
+    function handleReducedMotionChange() {
+        syncMotionEngine();
+        if (!reducedMotionQuery?.matches || !isTransitioning) return;
+        const latestSwitch = queuedSwitch || activeTransition;
+        if (!latestSwitch?.nextCategory) return;
+        queuedSwitch = null;
+        cancelTransitionWork({ clearQueued: true });
+        activeCategory = latestSwitch.nextCategory;
+        applyCategoryState();
+        updateCategoryLinkState();
+        if (latestSwitch.clearHash) clearCategoryHash();
+        if (latestSwitch.alignStage) alignStageToHeaderEdge();
+    }
+
+    function handlePageHide(event) {
+        const latestSwitch = queuedSwitch || activeTransition;
+        if (latestSwitch?.nextCategory) activeCategory = latestSwitch.nextCategory;
+        cancelTransitionWork({ clearQueued: true });
+        if (event.persisted) {
+            if (stagedLayoutEnabled) {
+                applyCategoryState();
+                updateCategoryLinkState();
+            }
+            return;
+        }
+        destroyed = true;
+        document.removeEventListener('click', handleCategoryClick, true);
+        window.removeEventListener('hashchange', handleCategoryHashChange);
+        document.removeEventListener('bitbi:homepage-category-content-ready', handleCategoryContentReady);
+        unbindMediaQueryChange(stagedLayoutQuery, syncStageMode);
+        unbindMediaQueryChange(reducedMotionQuery, handleReducedMotionChange);
+    }
+
+    document.addEventListener('click', handleCategoryClick, true);
+    window.addEventListener('hashchange', handleCategoryHashChange);
+    document.addEventListener('bitbi:homepage-category-content-ready', handleCategoryContentReady);
 
     bindMediaQueryChange(stagedLayoutQuery, syncStageMode);
+    bindMediaQueryChange(reducedMotionQuery, handleReducedMotionChange);
+    window.addEventListener('pagehide', handlePageHide);
     syncStageMode();
 
     if (activeCategory === 'sound' && document.querySelector('#soundLabTracks .snd-card--memtrack')) {
@@ -790,17 +756,24 @@ export function initCategoryCarousel() {
         let initialAlignmentFrame = 0;
         let initialAlignmentTimer = 0;
         let initialAlignmentObserver = null;
+        let initialQueueFrame = 0;
+        let initialQueueTimer = 0;
+        let finalizePendingTimer = 0;
+
+        const isInitialCategoryCurrent = () => (
+            activeCategory === initialCategory
+            && (!pendingCategory || pendingCategory === initialCategory)
+            && (!queuedSwitch || queuedSwitch.nextCategory === initialCategory)
+        );
 
         const alignInitialCategory = () => {
-            if (!initialCategory) return;
-            if (stagedLayoutEnabled) {
-                setActiveCategory(initialCategory, { alignStage: false });
-                if (webKitMotionMode) {
-                    alignWebKitStageToNavOnce();
-                    return;
-                }
-                alignStageToHeaderEdge();
+            if (destroyed || !initialCategory) return false;
+            if (!isInitialCategoryCurrent()) {
+                stopInitialAlignmentWork();
+                return false;
             }
+            if (stagedLayoutEnabled) alignStageToHeaderEdge();
+            return true;
         };
 
         const stopInitialAlignmentWatch = () => {
@@ -818,8 +791,24 @@ export function initCategoryCarousel() {
             }
         };
 
+        const stopInitialAlignmentWork = () => {
+            stopInitialAlignmentWatch();
+            if (initialQueueFrame) {
+                window.cancelAnimationFrame(initialQueueFrame);
+                initialQueueFrame = 0;
+            }
+            if (initialQueueTimer) {
+                window.clearTimeout(initialQueueTimer);
+                initialQueueTimer = 0;
+            }
+            if (finalizePendingTimer) {
+                window.clearTimeout(finalizePendingTimer);
+                finalizePendingTimer = 0;
+            }
+        };
+
         const startInitialAlignmentObserver = () => {
-            if (typeof window.ResizeObserver !== 'function' || initialAlignmentObserver) return;
+            if (destroyed || typeof window.ResizeObserver !== 'function' || initialAlignmentObserver) return;
             const observedElements = [
                 document.body,
                 navbar,
@@ -828,7 +817,7 @@ export function initCategoryCarousel() {
             ].filter(Boolean);
             if (!observedElements.length) return;
             initialAlignmentObserver = new window.ResizeObserver(() => {
-                if (!stagedLayoutEnabled) return;
+                if (destroyed || !stagedLayoutEnabled) return;
                 alignInitialCategory();
             });
             observedElements.forEach((element) => {
@@ -837,20 +826,28 @@ export function initCategoryCarousel() {
         };
 
         const startInitialAlignmentWatch = () => {
-            if (!initialCategory) return;
+            if (destroyed || !initialCategory) return;
             stopInitialAlignmentWatch();
+            if (!isInitialCategoryCurrent()) {
+                stopInitialAlignmentWork();
+                return;
+            }
             startInitialAlignmentObserver();
 
             let stableFrames = 0;
             const minWatchUntil = performance.now() + 1800;
             const step = () => {
+                if (destroyed) {
+                    stopInitialAlignmentWatch();
+                    return;
+                }
                 if (!stagedLayoutEnabled) {
                     stableFrames = 0;
                     initialAlignmentFrame = window.requestAnimationFrame(step);
                     return;
                 }
 
-                alignInitialCategory();
+                if (!alignInitialCategory()) return;
                 const delta = Math.abs(getStageAlignmentDelta());
                 stableFrames = delta <= 1 ? stableFrames + 1 : 0;
 
@@ -869,44 +866,59 @@ export function initCategoryCarousel() {
         };
 
         const queueInitialAlignment = () => {
-            alignInitialCategory();
-            window.requestAnimationFrame(() => {
-                window.requestAnimationFrame(() => {
-                    alignInitialCategory();
+            if (destroyed) return;
+            if (!alignInitialCategory()) return;
+            initialQueueFrame = window.requestAnimationFrame(() => {
+                initialQueueFrame = window.requestAnimationFrame(() => {
+                    initialQueueFrame = 0;
+                    if (destroyed) return;
+                    if (!alignInitialCategory()) return;
                     startInitialAlignmentWatch();
                 });
             });
-            window.setTimeout(startInitialAlignmentWatch, 120);
+            initialQueueTimer = window.setTimeout(() => {
+                initialQueueTimer = 0;
+                startInitialAlignmentWatch();
+            }, 120);
         };
         const handleInitialAuthUiReady = () => {
-            if (!initialCategory || !stagedLayoutEnabled) return;
+            if (destroyed || !initialCategory || !stagedLayoutEnabled || !isInitialCategoryCurrent()) return;
             startInitialAlignmentWatch();
         };
         const finalizePendingHash = () => {
             if (!shouldPrimeDeferredAlignment) return;
             window.sessionStorage?.removeItem(HOME_CATEGORY_NAV_STATE_KEY);
         };
+        const schedulePendingHashFinalization = () => {
+            if (!shouldPrimeDeferredAlignment) return;
+            window.clearTimeout(finalizePendingTimer);
+            finalizePendingTimer = window.setTimeout(() => {
+                finalizePendingTimer = 0;
+                if (!destroyed) finalizePendingHash();
+            }, 360);
+        };
+        const handleInitialLoad = () => {
+            queueInitialAlignment();
+            if (shouldPrimeDeferredAlignment) {
+                schedulePendingHashFinalization();
+                return;
+            }
+            finalizePendingHash();
+        };
 
         document.addEventListener('bitbi:homepage-auth-ui-ready', handleInitialAuthUiReady, { once: true });
         document.fonts?.ready?.then(() => {
-            startInitialAlignmentWatch();
+            if (!destroyed) startInitialAlignmentWatch();
         }).catch(() => {});
+        window.addEventListener('pagehide', stopInitialAlignmentWork, { once: true });
 
         if (document.readyState === 'complete') {
             queueInitialAlignment();
             if (shouldPrimeDeferredAlignment) {
-                window.setTimeout(finalizePendingHash, 360);
+                schedulePendingHashFinalization();
             }
-            return;
+        } else {
+            window.addEventListener('load', handleInitialLoad, { once: true });
         }
-
-        window.addEventListener('load', () => {
-            queueInitialAlignment();
-            if (shouldPrimeDeferredAlignment) {
-                window.setTimeout(finalizePendingHash, 360);
-                return;
-            }
-            finalizePendingHash();
-        }, { once: true });
     }
 }

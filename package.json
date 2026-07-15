@@ -9,6 +9,7 @@
     "dev": "npx serve -l 3000",
     "test": "playwright test -c playwright.config.js && playwright test -c playwright.workers.config.js",
     "test:static": "playwright test -c playwright.config.js",
+    "test:homepage-carousel": "playwright test -c playwright.carousel.config.js",
     "test:workers": "playwright test -c playwright.workers.config.js",
     "test:headed": "playwright test -c playwright.config.js --headed",
     "test:release-compat": "node scripts/test-release-compat.mjs",
