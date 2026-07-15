@@ -26,6 +26,7 @@ import {
     calculateFixedMediaWallMetrics,
     clearFixedMediaWallLayout,
     renderFixedMediaWallColumns,
+    restoreFlatMediaWallLayout,
 } from './public-media-wall.js?v=__ASSET_VERSION__';
 import { createPublicMediaDetailPanel } from './public-media-detail-panel.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
@@ -69,6 +70,7 @@ export function initVideoGallery() {
     let memvidsLayoutDirty = false;
     let memvidsLayoutRequestSeq = 0;
     let memvidsLayoutInFlight = null;
+    let renderSeq = 0;
     let renderedMemvidCards = [];
     let renderedMemvidContentSignature = '';
     let activeHoverPreview = null;
@@ -1011,9 +1013,7 @@ export function initVideoGallery() {
         if (!isPublicWideLayoutEnabled() || !memvidsState.loaded) return false;
         const items = memvidsState.items.slice(0, getVisibleMemvidsCount());
         const contentSignature = getMemvidsContentSignature(items);
-        const cardsAreReusable = contentSignature === renderedMemvidContentSignature
-            && renderedMemvidCards.length === items.length
-            && renderedMemvidCards.every((card) => grid.contains(card));
+        const cardsAreReusable = canReuseRenderedMemvids(items, contentSignature);
         if (!cardsAreReusable) {
             return render().then(() => true);
         }
@@ -1030,7 +1030,36 @@ export function initVideoGallery() {
         return (grid.dataset.mediaWallRenderToken || '') !== previousRenderToken;
     }
 
+    function canReuseRenderedMemvids(items, contentSignature = getMemvidsContentSignature(items)) {
+        return contentSignature === renderedMemvidContentSignature
+            && renderedMemvidCards.length === items.length
+            && renderedMemvidCards.every((card) => grid.contains(card));
+    }
+
+    function handleMemvidsWideLayoutChange(event) {
+        stopActiveHoverPreview();
+        window.cancelAnimationFrame(memvidsResizeFrame);
+        memvidsResizeFrame = 0;
+        memvidsLayoutRequestSeq += 1;
+        memvidsLayoutDirty = false;
+
+        if (!memvidsState.loaded) return;
+        if (event?.matches) {
+            scheduleMemvidsWideLimitSync();
+            return;
+        }
+        const items = memvidsState.items.slice(0, getVisibleMemvidsCount());
+        const contentSignature = getMemvidsContentSignature(items);
+        if (!canReuseRenderedMemvids(items, contentSignature)
+            || !restoreFlatMediaWallLayout(grid, renderedMemvidCards, {
+                countProperty: '--bitbi-public-video-column-count',
+            })) {
+            render();
+        }
+    }
+
     async function render() {
+        const seq = ++renderSeq;
         stopActiveHoverPreview();
         grid.innerHTML = '';
         renderedMemvidCards = [];
@@ -1041,8 +1070,10 @@ export function initVideoGallery() {
         let items;
         try {
             await ensureMemvidsLoaded();
+            if (seq !== renderSeq) return;
             items = memvidsState.items.slice(0, getVisibleMemvidsCount());
         } catch {
+            if (seq !== renderSeq) return;
             grid.innerHTML = '';
             renderState(localeText('browse.memvidsLoadFailed'));
             syncCategoryGhostModels('video', []);
@@ -1251,10 +1282,7 @@ export function initVideoGallery() {
         });
     });
 
-    bindMediaQueryChange(publicWideLayoutQuery, () => {
-        stopActiveHoverPreview();
-        render();
-    });
+    bindMediaQueryChange(publicWideLayoutQuery, handleMemvidsWideLayoutChange);
     bindMediaQueryChange(desktopHoverQuery, () => {
         stopActiveHoverPreview();
     });

@@ -156,15 +156,11 @@ export function syncFixedMediaWallColumnCount(grid, options = {}) {
     return calculateFixedMediaWallMetrics(grid, options).columnCount;
 }
 
-export function clearFixedMediaWallLayout(grid, {
-    countProperty,
-} = {}) {
+function clearFixedMediaWallState(grid, countProperty) {
     if (!grid) return;
     const state = MEDIA_WALL_LAYOUT_STATE.get(grid);
     if (state) {
-        if (state.validationTimer) window.clearTimeout(state.validationTimer);
-        if (state.validationFrame) window.cancelAnimationFrame(state.validationFrame);
-        if (state.validationNestedFrame) window.cancelAnimationFrame(state.validationNestedFrame);
+        cancelReadyValidation(state);
         MEDIA_WALL_LAYOUT_STATE.delete(grid);
     }
     if (countProperty) grid.style.removeProperty(countProperty);
@@ -183,6 +179,47 @@ export function clearFixedMediaWallLayout(grid, {
     delete grid.dataset.publicMediaWallReady;
     delete grid.dataset.publicMediaWallWidthPx;
     delete grid.dataset.publicMediaWallColumnCount;
+}
+
+function releaseCardFromFixedMediaWall(card) {
+    if (!card) return;
+    card.style.removeProperty('box-sizing');
+    card.style.removeProperty('width');
+    card.style.removeProperty('inline-size');
+    card.style.removeProperty('max-inline-size');
+    card.style.removeProperty('min-inline-size');
+}
+
+export function clearFixedMediaWallLayout(grid, {
+    countProperty,
+} = {}) {
+    clearFixedMediaWallState(grid, countProperty);
+}
+
+export function restoreFlatMediaWallLayout(grid, cards, {
+    countProperty,
+} = {}) {
+    if (!grid) return false;
+    const safeCards = Array.isArray(cards) ? cards : [];
+    if (!safeCards.every((card) => card && grid.contains(card))) return false;
+
+    clearFixedMediaWallState(grid, countProperty);
+    safeCards.forEach(releaseCardFromFixedMediaWall);
+    const directChildren = Array.from(grid.children);
+    const alreadyFlat = directChildren.length === safeCards.length
+        && directChildren.every((node, index) => node === safeCards[index]);
+    if (!alreadyFlat) {
+        const focusedElement = grid.contains(document.activeElement) ? document.activeElement : null;
+        safeCards.forEach((card) => grid.appendChild(card));
+        directChildren
+            .filter((node) => node.classList?.contains('public-media-wall__column'))
+            .forEach((node) => node.remove());
+        focusedElement?.focus?.({ preventScroll: true });
+        grid.style.gridTemplateColumns = 'none';
+        void grid.offsetWidth;
+        grid.style.removeProperty('grid-template-columns');
+    }
+    return true;
 }
 
 function readCardAspectRatio(card, aspectProperty, fallbackRatio) {

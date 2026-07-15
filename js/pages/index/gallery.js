@@ -22,6 +22,7 @@ import {
     calculateFixedMediaWallMetrics,
     clearFixedMediaWallLayout,
     renderFixedMediaWallColumns,
+    restoreFlatMediaWallLayout,
 } from './public-media-wall.js?v=__ASSET_VERSION__';
 import { createPublicMediaDetailPanel } from './public-media-detail-panel.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
@@ -684,9 +685,7 @@ export function initGallery() {
         if (!isPublicWideLayoutEnabled() || currentFilter !== MEMPICS_CATEGORY || !mempicsState.loaded) return false;
         const items = mempicsState.items.slice(0, getVisibleMempicsCount());
         const contentSignature = getMempicsContentSignature(items);
-        const cardsAreReusable = contentSignature === renderedMempicsContentSignature
-            && renderedMempicsCards.length === items.length
-            && renderedMempicsCards.every((card) => grid.contains(card));
+        const cardsAreReusable = canReuseRenderedMempics(items, contentSignature);
         if (!cardsAreReusable) {
             return render(MEMPICS_CATEGORY).then(() => true);
         }
@@ -700,6 +699,39 @@ export function initGallery() {
             contentSignature,
         });
         return (grid.dataset.mediaWallRenderToken || '') !== previousRenderToken;
+    }
+
+    function canReuseRenderedMempics(items, contentSignature = getMempicsContentSignature(items)) {
+        return contentSignature === renderedMempicsContentSignature
+            && renderedMempicsCards.length === items.length
+            && renderedMempicsCards.every((card) => grid.contains(card));
+    }
+
+    function handleMempicsWideLayoutChange(event) {
+        window.cancelAnimationFrame(mempicsResizeFrame);
+        mempicsResizeFrame = 0;
+        window.cancelAnimationFrame(mempicsBreakpointRenderFrame);
+        mempicsBreakpointRenderFrame = 0;
+        mempicsLayoutRequestSeq += 1;
+        mempicsLayoutDirty = false;
+
+        if (!mempicsState.loaded) return;
+        if (event?.matches) {
+            scheduleMempicsWideLimitSync();
+            return;
+        }
+        if (currentFilter !== MEMPICS_CATEGORY) {
+            render(currentFilter);
+            return;
+        }
+        const items = mempicsState.items.slice(0, getVisibleMempicsCount());
+        const contentSignature = getMempicsContentSignature(items);
+        if (!canReuseRenderedMempics(items, contentSignature)
+            || !restoreFlatMediaWallLayout(grid, renderedMempicsCards, {
+                countProperty: '--bitbi-public-gallery-column-count',
+            })) {
+            render(currentFilter);
+        }
     }
 
     async function render(filter) {
@@ -957,9 +989,7 @@ export function initGallery() {
         galBuildDots();
     }
 
-    bindMediaQueryChange(publicWideLayoutQuery, () => {
-        scheduleMempicsBreakpointRender();
-    });
+    bindMediaQueryChange(publicWideLayoutQuery, handleMempicsWideLayoutChange);
     bindMediaQueryChange(mobileMediaQuery, () => {
         updateMempicsPagination(currentFilter);
     });

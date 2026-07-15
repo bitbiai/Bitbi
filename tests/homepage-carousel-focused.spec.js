@@ -14,6 +14,19 @@ const WALLS = {
   video: '#videoGrid',
   sound: '#soundLabTracks',
 };
+const HOMEPAGE_REQUEST_COUNTS = new WeakMap();
+
+function summarizeLayoutShiftWindow(entries, startTime, endTime) {
+  const selected = (Array.isArray(entries) ? entries : []).filter((entry) => (
+    entry?.hadRecentInput === false
+    && Number(entry.startTime) >= Number(startTime)
+    && Number(entry.startTime) <= Number(endTime)
+  ));
+  return {
+    value: selected.reduce((total, entry) => total + (Number(entry.value) || 0), 0),
+    entries: selected,
+  };
+}
 
 async function installCarouselWorkInstrumentation(page) {
   await page.addInitScript(() => {
@@ -22,8 +35,61 @@ async function installCarouselWorkInstrumentation(page) {
       innerHtmlWrites: { gallery: 0, video: 0, sound: 0 },
       replaceChildren: { gallery: 0, video: 0, sound: 0 },
       cardRectReads: { gallery: 0, video: 0, sound: 0 },
+      layoutShifts: [],
       longTaskSupported: false,
       longTasks: [],
+    };
+    const roundedRect = (rect) => rect ? {
+      x: Math.round(rect.x * 100) / 100,
+      y: Math.round(rect.y * 100) / 100,
+      width: Math.round(rect.width * 100) / 100,
+      height: Math.round(rect.height * 100) / 100,
+    } : null;
+    const safeNodeIdentity = (node) => {
+      if (!node || node.nodeType !== Node.ELEMENT_NODE) return '';
+      if (node.id) return `#${node.id}`;
+      const panel = node.closest?.('[data-category-panel]');
+      if (node === panel) return `[data-category-panel="${panel.dataset.categoryPanel || ''}"]`;
+      const classes = Array.from(node.classList || []).slice(0, 2).join('.');
+      return classes ? `${node.localName}.${classes}` : String(node.localName || '');
+    };
+    const recordLayoutShifts = (entries) => {
+      for (const entry of entries) {
+        const stage = document.getElementById('homeCategories');
+        const viewport = stage?.querySelector('.home-categories__viewport');
+        const record = {
+          value: Number(entry.value) || 0,
+          startTime: Number(entry.startTime) || 0,
+          hadRecentInput: entry.hadRecentInput === true,
+          observedAt: performance.now(),
+          activeCategory: stage?.dataset.activeCategory || '',
+          transitioning: stage?.classList.contains('is-transitioning') || false,
+          viewportInlineHeight: viewport?.style.height || '',
+          viewportInlineMinHeight: viewport?.style.minHeight || '',
+          stageRect: roundedRect(stage?.getBoundingClientRect()),
+          viewportRect: roundedRect(viewport?.getBoundingClientRect()),
+          scrollY: Math.round(window.scrollY * 100) / 100,
+          walls: Object.fromEntries(Object.entries({ gallery: '#galleryGrid', video: '#videoGrid' }).map(([key, selector]) => {
+            const grid = document.querySelector(selector);
+            return [key, {
+              ready: grid?.dataset.mediaWallReady || '',
+              token: grid?.dataset.mediaWallRenderToken || '',
+            }];
+          })),
+          sources: Array.from(entry.sources || []).slice(0, 8).map((source) => ({
+            node: safeNodeIdentity(source.node),
+            category: source.node?.closest?.('[data-category-panel]')?.dataset.categoryPanel || '',
+            insideStage: !!stage?.contains(source.node),
+            previousRect: roundedRect(source.previousRect),
+            currentRect: roundedRect(source.currentRect),
+          })),
+        };
+        window.__carouselTestWork.layoutShifts.push(record);
+        if (!record.hadRecentInput) window.__carouselTestWork.cls += record.value;
+      }
+      if (window.__carouselTestWork.layoutShifts.length > 200) {
+        window.__carouselTestWork.layoutShifts.splice(0, window.__carouselTestWork.layoutShifts.length - 200);
+      }
     };
     const categoryForNode = (node) => {
       if (node?.id === 'galleryGrid' || node?.matches?.('.gallery-item')) return 'gallery';
@@ -64,12 +130,10 @@ async function installCarouselWorkInstrumentation(page) {
 
     if (typeof PerformanceObserver === 'function') {
       try {
-        const observer = new PerformanceObserver((list) => {
-          for (const entry of list.getEntries()) {
-            if (!entry.hadRecentInput) window.__carouselTestWork.cls += entry.value;
-          }
-        });
+        const observer = new PerformanceObserver((list) => recordLayoutShifts(list.getEntries()));
         observer.observe({ type: 'layout-shift', buffered: true });
+        window.__carouselLayoutShiftObserver = observer;
+        window.__flushCarouselLayoutShifts = () => recordLayoutShifts(observer.takeRecords());
       } catch {}
       try {
         if (PerformanceObserver.supportedEntryTypes?.includes('longtask')) {
@@ -168,6 +232,8 @@ async function routePopulatedHomepage(page) {
   const mempics = buildMempics();
   const memvids = buildMemvids();
   const memtracks = buildMemtracks();
+  const requestCounts = { gallery: 0, video: 0 };
+  HOMEPAGE_REQUEST_COUNTS.set(page, requestCounts);
 
   await page.route('**/api/me', (route) => route.fulfill({
     status: 200,
@@ -179,16 +245,22 @@ async function routePopulatedHomepage(page) {
     contentType: 'application/json',
     body: JSON.stringify({ items: [], updated_at: '2026-07-15T00:00:00.000Z' }),
   }));
-  await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ ok: true, data: { items: mempics, has_more: false, next_cursor: null } }),
-  }));
-  await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ ok: true, data: { items: memvids, has_more: false, next_cursor: null } }),
-  }));
+  await page.route(/\/api\/gallery\/mempics(?:\?.*)?$/, (route) => {
+    requestCounts.gallery += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, data: { items: mempics, has_more: false, next_cursor: null } }),
+    });
+  });
+  await page.route(/\/api\/gallery\/memvids(?:\?.*)?$/, (route) => {
+    requestCounts.video += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, data: { items: memvids, has_more: false, next_cursor: null } }),
+    });
+  });
   await page.route(/\/api\/gallery\/memtracks(?:\?.*)?$/, (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -524,16 +596,18 @@ async function measureWarmSwitch(page, category) {
         reject(new Error('carousel measurement target missing'));
         return;
       }
-      const startedAt = performance.now();
+      const setupAt = performance.now();
+      let inputDispatchedAt = 0;
       let firstMotionAt = 0;
-      let lastFrameAt = startedAt;
+      let activationAt = 0;
+      let lastFrameAt = 0;
       let maxRafGapMs = 0;
       let rafSamples = 0;
       let viewportMinOpacity = 1;
       let frameId = 0;
       let timeoutId = 0;
       let settled = false;
-      const clsStart = Number(window.__carouselTestWork?.cls || 0);
+      let finalizing = false;
       const frame = (now) => {
         if (settled) return;
         if (rafSamples > 0) maxRafGapMs = Math.max(maxRafGapMs, now - lastFrameAt);
@@ -542,42 +616,78 @@ async function measureWarmSwitch(page, category) {
         viewportMinOpacity = Math.min(viewportMinOpacity, Number.parseFloat(getComputedStyle(viewport).opacity) || 0);
         frameId = requestAnimationFrame(frame);
       };
+      const handleInput = () => {
+        inputDispatchedAt = performance.now();
+        lastFrameAt = inputDispatchedAt;
+        frameId = requestAnimationFrame(frame);
+      };
+      link.addEventListener('pointerdown', handleInput, { capture: true, once: true });
       const finish = () => {
-        if (settled || !firstMotionAt) return;
+        if (settled || finalizing || !inputDispatchedAt || !firstMotionAt) return;
         if (stage.dataset.activeCategory !== nextCategory || stage.classList.contains('is-transitioning')) return;
-        settled = true;
+        finalizing = true;
         observer.disconnect();
-        cancelAnimationFrame(frameId);
-        clearTimeout(timeoutId);
-        const completedAt = performance.now();
-        setTimeout(() => {
-          const longTasks = (window.__carouselTestWork?.longTasks || [])
-            .filter((entry) => entry.startTime >= startedAt && entry.startTime <= completedAt);
-          resolve({
-            firstMotionMs: firstMotionAt - startedAt,
-            motionToCompleteMs: completedAt - firstMotionAt,
-            maxRafGapMs,
-            rafSamples,
-            viewportMinOpacity,
-            clsDelta: Number(window.__carouselTestWork?.cls || 0) - clsStart,
-            longTaskSupported: !!window.__carouselTestWork?.longTaskSupported,
-            longTaskCount: longTasks.length,
-            maxLongTaskMs: longTasks.reduce((largest, entry) => Math.max(largest, entry.duration), 0),
-          });
-        }, 0);
+        const settledAt = performance.now();
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          setTimeout(() => {
+            window.__flushCarouselLayoutShifts?.();
+            const completedAt = performance.now();
+            settled = true;
+            clearTimeout(timeoutId);
+            cancelAnimationFrame(frameId);
+            link.removeEventListener('pointerdown', handleInput, true);
+            const longTasks = (window.__carouselTestWork?.longTasks || [])
+              .filter((entry) => entry.startTime >= inputDispatchedAt && entry.startTime <= completedAt);
+            resolve({
+              targetCategory: nextCategory,
+              setupAt,
+              inputDispatchedAt,
+              settledAt,
+              completedAt,
+              setupToInputMs: inputDispatchedAt - setupAt,
+              firstMotionMs: firstMotionAt - inputDispatchedAt,
+              activationMs: activationAt - inputDispatchedAt,
+              motionToCompleteMs: settledAt - firstMotionAt,
+              maxRafGapMs,
+              rafSamples,
+              viewportMinOpacity,
+              globalCls: Number(window.__carouselTestWork?.cls || 0),
+              layoutShifts: (window.__carouselTestWork?.layoutShifts || []).slice(),
+              longTaskSupported: !!window.__carouselTestWork?.longTaskSupported,
+              longTaskCount: longTasks.length,
+              maxLongTaskMs: longTasks.reduce((largest, entry) => Math.max(largest, entry.duration), 0),
+              finalState: {
+                activeCategory: stage.dataset.activeCategory || '',
+                transitioning: stage.classList.contains('is-transitioning'),
+                viewportHeight: viewport.style.height,
+                viewportMinHeight: viewport.style.minHeight,
+                galleryReady: document.getElementById('galleryGrid')?.dataset.mediaWallReady || '',
+                videoReady: document.getElementById('videoGrid')?.dataset.mediaWallReady || '',
+                soundReady: document.getElementById('soundLabTracks')?.dataset.soundWallReady
+                  || document.getElementById('soundLabTracks')?.dataset.soundWidthReady
+                  || '',
+              },
+            });
+          }, 0);
+        }));
       };
       const observer = new MutationObserver(() => {
-        if (!firstMotionAt && stage.querySelector(`[data-category-panel="${nextCategory}"].is-enter-active`)) {
+        if (inputDispatchedAt
+          && !firstMotionAt
+          && stage.querySelector(`[data-category-panel="${nextCategory}"].is-enter-active`)) {
           firstMotionAt = performance.now();
+          activationAt = firstMotionAt;
         }
         finish();
       });
       observer.observe(stage, { attributes: true, attributeFilter: ['class', 'data-active-category'], subtree: true });
-      frameId = requestAnimationFrame(frame);
       timeoutId = setTimeout(() => {
         observer.disconnect();
         cancelAnimationFrame(frameId);
-        reject(new Error('carousel measurement timed out'));
+        link.removeEventListener('pointerdown', handleInput, true);
+        reject(new Error(inputDispatchedAt
+          ? 'carousel measurement timed out'
+          : 'carousel input event was not observed'));
       }, 3_000);
     });
   }, category);
@@ -585,8 +695,38 @@ async function measureWarmSwitch(page, category) {
   const box = await link.boundingBox();
   if (!box) throw new Error(`carousel link unavailable: ${category}`);
   await page.mouse.click(box.x + (box.width / 2), box.y + (box.height / 2));
-  return page.evaluate(() => window.__carouselMeasurementPromise);
+  const rawMeasurement = await page.evaluate(() => window.__carouselMeasurementPromise);
+  const clsWindow = summarizeLayoutShiftWindow(
+    rawMeasurement.layoutShifts,
+    rawMeasurement.inputDispatchedAt,
+    rawMeasurement.completedAt,
+  );
+  const preInputCls = summarizeLayoutShiftWindow(
+    rawMeasurement.layoutShifts,
+    rawMeasurement.setupAt,
+    rawMeasurement.inputDispatchedAt - 0.001,
+  ).value;
+  const measurement = { ...rawMeasurement };
+  delete measurement.layoutShifts;
+  return {
+    ...measurement,
+    clsDelta: clsWindow.value,
+    clsEntries: clsWindow.entries,
+    preInputCls,
+  };
 }
+
+test('carousel CLS accounting excludes pre-input shifts and retains in-window shifts', () => {
+  const summary = summarizeLayoutShiftWindow([
+    { value: 0.5, startTime: 90, hadRecentInput: false },
+    { value: 0.02, startTime: 110, hadRecentInput: false },
+    { value: 0.4, startTime: 120, hadRecentInput: true },
+    { value: 0.03, startTime: 160, hadRecentInput: false },
+    { value: 0.6, startTime: 210, hadRecentInput: false },
+  ], 100, 200);
+  expect(summary.value).toBeCloseTo(0.05, 8);
+  expect(summary.entries.map((entry) => entry.startTime)).toEqual([110, 160]);
+});
 
 test.describe('Populated homepage carousel', () => {
   test.beforeEach(async ({ page }) => {
@@ -697,13 +837,23 @@ test.describe('Populated homepage carousel', () => {
       body: Buffer.from(JSON.stringify(metrics, null, 2)),
       contentType: 'application/json',
     });
-    console.log(`carousel-metrics ${JSON.stringify(metrics)}`);
     expect(p95FirstMotion).toBeLessThanOrEqual(100);
     for (const measurement of warmMeasurements) {
+      expect(measurement.firstMotionMs).toBeGreaterThanOrEqual(0);
+      expect(measurement.activationMs).toBeGreaterThanOrEqual(0);
       expect(measurement.motionToCompleteMs).toBeGreaterThanOrEqual(440);
       expect(measurement.motionToCompleteMs).toBeLessThanOrEqual(680);
       expect(measurement.viewportMinOpacity).toBeGreaterThanOrEqual(0.99);
       expect(measurement.clsDelta).toBeLessThanOrEqual(0.01);
+      expect(measurement.finalState).toEqual({
+        activeCategory: measurement.targetCategory,
+        transitioning: false,
+        viewportHeight: '',
+        viewportMinHeight: '',
+        galleryReady: 'true',
+        videoReady: 'true',
+        soundReady: 'true',
+      });
       if (measurement.longTaskSupported) {
         expect(measurement.maxLongTaskMs).toBeLessThanOrEqual(50);
       }
@@ -711,7 +861,13 @@ test.describe('Populated homepage carousel', () => {
     await expectSingleInteractivePanel(page, 'sound');
 
     await selectCategory(page, 'video');
-    const rapidClsBaseline = await page.evaluate(() => window.__carouselTestWork.cls);
+    await page.evaluate(() => {
+      window.__rapidCarouselInputAt = 0;
+      const link = document.querySelector('#navbar .site-nav__links [data-category-link="gallery"]');
+      link?.addEventListener('click', () => {
+        window.__rapidCarouselInputAt = performance.now();
+      }, { capture: true, once: true });
+    });
     const rapidStartedAt = Date.now();
     const galleryBox = await page.locator('#navbar .site-nav__links [data-category-link="gallery"]').boundingBox();
     const soundBox = await page.locator('#navbar .site-nav__links [data-category-link="sound"]').boundingBox();
@@ -720,8 +876,24 @@ test.describe('Populated homepage carousel', () => {
     await page.mouse.click(soundBox.x + (soundBox.width / 2), soundBox.y + (soundBox.height / 2));
     await waitForSettledCategory(page, 'sound');
     expect(Date.now() - rapidStartedAt).toBeLessThan(2_500);
-    const cls = await page.evaluate(() => window.__carouselTestWork.cls);
-    expect(cls - rapidClsBaseline).toBeLessThanOrEqual(0.01);
+    const rapidShiftWindow = await page.evaluate(() => new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        setTimeout(() => {
+          window.__flushCarouselLayoutShifts?.();
+          resolve({
+            startTime: window.__rapidCarouselInputAt,
+            endTime: performance.now(),
+            entries: (window.__carouselTestWork?.layoutShifts || []).slice(),
+          });
+        }, 0);
+      }));
+    }));
+    expect(rapidShiftWindow.startTime).toBeGreaterThan(0);
+    expect(summarizeLayoutShiftWindow(
+      rapidShiftWindow.entries,
+      rapidShiftWindow.startTime,
+      rapidShiftWindow.endTime,
+    ).value).toBeLessThanOrEqual(0.01);
     await expectSingleInteractivePanel(page, 'sound');
 
     const wideGallery = await page.locator('#galleryGrid').evaluate((grid) => ({
@@ -842,7 +1014,7 @@ test.describe('Populated homepage carousel', () => {
     await expect(page.locator('#mediaWallGeometryGrid')).toHaveAttribute('data-media-wall-ready', 'true');
   });
 
-  test('ignores transient zero width and preserves reduced-motion, mobile, and localized layouts', async ({ page }) => {
+  test('ignores transient zero width and preserves reduced-motion, mobile, and localized layouts', async ({ page }, testInfo) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.setViewportSize({ width: 1440, height: 900 });
     await waitForPopulatedHomepage(page);
@@ -917,13 +1089,160 @@ test.describe('Populated homepage carousel', () => {
       await expectCarouselHorizontalFit(page, `${pathName} ${viewport.width}x${viewport.height}`);
     }
 
+    await page.evaluate(() => {
+      document.querySelector('#navbar .site-nav__links [data-category-link="gallery"]')?.click();
+    });
+    await waitForSettledCategory(page, 'gallery');
+    await waitForPublicWall(page, 'gallery');
+    await page.evaluate(() => {
+      document.querySelector('#navbar .site-nav__links [data-category-link="video"]')?.click();
+    });
+    await waitForSettledCategory(page, 'video');
+    await waitForPublicWall(page, 'video');
+    const breakpointRequests = { ...(HOMEPAGE_REQUEST_COUNTS.get(page) || {}) };
+    const breakpointWork = await page.evaluate(() => {
+      window.__breakpointCardNodes = {
+        gallery: Array.from(document.querySelectorAll('#galleryGrid .gallery-item')),
+        video: Array.from(document.querySelectorAll('#videoGrid .video-card')),
+      };
+      window.__breakpointFocusedNode = window.__breakpointCardNodes.video[0] || null;
+      window.__breakpointFocusedNode?.focus({ preventScroll: true });
+      window.__breakpointSamples = [];
+      const query = matchMedia([
+        '(min-width: 1024px) and (hover: hover) and (pointer: fine)',
+        '(min-width: 768px) and (max-width: 1023px) and (min-height: 700px)',
+        '(min-width: 1024px) and (hover: none) and (pointer: coarse) and (min-height: 700px)',
+      ].join(', '));
+      const sample = (phase) => {
+        const stage = document.getElementById('homeCategories');
+        const readGrid = (selector) => {
+          const grid = document.querySelector(selector);
+          const style = getComputedStyle(grid);
+          return {
+            clientWidth: grid.clientWidth,
+            scrollWidth: grid.scrollWidth,
+            inlineTemplate: grid.style.gridTemplateColumns,
+            computedTemplate: style.gridTemplateColumns,
+            wrappers: grid.querySelectorAll(':scope > .public-media-wall__column').length,
+            availableWidth: grid.dataset.mediaWallAvailableWidth || '',
+            resolvedWidth: grid.dataset.mediaWallResolvedWidth || '',
+            columns: grid.dataset.mediaWallColumnCount || '',
+            ready: grid.dataset.mediaWallReady || '',
+          };
+        };
+        window.__breakpointSamples.push({
+          phase,
+          publicWideMatch: query.matches,
+          stageClientWidth: stage.clientWidth,
+          stageScrollWidth: stage.scrollWidth,
+          gallery: readGrid('#galleryGrid'),
+          video: readGrid('#videoGrid'),
+        });
+      };
+      query.addEventListener('change', () => {
+        sample('sync');
+        queueMicrotask(() => sample('microtask'));
+        requestAnimationFrame(() => {
+          sample('raf1');
+          requestAnimationFrame(() => sample('raf2'));
+        });
+      }, { once: true });
+      return JSON.parse(JSON.stringify(window.__carouselTestWork));
+    });
+
     await page.setViewportSize({ width: 767, height: 1024 });
     await expect.poll(() => readStageState(page)).toMatchObject({ mode: 'stacked', transitioning: false });
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await expect.poll(() => page.evaluate(() => window.__breakpointSamples?.length || 0)).toBe(4);
+    const stackedBreakpoint = await page.evaluate(() => ({
+      samples: window.__breakpointSamples,
+      identity: Object.fromEntries(Object.entries(window.__breakpointCardNodes).map(([category, previous]) => {
+        const selector = category === 'gallery' ? '#galleryGrid .gallery-item' : '#videoGrid .video-card';
+        const current = Array.from(document.querySelectorAll(selector));
+        return [category, current.length === previous.length && current.every((node) => previous.includes(node))];
+      })),
+      innerHtmlWrites: JSON.parse(JSON.stringify(window.__carouselTestWork.innerHtmlWrites)),
+      focusPreserved: document.activeElement === window.__breakpointFocusedNode,
+    }));
+    await testInfo.attach('breakpoint-cleanup-samples', {
+      body: Buffer.from(JSON.stringify(stackedBreakpoint.samples, null, 2)),
+      contentType: 'application/json',
+    });
+    expect(stackedBreakpoint.samples.map((sample) => sample.phase)).toEqual(['sync', 'microtask', 'raf1', 'raf2']);
+    for (const sample of stackedBreakpoint.samples) {
+      expect(sample.publicWideMatch, sample.phase).toBe(false);
+    }
+    for (const sample of stackedBreakpoint.samples.filter(({ phase }) => phase === 'raf1' || phase === 'raf2')) {
+      expect(
+        sample.stageScrollWidth - sample.stageClientWidth,
+        `${sample.phase} ${JSON.stringify(sample)}`,
+      ).toBeLessThanOrEqual(4);
+      for (const category of ['gallery', 'video']) {
+        const grid = sample[category];
+        expect(grid.scrollWidth - grid.clientWidth, `${sample.phase} ${category}`).toBeLessThanOrEqual(4);
+        expect(grid.inlineTemplate, `${sample.phase} ${category}`).toBe('');
+        expect(grid.computedTemplate, `${sample.phase} ${category}`).not.toContain('392.5px');
+        expect(grid.wrappers, `${sample.phase} ${category}`).toBe(0);
+        expect([grid.availableWidth, grid.resolvedWidth, grid.columns, grid.ready]).toEqual(['', '', '', '']);
+      }
+    }
+    expect(stackedBreakpoint.identity).toEqual({ gallery: true, video: true });
+    expect(stackedBreakpoint.focusPreserved).toBe(true);
+    expect(stackedBreakpoint.innerHtmlWrites).toEqual(breakpointWork.innerHtmlWrites);
+    expect(HOMEPAGE_REQUEST_COUNTS.get(page)).toEqual(breakpointRequests);
     await expectCarouselHorizontalFit(page, 'dynamic 767x1024 stacked');
+
     await page.setViewportSize({ width: 820, height: 1180 });
     await expect.poll(() => readStageState(page)).toMatchObject({ mode: 'desktop', transitioning: false });
+    await waitForPublicWall(page, 'video');
+    await page.evaluate(() => {
+      document.querySelector('#navbar .site-nav__links [data-category-link="gallery"]')?.click();
+    });
+    await waitForSettledCategory(page, 'gallery');
+    await waitForPublicWall(page, 'gallery');
+    const restoredBreakpoint = await page.evaluate(() => ({
+      identity: Object.fromEntries(Object.entries(window.__breakpointCardNodes).map(([category, previous]) => {
+        const selector = category === 'gallery' ? '#galleryGrid .gallery-item' : '#videoGrid .video-card';
+        const current = Array.from(document.querySelectorAll(selector));
+        return [category, current.length === previous.length && current.every((node) => previous.includes(node))];
+      })),
+      galleryReady: document.querySelector('#galleryGrid')?.dataset.mediaWallReady || '',
+      videoReady: document.querySelector('#videoGrid')?.dataset.mediaWallReady || '',
+      galleryWrappers: document.querySelectorAll('#galleryGrid > .public-media-wall__column').length,
+      videoWrappers: document.querySelectorAll('#videoGrid > .public-media-wall__column').length,
+      walls: Object.fromEntries(Object.entries({ gallery: '#galleryGrid', video: '#videoGrid' }).map(([category, selector]) => {
+        const grid = document.querySelector(selector);
+        return [category, {
+          token: grid.dataset.mediaWallRenderToken || '',
+          columns: Number(grid.dataset.mediaWallColumnCount || 0),
+          resolvedWidth: Number(grid.dataset.mediaWallResolvedWidth || 0),
+          clientWidth: grid.clientWidth,
+          scrollWidth: grid.scrollWidth,
+        }];
+      })),
+      innerHtmlWrites: JSON.parse(JSON.stringify(window.__carouselTestWork.innerHtmlWrites)),
+    }));
+    expect(restoredBreakpoint.identity).toEqual({ gallery: true, video: true });
+    expect(restoredBreakpoint.galleryReady).toBe('true');
+    expect(restoredBreakpoint.videoReady).toBe('true');
+    expect(restoredBreakpoint.galleryWrappers).toBeGreaterThan(0);
+    expect(restoredBreakpoint.videoWrappers).toBeGreaterThan(0);
+    for (const [category, wall] of Object.entries(restoredBreakpoint.walls)) {
+      expect(wall.token, `${category} token`).not.toBe('');
+      expect(wall.columns, `${category} columns`).toBeGreaterThan(1);
+      expect(wall.resolvedWidth, `${category} resolved width`).toBeGreaterThan(0);
+      expect(wall.scrollWidth - wall.clientWidth, `${category} restored overflow`).toBeLessThanOrEqual(4);
+    }
+    expect(restoredBreakpoint.innerHtmlWrites).toEqual(breakpointWork.innerHtmlWrites);
+    expect(HOMEPAGE_REQUEST_COUNTS.get(page)).toEqual(breakpointRequests);
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const stableRestoredTokens = await page.evaluate(() => ({
+      gallery: document.querySelector('#galleryGrid')?.dataset.mediaWallRenderToken || '',
+      video: document.querySelector('#videoGrid')?.dataset.mediaWallRenderToken || '',
+    }));
+    expect(stableRestoredTokens).toEqual({
+      gallery: restoredBreakpoint.walls.gallery.token,
+      video: restoredBreakpoint.walls.video.token,
+    });
     await expectCarouselHorizontalFit(page, 'dynamic 820x1180 staged');
 
     await page.setViewportSize({ width: 1440, height: 900 });
