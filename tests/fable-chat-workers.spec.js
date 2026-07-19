@@ -213,7 +213,8 @@ function validFableAiBody(messages, overrides = {}) {
     systemPresetVersion: 1,
     thinkingDisplay: 'omitted',
     promptCachePolicy: 'auto_5m',
-    promptCacheVersion: 1,
+    promptCacheVersion: 2,
+    promptCacheTtl: '5m',
     contextFormatVersion: 'native-anthropic-turns-v3',
     webSearchEnabled: false,
     webSearchMaxUses: 3,
@@ -555,7 +556,11 @@ test.describe('Private admin Fable chat', () => {
       path.join(process.cwd(), 'workers/auth/migrations/0078_add_fable_global_location.sql'),
       'utf8'
     );
-    expect(CURRENT_AUTH_MIGRATION).toBe('0078_add_fable_global_location.sql');
+    const promptCacheTtlMigration = fs.readFileSync(
+      path.join(process.cwd(), 'workers/auth/migrations/0079_add_fable_prompt_cache_ttl.sql'),
+      'utf8'
+    );
+    expect(CURRENT_AUTH_MIGRATION).toBe('0079_add_fable_prompt_cache_ttl.sql');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_conversations');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_turns');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_messages');
@@ -591,6 +596,8 @@ test.describe('Private admin Fable chat', () => {
     expect(upgradedWebSearchMigration).toContain('web_search_20260318');
     expect(upgradedWebSearchMigration).toContain("fable_tool_choice TEXT NOT NULL DEFAULT 'auto'");
     expect(globalLocationMigration).toContain('CREATE TABLE fable_chat_user_settings');
+    expect(promptCacheTtlMigration).toContain('ADD COLUMN prompt_cache_ttl');
+    expect(promptCacheTtlMigration).toContain("CHECK (prompt_cache_ttl IN ('5m', '1h'))");
     expect(globalLocationMigration).toContain('web_search_location_json TEXT');
     expect(globalLocationMigration).toContain('FOREIGN KEY (admin_user_id) REFERENCES users(id) ON DELETE CASCADE');
     expect(globalLocationMigration).not.toMatch(/DROP\s+TABLE|ALTER\s+TABLE\s+\S+\s+DROP/i);
@@ -885,7 +892,8 @@ test.describe('Private admin Fable chat', () => {
         systemPresetVersion: 1,
         thinkingDisplay: 'omitted',
         promptCachePolicy: 'auto_5m',
-        promptCacheVersion: 1,
+        promptCacheVersion: 2,
+        promptCacheTtl: '5m',
         contextFormatVersion: 'native-anthropic-turns-v3',
         webSearchEnabled: false,
         webSearchMaxUses: 3,
@@ -1617,6 +1625,7 @@ test.describe('Private admin Fable chat', () => {
         email: 'settings-other@example.com',
       });
       const conversation = await createFableConversationForTest(worker, env, admin.cookie);
+      const secondConversation = await createFableConversationForTest(worker, env, admin.cookie);
       expect(conversation.settings).toMatchObject({
         effort: 'high',
         effectiveMaxOutputTokens: 16_384,
@@ -1624,6 +1633,7 @@ test.describe('Private admin Fable chat', () => {
         summarizedThinking: false,
         webSearchEnabled: false,
         memoryMode: 'standard',
+        promptCacheTtl: '5m',
       });
 
       const missingMfa = await callFableAuthWorker(
@@ -1648,6 +1658,7 @@ test.describe('Private admin Fable chat', () => {
         { maxTokens: 32_768 },
         { systemPresetId: 'browser-prompt' },
         { summarizedThinking: 'yes' },
+        { promptCacheTtl: '24h' },
         { webSearchEnabled: 'yes' },
         { webSearchMaxUses: 10 },
         { memoryMode: 'turbo' },
@@ -1674,6 +1685,7 @@ test.describe('Private admin Fable chat', () => {
             effort: 'max',
             systemPresetId: 'coding',
             summarizedThinking: true,
+            promptCacheTtl: '1h',
             webSearchEnabled: true,
             webSearchCallerMode: 'dynamic',
             webSearchResponseInclusion: 'excluded',
@@ -1696,7 +1708,8 @@ test.describe('Private admin Fable chat', () => {
         summarizedThinking: true,
         thinkingDisplay: 'summarized',
         promptCachePolicy: 'auto_5m',
-        promptCacheVersion: 1,
+        promptCacheVersion: 2,
+        promptCacheTtl: '1h',
         webSearchEnabled: true,
         webSearchToolVersion: 'web_search_20260318',
         webSearchMaxUses: 10,
@@ -1742,6 +1755,16 @@ test.describe('Private admin Fable chat', () => {
         message,
         settings: { ...maxSettings, toolChoice: 'auto' },
       })).not.toBe(maxFingerprint);
+      expect(await fableChatModule.buildFableChatRequestFingerprint({
+        conversationId: conversation.id,
+        message,
+        settings: { ...maxSettings, promptCacheTtl: '5m' },
+      })).not.toBe(maxFingerprint);
+      expect((await fableChatModule.getFableChatConversationSettings(
+        env,
+        'admin-fable-settings',
+        secondConversation.id
+      )).promptCacheTtl).toBe('5m');
 
       const pending = await fableChatModule.beginFableChatTurn(env, {
         adminUserId: 'admin-fable-settings',
@@ -1776,6 +1799,9 @@ test.describe('Private admin Fable chat', () => {
         effectiveMaxOutputTokens: 32_768,
         systemPresetId: 'coding',
         thinkingDisplay: 'summarized',
+        promptCachePolicy: 'auto_5m',
+        promptCacheVersion: 2,
+        promptCacheTtl: '1h',
         webSearchEnabled: true,
         webSearchToolVersion: 'web_search_20260318',
         webSearchMaxUses: 10,
@@ -1818,6 +1844,7 @@ test.describe('Private admin Fable chat', () => {
         systemPresetId: 'precise',
         thinkingDisplay: 'omitted',
         webSearchEnabled: false,
+        promptCacheTtl: '1h',
       });
       expect(JSON.parse(DB.database.prepare(
         'SELECT settings_snapshot_json FROM fable_chat_turns WHERE id = ?'

@@ -1,4 +1,7 @@
-import { CLAUDE_FABLE_5_MODEL_ID } from "../../js/shared/admin-ai-contract.mjs";
+import {
+  CLAUDE_FABLE_5_MODEL_ID,
+  CLAUDE_FABLE_5_PROMPT_CACHE_WRITE_PRICE_PER_MILLION,
+} from "../../js/shared/admin-ai-contract.mjs";
 
 export const FABLE_CHAT_MODEL_ID = CLAUDE_FABLE_5_MODEL_ID;
 export const FABLE_CHAT_CONTRACT_VERSION = "van-ark-fable-chat-v3";
@@ -51,7 +54,11 @@ export const FABLE_CHAT_SYSTEM_PRESET_IDS = Object.freeze(Object.keys(FABLE_CHAT
 export const FABLE_CHAT_THINKING_DISPLAYS = Object.freeze(["omitted", "summarized"]);
 export const FABLE_CHAT_DEFAULT_THINKING_DISPLAY = "omitted";
 export const FABLE_CHAT_PROMPT_CACHE_POLICY = "auto_5m";
-export const FABLE_CHAT_PROMPT_CACHE_VERSION = 1;
+export const FABLE_CHAT_PROMPT_CACHE_VERSION = 2;
+export const FABLE_CHAT_PROMPT_CACHE_TTLS = Object.freeze(["5m", "1h"]);
+export const FABLE_CHAT_DEFAULT_PROMPT_CACHE_TTL = "5m";
+export const FABLE_CHAT_PROMPT_CACHE_WRITE_PRICE_PER_MILLION =
+  CLAUDE_FABLE_5_PROMPT_CACHE_WRITE_PRICE_PER_MILLION;
 export const FABLE_CHAT_PROMPT_CACHE_MINIMUM_TOKENS = 512;
 export const FABLE_CHAT_PROMPT_CACHE_LOOKBACK_BLOCKS = 20;
 export const FABLE_CHAT_PROMPT_CACHE_MAX_BREAKPOINTS = 2;
@@ -152,6 +159,25 @@ export function getFableChatOutputTokenLimit(effort) {
 
 export function getFableChatWebSearchMaxUses(effort) {
   return FABLE_CHAT_WEB_SEARCH_MAX_USES_BY_EFFORT[effort] || null;
+}
+
+export function normalizeFableChatPromptCacheTtl(value) {
+  const normalized = String(value || "").trim();
+  if (!FABLE_CHAT_PROMPT_CACHE_TTLS.includes(normalized)) {
+    throw new TypeError("promptCacheTtl must be 5m or 1h.");
+  }
+  return normalized;
+}
+
+export function getFableChatPromptCacheWritePricePerMillion(ttl) {
+  return FABLE_CHAT_PROMPT_CACHE_WRITE_PRICE_PER_MILLION[
+    normalizeFableChatPromptCacheTtl(ttl)
+  ];
+}
+
+export function estimateFableChatPromptCacheWriteCostUsd(tokens, ttl) {
+  const normalizedTokens = Math.max(0, Math.floor(Number(tokens) || 0));
+  return normalizedTokens * getFableChatPromptCacheWritePricePerMillion(ttl) / 1_000_000;
 }
 
 function assertPlainConfiguration(value, field) {

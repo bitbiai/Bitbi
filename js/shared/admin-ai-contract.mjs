@@ -173,6 +173,10 @@ export const FLUX_2_MAX_MAX_SAFETY_TOLERANCE = 5;
 export const FLUX_2_MAX_DEFAULT_SAFETY_TOLERANCE = 2;
 export const ADMIN_AI_MUSIC_MODEL_ID = "minimax/music-2.6";
 export const CLAUDE_FABLE_5_MODEL_ID = "anthropic/claude-fable-5";
+export const CLAUDE_FABLE_5_PROMPT_CACHE_WRITE_PRICE_PER_MILLION = Object.freeze({
+  "5m": 12.5,
+  "1h": 20,
+});
 export const QWEN3_30B_A3B_MODEL_ID = "@cf/qwen/qwen3-30b-a3b-fp8";
 export const QWEN3_30B_A3B_CONTEXT_WINDOW_TOKENS = 32_768;
 export const QWEN3_30B_A3B_ADMIN_MAX_OUTPUT_TOKENS = 4_096;
@@ -487,7 +491,9 @@ const TEXT_MODELS = {
       input: 10,
       output: 50,
       cachedInput: 1,
-      cacheCreation: 12.5,
+      cacheCreation: CLAUDE_FABLE_5_PROMPT_CACHE_WRITE_PRICE_PER_MILLION["5m"],
+      cacheCreation5m: CLAUDE_FABLE_5_PROMPT_CACHE_WRITE_PRICE_PER_MILLION["5m"],
+      cacheCreation1h: CLAUDE_FABLE_5_PROMPT_CACHE_WRITE_PRICE_PER_MILLION["1h"],
       currency: "USD",
     },
     billing: {

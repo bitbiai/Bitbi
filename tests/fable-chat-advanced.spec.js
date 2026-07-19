@@ -22,7 +22,8 @@ function validAiBody(messages = [{ role: 'user', content: 'Hello' }], overrides 
     systemPresetVersion: 1,
     thinkingDisplay: 'omitted',
     promptCachePolicy: 'auto_5m',
-    promptCacheVersion: 1,
+    promptCacheVersion: 2,
+    promptCacheTtl: '5m',
     contextFormatVersion: 'native-anthropic-turns-v3',
     webSearchEnabled: false,
     webSearchMaxUses: 3,
@@ -1813,6 +1814,79 @@ test.describe('Advanced Fable chat contract', () => {
     expect(JSON.stringify(short.messages)).not.toContain('cache_control');
   });
 
+  test('one-hour prompt caching changes only application-owned TTLs and reserves the higher write cost', async () => {
+    const context = await import(moduleUrl('workers/auth/src/lib/fable-chat-context.js'));
+    const auth = await import(moduleUrl('workers/auth/src/lib/fable-chat.js'));
+    const ai = await import(moduleUrl('workers/ai/src/lib/validate.js'));
+    const stream = await import(moduleUrl('workers/ai/src/lib/anthropic-stream.js'));
+    const budget = await import(moduleUrl('workers/auth/src/lib/fable-chat-budget.js'));
+    const contract = await import(moduleUrl('workers/shared/fable-chat-contract.mjs'));
+    const priorTurnsNewestFirst = [{
+      userContent: `Stable question ${'q'.repeat(2_000)}`,
+      assistantContent: `Stable answer ${'a'.repeat(4_000)}`,
+    }];
+    const select = (promptCacheTtl) => context.selectFableChatModelContext({
+      system: 'Trusted system',
+      priorTurnsNewestFirst,
+      currentMessage: 'Current message stays uncached',
+      effectiveInputTokenLimit: 20_000,
+      totalPriorTurns: 1,
+      promptCacheTtl,
+    });
+    const fiveMinute = select('5m');
+    const oneHour = select('1h');
+    expect(fiveMinute.messages[1].content[0].cache_control)
+      .toEqual({ type: 'ephemeral', ttl: '5m' });
+    expect(oneHour.messages[1].content[0].cache_control)
+      .toEqual({ type: 'ephemeral', ttl: '1h' });
+    expect(JSON.stringify(oneHour.messages.at(-1))).not.toContain('cache_control');
+    expect(oneHour.context.cacheBreakpoint).toMatchObject({
+      enabled: true,
+      ttl: '1h',
+      cacheWritePricePerMillion: 20,
+    });
+    expect(oneHour.context.cacheBreakpoint.locations)
+      .toEqual(fiveMinute.context.cacheBreakpoint.locations);
+    const withoutCacheTtl = (messages) => JSON.parse(JSON.stringify(messages), (key, value) => (
+      key === 'ttl' ? '<cache-ttl>' : value
+    ));
+    expect(withoutCacheTtl(oneHour.messages)).toEqual(withoutCacheTtl(fiveMinute.messages));
+    expect(oneHour.messages.flatMap((message) => Array.isArray(message.content)
+      ? message.content.filter((block) => block.cache_control)
+      : [])).toEqual(fiveMinute.messages.flatMap((message) => Array.isArray(message.content)
+      ? message.content.filter((block) => block.cache_control)
+      : []).map((block) => ({ ...block, cache_control: { type: 'ephemeral', ttl: '1h' } })));
+    expect(ai.validateFableChatBody(validAiBody(oneHour.messages, {
+      promptCacheTtl: '1h',
+    }))).toMatchObject({ promptCacheTtl: '1h', messages: oneHour.messages });
+    expect(() => ai.validateFableChatBody(validAiBody(oneHour.messages)))
+      .toThrow(/server-owned prompt-cache TTL/);
+    expect(() => ai.validateFableChatBody(validAiBody(fiveMinute.messages, {
+      promptCacheTtl: '24h',
+    }))).toThrow(/prompt-cache TTL is not supported/);
+
+    const fiveMinuteBudget = budget.deriveFableChatBudgetUnits({
+      effort: 'high', estimatedInputTokens: 32_768, promptCacheTtl: '5m',
+    });
+    const oneHourBudget = budget.deriveFableChatBudgetUnits({
+      effort: 'high', estimatedInputTokens: 32_768, promptCacheTtl: '1h',
+    });
+    expect(fiveMinuteBudget).toMatchObject({ inputUnits: 1, promptCacheAdmissionMultiplier: 1 });
+    expect(oneHourBudget).toMatchObject({ inputUnits: 2, promptCacheAdmissionMultiplier: 1.6 });
+    expect(contract.estimateFableChatPromptCacheWriteCostUsd(100_000, '5m')).toBe(1.25);
+    expect(contract.estimateFableChatPromptCacheWriteCostUsd(100_000, '1h')).toBe(2);
+    const usage = {
+      input_tokens: 1,
+      cache_creation_input_tokens: 2,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 3,
+        ephemeral_1h_input_tokens: 4,
+      },
+    };
+    expect(stream.sanitizeAnthropicUsage(usage).cache_creation).toEqual(usage.cache_creation);
+    expect(auth.sanitizeFableChatUsage(usage).cache_creation).toEqual(usage.cache_creation);
+  });
+
   test('provider-weighted estimation and cold projection remove only complete older native turns', async () => {
     const context = await import(moduleUrl('workers/auth/src/lib/fable-chat-context.js'));
     const memory = await import(moduleUrl('workers/auth/src/lib/fable-chat-memory.js'));
@@ -1993,9 +2067,9 @@ test.describe('Advanced Fable chat contract', () => {
       },
       { role: 'user', content: 'Current message' },
     ];
-    const capturePayload = async (overrides = {}) => {
+    const capturePayload = async (overrides = {}, requestMessages = messages) => {
       const calls = [];
-      const body = validAiBody(messages, overrides);
+      const body = validAiBody(requestMessages, overrides);
       const response = await route.handleFableChat({
         request: new Request('https://bitbi-ai.internal/internal/ai/fable-chat', {
           method: 'POST',
@@ -2027,6 +2101,12 @@ test.describe('Advanced Fable chat contract', () => {
       thinking: payload.thinking,
     })).digest('hex');
     const baseline = await capturePayload();
+    const oneHourMessages = JSON.parse(JSON.stringify(messages));
+    oneHourMessages[1].content[0].cache_control.ttl = '1h';
+    const oneHour = await capturePayload({ promptCacheTtl: '1h' }, oneHourMessages);
+    expect(oneHour.messages).toEqual(oneHourMessages);
+    expect(oneHour.messages[1].content[0].cache_control)
+      .toEqual({ type: 'ephemeral', ttl: '1h' });
     const searchEnabled = await capturePayload({ webSearchEnabled: true });
     const mediumSearch = await capturePayload({
       effort: 'medium',
@@ -2943,6 +3023,57 @@ test.describe('Advanced Fable chat contract', () => {
       expect(DB.database.prepare(
         'SELECT web_search_settings_json FROM fable_chat_conversations WHERE id = ?'
       ).get('fbc_30000000000000000000000000000002').web_search_settings_json).toBe(newestLocation);
+    } finally {
+      DB.close();
+    }
+  });
+
+  test('migration 0079 defaults existing conversations and turns to five-minute caching', () => {
+    const DB = new SqliteD1Database();
+    try {
+      applyAuthMigrations(DB, { through: '0078_add_fable_global_location.sql' });
+      const now = '2026-07-19T00:00:00.000Z';
+      DB.database.prepare(
+        `INSERT INTO users (id, email, password_hash, created_at, status, role, updated_at)
+         VALUES ('cache-ttl-admin', 'cache-ttl@example.com', 'unused', ?, 'active', 'admin', ?)`
+      ).run(now, now);
+      DB.database.prepare(
+        `INSERT INTO fable_chat_conversations (
+           id, admin_user_id, title, title_source, turn_count, created_at, updated_at
+         ) VALUES ('fbc_40000000000000000000000000000001', 'cache-ttl-admin',
+           'Existing', 'manual', 0, ?, ?)`
+      ).run(now, now);
+      DB.database.prepare(
+        `INSERT INTO fable_chat_messages (
+           id, conversation_id, message_group_id, admin_user_id, turn_order, role, role_order,
+           content, state, metadata_json, created_at, updated_at
+         ) VALUES ('fbm_40000000000000000000000000000001',
+           'fbc_40000000000000000000000000000001', 'fbg_cache_ttl', 'cache-ttl-admin',
+           0, 'user', 0, 'Synthetic', 'failed', '{}', ?, ?)`
+      ).run(now, now);
+      DB.database.prepare(
+        `INSERT INTO fable_chat_turns (
+           id, conversation_id, admin_user_id, idempotency_key_hash, request_fingerprint,
+           user_message_id, status, usage_json, gateway_metadata_json,
+           created_at, updated_at, expires_at
+         ) VALUES ('fbt_40000000000000000000000000000001',
+           'fbc_40000000000000000000000000000001', 'cache-ttl-admin', 'cache-hash',
+           'cache-fingerprint', 'fbm_40000000000000000000000000000001', 'failed', '{}', '{}',
+           ?, ?, ?)`
+      ).run(now, now, now);
+      DB.exec(fs.readFileSync(
+        path.join(process.cwd(), 'workers/auth/migrations/0079_add_fable_prompt_cache_ttl.sql'),
+        'utf8'
+      ));
+      expect(DB.database.prepare(
+        'SELECT prompt_cache_ttl FROM fable_chat_conversations WHERE admin_user_id = ?'
+      ).get('cache-ttl-admin').prompt_cache_ttl).toBe('5m');
+      expect(DB.database.prepare(
+        'SELECT prompt_cache_ttl FROM fable_chat_turns WHERE admin_user_id = ?'
+      ).get('cache-ttl-admin').prompt_cache_ttl).toBe('5m');
+      expect(() => DB.database.prepare(
+        'UPDATE fable_chat_conversations SET prompt_cache_ttl = ? WHERE admin_user_id = ?'
+      ).run('24h', 'cache-ttl-admin')).toThrow();
     } finally {
       DB.close();
     }

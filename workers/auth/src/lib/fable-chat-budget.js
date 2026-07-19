@@ -21,7 +21,11 @@ import {
   FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
   FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS,
   FABLE_CHAT_WEB_FETCH_MAX_USES,
+  FABLE_CHAT_DEFAULT_PROMPT_CACHE_TTL,
+  estimateFableChatPromptCacheWriteCostUsd,
+  getFableChatPromptCacheWritePricePerMillion,
   getFableChatWebSearchMaxUses,
+  normalizeFableChatPromptCacheTtl,
 } from "../../../shared/fable-chat-contract.mjs";
 import { nowIso, randomTokenHex } from "./tokens.js";
 
@@ -46,6 +50,7 @@ export function deriveFableChatBudgetUnits({
   webSearchEnabled = false,
   webFetchEnabled = false,
   toolChoice = "auto",
+  promptCacheTtl = FABLE_CHAT_DEFAULT_PROMPT_CACHE_TTL,
 }) {
   const effortUnits = FABLE_CHAT_EFFORT_UNITS[effort];
   if (!effortUnits) {
@@ -55,11 +60,14 @@ export function deriveFableChatBudgetUnits({
     throw error;
   }
   const baseInputTokens = Math.max(0, Math.floor(Number(estimatedInputTokens) || 0));
+  const normalizedPromptCacheTtl = normalizeFableChatPromptCacheTtl(promptCacheTtl);
+  const promptCacheAdmissionMultiplier = normalizedPromptCacheTtl === "1h" ? 1.6 : 1;
+  const weightedBaseInputTokens = Math.ceil(baseInputTokens * promptCacheAdmissionMultiplier);
   const providerToolsEnabled = toolChoice !== "none";
   const webFetchReservedTokens = webFetchEnabled === true && providerToolsEnabled
     ? FABLE_CHAT_WEB_FETCH_MAX_USES * FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS
     : 0;
-  const inputTokens = baseInputTokens + webFetchReservedTokens;
+  const inputTokens = weightedBaseInputTokens + webFetchReservedTokens;
   const inputUnits = Math.max(1, Math.ceil(inputTokens / FABLE_CHAT_INPUT_UNIT_TOKENS));
   const webSearchMaxUses = getFableChatWebSearchMaxUses(effort);
   const webSearchUnits = webSearchEnabled === true && providerToolsEnabled
@@ -72,6 +80,11 @@ export function deriveFableChatBudgetUnits({
     webSearchUnits,
     webSearchMaxUses,
     webFetchReservedTokens,
+    promptCacheTtl: normalizedPromptCacheTtl,
+    promptCacheAdmissionMultiplier,
+    promptCacheWritePricePerMillion: getFableChatPromptCacheWritePricePerMillion(
+      normalizedPromptCacheTtl
+    ),
     estimatedInputBucketTokens: inputUnits * FABLE_CHAT_INPUT_UNIT_TOKENS,
   };
 }
@@ -143,6 +156,7 @@ export async function prepareFableChatBudget({
     webSearchEnabled: settings?.webSearchEnabled,
     webFetchEnabled: settings?.webFetchEnabled,
     toolChoice: settings?.toolChoice,
+    promptCacheTtl: settings?.promptCacheTtl,
   });
   const budgetFingerprint = await buildAdminPlatformBudgetFingerprint({
     operation,
@@ -162,8 +176,14 @@ export async function prepareFableChatBudget({
       thinking_display: settings?.thinkingDisplay,
       prompt_cache_policy: settings?.promptCachePolicy,
       prompt_cache_version: settings?.promptCacheVersion,
+      prompt_cache_ttl: settings?.promptCacheTtl,
       context_format_version: context?.contextFormatVersion,
       estimated_input_bucket_tokens: budgetWeight.estimatedInputBucketTokens,
+      predicted_cache_write_tokens: context?.predictedCacheWriteTokens,
+      predicted_cache_write_cost_usd: estimateFableChatPromptCacheWriteCostUsd(
+        context?.predictedCacheWriteTokens,
+        budgetWeight.promptCacheTtl
+      ),
       web_search_enabled: settings?.webSearchEnabled === true,
       web_search_tool_version: settings?.webSearchToolVersion,
       web_search_max_uses: settings?.webSearchMaxUses,
@@ -235,6 +255,17 @@ export async function prepareFableChatBudget({
       effort: settings.effort,
       effective_max_output_tokens: Number(settings.effectiveMaxOutputTokens),
       estimated_input_bucket_tokens: budgetWeight.estimatedInputBucketTokens,
+      prompt_cache_ttl: budgetWeight.promptCacheTtl,
+      prompt_cache_write_price_per_million: budgetWeight.promptCacheWritePricePerMillion,
+      prompt_cache_admission_multiplier: budgetWeight.promptCacheAdmissionMultiplier,
+      predicted_cache_write_tokens: Math.max(
+        0,
+        Math.floor(Number(context?.predictedCacheWriteTokens) || 0)
+      ),
+      predicted_cache_write_cost_usd: estimateFableChatPromptCacheWriteCostUsd(
+        context?.predictedCacheWriteTokens,
+        budgetWeight.promptCacheTtl
+      ),
       effort_units: budgetWeight.effortUnits,
       input_units: budgetWeight.inputUnits,
       web_search_enabled: settings.webSearchEnabled === true,
@@ -393,6 +424,10 @@ export async function recordFableChatBudgetOutcome(env, turnId, {
   const safeUsage = {};
   for (const key of ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]) {
     const value = Number(usage?.[key]);
+    if (Number.isFinite(value) && value >= 0) safeUsage[key] = Math.floor(value);
+  }
+  for (const key of ["ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"]) {
+    const value = Number(usage?.cache_creation?.[key]);
     if (Number.isFinite(value) && value >= 0) safeUsage[key] = Math.floor(value);
   }
   const thinkingTokens = Number(usage?.output_tokens_details?.thinking_tokens);

@@ -19,11 +19,15 @@ import {
   FABLE_CHAT_MAX_WEB_SEARCH_RESULTS,
   FABLE_CHAT_MAX_WEB_FETCH_DOCUMENT_DATA_BYTES,
   FABLE_CHAT_NATIVE_REPLAY_PROJECTION_VERSION,
+  FABLE_CHAT_DEFAULT_PROMPT_CACHE_TTL,
   FABLE_CHAT_PROMPT_CACHE_MINIMUM_TOKENS,
   FABLE_CHAT_PROMPT_CACHE_LOOKBACK_BLOCKS,
   FABLE_CHAT_PROMPT_CACHE_MAX_BREAKPOINTS,
   FABLE_CHAT_PROMPT_CACHE_POLICY,
   FABLE_CHAT_PROMPT_CACHE_VERSION,
+  estimateFableChatPromptCacheWriteCostUsd,
+  getFableChatPromptCacheWritePricePerMillion,
+  normalizeFableChatPromptCacheTtl,
   FABLE_CHAT_WEB_SEARCH_TOOL_NAME,
   FABLE_CHAT_WEB_SEARCH_TOOL_TYPE,
   FABLE_CHAT_LEGACY_WEB_SEARCH_TOOL_TYPE,
@@ -1116,14 +1120,14 @@ function findStableAssistantCacheCandidates(messages) {
   return candidates;
 }
 
-function addCacheControlAt(messages, { messageIndex, blockIndex }) {
+function addCacheControlAt(messages, { messageIndex, blockIndex }, promptCacheTtl) {
   const stableMessage = messages[messageIndex];
   const content = typeof stableMessage.content === "string"
     ? [{ type: "text", text: stableMessage.content }]
     : JSON.parse(JSON.stringify(stableMessage.content));
   content[blockIndex] = {
     ...content[blockIndex],
-    cache_control: { type: "ephemeral", ttl: "5m" },
+    cache_control: { type: "ephemeral", ttl: promptCacheTtl },
   };
   stableMessage.content = content;
 }
@@ -1134,7 +1138,9 @@ function addCacheControlsToStableMessages({
   messages,
   messageMetadata = [],
   providerConfigurationTokens = 0,
+  promptCacheTtl = FABLE_CHAT_DEFAULT_PROMPT_CACHE_TTL,
 }) {
+  const normalizedPromptCacheTtl = normalizeFableChatPromptCacheTtl(promptCacheTtl);
   const candidates = findStableAssistantCacheCandidates(messages);
   const latest = candidates.at(-1);
   if (!latest) return [];
@@ -1157,7 +1163,9 @@ function addCacheControlsToStableMessages({
   }
 
   const boundedLocations = locations.slice(-FABLE_CHAT_PROMPT_CACHE_MAX_BREAKPOINTS);
-  for (const location of boundedLocations) addCacheControlAt(messages, location);
+  for (const location of boundedLocations) {
+    addCacheControlAt(messages, location, normalizedPromptCacheTtl);
+  }
   return boundedLocations.map(({ messageIndex, blockIndex }) => ({ messageIndex, blockIndex }));
 }
 
@@ -1208,8 +1216,10 @@ export function selectFableChatModelContext({
   totalPriorTurns,
   promptCachePolicy = FABLE_CHAT_PROMPT_CACHE_POLICY,
   promptCacheVersion = FABLE_CHAT_PROMPT_CACHE_VERSION,
+  promptCacheTtl = FABLE_CHAT_DEFAULT_PROMPT_CACHE_TTL,
   providerConfigurationTokens = 0,
 }) {
+  const normalizedPromptCacheTtl = normalizeFableChatPromptCacheTtl(promptCacheTtl);
   const current = { role: "user", content: currentMessage };
   const selectedNewestFirst = [];
 
@@ -1295,8 +1305,16 @@ export function selectFableChatModelContext({
     enabled: false,
     policy: promptCachePolicy,
     version: promptCacheVersion,
+    ttl: normalizedPromptCacheTtl,
     estimatedPrefixTokens: stablePrefixEstimate,
     predictedCacheWriteTokens: stablePrefixEstimate,
+    cacheWritePricePerMillion: getFableChatPromptCacheWritePricePerMillion(
+      normalizedPromptCacheTtl
+    ),
+    predictedCacheWriteCostUsd: estimateFableChatPromptCacheWriteCostUsd(
+      stablePrefixEstimate,
+      normalizedPromptCacheTtl
+    ),
     providerTokenBreakdown: stablePrefixBreakdown,
   };
   if (
@@ -1310,6 +1328,7 @@ export function selectFableChatModelContext({
       messages,
       messageMetadata,
       providerConfigurationTokens,
+      promptCacheTtl: normalizedPromptCacheTtl,
     });
     const latestLocation = locations.at(-1);
     if (latestLocation) {

@@ -1030,6 +1030,12 @@ export function sanitizeAnthropicUsage(usage) {
     const value = Number(usage[key]);
     if (Number.isFinite(value) && value >= 0) safe[key] = Math.floor(value);
   }
+  const cacheCreation = {};
+  for (const key of ["ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"]) {
+    const value = Number(usage?.cache_creation?.[key]);
+    if (Number.isFinite(value) && value >= 0) cacheCreation[key] = Math.floor(value);
+  }
+  if (Object.keys(cacheCreation).length > 0) safe.cache_creation = cacheCreation;
   const thinkingTokens = Number(usage?.output_tokens_details?.thinking_tokens);
   if (Number.isFinite(thinkingTokens) && thinkingTokens >= 0) {
     safe.output_tokens_details = { thinking_tokens: Math.floor(thinkingTokens) };
@@ -1062,6 +1068,7 @@ function mergeUsage(current, next) {
     ...(sanitized.output_tokens_details
       ? { output_tokens_details: sanitized.output_tokens_details }
       : {}),
+    ...(sanitized.cache_creation ? { cache_creation: sanitized.cache_creation } : {}),
     ...(sanitized.server_tool_use ? { server_tool_use: sanitized.server_tool_use } : {}),
   };
 }
@@ -2231,6 +2238,16 @@ function sumUsage(left, right) {
         + Math.max(0, Math.floor(Number.isFinite(b) ? b : 0));
     }
   }
+  const cacheCreation = {};
+  for (const key of ["ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"]) {
+    const a = Number(left?.cache_creation?.[key]);
+    const b = Number(right?.cache_creation?.[key]);
+    if (Number.isFinite(a) || Number.isFinite(b)) {
+      cacheCreation[key] = Math.max(0, Math.floor(Number.isFinite(a) ? a : 0))
+        + Math.max(0, Math.floor(Number.isFinite(b) ? b : 0));
+    }
+  }
+  if (Object.keys(cacheCreation).length > 0) output.cache_creation = cacheCreation;
   const aThinking = Number(left?.output_tokens_details?.thinking_tokens);
   const bThinking = Number(right?.output_tokens_details?.thinking_tokens);
   if (Number.isFinite(aThinking) || Number.isFinite(bThinking)) {

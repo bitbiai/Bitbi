@@ -18,6 +18,7 @@ import { AdminAiValidationError } from "../../../../js/shared/admin-ai-contract.
 import { stripAiCallerPolicyFromBody } from "../../../shared/ai-caller-policy.mjs";
 import {
   FABLE_CHAT_CONTEXT_FORMAT_VERSION,
+  FABLE_CHAT_DEFAULT_PROMPT_CACHE_TTL,
   FABLE_CHAT_DEFAULT_WEB_FETCH_ENABLED,
   FABLE_CHAT_DEFAULT_WEB_SEARCH_ENABLED,
   FABLE_CHAT_DEFAULT_TOOL_CHOICE,
@@ -66,6 +67,7 @@ import {
   getFableChatOutputTokenLimit,
   getFableChatWebSearchMaxUses,
   normalizeFableChatToolChoice,
+  normalizeFableChatPromptCacheTtl,
   normalizeFableChatWebSearchConfiguration,
 } from "../../../shared/fable-chat-contract.mjs";
 import {
@@ -109,6 +111,7 @@ const FABLE_CHAT_ALLOWED_BODY_FIELDS = new Set([
   "thinkingDisplay",
   "promptCachePolicy",
   "promptCacheVersion",
+  "promptCacheTtl",
   "contextFormatVersion",
   "webSearchEnabled",
   "webSearchMaxUses",
@@ -212,17 +215,17 @@ function normalizeFableChatOptionalText(value, field, maxLength) {
   return value;
 }
 
-function validateFableChatCacheControl(value, field) {
+function validateFableChatCacheControl(value, field, expectedTtl) {
   const cache = assertPlainObject(value, field);
   assertOnlyFields(cache, new Set(["type", "ttl"]), field);
-  if (cache.type !== "ephemeral" || cache.ttl !== "5m") {
+  if (cache.type !== "ephemeral" || cache.ttl !== expectedTtl) {
     throw new AdminAiValidationError(
-      `${field} must request the server-owned ephemeral 5m policy.`,
+      `${field} must match the server-owned prompt-cache TTL.`,
       400,
       "validation_error"
     );
   }
-  return { type: "ephemeral", ttl: "5m" };
+  return { type: "ephemeral", ttl: expectedTtl };
 }
 
 function validateFableChatHttpsUrl(value, field) {
@@ -550,7 +553,13 @@ function validateFableChatProviderBlockRelationships(blocks, field) {
   });
 }
 
-function validateFableChatContent(content, { role, messageIndex, lastMessageIndex, counters }) {
+function validateFableChatContent(content, {
+  role,
+  messageIndex,
+  lastMessageIndex,
+  counters,
+  promptCacheTtl,
+}) {
   const maxLength = role === "user"
     ? FABLE_CHAT_MAX_USER_MESSAGE_CHARACTERS
     : FABLE_CHAT_MAX_ASSISTANT_MESSAGE_CHARACTERS;
@@ -601,7 +610,8 @@ function validateFableChatContent(content, { role, messageIndex, lastMessageInde
         counters.cacheBreakpoints += 1;
         normalized.cache_control = validateFableChatCacheControl(
           entry.cache_control,
-          `${field}.cache_control`
+          `${field}.cache_control`,
+          promptCacheTtl
         );
       }
       return normalized;
@@ -773,6 +783,20 @@ export function validateFableChatBody(body) {
     );
   }
 
+  const legacyPromptCacheContract = input.promptCacheVersion === 1
+    && input.promptCacheTtl === undefined;
+  let promptCacheTtl;
+  try {
+    promptCacheTtl = legacyPromptCacheContract
+      ? FABLE_CHAT_DEFAULT_PROMPT_CACHE_TTL
+      : normalizeFableChatPromptCacheTtl(input.promptCacheTtl);
+  } catch {
+    throw new AdminAiValidationError(
+      "The Fable chat prompt-cache TTL is not supported.",
+      400,
+      "validation_error"
+    );
+  }
   const counters = { totalContentLength: 0, cacheBreakpoints: 0, citationSources: new Set() };
   const messages = input.messages.map((message, index) => {
     const entry = assertPlainObject(message, `messages[${index}]`);
@@ -804,6 +828,7 @@ export function validateFableChatBody(body) {
       messageIndex: index,
       lastMessageIndex: input.messages.length - 1,
       counters,
+      promptCacheTtl,
     });
     return { role: entry.role, content };
   });
@@ -855,7 +880,8 @@ export function validateFableChatBody(body) {
     );
   }
   if (input.promptCachePolicy !== FABLE_CHAT_PROMPT_CACHE_POLICY
-    || input.promptCacheVersion !== FABLE_CHAT_PROMPT_CACHE_VERSION) {
+    || (!legacyPromptCacheContract
+      && input.promptCacheVersion !== FABLE_CHAT_PROMPT_CACHE_VERSION)) {
     throw new AdminAiValidationError(
       "The Fable chat prompt-cache policy is not supported.",
       400,
@@ -1091,6 +1117,7 @@ export function validateFableChatBody(body) {
     thinkingDisplay: input.thinkingDisplay,
     promptCachePolicy: input.promptCachePolicy,
     promptCacheVersion: input.promptCacheVersion,
+    promptCacheTtl,
     contextFormatVersion: input.contextFormatVersion,
     webSearchEnabled,
     webSearchMaxUses: expectedWebSearchMaxUses,

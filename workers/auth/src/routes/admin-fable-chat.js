@@ -193,6 +193,7 @@ function internalFableChatPayload(modelContext) {
     thinkingDisplay: modelContext.thinkingDisplay,
     promptCachePolicy: modelContext.promptCachePolicy,
     promptCacheVersion: modelContext.promptCacheVersion,
+    promptCacheTtl: modelContext.promptCacheTtl,
     contextFormatVersion: modelContext.context.contextFormatVersion,
     webSearchEnabled: modelContext.webSearchEnabled,
     webSearchMaxUses: modelContext.webSearchMaxUses,

@@ -245,6 +245,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
             settings.append(
                 badge(item.settings.effort), badge(item.settings.preset),
                 badge(item.settings.memoryMode),
+                badge(`${item.settings.promptCacheTtl || '5m'} cache`),
                 badge(item.settings.webSearchEnabled ? `Search ${item.settings.webSearchMaxUses}` : 'Search off'),
                 badge(item.settings.webFetchEnabled ? `Fetch ${item.settings.webFetchMaxUses || 2}` : 'Fetch off'),
             );
@@ -287,6 +288,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
                 ['Effort', `${settings.effort} · ${settings.effectiveMaxOutputTokens.toLocaleString()} max output`],
                 ['Preset', `${settings.preset} v${settings.presetVersion}`],
                 ['Reasoning summary', settings.reasoningSummaryEnabled ? 'Enabled' : 'Disabled'],
+                ['Prompt cache TTL', settings.promptCacheTtl || '5m'],
                 ['Web search', settings.webSearchEnabled ? `Enabled · up to ${settings.webSearchMaxUses}` : 'Disabled'],
                 ['Search mode / inclusion', `${web.mode} / ${web.inclusion}`],
                 ['Search domains / location', `${web.domains} / ${web.location}`],
@@ -379,6 +381,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
             summary.append(badge(attempt.status, statusTone(attempt.status)), node('strong', '', shortId(attempt.id)), node('span', '', formatDate(attempt.createdAt)));
             details.append(summary, definitionList([
                 ['Model', attempt.modelId], ['Effort / preset', `${attempt.effort} / ${attempt.preset}`],
+                ['Prompt cache', `${attempt.promptCache?.ttl || '5m'} · v${attempt.promptCache?.version || 1}`],
                 ['Web search', attempt.webSearch.enabled ? `${attempt.webSearch.requestCount}/${attempt.webSearch.maxUses} requests` : 'Disabled'],
                 ['Search contract', `${web.tool} · ${web.mode} / ${web.inclusion}`],
                 ['Search domains / location', `${web.domains} / ${web.location}`],

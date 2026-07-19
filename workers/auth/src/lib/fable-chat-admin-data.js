@@ -9,6 +9,8 @@ import {
 } from "../../../shared/fable-chat-memory-contract.mjs";
 import {
   FABLE_CHAT_DEFAULT_EFFORT,
+  FABLE_CHAT_DEFAULT_PROMPT_CACHE_TTL,
+  FABLE_CHAT_PROMPT_CACHE_VERSION,
   FABLE_CHAT_DEFAULT_SYSTEM_PRESET_ID,
   FABLE_CHAT_DEFAULT_THINKING_DISPLAY,
   FABLE_CHAT_EFFORTS,
@@ -264,6 +266,14 @@ function safeUsage(value) {
     const number = Number(parsed[key]);
     if (Number.isFinite(number) && number >= 0) output[key] = Math.floor(number);
   }
+  const cacheCreation5m = Number(parsed?.cache_creation?.ephemeral_5m_input_tokens);
+  const cacheCreation1h = Number(parsed?.cache_creation?.ephemeral_1h_input_tokens);
+  if (Number.isFinite(cacheCreation5m) && cacheCreation5m >= 0) {
+    output.cache_creation_5m_input_tokens = Math.floor(cacheCreation5m);
+  }
+  if (Number.isFinite(cacheCreation1h) && cacheCreation1h >= 0) {
+    output.cache_creation_1h_input_tokens = Math.floor(cacheCreation1h);
+  }
   const fetchRequests = Number(parsed?.server_tool_use?.web_fetch_requests);
   if (Number.isFinite(fetchRequests) && fetchRequests >= 0) {
     output.web_fetch_requests = Math.min(FABLE_CHAT_WEB_FETCH_MAX_USES, Math.floor(fetchRequests));
@@ -287,6 +297,10 @@ function safeBudgetMetadata(value) {
     "web_search_effective_response_inclusion", "web_search_domain_filter_mode",
     "web_search_allowed_domains", "web_search_blocked_domains",
     "web_search_location_enabled", "web_search_location", "tool_choice",
+    "prompt_cache_ttl", "prompt_cache_write_price_per_million",
+    "prompt_cache_admission_multiplier", "predicted_cache_write_tokens",
+    "predicted_cache_write_cost_usd", "ephemeral_5m_input_tokens",
+    "ephemeral_1h_input_tokens",
   ];
   return Object.fromEntries(allowed.filter((key) => parsed[key] != null).map((key) => [key, parsed[key]]));
 }
@@ -417,7 +431,8 @@ export async function listFableChatAdminConversations(env, input = {}) {
   const [rowsResult, countResult] = await Promise.all([
     env.DB.prepare(
       `SELECT c.id, c.admin_user_id, u.email AS owner_email, c.title, c.model_id,
-              c.effort, c.system_preset_id, c.thinking_display, c.web_search_enabled,
+              c.effort, c.system_preset_id, c.thinking_display, c.prompt_cache_ttl,
+              c.web_search_enabled,
               c.web_search_settings_json, c.fable_tool_choice,
               (SELECT s.web_search_location_json FROM fable_chat_user_settings s
                 WHERE s.admin_user_id = c.admin_user_id LIMIT 1)
@@ -472,6 +487,7 @@ export async function listFableChatAdminConversations(env, input = {}) {
         effectiveMaxOutputTokens: getFableChatOutputTokenLimit(row.effort),
         preset: row.system_preset_id,
         reasoningSummaryEnabled: row.thinking_display === "summarized",
+        promptCacheTtl: row.prompt_cache_ttl || FABLE_CHAT_DEFAULT_PROMPT_CACHE_TTL,
         webSearchEnabled: Number(row.web_search_enabled) === 1,
         webSearchMaxUses: getFableChatWebSearchMaxUses(row.effort),
         webSearch: safeAdminWebSearchSettings(
@@ -628,7 +644,8 @@ export async function getFableChatAdminConversationDetail(env, conversationId) {
         webFetchContractVersion: FABLE_CHAT_WEB_FETCH_CONTRACT_VERSION,
         memoryMode: activeProfile,
         promptCachePolicy: row.prompt_cache_policy,
-        promptCacheVersion: Number(row.prompt_cache_version || 1),
+        promptCacheVersion: FABLE_CHAT_PROMPT_CACHE_VERSION,
+        promptCacheTtl: row.prompt_cache_ttl || FABLE_CHAT_DEFAULT_PROMPT_CACHE_TTL,
       },
       webReplay: {
         prunedThroughTurnOrder: Number(row.web_replay_pruned_through_turn_order ?? -1),
@@ -750,7 +767,8 @@ export async function listFableChatAdminAttempts(env, conversationId, input = {}
   const rows = await env.DB.prepare(
     `SELECT t.id, t.retry_of_turn_id, t.status, t.model_id, t.effort,
             t.effective_max_output_tokens, t.system_preset_id, t.system_preset_version,
-            t.thinking_display, t.web_search_enabled, t.web_search_effective_max_uses,
+            t.thinking_display, t.prompt_cache_policy, t.prompt_cache_version,
+            t.prompt_cache_ttl, t.web_search_enabled, t.web_search_effective_max_uses,
             t.web_search_executed_request_count, t.web_search_executed_result_count,
             t.web_search_effective_settings_json, t.fable_tool_choice,
             t.web_fetch_enabled, t.web_fetch_tool_version, t.web_fetch_max_uses,
@@ -797,6 +815,11 @@ export async function listFableChatAdminAttempts(env, conversationId, input = {}
       preset: row.system_preset_id,
       presetVersion: Number(row.system_preset_version || 1),
       reasoningSummaryEnabled: row.thinking_display === "summarized",
+      promptCache: {
+        policy: row.prompt_cache_policy,
+        version: Number(row.prompt_cache_version || 1),
+        ttl: row.prompt_cache_ttl || FABLE_CHAT_DEFAULT_PROMPT_CACHE_TTL,
+      },
       webSearch: {
         enabled: Number(row.web_search_enabled) === 1,
         maxUses: Number(row.web_search_effective_max_uses || 1),
@@ -1576,7 +1599,7 @@ const RAW_RECORDS = Object.freeze({
     safeColumns: [
       "id", "admin_user_id", "model_id", "title", "title_source", "turn_count",
       "effort", "system_preset_id", "system_preset_version", "thinking_display",
-      "prompt_cache_policy", "prompt_cache_version", "web_search_enabled",
+      "prompt_cache_policy", "prompt_cache_version", "prompt_cache_ttl", "web_search_enabled",
       "web_search_settings_json", "fable_tool_choice", "web_fetch_enabled",
       "memory_mode",
       "settings_updated_at", "web_replay_pruned_through_turn_order",
@@ -1606,7 +1629,7 @@ const RAW_RECORDS = Object.freeze({
       "context_omitted_turns", "context_character_count", "provider_model", "stop_reason",
       "stop_sequence", "usage_json", "error_code", "effort", "effective_max_output_tokens",
       "system_preset_id", "system_preset_version", "thinking_display", "prompt_cache_policy",
-      "prompt_cache_version", "context_format_version", "estimated_input_tokens",
+      "prompt_cache_version", "prompt_cache_ttl", "context_format_version", "estimated_input_tokens",
       "effective_input_token_limit", "context_estimator_version", "cache_breakpoint_json",
       "settings_snapshot_json", "provider_duration_ms", "output_truncated",
       "web_search_enabled", "web_search_tool_version", "web_search_max_uses",
