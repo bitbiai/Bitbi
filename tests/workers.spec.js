@@ -28618,6 +28618,8 @@ test.describe('Worker routes', () => {
           output: 50,
           cachedInput: 1,
           cacheCreation: 12.5,
+          cacheCreation5m: 12.5,
+          cacheCreation1h: 20,
           currency: 'USD',
         },
         billing: {
@@ -50772,6 +50774,11 @@ test.describe('Worker routes', () => {
 
   test('admin activity uses signed cursors, bounded counts, and indexed projection search without raw metadata matches', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
+    const recentActivityTimes = {
+      role: new Date(Date.now() - (3 * 24 * 60 * 60 * 1000)).toISOString(),
+      status: new Date(Date.now() - (2 * 24 * 60 * 60 * 1000)).toISOString(),
+      deletion: new Date(Date.now() - (1 * 24 * 60 * 60 * 1000)).toISOString(),
+    };
     const env = createAuthTestEnv({
       users: [
         createAdminUser('activity-search-admin'),
@@ -50793,7 +50800,7 @@ test.describe('Worker routes', () => {
             role: 'admin',
             secret_details: 'raw-metadata-only',
           }),
-          created_at: '2026-04-20T10:00:00.000Z',
+          created_at: recentActivityTimes.role,
         },
         {
           id: 'audit-search-b',
@@ -50805,7 +50812,7 @@ test.describe('Worker routes', () => {
             target_email: 'activity-search-target@example.com',
             status: 'disabled',
           }),
-          created_at: '2026-04-20T11:00:00.000Z',
+          created_at: recentActivityTimes.status,
         },
         {
           id: 'audit-search-c',
@@ -50817,7 +50824,7 @@ test.describe('Worker routes', () => {
             target_email: 'activity-search-target@example.com',
             target_role: 'user',
           }),
-          created_at: '2026-04-20T12:00:00.000Z',
+          created_at: recentActivityTimes.deletion,
         },
         {
           id: 'audit-search-old',
@@ -50840,7 +50847,7 @@ test.describe('Worker routes', () => {
           entity_type: 'user',
           entity_id: 'activity-search-target',
           summary: 'change_role activity-search-target',
-          created_at: '2026-04-20T10:00:00.000Z',
+          created_at: recentActivityTimes.role,
         },
         {
           source_table: 'admin_audit_log',
@@ -50853,7 +50860,7 @@ test.describe('Worker routes', () => {
           entity_type: 'user',
           entity_id: 'activity-search-target',
           summary: 'change_status activity-search-target',
-          created_at: '2026-04-20T11:00:00.000Z',
+          created_at: recentActivityTimes.status,
         },
         {
           source_table: 'admin_audit_log',
@@ -50866,7 +50873,7 @@ test.describe('Worker routes', () => {
           entity_type: 'user',
           entity_id: 'activity-search-target',
           summary: 'delete_user activity-search-target',
-          created_at: '2026-04-20T12:00:00.000Z',
+          created_at: recentActivityTimes.deletion,
         },
       ],
     });
