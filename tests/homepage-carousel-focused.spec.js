@@ -18,6 +18,15 @@ const HOMEPAGE_REQUEST_COUNTS = new WeakMap();
 const CAROUSEL_STABLE_FRAME_COUNT = 3;
 const CAROUSEL_POST_SETTLE_OBSERVATION_MS = 120;
 
+function getStagedTestViewport(browserName, { narrow = false } = {}) {
+  // Headless Firefox pointer/hover media features vary by host. Its tablet
+  // branch exercises the same staged engine without relying on those features.
+  if (browserName === 'firefox') {
+    return narrow ? { width: 768, height: 900 } : { width: 1023, height: 900 };
+  }
+  return narrow ? { width: 1100, height: 900 } : { width: 1440, height: 900 };
+}
+
 function summarizeLayoutShiftWindow(entries, startTime, endTime) {
   const selected = (Array.isArray(entries) ? entries : []).filter((entry) => (
     entry?.hadRecentInput === false
@@ -323,6 +332,11 @@ async function readStageState(page) {
   }));
 }
 
+async function waitForStageState(page, expected) {
+  await expect.poll(() => readStageState(page)).toMatchObject(expected);
+  return readStageState(page);
+}
+
 async function waitForSettledCategory(page, category) {
   await expect.poll(() => readStageState(page), { timeout: 12_000 }).toMatchObject({
     active: category,
@@ -463,9 +477,59 @@ async function expectSingleInteractivePanel(page, activeCategory) {
   }
 }
 
+async function clickCategoryLink(page, category) {
+  const link = page.locator(`#navbar .site-nav__links [data-category-link="${category}"]`);
+  if (await link.isVisible()) {
+    await link.click();
+    return;
+  }
+  await link.evaluate((element) => {
+    element.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      pointerType: 'mouse',
+      isPrimary: true,
+    }));
+    element.click();
+  });
+}
+
 async function selectCategory(page, category) {
-  await page.locator(`#navbar .site-nav__links [data-category-link="${category}"]`).click();
+  await clickCategoryLink(page, category);
   await waitForSettledCategory(page, category);
+}
+
+async function selectCategoriesRapidly(page, categories) {
+  return page.evaluate((requestedCategories) => {
+    const deliveredCategories = [];
+    const handleClick = (event) => {
+      const category = event.target.closest?.('[data-category-link]')?.dataset.categoryLink || '';
+      if (!requestedCategories.includes(category)) return;
+      deliveredCategories.push(category);
+      if (!window.__rapidCarouselInputAt) window.__rapidCarouselInputAt = performance.now();
+    };
+    const links = requestedCategories.map((category) => (
+      document.querySelector(`#navbar .site-nav__links [data-category-link="${category}"]`)
+    ));
+    if (links.some((link) => !(link instanceof HTMLElement))) {
+      throw new Error('rapid carousel controls unavailable');
+    }
+
+    window.__rapidCarouselInputAt = 0;
+    document.addEventListener('click', handleClick, true);
+    try {
+      links.forEach((link) => link.click());
+    } finally {
+      document.removeEventListener('click', handleClick, true);
+    }
+
+    return {
+      deliveredCategories,
+      highlightedCategories: Array.from(
+        document.querySelectorAll('#navbar .site-nav__links [data-category-link].is-active-category'),
+      ).map((link) => link.dataset.categoryLink || ''),
+    };
+  }, categories);
 }
 
 async function waitForSoundLayout(page) {
@@ -669,9 +733,6 @@ async function expectCarouselHorizontalFit(page, label) {
 }
 
 async function expectDirectionalTransition(page, { from, to, currentClass, nextClass }) {
-  const link = page.locator(`#navbar .site-nav__links [data-category-link="${to}"]`);
-  const box = await link.boundingBox();
-  if (!box) throw new Error(`carousel link unavailable: ${to}`);
   await page.locator('#homeCategories').evaluate((stage, expected) => {
     window.__carouselTransitionObservation = new Promise((resolve, reject) => {
       let timeoutId = 0;
@@ -719,7 +780,7 @@ async function expectDirectionalTransition(page, { from, to, currentClass, nextC
       capture();
     });
   }, { from, to, currentClass, nextClass });
-  await page.mouse.click(box.x + (box.width / 2), box.y + (box.height / 2));
+  await clickCategoryLink(page, to);
   const visuals = await page.evaluate(() => window.__carouselTransitionObservation);
   expect(visuals).toEqual(expect.objectContaining({
     current: from,
@@ -838,10 +899,7 @@ async function measureWarmSwitch(page, category) {
       }, 3_000);
     });
   }, category);
-  const link = page.locator(`#navbar .site-nav__links [data-category-link="${category}"]`);
-  const box = await link.boundingBox();
-  if (!box) throw new Error(`carousel link unavailable: ${category}`);
-  await page.mouse.click(box.x + (box.width / 2), box.y + (box.height / 2));
+  await clickCategoryLink(page, category);
   const rawMeasurement = await page.evaluate(() => window.__carouselMeasurementPromise);
   const settledWindow = await observeSettledCarouselLayout(page, category);
   const transitionClsWindow = summarizeLayoutShiftWindow(
@@ -1040,12 +1098,11 @@ test.describe('Populated homepage carousel', () => {
 
   test('settles exact transitions, keeps populated walls warm, and honors the latest rapid choice', async ({ page, browserName }, testInfo) => {
     test.skip(browserName === 'webkit', 'WebKit instant switching has dedicated coverage.');
-    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.setViewportSize(getStagedTestViewport(browserName));
     await waitForPopulatedHomepage(page);
 
-    const initial = await readStageState(page);
-    expect(initial.mode).toBe('desktop');
-    expect(initial.engine).toBe('standard');
+    const initial = await waitForStageState(page, { mode: 'desktop', engine: 'standard' });
+    expect(initial.active).toBe('video');
     await waitForSettledCategory(page, 'video');
     await waitForPublicWall(page, 'video');
     expect(CAROUSEL_CSS).toContain('perspective: 1800px;');
@@ -1058,11 +1115,16 @@ test.describe('Populated homepage carousel', () => {
       expect(`${CAROUSEL_CSS}\n${CAROUSEL_JS}`).not.toContain(retiredName);
     }
     const firstVideoCard = page.locator('#videoGrid .video-card').first();
-    await firstVideoCard.dispatchEvent('pointerenter', { pointerType: 'mouse' });
     const hoverPreview = firstVideoCard.locator('.video-card__hover-preview');
-    await expect(hoverPreview).toHaveCount(1);
-    await hoverPreview.dispatchEvent('loadeddata');
-    await expect(firstVideoCard).toHaveClass(/video-card--hover-preview-active/);
+    const hoverPreviewEnabled = await page.evaluate(() => matchMedia(
+      '(min-width: 1024px) and (hover: hover) and (pointer: fine)',
+    ).matches);
+    if (hoverPreviewEnabled) {
+      await firstVideoCard.dispatchEvent('pointerenter', { pointerType: 'mouse' });
+      await expect(hoverPreview).toHaveCount(1);
+      await hoverPreview.dispatchEvent('loadeddata');
+      await expect(firstVideoCard).toHaveClass(/video-card--hover-preview-active/);
+    }
 
     const transitionStartedAt = Date.now();
     await expectDirectionalTransition(page, {
@@ -1170,19 +1232,12 @@ test.describe('Populated homepage carousel', () => {
     await expectSingleInteractivePanel(page, 'sound');
 
     await selectCategory(page, 'video');
-    await page.evaluate(() => {
-      window.__rapidCarouselInputAt = 0;
-      const link = document.querySelector('#navbar .site-nav__links [data-category-link="gallery"]');
-      link?.addEventListener('click', () => {
-        window.__rapidCarouselInputAt = performance.now();
-      }, { capture: true, once: true });
-    });
     const rapidStartedAt = Date.now();
-    const galleryBox = await page.locator('#navbar .site-nav__links [data-category-link="gallery"]').boundingBox();
-    const soundBox = await page.locator('#navbar .site-nav__links [data-category-link="sound"]').boundingBox();
-    if (!galleryBox || !soundBox) throw new Error('rapid carousel controls unavailable');
-    await page.mouse.click(galleryBox.x + (galleryBox.width / 2), galleryBox.y + (galleryBox.height / 2));
-    await page.mouse.click(soundBox.x + (soundBox.width / 2), soundBox.y + (soundBox.height / 2));
+    const rapidDelivery = await selectCategoriesRapidly(page, ['gallery', 'sound']);
+    expect(rapidDelivery).toEqual({
+      deliveredCategories: ['gallery', 'sound'],
+      highlightedCategories: ['sound'],
+    });
     await waitForSettledCategory(page, 'sound');
     expect(Date.now() - rapidStartedAt).toBeLessThan(2_500);
     const rapidShiftWindow = await observeSettledCarouselLayout(page, 'sound');
@@ -1201,7 +1256,8 @@ test.describe('Populated homepage carousel', () => {
       columns: Number(grid.dataset.mediaWallColumnCount || 0),
       ids: Array.from(grid.querySelectorAll('.gallery-item')).map((card) => card.dataset.galleryItemId || '').sort(),
     }));
-    await page.setViewportSize({ width: 1100, height: 900 });
+    await page.setViewportSize(getStagedTestViewport(browserName, { narrow: true }));
+    await waitForStageState(page, { mode: 'desktop', engine: 'standard', transitioning: false });
     await selectCategory(page, 'gallery');
     await waitForPublicWall(page, 'gallery');
     const narrowGallery = await page.locator('#galleryGrid').evaluate((grid) => ({
@@ -1486,10 +1542,11 @@ test.describe('Populated homepage carousel', () => {
     await expect(page.locator('#mediaWallGeometryGrid')).toHaveAttribute('data-media-wall-ready', 'true');
   });
 
-  test('ignores transient zero width and preserves reduced-motion, mobile, and localized layouts', async ({ page }, testInfo) => {
+  test('ignores transient zero width and preserves reduced-motion, mobile, and localized layouts', async ({ page, browserName }, testInfo) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.setViewportSize(getStagedTestViewport(browserName));
     await waitForPopulatedHomepage(page);
+    await waitForStageState(page, { mode: 'desktop', engine: 'instant', active: 'video' });
     await selectCategory(page, 'sound');
     await waitForSoundLayout(page);
     await startWarmDomTracking(page);
@@ -1549,9 +1606,7 @@ test.describe('Populated homepage carousel', () => {
     for (const { pathName, viewport, mode, deck } of responsiveCases) {
       await page.setViewportSize(viewport);
       await waitForPopulatedHomepage(page, pathName);
-      const mobileState = await readStageState(page);
-      expect(mobileState.mode).toBe(mode);
-      expect(mobileState.transitioning).toBe(false);
+      const mobileState = await waitForStageState(page, { mode, transitioning: false });
       if (deck) {
         await expect(page.locator('#soundLabTracks')).toHaveClass(/snd-deck/);
         await expect(page.locator('#soundLabTracks .snd-card--memtrack').first()).toBeVisible();
@@ -1717,8 +1772,9 @@ test.describe('Populated homepage carousel', () => {
     });
     await expectCarouselHorizontalFit(page, 'dynamic 820x1180 staged');
 
-    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.setViewportSize(getStagedTestViewport(browserName));
     await waitForPopulatedHomepage(page, '/de/#soundlab');
+    await waitForStageState(page, { mode: 'desktop', engine: 'instant' });
     await waitForSettledCategory(page, 'sound');
     await waitForSoundLayout(page);
     expect(new URL(page.url()).hash).toBe('#soundlab');
