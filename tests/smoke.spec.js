@@ -89,17 +89,6 @@ function buildNewsPulseItems(prefix = 'mobile-pulse') {
   }));
 }
 
-const HOMEPAGE_GUEST_FALLBACK_COPY = {
-  en: [
-    'Create AI images, videos and music in one studio.',
-    'Generate, save, organize and publish creative media with credits for real usage.',
-  ],
-  de: [
-    'Erstelle KI-Bilder, Videos und Musik in einem Studio.',
-    'Generiere, speichere, ordne und veröffentliche kreative Medien mit Credits für echte Nutzung.',
-  ],
-};
-
 async function mockHomepageAuthState(page, { loggedIn }) {
   await page.route('**/api/me', async (route) => {
     await route.fulfill({
@@ -112,27 +101,9 @@ async function mockHomepageAuthState(page, { loggedIn }) {
   });
 }
 
-async function expectHomepageCenterCopyHidden(page) {
-  const copy = page.locator('#hero .hero__saas-copy');
-  await expect(copy).toHaveAttribute('aria-hidden', 'true');
-  await expect(copy).toBeHidden();
-}
-
-async function expectHomepageGuestFallback(page, locale = 'en') {
-  const fallback = page.locator('[data-homepage-guest-fallback]');
-  await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'guest');
-  await expect(fallback).toBeVisible();
-  await expect(fallback.locator('.hero__guest-fallback-icon')).toHaveCount(0);
-  for (const line of HOMEPAGE_GUEST_FALLBACK_COPY[locale]) {
-    await expect(fallback).toContainText(line);
-  }
-  await expectHomepageCenterCopyHidden(page);
-}
-
-async function expectHomepageGuestFallbackHidden(page) {
-  const fallback = page.locator('[data-homepage-guest-fallback]');
-  await expect(fallback).toBeHidden();
-  await expectHomepageCenterCopyHidden(page);
+async function expectHomepageMarketingRemoved(page) {
+  await expect(page.locator('#hero .hero__saas-copy')).toHaveCount(0);
+  await expect(page.locator('#hero [data-homepage-guest-fallback]')).toHaveCount(0);
 }
 
 async function dismissCookieBannerIfPresent(page) {
@@ -1271,7 +1242,7 @@ test.describe('Homepage', () => {
     await expect(page).toHaveTitle(/BITBI/);
   });
 
-  test('fresh logged-out homepage load keeps center copy, guest fallback, and Live Pulse hidden until auth resolves', async ({ page }) => {
+  test('fresh logged-out homepage load omits marketing fallback and keeps Live Pulse hidden until auth resolves', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const requestedUrls = [];
     let authGate = Promise.resolve();
@@ -1300,18 +1271,14 @@ test.describe('Homepage', () => {
       });
     });
 
-    for (const { path, locale } of [
-      { path: '/', locale: 'en' },
-      { path: '/de/', locale: 'de' },
-    ]) {
+    for (const path of ['/', '/de/']) {
       authGate = new Promise((resolve) => {
         releaseAuth = resolve;
       });
       const navigation = page.goto(path, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector('#hero');
       await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'loading');
-      await expect(page.locator('[data-homepage-guest-fallback]')).toBeHidden();
-      await expectHomepageCenterCopyHidden(page);
+      await expectHomepageMarketingRemoved(page);
       await expect(page.locator('#newsPulse')).toBeHidden();
       await expect(page.locator('#newsPulse .news-pulse__slide')).toHaveCount(0);
       await expect(page.locator('#newsPulse .news-pulse__mobile-item')).toHaveCount(0);
@@ -1319,13 +1286,14 @@ test.describe('Homepage', () => {
 
       releaseAuth();
       await navigation;
-      await expectHomepageGuestFallback(page, locale);
+      await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'guest');
+      await expectHomepageMarketingRemoved(page);
       await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
       expect(requestedUrls).toEqual([]);
     }
   });
 
-  test('logged-out desktop homepages hide Live Pulse and show the guest hero fallback without fetching news', async ({ page }) => {
+  test('logged-out desktop homepages hide Live Pulse and omit removed marketing without fetching news', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await mockHomepageAuthState(page, { loggedIn: false });
     const requestedUrls = [];
@@ -1344,35 +1312,24 @@ test.describe('Homepage', () => {
       });
     });
 
-    for (const { path, locale } of [
-      { path: '/', locale: 'en' },
-      { path: '/de/', locale: 'de' },
-    ]) {
+    for (const path of ['/', '/de/']) {
       await page.goto(path, { waitUntil: 'domcontentloaded' });
       await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
+      await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'guest');
       await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
       await expect(page.locator('#newsPulse .news-pulse__slide')).toHaveCount(0);
       await expect(page.locator('#newsPulse .news-pulse__mobile-item')).toHaveCount(0);
-      await expectHomepageGuestFallback(page, locale);
-      await expect
-        .poll(() => page.locator('[data-homepage-guest-fallback]').evaluate((node) => node.dataset.homepageGuestFallbackPlacement || ''), { timeout: 10_000 })
-        .toBe('ready');
-      const state = await page.locator('[data-homepage-guest-fallback]').evaluate((node) => {
-        const rect = node.getBoundingClientRect();
-        const pulse = document.querySelector('#newsPulse');
+      await expectHomepageMarketingRemoved(page);
+      const state = await page.locator('#newsPulse').evaluate((pulse) => {
         const pulseStyle = window.getComputedStyle(pulse);
         const pulseRect = pulse.getBoundingClientRect();
         return {
-          fallbackWidth: rect.width,
-          fallbackHeight: rect.height,
           pulseDisplay: pulseStyle.display,
           pulseVisibility: pulseStyle.visibility,
           pulseWidth: pulseRect.width,
           pulseHeight: pulseRect.height,
         };
       });
-      expect(state.fallbackWidth).toBeGreaterThan(420);
-      expect(state.fallbackHeight).toBeGreaterThan(90);
       expect(state.pulseDisplay).toBe('none');
       expect(state.pulseVisibility).toBe('hidden');
       expect(state.pulseWidth).toBe(0);
@@ -1407,7 +1364,7 @@ test.describe('Homepage', () => {
       const pulse = page.locator('#newsPulse');
       await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
       await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'user');
-      await expectHomepageGuestFallbackHidden(page);
+      await expectHomepageMarketingRemoved(page);
       await expect(pulse).not.toHaveAttribute('data-news-pulse-disabled', /.+/);
       await expect(pulse).not.toHaveAttribute('hidden', '');
       await expect(pulse.locator('.news-pulse__slide')).toHaveCount(3);
@@ -1664,14 +1621,12 @@ test.describe('Homepage', () => {
       });
     });
 
-    for (const { path, locale } of [
-      { path: '/', locale: 'en' },
-      { path: '/de/', locale: 'de' },
-    ]) {
+    for (const path of ['/', '/de/']) {
       await page.goto(path, { waitUntil: 'domcontentloaded' });
       await expect(page.locator('#hero')).toBeVisible();
+      await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'guest');
       await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
-      await expectHomepageGuestFallback(page, locale);
+      await expectHomepageMarketingRemoved(page);
       const pulseState = await page.locator('#newsPulse').evaluate((node) => {
         const rect = node.getBoundingClientRect();
         const style = window.getComputedStyle(node);
@@ -1721,7 +1676,7 @@ test.describe('Homepage', () => {
       await page.goto(path, { waitUntil: 'domcontentloaded' });
       const pulse = page.locator('#newsPulse');
       await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'user');
-      await expectHomepageGuestFallbackHidden(page);
+      await expectHomepageMarketingRemoved(page);
       await expect(pulse.locator('.news-pulse__mobile-item.is-active')).toHaveCount(1, { timeout: 10_000 });
       const labelState = await pulse.locator('.news-pulse__label').evaluate((node) => {
         const rect = node.getBoundingClientRect();
@@ -1912,7 +1867,8 @@ test.describe('Homepage', () => {
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
-    await expectHomepageGuestFallback(page, 'en');
+    await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'guest');
+    await expectHomepageMarketingRemoved(page);
     await page.waitForTimeout(250);
     expect(requestedUrls).toEqual([]);
 
@@ -1921,7 +1877,8 @@ test.describe('Homepage', () => {
       await authLogin('pulse-transition@bitbi.ai', 'password');
     });
     await expect(page.locator('#newsPulse .news-pulse__mobile-item.is-active')).toContainText('mobile-auth-pulse headline 1');
-    await expectHomepageGuestFallbackHidden(page);
+    await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'user');
+    await expectHomepageMarketingRemoved(page);
     expect(requestedUrls).toHaveLength(1);
 
     await markLogoutReloadProbe(page);
@@ -1931,7 +1888,8 @@ test.describe('Homepage', () => {
     });
     await expectLogoutHardReload(page);
     await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
-    await expectHomepageGuestFallback(page, 'en');
+    await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'guest');
+    await expectHomepageMarketingRemoved(page);
     const cleared = await page.locator('#newsPulse').evaluate((node) => ({
       childCount: node.children.length,
       focusableLinks: node.querySelectorAll('a[href]:not([tabindex="-1"])').length,
@@ -1964,7 +1922,7 @@ test.describe('Homepage', () => {
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#hero')).toHaveAttribute('data-homepage-auth-state', 'user');
-    await expectHomepageGuestFallbackHidden(page);
+    await expectHomepageMarketingRemoved(page);
     await expect(page.locator('#newsPulse')).toHaveAttribute('aria-hidden', 'true');
     await expect(page.locator('#newsPulse .news-pulse__slide')).toHaveCount(0);
     await expect(page.locator('#newsPulse .news-pulse__mobile-item')).toHaveCount(0);
@@ -2059,7 +2017,7 @@ test.describe('Homepage', () => {
       await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
       await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
       await expect(page.locator('#hero > #newsPulse')).toHaveCount(1);
-      await expectHomepageGuestFallback(page, path === '/de/' ? 'de' : 'en');
+      await expectHomepageMarketingRemoved(page);
       await expectGlobalHeaderActionOrder(page);
       await expect(page.locator('#navbar .wallet-nav__trigger')).toHaveAttribute('aria-controls', 'walletModal');
 
@@ -3779,6 +3737,7 @@ test.describe('Homepage', () => {
     await page.goto('/');
     const hero = page.locator('#hero');
     const teaser = hero.locator('.hero__lab-teaser');
+    const canvasTeaser = hero.locator('.hero__canvas-teaser');
 
     await expect(hero).toBeVisible();
     await expect(hero.locator('[data-hero-video]')).toHaveCount(0);
@@ -3794,9 +3753,9 @@ test.describe('Homepage', () => {
     await expect(hero.locator('a[href="/account/profile.html?source=hero#memberControlCenter"]')).toHaveCount(0);
     await expect(hero.locator('.hero__conversion-link')).toHaveCount(0);
     await expect(hero.locator('.hero__actions')).toHaveClass(/hero__actions--single-cta/);
-    await expect(hero.locator('.hero__saas-copy')).toContainText('Create AI images, videos, and music in one studio.');
-    await expect(hero.locator('.hero__saas-copy')).toContainText('Generate, save, organize, and publish creative media with credits built for real use.');
-    await expectHomepageCenterCopyHidden(page);
+    await expectHomepageMarketingRemoved(page);
+    await expect(hero).not.toContainText('Create AI images, videos and music in one studio.');
+    await expect(hero).not.toContainText('Generate, save, organize and publish creative media with credits for real usage.');
     await expect(teaser).toBeVisible();
     await expect(teaser.locator('.hero__lab-teaser-text')).toHaveText('Open Generate Lab');
     await expect(teaser.locator('.hero__lab-teaser-badge')).toHaveCount(0);
@@ -3805,12 +3764,16 @@ test.describe('Homepage', () => {
     await expect(teaser).toHaveAttribute('target', 'bitbi-generate-lab');
     await expect(teaser).toHaveAttribute('rel', /noopener/);
     await expect(teaser).toHaveAttribute('rel', /noreferrer/);
+    await expect(canvasTeaser).toBeVisible();
+    await expect(canvasTeaser).toHaveAttribute('href', '/canvas/');
+    await expect(canvasTeaser).toHaveAttribute('aria-label', 'Open Canvas');
     await expect(page.locator('#publicMemberJourney')).toHaveCount(0);
     await expect(page.locator('main')).not.toContainText('From first idea to saved workspace');
     await expect(page.locator('main')).not.toContainText('Create with an account, browse without one');
 
     const teaserMetrics = await page.evaluate(() => {
       const teaserEl = document.querySelector('.hero__lab-teaser');
+      const canvasEl = document.querySelector('.hero__canvas-teaser');
       const textEl = teaserEl?.querySelector('.hero__lab-teaser-text');
       const actionsEl = document.querySelector('.hero__actions');
       const heroEl = document.querySelector('#hero');
@@ -3818,10 +3781,13 @@ test.describe('Homepage', () => {
       const scrollHintEl = document.querySelector('#hero .hero__scroll-hint');
       const navEl = document.querySelector('#navbar');
       const teaserStyle = teaserEl ? window.getComputedStyle(teaserEl) : null;
+      const canvasStyle = canvasEl ? window.getComputedStyle(canvasEl) : null;
+      const actionsStyle = actionsEl ? window.getComputedStyle(actionsEl) : null;
       const teaserBefore = teaserEl ? window.getComputedStyle(teaserEl, '::before') : null;
       const teaserAfter = teaserEl ? window.getComputedStyle(teaserEl, '::after') : null;
       const scrollHintStyle = scrollHintEl ? window.getComputedStyle(scrollHintEl) : null;
       const teaserRect = teaserEl?.getBoundingClientRect();
+      const canvasRect = canvasEl?.getBoundingClientRect();
       const heroRect = heroEl?.getBoundingClientRect();
       const titleRect = titleEl?.getBoundingClientRect();
       const scrollHintRect = scrollHintEl?.getBoundingClientRect();
@@ -3845,11 +3811,19 @@ test.describe('Homepage', () => {
       const teaserCenterY = teaserRect ? teaserRect.top + teaserRect.height / 2 : 0;
       return {
         actionClass: actionsEl?.className || '',
-        actionJustifyContent: actionsEl ? window.getComputedStyle(actionsEl).justifyContent : '',
+        actionJustifyContent: actionsStyle?.justifyContent || '',
+        actionAlignItems: actionsStyle?.alignItems || '',
+        actionFlexDirection: actionsStyle?.flexDirection || '',
+        actionGap: Number.parseFloat(actionsStyle?.rowGap || '0') || 0,
         visibleLabel: textEl?.textContent?.trim() || '',
         centerOffset: teaserRect && heroRect
           ? Math.abs((teaserRect.left + teaserRect.width / 2) - (heroRect.left + heroRect.width / 2))
           : Number.POSITIVE_INFINITY,
+        canvasCenterOffset: teaserRect && canvasRect
+          ? Math.abs((canvasRect.left + canvasRect.width / 2) - (teaserRect.left + teaserRect.width / 2))
+          : Number.POSITIVE_INFINITY,
+        canvasVerticalGap: teaserRect && canvasRect ? canvasRect.top - teaserRect.bottom : 0,
+        canvasPosition: canvasStyle?.position || '',
         titleToTeaserGap: teaserRect && titleRect ? teaserRect.top - titleRect.bottom : 0,
         titleWidth: titleRect?.width || 0,
         titleHeight: titleRect?.height || 0,
@@ -3858,6 +3832,7 @@ test.describe('Homepage', () => {
           : Number.POSITIVE_INFINITY,
         titleHeaderGap: titleRect && navRect ? titleRect.top - navRect.bottom : 0,
         teaserToScrollGap: teaserRect && scrollHintRect ? scrollHintLayoutTop - teaserRect.bottom : 0,
+        canvasToScrollGap: canvasRect && scrollHintRect ? scrollHintLayoutTop - canvasRect.bottom : 0,
         modelLabelCenterDelta: modelLabelMetrics.length
           ? Math.max(...modelLabelMetrics.map((label) => Math.abs(label.centerY - teaserCenterY)))
           : Number.POSITIVE_INFINITY,
@@ -3878,8 +3853,16 @@ test.describe('Homepage', () => {
 
     expect(teaserMetrics.actionClass).toContain('hero__actions--single-cta');
     expect(teaserMetrics.actionJustifyContent).toBe('center');
+    expect(teaserMetrics.actionAlignItems).toBe('center');
+    expect(teaserMetrics.actionFlexDirection).toBe('column');
+    expect(teaserMetrics.actionGap).toBeGreaterThanOrEqual(8);
+    expect(teaserMetrics.actionGap).toBeLessThanOrEqual(16);
     expect(teaserMetrics.visibleLabel).toBe('Open Generate Lab');
     expect(teaserMetrics.centerOffset).toBeLessThanOrEqual(2);
+    expect(teaserMetrics.canvasCenterOffset).toBeLessThanOrEqual(2);
+    expect(teaserMetrics.canvasVerticalGap).toBeGreaterThanOrEqual(8);
+    expect(teaserMetrics.canvasVerticalGap).toBeLessThanOrEqual(16);
+    expect(teaserMetrics.canvasPosition).toBe('static');
     expect(teaserMetrics.titleWidth).toBeGreaterThanOrEqual(660);
     expect(teaserMetrics.titleWidth).toBeLessThanOrEqual(664);
     expect(teaserMetrics.titleHeight).toBeGreaterThan(320);
@@ -3889,6 +3872,7 @@ test.describe('Homepage', () => {
     expect(teaserMetrics.modelLabelsSingleLine).toBe(true);
     expect(teaserMetrics.modelLabelsNoWrap).toBe(true);
     expect(teaserMetrics.teaserToScrollGap).toBeGreaterThanOrEqual(34);
+    expect(teaserMetrics.canvasToScrollGap).toBeGreaterThanOrEqual(8);
     expect(teaserMetrics.minBlockSize).toBeGreaterThanOrEqual(56);
     expect(teaserMetrics.teaserFontSize).toBeGreaterThan(13);
     expect(teaserMetrics.textTransform).toBe('none');

@@ -296,16 +296,16 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#hero a[href="/pricing.html#pricingJourney"]')).toHaveCount(0);
     await expect(page.locator('#hero a[href="/account/profile.html?source=hero#memberControlCenter"]')).toHaveCount(0);
     await expect(page.locator('#hero .hero__actions')).toHaveClass(/hero__actions--single-cta/);
-    await expect(page.locator('#hero .hero__saas-copy')).toContainText('Create AI images, videos, and music in one studio.');
-    await expect(page.locator('#hero .hero__saas-copy')).toContainText('Generate, save, organize, and publish creative media with credits built for real use.');
-    await expect(page.locator('#hero .hero__saas-copy')).toHaveAttribute('aria-hidden', 'true');
-    await expect(page.locator('#hero .hero__saas-copy')).toBeHidden();
-    await expect(page.locator('#hero [data-homepage-guest-fallback]')).toContainText('Create AI images, videos and music in one studio.');
-    await expect(page.locator('#hero [data-homepage-guest-fallback]')).toContainText('Generate, save, organize and publish creative media with credits for real usage.');
-    await expect(page.locator('#hero [data-homepage-guest-fallback] .hero__guest-fallback-icon')).toHaveCount(0);
+    await expect(page.locator('#hero .hero__saas-copy')).toHaveCount(0);
+    await expect(page.locator('#hero [data-homepage-guest-fallback]')).toHaveCount(0);
+    await expect(page.locator('#hero')).not.toContainText('Create AI images, videos and music in one studio.');
+    await expect(page.locator('#hero')).not.toContainText('Generate, save, organize and publish creative media with credits for real usage.');
     await expect(page.locator('#hero .hero__lab-teaser-text')).toHaveText('Open Generate Lab');
     await expect(page.locator('#hero .hero__lab-teaser-icon')).toHaveText('⚗️');
     await expect(page.locator('#hero .hero__lab-teaser')).toHaveAttribute('href', '/generate-lab/');
+    await expect(page.locator('#hero .hero__lab-teaser')).toHaveAttribute('target', 'bitbi-generate-lab');
+    await expect(page.locator('#hero .hero__canvas-teaser')).toHaveAttribute('href', '/canvas/');
+    await expect(page.locator('#hero .hero__canvas-teaser')).toHaveAttribute('aria-label', 'Open Canvas');
     await expect(page.locator('#publicMemberJourney')).toHaveCount(0);
     await expect(page.locator('main')).not.toContainText('From first idea to saved workspace');
     await expect(page.locator('main')).not.toContainText('Create with an account, browse without one');
@@ -319,32 +319,34 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('#hero a[href="/de/pricing.html#pricingJourney"]')).toHaveCount(0);
     await expect(page.locator('#hero a[href="/de/account/profile.html?source=hero#memberControlCenter"]')).toHaveCount(0);
     await expect(page.locator('#hero .hero__actions')).toHaveClass(/hero__actions--single-cta/);
-    await expect(page.locator('#hero .hero__saas-copy')).toContainText('Erstelle KI-Bilder, Videos und Musik in einem Studio.');
-    await expect(page.locator('#hero .hero__saas-copy')).toContainText('Generiere, speichere, ordne und veröffentliche kreative Medien mit Credits für echte Nutzung.');
-    await expect(page.locator('#hero .hero__saas-copy')).toHaveAttribute('aria-hidden', 'true');
-    await expect(page.locator('#hero .hero__saas-copy')).toBeHidden();
-    await expect(page.locator('#hero [data-homepage-guest-fallback]')).toContainText('Erstelle KI-Bilder, Videos und Musik in einem Studio.');
-    await expect(page.locator('#hero [data-homepage-guest-fallback]')).toContainText('Generiere, speichere, ordne und veröffentliche kreative Medien mit Credits für echte Nutzung.');
-    await expect(page.locator('#hero [data-homepage-guest-fallback] .hero__guest-fallback-icon')).toHaveCount(0);
+    await expect(page.locator('#hero .hero__saas-copy')).toHaveCount(0);
+    await expect(page.locator('#hero [data-homepage-guest-fallback]')).toHaveCount(0);
+    await expect(page.locator('#hero')).not.toContainText('Erstelle KI-Bilder, Videos und Musik in einem Studio.');
+    await expect(page.locator('#hero')).not.toContainText('Generiere, speichere, ordne und veröffentliche kreative Medien mit Credits für echte Nutzung.');
     await expect(page.locator('#hero .hero__lab-teaser-text')).toHaveText('Generate Lab öffnen');
     await expect(page.locator('#hero .hero__lab-teaser-icon')).toHaveText('⚗️');
     await expect(page.locator('#hero .hero__lab-teaser')).toHaveAttribute('href', '/de/generate-lab/');
+    await expect(page.locator('#hero .hero__lab-teaser')).toHaveAttribute('target', 'bitbi-generate-lab');
+    await expect(page.locator('#hero .hero__canvas-teaser')).toHaveAttribute('href', '/de/canvas/');
+    await expect(page.locator('#hero .hero__canvas-teaser')).toHaveAttribute('aria-label', 'Canvas öffnen');
     await expect(page.locator('#publicMemberJourney')).toHaveCount(0);
     await expect(page.locator('main')).not.toContainText('Von der ersten Idee zum gespeicherten Arbeitsbereich');
     await expect(page.locator('main')).not.toContainText('Mit Konto erstellen, ohne Konto stöbern');
   });
 
-  test('English and German homepages keep the enabled localized Live Pulse mount and responsive CSS', () => {
+  test('English and German homepages omit removed marketing and keep the localized Live Pulse mount', () => {
     const enHome = repoFile('index.html');
     const deHome = repoFile('de/index.html');
     const css = repoFile('css/components/news-pulse.css');
+    const indexJs = repoFile('js/pages/index/main.js');
 
     expect(enHome).toContain('data-news-pulse-locale="en"');
     expect(enHome).toContain('data-homepage-auth-state="loading"');
-    expect(enHome).toContain('data-homepage-guest-fallback');
-    expect(enHome).toContain('<p class="hero__saas-copy" aria-hidden="true">');
-    expect(enHome).toContain('Create AI images, videos and music in one studio.');
-    expect(enHome).toContain('Generate, save, organize and publish creative media with credits for real usage.');
+    expect(enHome).not.toContain('data-homepage-guest-fallback');
+    expect(enHome).not.toContain('hero__saas-copy');
+    expect(enHome).not.toContain('Create AI images, videos and music in one studio.');
+    expect(enHome).not.toContain('Generate, save, organize and publish creative media with credits for real usage.');
+    expect(enHome).toContain('href="/canvas/" class="hero__canvas-teaser"');
     expect(enHome).not.toContain('data-news-pulse-disabled="temporary-homepage-layout"');
     expect(enHome).not.toContain('aria-hidden="true" hidden');
     expect(enHome).toContain('aria-label="Bitbi Live Pulse"');
@@ -352,10 +354,11 @@ test.describe('Bilingual locale pages', () => {
     expect(enHome).toMatch(/<section id="hero"[\s\S]*<section id="newsPulse"[\s\S]*<\/section>[\s\S]*<\/section>/);
     expect(deHome).toContain('data-news-pulse-locale="de"');
     expect(deHome).toContain('data-homepage-auth-state="loading"');
-    expect(deHome).toContain('data-homepage-guest-fallback');
-    expect(deHome).toContain('<p class="hero__saas-copy" aria-hidden="true">');
-    expect(deHome).toContain('Erstelle KI-Bilder, Videos und Musik in einem Studio.');
-    expect(deHome).toContain('Generiere, speichere, ordne und veröffentliche kreative Medien mit Credits für echte Nutzung.');
+    expect(deHome).not.toContain('data-homepage-guest-fallback');
+    expect(deHome).not.toContain('hero__saas-copy');
+    expect(deHome).not.toContain('Erstelle KI-Bilder, Videos und Musik in einem Studio.');
+    expect(deHome).not.toContain('Generiere, speichere, ordne und veröffentliche kreative Medien mit Credits für echte Nutzung.');
+    expect(deHome).toContain('href="/de/canvas/" class="hero__canvas-teaser"');
     expect(deHome).not.toContain('data-news-pulse-disabled="temporary-homepage-layout"');
     expect(deHome).not.toContain('aria-hidden="true" hidden');
     expect(deHome).toContain('aria-label="KI-Puls"');
@@ -377,14 +380,17 @@ test.describe('Bilingual locale pages', () => {
     expect(indexCss).toContain('.hero__lab-teaser:hover');
     expect(indexCss).toContain('.hero__lab-teaser:focus-visible');
     expect(indexCss).toContain('.hero__actions--single-cta');
-    expect(indexCss).toContain('.hero__guest-fallback');
-    expect(indexCss).toContain('.hero--homepage .hero__saas-copy');
-    expect(indexCss).toContain('display: none !important');
-    expect(indexCss).toContain('border-radius: 999px');
+    expect(indexCss).toMatch(/\.hero__actions--single-cta\s*{[^}]*display: flex;[^}]*flex-direction: column;[^}]*align-items: center;/);
+    expect(indexCss).not.toContain('.hero__guest-fallback');
+    expect(indexCss).not.toContain('.hero--homepage .hero__saas-copy');
+    expect(indexCss).not.toContain('--homepage-guest-fallback-');
     expect(indexCss).toContain('[data-homepage-auth-state="guest"] .news-pulse');
     expect(indexCss).toContain('prefers-reduced-motion: reduce');
     expect(indexCss).toContain('.hero__lab-teaser::before');
     expect(indexCss).toContain('animation: none');
+    expect(indexJs).toContain('function initHomepageAuthState()');
+    expect(indexJs).not.toContain('initHomepageGuestFallback');
+    expect(indexJs).not.toContain('homepageGuestFallback');
   });
 
   test('global Help Menu exposes localized content, motion safety, and no German Admin route', () => {
