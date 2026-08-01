@@ -30,6 +30,12 @@ const CATEGORY_META = {
 
 const TRANSITION_MS = 560;
 const LAYOUT_PREPARE_TIMEOUT_MS = 160;
+const INSTANT_SCROLL_TARGET_SELECTORS = [
+    '.section__header--sm',
+    '.section__title',
+    '.gallery-mode, .video-mode, .sound-mode',
+    '.section__inner',
+];
 
 function resolveCategoryFromHash(hash) {
     return CATEGORY_ORDER.find((key) => CATEGORY_META[key].hash === hash) || null;
@@ -90,6 +96,20 @@ function supportsStagedCategoryMotion() {
         && window.CSS.supports('transition', 'transform 1ms linear');
 }
 
+function isWebKitRenderingEngine() {
+    const userAgent = navigator.userAgent || '';
+    const vendor = navigator.vendor || '';
+    const isWebKit = /AppleWebKit/i.test(userAgent);
+    const isAppleTouchWebKit = isWebKit && (
+        /\b(?:iPad|iPhone|iPod)\b/i.test(userAgent)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    );
+    const isChromiumFamily = /\b(?:Chrome|Chromium|CriOS|Edg|EdgiOS|OPR|SamsungBrowser)\b/i.test(userAgent);
+
+    if (isAppleTouchWebKit) return true;
+    return isWebKit && /Apple/i.test(vendor) && !isChromiumFamily;
+}
+
 export function initCategoryCarousel() {
     const stage = document.getElementById('homeCategories');
     const viewport = stage?.querySelector('.home-categories__viewport');
@@ -128,9 +148,16 @@ export function initCategoryCarousel() {
     const layoutWaits = new Set();
     const frameWaits = new Set();
     const stagedMotionSupported = supportsStagedCategoryMotion();
+    const webKitInstantEnabled = isWebKitRenderingEngine();
+
+    if (webKitInstantEnabled) {
+        stage.dataset.instantEngine = 'webkit';
+    }
 
     function syncMotionEngine() {
-        stage.dataset.motionEngine = stagedMotionSupported && !reducedMotionQuery?.matches
+        stage.dataset.motionEngine = !webKitInstantEnabled
+            && stagedMotionSupported
+            && !reducedMotionQuery?.matches
             ? 'standard'
             : 'instant';
     }
@@ -139,6 +166,57 @@ export function initCategoryCarousel() {
 
     function getPanel(category) {
         return panels.get(category) || null;
+    }
+
+    function getInstantScrollAnchor(panel) {
+        if (!panel) return null;
+        for (const selector of INSTANT_SCROLL_TARGET_SELECTORS) {
+            const target = panel.querySelector(selector);
+            if (target) return target;
+        }
+        return panel;
+    }
+
+    function getInstantScrollTargetY(panel) {
+        const target = getInstantScrollAnchor(panel);
+        if (!target) return null;
+
+        const targetRect = target.getBoundingClientRect();
+        const panelRect = panel.getBoundingClientRect();
+        const stickyNavbarOffset = Math.max(0, navbar?.getBoundingClientRect().bottom || 0);
+        const targetInset = target === panel ? 0 : targetRect.top - panelRect.top;
+        const currentScrollY = window.scrollY || window.pageYOffset || 0;
+        const rawTargetY = currentScrollY + targetRect.top - targetInset - stickyNavbarOffset;
+        const maxScrollY = Math.max(
+            0,
+            document.documentElement.scrollHeight - window.innerHeight,
+            (document.body?.scrollHeight || 0) - window.innerHeight,
+        );
+
+        return Math.min(Math.max(0, rawTargetY), maxScrollY);
+    }
+
+    function scrollToInstantPanel(panel) {
+        const targetY = getInstantScrollTargetY(panel);
+        if (!Number.isFinite(targetY)) return;
+
+        const root = document.documentElement;
+        const previousBehavior = root.style.getPropertyValue('scroll-behavior');
+        const previousPriority = root.style.getPropertyPriority('scroll-behavior');
+        root.style.setProperty('scroll-behavior', 'auto', 'important');
+        try {
+            window.scrollTo({
+                top: targetY,
+                left: window.scrollX || window.pageXOffset || 0,
+                behavior: 'auto',
+            });
+        } finally {
+            if (previousBehavior) {
+                root.style.setProperty('scroll-behavior', previousBehavior, previousPriority);
+            } else {
+                root.style.removeProperty('scroll-behavior');
+            }
+        }
     }
 
     function clearPanelState(panel) {
@@ -275,7 +353,17 @@ export function initCategoryCarousel() {
         }));
     }
 
-    function applyCategoryState() {
+    function dispatchCategoryActivated() {
+        if (destroyed) return;
+        document.dispatchEvent(new CustomEvent('bitbi:homepage-category-activated', {
+            detail: {
+                category: activeCategory,
+                stageMode: stage.dataset.stageMode || '',
+            },
+        }));
+    }
+
+    function applyCategoryState({ activationMode = 'frame' } = {}) {
         panels.forEach((panel, key) => {
             const isActive = key === activeCategory;
             clearPanelState(panel);
@@ -286,15 +374,15 @@ export function initCategoryCarousel() {
         stage.dataset.activeCategory = activeCategory;
         syncVisibleReveals(getPanel(activeCategory));
         if (activationFrame) window.cancelAnimationFrame(activationFrame);
+        activationFrame = 0;
+        if (activationMode === 'none') return;
+        if (activationMode === 'sync') {
+            dispatchCategoryActivated();
+            return;
+        }
         activationFrame = window.requestAnimationFrame(() => {
             activationFrame = 0;
-            if (destroyed) return;
-            document.dispatchEvent(new CustomEvent('bitbi:homepage-category-activated', {
-                detail: {
-                    category: activeCategory,
-                    stageMode: stage.dataset.stageMode || '',
-                },
-            }));
+            dispatchCategoryActivated();
         });
     }
 
@@ -371,6 +459,22 @@ export function initCategoryCarousel() {
         await withTimeout(Promise.allSettled(pending), LAYOUT_PREPARE_TIMEOUT_MS);
         if (destroyed || requestSeq !== transitionSeq) return;
         if (requiresSettledFrames) await waitForAnimationFrame(2);
+    }
+
+    function prepareInstantCategoryLayout(category, panel) {
+        const detail = {
+            category,
+            panel,
+            stageMode: stage.dataset.stageMode || '',
+            phase: 'instant-switch',
+            waitUntil(promise) {
+                if (!promise || typeof promise.then !== 'function') return;
+                Promise.resolve(promise).catch((error) => {
+                    console.warn('category layout preparation:', error);
+                });
+            },
+        };
+        document.dispatchEvent(new CustomEvent('bitbi:homepage-category-layout-request', { detail }));
     }
 
     function updateCategoryLinkState() {
@@ -484,10 +588,21 @@ export function initCategoryCarousel() {
         activeCategory = hashCategory || activeCategory || 'video';
         viewport.style.height = '';
         viewport.style.minHeight = '';
-        applyCategoryState();
+        if (webKitInstantEnabled) {
+            const activePanel = getPanel(activeCategory);
+            applyCategoryState({ activationMode: 'none' });
+            prepareInstantCategoryLayout(activeCategory, activePanel);
+            dispatchCategoryActivated();
+        } else {
+            applyCategoryState();
+        }
         updateCategoryLinkState();
         if (hashCategory || activeCategory !== 'video') {
-            startContentAlignmentWatch();
+            if (webKitInstantEnabled) {
+                scrollToInstantPanel(getPanel(activeCategory));
+            } else {
+                startContentAlignmentWatch();
+            }
         }
     }
 
@@ -566,6 +681,30 @@ export function initCategoryCarousel() {
         return true;
     }
 
+    function setInstantActiveCategory(nextCategory, { alignStage = false, clearHash = false } = {}) {
+        const nextPanel = getPanel(nextCategory);
+        if (!nextPanel) return;
+
+        const categoryChanged = nextCategory !== activeCategory;
+        if (categoryChanged) dispatchCategoryDeactivating(nextCategory);
+        cancelTransitionWork({ clearQueued: true });
+
+        activeCategory = nextCategory;
+        pendingCategory = null;
+        if (clearHash) clearCategoryHash();
+
+        if (categoryChanged) {
+            applyCategoryState({ activationMode: 'none' });
+            updateCategoryLinkState();
+            prepareInstantCategoryLayout(nextCategory, nextPanel);
+            dispatchCategoryActivated();
+        } else {
+            updateCategoryLinkState();
+        }
+
+        if (alignStage) scrollToInstantPanel(nextPanel);
+    }
+
     function setActiveCategory(nextCategory, { alignStage = false, clearHash = false } = {}) {
         if (destroyed || !CATEGORY_META[nextCategory]) {
             return;
@@ -577,6 +716,11 @@ export function initCategoryCarousel() {
             activeCategory = nextCategory;
             stage.dataset.activeCategory = nextCategory;
             if (clearHash) clearCategoryHash();
+            return;
+        }
+
+        if (webKitInstantEnabled) {
+            setInstantActiveCategory(nextCategory, { alignStage, clearHash });
             return;
         }
 
@@ -693,6 +837,7 @@ export function initCategoryCarousel() {
 
     const alignActiveCategoryAfterContentReady = () => {
         if (destroyed || !stagedLayoutEnabled) return;
+        if (webKitInstantEnabled) return;
         startContentAlignmentWatch();
     };
 
@@ -753,6 +898,12 @@ export function initCategoryCarousel() {
             : getPendingCategoryHash();
         const initialCategory = resolveCategoryFromHash(initialCategoryHash);
         const shouldPrimeDeferredAlignment = initialCategoryHash === getPendingCategoryHash();
+        if (webKitInstantEnabled) {
+            if (shouldPrimeDeferredAlignment) {
+                window.sessionStorage?.removeItem(HOME_CATEGORY_NAV_STATE_KEY);
+            }
+            return;
+        }
         let initialAlignmentFrame = 0;
         let initialAlignmentTimer = 0;
         let initialAlignmentObserver = null;

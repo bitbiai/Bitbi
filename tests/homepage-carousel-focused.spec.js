@@ -716,6 +716,153 @@ async function measureWarmSwitch(page, category) {
   };
 }
 
+async function installInstantScrollInstrumentation(page) {
+  await page.addInitScript(() => {
+    const operations = [];
+    const originalScrollTo = window.scrollTo;
+    const originalScrollBy = window.scrollBy;
+    window.__instantCategoryScrollOperations = operations;
+
+    const record = (method, args) => {
+      const options = args[0] && typeof args[0] === 'object' ? args[0] : null;
+      operations.push({
+        method,
+        top: Number(options ? options.top : args[1]) || 0,
+        left: Number(options ? options.left : args[0]) || 0,
+        behavior: options?.behavior || '',
+        rootScrollBehavior: getComputedStyle(document.documentElement).scrollBehavior,
+        at: performance.now(),
+      });
+    };
+
+    window.scrollTo = function instrumentedScrollTo(...args) {
+      record('scrollTo', args);
+      return originalScrollTo.apply(window, args);
+    };
+    window.scrollBy = function instrumentedScrollBy(...args) {
+      record('scrollBy', args);
+      return originalScrollBy.apply(window, args);
+    };
+  });
+}
+
+async function performInstantCategorySwitch(page, category) {
+  const immediate = await page.evaluate((nextCategory) => {
+    const stage = document.getElementById('homeCategories');
+    const panel = stage?.querySelector(`[data-category-panel="${nextCategory}"]`);
+    const link = document.querySelector(`#navbar .site-nav__links [data-category-link="${nextCategory}"]`);
+    const operations = window.__instantCategoryScrollOperations;
+    if (!stage || !panel || !link || !operations) throw new Error('instant carousel target missing');
+
+    const candidates = [
+      ['header', panel.querySelector('.section__header--sm')],
+      ['title', panel.querySelector('.section__title')],
+      ['controls', panel.querySelector('.gallery-mode, .video-mode, .sound-mode')],
+      ['inner', panel.querySelector('.section__inner')],
+      ['panel', panel],
+    ];
+    const rectReads = [];
+    const restorers = candidates
+      .filter(([, node]) => node)
+      .map(([name, node]) => {
+        const hadOwnMethod = Object.prototype.hasOwnProperty.call(node, 'getBoundingClientRect');
+        const previousMethod = node.getBoundingClientRect;
+        node.getBoundingClientRect = function instrumentedRect() {
+          rectReads.push(name);
+          return previousMethod.call(this);
+        };
+        return () => {
+          if (hadOwnMethod) node.getBoundingClientRect = previousMethod;
+          else delete node.getBoundingClientRect;
+        };
+      });
+
+    operations.length = 0;
+    link.click();
+    restorers.forEach((restore) => restore());
+
+    const navbar = document.getElementById('navbar');
+    const viewport = stage.querySelector('.home-categories__viewport');
+    const header = panel.querySelector('.section__header--sm');
+    const title = panel.querySelector('.section__title');
+    const controls = panel.querySelector('.gallery-mode, .video-mode, .sound-mode');
+    const content = panel.querySelector('#galleryExplore, #videoExplore, #soundLabExplore');
+    const reveal = panel.querySelector('.reveal');
+    const modeButton = panel.querySelector('.gallery-mode__btn, .video-mode__btn');
+    const ghost = panel.querySelector('.category-ghost-models__name');
+    const navbarRect = navbar?.getBoundingClientRect();
+    const stageRect = stage.getBoundingClientRect();
+    const headerRect = header?.getBoundingClientRect();
+    const titleRect = title?.getBoundingClientRect();
+    const controlsRect = controls?.getBoundingClientRect();
+    const contentRect = content?.getBoundingClientRect();
+    const viewportStyle = viewport ? getComputedStyle(viewport) : null;
+    const panelStyle = getComputedStyle(panel);
+    const revealStyle = reveal ? getComputedStyle(reveal) : null;
+    const modeButtonStyle = modeButton ? getComputedStyle(modeButton) : null;
+    const ghostStyle = ghost ? getComputedStyle(ghost) : null;
+
+    return {
+      activeCategory: stage.dataset.activeCategory || '',
+      motionEngine: stage.dataset.motionEngine || '',
+      instantEngine: stage.dataset.instantEngine || '',
+      transitioning: stage.classList.contains('is-transitioning'),
+      viewportHeight: viewport?.style.height || '',
+      viewportMinHeight: viewport?.style.minHeight || '',
+      transientPanelCount: stage.querySelectorAll(
+        '.is-transition-current,.is-transition-next,.is-enter-active,.is-leave-left,.is-leave-right,.is-layout-preparing',
+      ).length,
+      hash: window.location.hash,
+      scrollY: window.scrollY,
+      operations: operations.slice(),
+      rectReads,
+      navBottom: navbarRect?.bottom || 0,
+      stageTop: stageRect.top,
+      headerTop: headerRect?.top || 0,
+      headerBottom: headerRect?.bottom || 0,
+      titleTop: titleRect?.top || 0,
+      titleBottom: titleRect?.bottom || 0,
+      controlsBottom: controlsRect?.bottom || 0,
+      contentTop: contentRect?.top || 0,
+      viewportHeightPx: window.innerHeight,
+      viewportPerspective: viewportStyle?.perspective || '',
+      viewportTransitionDuration: viewportStyle?.transitionDuration || '',
+      panelTransform: panelStyle.transform,
+      panelOpacity: panelStyle.opacity,
+      panelTransitionDuration: panelStyle.transitionDuration,
+      revealTransform: revealStyle?.transform || '',
+      revealOpacity: revealStyle?.opacity || '',
+      revealTransitionDuration: revealStyle?.transitionDuration || '',
+      modeTransitionProperty: modeButtonStyle?.transitionProperty || '',
+      ghostAnimationName: ghostStyle?.animationName || '',
+      ghostTransitionDuration: ghostStyle?.transitionDuration || '',
+      panels: Array.from(stage.querySelectorAll('[data-category-panel]')).map((candidate) => ({
+        category: candidate.dataset.categoryPanel || '',
+        ariaHidden: candidate.getAttribute('aria-hidden'),
+        inert: candidate.hasAttribute('inert'),
+      })),
+    };
+  }, category);
+
+  await page.waitForTimeout(700);
+  const settled = await page.evaluate(() => {
+    const stage = document.getElementById('homeCategories');
+    const navbar = document.getElementById('navbar');
+    return {
+      activeCategory: stage?.dataset.activeCategory || '',
+      transitioning: stage?.classList.contains('is-transitioning') || false,
+      transientPanelCount: stage?.querySelectorAll(
+        '.is-transition-current,.is-transition-next,.is-enter-active,.is-leave-left,.is-leave-right,.is-layout-preparing',
+      ).length || 0,
+      operations: (window.__instantCategoryScrollOperations || []).slice(),
+      scrollY: window.scrollY,
+      stageTop: stage?.getBoundingClientRect().top || 0,
+      navBottom: navbar?.getBoundingClientRect().bottom || 0,
+    };
+  });
+  return { immediate, settled };
+}
+
 test('carousel CLS accounting excludes pre-input shifts and retains in-window shifts', () => {
   const summary = summarizeLayoutShiftWindow([
     { value: 0.5, startTime: 90, hadRecentInput: false },
@@ -735,6 +882,7 @@ test.describe('Populated homepage carousel', () => {
   });
 
   test('settles exact transitions, keeps populated walls warm, and honors the latest rapid choice', async ({ page, browserName }, testInfo) => {
+    test.skip(browserName === 'webkit', 'WebKit instant switching has dedicated coverage.');
     await page.setViewportSize({ width: 1440, height: 900 });
     await waitForPopulatedHomepage(page);
 
@@ -917,6 +1065,178 @@ test.describe('Populated homepage carousel', () => {
     await waitForPublicWall(page, 'gallery');
     const stableNarrowToken = await page.locator('#galleryGrid').evaluate((grid) => grid.dataset.mediaWallRenderToken || '');
     expect(stableNarrowToken).toBe(narrowGallery.token);
+  });
+
+  test('WebKit switches categories instantly with one precise scroll and no settling corrections', async ({ page, browserName }) => {
+    test.skip(browserName !== 'webkit', 'WebKit-only instant engine coverage.');
+    await installInstantScrollInstrumentation(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await waitForPopulatedHomepage(page);
+    await waitForSettledCategory(page, 'video');
+
+    expect(CAROUSEL_JS).toContain("'.section__header--sm'");
+    expect(CAROUSEL_JS).toContain("'.section__title'");
+    expect(CAROUSEL_JS).toContain("'.gallery-mode, .video-mode, .sound-mode'");
+    expect(CAROUSEL_JS).toContain("'.section__inner'");
+    expect(CAROUSEL_CSS).toContain('[data-instant-engine="webkit"]');
+
+    const expectInstantResult = (result, category) => {
+      const { immediate, settled } = result;
+      expect(immediate.motionEngine).toBe('instant');
+      expect(immediate.instantEngine).toBe('webkit');
+      expect(immediate.activeCategory).toBe(category);
+      expect(immediate.transitioning).toBe(false);
+      expect(immediate.transientPanelCount).toBe(0);
+      expect(immediate.viewportHeight).toBe('');
+      expect(immediate.viewportMinHeight).toBe('');
+      expect(immediate.hash).toBe('');
+      expect(immediate.operations).toHaveLength(1);
+      expect(immediate.operations[0]).toMatchObject({
+        method: 'scrollTo',
+        behavior: 'auto',
+        rootScrollBehavior: 'auto',
+      });
+      expect(Math.abs(immediate.operations[0].top - immediate.scrollY)).toBeLessThanOrEqual(1);
+      expect(immediate.rectReads.slice(0, 2)).toEqual(['header', 'panel']);
+      expect(immediate.rectReads).not.toContain('title');
+      expect(immediate.rectReads).not.toContain('controls');
+      expect(immediate.rectReads).not.toContain('inner');
+      expect(Math.abs(immediate.stageTop - immediate.navBottom)).toBeLessThanOrEqual(2);
+      expect(immediate.headerTop).toBeGreaterThanOrEqual(immediate.navBottom - 2);
+      expect(immediate.titleTop).toBeGreaterThanOrEqual(immediate.navBottom);
+      expect(immediate.titleBottom).toBeLessThan(immediate.viewportHeightPx);
+      expect(immediate.controlsBottom).toBeLessThan(immediate.viewportHeightPx);
+      expect(immediate.contentTop).toBeGreaterThan(immediate.controlsBottom + 8);
+      expect(immediate.viewportPerspective).toBe('none');
+      expect(immediate.viewportTransitionDuration).toBe('0s');
+      expect(immediate.panelTransform).toBe('none');
+      expect(immediate.panelOpacity).toBe('1');
+      expect(immediate.panelTransitionDuration).toBe('0s');
+      expect(immediate.revealTransform).toBe('none');
+      expect(immediate.revealOpacity).toBe('1');
+      expect(immediate.revealTransitionDuration).toBe('0s');
+      expect(immediate.modeTransitionProperty).not.toMatch(/transform|opacity|backdrop-filter/i);
+      expect(immediate.ghostAnimationName).toBe('none');
+      expect(immediate.ghostTransitionDuration).toBe('0s');
+      for (const panel of immediate.panels) {
+        const isActive = panel.category === category;
+        expect(panel.ariaHidden).toBe(isActive ? 'false' : 'true');
+        expect(panel.inert).toBe(!isActive);
+      }
+
+      expect(settled.activeCategory).toBe(category);
+      expect(settled.transitioning).toBe(false);
+      expect(settled.transientPanelCount).toBe(0);
+      expect(settled.operations).toEqual(immediate.operations);
+      expect(Math.abs(settled.scrollY - immediate.scrollY)).toBeLessThanOrEqual(1);
+      expect(Math.abs(settled.stageTop - settled.navBottom)).toBeLessThanOrEqual(2);
+    };
+
+    for (const category of ['gallery', 'video', 'sound', 'gallery']) {
+      const result = await performInstantCategorySwitch(page, category);
+      expectInstantResult(result, category);
+      await expectSingleInteractivePanel(page, category);
+    }
+
+    await page.evaluate(() => {
+      if (window.__instantCategoryScrollOperations) {
+        window.__instantCategoryScrollOperations.length = 0;
+      }
+    });
+    await page.locator('#navbar .site-nav__links [data-category-link="video"]').focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => page.locator('#homeCategories').getAttribute('data-active-category')).toBe('video');
+    const keyboardState = await page.evaluate(() => ({
+      operations: (window.__instantCategoryScrollOperations || []).slice(),
+      transitioning: document.getElementById('homeCategories')?.classList.contains('is-transitioning') || false,
+    }));
+    expect(keyboardState.operations).toHaveLength(1);
+    expect(keyboardState.operations[0].method).toBe('scrollTo');
+    expect(keyboardState.transitioning).toBe(false);
+    await expectSingleInteractivePanel(page, 'video');
+
+    const rapid = await page.evaluate(() => {
+      const operations = window.__instantCategoryScrollOperations;
+      if (!operations) throw new Error('instant scroll instrumentation missing');
+      operations.length = 0;
+      ['gallery', 'video', 'sound', 'gallery'].forEach((category) => {
+        document.querySelector(`#navbar .site-nav__links [data-category-link="${category}"]`)?.click();
+      });
+      const stage = document.getElementById('homeCategories');
+      return {
+        activeCategory: stage?.dataset.activeCategory || '',
+        transitioning: stage?.classList.contains('is-transitioning') || false,
+        transientPanelCount: stage?.querySelectorAll(
+          '.is-transition-current,.is-transition-next,.is-enter-active,.is-leave-left,.is-leave-right,.is-layout-preparing',
+        ).length || 0,
+        operations: operations.slice(),
+        scrollY: window.scrollY,
+      };
+    });
+    expect(rapid.activeCategory).toBe('gallery');
+    expect(rapid.transitioning).toBe(false);
+    expect(rapid.transientPanelCount).toBe(0);
+    expect(rapid.operations).toHaveLength(4);
+    expect(rapid.operations.every((operation) => (
+      operation.method === 'scrollTo'
+      && operation.behavior === 'auto'
+      && operation.rootScrollBehavior === 'auto'
+    ))).toBe(true);
+    await page.waitForTimeout(700);
+    const rapidSettled = await page.evaluate(() => ({
+      activeCategory: document.getElementById('homeCategories')?.dataset.activeCategory || '',
+      operations: (window.__instantCategoryScrollOperations || []).slice(),
+      scrollY: window.scrollY,
+    }));
+    expect(rapidSettled.activeCategory).toBe('gallery');
+    expect(rapidSettled.operations).toEqual(rapid.operations);
+    expect(Math.abs(rapidSettled.scrollY - rapid.scrollY)).toBeLessThanOrEqual(1);
+    await expectSingleInteractivePanel(page, 'gallery');
+
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await expect(page.locator('#homeCategories')).toHaveAttribute('data-stage-mode', 'desktop');
+    const tabletResult = await performInstantCategorySwitch(page, 'sound');
+    expectInstantResult(tabletResult, 'sound');
+    await expectCarouselHorizontalFit(page, 'WebKit tablet instant switch');
+
+    await waitForPopulatedHomepage(page, '/de/');
+    const localizedResult = await performInstantCategorySwitch(page, 'gallery');
+    expectInstantResult(localizedResult, 'gallery');
+    await expectSingleInteractivePanel(page, 'gallery');
+
+    await page.evaluate(() => {
+      if (window.__instantCategoryScrollOperations) {
+        window.__instantCategoryScrollOperations.length = 0;
+      }
+      window.location.hash = '#soundlab';
+    });
+    await expect.poll(() => page.locator('#homeCategories').getAttribute('data-active-category')).toBe('sound');
+    const hashState = await page.evaluate(() => {
+      const stage = document.getElementById('homeCategories');
+      const navbar = document.getElementById('navbar');
+      return {
+        activeCategory: stage?.dataset.activeCategory || '',
+        motionEngine: stage?.dataset.motionEngine || '',
+        hash: window.location.hash,
+        operations: (window.__instantCategoryScrollOperations || []).slice(),
+        scrollY: window.scrollY,
+        stageTop: stage?.getBoundingClientRect().top || 0,
+        navBottom: navbar?.getBoundingClientRect().bottom || 0,
+      };
+    });
+    expect(hashState.activeCategory).toBe('sound');
+    expect(hashState.motionEngine).toBe('instant');
+    expect(hashState.hash).toBe('#soundlab');
+    expect(hashState.operations).toHaveLength(1);
+    expect(hashState.operations[0].method).toBe('scrollTo');
+    expect(Math.abs(hashState.stageTop - hashState.navBottom)).toBeLessThanOrEqual(2);
+    await page.waitForTimeout(700);
+    const settledHashState = await page.evaluate(() => ({
+      operations: (window.__instantCategoryScrollOperations || []).slice(),
+      scrollY: window.scrollY,
+    }));
+    expect(settledHashState.operations).toEqual(hashState.operations);
+    expect(Math.abs(settledHashState.scrollY - hashState.scrollY)).toBeLessThanOrEqual(1);
   });
 
   test('uses transform-invariant wall geometry and recovers a pending zero-width layout', async ({ page }) => {
