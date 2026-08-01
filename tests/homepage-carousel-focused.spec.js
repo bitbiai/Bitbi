@@ -15,6 +15,8 @@ const WALLS = {
   sound: '#soundLabTracks',
 };
 const HOMEPAGE_REQUEST_COUNTS = new WeakMap();
+const CAROUSEL_STABLE_FRAME_COUNT = 3;
+const CAROUSEL_POST_SETTLE_OBSERVATION_MS = 120;
 
 function summarizeLayoutShiftWindow(entries, startTime, endTime) {
   const selected = (Array.isArray(entries) ? entries : []).filter((entry) => (
@@ -330,6 +332,120 @@ async function waitForSettledCategory(page, category) {
   });
 }
 
+async function observeSettledCarouselLayout(page, category) {
+  return page.locator('#homeCategories').evaluate((stage, options) => new Promise((resolve, reject) => {
+    const viewport = stage.querySelector('.home-categories__viewport');
+    if (!(viewport instanceof Element)) {
+      reject(new Error('carousel settle viewport missing'));
+      return;
+    }
+
+    const transientSelector = [
+      '.is-transition-current',
+      '.is-transition-next',
+      '.is-enter-active',
+      '.is-leave-left',
+      '.is-leave-right',
+      '.is-layout-preparing',
+    ].join(',');
+    let previousGeometry = null;
+    let stableFrames = 0;
+    let frameId = 0;
+    let observationTimer = 0;
+    let timeoutId = 0;
+    let finished = false;
+
+    const cleanup = () => {
+      cancelAnimationFrame(frameId);
+      clearTimeout(observationTimer);
+      clearTimeout(timeoutId);
+    };
+    const fail = (message) => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      reject(new Error(message));
+    };
+    const readStableGeometry = () => {
+      const activePanel = stage.querySelector(`[data-category-panel="${options.category}"].is-active`);
+      if (!(activePanel instanceof Element)) return null;
+      if (stage.dataset.activeCategory !== options.category
+        || stage.classList.contains('is-transitioning')
+        || stage.querySelector(transientSelector)
+        || viewport.style.height
+        || viewport.style.minHeight) {
+        return null;
+      }
+      const activeAnimations = [viewport, activePanel].flatMap((node) => (
+        typeof node.getAnimations === 'function' ? node.getAnimations() : []
+      )).filter((animation) => animation.playState === 'pending' || animation.playState === 'running');
+      if (activeAnimations.length > 0) return null;
+
+      const stageRect = stage.getBoundingClientRect();
+      const viewportRect = viewport.getBoundingClientRect();
+      const panelRect = activePanel.getBoundingClientRect();
+      return [
+        window.scrollX,
+        window.scrollY,
+        stageRect.top,
+        stageRect.width,
+        stageRect.height,
+        viewportRect.top,
+        viewportRect.width,
+        viewportRect.height,
+        panelRect.top,
+        panelRect.width,
+        panelRect.height,
+      ];
+    };
+    const sample = () => {
+      frameId = requestAnimationFrame(() => {
+        const geometry = readStableGeometry();
+        if (!geometry) {
+          previousGeometry = null;
+          stableFrames = 0;
+          sample();
+          return;
+        }
+
+        const unchanged = previousGeometry
+          && geometry.every((value, index) => Math.abs(value - previousGeometry[index]) <= 0.25);
+        stableFrames = unchanged ? stableFrames + 1 : 1;
+        previousGeometry = geometry;
+        if (stableFrames < options.stableFrameCount) {
+          sample();
+          return;
+        }
+
+        window.__flushCarouselLayoutShifts?.();
+        const startTime = performance.now();
+        observationTimer = setTimeout(() => {
+          frameId = requestAnimationFrame(() => {
+            window.__flushCarouselLayoutShifts?.();
+            const endTime = performance.now();
+            if (finished) return;
+            finished = true;
+            cleanup();
+            resolve({
+              startTime,
+              endTime,
+              stableFrames,
+              entries: (window.__carouselTestWork?.layoutShifts || []).slice(),
+            });
+          });
+        }, options.observationMs);
+      });
+    };
+
+    timeoutId = setTimeout(() => fail('carousel layout did not reach a stable observation window'), 5_000);
+    sample();
+  }), {
+    category,
+    stableFrameCount: CAROUSEL_STABLE_FRAME_COUNT,
+    observationMs: CAROUSEL_POST_SETTLE_OBSERVATION_MS,
+  });
+}
+
 async function expectSingleInteractivePanel(page, activeCategory) {
   const panels = await page.locator('#homeCategories').evaluate((stage) => (
     Array.from(stage.querySelectorAll('[data-category-panel]')).map((panel) => ({
@@ -556,30 +672,61 @@ async function expectDirectionalTransition(page, { from, to, currentClass, nextC
   const link = page.locator(`#navbar .site-nav__links [data-category-link="${to}"]`);
   const box = await link.boundingBox();
   if (!box) throw new Error(`carousel link unavailable: ${to}`);
+  await page.locator('#homeCategories').evaluate((stage, expected) => {
+    window.__carouselTransitionObservation = new Promise((resolve, reject) => {
+      let timeoutId = 0;
+      let finished = false;
+      const observer = new MutationObserver(() => capture());
+      const cleanup = () => {
+        observer.disconnect();
+        clearTimeout(timeoutId);
+      };
+      const capture = () => {
+        if (finished) return;
+        const current = stage.querySelector('.is-transition-current');
+        const next = stage.querySelector('.is-transition-next');
+        const viewport = stage.querySelector('.home-categories__viewport');
+        if (!(current instanceof Element)
+          || !(next instanceof Element)
+          || !(viewport instanceof Element)
+          || current.dataset.categoryPanel !== expected.from
+          || next.dataset.categoryPanel !== expected.to
+          || !current.classList.contains(expected.currentClass)
+          || !next.classList.contains(expected.nextClass)) {
+          return;
+        }
+        const currentTransform = getComputedStyle(current).transform;
+        const nextTransform = getComputedStyle(next).transform;
+        finished = true;
+        cleanup();
+        resolve({
+          current: current.dataset.categoryPanel || '',
+          next: next.dataset.categoryPanel || '',
+          currentClasses: current.className,
+          nextClasses: next.className,
+          perspective: getComputedStyle(viewport).perspective,
+          currentTransform,
+          nextTransform,
+        });
+      };
+      observer.observe(stage, { attributes: true, attributeFilter: ['class'], subtree: true });
+      timeoutId = setTimeout(() => {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        reject(new Error(`carousel transition was not observed: ${expected.from} -> ${expected.to}`));
+      }, 5_000);
+      capture();
+    });
+  }, { from, to, currentClass, nextClass });
   await page.mouse.click(box.x + (box.width / 2), box.y + (box.height / 2));
-  await expect.poll(() => page.locator('#homeCategories').evaluate((stage) => {
-    const current = stage.querySelector('.is-transition-current');
-    const next = stage.querySelector('.is-transition-next');
-    const viewport = stage.querySelector('.home-categories__viewport');
-    return {
-      current: current?.dataset.categoryPanel || '',
-      next: next?.dataset.categoryPanel || '',
-      currentClasses: current?.className || '',
-      nextClasses: next?.className || '',
-      perspective: viewport ? getComputedStyle(viewport).perspective : '',
-      currentTransform: current ? getComputedStyle(current).transform : 'none',
-      nextTransform: next ? getComputedStyle(next).transform : 'none',
-    };
-  }), { timeout: 5_000 }).toEqual(expect.objectContaining({
+  const visuals = await page.evaluate(() => window.__carouselTransitionObservation);
+  expect(visuals).toEqual(expect.objectContaining({
     current: from,
     next: to,
     currentClasses: expect.stringContaining(currentClass),
     nextClasses: expect.stringContaining(nextClass),
     perspective: '1800px',
-  }));
-  const visuals = await page.locator('#homeCategories').evaluate((stage) => ({
-    currentTransform: getComputedStyle(stage.querySelector('.is-transition-current')).transform,
-    nextTransform: getComputedStyle(stage.querySelector('.is-transition-next')).transform,
   }));
   expect(visuals.currentTransform).not.toBe('none');
   expect(visuals.nextTransform).not.toBe('none');
@@ -696,13 +843,19 @@ async function measureWarmSwitch(page, category) {
   if (!box) throw new Error(`carousel link unavailable: ${category}`);
   await page.mouse.click(box.x + (box.width / 2), box.y + (box.height / 2));
   const rawMeasurement = await page.evaluate(() => window.__carouselMeasurementPromise);
-  const clsWindow = summarizeLayoutShiftWindow(
-    rawMeasurement.layoutShifts,
+  const settledWindow = await observeSettledCarouselLayout(page, category);
+  const transitionClsWindow = summarizeLayoutShiftWindow(
+    settledWindow.entries,
     rawMeasurement.inputDispatchedAt,
-    rawMeasurement.completedAt,
+    settledWindow.startTime - 0.001,
+  );
+  const settledClsWindow = summarizeLayoutShiftWindow(
+    settledWindow.entries,
+    settledWindow.startTime,
+    settledWindow.endTime,
   );
   const preInputCls = summarizeLayoutShiftWindow(
-    rawMeasurement.layoutShifts,
+    settledWindow.entries,
     rawMeasurement.setupAt,
     rawMeasurement.inputDispatchedAt - 0.001,
   ).value;
@@ -710,8 +863,12 @@ async function measureWarmSwitch(page, category) {
   delete measurement.layoutShifts;
   return {
     ...measurement,
-    clsDelta: clsWindow.value,
-    clsEntries: clsWindow.entries,
+    transitionClsDelta: transitionClsWindow.value,
+    transitionClsEntries: transitionClsWindow.entries,
+    settledClsDelta: settledClsWindow.value,
+    settledClsEntries: settledClsWindow.entries,
+    settleObservationMs: settledWindow.endTime - settledWindow.startTime,
+    stableLayoutFrames: settledWindow.stableFrames,
     preInputCls,
   };
 }
@@ -992,7 +1149,11 @@ test.describe('Populated homepage carousel', () => {
       expect(measurement.motionToCompleteMs).toBeGreaterThanOrEqual(440);
       expect(measurement.motionToCompleteMs).toBeLessThanOrEqual(680);
       expect(measurement.viewportMinOpacity).toBeGreaterThanOrEqual(0.99);
-      expect(measurement.clsDelta).toBeLessThanOrEqual(0.01);
+      expect(measurement.stableLayoutFrames).toBeGreaterThanOrEqual(CAROUSEL_STABLE_FRAME_COUNT);
+      expect(measurement.settleObservationMs).toBeGreaterThanOrEqual(
+        CAROUSEL_POST_SETTLE_OBSERVATION_MS,
+      );
+      expect(measurement.settledClsDelta).toBeLessThanOrEqual(0.01);
       expect(measurement.finalState).toEqual({
         activeCategory: measurement.targetCategory,
         transitioning: false,
@@ -1024,19 +1185,10 @@ test.describe('Populated homepage carousel', () => {
     await page.mouse.click(soundBox.x + (soundBox.width / 2), soundBox.y + (soundBox.height / 2));
     await waitForSettledCategory(page, 'sound');
     expect(Date.now() - rapidStartedAt).toBeLessThan(2_500);
-    const rapidShiftWindow = await page.evaluate(() => new Promise((resolve) => {
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        setTimeout(() => {
-          window.__flushCarouselLayoutShifts?.();
-          resolve({
-            startTime: window.__rapidCarouselInputAt,
-            endTime: performance.now(),
-            entries: (window.__carouselTestWork?.layoutShifts || []).slice(),
-          });
-        }, 0);
-      }));
-    }));
-    expect(rapidShiftWindow.startTime).toBeGreaterThan(0);
+    const rapidShiftWindow = await observeSettledCarouselLayout(page, 'sound');
+    const rapidInputAt = await page.evaluate(() => window.__rapidCarouselInputAt);
+    expect(rapidInputAt).toBeGreaterThan(0);
+    expect(rapidShiftWindow.stableFrames).toBeGreaterThanOrEqual(CAROUSEL_STABLE_FRAME_COUNT);
     expect(summarizeLayoutShiftWindow(
       rapidShiftWindow.entries,
       rapidShiftWindow.startTime,

@@ -283,6 +283,7 @@ function writeGithubOutput(result) {
   appendLine(outputPath, `static_deploy_mode=${result.mode || ""}`);
   appendLine(outputPath, `static_deploy_allowed=${result.ok ? "true" : "false"}`);
   appendLine(outputPath, `static_deploy_skipped=${result.skipped ? "true" : "false"}`);
+  appendLine(outputPath, `static_deploy_required=${result.staticRequired ? "true" : "false"}`);
 }
 
 function writeGithubSummary(plan, result) {

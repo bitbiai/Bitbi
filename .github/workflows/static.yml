@@ -1,12 +1,9 @@
-# Simple workflow for deploying static content to GitHub Pages
+# Change-aware validation and deployment for GitHub Pages.
 name: Deploy static content to Pages
 
 on:
-  # Runs on pushes targeting the default branch. Homepage/UI-only pushes are
-  # ignored here so the fast UI workflow can deploy them without waiting behind
-  # this full Worker/release/static validation stack. Mixed or risky pushes
-  # still run this workflow because paths-ignore only skips when every changed
-  # file matches the safe UI list.
+  # Homepage/UI-only pushes use the narrow fast workflow. Every other main push
+  # is classified below so unrelated browser and Worker suites can be skipped.
   push:
     branches: ["main"]
     paths-ignore:
@@ -51,9 +48,20 @@ env:
 jobs:
   release-compatibility:
     runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.selection.outputs.docs_only }}
+      homepage: ${{ steps.selection.outputs.homepage }}
+      workers: ${{ steps.selection.outputs.workers }}
+      auth: ${{ steps.selection.outputs.auth }}
+      dependencies: ${{ steps.selection.outputs.dependencies }}
+      worker_dependencies: ${{ steps.selection.outputs.worker_dependencies }}
+      static: ${{ steps.selection.outputs.static }}
+      full: ${{ steps.selection.outputs.full }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -61,9 +69,24 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
+      - name: Select tests from changed files
+        id: selection
+        env:
+          CI_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_plan_base_ref || github.event.before }}
+          CI_HEAD_REF: ${{ github.sha }}
+          CI_FORCE_FULL: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          args=(--base "${CI_BASE_REF:-}" --head "${CI_HEAD_REF:-HEAD}" --github-output)
+          if [ "$CI_FORCE_FULL" = "true" ]; then
+            args+=(--force-full)
+          fi
+          node scripts/select-ci-tests.mjs "${args[@]}"
       - name: Audit root dependencies
+        if: steps.selection.outputs.dependencies == 'true'
         run: npm audit --audit-level=low
       - name: Validate worker package dependencies
+        if: steps.selection.outputs.worker_dependencies == 'true'
         run: |
           for worker in workers/auth workers/contact workers/ai; do
             npm --prefix "$worker" ci
@@ -100,6 +123,8 @@ jobs:
         run: npm run test:release-plan
       - name: Run static deploy safety tests
         run: npm run test:static-deploy-safety
+      - name: Run CI test selection fixtures
+        run: npm run test:ci-selection
       - name: Run Cloudflare deploy prerequisite tests
         run: npm run test:cloudflare-prereqs
       - name: Run Cloudflare resource model tests
@@ -135,21 +160,74 @@ jobs:
     needs: release-compatibility
     runs-on: ubuntu-latest
     steps:
+      - name: Report skipped Worker tests
+        if: needs.release-compatibility.outputs.workers != 'true'
+        run: echo "Worker tests skipped because no Worker-related files changed."
       - name: Checkout
+        if: needs.release-compatibility.outputs.workers == 'true'
         uses: actions/checkout@v5
       - name: Setup Node.js
+        if: needs.release-compatibility.outputs.workers == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'npm'
       - name: Install dependencies
+        if: needs.release-compatibility.outputs.workers == 'true'
         run: npm ci
       - name: Run worker route tests
+        if: needs.release-compatibility.outputs.workers == 'true'
         run: npm run test:workers
 
-  # Single deploy job since we're just deploying
+  browser-validation:
+    needs: release-compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report skipped browser tests
+        if: needs.release-compatibility.outputs.homepage != 'true' && needs.release-compatibility.outputs.auth != 'true'
+        run: echo "Browser tests skipped because no frontend, homepage, auth, or admin files changed."
+      - name: Checkout
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.auth == 'true'
+        uses: actions/checkout@v5
+      - name: Setup Node.js
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.auth == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'npm'
+      - name: Install dependencies
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.auth == 'true'
+        run: npm ci
+      - name: Install homepage browser matrix
+        if: needs.release-compatibility.outputs.homepage == 'true'
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Install Chromium for auth tests
+        if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.homepage != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Run full static browser regression
+        if: needs.release-compatibility.outputs.full == 'true'
+        run: |
+          npm run test:static
+          npm run test:homepage-carousel
+      - name: Run selected homepage tests
+        if: needs.release-compatibility.outputs.homepage == 'true' && needs.release-compatibility.outputs.full != 'true'
+        run: npm run test:homepage
+      - name: Run selected auth and admin tests
+        if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.full != 'true'
+        run: npm run test:auth
+      - name: Upload Playwright report
+        if: (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.auth == 'true') && failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-selected
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  # Deployment remains gated by the release checks and every selected suite.
   deploy:
-    needs: [release-compatibility, worker-validation]
+    needs: [release-compatibility, worker-validation, browser-validation]
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -181,11 +259,14 @@ jobs:
         run: |
           echo "Static deploy skipped because release plan requires non-static deploy steps first."
           echo "Workers, D1 migrations, and processor services are not deployed by the GitHub Pages workflow."
+      - name: Report validation-only run
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true' && steps.static_safety.outputs.static_deploy_required != 'true' && github.event_name != 'workflow_dispatch'
+        run: echo "Static deploy skipped because no GitHub Pages source changed."
       - name: Setup Pages
-        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
         uses: actions/configure-pages@v6
       - name: Validate JS import paths
-        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
         run: |
           errors=0
           grep -rn "from ['\"]\.\.*/.*['\"]" --include="*.js" --include="*.html" --exclude-dir=node_modules --exclude-dir=workers --exclude-dir=.wrangler . | while IFS= read -r line; do
@@ -212,7 +293,7 @@ jobs:
           fi
           echo "All JS import paths validated successfully"
       - name: Check target="_blank" links have rel="noopener"
-        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
         run: |
           violations=$(grep -rn 'target="_blank"' --include="*.html" --include="*.js" --exclude-dir=node_modules --exclude-dir=workers --exclude-dir=_site --exclude-dir=.wrangler --exclude="*.min.js" . | grep -v 'noopener' || true)
           if [ -n "$violations" ]; then
@@ -224,7 +305,7 @@ jobs:
           fi
           echo "All target=\"_blank\" links include rel=\"noopener\" — OK"
       - name: Validate local CSS/JS references
-        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
         run: |
           # Check that CSS stylesheet and JS script references point to existing files
           # (Complements the JS import path validator above)
@@ -267,7 +348,7 @@ jobs:
           fi
           echo "All local CSS/JS references validated successfully"
       - name: Validate page metadata
-        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
         run: |
           errors=0
           for f in index.html; do
@@ -290,28 +371,15 @@ jobs:
             exit 1
           fi
           echo "Page metadata validated successfully"
-      - name: Install Playwright Chromium
-        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
-        run: npx playwright install --with-deps chromium
-      - name: Run smoke tests
-        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
-        run: npm run test:static
-      - name: Upload Playwright report
-        if: steps.static_safety.outputs.static_deploy_skipped != 'true' && failure()
-        uses: actions/upload-artifact@v6
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 7
       - name: Prepare deployment
-        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
         run: npm run build:static
       - name: Upload artifact
-        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-pages-artifact@v4
         with:
           path: '_site'
       - name: Deploy to GitHub Pages
-        if: steps.static_safety.outputs.static_deploy_skipped != 'true'
+        if: steps.static_safety.outputs.static_deploy_skipped != 'true' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
         id: deployment
         uses: actions/deploy-pages@v5

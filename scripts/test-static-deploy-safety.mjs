@@ -72,6 +72,7 @@ function writeJsonFixture(name, value) {
   assert(!workflow.includes("npm run check:static-deploy-safety -- --base"));
   assert(workflow.includes("Report skipped static deploy"));
   assert(workflow.includes("steps.static_safety.outputs.static_deploy_skipped != 'true'"));
+  assert(workflow.includes("steps.static_safety.outputs.static_deploy_required == 'true'"));
   assert(
     workflow.indexOf("Check static deploy release-plan safety")
       < workflow.indexOf("Setup Pages"),
@@ -177,6 +178,7 @@ function writeJsonFixture(name, value) {
   fs.rmSync(summaryPath, { force: true });
   assert(output.includes("static_deploy_decision=skipped"));
   assert(output.includes("static_deploy_skipped=true"));
+  assert(output.includes("static_deploy_required=true"));
   assert(summary.includes("Static deploy skipped because release plan requires non-static deploy steps first."));
   assert(summary.includes("- auth-migrations"));
   assert(summary.includes("- auth-worker"));

@@ -1144,8 +1144,10 @@ function createValidContext() {
       - run: npm run validate:asset-version
   worker-validation:
     needs: release-compatibility
+  browser-validation:
+    needs: release-compatibility
   deploy:
-    needs: [release-compatibility, worker-validation]
+    needs: [release-compatibility, worker-validation, browser-validation]
     steps:
       - run: npm run build:static
     `,

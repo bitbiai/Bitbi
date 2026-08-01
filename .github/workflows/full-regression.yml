@@ -1,0 +1,154 @@
+# Full non-deploying regression for the default branch and release validation.
+# Scheduled runs use the latest commit on the default branch (main).
+name: Full regression
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+  push:
+    branches: ["release/**"]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-regression-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  release-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Audit root dependencies
+        run: npm audit --audit-level=low
+      - name: Validate worker package dependencies
+        run: |
+          for worker in workers/auth workers/contact workers/ai; do
+            npm --prefix "$worker" ci
+            npm --prefix "$worker" ls --depth=0
+          done
+          npm run check:worker-dependency-audits
+      - name: Check toolchain pinning
+        run: npm run check:toolchain
+      - name: Run quality gate tests
+        run: npm run test:quality-gates
+      - name: Check committed secrets
+        run: npm run check:secrets
+      - name: Check DOM sink baseline
+        run: npm run check:dom-sinks
+      - name: Check auth route policy coverage
+        run: npm run check:route-policies
+      - name: Test operational readiness checks
+        run: npm run test:operational-readiness
+      - name: Check operational readiness docs
+        run: npm run check:operational-readiness
+      - name: Run live health check in skipped mode
+        run: npm run check:live-health
+      - name: Run live security header check in skipped mode
+        run: npm run check:live-security-headers
+      - name: Test live runtime canary skipped/safe mode
+        run: npm run test:live-canary
+      - name: Test release cutover evidence generator
+        run: npm run test:release-cutover-evidence
+      - name: Check targeted JavaScript syntax
+        run: npm run check:js
+      - name: Run release compatibility tests
+        run: npm run test:release-compat
+      - name: Run release planner tests
+        run: npm run test:release-plan
+      - name: Run static deploy safety tests
+        run: npm run test:static-deploy-safety
+      - name: Run CI test selection fixtures
+        run: npm run test:ci-selection
+      - name: Run Cloudflare deploy prerequisite tests
+        run: npm run test:cloudflare-prereqs
+      - name: Run Cloudflare resource model tests
+        run: npm run test:cloudflare-resource-model
+      - name: Run readiness dossier tests
+        run: npm run test:readiness-dossier
+      - name: Run rollback drill tests
+        run: npm run test:rollback-drill
+      - name: Run Release Candidate manifest tests
+        run: npm run test:release-rc
+      - name: Run Release Candidate matrix tests
+        run: npm run test:rc-check
+      - name: Check Worker body parser guardrails
+        run: npm run check:worker-body-parsers
+      - name: Check admin activity query shape
+        run: npm run check:admin-activity-query-shape
+      - name: Check data lifecycle guardrails
+        run: npm run check:data-lifecycle
+      - name: Run doc currentness tests
+        run: npm run test:doc-currentness
+      - name: Check documentation currentness
+        run: npm run check:doc-currentness
+      - name: Run asset version tests
+        run: npm run test:asset-version
+      - name: Validate release compatibility
+        run: npm run validate:release
+      - name: Validate Cloudflare deploy prerequisites
+        run: npm run validate:cloudflare-prereqs
+      - name: Validate asset version sources
+        run: npm run validate:asset-version
+      - name: Build static site
+        run: npm run build:static
+
+  worker-tests:
+    needs: release-security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run full Worker regression
+        run: npm run test:workers
+
+  browser-tests:
+    needs: release-security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright browser matrix
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Run full static regression
+        run: npm run test:static
+      - name: Run full homepage carousel matrix
+        run: npm run test:homepage-carousel
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-full-regression
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
