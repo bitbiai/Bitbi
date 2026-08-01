@@ -291,6 +291,13 @@ test("Lite plan v2 uses the smaller complete-turn budget without changing Standa
 test("source catalog is deterministic, bounded, deduplicated, and excludes unsafe input", () => {
   const cloudflare = { title: "Cloudflare", url: "https://www.cloudflare.com" };
   const docs = { title: "Workers docs", url: "https://developers.cloudflare.com/workers/" };
+  const rejectedSources = [
+    { title: "Unsafe", url: "http://example.com/" },
+    { title: "Credential URL", url: "https://user:password@example.com/" },
+    { title: "Hostname in credentials", url: "https://www.cloudflare.com@attacker.example/" },
+    { title: "Malformed URL", url: "not-a-url" },
+    { title: "Missing URL" },
+  ];
   const input = {
     previousSummary: summary({ sources: [cloudflare] }),
     sourceTurns: [{
@@ -298,8 +305,7 @@ test("source catalog is deterministic, bounded, deduplicated, and excludes unsaf
         sources: [
           { title: "Duplicate title is not authoritative", url: "https://www.cloudflare.com/" },
           docs,
-          { title: "Unsafe", url: "http://example.com/" },
-          { title: "Credential URL", url: "https://user:password@example.com/" },
+          ...rejectedSources,
         ],
       },
     }],
@@ -311,8 +317,34 @@ test("source catalog is deterministic, bounded, deduplicated, and excludes unsaf
     { id: "src_001", title: "Cloudflare", url: "https://www.cloudflare.com/" },
     { id: "src_002", title: "Workers docs", url: "https://developers.cloudflare.com/workers/" },
   ]);
-  assert.equal(JSON.stringify(first.entries).includes("http://example.com"), false);
-  assert.equal(JSON.stringify(first.entries).includes("password"), false);
+  const acceptedUrls = new Set(first.entries.map((entry) => entry.url));
+  const acceptedTitles = new Set(first.entries.map((entry) => entry.title));
+  assert.deepEqual(
+    first.entries.map((entry) => new URL(entry.url).hostname),
+    ["www.cloudflare.com", "developers.cloudflare.com"]
+  );
+  for (const entry of first.entries) {
+    const parsedUrl = new URL(entry.url);
+    assert.equal(parsedUrl.protocol, "https:");
+    assert.equal(parsedUrl.username, "");
+    assert.equal(parsedUrl.password, "");
+  }
+  for (const source of rejectedSources) {
+    if (source.url) assert.equal(acceptedUrls.has(source.url), false);
+    assert.equal(acceptedTitles.has(source.title), false);
+  }
+
+  const safeSubstringUrl = "https://developers.cloudflare.com/reference/http://example.com";
+  const safeSubstringCatalog = buildFableChatMemorySourceCatalog({
+    sourceTurns: [{ assistant: { sources: [{ title: "Embedded URL text", url: safeSubstringUrl }] } }],
+  });
+  assert.deepEqual(safeSubstringCatalog.entries, [
+    { id: "src_001", title: "Embedded URL text", url: safeSubstringUrl },
+  ]);
+  const parsedSafeSubstringUrl = new URL(safeSubstringCatalog.entries[0].url);
+  assert.equal(parsedSafeSubstringUrl.protocol, "https:");
+  assert.equal(parsedSafeSubstringUrl.hostname, "developers.cloudflare.com");
+  assert.equal(parsedSafeSubstringUrl.pathname, "/reference/http://example.com");
 
   const bounded = buildFableChatMemorySourceCatalog({
     sourceTurns: [{
