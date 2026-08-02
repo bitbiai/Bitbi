@@ -245,6 +245,10 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                     en: 'On phones, folder and selection tools stay grouped so the asset context remains visible.',
                     de: 'Auf Smartphones bleiben Ordner- und Auswahlwerkzeuge gebündelt, damit der Asset-Kontext sichtbar bleibt.',
                 }),
+                detail: Object.freeze({
+                    en: 'Use selection mode to move or delete multiple assets. Renaming remains a single-item action, and results appear after backend confirmation.',
+                    de: 'Im Auswahlmodus können Sie mehrere Assets verschieben oder löschen. Umbenennen bleibt eine Einzelaktion; Ergebnisse erscheinen nach der Backend-Bestätigung.',
+                }),
             }),
         ]),
     }),

@@ -47,6 +47,54 @@ let adminUploadStatusAbort = null;
 let adminMusicCatalogAbort = null;
 let adminMusicOrganizationLoadSeq = 0;
 
+const MOBILE_TRANSIENT_NOTICE_MS = 5000;
+const MOBILE_TRANSIENT_NOTICE_QUERY = '(max-width: 639px)';
+const mobileTransientTimers = new WeakMap();
+const mobileTransientElements = new Set();
+
+function cancelMobileTransientDismiss(element) {
+    if (!element) return;
+    const timer = mobileTransientTimers.get(element);
+    if (timer) window.clearTimeout(timer);
+    mobileTransientTimers.delete(element);
+    mobileTransientElements.delete(element);
+}
+
+function scheduleMobileTransientDismiss(element, clearFn) {
+    if (!element || typeof clearFn !== 'function') return;
+    cancelMobileTransientDismiss(element);
+    if (window.matchMedia?.(MOBILE_TRANSIENT_NOTICE_QUERY).matches !== true) return;
+
+    const timer = window.setTimeout(() => {
+        mobileTransientTimers.delete(element);
+        mobileTransientElements.delete(element);
+        if (window.matchMedia?.(MOBILE_TRANSIENT_NOTICE_QUERY).matches !== true) return;
+        clearFn();
+    }, MOBILE_TRANSIENT_NOTICE_MS);
+
+    mobileTransientTimers.set(element, timer);
+    mobileTransientElements.add(element);
+}
+
+const mobileTransientNotices = Object.freeze({
+    cancel: cancelMobileTransientDismiss,
+    schedule: scheduleMobileTransientDismiss,
+});
+
+function setAssetsManagerNotice(element, text, { transient = false } = {}) {
+    if (!element) return;
+    cancelMobileTransientDismiss(element);
+    element.textContent = text || '';
+    if (!transient || !text) return;
+    scheduleMobileTransientDismiss(element, () => {
+        if (element.textContent === text) element.textContent = '';
+    });
+}
+
+window.addEventListener('pagehide', () => {
+    mobileTransientElements.forEach(cancelMobileTransientDismiss);
+}, { once: true });
+
 const MUSIC_UPLOAD_DEFAULT_MODEL_ID = FLUX_1_SCHNELL_IMAGE_MODEL_ID;
 const MUSIC_UPLOAD_ALLOWED_MIME_TYPES = new Set(['audio/mpeg', 'audio/mp3', 'audio/x-mpeg']);
 const MUSIC_COVER_PREVIEW_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
@@ -1340,6 +1388,7 @@ function createBrowser({ fromGenerateLab = false, enableAdminUpload = false } = 
         loadFailedListStatus: fromGenerateLab ? localeText('assets.handoffLoadFailedStatus') : localeText('assets.listLoadFailedStatus'),
         foldersUnavailableMessage: localeText('assets.foldersUnavailable'),
         handoffActive: fromGenerateLab,
+        transientNotices: mobileTransientNotices,
         onUploadVideo: enableAdminUpload
             ? (trigger) => openAdminUploadChooser(trigger || document.getElementById('studioAdminUploadVideoBtn'))
             : null,
@@ -1369,14 +1418,14 @@ function initGenerateLabHandoff() {
     refresh?.addEventListener('click', async () => {
         if (!savedAssetsBrowser) return;
         refresh.disabled = true;
-        if (status) status.textContent = localeText('assets.handoffRefreshStarted');
+        setAssetsManagerNotice(status, localeText('assets.handoffRefreshStarted'));
         try {
             await savedAssetsBrowser.refresh({ preserveView: false });
             await savedAssetsBrowser.openAllAssets();
-            if (status) status.textContent = localeText('assets.handoffRefreshDone');
+            setAssetsManagerNotice(status, localeText('assets.handoffRefreshDone'), { transient: true });
         } catch (error) {
             console.warn('Assets Manager Generate Lab handoff refresh failed:', error);
-            if (status) status.textContent = localeText('assets.handoffRefreshFailed');
+            setAssetsManagerNotice(status, localeText('assets.handoffRefreshFailed'));
         } finally {
             refresh.disabled = false;
         }
@@ -1385,13 +1434,13 @@ function initGenerateLabHandoff() {
     showAll?.addEventListener('click', async () => {
         if (!savedAssetsBrowser) return;
         showAll.disabled = true;
-        if (status) status.textContent = localeText('assets.handoffShowAllStarted');
+        setAssetsManagerNotice(status, localeText('assets.handoffShowAllStarted'));
         try {
             await savedAssetsBrowser.openAllAssets();
-            if (status) status.textContent = localeText('assets.handoffShowAllDone');
+            setAssetsManagerNotice(status, localeText('assets.handoffShowAllDone'), { transient: true });
         } catch (error) {
             console.warn('Assets Manager Generate Lab show-all failed:', error);
-            if (status) status.textContent = localeText('assets.handoffShowAllFailed');
+            setAssetsManagerNotice(status, localeText('assets.handoffShowAllFailed'));
         } finally {
             showAll.disabled = false;
         }
@@ -1399,7 +1448,7 @@ function initGenerateLabHandoff() {
 
     dismiss?.addEventListener('click', () => {
         banner.hidden = true;
-        if (status) status.textContent = '';
+        setAssetsManagerNotice(status, '');
         clearGenerateLabHandoffQuery();
     });
 }

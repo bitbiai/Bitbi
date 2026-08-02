@@ -156,10 +156,14 @@
         font-size: 0.9rem;
     }
 
-    .assets-manager__guide-item span {
+    .assets-manager__guide-item > span {
         color: rgba(255, 255, 255, 0.62);
         font-size: 0.8rem;
         line-height: 1.45;
+    }
+
+    .assets-manager__guide-heading--mobile {
+        display: none;
     }
 
     .assets-manager__handoff {
@@ -772,6 +776,56 @@
 
         .assets-manager__toolbar {
             padding: var(--space-3);
+        }
+    }
+
+    @media (max-width: 639px) {
+        .assets-manager__dashboard {
+            padding: var(--space-3);
+        }
+
+        .assets-manager__intro {
+            gap: var(--space-3);
+            padding-block-end: var(--space-3);
+            margin-block-end: var(--space-3);
+        }
+
+        .assets-manager__copy,
+        .assets-manager__guide-item > span {
+            display: none;
+        }
+
+        .assets-manager__status-row {
+            gap: 0.5rem;
+        }
+
+        .assets-manager__status-row .assets-manager__status-pill,
+        .assets-manager__storage-usage {
+            min-block-size: 2.35rem;
+            padding: 0.62rem 0.75rem;
+        }
+
+        .assets-manager__storage-usage::before {
+            content: attr(data-mobile-label) ": ";
+        }
+
+        .assets-manager__guide {
+            gap: 0.5rem;
+            margin-block-end: var(--space-3);
+        }
+
+        .assets-manager__guide-item {
+            min-block-size: 0;
+            gap: 0;
+            padding: 0.68rem 0.75rem;
+        }
+
+        .assets-manager__guide-heading--default {
+            display: none;
+        }
+
+        .assets-manager__guide-heading--mobile {
+            display: inline;
         }
     }
 

@@ -640,6 +640,9 @@ test.describe('Bilingual locale pages', () => {
     const deCredits = repoFile('de/account/credits.html');
     const enAssets = repoFile('account/assets-manager.html');
     const deAssets = repoFile('de/account/assets-manager.html');
+    const assetsCss = repoFile('css/account/assets-manager.css');
+    const assetsMain = repoFile('js/pages/assets-manager/main.js');
+    const savedAssetsBrowser = repoFile('js/shared/saved-assets-browser.js');
     const enGenerate = repoFile('generate-lab/index.html');
     const deGenerate = repoFile('de/generate-lab/index.html');
     const localeJs = repoFile('js/shared/locale.js');
@@ -845,6 +848,8 @@ test.describe('Bilingual locale pages', () => {
     expect(enAssets).toContain('Newest first');
     expect(enAssets).toContain('Private library');
     expect(enAssets).toContain('Folders and bulk actions');
+    expect(enAssets).toContain('Folders and multi-actions');
+    expect(enAssets).toContain('data-mobile-label="Storage"');
     expect(enAssets).toContain('data-auth-message-key="authRecovery.assetsMessage"');
     expect(enAssets).toContain('After sign-in, continue here to refresh your saved library');
     expect(enAssets).toContain('data-auth-source="assets-manager"');
@@ -888,6 +893,7 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).toContain('Neueste zuerst');
     expect(deAssets).toContain('Private Bibliothek');
     expect(deAssets).toContain('Ordner und Mehrfachaktionen');
+    expect(deAssets).toContain('data-mobile-label="Speicher"');
     expect(deAssets).toContain('data-auth-message-key="authRecovery.assetsMessage"');
     expect(deAssets).toContain('Nach der Anmeldung hier fortfahren, um Ihre gespeicherte Bibliothek');
     expect(deAssets).toContain('data-auth-source="assets-manager"');
@@ -903,9 +909,17 @@ test.describe('Bilingual locale pages', () => {
     expect(helpMenu).toContain("id: 'mobile-asset-actions'");
     expect(helpMenu).toContain('Mobile asset actions');
     expect(helpMenu).toContain('Mobile Asset-Aktionen');
+    expect(helpMenu).toContain('move or delete multiple assets');
+    expect(helpMenu).toContain('mehrere Assets verschieben oder löschen');
     expect(helpMenu).toContain('Storage quota and credits are separate account concepts.');
     expect(helpMenu).toContain('Speicherplatz und Credits sind getrennte Konto-Konzepte.');
     expect((helpMenu.match(/id: 'storage-vs-credits'/g) || [])).toHaveLength(1);
+    expect(assetsCss).toMatch(/@media \(max-width: 639px\)[\s\S]*?\.assets-manager__copy,[\s\S]*?\.assets-manager__guide-item > span\s*{\s*display: none;/);
+    expect(assetsCss).toContain('content: attr(data-mobile-label) ": ";');
+    expect(assetsCss).toContain('.assets-manager__guide-heading--mobile');
+    expect(assetsMain).toContain('const MOBILE_TRANSIENT_NOTICE_MS = 5000;');
+    expect(assetsMain).toContain('transientNotices: mobileTransientNotices');
+    expect(savedAssetsBrowser).toContain("{ transient: type === 'success' }");
     expect(localeJs).toContain("actionMoveSuccessTitle: 'Move confirmed'");
     expect(localeJs).toContain("actionMoveSuccessTitle: 'Verschieben bestätigt'");
     expect(localeJs).toContain("actionDeleteSuccessMeta: 'Deleted items cannot be restored from this workspace.");

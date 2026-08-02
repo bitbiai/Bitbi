@@ -9659,7 +9659,11 @@ test.describe('Assets Manager (authenticated)', () => {
       '/account/credits.html?source=help-assets',
     );
     await expect(assetsHelp.locator('.help-menu__item').filter({ hasText: 'Private until published' })).toContainText('Saved media stays private');
-    await expect(assetsHelp.locator('.help-menu__item').filter({ hasText: 'Mobile asset actions' })).toContainText('folder and selection tools stay grouped');
+    const mobileActionsHelp = assetsHelp.locator('.help-menu__item').filter({ hasText: 'Mobile asset actions' });
+    await expect(mobileActionsHelp).toContainText('folder and selection tools stay grouped');
+    await mobileActionsHelp.locator('summary.help-menu__item-summary').click();
+    await expect(mobileActionsHelp.locator('.help-menu__item-body')).toContainText('move or delete multiple assets');
+    await expect(mobileActionsHelp.locator('.help-menu__item-body')).toContainText('Renaming remains a single-item action');
     await page.getByRole('button', { name: 'Close help menu' }).click();
     await expect(page.locator('#bitbiHelpMenu')).not.toHaveClass(/is-open/);
 
@@ -9683,6 +9687,66 @@ test.describe('Assets Manager (authenticated)', () => {
       (body.innerText.match(/Latest assets refreshed/g) || []).length
     ));
     expect(refreshMessageCount).toBe(1);
+  });
+
+  test('mobile Assets Manager keeps only compact storage, privacy, and workflow labels', async ({ page }) => {
+    await mockAuthenticatedAssetsManager(page);
+    await page.goto('/account/assets-manager.html');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+
+    for (const width of [375, 390, 430]) {
+      await page.setViewportSize({ width, height: 844 });
+      const state = await page.locator('#studioSavedAssetsCard').evaluate((root) => {
+        const storage = root.querySelector('#studioStorageUsage');
+        const details = [...root.querySelectorAll('.assets-manager__guide-item > span')];
+        const items = [...root.querySelectorAll('.assets-manager__guide-item')];
+        return {
+          copyDisplay: getComputedStyle(root.querySelector('.assets-manager__copy')).display,
+          detailDisplays: details.map((node) => getComputedStyle(node).display),
+          mobileHeadingDisplay: getComputedStyle(root.querySelector('.assets-manager__guide-heading--mobile')).display,
+          defaultHeadingDisplay: getComputedStyle(root.querySelector('.assets-manager__guide-heading--default')).display,
+          storageBefore: getComputedStyle(storage, '::before').content,
+          itemMinHeights: items.map((node) => getComputedStyle(node).minBlockSize),
+          overflow: document.documentElement.scrollWidth - window.innerWidth,
+        };
+      });
+
+      expect(state.copyDisplay).toBe('none');
+      expect(state.detailDisplays.every((display) => display === 'none')).toBe(true);
+      expect(state.mobileHeadingDisplay).toBe('inline');
+      expect(state.defaultHeadingDisplay).toBe('none');
+      expect(state.storageBefore).toBe('"Storage: "');
+      expect(state.itemMinHeights.every((height) => height === '0px')).toBe(true);
+      expect(state.overflow).toBeLessThanOrEqual(1);
+      await expect(page.locator('#studioStorageUsage')).toHaveText('0 MB / 50 MB');
+      await expect(page.locator('.assets-manager__status-pill')).toHaveText('Private by default');
+      await expect(page.locator('.assets-manager__guide-item strong')).toContainText([
+        'Newest first',
+        'Private library',
+        'Folders and multi-actions',
+      ]);
+    }
+
+    for (const width of [720, 1024]) {
+      await page.setViewportSize({ width, height: 900 });
+      const state = await page.locator('#studioSavedAssetsCard').evaluate((root) => {
+        const storage = root.querySelector('#studioStorageUsage');
+        return {
+          copyDisplay: getComputedStyle(root.querySelector('.assets-manager__copy')).display,
+          detailDisplays: [...root.querySelectorAll('.assets-manager__guide-item > span')]
+            .map((node) => getComputedStyle(node).display),
+          mobileHeadingDisplay: getComputedStyle(root.querySelector('.assets-manager__guide-heading--mobile')).display,
+          defaultHeadingDisplay: getComputedStyle(root.querySelector('.assets-manager__guide-heading--default')).display,
+          storageBefore: getComputedStyle(storage, '::before').content,
+        };
+      });
+
+      expect(state.copyDisplay).not.toBe('none');
+      expect(state.detailDisplays.every((display) => display !== 'none')).toBe(true);
+      expect(state.mobileHeadingDisplay).toBe('none');
+      expect(state.defaultHeadingDisplay).toBe('inline');
+      expect(['none', 'normal']).toContain(state.storageBefore);
+    }
   });
 
   test('account Assets Manager surfaces Generate Lab handoff recovery and can dismiss the handoff', async ({
@@ -9723,6 +9787,52 @@ test.describe('Assets Manager (authenticated)', () => {
     expect(url.searchParams.has('source')).toBe(false);
     expect(url.searchParams.has('recent')).toBe(false);
     expect(url.hash).toBe('');
+  });
+
+  test('mobile Assets Manager dismisses completed handoff notices after five seconds only', async ({ page }) => {
+    let holdAssetsRequest = false;
+    let releaseAssetsRequest = null;
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockAuthenticatedAssetsManager(page, [], {
+      getAssetsHandler: async () => {
+        if (!holdAssetsRequest) return false;
+        await new Promise((resolve) => {
+          releaseAssetsRequest = resolve;
+        });
+        return false;
+      },
+    });
+
+    await page.goto('/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent');
+    await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await page.clock.install();
+
+    const status = page.locator('#assetsHandoffStatus');
+    holdAssetsRequest = true;
+    await page.locator('#assetsHandoffShowAll').click();
+    await expect(status).toContainText('Showing every saved asset');
+    await expect.poll(() => typeof releaseAssetsRequest).toBe('function');
+    await page.clock.fastForward(6_000);
+    await expect(status).toContainText('Showing every saved asset');
+
+    holdAssetsRequest = false;
+    releaseAssetsRequest();
+    await expect(status).toContainText('Showing all saved assets');
+    await page.clock.fastForward(4_000);
+    await expect(status).toContainText('Showing all saved assets');
+
+    await page.locator('#assetsHandoffRefresh').click();
+    await expect(status).toContainText('Saved assets refreshed');
+    await page.clock.fastForward(1_001);
+    await expect(status).toContainText('Saved assets refreshed');
+    await page.clock.fastForward(3_999);
+    await expect(status).toBeEmpty();
+
+    await page.locator('#assetsHandoffShowAll').click();
+    await expect(status).toContainText('Showing all saved assets');
+    await page.setViewportSize({ width: 800, height: 900 });
+    await page.clock.fastForward(5_000);
+    await expect(status).toContainText('Showing all saved assets');
   });
 
   test('German account Assets Manager keeps Generate Lab handoff parity', async ({
@@ -12030,6 +12140,7 @@ test.describe('Assets Manager (authenticated)', () => {
     await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
+    await page.clock.install();
 
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(14);
     await expect(page.locator('.studio__mobile-grid-trigger')).toBeVisible();
@@ -12081,6 +12192,13 @@ test.describe('Assets Manager (authenticated)', () => {
     }));
     expect(resultActionLayout.length).toBeGreaterThanOrEqual(2);
     expect(resultActionLayout.every((rect) => rect.height >= 42 && rect.left >= 0 && rect.right <= rect.viewportWidth + 1)).toBe(true);
+    await page.clock.fastForward(4_000);
+    await expect(page.locator('#studioActionResult')).toBeVisible();
+    await expect(page.locator('#studioGalleryMsg')).toContainText('1 asset moved.');
+    await page.clock.fastForward(1_000);
+    await expect(page.locator('#studioActionResult')).toBeHidden();
+    await expect(page.locator('#studioActionResultTitle')).toBeEmpty();
+    await expect(page.locator('#studioGalleryMsg')).toBeEmpty();
     await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: /Preview Mobile Asset \d+/ })).toBeVisible();
     await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: 'Publish' })).toBeVisible();
     await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: 'Delete' })).toBeVisible();
@@ -12151,6 +12269,16 @@ test.describe('Assets Manager (authenticated)', () => {
 
     await page.goto('/de/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('.assets-manager__copy')).toBeHidden();
+    const guideDetailDisplays = await page.locator('.assets-manager__guide-item > span')
+      .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).display));
+    expect(guideDetailDisplays).toEqual(['none', 'none', 'none']);
+    await expect(page.locator('.assets-manager__guide-heading--mobile')).toBeVisible();
+    await expect(page.locator('.assets-manager__status-pill')).toHaveText('Standardmäßig privat');
+    await expect(page.locator('#studioStorageUsage')).toHaveText('0 MB / 50 MB');
+    await expect(page.locator('#studioStorageUsage')).toBeVisible();
+    const storagePrefix = await page.locator('#studioStorageUsage').evaluate((node) => getComputedStyle(node, '::before').content);
+    expect(storagePrefix).toBe('"Speicher: "');
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
 
     await expect(page.locator('.studio__mobile-grid-trigger')).toBeVisible();
@@ -12797,6 +12925,7 @@ test.describe('Assets Manager (authenticated)', () => {
 
     await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await page.clock.install();
 
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(3);
@@ -12826,6 +12955,9 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioActionResult').getByRole('button', { name: 'Open Research' })).toBeVisible();
     await expect(page.locator('#studioActionResult').getByRole('button', { name: 'Show all assets' })).toBeVisible();
     await expect(page.locator('#studioSelectionGuide')).toBeHidden();
+    await page.clock.fastForward(6_000);
+    await expect(page.locator('#studioActionResult')).toContainText('Move confirmed');
+    await expect(page.locator('#studioGalleryMsg')).toContainText('3 assets moved.');
 
     await page.locator('#studioFolderBackBtn').click();
     await page.locator('#studioFolderGrid .studio__folder-card').nth(3).click();
@@ -12915,6 +13047,7 @@ test.describe('Assets Manager (authenticated)', () => {
   test('account Assets Manager keeps selection and recovery guidance when bulk move fails', async ({
     page,
   }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await mockAuthenticatedAssetsManager(page, [], {
       folderPayload: {
         folders: [
@@ -12950,9 +13083,11 @@ test.describe('Assets Manager (authenticated)', () => {
 
     await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
+    await page.clock.install();
 
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
-    await page.locator('#studioSelectBtn').click();
+    await page.locator('#studioMobileActionsToggle').click();
+    await page.locator('#studioMobileActionsMenu').getByRole('button', { name: 'Select assets' }).click();
     await page.locator('#studioImageGrid [data-asset-id="img-recover-1"]').click();
     await expect(page.locator('#studioBulkCount')).toHaveText('1 selected');
 
@@ -12969,6 +13104,9 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioBulkCount')).toHaveText('1 selected');
     await expect(page.locator('#studioBulkMoveForm')).toBeVisible();
     await expect(page.locator('#studioSelectionGuideStatus')).toContainText('1 selected');
+    await page.clock.fastForward(6_000);
+    await expect(page.locator('#studioGalleryMsg')).toContainText('Move could not be saved');
+    await expect(page.locator('#studioActionResult')).toContainText('Move not saved');
   });
 
   test('account Assets Manager gates rename to exactly one selection and renames folders plus saved assets safely', async ({

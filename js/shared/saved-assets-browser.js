@@ -414,6 +414,7 @@ export function createSavedAssetsBrowser({
     loadFailedListStatus = localeText('assets.listLoadFailedStatus'),
     foldersUnavailableMessage = localeText('assets.foldersUnavailable'),
     handoffActive = false,
+    transientNotices = null,
     onFoldersChange = null,
     onUploadVideo = null,
 } = {}) {
@@ -537,14 +538,29 @@ export function createSavedAssetsBrowser({
     $assetPagination.append($assetPaginationStatus, $assetMobileGridTrigger, $assetLoadMore);
     $assetGrid.insertAdjacentElement('afterend', $assetPagination);
 
-    function showMsg(text, type) {
+    function cancelTransientNotice(element) {
+        transientNotices?.cancel?.(element);
+    }
+
+    function scheduleTransientNotice(element, clearFn) {
+        transientNotices?.schedule?.(element, clearFn);
+    }
+
+    function showMsg(text, type, { transient = false } = {}) {
         if (!$galleryMsg) return;
+        cancelTransientNotice($galleryMsg);
         $galleryMsg.textContent = text;
         $galleryMsg.className = `studio__msg studio__msg--${type}`;
+        if (transient) {
+            scheduleTransientNotice($galleryMsg, () => {
+                if ($galleryMsg.textContent === text) hideMsg();
+            });
+        }
     }
 
     function hideMsg() {
         if (!$galleryMsg) return;
+        cancelTransientNotice($galleryMsg);
         $galleryMsg.textContent = '';
         $galleryMsg.className = 'studio__msg';
     }
@@ -684,6 +700,23 @@ export function createSavedAssetsBrowser({
         return button;
     }
 
+    function clearActionResult() {
+        if (!$actionResult) return;
+        cancelTransientNotice($actionResult);
+        $actionResult.hidden = true;
+        delete $actionResult.dataset.result;
+        if ($actionResultTitle) $actionResultTitle.textContent = '';
+        if ($actionResultCopy) $actionResultCopy.textContent = '';
+        if ($actionResultMeta) {
+            $actionResultMeta.textContent = '';
+            $actionResultMeta.hidden = true;
+        }
+        if ($actionResultActions) {
+            $actionResultActions.replaceChildren();
+            $actionResultActions.hidden = true;
+        }
+    }
+
     function setActionResult({
         type = 'info',
         title = '',
@@ -693,10 +726,15 @@ export function createSavedAssetsBrowser({
         actions = [],
     } = {}) {
         if (!$actionResult || !$actionResultTitle || !$actionResultCopy) {
-            showMsg(toast || title || copy, type === 'error' ? 'error' : type === 'success' ? 'success' : 'info');
+            showMsg(
+                toast || title || copy,
+                type === 'error' ? 'error' : type === 'success' ? 'success' : 'info',
+                { transient: type === 'success' },
+            );
             return;
         }
 
+        cancelTransientNotice($actionResult);
         $actionResult.hidden = false;
         $actionResult.dataset.result = type;
         $actionResultTitle.textContent = title;
@@ -715,7 +753,16 @@ export function createSavedAssetsBrowser({
             $actionResultActions.hidden = !$actionResultActions.children.length;
         }
 
-        showMsg(toast || title || copy, type === 'error' ? 'error' : type === 'success' ? 'success' : 'info');
+        showMsg(
+            toast || title || copy,
+            type === 'error' ? 'error' : type === 'success' ? 'success' : 'info',
+            { transient: type === 'success' },
+        );
+        if (type === 'success') {
+            scheduleTransientNotice($actionResult, () => {
+                if ($actionResult.dataset.result === 'success') clearActionResult();
+            });
+        }
         if (mobileMediaQuery?.matches) {
             $actionResult.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
@@ -783,14 +830,20 @@ export function createSavedAssetsBrowser({
         };
     }
 
-    function setListStatus(text = '', view = '') {
+    function setListStatus(text = '', view = '', { transient = false } = {}) {
         if (!$listStatus) return;
+        cancelTransientNotice($listStatus);
         $listStatus.textContent = text || '';
         $listStatus.hidden = !text;
         if (view) {
             $listStatus.dataset.view = view;
         } else {
             delete $listStatus.dataset.view;
+        }
+        if (transient && text) {
+            scheduleTransientNotice($listStatus, () => {
+                if ($listStatus.textContent === text) setListStatus();
+            });
         }
     }
 
@@ -1320,7 +1373,7 @@ export function createSavedAssetsBrowser({
         try {
             await refresh({ preserveView: false });
             await openAllAssets();
-            setListStatus(localeText('assets.viewRefreshDone'), 'all');
+            setListStatus(localeText('assets.viewRefreshDone'), 'all', { transient: true });
         } catch (error) {
             console.warn('Saved assets refresh failed:', error);
             setListStatus(localeText('assets.viewRefreshFailed'), 'error');
@@ -1341,8 +1394,8 @@ export function createSavedAssetsBrowser({
         updateViewContext('loading');
         try {
             await openAllAssets();
-            setListStatus(localeText('assets.viewShowAllDone'), 'all');
-            showMsg(localeText('assets.viewShowAllDone'), 'success');
+            setListStatus(localeText('assets.viewShowAllDone'), 'all', { transient: true });
+            showMsg(localeText('assets.viewShowAllDone'), 'success', { transient: true });
         } catch (error) {
             console.warn('Saved assets show-all failed:', error);
             setListStatus(localeText('assets.viewShowAllFailed'), 'error');
