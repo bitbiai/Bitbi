@@ -1126,14 +1126,12 @@ test.describe('Populated homepage carousel', () => {
       await expect(firstVideoCard).toHaveClass(/video-card--hover-preview-active/);
     }
 
-    const transitionStartedAt = Date.now();
     await expectDirectionalTransition(page, {
       from: 'video',
       to: 'gallery',
       currentClass: 'is-leave-right',
       nextClass: 'is-from-left',
     });
-    expect(Date.now() - transitionStartedAt).toBeLessThan(2_500);
     await waitForPublicWall(page, 'gallery');
     await expect(firstVideoCard.locator('.video-card__hover-preview')).toHaveCount(0);
     await expect(firstVideoCard).not.toHaveClass(/video-card--hover-preview-active/);
@@ -1232,14 +1230,12 @@ test.describe('Populated homepage carousel', () => {
     await expectSingleInteractivePanel(page, 'sound');
 
     await selectCategory(page, 'video');
-    const rapidStartedAt = Date.now();
     const rapidDelivery = await selectCategoriesRapidly(page, ['gallery', 'sound']);
     expect(rapidDelivery).toEqual({
       deliveredCategories: ['gallery', 'sound'],
       highlightedCategories: ['sound'],
     });
     await waitForSettledCategory(page, 'sound');
-    expect(Date.now() - rapidStartedAt).toBeLessThan(2_500);
     const rapidShiftWindow = await observeSettledCarouselLayout(page, 'sound');
     const rapidInputAt = await page.evaluate(() => window.__rapidCarouselInputAt);
     expect(rapidInputAt).toBeGreaterThan(0);

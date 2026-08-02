@@ -51,6 +51,8 @@ jobs:
     outputs:
       docs_only: ${{ steps.selection.outputs.docs_only }}
       homepage: ${{ steps.selection.outputs.homepage }}
+      carousel: ${{ steps.selection.outputs.carousel }}
+      assets: ${{ steps.selection.outputs.assets }}
       workers: ${{ steps.selection.outputs.workers }}
       auth: ${{ steps.selection.outputs.auth }}
       dependencies: ${{ steps.selection.outputs.dependencies }}
@@ -184,39 +186,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Report skipped browser tests
-        if: needs.release-compatibility.outputs.homepage != 'true' && needs.release-compatibility.outputs.auth != 'true'
+        if: needs.release-compatibility.outputs.homepage != 'true' && needs.release-compatibility.outputs.carousel != 'true' && needs.release-compatibility.outputs.assets != 'true' && needs.release-compatibility.outputs.auth != 'true'
         run: echo "Browser tests skipped because no frontend, homepage, auth, or admin files changed."
       - name: Checkout
-        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.auth == 'true'
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
         uses: actions/checkout@v5
       - name: Setup Node.js
-        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.auth == 'true'
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'npm'
       - name: Install dependencies
-        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.auth == 'true'
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
         run: npm ci
-      - name: Install homepage browser matrix
-        if: needs.release-compatibility.outputs.homepage == 'true'
+      - name: Install carousel browser matrix
+        if: needs.release-compatibility.outputs.carousel == 'true'
         run: npx playwright install --with-deps chromium firefox webkit
-      - name: Install Chromium for auth tests
-        if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.homepage != 'true'
+      - name: Install Chromium for selected frontend tests
+        if: needs.release-compatibility.outputs.carousel != 'true' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true')
         run: npx playwright install --with-deps chromium
       - name: Run full static browser regression
         if: needs.release-compatibility.outputs.full == 'true'
         run: |
           npm run test:static
           npm run test:homepage-carousel
-      - name: Run selected homepage tests
+      - name: Run selected homepage core tests
         if: needs.release-compatibility.outputs.homepage == 'true' && needs.release-compatibility.outputs.full != 'true'
-        run: npm run test:homepage
+        run: npm run test:homepage-core
+      - name: Run selected homepage carousel tests
+        if: needs.release-compatibility.outputs.carousel == 'true' && needs.release-compatibility.outputs.full != 'true'
+        run: npm run test:homepage-carousel
+      - name: Run selected Assets Manager tests
+        if: needs.release-compatibility.outputs.assets == 'true' && needs.release-compatibility.outputs.full != 'true'
+        run: npm run test:assets-manager
       - name: Run selected auth and admin tests
         if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.full != 'true'
         run: npm run test:auth
       - name: Upload Playwright report
-        if: (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.auth == 'true') && failure()
+        if: (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true') && failure()
         uses: actions/upload-artifact@v6
         with:
           name: playwright-report-selected

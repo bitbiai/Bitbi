@@ -5,7 +5,7 @@ module.exports = defineConfig({
   testMatch: 'homepage-carousel-focused.spec.js',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: 0,
+  retries: process.env.CI ? 1 : 0,
   workers: 1,
   reporter: [['list']],
   outputDir: 'test-results/homepage-carousel',

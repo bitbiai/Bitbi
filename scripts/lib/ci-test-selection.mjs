@@ -75,12 +75,40 @@ const AUTH_SHARED_PATTERNS = [
   /(?:^|\/)wallet(?:-|\/|\.)/,
 ];
 
-const HOMEPAGE_TEST_FILES = new Set([
+const HOMEPAGE_CORE_TEST_FILES = new Set([
   "tests/audio-player.spec.js",
   "tests/canvas.spec.js",
-  "tests/homepage-carousel-focused.spec.js",
   "tests/locale.spec.js",
   "tests/smoke.spec.js",
+]);
+
+const CAROUSEL_FILES = new Set([
+  "css/pages/index.css",
+  "de/index.html",
+  "index.html",
+  "js/pages/index/category-carousel.js",
+  "js/pages/index/category-ghost-models.js",
+  "js/pages/index/explore-order.js",
+  "js/pages/index/gallery.js",
+  "js/pages/index/main.js",
+  "js/pages/index/public-media-wall.js",
+  "js/pages/index/soundlab.js",
+  "js/pages/index/video-gallery.js",
+  "playwright.carousel.config.js",
+  "tests/homepage-carousel-focused.spec.js",
+]);
+
+const ASSETS_MANAGER_PAGE_FILES = new Set([
+  "account/assets-manager.html",
+  "css/account/assets-manager.css",
+  "de/account/assets-manager.html",
+  "js/pages/assets-manager/main.js",
+]);
+
+const ASSETS_MANAGER_SHARED_FILES = new Set([
+  "js/shared/help-menu.js",
+  "js/shared/saved-assets-browser.js",
+  "js/shared/storage-format.js",
 ]);
 
 const AUTH_TEST_FILES = new Set([
@@ -152,6 +180,8 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     files: changedFiles,
     docsOnly: false,
     homepage: false,
+    carousel: false,
+    assets: false,
     workers: false,
     auth: false,
     dependencies: false,
@@ -161,6 +191,8 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     runtime: false,
     reasons: {
       homepage: [],
+      carousel: [],
+      assets: [],
       workers: [],
       auth: [],
       dependencies: [],
@@ -222,8 +254,12 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       }
     }
 
-    if (file === "playwright.carousel.config.js") {
-      addReason(selection, "homepage", file, "changes the homepage carousel browser matrix");
+    if (CAROUSEL_FILES.has(file)) {
+      addReason(selection, "homepage", file, "changes the public homepage surface or its regression coverage");
+      addReason(selection, "carousel", file, "changes the staged carousel, its panels, or its browser matrix");
+      if (isStaticSource(file)) {
+        addReason(selection, "static", file, "changes a GitHub Pages carousel source");
+      }
       continue;
     }
     if (file === "playwright.workers.config.js") {
@@ -232,12 +268,22 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     }
     if (file === "playwright.config.js") {
       addReason(selection, "homepage", file, "changes frontend browser test execution");
+      addReason(selection, "assets", file, "changes Assets Manager browser test execution");
       addReason(selection, "auth", file, "changes auth/admin browser test execution");
       continue;
     }
 
-    if (HOMEPAGE_TEST_FILES.has(file) || file.startsWith("tests/fixtures/media/")) {
-      addReason(selection, "homepage", file, "changes homepage/frontend regression coverage");
+    if (file === "tests/assets-manager-focused.spec.js") {
+      addReason(selection, "assets", file, "changes focused Assets Manager regression coverage");
+      continue;
+    }
+    if (HOMEPAGE_CORE_TEST_FILES.has(file)) {
+      addReason(selection, "homepage", file, "changes homepage/frontend core regression coverage");
+      continue;
+    }
+    if (file.startsWith("tests/fixtures/media/")) {
+      addReason(selection, "homepage", file, "changes homepage media fixtures");
+      addReason(selection, "carousel", file, "changes media fixtures used by the carousel matrix");
       continue;
     }
     if (AUTH_TEST_FILES.has(file)) {
@@ -262,6 +308,25 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 
     if (file.startsWith("config/") || file.startsWith("scripts/")) {
       selectFullRegression(selection, file, "changes release, validation, or repository automation");
+      continue;
+    }
+
+    if (ASSETS_MANAGER_PAGE_FILES.has(file)) {
+      addReason(selection, "assets", file, "changes the Assets Manager page");
+      addReason(selection, "static", file, "changes a GitHub Pages Assets Manager source");
+      if (file === "js/pages/assets-manager/main.js") {
+        addReason(selection, "auth", file, "changes authenticated Assets Manager behavior");
+      }
+      continue;
+    }
+
+    if (ASSETS_MANAGER_SHARED_FILES.has(file)) {
+      addReason(selection, "assets", file, "changes shared Assets Manager behavior or guidance");
+      addReason(selection, "auth", file, "changes member/admin frontend behavior");
+      addReason(selection, "static", file, "changes a GitHub Pages shared frontend source");
+      if (file === "js/shared/help-menu.js") {
+        addReason(selection, "homepage", file, "changes shared Help Menu and locale-facing guidance");
+      }
       continue;
     }
 
@@ -297,13 +362,19 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 
   if (selection.full) {
     selection.homepage = true;
+    selection.carousel = true;
+    selection.assets = true;
     selection.workers = true;
     selection.auth = true;
     selection.dependencies = true;
     selection.workerDependencies = true;
     selection.docsOnly = false;
   }
-  selection.runtime = selection.homepage || selection.workers || selection.auth;
+  selection.runtime = selection.homepage
+    || selection.carousel
+    || selection.assets
+    || selection.workers
+    || selection.auth;
 
   for (const key of Object.keys(selection.reasons)) {
     selection.reasons[key] = [...new Set(selection.reasons[key])].sort();
@@ -312,7 +383,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 }
 
 export function formatCiTestSelection(selection) {
-  const suites = ["homepage", "workers", "auth", "dependencies"]
+  const suites = ["homepage", "carousel", "assets", "workers", "auth", "dependencies"]
     .filter((suite) => selection[suite]);
   return [
     `Changed files: ${selection.files.length}`,

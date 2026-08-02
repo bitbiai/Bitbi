@@ -73,11 +73,18 @@ jobs:
       base_ref: ${{ steps.changed-files.outputs.base_ref }}
       head_ref: ${{ steps.changed-files.outputs.head_ref }}
       empty_deploy: ${{ steps.changed-files.outputs.empty_deploy }}
+      homepage: ${{ steps.selection.outputs.homepage }}
+      carousel: ${{ steps.selection.outputs.carousel }}
     steps:
       - name: Checkout full history
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      - name: Setup Node.js for test selection
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
 
       - name: Guard changed files are UI-only
         id: changed-files
@@ -228,6 +235,13 @@ jobs:
           printf 'head_ref=%s\n' "$HEAD_REF" >> "$GITHUB_OUTPUT"
           printf 'empty_deploy=%s\n' "$EMPTY_DEPLOY" >> "$GITHUB_OUTPUT"
 
+      - name: Select homepage test suites
+        id: selection
+        env:
+          FAST_UI_BASE_REF: ${{ steps.changed-files.outputs.base_ref }}
+          FAST_UI_HEAD_REF: ${{ steps.changed-files.outputs.head_ref }}
+        run: node scripts/select-ci-tests.mjs --base "$FAST_UI_BASE_REF" --head "$FAST_UI_HEAD_REF" --github-output
+
   deploy:
     name: Validate and deploy UI-only change
     needs: guard
@@ -275,11 +289,21 @@ jobs:
       - name: Check auth route policy coverage
         run: npm run check:route-policies
 
-      - name: Install homepage browser matrix
+      - name: Install carousel browser matrix
+        if: needs.guard.outputs.carousel == 'true'
         run: npx playwright install --with-deps chromium firefox webkit
 
-      - name: Run homepage tests
-        run: npm run test:homepage
+      - name: Install Chromium for homepage core tests
+        if: needs.guard.outputs.carousel != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Run homepage core tests
+        if: needs.guard.outputs.homepage == 'true'
+        run: npm run test:homepage-core
+
+      - name: Run homepage carousel tests
+        if: needs.guard.outputs.carousel == 'true'
+        run: npm run test:homepage-carousel
 
       - name: Build static site
         run: npm run build:static
