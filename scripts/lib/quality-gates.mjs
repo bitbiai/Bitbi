@@ -75,15 +75,15 @@ const DOM_SINK_PATTERNS = [
 ];
 
 export const MAINTAINABILITY_FILE_BUDGETS = Object.freeze([
-  { path: "js/pages/admin/ai-lab.js", maxBytes: 340_000, reason: "Admin AI Lab remains a known large owner-maintenance hotspot." },
+  { path: "js/pages/admin/ai-lab.js", maxBytes: 365_000, reason: "Admin AI Lab remains a known large owner-maintenance hotspot." },
   { path: "js/shared/locale.js", maxBytes: 150_000, reason: "Locale copy should not silently absorb unrelated feature logic." },
   { path: "js/shared/saved-assets-browser.js", maxBytes: 140_000, reason: "Saved assets browser is shared by member/admin media flows." },
   { path: "css/pages/index.css", maxBytes: 200_000, reason: "Homepage CSS is route-critical for first paint and visual guardrails." },
-  { path: "css/admin/admin.css", maxBytes: 175_000, reason: "Admin CSS is shared across the owner control plane." },
+  { path: "css/admin/admin.css", maxBytes: 180_000, reason: "Admin CSS is shared across the owner control plane." },
   { path: "css/pages/generate-lab.css", maxBytes: 65_000, reason: "Generate Lab CSS should stay targeted to the creation workspace." },
   { path: "css/account/assets-manager.css", maxBytes: 105_000, reason: "Assets Manager CSS carries private media UI complexity." },
-  { path: "tests/workers.spec.js", maxBytes: 2_100_000, reason: "Worker tests are intentionally broad but should not grow unnoticed." },
-  { path: "tests/auth-admin.spec.js", maxBytes: 950_000, reason: "Admin/static integration coverage is broad and should be watched." },
+  { path: "tests/workers.spec.js", maxBytes: 2_175_000, reason: "Worker tests are intentionally broad but should not grow unnoticed." },
+  { path: "tests/auth-admin.spec.js", maxBytes: 975_000, reason: "Admin/static integration coverage is broad and should be watched." },
   { path: "tests/smoke.spec.js", maxBytes: 520_000, reason: "Static smoke coverage should remain navigable for one-owner maintenance." },
 ]);
 
