@@ -1,11 +1,20 @@
 import {
+  ADMIN_AI_MUSIC_MODEL_ID,
   CLAUDE_FABLE_5_MODEL_ID,
+  ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
+  ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BASE64_LENGTH,
+  ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES,
+  ELEVENLABS_MUSIC_V2_MIN_DURATION_MS,
+  ELEVENLABS_MUSIC_V2_MODEL_ID,
   QWEN3_30B_A3B_MODEL_ID,
+  calculateElevenLabsMusicV2ProviderCost,
   calculateQwen3UsageCostUsd,
   buildAdminAiFlux2MaxRequest,
   buildAdminAiGptImage2Request,
   buildAdminAiGrokImagineImageRequest,
   buildAdminAiMultipartImageRequest,
+  getElevenLabsMusicV2OutputFormatInfo,
+  validateElevenLabsMusicV2CompositionPlan,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
   getDurationMs,
@@ -22,9 +31,16 @@ import {
   summarizeResultShape,
 } from "./invoke-ai-shared.js";
 import {
+  BITBI_GENERATION_TIMEOUT_MS,
+  createGenerationTimeoutError,
   fetchWithGenerationTimeout,
+  isGenerationTimeoutError,
   runWithGenerationTimeout,
 } from "./generation-timeout.js";
+import {
+  MAX_GENERATED_AUDIO_URL_LENGTH,
+  isTrustedGeneratedAudioOutputUrl,
+} from "../../../../js/shared/generated-audio-output-url.mjs";
 import {
   FABLE_CHAT_GENERATION_TIMEOUT_MS,
   FABLE_CHAT_WEB_FETCH_ALLOWED_CALLERS,
@@ -409,14 +425,22 @@ function parseBase64Image(value) {
 
 const REMOTE_IMAGE_MAX_BYTES = 25 * 1024 * 1024;
 const REMOTE_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const BASE64_SOURCE_CHUNK_BYTES = 24 * 1024;
 
 function bytesToBase64(bytes) {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  let encoded = "";
+  // Every non-final source chunk is divisible by three, so independently
+  // encoded segments concatenate into one valid Base64 value without padding
+  // in the middle. This avoids allocating a full-size binary string.
+  for (let offset = 0; offset < bytes.length; offset += BASE64_SOURCE_CHUNK_BYTES) {
+    const chunk = bytes.subarray(
+      offset,
+      Math.min(offset + BASE64_SOURCE_CHUNK_BYTES, bytes.length)
+    );
+    const binary = String.fromCharCode(...chunk);
+    encoded += btoa(binary);
   }
-  return btoa(binary);
+  return encoded;
 }
 
 function sanitizeGatewayMetadata(metadata) {
@@ -577,6 +601,92 @@ function composeMusicPrompt(input) {
   return promptParts.filter(Boolean).join(" ");
 }
 
+function buildMiniMaxMusicPayload(input) {
+  const payload = {
+    prompt: composeMusicPrompt(input),
+    sample_rate: 44100,
+    bitrate: 256000,
+    format: "mp3",
+    lyrics_optimizer: input.mode !== "instrumental" && input.lyricsMode === "auto",
+    is_instrumental: input.mode === "instrumental",
+  };
+
+  if (input.mode !== "instrumental" && input.lyricsMode === "custom" && input.lyrics) {
+    payload.lyrics = input.lyrics;
+  }
+
+  return payload;
+}
+
+function buildElevenLabsMusicV2Payload(input) {
+  const payload = {
+    output_format: input.outputFormat,
+  };
+  let compositionPlanSummary = null;
+
+  if (input.inputMode === "composition_plan") {
+    compositionPlanSummary = validateElevenLabsMusicV2CompositionPlan(input.compositionPlan);
+    payload.composition_plan = compositionPlanSummary.plan;
+  } else {
+    payload.prompt = input.prompt;
+  }
+
+  if (input.musicLengthMs !== null && input.musicLengthMs !== undefined) {
+    payload.music_length_ms = input.musicLengthMs;
+  }
+  if (input.seed !== null && input.seed !== undefined) {
+    payload.seed = input.seed;
+  }
+  if (input.forceInstrumental === true) {
+    payload.force_instrumental = true;
+  }
+  if (input.storeForInpainting === true) {
+    payload.store_for_inpainting = true;
+  }
+  if (input.signWithC2pa === true) {
+    payload.sign_with_c2pa = true;
+  }
+
+  return { payload, compositionPlanSummary };
+}
+
+function buildMusicInvocation(env, model, input) {
+  const runOptions = model.proxied
+    ? {
+      gateway: {
+        // Preserve MiniMax's established fixed gateway contract. ElevenLabs is
+        // the only music model added with the env-configurable gateway convention.
+        id: model.id === ELEVENLABS_MUSIC_V2_MODEL_ID
+          ? env.AI_GATEWAY_ID || "default"
+          : "default",
+        // Music payloads can contain private prompts/plans and inline audio. The
+        // application records its own bounded summaries, so Gateway body logs
+        // are intentionally disabled for this provider.
+        ...(model.id === ELEVENLABS_MUSIC_V2_MODEL_ID ? { collectLog: false } : {}),
+      },
+    }
+    : undefined;
+
+  if (model.id === ELEVENLABS_MUSIC_V2_MODEL_ID) {
+    const request = buildElevenLabsMusicV2Payload(input);
+    return { ...request, runOptions };
+  }
+
+  if (model.id !== ADMIN_AI_MUSIC_MODEL_ID) {
+    const error = new Error("Music model is not supported.");
+    error.name = "ValidationError";
+    error.status = 400;
+    error.code = "model_not_allowed";
+    throw error;
+  }
+
+  return {
+    payload: buildMiniMaxMusicPayload(input),
+    compositionPlanSummary: null,
+    runOptions,
+  };
+}
+
 function parseBase64Audio(value) {
   if (typeof value !== "string" || value.length === 0) return null;
   const trimmed = value.trim();
@@ -623,7 +733,26 @@ function parseBinaryAudioString(value) {
   }
 }
 
-function summarizeMusicPayload(payload) {
+function summarizeMusicPayload(payload, model, input, compositionPlanSummary = null) {
+  if (model?.id === ELEVENLABS_MUSIC_V2_MODEL_ID) {
+    return {
+      payload_keys: Object.keys(payload || {}).sort().join(","),
+      input_mode: input?.inputMode || null,
+      has_prompt: typeof payload?.prompt === "string" && payload.prompt.trim().length > 0,
+      prompt_length: typeof payload?.prompt === "string" ? payload.prompt.length : 0,
+      has_composition_plan: !!payload?.composition_plan,
+      composition_plan_chunk_count: compositionPlanSummary?.chunkCount ?? 0,
+      composition_plan_serialized_length: compositionPlanSummary?.serializedLength ?? 0,
+      composition_plan_total_duration_ms: compositionPlanSummary?.totalDurationMs ?? null,
+      requested_duration_ms: payload?.music_length_ms ?? null,
+      output_format: payload?.output_format ?? null,
+      seed_present: payload?.seed !== undefined && payload?.seed !== null,
+      force_instrumental: payload?.force_instrumental === true,
+      store_for_inpainting: payload?.store_for_inpainting === true,
+      sign_with_c2pa: payload?.sign_with_c2pa === true,
+    };
+  }
+
   return {
     has_prompt: typeof payload?.prompt === "string" && payload.prompt.trim().length > 0,
     prompt_length: typeof payload?.prompt === "string" ? payload.prompt.length : 0,
@@ -799,6 +928,525 @@ async function extractMusicResponse(result) {
   }
 
   return null;
+}
+
+const ELEVENLABS_COMPLETED_STATES = new Set(["complete", "completed", "success", "succeeded"]);
+const ELEVENLABS_FAILED_STATES = new Set(["cancelled", "canceled", "error", "failed", "failure", "rejected"]);
+const ELEVENLABS_AUDIO_DATA_URI_HEADER_MAX_LENGTH = 128;
+const ELEVENLABS_INLINE_AUDIO_STRING_MAX_LENGTH =
+  ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BASE64_LENGTH
+  + ELEVENLABS_AUDIO_DATA_URI_HEADER_MAX_LENGTH;
+
+function normalizeElevenLabsAudioMimeType(value) {
+  const mimeType = String(value || "").split(";")[0].trim().toLowerCase();
+  if (mimeType === "audio/mpeg" || mimeType === "audio/mp3") return "audio/mpeg";
+  if (mimeType === "audio/ogg" || mimeType === "audio/opus") return "audio/ogg";
+  return null;
+}
+
+function codecForElevenLabsMimeType(mimeType) {
+  if (mimeType === "audio/mpeg") return "mp3";
+  if (mimeType === "audio/ogg") return "opus";
+  return null;
+}
+
+function bytesStartWithAscii(bytes, text, offset = 0) {
+  if (!(bytes instanceof Uint8Array) || offset < 0 || bytes.length < offset + text.length) return false;
+  for (let index = 0; index < text.length; index += 1) {
+    if (bytes[offset + index] !== text.charCodeAt(index)) return false;
+  }
+  return true;
+}
+
+function isElevenLabsOggOpus(bytes) {
+  if (!(bytes instanceof Uint8Array)
+    || bytes.byteLength < 36
+    || !bytesStartWithAscii(bytes, "OggS")) {
+    return false;
+  }
+  if (bytes[4] !== 0 || (bytes[5] & 0x02) === 0) return false;
+  const segmentCount = bytes[26];
+  const packetOffset = 27 + segmentCount;
+  if (!segmentCount || packetOffset + 8 > bytes.byteLength) return false;
+
+  let firstPacketLength = 0;
+  let packetComplete = false;
+  for (let index = 0; index < segmentCount; index += 1) {
+    const segmentLength = bytes[27 + index];
+    firstPacketLength += segmentLength;
+    if (segmentLength < 255) {
+      packetComplete = true;
+      break;
+    }
+  }
+
+  return packetComplete
+    && firstPacketLength >= 8
+    && packetOffset + firstPacketLength <= bytes.byteLength
+    && bytesStartWithAscii(bytes, "OpusHead", packetOffset);
+}
+
+function detectElevenLabsAudioCodec(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length < 2) return null;
+  if (bytesStartWithAscii(bytes, "ID3") || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)) {
+    return "mp3";
+  }
+  if (isElevenLabsOggOpus(bytes)) return "opus";
+  return null;
+}
+
+function inspectElevenLabsBase64(value) {
+  if (typeof value !== "string") return null;
+  if (value.length > ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BASE64_LENGTH) {
+    throwElevenLabsInlineAudioTooLarge();
+  }
+  // Cloudflare documents compact data-URI Base64 for this model. Avoid cloning
+  // the entire encoded payload unless whitespace actually needs normalization.
+  const compact = /\s/.test(value) ? value.replace(/\s+/g, "") : value;
+  if (!compact || compact.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(compact)) {
+    return null;
+  }
+
+  const paddingLength = compact.endsWith("==") ? 2 : compact.endsWith("=") ? 1 : 0;
+  const sizeBytes = ((compact.length / 4) * 3) - paddingLength;
+  if (sizeBytes > ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES) {
+    throwElevenLabsInlineAudioTooLarge();
+  }
+  const prefixLength = Math.min(compact.length, 128);
+  const encodedPrefix = compact.slice(0, prefixLength - (prefixLength % 4));
+  if (!encodedPrefix) return null;
+
+  try {
+    const binaryPrefix = atob(encodedPrefix);
+    const prefixBytes = Uint8Array.from(binaryPrefix, (character) => character.charCodeAt(0));
+    return {
+      compact,
+      prefixBytes,
+      sizeBytes,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function throwElevenLabsInlineAudioTooLarge() {
+  const error = new Error("Music provider returned audio larger than the inline response limit.");
+  error.status = 502;
+  error.code = "upstream_error";
+  error.provider_error_kind = "upstream_audio_too_large";
+  throw error;
+}
+
+function throwElevenLabsUnsafeAudioUrl() {
+  const error = new Error("Music provider returned an untrusted audio URL.");
+  error.status = 502;
+  error.code = "upstream_error";
+  error.provider_error_kind = "unsafe_audio_url";
+  throw error;
+}
+
+function startsWithHttpSchemeAfterWhitespace(value) {
+  let start = 0;
+  while (start < value.length && /\s/.test(value[start])) start += 1;
+  const prefix = value.slice(start, start + 8).toLowerCase();
+  return prefix.startsWith("http://") || prefix.startsWith("https://");
+}
+
+function assertElevenLabsAudioStringSize(value) {
+  if (value.length > MAX_GENERATED_AUDIO_URL_LENGTH
+    && startsWithHttpSchemeAfterWhitespace(value)) {
+    throwElevenLabsUnsafeAudioUrl();
+  }
+  if (value.length > ELEVENLABS_INLINE_AUDIO_STRING_MAX_LENGTH) {
+    throwElevenLabsInlineAudioTooLarge();
+  }
+}
+
+function assertElevenLabsInlineAudioSize(sizeBytes) {
+  if (Number.isSafeInteger(sizeBytes)
+    && sizeBytes > ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES) {
+    throwElevenLabsInlineAudioTooLarge();
+  }
+}
+
+function readElevenLabsBinarySize(value) {
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+    return value.byteLength;
+  }
+
+  const blobSize = Number(value?.size);
+  if (Number.isSafeInteger(blobSize) && blobSize >= 0) return blobSize;
+
+  const contentLength = String(value?.headers?.get?.("content-length") || "").trim();
+  if (/^\d+$/.test(contentLength)) {
+    const parsed = Number(contentLength);
+    if (Number.isSafeInteger(parsed)) return parsed;
+  }
+
+  const byteLength = Number(value?.byteLength);
+  return Number.isSafeInteger(byteLength) && byteLength >= 0 ? byteLength : null;
+}
+
+function throwElevenLabsUnsupportedBinaryAudio() {
+  const error = new Error("Music provider returned an unsupported binary audio response.");
+  error.status = 502;
+  error.code = "upstream_error";
+  error.provider_error_kind = "unsupported_binary_audio";
+  throw error;
+}
+
+function getMusicGenerationTimeoutMs(input) {
+  const requested = Number(input?.generationTimeoutMs);
+  return Number.isSafeInteger(requested) && requested > 0
+    ? Math.min(requested, BITBI_GENERATION_TIMEOUT_MS)
+    : BITBI_GENERATION_TIMEOUT_MS;
+}
+
+function createMusicGenerationDeadline(input, startedAt) {
+  return startedAt + getMusicGenerationTimeoutMs(input);
+}
+
+function cancelMusicDeadlineTarget(cancel) {
+  if (typeof cancel !== "function") return;
+  try {
+    const pending = cancel();
+    // Cancellation is best effort and must not delay the stable timeout response.
+    pending?.catch?.(() => {});
+  } catch {
+    // Preserve the stable generation timeout when cancellation itself fails.
+  }
+}
+
+function assertMusicGenerationDeadline(deadlineAt, cancel = null) {
+  const remainingMs = deadlineAt - Date.now();
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+    cancelMusicDeadlineTarget(cancel);
+    throw createGenerationTimeoutError();
+  }
+  return remainingMs;
+}
+
+async function runWithinMusicGenerationDeadline(task, deadlineAt, { cancel = null } = {}) {
+  const remainingMs = assertMusicGenerationDeadline(deadlineAt, cancel);
+
+  try {
+    return await runWithGenerationTimeout(task, { timeoutMs: Math.max(1, Math.ceil(remainingMs)) });
+  } catch (error) {
+    if (isGenerationTimeoutError(error)) {
+      cancelMusicDeadlineTarget(cancel);
+    }
+    throw error;
+  }
+}
+
+async function readElevenLabsBoundedStream(body, deadlineAt) {
+  const reader = body?.getReader?.();
+  if (!reader) return null;
+  // Encode as chunks arrive. A maximum-size binary response must not coexist
+  // with both a retained chunk list and a second combined ArrayBuffer.
+  const signatureBytes = new Uint8Array(128);
+  let signatureLength = 0;
+  let audioBase64 = "";
+  let carry = new Uint8Array(0);
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const next = await runWithinMusicGenerationDeadline(
+        () => reader.read(),
+        deadlineAt,
+        { cancel: () => reader.cancel("music generation deadline exceeded") }
+      );
+      if (next.done) break;
+      const value = next.value;
+      const chunk = value instanceof Uint8Array
+        ? value
+        : value instanceof ArrayBuffer
+          ? new Uint8Array(value)
+          : ArrayBuffer.isView(value)
+            ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+            : null;
+      if (!chunk) throwElevenLabsUnsupportedBinaryAudio();
+      totalBytes += chunk.byteLength;
+      if (totalBytes > ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES) {
+        cancelMusicDeadlineTarget(() => reader.cancel("inline audio response limit exceeded"));
+        throwElevenLabsInlineAudioTooLarge();
+      }
+
+      if (signatureLength < signatureBytes.byteLength) {
+        const prefix = chunk.subarray(
+          0,
+          Math.min(chunk.byteLength, signatureBytes.byteLength - signatureLength)
+        );
+        signatureBytes.set(prefix, signatureLength);
+        signatureLength += prefix.byteLength;
+      }
+
+      let offset = 0;
+      if (carry.byteLength > 0) {
+        const needed = 3 - carry.byteLength;
+        const take = Math.min(needed, chunk.byteLength);
+        const combined = new Uint8Array(carry.byteLength + take);
+        combined.set(carry);
+        combined.set(chunk.subarray(0, take), carry.byteLength);
+        offset = take;
+        if (combined.byteLength === 3) {
+          audioBase64 += bytesToBase64(combined);
+          carry = new Uint8Array(0);
+        } else {
+          carry = combined;
+        }
+      }
+
+      const completeLength = Math.floor((chunk.byteLength - offset) / 3) * 3;
+      if (completeLength > 0) {
+        audioBase64 += bytesToBase64(chunk.subarray(offset, offset + completeLength));
+        offset += completeLength;
+      }
+      if (offset < chunk.byteLength) {
+        carry = chunk.slice(offset);
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock?.();
+    } catch {
+      // A cancelled provider stream may have released its lock already.
+    }
+  }
+
+  if (carry.byteLength > 0) {
+    audioBase64 += bytesToBase64(carry);
+  }
+  return {
+    audioBase64,
+    prefixBytes: signatureBytes.subarray(0, signatureLength),
+    sizeBytes: totalBytes,
+  };
+}
+
+function assertElevenLabsAudioCodec({ detectedCodec, expectedCodec, declaredMimeType = null }) {
+  const declaredCodec = codecForElevenLabsMimeType(declaredMimeType);
+  if (!detectedCodec || (declaredCodec && detectedCodec !== declaredCodec)
+    || (expectedCodec && detectedCodec !== expectedCodec)) {
+    const error = new Error("Music provider returned an unsupported audio type.");
+    error.status = 502;
+    error.code = "upstream_error";
+    error.provider_error_kind = "unsupported_audio_type";
+    throw error;
+  }
+}
+
+function parseElevenLabsAudioDataUri(value, formatInfo) {
+  if (typeof value !== "string" || !value.startsWith("data:")) return null;
+  const commaIndex = value.indexOf(",");
+  if (commaIndex <= 5) return null;
+  if (commaIndex > ELEVENLABS_AUDIO_DATA_URI_HEADER_MAX_LENGTH) {
+    const error = new Error("Music provider returned a malformed audio data URI.");
+    error.status = 502;
+    error.code = "upstream_error";
+    error.provider_error_kind = "malformed_audio_data_uri";
+    throw error;
+  }
+  if (value.length - commaIndex - 1 > ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BASE64_LENGTH) {
+    throwElevenLabsInlineAudioTooLarge();
+  }
+  const headerParts = value.slice(5, commaIndex).split(";").map((part) => part.trim()).filter(Boolean);
+  if (headerParts.length < 2 || headerParts.at(-1)?.toLowerCase() !== "base64") return null;
+  const mimeType = normalizeElevenLabsAudioMimeType(headerParts[0]);
+  if (!mimeType) {
+    const error = new Error("Music provider returned an unsupported audio type.");
+    error.status = 502;
+    error.code = "upstream_error";
+    error.provider_error_kind = "unsupported_audio_type";
+    throw error;
+  }
+  const inspected = inspectElevenLabsBase64(value.slice(commaIndex + 1));
+  if (!inspected) {
+    const error = new Error("Music provider returned a malformed audio data URI.");
+    error.status = 502;
+    error.code = "upstream_error";
+    error.provider_error_kind = "malformed_audio_data_uri";
+    throw error;
+  }
+  const detectedCodec = detectElevenLabsAudioCodec(inspected.prefixBytes);
+  assertElevenLabsAudioCodec({
+    detectedCodec,
+    expectedCodec: formatInfo.codec,
+    declaredMimeType: mimeType,
+  });
+  return {
+    audioUrl: null,
+    audioBase64: inspected.compact,
+    mimeType: detectedCodec === "opus" ? "audio/ogg" : "audio/mpeg",
+    downloadExtension: detectedCodec === "opus" ? "opus" : "mp3",
+    sizeBytes: inspected.sizeBytes,
+  };
+}
+
+function parseElevenLabsPlainBase64Audio(value, formatInfo) {
+  const inspected = inspectElevenLabsBase64(value);
+  if (!inspected) return null;
+  const detectedCodec = detectElevenLabsAudioCodec(inspected.prefixBytes);
+  if (!detectedCodec) return null;
+  assertElevenLabsAudioCodec({ detectedCodec, expectedCodec: formatInfo.codec });
+  return {
+    audioUrl: null,
+    audioBase64: inspected.compact,
+    mimeType: detectedCodec === "opus" ? "audio/ogg" : "audio/mpeg",
+    downloadExtension: detectedCodec === "opus" ? "opus" : "mp3",
+    sizeBytes: inspected.sizeBytes,
+  };
+}
+
+async function parseElevenLabsBinaryAudio(value, formatInfo, deadlineAt) {
+  if (value == null || typeof value === "string") return null;
+  const declaredSize = readElevenLabsBinarySize(value);
+  assertElevenLabsInlineAudioSize(declaredSize);
+  const rawContentType = String(value?.headers?.get?.("content-type") || value?.type || "").trim();
+  const contentType = normalizeElevenLabsAudioMimeType(rawContentType);
+  if (rawContentType && !contentType) {
+    const error = new Error("Music provider returned an unsupported audio type.");
+    error.status = 502;
+    error.code = "upstream_error";
+    error.provider_error_kind = "unsupported_audio_type";
+    throw error;
+  }
+  const hasReadableBody = typeof value?.body?.getReader === "function";
+  if (declaredSize === null && !hasReadableBody) {
+    if (typeof value?.arrayBuffer !== "function") return null;
+    throwElevenLabsUnsupportedBinaryAudio();
+  }
+  const streamed = hasReadableBody
+    ? await readElevenLabsBoundedStream(value.body, deadlineAt)
+    : null;
+  const buffer = hasReadableBody
+    ? null
+    : await runWithinMusicGenerationDeadline(() => toArrayBuffer(value), deadlineAt);
+  const sizeBytes = streamed?.sizeBytes ?? buffer?.byteLength ?? 0;
+  if (sizeBytes === 0) return null;
+  assertElevenLabsInlineAudioSize(sizeBytes);
+  const bytes = streamed ? null : new Uint8Array(buffer);
+  const prefixBytes = streamed?.prefixBytes
+    || bytes.subarray(0, Math.min(bytes.length, 128));
+  const detectedCodec = detectElevenLabsAudioCodec(prefixBytes);
+  assertElevenLabsAudioCodec({
+    detectedCodec,
+    expectedCodec: formatInfo.codec,
+    declaredMimeType: contentType,
+  });
+  return {
+    audioUrl: null,
+    audioBase64: streamed?.audioBase64 || bytesToBase64(bytes),
+    mimeType: detectedCodec === "opus" ? "audio/ogg" : "audio/mpeg",
+    downloadExtension: detectedCodec === "opus" ? "opus" : "mp3",
+    sizeBytes,
+  };
+}
+
+function readElevenLabsProviderState(result) {
+  const value = firstNestedValue(result, ["state", "result.state", "data.state"]);
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 80) : null;
+}
+
+function assertElevenLabsProviderState(result) {
+  const providerState = readElevenLabsProviderState(result);
+  if (!providerState) return null;
+  const normalized = providerState.toLowerCase();
+  if (ELEVENLABS_COMPLETED_STATES.has(normalized)) return providerState;
+
+  const failed = ELEVENLABS_FAILED_STATES.has(normalized);
+  const error = new Error(failed
+    ? "Music provider reported a failed generation."
+    : "Music provider returned an incomplete generation.");
+  error.status = 502;
+  error.code = "upstream_error";
+  error.provider_error_kind = failed ? "provider_rejected" : "provider_incomplete";
+  error.provider_state = providerState;
+  throw error;
+}
+
+function readTrustedElevenLabsDurationMs(result) {
+  // Cloudflare's published response schema does not currently define a generic
+  // duration_ms field. Only accept the unambiguous audio-duration extension;
+  // generic duration values may describe provider or gateway latency and must
+  // not be reconciled as actual output cost.
+  const candidate = firstNestedValue(result, [
+    "result.audio_duration_ms",
+    "data.audio_duration_ms",
+    "audio_duration_ms",
+  ]);
+  const durationMs = Number(candidate);
+  return Number.isSafeInteger(durationMs)
+    && durationMs >= ELEVENLABS_MUSIC_V2_MIN_DURATION_MS
+    && durationMs <= ELEVENLABS_MUSIC_V2_MAX_DURATION_MS
+    ? durationMs
+    : null;
+}
+
+async function extractElevenLabsMusicResponse(result, formatInfo, deadlineAt) {
+  const candidates = [
+    result?.audio,
+    result?.audio_url,
+    result?.url,
+    result?.result?.audio,
+    result?.result?.audio_url,
+    result?.result?.url,
+    result?.data?.audio,
+    result?.data?.audio_url,
+    result?.data?.url,
+    result?.result?.data?.audio,
+    result,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      assertElevenLabsAudioStringSize(candidate);
+      const trimmed = candidate.trim();
+      if (!trimmed) continue;
+      if (isTrustedGeneratedAudioOutputUrl(trimmed)) {
+        return {
+          audioUrl: trimmed,
+          audioBase64: null,
+          mimeType: formatInfo.mimeType,
+          downloadExtension: formatInfo.extension,
+          sizeBytes: null,
+        };
+      }
+      if (/^https?:\/\//i.test(trimmed)) {
+        throwElevenLabsUnsafeAudioUrl();
+      }
+      if (trimmed.startsWith("data:")) {
+        const parsedDataUri = parseElevenLabsAudioDataUri(trimmed, formatInfo);
+        if (parsedDataUri) return parsedDataUri;
+        const error = new Error("Music provider returned a malformed audio data URI.");
+        error.status = 502;
+        error.code = "upstream_error";
+        error.provider_error_kind = "malformed_audio_data_uri";
+        throw error;
+      }
+      const parsedBase64 = parseElevenLabsPlainBase64Audio(trimmed, formatInfo);
+      if (parsedBase64) return parsedBase64;
+      continue;
+    }
+
+    const parsedBinary = await parseElevenLabsBinaryAudio(candidate, formatInfo, deadlineAt);
+    if (parsedBinary) return parsedBinary;
+  }
+
+  return null;
+}
+
+function getElevenLabsOutputTechnicalMetadata(formatInfo) {
+  const parts = String(formatInfo?.resolvedFormat || "").split("_");
+  const sampleRate = Number(parts[1]);
+  const bitrateKbps = Number(parts[2]);
+  return {
+    sampleRate: Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : null,
+    bitrate: Number.isFinite(bitrateKbps) && bitrateKbps > 0 ? bitrateKbps * 1000 : null,
+  };
 }
 
 export async function invokeText(env, model, input) {
@@ -1605,20 +2253,9 @@ export async function invokeEmbeddings(env, model, input) {
 export async function invokeMusic(env, model, input) {
   ensureAI(env);
   const startedAt = Date.now();
-  const payload = {
-    prompt: composeMusicPrompt(input),
-    sample_rate: 44100,
-    bitrate: 256000,
-    format: "mp3",
-    lyrics_optimizer: input.mode !== "instrumental" && input.lyricsMode === "auto",
-    is_instrumental: input.mode === "instrumental",
-  };
-
-  if (input.mode !== "instrumental" && input.lyricsMode === "custom" && input.lyrics) {
-    payload.lyrics = input.lyrics;
-  }
-
-  const runOptions = model.proxied ? { gateway: { id: "default" } } : undefined;
+  const generationDeadlineAt = createMusicGenerationDeadline(input, startedAt);
+  const { payload, runOptions, compositionPlanSummary } = buildMusicInvocation(env, model, input);
+  const providerPayloadSummary = summarizeMusicPayload(payload, model, input, compositionPlanSummary);
 
   logDiagnostic({
     service: "bitbi-ai",
@@ -1629,12 +2266,15 @@ export async function invokeMusic(env, model, input) {
     model: model.id,
     has_gateway_option: !!runOptions,
     gateway_id: runOptions?.gateway?.id || null,
-    provider_payload: summarizeMusicPayload(payload),
+    provider_payload: providerPayloadSummary,
   });
 
   let raw;
   try {
-    raw = await runWithGenerationTimeout(() => env.AI.run(model.id, payload, runOptions));
+    raw = await runWithinMusicGenerationDeadline(
+      () => env.AI.run(model.id, payload, runOptions),
+      generationDeadlineAt
+    );
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
@@ -1645,12 +2285,148 @@ export async function invokeMusic(env, model, input) {
       model: model.id,
       has_gateway_option: !!runOptions,
       gateway_id: runOptions?.gateway?.id || null,
-      provider_payload: summarizeMusicPayload(payload),
+      provider_payload: providerPayloadSummary,
       ...getUpstreamErrorDetails(error),
       duration_ms: getDurationMs(startedAt),
       ...getErrorFields(error, { includeMessage: false }),
     });
     throw error;
+  }
+
+  if (model.id === ELEVENLABS_MUSIC_V2_MODEL_ID) {
+    let providerState;
+    try {
+      providerState = assertElevenLabsProviderState(raw);
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-ai",
+        component: "invoke-music",
+        event: "workers_ai_music_provider_error",
+        level: "error",
+        correlationId: input.correlationId || null,
+        model: model.id,
+        provider_payload: providerPayloadSummary,
+        provider_status: error?.provider_state || null,
+        provider_error_kind: error?.provider_error_kind || "provider_rejected",
+        raw_shape: summarizeResultShape(raw),
+        duration_ms: getDurationMs(startedAt),
+      });
+      throw error;
+    }
+
+    const formatInfo = getElevenLabsMusicV2OutputFormatInfo(input.outputFormat);
+    if (!formatInfo) {
+      const error = new Error("Music output format is not supported.");
+      error.status = 400;
+      error.code = "validation_error";
+      throw error;
+    }
+
+    let music;
+    try {
+      music = await extractElevenLabsMusicResponse(raw, formatInfo, generationDeadlineAt);
+      // String decoding and Base64 serialization are synchronous. They cannot be
+      // interrupted mid-operation, so enforce the same absolute deadline again
+      // before accepting the normalized result.
+      assertMusicGenerationDeadline(generationDeadlineAt);
+    } catch (error) {
+      logDiagnostic({
+        service: "bitbi-ai",
+        component: "invoke-music",
+        event: "workers_ai_music_parse_failed",
+        level: "error",
+        correlationId: input.correlationId || null,
+        model: model.id,
+        provider_payload: providerPayloadSummary,
+        provider_status: providerState,
+        provider_error_kind: error?.provider_error_kind || "invalid_audio",
+        raw_shape: summarizeResultShape(raw),
+        duration_ms: getDurationMs(startedAt),
+      });
+      throw error;
+    }
+    if (!music || (!music.audioUrl && !music.audioBase64)) {
+      const error = new Error("Model returned no audio output.");
+      error.status = 502;
+      error.code = "upstream_error";
+      error.provider_error_kind = "missing_audio";
+      logDiagnostic({
+        service: "bitbi-ai",
+        component: "invoke-music",
+        event: "workers_ai_music_parse_failed",
+        level: "error",
+        correlationId: input.correlationId || null,
+        model: model.id,
+        provider_payload: providerPayloadSummary,
+        provider_status: providerState,
+        provider_error_kind: error.provider_error_kind,
+        raw_shape: summarizeResultShape(raw),
+        duration_ms: getDurationMs(startedAt),
+      });
+      throw error;
+    }
+
+    const requestedDurationMs = compositionPlanSummary?.totalDurationMs
+      ?? input.musicLengthMs
+      ?? null;
+    const providerCostEstimateDurationMs = requestedDurationMs
+      ?? ELEVENLABS_MUSIC_V2_MAX_DURATION_MS;
+    const providerCostEstimate = calculateElevenLabsMusicV2ProviderCost(
+      providerCostEstimateDurationMs
+    );
+    const actualDurationMs = readTrustedElevenLabsDurationMs(raw);
+    const actualProviderCost = actualDurationMs === null
+      ? null
+      : calculateElevenLabsMusicV2ProviderCost(actualDurationMs);
+    const technicalMetadata = getElevenLabsOutputTechnicalMetadata(formatInfo);
+    const traceId = sanitizeErrorValue(firstNestedValue(raw, [
+      "trace_id",
+      "traceId",
+      "result.trace_id",
+      "result.traceId",
+      "request_id",
+      "requestId",
+    ]));
+
+    return {
+      ...music,
+      prompt: input.inputMode === "prompt" ? input.prompt : null,
+      inputMode: input.inputMode,
+      compositionPlanPresent: input.inputMode === "composition_plan",
+      compositionPlanChunkCount: compositionPlanSummary?.chunkCount ?? 0,
+      compositionPlanSerializedLength: compositionPlanSummary?.serializedLength ?? 0,
+      requestedDurationMs,
+      actualDurationMs,
+      durationMs: actualDurationMs,
+      durationMode: input.inputMode === "composition_plan"
+        ? "composition_plan"
+        : input.musicLengthMs === null
+          ? "auto"
+          : "explicit",
+      outputFormat: input.outputFormat,
+      seed: input.seed,
+      forceInstrumental: input.forceInstrumental === true,
+      storeForInpainting: input.storeForInpainting === true,
+      signWithC2pa: input.signWithC2pa === true,
+      providerStatus: providerState,
+      providerState,
+      providerCostEstimateDurationMs,
+      providerCostEstimateKind: requestedDurationMs === null
+        ? "maximum_exposure"
+        : input.inputMode === "composition_plan"
+          ? "composition_plan"
+          : "requested_duration",
+      estimatedProviderCostUsd: providerCostEstimate?.providerCostUsd ?? null,
+      actualProviderCostUsd: actualProviderCost?.providerCostUsd ?? null,
+      priceUsdPerOutputSecond: providerCostEstimate?.priceUsdPerOutputSecond ?? null,
+      sampleRate: technicalMetadata.sampleRate,
+      channels: null,
+      bitrate: technicalMetadata.bitrate,
+      gatewayMetadata: sanitizeGatewayMetadata(raw?.gatewayMetadata),
+      lyrics: null,
+      traceId: typeof traceId === "string" ? traceId : null,
+      elapsedMs: Date.now() - startedAt,
+    };
   }
 
   const providerError = buildMusicProviderError(raw);
@@ -1662,7 +2438,7 @@ export async function invokeMusic(env, model, input) {
       level: "error",
       correlationId: input.correlationId || null,
       model: model.id,
-      provider_payload: summarizeMusicPayload(payload),
+      provider_payload: providerPayloadSummary,
       provider_trace_id: raw?.trace_id || null,
       provider_status_code: providerError.provider_status_code,
       provider_status_message: providerError.provider_status_message,
@@ -1687,7 +2463,7 @@ export async function invokeMusic(env, model, input) {
       level: "error",
       correlationId: input.correlationId || null,
       model: model.id,
-      provider_payload: summarizeMusicPayload(payload),
+      provider_payload: providerPayloadSummary,
       provider_trace_id: raw?.trace_id || null,
       provider_status: raw?.data?.status ?? raw?.status ?? null,
       provider_base_status_code: raw?.base_resp?.status_code ?? null,

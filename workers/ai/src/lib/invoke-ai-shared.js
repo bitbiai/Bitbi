@@ -25,7 +25,7 @@ export function isUrlLike(value) {
  */
 export function isLikelyBase64(value) {
   if (typeof value !== "string") return false;
-  const compact = value.replace(/\s+/g, "");
+  const compact = /\s/.test(value) ? value.replace(/\s+/g, "") : value;
   if (!compact || compact.length < 16 || compact.length % 4 !== 0) return false;
   return /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
 }

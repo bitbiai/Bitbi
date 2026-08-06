@@ -179,6 +179,61 @@ async function requestForm(method, path, formData, options = {}) {
     }
 }
 
+async function requestBlob(method, path, body, options = {}) {
+    const signalState = buildRequestSignal(options);
+    try {
+        const headers = {};
+        if (options.headers && typeof options.headers === 'object') {
+            for (const [key, value] of Object.entries(options.headers)) {
+                if (value !== undefined && value !== null) headers[key] = String(value);
+            }
+        }
+        const fetchOptions = {
+            method,
+            credentials: 'include',
+            headers,
+        };
+        if (signalState.signal) fetchOptions.signal = signalState.signal;
+        if (body !== undefined) {
+            fetchOptions.headers['Content-Type'] = 'application/json';
+            fetchOptions.body = JSON.stringify(body);
+        }
+
+        const response = await fetch(BASE + path, fetchOptions);
+        if (response.ok) {
+            return {
+                ok: true,
+                blob: await response.blob(),
+                mimeType: String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase(),
+                status: response.status,
+            };
+        }
+
+        let data = null;
+        try { data = await response.json(); } catch {}
+        return {
+            ok: false,
+            error: data?.error || `Error ${response.status}`,
+            code: data?.code || null,
+            data,
+            status: response.status,
+        };
+    } catch (error) {
+        if (error?.name === 'AbortError') {
+            if (signalState.timedOut()) {
+                return { ok: false, aborted: true, timeout: true, error: 'Request timed out.', code: 'request_timeout' };
+            }
+            return { ok: false, aborted: true, error: 'Request cancelled.', code: 'request_aborted' };
+        }
+        if (error?.name === 'TimeoutError' || signalState.timedOut()) {
+            return { ok: false, aborted: true, timeout: true, error: 'Request timed out.', code: 'request_timeout' };
+        }
+        return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
+    } finally {
+        signalState.cleanup();
+    }
+}
+
 function notifyAssetStorageChanged() {
     if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
     window.dispatchEvent(new CustomEvent('bitbi:assets-storage-changed'));
@@ -1576,15 +1631,19 @@ export function apiAdminAiModels(options) {
     return request('GET', '/admin/ai/models', undefined, options);
 }
 
-function withAdminAiTextIdempotency(options = {}) {
+function withAdminAiIdempotency(options = {}, prefix = 'admin-ai-text') {
     const normalizedOptions = options && typeof options === 'object' ? options : {};
-    const headers = {
-        ...(normalizedOptions.headers && typeof normalizedOptions.headers === 'object'
-            ? normalizedOptions.headers
-            : {}),
-    };
+    const headers = {};
+    const sourceHeaders = normalizedOptions.headers;
+    if (typeof Headers !== 'undefined' && sourceHeaders instanceof Headers) {
+        sourceHeaders.forEach((value, name) => {
+            headers[name] = value;
+        });
+    } else if (sourceHeaders && typeof sourceHeaders === 'object') {
+        Object.assign(headers, sourceHeaders);
+    }
     if (!hasHeader(headers, 'Idempotency-Key')) {
-        headers['Idempotency-Key'] = createAdminIdempotencyKey('admin-ai-text');
+        headers['Idempotency-Key'] = createAdminIdempotencyKey(prefix);
     }
     return {
         ...normalizedOptions,
@@ -1593,7 +1652,7 @@ function withAdminAiTextIdempotency(options = {}) {
 }
 
 export function apiAdminAiTestText(payload, options = {}) {
-    return request('POST', '/admin/ai/test-text', payload, withAdminAiTextIdempotency(options));
+    return request('POST', '/admin/ai/test-text', payload, withAdminAiIdempotency(options));
 }
 
 export function apiAdminAiTestImage(payload, options) {
@@ -1604,8 +1663,12 @@ export function apiAdminAiTestEmbeddings(payload, options) {
     return request('POST', '/admin/ai/test-embeddings', payload, options);
 }
 
-export function apiAdminAiTestMusic(payload, options) {
-    return request('POST', '/admin/ai/test-music', payload, options);
+export function apiAdminAiTestMusic(payload, options = {}) {
+    return request('POST', '/admin/ai/test-music', payload, withAdminAiIdempotency(options, 'admin-ai-music'));
+}
+
+export function apiAdminAiDownloadMusic(payload, options = {}) {
+    return requestBlob('POST', '/admin/ai/download-music', payload, options);
 }
 
 export function apiAdminAiTestVideo(payload, options) {

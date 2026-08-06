@@ -8,6 +8,9 @@ import {
   AdminAiValidationError as InputError,
   ADMIN_AI_LIVE_AGENT_LIMITS,
   ADMIN_AI_LIVE_AGENT_MODEL,
+  ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
+  ELEVENLABS_MUSIC_V2_MODEL_ID,
+  calculateElevenLabsMusicV2ProviderCost,
   validateAdminAiCompareBody as validateComparePayload,
   validateAdminAiEmbeddingsBody as validateEmbeddingsPayload,
   validateAdminAiImageBody as validateImagePayload,
@@ -16,6 +19,7 @@ import {
   validateAdminAiTextBody as validateTextPayload,
   validateAdminAiVideoBody as validateVideoPayload,
   validateFlux2DevReferenceImageDimensions,
+  validateElevenLabsMusicV2CompositionPlan,
   inspectFlux2MaxReferenceImagePricingDimensions,
   resolveAdminAiModelSelection,
 } from "../../../../js/shared/admin-ai-contract.mjs";
@@ -38,10 +42,12 @@ import {
   getRemoteMediaPolicyLogFields,
 } from "../../../../js/shared/remote-media-policy.mjs";
 import {
+  ADMIN_AI_ELEVENLABS_MUSIC_PROXY_TIMEOUT_MS,
   proxyLiveAgentToAiLab,
   proxyToAiLab,
   rateLimitAdminAi,
 } from "../lib/admin-ai-proxy.js";
+import { fetchGeneratedAudioForSave } from "../lib/generated-audio-save.js";
 import {
   BillingError,
   assertOrganizationFeatureEnabled,
@@ -158,7 +164,10 @@ import { normalizeOrgId } from "../lib/orgs.js";
 import { sha256Hex } from "../lib/tokens.js";
 import { handleAdminAiDerivativeBackfillRequest } from "../lib/admin-ai-derivative-backfill.js";
 import { handleAdminAiSaveTextAssetRequest } from "../lib/admin-ai-save-text.js";
-import { withAdminAiCode } from "../lib/admin-ai-response.js";
+import {
+  consumeAdminAiJsonResponseOnce,
+  withAdminAiCode,
+} from "../lib/admin-ai-response.js";
 import { enqueueAdminAuditEvent } from "../lib/activity.js";
 import {
   decodePaginationCursor,
@@ -247,6 +256,50 @@ function inputErrorResponse(error, correlationId = null) {
     },
     { status: error.status || 400 }
   ), correlationId);
+}
+
+function validateAdminMusicDownloadBody(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new InputError("Request body must be an object.", 400, "validation_error");
+  }
+  const unsupportedField = Object.keys(body).find((key) => key !== "audioUrl");
+  if (unsupportedField) {
+    throw new InputError(
+      "Request contains an unsupported field.",
+      400,
+      "unsupported_field"
+    );
+  }
+  if (typeof body.audioUrl !== "string" || !body.audioUrl.trim()) {
+    throw new InputError("audioUrl is required.", 400, "audio_url_required");
+  }
+  return body.audioUrl.trim();
+}
+
+function adminMusicDownloadResponse(audio, correlationId = null) {
+  const extension = audio?.mimeType === "audio/mpeg"
+    ? "mp3"
+    : audio?.mimeType === "audio/ogg"
+      ? "opus"
+      : null;
+  if (!extension) {
+    throw new InputError(
+      "Generated audio must be MP3 or Ogg Opus.",
+      400,
+      "unsupported_audio_mime_type"
+    );
+  }
+
+  return withCorrelationId(new Response(audio.bytes, {
+    status: 200,
+    headers: {
+      "content-type": audio.mimeType,
+      "content-length": String(audio.sizeBytes),
+      "content-disposition": `attachment; filename="bitbi-generated-music.${extension}"`,
+      "cache-control": "private, no-store",
+      "x-content-type-options": "nosniff",
+    },
+  }), correlationId);
 }
 
 async function adminBudgetSwitchResponseOrNull({
@@ -799,14 +852,116 @@ function adminEmbeddingsRequestMetadata(payload) {
   };
 }
 
-function adminMusicRequestMetadata(payload) {
+function safeAdminMusicNumber(value, { integer = false, min = 0 } = {}) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < min || (integer && !Number.isSafeInteger(number))) {
+    return null;
+  }
+  return number;
+}
+
+function safeAdminMusicString(value, maxLength = 120) {
+  if (value === null || value === undefined || value === "") return null;
+  const normalized = String(value).trim();
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function adminMusicCompositionPlanSummary(payload) {
+  if (!payload?.compositionPlan) return null;
+  try {
+    const summary = validateElevenLabsMusicV2CompositionPlan(payload.compositionPlan);
+    return {
+      chunkCount: safeAdminMusicNumber(summary?.chunkCount, { integer: true }),
+      serializedLength: safeAdminMusicNumber(summary?.serializedLength, { integer: true }),
+      totalDurationMs: safeAdminMusicNumber(summary?.totalDurationMs, { integer: true }),
+    };
+  } catch {
+    // Generation validation is authoritative. Durable metadata must never make an
+    // otherwise-valid provider request fail merely because a summary is unavailable.
+    return null;
+  }
+}
+
+function adminMusicProviderCostEstimate(payload, modelId, planSummary = null) {
+  if (modelId !== ELEVENLABS_MUSIC_V2_MODEL_ID) return null;
+
+  let durationMs = planSummary?.totalDurationMs ?? null;
+  let estimateKind = planSummary ? "composition_plan" : "requested_duration";
+  if (durationMs === null) {
+    durationMs = safeAdminMusicNumber(payload?.musicLengthMs, { integer: true });
+  }
+  if (durationMs === null) {
+    durationMs = ELEVENLABS_MUSIC_V2_MAX_DURATION_MS;
+    estimateKind = "maximum_exposure";
+  }
+
+  const pricing = calculateElevenLabsMusicV2ProviderCost(durationMs);
+  if (!pricing) return null;
   return {
+    durationMs: pricing.durationMs,
+    providerCostUsd: pricing.providerCostUsd,
+    priceUsdPerOutputSecond: pricing.priceUsdPerOutputSecond,
+    estimateKind,
+    isEstimate: true,
+  };
+}
+
+function withAdminMusicProviderCostEvidence(budgetPolicy, evidence) {
+  if (!evidence) return budgetPolicy;
+  return {
+    ...budgetPolicy,
+    summary: {
+      ...budgetPolicy.summary,
+      provider_cost_usd: evidence.providerCostUsd,
+      provider_cost_usd_is_estimate: true,
+      provider_cost_estimate_duration_ms: evidence.durationMs,
+      provider_cost_estimate_kind: evidence.estimateKind,
+      provider_price_usd_per_output_second: evidence.priceUsdPerOutputSecond,
+      platform_budget_unit_rule: "fixed_admin_music_operation_registry",
+      platform_budget_units_are_usd: false,
+      platform_budget_usd_conversion_applied: false,
+    },
+  };
+}
+
+function adminMusicRequestMetadata(payload, {
+  modelId = null,
+  planSummary = null,
+  providerCostEstimate = null,
+} = {}) {
+  const inputMode = payload?.inputMode
+    || (payload?.compositionPlan ? "composition_plan" : modelId === ELEVENLABS_MUSIC_V2_MODEL_ID ? "prompt" : null);
+  const requestedDurationMs = planSummary?.totalDurationMs
+    ?? safeAdminMusicNumber(payload?.musicLengthMs, { integer: true });
+  return {
+    model_id: safeAdminMusicString(modelId || payload?.model, 160),
+    input_mode: safeAdminMusicString(inputMode, 40),
     prompt_length: payload?.prompt ? String(payload.prompt).length : 0,
     lyric_text_length: payload?.lyrics ? String(payload.lyrics).length : 0,
     mode: payload?.mode || null,
     lyric_mode: payload?.lyricsMode || null,
     bpm: payload?.bpm ?? null,
     key_center: payload?.key || null,
+    composition_plan_present: payload?.compositionPlan != null,
+    composition_plan_chunk_count: planSummary?.chunkCount ?? null,
+    composition_plan_serialized_length: planSummary?.serializedLength ?? null,
+    composition_plan_total_duration_ms: planSummary?.totalDurationMs ?? null,
+    duration_mode: inputMode === "composition_plan"
+      ? "composition_plan"
+      : requestedDurationMs === null && modelId === ELEVENLABS_MUSIC_V2_MODEL_ID
+        ? "auto"
+        : requestedDurationMs === null ? null : "explicit",
+    requested_duration_ms: requestedDurationMs,
+    output_format: safeAdminMusicString(payload?.outputFormat, 80),
+    seed_present: payload?.seed !== null && payload?.seed !== undefined,
+    force_instrumental: payload?.forceInstrumental === true,
+    store_for_inpainting: payload?.storeForInpainting === true,
+    sign_with_c2pa: payload?.signWithC2pa === true,
+    provider_cost_usd: providerCostEstimate?.providerCostUsd ?? null,
+    provider_cost_usd_is_estimate: providerCostEstimate ? true : null,
+    provider_cost_estimate_duration_ms: providerCostEstimate?.durationMs ?? null,
+    provider_cost_estimate_kind: providerCostEstimate?.estimateKind ?? null,
   };
 }
 
@@ -962,17 +1117,75 @@ function adminLiveAgentResultMetadata({
   };
 }
 
-function adminMusicResultMetadata(providerBody) {
+function adminMusicResultMetadata(providerBody, {
+  modelId = null,
+  provider = null,
+  requestMetadata = null,
+  providerCostEstimate = null,
+} = {}) {
   const result = providerBody?.result || {};
+  const estimatedProviderCostUsd = safeAdminMusicNumber(
+    result.estimatedProviderCostUsd ?? providerCostEstimate?.providerCostUsd
+  );
+  const actualProviderCostUsd = safeAdminMusicNumber(result.actualProviderCostUsd);
+  const providerStatus = result.providerStatus ?? result.providerState ?? providerBody?.state ?? null;
   return {
     result_kind: "music",
-    duration_ms: result.durationMs == null ? null : Number(result.durationMs),
-    sample_rate: result.sampleRate == null ? null : Number(result.sampleRate),
-    channels: result.channels == null ? null : Number(result.channels),
-    bitrate: result.bitrate == null ? null : Number(result.bitrate),
-    size_bytes: result.sizeBytes == null ? null : Number(result.sizeBytes),
-    provider_status: result.providerStatus == null ? null : Number(result.providerStatus),
+    model_id: safeAdminMusicString(modelId || providerBody?.model, 160),
+    provider: safeAdminMusicString(result.provider || provider, 80),
+    input_mode: safeAdminMusicString(result.inputMode || requestMetadata?.input_mode, 40),
+    duration_mode: safeAdminMusicString(result.durationMode || requestMetadata?.duration_mode, 40),
+    requested_duration_ms: safeAdminMusicNumber(
+      result.requestedDurationMs ?? requestMetadata?.requested_duration_ms,
+      { integer: true }
+    ),
+    actual_duration_ms: safeAdminMusicNumber(result.actualDurationMs, { integer: true }),
+    duration_ms: safeAdminMusicNumber(result.durationMs, { integer: true }),
+    sample_rate: safeAdminMusicNumber(result.sampleRate, { integer: true }),
+    channels: safeAdminMusicNumber(result.channels, { integer: true }),
+    bitrate: safeAdminMusicNumber(result.bitrate, { integer: true }),
+    size_bytes: safeAdminMusicNumber(result.sizeBytes, { integer: true }),
+    provider_status: typeof providerStatus === "number" && Number.isFinite(providerStatus)
+      ? providerStatus
+      : safeAdminMusicString(providerStatus, 120),
+    provider_state: safeAdminMusicString(result.providerState ?? providerBody?.state, 120),
+    output_format: safeAdminMusicString(result.outputFormat || requestMetadata?.output_format, 80),
     mime_type: typeof result.mimeType === "string" ? result.mimeType.slice(0, 80) : null,
+    seed_present: result.seed !== null && result.seed !== undefined
+      ? true
+      : requestMetadata?.seed_present ?? null,
+    force_instrumental: result.forceInstrumental === true
+      || requestMetadata?.force_instrumental === true,
+    store_for_inpainting: result.storeForInpainting === true
+      || requestMetadata?.store_for_inpainting === true,
+    sign_with_c2pa: result.signWithC2pa === true
+      || requestMetadata?.sign_with_c2pa === true,
+    composition_plan_present: result.compositionPlanPresent === true
+      || requestMetadata?.composition_plan_present === true,
+    composition_plan_chunk_count: safeAdminMusicNumber(
+      result.compositionPlanChunkCount ?? result.chunkCount ?? requestMetadata?.composition_plan_chunk_count,
+      { integer: true }
+    ),
+    composition_plan_serialized_length: safeAdminMusicNumber(
+      result.compositionPlanSerializedLength
+        ?? result.serializedLength
+        ?? requestMetadata?.composition_plan_serialized_length,
+      { integer: true }
+    ),
+    provider_cost_usd: actualProviderCostUsd ?? estimatedProviderCostUsd,
+    provider_cost_usd_is_estimate: actualProviderCostUsd === null
+      ? estimatedProviderCostUsd === null ? null : true
+      : false,
+    estimated_provider_cost_usd: estimatedProviderCostUsd,
+    actual_provider_cost_usd: actualProviderCostUsd,
+    provider_cost_estimate_duration_ms: safeAdminMusicNumber(
+      result.providerCostEstimateDurationMs ?? providerCostEstimate?.durationMs,
+      { integer: true }
+    ),
+    provider_cost_estimate_kind: safeAdminMusicString(
+      result.providerCostEstimateKind ?? providerCostEstimate?.estimateKind,
+      40
+    ),
     audio_url_present: typeof result.audioUrl === "string" && result.audioUrl.length > 0,
     audio_base64_present: typeof result.audioBase64 === "string" && result.audioBase64.length > 0,
     vocal_text_present: typeof result.lyricsPreview === "string" && result.lyricsPreview.length > 0,
@@ -1078,6 +1291,24 @@ async function parseJsonResponseBody(response) {
   } catch {
     return null;
   }
+}
+
+function buildConsumedAdminMusicProxyResponse(consumed, correlationId, {
+  budgetPolicy = null,
+  callerPolicy = null,
+} = {}) {
+  const body = consumed?.body;
+  if (body?.ok && budgetPolicy) body.budget_policy = budgetPolicy;
+  if (body?.ok && callerPolicy) body.caller_policy = compactAdminCallerPolicy(callerPolicy);
+
+  const headers = new Headers(consumed?.headers);
+  headers.set("content-type", "application/json; charset=utf-8");
+  headers.delete("content-length");
+  return withCorrelationId(new Response(JSON.stringify(body), {
+    status: consumed?.status || 502,
+    statusText: consumed?.statusText || undefined,
+    headers,
+  }), correlationId);
 }
 
 async function appendAdminLabBudgetMetadata(response, {
@@ -3195,19 +3426,31 @@ export async function handleAdminAI(ctx) {
       const validated = validateMusicPayload(body);
       const selection = resolveAdminAiModelSelection("music", validated);
       const modelId = selection.model.id;
-      const budgetPolicy = await buildAdminLabBudgetPolicyContext({
-        user: result.user,
-        operationId: ADMIN_MUSIC_OPERATION_ID,
+      const planSummary = modelId === ELEVENLABS_MUSIC_V2_MODEL_ID
+        ? adminMusicCompositionPlanSummary(validated)
+        : null;
+      const providerCostEstimate = adminMusicProviderCostEstimate(validated, modelId, planSummary);
+      const requestMetadata = adminMusicRequestMetadata(validated, {
         modelId,
-        modelResolverKey: "admin.music.model_registry",
-        routeId: "admin.ai.test-music",
-        routePath: "/api/admin/ai/test-music",
-        payload: validated,
-        hashFields: ["prompt", "lyrics"],
-        idempotencyKey,
-        killSwitchTarget: ADMIN_MUSIC_BUDGET_KILL_SWITCH,
-        correlationId,
+        planSummary,
+        providerCostEstimate,
       });
+      const budgetPolicy = withAdminMusicProviderCostEvidence(
+        await buildAdminLabBudgetPolicyContext({
+          user: result.user,
+          operationId: ADMIN_MUSIC_OPERATION_ID,
+          modelId,
+          modelResolverKey: "admin.music.model_registry",
+          routeId: "admin.ai.test-music",
+          routePath: "/api/admin/ai/test-music",
+          payload: validated,
+          hashFields: ["prompt", "lyrics"],
+          idempotencyKey,
+          killSwitchTarget: ADMIN_MUSIC_BUDGET_KILL_SWITCH,
+          correlationId,
+        }),
+        providerCostEstimate
+      );
       const switchResponse = await adminBudgetSwitchResponseOrNull({
         env,
         plan: budgetPolicy.plan,
@@ -3258,7 +3501,7 @@ export async function handleAdminAI(ctx) {
         budgetPolicy: initialBudgetPolicy,
         callerPolicy: compactAdminCallerPolicy(callerPolicy),
         metadata: adminLabAttemptSafeMetadata({
-          requestMetadata: adminMusicRequestMetadata(validated),
+          requestMetadata,
           budgetPolicy: initialBudgetPolicy,
           callerPolicy,
           state: "pending",
@@ -3285,21 +3528,33 @@ export async function handleAdminAI(ctx) {
         },
         result.user,
         correlationId,
-        requestInfo
+        requestInfo,
+        {
+          normalizeResponseCode: false,
+          ...(modelId === ELEVENLABS_MUSIC_V2_MODEL_ID
+            ? { timeoutMs: ADMIN_AI_ELEVENLABS_MUSIC_PROXY_TIMEOUT_MS }
+            : {}),
+        }
       );
-      const providerBody = await parseJsonResponseBody(response);
-      if (!response.ok || !providerBody?.ok) {
+      const consumedResponse = await consumeAdminAiJsonResponseOnce(response);
+      const providerBody = consumedResponse.body;
+      if (!consumedResponse.ok || !providerBody?.ok) {
         await markAdminAiIdempotencyProviderFailed(env, attemptState.attempt.id, {
           code: providerBody?.code || "provider_failed",
           message: "Admin music provider call failed.",
         });
-        return response;
+        return buildConsumedAdminMusicProxyResponse(consumedResponse, correlationId);
       }
-      const resultMetadata = adminMusicResultMetadata(providerBody);
+      const resultMetadata = adminMusicResultMetadata(providerBody, {
+        modelId,
+        provider: selection.model.vendor,
+        requestMetadata,
+        providerCostEstimate,
+      });
       const completedAttempt = await markAdminAiIdempotencySucceeded(env, attemptState.attempt.id, {
         resultMetadata,
         metadata: adminLabAttemptSafeMetadata({
-          requestMetadata: adminMusicRequestMetadata(validated),
+          requestMetadata,
           resultMetadata,
           budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, attemptState.attempt, "succeeded"),
           callerPolicy,
@@ -3317,17 +3572,78 @@ export async function handleAdminAI(ctx) {
           model_id: modelId,
           provider_family: initialBudgetPolicy.provider_family,
           result_status: "succeeded",
+          provider_cost_usd: resultMetadata.provider_cost_usd,
+          provider_cost_usd_is_estimate: resultMetadata.provider_cost_usd_is_estimate,
+          provider_cost_estimate_duration_ms: resultMetadata.provider_cost_estimate_duration_ms,
+          provider_cost_estimate_kind: resultMetadata.provider_cost_estimate_kind,
+          platform_budget_unit_rule: initialBudgetPolicy.platform_budget_unit_rule || null,
+          platform_budget_units_are_usd: false,
         },
       });
-      return appendAdminLabBudgetMetadata(response, {
+      return buildConsumedAdminMusicProxyResponse(consumedResponse, correlationId, {
         budgetPolicy: withAdminLabAttemptBudgetMetadata(initialBudgetPolicy, completedAttempt, "succeeded"),
         callerPolicy,
-      }, correlationId);
+      });
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
       if (error instanceof AdminAiIdempotencyError) return inputErrorResponse(error, correlationId);
       if (error instanceof PlatformBudgetCapError) return platformBudgetCapResponse(error, correlationId);
       throw error;
+    }
+  }
+
+  // route-policy: admin.ai.download-music
+  if (pathname === "/api/admin/ai/download-music" && method === "POST") {
+    const limited = await rateLimitAdminAi(
+      request,
+      env,
+      "admin-ai-download-music-ip",
+      16,
+      600_000,
+      correlationId
+    );
+    if (limited) return limited;
+
+    const parsed = await readAdminAiJsonBody(request, correlationId, {
+      maxBytes: BODY_LIMITS.smallJson,
+    });
+    if (parsed.response) return parsed.response;
+    if (!parsed.body) return badJsonResponse(correlationId);
+
+    let audioUrl = null;
+    try {
+      audioUrl = validateAdminMusicDownloadBody(parsed.body);
+      const audio = await fetchGeneratedAudioForSave(audioUrl);
+      const response = adminMusicDownloadResponse(audio, correlationId);
+      const trustedUrl = new URL(audioUrl);
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-download-music",
+        event: "admin_ai_music_download_relayed",
+        level: "info",
+        correlationId,
+        admin_user_id: result.user.id,
+        remote_url_host: trustedUrl.hostname,
+        remote_url_has_query: trustedUrl.search ? true : false,
+        mime_type: audio.mimeType,
+        size_bytes: audio.sizeBytes,
+        ...getRequestLogFields(requestInfo),
+      });
+      return response;
+    } catch (error) {
+      if (!(error instanceof InputError) && !(error?.status && error?.code)) throw error;
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "admin-ai-download-music",
+        event: "admin_ai_music_download_failed",
+        level: Number(error?.status || 400) >= 500 ? "error" : "warn",
+        correlationId,
+        admin_user_id: result.user.id,
+        ...getRemoteMediaPolicyLogFields(error),
+        ...getRequestLogFields(requestInfo),
+        ...getErrorFields(error, { includeMessage: false }),
+      });
+      return inputErrorResponse(error, correlationId);
     }
   }
 

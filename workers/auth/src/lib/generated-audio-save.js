@@ -1,24 +1,18 @@
-import { AI_MUSIC_ASSET_MAX_BYTES } from "./ai-text-assets.js";
+import {
+  AI_MUSIC_ASSET_MAX_BYTES,
+  detectMusicAssetMimeTypeFromBytes,
+  normalizeMusicAssetMimeType,
+} from "./ai-text-assets.js";
 import {
   REMOTE_MEDIA_URL_POLICY_CODE,
   attachRemoteMediaPolicyContext,
   buildRemoteMediaUrlRejectedMessage,
 } from "../../../../js/shared/remote-media-policy.mjs";
+import {
+  getTrustedGeneratedAudioOutputUrl as parseTrustedGeneratedAudioOutputUrl,
+} from "../../../../js/shared/generated-audio-output-url.mjs";
 
-const GENERATED_AUDIO_URL_MAX_LENGTH = 4096;
-const TRUSTED_AUDIO_OUTPUT_PATH_PREFIX = "/provider-outputs/";
-const TRUSTED_AUDIO_OUTPUT_HOST_PREFIX = "ai-gateway-outputs";
-const TRUSTED_AUDIO_OUTPUT_HOST_SUFFIX = ".cloudflarestorage.com";
-const FETCHED_AUDIO_MIME_TYPES = new Map([
-  ["audio/mpeg", "audio/mpeg"],
-  ["audio/mp3", "audio/mpeg"],
-  ["audio/x-mpeg", "audio/mpeg"],
-  ["audio/wav", "audio/wav"],
-  ["audio/wave", "audio/wav"],
-  ["audio/x-wav", "audio/wav"],
-  ["audio/flac", "audio/flac"],
-  ["audio/x-flac", "audio/flac"],
-]);
+const GENERATED_AUDIO_FETCH_TIMEOUT_MS = 60_000;
 
 export function makeGeneratedAudioSaveError(message, { status = 400, code = "validation_error" } = {}) {
   const error = new Error(message);
@@ -47,46 +41,13 @@ export function buildRejectedRemoteAudioUrlError(audioUrl, reason = "remote_audi
 }
 
 export function getTrustedGeneratedAudioOutputUrl(value) {
-  const raw = String(value || "").trim();
-  if (!raw || raw.length > GENERATED_AUDIO_URL_MAX_LENGTH) return null;
-
-  let parsed;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    return null;
-  }
-
-  const hostname = parsed.hostname.toLowerCase();
-  const isTrustedHost = hostname.startsWith(TRUSTED_AUDIO_OUTPUT_HOST_PREFIX)
-    && hostname.endsWith(TRUSTED_AUDIO_OUTPUT_HOST_SUFFIX);
-  if (
-    parsed.protocol !== "https:" ||
-    parsed.username ||
-    parsed.password ||
-    (parsed.port && parsed.port !== "443") ||
-    !isTrustedHost ||
-    !parsed.pathname.startsWith(TRUSTED_AUDIO_OUTPUT_PATH_PREFIX)
-  ) {
-    return null;
-  }
-
-  return parsed;
+  return parseTrustedGeneratedAudioOutputUrl(value);
 }
 
 function parseContentLength(value) {
   if (!value) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
-function uint8ArrayToBase64(bytes) {
-  const chunkSize = 0x8000;
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
 }
 
 function normalizeContentType(contentType) {
@@ -96,39 +57,16 @@ function normalizeContentType(contentType) {
     .toLowerCase();
 }
 
-function sniffAudioMimeType(bytes) {
-  if (!bytes || bytes.byteLength < 4) return null;
-  if (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) {
-    return "audio/mpeg";
-  }
-  if (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) {
-    return "audio/mpeg";
-  }
-  if (
-    bytes.byteLength >= 12 &&
-    bytes[0] === 0x52 &&
-    bytes[1] === 0x49 &&
-    bytes[2] === 0x46 &&
-    bytes[3] === 0x46 &&
-    bytes[8] === 0x57 &&
-    bytes[9] === 0x41 &&
-    bytes[10] === 0x56 &&
-    bytes[11] === 0x45
-  ) {
-    return "audio/wav";
-  }
-  if (bytes[0] === 0x66 && bytes[1] === 0x4c && bytes[2] === 0x61 && bytes[3] === 0x43) {
-    return "audio/flac";
-  }
-  return null;
-}
-
 function normalizeFetchedAudioMimeType(contentType, bytes) {
   const declared = normalizeContentType(contentType);
-  const normalized = FETCHED_AUDIO_MIME_TYPES.get(declared);
-  if (normalized) return normalized;
+  const normalized = normalizeMusicAssetMimeType(declared);
+  const detected = detectMusicAssetMimeTypeFromBytes(bytes);
+  if (normalized === "audio/ogg") {
+    return detected === "audio/ogg" ? "audio/ogg" : null;
+  }
+  if (normalized) return detected && detected !== normalized ? null : normalized;
   if (!declared || declared === "application/octet-stream" || declared === "binary/octet-stream") {
-    return sniffAudioMimeType(bytes);
+    return detected;
   }
   return null;
 }
@@ -187,59 +125,68 @@ export async function fetchGeneratedAudioForSave(audioUrl) {
     throw buildRejectedRemoteAudioUrlError(audioUrl);
   }
 
-  let response;
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timeoutId = controller
+    ? setTimeout(() => controller.abort(), GENERATED_AUDIO_FETCH_TIMEOUT_MS)
+    : null;
+  let stage = "fetch";
   try {
-    response = await fetch(trustedUrl.toString(), {
+    const response = await fetch(trustedUrl.toString(), {
       method: "GET",
       redirect: "manual",
+      ...(controller ? { signal: controller.signal } : {}),
     });
-  } catch {
-    throw makeGeneratedAudioSaveError("Generated audio could not be fetched for saving.", {
-      status: 502,
-      code: "upstream_audio_fetch_failed",
-    });
-  }
+    if (!response?.ok) {
+      throw makeGeneratedAudioSaveError("Generated audio could not be fetched for saving.", {
+        status: 502,
+        code: "upstream_audio_fetch_failed",
+      });
+    }
 
-  if (!response?.ok) {
-    throw makeGeneratedAudioSaveError("Generated audio could not be fetched for saving.", {
-      status: 502,
-      code: "upstream_audio_fetch_failed",
-    });
-  }
+    const declaredLength = parseContentLength(response.headers.get("content-length"));
+    if (declaredLength !== null && declaredLength > AI_MUSIC_ASSET_MAX_BYTES) {
+      throw makeGeneratedAudioSaveError(`Music asset exceeds the ${AI_MUSIC_ASSET_MAX_BYTES} byte limit.`);
+    }
 
-  const declaredLength = parseContentLength(response.headers.get("content-length"));
-  if (declaredLength !== null && declaredLength > AI_MUSIC_ASSET_MAX_BYTES) {
-    throw makeGeneratedAudioSaveError(`Music asset exceeds the ${AI_MUSIC_ASSET_MAX_BYTES} byte limit.`);
-  }
+    stage = "read";
+    const bytes = await readResponseBytesWithLimit(response, AI_MUSIC_ASSET_MAX_BYTES);
+    if (bytes.byteLength === 0) {
+      throw makeGeneratedAudioSaveError("Audio payload is empty.");
+    }
+    if (bytes.byteLength > AI_MUSIC_ASSET_MAX_BYTES) {
+      throw makeGeneratedAudioSaveError(`Music asset exceeds the ${AI_MUSIC_ASSET_MAX_BYTES} byte limit.`);
+    }
 
-  let bytes;
-  try {
-    bytes = await readResponseBytesWithLimit(response, AI_MUSIC_ASSET_MAX_BYTES);
+    const mimeType = normalizeFetchedAudioMimeType(response.headers.get("content-type"), bytes);
+    if (!mimeType) {
+      throw makeGeneratedAudioSaveError("Generated audio is not a supported audio file.");
+    }
+
+    return {
+      bytes,
+      mimeType,
+      sizeBytes: bytes.byteLength,
+    };
   } catch (error) {
     if (error?.status && error?.code) {
       throw error;
     }
-    throw makeGeneratedAudioSaveError("Generated audio could not be read for saving.", {
-      status: 502,
-      code: "upstream_audio_fetch_failed",
-    });
+    if (controller?.signal?.aborted) {
+      throw makeGeneratedAudioSaveError("Generated audio fetch timed out before it could be saved.", {
+        status: 504,
+        code: "upstream_audio_fetch_timeout",
+      });
+    }
+    throw makeGeneratedAudioSaveError(
+      stage === "fetch"
+        ? "Generated audio could not be fetched for saving."
+        : "Generated audio could not be read for saving.",
+      {
+        status: 502,
+        code: "upstream_audio_fetch_failed",
+      }
+    );
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
   }
-
-  if (bytes.byteLength === 0) {
-    throw makeGeneratedAudioSaveError("Audio payload is empty.");
-  }
-  if (bytes.byteLength > AI_MUSIC_ASSET_MAX_BYTES) {
-    throw makeGeneratedAudioSaveError(`Music asset exceeds the ${AI_MUSIC_ASSET_MAX_BYTES} byte limit.`);
-  }
-
-  const mimeType = normalizeFetchedAudioMimeType(response.headers.get("content-type"), bytes);
-  if (!mimeType) {
-    throw makeGeneratedAudioSaveError("Generated audio is not a supported audio file.");
-  }
-
-  return {
-    audioBase64: uint8ArrayToBase64(bytes),
-    mimeType,
-    sizeBytes: bytes.byteLength,
-  };
 }

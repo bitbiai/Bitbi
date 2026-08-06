@@ -15,18 +15,9 @@ export function inferAdminAiErrorCode(status, message = "") {
   return "bad_request";
 }
 
-export async function withAdminAiCode(response) {
-  if (!(response instanceof Response)) return response;
-
-  let body;
-  try {
-    body = await response.clone().json();
-  } catch {
-    return response;
-  }
-
-  if (!body || typeof body !== "object") {
-    return response;
+export function normalizeAdminAiResponseBody(body, status = 200) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return body;
   }
 
   const nextCode = body.ok
@@ -39,9 +30,65 @@ export async function withAdminAiCode(response) {
           : null
       )
     )
-    : (body.code || inferAdminAiErrorCode(response.status, body.error));
+    : (body.code || inferAdminAiErrorCode(status, body.error));
 
-  if (!nextCode || body.code === nextCode) {
+  return !nextCode || body.code === nextCode
+    ? body
+    : { ...body, code: nextCode };
+}
+
+export async function consumeAdminAiJsonResponseOnce(response) {
+  if (!(response instanceof Response)) {
+    return {
+      body: {
+        ok: false,
+        error: "AI lab returned an invalid response.",
+        code: "upstream_error",
+      },
+      headers: new Headers(),
+      ok: false,
+      status: 502,
+      statusText: "",
+    };
+  }
+
+  const headers = new Headers(response.headers);
+  try {
+    const body = await response.json();
+    return {
+      body: normalizeAdminAiResponseBody(body, response.status),
+      headers,
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+    };
+  } catch {
+    return {
+      body: {
+        ok: false,
+        error: "AI lab returned an invalid JSON response.",
+        code: "upstream_error",
+      },
+      headers,
+      ok: false,
+      status: response.ok ? 502 : response.status,
+      statusText: response.ok ? "" : response.statusText,
+    };
+  }
+}
+
+export async function withAdminAiCode(response) {
+  if (!(response instanceof Response)) return response;
+
+  let body;
+  try {
+    body = await response.clone().json();
+  } catch {
+    return response;
+  }
+
+  const normalizedBody = normalizeAdminAiResponseBody(body, response.status);
+  if (normalizedBody === body) {
     return response;
   }
 
@@ -49,7 +96,7 @@ export async function withAdminAiCode(response) {
   headers.set("content-type", "application/json; charset=utf-8");
   headers.delete("content-length");
 
-  return new Response(JSON.stringify({ ...body, code: nextCode }), {
+  return new Response(JSON.stringify(normalizedBody), {
     status: response.status,
     headers,
   });

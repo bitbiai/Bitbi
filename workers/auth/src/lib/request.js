@@ -29,7 +29,11 @@ export const BODY_LIMITS = Object.freeze({
   aiGenerateImageJson: 15 * 1024 * 1024,
   aiGenerateVideoJson: 15 * 1024 * 1024,
   aiSaveImageJson: 15 * 1024 * 1024,
-  aiSaveAudioJson: 18 * 1024 * 1024,
+  // A 10-minute 320 kbps ElevenLabs output is 24,000,000 encoded bytes and
+  // 32,000,000 Base64 characters. Keep bounded JSON headroom for the data-URI
+  // header and save metadata without approaching Cloudflare's 128 MiB isolate
+  // memory ceiling.
+  aiSaveAudioJson: 36 * 1024 * 1024,
   aiSaveVideoPosterJson: 4 * 1024 * 1024,
   billingWebhookRaw: 128 * 1024,
   openClawIngestRaw: 32 * 1024,

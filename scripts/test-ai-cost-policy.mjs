@@ -147,7 +147,7 @@ ${inventoryExtra}
   const repoRoot = makeRepo();
   const result = analyzeAiCostPolicy(repoRoot);
   assert.equal(result.ok, true, JSON.stringify(result.fatalIssues));
-  assert.equal(result.registrySummary.totalOperations, 32);
+  assert.equal(result.registrySummary.totalOperations, 33);
   assert.equal(result.registrySummary.memberOperations, 7);
   assert.equal(result.registrySummary.currentMissingMandatoryIdempotency, 0);
   assert(!result.registrySummary.highRiskOperations.includes("member.image.generate"));

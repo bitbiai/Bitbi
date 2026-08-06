@@ -32,8 +32,34 @@ async function loadAuthGenerationTimeoutModule() {
   return import(modulePath);
 }
 
+async function loadAdminAiProxyModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/admin-ai-proxy.js')
+  ).href;
+  return import(modulePath);
+}
+
+async function loadAiTextAssetsModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/ai-text-assets.js')
+  ).href;
+  return import(modulePath);
+}
+
+async function loadElevenLabsMusicPricingModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/shared/elevenlabs-music-v2-pricing.mjs')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadAiGenerationTimeoutModule() {
   const modulePath = pathToFileURL(path.join(process.cwd(), 'workers/ai/src/lib/generation-timeout.js')).href;
+  return import(modulePath);
+}
+
+async function loadAiMusicRouteModule() {
+  const modulePath = pathToFileURL(path.join(process.cwd(), 'workers/ai/src/routes/music.js')).href;
   return import(modulePath);
 }
 
@@ -66,6 +92,13 @@ async function loadActivitySearchModule() {
 async function loadObservabilityModule() {
   const observabilityPath = pathToFileURL(path.join(process.cwd(), 'js/shared/worker-observability.mjs')).href;
   return import(observabilityPath);
+}
+
+async function loadAdminAiResponseModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'workers/auth/src/lib/admin-ai-response.js')
+  ).href;
+  return import(modulePath);
 }
 
 async function loadAiGeneratedSaveReferenceModule() {
@@ -883,6 +916,41 @@ test.describe('BITBI generation timeout standard', () => {
       status: 504,
       code: 'generation_timeout',
     });
+  });
+
+  test('gives only the ElevenLabs Auth proxy bounded relay headroom', async () => {
+    const shared = await loadGenerationTimeoutModule();
+    const proxy = await loadAdminAiProxyModule();
+    const pricing = await loadElevenLabsMusicPricingModule();
+
+    expect(proxy.ADMIN_AI_ELEVENLABS_MUSIC_PROXY_TIMEOUT_MS).toBe(
+      pricing.ELEVENLABS_MUSIC_V2_AUTH_PROXY_TIMEOUT_MS
+    );
+    expect(pricing.ELEVENLABS_MUSIC_V2_AI_TIMEOUT_MS).toBe(shared.BITBI_GENERATION_TIMEOUT_MS);
+    expect(pricing.ELEVENLABS_MUSIC_V2_AUTH_PROXY_TIMEOUT_MS).toBe(630_000);
+    expect(pricing.ELEVENLABS_MUSIC_V2_BROWSER_TIMEOUT_MS).toBe(660_000);
+    expect(proxy.generationTimeoutResponse(null).status).toBe(504);
+    await expect(proxy.generationTimeoutResponse(null, 630_000).json()).resolves.toEqual(
+      expect.objectContaining({
+        code: 'request_timeout',
+        error: 'Generation timed out after 630 seconds.',
+      })
+    );
+  });
+
+  test('keeps inline ElevenLabs audio and Auth save limits aligned and bounded', async () => {
+    const pricing = await loadElevenLabsMusicPricingModule();
+    const assets = await loadAiTextAssetsModule();
+    const request = await loadRequestModule();
+
+    expect(pricing.ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES).toBe(25 * 1024 * 1024);
+    expect(assets.AI_MUSIC_ASSET_MAX_BYTES).toBe(
+      pricing.ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES
+    );
+    expect(request.BODY_LIMITS.aiSaveAudioJson).toBe(36 * 1024 * 1024);
+    expect(request.BODY_LIMITS.aiSaveAudioJson).toBeGreaterThan(
+      pricing.ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BASE64_LENGTH + (512 * 1024)
+    );
   });
 });
 
@@ -16704,6 +16772,79 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(attemptJson).toContain('included_in_parent_music_bundle');
   });
 
+  test('member MiniMax music generation copies trusted provider URL output through the byte-oriented save path', async () => {
+    const remoteUrl = 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music/member-track.mp3?X-Amz-Signature=mock';
+    const mp3Bytes = new Uint8Array([
+      0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0xff, 0xfb, 0x90, 0x64,
+    ]);
+    const { authWorker, env, token, calls } = await createMemberMusicHarness({
+      aiRun: async (modelId) => {
+        if (modelId === 'minimax/music-2.6') {
+          return {
+            data: { audio: remoteUrl, status: 2 },
+            trace_id: 'member-music-url-trace',
+            extra_info: { music_size: mp3Bytes.byteLength },
+          };
+        }
+        return { response: '[Verse]\nGenerated lyrics' };
+      },
+    });
+    const originalFetch = global.fetch;
+    const fetchCalls = [];
+    global.fetch = async (url, options) => {
+      fetchCalls.push({ url: String(url), options });
+      return new Response(mp3Bytes, {
+        status: 200,
+        headers: {
+          'content-type': 'audio/mpeg',
+          'content-length': String(mp3Bytes.byteLength),
+        },
+      });
+    };
+
+    try {
+      const res = await postGenerateMusic({
+        worker: authWorker,
+        env,
+        token,
+        body: { lyrics: '[Verse]\nProvider URL output' },
+        idempotencyKey: 'member-music-provider-url-key-123456',
+      });
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        data: {
+          audioUrl: expect.stringMatching(/^\/api\/ai\/text-assets\/[a-f0-9]+\/file$/),
+          asset: {
+            source_module: 'music',
+            mime_type: 'audio/mpeg',
+            size_bytes: mp3Bytes.byteLength,
+          },
+        },
+        billing: {
+          credits_charged: 150,
+        },
+      });
+      expect(calls).toHaveLength(1);
+      expect(fetchCalls).toEqual([expect.objectContaining({
+        url: remoteUrl,
+        options: expect.objectContaining({ method: 'GET', redirect: 'manual' }),
+      })]);
+      expect(env.DB.state.aiTextAssets).toHaveLength(1);
+      const savedRow = env.DB.state.aiTextAssets[0];
+      expect(savedRow.file_name).toMatch(/\.mp3$/);
+      expect(savedRow.mime_type).toBe('audio/mpeg');
+      expect(Array.from(env.USER_IMAGES.objects.get(savedRow.r2_key).body)).toEqual(Array.from(mp3Bytes));
+      expect(env.DB.state.memberCreditLedger.filter((row) =>
+        row.feature_key === 'ai.music.generate' && row.entry_type === 'consume'
+      )).toHaveLength(1);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   test('member music generation requires a valid Idempotency-Key before provider calls', async () => {
     const { authWorker, env, token, calls } = await createMemberMusicHarness();
 
@@ -23331,6 +23472,304 @@ test.describe('Worker routes', () => {
   });
 
   test.describe('Admin AI contract routes', () => {
+    test('shared music registry keeps MiniMax default and exposes ElevenLabs Music v2 capabilities safely', async () => {
+      const contract = await loadAdminAiContractModule();
+      const catalog = contract.listAdminAiCatalog();
+      const musicModels = catalog.models.music;
+
+      expect(musicModels.map((model) => model.id)).toEqual([
+        'minimax/music-2.6',
+        'elevenlabs/music-v2',
+      ]);
+      expect(contract.ADMIN_AI_DEFAULT_PRESETS.music).toBe('music_studio');
+      expect(catalog.presets.find((preset) => preset.name === 'music_studio')).toMatchObject({
+        task: 'music',
+        model: 'minimax/music-2.6',
+      });
+      expect(catalog.presets.find((preset) => preset.name === 'music_elevenlabs_v2')).toMatchObject({
+        task: 'music',
+        model: 'elevenlabs/music-v2',
+      });
+      expect(contract.resolveAdminAiModelSelection('music', {}).model.id).toBe('minimax/music-2.6');
+      expect(contract.resolveAdminAiModelSelection('music', {
+        model: 'elevenlabs/music-v2',
+      }).model.id).toBe('elevenlabs/music-v2');
+      expect(() => contract.resolveAdminAiModelSelection('music', {
+        model: 'elevenlabs/music-v3',
+      })).toThrow(/not allowlisted/);
+
+      const elevenLabs = musicModels[1];
+      expect(elevenLabs).toMatchObject({
+        task: 'music',
+        label: 'ElevenLabs Music v2',
+        vendor: 'ElevenLabs',
+        capabilities: expect.objectContaining({
+          supportsPrompt: true,
+          supportsCompositionPlan: true,
+          supportsExplicitDuration: true,
+          supportsAutomaticDuration: true,
+          minDurationMs: 3000,
+          maxDurationMs: 600000,
+          maxChunks: 30,
+          supportsSeed: true,
+          minSeed: 0,
+          maxSeed: 4294967295,
+          supportsInstrumentalEnforcement: true,
+          supportsStoreForInpainting: true,
+          supportsC2pa: true,
+          pricingMode: 'per_output_audio_second',
+          priceUsdPerOutputSecond: 0.0025,
+          defaultOutputFormat: 'auto',
+        }),
+      });
+      expect(elevenLabs.capabilities.outputFormatOptions).toEqual([
+        'auto',
+        'mp3_48000_128',
+        'mp3_48000_192',
+        'mp3_48000_240',
+        'mp3_48000_320',
+        'mp3_22050_32',
+        'mp3_24000_48',
+        'mp3_44100_32',
+        'mp3_44100_64',
+        'mp3_44100_96',
+        'mp3_44100_128',
+        'mp3_44100_192',
+        'opus_48000_32',
+        'opus_48000_64',
+        'opus_48000_96',
+        'opus_48000_128',
+        'opus_48000_192',
+      ]);
+      expect(JSON.stringify(elevenLabs)).not.toMatch(/api[_-]?key|credential|secret|token/i);
+    });
+
+    test('shared ElevenLabs Music v2 prompt validation enforces source, duration, seed, format, C2PA, and field boundaries', async () => {
+      const contract = await loadAdminAiContractModule();
+      const base = {
+        preset: 'music_elevenlabs_v2',
+        model: 'elevenlabs/music-v2',
+        inputMode: 'prompt',
+        prompt: 'A precise cinematic ambient composition.',
+        outputFormat: 'mp3_48000_192',
+      };
+
+      for (const musicLengthMs of [3000, 600000]) {
+        expect(contract.validateAdminAiMusicBody({ ...base, musicLengthMs })).toMatchObject({
+          model: 'elevenlabs/music-v2',
+          inputMode: 'prompt',
+          musicLengthMs,
+          outputFormat: 'mp3_48000_192',
+        });
+      }
+      const auto = contract.validateAdminAiMusicBody(base);
+      expect(auto.musicLengthMs).toBeNull();
+      expect(auto.compositionPlan).toBeNull();
+      expect(contract.validateAdminAiMusicBody({
+        ...base,
+        seed: 4294967295,
+        forceInstrumental: true,
+        storeForInpainting: true,
+        signWithC2pa: true,
+      })).toMatchObject({
+        seed: 4294967295,
+        forceInstrumental: true,
+        storeForInpainting: true,
+        signWithC2pa: true,
+      });
+      expect(contract.validateAdminAiMusicBody({ ...base, outputFormat: 'auto', signWithC2pa: true }))
+        .toMatchObject({ outputFormat: 'auto', signWithC2pa: true });
+
+      for (const invalid of [
+        { musicLengthMs: 2999 },
+        { musicLengthMs: 600001 },
+        { seed: -1 },
+        { seed: 4294967296 },
+        { outputFormat: 'pcm_48000' },
+        { outputFormat: 'ulaw_8000' },
+        { outputFormat: 'alaw_8000' },
+        { outputFormat: 'wav' },
+        { outputFormat: 'opus_48000_128', signWithC2pa: true },
+        { provider_api_key: 'must-never-pass' },
+        { music_length_ms: 3000 },
+      ]) {
+        expect(() => contract.validateAdminAiMusicBody({ ...base, ...invalid })).toThrow();
+      }
+
+      const plan = {
+        chunks: [{
+          text: '[Intro]',
+          duration_ms: 3000,
+          positive_styles: ['ambient'],
+        }],
+      };
+      expect(() => contract.validateAdminAiMusicBody({ ...base, compositionPlan: plan }))
+        .toThrow(/mutually exclusive/);
+      expect(() => contract.validateAdminAiMusicBody({
+        model: 'elevenlabs/music-v2',
+        inputMode: 'prompt',
+        outputFormat: 'auto',
+      })).toThrow(/Either prompt or compositionPlan is required/);
+      expect(() => contract.validateAdminAiMusicBody({
+        model: 'elevenlabs/music-v2',
+        inputMode: 'composition_plan',
+        compositionPlan: plan,
+        musicLengthMs: 3000,
+      })).toThrow(/supported only with prompt input/);
+
+      expect(contract.validateAdminAiMusicBody({
+        prompt: 'MiniMax remains unchanged.',
+        mode: 'instrumental',
+        lyricsMode: 'auto',
+        bpm: 120,
+        key: 'A Minor',
+      })).toEqual({
+        preset: null,
+        model: null,
+        prompt: 'MiniMax remains unchanged.',
+        mode: 'instrumental',
+        lyricsMode: 'auto',
+        lyrics: null,
+        bpm: 120,
+        key: 'A Minor',
+      });
+      expect(() => contract.validateAdminAiMusicBody({
+        prompt: 'MiniMax must reject ElevenLabs fields.',
+        mode: 'instrumental',
+        lyricsMode: 'auto',
+        outputFormat: 'auto',
+      })).toThrow(/not supported by model "minimax\/music-2.6"/);
+    });
+
+    test('shared ElevenLabs composition-plan validation bounds schema, size, depth, chunks, and durations', async () => {
+      const contract = await loadAdminAiContractModule();
+      const generationChunk = {
+        text: '[Verse]\nA bounded lyric line.',
+        duration_ms: 3000,
+        positive_styles: ['ambient', 'polished production'],
+        negative_styles: [],
+        context_adherence: 'high',
+      };
+      const validPlan = {
+        chunks: [
+          generationChunk,
+          {
+            song_id: 'stored-song-id',
+            range: { start_ms: 5000, end_ms: 10000 },
+          },
+          {
+            ...generationChunk,
+            duration_ms: 120000,
+            conditioning_ref: {
+              song_id: 'conditioning-song-id',
+              range: { start_ms: 0, end_ms: 3000 },
+            },
+            condition_strength: 'xhigh',
+          },
+        ],
+      };
+      const validated = contract.validateElevenLabsMusicV2CompositionPlan(validPlan);
+      expect(validated).toMatchObject({
+        chunkCount: 3,
+        totalDurationMs: 128000,
+        serializedLength: expect.any(Number),
+        serializedBytes: expect.any(Number),
+      });
+      expect(contract.validateAdminAiMusicBody({
+        model: 'elevenlabs/music-v2',
+        inputMode: 'composition_plan',
+        compositionPlan: validPlan,
+        outputFormat: 'opus_48000_192',
+        seed: 42,
+        storeForInpainting: true,
+      })).toMatchObject({
+        inputMode: 'composition_plan',
+        musicLengthMs: null,
+        outputFormat: 'opus_48000_192',
+        seed: 42,
+        storeForInpainting: true,
+      });
+
+      const makePlan = (chunk) => ({ chunks: [chunk] });
+      for (const invalidPlan of [
+        [],
+        {},
+        { chunks: [] },
+        { chunks: Array.from({ length: 31 }, () => generationChunk) },
+        makePlan({ ...generationChunk, duration_ms: 2999 }),
+        makePlan({ ...generationChunk, duration_ms: 120001 }),
+        { chunks: Array.from({ length: 6 }, () => ({ ...generationChunk, duration_ms: 120000 })) },
+        makePlan({ ...generationChunk, positive_styles: Array.from({ length: 51 }, () => 'style') }),
+        makePlan({ ...generationChunk, context_adherence: 'absolute' }),
+        makePlan({ ...generationChunk, undocumented_field: true }),
+        makePlan({ ...generationChunk, text: 'x'.repeat(4101) }),
+        makePlan({ song_id: 'stored-song-id', range: { start_ms: 0, end_ms: 2999 } }),
+      ]) {
+        expect(() => contract.validateElevenLabsMusicV2CompositionPlan(invalidPlan)).toThrow();
+      }
+
+      const polluted = JSON.parse(JSON.stringify(makePlan(generationChunk))
+        .replace(/}$/, ',"__proto__":{"polluted":true}}'));
+      expect(() => contract.validateElevenLabsMusicV2CompositionPlan(polluted))
+        .toThrow(/forbidden key/);
+      const deeplyNested = makePlan({
+        ...generationChunk,
+        unexpected: { one: { two: { three: { four: { five: { six: { seven: true } } } } } } },
+      });
+      expect(() => contract.validateElevenLabsMusicV2CompositionPlan(deeplyNested))
+        .toThrow(/nesting/);
+      const oversizedPlan = {
+        chunks: Array.from({ length: 30 }, (_, index) => ({
+          text: `[Chunk ${index + 1}]`,
+          duration_ms: 3000,
+          positive_styles: Array.from({ length: 50 }, () => 's'.repeat(200)),
+        })),
+      };
+      expect(() => contract.validateElevenLabsMusicV2CompositionPlan(oversizedPlan))
+        .toThrow(/at most 262144 bytes/);
+    });
+
+    test('ElevenLabs Music v2 provider-cost estimates use precise integer milliseconds', async () => {
+      const contract = await loadAdminAiContractModule();
+      expect([
+        [3000, 0.0075],
+        [30000, 0.075],
+        [60000, 0.15],
+        [600000, 1.5],
+      ].map(([durationMs, expected]) => [
+        durationMs,
+        contract.calculateElevenLabsMusicV2ProviderCost(durationMs).providerCostUsd,
+        expected,
+      ])).toEqual([
+        [3000, 0.0075, 0.0075],
+        [30000, 0.075, 0.075],
+        [60000, 0.15, 0.15],
+        [600000, 1.5, 1.5],
+      ]);
+    });
+
+    test('ElevenLabs Music v2 inline ceiling covers every advertised 600-second encoding', async () => {
+      const contract = await loadAdminAiContractModule();
+      const maxBytes = contract.ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES;
+      const maxBase64Length = contract.ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BASE64_LENGTH;
+      const nominalSizes = contract.ELEVENLABS_MUSIC_V2_OUTPUT_FORMATS.map((outputFormat) => {
+        const resolved = contract.getElevenLabsMusicV2OutputFormatInfo(outputFormat).resolvedFormat;
+        const bitrateKbps = Number(resolved.split('_')[2]);
+        return {
+          outputFormat,
+          nominalBytes: Math.ceil(
+            (contract.ELEVENLABS_MUSIC_V2_MAX_DURATION_MS * bitrateKbps) / 8
+          ),
+        };
+      });
+
+      expect(maxBytes).toBe(25 * 1024 * 1024);
+      expect(maxBase64Length).toBe(Math.ceil(maxBytes / 3) * 4);
+      expect(Math.max(...nominalSizes.map(({ nominalBytes }) => nominalBytes))).toBe(24_000_000);
+      expect(nominalSizes.filter(({ nominalBytes }) => nominalBytes > maxBytes)).toEqual([]);
+      expect(maxBytes - 24_000_000).toBeGreaterThan(2_000_000);
+    });
+
     test('admin AI save flow helper prefers save references and only falls back for the explicit compatibility codes', async () => {
       const { saveImageIntentWithFallback } = await loadAdminAiSaveFlowModule();
       const calls = [];
@@ -29363,6 +29802,112 @@ test.describe('Worker routes', () => {
       expect(JSON.stringify(aiRunCalls[1].payload.messages)).toContain('live-agent caller policy is stripped before provider payload');
     });
 
+    test('AI worker binds Music caller policy to the selected model and keeps ElevenLabs admin-only', async () => {
+      const aiWorker = await loadWorker('workers/ai/src/index.js');
+      const secret = 'test-ai-service-auth-secret';
+      const aiRunCalls = [];
+      const mp3Base64 = Buffer.from([
+        0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xff, 0xfb, 0x90, 0x64,
+      ]).toString('base64');
+      const env = {
+        AI_SERVICE_AUTH_SECRET: secret,
+        SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
+        AI: {
+          async run(...args) {
+            aiRunCalls.push(args);
+            return {
+              state: 'Completed',
+              result: { audio: `data:audio/mpeg;base64,${mp3Base64}` },
+            };
+          },
+        },
+      };
+      const requestBody = {
+        model: 'elevenlabs/music-v2',
+        inputMode: 'prompt',
+        prompt: 'Caller-policy model binding test.',
+        musicLengthMs: 3000,
+        outputFormat: 'mp3_48000_192',
+      };
+      const adminPolicy = {
+        policy_version: 'ai-caller-policy-v1',
+        operation_id: 'admin.music.test',
+        budget_scope: 'platform_admin_lab_budget',
+        enforcement_status: 'budget_metadata_only',
+        caller_class: 'admin',
+        owner_domain: 'admin-ai',
+        provider_family: 'ai_worker',
+        model_id: 'elevenlabs/music-v2',
+        model_resolver_key: 'admin.music.model_registry',
+        idempotency_policy: 'required',
+        source_route: '/api/admin/ai/test-music',
+        source_component: 'auth-worker-admin-ai',
+        kill_switch_target: 'ENABLE_ADMIN_AI_MUSIC_BUDGET',
+        correlation_id: 'music-caller-policy-binding-test',
+        reason: 'admin_music_policy_test',
+      };
+
+      const modelMismatch = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/test-music', {
+          ...requestBody,
+          __bitbi_ai_caller_policy: {
+            ...adminPolicy,
+            model_id: 'minimax/music-2.6',
+          },
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(modelMismatch.status).toBe(403);
+      await expect(modelMismatch.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'ai_caller_policy_model_mismatch',
+      });
+
+      const operationMismatch = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/test-music', {
+          ...requestBody,
+          __bitbi_ai_caller_policy: {
+            ...adminPolicy,
+            operation_id: 'member.music.audio.generate',
+            budget_scope: 'member_credit_account',
+            enforcement_status: 'gateway_enforced',
+            caller_class: 'member',
+            owner_domain: 'member-music',
+            model_resolver_key: 'member.music.audio_model',
+            source_route: '/api/ai/generate-music',
+            source_component: 'auth-worker-member-music',
+            kill_switch_target: null,
+          },
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(operationMismatch.status).toBe(403);
+      await expect(operationMismatch.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'ai_caller_policy_operation_mismatch',
+      });
+
+      const authorized = await aiWorker.fetch(
+        await signedInternalAiJsonRequest('/internal/ai/test-music', {
+          ...requestBody,
+          __bitbi_ai_caller_policy: adminPolicy,
+        }, { secret }),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(authorized.status).toBe(200);
+      await expect(authorized.json()).resolves.toMatchObject({
+        ok: true,
+        task: 'music',
+        model: { id: 'elevenlabs/music-v2' },
+      });
+      expect(aiRunCalls).toHaveLength(1);
+      expect(aiRunCalls[0][0]).toBe('elevenlabs/music-v2');
+    });
+
     test('AI worker caller-policy accepts organization text gateway metadata for member text generation', async () => {
       const aiWorker = await loadWorker('workers/ai/src/index.js');
       const secret = 'test-ai-service-auth-secret';
@@ -33459,6 +34004,81 @@ test.describe('Worker routes', () => {
       });
     });
 
+    test('Admin music consumes upstream JSON once while preserving normalized success and failure bodies', async () => {
+      const { consumeAdminAiJsonResponseOnce } = await loadAdminAiResponseModule();
+      const inlineAudio = 'SUQzBAAAAAAA';
+      const success = new Response(JSON.stringify({
+        ok: true,
+        task: 'music',
+        result: { audioBase64: inlineAudio },
+      }), {
+        status: 200,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'x-bitbi-correlation-id': 'music-consume-success',
+        },
+      });
+      let successJsonCalls = 0;
+      let successCloneCalls = 0;
+      success.json = async function countedJson() {
+        successJsonCalls += 1;
+        return Response.prototype.json.call(this);
+      };
+      success.clone = function forbiddenClone() {
+        successCloneCalls += 1;
+        throw new Error('Music response must not be cloned.');
+      };
+
+      const consumedSuccess = await consumeAdminAiJsonResponseOnce(success);
+      expect(successJsonCalls).toBe(1);
+      expect(successCloneCalls).toBe(0);
+      expect(consumedSuccess).toMatchObject({
+        ok: true,
+        status: 200,
+        body: {
+          ok: true,
+          task: 'music',
+          result: { audioBase64: inlineAudio },
+        },
+      });
+      expect(consumedSuccess.headers.get('x-bitbi-correlation-id')).toBe('music-consume-success');
+
+      const failure = new Response(JSON.stringify({
+        ok: false,
+        error: 'Provider rejected the request.',
+      }), {
+        status: 502,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'x-upstream-evidence': 'preserved',
+        },
+      });
+      let failureJsonCalls = 0;
+      let failureCloneCalls = 0;
+      failure.json = async function countedJson() {
+        failureJsonCalls += 1;
+        return Response.prototype.json.call(this);
+      };
+      failure.clone = function forbiddenClone() {
+        failureCloneCalls += 1;
+        throw new Error('Music response must not be cloned.');
+      };
+
+      const consumedFailure = await consumeAdminAiJsonResponseOnce(failure);
+      expect(failureJsonCalls).toBe(1);
+      expect(failureCloneCalls).toBe(0);
+      expect(consumedFailure).toMatchObject({
+        ok: false,
+        status: 502,
+        body: {
+          ok: false,
+          error: 'Provider rejected the request.',
+          code: 'upstream_error',
+        },
+      });
+      expect(consumedFailure.headers.get('x-upstream-evidence')).toBe('preserved');
+    });
+
     test('POST /api/admin/ai/test-music returns the music response contract used by the UI', async () => {
       let capturedModelId = null;
       let capturedPayload = null;
@@ -33726,14 +34346,28 @@ test.describe('Worker routes', () => {
       );
 
       expect(res.status).toBe(200);
-      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
         ok: true,
         result: expect.objectContaining({
           audioBase64: inlineAudio,
           audioUrl: null,
           lyricsPreview: '[Verse]\nWe hold the line',
         }),
+        budget_policy: expect.objectContaining({
+          operation_id: 'admin.music.test',
+          idempotency_attempt_status: 'succeeded',
+        }),
+        caller_policy: expect.objectContaining({
+          operation_id: 'admin.music.test',
+          model_id: 'minimax/music-2.6',
+        }),
       }));
+      expect(env.DB.state.adminAiUsageAttempts).toHaveLength(1);
+      const durableAttempt = JSON.stringify(env.DB.state.adminAiUsageAttempts[0]);
+      expect(durableAttempt).not.toContain(inlineAudio);
+      expect(durableAttempt).not.toContain('Warm electronic anthem.');
+      expect(durableAttempt).not.toContain('We hold the line');
     });
 
     test('POST /api/admin/ai/test-music maps provider-declared failures to the upstream error contract', async () => {
@@ -33759,11 +34393,22 @@ test.describe('Worker routes', () => {
 
       expect(res.status).toBe(502);
       expect(res.headers.get('x-bitbi-correlation-id')).toMatch(/^[A-Za-z0-9._:-]{8,128}$/);
-      await expect(res.json()).resolves.toEqual(expect.objectContaining({
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({
         ok: false,
         code: 'upstream_error',
         error: 'Music generation failed',
       }));
+      expect(body).not.toHaveProperty('budget_policy');
+      expect(body).not.toHaveProperty('caller_policy');
+      expect(env.DB.state.adminAiUsageAttempts).toHaveLength(1);
+      expect(env.DB.state.adminAiUsageAttempts[0]).toMatchObject({
+        status: 'provider_failed',
+        provider_status: 'failed',
+        result_status: 'none',
+        error_code: 'upstream_error',
+      });
+      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts[0])).not.toContain('Minimal house groove.');
     });
 
     test('POST /api/admin/ai/test-music validates vocal custom mode lyrics', async () => {
@@ -33785,6 +34430,828 @@ test.describe('Worker routes', () => {
         code: 'validation_error',
         error: expect.stringContaining('lyrics are required'),
       }));
+    });
+
+    test('POST /api/admin/ai/test-music sends the exact ElevenLabs Music v2 prompt payload through the configured gateway', async () => {
+      const aiRunCalls = [];
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiEnv: { AI_GATEWAY_ID: 'admin-music-custom-gateway' },
+        aiRun: async (modelId, payload, options) => {
+          aiRunCalls.push({ modelId, payload, options });
+          return {
+            state: 'Completed',
+            result: {
+              audio: 'https://examples.aig.cloudflare.com/elevenlabs/music-v2/temporary-elevenlabs-output.mp3',
+              audio_duration_ms: 30000,
+            },
+            gatewayMetadata: {
+              keySource: 'Unified',
+              logId: 'must-not-cross-the-worker-boundary',
+              authorization: 'must-not-cross-the-worker-boundary',
+            },
+            trace_id: 'elevenlabs-prompt-trace',
+          };
+        },
+      });
+
+      const prompt = 'A cinematic orchestral pulse with a restrained electronic rhythm.';
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          preset: 'music_elevenlabs_v2',
+          model: 'elevenlabs/music-v2',
+          inputMode: 'prompt',
+          prompt,
+          musicLengthMs: 30000,
+          outputFormat: 'mp3_48000_192',
+          seed: 4294967295,
+          forceInstrumental: true,
+          storeForInpainting: true,
+          signWithC2pa: true,
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-elevenlabs-prompt-payload-1')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(aiRunCalls).toEqual([{
+        modelId: 'elevenlabs/music-v2',
+        payload: {
+          output_format: 'mp3_48000_192',
+          prompt,
+          music_length_ms: 30000,
+          seed: 4294967295,
+          force_instrumental: true,
+          store_for_inpainting: true,
+          sign_with_c2pa: true,
+        },
+        options: { gateway: { id: 'admin-music-custom-gateway', collectLog: false } },
+      }]);
+      const body = await res.json();
+      expect(body).toMatchObject({
+        ok: true,
+        task: 'music',
+        model: {
+          id: 'elevenlabs/music-v2',
+          vendor: 'ElevenLabs',
+        },
+        preset: 'music_elevenlabs_v2',
+        traceId: 'elevenlabs-prompt-trace',
+        result: {
+          inputMode: 'prompt',
+          compositionPlanPresent: false,
+          requestedDurationMs: 30000,
+          actualDurationMs: 30000,
+          durationMode: 'explicit',
+          outputFormat: 'mp3_48000_192',
+          mimeType: 'audio/mpeg',
+          downloadExtension: 'mp3',
+          audioUrl: 'https://examples.aig.cloudflare.com/elevenlabs/music-v2/temporary-elevenlabs-output.mp3',
+          audioBase64: null,
+          seed: 4294967295,
+          forceInstrumental: true,
+          storeForInpainting: true,
+          signWithC2pa: true,
+          providerState: 'Completed',
+          providerCostEstimateDurationMs: 30000,
+          providerCostEstimateKind: 'requested_duration',
+          estimatedProviderCostUsd: 0.075,
+          actualProviderCostUsd: 0.075,
+          gatewayMetadata: { keySource: 'Unified' },
+        },
+      });
+      expect(Object.keys(body.result.gatewayMetadata)).toEqual(['keySource']);
+      expect(aiRunCalls[0].payload).not.toHaveProperty('composition_plan');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('lyrics');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('lyricsMode');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('bpm');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('key');
+      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts)).not.toContain(prompt);
+      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts)).not.toContain('temporary-elevenlabs-output');
+      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts)).not.toContain('must-not-cross-the-worker-boundary');
+    });
+
+    test('POST /api/admin/ai/test-music omits unset ElevenLabs Music v2 options and normalizes MP3 data-URI audio', async () => {
+      const mp3Bytes = Buffer.from([
+        0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xff, 0xfb, 0x90, 0x64, 0x01, 0x02,
+      ]);
+      const mp3Base64 = mp3Bytes.toString('base64');
+      const aiRunCalls = [];
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload, options) => {
+          aiRunCalls.push({ modelId, payload, options });
+          return {
+            audio: `data:audio/mpeg;base64,${mp3Base64}`,
+            // Generic provider/gateway latency must not be reconciled as audio duration.
+            duration_ms: 3000,
+          };
+        },
+      });
+      const prompt = 'A short ambient ident with soft piano.';
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          model: 'elevenlabs/music-v2',
+          inputMode: 'prompt',
+          prompt,
+          outputFormat: 'mp3_48000_128',
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-elevenlabs-mp3-data-uri-1')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(aiRunCalls).toEqual([{
+        modelId: 'elevenlabs/music-v2',
+        payload: {
+          output_format: 'mp3_48000_128',
+          prompt,
+        },
+        options: { gateway: { id: 'default', collectLog: false } },
+      }]);
+      const body = await res.json();
+      expect(body.result).toMatchObject({
+        mimeType: 'audio/mpeg',
+        downloadExtension: 'mp3',
+        audioBase64: mp3Base64,
+        audioUrl: null,
+        sizeBytes: mp3Bytes.byteLength,
+        requestedDurationMs: null,
+        actualDurationMs: null,
+        durationMode: 'auto',
+        providerCostEstimateDurationMs: 600000,
+        providerCostEstimateKind: 'maximum_exposure',
+        estimatedProviderCostUsd: 1.5,
+        actualProviderCostUsd: null,
+      });
+      expect(Object.keys(aiRunCalls[0].payload).sort()).toEqual(['output_format', 'prompt']);
+      expect(body.result.audioBase64).not.toContain('data:');
+    });
+
+    test('POST /api/admin/ai/test-music sends the exact ElevenLabs Music v2 composition-plan payload and normalizes Opus data URIs', async () => {
+      const opusBytes = Buffer.alloc(47);
+      opusBytes.write('OggS', 0, 'ascii');
+      opusBytes[4] = 0;
+      opusBytes[5] = 2;
+      opusBytes[26] = 1;
+      opusBytes[27] = 19;
+      opusBytes.write('OpusHead', 28, 'ascii');
+      const opusBase64 = opusBytes.toString('base64');
+      const compositionPlan = {
+        chunks: [{
+          text: '[Intro]\nSlowly rising strings and granular percussion.',
+          duration_ms: 3000,
+          positive_styles: ['cinematic', 'textural'],
+          negative_styles: ['vocals'],
+          context_adherence: 'high',
+        }],
+      };
+      const aiRunCalls = [];
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload, options) => {
+          aiRunCalls.push({ modelId, payload, options });
+          return {
+            state: 'Completed',
+            result: {
+              audio: `data:audio/opus;base64,${opusBase64}`,
+            },
+          };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          preset: 'music_elevenlabs_v2',
+          model: 'elevenlabs/music-v2',
+          inputMode: 'composition_plan',
+          compositionPlan,
+          outputFormat: 'opus_48000_128',
+          seed: 42,
+          storeForInpainting: true,
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-elevenlabs-plan-payload-1')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(aiRunCalls).toEqual([{
+        modelId: 'elevenlabs/music-v2',
+        payload: {
+          output_format: 'opus_48000_128',
+          composition_plan: compositionPlan,
+          seed: 42,
+          store_for_inpainting: true,
+        },
+        options: { gateway: { id: 'default', collectLog: false } },
+      }]);
+      const body = await res.json();
+      expect(body.result).toMatchObject({
+        prompt: null,
+        inputMode: 'composition_plan',
+        compositionPlanPresent: true,
+        compositionPlanChunkCount: 1,
+        compositionPlanSerializedLength: JSON.stringify(compositionPlan).length,
+        requestedDurationMs: 3000,
+        durationMode: 'composition_plan',
+        outputFormat: 'opus_48000_128',
+        mimeType: 'audio/ogg',
+        downloadExtension: 'opus',
+        audioBase64: opusBase64,
+        audioUrl: null,
+        sizeBytes: opusBytes.byteLength,
+        estimatedProviderCostUsd: 0.0075,
+        seed: 42,
+        forceInstrumental: false,
+        storeForInpainting: true,
+        signWithC2pa: false,
+      });
+      expect(aiRunCalls[0].payload).not.toHaveProperty('prompt');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('music_length_ms');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('force_instrumental');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('sign_with_c2pa');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('lyrics');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('bpm');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('key');
+      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts)).not.toContain('Slowly rising strings');
+      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts)).not.toContain(opusBase64);
+    });
+
+    test('POST /api/admin/ai/test-music accepts verified plain Base64 Opus output', async () => {
+      const opusBytes = Buffer.alloc(47);
+      opusBytes.write('OggS', 0, 'ascii');
+      opusBytes[4] = 0;
+      opusBytes[5] = 2;
+      opusBytes[26] = 1;
+      opusBytes[27] = 19;
+      opusBytes.write('OpusHead', 28, 'ascii');
+      const opusBase64 = opusBytes.toString('base64');
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => ({ result: { audio: opusBase64 } }),
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          model: 'elevenlabs/music-v2',
+          inputMode: 'prompt',
+          prompt: 'A compact percussive Opus test.',
+          musicLengthMs: 3000,
+          outputFormat: 'opus_48000_192',
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-elevenlabs-opus-base64-1')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        ok: true,
+        result: {
+          mimeType: 'audio/ogg',
+          downloadExtension: 'opus',
+          audioBase64: opusBase64,
+          audioUrl: null,
+          sizeBytes: opusBytes.byteLength,
+        },
+      });
+    });
+
+    test('POST /api/admin/ai/test-music incrementally normalizes chunked Ogg Opus output', async () => {
+      const opusBytes = Buffer.alloc(53);
+      opusBytes.write('OggS', 0, 'ascii');
+      opusBytes[4] = 0;
+      opusBytes[5] = 2;
+      opusBytes[26] = 1;
+      opusBytes[27] = 19;
+      opusBytes.write('OpusHead', 28, 'ascii');
+      const chunkBoundaries = [1, 3, 8, 17, 31, opusBytes.length];
+      const chunks = chunkBoundaries.map((end, index) => new Uint8Array(
+        opusBytes.subarray(index === 0 ? 0 : chunkBoundaries[index - 1], end)
+      ));
+      let readIndex = 0;
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async () => ({
+          headers: new Headers({ 'content-type': 'audio/opus' }),
+          body: {
+            getReader: () => ({
+              read: async () => readIndex < chunks.length
+                ? { done: false, value: chunks[readIndex++] }
+                : { done: true },
+              cancel: async () => {},
+              releaseLock: () => {},
+            }),
+          },
+        }),
+      });
+
+      const response = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          model: 'elevenlabs/music-v2',
+          inputMode: 'prompt',
+          prompt: 'Chunk-aligned Opus response test.',
+          musicLengthMs: 3000,
+          outputFormat: 'opus_48000_128',
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-elevenlabs-chunked-opus-1')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: true,
+        result: {
+          audioBase64: opusBytes.toString('base64'),
+          audioUrl: null,
+          mimeType: 'audio/ogg',
+          downloadExtension: 'opus',
+          sizeBytes: opusBytes.byteLength,
+        },
+      });
+    });
+
+    test('AI music deadline covers stalled response normalization and cancels the reader', async () => {
+      const { handleMusic } = await loadAiMusicRouteModule();
+      const prompt = 'Deadline sentinel prompt must never reach diagnostics.';
+      let readerCancelled = false;
+      let readerReleased = false;
+      let readerStarted = false;
+      const diagnostics = captureDiagnosticLogs();
+      const startedAt = Date.now();
+
+      try {
+        const response = await handleMusic({
+          request: new Request('https://bitbi-ai.internal/internal/ai/test-music', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              model: 'elevenlabs/music-v2',
+              inputMode: 'prompt',
+              prompt,
+              musicLengthMs: 3000,
+              outputFormat: 'mp3_48000_192',
+            }),
+          }),
+          env: {
+            AI: {
+              run: async () => ({
+                headers: new Headers({ 'content-type': 'audio/mpeg' }),
+                body: {
+                  getReader: () => ({
+                    read: () => {
+                      readerStarted = true;
+                      return new Promise(() => {});
+                    },
+                    cancel: async () => {
+                      readerCancelled = true;
+                    },
+                    releaseLock: () => {
+                      readerReleased = true;
+                    },
+                  }),
+                },
+              }),
+            },
+          },
+          correlationId: 'elevenlabs-stalled-stream-timeout-test',
+          pathname: '/internal/ai/test-music',
+          method: 'POST',
+          aiCallerPolicy: {
+            callerPolicy: {
+              model_id: 'elevenlabs/music-v2',
+              operation_id: 'admin.music.test',
+            },
+          },
+          generationTimeoutMs: 10,
+        });
+
+        expect(response.status).toBe(504);
+        await expect(response.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'generation_timeout',
+        });
+        expect(readerStarted).toBe(true);
+        expect(readerCancelled).toBe(true);
+        expect(readerReleased).toBe(true);
+        expect(Date.now() - startedAt).toBeLessThan(1000);
+        expect(JSON.stringify(diagnostics.entries)).not.toContain(prompt);
+      } finally {
+        diagnostics.restore();
+      }
+    });
+
+    test('POST /api/admin/ai/test-music rejects ElevenLabs Music v2 failed, incomplete, missing, and malformed audio responses', async () => {
+      const mp3Base64 = Buffer.from([
+        0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xff, 0xfb, 0x90, 0x64,
+      ]).toString('base64');
+      const cases = [
+        {
+          name: 'failed',
+          response: { state: 'Failed', result: { audio: `data:audio/mpeg;base64,${mp3Base64}` } },
+        },
+        {
+          name: 'incomplete',
+          response: { state: 'Processing', result: { audio: `data:audio/mpeg;base64,${mp3Base64}` } },
+        },
+        {
+          name: 'missing',
+          response: { state: 'Completed', result: {} },
+        },
+        {
+          name: 'malformed',
+          response: { state: 'Completed', result: { audio: 'data:audio/mpeg;base64,%%%' } },
+        },
+        {
+          name: 'untrusted-url',
+          response: { state: 'Completed', result: { audio: 'https://media.example.com/output.mp3' } },
+        },
+        {
+          name: 'pseudo-ogg',
+          outputFormat: 'opus_48000_128',
+          response: {
+            state: 'Completed',
+            result: {
+              audio: `data:audio/opus;base64,${Buffer.from(
+                'OggS-unvalidated-padding-OpusHead',
+                'ascii'
+              ).toString('base64')}`,
+            },
+          },
+        },
+      ];
+
+      for (const testCase of cases) {
+        const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+          aiRun: async () => testCase.response,
+        });
+        const res = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-music', 'POST', {
+            model: 'elevenlabs/music-v2',
+            inputMode: 'prompt',
+            prompt: `Safe ${testCase.name} response test.`,
+            musicLengthMs: 3000,
+            outputFormat: testCase.outputFormat || 'mp3_48000_192',
+          }, adminAiIdempotencyHeaders(authHeaders, `admin-elevenlabs-error-${testCase.name}-1`)),
+          env,
+          createExecutionContext().execCtx
+        );
+
+        expect(res.status, testCase.name).toBe(502);
+        await expect(res.json(), testCase.name).resolves.toMatchObject({
+          ok: false,
+          code: 'upstream_error',
+          error: 'Music generation failed',
+        });
+        const attempt = env.DB.state.adminAiUsageAttempts[0];
+        expect(attempt, testCase.name).toMatchObject({
+          status: 'provider_failed',
+          provider_status: 'failed',
+          result_status: 'none',
+          error_code: 'upstream_error',
+        });
+        expect(JSON.stringify(attempt), testCase.name).not.toContain(`Safe ${testCase.name}`);
+        expect(JSON.stringify(attempt), testCase.name).not.toContain(mp3Base64);
+      }
+    });
+
+    test('POST /api/admin/ai/test-music rejects oversized ElevenLabs inline audio before copying it', async () => {
+      const {
+        ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BASE64_LENGTH,
+        ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES,
+      } = await loadAdminAiContractModule();
+      const cases = [
+        {
+          name: 'base64-before-compaction',
+          response: () => ({
+            state: 'Completed',
+            result: {
+              audio: `data:audio/mpeg;base64,${'A'.repeat(
+                ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BASE64_LENGTH + 1
+              )}`,
+            },
+          }),
+        },
+        {
+          name: 'array-buffer-byte-length',
+          response: () => new ArrayBuffer(ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES + 1),
+        },
+        {
+          name: 'response-content-length',
+          response: () => ({
+            headers: new Headers({
+              'content-length': String(ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES + 1),
+              'content-type': 'audio/mpeg',
+            }),
+            arrayBuffer: async () => {
+              throw new Error('oversized response body must not be read');
+            },
+          }),
+        },
+        {
+          name: 'blob-size',
+          response: () => ({
+            size: ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES + 1,
+            type: 'audio/mpeg',
+            arrayBuffer: async () => {
+              throw new Error('oversized Blob body must not be read');
+            },
+          }),
+        },
+        {
+          name: 'stream-exceeds-declared-length',
+          response: () => {
+            const chunk = new Uint8Array(
+              Math.floor(ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES / 2) + 1
+            );
+            let reads = 0;
+            return {
+              headers: new Headers({
+                'content-length': '1',
+                'content-type': 'audio/mpeg',
+              }),
+              body: {
+                getReader: () => ({
+                  read: async () => {
+                    reads += 1;
+                    return reads <= 2 ? { done: false, value: chunk } : { done: true };
+                  },
+                  cancel: async () => {},
+                  releaseLock: () => {},
+                }),
+              },
+            };
+          },
+        },
+      ];
+      const diagnostics = captureDiagnosticLogs();
+
+      try {
+        for (const testCase of cases) {
+          const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+            aiRun: async () => testCase.response(),
+          });
+          const res = await authWorker.fetch(
+            authJsonRequest('/api/admin/ai/test-music', 'POST', {
+              model: 'elevenlabs/music-v2',
+              inputMode: 'prompt',
+              prompt: `Bounded ${testCase.name} response test.`,
+              musicLengthMs: 3000,
+              outputFormat: 'mp3_48000_192',
+            }, adminAiIdempotencyHeaders(
+              authHeaders,
+              `admin-elevenlabs-oversized-${testCase.name}-1`
+            )),
+            env,
+            createExecutionContext().execCtx
+          );
+
+          expect(res.status, testCase.name).toBe(502);
+          await expect(res.json(), testCase.name).resolves.toMatchObject({
+            ok: false,
+            code: 'upstream_error',
+            error: 'Music generation failed',
+          });
+          expect(env.DB.state.adminAiUsageAttempts[0], testCase.name).toMatchObject({
+            status: 'provider_failed',
+            error_code: 'upstream_error',
+          });
+        }
+
+        const oversizedEvents = diagnostics.entries.filter((entry) =>
+          entry.provider_error_kind === 'upstream_audio_too_large'
+        );
+        expect(oversizedEvents.length).toBeGreaterThanOrEqual(cases.length);
+        expect(oversizedEvents.every((entry) => !('audio' in entry))).toBe(true);
+      } finally {
+        diagnostics.restore();
+      }
+    });
+
+    test('POST /api/admin/ai/test-music preserves the exact MiniMax music provider payload regression contract', async () => {
+      const aiRunCalls = [];
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiEnv: { AI_GATEWAY_ID: 'elevenlabs-only-custom-gateway' },
+        aiRun: async (modelId, payload, options) => {
+          aiRunCalls.push({ modelId, payload, options });
+          return {
+            data: { audio: '494433040000000000', status: 2 },
+            trace_id: 'minimax-regression-trace',
+          };
+        },
+      });
+      const prompt = 'Preserve the established MiniMax payload exactly.';
+      const lyrics = '[Verse]\nExisting MiniMax lyrics remain supported.';
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          model: 'minimax/music-2.6',
+          preset: 'music_studio',
+          prompt,
+          mode: 'vocals',
+          lyricsMode: 'custom',
+          lyrics,
+          bpm: 118,
+          key: 'A Minor',
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-minimax-regression-payload-1')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(aiRunCalls).toEqual([{
+        modelId: 'minimax/music-2.6',
+        payload: {
+          prompt: `${prompt} Tempo target: 118 BPM. Preferred key center: A Minor. Lead vocals should remain present.`,
+          sample_rate: 44100,
+          bitrate: 256000,
+          format: 'mp3',
+          lyrics_optimizer: false,
+          is_instrumental: false,
+          lyrics,
+        },
+        options: { gateway: { id: 'default' } },
+      }]);
+      const body = await res.json();
+      expect(body).toMatchObject({
+        ok: true,
+        model: { id: 'minimax/music-2.6' },
+        preset: 'music_studio',
+        traceId: 'minimax-regression-trace',
+        result: {
+          mode: 'vocals',
+          lyricsMode: 'custom',
+          mimeType: 'audio/mpeg',
+          lyricsPreview: lyrics,
+        },
+      });
+      expect(aiRunCalls[0].payload).not.toHaveProperty('output_format');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('composition_plan');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('music_length_ms');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('force_instrumental');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('store_for_inpainting');
+      expect(aiRunCalls[0].payload).not.toHaveProperty('sign_with_c2pa');
+    });
+
+    test('ElevenLabs Music v2 idempotency canonically fingerprints every output and cost-affecting field', async () => {
+      let providerCalls = 0;
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
+        aiRun: async () => {
+          providerCalls += 1;
+          return {
+            state: 'Completed',
+            result: {
+              audio: 'https://examples.aig.cloudflare.com/elevenlabs/music-v2/idempotent-elevenlabs-output.mp3',
+            },
+          };
+        },
+      });
+      const sensitiveText = '[Intro]\nCanonical plan content must never enter durable metadata.';
+      const compositionPlan = {
+        chunks: [{
+          text: sensitiveText,
+          duration_ms: 30000,
+          positive_styles: ['cinematic', 'instrumental'],
+          negative_styles: ['vocals'],
+          context_adherence: 'high',
+        }],
+      };
+      const payload = {
+        preset: 'music_elevenlabs_v2',
+        model: 'elevenlabs/music-v2',
+        inputMode: 'composition_plan',
+        compositionPlan,
+        outputFormat: 'mp3_48000_192',
+        seed: 7,
+        storeForInpainting: true,
+        signWithC2pa: false,
+      };
+      const headers = adminAiIdempotencyHeaders(authHeaders, 'admin-elevenlabs-canonical-fingerprint-1');
+
+      const first = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', payload, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(first.status).toBe(200);
+      const firstBody = await first.json();
+      expect(firstBody.budget_policy).toMatchObject({
+        operation_id: 'admin.music.test',
+        model_id: 'elevenlabs/music-v2',
+        estimated_credits: 160,
+        provider_cost_usd: 0.075,
+        provider_cost_usd_is_estimate: true,
+        provider_cost_estimate_duration_ms: 30000,
+        provider_cost_estimate_kind: 'composition_plan',
+        platform_budget_unit_rule: 'fixed_admin_music_operation_registry',
+        platform_budget_units_are_usd: false,
+        platform_budget_usd_conversion_applied: false,
+      });
+      expect(firstBody.caller_policy).toMatchObject({
+        operation_id: 'admin.music.test',
+        model_id: 'elevenlabs/music-v2',
+      });
+
+      const reorderedPlan = {
+        chunks: [{
+          context_adherence: 'high',
+          negative_styles: ['vocals'],
+          positive_styles: ['cinematic', 'instrumental'],
+          duration_ms: 30000,
+          text: sensitiveText,
+        }],
+      };
+      const replay = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          ...payload,
+          compositionPlan: reorderedPlan,
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(replay.status).toBe(200);
+      await expect(replay.json()).resolves.toMatchObject({
+        ok: true,
+        code: 'admin_ai_idempotency_metadata_replay',
+        result: null,
+      });
+      expect(providerCalls).toBe(1);
+      expect(aiLabRequests).toHaveLength(1);
+      expect(aiLabRequests[0].body.__bitbi_ai_caller_policy).toMatchObject({
+        model_id: 'elevenlabs/music-v2',
+        operation_id: 'admin.music.test',
+      });
+
+      const conflictingBodies = [
+        {
+          ...payload,
+          compositionPlan: {
+            chunks: [{ ...compositionPlan.chunks[0], duration_ms: 31000 }],
+          },
+        },
+        { ...payload, outputFormat: 'mp3_48000_320' },
+        {
+          ...payload,
+          compositionPlan: {
+            chunks: [{ ...compositionPlan.chunks[0], text: '[Intro]\nChanged plan text.' }],
+          },
+        },
+        { ...payload, seed: 8 },
+        { ...payload, storeForInpainting: false },
+        { ...payload, signWithC2pa: true },
+      ];
+      for (const conflictingBody of conflictingBodies) {
+        const conflict = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/test-music', 'POST', conflictingBody, headers),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(conflict.status).toBe(409);
+        await expect(conflict.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'idempotency_conflict',
+        });
+      }
+      expect(providerCalls).toBe(1);
+      expect(aiLabRequests).toHaveLength(1);
+
+      const attempt = env.DB.state.adminAiUsageAttempts[0];
+      const requestMetadata = JSON.parse(attempt.metadata_json).request;
+      const resultMetadata = JSON.parse(attempt.result_metadata_json);
+      expect(requestMetadata).toMatchObject({
+        model_id: 'elevenlabs/music-v2',
+        input_mode: 'composition_plan',
+        prompt_length: 0,
+        composition_plan_present: true,
+        composition_plan_chunk_count: 1,
+        composition_plan_total_duration_ms: 30000,
+        duration_mode: 'composition_plan',
+        requested_duration_ms: 30000,
+        output_format: 'mp3_48000_192',
+        seed_present: true,
+        store_for_inpainting: true,
+        sign_with_c2pa: false,
+        provider_cost_usd: 0.075,
+        provider_cost_usd_is_estimate: true,
+        provider_cost_estimate_kind: 'composition_plan',
+      });
+      expect(resultMetadata).toMatchObject({
+        result_kind: 'music',
+        model_id: 'elevenlabs/music-v2',
+        provider: 'ElevenLabs',
+        input_mode: 'composition_plan',
+        provider_status: 'Completed',
+        output_format: 'mp3_48000_192',
+        provider_cost_usd: 0.075,
+        provider_cost_usd_is_estimate: true,
+        actual_provider_cost_usd: null,
+        audio_url_present: true,
+        audio_base64_present: false,
+        audio_stored: false,
+        full_result_stored: false,
+      });
+      const durable = JSON.stringify(attempt);
+      expect(durable).not.toContain(sensitiveText);
+      expect(durable).not.toContain('idempotent-elevenlabs-output');
+      expect(durable).not.toContain('compositionPlan');
+      expect(durable).not.toContain('audioBase64');
     });
 
     test('POST /api/admin/ai/test-video returns the video response contract used by the UI', async () => {
@@ -35744,6 +37211,245 @@ test.describe('Worker routes', () => {
         code: 'forbidden',
         error: expect.any(String),
       }));
+    });
+
+    test('POST /api/admin/ai/download-music relays verified MP3 and Ogg Opus as private attachments without storage writes', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+      const mp3Bytes = new Uint8Array([
+        0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xff, 0xfb, 0x90, 0x64,
+      ]);
+      const opusBytes = Buffer.alloc(47);
+      opusBytes.write('OggS', 0, 'ascii');
+      opusBytes[4] = 0;
+      opusBytes[5] = 2;
+      opusBytes[26] = 1;
+      opusBytes[27] = 19;
+      opusBytes.write('OpusHead', 28, 'ascii');
+      const cases = [
+        {
+          name: 'mp3',
+          audioUrl: 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music/admin-download.mp3?X-Amz-Signature=relay-mp3-secret',
+          providerContentType: 'audio/mpeg',
+          bytes: mp3Bytes,
+          expectedMimeType: 'audio/mpeg',
+          expectedDisposition: 'attachment; filename="bitbi-generated-music.mp3"',
+        },
+        {
+          name: 'opus',
+          audioUrl: 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music/admin-download.opus?X-Amz-Signature=relay-opus-secret',
+          providerContentType: 'audio/opus',
+          bytes: opusBytes,
+          expectedMimeType: 'audio/ogg',
+          expectedDisposition: 'attachment; filename="bitbi-generated-music.opus"',
+        },
+      ];
+      const originalFetch = global.fetch;
+      const fetchCalls = [];
+      const diagnostics = captureDiagnosticLogs();
+
+      try {
+        for (const testCase of cases) {
+          global.fetch = async (url, options) => {
+            fetchCalls.push({ url: String(url), options });
+            return new Response(testCase.bytes, {
+              status: 200,
+              headers: {
+                'content-type': testCase.providerContentType,
+                'content-length': String(testCase.bytes.byteLength),
+              },
+            });
+          };
+
+          const res = await authWorker.fetch(
+            authJsonRequest('/api/admin/ai/download-music', 'POST', {
+              audioUrl: testCase.audioUrl,
+            }, authHeaders),
+            env,
+            createExecutionContext().execCtx
+          );
+
+          expect(res.status, testCase.name).toBe(200);
+          expect(res.headers.get('content-type'), testCase.name).toBe(testCase.expectedMimeType);
+          expect(res.headers.get('content-disposition'), testCase.name).toBe(testCase.expectedDisposition);
+          expect(res.headers.get('cache-control'), testCase.name).toBe('private, no-store');
+          expect(res.headers.get('x-content-type-options'), testCase.name).toBe('nosniff');
+          expect(res.headers.get('content-length'), testCase.name).toBe(String(testCase.bytes.byteLength));
+          expect(res.headers.get('x-bitbi-correlation-id'), testCase.name).toMatch(/^[A-Za-z0-9._:-]{8,128}$/);
+          expect(Array.from(new Uint8Array(await res.arrayBuffer())), testCase.name)
+            .toEqual(Array.from(testCase.bytes));
+        }
+
+        expect(fetchCalls).toHaveLength(cases.length);
+        for (const [index, call] of fetchCalls.entries()) {
+          expect(call).toEqual(expect.objectContaining({
+            url: cases[index].audioUrl,
+            options: expect.objectContaining({ method: 'GET', redirect: 'manual' }),
+          }));
+        }
+        expect(env.DB.state.aiTextAssets).toHaveLength(0);
+        expect(env.USER_IMAGES.objects.size).toBe(0);
+        const serializedDiagnostics = JSON.stringify(diagnostics.entries);
+        expect(serializedDiagnostics).not.toContain('relay-mp3-secret');
+        expect(serializedDiagnostics).not.toContain('relay-opus-secret');
+        expect(diagnostics.entries.filter((entry) =>
+          entry.event === 'admin_ai_music_download_relayed'
+        )).toHaveLength(2);
+      } finally {
+        diagnostics.restore();
+        global.fetch = originalFetch;
+      }
+    });
+
+    test('POST /api/admin/ai/download-music is admin-only and same-origin before any provider URL fetch', async () => {
+      const trustedUrl = 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music/admin-auth.mp3?X-Amz-Signature=never-fetch';
+      const originalFetch = global.fetch;
+      let fetchCount = 0;
+      global.fetch = async () => {
+        fetchCount += 1;
+        throw new Error('Protected download requests must not fetch provider media.');
+      };
+
+      try {
+        const unauthenticated = await createAdminAiContractHarness({ withSession: false });
+        const unauthenticatedResponse = await unauthenticated.authWorker.fetch(
+          authJsonRequest('/api/admin/ai/download-music', 'POST', { audioUrl: trustedUrl }, {
+            Origin: 'https://bitbi.ai',
+            'CF-Connecting-IP': '203.0.113.25',
+          }),
+          unauthenticated.env,
+          createExecutionContext().execCtx
+        );
+        expect(unauthenticatedResponse.status).toBe(401);
+        await expect(unauthenticatedResponse.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'unauthorized',
+        });
+
+        const member = await createAdminAiContractHarness({
+          user: createContractUser({ id: 'member-music-download-relay', role: 'user' }),
+        });
+        const memberResponse = await member.authWorker.fetch(
+          authJsonRequest('/api/admin/ai/download-music', 'POST', { audioUrl: trustedUrl }, member.authHeaders),
+          member.env,
+          createExecutionContext().execCtx
+        );
+        expect(memberResponse.status).toBe(403);
+        await expect(memberResponse.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'forbidden',
+        });
+
+        const admin = await createAdminAiContractHarness();
+        const crossOriginResponse = await admin.authWorker.fetch(
+          authJsonRequest('/api/admin/ai/download-music', 'POST', { audioUrl: trustedUrl }, {
+            ...admin.authHeaders,
+            Origin: 'https://evil.example',
+          }),
+          admin.env,
+          createExecutionContext().execCtx
+        );
+        expect(crossOriginResponse.status).toBe(403);
+        expect(fetchCount).toBe(0);
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    test('POST /api/admin/ai/download-music rejects unsupported fields, URLs, MIME types, and upstream failures without storage writes', async () => {
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness();
+      const trustedUrl = 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music/admin-invalid.mp3?X-Amz-Signature=bounded';
+      const originalFetch = global.fetch;
+      const fetchCalls = [];
+      global.fetch = async (url, options) => {
+        fetchCalls.push({ url: String(url), options });
+        return new Response('unexpected fetch', { status: 500 });
+      };
+
+      try {
+        const missing = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/download-music', 'POST', {}, authHeaders),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(missing.status).toBe(400);
+        await expect(missing.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'audio_url_required',
+        });
+
+        const unknownField = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/download-music', 'POST', {
+            audioUrl: trustedUrl,
+            model: 'elevenlabs/music-v2',
+          }, authHeaders),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(unknownField.status).toBe(400);
+        await expect(unknownField.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'unsupported_field',
+        });
+
+        const untrusted = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/download-music', 'POST', {
+            audioUrl: 'https://127.0.0.1/private-audio.mp3',
+          }, authHeaders),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(untrusted.status).toBe(400);
+        await expect(untrusted.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'remote_url_not_allowed',
+        });
+        expect(fetchCalls).toHaveLength(0);
+
+        const wavBytes = Buffer.alloc(12);
+        wavBytes.write('RIFF', 0, 'ascii');
+        wavBytes.write('WAVE', 8, 'ascii');
+        global.fetch = async (url, options) => {
+          fetchCalls.push({ url: String(url), options });
+          return new Response(wavBytes, {
+            status: 200,
+            headers: {
+              'content-type': 'audio/wav',
+              'content-length': String(wavBytes.byteLength),
+            },
+          });
+        };
+        const wav = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/download-music', 'POST', { audioUrl: trustedUrl }, authHeaders),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(wav.status).toBe(400);
+        await expect(wav.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'unsupported_audio_mime_type',
+        });
+
+        global.fetch = async (url, options) => {
+          fetchCalls.push({ url: String(url), options });
+          return Response.redirect('https://127.0.0.1/private-audio.mp3', 302);
+        };
+        const redirect = await authWorker.fetch(
+          authJsonRequest('/api/admin/ai/download-music', 'POST', { audioUrl: trustedUrl }, authHeaders),
+          env,
+          createExecutionContext().execCtx
+        );
+        expect(redirect.status).toBe(502);
+        await expect(redirect.json()).resolves.toMatchObject({
+          ok: false,
+          code: 'upstream_audio_fetch_failed',
+        });
+        expect(fetchCalls.at(-1)?.options).toEqual(expect.objectContaining({ redirect: 'manual' }));
+        expect(env.DB.state.aiTextAssets).toHaveLength(0);
+        expect(env.USER_IMAGES.objects.size).toBe(0);
+      } finally {
+        global.fetch = originalFetch;
+      }
     });
 
     test('POST /api/admin/ai/test-text returns the bad_request code for invalid JSON bodies', async () => {
@@ -42917,7 +44623,10 @@ test.describe('Worker routes', () => {
       ],
     });
 
-    const fakeAudioBase64 = btoa('fake-mp3-binary-data');
+    const fakeAudioBase64 = Buffer.from([
+      0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0xff, 0xfb, 0x90, 0x64,
+    ]).toString('base64');
     const token = await seedSession(env, 'admin-save-music');
     const res = await authWorker.fetch(
       authJsonRequest('/api/admin/ai/save-text-asset', 'POST', {
@@ -43175,7 +44884,10 @@ test.describe('Worker routes', () => {
       ],
     });
 
-    const fakeAudioBase64 = btoa('fake-mp3-binary-data');
+    const fakeAudioBase64 = Buffer.from([
+      0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0xff, 0xfb, 0x90, 0x64,
+    ]).toString('base64');
     const token = await seedSession(env, 'member-audio-save');
     const res = await authWorker.fetch(
       authJsonRequest('/api/ai/audio/save', 'POST', {
@@ -43231,6 +44943,245 @@ test.describe('Worker routes', () => {
     expect(metadata.bpm).toBe(90);
   });
 
+  test('audio save stores ElevenLabs Ogg Opus with .opus and bounded model, plan-summary, and cost metadata', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'elevenlabs-opus-save', role: 'user' })],
+      aiFolders: [{
+        id: 'af00e111',
+        user_id: 'elevenlabs-opus-save',
+        name: 'ElevenLabs Music',
+        slug: 'elevenlabs-music',
+        status: 'active',
+        created_at: nowIso(),
+      }],
+    });
+    const opusBytes = Buffer.alloc(47);
+    opusBytes.write('OggS', 0, 'ascii');
+    opusBytes[4] = 0;
+    opusBytes[5] = 2;
+    opusBytes[26] = 1;
+    opusBytes[27] = 19;
+    opusBytes.write('OpusHead', 28, 'ascii');
+    const audioBase64 = opusBytes.toString('base64');
+    const token = await seedSession(env, 'elevenlabs-opus-save');
+
+    const res = await authWorker.fetch(
+      authJsonRequest('/api/ai/audio/save', 'POST', {
+        title: 'ElevenLabs Opus Track',
+        audioBase64,
+        mimeType: 'audio/opus',
+        model: {
+          id: 'elevenlabs/music-v2',
+          label: 'ElevenLabs Music v2',
+          vendor: 'ElevenLabs',
+          providerLabel: 'Cloudflare Workers AI',
+        },
+        provider: 'ElevenLabs',
+        inputMode: 'composition_plan',
+        compositionPlanPresent: true,
+        compositionPlanSummary: {
+          chunkCount: 2,
+          serializedLength: 480,
+          totalDurationMs: 30000,
+        },
+        requestedDurationMs: 30000,
+        actualDurationMs: null,
+        outputFormat: 'opus_48000_128',
+        seed: 42,
+        forceInstrumental: false,
+        storeForInpainting: true,
+        signWithC2pa: false,
+        providerStatus: 'Completed',
+        estimatedProviderCostUsd: 0.075,
+        actualProviderCostUsd: null,
+        providerCostEstimateDurationMs: 30000,
+        providerCostEstimateKind: 'composition_plan',
+        traceId: 'safe-elevenlabs-trace',
+        folder_id: 'af00e111',
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.80',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+
+    expect(res.status).toBe(201);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        folder_id: 'af00e111',
+        source_module: 'music',
+        mime_type: 'audio/ogg',
+        size_bytes: opusBytes.byteLength,
+        file_name: expect.stringMatching(/\.opus$/),
+      },
+    });
+    expect(env.DB.state.aiTextAssets).toHaveLength(1);
+    const row = env.DB.state.aiTextAssets[0];
+    expect(row.r2_key).toMatch(/\/audio\/.*\.opus$/);
+    expect(row.mime_type).toBe('audio/ogg');
+    const object = env.USER_IMAGES.objects.get(row.r2_key);
+    expect(object.httpMetadata.contentType).toBe('audio/ogg');
+    expect(Array.from(object.body)).toEqual(Array.from(opusBytes));
+
+    const metadata = JSON.parse(row.metadata_json);
+    const model = typeof metadata.model === 'string' ? JSON.parse(metadata.model) : metadata.model;
+    const planSummary = typeof metadata.composition_plan_summary === 'string'
+      ? JSON.parse(metadata.composition_plan_summary)
+      : metadata.composition_plan_summary;
+    const audio = typeof metadata.audio === 'string' ? JSON.parse(metadata.audio) : metadata.audio;
+    const providerCost = typeof metadata.provider_cost === 'string'
+      ? JSON.parse(metadata.provider_cost)
+      : metadata.provider_cost;
+    expect(model).toMatchObject({
+      id: 'elevenlabs/music-v2',
+      label: 'ElevenLabs Music v2',
+      vendor: 'ElevenLabs',
+    });
+    expect(metadata.provider).toBe('ElevenLabs');
+    expect(metadata.input_mode).toBe('composition_plan');
+    expect(planSummary).toEqual({
+      present: true,
+      chunk_count: 2,
+      serialized_length: 480,
+      total_duration_ms: 30000,
+    });
+    expect(audio).toMatchObject({
+      requested_duration_ms: 30000,
+      actual_duration_ms: null,
+      mime_type: 'audio/ogg',
+      output_format: 'opus_48000_128',
+      size_bytes: opusBytes.byteLength,
+    });
+    expect(providerCost).toMatchObject({
+      estimated_usd: 0.075,
+      actual_usd: null,
+      estimate_duration_ms: 30000,
+      estimate_kind: 'composition_plan',
+      actual_cost_supported: false,
+      customer_billing: false,
+    });
+    const durable = row.metadata_json;
+    expect(durable).not.toContain(audioBase64);
+    expect(durable).not.toContain('"chunks"');
+  });
+
+  test('audio save copies trusted temporary Opus URLs and rejects unsupported or mislabeled audio', async () => {
+    const authWorker = await loadWorker('workers/auth/src/index.js');
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'elevenlabs-opus-url-save', role: 'user' })],
+    });
+    const opusBytes = Buffer.alloc(47);
+    opusBytes.write('OggS', 0, 'ascii');
+    opusBytes[4] = 0;
+    opusBytes[5] = 2;
+    opusBytes[26] = 1;
+    opusBytes[27] = 19;
+    opusBytes.write('OpusHead', 28, 'ascii');
+    const remoteUrl = 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music/track.opus?X-Amz-Signature=mock';
+    const originalFetch = global.fetch;
+    const fetchCalls = [];
+    global.fetch = async (url, options) => {
+      fetchCalls.push({ url: String(url), options });
+      return new Response(opusBytes, {
+        status: 200,
+        headers: {
+          'content-type': 'audio/ogg',
+          'content-length': String(opusBytes.byteLength),
+        },
+      });
+    };
+
+    try {
+      const token = await seedSession(env, 'elevenlabs-opus-url-save');
+      const headers = {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'CF-Connecting-IP': '203.0.113.81',
+      };
+      const saved = await authWorker.fetch(
+        authJsonRequest('/api/ai/audio/save', 'POST', {
+          title: 'Temporary ElevenLabs Opus',
+          audioUrl: remoteUrl,
+          mimeType: 'audio/ogg',
+          model: { id: 'elevenlabs/music-v2', label: 'ElevenLabs Music v2', vendor: 'ElevenLabs' },
+          inputMode: 'prompt',
+          prompt: 'A temporary provider URL copied through the protected server path.',
+          requestedDurationMs: 3000,
+          outputFormat: 'opus_48000_96',
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(saved.status).toBe(201);
+      await expect(saved.json()).resolves.toMatchObject({
+        ok: true,
+        data: {
+          mime_type: 'audio/ogg',
+          size_bytes: opusBytes.byteLength,
+          file_name: expect.stringMatching(/\.opus$/),
+        },
+      });
+      expect(fetchCalls).toEqual([expect.objectContaining({
+        url: remoteUrl,
+        options: expect.objectContaining({ method: 'GET', redirect: 'manual' }),
+      })]);
+      expect(env.USER_IMAGES.objects.size).toBe(1);
+
+      const unsupported = await authWorker.fetch(
+        authJsonRequest('/api/ai/audio/save', 'POST', {
+          title: 'Unsupported AAC',
+          audioBase64: Buffer.from('not-aac').toString('base64'),
+          mimeType: 'audio/aac',
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(unsupported.status).toBe(400);
+      await expect(unsupported.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'unsupported_audio_mime_type',
+      });
+
+      const nonOpusOgg = Buffer.from('OggS-but-no-opus-head').toString('base64');
+      const invalidOgg = await authWorker.fetch(
+        authJsonRequest('/api/ai/audio/save', 'POST', {
+          title: 'Invalid Ogg',
+          audioBase64: nonOpusOgg,
+          mimeType: 'audio/ogg',
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(invalidOgg.status).toBe(400);
+      await expect(invalidOgg.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'unsupported_audio_mime_type',
+      });
+
+      const mislabeled = await authWorker.fetch(
+        authJsonRequest('/api/ai/audio/save', 'POST', {
+          title: 'Mislabeled Opus',
+          audioBase64: opusBytes.toString('base64'),
+          mimeType: 'audio/mpeg',
+        }, headers),
+        env,
+        createExecutionContext().execCtx
+      );
+      expect(mislabeled.status).toBe(400);
+      await expect(mislabeled.json()).resolves.toMatchObject({
+        ok: false,
+        code: 'audio_mime_mismatch',
+      });
+      expect(env.DB.state.aiTextAssets).toHaveLength(1);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   test('member audio save endpoint attaches optional generated cover poster through the music cover pipeline', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
@@ -43244,7 +45195,10 @@ test.describe('Worker routes', () => {
     const res = await authWorker.fetch(
       authJsonRequest('/api/ai/audio/save', 'POST', {
         title: 'Admin Uploaded Track',
-        audioBase64: btoa('fake-mp3-binary-data'),
+        audioBase64: Buffer.from([
+          0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00,
+          0x00, 0x00, 0xff, 0xfb, 0x90, 0x64,
+        ]).toString('base64'),
         mimeType: 'audio/mpeg',
         prompt: 'A neon album cover',
         model: '@cf/black-forest-labs/flux-2-dev',
@@ -43312,7 +45266,10 @@ test.describe('Worker routes', () => {
     const res = await authWorker.fetch(
       authJsonRequest('/api/ai/audio/save', 'POST', {
         title: 'Large Cover Track',
-        audioBase64: btoa('fake-mp3-binary-data'),
+        audioBase64: Buffer.from([
+          0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00,
+          0x00, 0x00, 0xff, 0xfb, 0x90, 0x64,
+        ]).toString('base64'),
         mimeType: 'audio/mpeg',
         prompt: 'A large generated cover',
         model: 'openai/gpt-image-2',
@@ -43744,6 +45701,7 @@ test.describe('Worker routes', () => {
   });
 
   test('member audio save rejects trusted generated audio URLs above the audio byte limit', async () => {
+    const { AI_MUSIC_ASSET_MAX_BYTES } = await loadAiTextAssetsModule();
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       users: [createContractUser({ id: 'member-audio-too-large-url', role: 'user' })],
@@ -43757,7 +45715,7 @@ test.describe('Worker routes', () => {
         status: 200,
         headers: {
           'content-type': 'audio/mpeg',
-          'content-length': String(24_000_001),
+          'content-length': String(AI_MUSIC_ASSET_MAX_BYTES + 1),
         },
       });
     };

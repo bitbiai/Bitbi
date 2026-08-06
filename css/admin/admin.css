@@ -2390,6 +2390,143 @@
         color: rgba(255, 255, 255, 0.42);
     }
 
+    .admin-ai__music-provider-panel {
+        display: grid;
+        gap: var(--space-4);
+        min-width: 0;
+    }
+
+    .admin-ai__music-provider-panel[hidden] {
+        display: none;
+    }
+
+    .admin-ai__music-provider-panel [hidden] {
+        display: none;
+    }
+
+    .admin-ai__music-model-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: var(--space-3);
+    }
+
+    .admin-ai__music-model-card {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-2);
+        padding: var(--space-4);
+        text-align: left;
+        color: inherit;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015)),
+            rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition:
+            border-color 0.2s var(--ease-default),
+            background 0.2s var(--ease-default),
+            transform 0.2s var(--ease-default);
+    }
+
+    .admin-ai__music-model-card:hover:not(:disabled) {
+        border-color: rgba(0, 240, 255, 0.18);
+        background:
+            linear-gradient(180deg, rgba(0, 240, 255, 0.06), rgba(255, 255, 255, 0.02)),
+            rgba(255, 255, 255, 0.02);
+        transform: translateY(-1px);
+    }
+
+    .admin-ai__music-model-card:focus-visible {
+        outline: 2px solid rgba(0, 240, 255, 0.48);
+        outline-offset: 2px;
+    }
+
+    .admin-ai__music-model-card:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+    }
+
+    .admin-ai__music-model-card--active {
+        border-color: rgba(0, 240, 255, 0.22);
+        background:
+            linear-gradient(180deg, rgba(0, 240, 255, 0.1), rgba(255, 255, 255, 0.02)),
+            rgba(255, 255, 255, 0.03);
+        box-shadow: 0 0 0 1px rgba(0, 240, 255, 0.06) inset;
+    }
+
+    .admin-ai__music-model-card-title {
+        font-size: 0.98rem;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.9);
+    }
+
+    .admin-ai__music-model-card-id {
+        max-width: 100%;
+        padding: 0.2rem 0.55rem;
+        overflow-wrap: anywhere;
+        border: 1px solid rgba(0, 240, 255, 0.14);
+        border-radius: var(--radius-full);
+        background: rgba(0, 240, 255, 0.08);
+        color: rgba(188, 245, 255, 0.78);
+        font-family: var(--font-mono);
+        font-size: 11px;
+    }
+
+    .admin-ai__music-model-card-copy {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.7;
+        color: rgba(255, 255, 255, 0.56);
+    }
+
+    .admin-ai__music-toggle-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: var(--space-3);
+    }
+
+    .admin-ai__music-toggle-grid .admin-ai__toggle,
+    #aiMusicElevenLabsUseExample {
+        min-block-size: 2.75rem;
+    }
+
+    #aiMusicCancel,
+    #aiMusicDownload,
+    #aiMusicSave {
+        min-block-size: 2.75rem;
+    }
+
+    .admin-ai__music-toggle-grid .admin-ai__toggle {
+        padding-block: var(--space-2);
+    }
+
+    .admin-ai__music-toggle-grid .admin-ai__field--disabled {
+        cursor: not-allowed;
+        opacity: 0.48;
+    }
+
+    .admin-ai__music-plan-editor {
+        min-height: 18rem;
+        max-width: 100%;
+        resize: vertical;
+        overflow: auto;
+        tab-size: 2;
+    }
+
+    .admin-ai__music-cost {
+        padding: var(--space-3) var(--space-4);
+        border: 1px solid rgba(0, 240, 255, 0.14);
+        border-radius: var(--radius-sm);
+        background: rgba(0, 240, 255, 0.045);
+        color: rgba(205, 249, 255, 0.82);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.7;
+    }
+
     .admin-ai__result-state,
     .admin-ai__summary {
         font-size: 13px;
@@ -3634,6 +3771,11 @@
         }
 
         .admin-ai__video-model-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .admin-ai__music-model-grid,
+        .admin-ai__music-toggle-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
     }

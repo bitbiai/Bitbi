@@ -1458,6 +1458,11 @@ export const ROUTE_POLICIES = Object.freeze([
       replay: "Metadata-only: completed duplicate requests return no audio, lyrics, or provider body and do not re-run the provider.",
     },
   }),
+  adminJsonWrite("admin.ai.download-music", "POST", "/api/admin/ai/download-music", "admin-ai", "smallJson", "admin-ai-download-music-ip", {
+    config: REQUIRED_CONFIG.authPublicLimiter,
+    audit: { noneReason: "Read-only relay of one bounded trusted generated-audio URL; no D1, R2, credit, budget, or provider-generation mutation occurs." },
+    notes: "Admin-only same-origin binary download relay. Accepts only { audioUrl }, reuses the trusted Cloudflare output URL policy plus bounded MIME/signature validation, returns MP3 or Ogg Opus as a private no-store attachment, and never logs URL query credentials.",
+  }),
   adminJsonWrite("admin.ai.test-video-debug", "POST", "/api/admin/ai/test-video", "admin-ai", "adminJson", "admin-ai-video-ip", {
     config: REQUIRED_CONFIG.adminAi,
     debugGate: "disabled-by-default; ALLOW_SYNC_VIDEO_DEBUG=true is retained only for emergency debug compatibility",

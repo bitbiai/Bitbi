@@ -86,6 +86,24 @@ import {
   GROK_IMAGINE_VIDEO_15_PREVIEW_VENDOR,
   calculateGrokImagineVideo15PreviewCreditPricing,
 } from "./grok-imagine-video-15-preview-pricing.mjs";
+import {
+  ELEVENLABS_MUSIC_V2_DEFAULT_OUTPUT_FORMAT,
+  ELEVENLABS_MUSIC_V2_MAX_CHUNKS,
+  ELEVENLABS_MUSIC_V2_MAX_CHUNK_DURATION_MS,
+  ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
+  ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BASE64_LENGTH,
+  ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES,
+  ELEVENLABS_MUSIC_V2_MAX_PLAN_BYTES,
+  ELEVENLABS_MUSIC_V2_MAX_PROMPT_LENGTH,
+  ELEVENLABS_MUSIC_V2_MAX_SEED,
+  ELEVENLABS_MUSIC_V2_MIN_DURATION_MS,
+  ELEVENLABS_MUSIC_V2_MIN_SEED,
+  ELEVENLABS_MUSIC_V2_MODEL_ID,
+  ELEVENLABS_MUSIC_V2_MODEL_LABEL,
+  ELEVENLABS_MUSIC_V2_OUTPUT_FORMATS,
+  ELEVENLABS_MUSIC_V2_PRICE_USD_PER_OUTPUT_SECOND,
+  ELEVENLABS_MUSIC_V2_VENDOR,
+} from "./elevenlabs-music-v2-pricing.mjs";
 
 export {
   GPT_IMAGE_2_BACKGROUND_OPTIONS,
@@ -146,6 +164,29 @@ export {
   GROK_IMAGINE_VIDEO_15_PREVIEW_SIZES,
   GROK_IMAGINE_VIDEO_15_PREVIEW_VENDOR,
 } from "./grok-imagine-video-15-preview-pricing.mjs";
+export {
+  ELEVENLABS_MUSIC_V2_AI_TIMEOUT_MS,
+  ELEVENLABS_MUSIC_V2_AUTH_PROXY_TIMEOUT_MS,
+  ELEVENLABS_MUSIC_V2_BROWSER_TIMEOUT_MS,
+  ELEVENLABS_MUSIC_V2_DEFAULT_OUTPUT_FORMAT,
+  ELEVENLABS_MUSIC_V2_MAX_CHUNKS,
+  ELEVENLABS_MUSIC_V2_MAX_CHUNK_DURATION_MS,
+  ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
+  ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BASE64_LENGTH,
+  ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES,
+  ELEVENLABS_MUSIC_V2_MAX_PLAN_BYTES,
+  ELEVENLABS_MUSIC_V2_MAX_PROMPT_LENGTH,
+  ELEVENLABS_MUSIC_V2_MAX_SEED,
+  ELEVENLABS_MUSIC_V2_MIN_DURATION_MS,
+  ELEVENLABS_MUSIC_V2_MIN_SEED,
+  ELEVENLABS_MUSIC_V2_MODEL_ID,
+  ELEVENLABS_MUSIC_V2_MODEL_LABEL,
+  ELEVENLABS_MUSIC_V2_OUTPUT_FORMATS,
+  ELEVENLABS_MUSIC_V2_PRICE_USD_PER_OUTPUT_SECOND,
+  ELEVENLABS_MUSIC_V2_VENDOR,
+  calculateElevenLabsMusicV2ProviderCost,
+  getElevenLabsMusicV2OutputFormatInfo,
+} from "./elevenlabs-music-v2-pricing.mjs";
 
 export class AdminAiValidationError extends Error {
   constructor(message, status = 400, code = "validation_error") {
@@ -781,9 +822,47 @@ const MUSIC_MODELS = {
     vendor: "MiniMax",
     inputFormat: "json",
     proxied: true,
+    defaultPreset: "music_studio",
     supportsInstrumental: true,
     supportsLyricsOptimizer: true,
     description: "Prompt-driven music generation with vocal, instrumental, and auto-lyrics support.",
+  },
+  [ELEVENLABS_MUSIC_V2_MODEL_ID]: {
+    id: ELEVENLABS_MUSIC_V2_MODEL_ID,
+    task: "music",
+    label: ELEVENLABS_MUSIC_V2_MODEL_LABEL,
+    vendor: ELEVENLABS_MUSIC_V2_VENDOR,
+    providerLabel: "Cloudflare Workers AI",
+    cloudflareModelId: ELEVENLABS_MUSIC_V2_MODEL_ID,
+    inputFormat: "json",
+    proxied: true,
+    adminOnly: true,
+    canvasEnabled: false,
+    supportsPrompt: true,
+    supportsCompositionPlan: true,
+    supportsExplicitDuration: true,
+    supportsAutomaticDuration: true,
+    minDurationMs: ELEVENLABS_MUSIC_V2_MIN_DURATION_MS,
+    maxDurationMs: ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
+    maxChunkDurationMs: ELEVENLABS_MUSIC_V2_MAX_CHUNK_DURATION_MS,
+    maxChunks: ELEVENLABS_MUSIC_V2_MAX_CHUNKS,
+    maxPromptLength: ELEVENLABS_MUSIC_V2_MAX_PROMPT_LENGTH,
+    supportsSeed: true,
+    minSeed: ELEVENLABS_MUSIC_V2_MIN_SEED,
+    maxSeed: ELEVENLABS_MUSIC_V2_MAX_SEED,
+    supportsInstrumentalEnforcement: true,
+    supportsOutputFormat: true,
+    outputFormatOptions: ELEVENLABS_MUSIC_V2_OUTPUT_FORMATS,
+    defaultOutputFormat: ELEVENLABS_MUSIC_V2_DEFAULT_OUTPUT_FORMAT,
+    supportsStoreForInpainting: true,
+    supportsC2pa: true,
+    c2paCompatibleCodecs: ["mp3"],
+    supportsAudioUrlResponse: true,
+    supportsBase64DataUriResponse: true,
+    pricingMode: "per_output_audio_second",
+    priceUsdPerOutputSecond: ELEVENLABS_MUSIC_V2_PRICE_USD_PER_OUTPUT_SECOND,
+    defaultPreset: "music_elevenlabs_v2",
+    description: "Prompt or composition-plan music generation with up to ten minutes of MP3 or Opus output through Cloudflare Workers AI.",
   },
 };
 
@@ -1078,6 +1157,13 @@ const PRESETS = {
     label: "Music Studio",
     model: ADMIN_AI_MUSIC_MODEL_ID,
     description: "MiniMax Music 2.6 preset for admin-only studio generation.",
+  },
+  music_elevenlabs_v2: {
+    name: "music_elevenlabs_v2",
+    task: "music",
+    label: ELEVENLABS_MUSIC_V2_MODEL_LABEL,
+    model: ELEVENLABS_MUSIC_V2_MODEL_ID,
+    description: "ElevenLabs Music v2 preset for admin-only prompt and composition-plan generation.",
   },
   video_studio: {
     name: "video_studio",
@@ -1677,6 +1763,10 @@ export function getAdminAiVideoModelSpec(modelId = ADMIN_AI_VIDEO_MODEL_ID) {
   return VIDEO_MODELS[modelId] || VIDEO_MODELS[ADMIN_AI_VIDEO_MODEL_ID];
 }
 
+export function getAdminAiMusicModelSpec(modelId = ADMIN_AI_MUSIC_MODEL_ID) {
+  return MUSIC_MODELS[modelId] || MUSIC_MODELS[ADMIN_AI_MUSIC_MODEL_ID];
+}
+
 function getRegistryForTask(task) {
   const registry = REGISTRY[task];
   if (!registry) {
@@ -1774,6 +1864,44 @@ function toPublicModel(model) {
       proxied: !!model.proxied,
       adminOnly: model.adminOnly === true,
       generationEnabled: model.generationEnabled !== false,
+    };
+  }
+  if (model.task === "music") {
+    if (typeof model.canvasEnabled === "boolean") pub.canvasEnabled = model.canvasEnabled;
+    pub.capabilities = {
+      supportsPrompt: model.supportsPrompt !== false,
+      cloudflareModelId: model.cloudflareModelId || model.id,
+      supportsCompositionPlan: model.supportsCompositionPlan === true,
+      supportsExplicitDuration: model.supportsExplicitDuration === true,
+      supportsAutomaticDuration: model.supportsAutomaticDuration === true,
+      minDurationMs: model.minDurationMs ?? null,
+      maxDurationMs: model.maxDurationMs ?? null,
+      maxChunkDurationMs: model.maxChunkDurationMs ?? null,
+      maxChunks: model.maxChunks ?? null,
+      maxPromptLength: model.maxPromptLength || ADMIN_AI_LIMITS.music.maxPromptLength,
+      supportsSeed: model.supportsSeed === true,
+      minSeed: model.minSeed ?? null,
+      maxSeed: model.maxSeed ?? null,
+      supportsInstrumental: model.supportsInstrumental === true,
+      supportsInstrumentalEnforcement: model.supportsInstrumentalEnforcement === true,
+      supportsLyricsOptimizer: model.supportsLyricsOptimizer === true,
+      supportsOutputFormat: model.supportsOutputFormat === true,
+      outputFormatOptions: Array.isArray(model.outputFormatOptions)
+        ? [...model.outputFormatOptions]
+        : [],
+      defaultOutputFormat: model.defaultOutputFormat || null,
+      supportsStoreForInpainting: model.supportsStoreForInpainting === true,
+      supportsC2pa: model.supportsC2pa === true,
+      c2paCompatibleCodecs: Array.isArray(model.c2paCompatibleCodecs)
+        ? [...model.c2paCompatibleCodecs]
+        : [],
+      supportsAudioUrlResponse: model.supportsAudioUrlResponse !== false,
+      supportsBase64DataUriResponse: model.supportsBase64DataUriResponse !== false,
+      pricingMode: model.pricingMode || null,
+      priceUsdPerOutputSecond: model.priceUsdPerOutputSecond ?? null,
+      defaultPreset: model.defaultPreset || null,
+      proxied: model.proxied === true,
+      adminOnly: model.adminOnly === true,
     };
   }
   if (model.task === "video") {
@@ -2322,38 +2450,421 @@ export function validateAdminAiCompareBody(body) {
   };
 }
 
-export function validateAdminAiMusicBody(body) {
-  const input = ensureObject(body);
-  const mode = optionalEnum(input.mode, "mode", ["vocals", "instrumental"], "vocals");
-  const lyricsMode = optionalEnum(input.lyricsMode, "lyricsMode", ["custom", "auto"], "custom");
-  const prompt = requiredString(input.prompt, "prompt", ADMIN_AI_LIMITS.music.maxPromptLength);
-  const lyrics = optionalString(input.lyrics, "lyrics", ADMIN_AI_LIMITS.music.maxLyricsLength);
-  const bpm = optionalInteger(
-    input.bpm,
-    "bpm",
-    ADMIN_AI_LIMITS.music.minBpm,
-    ADMIN_AI_LIMITS.music.maxBpm,
-    null
-  );
-  const key = optionalEnum(input.key, "key", ADMIN_AI_MUSIC_KEYS, null);
+const ELEVENLABS_MUSIC_V2_MAX_PLAN_DEPTH = 8;
+const ELEVENLABS_MUSIC_V2_MAX_CHUNK_TEXT_LENGTH = 4_100;
+const ELEVENLABS_MUSIC_V2_MAX_STYLE_LENGTH = 200;
+const ELEVENLABS_MUSIC_V2_MAX_SONG_ID_LENGTH = 200;
+const ELEVENLABS_MUSIC_V2_STYLE_LIMIT = 50;
+const ELEVENLABS_MUSIC_V2_CONTEXT_ADHERENCE = ["low", "medium", "high"];
+const ELEVENLABS_MUSIC_V2_CONDITION_STRENGTH = ["low", "medium", "high", "xhigh"];
+const ELEVENLABS_MUSIC_V2_POLLUTION_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 
-  if (mode === "vocals" && lyricsMode === "custom" && !lyrics) {
-    throw new AdminAiValidationError(
-      "lyrics are required when using custom lyrics mode.",
-      400,
-      "validation_error"
+function invalidMusicPlan(message, code = "invalid_composition_plan") {
+  throw new AdminAiValidationError(message, 400, code);
+}
+
+function assertPlainCompositionObject(value, field) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    invalidMusicPlan(`${field} must be a plain object.`);
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    invalidMusicPlan(`${field} must be a plain object without a custom prototype.`);
+  }
+  return value;
+}
+
+function assertCompositionPlanSafety(value, field = "compositionPlan", depth = 0) {
+  if (depth > ELEVENLABS_MUSIC_V2_MAX_PLAN_DEPTH) {
+    invalidMusicPlan(
+      `compositionPlan must not exceed ${ELEVENLABS_MUSIC_V2_MAX_PLAN_DEPTH} levels of nesting.`,
+      "composition_plan_too_deep"
+    );
+  }
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    if (value.length > ELEVENLABS_MUSIC_V2_STYLE_LIMIT) {
+      invalidMusicPlan(`${field} contains too many items.`, "composition_plan_too_large");
+    }
+    value.forEach((entry, index) => assertCompositionPlanSafety(entry, `${field}[${index}]`, depth + 1));
+    return;
+  }
+  assertPlainCompositionObject(value, field);
+  for (const key of Object.keys(value)) {
+    if (ELEVENLABS_MUSIC_V2_POLLUTION_KEYS.has(key)) {
+      invalidMusicPlan(`${field} contains the forbidden key "${key}".`, "composition_plan_forbidden_key");
+    }
+    assertCompositionPlanSafety(value[key], `${field}.${key}`, depth + 1);
+  }
+}
+
+function assertCompositionFields(value, allowedFields, field) {
+  const extra = Object.keys(value).find((key) => !allowedFields.includes(key));
+  if (extra) invalidMusicPlan(`${field}.${extra} is not a documented Music v2 field.`);
+}
+
+function requiredPlanString(value, field, maxLength, { preserveWhitespace = false } = {}) {
+  if (typeof value !== "string" || !value.trim()) {
+    invalidMusicPlan(`${field} must be a non-empty string.`);
+  }
+  if (value.length > maxLength) {
+    invalidMusicPlan(`${field} must be at most ${maxLength} characters.`, "composition_plan_too_large");
+  }
+  return preserveWhitespace ? value : value.trim();
+}
+
+function requiredPlanInteger(value, field, min, max) {
+  if (!Number.isSafeInteger(value)) invalidMusicPlan(`${field} must be an integer.`);
+  if (value < min || value > max) {
+    invalidMusicPlan(`${field} must be between ${min} and ${max}.`, "composition_plan_duration_invalid");
+  }
+  return value;
+}
+
+function normalizePlanStyles(value, field, { required = false } = {}) {
+  if (value === undefined && !required) return undefined;
+  if (!Array.isArray(value)) invalidMusicPlan(`${field} must be an array.`);
+  if (value.length > ELEVENLABS_MUSIC_V2_STYLE_LIMIT) {
+    invalidMusicPlan(
+      `${field} must contain at most ${ELEVENLABS_MUSIC_V2_STYLE_LIMIT} styles.`,
+      "composition_plan_too_large"
+    );
+  }
+  return value.map((entry, index) => requiredPlanString(
+    entry,
+    `${field}[${index}]`,
+    ELEVENLABS_MUSIC_V2_MAX_STYLE_LENGTH
+  ));
+}
+
+function normalizePlanRange(value, field) {
+  const range = assertPlainCompositionObject(value, field);
+  assertCompositionFields(range, ["start_ms", "end_ms"], field);
+  if (!Number.isSafeInteger(range.start_ms) || range.start_ms < 0) {
+    invalidMusicPlan(`${field}.start_ms must be a non-negative integer.`);
+  }
+  if (!Number.isSafeInteger(range.end_ms) || range.end_ms <= range.start_ms) {
+    invalidMusicPlan(`${field}.end_ms must be an integer greater than start_ms.`);
+  }
+  const durationMs = range.end_ms - range.start_ms;
+  requiredPlanInteger(
+    durationMs,
+    `${field} duration`,
+    ELEVENLABS_MUSIC_V2_MIN_DURATION_MS,
+    ELEVENLABS_MUSIC_V2_MAX_CHUNK_DURATION_MS
+  );
+  return {
+    range: { start_ms: range.start_ms, end_ms: range.end_ms },
+    durationMs,
+  };
+}
+
+function normalizeAudioRefChunk(value, field) {
+  const chunk = assertPlainCompositionObject(value, field);
+  assertCompositionFields(chunk, ["song_id", "range"], field);
+  const normalizedRange = normalizePlanRange(chunk.range, `${field}.range`);
+  return {
+    chunk: {
+      song_id: requiredPlanString(
+        chunk.song_id,
+        `${field}.song_id`,
+        ELEVENLABS_MUSIC_V2_MAX_SONG_ID_LENGTH
+      ),
+      range: normalizedRange.range,
+    },
+    durationMs: normalizedRange.durationMs,
+  };
+}
+
+function normalizeGenerationChunk(value, field) {
+  const chunk = assertPlainCompositionObject(value, field);
+  assertCompositionFields(
+    chunk,
+    [
+      "text",
+      "duration_ms",
+      "positive_styles",
+      "negative_styles",
+      "context_adherence",
+      "conditioning_ref",
+      "condition_strength",
+    ],
+    field
+  );
+  const durationMs = requiredPlanInteger(
+    chunk.duration_ms,
+    `${field}.duration_ms`,
+    ELEVENLABS_MUSIC_V2_MIN_DURATION_MS,
+    ELEVENLABS_MUSIC_V2_MAX_CHUNK_DURATION_MS
+  );
+  const normalized = {
+    text: requiredPlanString(
+      chunk.text,
+      `${field}.text`,
+      ELEVENLABS_MUSIC_V2_MAX_CHUNK_TEXT_LENGTH,
+      { preserveWhitespace: true }
+    ),
+    duration_ms: durationMs,
+    positive_styles: normalizePlanStyles(
+      chunk.positive_styles,
+      `${field}.positive_styles`,
+      { required: true }
+    ),
+  };
+  const negativeStyles = normalizePlanStyles(chunk.negative_styles, `${field}.negative_styles`);
+  if (negativeStyles !== undefined) normalized.negative_styles = negativeStyles;
+  if (chunk.context_adherence !== undefined) {
+    normalized.context_adherence = optionalEnum(
+      chunk.context_adherence,
+      `${field}.context_adherence`,
+      ELEVENLABS_MUSIC_V2_CONTEXT_ADHERENCE
+    );
+  }
+  if (chunk.conditioning_ref !== undefined) {
+    normalized.conditioning_ref = chunk.conditioning_ref === null
+      ? null
+      : normalizeAudioRefChunk(chunk.conditioning_ref, `${field}.conditioning_ref`).chunk;
+  }
+  if (chunk.condition_strength !== undefined) {
+    normalized.condition_strength = chunk.condition_strength === null
+      ? null
+      : optionalEnum(
+        chunk.condition_strength,
+        `${field}.condition_strength`,
+        ELEVENLABS_MUSIC_V2_CONDITION_STRENGTH
+      );
+  }
+  return { chunk: normalized, durationMs };
+}
+
+export function validateElevenLabsMusicV2CompositionPlan(value) {
+  assertCompositionPlanSafety(value);
+  const root = assertPlainCompositionObject(value, "compositionPlan");
+  assertCompositionFields(root, ["chunks"], "compositionPlan");
+  if (!Array.isArray(root.chunks) || root.chunks.length === 0) {
+    invalidMusicPlan("compositionPlan.chunks must be a non-empty ordered array.");
+  }
+  if (root.chunks.length > ELEVENLABS_MUSIC_V2_MAX_CHUNKS) {
+    invalidMusicPlan(
+      `compositionPlan.chunks must contain at most ${ELEVENLABS_MUSIC_V2_MAX_CHUNKS} chunks.`,
+      "composition_plan_too_many_chunks"
+    );
+  }
+
+  let totalDurationMs = 0;
+  const chunks = root.chunks.map((entry, index) => {
+    const field = `compositionPlan.chunks[${index}]`;
+    const normalized = entry && typeof entry === "object" && !Array.isArray(entry)
+      && Object.prototype.hasOwnProperty.call(entry, "song_id")
+      ? normalizeAudioRefChunk(entry, field)
+      : normalizeGenerationChunk(entry, field);
+    totalDurationMs += normalized.durationMs;
+    return normalized.chunk;
+  });
+
+  if (
+    totalDurationMs < ELEVENLABS_MUSIC_V2_MIN_DURATION_MS
+    || totalDurationMs > ELEVENLABS_MUSIC_V2_MAX_DURATION_MS
+  ) {
+    invalidMusicPlan(
+      `compositionPlan total duration must be between ${ELEVENLABS_MUSIC_V2_MIN_DURATION_MS} and ${ELEVENLABS_MUSIC_V2_MAX_DURATION_MS} milliseconds.`,
+      "composition_plan_total_duration_invalid"
+    );
+  }
+
+  const plan = { chunks };
+  let serialized;
+  try {
+    serialized = JSON.stringify(plan);
+  } catch {
+    invalidMusicPlan("compositionPlan must be JSON serializable.");
+  }
+  const serializedLength = serialized.length;
+  const serializedBytes = new TextEncoder().encode(serialized).byteLength;
+  if (serializedBytes > ELEVENLABS_MUSIC_V2_MAX_PLAN_BYTES) {
+    invalidMusicPlan(
+      `compositionPlan must be at most ${ELEVENLABS_MUSIC_V2_MAX_PLAN_BYTES} bytes.`,
+      "composition_plan_too_large"
     );
   }
 
   return {
-    preset: optionalString(input.preset, "preset", 64),
-    model: optionalString(input.model, "model", 120),
+    plan,
+    chunkCount: chunks.length,
+    serializedLength,
+    serializedBytes,
+    totalDurationMs,
+  };
+}
+
+export function validateAdminAiMusicBody(body) {
+  const input = ensureObject(body);
+  const preset = optionalString(input.preset, "preset", 64);
+  const model = optionalString(input.model, "model", 120);
+  const selection = resolveAdminAiModelSelection("music", { preset, model });
+
+  if (selection.model.id === ADMIN_AI_MUSIC_MODEL_ID) {
+    assertOnlyAllowedFields(
+      input,
+      ["preset", "model", "prompt", "mode", "lyricsMode", "lyrics", "bpm", "key"],
+      selection.model.id
+    );
+    const mode = optionalEnum(input.mode, "mode", ["vocals", "instrumental"], "vocals");
+    const lyricsMode = optionalEnum(input.lyricsMode, "lyricsMode", ["custom", "auto"], "custom");
+    const prompt = requiredString(input.prompt, "prompt", ADMIN_AI_LIMITS.music.maxPromptLength);
+    const lyrics = optionalString(input.lyrics, "lyrics", ADMIN_AI_LIMITS.music.maxLyricsLength);
+    const bpm = optionalInteger(
+      input.bpm,
+      "bpm",
+      ADMIN_AI_LIMITS.music.minBpm,
+      ADMIN_AI_LIMITS.music.maxBpm,
+      null
+    );
+    const key = optionalEnum(input.key, "key", ADMIN_AI_MUSIC_KEYS, null);
+
+    if (mode === "vocals" && lyricsMode === "custom" && !lyrics) {
+      throw new AdminAiValidationError(
+        "lyrics are required when using custom lyrics mode.",
+        400,
+        "validation_error"
+      );
+    }
+
+    return {
+      preset,
+      model,
+      prompt,
+      mode,
+      lyricsMode,
+      lyrics: mode === "instrumental" || lyricsMode === "auto" ? null : lyrics,
+      bpm,
+      key,
+    };
+  }
+
+  if (selection.model.id !== ELEVENLABS_MUSIC_V2_MODEL_ID) {
+    throw invalidSelection(
+      `Model "${selection.model.id}" is not supported for Admin Music generation.`,
+      "model_not_allowed"
+    );
+  }
+
+  assertOnlyAllowedFields(
+    input,
+    [
+      "preset",
+      "model",
+      "inputMode",
+      "prompt",
+      "compositionPlan",
+      "musicLengthMs",
+      "outputFormat",
+      "seed",
+      "forceInstrumental",
+      "storeForInpainting",
+      "signWithC2pa",
+    ],
+    selection.model.id
+  );
+
+  const prompt = optionalString(
+    input.prompt,
+    "prompt",
+    ELEVENLABS_MUSIC_V2_MAX_PROMPT_LENGTH
+  );
+  const hasPlan = input.compositionPlan !== undefined && input.compositionPlan !== null;
+  if (prompt && hasPlan) {
+    throw new AdminAiValidationError(
+      "prompt and compositionPlan are mutually exclusive.",
+      400,
+      "music_source_conflict"
+    );
+  }
+  if (!prompt && !hasPlan) {
+    throw new AdminAiValidationError(
+      "Either prompt or compositionPlan is required.",
+      400,
+      "music_source_required"
+    );
+  }
+
+  const compositionPlanResult = hasPlan
+    ? validateElevenLabsMusicV2CompositionPlan(input.compositionPlan)
+    : null;
+  const derivedInputMode = compositionPlanResult ? "composition_plan" : "prompt";
+  const inputMode = optionalEnum(
+    input.inputMode,
+    "inputMode",
+    ["prompt", "composition_plan"],
+    derivedInputMode
+  );
+  if (inputMode !== derivedInputMode) {
+    throw new AdminAiValidationError(
+      `inputMode must be "${derivedInputMode}" for the provided generation source.`,
+      400,
+      "music_input_mode_mismatch"
+    );
+  }
+
+  const musicLengthMs = optionalInteger(
+    input.musicLengthMs,
+    "musicLengthMs",
+    ELEVENLABS_MUSIC_V2_MIN_DURATION_MS,
+    ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
+    null
+  );
+  if (compositionPlanResult && musicLengthMs !== null) {
+    throw new AdminAiValidationError(
+      "musicLengthMs is supported only with prompt input.",
+      400,
+      "music_duration_mode_invalid"
+    );
+  }
+
+  const outputFormat = optionalEnum(
+    input.outputFormat,
+    "outputFormat",
+    ELEVENLABS_MUSIC_V2_OUTPUT_FORMATS,
+    ELEVENLABS_MUSIC_V2_DEFAULT_OUTPUT_FORMAT
+  );
+  const seed = optionalInteger(
+    input.seed,
+    "seed",
+    ELEVENLABS_MUSIC_V2_MIN_SEED,
+    ELEVENLABS_MUSIC_V2_MAX_SEED,
+    null
+  );
+  const forceInstrumental = optionalBoolean(input.forceInstrumental, "forceInstrumental", false);
+  const storeForInpainting = optionalBoolean(input.storeForInpainting, "storeForInpainting", false);
+  const signWithC2pa = optionalBoolean(input.signWithC2pa, "signWithC2pa", false);
+
+  if (compositionPlanResult && forceInstrumental) {
+    throw new AdminAiValidationError(
+      "forceInstrumental is supported only with prompt input.",
+      400,
+      "music_instrumental_mode_invalid"
+    );
+  }
+  if (signWithC2pa && outputFormat.startsWith("opus_")) {
+    throw new AdminAiValidationError(
+      "signWithC2pa requires Automatic or an MP3 output format.",
+      400,
+      "c2pa_output_format_incompatible"
+    );
+  }
+
+  return {
+    preset,
+    model,
+    inputMode,
     prompt,
-    mode,
-    lyricsMode,
-    lyrics: mode === "instrumental" || lyricsMode === "auto" ? null : lyrics,
-    bpm,
-    key,
+    compositionPlan: compositionPlanResult?.plan || null,
+    musicLengthMs,
+    outputFormat,
+    seed,
+    forceInstrumental,
+    storeForInpainting,
+    signWithC2pa,
   };
 }
 

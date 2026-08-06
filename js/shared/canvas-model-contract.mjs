@@ -269,7 +269,7 @@ function buildCatalog() {
     ...catalog.text.filter((model) => model.canvasEnabled !== false).map(buildTextModel),
     ...catalog.image.map(buildImageModel),
     ...catalog.video.map(buildVideoModel),
-    ...catalog.music.map(buildMusicModel),
+    ...catalog.music.filter((model) => model.canvasEnabled !== false).map(buildMusicModel),
     ...catalog.embeddings.map(buildEmbeddingModel),
   ].map(deepFreeze);
 }

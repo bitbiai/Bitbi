@@ -156,26 +156,58 @@ export function buildMusicSaveIntent({
 }) {
     const result = response?.result;
     if (!result?.audioBase64 && !result?.audioUrl) return null;
+    const isCompositionPlan = result.inputMode === 'composition_plan';
+    const safePrompt = isCompositionPlan
+        ? `Composition plan with ${Number(result.compositionPlanChunkCount || 0)} chunks`
+        : result.prompt || prompt || '';
+    const mimeType = result.mimeType || 'audio/mpeg';
+    const extension = result.downloadExtension
+        || (mimeType === 'audio/ogg' || mimeType === 'audio/opus' ? 'opus' : 'mp3');
+    const formatLabel = extension === 'opus' ? 'Opus' : 'MP3';
     return {
         type: 'text',
         sourceModule: 'music',
         modalTitle: 'Save Music Result',
-        description: 'Save the generated MP3 audio into your existing folder structure.',
+        description: `Save the generated ${formatLabel} audio into your existing folder structure.`,
         confirmLabel: 'Save Audio',
-        defaultTitle: buildSaveTitle(prompt, 'AI Lab Music'),
-        note: 'The audio file is stored as an MP3 alongside your existing saved assets.',
+        defaultTitle: buildSaveTitle(safePrompt, 'AI Lab Music'),
+        note: `The protected save route copies the audio into BITBI storage with the ${mimeType} MIME type and .${extension} extension.`,
         payload: {
             audioBase64: result.audioBase64 || null,
             audioUrl: result.audioUrl || null,
-            mimeType: result.mimeType || 'audio/mpeg',
-            prompt: result.prompt || prompt || '',
+            mimeType,
+            prompt: safePrompt,
             model: response?.model || null,
+            provider: response?.model?.vendor || null,
+            inputMode: result.inputMode || null,
+            compositionPlanSummary: isCompositionPlan ? {
+                chunkCount: result.compositionPlanChunkCount,
+                serializedLength: result.compositionPlanSerializedLength,
+                totalDurationMs: result.requestedDurationMs,
+            } : null,
+            compositionPlanChunkCount: isCompositionPlan ? result.compositionPlanChunkCount : null,
+            compositionPlanSerializedLength: isCompositionPlan ? result.compositionPlanSerializedLength : null,
+            compositionPlanTotalDurationMs: isCompositionPlan ? result.requestedDurationMs : null,
             mode: result.mode,
             lyricsMode: result.lyricsMode,
             bpm: result.bpm,
             key: result.key,
             lyricsPreview: result.lyricsPreview,
             durationMs: result.durationMs,
+            requestedDurationMs: result.requestedDurationMs,
+            actualDurationMs: result.actualDurationMs,
+            outputFormat: result.outputFormat,
+            seed: result.seed,
+            forceInstrumental: result.forceInstrumental,
+            storeForInpainting: result.storeForInpainting,
+            signWithC2pa: result.signWithC2pa,
+            providerStatus: result.providerStatus,
+            providerState: result.providerState,
+            estimatedProviderCostUsd: result.estimatedProviderCostUsd,
+            actualProviderCostUsd: result.actualProviderCostUsd,
+            priceUsdPerOutputSecond: result.priceUsdPerOutputSecond,
+            providerCostEstimateDurationMs: result.providerCostEstimateDurationMs,
+            providerCostEstimateKind: result.providerCostEstimateKind,
             sampleRate: result.sampleRate,
             channels: result.channels,
             bitrate: result.bitrate,

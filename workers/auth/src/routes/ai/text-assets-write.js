@@ -9,7 +9,9 @@ import {
   isAssetStorageQuotaError,
 } from "../../lib/asset-storage-quota.js";
 import {
+  AI_MUSIC_ASSET_MAX_BYTES,
   attachVideoPosterToAiTextAsset,
+  normalizeMusicAssetMimeType,
   processGeneratedMusicCoverPoster,
   saveAdminAiTextAsset,
 } from "../../lib/ai-text-assets.js";
@@ -18,6 +20,9 @@ import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../..
 import {
   getRemoteMediaPolicyLogFields,
 } from "../../../../../js/shared/remote-media-policy.mjs";
+import {
+  ELEVENLABS_MUSIC_V2_MAX_PLAN_BYTES,
+} from "../../../../../js/shared/elevenlabs-music-v2-pricing.mjs";
 import {
   buildRejectedRemoteAudioUrlError,
   fetchGeneratedAudioForSave,
@@ -39,6 +44,69 @@ const MAX_SAVED_FILE_TITLE_LENGTH = 120;
 const MAX_AUDIO_SAVE_COVER_BASE64_CHARS = 11_000_000;
 const MAX_AUDIO_SAVE_COVER_BYTES = 8_000_000;
 const AUDIO_SAVE_COVER_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+function boundedAudioSaveString(value, maxLength) {
+  if (value === null || value === undefined || value === "") return null;
+  const normalized = String(value).trim();
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function boundedAudioSaveNumber(value, {
+  integer = false,
+  min = 0,
+  max = Number.MAX_SAFE_INTEGER,
+} = {}) {
+  if (value === null || value === undefined || value === "") return null;
+  const normalized = Number(value);
+  if (
+    !Number.isFinite(normalized)
+    || normalized < min
+    || normalized > max
+    || (integer && !Number.isSafeInteger(normalized))
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function optionalAudioSaveBoolean(value) {
+  return value === true ? true : value === false ? false : null;
+}
+
+function normalizeAudioSaveModel(value) {
+  if (typeof value === "string") return boundedAudioSaveString(value, 180);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    id: boundedAudioSaveString(value.id || value.modelId || value.model_id, 180),
+    label: boundedAudioSaveString(value.label, 120),
+    vendor: boundedAudioSaveString(value.vendor || value.provider, 80),
+    providerLabel: boundedAudioSaveString(value.providerLabel || value.provider_label, 120),
+  };
+}
+
+function normalizeAudioSaveCompositionPlanSummary(body) {
+  const source = body?.compositionPlanSummary;
+  const summary = source && typeof source === "object" && !Array.isArray(source) ? source : {};
+  const present = body?.compositionPlanPresent === true
+    || body?.inputMode === "composition_plan"
+    || source != null;
+  if (!present) return null;
+  return {
+    present: true,
+    chunk_count: boundedAudioSaveNumber(
+      summary.chunkCount ?? summary.chunk_count ?? body?.compositionPlanChunkCount,
+      { integer: true, max: 30 }
+    ),
+    serialized_length: boundedAudioSaveNumber(
+      summary.serializedLength ?? summary.serialized_length ?? body?.compositionPlanSerializedLength,
+      { integer: true, max: ELEVENLABS_MUSIC_V2_MAX_PLAN_BYTES }
+    ),
+    total_duration_ms: boundedAudioSaveNumber(
+      summary.totalDurationMs ?? summary.total_duration_ms ?? body?.compositionPlanTotalDurationMs,
+      { integer: true, max: 600_000 }
+    ),
+  };
+}
 
 function decodeAudioSaveCoverPayload(body) {
   const rawValue = body?.coverImageBase64 ?? body?.cover_image_base64 ?? null;
@@ -307,13 +375,14 @@ export async function handleSaveAudio(ctx) {
   }
 
   let audioBase64 = hasAudioBase64 ? body.audioBase64 : null;
+  let audioBytes = null;
   let mimeType = String(body.mimeType || "audio/mpeg").trim();
   let sizeBytes = body.sizeBytes ?? null;
 
   if (!hasAudioBase64 && trustedAudioUrl) {
     try {
       const fetched = await fetchGeneratedAudioForSave(trustedAudioUrl.toString());
-      audioBase64 = fetched.audioBase64;
+      audioBytes = fetched.bytes;
       mimeType = fetched.mimeType;
       sizeBytes = fetched.sizeBytes;
     } catch (error) {
@@ -338,13 +407,19 @@ export async function handleSaveAudio(ctx) {
     }
   }
 
-  if (!audioBase64) {
+  if (!audioBase64 && !audioBytes) {
     return respond({ ok: false, error: "Audio data is required (audioBase64 or audioUrl)." }, { status: 400 });
   }
 
-  if (!String(mimeType).startsWith("audio/")) {
-    return respond({ ok: false, error: "mimeType must be an audio MIME type." }, { status: 400 });
+  const normalizedMimeType = normalizeMusicAssetMimeType(mimeType);
+  if (!normalizedMimeType) {
+    return respond({
+      ok: false,
+      error: "mimeType must be MP3, WAV, FLAC, or Ogg Opus audio.",
+      code: "unsupported_audio_mime_type",
+    }, { status: 400 });
   }
+  mimeType = normalizedMimeType;
 
   if (hasAudioUrl) {
     logDiagnostic({
@@ -364,29 +439,68 @@ export async function handleSaveAudio(ctx) {
     return respond({ ok: false, error: "Invalid folder ID." }, { status: 400 });
   }
 
+  const model = normalizeAudioSaveModel(body.model);
+  const estimatedProviderCostUsd = boundedAudioSaveNumber(
+    body.estimatedProviderCostUsd
+      ?? (body.providerCostIsEstimate !== false ? body.providerCostUsd : null),
+    { max: 1_000 }
+  );
+  const actualProviderCostUsd = boundedAudioSaveNumber(
+    body.actualProviderCostUsd
+      ?? (body.providerCostIsEstimate === false ? body.providerCostUsd : null),
+    { max: 1_000 }
+  );
   const payload = {
     audioBase64,
+    // Server-fetched bytes never come from the browser JSON contract. Passing
+    // them internally avoids a large URL output being Base64-encoded and then
+    // decoded again before the existing MIME/quota/R2 checks.
+    audioBytes,
     mimeType,
     prompt: body.prompt ? String(body.prompt).slice(0, MAX_PROMPT_LENGTH) : null,
-    model: body.model || null,
-    mode: body.mode || null,
-    lyricsMode: body.lyricsMode || null,
-    bpm: body.bpm ?? null,
-    key: body.key || null,
-    lyricsPreview: body.lyricsPreview || null,
-    durationMs: body.durationMs ?? null,
-    sampleRate: body.sampleRate ?? null,
-    channels: body.channels ?? null,
-    bitrate: body.bitrate ?? null,
-    sizeBytes,
-    source: body.source ? String(body.source).slice(0, 120) : null,
+    model,
+    provider: boundedAudioSaveString(body.provider || model?.vendor, 80),
+    inputMode: boundedAudioSaveString(body.inputMode, 40),
+    compositionPlanSummary: normalizeAudioSaveCompositionPlanSummary(body),
+    mode: boundedAudioSaveString(body.mode, 40),
+    lyricsMode: boundedAudioSaveString(body.lyricsMode, 40),
+    bpm: boundedAudioSaveNumber(body.bpm, { integer: true, max: 400 }),
+    key: boundedAudioSaveString(body.key, 40),
+    lyricsPreview: boundedAudioSaveString(body.lyricsPreview, 1_000),
+    durationMs: boundedAudioSaveNumber(body.durationMs, { integer: true, max: 600_000 }),
+    requestedDurationMs: boundedAudioSaveNumber(body.requestedDurationMs, { integer: true, max: 600_000 }),
+    actualDurationMs: boundedAudioSaveNumber(body.actualDurationMs, { integer: true, max: 600_000 }),
+    outputFormat: boundedAudioSaveString(body.outputFormat, 80),
+    sampleRate: boundedAudioSaveNumber(body.sampleRate, { integer: true, max: 384_000 }),
+    channels: boundedAudioSaveNumber(body.channels, { integer: true, max: 32 }),
+    bitrate: boundedAudioSaveNumber(body.bitrate, { integer: true, max: 10_000_000 }),
+    sizeBytes: boundedAudioSaveNumber(sizeBytes, {
+      integer: true,
+      max: AI_MUSIC_ASSET_MAX_BYTES,
+    }),
+    seed: boundedAudioSaveNumber(body.seed, { integer: true, max: 4_294_967_295 }),
+    forceInstrumental: optionalAudioSaveBoolean(body.forceInstrumental),
+    storeForInpainting: optionalAudioSaveBoolean(body.storeForInpainting),
+    signWithC2pa: optionalAudioSaveBoolean(body.signWithC2pa),
+    providerStatus: boundedAudioSaveString(body.providerStatus || body.providerState, 120),
+    estimatedProviderCostUsd,
+    actualProviderCostUsd,
+    priceUsdPerOutputSecond: boundedAudioSaveNumber(body.priceUsdPerOutputSecond, { max: 100 }),
+    providerCostEstimateDurationMs: boundedAudioSaveNumber(
+      body.providerCostEstimateDurationMs,
+      { integer: true, max: 600_000 }
+    ),
+    providerCostEstimateKind: boundedAudioSaveString(body.providerCostEstimateKind, 40),
+    source: boundedAudioSaveString(body.source, 120),
     coverPrompt: body.coverPrompt ? String(body.coverPrompt).slice(0, MAX_PROMPT_LENGTH) : null,
-    coverModel: body.coverModel ? String(body.coverModel).slice(0, 180) : null,
+    coverModel: boundedAudioSaveString(body.coverModel, 180),
     coverMimeType: coverPayload.coverMimeType,
-    traceId: body.traceId || null,
-    warnings: Array.isArray(body.warnings) ? body.warnings : [],
-    elapsedMs: body.elapsedMs ?? null,
-    receivedAt: body.receivedAt || null,
+    traceId: boundedAudioSaveString(body.traceId, 180),
+    warnings: Array.isArray(body.warnings)
+      ? body.warnings.slice(0, 20).map((warning) => boundedAudioSaveString(warning, 240)).filter(Boolean)
+      : [],
+    elapsedMs: boundedAudioSaveNumber(body.elapsedMs, { integer: true, max: 86_400_000 }),
+    receivedAt: boundedAudioSaveString(body.receivedAt, 80),
   };
 
   try {

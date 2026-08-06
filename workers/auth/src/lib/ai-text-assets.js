@@ -13,6 +13,9 @@ import {
   attachRemoteMediaPolicyContext,
   buildRemoteMediaUrlRejectedMessage,
 } from "../../../../js/shared/remote-media-policy.mjs";
+import {
+  ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES,
+} from "../../../../js/shared/elevenlabs-music-v2-pricing.mjs";
 
 export const AI_TEXT_ASSET_MIME_TYPE = "text/plain; charset=utf-8";
 export const AI_TEXT_ASSET_MAX_BYTES = 220_000;
@@ -25,6 +28,20 @@ const POSTER_FORMAT = "image/webp";
 const POSTER_MAX_BYTES = 2_000_000;
 const MUSIC_COVER_RAW_INPUT_MAX_BYTES = 8_000_000;
 const AI_VIDEO_ASSET_MIME_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+const AI_MUSIC_ASSET_MIME_TYPES = new Map([
+  ["audio/mpeg", "audio/mpeg"],
+  ["audio/mp3", "audio/mpeg"],
+  ["audio/x-mpeg", "audio/mpeg"],
+  ["audio/wav", "audio/wav"],
+  ["audio/wave", "audio/wav"],
+  ["audio/x-wav", "audio/wav"],
+  ["audio/flac", "audio/flac"],
+  ["audio/x-flac", "audio/flac"],
+  ["audio/ogg", "audio/ogg"],
+  ["audio/opus", "audio/ogg"],
+  ["audio/x-opus+ogg", "audio/ogg"],
+  ["application/ogg", "audio/ogg"],
+]);
 const METADATA_JSON_LIMITS = {
   maxEntries: 32,
   maxKeyLength: 80,
@@ -43,6 +60,71 @@ function cleanMultilineText(value) {
     .replace(/\r\n/g, "\n")
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
     .trim();
+}
+
+export function normalizeMusicAssetMimeType(contentType) {
+  const normalized = String(contentType || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  return AI_MUSIC_ASSET_MIME_TYPES.get(normalized) || null;
+}
+
+function bytesMatchAscii(bytes, offset, value) {
+  if (!(bytes instanceof Uint8Array) || offset < 0 || offset + value.length > bytes.byteLength) {
+    return false;
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    if (bytes[offset + index] !== value.charCodeAt(index)) return false;
+  }
+  return true;
+}
+
+function isOggOpus(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength < 36 || !bytesMatchAscii(bytes, 0, "OggS")) {
+    return false;
+  }
+  if (bytes[4] !== 0 || (bytes[5] & 0x02) === 0) return false;
+  const segmentCount = bytes[26];
+  const packetOffset = 27 + segmentCount;
+  if (!segmentCount || packetOffset + 8 > bytes.byteLength) return false;
+  let firstPacketLength = 0;
+  let packetComplete = false;
+  for (let index = 0; index < segmentCount; index += 1) {
+    const segmentLength = bytes[27 + index];
+    firstPacketLength += segmentLength;
+    if (segmentLength < 255) {
+      packetComplete = true;
+      break;
+    }
+  }
+  if (!packetComplete || firstPacketLength < 8 || packetOffset + firstPacketLength > bytes.byteLength) {
+    return false;
+  }
+  return bytesMatchAscii(bytes, packetOffset, "OpusHead");
+}
+
+export function detectMusicAssetMimeTypeFromBytes(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength < 4) return null;
+  if (bytesMatchAscii(bytes, 0, "ID3")) return "audio/mpeg";
+  if (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) return "audio/mpeg";
+  if (
+    bytes.byteLength >= 12
+    && bytesMatchAscii(bytes, 0, "RIFF")
+    && bytesMatchAscii(bytes, 8, "WAVE")
+  ) {
+    return "audio/wav";
+  }
+  if (bytesMatchAscii(bytes, 0, "fLaC")) return "audio/flac";
+  if (isOggOpus(bytes)) return "audio/ogg";
+  return null;
+}
+
+export function extensionForMusicAssetMimeType(mimeType) {
+  if (mimeType === "audio/wav") return "wav";
+  if (mimeType === "audio/flac") return "flac";
+  if (mimeType === "audio/ogg") return "opus";
+  return mimeType === "audio/mpeg" ? "mp3" : null;
 }
 
 function slugifyFileName(value, fallback = "asset") {
@@ -293,7 +375,10 @@ function buildMusicMetadata(payload, savedAt) {
     source_module: "music",
     saved_at: savedAt,
     model: payload.model || null,
+    provider: payload.provider || payload.model?.vendor || null,
     prompt: payload.prompt || null,
+    input_mode: payload.inputMode || null,
+    composition_plan_summary: payload.compositionPlanSummary || null,
     mode: payload.mode || null,
     lyrics_mode: payload.lyricsMode || null,
     bpm: payload.bpm ?? null,
@@ -301,10 +386,28 @@ function buildMusicMetadata(payload, savedAt) {
     lyrics_preview: payload.lyricsPreview || null,
     audio: {
       duration_ms: payload.durationMs ?? null,
+      requested_duration_ms: payload.requestedDurationMs ?? null,
+      actual_duration_ms: payload.actualDurationMs ?? null,
       sample_rate: payload.sampleRate ?? null,
       channels: payload.channels ?? null,
       bitrate: payload.bitrate ?? null,
       size_bytes: payload.sizeBytes ?? null,
+      mime_type: payload.mimeType || null,
+      output_format: payload.outputFormat || null,
+    },
+    seed: payload.seed ?? null,
+    force_instrumental: payload.forceInstrumental ?? null,
+    sign_with_c2pa: payload.signWithC2pa ?? null,
+    store_for_inpainting: payload.storeForInpainting ?? null,
+    provider_status: payload.providerStatus || null,
+    provider_cost: {
+      estimated_usd: payload.estimatedProviderCostUsd ?? null,
+      actual_usd: payload.actualProviderCostUsd ?? null,
+      price_usd_per_output_second: payload.priceUsdPerOutputSecond ?? null,
+      estimate_duration_ms: payload.providerCostEstimateDurationMs ?? null,
+      estimate_kind: payload.providerCostEstimateKind || null,
+      actual_cost_supported: payload.actualProviderCostUsd != null,
+      customer_billing: false,
     },
     trace_id: payload.traceId || null,
     warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
@@ -506,14 +609,32 @@ export function serializeAdminAiTextAsset({ title, sourceModule, payload, savedA
   }
 }
 
-export const AI_MUSIC_ASSET_MAX_BYTES = 24_000_000;
+// One bounded byte ceiling is shared by provider normalization, trusted URL
+// copying, inline save validation, quota reservation, and R2 persistence.
+export const AI_MUSIC_ASSET_MAX_BYTES = ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES;
 
 async function buildMusicAssetFields(safeTitle, payload, now) {
   let bytes;
-  let mimeType = payload.mimeType || "audio/mpeg";
+  const mimeType = normalizeMusicAssetMimeType(payload.mimeType || "audio/mpeg");
+  if (!mimeType) {
+    const error = new Error("Music asset MIME type is not supported.");
+    error.status = 400;
+    error.code = "unsupported_audio_mime_type";
+    throw error;
+  }
 
-  if (payload.audioBase64) {
-    bytes = Uint8Array.from(atob(payload.audioBase64), (ch) => ch.charCodeAt(0));
+  if (payload.audioBytes instanceof Uint8Array) {
+    bytes = payload.audioBytes;
+  } else if (payload.audioBase64) {
+    try {
+      const normalizedBase64 = String(payload.audioBase64).replace(/\s+/g, "");
+      bytes = Uint8Array.from(atob(normalizedBase64), (ch) => ch.charCodeAt(0));
+    } catch {
+      const error = new Error("audioBase64 must contain valid Base64 audio bytes.");
+      error.status = 400;
+      error.code = "invalid_audio_base64";
+      throw error;
+    }
   } else if (payload.audioUrl) {
     const error = attachRemoteMediaPolicyContext(
       new Error(
@@ -551,9 +672,37 @@ async function buildMusicAssetFields(safeTitle, payload, now) {
     throw error;
   }
 
-  const ext = mimeType.includes("wav") ? "wav" : mimeType.includes("flac") ? "flac" : "mp3";
-  const previewText = truncatePreview(payload.prompt || "Music generation");
-  const metadata = buildMusicMetadata(payload, now);
+  const detectedMimeType = detectMusicAssetMimeTypeFromBytes(bytes);
+  if (!detectedMimeType) {
+    const error = new Error("Audio bytes are not a supported MP3, WAV, FLAC, or Ogg Opus file.");
+    error.status = 400;
+    error.code = "unsupported_audio_mime_type";
+    throw error;
+  }
+  if (mimeType === "audio/ogg" && detectedMimeType !== "audio/ogg") {
+    const error = new Error("Opus audio must be a valid Ogg Opus file.");
+    error.status = 400;
+    error.code = "unsupported_audio_mime_type";
+    throw error;
+  }
+  if (detectedMimeType && detectedMimeType !== mimeType) {
+    const error = new Error("Audio bytes do not match the declared MIME type.");
+    error.status = 400;
+    error.code = "audio_mime_mismatch";
+    throw error;
+  }
+
+  const ext = extensionForMusicAssetMimeType(mimeType);
+  const previewText = truncatePreview(
+    payload.prompt || (payload.inputMode === "composition_plan"
+      ? "Composition plan music generation"
+      : "Music generation")
+  );
+  const metadata = buildMusicMetadata({
+    ...payload,
+    mimeType,
+    sizeBytes: bytes.byteLength,
+  }, now);
   return { bytes, mimeType, ext, previewText, metadata };
 }
 

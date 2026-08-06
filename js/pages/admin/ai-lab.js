@@ -5,6 +5,7 @@ import {
     apiAdminAiCompare,
     apiAdminAiLiveAgent,
     apiAdminAiModels,
+    apiAdminAiDownloadMusic,
     apiAdminAiMediaSourceCandidates,
     apiAdminAiCreateVideoJob,
     apiAdminAiGetVideoJob,
@@ -25,6 +26,7 @@ import {
     ADMIN_AI_LIMITS,
     ADMIN_AI_LIVE_AGENT_MODEL,
     ADMIN_AI_MUSIC_KEYS,
+    ADMIN_AI_MUSIC_MODEL_ID,
     ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,
     ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
     ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,
@@ -39,8 +41,22 @@ import {
     FLUX_2_DEV_REFERENCE_IMAGE_MAX_DIMENSION_EXCLUSIVE,
     FLUX_2_MAX_MODEL_ID,
     GPT_IMAGE_2_MODEL_ID,
+    ELEVENLABS_MUSIC_V2_BROWSER_TIMEOUT_MS,
+    ELEVENLABS_MUSIC_V2_DEFAULT_OUTPUT_FORMAT,
+    ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
+    ELEVENLABS_MUSIC_V2_MAX_PROMPT_LENGTH,
+    ELEVENLABS_MUSIC_V2_MAX_SEED,
+    ELEVENLABS_MUSIC_V2_MIN_DURATION_MS,
+    ELEVENLABS_MUSIC_V2_MIN_SEED,
+    ELEVENLABS_MUSIC_V2_MODEL_ID,
+    ELEVENLABS_MUSIC_V2_OUTPUT_FORMATS,
+    ELEVENLABS_MUSIC_V2_PRICE_USD_PER_OUTPUT_SECOND,
+    calculateElevenLabsMusicV2ProviderCost,
+    getAdminAiMusicModelSpec,
     getAdminAiTextMaxTokensForModel,
     getAdminAiVideoModelSpec,
+    getElevenLabsMusicV2OutputFormatInfo,
+    validateElevenLabsMusicV2CompositionPlan,
 } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
 import {
     FLUX_1_SCHNELL_IMAGE_MODEL_ID as ADMIN_IMAGE_TEST_FLUX_1_SCHNELL_MODEL_ID,
@@ -49,6 +65,7 @@ import {
     isPricedAiImageModel,
 } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { BITBI_GENERATION_TIMEOUT_MS } from '../../shared/generation-timeout.mjs?v=__ASSET_VERSION__';
+import { isTrustedGeneratedAudioOutputUrl } from '../../shared/generated-audio-output-url.mjs?v=__ASSET_VERSION__';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
 import {
     buildAdminAiLabSaveIntent,
@@ -92,6 +109,33 @@ const VIDEO_JOB_POLL_MAX_DELAY_MS = 15_000;
 const VIDEO_JOB_POLL_BACKOFF_FACTOR = 1.45;
 const VIDEO_JOB_STATUS_RATE_LIMIT_MESSAGE = 'Status polling is rate limited. The video job is still running. Use Check last video job shortly.';
 const VIDEO_JOB_RECOVERY_DEFAULT_REASON = 'Admin AI Lab provider response recovery';
+const ELEVENLABS_MUSIC_V2_EXAMPLE_PLAN = Object.freeze({
+    chunks: [
+        {
+            text: '[Intro]\nA patient synth motif rises over warm bass.',
+            duration_ms: 15000,
+            positive_styles: [
+                'cinematic ambient',
+                'warm analog synths',
+                'instrumental',
+                'polished production',
+            ],
+            negative_styles: ['harsh distortion', 'vocals'],
+            context_adherence: 'high',
+        },
+        {
+            text: '[Main Theme]\nThe motif opens into a hopeful melodic release.',
+            duration_ms: 15000,
+            positive_styles: [
+                'hopeful melody',
+                'soft strings',
+                'steady electronic pulse',
+            ],
+            negative_styles: ['abrupt ending'],
+            context_adherence: 'high',
+        },
+    ],
+});
 const TASK_UI = {
     text: {
         label: 'Text',
@@ -184,13 +228,23 @@ const DEFAULT_FORMS = {
     },
     music: {
         preset: ADMIN_AI_DEFAULT_PRESETS.music,
-        model: '',
+        model: ADMIN_AI_MUSIC_MODEL_ID,
         prompt: '',
         mode: 'vocals',
         lyricsMode: 'custom',
         lyrics: '',
         bpm: '',
         key: '',
+        elevenLabsInputMode: 'prompt',
+        elevenLabsPrompt: '',
+        elevenLabsCompositionPlan: '',
+        elevenLabsDurationMode: 'auto',
+        elevenLabsDurationSeconds: 30,
+        elevenLabsSeed: '',
+        elevenLabsOutputFormat: ELEVENLABS_MUSIC_V2_DEFAULT_OUTPUT_FORMAT,
+        elevenLabsForceInstrumental: false,
+        elevenLabsStoreForInpainting: false,
+        elevenLabsSignWithC2pa: false,
     },
     video: {
         preset: ADMIN_AI_DEFAULT_PRESETS.video,
@@ -655,6 +709,66 @@ function safeJson(value) {
     } catch {
         return String(value);
     }
+}
+
+function sanitizeMusicDebugValue(value, key = '', seen = new WeakSet()) {
+    const normalizedKey = String(key || '').toLowerCase();
+    if (value === null || value === undefined) return value;
+
+    if (typeof value === 'string') {
+        if (
+            normalizedKey === 'prompt'
+            || normalizedKey.includes('lyrics')
+            || normalizedKey.includes('compositionplan')
+            || normalizedKey.includes('composition_plan')
+        ) {
+            return `[redacted ${value.length} chars]`;
+        }
+        if (
+            normalizedKey === 'audio'
+            || normalizedKey.includes('audiobase64')
+            || normalizedKey.includes('audio_base64')
+        ) {
+            return `[redacted audio ${value.length} chars]`;
+        }
+        if (/^data:audio\//i.test(value)) {
+            return '[redacted audio data URI]';
+        }
+        if (normalizedKey.includes('audiourl') || normalizedKey.includes('audio_url')) {
+            try {
+                const url = new URL(value);
+                return `${url.origin}${url.pathname}`;
+            } catch {
+                return '[redacted provider audio URL]';
+            }
+        }
+        return value;
+    }
+
+    if (typeof value !== 'object') return value;
+    if (seen.has(value)) return '[circular]';
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+        return value.map((entry) => sanitizeMusicDebugValue(entry, key, seen));
+    }
+
+    const output = {};
+    for (const [entryKey, entryValue] of Object.entries(value)) {
+        output[entryKey] = sanitizeMusicDebugValue(entryValue, entryKey, seen);
+    }
+    return output;
+}
+
+function formatMusicProviderCost(value) {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return '—';
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 4,
+    }).format(amount);
 }
 
 function truncateText(value, maxLength = 88) {
@@ -1132,6 +1246,11 @@ export function createAdminAiLab({ showToast } = {}) {
             copyRaw: document.getElementById('aiEmbeddingsCopyRaw'),
         },
         music: {
+            modelBadge: document.getElementById('aiMusicModelBadge'),
+            modelDesc: document.getElementById('aiMusicModelDesc'),
+            modelCards: Array.from(root.querySelectorAll('[data-ai-music-option]')),
+            minimaxControls: document.getElementById('aiMusicMinimaxControls'),
+            elevenLabsControls: document.getElementById('aiMusicElevenLabsControls'),
             prompt: document.getElementById('aiMusicPrompt'),
             promptCount: document.getElementById('aiMusicPromptCount'),
             mode: document.getElementById('aiMusicMode'),
@@ -1143,6 +1262,30 @@ export function createAdminAiLab({ showToast } = {}) {
             lyricsHint: document.getElementById('aiMusicLyricsHint'),
             bpm: document.getElementById('aiMusicBpm'),
             key: document.getElementById('aiMusicKey'),
+            elevenLabsInputMode: document.getElementById('aiMusicElevenLabsInputMode'),
+            elevenLabsOutputFormat: document.getElementById('aiMusicElevenLabsOutputFormat'),
+            elevenLabsOutputFormatHint: document.getElementById('aiMusicElevenLabsOutputFormatHint'),
+            elevenLabsPromptField: document.getElementById('aiMusicElevenLabsPromptField'),
+            elevenLabsPrompt: document.getElementById('aiMusicElevenLabsPrompt'),
+            elevenLabsPromptCount: document.getElementById('aiMusicElevenLabsPromptCount'),
+            elevenLabsPlanField: document.getElementById('aiMusicElevenLabsPlanField'),
+            elevenLabsPlan: document.getElementById('aiMusicElevenLabsPlan'),
+            elevenLabsPlanCount: document.getElementById('aiMusicElevenLabsPlanCount'),
+            elevenLabsPlanError: document.getElementById('aiMusicElevenLabsPlanError'),
+            elevenLabsUseExample: document.getElementById('aiMusicElevenLabsUseExample'),
+            elevenLabsDurationControls: document.getElementById('aiMusicElevenLabsDurationControls'),
+            elevenLabsDurationMode: document.getElementById('aiMusicElevenLabsDurationMode'),
+            elevenLabsDurationField: document.getElementById('aiMusicElevenLabsDurationField'),
+            elevenLabsDuration: document.getElementById('aiMusicElevenLabsDuration'),
+            elevenLabsSeed: document.getElementById('aiMusicElevenLabsSeed'),
+            elevenLabsInstrumentalToggle: document.getElementById('aiMusicElevenLabsInstrumentalToggle'),
+            elevenLabsForceInstrumental: document.getElementById('aiMusicElevenLabsForceInstrumental'),
+            elevenLabsStoreForInpainting: document.getElementById('aiMusicElevenLabsStoreForInpainting'),
+            elevenLabsC2paToggle: document.getElementById('aiMusicElevenLabsC2paToggle'),
+            elevenLabsSignWithC2pa: document.getElementById('aiMusicElevenLabsSignWithC2pa'),
+            elevenLabsInstrumentalHint: document.getElementById('aiMusicElevenLabsInstrumentalHint'),
+            elevenLabsC2paHint: document.getElementById('aiMusicElevenLabsC2paHint'),
+            elevenLabsCost: document.getElementById('aiMusicElevenLabsCost'),
             inlineError: document.getElementById('aiMusicInlineError'),
             run: document.getElementById('aiMusicRun'),
             cancel: document.getElementById('aiMusicCancel'),
@@ -2211,6 +2354,10 @@ export function createAdminAiLab({ showToast } = {}) {
             const formsToStore = JSON.parse(JSON.stringify(state.forms));
             formsToStore.image.referenceImages = [];
             formsToStore.image.referenceImageDimensions = [];
+            // Composition plans can contain stored-song IDs and a large amount
+            // of creative text. Keep the live value while switching models,
+            // but do not retain that sensitive plan across browser sessions.
+            formsToStore.music.elevenLabsCompositionPlan = '';
             localStorage.setItem(
                 STORAGE_KEY,
                 JSON.stringify({
@@ -2270,8 +2417,10 @@ export function createAdminAiLab({ showToast } = {}) {
         state.timers[task] = null;
     }
 
-    function startTaskTimer(task, controller) {
-        const timeoutMs = state.timeouts[task];
+    function startTaskTimer(task, controller, timeoutOverrideMs = null) {
+        const timeoutMs = Number.isFinite(timeoutOverrideMs) && timeoutOverrideMs > 0
+            ? timeoutOverrideMs
+            : state.timeouts[task];
         if (!timeoutMs) return;
 
         clearTaskTimer(task);
@@ -2406,32 +2555,278 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.music.inlineError.hidden = !message;
     }
 
-    function syncMusicFieldState() {
-        const isBusy = state.results.music?.status === 'loading';
-        const isInstrumental = state.forms.music.mode === 'instrumental';
-        const usesCustomLyrics = !isInstrumental && state.forms.music.lyricsMode === 'custom';
-
-        refs.music.prompt.disabled = isBusy;
-        refs.music.mode.disabled = isBusy;
-        refs.music.bpm.disabled = isBusy;
-        refs.music.key.disabled = isBusy;
-        refs.music.reset.disabled = isBusy;
-
-        refs.music.lyricsMode.disabled = isBusy || isInstrumental;
-        refs.music.lyricsModeField.classList.toggle('admin-ai__field--disabled', isInstrumental);
-        refs.music.lyricsField.hidden = !usesCustomLyrics;
-        refs.music.lyrics.disabled = isBusy || !usesCustomLyrics;
+    function setMusicPlanError(message = '') {
+        refs.music.elevenLabsPlanError.textContent = message;
+        refs.music.elevenLabsPlanError.hidden = !message;
+        refs.music.elevenLabsPlan.setAttribute('aria-invalid', message ? 'true' : 'false');
     }
 
-    function getMusicAudioSource(payload) {
+    function hydrateMusicModelOptions() {
+        const modelIds = {
+            minimax: ADMIN_AI_MUSIC_MODEL_ID,
+            elevenlabs: ELEVENLABS_MUSIC_V2_MODEL_ID,
+        };
+        refs.music.modelCards.forEach((button) => {
+            const modelId = modelIds[button.dataset.aiMusicOption];
+            if (!modelId) return;
+            button.dataset.aiMusicModel = modelId;
+            const modelIdLabel = button.querySelector('[data-ai-music-model-id]');
+            if (modelIdLabel) modelIdLabel.textContent = modelId;
+        });
+    }
+
+    function normalizeMusicFormForModel(modelId = state.forms.music.model) {
+        const selectedModel = modelId === ELEVENLABS_MUSIC_V2_MODEL_ID
+            ? ELEVENLABS_MUSIC_V2_MODEL_ID
+            : ADMIN_AI_MUSIC_MODEL_ID;
+        state.forms.music.model = selectedModel;
+        state.forms.music.preset = selectedModel === ELEVENLABS_MUSIC_V2_MODEL_ID
+            ? getAdminAiMusicModelSpec(ELEVENLABS_MUSIC_V2_MODEL_ID).defaultPreset
+            : ADMIN_AI_DEFAULT_PRESETS.music;
+
+        if (!['prompt', 'composition_plan'].includes(state.forms.music.elevenLabsInputMode)) {
+            state.forms.music.elevenLabsInputMode = 'prompt';
+        }
+        if (!['auto', 'explicit'].includes(state.forms.music.elevenLabsDurationMode)) {
+            state.forms.music.elevenLabsDurationMode = 'auto';
+        }
+        if (!ELEVENLABS_MUSIC_V2_OUTPUT_FORMATS.includes(state.forms.music.elevenLabsOutputFormat)) {
+            state.forms.music.elevenLabsOutputFormat = ELEVENLABS_MUSIC_V2_DEFAULT_OUTPUT_FORMAT;
+        }
+        if (!Number.isFinite(Number(state.forms.music.elevenLabsDurationSeconds))) {
+            state.forms.music.elevenLabsDurationSeconds = 30;
+        }
+        if (typeof state.forms.music.elevenLabsCompositionPlan !== 'string') {
+            state.forms.music.elevenLabsCompositionPlan = '';
+        }
+        if (typeof state.forms.music.elevenLabsPrompt !== 'string') {
+            state.forms.music.elevenLabsPrompt = '';
+        }
+        state.forms.music.elevenLabsForceInstrumental = state.forms.music.elevenLabsForceInstrumental === true;
+        state.forms.music.elevenLabsStoreForInpainting = state.forms.music.elevenLabsStoreForInpainting === true;
+        state.forms.music.elevenLabsSignWithC2pa = state.forms.music.elevenLabsSignWithC2pa === true;
+        return getAdminAiMusicModelSpec(selectedModel);
+    }
+
+    function populateMusicOutputFormats() {
+        setOptions(
+            refs.music.elevenLabsOutputFormat,
+            ELEVENLABS_MUSIC_V2_OUTPUT_FORMATS.map((value) => ({
+                value,
+                label: getElevenLabsMusicV2OutputFormatInfo(value)?.label || value,
+            }))
+        );
+        refs.music.elevenLabsOutputFormat.value = state.forms.music.elevenLabsOutputFormat;
+    }
+
+    function readElevenLabsCompositionPlan({ showError = false } = {}) {
+        const source = (state.forms.music.elevenLabsCompositionPlan || '').trim();
+        if (!source) {
+            const error = 'Composition plan JSON is required in Composition Plan mode.';
+            if (showError) setMusicPlanError(error);
+            return { error, summary: null };
+        }
+        try {
+            const parsed = JSON.parse(source);
+            const summary = validateElevenLabsMusicV2CompositionPlan(parsed);
+            setMusicPlanError('');
+            return { error: '', summary };
+        } catch (error) {
+            const message = error instanceof SyntaxError
+                ? `Invalid JSON syntax: ${error.message}`
+                : error?.message || 'Composition plan does not match the Music v2 schema.';
+            if (showError) setMusicPlanError(message);
+            return { error: message, summary: null };
+        }
+    }
+
+    function getElevenLabsExplicitDurationMs() {
+        const source = String(state.forms.music.elevenLabsDurationSeconds ?? '').trim();
+        const match = /^(\d+)(?:\.(\d{1,3}))?$/.exec(source);
+        if (!match) return null;
+        const seconds = Number(match[1]);
+        const fractionalMilliseconds = Number((match[2] || '').padEnd(3, '0'));
+        const milliseconds = (seconds * 1000) + fractionalMilliseconds;
+        return Number.isSafeInteger(milliseconds) ? milliseconds : null;
+    }
+
+    function syncMusicCostEstimate() {
+        if (state.forms.music.model !== ELEVENLABS_MUSIC_V2_MODEL_ID) return;
+        let durationMs = null;
+        let prefix = 'Estimated provider cost';
+        let note = '';
+
+        if (state.forms.music.elevenLabsInputMode === 'composition_plan') {
+            const plan = readElevenLabsCompositionPlan();
+            durationMs = plan.summary?.totalDurationMs ?? null;
+            note = durationMs ? ` from the validated ${formatDuration(durationMs)} plan` : ' once the plan is valid';
+        } else if (state.forms.music.elevenLabsDurationMode === 'explicit') {
+            durationMs = getElevenLabsExplicitDurationMs();
+            note = durationMs ? ` for ${formatDuration(durationMs)}` : ' once duration is valid';
+        } else {
+            durationMs = ELEVENLABS_MUSIC_V2_MAX_DURATION_MS;
+            prefix = 'Provider cost unknown before generation';
+            note = ' · conservative maximum exposure';
+        }
+
+        const pricing = durationMs === null ? null : calculateElevenLabsMusicV2ProviderCost(durationMs);
+        const unitPriceLabel = formatMusicProviderCost(ELEVENLABS_MUSIC_V2_PRICE_USD_PER_OUTPUT_SECOND);
+        refs.music.elevenLabsCost.textContent = pricing
+            ? `${prefix}: ${formatMusicProviderCost(pricing.providerCostUsd)}${note}. ${unitPriceLabel} per output second; this is not reconciled billing.`
+            : `${prefix}${note}. ${unitPriceLabel} per output second; this is not reconciled billing.`;
+    }
+
+    function syncMusicModelSelector(isBusy) {
+        const model = normalizeMusicFormForModel();
+        const isElevenLabs = state.forms.music.model === ELEVENLABS_MUSIC_V2_MODEL_ID;
+        refs.music.modelBadge.textContent = model.id;
+        refs.music.modelDesc.textContent = model.description;
+        refs.music.minimaxControls.hidden = isElevenLabs;
+        refs.music.elevenLabsControls.hidden = !isElevenLabs;
+        refs.music.modelCards.forEach((button) => {
+            const active = button.dataset.aiMusicModel === state.forms.music.model;
+            button.classList.toggle('admin-ai__music-model-card--active', active);
+            button.setAttribute('aria-selected', active ? 'true' : 'false');
+            button.tabIndex = active ? 0 : -1;
+            button.disabled = isBusy;
+        });
+        return isElevenLabs;
+    }
+
+    function syncMusicC2paCompatibility() {
+        const formatInfo = getElevenLabsMusicV2OutputFormatInfo(state.forms.music.elevenLabsOutputFormat);
+        const compatible = formatInfo?.c2paCompatible === true;
+        const wasSelected = state.forms.music.elevenLabsSignWithC2pa === true;
+        if (!compatible && wasSelected) {
+            state.forms.music.elevenLabsSignWithC2pa = false;
+            refs.music.elevenLabsSignWithC2pa.checked = false;
+        }
+        refs.music.elevenLabsSignWithC2pa.disabled = state.results.music?.status === 'loading' || !compatible;
+        refs.music.elevenLabsC2paToggle.classList.toggle('admin-ai__field--disabled', !compatible);
+        refs.music.elevenLabsC2paHint.textContent = compatible
+            ? 'C2PA signing is available for Automatic and MP3 output.'
+            : wasSelected
+                ? 'C2PA was turned off because Opus output is not compatible. Select Automatic or MP3 to enable it.'
+                : 'C2PA is unavailable for Opus output. Select Automatic or MP3 to enable it.';
+        refs.music.elevenLabsOutputFormatHint.textContent = formatInfo
+            ? `${formatInfo.label}. Saved downloads use ${formatInfo.mimeType} and .${formatInfo.extension}.`
+            : 'Choose a Cloudflare-supported Music v2 output format.';
+    }
+
+    function syncMusicFieldState() {
+        const isBusy = state.results.music?.status === 'loading';
+        const isElevenLabs = syncMusicModelSelector(isBusy);
+        const isInstrumental = state.forms.music.mode === 'instrumental';
+        const usesCustomLyrics = !isInstrumental && state.forms.music.lyricsMode === 'custom';
+        const usesPlan = state.forms.music.elevenLabsInputMode === 'composition_plan';
+        const usesExplicitDuration = !usesPlan && state.forms.music.elevenLabsDurationMode === 'explicit';
+
+        refs.music.prompt.disabled = isBusy || isElevenLabs;
+        refs.music.mode.disabled = isBusy || isElevenLabs;
+        refs.music.bpm.disabled = isBusy || isElevenLabs;
+        refs.music.key.disabled = isBusy || isElevenLabs;
+        refs.music.reset.disabled = isBusy;
+
+        refs.music.lyricsMode.disabled = isBusy || isElevenLabs || isInstrumental;
+        refs.music.lyricsModeField.classList.toggle('admin-ai__field--disabled', isInstrumental);
+        refs.music.lyricsField.hidden = !usesCustomLyrics;
+        refs.music.lyrics.disabled = isBusy || isElevenLabs || !usesCustomLyrics;
+
+        refs.music.elevenLabsPromptField.hidden = usesPlan;
+        refs.music.elevenLabsPlanField.hidden = !usesPlan;
+        refs.music.elevenLabsDurationControls.hidden = usesPlan;
+        refs.music.elevenLabsDurationField.hidden = !usesExplicitDuration;
+        refs.music.elevenLabsInstrumentalToggle.classList.toggle('admin-ai__field--disabled', usesPlan);
+        refs.music.elevenLabsInstrumentalHint.hidden = !usesPlan;
+        refs.music.elevenLabsInputMode.disabled = isBusy || !isElevenLabs;
+        refs.music.elevenLabsOutputFormat.disabled = isBusy || !isElevenLabs;
+        refs.music.elevenLabsPrompt.disabled = isBusy || !isElevenLabs || usesPlan;
+        refs.music.elevenLabsPlan.disabled = isBusy || !isElevenLabs || !usesPlan;
+        refs.music.elevenLabsUseExample.disabled = isBusy || !isElevenLabs || !usesPlan;
+        refs.music.elevenLabsDurationMode.disabled = isBusy || !isElevenLabs || usesPlan;
+        refs.music.elevenLabsDuration.disabled = isBusy || !isElevenLabs || !usesExplicitDuration;
+        refs.music.elevenLabsSeed.disabled = isBusy || !isElevenLabs;
+        refs.music.elevenLabsForceInstrumental.disabled = isBusy || !isElevenLabs || usesPlan;
+        refs.music.elevenLabsStoreForInpainting.disabled = isBusy || !isElevenLabs;
+        syncMusicC2paCompatibility();
+        if (!usesPlan) setMusicPlanError('');
+        syncMusicCostEstimate();
+    }
+
+    function getMusicMimeType(payload) {
+        const dataUriMatch = typeof payload?.audioBase64 === 'string'
+            ? payload.audioBase64.match(/^data:(audio\/[a-z0-9.+-]+);base64,/i)
+            : null;
+        if (dataUriMatch) return dataUriMatch[1].toLowerCase();
+        if (typeof payload?.mimeType === 'string' && /^audio\//i.test(payload.mimeType)) {
+            return payload.mimeType.split(';')[0].trim().toLowerCase();
+        }
+        return getElevenLabsMusicV2OutputFormatInfo(payload?.outputFormat)?.mimeType || 'audio/mpeg';
+    }
+
+    function getMusicAudioSource(payload, modelId = null) {
         if (!payload) return '';
         if (payload.audioBase64) {
-            return `data:${payload.mimeType || 'audio/mpeg'};base64,${payload.audioBase64}`;
+            if (/^data:audio\//i.test(payload.audioBase64)) return payload.audioBase64;
+            return `data:${getMusicMimeType(payload)};base64,${payload.audioBase64}`;
         }
         if (payload.audioUrl) {
-            return payload.audioUrl;
+            if (modelId === ELEVENLABS_MUSIC_V2_MODEL_ID) {
+                return isTrustedGeneratedAudioOutputUrl(payload.audioUrl)
+                    ? new URL(payload.audioUrl).href
+                    : '';
+            }
+            try {
+                const url = new URL(payload.audioUrl);
+                return url.protocol === 'https:' && !url.username && !url.password
+                    ? url.href
+                    : '';
+            } catch {
+                return '';
+            }
         }
         return '';
+    }
+
+    function getMusicDownloadExtension(payload) {
+        if (payload?.downloadExtension === 'mp3' || payload?.downloadExtension === 'opus') {
+            return payload.downloadExtension;
+        }
+        const formatExtension = getElevenLabsMusicV2OutputFormatInfo(payload?.outputFormat)?.extension;
+        if (formatExtension) return formatExtension;
+        return getMusicMimeType(payload) === 'audio/ogg' ? 'opus' : mimeToExtension(getMusicMimeType(payload));
+    }
+
+    function normalizeMusicDownloadMimeType(value) {
+        const mimeType = String(value || '').split(';')[0].trim().toLowerCase();
+        if (['audio/mpeg', 'audio/mp3', 'audio/x-mpeg'].includes(mimeType)) return 'audio/mpeg';
+        if (['audio/ogg', 'audio/opus', 'audio/x-opus+ogg', 'application/ogg'].includes(mimeType)) {
+            return 'audio/ogg';
+        }
+        return mimeType;
+    }
+
+    function triggerMusicBlobDownload(blob, filename) {
+        const href = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = href;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(href), 1000);
+    }
+
+    function setMusicModel(modelId, { persist = true, focus = false } = {}) {
+        normalizeMusicFormForModel(modelId);
+        setMusicInlineError('');
+        setMusicPlanError('');
+        syncFormInputs();
+        renderMusicResult();
+        if (persist) persistState();
+        if (focus) {
+            refs.music.modelCards.find((button) => button.dataset.aiMusicModel === state.forms.music.model)?.focus();
+        }
     }
 
     function setVideoInlineError(message = '') {
@@ -3850,9 +4245,10 @@ export function createAdminAiLab({ showToast } = {}) {
         if (state.forms.embeddings.model && !embeddingIds.includes(state.forms.embeddings.model)) {
             state.forms.embeddings.model = '';
         }
-        if (state.forms.music.model && !musicIds.includes(state.forms.music.model)) {
-            state.forms.music.model = '';
+        if (!musicIds.includes(state.forms.music.model)) {
+            state.forms.music.model = ADMIN_AI_MUSIC_MODEL_ID;
         }
+        normalizeMusicFormForModel(state.forms.music.model);
         if (state.forms.video.model && videoIds.length > 0 && !videoIds.includes(state.forms.video.model)) {
             state.forms.video.model = videoIds[0];
         }
@@ -4001,6 +4397,23 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.music.lyricsMode.value = state.forms.music.lyricsMode;
         refs.music.lyrics.value = state.forms.music.lyrics;
         refs.music.bpm.value = state.forms.music.bpm;
+        normalizeMusicFormForModel();
+        populateMusicOutputFormats();
+        refs.music.elevenLabsPrompt.maxLength = ELEVENLABS_MUSIC_V2_MAX_PROMPT_LENGTH;
+        refs.music.elevenLabsDuration.min = String(ELEVENLABS_MUSIC_V2_MIN_DURATION_MS / 1000);
+        refs.music.elevenLabsDuration.max = String(ELEVENLABS_MUSIC_V2_MAX_DURATION_MS / 1000);
+        refs.music.elevenLabsSeed.min = String(ELEVENLABS_MUSIC_V2_MIN_SEED);
+        refs.music.elevenLabsSeed.max = String(ELEVENLABS_MUSIC_V2_MAX_SEED);
+        refs.music.elevenLabsInputMode.value = state.forms.music.elevenLabsInputMode;
+        refs.music.elevenLabsPrompt.value = state.forms.music.elevenLabsPrompt;
+        refs.music.elevenLabsPlan.value = state.forms.music.elevenLabsCompositionPlan;
+        refs.music.elevenLabsDurationMode.value = state.forms.music.elevenLabsDurationMode;
+        refs.music.elevenLabsDuration.value = state.forms.music.elevenLabsDurationSeconds;
+        refs.music.elevenLabsSeed.value = state.forms.music.elevenLabsSeed;
+        refs.music.elevenLabsOutputFormat.value = state.forms.music.elevenLabsOutputFormat;
+        refs.music.elevenLabsForceInstrumental.checked = state.forms.music.elevenLabsForceInstrumental;
+        refs.music.elevenLabsStoreForInpainting.checked = state.forms.music.elevenLabsStoreForInpainting;
+        refs.music.elevenLabsSignWithC2pa.checked = state.forms.music.elevenLabsSignWithC2pa;
 
         if (refs.video.prompt) {
             normalizeVideoFormForModel();
@@ -4074,6 +4487,17 @@ export function createAdminAiLab({ showToast } = {}) {
         });
         updateCounter(refs.music.prompt, refs.music.promptCount, ADMIN_AI_LIMITS.music.maxPromptLength);
         updateCounter(refs.music.lyrics, refs.music.lyricsCount, ADMIN_AI_LIMITS.music.maxLyricsLength);
+        updateCounter(
+            refs.music.elevenLabsPrompt,
+            refs.music.elevenLabsPromptCount,
+            ELEVENLABS_MUSIC_V2_MAX_PROMPT_LENGTH
+        );
+        updateCounter(
+            refs.music.elevenLabsPlan,
+            refs.music.elevenLabsPlanCount,
+            null,
+            (value) => `${value.length} chars`
+        );
         if (refs.video.prompt) {
             const videoSpec = getSelectedVideoModelSpec();
             updateCounter(
@@ -4501,7 +4925,10 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function renderMusicPreview(payload, result) {
-        const audioSource = getMusicAudioSource(payload);
+        const audioSource = getMusicAudioSource(
+            payload,
+            result?.raw?.model?.id || state.forms.music.model,
+        );
         refs.music.download.hidden = !audioSource;
         refs.music.save.hidden = !getCurrentSaveIntent('music');
 
@@ -4527,7 +4954,11 @@ export function createAdminAiLab({ showToast } = {}) {
 
         const title = document.createElement('h4');
         title.className = 'admin-ai__music-player-title';
-        title.textContent = payload.mode === 'instrumental' ? 'Generated Instrumental' : 'Generated Song';
+        title.textContent = payload.inputMode === 'composition_plan'
+            ? 'Generated Composition'
+            : payload.forceInstrumental === true || payload.mode === 'instrumental'
+                ? 'Generated Instrumental'
+                : 'Generated Song';
 
         const note = document.createElement('div');
         note.className = 'admin-ai__music-player-note';
@@ -4540,7 +4971,10 @@ export function createAdminAiLab({ showToast } = {}) {
         const audio = document.createElement('audio');
         audio.controls = true;
         audio.preload = 'metadata';
-        audio.src = audioSource;
+        const source = document.createElement('source');
+        source.src = audioSource;
+        source.type = getMusicMimeType(payload);
+        audio.appendChild(source);
 
         wrapper.append(head, audio);
         refs.music.preview.appendChild(wrapper);
@@ -4553,25 +4987,64 @@ export function createAdminAiLab({ showToast } = {}) {
         const resultCode = getResultCode(result);
 
         renderMusicPreview(payload, result);
-        renderMeta(refs.music.meta, response ? [
+        const isElevenLabs = response?.model?.id === ELEVENLABS_MUSIC_V2_MODEL_ID;
+        const formatInfo = getElevenLabsMusicV2OutputFormatInfo(payload?.outputFormat);
+        const metaEntries = response ? [
             { label: 'Preset', value: response.preset || 'Preset default' },
             { label: 'Model Label', value: response.model?.label },
             { label: 'Model ID', value: response.model?.id },
             { label: 'Vendor', value: response.model?.vendor },
             { label: 'Elapsed', value: formatElapsed(response.elapsedMs) },
             { label: 'Received', value: formatTime(result?.receivedAt) },
-            { label: 'Mode', value: payload?.mode === 'instrumental' ? 'Instrumental' : 'Song / Vocals' },
-            {
-                label: 'Lyrics',
-                value: payload?.mode === 'instrumental'
-                    ? 'Not used'
-                    : payload?.lyricsMode === 'auto'
-                        ? 'Auto lyrics'
-                        : 'Custom lyrics',
-            },
-            { label: 'BPM', value: payload?.bpm },
-            { label: 'Key', value: payload?.key },
-            { label: 'Duration', value: payload?.durationMs ? formatDuration(payload.durationMs) : null },
+            ...(isElevenLabs ? [
+                { label: 'Input Mode', value: payload?.inputMode === 'composition_plan' ? 'Composition Plan' : 'Prompt' },
+                { label: 'Plan Chunks', value: payload?.compositionPlanPresent ? payload?.compositionPlanChunkCount : null },
+                { label: 'Duration Mode', value: payload?.durationMode },
+                { label: 'Requested Duration', value: payload?.requestedDurationMs ? formatDuration(payload.requestedDurationMs) : 'Automatic' },
+                { label: 'Actual Duration', value: payload?.actualDurationMs ? formatDuration(payload.actualDurationMs) : null },
+                {
+                    label: 'Output Format',
+                    value: payload?.outputFormat
+                        ? `${formatInfo?.label || payload.outputFormat} (${payload.outputFormat})`
+                        : null,
+                },
+                { label: 'MIME Type', value: getMusicMimeType(payload) },
+                { label: 'Seed', value: payload?.seed },
+                { label: 'Force Instrumental', value: payload?.forceInstrumental ? 'Yes' : 'No' },
+                { label: 'C2PA', value: payload?.signWithC2pa ? 'Requested' : 'Not requested' },
+                { label: 'Provider Inpainting Storage', value: payload?.storeForInpainting ? 'Requested' : 'Not requested' },
+                {
+                    label: 'Estimated Provider Cost',
+                    value: payload?.estimatedProviderCostUsd !== null
+                        && payload?.estimatedProviderCostUsd !== undefined
+                        && Number.isFinite(Number(payload.estimatedProviderCostUsd))
+                        ? `${formatMusicProviderCost(payload.estimatedProviderCostUsd)} (${payload?.providerCostEstimateKind === 'maximum_exposure' ? 'maximum exposure' : 'estimate'})`
+                        : null,
+                },
+                {
+                    label: 'Actual Provider Cost',
+                    value: payload?.actualProviderCostUsd !== null
+                        && payload?.actualProviderCostUsd !== undefined
+                        && Number.isFinite(Number(payload.actualProviderCostUsd))
+                        ? formatMusicProviderCost(payload.actualProviderCostUsd)
+                        : null,
+                },
+                { label: 'Platform Budget Units', value: response?.budget_policy?.estimated_cost_units },
+                { label: 'Budget Unit Rule', value: response?.budget_policy?.platform_budget_unit_rule },
+            ] : [
+                { label: 'Mode', value: payload?.mode === 'instrumental' ? 'Instrumental' : 'Song / Vocals' },
+                {
+                    label: 'Lyrics',
+                    value: payload?.mode === 'instrumental'
+                        ? 'Not used'
+                        : payload?.lyricsMode === 'auto'
+                            ? 'Auto lyrics'
+                            : 'Custom lyrics',
+                },
+                { label: 'BPM', value: payload?.bpm },
+                { label: 'Key', value: payload?.key },
+                { label: 'Duration', value: payload?.durationMs ? formatDuration(payload.durationMs) : null },
+            ]),
             { label: 'Sample Rate', value: payload?.sampleRate ? `${payload.sampleRate} Hz` : null },
             { label: 'Channels', value: payload?.channels },
             { label: 'Bitrate', value: payload?.bitrate ? `${payload.bitrate} bps` : null },
@@ -4582,9 +5055,16 @@ export function createAdminAiLab({ showToast } = {}) {
             },
             { label: 'Provider Status', value: payload?.providerStatus },
             { label: 'Trace ID', value: response.traceId },
-        ] : []);
+        ] : [];
+        renderMeta(refs.music.meta, metaEntries);
         renderWarnings(refs.music.warnings, response ? getWarnings(response) : []);
-        renderDebug(refs.music.debug, refs.music.raw, result?.debugRaw || response);
+        renderDebug(
+            refs.music.debug,
+            refs.music.raw,
+            result?.debugRaw || response
+                ? sanitizeMusicDebugValue(result?.debugRaw || response)
+                : null
+        );
 
         refs.music.lyricsPanel.hidden = !payload?.lyricsPreview;
         refs.music.lyricsOutput.textContent = payload?.lyricsPreview || '';
@@ -4644,6 +5124,50 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function validateMusicForm() {
+        if (state.forms.music.model === ELEVENLABS_MUSIC_V2_MODEL_ID) {
+            const usesPlan = state.forms.music.elevenLabsInputMode === 'composition_plan';
+            if (usesPlan) {
+                const plan = readElevenLabsCompositionPlan({ showError: true });
+                if (plan.error) return plan.error;
+            } else {
+                const prompt = (state.forms.music.elevenLabsPrompt || '').trim();
+                if (!prompt) return 'Prompt is required in ElevenLabs Prompt mode.';
+                if (prompt.length > ELEVENLABS_MUSIC_V2_MAX_PROMPT_LENGTH) {
+                    return `Prompt must be at most ${ELEVENLABS_MUSIC_V2_MAX_PROMPT_LENGTH} characters.`;
+                }
+                if (state.forms.music.elevenLabsDurationMode === 'explicit') {
+                    const durationMs = getElevenLabsExplicitDurationMs();
+                    if (
+                        durationMs === null
+                        || durationMs < ELEVENLABS_MUSIC_V2_MIN_DURATION_MS
+                        || durationMs > ELEVENLABS_MUSIC_V2_MAX_DURATION_MS
+                    ) {
+                        return 'Explicit duration must be between 3 and 600 seconds, with millisecond precision.';
+                    }
+                }
+            }
+
+            const seed = state.forms.music.elevenLabsSeed;
+            if (seed !== '') {
+                const number = Number(seed);
+                if (
+                    !Number.isSafeInteger(number)
+                    || number < ELEVENLABS_MUSIC_V2_MIN_SEED
+                    || number > ELEVENLABS_MUSIC_V2_MAX_SEED
+                ) {
+                    return 'Seed must be an integer from 0 through 4,294,967,295.';
+                }
+            }
+            if (!ELEVENLABS_MUSIC_V2_OUTPUT_FORMATS.includes(state.forms.music.elevenLabsOutputFormat)) {
+                return 'Choose a supported ElevenLabs Music v2 output format.';
+            }
+            const formatInfo = getElevenLabsMusicV2OutputFormatInfo(state.forms.music.elevenLabsOutputFormat);
+            if (state.forms.music.elevenLabsSignWithC2pa && !formatInfo?.c2paCompatible) {
+                return 'C2PA signing requires Automatic or MP3 output; Opus is not compatible.';
+            }
+            return '';
+        }
+
         const prompt = (state.forms.music.prompt || '').trim();
         if (!prompt) {
             return 'Prompt is required before generating music.';
@@ -4654,6 +5178,47 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         return '';
+    }
+
+    function buildMusicRequestPayload() {
+        if (state.forms.music.model !== ELEVENLABS_MUSIC_V2_MODEL_ID) {
+            const payload = {
+                preset: state.forms.music.preset || undefined,
+                model: state.forms.music.model || undefined,
+                prompt: (state.forms.music.prompt || '').trim(),
+                mode: state.forms.music.mode,
+                lyricsMode: state.forms.music.mode === 'instrumental' ? 'auto' : state.forms.music.lyricsMode,
+            };
+            if (state.forms.music.mode !== 'instrumental' && state.forms.music.lyricsMode === 'custom') {
+                payload.lyrics = (state.forms.music.lyrics || '').trim();
+            }
+            if (state.forms.music.bpm !== '') payload.bpm = Number(state.forms.music.bpm);
+            if (state.forms.music.key) payload.key = state.forms.music.key;
+            return payload;
+        }
+
+        const usesPlan = state.forms.music.elevenLabsInputMode === 'composition_plan';
+        const payload = {
+            preset: getAdminAiMusicModelSpec(ELEVENLABS_MUSIC_V2_MODEL_ID).defaultPreset,
+            model: ELEVENLABS_MUSIC_V2_MODEL_ID,
+            inputMode: usesPlan ? 'composition_plan' : 'prompt',
+            outputFormat: state.forms.music.elevenLabsOutputFormat,
+            storeForInpainting: state.forms.music.elevenLabsStoreForInpainting === true,
+            signWithC2pa: state.forms.music.elevenLabsSignWithC2pa === true,
+        };
+        if (usesPlan) {
+            payload.compositionPlan = readElevenLabsCompositionPlan().summary.plan;
+        } else {
+            payload.prompt = (state.forms.music.elevenLabsPrompt || '').trim();
+            payload.forceInstrumental = state.forms.music.elevenLabsForceInstrumental === true;
+            if (state.forms.music.elevenLabsDurationMode === 'explicit') {
+                payload.musicLengthMs = getElevenLabsExplicitDurationMs();
+            }
+        }
+        if (state.forms.music.elevenLabsSeed !== '') {
+            payload.seed = Number(state.forms.music.elevenLabsSeed);
+        }
+        return payload;
     }
 
     function resetMusicForm(showSuccess = true) {
@@ -4672,44 +5237,79 @@ export function createAdminAiLab({ showToast } = {}) {
         }
     }
 
-    function downloadMusicResult() {
+    async function downloadMusicResult() {
         const response = state.results.music?.raw;
         const payload = response?.result;
-        const audioSource = getMusicAudioSource(payload);
+        const audioSource = getMusicAudioSource(payload, response?.model?.id || state.forms.music.model);
         if (!audioSource) {
             if (showToast) showToast('No audio available to download.', 'error');
             return;
         }
 
-        const extension = mimeToExtension(payload?.mimeType || 'audio/mpeg');
+        const extension = getMusicDownloadExtension(payload);
         const dateStamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const promptSlug = response?.model?.id === ELEVENLABS_MUSIC_V2_MODEL_ID
+            ? payload?.inputMode === 'composition_plan'
+                ? 'composition-plan'
+                : payload?.prompt || state.forms.music.elevenLabsPrompt
+            : payload?.prompt || state.forms.music.prompt;
         const filename = [
             'ai-lab',
             'music',
-            slugify(payload?.mode || 'track'),
-            slugify(state.forms.music.prompt || 'prompt'),
+            slugify(payload?.mode || payload?.inputMode || 'track'),
+            slugify(promptSlug || 'prompt'),
             dateStamp,
         ].join('-') + `.${extension}`;
 
-        const link = document.createElement('a');
         if (payload?.audioBase64) {
-            const bytes = Uint8Array.from(atob(payload.audioBase64), (char) => char.charCodeAt(0));
-            const blob = new Blob([bytes], { type: payload.mimeType || 'audio/mpeg' });
-            const href = URL.createObjectURL(blob);
-            link.href = href;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            setTimeout(() => URL.revokeObjectURL(href), 1000);
+            const encodedAudio = payload.audioBase64.includes(',')
+                ? payload.audioBase64.slice(payload.audioBase64.indexOf(',') + 1)
+                : payload.audioBase64;
+            const bytes = Uint8Array.from(atob(encodedAudio), (char) => char.charCodeAt(0));
+            const blob = new Blob([bytes], { type: getMusicMimeType(payload) });
+            triggerMusicBlobDownload(blob, filename);
         } else {
-            link.href = payload.audioUrl;
-            link.download = filename;
-            link.target = '_blank';
-            link.rel = 'noopener';
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
+            const idleLabel = refs.music.download.textContent;
+            refs.music.download.disabled = true;
+            refs.music.download.textContent = 'Preparing Download...';
+            try {
+                const download = await apiAdminAiDownloadMusic(
+                    { audioUrl: payload.audioUrl },
+                    { timeoutMs: 65_000 },
+                );
+                const responseMimeType = normalizeMusicDownloadMimeType(download?.mimeType);
+                const blobMimeType = normalizeMusicDownloadMimeType(download?.blob?.type);
+                const relayedExtension = responseMimeType === 'audio/ogg'
+                    ? 'opus'
+                    : responseMimeType === 'audio/mpeg'
+                        ? 'mp3'
+                        : null;
+                if (
+                    !download?.ok
+                    || !(download.blob instanceof Blob)
+                    || download.blob.size === 0
+                    || !relayedExtension
+                    || (blobMimeType && blobMimeType !== responseMimeType)
+                ) {
+                    if (showToast) {
+                        const message = download?.code === 'request_timeout'
+                            ? 'Audio download timed out. Please try again.'
+                            : 'Audio download failed. Try again or save the result to Assets.';
+                        showToast(message, 'error');
+                    }
+                    return;
+                }
+                const relayedFilename = filename.replace(/\.[^.]+$/, `.${relayedExtension}`);
+                triggerMusicBlobDownload(download.blob, relayedFilename);
+            } catch {
+                if (showToast) {
+                    showToast('Audio download failed. Try again or save the result to Assets.', 'error');
+                }
+                return;
+            } finally {
+                refs.music.download.disabled = false;
+                refs.music.download.textContent = idleLabel;
+            }
         }
 
         if (showToast) showToast('Music download started.');
@@ -6152,24 +6752,14 @@ export function createAdminAiLab({ showToast } = {}) {
         setTaskBusy('music', true, TASK_UI.music.busyText, TASK_UI.music.idleText);
         setStatus('Generating music...', 'loading');
         renderMusicResult();
-        startTaskTimer('music', controller);
-
-        const payload = {
-            preset: state.forms.music.preset || undefined,
-            model: state.forms.music.model || undefined,
-            prompt: (state.forms.music.prompt || '').trim(),
-            mode: state.forms.music.mode,
-            lyricsMode: state.forms.music.mode === 'instrumental' ? 'auto' : state.forms.music.lyricsMode,
-        };
-        if (state.forms.music.mode !== 'instrumental' && state.forms.music.lyricsMode === 'custom') {
-            payload.lyrics = (state.forms.music.lyrics || '').trim();
-        }
-        if (state.forms.music.bpm !== '') {
-            payload.bpm = Number(state.forms.music.bpm);
-        }
-        if (state.forms.music.key) {
-            payload.key = state.forms.music.key;
-        }
+        const payload = buildMusicRequestPayload();
+        startTaskTimer(
+            'music',
+            controller,
+            payload.model === ELEVENLABS_MUSIC_V2_MODEL_ID
+                ? ELEVENLABS_MUSIC_V2_BROWSER_TIMEOUT_MS
+                : null,
+        );
 
         const res = await apiAdminAiTestMusic(payload, {
             signal: controller.signal,
@@ -7052,6 +7642,18 @@ export function createAdminAiLab({ showToast } = {}) {
         attachFieldSync(refs.music.lyrics, 'music', 'lyrics');
         attachFieldSync(refs.music.bpm, 'music', 'bpm', (value) => value === '' ? '' : Number(value));
         attachFieldSync(refs.music.key, 'music', 'key');
+        attachFieldSync(refs.music.elevenLabsInputMode, 'music', 'elevenLabsInputMode');
+        attachFieldSync(refs.music.elevenLabsPrompt, 'music', 'elevenLabsPrompt');
+        attachFieldSync(refs.music.elevenLabsPlan, 'music', 'elevenLabsCompositionPlan');
+        attachFieldSync(refs.music.elevenLabsDurationMode, 'music', 'elevenLabsDurationMode');
+        attachFieldSync(
+            refs.music.elevenLabsDuration,
+            'music',
+            'elevenLabsDurationSeconds',
+            (value) => value === '' ? '' : Number(value)
+        );
+        attachFieldSync(refs.music.elevenLabsSeed, 'music', 'elevenLabsSeed');
+        attachFieldSync(refs.music.elevenLabsOutputFormat, 'music', 'elevenLabsOutputFormat');
 
         refs.music.prompt.addEventListener('input', () => setMusicInlineError(''));
         refs.music.mode.addEventListener('change', () => {
@@ -7063,6 +7665,81 @@ export function createAdminAiLab({ showToast } = {}) {
             syncMusicFieldState();
         });
         refs.music.lyrics.addEventListener('input', () => setMusicInlineError(''));
+        refs.music.elevenLabsInputMode.addEventListener('change', () => {
+            setMusicInlineError('');
+            setMusicPlanError('');
+            syncMusicFieldState();
+        });
+        refs.music.elevenLabsPrompt.addEventListener('input', () => {
+            setMusicInlineError('');
+            syncMusicCostEstimate();
+        });
+        refs.music.elevenLabsPlan.addEventListener('input', () => {
+            setMusicInlineError('');
+            readElevenLabsCompositionPlan({
+                showError: !!state.forms.music.elevenLabsCompositionPlan.trim(),
+            });
+            syncMusicCostEstimate();
+        });
+        refs.music.elevenLabsDurationMode.addEventListener('change', () => {
+            setMusicInlineError('');
+            syncMusicFieldState();
+        });
+        refs.music.elevenLabsDuration.addEventListener('input', () => {
+            setMusicInlineError('');
+            syncMusicCostEstimate();
+        });
+        refs.music.elevenLabsSeed.addEventListener('input', () => setMusicInlineError(''));
+        refs.music.elevenLabsOutputFormat.addEventListener('change', () => {
+            setMusicInlineError('');
+            syncMusicC2paCompatibility();
+            syncMusicCostEstimate();
+            persistState();
+        });
+        refs.music.elevenLabsForceInstrumental.addEventListener('change', () => {
+            state.forms.music.elevenLabsForceInstrumental = refs.music.elevenLabsForceInstrumental.checked;
+            setMusicInlineError('');
+            persistState();
+        });
+        refs.music.elevenLabsStoreForInpainting.addEventListener('change', () => {
+            state.forms.music.elevenLabsStoreForInpainting = refs.music.elevenLabsStoreForInpainting.checked;
+            setMusicInlineError('');
+            persistState();
+        });
+        refs.music.elevenLabsSignWithC2pa.addEventListener('change', () => {
+            state.forms.music.elevenLabsSignWithC2pa = refs.music.elevenLabsSignWithC2pa.checked;
+            setMusicInlineError('');
+            persistState();
+        });
+        refs.music.elevenLabsUseExample.addEventListener('click', () => {
+            state.forms.music.elevenLabsCompositionPlan = JSON.stringify(ELEVENLABS_MUSIC_V2_EXAMPLE_PLAN, null, 2);
+            refs.music.elevenLabsPlan.value = state.forms.music.elevenLabsCompositionPlan;
+            setMusicInlineError('');
+            readElevenLabsCompositionPlan({ showError: true });
+            updateCounters();
+            syncMusicCostEstimate();
+            persistState();
+        });
+        refs.music.modelCards.forEach((button, index) => {
+            button.addEventListener('click', () => {
+                if (!button.disabled) setMusicModel(button.dataset.aiMusicModel);
+            });
+            button.addEventListener('keydown', (event) => {
+                const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+                if (!keys.includes(event.key)) return;
+                event.preventDefault();
+                let nextIndex = index;
+                if (event.key === 'Home') nextIndex = 0;
+                else if (event.key === 'End') nextIndex = refs.music.modelCards.length - 1;
+                else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+                    nextIndex = (index + 1) % refs.music.modelCards.length;
+                } else {
+                    nextIndex = (index - 1 + refs.music.modelCards.length) % refs.music.modelCards.length;
+                }
+                const next = refs.music.modelCards[nextIndex];
+                if (next && !next.disabled) setMusicModel(next.dataset.aiMusicModel, { focus: true });
+            });
+        });
 
         if (refs.video.prompt) {
             attachFieldSync(refs.video.prompt, 'video', 'prompt');
@@ -7241,7 +7918,11 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.music.save.addEventListener('click', () => openSaveModal('music'));
         refs.music.download.addEventListener('click', downloadMusicResult);
         refs.music.copyRaw.addEventListener('click', () => {
-            copyText(safeJson(state.results.music?.debugRaw || state.results.music?.raw), showToast, 'Raw JSON copied.');
+            copyText(
+                safeJson(sanitizeMusicDebugValue(state.results.music?.debugRaw || state.results.music?.raw)),
+                showToast,
+                'Sanitized JSON copied.'
+            );
         });
         if (refs.video.save) {
             refs.video.save.addEventListener('click', () => openSaveModal('video'));
@@ -7299,6 +7980,7 @@ export function createAdminAiLab({ showToast } = {}) {
         init() {
             if (state.initialized) return;
             state.initialized = true;
+            hydrateMusicModelOptions();
             bindEvents();
             syncFormInputs();
             liveAgentUpdateSystemCount();

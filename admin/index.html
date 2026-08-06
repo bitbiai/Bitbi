@@ -2146,9 +2146,9 @@
                             <div>
                                 <div class="admin-ai__label-row admin-ai__label-row--wrap">
                                     <h3 id="aiMusicTitle" class="admin-section-title">Music AI</h3>
-                                    <code class="admin-ai__model-badge">minimax/music-2.6</code>
+                                    <code id="aiMusicModelBadge" class="admin-ai__model-badge" aria-label="Selected model ID"></code>
                                 </div>
-                                <p class="admin-shell__desc">Admin-only studio console for prompt-based music generation, lyric shaping, and audio result inspection.</p>
+                                <p id="aiMusicModelDesc" class="admin-shell__desc">Admin-only studio console for prompt-based music generation, lyric shaping, and audio result inspection.</p>
                             </div>
                             <div class="admin-ai__panel-actions">
                                 <button type="button" id="aiMusicReset" class="btn-action">Clear</button>
@@ -2164,54 +2164,150 @@
                             <span></span>
                         </div>
 
-                        <label class="admin-ai__field">
-                            <span class="admin-ai__label-row">
-                                <span class="admin-ai__label">Prompt</span>
-                                <span id="aiMusicPromptCount" class="admin-ai__count"></span>
-                            </span>
-                            <textarea id="aiMusicPrompt" class="admin-ai__textarea" rows="5" maxlength="2000" placeholder="Describe the track direction, energy, arrangement, and scene."></textarea>
-                        </label>
-
-                        <div class="admin-ai__form-grid admin-ai__form-grid--2">
-                            <label class="admin-ai__field">
-                                <span class="admin-ai__label">Mode</span>
-                                <select id="aiMusicMode" class="admin-ai__input">
-                                    <option value="vocals">Song / Vocals</option>
-                                    <option value="instrumental">Instrumental</option>
-                                </select>
-                            </label>
-                            <label class="admin-ai__field" id="aiMusicLyricsModeField">
-                                <span class="admin-ai__label">Lyrics Mode</span>
-                                <select id="aiMusicLyricsMode" class="admin-ai__input">
-                                    <option value="custom">Custom Lyrics</option>
-                                    <option value="auto">Auto Lyrics</option>
-                                </select>
-                            </label>
+                        <div id="aiMusicModelGrid" class="admin-ai__music-model-grid" role="tablist" aria-label="Music AI models">
+                            <button type="button" id="aiMusicModelMinimax" class="admin-ai__music-model-card admin-ai__music-model-card--active" role="tab" data-ai-music-option="minimax" aria-selected="true" aria-controls="aiMusicMinimaxControls" tabindex="0">
+                                <span class="admin-ai__music-model-card-title">MiniMax Music 2.6</span>
+                                <code class="admin-ai__music-model-card-id" data-ai-music-model-id></code>
+                                <span class="admin-ai__music-model-card-copy">Vocal and instrumental generation with custom or automatically optimized lyrics, BPM, and key guidance.</span>
+                            </button>
+                            <button type="button" id="aiMusicModelElevenLabs" class="admin-ai__music-model-card" role="tab" data-ai-music-option="elevenlabs" aria-selected="false" aria-controls="aiMusicElevenLabsControls" tabindex="-1">
+                                <span class="admin-ai__music-model-card-title">ElevenLabs Music v2</span>
+                                <code class="admin-ai__music-model-card-id" data-ai-music-model-id></code>
+                                <span class="admin-ai__music-model-card-copy">Prompt or composition-plan generation with explicit duration, seed, MP3 or Opus output, inpainting storage, and compatible C2PA signing.</span>
+                            </button>
                         </div>
 
-                        <label id="aiMusicLyricsField" class="admin-ai__field">
-                            <span class="admin-ai__label-row">
-                                <span class="admin-ai__label">Lyrics</span>
-                                <span id="aiMusicLyricsCount" class="admin-ai__count"></span>
-                            </span>
-                            <textarea id="aiMusicLyrics" class="admin-ai__textarea admin-ai__textarea--code" rows="7" maxlength="3500" placeholder="[Verse]\nNight traffic glowing under glass...\n\n[Chorus]\nCarry the pulse into the skyline..."></textarea>
-                            <span id="aiMusicLyricsHint" class="admin-ai__hint">Use section tags if you want a stronger structure.</span>
-                        </label>
+                        <div id="aiMusicMinimaxControls" class="admin-ai__music-provider-panel" role="tabpanel" aria-labelledby="aiMusicModelMinimax">
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label-row">
+                                    <span class="admin-ai__label">Prompt</span>
+                                    <span id="aiMusicPromptCount" class="admin-ai__count"></span>
+                                </span>
+                                <textarea id="aiMusicPrompt" class="admin-ai__textarea" rows="5" maxlength="2000" placeholder="Describe the track direction, energy, arrangement, and scene."></textarea>
+                            </label>
 
-                        <div class="admin-ai__form-grid admin-ai__form-grid--2">
-                            <label class="admin-ai__field">
-                                <span class="admin-ai__label">BPM</span>
-                                <input id="aiMusicBpm" class="admin-ai__input" type="number" min="40" max="240" step="1" placeholder="Optional">
+                            <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Mode</span>
+                                    <select id="aiMusicMode" class="admin-ai__input">
+                                        <option value="vocals">Song / Vocals</option>
+                                        <option value="instrumental">Instrumental</option>
+                                    </select>
+                                </label>
+                                <label class="admin-ai__field" id="aiMusicLyricsModeField">
+                                    <span class="admin-ai__label">Lyrics Mode</span>
+                                    <select id="aiMusicLyricsMode" class="admin-ai__input">
+                                        <option value="custom">Custom Lyrics</option>
+                                        <option value="auto">Auto Lyrics</option>
+                                    </select>
+                                </label>
+                            </div>
+
+                            <label id="aiMusicLyricsField" class="admin-ai__field">
+                                <span class="admin-ai__label-row">
+                                    <span class="admin-ai__label">Lyrics</span>
+                                    <span id="aiMusicLyricsCount" class="admin-ai__count"></span>
+                                </span>
+                                <textarea id="aiMusicLyrics" class="admin-ai__textarea admin-ai__textarea--code" rows="7" maxlength="3500" placeholder="[Verse]\nNight traffic glowing under glass...\n\n[Chorus]\nCarry the pulse into the skyline..."></textarea>
+                                <span id="aiMusicLyricsHint" class="admin-ai__hint">Use section tags if you want a stronger structure.</span>
                             </label>
-                            <label class="admin-ai__field">
-                                <span class="admin-ai__label">Key</span>
-                                <select id="aiMusicKey" class="admin-ai__input">
-                                    <option value="">No preference</option>
-                                </select>
-                            </label>
+
+                            <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">BPM</span>
+                                    <input id="aiMusicBpm" class="admin-ai__input" type="number" min="40" max="240" step="1" placeholder="Optional">
+                                </label>
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Key</span>
+                                    <select id="aiMusicKey" class="admin-ai__input">
+                                        <option value="">No preference</option>
+                                    </select>
+                                </label>
+                            </div>
+
+                            <p class="admin-ai__music-helper">Tempo and key are passed as structured guidance inside the generation prompt because the music model exposes prompt-first control plus lyric and instrumental flags.</p>
                         </div>
 
-                        <p class="admin-ai__music-helper">Tempo and key are passed as structured guidance inside the generation prompt because the music model exposes prompt-first control plus lyric and instrumental flags.</p>
+                        <div id="aiMusicElevenLabsControls" class="admin-ai__music-provider-panel" role="tabpanel" aria-labelledby="aiMusicModelElevenLabs" hidden>
+                            <div class="admin-ai__form-grid admin-ai__form-grid--2">
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Input Mode</span>
+                                    <select id="aiMusicElevenLabsInputMode" class="admin-ai__input">
+                                        <option value="prompt">Prompt</option>
+                                        <option value="composition_plan">Composition Plan</option>
+                                    </select>
+                                </label>
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Output Format</span>
+                                    <select id="aiMusicElevenLabsOutputFormat" class="admin-ai__input" aria-describedby="aiMusicElevenLabsOutputFormatHint">
+                                        <option value="auto">Automatic / Recommended</option>
+                                    </select>
+                                    <span id="aiMusicElevenLabsOutputFormatHint" class="admin-ai__hint">Exact Cloudflare-supported MP3 and Opus values are loaded from the shared model contract.</span>
+                                </label>
+                            </div>
+
+                            <label id="aiMusicElevenLabsPromptField" class="admin-ai__field">
+                                <span class="admin-ai__label-row">
+                                    <span class="admin-ai__label">Prompt</span>
+                                    <span id="aiMusicElevenLabsPromptCount" class="admin-ai__count"></span>
+                                </span>
+                                <textarea id="aiMusicElevenLabsPrompt" class="admin-ai__textarea" rows="6" placeholder="Describe the composition, mood, instruments, structure, vocals, and production style."></textarea>
+                            </label>
+
+                            <div id="aiMusicElevenLabsPlanField" class="admin-ai__field" hidden>
+                                <span class="admin-ai__label-row">
+                                    <label for="aiMusicElevenLabsPlan" class="admin-ai__label">Composition Plan JSON</label>
+                                    <span id="aiMusicElevenLabsPlanCount" class="admin-ai__count"></span>
+                                </span>
+                                <textarea id="aiMusicElevenLabsPlan" class="admin-ai__textarea admin-ai__textarea--code admin-ai__music-plan-editor" rows="16" spellcheck="false" aria-describedby="aiMusicElevenLabsPlanHint aiMusicElevenLabsPlanError" placeholder='{"chunks":[...]}'></textarea>
+                                <span id="aiMusicElevenLabsPlanHint" class="admin-ai__hint">Paste or edit a complete Cloudflare-compatible Music v2 plan. Each ordered chunk is validated before generation.</span>
+                                <span id="aiMusicElevenLabsPlanError" class="admin-ai__inline-error" role="status" aria-live="polite" hidden></span>
+                                <div class="admin-ai__actions">
+                                    <button type="button" id="aiMusicElevenLabsUseExample" class="btn-action">Use Example Plan</button>
+                                </div>
+                            </div>
+
+                            <div id="aiMusicElevenLabsDurationControls" class="admin-ai__form-grid admin-ai__form-grid--2">
+                                <label class="admin-ai__field">
+                                    <span class="admin-ai__label">Duration Mode</span>
+                                    <select id="aiMusicElevenLabsDurationMode" class="admin-ai__input">
+                                        <option value="auto">Auto</option>
+                                        <option value="explicit">Explicit</option>
+                                    </select>
+                                </label>
+                                <label id="aiMusicElevenLabsDurationField" class="admin-ai__field" hidden>
+                                    <span class="admin-ai__label">Duration (seconds)</span>
+                                    <input id="aiMusicElevenLabsDuration" class="admin-ai__input" type="number" step="0.001" inputmode="decimal" value="30" aria-describedby="aiMusicElevenLabsDurationHint">
+                                    <span id="aiMusicElevenLabsDurationHint" class="admin-ai__hint">3 to 600 seconds. The API receives precise integer milliseconds.</span>
+                                </label>
+                            </div>
+
+                            <label class="admin-ai__field">
+                                <span class="admin-ai__label">Seed</span>
+                                <input id="aiMusicElevenLabsSeed" class="admin-ai__input" type="number" step="1" inputmode="numeric" placeholder="Optional" aria-describedby="aiMusicElevenLabsSeedHint">
+                                <span id="aiMusicElevenLabsSeedHint" class="admin-ai__hint">Optional Cloudflare seed from 0 through 4,294,967,295.</span>
+                            </label>
+
+                            <div class="admin-ai__music-toggle-grid">
+                                <label id="aiMusicElevenLabsInstrumentalToggle" class="admin-ai__toggle">
+                                    <input id="aiMusicElevenLabsForceInstrumental" class="admin-ai__toggle-input" type="checkbox">
+                                    <span>Force Instrumental</span>
+                                </label>
+                                <label class="admin-ai__toggle">
+                                    <input id="aiMusicElevenLabsStoreForInpainting" class="admin-ai__toggle-input" type="checkbox">
+                                    <span>Store for Inpainting</span>
+                                </label>
+                                <label id="aiMusicElevenLabsC2paToggle" class="admin-ai__toggle">
+                                    <input id="aiMusicElevenLabsSignWithC2pa" class="admin-ai__toggle-input" type="checkbox" aria-describedby="aiMusicElevenLabsC2paHint">
+                                    <span>Sign with C2PA</span>
+                                </label>
+                            </div>
+                            <p id="aiMusicElevenLabsInstrumentalHint" class="admin-ai__music-helper" hidden>Force Instrumental applies only to prompt input and is not sent with a composition plan.</p>
+                            <p id="aiMusicElevenLabsC2paHint" class="admin-ai__music-helper" role="status" aria-live="polite">C2PA signing is available for Automatic and MP3 output.</p>
+                            <p class="admin-ai__music-helper">Store for Inpainting is an ElevenLabs provider-side option. Saving to BITBI Assets remains a separate action.</p>
+                            <div id="aiMusicElevenLabsCost" class="admin-ai__music-cost" role="status" aria-live="polite"></div>
+                        </div>
+
                         <span id="aiMusicInlineError" class="admin-ai__inline-error" hidden></span>
 
                         <div class="admin-ai__actions">

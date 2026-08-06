@@ -444,16 +444,17 @@ async function generateMusic({ env, input, lyrics, user, correlationId, requestI
 
 async function persistMusicResult({ env, userId, input, result, generatedLyrics, traceId, elapsedMs, correlationId }) {
   let audioBase64 = result.audioBase64 || null;
+  let audioBytes = null;
   let mimeType = String(result.mimeType || "audio/mpeg").trim();
   let sizeBytes = result.sizeBytes ?? null;
 
   if (!audioBase64 && result.audioUrl) {
     const fetched = await fetchGeneratedAudioForSave(result.audioUrl);
-    audioBase64 = fetched.audioBase64;
+    audioBytes = fetched.bytes;
     mimeType = fetched.mimeType;
     sizeBytes = fetched.sizeBytes;
   }
-  if (!audioBase64) {
+  if (!audioBase64 && !audioBytes) {
     const error = new Error("Music provider returned no savable audio.");
     error.status = 502;
     error.code = "provider_empty_result";
@@ -467,6 +468,9 @@ async function persistMusicResult({ env, userId, input, result, generatedLyrics,
     sourceModule: "music",
     payload: {
       audioBase64,
+      // Server-fetched temporary provider output stays as bounded bytes instead
+      // of being expanded to Base64 and decoded again by the storage helper.
+      audioBytes,
       mimeType,
       prompt: input.prompt,
       model: result.model || null,

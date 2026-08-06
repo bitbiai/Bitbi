@@ -9,7 +9,7 @@ import {
   WorkerConfigError,
 } from "./config.js";
 import {
-  BITBI_GENERATION_TIMEOUT_SECONDS,
+  BITBI_GENERATION_TIMEOUT_MS,
   fetchWithGenerationTimeout,
   isGenerationTimeoutError,
 } from "./generation-timeout.js";
@@ -28,8 +28,18 @@ import {
   withCorrelationId,
 } from "../../../../js/shared/worker-observability.mjs";
 import { FABLE_CHAT_GENERATION_TIMEOUT_MS } from "../../../shared/fable-chat-contract.mjs";
+import {
+  ELEVENLABS_MUSIC_V2_AUTH_PROXY_TIMEOUT_MS,
+} from "../../../../js/shared/elevenlabs-music-v2-pricing.mjs";
 
 const AI_LAB_BASE_URL = "https://bitbi-ai.internal";
+
+// Keep the outer Auth -> AI service-binding deadline slightly beyond the AI
+// Worker's ElevenLabs deadline so the inner Worker can normalize a terminal
+// response instead of being cut off at the same instant. Other AI Lab models
+// retain the shared 600-second deadline.
+export const ADMIN_AI_ELEVENLABS_MUSIC_PROXY_TIMEOUT_MS =
+  ELEVENLABS_MUSIC_V2_AUTH_PROXY_TIMEOUT_MS;
 
 export function serviceUnavailableResponse(correlationId = null) {
   return withCorrelationId(json(
@@ -42,11 +52,15 @@ export function serviceUnavailableResponse(correlationId = null) {
   ), correlationId);
 }
 
-export function generationTimeoutResponse(correlationId = null) {
+export function generationTimeoutResponse(
+  correlationId = null,
+  timeoutMs = BITBI_GENERATION_TIMEOUT_MS
+) {
+  const timeoutSeconds = Math.max(1, Math.round(timeoutMs / 1000));
   return withCorrelationId(json(
     {
       ok: false,
-      error: `Generation timed out after ${BITBI_GENERATION_TIMEOUT_SECONDS} seconds.`,
+      error: `Generation timed out after ${timeoutSeconds} seconds.`,
       code: "request_timeout",
     },
     { status: 504 }
@@ -306,7 +320,18 @@ export async function proxyFableChatStreamToAiLab(
   }
 }
 
-export async function proxyToAiLab(env, path, init, adminUser, correlationId, requestInfo = null) {
+export async function proxyToAiLab(
+  env,
+  path,
+  init,
+  adminUser,
+  correlationId,
+  requestInfo = null,
+  {
+    normalizeResponseCode = true,
+    timeoutMs = BITBI_GENERATION_TIMEOUT_MS,
+  } = {}
+) {
   const startedAt = Date.now();
   if (!env.AI_LAB || typeof env.AI_LAB.fetch !== "function") {
     logDiagnostic({
@@ -358,7 +383,9 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId, re
         method: init.method,
         headers,
         body: requestBody !== undefined ? bodyText : undefined,
-      })
+      }),
+      undefined,
+      { timeoutMs }
     );
   } catch (error) {
     if (isGenerationTimeoutError(error)) {
@@ -374,7 +401,7 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId, re
         duration_ms: getDurationMs(startedAt),
         ...getRequestLogFields(requestInfo),
       });
-      return generationTimeoutResponse(correlationId);
+      return generationTimeoutResponse(correlationId, timeoutMs);
     }
     logDiagnostic({
       service: "bitbi-auth",
@@ -407,5 +434,8 @@ export async function proxyToAiLab(env, path, init, adminUser, correlationId, re
     });
   }
 
-  return withCorrelationId(await withAdminAiCode(response), correlationId);
+  const normalizedResponse = normalizeResponseCode
+    ? await withAdminAiCode(response)
+    : response;
+  return withCorrelationId(normalizedResponse, correlationId);
 }

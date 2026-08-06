@@ -417,6 +417,13 @@ function createMockAiCatalog() {
         description: 'Admin music preset',
       },
       {
+        name: 'music_elevenlabs_v2',
+        task: 'music',
+        label: 'ElevenLabs Music v2',
+        model: 'elevenlabs/music-v2',
+        description: 'Admin ElevenLabs Music v2 preset',
+      },
+      {
         name: 'video_studio',
         task: 'video',
         label: 'Video Studio',
@@ -761,6 +768,66 @@ function createMockAiCatalog() {
           label: 'Music 2.6',
           vendor: 'MiniMax',
           description: 'Prompt-based music generation with vocal and instrumental controls.',
+          capabilities: {
+            supportsPrompt: true,
+            supportsCompositionPlan: false,
+            maxPromptLength: 2000,
+            supportsInstrumental: true,
+            supportsLyricsOptimizer: true,
+            defaultPreset: 'music_studio',
+          },
+        },
+        {
+          id: 'elevenlabs/music-v2',
+          task: 'music',
+          label: 'ElevenLabs Music v2',
+          vendor: 'ElevenLabs',
+          providerLabel: 'Cloudflare Workers AI',
+          description: 'Prompt or composition-plan music generation with MP3 and Opus output.',
+          capabilities: {
+            supportsPrompt: true,
+            supportsCompositionPlan: true,
+            supportsExplicitDuration: true,
+            supportsAutomaticDuration: true,
+            minDurationMs: 3000,
+            maxDurationMs: 600000,
+            maxChunkDurationMs: 120000,
+            maxChunks: 30,
+            maxPromptLength: 4100,
+            supportsSeed: true,
+            minSeed: 0,
+            maxSeed: 4294967295,
+            supportsInstrumentalEnforcement: true,
+            supportsOutputFormat: true,
+            outputFormatOptions: [
+              'auto',
+              'mp3_48000_128',
+              'mp3_48000_192',
+              'mp3_48000_240',
+              'mp3_48000_320',
+              'mp3_22050_32',
+              'mp3_24000_48',
+              'mp3_44100_32',
+              'mp3_44100_64',
+              'mp3_44100_96',
+              'mp3_44100_128',
+              'mp3_44100_192',
+              'opus_48000_32',
+              'opus_48000_64',
+              'opus_48000_96',
+              'opus_48000_128',
+              'opus_48000_192',
+            ],
+            defaultOutputFormat: 'auto',
+            supportsStoreForInpainting: true,
+            supportsC2pa: true,
+            c2paCompatibleCodecs: ['mp3'],
+            supportsAudioUrlResponse: true,
+            supportsBase64DataUriResponse: true,
+            pricingMode: 'per_output_audio_second',
+            priceUsdPerOutputSecond: 0.0025,
+            defaultPreset: 'music_elevenlabs_v2',
+          },
         },
       ],
       video: [
@@ -18608,6 +18675,273 @@ test.describe('Admin AI Lab', () => {
     await page.selectOption('#aiMusicMode', 'instrumental');
     await expect(page.locator('#aiMusicLyricsMode')).toBeDisabled();
     await expect(page.locator('#aiMusicLyricsField')).toBeHidden();
+  });
+
+  test('ElevenLabs Music v2 UI isolates prompt and plan payloads, enforces C2PA, and saves Opus safely', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const musicRequests = [];
+    const saveAudioRequests = [];
+    const relayedDownloadRequests = [];
+    let releaseRelayedDownload;
+    const relayedDownloadGate = new Promise((resolve) => {
+      releaseRelayedDownload = resolve;
+    });
+    const urlOnlyAudioUrl = 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/elevenlabs-url-only.opus?X-Amz-Signature=mock';
+    const opusBytes = Buffer.concat([
+      Buffer.from('OggS', 'ascii'),
+      Buffer.alloc(24),
+      Buffer.from('OpusHead', 'ascii'),
+      Buffer.alloc(16),
+    ]);
+    const opusBase64 = opusBytes.toString('base64');
+    const mp3Base64 = Buffer.from('ID3mock-elevenlabs-mp3', 'utf8').toString('base64');
+
+    await page.unroute('**/api/admin/ai/download-music');
+    await page.route('**/api/admin/ai/download-music', async (route) => {
+      relayedDownloadRequests.push(route.request().postDataJSON());
+      await relayedDownloadGate;
+      await route.fulfill({
+        status: 200,
+        contentType: 'audio/ogg',
+        body: opusBytes,
+      });
+    });
+    await page.route(urlOnlyAudioUrl, async (route) => {
+      await route.fulfill({ status: 200, contentType: 'audio/ogg', body: opusBytes });
+    });
+    await page.unroute('**/api/ai/audio/save');
+    await page.route('**/api/ai/audio/save', async (route) => {
+      saveAudioRequests.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            id: 'elevenlabs-opus-saved',
+            source_module: 'music',
+            mime_type: 'audio/ogg',
+            file_name: 'elevenlabs-opus-saved.opus',
+            size_bytes: opusBytes.byteLength,
+          },
+        }),
+      });
+    });
+    await page.unroute('**/api/admin/ai/test-music');
+    await page.route('**/api/admin/ai/test-music', async (route) => {
+      const body = route.request().postDataJSON();
+      musicRequests.push({
+        body,
+        idempotencyKey: route.request().headers()['idempotency-key'] || '',
+      });
+      const isPlan = body.inputMode === 'composition_plan';
+      const isOpus = String(body.outputFormat).startsWith('opus_');
+      const isUrlOnly = body.prompt === 'URL-only Opus relay download.';
+      const requestedDurationMs = isPlan
+        ? body.compositionPlan.chunks.reduce((total, chunk) => total + chunk.duration_ms, 0)
+        : body.musicLengthMs ?? null;
+      const estimateDurationMs = requestedDurationMs ?? 600000;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          task: 'music',
+          model: createMockAiCatalog().models.music[1],
+          preset: body.preset,
+          result: {
+            prompt: isPlan ? null : body.prompt,
+            inputMode: body.inputMode,
+            compositionPlanPresent: isPlan,
+            compositionPlanChunkCount: isPlan ? body.compositionPlan.chunks.length : 0,
+            compositionPlanSerializedLength: isPlan ? JSON.stringify(body.compositionPlan).length : 0,
+            requestedDurationMs,
+            actualDurationMs: null,
+            durationMs: null,
+            durationMode: isPlan ? 'composition_plan' : body.musicLengthMs ? 'explicit' : 'auto',
+            outputFormat: body.outputFormat,
+            mimeType: isOpus ? 'audio/ogg' : 'audio/mpeg',
+            downloadExtension: isUrlOnly ? 'mp3' : isOpus ? 'opus' : 'mp3',
+            audioUrl: isUrlOnly ? urlOnlyAudioUrl : null,
+            audioBase64: isUrlOnly ? null : isOpus ? opusBase64 : mp3Base64,
+            sampleRate: 48000,
+            channels: null,
+            bitrate: isOpus ? 128000 : 192000,
+            sizeBytes: isOpus ? opusBytes.byteLength : 22,
+            seed: body.seed ?? null,
+            forceInstrumental: body.forceInstrumental === true,
+            storeForInpainting: body.storeForInpainting === true,
+            signWithC2pa: body.signWithC2pa === true,
+            providerStatus: 'Completed',
+            providerState: 'Completed',
+            providerCostEstimateDurationMs: estimateDurationMs,
+            providerCostEstimateKind: requestedDurationMs === null ? 'maximum_exposure' : 'requested_duration',
+            estimatedProviderCostUsd: (estimateDurationMs / 1000) * 0.0025,
+            actualProviderCostUsd: null,
+            priceUsdPerOutputSecond: 0.0025,
+          },
+          traceId: 'elevenlabs-ui-trace',
+          elapsedMs: 750,
+          budget_policy: {
+            estimated_cost_units: 1,
+            platform_budget_unit_rule: 'abstract_admin_music_units',
+          },
+        }),
+      });
+    });
+
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await clickAiLabMode(page, 'music');
+
+    const minimaxTab = page.locator('#aiMusicModelMinimax');
+    const elevenLabsTab = page.locator('#aiMusicModelElevenLabs');
+    await expect(minimaxTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#aiMusicMinimaxControls')).toBeVisible();
+    await minimaxTab.focus();
+    await minimaxTab.press('ArrowRight');
+    await expect(elevenLabsTab).toBeFocused();
+    await expect(elevenLabsTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#aiMusicModelBadge')).toHaveText('elevenlabs/music-v2');
+    await expect(page.locator('#aiMusicModelDesc')).toContainText('composition-plan');
+    await expect(page.locator('#aiMusicMinimaxControls')).toBeHidden();
+    await expect(page.locator('#aiMusicElevenLabsControls')).toBeVisible();
+    expect(await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )).toBeLessThanOrEqual(1);
+    const toggleTargetHeights = await page.locator('.admin-ai__music-toggle-grid .admin-ai__toggle').evaluateAll(
+      (targets) => targets.map((target) => target.getBoundingClientRect().height),
+    );
+    expect(toggleTargetHeights).toHaveLength(3);
+    expect(toggleTargetHeights.every((height) => height >= 44)).toBe(true);
+
+    await page.locator('#aiMusicElevenLabsPrompt').fill('A precise 4.001-second instrumental sting.');
+    await page.selectOption('#aiMusicElevenLabsDurationMode', 'explicit');
+    await page.locator('#aiMusicElevenLabsDuration').fill('4.001');
+    await page.locator('#aiMusicElevenLabsSeed').fill('4294967295');
+    await page.locator('#aiMusicElevenLabsForceInstrumental').check();
+    await page.locator('#aiMusicElevenLabsStoreForInpainting').check();
+    await page.selectOption('#aiMusicElevenLabsOutputFormat', 'mp3_48000_192');
+    await page.locator('#aiMusicElevenLabsSignWithC2pa').check();
+    await expect(page.locator('#aiMusicElevenLabsCost')).toContainText('$0.01');
+    await page.locator('#aiMusicRun').click();
+    await expect(page.locator('#aiMusicState')).toContainText('Music response ready.');
+    expect(musicRequests[0].idempotencyKey).toMatch(/^admin-ai-music-/);
+    expect(musicRequests[0].body).toEqual({
+      preset: 'music_elevenlabs_v2',
+      model: 'elevenlabs/music-v2',
+      inputMode: 'prompt',
+      prompt: 'A precise 4.001-second instrumental sting.',
+      musicLengthMs: 4001,
+      outputFormat: 'mp3_48000_192',
+      seed: 4294967295,
+      forceInstrumental: true,
+      storeForInpainting: true,
+      signWithC2pa: true,
+    });
+
+    await page.selectOption('#aiMusicElevenLabsInputMode', 'composition_plan');
+    await page.locator('#aiMusicElevenLabsPlan').fill('{"chunks": [}');
+    await page.locator('#aiMusicRun').click();
+    await expect(page.locator('#aiMusicElevenLabsPlanError')).toContainText('Invalid JSON syntax');
+    expect(musicRequests).toHaveLength(1);
+
+    await expect.poll(
+      () => page.locator('#aiMusicElevenLabsUseExample').evaluate(
+        (target) => target.getBoundingClientRect().height,
+      ),
+    ).toBeGreaterThanOrEqual(44);
+    await page.locator('#aiMusicElevenLabsUseExample').click();
+    await expect(page.locator('#aiMusicElevenLabsPlanError')).toBeHidden();
+    await expect(page.locator('#aiMusicElevenLabsCost')).toContainText('$0.075');
+    await page.selectOption('#aiMusicElevenLabsOutputFormat', 'opus_48000_128');
+    await expect(page.locator('#aiMusicElevenLabsSignWithC2pa')).not.toBeChecked();
+    await expect(page.locator('#aiMusicElevenLabsSignWithC2pa')).toBeDisabled();
+    await expect(page.locator('#aiMusicElevenLabsC2paHint')).toContainText('C2PA was turned off');
+    await page.locator('#aiMusicRun').click();
+    await expect(page.locator('#aiMusicState')).toContainText('Music response ready.');
+    expect(musicRequests).toHaveLength(2);
+    expect(musicRequests[1].idempotencyKey).toMatch(/^admin-ai-music-/);
+    expect(musicRequests[1].idempotencyKey).not.toBe(musicRequests[0].idempotencyKey);
+    expect(musicRequests[1].body).toEqual(expect.objectContaining({
+      preset: 'music_elevenlabs_v2',
+      model: 'elevenlabs/music-v2',
+      inputMode: 'composition_plan',
+      outputFormat: 'opus_48000_128',
+      seed: 4294967295,
+      storeForInpainting: true,
+      signWithC2pa: false,
+      compositionPlan: expect.objectContaining({ chunks: expect.any(Array) }),
+    }));
+    for (const staleField of ['prompt', 'musicLengthMs', 'forceInstrumental', 'mode', 'lyricsMode', 'lyrics', 'bpm', 'key']) {
+      expect(musicRequests[1].body).not.toHaveProperty(staleField);
+    }
+
+    await expect(page.locator('#aiMusicPreview audio source')).toHaveAttribute('type', 'audio/ogg');
+    await expect(page.locator('#aiMusicMeta')).toContainText('Opus · 48 kHz · 128 kbps');
+    await expect(page.locator('#aiMusicMeta')).toContainText('audio/ogg');
+    await page.selectOption('#aiMusicElevenLabsInputMode', 'prompt');
+    await page.locator('#aiMusicElevenLabsPrompt').fill('Stale form text must not rename the retained plan result.');
+    const download = page.waitForEvent('download');
+    await page.locator('#aiMusicDownload').click();
+    await expect((await download).suggestedFilename()).toMatch(/composition-plan.*\.opus$/);
+
+    await page.locator('#aiMusicDebug').evaluate((details) => { details.open = true; });
+    await expect(page.locator('#aiMusicRaw')).toContainText('[redacted audio');
+    await expect(page.locator('#aiMusicRaw')).not.toContainText(opusBase64);
+    await page.locator('#aiMusicCopyRaw').click();
+    await expect.poll(() => readClipboardValue(page)).not.toContain(opusBase64);
+
+    await page.locator('#aiMusicSave').click();
+    await page.locator('#aiLabSaveInput').fill('ElevenLabs Opus Plan');
+    await page.locator('#aiLabSaveConfirm').click();
+    await expect(page.locator('#aiLabSaveModal')).toBeHidden();
+    await expect.poll(() => saveAudioRequests.length).toBe(1);
+    expect(saveAudioRequests[0]).toEqual(expect.objectContaining({
+      title: 'ElevenLabs Opus Plan',
+      mimeType: 'audio/ogg',
+      model: expect.objectContaining({
+        id: 'elevenlabs/music-v2',
+        label: 'ElevenLabs Music v2',
+        vendor: 'ElevenLabs',
+      }),
+      provider: 'ElevenLabs',
+      inputMode: 'composition_plan',
+      outputFormat: 'opus_48000_128',
+      compositionPlanSummary: {
+        chunkCount: 2,
+        serializedLength: expect.any(Number),
+        totalDurationMs: 30000,
+      },
+      audioBase64: opusBase64,
+      signWithC2pa: false,
+      storeForInpainting: true,
+      estimatedProviderCostUsd: 0.075,
+    }));
+    expect(JSON.stringify(saveAudioRequests[0])).not.toContain('positive_styles');
+
+    await page.locator('#aiMusicElevenLabsPrompt').fill('URL-only Opus relay download.');
+    await page.locator('#aiMusicRun').click();
+    await expect(page.locator('#aiMusicState')).toContainText('Music response ready.');
+    await expect(page.locator('#aiMusicPreview')).toContainText('temporary provider URL');
+    expect(musicRequests).toHaveLength(3);
+    const relayedDownload = page.waitForEvent('download');
+    await page.locator('#aiMusicDownload').click();
+    await expect(page.locator('#aiMusicDownload')).toBeDisabled();
+    await expect(page.locator('#aiMusicDownload')).toHaveText('Preparing Download...');
+    releaseRelayedDownload();
+    await expect((await relayedDownload).suggestedFilename()).toMatch(/\.opus$/);
+    await expect(page.locator('#aiMusicDownload')).toBeEnabled();
+    await expect(page.locator('#aiMusicDownload')).toHaveText('Download Audio');
+    expect(relayedDownloadRequests).toEqual([{ audioUrl: urlOnlyAudioUrl }]);
+
+    await elevenLabsTab.press('Home');
+    await expect(minimaxTab).toBeFocused();
+    await expect(minimaxTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#aiMusicMinimaxControls')).toBeVisible();
+    await expect(page.locator('#aiMusicElevenLabsControls')).toBeHidden();
   });
 
   test('accepts sub-512 FLUX.2 Dev reference images and rejects 512x512 images before submit', async ({
