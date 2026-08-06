@@ -1,6 +1,7 @@
 import {
   ADMIN_AI_MUSIC_MODEL_ID,
   CLAUDE_FABLE_5_MODEL_ID,
+  ELEVENLABS_MUSIC_V2_DEFAULT_DURATION_MS,
   ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
   ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BASE64_LENGTH,
   ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BYTES,
@@ -629,11 +630,16 @@ function buildElevenLabsMusicV2Payload(input) {
     payload.composition_plan = compositionPlanSummary.plan;
   } else {
     payload.prompt = input.prompt;
+    // validateMusicBody normalizes legacy omitted prompt durations. Keep the
+    // final provider boundary defensive so a paid request is never durationless.
+    const durationMs = input.musicLengthMs;
+    payload.music_length_ms = Number.isSafeInteger(durationMs)
+      && durationMs >= ELEVENLABS_MUSIC_V2_MIN_DURATION_MS
+      && durationMs <= ELEVENLABS_MUSIC_V2_MAX_DURATION_MS
+      ? durationMs
+      : ELEVENLABS_MUSIC_V2_DEFAULT_DURATION_MS;
   }
 
-  if (input.musicLengthMs !== null && input.musicLengthMs !== undefined) {
-    payload.music_length_ms = input.musicLengthMs;
-  }
   if (input.seed !== null && input.seed !== undefined) {
     payload.seed = input.seed;
   }
@@ -1043,6 +1049,16 @@ function throwElevenLabsUnsafeAudioUrl() {
   error.code = "upstream_error";
   error.provider_error_kind = "unsafe_audio_url";
   throw error;
+}
+
+function markElevenLabsProviderOutputValidationError(error, providerState) {
+  if (!providerState) return error;
+  error.status = 502;
+  error.code = "provider_output_validation_failed";
+  error.message = "The provider completed the generation, but BITBI could not validate the returned audio output.";
+  error.provider_error_kind = error.provider_error_kind || "provider_output_validation_failed";
+  error.provider_state = providerState;
+  return error;
 }
 
 function startsWithHttpSchemeAfterWhitespace(value) {
@@ -2298,6 +2314,7 @@ export async function invokeMusic(env, model, input) {
     try {
       providerState = assertElevenLabsProviderState(raw);
     } catch (error) {
+      markElevenLabsProviderOutputValidationError(error, providerState);
       logDiagnostic({
         service: "bitbi-ai",
         component: "invoke-music",
@@ -2330,6 +2347,7 @@ export async function invokeMusic(env, model, input) {
       // before accepting the normalized result.
       assertMusicGenerationDeadline(generationDeadlineAt);
     } catch (error) {
+      markElevenLabsProviderOutputValidationError(error, providerState);
       logDiagnostic({
         service: "bitbi-ai",
         component: "invoke-music",
@@ -2348,8 +2366,8 @@ export async function invokeMusic(env, model, input) {
     if (!music || (!music.audioUrl && !music.audioBase64)) {
       const error = new Error("Model returned no audio output.");
       error.status = 502;
-      error.code = "upstream_error";
       error.provider_error_kind = "missing_audio";
+      markElevenLabsProviderOutputValidationError(error, providerState);
       logDiagnostic({
         service: "bitbi-ai",
         component: "invoke-music",
@@ -2398,11 +2416,7 @@ export async function invokeMusic(env, model, input) {
       requestedDurationMs,
       actualDurationMs,
       durationMs: actualDurationMs,
-      durationMode: input.inputMode === "composition_plan"
-        ? "composition_plan"
-        : input.musicLengthMs === null
-          ? "auto"
-          : "explicit",
+      durationMode: input.inputMode === "composition_plan" ? "composition_plan" : "explicit",
       outputFormat: input.outputFormat,
       seed: input.seed,
       forceInstrumental: input.forceInstrumental === true,

@@ -18817,6 +18817,29 @@ test.describe('Admin AI Lab', () => {
     expect(toggleTargetHeights).toHaveLength(3);
     expect(toggleTargetHeights.every((height) => height >= 44)).toBe(true);
 
+    await page.locator('#aiMusicElevenLabsPrompt').fill('The default prompt duration must be 30 seconds.');
+    await expect(page.locator('#aiMusicElevenLabsDurationMode')).toHaveValue('auto');
+    await expect(page.locator('#aiMusicElevenLabsCost')).toContainText('$0.075');
+    await page.locator('#aiMusicRun').click();
+    await expect(page.locator('#aiMusicState')).toContainText('Music response ready.');
+    expect(musicRequests[0].body).toEqual(expect.objectContaining({
+      preset: 'music_elevenlabs_v2',
+      model: 'elevenlabs/music-v2',
+      inputMode: 'prompt',
+      prompt: 'The default prompt duration must be 30 seconds.',
+      musicLengthMs: 30000,
+    }));
+
+    await page.selectOption('#aiMusicElevenLabsDurationMode', 'explicit');
+    await page.locator('#aiMusicElevenLabsDuration').fill('30');
+    await page.locator('#aiMusicRun').click();
+    await expect(page.locator('#aiMusicState')).toContainText('Music response ready.');
+    expect(musicRequests[1].body).toEqual(expect.objectContaining({
+      inputMode: 'prompt',
+      prompt: 'The default prompt duration must be 30 seconds.',
+      musicLengthMs: 30000,
+    }));
+
     await page.locator('#aiMusicElevenLabsPrompt').fill('A precise 4.001-second instrumental sting.');
     await page.selectOption('#aiMusicElevenLabsDurationMode', 'explicit');
     await page.locator('#aiMusicElevenLabsDuration').fill('4.001');
@@ -18828,8 +18851,9 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiMusicElevenLabsCost')).toContainText('$0.01');
     await page.locator('#aiMusicRun').click();
     await expect(page.locator('#aiMusicState')).toContainText('Music response ready.');
-    expect(musicRequests[0].idempotencyKey).toMatch(/^admin-ai-music-/);
-    expect(musicRequests[0].body).toEqual({
+    expect(musicRequests[2].idempotencyKey).toMatch(/^admin-ai-music-/);
+    expect(musicRequests[2].idempotencyKey).not.toBe(musicRequests[1].idempotencyKey);
+    expect(musicRequests[2].body).toEqual({
       preset: 'music_elevenlabs_v2',
       model: 'elevenlabs/music-v2',
       inputMode: 'prompt',
@@ -18846,7 +18870,7 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiMusicElevenLabsPlan').fill('{"chunks": [}');
     await page.locator('#aiMusicRun').click();
     await expect(page.locator('#aiMusicElevenLabsPlanError')).toContainText('Invalid JSON syntax');
-    expect(musicRequests).toHaveLength(1);
+    expect(musicRequests).toHaveLength(3);
 
     await expect.poll(
       () => page.locator('#aiMusicElevenLabsUseExample').evaluate(
@@ -18862,10 +18886,10 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiMusicElevenLabsC2paHint')).toContainText('C2PA was turned off');
     await page.locator('#aiMusicRun').click();
     await expect(page.locator('#aiMusicState')).toContainText('Music response ready.');
-    expect(musicRequests).toHaveLength(2);
-    expect(musicRequests[1].idempotencyKey).toMatch(/^admin-ai-music-/);
-    expect(musicRequests[1].idempotencyKey).not.toBe(musicRequests[0].idempotencyKey);
-    expect(musicRequests[1].body).toEqual(expect.objectContaining({
+    expect(musicRequests).toHaveLength(4);
+    expect(musicRequests[3].idempotencyKey).toMatch(/^admin-ai-music-/);
+    expect(musicRequests[3].idempotencyKey).not.toBe(musicRequests[2].idempotencyKey);
+    expect(musicRequests[3].body).toEqual(expect.objectContaining({
       preset: 'music_elevenlabs_v2',
       model: 'elevenlabs/music-v2',
       inputMode: 'composition_plan',
@@ -18876,7 +18900,7 @@ test.describe('Admin AI Lab', () => {
       compositionPlan: expect.objectContaining({ chunks: expect.any(Array) }),
     }));
     for (const staleField of ['prompt', 'musicLengthMs', 'forceInstrumental', 'mode', 'lyricsMode', 'lyrics', 'bpm', 'key']) {
-      expect(musicRequests[1].body).not.toHaveProperty(staleField);
+      expect(musicRequests[3].body).not.toHaveProperty(staleField);
     }
 
     await expect(page.locator('#aiMusicPreview audio source')).toHaveAttribute('type', 'audio/ogg');
@@ -18926,7 +18950,7 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiMusicRun').click();
     await expect(page.locator('#aiMusicState')).toContainText('Music response ready.');
     await expect(page.locator('#aiMusicPreview')).toContainText('temporary provider URL');
-    expect(musicRequests).toHaveLength(3);
+    expect(musicRequests).toHaveLength(5);
     const relayedDownload = page.waitForEvent('download');
     await page.locator('#aiMusicDownload').click();
     await expect(page.locator('#aiMusicDownload')).toBeDisabled();

@@ -53,6 +53,13 @@ async function loadElevenLabsMusicPricingModule() {
   return import(modulePath);
 }
 
+async function loadGeneratedAudioOutputUrlModule() {
+  const modulePath = pathToFileURL(
+    path.join(process.cwd(), 'js/shared/generated-audio-output-url.mjs')
+  ).href;
+  return import(modulePath);
+}
+
 async function loadAiGenerationTimeoutModule() {
   const modulePath = pathToFileURL(path.join(process.cwd(), 'workers/ai/src/lib/generation-timeout.js')).href;
   return import(modulePath);
@@ -23508,6 +23515,7 @@ test.describe('Worker routes', () => {
           supportsCompositionPlan: true,
           supportsExplicitDuration: true,
           supportsAutomaticDuration: true,
+          defaultDurationMs: 30000,
           minDurationMs: 3000,
           maxDurationMs: 600000,
           maxChunks: 30,
@@ -23563,7 +23571,7 @@ test.describe('Worker routes', () => {
         });
       }
       const auto = contract.validateAdminAiMusicBody(base);
-      expect(auto.musicLengthMs).toBeNull();
+      expect(auto.musicLengthMs).toBe(30000);
       expect(auto.compositionPlan).toBeNull();
       expect(contract.validateAdminAiMusicBody({
         ...base,
@@ -23583,6 +23591,7 @@ test.describe('Worker routes', () => {
       for (const invalid of [
         { musicLengthMs: 2999 },
         { musicLengthMs: 600001 },
+        { musicLengthMs: 3000.5 },
         { seed: -1 },
         { seed: 4294967296 },
         { outputFormat: 'pcm_48000' },
@@ -23639,6 +23648,43 @@ test.describe('Worker routes', () => {
         lyricsMode: 'auto',
         outputFormat: 'auto',
       })).toThrow(/not supported by model "minimax\/music-2.6"/);
+    });
+
+    test('shared generated audio output URL policy accepts only documented Cloudflare AI Gateway provider outputs', async () => {
+      const { isTrustedGeneratedAudioOutputUrl } = await loadGeneratedAudioOutputUrlModule();
+      const accountId = '0d37909e38d3e99c29fa2cd343ac421a';
+      const providerPath = '/provider-outputs/test/audio';
+      const query = '?X-Amz-Expires=86400&X-Amz-Signature=synthetic';
+
+      for (const value of [
+        `https://ai-gateway-outputs.cloudflarestorage.com${providerPath}${query}`,
+        `https://ai-gateway-outputs-test.cloudflarestorage.com${providerPath}${query}`,
+        `https://ai-gateway-outputs.${accountId}.r2.cloudflarestorage.com${providerPath}${query}`,
+        `https://ai-gateway-outputs.${accountId.toUpperCase()}.r2.cloudflarestorage.com${providerPath}${query}`,
+        'https://examples.aig.cloudflare.com/elevenlabs/music-v2/output.mp3',
+      ]) {
+        expect(isTrustedGeneratedAudioOutputUrl(value), value).toBe(true);
+      }
+
+      for (const value of [
+        `http://ai-gateway-outputs.${accountId}.r2.cloudflarestorage.com${providerPath}`,
+        `https://bucket.${accountId}.r2.cloudflarestorage.com${providerPath}`,
+        `https://ai-gateway-outputs.${accountId.slice(0, 31)}.r2.cloudflarestorage.com${providerPath}`,
+        `https://ai-gateway-outputs.${accountId}0.r2.cloudflarestorage.com${providerPath}`,
+        `https://ai-gateway-outputs.${'z'.repeat(32)}.r2.cloudflarestorage.com${providerPath}`,
+        `https://ai-gateway-outputs.${accountId}.cloudflarestorage.com${providerPath}`,
+        `https://not-ai-gateway-outputs.${accountId}.r2.cloudflarestorage.com${providerPath}`,
+        `https://ai-gateway-outputs.${accountId}.r2.cloudflarestorage.com/not-provider-output/audio`,
+        `https://username@ai-gateway-outputs.${accountId}.r2.cloudflarestorage.com${providerPath}`,
+        `https://username:password@ai-gateway-outputs.${accountId}.r2.cloudflarestorage.com${providerPath}`,
+        `https://ai-gateway-outputs.${accountId}.r2.cloudflarestorage.com:8443${providerPath}`,
+        `https://ai-gateway-outputs.${accountId}.r2.cloudflarestorage.com${providerPath}#fragment`,
+        `https://ai-gateway-outputs.${accountId}.r2.cloudflarestorage.com.example.com${providerPath}`,
+        `https://unrelated.cloudflarestorage.com${providerPath}`,
+        `https://ai-gateway-outputs.${accountId}.r2.cloudflarestorage.com/provider-outputs/${'a'.repeat(4097)}`,
+      ]) {
+        expect(isTrustedGeneratedAudioOutputUrl(value), value).toBe(false);
+      }
     });
 
     test('shared ElevenLabs composition-plan validation bounds schema, size, depth, chunks, and durations', async () => {
@@ -34530,7 +34576,7 @@ test.describe('Worker routes', () => {
       expect(JSON.stringify(env.DB.state.adminAiUsageAttempts)).not.toContain('must-not-cross-the-worker-boundary');
     });
 
-    test('POST /api/admin/ai/test-music omits unset ElevenLabs Music v2 options and normalizes MP3 data-URI audio', async () => {
+    test('POST /api/admin/ai/test-music normalizes an omitted prompt duration and MP3 data-URI audio', async () => {
       const mp3Bytes = Buffer.from([
         0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0xff, 0xfb, 0x90, 0x64, 0x01, 0x02,
@@ -34566,6 +34612,7 @@ test.describe('Worker routes', () => {
         payload: {
           output_format: 'mp3_48000_128',
           prompt,
+          music_length_ms: 30000,
         },
         options: { gateway: { id: 'default', collectLog: false } },
       }]);
@@ -34576,16 +34623,67 @@ test.describe('Worker routes', () => {
         audioBase64: mp3Base64,
         audioUrl: null,
         sizeBytes: mp3Bytes.byteLength,
-        requestedDurationMs: null,
+        requestedDurationMs: 30000,
         actualDurationMs: null,
-        durationMode: 'auto',
-        providerCostEstimateDurationMs: 600000,
-        providerCostEstimateKind: 'maximum_exposure',
-        estimatedProviderCostUsd: 1.5,
+        durationMode: 'explicit',
+        providerCostEstimateDurationMs: 30000,
+        providerCostEstimateKind: 'requested_duration',
+        estimatedProviderCostUsd: 0.075,
         actualProviderCostUsd: null,
       });
-      expect(Object.keys(aiRunCalls[0].payload).sort()).toEqual(['output_format', 'prompt']);
+      expect(Object.keys(aiRunCalls[0].payload).sort()).toEqual([
+        'music_length_ms',
+        'output_format',
+        'prompt',
+      ]);
       expect(body.result.audioBase64).not.toContain('data:');
+    });
+
+    test('POST /api/admin/ai/test-music accepts a completed signed Cloudflare AI Gateway R2 output URL', async () => {
+      const aiRunCalls = [];
+      const audioUrl = 'https://ai-gateway-outputs.0d37909e38d3e99c29fa2cd343ac421a.r2.cloudflarestorage.com/provider-outputs/test/audio?X-Amz-Expires=86400&X-Amz-Signature=synthetic';
+      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        aiRun: async (modelId, payload, options) => {
+          aiRunCalls.push({ modelId, payload, options });
+          return { state: 'Completed', result: { audio: audioUrl } };
+        },
+      });
+
+      const res = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-music', 'POST', {
+          model: 'elevenlabs/music-v2',
+          inputMode: 'prompt',
+          prompt: 'A synthetic completed gateway response.',
+          outputFormat: 'auto',
+        }, adminAiIdempotencyHeaders(authHeaders, 'admin-elevenlabs-gateway-r2-output-1')),
+        env,
+        createExecutionContext().execCtx
+      );
+
+      expect(res.status).toBe(200);
+      expect(aiRunCalls).toEqual([{
+        modelId: 'elevenlabs/music-v2',
+        payload: {
+          output_format: 'auto',
+          prompt: 'A synthetic completed gateway response.',
+          music_length_ms: 30000,
+        },
+        options: { gateway: { id: 'default', collectLog: false } },
+      }]);
+      const body = await res.json();
+      expect(body).toMatchObject({
+        ok: true,
+        result: {
+          audioUrl,
+          audioBase64: null,
+          mimeType: 'audio/mpeg',
+          downloadExtension: 'mp3',
+          providerState: 'Completed',
+          requestedDurationMs: 30000,
+        },
+      });
+      expect(body).not.toHaveProperty('error');
+      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts)).not.toContain('X-Amz-Signature=synthetic');
     });
 
     test('POST /api/admin/ai/test-music sends the exact ElevenLabs Music v2 composition-plan payload and normalizes Opus data URIs', async () => {
@@ -34894,18 +34992,22 @@ test.describe('Worker routes', () => {
           createExecutionContext().execCtx
         );
 
+        const completedOutputFailure = ['missing', 'malformed', 'untrusted-url', 'pseudo-ogg']
+          .includes(testCase.name);
         expect(res.status, testCase.name).toBe(502);
         await expect(res.json(), testCase.name).resolves.toMatchObject({
           ok: false,
-          code: 'upstream_error',
-          error: 'Music generation failed',
+          code: completedOutputFailure ? 'provider_output_validation_failed' : 'upstream_error',
+          error: completedOutputFailure
+            ? 'The provider completed the generation, but BITBI could not validate the returned audio output.'
+            : 'Music generation failed',
         });
         const attempt = env.DB.state.adminAiUsageAttempts[0];
         expect(attempt, testCase.name).toMatchObject({
           status: 'provider_failed',
           provider_status: 'failed',
           result_status: 'none',
-          error_code: 'upstream_error',
+          error_code: completedOutputFailure ? 'provider_output_validation_failed' : 'upstream_error',
         });
         expect(JSON.stringify(attempt), testCase.name).not.toContain(`Safe ${testCase.name}`);
         expect(JSON.stringify(attempt), testCase.name).not.toContain(mp3Base64);
@@ -35003,15 +35105,18 @@ test.describe('Worker routes', () => {
             createExecutionContext().execCtx
           );
 
+          const completedOutputFailure = testCase.name === 'base64-before-compaction';
           expect(res.status, testCase.name).toBe(502);
           await expect(res.json(), testCase.name).resolves.toMatchObject({
             ok: false,
-            code: 'upstream_error',
-            error: 'Music generation failed',
+            code: completedOutputFailure ? 'provider_output_validation_failed' : 'upstream_error',
+            error: completedOutputFailure
+              ? 'The provider completed the generation, but BITBI could not validate the returned audio output.'
+              : 'Music generation failed',
           });
           expect(env.DB.state.adminAiUsageAttempts[0], testCase.name).toMatchObject({
             status: 'provider_failed',
-            error_code: 'upstream_error',
+            error_code: completedOutputFailure ? 'provider_output_validation_failed' : 'upstream_error',
           });
         }
 
@@ -45081,7 +45186,7 @@ test.describe('Worker routes', () => {
     opusBytes[26] = 1;
     opusBytes[27] = 19;
     opusBytes.write('OpusHead', 28, 'ascii');
-    const remoteUrl = 'https://ai-gateway-outputs-test.cloudflarestorage.com/provider-outputs/music/track.opus?X-Amz-Signature=mock';
+    const remoteUrl = 'https://ai-gateway-outputs.0d37909e38d3e99c29fa2cd343ac421a.r2.cloudflarestorage.com/provider-outputs/music/track.opus?X-Amz-Signature=synthetic';
     const originalFetch = global.fetch;
     const fetchCalls = [];
     global.fetch = async (url, options) => {

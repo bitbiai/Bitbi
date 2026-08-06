@@ -9,6 +9,10 @@ export const ELEVENLABS_MUSIC_V2_PRICE_NANO_USD_PER_OUTPUT_MILLISECOND = 2_500;
 
 export const ELEVENLABS_MUSIC_V2_MIN_DURATION_MS = 3_000;
 export const ELEVENLABS_MUSIC_V2_MAX_DURATION_MS = 600_000;
+// Cloudflare requires prompt-mode requests to include music_length_ms. This is
+// the stable duration used by the legacy Admin "auto" setting as well as new
+// prompt-mode defaults.
+export const ELEVENLABS_MUSIC_V2_DEFAULT_DURATION_MS = 30_000;
 export const ELEVENLABS_MUSIC_V2_MAX_CHUNK_DURATION_MS = 120_000;
 export const ELEVENLABS_MUSIC_V2_MAX_CHUNKS = 30;
 export const ELEVENLABS_MUSIC_V2_MAX_PROMPT_LENGTH = 4_100;

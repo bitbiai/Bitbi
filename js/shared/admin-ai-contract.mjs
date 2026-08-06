@@ -88,6 +88,7 @@ import {
 } from "./grok-imagine-video-15-preview-pricing.mjs";
 import {
   ELEVENLABS_MUSIC_V2_DEFAULT_OUTPUT_FORMAT,
+  ELEVENLABS_MUSIC_V2_DEFAULT_DURATION_MS,
   ELEVENLABS_MUSIC_V2_MAX_CHUNKS,
   ELEVENLABS_MUSIC_V2_MAX_CHUNK_DURATION_MS,
   ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
@@ -169,6 +170,7 @@ export {
   ELEVENLABS_MUSIC_V2_AUTH_PROXY_TIMEOUT_MS,
   ELEVENLABS_MUSIC_V2_BROWSER_TIMEOUT_MS,
   ELEVENLABS_MUSIC_V2_DEFAULT_OUTPUT_FORMAT,
+  ELEVENLABS_MUSIC_V2_DEFAULT_DURATION_MS,
   ELEVENLABS_MUSIC_V2_MAX_CHUNKS,
   ELEVENLABS_MUSIC_V2_MAX_CHUNK_DURATION_MS,
   ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
@@ -842,6 +844,7 @@ const MUSIC_MODELS = {
     supportsCompositionPlan: true,
     supportsExplicitDuration: true,
     supportsAutomaticDuration: true,
+    defaultDurationMs: ELEVENLABS_MUSIC_V2_DEFAULT_DURATION_MS,
     minDurationMs: ELEVENLABS_MUSIC_V2_MIN_DURATION_MS,
     maxDurationMs: ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
     maxChunkDurationMs: ELEVENLABS_MUSIC_V2_MAX_CHUNK_DURATION_MS,
@@ -1874,6 +1877,7 @@ function toPublicModel(model) {
       supportsCompositionPlan: model.supportsCompositionPlan === true,
       supportsExplicitDuration: model.supportsExplicitDuration === true,
       supportsAutomaticDuration: model.supportsAutomaticDuration === true,
+      defaultDurationMs: model.defaultDurationMs ?? null,
       minDurationMs: model.minDurationMs ?? null,
       maxDurationMs: model.maxDurationMs ?? null,
       maxChunkDurationMs: model.maxChunkDurationMs ?? null,
@@ -2806,13 +2810,24 @@ export function validateAdminAiMusicBody(body) {
     );
   }
 
-  const musicLengthMs = optionalInteger(
-    input.musicLengthMs,
-    "musicLengthMs",
-    ELEVENLABS_MUSIC_V2_MIN_DURATION_MS,
-    ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
-    null
-  );
+  // Older cached Admin bundles used the "auto" form state but omitted the
+  // Cloudflare-required prompt duration. Normalize that compatible request at
+  // the authoritative boundary so prompt invocations can never be durationless.
+  const musicLengthMs = compositionPlanResult
+    ? optionalInteger(
+      input.musicLengthMs,
+      "musicLengthMs",
+      ELEVENLABS_MUSIC_V2_MIN_DURATION_MS,
+      ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
+      null
+    )
+    : optionalInteger(
+      input.musicLengthMs,
+      "musicLengthMs",
+      ELEVENLABS_MUSIC_V2_MIN_DURATION_MS,
+      ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
+      ELEVENLABS_MUSIC_V2_DEFAULT_DURATION_MS
+    );
   if (compositionPlanResult && musicLengthMs !== null) {
     throw new AdminAiValidationError(
       "musicLengthMs is supported only with prompt input.",

@@ -1,7 +1,7 @@
 import { ELEVENLABS_MUSIC_V2_MODEL_ID } from "./elevenlabs-music-v2-pricing.mjs";
 
 const GATEWAY_OUTPUT_HOST_PATTERN =
-  /^ai-gateway-outputs(?:-[a-z0-9-]{1,80})?\.cloudflarestorage\.com$/;
+  /^ai-gateway-outputs(?:-[a-z0-9-]{1,80})?(?:\.[a-f0-9]{32}\.r2)?\.cloudflarestorage\.com$/i;
 const GATEWAY_OUTPUT_PATH_PREFIX = "/provider-outputs/";
 const ELEVENLABS_EXAMPLE_HOST = "examples.aig.cloudflare.com";
 const ELEVENLABS_EXAMPLE_PATH_PREFIX = `/${ELEVENLABS_MUSIC_V2_MODEL_ID}/`;

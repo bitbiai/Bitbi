@@ -42,6 +42,7 @@ import {
     FLUX_2_MAX_MODEL_ID,
     GPT_IMAGE_2_MODEL_ID,
     ELEVENLABS_MUSIC_V2_BROWSER_TIMEOUT_MS,
+    ELEVENLABS_MUSIC_V2_DEFAULT_DURATION_MS,
     ELEVENLABS_MUSIC_V2_DEFAULT_OUTPUT_FORMAT,
     ELEVENLABS_MUSIC_V2_MAX_DURATION_MS,
     ELEVENLABS_MUSIC_V2_MAX_PROMPT_LENGTH,
@@ -657,6 +658,7 @@ function describeAdminAiError(task, error, code) {
     case 'forbidden':
     case 'rate_limited':
     case 'upstream_error':
+    case 'provider_output_validation_failed':
     case 'internal_error':
     case 'bad_request':
     case 'validation_error':
@@ -2650,6 +2652,17 @@ export function createAdminAiLab({ showToast } = {}) {
         return Number.isSafeInteger(milliseconds) ? milliseconds : null;
     }
 
+    function getElevenLabsPromptDurationMs() {
+        const durationMs = state.forms.music.elevenLabsDurationMode === 'explicit'
+            ? getElevenLabsExplicitDurationMs()
+            : ELEVENLABS_MUSIC_V2_DEFAULT_DURATION_MS;
+        return Number.isSafeInteger(durationMs)
+            && durationMs >= ELEVENLABS_MUSIC_V2_MIN_DURATION_MS
+            && durationMs <= ELEVENLABS_MUSIC_V2_MAX_DURATION_MS
+            ? durationMs
+            : null;
+    }
+
     function syncMusicCostEstimate() {
         if (state.forms.music.model !== ELEVENLABS_MUSIC_V2_MODEL_ID) return;
         let durationMs = null;
@@ -2661,12 +2674,11 @@ export function createAdminAiLab({ showToast } = {}) {
             durationMs = plan.summary?.totalDurationMs ?? null;
             note = durationMs ? ` from the validated ${formatDuration(durationMs)} plan` : ' once the plan is valid';
         } else if (state.forms.music.elevenLabsDurationMode === 'explicit') {
-            durationMs = getElevenLabsExplicitDurationMs();
+            durationMs = getElevenLabsPromptDurationMs();
             note = durationMs ? ` for ${formatDuration(durationMs)}` : ' once duration is valid';
         } else {
-            durationMs = ELEVENLABS_MUSIC_V2_MAX_DURATION_MS;
-            prefix = 'Provider cost unknown before generation';
-            note = ' · conservative maximum exposure';
+            durationMs = ELEVENLABS_MUSIC_V2_DEFAULT_DURATION_MS;
+            note = ` for the default ${formatDuration(durationMs)}`;
         }
 
         const pricing = durationMs === null ? null : calculateElevenLabsMusicV2ProviderCost(durationMs);
@@ -5136,7 +5148,7 @@ export function createAdminAiLab({ showToast } = {}) {
                     return `Prompt must be at most ${ELEVENLABS_MUSIC_V2_MAX_PROMPT_LENGTH} characters.`;
                 }
                 if (state.forms.music.elevenLabsDurationMode === 'explicit') {
-                    const durationMs = getElevenLabsExplicitDurationMs();
+                    const durationMs = getElevenLabsPromptDurationMs();
                     if (
                         durationMs === null
                         || durationMs < ELEVENLABS_MUSIC_V2_MIN_DURATION_MS
@@ -5211,9 +5223,11 @@ export function createAdminAiLab({ showToast } = {}) {
         } else {
             payload.prompt = (state.forms.music.elevenLabsPrompt || '').trim();
             payload.forceInstrumental = state.forms.music.elevenLabsForceInstrumental === true;
-            if (state.forms.music.elevenLabsDurationMode === 'explicit') {
-                payload.musicLengthMs = getElevenLabsExplicitDurationMs();
+            const musicLengthMs = getElevenLabsPromptDurationMs();
+            if (musicLengthMs === null) {
+                throw new Error('ElevenLabs prompt duration must be between 3 and 600 seconds.');
             }
+            payload.musicLengthMs = musicLengthMs;
         }
         if (state.forms.music.elevenLabsSeed !== '') {
             payload.seed = Number(state.forms.music.elevenLabsSeed);

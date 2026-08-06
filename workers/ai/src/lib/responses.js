@@ -78,6 +78,16 @@ export function fromError(error, fallbackMessage) {
     });
   }
 
+  if (error?.code === "provider_output_validation_failed") {
+    return errorResponse(
+      "The provider completed the generation, but BITBI could not validate the returned audio output.",
+      {
+        status: error.status || 502,
+        code: "provider_output_validation_failed",
+      }
+    );
+  }
+
   if (error?.code === "provider_invalid_replayed_context") {
     return errorResponse("Fable request context is invalid.", {
       status: 400,
