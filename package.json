@@ -109,7 +109,7 @@
     "viem": "^2.47.17"
   },
   "overrides": {
-    "brace-expansion": "1.1.17",
+    "brace-expansion": "1.1.18",
     "ws": "8.21.0"
   }
 }
