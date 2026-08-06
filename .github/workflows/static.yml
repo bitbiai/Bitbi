@@ -390,4 +390,36 @@ jobs:
       - name: Deploy to GitHub Pages
         if: steps.static_safety.outputs.static_deploy_skipped != 'true' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
         id: deployment
+        continue-on-error: true
         uses: actions/deploy-pages@v5
+        with:
+          timeout: 1800000
+      - name: Reconcile authoritative GitHub Pages deployment
+        if: always() && steps.static_safety.outputs.static_deploy_skipped != 'true' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_PAGES_OUTCOME: ${{ steps.deployment.outcome }}
+        run: |
+          set -euo pipefail
+          echo "deploy-pages action outcome: ${DEPLOY_PAGES_OUTCOME}"
+          deadline=$((SECONDS + 2100))
+          last_status=""
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            status="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/pages/deployments/${GITHUB_SHA}" --jq '.status' 2>/dev/null || true)"
+            case "$status" in
+              succeed)
+                echo "Authoritative GitHub Pages deployment status: succeed"
+                exit 0
+                ;;
+              ''|deployment_queued|deployment_in_progress|queued|in_progress|updating_pages)
+                last_status="$status"
+                sleep 10
+                ;;
+              *)
+                echo "Authoritative GitHub Pages deployment reached terminal status: $status" >&2
+                exit 1
+                ;;
+            esac
+          done
+          echo "Timed out waiting for authoritative GitHub Pages deployment status (last: ${last_status:-unavailable})." >&2
+          exit 1

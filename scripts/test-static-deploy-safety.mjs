@@ -73,6 +73,17 @@ function writeJsonFixture(name, value) {
   assert(workflow.includes("Report skipped static deploy"));
   assert(workflow.includes("steps.static_safety.outputs.static_deploy_skipped != 'true'"));
   assert(workflow.includes("steps.static_safety.outputs.static_deploy_required == 'true'"));
+  assert(workflow.includes("timeout: 1800000"));
+  assert(workflow.includes("Reconcile authoritative GitHub Pages deployment"));
+  assert(workflow.includes("repos/${GITHUB_REPOSITORY}/pages/deployments/${GITHUB_SHA}"));
+  assert(workflow.includes("Authoritative GitHub Pages deployment status: succeed"));
+  const fastWorkflow = fs.readFileSync(
+    path.join(repoRoot, ".github/workflows/ui-fast-deploy.yml"),
+    "utf8"
+  );
+  assert(fastWorkflow.includes("timeout: 1800000"));
+  assert(fastWorkflow.includes("Reconcile authoritative GitHub Pages deployment"));
+  assert(fastWorkflow.includes("repos/${GITHUB_REPOSITORY}/pages/deployments/${GITHUB_SHA}"));
   assert(
     workflow.indexOf("Check static deploy release-plan safety")
       < workflow.indexOf("Setup Pages"),
