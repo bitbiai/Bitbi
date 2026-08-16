@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  FAST_DEPLOY_WORKFLOW_PATHS,
+  isFastDeploySafePath,
+} from "./lib/fast-deploy-paths.mjs";
 import { selectCiTests } from "./lib/ci-test-selection.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -30,6 +34,67 @@ function selection(files, options) {
   assert.equal(result.assets, false);
   assert.equal(result.static, true);
   assert.equal(result.full, false);
+}
+
+{
+  const result = selection(["js/shared/member-model-exposure.mjs"]);
+  assert.equal(result.memberModels, true);
+  assert.equal(result.static, true);
+  assert.equal(result.homepage, false);
+  assert.equal(result.workers, false);
+  assert.equal(result.auth, false);
+  assert.equal(result.full, false);
+}
+
+{
+  const result = selection(["js/shared/models-overlay.js"]);
+  assert.equal(result.memberModels, true);
+  assert.equal(result.static, true);
+  assert.equal(result.homepage, false);
+  assert.equal(result.full, false);
+}
+
+{
+  const result = selection([
+    "js/shared/member-model-exposure.mjs",
+    "workers/auth/src/index.js",
+  ]);
+  assert.equal(result.memberModels, true);
+  assert.equal(result.workers, true);
+  assert.equal(result.auth, true);
+  assert.equal(result.full, false);
+}
+
+{
+  const result = selection([
+    "js/shared/models-overlay.js",
+    "config/release-compat.json",
+  ]);
+  assert.equal(result.memberModels, true);
+  assert.equal(result.full, true);
+}
+
+{
+  assert.equal(isFastDeploySafePath("js/shared/member-model-exposure.mjs"), true);
+  assert.equal(isFastDeploySafePath("js/shared/models-overlay.js"), true);
+  assert.equal(isFastDeploySafePath("workers/auth/src/index.js"), false);
+  assert.equal(isFastDeploySafePath("js/shared/ai-image-models.mjs"), false);
+  assert.equal(isFastDeploySafePath("js/shared/ai-model-pricing.mjs"), false);
+  assert.equal(isFastDeploySafePath("js/shared/unrelated-ui-helper.js"), false);
+  assert.equal(isFastDeploySafePath(".github/workflows/ui-fast-deploy.yml"), false);
+  assert.equal(isFastDeploySafePath("package.json"), false);
+  assert.equal(
+    ["js/shared/member-model-exposure.mjs", "workers/auth/src/index.js"].every(isFastDeploySafePath),
+    false,
+  );
+  assert.equal(
+    ["js/shared/models-overlay.js", "config/release-compat.json"].every(isFastDeploySafePath),
+    false,
+  );
+  assert.equal(
+    ["js/shared/models-overlay.js", "js/shared/ai-model-pricing.mjs"].every(isFastDeploySafePath),
+    false,
+  );
 }
 
 {
@@ -248,8 +313,26 @@ function selection(files, options) {
   const workflow = fs.readFileSync(path.join(repoRoot, ".github/workflows/ui-fast-deploy.yml"), "utf8");
   assert(workflow.includes("node scripts/select-ci-tests.mjs"));
   assert(workflow.includes("needs.guard.outputs.carousel == 'true'"));
+  assert(workflow.includes("needs.guard.outputs.member_models == 'true'"));
   assert(workflow.includes("npm run test:homepage-core"));
   assert(workflow.includes("npm run test:homepage-carousel"));
+  assert(workflow.includes("Run focused member model exposure tests"));
+  assert(!workflow.includes("npm run test:static"));
+  assert(!workflow.includes("npm run test:workers"));
+  assert(!workflow.includes("npm run release:preflight"));
+}
+
+{
+  const fastWorkflow = fs.readFileSync(path.join(repoRoot, ".github/workflows/ui-fast-deploy.yml"), "utf8");
+  const staticWorkflow = fs.readFileSync(path.join(repoRoot, ".github/workflows/static.yml"), "utf8");
+  const workflowPaths = (workflow, key) => {
+    const match = workflow.match(new RegExp(`^    ${key}:\\n((?:      - "[^"]+"\\n)+)`, "m"));
+    assert(match, `expected ${key} block`);
+    return [...match[1].matchAll(/^      - "([^"]+)"$/gm)].map((entry) => entry[1]);
+  };
+  assert.deepEqual(workflowPaths(fastWorkflow, "paths"), FAST_DEPLOY_WORKFLOW_PATHS);
+  assert.deepEqual(workflowPaths(staticWorkflow, "paths-ignore"), FAST_DEPLOY_WORKFLOW_PATHS);
+  assert(!fastWorkflow.includes("full-regression.yml"));
 }
 
 {

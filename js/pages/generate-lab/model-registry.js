@@ -62,6 +62,7 @@ import {
     calculateAiModelCreditCost,
 } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { MINIMAX_MUSIC_2_6_MODEL_ID } from '../../shared/music-2-6-pricing.mjs?v=__ASSET_VERSION__';
+import { getMemberExposedModels } from '../../shared/member-model-exposure.mjs?v=__ASSET_VERSION__';
 import { getCurrentLocale } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const LOCALE = getCurrentLocale();
@@ -447,7 +448,7 @@ const music26Model = Object.freeze({
     estimateCredits: ({ generateLyrics }) => estimateModelCredits('music', MUSIC_26_MODEL_ID, { generateLyrics }),
 });
 
-const models = Object.freeze([
+const modelDefinitions = Object.freeze([
     ...imageModels,
     pixverseV6Model,
     happyHorseT2vModel,
@@ -455,6 +456,21 @@ const models = Object.freeze([
     grokImagineVideoModel,
     music26Model,
 ]);
+
+const modelDefinitionsById = new Map(modelDefinitions.map((model) => [model.id, model]));
+
+/*
+ * Membership and ordering come only from the shared member exposure contract.
+ * Keeping detailed UI definitions here lets Generate Lab stay focused on controls
+ * while preventing its selectable models from drifting from shared member surfaces.
+ */
+const models = Object.freeze(getMemberExposedModels().map((exposure) => {
+    const model = modelDefinitionsById.get(exposure.id);
+    if (!model || model.mediaType !== exposure.mediaType) {
+        throw new Error(`Member model exposure "${exposure.id}" has no matching Generate Lab definition.`);
+    }
+    return model;
+}));
 
 const mediaTypesById = new Map(GENERATE_LAB_MEDIA_TYPES.map((type) => [type.id, type]));
 const modelsById = new Map(models.map((model) => [model.id, model]));

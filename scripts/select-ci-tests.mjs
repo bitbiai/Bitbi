@@ -76,6 +76,7 @@ function writeGithubOutput(selection) {
   const outputs = {
     docs_only: selection.docsOnly,
     homepage: selection.homepage,
+    member_models: selection.memberModels,
     carousel: selection.carousel,
     assets: selection.assets,
     workers: selection.workers,

@@ -15,6 +15,7 @@ export const AI_IMAGE_MODELS = Object.freeze([
     Object.freeze({
         id: '@cf/black-forest-labs/flux-1-schnell',
         label: 'FLUX.1 Schnell',
+        vendor: 'Black Forest Labs',
         requestMode: 'json',
         supportsSteps: true,
         supportsSeed: true,
@@ -25,6 +26,7 @@ const GENERATE_LAB_ONLY_AI_IMAGE_MODELS = Object.freeze([
     Object.freeze({
         id: '@cf/black-forest-labs/flux-2-klein-9b',
         label: 'FLUX.2 Klein 9B',
+        vendor: 'Black Forest Labs',
         requestMode: 'multipart',
         supportsSteps: false,
         supportsSeed: false,

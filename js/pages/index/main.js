@@ -44,9 +44,6 @@ const createModulePromises = {
     videoCreate: null,
     soundLabCreate: null,
 };
-const HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS = Object.freeze([
-    '@cf/black-forest-labs/flux-2-dev',
-]);
 const HOMEPAGE_ASSETS_MANAGER_STYLES_ID = 'bitbiHomepageAssetsManagerStyles';
 const HOMEPAGE_ASSETS_MANAGER_STYLES_HREF = '/css/account/assets-manager.css?v=__ASSET_VERSION__';
 let modelsOverlayModulePromise = null;
@@ -157,9 +154,7 @@ async function initModelsOverlayLazy() {
         if (typeof module?.initModelsOverlay !== 'function') {
             throw new Error('initModelsOverlay export unavailable');
         }
-        module.initModelsOverlay(document, {
-            excludeModelIds: HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS,
-        });
+        module.initModelsOverlay(document);
         modelsOverlayInitialized = true;
     }
     return module;

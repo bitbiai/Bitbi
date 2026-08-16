@@ -68,10 +68,6 @@ const TEST_PNG_BYTES = Buffer.from(
 );
 
 const expectedModelCatalogs = new Map();
-const REMOVED_MODELS_OVERLAY_MODEL_IDS = new Set([
-  'bytedance/seedance-2.0',
-  'vidu/q3-pro',
-]);
 
 function buildNewsPulseItems(prefix = 'mobile-pulse') {
   return Array.from({ length: 3 }, (_, index) => ({
@@ -118,75 +114,67 @@ async function getExpectedModelCatalog({ homepage = false } = {}) {
   const cacheKey = homepage ? 'homepage' : 'shared';
   if (expectedModelCatalogs.has(cacheKey)) return expectedModelCatalogs.get(cacheKey);
 
-  const contractModule = await import(
-    pathToFileURL(path.join(__dirname, '..', 'js/shared/admin-ai-contract.mjs')).href
+  const memberExposureModule = await import(
+    pathToFileURL(path.join(__dirname, '..', 'js/shared/member-model-exposure.mjs')).href
   );
-  const imageModelsModule = await import(
-    pathToFileURL(path.join(__dirname, '..', 'js/shared/ai-image-models.mjs')).href
-  );
-  const { models } = contractModule.listAdminAiCatalog();
-  const liveImageModels = imageModelsModule.getGenerateLabAiImageModelOptions();
-  const adminImageModels = Array.isArray(models.image) ? models.image : [];
-  const liveImageById = new Map(liveImageModels.map((entry) => [entry.id, entry]));
-  const renderedLiveImageIds = new Set();
-  const liveMusicIds = new Set([contractModule.ADMIN_AI_MUSIC_MODEL_ID]);
-  const liveVideoById = new Map([
-    [contractModule.ADMIN_AI_VIDEO_MODEL_ID, { label: 'PixVerse V6' }],
-    [contractModule.ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID, { label: contractModule.HAPPYHORSE_T2V_MODEL_LABEL }],
-    [contractModule.ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID, { label: 'Seedance 2.0 Fast' }],
-  ]);
-  const liveVideoIds = new Set(liveVideoById.keys());
-
-  const imageEntries = [];
-  for (const entry of adminImageModels) {
-    if (!entry?.id) continue;
-    if (homepage && entry.id === contractModule.FLUX_2_DEV_MODEL_ID) continue;
-    const liveEntry = liveImageById.get(entry.id);
-    if (liveEntry) renderedLiveImageIds.add(entry.id);
-    imageEntries.push({
-      name: liveEntry?.label || entry.label,
-      vendor: entry.vendor,
-      status: liveEntry ? 'LIVE' : 'Coming soon',
-    });
-  }
-
-  for (const entry of liveImageModels) {
-    if (!entry?.id || renderedLiveImageIds.has(entry.id)) continue;
-    imageEntries.push({
+  const entriesFor = (mediaType) => memberExposureModule
+    .getMemberExposedModelsByMediaType(mediaType)
+    .map((entry) => ({
       name: entry.label,
-      vendor: entry.vendor || '',
+      vendor: entry.vendor,
       status: 'LIVE',
-    });
-  }
+    }));
 
   const expectedCatalog = [
     {
       category: 'IMAGE GENERATION',
-      models: imageEntries,
+      models: entriesFor('image'),
     },
     {
       category: 'MUSIC GENERATION',
-      models: (models.music || []).map((entry) => ({
-        name: entry.label,
-        vendor: entry.vendor,
-        status: liveMusicIds.has(entry.id) ? 'LIVE' : 'Coming soon',
-      })),
+      models: entriesFor('music'),
     },
     {
       category: 'VIDEO GENERATION',
-      models: (models.video || [])
-        .filter((entry) => !REMOVED_MODELS_OVERLAY_MODEL_IDS.has(entry.id))
-        .map((entry) => ({
-          name: liveVideoById.get(entry.id)?.label || entry.label,
-          vendor: entry.vendor,
-          status: liveVideoIds.has(entry.id) ? 'LIVE' : 'Coming soon',
-        })),
+      models: entriesFor('video'),
     },
   ];
 
   expectedModelCatalogs.set(cacheKey, expectedCatalog);
   return expectedCatalog;
 }
+
+test('member model exposure is the sole Models overlay membership contract', async ({ page }) => {
+  await page.goto('/');
+  const { exposedIds, generateLabIds } = await page.evaluate(async () => {
+    const [memberExposureModule, generateLabRegistry] = await Promise.all([
+      import('/js/shared/member-model-exposure.mjs?v=member-model-exposure-contract-test'),
+      import('/js/pages/generate-lab/model-registry.js?v=member-model-exposure-contract-test'),
+    ]);
+    return {
+      exposedIds: memberExposureModule.getMemberExposedModels().map((model) => model.id),
+      generateLabIds: generateLabRegistry.getGenerateLabModels().map((model) => model.id),
+    };
+  });
+  const overlaySource = fs.readFileSync(
+    path.join(__dirname, '..', 'js/shared/models-overlay.js'),
+    'utf8',
+  );
+
+  expect(generateLabIds).toEqual(exposedIds);
+  expect(exposedIds).toContain('xai/grok-imagine-video');
+  for (const unavailableId of [
+    'bytedance/seedance-2.0',
+    'xai/grok-imagine-video-1.5-preview',
+    'elevenlabs/music-v2',
+    'xai/grok-imagine-image',
+  ]) {
+    expect(exposedIds).not.toContain(unavailableId);
+  }
+  expect(overlaySource).toContain('getMemberExposedModelsByMediaType');
+  expect(overlaySource).not.toContain('USER_LIVE_MODELS');
+  expect(overlaySource).not.toContain('listAdminAiCatalog');
+});
 
 async function expectPathUnchanged(page, expectedPath) {
   await expect.poll(() => {

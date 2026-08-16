@@ -4,22 +4,9 @@
    the shared site header.
    ============================================================ */
 
-import {
-    ADMIN_AI_MUSIC_MODEL_ID,
-    ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID,
-    ADMIN_AI_VIDEO_MODEL_ID,
-    ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID,
-    HAPPYHORSE_T2V_MODEL_LABEL,
-    listAdminAiCatalog,
-} from './admin-ai-contract.mjs?v=__ASSET_VERSION__';
-import { getGenerateLabAiImageModelOptions } from './ai-image-models.mjs?v=__ASSET_VERSION__';
+import { getMemberExposedModelsByMediaType } from './member-model-exposure.mjs?v=__ASSET_VERSION__';
 import { setupFocusTrap } from './focus-trap.js';
 import { getCurrentLocale, localeText } from './locale.js?v=__ASSET_VERSION__';
-
-const MODELS_OVERLAY_REMOVED_MODEL_IDS = Object.freeze([
-    'bytedance/seedance-2.0',
-    'vidu/q3-pro',
-]);
 
 const MODEL_GROUPS = [
     { task: 'image', categoryKey: 'models.imageGeneration', side: 'left' },
@@ -27,77 +14,28 @@ const MODEL_GROUPS = [
     { task: 'video', categoryKey: 'models.videoGeneration', side: 'right' },
 ];
 
-const USER_LIVE_MODELS = {
-    image: getGenerateLabAiImageModelOptions(),
-    music: [
-        { id: ADMIN_AI_MUSIC_MODEL_ID, label: 'Music 2.6' },
-    ],
-    video: [
-        { id: ADMIN_AI_VIDEO_MODEL_ID, label: 'PixVerse V6' },
-        { id: ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID, label: HAPPYHORSE_T2V_MODEL_LABEL },
-        { id: ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID, label: 'Seedance 2.0 Fast' },
-    ],
-};
-
-export const HOMEPAGE_MODELS_OVERLAY_EXCLUDED_MODEL_IDS = Object.freeze([
-    '@cf/black-forest-labs/flux-2-dev',
-]);
-
-const STATUS_LABEL_KEYS = {
-    included: 'models.included',
-    live: 'models.live',
-    'requires-credits': 'models.requiresCredits',
-    'coming-soon': 'models.comingSoon',
-};
-
-function statusLabelForAvailability(availability) {
-    return localeText(STATUS_LABEL_KEYS[availability] || 'models.comingSoon');
+function statusLabelForMemberModel() {
+    return localeText('models.live');
 }
 
-function buildCatalogSignature({ excludeModelIds = [] } = {}) {
+function buildCatalogSignature() {
     return JSON.stringify({
         locale: getCurrentLocale(),
-        excludeModelIds: [...excludeModelIds].sort(),
     });
 }
 
-function buildModelCatalog({ excludeModelIds = [] } = {}) {
-    const catalog = listAdminAiCatalog();
-    const modelsByTask = catalog?.models || {};
-    const excludedIds = new Set([...MODELS_OVERLAY_REMOVED_MODEL_IDS, ...excludeModelIds]);
-
+function buildModelCatalog() {
     return MODEL_GROUPS.map(({ task, categoryKey, side }) => ({
         category: localeText(categoryKey),
         side,
-        models: (() => {
-            const adminModels = Array.isArray(modelsByTask[task]) ? modelsByTask[task] : [];
-            const liveModels = Array.isArray(USER_LIVE_MODELS[task]) ? USER_LIVE_MODELS[task] : [];
-            const liveById = new Map(liveModels.filter((model) => model?.id).map((model) => [model.id, model]));
-            const renderedLiveIds = new Set();
-            const entries = [];
-
-            for (const model of adminModels) {
-                if (!model?.id || excludedIds.has(model.id)) continue;
-                const liveModel = liveById.get(model.id);
-                entries.push({
-                    name: liveModel?.label || model.label || model.id,
-                    vendor: model.vendor || liveModel?.vendor || '',
-                    availability: liveModel ? 'live' : 'coming-soon',
-                });
-                if (liveModel) renderedLiveIds.add(model.id);
-            }
-
-            for (const model of liveModels) {
-                if (!model?.id || renderedLiveIds.has(model.id) || excludedIds.has(model.id)) continue;
-                entries.push({
-                    name: model.label || model.id,
-                    vendor: model.vendor || '',
-                    availability: 'live',
-                });
-            }
-
-            return entries.filter((model) => model.name);
-        })(),
+        models: getMemberExposedModelsByMediaType(task)
+            .filter((model) => model?.id)
+            .map((model) => ({
+                id: model.id,
+                name: model.label || model.id,
+                vendor: model.vendor || '',
+                availability: 'live',
+            })),
     })).filter((group) => group.models.length > 0);
 }
 
@@ -154,6 +92,7 @@ function buildOverlay() {
             const li = document.createElement('li');
             li.className = 'models-overlay__card';
             li.style.setProperty('--card-delay', `${cardIndex * 60 + 80}ms`);
+            li.dataset.modelId = model.id;
             li.dataset.modelAvailability = model.availability;
 
             const name = document.createElement('span');
@@ -169,7 +108,7 @@ function buildOverlay() {
 
             const status = document.createElement('span');
             status.className = `models-overlay__status models-overlay__status--${model.availability}`;
-            status.textContent = model.statusLabel || statusLabelForAvailability(model.availability);
+            status.textContent = statusLabelForMemberModel();
 
             li.appendChild(name);
             meta.appendChild(vendor);
@@ -201,14 +140,14 @@ function ensureOverlay() {
     return overlayEl;
 }
 
-function configureCatalog(options = {}) {
-    const signature = buildCatalogSignature(options);
+function configureCatalog() {
+    const signature = buildCatalogSignature();
     if (signature === modelCatalogSignature && modelCatalog) return;
 
     if (isOpen) close();
     overlayEl?.remove();
     overlayEl = null;
-    modelCatalog = buildModelCatalog(options);
+    modelCatalog = buildModelCatalog();
     modelCatalogSignature = signature;
 }
 
@@ -294,8 +233,8 @@ function syncModelsHash() {
     }
 }
 
-export function initModelsOverlay(root = document, { excludeModelIds = [] } = {}) {
-    configureCatalog({ excludeModelIds });
+export function initModelsOverlay(root = document) {
+    configureCatalog();
     root.querySelectorAll('[data-models-link]').forEach(bindTrigger);
 
     if (didBindGlobals) return;

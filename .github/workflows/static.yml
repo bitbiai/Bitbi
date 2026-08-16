@@ -2,8 +2,9 @@
 name: Deploy static content to Pages
 
 on:
-  # Homepage/UI-only pushes use the narrow fast workflow. Every other main push
-  # is classified below so unrelated browser and Worker suites can be skipped.
+  # Homepage/UI-only and narrowly-owned member-model exposure pushes use the
+  # fast workflow. Every other main push is classified below so unrelated
+  # browser and Worker suites can be skipped.
   push:
     branches: ["main"]
     paths-ignore:
@@ -16,6 +17,9 @@ on:
       - "assets/images/**"
       - "assets/favicons/**"
       - "fonts/**"
+      - "js/shared/member-model-exposure.mjs"
+      - "js/shared/models-overlay.js"
+      - "tests/locale.spec.js"
       - "tests/smoke.spec.js"
 
   # Allows you to run this workflow manually from the Actions tab

@@ -34,6 +34,7 @@ Do not claim any of the following unless current repo evidence plus operator/liv
 - Self-host first. Do not use external CDNs when local fonts, scripts, images, or assets can be self-hosted.
 - Use local assets under `fonts/`, `js/vendor/`, `assets/`, and `assets/favicons/` where possible.
 - All non-admin changes must be implemented and checked for both English and German routes/pages/locales. Admin remains English-only and must not be localized or recreated under /de/admin unless explicitly requested.
+- Member model availability is a single-source-of-truth invariant: Generate Lab/member generation surfaces and the desktop/mobile Models overlay must derive membership from the same shared contract. The overlay may advertise only currently usable member models—never the broader admin/roadmap catalog or coming-soon entries. Update that shared contract and its EN/DE parity tests together for every member model activation or deactivation; do not add a separate overlay availability array.
 - Do not weaken auth, admin authorization, tenant ownership, private media, billing, credit, AI budget, or route-policy protections.
 - Do not silently change JSON response shapes consumed by frontend modules or tests.
 
@@ -130,4 +131,3 @@ For substantial changes, report:
 - Tests/checks run and not run.
 - Manual operator actions.
 - Remaining risks or blocked claims.
-

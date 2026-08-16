@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isMemberModelFastDeployPath } from "./fast-deploy-paths.mjs";
 
 const DOCUMENTATION_FILENAMES = new Set([
   "AGENTS.md",
@@ -180,6 +181,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     files: changedFiles,
     docsOnly: false,
     homepage: false,
+    memberModels: false,
     carousel: false,
     assets: false,
     workers: false,
@@ -191,6 +193,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     runtime: false,
     reasons: {
       homepage: [],
+      memberModels: [],
       carousel: [],
       assets: [],
       workers: [],
@@ -252,6 +255,12 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       if (sharedWorkerIds.includes("auth")) {
         addReason(selection, "auth", file, "changes a shared auth Worker contract");
       }
+    }
+
+    if (isMemberModelFastDeployPath(file)) {
+      addReason(selection, "memberModels", file, "changes the member model exposure contract, overlay, or its focused parity coverage");
+      addReason(selection, "static", file, "changes a GitHub Pages member model exposure surface");
+      continue;
     }
 
     if (CAROUSEL_FILES.has(file)) {
@@ -371,6 +380,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selection.docsOnly = false;
   }
   selection.runtime = selection.homepage
+    || selection.memberModels
     || selection.carousel
     || selection.assets
     || selection.workers
@@ -383,7 +393,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 }
 
 export function formatCiTestSelection(selection) {
-  const suites = ["homepage", "carousel", "assets", "workers", "auth", "dependencies"]
+  const suites = ["homepage", "memberModels", "carousel", "assets", "workers", "auth", "dependencies"]
     .filter((suite) => selection[suite]);
   return [
     `Changed files: ${selection.files.length}`,

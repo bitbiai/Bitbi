@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { FAST_DEPLOY_WORKFLOW_PATHS } from "./lib/fast-deploy-paths.mjs";
 import {
   createReleasePlanFromRepo,
   evaluateStaticDeploySafety,
@@ -84,6 +85,13 @@ function writeJsonFixture(name, value) {
   assert(fastWorkflow.includes("timeout: 1800000"));
   assert(fastWorkflow.includes("Reconcile authoritative GitHub Pages deployment"));
   assert(fastWorkflow.includes("repos/${GITHUB_REPOSITORY}/pages/deployments/${GITHUB_SHA}"));
+  const workflowPaths = (source, key) => {
+    const match = source.match(new RegExp(`^    ${key}:\\n((?:      - "[^"]+"\\n)+)`, "m"));
+    assert(match, `expected ${key} block`);
+    return [...match[1].matchAll(/^      - "([^"]+)"$/gm)].map((entry) => entry[1]);
+  };
+  assert.deepEqual(workflowPaths(fastWorkflow, "paths"), FAST_DEPLOY_WORKFLOW_PATHS);
+  assert.deepEqual(workflowPaths(workflow, "paths-ignore"), FAST_DEPLOY_WORKFLOW_PATHS);
   assert(
     workflow.indexOf("Check static deploy release-plan safety")
       < workflow.indexOf("Setup Pages"),

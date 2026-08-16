@@ -1166,6 +1166,7 @@ test.describe('Bilingual locale pages', () => {
       nodes.map((node) => node.textContent?.trim() || '')
     ));
     expect(publicModelNames).toContain('Seedance 2.0 Fast');
+    expect(publicModelNames).toContain('Grok Imagine Video');
     expect(publicModelNames).not.toContain('Seedance 2.0');
     await expect(overlay.locator('.models-overlay__card').filter({ hasText: 'Vidu Q3 Pro' })).toHaveCount(0);
     await page.keyboard.press('Escape');
@@ -1193,6 +1194,7 @@ test.describe('Bilingual locale pages', () => {
       nodes.map((node) => node.textContent?.trim() || '')
     ));
     expect(publicModelNames).toContain('Seedance 2.0 Fast');
+    expect(publicModelNames).toContain('Grok Imagine Video');
     expect(publicModelNames).not.toContain('Seedance 2.0');
     await page.keyboard.press('Escape');
     await expect(overlay).toHaveAttribute('aria-hidden', 'true');
@@ -1217,6 +1219,10 @@ test.describe('Bilingual locale pages', () => {
       'MUSIC GENERATION',
       'VIDEO GENERATION',
     ]);
+    const englishMemberModelIds = await overlay.locator('.models-overlay__card').evaluateAll((cards) => (
+      cards.map((card) => card.dataset.modelId)
+    ));
+    expect(await overlay.locator('.models-overlay__status--coming-soon').count()).toBe(0);
     await expect(overlay.getByRole('button', { name: 'Close models' })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(overlay).toHaveAttribute('aria-hidden', 'true');
@@ -1235,6 +1241,11 @@ test.describe('Bilingual locale pages', () => {
       'MUSIKGENERIERUNG',
       'VIDEOGENERIERUNG',
     ]);
+    const germanMemberModelIds = await overlay.locator('.models-overlay__card').evaluateAll((cards) => (
+      cards.map((card) => card.dataset.modelId)
+    ));
+    expect(germanMemberModelIds).toEqual(englishMemberModelIds);
+    expect(await overlay.locator('.models-overlay__status--coming-soon').count()).toBe(0);
     await expect(overlay.locator('.models-overlay__category').filter({ hasText: 'IMAGE GENERATION' })).toHaveCount(0);
     await expect(overlay.getByRole('button', { name: 'Modelle schließen' })).toBeVisible();
     await page.keyboard.press('Escape');
