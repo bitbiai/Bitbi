@@ -5,6 +5,8 @@
    rate limits, and provider execution.
    ============================================================ */
 
+// Fast-path deploy marker: member exposure remains the single source of truth for member-visible model membership.
+
 import {
     getAiImageModelConfig,
     getGenerateLabAiImageModelOptions,
