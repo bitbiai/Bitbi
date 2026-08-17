@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0079_add_fable_prompt_cache_ttl.sql",
+        "latest": "0080_add_provider_neutral_chat_and_grok_4_6.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -32,13 +32,14 @@
       "auth": {
         "name": "bitbi-auth",
         "wranglerPath": "workers/auth/wrangler.jsonc",
-        "vars": ["APP_BASE_URL", "APP_ALLOWED_ORIGINS", "RESEND_FROM_EMAIL", "BITBI_ENV", "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET"],
+        "vars": ["APP_BASE_URL", "APP_ALLOWED_ORIGINS", "RESEND_FROM_EMAIL", "BITBI_ENV", "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET", "ENABLE_GROK_4_6"],
         "expectedVars": {
           "APP_BASE_URL": "https://bitbi.ai",
           "APP_ALLOWED_ORIGINS": "https://bitbi.ai,https://van-ark.com",
           "RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>",
           "BITBI_ENV": "production",
-          "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET": "true"
+          "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET": "true",
+          "ENABLE_GROK_4_6": "false"
         },
         "triggers": {
           "crons": ["0 3 * * *"]
@@ -251,6 +252,17 @@
               "sourceFile": "workers/auth/src/lib/fable-chat-memory-budget.js",
               "sourceRoute": "/api/admin/fable-chat/conversations/:id/messages",
               "operationIds": ["admin.fable_chat.compact_memory"]
+            }
+          ]
+        },
+        {
+          "aiRoute": "/internal/ai/chat/stream",
+          "allowedOperationIds": ["admin.chat.send"],
+          "authSources": [
+            {
+              "sourceFile": "workers/auth/src/lib/fable-chat-budget.js",
+              "sourceRoute": "/api/admin/chat/conversations/:id/messages/stream",
+              "operationIds": ["admin.chat.send"]
             }
           ]
         },
@@ -866,6 +878,7 @@
       "/internal/ai/fable-chat",
       "/internal/ai/fable-chat/stream",
       "/internal/ai/fable-chat/memory",
+      "/internal/ai/chat/stream",
       "/internal/ai/video-task/create",
       "/internal/ai/video-task/poll"
     ],

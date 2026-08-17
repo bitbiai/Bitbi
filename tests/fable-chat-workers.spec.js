@@ -560,7 +560,11 @@ test.describe('Private admin Fable chat', () => {
       path.join(process.cwd(), 'workers/auth/migrations/0079_add_fable_prompt_cache_ttl.sql'),
       'utf8'
     );
-    expect(CURRENT_AUTH_MIGRATION).toBe('0079_add_fable_prompt_cache_ttl.sql');
+    const providerNeutralMigration = fs.readFileSync(
+      path.join(process.cwd(), 'workers/auth/migrations/0080_add_provider_neutral_chat_and_grok_4_6.sql'),
+      'utf8'
+    );
+    expect(CURRENT_AUTH_MIGRATION).toBe('0080_add_provider_neutral_chat_and_grok_4_6.sql');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_conversations');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_turns');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_messages');
@@ -598,6 +602,9 @@ test.describe('Private admin Fable chat', () => {
     expect(globalLocationMigration).toContain('CREATE TABLE fable_chat_user_settings');
     expect(promptCacheTtlMigration).toContain('ADD COLUMN prompt_cache_ttl');
     expect(promptCacheTtlMigration).toContain("CHECK (prompt_cache_ttl IN ('5m', '1h'))");
+    expect(providerNeutralMigration).toContain("'xai/grok-4.6'");
+    expect(providerNeutralMigration).toContain('CREATE TABLE fable_chat_provider_states');
+    expect(providerNeutralMigration).toContain('CREATE TABLE fable_chat_attachments');
     expect(globalLocationMigration).toContain('web_search_location_json TEXT');
     expect(globalLocationMigration).toContain('FOREIGN KEY (admin_user_id) REFERENCES users(id) ON DELETE CASCADE');
     expect(globalLocationMigration).not.toMatch(/DROP\s+TABLE|ALTER\s+TABLE\s+\S+\s+DROP/i);

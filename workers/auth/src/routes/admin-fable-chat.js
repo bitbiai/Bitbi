@@ -3,6 +3,7 @@ import {
   admitFableChatBudgetUsage,
   FABLE_CHAT_INTERNAL_PATH,
   FABLE_CHAT_INTERNAL_STREAM_PATH,
+  GROK_CHAT_INTERNAL_STREAM_PATH,
   prepareFableChatBudget,
   recordFableChatBudgetOutcome,
 } from "../lib/fable-chat-budget.js";
@@ -33,11 +34,26 @@ import {
   normalizeFableChatIdempotencyKey,
   renameFableChatConversation,
   validateCreateFableChatBody,
+  validateCreateChatBody,
   validateRenameFableChatBody,
   validateSendFableChatBody,
+  validateSendChatBody,
   validateUpdateFableChatSettingsBody,
+  validateUpdateChatSettingsBody,
   updateFableChatConversationSettings,
 } from "../lib/fable-chat.js";
+import { buildGrokChatModelContext } from "../lib/grok-chat-context.js";
+import {
+  createGrokChatAttachment,
+  deletePendingGrokChatAttachment,
+  getGrokChatAttachmentResponse,
+} from "../lib/grok-chat-attachments.js";
+import {
+  beginGrokChatTurn,
+  buildGrokChatRequestFingerprint,
+  finalizeGrokChatTurn,
+  matchesGrokChatTurnRequest,
+} from "../lib/grok-chat-turn.js";
 import { getFableChatWebReplaySelection } from "../lib/fable-chat-web-replay.js";
 import {
   getFableChatMemorySelection,
@@ -47,6 +63,11 @@ import {
 import {
   FABLE_CHAT_PROTOCOL_SAFETY_TOKENS,
 } from "../../../shared/fable-chat-contract.mjs";
+import {
+  GROK_4_6_MODEL_ID,
+  isChatModelEnabled,
+  listPublicChatModels,
+} from "../../../shared/chat-model-contract.mjs";
 import {
   proxyFableChatStreamToAiLab,
   proxyToAiLab,
@@ -69,7 +90,7 @@ import {
   rateLimitUnavailableResponse,
   sensitiveRateLimitOptions,
 } from "../lib/rate-limit.js";
-import { BODY_LIMITS, readJsonBodyOrResponse } from "../lib/request.js";
+import { BODY_LIMITS, readFormDataLimited, readJsonBodyOrResponse } from "../lib/request.js";
 import { json } from "../lib/response.js";
 import { requireAdmin } from "../lib/session.js";
 import {
@@ -80,6 +101,7 @@ import {
 } from "../../../../js/shared/worker-observability.mjs";
 
 const ROUTE_PREFIX = "/api/admin/fable-chat";
+const CHAT_ROUTE_PREFIX = "/api/admin/chat";
 const SAFE_STREAM_WITNESS_ERROR_CODES = new Set([
   "provider_stream_interrupted", "provider_stream_idle_timeout", "provider_stream_timeout",
   "provider_stream_malformed", "provider_stream_error", "provider_web_search_limit_exceeded",
@@ -130,11 +152,12 @@ function publicFailureType(code) {
 
 function failedTurnResponse(turn, correlationId, { status = 409 } = {}) {
   const failureType = publicFailureType(turn?.errorCode);
+  const modelLabel = turn?.model === GROK_4_6_MODEL_ID ? "Grok 4.6" : "Claude Fable";
   const messages = {
     rate_limited: "Chat is temporarily rate limited. Retry with a new request.",
     request_timeout: "The response timed out. Retry with a new request.",
     interrupted: "The previous request was interrupted. Retry with a new request.",
-    provider_unavailable: "Claude Fable is temporarily unavailable. Retry with a new request.",
+    provider_unavailable: `${modelLabel} is temporarily unavailable. Retry with a new request.`,
     generation_failed: "The response could not be completed. Retry with a new request.",
   };
   return correlated(json({
@@ -222,6 +245,67 @@ function internalFableChatPayload(modelContext) {
   };
 }
 
+function internalGrokChatPayload(modelContext) {
+  return {
+    model: GROK_4_6_MODEL_ID,
+    messages: modelContext.messages,
+    settings: modelContext.settings,
+    promptCacheKey: modelContext.promptCacheKey,
+    privacyUser: modelContext.privacyUser,
+    contextFormatVersion: modelContext.contextFormatVersion,
+  };
+}
+
+function internalChatPayload(prepared) {
+  return prepared.settings.model === GROK_4_6_MODEL_ID
+    ? internalGrokChatPayload(prepared.modelContext)
+    : internalFableChatPayload(prepared.modelContext);
+}
+
+function internalChatPath(prepared) {
+  return prepared.settings.model === GROK_4_6_MODEL_ID
+    ? GROK_CHAT_INTERNAL_STREAM_PATH
+    : FABLE_CHAT_INTERNAL_STREAM_PATH;
+}
+
+async function finalizeChatTurn(env, turnId, complete, prepared) {
+  if (prepared.settings.model === GROK_4_6_MODEL_ID) {
+    return finalizeGrokChatTurn(env, turnId, {
+      assistantContent: complete.text,
+      reasoningSummary: complete.reasoningSummary,
+      providerState: complete.providerState,
+      context: prepared.modelContext.context,
+      providerModel: complete.responseModel || null,
+      stopReason: complete.stopReason || null,
+      usage: complete.usage || null,
+      gatewayMetadata: null,
+      providerDurationMs: complete.durationMs,
+      webSearchRequestCount: complete.webSearchRequestCount,
+      webSearchExecutedRequestCount: complete.webSearchExecutedRequestCount,
+    });
+  }
+  return finalizeFableChatTurn(env, turnId, {
+    assistantContent: complete.text,
+    providerBlocks: complete.providerBlocks,
+    context: prepared.modelContext.context,
+    providerModel: complete.responseModel || null,
+    stopReason: complete.stopReason || null,
+    stopSequence: complete.stopSequence || null,
+    usage: complete.usage || null,
+    gatewayMetadata: null,
+    providerDurationMs: complete.durationMs,
+    webSearchRequestCount: complete.webSearchRequestCount,
+    webSearchExecutedRequestCount: complete.webSearchExecutedRequestCount,
+    webSearchResultCount: complete.webSearchResultCount,
+    webSearchReceivedResultCount: complete.webSearchReceivedResultCount,
+    webSearchAcceptedResultCount: complete.webSearchAcceptedResultCount,
+    webSearchQuarantinedInvalidUrlCount: complete.webSearchQuarantinedInvalidUrlCount,
+    webFetchRequestCount: complete.webFetchRequestCount,
+    webFetchResultCount: complete.webFetchResultCount,
+    webFetchErrorResultCount: complete.webFetchErrorResultCount,
+  });
+}
+
 async function successPayload(env, adminUserId, conversationId, result, {
   replayed = false,
 } = {}) {
@@ -281,8 +365,9 @@ function fableChatErrorResponse(error, correlationId) {
 }
 
 async function readChatJsonBody(request, correlationId) {
+  const neutralRoute = new URL(request.url).pathname.startsWith(`${CHAT_ROUTE_PREFIX}/`);
   const parsed = await readJsonBodyOrResponse(request, {
-    maxBytes: BODY_LIMITS.fableChatJson,
+    maxBytes: neutralRoute ? BODY_LIMITS.chatJson : BODY_LIMITS.fableChatJson,
     requiredContentType: true,
   });
   if (parsed.response) {
@@ -333,6 +418,7 @@ function auditFableChat(ctx, adminUser, action, {
   webFetchEnabled = null,
   webFetchRequestCount = null,
   memoryMode = null,
+  modelId = FABLE_CHAT_MODEL_ID,
 } = {}) {
   const promise = enqueueAdminAuditEvent(
     ctx.env,
@@ -343,7 +429,7 @@ function auditFableChat(ctx, adminUser, action, {
         conversation_id: conversationId,
         turn_id: turnId,
         status,
-        model_id: FABLE_CHAT_MODEL_ID,
+        model_id: modelId,
         context_omitted_turns: contextOmittedTurns,
         effort,
         effective_max_output_tokens: effectiveMaxOutputTokens,
@@ -391,9 +477,12 @@ function streamTerminalWitnessForLog(witness, {
   };
 }
 
-async function recordBudgetOutcomeSafely(ctx, turnId, outcome) {
+async function recordBudgetOutcomeSafely(ctx, turnId, outcome, budget = null) {
   try {
-    await recordFableChatBudgetOutcome(ctx.env, turnId, outcome);
+    await recordFableChatBudgetOutcome(ctx.env, turnId, {
+      ...outcome,
+      ...(budget?.operationKey ? { operationKey: budget.operationKey } : {}),
+    });
   } catch (error) {
     logDiagnostic({
       service: "bitbi-auth",
@@ -422,13 +511,16 @@ async function resolveExistingSend(
   } = {}
 ) {
   const { env, correlationId } = ctx;
-  if (!await matchesFableChatTurnRequest(turn, requestFingerprint, {
-    conversationId,
-    message,
-    retryMessageId,
-    settings,
-    webReplaySelection,
-  })) {
+  const matches = settings?.model === GROK_4_6_MODEL_ID
+    ? matchesGrokChatTurnRequest(turn, requestFingerprint)
+    : await matchesFableChatTurnRequest(turn, requestFingerprint, {
+        conversationId,
+        message,
+        retryMessageId,
+        settings,
+        webReplaySelection,
+      });
+  if (!matches) {
     throw new FableChatError("Idempotency-Key conflicts with a different chat request.", {
       status: 409,
       code: "idempotency_conflict",
@@ -465,10 +557,22 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
   const { request, env, correlationId } = ctx;
   const parsed = await readChatJsonBody(request, correlationId);
   if (parsed.response) return { kind: "response", response: parsed.response };
-  const input = validateSendFableChatBody(parsed.body);
-  const idempotencyKey = normalizeFableChatIdempotencyKey(request.headers.get("Idempotency-Key"));
   const settings = await getFableChatConversationSettings(env, adminUser.id, conversationId);
   if (!settings) return { kind: "response", response: notFound(correlationId) };
+  if (new URL(request.url).pathname.startsWith(`${ROUTE_PREFIX}/`)
+    && settings.model !== FABLE_CHAT_MODEL_ID) {
+    return { kind: "response", response: notFound(correlationId) };
+  }
+  if (!isChatModelEnabled(env, settings.model)) {
+    throw new FableChatError("The selected chat model is currently unavailable.", {
+      status: 503,
+      code: "chat_model_disabled",
+    });
+  }
+  const input = settings.model === GROK_4_6_MODEL_ID
+    ? validateSendChatBody(parsed.body, settings.model)
+    : validateSendFableChatBody(parsed.body);
+  const idempotencyKey = normalizeFableChatIdempotencyKey(request.headers.get("Idempotency-Key"));
   const expiredTurns = await expireStaleFableChatTurns(env, adminUser.id, conversationId);
   for (const expiredTurn of expiredTurns) {
     auditFableChat(ctx, adminUser, "fable_chat_message_outcome_unknown", {
@@ -490,20 +594,41 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
       conversationId,
       idempotencyKey
     );
-    const webReplaySelection = await getFableChatTurnWebReplaySelectionByIdempotencyKey(
-      env,
-      adminUser.id,
-      conversationId,
-      idempotencyKey
-    );
-    const requestFingerprint = await buildFableChatRequestFingerprint({
-      conversationId,
-      message: input.message,
-      retryMessageId: input.retryMessageId,
-      settings,
-      memorySelection,
-      webReplaySelection,
-    });
+    let webReplaySelection = null;
+    let requestFingerprint;
+    if (settings.model === GROK_4_6_MODEL_ID) {
+      const modelContext = await buildGrokChatModelContext(env, {
+        adminUserId: adminUser.id,
+        conversationId,
+        currentMessage: input.message,
+        settings,
+        memorySelection,
+        attachmentIds: input.attachmentIds,
+      });
+      requestFingerprint = await buildGrokChatRequestFingerprint({
+        conversationId,
+        message: input.message,
+        retryMessageId: input.retryMessageId,
+        settings,
+        memorySelection,
+        attachmentIdentities: modelContext.attachmentIdentities,
+      });
+    } else {
+      webReplaySelection = await getFableChatTurnWebReplaySelectionByIdempotencyKey(
+        env,
+        adminUser.id,
+        conversationId,
+        idempotencyKey
+      );
+      requestFingerprint = await buildFableChatRequestFingerprint({
+        conversationId,
+        message: input.message,
+        retryMessageId: input.retryMessageId,
+        settings,
+        memorySelection,
+        webReplaySelection,
+      });
+    }
     return resolveExistingSend(
       ctx,
       adminUser,
@@ -525,6 +650,98 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
     ipMax: 60,
   });
   if (limited) return { kind: "response", response: correlated(limited, correlationId) };
+
+  if (settings.model === GROK_4_6_MODEL_ID) {
+    const memorySelection = await getFableChatMemorySelection(
+      env,
+      adminUser.id,
+      conversationId,
+      settings.memoryMode
+    );
+    const modelContext = await buildGrokChatModelContext(env, {
+      adminUserId: adminUser.id,
+      conversationId,
+      currentMessage: input.message,
+      settings,
+      memorySelection,
+      attachmentIds: input.attachmentIds,
+    });
+    const requestFingerprint = await buildGrokChatRequestFingerprint({
+      conversationId,
+      message: input.message,
+      retryMessageId: input.retryMessageId,
+      settings,
+      memorySelection,
+      attachmentIdentities: modelContext.attachmentIdentities,
+    });
+    const budget = await prepareFableChatBudget({
+      env,
+      adminUser,
+      conversationId,
+      message: input.message,
+      retryMessageId: input.retryMessageId,
+      requestFingerprint,
+      settings,
+      memorySelection,
+      context: modelContext.context,
+      correlationId,
+    });
+    const attempt = await beginGrokChatTurn(env, {
+      adminUserId: adminUser.id,
+      conversationId,
+      idempotencyKey,
+      requestFingerprint,
+      message: input.message,
+      retryMessageId: input.retryMessageId,
+      settings,
+      memorySelection,
+      context: modelContext.context,
+      attachmentIds: input.attachmentIds,
+    });
+    if (attempt.kind !== "created") {
+      return resolveExistingSend(ctx, adminUser, conversationId, attempt.turn, requestFingerprint, {
+        streamMode,
+        message: input.message,
+        retryMessageId: input.retryMessageId,
+        settings,
+      });
+    }
+    let turn = attempt.turn;
+    try {
+      await admitFableChatBudgetUsage({
+        env,
+        adminUserId: adminUser.id,
+        turnId: turn.id,
+        idempotencyKeyHash: turn.idempotencyKeyHash,
+        requestFingerprint,
+        units: budget.units,
+        metadata: budget.metadata,
+        operationKey: budget.operationKey,
+        sourceRoute: budget.sourceRoute,
+        modelId: GROK_4_6_MODEL_ID,
+      });
+      turn = await markFableChatTurnRunning(env, turn.id);
+    } catch (error) {
+      try {
+        turn = await markFableChatTurnFailed(env, turn.id, error?.code || "generation_failed");
+      } catch {
+        // Preserve the original admission error without exposing a persistence detail.
+      }
+      await recordBudgetOutcomeSafely(ctx, turn?.id || attempt.turn.id, {
+        finalState: "failed",
+      }, budget);
+      throw error;
+    }
+    return {
+      kind: "running",
+      input,
+      settings,
+      modelContext,
+      budget,
+      turn,
+      standardMemoryPreflightAttempted: false,
+    };
+  }
 
   let memorySelection = await getFableChatMemorySelection(
     env,
@@ -661,7 +878,12 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
     } catch {
       // Preserve the original admission error without exposing a persistence detail.
     }
-    await recordBudgetOutcomeSafely(ctx, turn?.id || attempt.turn.id, { finalState: "failed" });
+    await recordBudgetOutcomeSafely(
+      ctx,
+      turn?.id || attempt.turn.id,
+      { finalState: "failed" },
+      budget
+    );
     auditFableChat(ctx, adminUser, "fable_chat_message_failed", {
       conversationId,
       turnId: turn?.id || attempt.turn.id,
@@ -699,7 +921,7 @@ async function recordProviderHttpFailure(
     : await markFableChatTurnFailed(ctx.env, prepared.turn.id, errorCode);
   await recordBudgetOutcomeSafely(ctx, turn.id, {
     finalState: unknownOutcome ? "unknown" : "failed",
-  });
+  }, prepared.budget);
   auditFableChat(ctx, adminUser, unknownOutcome
     ? "fable_chat_message_outcome_unknown"
     : "fable_chat_message_failed", {
@@ -724,9 +946,89 @@ async function recordProviderHttpFailure(
       });
 }
 
+async function handleBufferedGrokSend(ctx, adminUser, conversationId, prepared) {
+  let turn = prepared.turn;
+  const providerResponse = await proxyFableChatStreamToAiLab(
+    ctx.env,
+    GROK_CHAT_INTERNAL_STREAM_PATH,
+    internalGrokChatPayload(prepared.modelContext),
+    adminUser,
+    ctx.correlationId,
+    ctx,
+    prepared.budget.callerPolicy
+  );
+  const contentType = providerResponse.headers.get("content-type") || "";
+  if (!providerResponse.ok || !contentType.includes("text/event-stream")) {
+    let providerBody = null;
+    try {
+      providerBody = await providerResponse.clone().json();
+    } catch {
+      providerBody = null;
+    }
+    return recordProviderHttpFailure(
+      ctx,
+      adminUser,
+      conversationId,
+      prepared,
+      providerResponse.ok ? new Response(null, { status: 503 }) : providerResponse,
+      providerBody
+    );
+  }
+  try {
+    const complete = await consumeInternalFableChatStream(providerResponse.body);
+    const result = await finalizeChatTurn(ctx.env, turn.id, complete, prepared);
+    turn = result.turn;
+    await recordBudgetOutcomeSafely(ctx, turn.id, {
+      finalState: "succeeded",
+      stopReason: complete.stopReason || null,
+      durationMs: complete.durationMs,
+      outputTruncated: result.turn.outputTruncated === true,
+      usage: complete.usage || null,
+      webSearchRequestCount: result.turn.webSearchRequestCount,
+      webFetchRequestCount: 0,
+    }, prepared.budget);
+    auditFableChat(ctx, adminUser, "fable_chat_message_succeeded", {
+      conversationId,
+      turnId: turn.id,
+      status: "succeeded",
+      contextOmittedTurns: result.context.omittedTurns,
+      effort: prepared.settings.effort,
+      effectiveMaxOutputTokens: prepared.settings.effectiveMaxOutputTokens,
+      estimatedInputBucket: prepared.budget.metadata.estimated_input_bucket_tokens,
+      webSearchEnabled: prepared.settings.webSearchEnabled,
+      webSearchRequestCount: result.turn.webSearchRequestCount,
+      modelId: GROK_4_6_MODEL_ID,
+    });
+    scheduleFableChatMemoryMaintenance(ctx, adminUser, conversationId);
+    return successResponse(ctx.env, adminUser.id, conversationId, result, ctx.correlationId);
+  } catch (error) {
+    const failed = error instanceof FableChatInternalStreamError && error.outcome === "failed";
+    try {
+      turn = failed
+        ? await markFableChatTurnFailed(ctx.env, turn.id, error.code)
+        : await markFableChatTurnUnknown(
+            ctx.env,
+            turn.id,
+            error?.code || "provider_outcome_unknown"
+          );
+    } catch {
+      // Preserve the first terminal classification.
+    }
+    await recordBudgetOutcomeSafely(ctx, turn?.id || prepared.turn.id, {
+      finalState: failed ? "failed" : "unknown",
+    }, prepared.budget);
+    return failed
+      ? failedTurnResponse(turn, ctx.correlationId, { status: 502 })
+      : unknownTurnResponse(turn, ctx.correlationId, { status: 503 });
+  }
+}
+
 async function handleSend(ctx, adminUser, conversationId) {
   const prepared = await prepareSend(ctx, adminUser, conversationId);
   if (prepared.kind === "response") return prepared.response;
+  if (prepared.settings.model === GROK_4_6_MODEL_ID) {
+    return handleBufferedGrokSend(ctx, adminUser, conversationId, prepared);
+  }
   let { turn } = prepared;
   let finalized = false;
   let providerStarted = false;
@@ -791,7 +1093,7 @@ async function handleSend(ctx, adminUser, conversationId) {
       usage: providerBody?.result?.usage || null,
       webSearchRequestCount: result.turn.webSearchRequestCount,
       webFetchRequestCount: result.turn.webFetchRequestCount,
-    });
+    }, prepared.budget);
     auditFableChat(ctx, adminUser, "fable_chat_message_succeeded", {
       conversationId,
       turnId: turn.id,
@@ -820,7 +1122,7 @@ async function handleSend(ctx, adminUser, conversationId) {
       }
       await recordBudgetOutcomeSafely(ctx, turn?.id || prepared.turn.id, {
         finalState: providerStarted ? "unknown" : "failed",
-      });
+      }, prepared.budget);
       auditFableChat(ctx, adminUser, providerStarted
         ? "fable_chat_message_outcome_unknown"
         : "fable_chat_message_failed", {
@@ -914,27 +1216,7 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             onTerminalWitness: (witness) => { aiTerminalWitness = witness; },
           });
           finalizationStarted = true;
-          const result = await finalizeFableChatTurn(ctx.env, turn.id, {
-            assistantContent: complete.text,
-            providerBlocks: complete.providerBlocks,
-            context: prepared.modelContext.context,
-            providerModel: complete.responseModel || null,
-            stopReason: complete.stopReason || null,
-            stopSequence: complete.stopSequence || null,
-            usage: complete.usage || null,
-            gatewayMetadata: null,
-            providerDurationMs: complete.durationMs,
-            webSearchRequestCount: complete.webSearchRequestCount,
-            webSearchExecutedRequestCount: complete.webSearchExecutedRequestCount,
-            webSearchResultCount: complete.webSearchResultCount,
-            webSearchReceivedResultCount: complete.webSearchReceivedResultCount,
-            webSearchAcceptedResultCount: complete.webSearchAcceptedResultCount,
-            webSearchQuarantinedInvalidUrlCount:
-              complete.webSearchQuarantinedInvalidUrlCount,
-            webFetchRequestCount: complete.webFetchRequestCount,
-            webFetchResultCount: complete.webFetchResultCount,
-            webFetchErrorResultCount: complete.webFetchErrorResultCount,
-          });
+          const result = await finalizeChatTurn(ctx.env, turn.id, complete, prepared);
           turn = result.turn;
           durablyFinalized = true;
           logDiagnostic({
@@ -958,7 +1240,7 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             usage: complete.usage || null,
             webSearchRequestCount: result.turn.webSearchRequestCount,
             webFetchRequestCount: result.turn.webFetchRequestCount,
-          });
+          }, prepared.budget);
           auditFableChat(ctx, adminUser, "fable_chat_message_succeeded", {
             conversationId,
             turnId: turn.id,
@@ -971,6 +1253,7 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             webSearchRequestCount: result.turn.webSearchRequestCount,
             webFetchEnabled: prepared.settings.webFetchEnabled,
             webFetchRequestCount: result.turn.webFetchRequestCount,
+            modelId: prepared.settings.model,
           });
           scheduleFableChatMemoryMaintenance(ctx, adminUser, conversationId, {
             skipStandardOnce: prepared.standardMemoryPreflightAttempted,
@@ -1014,7 +1297,7 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
           }
           await recordBudgetOutcomeSafely(ctx, turn?.id || prepared.turn.id, {
             finalState: failed ? "failed" : "unknown",
-          });
+          }, prepared.budget);
           auditFableChat(ctx, adminUser, failed
             ? "fable_chat_message_failed"
             : "fable_chat_message_outcome_unknown", {
@@ -1024,10 +1307,12 @@ function liveStreamResponse(ctx, adminUser, conversationId, prepared, internalSt
             effort: prepared.settings.effort,
             effectiveMaxOutputTokens: prepared.settings.effectiveMaxOutputTokens,
             webSearchEnabled: prepared.settings.webSearchEnabled,
+            modelId: prepared.settings.model,
           });
           enqueue("error", failed ? {
             ok: false,
-            error: "Claude Fable could not complete this response. Retry with a new request.",
+            error: `${prepared.settings.model === GROK_4_6_MODEL_ID
+              ? "Grok 4.6" : "Claude Fable"} could not complete this response. Retry with a new request.`,
             code: "fable_chat_turn_failed",
             retryable: true,
             retryMessageId: turn?.userMessageId || prepared.turn.userMessageId,
@@ -1066,8 +1351,8 @@ async function handleStreamSend(ctx, adminUser, conversationId) {
   }
   const providerResponse = await proxyFableChatStreamToAiLab(
     ctx.env,
-    FABLE_CHAT_INTERNAL_STREAM_PATH,
-    internalFableChatPayload(prepared.modelContext),
+    internalChatPath(prepared),
+    internalChatPayload(prepared),
     adminUser,
     ctx.correlationId,
     ctx,
@@ -1097,24 +1382,52 @@ async function handleStreamSend(ctx, adminUser, conversationId) {
 
 export async function handleAdminFableChat(ctx) {
   const { request, env, url, pathname, method, isSecure, correlationId } = ctx;
-  if (!pathname.startsWith(`${ROUTE_PREFIX}/`)) return null;
+  const routePrefix = pathname.startsWith(`${CHAT_ROUTE_PREFIX}/`)
+    ? CHAT_ROUTE_PREFIX
+    : (pathname.startsWith(`${ROUTE_PREFIX}/`) ? ROUTE_PREFIX : null);
+  if (!routePrefix) return null;
+  const neutralRoute = routePrefix === CHAT_ROUTE_PREFIX;
+  const relativePath = pathname.slice(routePrefix.length);
+  // Shared branches retain explicit legacy markers so release policy validation proves both aliases.
+  // route-policy: admin.fable-chat.conversations.create
+  const legacyCreateMethod = !neutralRoute && method === "POST";
+  // route-policy: admin.fable-chat.messages.stream
+  const legacyStreamMethod = !neutralRoute && method === "POST";
+  // route-policy: admin.fable-chat.messages.send
+  const legacySendMethod = !neutralRoute && method === "POST";
+  // route-policy: admin.fable-chat.conversations.settings.update
+  const legacySettingsMethod = !neutralRoute && method === "PATCH";
+  // route-policy: admin.fable-chat.conversations.rename
+  const legacyRenameMethod = !neutralRoute && method === "PATCH";
+  // route-policy: admin.fable-chat.conversations.delete
+  const legacyDeleteMethod = !neutralRoute && method === "DELETE";
 
   const admin = await requireAdmin(request, env, { isSecure, correlationId });
   if (admin instanceof Response) return admin;
 
   try {
-    if (pathname === `${ROUTE_PREFIX}/conversations` && method === "GET") {
+    if (neutralRoute && relativePath === "/models" && method === "GET") {
+      return correlated(json({
+        ok: true,
+        models: listPublicChatModels(env).filter((model) => model.enabled),
+      }), correlationId);
+    }
+
+    if (relativePath === "/conversations" && method === "GET") {
       const limited = await enforceFableChatRateLimit(ctx, admin.user.id, "read");
       if (limited) return correlated(limited, correlationId);
       const page = await listFableChatConversations(env, admin.user.id, {
         limit: url.searchParams.get("limit"),
         cursor: url.searchParams.get("cursor"),
+        model: neutralRoute ? null : FABLE_CHAT_MODEL_ID,
       });
       return correlated(json({ ok: true, ...page }), correlationId);
     }
 
     // route-policy: admin.fable-chat.conversations.create
-    if (pathname === `${ROUTE_PREFIX}/conversations` && method === "POST") {
+    // route-policy: admin.chat.conversations.create
+    if (relativePath === "/conversations"
+      && (legacyCreateMethod || (neutralRoute && method === "POST"))) {
       const limited = await enforceFableChatRateLimit(ctx, admin.user.id, "write", {
         adminMax: 40,
         ipMax: 80,
@@ -1122,20 +1435,106 @@ export async function handleAdminFableChat(ctx) {
       if (limited) return correlated(limited, correlationId);
       const parsed = await readChatJsonBody(request, correlationId);
       if (parsed.response) return parsed.response;
-      const settings = validateCreateFableChatBody(parsed.body);
+      const settings = neutralRoute
+        ? validateCreateChatBody(parsed.body)
+        : validateCreateFableChatBody(parsed.body);
+      if (!isChatModelEnabled(env, settings.model || FABLE_CHAT_MODEL_ID)) {
+        throw new FableChatError("The selected chat model is currently unavailable.", {
+          status: 503,
+          code: "chat_model_disabled",
+        });
+      }
       const conversation = await createFableChatConversation(env, admin.user.id, settings);
       auditFableChat(ctx, admin.user, "fable_chat_conversation_created", {
         conversationId: conversation.id,
         status: "created",
+        modelId: conversation.model,
       });
       return correlated(json({ ok: true, conversation }, { status: 201 }), correlationId);
     }
 
-    const streamMessageMatch = pathname.match(
-      /^\/api\/admin\/fable-chat\/conversations\/([^/]+)\/messages\/stream$/
-    );
+    const attachmentCollectionMatch = neutralRoute
+      ? relativePath.match(/^\/conversations\/([^/]+)\/attachments$/)
+      : null;
+    // route-policy: admin.chat.attachments.create
+    if (attachmentCollectionMatch && method === "POST") {
+      if (!isChatModelEnabled(env, GROK_4_6_MODEL_ID)) {
+        throw new FableChatError("Image attachments are currently unavailable.", {
+          status: 503,
+          code: "chat_model_disabled",
+        });
+      }
+      const limited = await enforceFableChatRateLimit(ctx, admin.user.id, "attachment", {
+        adminMax: 20,
+        ipMax: 40,
+      });
+      if (limited) return correlated(limited, correlationId);
+      let form;
+      try {
+        form = await readFormDataLimited(request, { maxBytes: BODY_LIMITS.chatImageMultipart });
+      } catch (error) {
+        throw new FableChatError(error?.publicMessage || "The image upload is invalid.", {
+          status: Number(error?.status || 400),
+          code: error?.code || "validation_error",
+        });
+      }
+      if ([...form.keys()].some((key) => key !== "image")) {
+        throw new FableChatError("The image upload contains unsupported fields.", {
+          code: "validation_error",
+        });
+      }
+      const conversationId = normalizeFableChatConversationId(attachmentCollectionMatch[1]);
+      const attachment = await createGrokChatAttachment(
+        env,
+        admin.user.id,
+        conversationId,
+        form.get("image")
+      );
+      auditFableChat(ctx, admin.user, "fable_chat_attachment_created", {
+        conversationId,
+        status: "created",
+        modelId: GROK_4_6_MODEL_ID,
+      });
+      return correlated(json({ ok: true, attachment }, { status: 201 }), correlationId);
+    }
+
+    const attachmentItemMatch = neutralRoute
+      ? relativePath.match(/^\/conversations\/([^/]+)\/attachments\/([^/]+)$/)
+      : null;
+    if (attachmentItemMatch && method === "GET") {
+      const limited = await enforceFableChatRateLimit(ctx, admin.user.id, "attachment-read", {
+        adminMax: 120,
+        ipMax: 240,
+      });
+      if (limited) return correlated(limited, correlationId);
+      return correlated(await getGrokChatAttachmentResponse(
+        env,
+        admin.user.id,
+        normalizeFableChatConversationId(attachmentItemMatch[1]),
+        attachmentItemMatch[2]
+      ), correlationId);
+    }
+    // route-policy: admin.chat.attachments.delete
+    if (attachmentItemMatch && method === "DELETE") {
+      const limited = await enforceFableChatRateLimit(ctx, admin.user.id, "attachment", {
+        adminMax: 40,
+        ipMax: 80,
+      });
+      if (limited) return correlated(limited, correlationId);
+      const deleted = await deletePendingGrokChatAttachment(
+        env,
+        admin.user.id,
+        normalizeFableChatConversationId(attachmentItemMatch[1]),
+        attachmentItemMatch[2]
+      );
+      if (!deleted) return notFound(correlationId);
+      return correlated(json({ ok: true, deleted: true }), correlationId);
+    }
+
+    const streamMessageMatch = relativePath.match(/^\/conversations\/([^/]+)\/messages\/stream$/);
     // route-policy: admin.fable-chat.messages.stream
-    if (streamMessageMatch && method === "POST") {
+    // route-policy: admin.chat.messages.stream
+    if (streamMessageMatch && (legacyStreamMethod || (neutralRoute && method === "POST"))) {
       return await handleStreamSend(
         ctx,
         admin.user,
@@ -1143,26 +1542,28 @@ export async function handleAdminFableChat(ctx) {
       );
     }
 
-    const messageMatch = pathname.match(/^\/api\/admin\/fable-chat\/conversations\/([^/]+)\/messages$/);
+    const messageMatch = relativePath.match(/^\/conversations\/([^/]+)\/messages$/);
     // route-policy: admin.fable-chat.messages.send
-    if (messageMatch && method === "POST") {
+    // route-policy: admin.chat.messages.send
+    if (messageMatch && (legacySendMethod || (neutralRoute && method === "POST"))) {
       return await handleSend(ctx, admin.user, normalizeFableChatConversationId(messageMatch[1]));
     }
 
-    const settingsMatch = pathname.match(
-      /^\/api\/admin\/fable-chat\/conversations\/([^/]+)\/settings$/
-    );
+    const settingsMatch = relativePath.match(/^\/conversations\/([^/]+)\/settings$/);
     if (settingsMatch) {
       const conversationId = normalizeFableChatConversationId(settingsMatch[1]);
       if (method === "GET") {
         const limited = await enforceFableChatRateLimit(ctx, admin.user.id, "read");
         if (limited) return correlated(limited, correlationId);
         const conversation = await getFableChatConversation(env, admin.user.id, conversationId);
-        if (!conversation) return notFound(correlationId);
+        if (!conversation || (!neutralRoute && conversation.model !== FABLE_CHAT_MODEL_ID)) {
+          return notFound(correlationId);
+        }
         return correlated(json({ ok: true, settings: conversation.settings }), correlationId);
       }
       // route-policy: admin.fable-chat.conversations.settings.update
-      if (method === "PATCH") {
+      // route-policy: admin.chat.conversations.settings.update
+      if (legacySettingsMethod || (neutralRoute && method === "PATCH")) {
         const limited = await enforceFableChatRateLimit(ctx, admin.user.id, "write", {
           adminMax: 60,
           ipMax: 120,
@@ -1170,7 +1571,17 @@ export async function handleAdminFableChat(ctx) {
         if (limited) return correlated(limited, correlationId);
         const parsed = await readChatJsonBody(request, correlationId);
         if (parsed.response) return parsed.response;
-        const input = validateUpdateFableChatSettingsBody(parsed.body);
+        const currentSettings = await getFableChatConversationSettings(
+          env,
+          admin.user.id,
+          conversationId
+        );
+        if (!currentSettings || (!neutralRoute && currentSettings.model !== FABLE_CHAT_MODEL_ID)) {
+          return notFound(correlationId);
+        }
+        const input = neutralRoute
+          ? validateUpdateChatSettingsBody(parsed.body, currentSettings)
+          : validateUpdateFableChatSettingsBody(parsed.body);
         const expiredTurns = await expireStaleFableChatTurns(env, admin.user.id, conversationId);
         for (const expiredTurn of expiredTurns) {
           auditFableChat(ctx, admin.user, "fable_chat_message_outcome_unknown", {
@@ -1192,15 +1603,23 @@ export async function handleAdminFableChat(ctx) {
           effort: conversation.settings.effort,
           effectiveMaxOutputTokens: conversation.settings.effectiveMaxOutputTokens,
           memoryMode: conversation.settings.memoryMode,
+          modelId: conversation.model,
         });
         return correlated(json({ ok: true, settings: conversation.settings }), correlationId);
       }
       return null;
     }
 
-    const conversationMatch = pathname.match(/^\/api\/admin\/fable-chat\/conversations\/([^/]+)$/);
+    const conversationMatch = relativePath.match(/^\/conversations\/([^/]+)$/);
     if (!conversationMatch) return null;
     const conversationId = normalizeFableChatConversationId(conversationMatch[1]);
+
+    if (!neutralRoute) {
+      const conversation = await getFableChatConversation(env, admin.user.id, conversationId);
+      if (!conversation || conversation.model !== FABLE_CHAT_MODEL_ID) {
+        return notFound(correlationId);
+      }
+    }
 
     if (method === "GET") {
       const limited = await enforceFableChatRateLimit(ctx, admin.user.id, "read");
@@ -1222,7 +1641,8 @@ export async function handleAdminFableChat(ctx) {
     }
 
     // route-policy: admin.fable-chat.conversations.rename
-    if (method === "PATCH") {
+    // route-policy: admin.chat.conversations.rename
+    if (legacyRenameMethod || (neutralRoute && method === "PATCH")) {
       const limited = await enforceFableChatRateLimit(ctx, admin.user.id, "write", {
         adminMax: 60,
         ipMax: 120,
@@ -1246,7 +1666,8 @@ export async function handleAdminFableChat(ctx) {
     }
 
     // route-policy: admin.fable-chat.conversations.delete
-    if (method === "DELETE") {
+    // route-policy: admin.chat.conversations.delete
+    if (legacyDeleteMethod || (neutralRoute && method === "DELETE")) {
       const limited = await enforceFableChatRateLimit(ctx, admin.user.id, "write", {
         adminMax: 40,
         ipMax: 80,

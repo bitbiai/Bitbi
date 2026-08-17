@@ -15,6 +15,7 @@ const REQUIRED_CONFIG = Object.freeze({
   adminAi: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET"],
   adminVideoJobs: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "AI_VIDEO_JOBS_QUEUE", "USER_IMAGES"],
   adminFableChat: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "PAGINATION_SIGNING_SECRET"],
+  adminChat: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "PAGINATION_SIGNING_SECRET", "USER_IMAGES"],
   adminAiVideoSource: ["DB", "USER_IMAGES", "AI_SAVE_REFERENCE_SIGNING_SECRET"],
   stripeTestCheckout: ["DB", "PUBLIC_RATE_LIMITER", "ENABLE_ADMIN_STRIPE_TEST_CHECKOUT", "STRIPE_MODE", "STRIPE_SECRET_KEY", "STRIPE_CHECKOUT_SUCCESS_URL", "STRIPE_CHECKOUT_CANCEL_URL"],
   stripeTestWebhook: ["DB", "PUBLIC_RATE_LIMITER", "STRIPE_MODE", "STRIPE_WEBHOOK_SECRET"],
@@ -1182,6 +1183,81 @@ export const ROUTE_POLICIES = Object.freeze([
     config: REQUIRED_CONFIG.adminFableChat,
     audit: { event: "fable_chat_message_succeeded" },
     notes: "Streaming variant of the same durable Fable operation. It emits only normalized safe events and sends final only after exact-once D1 finalization; private provider signatures remain service-internal.",
+  }),
+
+  adminRead("admin.chat.models.list", "/api/admin/chat/models", "admin-chat", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-fable-chat-read-admin-and-ip", failClosed: true },
+    notes: "Admin/MFA-only server capability registry. Disabled models are omitted and model identifiers cannot be supplied as provider URLs.",
+  }),
+  adminRead("admin.chat.conversations.list", "/api/admin/chat/conversations", "admin-chat", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "PAGINATION_SIGNING_SECRET"],
+    rateLimit: { id: "admin-fable-chat-read-admin-and-ip", failClosed: true },
+    notes: "Provider-neutral ownership-scoped conversation list with immutable server-allowlisted model identity.",
+  }),
+  adminJsonWrite("admin.chat.conversations.create", "POST", "/api/admin/chat/conversations", "admin-chat", "chatJson", "admin-fable-chat-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "fable_chat_conversation_created" },
+    notes: "Creates one immutable-model conversation from the server allowlist; omitted model remains backward-compatible Fable.",
+  }),
+  policy({
+    id: "admin.chat.attachments.create",
+    method: "POST",
+    path: "/api/admin/chat/conversations/:id/attachments",
+    auth: "admin",
+    mfa: "admin-production-required",
+    csrf: "same-origin-required",
+    body: { kind: "multipart", maxBytesName: "chatImageMultipart", contentType: "multipart/form-data" },
+    rateLimit: { id: "admin-fable-chat-attachment-admin-and-ip", failClosed: true },
+    audit: { event: "fable_chat_attachment_created" },
+    owner: "admin-chat",
+    sensitivity: "high",
+    config: ["DB", "PUBLIC_RATE_LIMITER", "USER_IMAGES", "IMAGES"],
+    notes: "Admin/MFA-only private image upload for an ownership-scoped Grok conversation. Signature, MIME, extension, dimensions, size, and decoded image are validated before metadata-stripping transcode into private R2.",
+  }),
+  adminRead("admin.chat.attachments.read", "/api/admin/chat/conversations/:id/attachments/:attachmentId", "admin-chat", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "USER_IMAGES"],
+    rateLimit: { id: "admin-fable-chat-attachment-read-admin-and-ip", failClosed: true },
+    notes: "Admin/MFA ownership-scoped no-store preview. No public or permanent object URL is returned.",
+  }),
+  adminJsonWrite("admin.chat.attachments.delete", "DELETE", "/api/admin/chat/conversations/:id/attachments/:attachmentId", "admin-chat", null, "admin-fable-chat-attachment-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "USER_IMAGES"],
+    body: { kind: "none", noneReason: "Deletion uses only ownership-scoped path identifiers." },
+    audit: { event: "fable_chat_attachment_deleted" },
+    notes: "Only unattached pending images can be deleted; durable cleanup uses the existing R2 cleanup queue.",
+  }),
+  adminRead("admin.chat.conversations.read", "/api/admin/chat/conversations/:id", "admin-chat", {
+    config: ["DB", "PUBLIC_RATE_LIMITER", "PAGINATION_SIGNING_SECRET"],
+    rateLimit: { id: "admin-fable-chat-read-admin-and-ip", failClosed: true },
+    notes: "Returns bounded provider-neutral visible history; private provider state and attachment storage keys are excluded.",
+  }),
+  adminJsonWrite("admin.chat.conversations.rename", "PATCH", "/api/admin/chat/conversations/:id", "admin-chat", "chatJson", "admin-fable-chat-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "fable_chat_conversation_renamed" },
+  }),
+  adminJsonWrite("admin.chat.conversations.delete", "DELETE", "/api/admin/chat/conversations/:id", "admin-chat", null, "admin-fable-chat-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    body: { kind: "none", noneReason: "Soft deletion uses the ownership-scoped conversation path." },
+    audit: { event: "fable_chat_conversation_deleted" },
+  }),
+  adminJsonWrite("admin.chat.messages.send", "POST", "/api/admin/chat/conversations/:id/messages", "admin-chat", "chatJson", "admin-fable-chat-send-admin-and-ip", {
+    config: REQUIRED_CONFIG.adminChat,
+    audit: { event: "fable_chat_message_succeeded" },
+    notes: "Provider-neutral durable send with immutable model routing, strict idempotency, pre-provider budget admission, private attachment ownership, and unknown-outcome protection.",
+  }),
+  adminRead("admin.chat.conversations.settings.read", "/api/admin/chat/conversations/:id/settings", "admin-chat", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-fable-chat-read-admin-and-ip", failClosed: true },
+  }),
+  adminJsonWrite("admin.chat.conversations.settings.update", "PATCH", "/api/admin/chat/conversations/:id/settings", "admin-chat", "chatJson", "admin-fable-chat-write-admin-and-ip", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    audit: { event: "fable_chat_conversation_settings_updated" },
+    notes: "Updates only the selected model's allowlisted settings; the conversation model remains immutable.",
+  }),
+  adminJsonWrite("admin.chat.messages.stream", "POST", "/api/admin/chat/conversations/:id/messages/stream", "admin-chat", "chatJson", "admin-fable-chat-send-admin-and-ip", {
+    config: REQUIRED_CONFIG.adminChat,
+    audit: { event: "fable_chat_message_succeeded" },
+    notes: "Shared normalized browser SSE with exact-once durable finalization for either allowlisted provider.",
   }),
 
   adminRead("admin.fable-chat-data.overview", "/api/admin/fable-chat-data/overview", "admin-fable-chat-data", {

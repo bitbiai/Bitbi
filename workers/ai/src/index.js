@@ -10,6 +10,7 @@ import { handleCompare } from "./routes/compare.js";
 import { handleEmbeddings } from "./routes/embeddings.js";
 import { handleFableChat } from "./routes/fable-chat.js";
 import { handleFableChatMemory } from "./routes/fable-chat-memory.js";
+import { handleChat, GROK_INTERNAL_BODY_MAX_BYTES } from "./routes/chat.js";
 import { handleImage } from "./routes/image.js";
 import { handleLiveAgent } from "./routes/live-agent.js";
 import { handleMusic } from "./routes/music.js";
@@ -63,7 +64,9 @@ export default {
         assertAiWorkerConfig(env);
         await assertValidServiceRequest(request, {
           secret: env.AI_SERVICE_AUTH_SECRET,
-          maxBodyBytes: pathname === "/internal/ai/fable-chat/memory"
+          maxBodyBytes: pathname === "/internal/ai/chat/stream"
+            ? GROK_INTERNAL_BODY_MAX_BYTES
+            : pathname === "/internal/ai/fable-chat/memory"
             ? FABLE_CHAT_MEMORY_INTERNAL_MAX_BYTES
             : pathname === "/internal/ai/fable-chat"
             || pathname === "/internal/ai/fable-chat/stream"
@@ -131,6 +134,12 @@ export default {
     if (pathname === "/internal/ai/fable-chat/memory") {
       if (method !== "POST") response = methodNotAllowed(["POST"]);
       else response = await handleFableChatMemory(ctx);
+      return withCorrelationId(response, ctx.correlationId);
+    }
+
+    if (pathname === "/internal/ai/chat/stream") {
+      if (method !== "POST") response = methodNotAllowed(["POST"]);
+      else response = await handleChat(ctx);
       return withCorrelationId(response, ctx.correlationId);
     }
 

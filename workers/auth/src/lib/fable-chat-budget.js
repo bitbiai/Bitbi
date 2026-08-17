@@ -17,6 +17,12 @@ import {
   PlatformBudgetCapError,
 } from "./platform-budget-caps.js";
 import { FABLE_CHAT_MODEL_ID } from "./fable-chat.js";
+import { GROK_4_6_MODEL_ID } from "../../../shared/chat-model-contract.mjs";
+import {
+  GROK_MAX_TOOL_OUTPUT_BYTES,
+  GROK_MAX_TOOL_ROUNDS,
+  GROK_MAX_TOTAL_TOOL_CALLS,
+} from "../../../shared/grok-chat-contract.mjs";
 import {
   FABLE_CHAT_WEB_SEARCH_HARD_MAX_USES,
   FABLE_CHAT_WEB_FETCH_MAX_CONTENT_TOKENS,
@@ -34,6 +40,10 @@ export const FABLE_CHAT_SOURCE_ROUTE = "/api/admin/fable-chat/conversations/:id/
 export const FABLE_CHAT_STREAM_SOURCE_ROUTE = "/api/admin/fable-chat/conversations/:id/messages/stream";
 export const FABLE_CHAT_INTERNAL_PATH = "/internal/ai/fable-chat";
 export const FABLE_CHAT_INTERNAL_STREAM_PATH = "/internal/ai/fable-chat/stream";
+export const GROK_CHAT_OPERATION_ID = "admin.chat.send";
+export const GROK_CHAT_SOURCE_ROUTE = "/api/admin/chat/conversations/:id/messages";
+export const GROK_CHAT_STREAM_SOURCE_ROUTE = "/api/admin/chat/conversations/:id/messages/stream";
+export const GROK_CHAT_INTERNAL_STREAM_PATH = "/internal/ai/chat/stream";
 export const FABLE_CHAT_BUDGET_SWITCH = "ENABLE_ADMIN_AI_TEXT_BUDGET";
 const FABLE_CHAT_INPUT_UNIT_TOKENS = 32_768;
 export const FABLE_CHAT_WEB_SEARCH_SURCHARGE_UNITS = 2;
@@ -43,6 +53,43 @@ const FABLE_CHAT_EFFORT_UNITS = Object.freeze({
   xhigh: 4,
   max: 5,
 });
+
+export function deriveGrokChatBudgetUnits({
+  estimatedInputTokens,
+  maxCompletionTokens,
+  imageCount = 0,
+  webSearchEnabled = false,
+  toolChoice = "auto",
+}) {
+  const inputUnits = Math.max(1, Math.ceil(
+    Math.max(0, Math.floor(Number(estimatedInputTokens) || 0)) / FABLE_CHAT_INPUT_UNIT_TOKENS
+  ));
+  const outputUnits = Math.max(1, Math.ceil(
+    Math.max(1, Math.floor(Number(maxCompletionTokens) || 1)) / 8_192
+  ));
+  const imageUnits = Math.min(4, Math.max(0, Math.floor(Number(imageCount) || 0))) * 4;
+  const webSearchUnits = webSearchEnabled === true ? 4 : 0;
+  const baseRoundUnits = inputUnits + outputUnits + imageUnits + webSearchUnits;
+  const continuationRounds = toolChoice !== "none" ? GROK_MAX_TOOL_ROUNDS : 0;
+  const maximumToolOutputReplayUnits = Math.ceil(
+    (GROK_MAX_TOTAL_TOOL_CALLS * GROK_MAX_TOOL_OUTPUT_BYTES / 4)
+      / FABLE_CHAT_INPUT_UNIT_TOKENS
+  );
+  const toolContinuationUnits = continuationRounds * (
+    baseRoundUnits + maximumToolOutputReplayUnits
+  );
+  return {
+    units: baseRoundUnits + toolContinuationUnits,
+    inputUnits,
+    outputUnits,
+    imageUnits,
+    webSearchUnits,
+    continuationRounds,
+    maximumToolOutputReplayUnits,
+    toolContinuationUnits,
+    estimatedInputBucketTokens: inputUnits * FABLE_CHAT_INPUT_UNIT_TOKENS,
+  };
+}
 
 export function deriveFableChatBudgetUnits({
   effort,
@@ -89,20 +136,23 @@ export function deriveFableChatBudgetUnits({
   };
 }
 
-function fableChatBudgetOperation() {
+function fableChatBudgetOperation(modelId = FABLE_CHAT_MODEL_ID) {
   const registry = getAiCostOperationRegistryEntry(FABLE_CHAT_OPERATION_ID);
   const config = registry?.operationConfig || {};
+  const grok = modelId === GROK_4_6_MODEL_ID;
   return {
-    operationId: FABLE_CHAT_OPERATION_ID,
-    featureKey: config.featureKey || "admin.ai.fable_chat",
+    operationId: grok ? GROK_CHAT_OPERATION_ID : FABLE_CHAT_OPERATION_ID,
+    featureKey: grok ? "admin.ai.grok_chat" : (config.featureKey || "admin.ai.fable_chat"),
     actorType: "admin",
     actorRole: "admin",
     budgetScope: registry?.budgetPolicy?.targetBudgetScope
       || ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
     ownerDomain: "admin-fable-chat",
     providerFamily: config.providerFamily || "ai_worker",
-    modelId: FABLE_CHAT_MODEL_ID,
-    modelResolverKey: config.modelResolverKey || "admin.fable_chat.fixed_model",
+    modelId,
+    modelResolverKey: grok ? "admin.chat.conversation_model" : (
+      config.modelResolverKey || "admin.fable_chat.fixed_model"
+    ),
     providerCost: true,
     estimatedCostUnits: Math.max(1, Number(config.creditCost || 1)),
     estimatedCredits: 0,
@@ -116,8 +166,10 @@ function fableChatBudgetOperation() {
       scope: ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
       notes: "The private Fable chat reuses the Admin Text master and runtime budget switch.",
     },
-    routeId: config.routeId || "admin.fable-chat.messages.send",
-    routePath: config.routePath || FABLE_CHAT_SOURCE_ROUTE,
+    routeId: grok ? "admin.chat.messages.send" : (
+      config.routeId || "admin.fable-chat.messages.send"
+    ),
+    routePath: grok ? GROK_CHAT_SOURCE_ROUTE : (config.routePath || FABLE_CHAT_SOURCE_ROUTE),
     auditEventPrefix: config.observabilityEventPrefix || FABLE_CHAT_OPERATION_ID,
     notes: "Server-authoritative Fable chat with durable result replay and platform budget caps.",
   };
@@ -134,13 +186,15 @@ export async function prepareFableChatBudget({
   context,
   correlationId = null,
 }) {
-  const operation = fableChatBudgetOperation();
+  const modelId = settings?.model === GROK_4_6_MODEL_ID ? GROK_4_6_MODEL_ID : FABLE_CHAT_MODEL_ID;
+  const grok = modelId === GROK_4_6_MODEL_ID;
+  const operation = fableChatBudgetOperation(modelId);
   const plan = classifyAdminPlatformBudgetPlan({
     operation,
     actorUserId: adminUser.id,
     actorRole: "admin",
-    modelId: FABLE_CHAT_MODEL_ID,
-    reason: "admin_fable_chat_durable_result_replay",
+    modelId,
+    reason: grok ? "admin_grok_chat_durable_result_replay" : "admin_fable_chat_durable_result_replay",
     correlationId,
   });
   if (!plan.ok) {
@@ -150,19 +204,27 @@ export async function prepareFableChatBudget({
     throw error;
   }
   await assertBudgetSwitchEffectiveEnabled(env, plan);
-  const budgetWeight = deriveFableChatBudgetUnits({
-    effort: settings?.effort,
-    estimatedInputTokens: context?.estimatedInputTokens,
-    webSearchEnabled: settings?.webSearchEnabled,
-    webFetchEnabled: settings?.webFetchEnabled,
-    toolChoice: settings?.toolChoice,
-    promptCacheTtl: settings?.promptCacheTtl,
-  });
+  const budgetWeight = grok
+    ? deriveGrokChatBudgetUnits({
+        estimatedInputTokens: context?.estimatedInputTokens,
+        maxCompletionTokens: settings?.effectiveMaxOutputTokens,
+        imageCount: context?.attachmentCount,
+        webSearchEnabled: settings?.webSearchEnabled,
+        toolChoice: settings?.toolChoice,
+      })
+    : deriveFableChatBudgetUnits({
+        effort: settings?.effort,
+        estimatedInputTokens: context?.estimatedInputTokens,
+        webSearchEnabled: settings?.webSearchEnabled,
+        webFetchEnabled: settings?.webFetchEnabled,
+        toolChoice: settings?.toolChoice,
+        promptCacheTtl: settings?.promptCacheTtl,
+      });
   const budgetFingerprint = await buildAdminPlatformBudgetFingerprint({
     operation,
     actorId: adminUser.id,
     budgetScopeId: ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-    modelId: FABLE_CHAT_MODEL_ID,
+    modelId,
     routeId: operation.routeId,
     routePath: operation.routePath,
     body: {
@@ -180,7 +242,7 @@ export async function prepareFableChatBudget({
       context_format_version: context?.contextFormatVersion,
       estimated_input_bucket_tokens: budgetWeight.estimatedInputBucketTokens,
       predicted_cache_write_tokens: context?.predictedCacheWriteTokens,
-      predicted_cache_write_cost_usd: estimateFableChatPromptCacheWriteCostUsd(
+      predicted_cache_write_cost_usd: grok ? null : estimateFableChatPromptCacheWriteCostUsd(
         context?.predictedCacheWriteTokens,
         budgetWeight.promptCacheTtl
       ),
@@ -215,61 +277,63 @@ export async function prepareFableChatBudget({
   });
   const capCheck = await checkPlatformBudgetCap(env, {
     budgetScope: plan.budgetScope,
-    operationKey: FABLE_CHAT_OPERATION_ID,
+    operationKey: operation.operationId,
     units: budgetWeight.units,
-    sourceRoute: FABLE_CHAT_SOURCE_ROUTE,
+    sourceRoute: operation.routePath,
     actorUserId: adminUser.id,
     actorRole: "admin",
   });
   const callerPolicy = {
     policy_version: AI_CALLER_POLICY_VERSION,
-    operation_id: FABLE_CHAT_OPERATION_ID,
+    operation_id: operation.operationId,
     budget_scope: AI_CALLER_POLICY_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
     enforcement_status: AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_METADATA_ONLY,
     caller_class: AI_CALLER_POLICY_CALLER_CLASSES.ADMIN,
     owner_domain: "admin-fable-chat",
     provider_family: operation.providerFamily,
-    model_id: FABLE_CHAT_MODEL_ID,
+    model_id: modelId,
     model_resolver_key: operation.modelResolverKey,
     idempotency_policy: "required",
-    source_route: FABLE_CHAT_SOURCE_ROUTE,
+    source_route: operation.routePath,
     source_component: "auth-worker-admin-fable-chat",
     budget_fingerprint: budgetFingerprint,
     request_fingerprint: requestFingerprint,
     kill_switch_target: FABLE_CHAT_BUDGET_SWITCH,
     correlation_id: correlationId,
-    reason: "admin_fable_chat_durable_result_replay",
+    reason: grok ? "admin_grok_chat_durable_result_replay" : "admin_fable_chat_durable_result_replay",
     notes: "Auth Worker owns chat persistence, duplicate suppression, and weighted platform budget usage.",
   };
   return {
     callerPolicy,
+    operationKey: operation.operationId,
+    sourceRoute: operation.routePath,
     budgetFingerprint,
     budgetScope: plan.budgetScope,
     units: capCheck.requestedUnits,
     metadata: {
-      phase: "van-ark-fable-chat-v4",
+      phase: grok ? "van-ark-provider-neutral-chat-v1" : "van-ark-fable-chat-v4",
       source: "provider_attempt_admission",
-      model_id: FABLE_CHAT_MODEL_ID,
+      model_id: modelId,
       provider_family: "ai_worker",
       accounting_basis: "weighted_admitted_before_provider",
       effort: settings.effort,
       effective_max_output_tokens: Number(settings.effectiveMaxOutputTokens),
       estimated_input_bucket_tokens: budgetWeight.estimatedInputBucketTokens,
-      prompt_cache_ttl: budgetWeight.promptCacheTtl,
-      prompt_cache_write_price_per_million: budgetWeight.promptCacheWritePricePerMillion,
-      prompt_cache_admission_multiplier: budgetWeight.promptCacheAdmissionMultiplier,
+      prompt_cache_ttl: grok ? "automatic" : budgetWeight.promptCacheTtl,
+      prompt_cache_write_price_per_million: grok ? null : budgetWeight.promptCacheWritePricePerMillion,
+      prompt_cache_admission_multiplier: grok ? null : budgetWeight.promptCacheAdmissionMultiplier,
       predicted_cache_write_tokens: Math.max(
         0,
         Math.floor(Number(context?.predictedCacheWriteTokens) || 0)
       ),
-      predicted_cache_write_cost_usd: estimateFableChatPromptCacheWriteCostUsd(
+      predicted_cache_write_cost_usd: grok ? null : estimateFableChatPromptCacheWriteCostUsd(
         context?.predictedCacheWriteTokens,
         budgetWeight.promptCacheTtl
       ),
-      effort_units: budgetWeight.effortUnits,
+      effort_units: budgetWeight.effortUnits || budgetWeight.outputUnits,
       input_units: budgetWeight.inputUnits,
       web_search_enabled: settings.webSearchEnabled === true,
-      web_search_max_uses: budgetWeight.webSearchMaxUses,
+      web_search_max_uses: budgetWeight.webSearchMaxUses || (settings.webSearchEnabled ? 1 : 0),
       web_search_units: budgetWeight.webSearchUnits,
       web_search_tool_version: settings.webSearchToolVersion,
       web_search_contract_version: settings.webSearchContractVersion,
@@ -284,8 +348,10 @@ export async function prepareFableChatBudget({
       web_search_location: settings.webSearchLocation,
       tool_choice: settings.toolChoice,
       web_fetch_enabled: settings.webFetchEnabled === true,
-      web_fetch_max_uses: FABLE_CHAT_WEB_FETCH_MAX_USES,
-      web_fetch_reserved_input_tokens: budgetWeight.webFetchReservedTokens,
+      web_fetch_max_uses: grok ? 0 : FABLE_CHAT_WEB_FETCH_MAX_USES,
+      web_fetch_reserved_input_tokens: budgetWeight.webFetchReservedTokens || 0,
+      image_units: budgetWeight.imageUnits || 0,
+      tool_continuation_units: budgetWeight.toolContinuationUnits || 0,
       memory_mode: settings.memoryMode,
       memory_checkpoint_version: Math.max(0, Number(context?.memory?.checkpointVersion || 0)),
       final_state: "admitted",
@@ -301,6 +367,9 @@ export async function admitFableChatBudgetUsage({
   requestFingerprint,
   units = 1,
   metadata = null,
+  operationKey = FABLE_CHAT_OPERATION_ID,
+  sourceRoute = FABLE_CHAT_SOURCE_ROUTE,
+  modelId = FABLE_CHAT_MODEL_ID,
 }) {
   const requestedUnits = Math.max(1, Math.ceil(Number(units) || 1));
   const createdAt = nowIso();
@@ -309,7 +378,7 @@ export async function admitFableChatBudgetUsage({
   const metadataJson = JSON.stringify(metadata || {
     phase: "van-ark-fable-chat-v4",
     source: "provider_attempt_admission",
-    model_id: FABLE_CHAT_MODEL_ID,
+    model_id: modelId,
     provider_family: "ai_worker",
     accounting_basis: "weighted_admitted_before_provider",
     final_state: "admitted",
@@ -346,8 +415,8 @@ export async function admitFableChatBudgetUsage({
   ).bind(
     eventId,
     ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-    FABLE_CHAT_OPERATION_ID,
-    FABLE_CHAT_SOURCE_ROUTE,
+    operationKey,
+    sourceRoute,
     adminUserId,
     requestedUnits,
     windows.day,
@@ -377,7 +446,7 @@ export async function admitFableChatBudgetUsage({
   ).bind(
     turnId,
     ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-    FABLE_CHAT_OPERATION_ID
+    operationKey
   ).first();
   if (existing) {
     return { admitted: true, replayed: true, eventId: existing.id, units: requestedUnits };
@@ -385,9 +454,9 @@ export async function admitFableChatBudgetUsage({
 
   await checkPlatformBudgetCap(env, {
     budgetScope: ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-    operationKey: FABLE_CHAT_OPERATION_ID,
+    operationKey,
     units: requestedUnits,
-    sourceRoute: FABLE_CHAT_SOURCE_ROUTE,
+    sourceRoute,
     actorUserId: adminUserId,
     actorRole: "admin",
     now: createdAt,
@@ -397,7 +466,7 @@ export async function admitFableChatBudgetUsage({
     code: "platform_budget_cap_store_unavailable",
     fields: {
       budgetScope: ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-      operationKey: FABLE_CHAT_OPERATION_ID,
+      operationKey,
       requestedUnits,
     },
   });
@@ -411,6 +480,7 @@ export async function recordFableChatBudgetOutcome(env, turnId, {
   usage = null,
   webSearchRequestCount = 0,
   webFetchRequestCount = 0,
+  operationKey = FABLE_CHAT_OPERATION_ID,
 } = {}) {
   const safeState = ["succeeded", "failed", "unknown"].includes(finalState)
     ? finalState
@@ -433,6 +503,17 @@ export async function recordFableChatBudgetOutcome(env, turnId, {
   const thinkingTokens = Number(usage?.output_tokens_details?.thinking_tokens);
   if (Number.isFinite(thinkingTokens) && thinkingTokens >= 0) {
     safeUsage.thinking_tokens = Math.floor(thinkingTokens);
+  }
+  for (const key of [
+    "prompt_tokens", "completion_tokens", "total_tokens", "cached_tokens", "image_tokens",
+    "reasoning_tokens", "sources_used",
+  ]) {
+    const value = Number(usage?.provider?.[key]);
+    if (Number.isFinite(value) && value >= 0) safeUsage[`provider_${key}`] = Math.floor(value);
+  }
+  const rawCostTicks = usage?.provider?.cost_in_usd_ticks;
+  if (typeof rawCostTicks === "string" && /^\d{1,40}$/.test(rawCostTicks)) {
+    safeUsage.provider_cost_in_usd_ticks = rawCostTicks;
   }
   const patch = {
     final_state: safeState,
@@ -457,6 +538,6 @@ export async function recordFableChatBudgetOutcome(env, turnId, {
     JSON.stringify(patch),
     turnId,
     ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
-    FABLE_CHAT_OPERATION_ID
+    operationKey
   ).run();
 }

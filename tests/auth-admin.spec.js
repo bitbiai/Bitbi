@@ -2157,6 +2157,7 @@ async function mockAdminAiLab(page, captures = {}) {
 
 async function mockAdminFableDataCenter(page, captures = {}) {
   const conversationId = 'fbc_11111111111111111111111111111111';
+  const grokConversationId = 'fbc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   const turnId = 'fbt_22222222222222222222222222222222';
   const userMessageId = 'fbm_33333333333333333333333333333333';
   const assistantMessageId = 'fbm_44444444444444444444444444444444';
@@ -2189,6 +2190,25 @@ async function mockAdminFableDataCenter(page, captures = {}) {
     latestAttempt: { id: turnId, status: 'succeeded' },
     storage: { transcriptBytes: 256, privateProviderBytes: 128 },
   };
+  const grokSettings = {
+    effort: 'medium', effectiveMaxOutputTokens: 16384, preset: 'general', presetVersion: 1,
+    reasoningSummaryEnabled: true, thinkingDisplay: 'summarized', webSearchEnabled: true,
+    webSearchMaxUses: 1, webSearchMaxResults: 3,
+    webSearch: { mode: 'auto', maxResults: 3 },
+    webFetchEnabled: false, webFetchMaxUses: 0, webFetchMaxContentTokens: 0,
+    memoryMode: 'standard', promptCachePolicy: 'automatic', promptCacheVersion: 1,
+    promptCacheTtl: 'automatic',
+  };
+  const grokDetail = {
+    ...detail,
+    conversation: {
+      ...detail.conversation,
+      id: grokConversationId,
+      title: 'Synthetic Grok conversation',
+      modelId: 'xai/grok-4.6',
+      settings: grokSettings,
+    },
+  };
 
   await page.route('**/api/admin/fable-chat-data/**', async (route) => {
     const request = route.request();
@@ -2207,7 +2227,7 @@ async function mockAdminFableDataCenter(page, captures = {}) {
       },
     });
     if (pathName.endsWith('/conversations')) return json({
-      ok: true, total: 1, limit: 24, offset: 0,
+      ok: true, total: 2, limit: 24, offset: 0,
       conversations: [{
         id: conversationId, ownerId: 'admin-owner-1', ownerEmail: 'owner@example.com',
         title: detail.conversation.title, modelId: 'anthropic/claude-fable-5', state: 'active',
@@ -2216,9 +2236,18 @@ async function mockAdminFableDataCenter(page, captures = {}) {
         adminRevisionVersion: 0, createdAt: detail.conversation.createdAt,
         updatedAt: detail.conversation.updatedAt, lastMessageAt: detail.conversation.updatedAt,
         deletedAt: null, webReplay: { prunedThroughTurnOrder: -1, prunedAt: null },
+      }, {
+        id: grokConversationId, ownerId: 'admin-owner-1', ownerEmail: 'owner@example.com',
+        title: grokDetail.conversation.title, modelId: 'xai/grok-4.6', state: 'active',
+        settings: grokSettings, counts: { messages: 0, turns: 0 }, latestAttemptStatus: null,
+        latestCheckpointState: null, coverageTurnOrder: -1, adminRevisionVersion: 0,
+        createdAt: detail.conversation.createdAt, updatedAt: detail.conversation.updatedAt,
+        lastMessageAt: null, deletedAt: null,
+        webReplay: { prunedThroughTurnOrder: -1, prunedAt: null },
       }],
     });
     if (pathName.endsWith(`/conversations/${conversationId}`) && request.method() === 'GET') return json(detail);
+    if (pathName.endsWith(`/conversations/${grokConversationId}`) && request.method() === 'GET') return json(grokDetail);
     if (pathName.endsWith('/transcript')) return json({
       ok: true, total: 2, limit: 50, offset: 0,
       messages: [
@@ -2251,7 +2280,7 @@ async function mockAdminFableDataCenter(page, captures = {}) {
     }
     return json({ ok: false, error: 'Not found.' }, 404);
   });
-  return { conversationId, checkpointId, writes, revealCount: () => revealRequests };
+  return { conversationId, grokConversationId, checkpointId, writes, revealCount: () => revealRequests };
 }
 
 async function fulfillJson(route, body, status = 200) {
@@ -18146,12 +18175,13 @@ test.describe('Admin AI Lab', () => {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#fableDataCard')).toBeVisible();
+    await expect(page.locator('#fableDataCardTitle')).toHaveText('Van Ark Chat Data');
     await expect(page.locator('#fableDataCardStats')).toContainText('Active');
 
     await page.locator('#fableDataOpen').click();
     await expect(page.locator('#fableDataWorkspace')).toBeVisible();
     await expect(page.locator('#fableDataConversationList')).toContainText('<img src=x onerror=window.__fableXss=1>');
-    await page.locator('.admin-fable-data__conversation').click();
+    await page.locator('.admin-fable-data__conversation').first().click();
     await page.locator('[data-fable-tab="transcript"]').click();
     await expect(page.locator('#fableDataPanelTranscript')).toContainText('<script>window.__fableXss=2</script>');
     expect(await page.evaluate(() => window.__fableXss || 0)).toBe(0);
@@ -18187,6 +18217,24 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#fableDataClose').click();
     await expect(page.locator('#fableDataWorkspace')).toBeHidden();
     await expect(page.locator('#fableDataCard')).toBeVisible();
+  });
+
+  test('attributes Grok in the shared Data Center without exposing Fable-only settings', async ({ page }) => {
+    const captures = { writes: [] };
+    await mockAdminFableDataCenter(page, captures);
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#fableDataOpen').click();
+    const grokCard = page.locator('.admin-fable-data__conversation').filter({
+      hasText: 'Synthetic Grok conversation',
+    });
+    await expect(grokCard).toContainText('Grok 4.6');
+    await expect(grokCard).toContainText('Automatic cache');
+    await grokCard.click();
+    await expect(page.locator('#fableDataPanelOverview')).toContainText('Grok 4.6');
+    await expect(page.locator('#fableDataDetailActions').getByRole('button', { name: 'Settings' }))
+      .toHaveCount(0);
+    expect(captures.writes).toHaveLength(0);
   });
 
   test('admin sub-navigation stays visible below the main header while scrolling', async ({
