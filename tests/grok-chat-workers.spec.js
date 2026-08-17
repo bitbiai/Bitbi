@@ -389,6 +389,42 @@ test.describe('Provider-neutral Grok chat', () => {
     expect(payload.service_tier).toBeUndefined();
   });
 
+  test('AI chat route validates the stripped Auth payload instead of the caller-policy wrapper', async () => {
+    const route = await moduleAt('workers/ai/src/routes/chat.js');
+    const contract = await moduleAt('workers/shared/grok-chat-contract.mjs');
+    let providerCalls = 0;
+    const response = await route.handleChat({
+      request: new Request('https://bitbi-ai.internal/internal/ai/chat/stream', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'xai/grok-4.6',
+          messages: [{ role: 'system', content: 'x' }, { role: 'user', content: 'x' }],
+          settings: contract.defaultGrokProviderSettings(),
+          promptCacheKey: `gpc_${'a'.repeat(64)}`,
+          privacyUser: `vau_${'b'.repeat(64)}`,
+          contextFormatVersion: 'openai-chat-completions-v1',
+          __bitbi_ai_caller_policy: { version: 'shape-only' },
+        }),
+      }),
+      env: {
+        ENABLE_GROK_4_6: 'true',
+        AI: {
+          async run() {
+            providerCalls += 1;
+            return providerTextStream({ text: 'x', reasoning: '' });
+          },
+        },
+      },
+      correlationId: 'grok-auth-ai-contract-test',
+      pathname: '/internal/ai/chat/stream',
+      method: 'POST',
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(providerCalls).toBe(1);
+  });
+
   test('accepts only private bounded image data URLs in the provider payload', async () => {
     const grok = await moduleAt('workers/ai/src/lib/grok-chat.js');
     const privateImage = 'data:image/webp;base64,UklGRgAAAABXRUJQ';
