@@ -360,33 +360,108 @@ test.describe('Provider-neutral Grok chat', () => {
     expect(disabled).toMatchObject({ continuationRounds: 0, toolContinuationUnits: 0, units: 10 });
   });
 
-  test('builds a native Workers AI payload with server identities and no conflicting search contract', async () => {
+  test('routes Grok web search through Responses while preserving normal Grok chat', async () => {
     const grok = await moduleAt('workers/ai/src/lib/grok-chat.js');
     const contract = await moduleAt('workers/shared/grok-chat-contract.mjs');
-    const input = {
+    const streamConsumer = await moduleAt('workers/auth/src/lib/fable-chat-stream.js');
+    const input = grok.validateGrokChatInput({
       model: 'xai/grok-4.6',
-      messages: [{ role: 'system', content: 'System.' }, { role: 'user', content: 'Hello.' }],
+      messages: [
+        { role: 'system', content: contract.GROK_BASE_SYSTEM_PROMPT },
+        { role: 'assistant', content: 'Earlier visible answer.' },
+        { role: 'user', content: 'Hello.' },
+      ],
       settings: contract.normalizeGrokProviderSettings({ reasoningEffort: 'low' }),
       promptCacheKey: `gpc_${'a'.repeat(64)}`,
       privacyUser: `vau_${'b'.repeat(64)}`,
       contextFormatVersion: 'openai-chat-completions-v1',
-    };
-    const payload = grok.buildGrokProviderPayload(input);
-    expect(payload).toMatchObject({
+    });
+    const requests = [];
+    const env = { AI: { async run(model, payload, options) {
+      requests.push({ model, payload, options });
+      if (model === grok.GROK_SEARCH_MODEL_ID) {
+        return {
+          id: 'resp_search_test',
+          status: 'completed',
+          output: [{ type: 'web_search_call', id: 'search_call_test', status: 'completed' }, {
+            type: 'message',
+            role: 'assistant',
+            content: [{
+              type: 'output_text',
+              text: 'Search answer.',
+              annotations: [{
+                type: 'url_citation',
+                title: 'Cloudflare Web Search',
+                url: 'https://developers.cloudflare.com/ai-gateway/usage/web-search/',
+              }],
+            }],
+          }],
+          usage: { input_tokens: 12, output_tokens: 4, total_tokens: 16 },
+        };
+      }
+      return providerTextStream({ text: 'Normal answer.', reasoning: '' });
+    } } };
+
+    const normal = await streamConsumer.consumeInternalFableChatStream(
+      grok.createInternalGrokChatStream(env, input)
+    );
+    expect(requests[0].model).toBe('xai/grok-4.6');
+    expect(requests[0].payload).toMatchObject({
       reasoning_effort: 'low',
       stream: true,
       stream_options: { include_usage: true },
       prompt_cache_key: input.promptCacheKey,
       user: input.privacyUser,
     });
-    expect(payload.search_parameters).toBeUndefined();
-    expect(payload.web_search_options).toBeUndefined();
-    expect(payload.response_format).toBeUndefined();
-    expect(payload.tool_choice).toBeUndefined();
-    expect(payload.tools).toBeUndefined();
-    expect(payload.parallel_tool_calls).toBeUndefined();
-    expect(payload.n).toBeUndefined();
-    expect(payload.service_tier).toBeUndefined();
+    expect(normal.responseModel).toBe('xai/grok-4.6');
+
+    const searchInput = grok.validateGrokChatInput({
+      ...input,
+      settings: {
+        reasoningEffort: 'high',
+        responseFormat: { type: 'json_object' },
+        webSearch: { mode: 'on', maxResults: 20, fromDate: '2026-01-01', toDate: '2026-08-17' },
+        toolChoice: 'required',
+        parallelToolCalls: true,
+        temperature: 0.2,
+        seed: 7,
+      },
+    });
+    const search = await streamConsumer.consumeInternalFableChatStream(
+      grok.createInternalGrokChatStream(env, searchInput)
+    );
+    const searchRequest = requests[1];
+    expect(searchRequest.model).toBe('xai/grok-4.20-multi-agent-0309');
+    expect(searchRequest.payload).toMatchObject({
+      input: expect.any(Array),
+      tools: [{ type: 'web_search' }],
+      max_turns: 2,
+    });
+    expect(searchRequest.payload.input.map((message) => message.role))
+      .toEqual(['system', 'assistant', 'user']);
+    expect(JSON.stringify(searchRequest.payload.input)).not.toContain('You are Grok 4.6');
+    for (const field of [
+      'search_parameters', 'parallel_tool_calls', 'tool_choice', 'stream_options',
+      'prompt_cache_key', 'max_completion_tokens', 'temperature', 'top_p', 'seed',
+      'response_format', 'reasoning_effort', 'n', 'service_tier', 'messages', 'stream',
+    ]) expect(searchRequest.payload[field]).toBeUndefined();
+    expect(searchRequest.options.gateway.metadata).toMatchObject({
+      model_id: 'xai/grok-4.20-multi-agent-0309',
+      surface: 'van-ark-chat-responses',
+    });
+    expect(grok.GROK_SEARCH_MODEL_LABEL).toBe('Grok 4.20 Multi-Agent · Web Search');
+    expect(search).toMatchObject({
+      text: 'Search answer.',
+      responseModel: 'xai/grok-4.20-multi-agent-0309',
+      webSearchRequestCount: 1,
+      webSearchExecutedRequestCount: 1,
+      webSearchReceivedResultCount: 1,
+    });
+    expect(search.sources).toEqual([{
+      title: 'Cloudflare Web Search',
+      url: 'https://developers.cloudflare.com/ai-gateway/usage/web-search/',
+      source: 'developers.cloudflare.com',
+    }]);
   });
 
   test('AI chat route validates the stripped Auth payload instead of the caller-policy wrapper', async () => {
