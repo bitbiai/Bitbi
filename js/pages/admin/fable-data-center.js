@@ -19,6 +19,14 @@ import {
 const PAGE_SIZE = 24;
 const DETAIL_PAGE_SIZE = 50;
 const TAB_LOADERS = new Set(['transcript', 'attempts', 'memory', 'search', 'usage', 'raw']);
+const FABLE_MODEL_ID = 'anthropic/claude-fable-5';
+const GROK_MODEL_ID = 'xai/grok-4.6';
+
+function modelLabel(modelId) {
+    if (modelId === FABLE_MODEL_ID) return 'Fable 5';
+    if (modelId === GROK_MODEL_ID) return 'Grok 4.6';
+    return String(modelId || 'Unknown model');
+}
 
 function node(tag, className, text) {
     const element = document.createElement(tag);
@@ -99,6 +107,16 @@ function rawLabel(column) {
 
 function webSearchDetails(value) {
     const settings = value || {};
+    if (['off', 'on', 'auto'].includes(settings.mode)) {
+        return {
+            mode: settings.mode,
+            inclusion: settings.mode === 'off' ? 'none' : 'citations',
+            domains: 'Provider default',
+            location: 'Not sent',
+            toolChoice: settings.toolChoice || 'provider-managed',
+            tool: `Cloudflare search_parameters · max ${Number(settings.maxResults || 5)} results`,
+        };
+    }
     const mode = settings.callerMode || 'direct';
     const inclusion = settings.effectiveResponseInclusion || 'full';
     const filterMode = settings.domainFilterMode || 'none';
@@ -240,15 +258,30 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
             card.dataset.selected = item.id === selected ? 'true' : 'false';
             card.setAttribute('aria-label', `Open ${item.title}`);
             const head = node('div', 'admin-fable-data__conversation-head');
-            head.append(node('strong', '', item.title), badge(item.state, statusTone(item.state)));
-            const settings = node('div', 'admin-fable-data__badges');
-            settings.append(
-                badge(item.settings.effort), badge(item.settings.preset),
-                badge(item.settings.memoryMode),
-                badge(`${item.settings.promptCacheTtl || '5m'} cache`),
-                badge(item.settings.webSearchEnabled ? `Search ${item.settings.webSearchMaxUses}` : 'Search off'),
-                badge(item.settings.webFetchEnabled ? `Fetch ${item.settings.webFetchMaxUses || 2}` : 'Fetch off'),
+            head.append(
+                node('strong', '', item.title),
+                badge(modelLabel(item.modelId), item.modelId === GROK_MODEL_ID ? 'active' : 'user'),
+                badge(item.state, statusTone(item.state)),
             );
+            const settings = node('div', 'admin-fable-data__badges');
+            if (item.modelId === GROK_MODEL_ID) {
+                settings.append(
+                    badge(item.settings.effort),
+                    badge(item.settings.memoryMode),
+                    badge('Automatic cache'),
+                    badge(item.settings.webSearchEnabled
+                        ? `Search ${item.settings.webSearch?.mode || 'on'} · ${item.settings.webSearchMaxResults || 5} results`
+                        : 'Search off'),
+                );
+            } else {
+                settings.append(
+                    badge(item.settings.effort), badge(item.settings.preset),
+                    badge(item.settings.memoryMode),
+                    badge(`${item.settings.promptCacheTtl || '5m'} cache`),
+                    badge(item.settings.webSearchEnabled ? `Search ${item.settings.webSearchMaxUses}` : 'Search off'),
+                    badge(item.settings.webFetchEnabled ? `Fetch ${item.settings.webFetchMaxUses || 2}` : 'Fetch off'),
+                );
+            }
             card.append(
                 head,
                 node('span', 'admin-fable-data__muted', `${item.ownerEmail} · ${shortId(item.id)}`),
@@ -281,24 +314,28 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
         const c = detail.conversation;
         const settings = c.settings;
         const web = webSearchDetails(settings.webSearch);
-        panels.overview.replaceChildren(
-            definitionList([
+        const overviewEntries = [
                 ['Owner', `${c.ownerEmail} (${c.ownerId})`], ['Conversation ID', c.id],
+                ['Model', modelLabel(c.modelId)],
                 ['Lifecycle', c.state], ['Created', formatDate(c.createdAt)], ['Updated', formatDate(c.updatedAt)],
                 ['Effort', `${settings.effort} · ${settings.effectiveMaxOutputTokens.toLocaleString()} max output`],
                 ['Preset', `${settings.preset} v${settings.presetVersion}`],
                 ['Reasoning summary', settings.reasoningSummaryEnabled ? 'Enabled' : 'Disabled'],
-                ['Prompt cache TTL', settings.promptCacheTtl || '5m'],
+                [c.modelId === GROK_MODEL_ID ? 'Prompt cache' : 'Prompt cache TTL', settings.promptCacheTtl || '5m'],
                 ['Web search', settings.webSearchEnabled ? `Enabled · up to ${settings.webSearchMaxUses}` : 'Disabled'],
                 ['Search mode / inclusion', `${web.mode} / ${web.inclusion}`],
                 ['Search domains / location', `${web.domains} / ${web.location}`],
                 ['Provider tool choice', web.toolChoice],
-                ['Web fetch', settings.webFetchEnabled ? `Enabled · up to ${settings.webFetchMaxUses || 2} · ${Number(settings.webFetchMaxContentTokens || 8000).toLocaleString()} text tokens` : 'Disabled'],
                 ['Memory', settings.memoryMode], ['Administrative revision', c.adminRevisionVersion],
                 ['Uncovered visible estimate', `${detail.memory.uncoveredEstimatedTokens.toLocaleString()} tokens`],
                 ['Transcript storage', formatBytes(detail.storage.transcriptBytes)],
                 ['Private provider evidence', `${formatBytes(detail.storage.privateProviderBytes)} · content hidden`],
-            ]),
+            ];
+        if (c.modelId !== GROK_MODEL_ID) {
+            overviewEntries.splice(12, 0, ['Web fetch', settings.webFetchEnabled ? `Enabled · up to ${settings.webFetchMaxUses || 2} · ${Number(settings.webFetchMaxContentTokens || 8000).toLocaleString()} text tokens` : 'Disabled']);
+        }
+        panels.overview.replaceChildren(
+            definitionList(overviewEntries),
             node('p', 'admin-fable-data__notice', 'Visible transcript revisions affect future context. Provider attempts, private blocks, fingerprints, usage, and accounting evidence remain immutable.'),
         );
     }
@@ -307,11 +344,15 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
         refs.detailActions.replaceChildren();
         const rename = button('Rename');
         rename.addEventListener('click', () => conversationAction('rename'));
-        const settings = button('Settings', 'btn-action btn-action--secondary');
-        settings.addEventListener('click', () => conversationAction('settings'));
         const lifecycle = button(detail.conversation.state === 'deleted' ? 'Restore' : 'Soft delete', 'btn-action btn-action--secondary');
         lifecycle.addEventListener('click', () => conversationAction(detail.conversation.state === 'deleted' ? 'restore' : 'soft_delete'));
-        refs.detailActions.append(rename, settings, lifecycle, copyButton(detail.conversation.id));
+        refs.detailActions.append(rename);
+        if (detail.conversation.modelId === FABLE_MODEL_ID) {
+            const settings = button('Settings', 'btn-action btn-action--secondary');
+            settings.addEventListener('click', () => conversationAction('settings'));
+            refs.detailActions.append(settings);
+        }
+        refs.detailActions.append(lifecycle, copyButton(detail.conversation.id));
         if (detail.conversation.state === 'deleted') {
             const purge = button('Permanent purge', 'btn-action admin-fable-data__danger');
             purge.addEventListener('click', purgeConversation);
@@ -440,33 +481,42 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
 
     function renderSearch(data) {
         const fragment = document.createDocumentFragment();
+        const grok = data.conversation.modelId === GROK_MODEL_ID;
         const conversationWeb = webSearchDetails(data.conversation.webSearch);
-        fragment.append(definitionList([
-            ['Web search setting', data.conversation.webSearchEnabled ? `Enabled · max ${data.conversation.maxUses}` : 'Disabled'],
+        const conversationEntries = [
+            ['Web search setting', data.conversation.webSearchEnabled
+                ? (grok ? `Enabled · max ${data.conversation.maxResults || 5} results` : `Enabled · max ${data.conversation.maxUses}`)
+                : 'Disabled'],
             ['Search contract', conversationWeb.tool],
             ['Search mode / inclusion', `${conversationWeb.mode} / ${conversationWeb.inclusion}`],
             ['Search domains / location', `${conversationWeb.domains} / ${conversationWeb.location}`],
             ['Provider tool choice', conversationWeb.toolChoice],
-            ['Web fetch setting', data.conversation.webFetchEnabled ? `Enabled · max ${data.conversation.webFetchMaxUses}` : 'Disabled'],
-            ['Web fetch tool', `${data.conversation.webFetchToolVersion || 'web_fetch_20260318'} · ${Number(data.conversation.webFetchMaxContentTokens || 8000).toLocaleString()} text tokens`],
             ['Replay pruned through', data.conversation.replayPrunedThroughTurnOrder],
             ['Last pruning', data.conversation.replayPrunedAt ? formatDate(data.conversation.replayPrunedAt) : null],
-        ]));
+        ];
+        if (!grok) conversationEntries.splice(5, 0,
+            ['Web fetch setting', data.conversation.webFetchEnabled ? `Enabled · max ${data.conversation.webFetchMaxUses}` : 'Disabled'],
+            ['Web fetch tool', `${data.conversation.webFetchToolVersion || 'web_fetch_20260318'} · ${Number(data.conversation.webFetchMaxContentTokens || 8000).toLocaleString()} text tokens`],
+        );
+        fragment.append(definitionList(conversationEntries));
         for (const turn of data.turns || []) {
             const web = webSearchDetails(turn.webSearch);
             const record = node('details', 'admin-fable-data__record');
             const summary = node('summary', '', `${shortId(turn.id)} · ${turn.requestCount}/${turn.maxUses} searches · ${formatDate(turn.createdAt)}`);
-            record.append(summary, definitionList([
+            const turnEntries = [
                 ['Tool', web.tool], ['Result count', turn.resultCount],
                 ['Effective Search', `${web.mode} / ${web.inclusion}`],
                 ['Domains / location', `${web.domains} / ${web.location}`],
                 ['Provider tool choice', web.toolChoice],
+                ['Pruned pairs', turn.replay.pairCount], ['Estimated provider tokens removed', turn.replay.estimatedTokensRemoved],
+            ];
+            if (!grok) turnEntries.splice(5, 0,
                 ['Web fetch', turn.webFetch?.enabled ? `${turn.webFetch.requestCount}/${turn.webFetch.maxUses} requests · ${turn.webFetch.resultCount} results · ${turn.webFetch.errorResultCount} errors` : 'Disabled'],
                 ['Web fetch tool', `${turn.webFetch?.toolVersion || 'web_fetch_20260318'} · ${Number(turn.webFetch?.maxContentTokens || 8000).toLocaleString()} text tokens`],
                 ['Fetch pairs pruned', turn.webFetch?.replayPrunedPairCount || 0],
                 ['Fetch replay estimate removed', `${Number(turn.webFetch?.replayPrunedEstimatedTokens || 0).toLocaleString()} tokens`],
-                ['Pruned pairs', turn.replay.pairCount], ['Estimated provider tokens removed', turn.replay.estimatedTokensRemoved],
-            ]));
+            );
+            record.append(summary, definitionList(turnEntries));
             if (turn.citations?.length) record.append(sourceList(turn.citations));
             fragment.append(record);
         }
@@ -494,7 +544,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     async function renderRawRecord(kind = 'conversation', recordId = selected) {
         const response = await apiAdminFableDataRawRecord(selected, kind, recordId);
         if (!response.ok) throw new Error(response.error || 'Raw record unavailable.');
-        const note = node('p', 'admin-fable-data__notice', 'Allowlisted Fable-domain columns only. Cryptographic and private provider fields are redacted; no SQL is accepted.');
+        const note = node('p', 'admin-fable-data__notice', 'Allowlisted Van Ark chat-domain columns only. Cryptographic and private provider fields are redacted; no SQL is accepted.');
         const toggle = button('Show UTC timestamps', 'btn-action btn-action--secondary');
         const table = node('dl', 'admin-fable-data__definition-list');
         let useUtc = false;

@@ -37,6 +37,7 @@ Latest auth D1 migration: read `release.schemaCheckpoints.auth.latest` from `con
 Current high-impact migration dependencies:
 
 - `0079_add_fable_prompt_cache_ttl.sql` for the default-five-minute, optional one-hour per-conversation Fable prompt-cache setting and immutable turn snapshots.
+- `0080_add_provider_neutral_chat_and_grok_4_6.sql` for the forward-only provider-neutral model constraint, Grok replay state, and private chat attachments; the production flag remains disabled pending pricing, live capability probes, and approved rollout.
 - `0078_add_fable_global_location.sql` for the private owner-scoped Fable Web Search location profile while preserving each conversation's activation flag.
 - `0077_upgrade_fable_web_search.sql` for server-owned Web Search 20260318 settings, direct/dynamic caller modes, bounded domain/location preferences, tool choice, and immutable effective turn snapshots.
 - `0076_add_fable_chat_web_fetch.sql` for the default-off Web Fetch conversation switch and immutable, content-free per-turn Fetch configuration, usage, and replay-pruning metadata.

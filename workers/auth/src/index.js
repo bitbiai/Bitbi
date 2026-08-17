@@ -92,6 +92,7 @@ import {
   handleAdminAiVideoSourceTokenRequest,
 } from "./lib/admin-ai-video-sources.js";
 import { getRoutePolicy } from "./app/route-policy.js";
+import { cleanupExpiredGrokChatAttachments } from "./lib/grok-chat-attachments.js";
 export { AuthPublicRateLimiterDurableObject } from "./lib/public-rate-limiter-do.js";
 
 const AI_IMAGE_DERIVATIVES_QUEUE_NAME = "bitbi-ai-image-derivatives";
@@ -607,6 +608,29 @@ export default {
         level: "error",
         ...getErrorFields(error),
       });
+    }
+
+    try {
+      const attachmentCleanup = await cleanupExpiredGrokChatAttachments(env, { now });
+      if (attachmentCleanup.deleted > 0) {
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "scheduled-chat-attachment-cleanup",
+          event: "chat_attachment_cleanup_completed",
+          scanned_count: attachmentCleanup.scanned,
+          deleted_count: attachmentCleanup.deleted,
+        });
+      }
+    } catch (error) {
+      if (!String(error?.message || error).includes("no such table")) {
+        logDiagnostic({
+          service: "bitbi-auth",
+          component: "scheduled-chat-attachment-cleanup",
+          event: "chat_attachment_cleanup_failed",
+          level: "error",
+          ...getErrorFields(error, { includeMessage: false }),
+        });
+      }
     }
 
     try {

@@ -4,6 +4,9 @@
   "compatibility_date": "2026-03-08",
   "workers_dev": false,
   "preview_urls": false,
+  "vars": {
+    "ENABLE_GROK_4_6": "false"
+  },
   "observability": {
     "logs": {
       "enabled": true,
