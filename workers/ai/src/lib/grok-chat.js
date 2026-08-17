@@ -233,28 +233,32 @@ export function buildGrokProviderPayload(input, messages = input.messages, {
   const payload = {
     messages,
     max_completion_tokens: settings.maxCompletionTokens,
-    n: 1,
-    parallel_tool_calls: settings.parallelToolCalls,
     prompt_cache_key: input.promptCacheKey,
     reasoning_effort: settings.reasoningEffort,
-    response_format: providerResponseFormat(settings.responseFormat),
-    service_tier: "default",
     stream: true,
     stream_options: { include_usage: true },
-    tool_choice: toolChoice,
-    tools: GROK_TOOL_DEFINITIONS,
     user: input.privacyUser,
   };
+  if (settings.responseFormat.type !== "text") {
+    payload.response_format = providerResponseFormat(settings.responseFormat);
+  }
+  if (toolChoice !== "none") {
+    payload.parallel_tool_calls = settings.parallelToolCalls;
+    payload.tool_choice = toolChoice;
+    payload.tools = GROK_TOOL_DEFINITIONS;
+  }
   if (settings.temperature != null) payload.temperature = settings.temperature;
   if (settings.topP != null) payload.top_p = settings.topP;
   if (settings.seed != null) payload.seed = settings.seed;
-  payload.search_parameters = {
-    mode: settings.webSearch.mode,
-    max_search_results: settings.webSearch.maxResults,
-    return_citations: settings.webSearch.mode !== "off",
-    ...(settings.webSearch.fromDate ? { from_date: settings.webSearch.fromDate } : {}),
-    ...(settings.webSearch.toDate ? { to_date: settings.webSearch.toDate } : {}),
-  };
+  if (settings.webSearch.mode !== "off") {
+    payload.search_parameters = {
+      mode: settings.webSearch.mode,
+      max_search_results: settings.webSearch.maxResults,
+      return_citations: true,
+      ...(settings.webSearch.fromDate ? { from_date: settings.webSearch.fromDate } : {}),
+      ...(settings.webSearch.toDate ? { to_date: settings.webSearch.toDate } : {}),
+    };
+  }
   return payload;
 }
 
