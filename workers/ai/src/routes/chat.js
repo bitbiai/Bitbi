@@ -21,7 +21,8 @@ export async function handleChat({ request, env, correlationId, pathname, method
   const startedAt = Date.now();
   try {
     const body = await readJsonBodyLimited(request, { maxBytes: GROK_INTERNAL_BODY_MAX_BYTES });
-    const input = validateGrokChatInput(stripAiCallerPolicyFromBody(body));
+    const { body: chatBody } = stripAiCallerPolicyFromBody(body);
+    const input = validateGrokChatInput(chatBody);
     if (!isChatModelEnabled(env, input.model)) {
       return errorResponse("This model is unavailable.", {
         status: 503,
@@ -62,6 +63,10 @@ export async function handleChat({ request, env, correlationId, pathname, method
       duration_ms: getDurationMs(startedAt),
       ...getRequestLogFields({ request, pathname, method }),
       model_id: GROK_4_6_MODEL_ID,
+      ...(rawError?.validationField ? {
+        validation_field: rawError.validationField,
+        validation_issue: rawError.validationIssue,
+      } : {}),
       ...getErrorFields(error, { includeMessage: false }),
     });
     return errorResponse("Chat generation failed.", {

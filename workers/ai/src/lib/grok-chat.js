@@ -29,12 +29,17 @@ const IMAGE_DATA_URL_PATTERN = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z
 const SAFE_MESSAGE_ROLES = new Set(["system", "user", "assistant", "tool"]);
 
 export class GrokChatValidationError extends Error {
-  constructor(message, code = "validation_error", status = 400) {
+  constructor(message, code = "validation_error", status = 400, {
+    validationField = null,
+    validationIssue = null,
+  } = {}) {
     super(message);
     this.name = "GrokChatValidationError";
     this.code = code;
     this.status = status;
     this.definitive = true;
+    this.validationField = validationField;
+    this.validationIssue = validationIssue;
   }
 }
 
@@ -51,7 +56,14 @@ function plainObject(value, field) {
 
 function onlyFields(value, allowed, field) {
   const unsupported = Object.keys(value).find((key) => !allowed.has(key));
-  if (unsupported) throw new GrokChatValidationError(`${field}.${unsupported} is not supported.`);
+  if (unsupported) {
+    throw new GrokChatValidationError(
+      `${field}.${unsupported} is not supported.`,
+      "validation_error",
+      400,
+      { validationField: `${field}.${unsupported}`, validationIssue: "unsupported_field" }
+    );
+  }
 }
 
 function normalizeText(value, field, maxLength, { empty = false } = {}) {
