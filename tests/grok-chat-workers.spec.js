@@ -373,17 +373,20 @@ test.describe('Provider-neutral Grok chat', () => {
     };
     const payload = grok.buildGrokProviderPayload(input);
     expect(payload).toMatchObject({
-      n: 1,
       reasoning_effort: 'low',
-      service_tier: 'default',
       stream: true,
       stream_options: { include_usage: true },
       prompt_cache_key: input.promptCacheKey,
       user: input.privacyUser,
     });
-    expect(payload.search_parameters.mode).toBe('off');
+    expect(payload.search_parameters).toBeUndefined();
     expect(payload.web_search_options).toBeUndefined();
-    expect(payload.tools[0].function.strict).toBe(true);
+    expect(payload.response_format).toBeUndefined();
+    expect(payload.tool_choice).toBeUndefined();
+    expect(payload.tools).toBeUndefined();
+    expect(payload.parallel_tool_calls).toBeUndefined();
+    expect(payload.n).toBeUndefined();
+    expect(payload.service_tier).toBeUndefined();
   });
 
   test('accepts only private bounded image data URLs in the provider payload', async () => {
