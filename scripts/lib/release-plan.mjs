@@ -26,10 +26,18 @@ const VALIDATION_ONLY_PREFIXES = [
   "github-actions-stuck-evidence/",
   "scripts/",
   "tests/",
-  "workers/auth/CLAUDE.md",
-  "workers/contact/CLAUDE.md",
-  "workers/ai/CLAUDE.md",
 ];
+
+const AGENT_INSTRUCTION_FILES = new Set([
+  "AGENTS.md",
+  "CLAUDE.md",
+  "workers/ai/AGENTS.md",
+  "workers/ai/CLAUDE.md",
+  "workers/auth/AGENTS.md",
+  "workers/auth/CLAUDE.md",
+  "workers/contact/AGENTS.md",
+  "workers/contact/CLAUDE.md",
+]);
 
 const SHARED_WORKER_FILE_MAP = Object.freeze({
   "workers/shared/ai-caller-policy.mjs": ["auth", "ai"],
@@ -161,6 +169,7 @@ function isValidationOnlyPath(relativePath) {
   if (STATIC_BUILD_RELATED_FILES.has(normalized)) return false;
   if (isStaticSourcePath(normalized)) return false;
   return VALIDATION_ONLY_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+    || AGENT_INSTRUCTION_FILES.has(normalized)
     || normalized === "package.json"
     || normalized === "package-lock.json"
     || normalized === "playwright.config.js"
@@ -169,8 +178,6 @@ function isValidationOnlyPath(relativePath) {
     || normalized === ".nvmrc"
     || normalized === ".node-version"
     || normalized === ".gitignore"
-    || normalized === "AGENTS.md"
-    || normalized === "CLAUDE.md"
     || normalized === "README.md"
     || /^ALPHA_AUDIT_[0-9_]+\.md$/.test(normalized)
     || /^AUDIT_[A-Z0-9_]+\.md$/.test(normalized)

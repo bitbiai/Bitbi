@@ -146,6 +146,50 @@ function createContext() {
 }
 
 {
+  // Agent-policy-only change set from commit 57fb66592664c726ae4479ad27497e9426d28c30.
+  const policyFiles = ["AGENTS.md", "workers/auth/AGENTS.md", "workers/auth/CLAUDE.md"];
+  const plan = createReleasePlanFromRepo(repoRoot, { files: policyFiles });
+  assert.deepEqual(plan.impacts.validationOnlyFiles, policyFiles);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.deepEqual(plan.workerDeploys, []);
+  assert.deepEqual(plan.schemaApplies, []);
+  assert.deepEqual(plan.deploySteps, []);
+  assert.equal(plan.impacts.static.required, false);
+  assert.equal(plan.isNoop, true);
+}
+
+{
+  const instructionFiles = [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "workers/ai/AGENTS.md",
+    "workers/ai/CLAUDE.md",
+    "workers/auth/AGENTS.md",
+    "workers/auth/CLAUDE.md",
+    "workers/contact/AGENTS.md",
+    "workers/contact/CLAUDE.md",
+  ];
+  const plan = createReleasePlanFromRepo(repoRoot, { files: instructionFiles });
+  assert.deepEqual(plan.impacts.validationOnlyFiles, instructionFiles);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.deepEqual(plan.deploySteps, []);
+  assert.equal(plan.isNoop, true);
+}
+
+{
+  const unknownFiles = [
+    "UNCLASSIFIED.md",
+    "workers/auth/AGENTS.md.backup",
+    "workers/auth/CLAUDE.md.backup",
+    "workers/auth/UNCLASSIFIED.md",
+    "workers/unknown/AGENTS.md",
+  ];
+  const plan = createReleasePlanFromRepo(repoRoot, { files: unknownFiles });
+  assert.deepEqual(plan.impacts.validationOnlyFiles, []);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, unknownFiles);
+}
+
+{
   const plan = createReleasePlanFromRepo(repoRoot, {
     files: [".gitignore"],
   });

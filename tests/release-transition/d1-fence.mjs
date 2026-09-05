@@ -13,7 +13,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const option = process.argv.indexOf('--tooling-root');
 const toolingRoot = option < 0 ? resolve(root, 'workers/auth') : resolve(process.argv[option + 1]);
 const requireTool = createRequire(resolve(toolingRoot, 'package.json'));
-const { Miniflare } = requireTool('miniflare');
+const { Miniflare, convertV4MiniflareOptions } = requireTool('miniflare');
 const { unstable_splitSqlQuery: splitSql } = requireTool('wrangler');
 assert.equal(typeof splitSql, 'function');
 assert.equal(process.versions.node.split('.')[0], '22', 'Use the declared Node 22 toolchain.');
@@ -28,7 +28,10 @@ const org = 'd1-cutover-fixture-org';
 const tables = ['member_ai_usage_attempts', 'ai_usage_attempts', 'admin_ai_usage_attempts', 'ai_video_jobs'];
 let outboundAttempts = 0;
 const results = [];
-const mf = new Miniflare({
+// Miniflare 5 exposes the supported converter for the existing local-only
+// fixture options, including D1 and the rejecting outbound handler. With no
+// resourcePersistencePath, storage remains temporary and dispose() removes it.
+const mf = new Miniflare(convertV4MiniflareOptions({
   modules: true,
   compatibilityDate: '2026-07-10',
   script: 'export default { fetch() { return new Response("local D1 fixture only"); } };',
@@ -38,7 +41,7 @@ const mf = new Miniflare({
     outboundAttempts += 1;
     throw new Error('Outbound requests are forbidden in this local fixture.');
   },
-});
+}));
 
 async function check(name, fn) {
   await fn();

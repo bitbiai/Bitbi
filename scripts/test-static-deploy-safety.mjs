@@ -107,6 +107,37 @@ function writeJsonFixture(name, value) {
 }
 
 {
+  // Agent-policy-only change set from commit 57fb66592664c726ae4479ad27497e9426d28c30.
+  const policyFiles = ["AGENTS.md", "workers/auth/AGENTS.md", "workers/auth/CLAUDE.md"];
+  const { plan, safety } = safetyFor(policyFiles, { eventName: "push" });
+  assert.deepEqual(plan.impacts.validationOnlyFiles, policyFiles);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.deepEqual(plan.workerDeploys, []);
+  assert.deepEqual(plan.schemaApplies, []);
+  assert.deepEqual(plan.deploySteps, []);
+  assert.equal(safety.ok, true);
+  assert.equal(safety.allowed, true);
+  assert.equal(safety.mode, "validation_only");
+  assert.equal(safety.staticRequired, false);
+  assert.equal(safety.acknowledgementAccepted, false);
+  assert.equal(safety.bypassedByAcknowledgement, false);
+}
+
+for (const unknownFile of [
+  "UNCLASSIFIED.md",
+  "workers/auth/AGENTS.md.backup",
+  "workers/auth/CLAUDE.md.backup",
+  "workers/auth/UNCLASSIFIED.md",
+  "workers/unknown/AGENTS.md",
+]) {
+  const { plan, safety } = safetyFor([unknownFile], { eventName: "push" });
+  assert.deepEqual(plan.impacts.uncategorizedFiles, [unknownFile]);
+  assert.equal(safety.ok, false);
+  assert.equal(safety.decision, "blocked");
+  assert(safety.reasons.some((reason) => reason.includes("uncategorized changed files")));
+}
+
+{
   const { safety } = safetyFor(["admin/index.html"]);
   assert.equal(safety.ok, true);
   assert.equal(safety.mode, "static_only");
