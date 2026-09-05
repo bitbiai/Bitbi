@@ -48,17 +48,9 @@ These rules apply specifically to `workers/auth` and override broader repo guida
 ## Verification
 
 - Add or update meaningful tests for changed worker behavior.
-- Run relevant worker tests after changes.
+- Follow root proportional validation: run relevant Worker tests for changed behavior; use focused toolchain/dependency/local build checks for tooling-only changes and relevant documentation checks for docs-only changes.
 - Call out manual Cloudflare binding/dashboard/setup steps explicitly.
 
 ## Required report for worker changes
 
-When changing `workers/auth`, end with:
-- exact files changed
-- migrations added/changed
-- wrangler/config changes
-- why each file changed
-- deploy order
-- manual setup still required
-- tests run
-- known limitations
+Use the root Git workflow and short completion summary, including checks, commit/push result, and current CI/deployment state. Identify migrations, Wrangler/config/binding impact, deploy order, manual setup, and limitations when relevant; no separate audit report is required.

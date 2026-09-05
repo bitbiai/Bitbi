@@ -115,7 +115,7 @@ npm run validate:release
 npm run release:plan
 ```
 
-For docs-only changes, worker tests may be unnecessary, but release/doc checks should still pass.
+Follow the root proportional validation guidance: use focused checks for docs/tooling-only changes, and release/doc checks when their contracts are affected. Worker behavior changes require relevant Worker tests; reuse valid evidence for unchanged inputs.
 
 ## Documentation Hygiene
 

@@ -100,6 +100,16 @@ Do not invent commands/scripts that are not present in this repo.
 
 ---
 
+## Git workflow and completion
+
+- Requested implementation tasks normally finish with task-related changes committed and pushed directly to `origin/main`; no separate commit/push approval is needed. Explicit audit-only, read-only, local-only, draft, or no-push instructions override this default.
+- Work on `main` when practical. Routine work does not require feature branches, PRs, extra worktrees, approval stages, or backup ceremonies; reuse a suitable existing worktree when necessary.
+- Before committing, inspect the task diff and current remote state. Include only intended changes and preserve unrelated user work. Integrate newer remote work safely; never force-push, overwrite it, or discard changes.
+- Batch a completed task into a sensible commit or small coherent set, then push once. Leave GitHub rules and CI/deployment gates unchanged; do not bypass them, add server-side restrictions, or manually dispatch duplicate workflows started by the push.
+- Direct-push authorization includes existing automatic workflows. Manual Worker deployments, remote migrations, maintenance, destructive operations, and paid calls still require authorization within the specific task's scope.
+
+---
+
 ## Documentation hygiene
 
 - Keep active current-state docs concise. Do not append full phase history to `CURRENT_IMPLEMENTATION_HANDOFF.md`, `SAAS_PROGRESS_AND_CURRENT_STATE_REPORT.md`, `DATA_INVENTORY.md`, or current docs under `docs/audits/`.
@@ -115,14 +125,15 @@ Do not invent commands/scripts that are not present in this repo.
 
 ## Validation expectations (proportional)
 
-Run the smallest set that truly covers changed surfaces:
+Run the smallest set that truly covers changed surfaces. Routine UI, documentation, and tooling changes need focused checks, not an automatic audit or full application regression:
 
-- Static/UI changes: `npm run test:static`
-- Worker route/contract changes: `npm run test:workers`
+- Static/UI changes: relevant specs from `npm run test:static`; use the broader suite when shared runtime or wider behavior changes warrant it.
+- Worker tooling changes: toolchain, affected dependency checks, and local build-tool smoke checks as needed; no live resources.
+- Worker route/contract, authentication, ownership, accounting, schema, or other high-impact changes: relevant broader suites, including `npm run test:workers` for Worker behavior.
 - Release/config/migration/binding changes: `npm run test:release-compat`, `npm run validate:release`
 - Asset version/build-pipeline changes: `npm run test:asset-version`, `npm run validate:asset-version`, `npm run build:static`
 
-If you cannot run something, state exactly what was not run and why.
+Reuse valid evidence for unchanged inputs; repeat checks only for a concrete reason. Do not duplicate all CI locally by default. State what was not run and why, and preserve failures and skipped coverage.
 
 ---
 
@@ -133,7 +144,7 @@ If you cannot run something, state exactly what was not run and why.
 - Apply auth migrations before deploying auth code that depends on them.
 - Do not assume secrets/bindings/dashboard rules exist; verify in repo docs/config and call out manual requirements.
 - Preserve current deploy ordering expectations (migrations, workers, then static) unless task explicitly changes release design.
-- Monitor a mandatory static smoke workflow for no more than five minutes total. Never use `gh run watch` or continue repeated polling beyond that limit; report the workflow URL and last observed status, then stop waiting.
+- For an ordinary push, check and report current CI state without prolonged polling. When a task specifically requires monitoring a static release, allow no more than five minutes total; never use `gh run watch`. Report the workflow URL and last observed status when stopping.
 
 ---
 
@@ -165,16 +176,9 @@ If you cannot run something, state exactly what was not run and why.
 
 ## Output/reporting requirements for Codex changes
 
-When finishing substantial work, include:
+End with a short factual summary of changed files and purpose, relevant checks and limitations, commit SHA(s), push result, and current CI/deployment state. Distinguish committed, pushed, CI-passed, and actually deployed; pending or skipped checks are not passes.
 
-- Exact files changed (and added/removed if any)
-- Why each change was made
-- Any schema/migration/config/binding impact
-- Any manual Cloudflare/dashboard follow-up required
-- Tests/checks run, plus what was not run
-- Known risks/limitations
-
-Keep reports concrete and repository-specific.
+For substantial changes, also identify relevant schema/config/binding impact, deploy order, and manual Cloudflare follow-up. No new audit report is required by default.
 
 ## Documentation current-state rule
 
