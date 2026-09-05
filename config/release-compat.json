@@ -12,6 +12,10 @@
       "ai": {
         "name": "bitbi-ai",
         "wranglerPath": "workers/ai/wrangler.jsonc",
+        "vars": ["ENABLE_GROK_4_6"],
+        "expectedVars": {
+          "ENABLE_GROK_4_6": "true"
+        },
         "workersDev": false,
         "previewUrls": false,
         "bindings": {
@@ -39,7 +43,7 @@
           "RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>",
           "BITBI_ENV": "production",
           "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET": "true",
-          "ENABLE_GROK_4_6": "false"
+          "ENABLE_GROK_4_6": "true"
         },
         "triggers": {
           "crons": ["0 3 * * *"]
