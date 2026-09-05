@@ -162,6 +162,8 @@ function serializeLimit(row = null, usage = null) {
     createdByUserId: row.created_by_user_id || null,
     updatedByUserId: row.updated_by_user_id || null,
     usedUnits,
+    recordedUsageUnits: usage?.recordedUsageUnits ?? null,
+    unresolvedExposureUnits: usage?.unresolvedExposureUnits ?? null,
     remainingUnits,
     capStatus: usage ? (remainingUnits > 0 ? "available" : "exhausted") : "configured",
   });
@@ -197,22 +199,54 @@ async function readActiveLimit(env, budgetScope, windowType) {
   ).bind(budgetScope, windowType).first();
 }
 
+// Unsettled provider work is exposure, not a fabricated successful usage event.
+// It stays in its original budget period even when a member credit hold ends.
+export function platformBudgetAccountedUnitsSql(scopeSql, windowTypeSql, windowValueSql) {
+  return `(SELECT COALESCE(SUM(exposure.units), 0) FROM (
+    SELECT units, budget_scope, window_day, window_month FROM platform_budget_usage_events WHERE status = 'recorded'
+    UNION ALL
+    SELECT CASE WHEN a.provider_outcome = 'succeeded' AND EXISTS (SELECT 1 FROM platform_budget_usage_events u WHERE u.source_attempt_id = a.id AND u.budget_scope = a.budget_scope AND u.status = 'recorded') THEN 0
+      ELSE MAX(0, a.platform_exposure_units - (SELECT COALESCE(SUM(u.units), 0) FROM platform_budget_usage_events u WHERE u.source_attempt_id = a.id AND u.budget_scope = a.budget_scope AND u.status = 'recorded')) END,
+      a.budget_scope, a.platform_window_day, a.platform_window_month
+      FROM admin_ai_usage_attempts a
+     WHERE a.provider_outcome IN ('dispatched', 'unknown', 'succeeded')
+    UNION ALL
+    SELECT CASE WHEN j.provider_outcome = 'succeeded' AND EXISTS (SELECT 1 FROM platform_budget_usage_events u WHERE u.source_job_id = j.id AND u.budget_scope = 'platform_admin_lab_budget' AND u.status = 'recorded') THEN 0
+      ELSE MAX(0, j.platform_exposure_units - (SELECT COALESCE(SUM(u.units), 0) FROM platform_budget_usage_events u WHERE u.source_job_id = j.id AND u.budget_scope = 'platform_admin_lab_budget' AND u.status = 'recorded')) END,
+      'platform_admin_lab_budget', j.platform_window_day, j.platform_window_month
+      FROM ai_video_jobs j
+     WHERE j.scope = 'admin' AND j.provider_outcome IN ('dispatched', 'unknown', 'succeeded')
+  ) exposure WHERE exposure.budget_scope = ${scopeSql}
+    AND CASE WHEN ${windowTypeSql} = 'daily' THEN exposure.window_day ELSE exposure.window_month END = ${windowValueSql})`;
+}
+
+// Callers supply a single-row `dispatch_budget` CTE (scope, units, day, month).
+// The conditional UPDATE owns the capacity check and dispatch claim atomically.
+export function platformBudgetDispatchCapacitySql() {
+  return `(SELECT COUNT(*) FROM platform_budget_limits limit_row, dispatch_budget claim
+    WHERE limit_row.budget_scope = claim.scope AND limit_row.status = 'active'
+      AND limit_row.window_type IN ('daily', 'monthly')
+      AND limit_row.limit_units >= claim.units + ${platformBudgetAccountedUnitsSql('claim.scope', 'limit_row.window_type', "CASE WHEN limit_row.window_type = 'daily' THEN claim.day ELSE claim.month END")}
+  ) = 2`;
+}
+
 async function readUsageUnits(env, { budgetScope, windowType, windowValue }) {
-  const column = windowType === "daily" ? "window_day" : "window_month";
   const row = await env.DB.prepare(
-    `SELECT COALESCE(SUM(units), 0) AS used_units
-       FROM ${PLATFORM_BUDGET_USAGE_EVENTS_TABLE}
-      WHERE budget_scope = ? AND ${column} = ? AND status = 'recorded'`
-  ).bind(budgetScope, windowValue).first();
-  return Number(row?.used_units || 0);
+    `SELECT ${platformBudgetAccountedUnitsSql('?', `'${windowType}'`, '?')} AS used_units,
+       (SELECT COALESCE(SUM(units), 0) FROM platform_budget_usage_events
+        WHERE budget_scope = ? AND ${windowType === "daily" ? "window_day" : "window_month"} = ? AND status = 'recorded') AS recorded_units`
+  ).bind(budgetScope, windowValue, budgetScope, windowValue).first();
+  const usedUnits = Number(row?.used_units || 0);
+  const recordedUsageUnits = Number(row?.recorded_units || 0);
+  return { usedUnits, recordedUsageUnits, unresolvedExposureUnits: Math.max(0, usedUnits - recordedUsageUnits) };
 }
 
 async function getWindowLimitUsage(env, { budgetScope, windowType, windows }) {
   const limit = await readActiveLimit(env, budgetScope, windowType);
   if (!limit) return { windowType, limit: null, usedUnits: null, windowValue: windowType === "daily" ? windows.day : windows.month };
   const windowValue = windowType === "daily" ? windows.day : windows.month;
-  const usedUnits = await readUsageUnits(env, { budgetScope, windowType, windowValue });
-  return { windowType, limit, usedUnits, windowValue };
+  const usage = await readUsageUnits(env, { budgetScope, windowType, windowValue });
+  return { windowType, limit, ...usage, windowValue };
 }
 
 export async function listPlatformBudgetLimits(env, { budgetScope = PLATFORM_ADMIN_LAB_BUDGET_SCOPE } = {}) {
@@ -384,13 +418,15 @@ export async function getPlatformBudgetUsageSummary(env, {
   ).bind(scope, Math.max(1, Math.min(50, Number(recentLimit || 20)))).all();
 
   const windowsSummary = [daily, monthly].map((entry) => {
-    const limit = serializeLimit(entry.limit, { usedUnits: entry.usedUnits });
+    const limit = serializeLimit(entry.limit, entry);
     return {
       windowType: entry.windowType,
       windowValue: entry.windowValue,
       limit,
       configured: Boolean(entry.limit),
       usedUnits: entry.usedUnits,
+      recordedUsageUnits: entry.recordedUsageUnits,
+      unresolvedExposureUnits: entry.unresolvedExposureUnits,
       remainingUnits: entry.limit ? Math.max(0, Number(entry.limit.limit_units || 0) - Number(entry.usedUnits || 0)) : null,
       capStatus: !entry.limit
         ? "missing"
@@ -537,7 +573,16 @@ export async function recordPlatformBudgetUsageEvent(env, {
   const recordedUnits = normalizePlatformBudgetUnits(units, { fallback: 1 });
   const safeOperationKey = safeString(operationKey, 160);
   assertDb(env, { budgetScope: scope, operationKey: safeOperationKey });
-  const windows = getPlatformBudgetWindows(now);
+  let windows = getPlatformBudgetWindows(now);
+  // Completion timing cannot move a dispatched operation into a fresh period.
+  const source = sourceAttemptId
+    ? await env.DB.prepare("SELECT platform_window_day, platform_window_month FROM admin_ai_usage_attempts WHERE id = ? AND budget_scope = ?").bind(sourceAttemptId, scope).first()
+    : sourceJobId
+      ? await env.DB.prepare("SELECT platform_window_day, platform_window_month FROM ai_video_jobs WHERE id = ? AND scope = 'admin'").bind(sourceJobId).first()
+      : null;
+  if (source?.platform_window_day && source?.platform_window_month) {
+    windows = { day: source.platform_window_day, month: source.platform_window_month };
+  }
   const eventId = `pbu_${randomTokenHex(16)}`;
   const safeMetadata = JSON.stringify({
     phase: "4.17",

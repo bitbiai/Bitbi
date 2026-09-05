@@ -917,7 +917,7 @@ function openSubscriptionDialog(action) {
     }
     subscriptionDialogFocusCleanup = setupFocusTrap($subscriptionDialog);
     const focusTarget = isReactivate ? $subscriptionDialogConfirm : $subscriptionDialogCancel;
-    window.setTimeout(() => focusTarget?.focus(), 0);
+    focusTarget?.focus();
 }
 
 async function confirmSubscriptionAction() {

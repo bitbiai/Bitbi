@@ -12,6 +12,7 @@ import {
   BITBI_GENERATION_TIMEOUT_MS,
   fetchWithGenerationTimeout,
   isGenerationTimeoutError,
+  readGenerationResponseJson,
 } from "./generation-timeout.js";
 import {
   evaluateSharedRateLimit,
@@ -33,6 +34,11 @@ import {
 } from "../../../../js/shared/elevenlabs-music-v2-pricing.mjs";
 
 const AI_LAB_BASE_URL = "https://bitbi-ai.internal";
+const serviceProviderOutcomes = new WeakMap();
+
+export function getAiLabProviderOutcome(response) {
+  return serviceProviderOutcomes.get(response) || null;
+}
 
 // Keep the outer Auth -> AI service-binding deadline slightly beyond the AI
 // Worker's ElevenLabs deadline so the inner Worker can normalize a terminal
@@ -320,6 +326,14 @@ export async function proxyFableChatStreamToAiLab(
   }
 }
 
+// Finite JSON routes opt in; streaming routes retain their headers-only deadline.
+export async function consumeAiLabJsonResponse(response, signal) {
+  const body = await readGenerationResponseJson(response, signal);
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  return new Response(JSON.stringify(body), { status: response.status, statusText: response.statusText, headers });
+}
+
 export async function proxyToAiLab(
   env,
   path,
@@ -330,6 +344,8 @@ export async function proxyToAiLab(
   {
     normalizeResponseCode = true,
     timeoutMs = BITBI_GENERATION_TIMEOUT_MS,
+    consumeResponse = null,
+    signal = requestInfo?.request?.signal,
   } = {}
 ) {
   const startedAt = Date.now();
@@ -382,10 +398,11 @@ export async function proxyToAiLab(
       new Request(`${AI_LAB_BASE_URL}${path}`, {
         method: init.method,
         headers,
+        signal,
         body: requestBody !== undefined ? bodyText : undefined,
       }),
       undefined,
-      { timeoutMs }
+      { timeoutMs, consumeResponse, signal }
     );
   } catch (error) {
     if (isGenerationTimeoutError(error)) {
@@ -434,8 +451,16 @@ export async function proxyToAiLab(
     });
   }
 
+  const providerOutcome = response.headers.get("x-bitbi-provider-outcome");
+  const publicHeaders = new Headers(response.headers);
+  publicHeaders.delete("x-bitbi-provider-outcome");
+  response = new Response(response.body, { status: response.status, statusText: response.statusText, headers: publicHeaders });
   const normalizedResponse = normalizeResponseCode
     ? await withAdminAiCode(response)
     : response;
-  return withCorrelationId(normalizedResponse, correlationId);
+  const publicResponse = withCorrelationId(normalizedResponse, correlationId);
+  if (providerOutcome === "failed" || providerOutcome === "succeeded") {
+    serviceProviderOutcomes.set(publicResponse, providerOutcome);
+  }
+  return publicResponse;
 }

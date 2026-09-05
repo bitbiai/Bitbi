@@ -455,32 +455,35 @@ function isHttpsUrl(value) {
   }
 }
 
-async function fetchProviderImageUrl(env, url) {
+async function fetchProviderImageUrl(env, url, signal) {
   const fetcher = env.__TEST_FETCH || globalThis.fetch;
-  const response = await fetchWithGenerationTimeout(fetcher, url, { method: "GET" });
-  if (!response?.ok) {
-    throw new Error("provider_image_fetch_failed");
-  }
-  const mimeType = String(response.headers?.get("content-type") || "").split(";")[0].trim().toLowerCase();
-  if (!GPT_IMAGE_2_REFERENCE_IMAGE_TYPES.has(mimeType)) {
-    throw new Error("provider_image_unsupported_type");
-  }
-  const contentLength = Number(response.headers?.get("content-length") || 0);
-  if (Number.isFinite(contentLength) && contentLength > MAX_PROVIDER_IMAGE_FETCH_BYTES) {
-    throw new Error("provider_image_too_large");
-  }
-  const buffer = await response.arrayBuffer();
-  if (!buffer || buffer.byteLength === 0 || buffer.byteLength > MAX_PROVIDER_IMAGE_FETCH_BYTES) {
-    throw new Error("provider_image_too_large");
-  }
-  return {
-    base64: encodeBytesToBase64(new Uint8Array(buffer)),
-    mimeType,
-    imageUrl: String(url),
-  };
+  return fetchWithGenerationTimeout(fetcher, url, { method: "GET", signal }, {
+    consumeResponse: async (response, bodySignal) => {
+      if (!response?.ok) {
+        throw new Error("provider_image_fetch_failed");
+      }
+      const mimeType = String(response.headers?.get("content-type") || "").split(";")[0].trim().toLowerCase();
+      if (!GPT_IMAGE_2_REFERENCE_IMAGE_TYPES.has(mimeType)) {
+        throw new Error("provider_image_unsupported_type");
+      }
+      const contentLength = Number(response.headers?.get("content-length") || 0);
+      if (Number.isFinite(contentLength) && contentLength > MAX_PROVIDER_IMAGE_FETCH_BYTES) {
+        throw new Error("provider_image_too_large");
+      }
+      const buffer = await toArrayBuffer(response, { signal: bodySignal });
+      if (!buffer || buffer.byteLength === 0 || buffer.byteLength > MAX_PROVIDER_IMAGE_FETCH_BYTES) {
+        throw new Error("provider_image_too_large");
+      }
+      return {
+        base64: encodeBytesToBase64(new Uint8Array(buffer)),
+        mimeType,
+        imageUrl: String(url),
+      };
+    },
+  });
 }
 
-async function extractGeneratedImage(env, result, { allowProviderUrl = false } = {}) {
+async function extractGeneratedImage(env, result, { allowProviderUrl = false, signal } = {}) {
   for (const v of collectImageCandidates(result)) {
     if (typeof v === "string" && v.length > 0) {
       const parsed = parseBase64Image(v);
@@ -492,11 +495,11 @@ async function extractGeneratedImage(env, result, { allowProviderUrl = false } =
         };
       }
       if (allowProviderUrl && isHttpsUrl(v)) {
-        return fetchProviderImageUrl(env, v);
+        return fetchProviderImageUrl(env, v, signal);
       }
     }
 
-    const buf = await toArrayBuffer(v);
+    const buf = await toArrayBuffer(v, { signal });
     if (buf && buf.byteLength > 0) {
       return {
         base64: encodeBytesToBase64(new Uint8Array(buf)),
@@ -1061,12 +1064,21 @@ export async function handleGenerateImage(ctx) {
         credits: imagePricing.credits,
       });
     }
-    const result = await runWithGenerationTimeout(() => (
-      (gptImage2 || flux2Max)
-        ? env.AI.run(modelConfig.id, aiRequest.payload, runOptions)
-        : env.AI.run(modelConfig.id, aiRequest.payload)
-    ));
-    const extracted = await extractGeneratedImage(env, result, { allowProviderUrl: gptImage2 || flux2Max });
+    const extracted = await runWithGenerationTimeout(async (signal) => {
+      const result = await env.AI.run(modelConfig.id, aiRequest.payload,
+        { ...((gptImage2 || flux2Max) ? runOptions : {}), signal });
+      if (signal.aborted) {
+        const body = result instanceof Response ? result.body : result instanceof ReadableStream ? result : null;
+        if (body && !body.locked) Promise.resolve(body.cancel()).catch(() => {});
+        await usagePolicy.recordLateOutcome?.("succeeded");
+        throw signal.reason;
+      }
+      return extractGeneratedImage(env, result, { allowProviderUrl: gptImage2 || flux2Max, signal });
+    }, {
+      signal: request.signal,
+      onLateResult: () => usagePolicy.recordLateOutcome?.("succeeded"),
+      onLateError: (error) => usagePolicy.recordLateOutcome?.("failed", error?.code),
+    });
     if (extracted) {
       base64 = extracted.base64;
       mimeType = extracted.mimeType || mimeType;

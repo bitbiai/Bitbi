@@ -14,6 +14,8 @@ let overlay = null;
 let formsContainer = null;
 let focusTrapCleanup = null;
 let formsInjected = false;
+let modalVersion = 0;
+let closeTransitionCleanup = null;
 
 const LOCK_SVG = `<svg width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color:rgba(0,240,255,0.5);margin-bottom:8px"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>`;
 
@@ -23,9 +25,9 @@ export function initAuthModal() {
 
     /* Build shell only — no form inputs in the DOM yet */
     container.innerHTML = `
-    <div class="auth-modal__overlay" role="dialog" aria-modal="true" aria-label="${localeText('auth.signIn')}">
+    <div class="auth-modal__overlay" inert role="dialog" aria-modal="true" aria-label="${localeText('auth.signIn')}">
         <div class="auth-modal__content">
-            <button type="button" class="auth-modal__close" aria-label="${localeText('auth.closeAuth')}">&times; ${localeText('auth.close')}</button>
+            <button tabindex="0" type="button" class="auth-modal__close" aria-label="${localeText('auth.closeAuth')}">&times; ${localeText('auth.close')}</button>
             <div class="auth-modal__card">
                 <div style="text-align:center;margin-bottom:var(--space-4)">
                     ${LOCK_SVG}
@@ -33,8 +35,8 @@ export function initAuthModal() {
                     <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);margin-top:4px">${localeText('auth.unlock')}</p>
                 </div>
                 <div class="auth-modal__tabs">
-                    <button type="button" class="auth-modal__tab active" data-tab="login">${localeText('auth.signIn')}</button>
-                    <button type="button" class="auth-modal__tab" data-tab="register">${localeText('auth.createAccount')}</button>
+                    <button tabindex="0" type="button" class="auth-modal__tab active" data-tab="login">${localeText('auth.signIn')}</button>
+                    <button tabindex="0" type="button" class="auth-modal__tab" data-tab="register">${localeText('auth.createAccount')}</button>
                 </div>
                 <div id="authFormsContainer"></div>
             </div>
@@ -77,22 +79,22 @@ function injectForms() {
     formsContainer.innerHTML = `
         <form class="auth-modal__form active" id="authLoginForm" novalidate>
             <div class="auth-modal__msg" id="authLoginMsg" role="alert"></div>
-            <input type="email" name="email" placeholder="${localeText('auth.email')}" required class="form-input" autocomplete="email" aria-describedby="authLoginMsg" spellcheck="false" autocapitalize="off">
-            <input type="password" name="password" placeholder="${localeText('auth.password')}" required class="form-input" autocomplete="current-password" minlength="8" maxlength="128" aria-describedby="authLoginMsg" spellcheck="false">
-            <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">${localeText('auth.signIn')}</button>
+            <input type="email" name="email" placeholder="${localeText('auth.email')}" aria-label="${localeText('auth.email')}" required class="form-input" autocomplete="email" aria-describedby="authLoginMsg" spellcheck="false" autocapitalize="off">
+            <input type="password" name="password" placeholder="${localeText('auth.password')}" aria-label="${localeText('auth.password')}" required class="form-input" autocomplete="current-password" minlength="8" maxlength="128" aria-describedby="authLoginMsg" spellcheck="false">
+            <button tabindex="0" type="submit" class="btn-primary btn-primary--block btn-primary--sm">${localeText('auth.signIn')}</button>
             <div class="auth-modal__wallet-actions">
                 <span class="auth-modal__wallet-divider" aria-hidden="true">${localeText('auth.or')}</span>
-                <button type="button" id="authWalletLoginBtn" class="btn-secondary btn-primary--block btn-primary--sm">${localeText('auth.signInEthereum')}</button>
+                <button tabindex="0" type="button" id="authWalletLoginBtn" class="btn-secondary btn-primary--block btn-primary--sm">${localeText('auth.signInEthereum')}</button>
                 <p class="auth-modal__hint auth-modal__hint--wallet">${localeText('auth.walletHint')}</p>
             </div>
-            <p style="text-align:center;margin-top:var(--space-3)"><a href="${localizedHref('/account/forgot-password.html')}" style="font-size:0.7rem;font-family:var(--font-mono);color:rgba(0,240,255,0.5);transition:color 0.3s" onmouseover="this.style.color='rgba(0,240,255,0.8)'" onmouseout="this.style.color='rgba(0,240,255,0.5)'">${localeText('auth.forgotPassword')}</a></p>
+            <p style="text-align:center;margin-top:var(--space-3)"><a tabindex="0" href="${localizedHref('/account/forgot-password.html')}" style="font-size:0.7rem;font-family:var(--font-mono);color:rgba(0,240,255,0.5);transition:color 0.3s" onmouseover="this.style.color='rgba(0,240,255,0.8)'" onmouseout="this.style.color='rgba(0,240,255,0.5)'">${localeText('auth.forgotPassword')}</a></p>
         </form>
         <form class="auth-modal__form" id="authRegisterForm" novalidate>
             <div class="auth-modal__msg" id="authRegisterMsg" role="alert"></div>
-            <input type="email" name="email" placeholder="${localeText('auth.email')}" required class="form-input" autocomplete="email" aria-describedby="authRegisterMsg" spellcheck="false" autocapitalize="off">
-            <input type="password" name="password" placeholder="${localeText('auth.passwordNew')}" required class="form-input" autocomplete="new-password" minlength="8" maxlength="128" aria-describedby="authRegisterMsg" spellcheck="false">
+            <input type="email" name="email" placeholder="${localeText('auth.email')}" aria-label="${localeText('auth.email')}" required class="form-input" autocomplete="email" aria-describedby="authRegisterMsg" spellcheck="false" autocapitalize="off">
+            <input type="password" name="password" placeholder="${localeText('auth.passwordNew')}" aria-label="${localeText('auth.passwordNew')}" required class="form-input" autocomplete="new-password" minlength="8" maxlength="128" aria-describedby="authRegisterMsg" spellcheck="false">
             <p class="auth-modal__hint">${localeText('auth.minPassword')}</p>
-            <button type="submit" class="btn-primary btn-primary--block btn-primary--sm">${localeText('auth.createAccount')}</button>
+            <button tabindex="0" type="submit" class="btn-primary btn-primary--block btn-primary--sm">${localeText('auth.createAccount')}</button>
         </form>`;
 
     const loginForm = document.getElementById('authLoginForm');
@@ -116,9 +118,11 @@ function injectForms() {
            This ensures all auth-change listeners run with the page
            in its normal (unlocked) layout state. */
         document.body.style.overflow = '';
+        const requestVersion = modalVersion;
         const res = await authLogin(email, password);
         btn.disabled = false;
         btn.textContent = localeText('auth.signIn');
+        if (requestVersion !== modalVersion || !loginForm.isConnected) return;
         if (res.ok) {
             closeAuthModal();
         } else {
@@ -152,9 +156,11 @@ function injectForms() {
         const btn = registerForm.querySelector('button[type=submit]');
         btn.disabled = true;
         btn.textContent = localeText('auth.creatingAccount');
+        const requestVersion = modalVersion;
         const res = await authRegister(email, password);
         btn.disabled = false;
         btn.textContent = localeText('auth.createAccount');
+        if (requestVersion !== modalVersion || !registerForm.isConnected) return;
         if (res.ok) {
             showMsg(registerMsg, 'success', localeText('auth.accountCreated'));
             registerForm.reset();
@@ -185,13 +191,16 @@ function showMsgWithResend(el, text, email) {
     el.appendChild(document.createTextNode(text + ' '));
     const link = document.createElement('a');
     link.href = '#';
+    link.tabIndex = 0;
     link.textContent = localeText('auth.resend');
     link.style.cssText = 'color:rgba(0,240,255,0.8);text-decoration:underline;cursor:pointer';
     link.addEventListener('click', async (e) => {
         e.preventDefault();
         link.textContent = localeText('auth.sending');
         link.style.pointerEvents = 'none';
+        const requestVersion = modalVersion;
         await apiResendVerification(email);
+        if (requestVersion !== modalVersion || !link.isConnected) return;
         el.className = 'auth-modal__msg auth-modal__msg--success';
         el.textContent = localeText('auth.resent');
     });
@@ -203,8 +212,15 @@ function clearMsg(el) {
     el.className = 'auth-modal__msg';
 }
 
+function cancelPendingCloseTransition() {
+    if (closeTransitionCleanup) closeTransitionCleanup();
+    closeTransitionCleanup = null;
+}
+
 export function openAuthModal(tab, options = {}) {
     if (!overlay) return;
+    modalVersion++;
+    cancelPendingCloseTransition();
 
     /* Restore overlay to rendering tree (may have been set to display:none
        after previous close to avoid iOS Safari compositing interference) */
@@ -232,13 +248,18 @@ export function openAuthModal(tab, options = {}) {
             : 'info';
         showMsg(document.getElementById(target), type, message);
     }
+    overlay.inert = false;
     overlay.classList.add('active');
     document.body.style.overflow = 'hidden';
+    if (focusTrapCleanup) focusTrapCleanup();
     focusTrapCleanup = setupFocusTrap(overlay);
 }
 
 export function closeAuthModal() {
     if (!overlay) return;
+    modalVersion++;
+    cancelPendingCloseTransition();
+    overlay.inert = true;
     overlay.classList.remove('active');
     document.body.style.overflow = '';
     if (focusTrapCleanup) { focusTrapCleanup(); focusTrapCleanup = null; }
@@ -252,11 +273,14 @@ export function closeAuthModal() {
        with touch-event delivery to elements beneath it even when
        pointer-events:none and opacity:0 are set.  display:none is the
        only reliable way to fully neutralize it. */
-    overlay.addEventListener('transitionend', function onFade(e) {
-        if (e.propertyName !== 'opacity') return;
-        overlay.removeEventListener('transitionend', onFade);
-        if (!overlay.classList.contains('active')) {
-            overlay.style.display = 'none';
+    const closingOverlay = overlay;
+    function onFade(e) {
+        if (e.target !== closingOverlay || e.propertyName !== 'opacity') return;
+        cancelPendingCloseTransition();
+        if (!closingOverlay.classList.contains('active')) {
+            closingOverlay.style.display = 'none';
         }
-    });
+    }
+    closeTransitionCleanup = () => closingOverlay.removeEventListener('transitionend', onFade);
+    closingOverlay.addEventListener('transitionend', onFade);
 }

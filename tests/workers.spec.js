@@ -568,6 +568,11 @@ function seedAdminAiUsageAttempt(overrides = {}) {
     completed_at: overrides.completed_at ?? null,
     expires_at: overrides.expires_at || '2026-05-16T08:30:00.000Z',
     metadata_json: overrides.metadata_json || '{}',
+    ...(overrides.provider_outcome ? {
+      provider_outcome: overrides.provider_outcome,
+      dispatch_token: overrides.dispatch_token ?? null,
+      unknown_at: overrides.unknown_at ?? null,
+    } : {}),
   };
 }
 
@@ -958,6 +963,82 @@ test.describe('BITBI generation timeout standard', () => {
     expect(request.BODY_LIMITS.aiSaveAudioJson).toBeGreaterThan(
       pricing.ELEVENLABS_MUSIC_V2_MAX_INLINE_AUDIO_BASE64_LENGTH + (512 * 1024)
     );
+  });
+});
+
+const {
+  deferred,
+  withDeadlineClock,
+  registerGenerationTimeoutContractTests,
+} = require('./helpers/generation-timeout-contract');
+
+registerGenerationTimeoutContractTests({ loadAuthGenerationTimeoutModule, loadAiGenerationTimeoutModule });
+
+test.describe('REL-01 generation timeout contract', () => {
+  test('video asset download deadline includes its body and releases the reader', async () => {
+    const { fetchRemoteAsset } = await loadAiVideoJobsModule();
+    await withDeadlineClock(async (clock) => {
+      let streamController;
+      let cancellations = 0;
+      const body = new ReadableStream({
+        start(controller) { streamController = controller; },
+        cancel() { cancellations += 1; },
+      });
+      const outcome = fetchRemoteAsset({
+        __TEST_FETCH: async () => new Response(body, { headers: { 'content-type': 'video/mp4' } }),
+      }, 'https://fixture.invalid/video.mp4', {
+        maxBytes: 1024, allowedContentTypes: new Set(['video/mp4']), label: 'video_output',
+      }).catch((error) => error);
+      await new Promise((resolve) => setImmediate(resolve));
+      // Complete the old unbounded body to keep the negative baseline finite.
+      if (clock.pending()) clock.expire();
+      else streamController.close();
+      expect(await outcome).toMatchObject({ code: 'generation_timeout', status: 504 });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(cancellations).toBe(1);
+      expect(body.locked).toBe(false);
+      expect(clock.pending()).toBe(0);
+    });
+  });
+
+  test('member image route forwards incoming cancellation to the Workers AI binding', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const user = createContractUser({ id: 'timeout-image-caller', role: 'user' });
+    const caller = new AbortController();
+    const started = deferred();
+    const provider = deferred();
+    let providerSignal;
+    const env = createAuthTestEnv({
+      users: [user],
+      aiRun: async (_model, _payload, options) => {
+        providerSignal = options?.signal;
+        started.resolve();
+        return provider.promise;
+      },
+    });
+    const token = await seedSession(env, user.id);
+    const request = new Request(authJsonRequest('/api/ai/generate-image', 'POST', {
+      prompt: 'local cancellation fixture', steps: 4,
+    }, {
+      Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${token}`,
+      'Idempotency-Key': 'timeout-image-caller-1',
+    }), { signal: caller.signal });
+    await withDeadlineClock(async (clock) => {
+      const response = worker.fetch(request, env, createExecutionContext().execCtx);
+      await started.promise;
+      caller.abort(new DOMException('Caller canceled fixture.', 'AbortError'));
+      // Bound the old implementation, which ignores caller cancellation.
+      if (clock.pending()) clock.expire();
+      const result = await response;
+      expect(providerSignal).toBeInstanceOf(AbortSignal);
+      expect(providerSignal.aborted).toBe(true);
+      expect(result.status).not.toBe(504);
+      expect((await result.json()).code).not.toBe('generation_timeout');
+      provider.resolve({ image: ONE_PIXEL_PNG_DATA_URI });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(env.DB.state.memberUsageEvents).toHaveLength(0);
+      expect(clock.pending()).toBe(0);
+    });
   });
 });
 
@@ -14309,6 +14390,8 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     };
 	  }
 
+  require('./helpers/member-music-outcome-contract.js').registerMemberMusicOutcomeContractTests({ createMemberMusicHarness, postGenerateMusic });
+
   async function postGenerateMusic({
     worker,
     env,
@@ -15369,7 +15452,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual(expect.objectContaining({
       modelId: 'pixverse/v6',
-      options: { gateway: { id: 'default' } },
+      options: { gateway: { id: 'default' }, signal: expect.any(AbortSignal) },
     }));
     expect(calls[0].payload).toEqual({
       prompt: 'A neon city timelapse with cinematic motion.',
@@ -15727,8 +15810,19 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
         status: 'billing_failed',
         billing_status: 'failed',
         error_code: 'video_download_failed',
+        provider_outcome: 'succeeded',
       }),
     ]);
+    const retry = await postGenerateVideo({
+      worker: authWorker,
+      env,
+      token,
+      idempotencyKey: 'member-video-storage-failure-key',
+    });
+    expect(retry.status).toBe(503);
+    expect(calls).toHaveLength(1);
+    expect(fetchCalls).toHaveLength(1);
+    expect(env.DB.state.memberCreditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
   });
 
   test('member HappyHorse T2V generation charges shared pricing and saves a video asset', async () => {
@@ -15801,7 +15895,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual(expect.objectContaining({
       modelId: 'alibaba/hh1-t2v',
-      options: { gateway: { id: 'default' } },
+      options: { gateway: { id: 'default' }, signal: expect.any(AbortSignal) },
     }));
     expect(calls[0].payload).toEqual({
       prompt: 'A luminous horse-shaped constellation moving through a glass city.',
@@ -15926,7 +16020,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual(expect.objectContaining({
       modelId: SEEDANCE_2_FAST_MODEL_ID,
-      options: { gateway: { id: 'default' } },
+      options: { gateway: { id: 'default' }, signal: expect.any(AbortSignal) },
     }));
     expect(calls[0].payload).toEqual({
       prompt: 'A precise Seedance fast member video with clean motion.',
@@ -16047,7 +16141,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual(expect.objectContaining({
       modelId: GROK_IMAGINE_VIDEO_MODEL_ID,
-      options: { gateway: { id: 'default' } },
+      options: { gateway: { id: 'default' }, signal: expect.any(AbortSignal) },
     }));
     expect(calls[0].payload).toEqual({
       prompt: 'A cinematic Grok Imagine text to video scene.',
@@ -16398,8 +16492,9 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       expect.objectContaining({
         feature_key: 'ai.video.generate',
         operation_key: 'member.video.generate',
-        status: 'provider_failed',
-        billing_status: 'released',
+        status: 'provider_running',
+        provider_outcome: 'unknown',
+        billing_status: 'reserved',
         error_code: 'upstream_error',
       }),
     ]);
@@ -16719,7 +16814,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual(expect.objectContaining({
       modelId: 'minimax/music-2.6',
-      options: { gateway: { id: 'default' } },
+      options: { gateway: { id: 'default' }, signal: expect.any(AbortSignal) },
     }));
     expect(calls[0].payload).toEqual(expect.objectContaining({
       lyrics: '[Verse]\nHold the light inside the wire',
@@ -17153,8 +17248,9 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(musicFailure.env.DB.state.memberAiUsageAttempts).toEqual([
       expect.objectContaining({
         operation_key: 'member.music.generate',
-        status: 'provider_failed',
-        billing_status: 'released',
+        status: 'provider_running',
+        provider_outcome: 'unknown',
+        billing_status: 'reserved',
       }),
     ]);
 
@@ -17185,8 +17281,9 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       row.feature_key === 'ai.music.generate' && row.entry_type === 'consume'
     )).toHaveLength(0);
     expect(lyricsFailure.env.DB.state.memberAiUsageAttempts[0]).toEqual(expect.objectContaining({
-      status: 'provider_failed',
-      billing_status: 'released',
+      status: 'provider_running',
+      provider_outcome: 'unknown',
+      billing_status: 'reserved',
     }));
 
     const storageFailure = await createMemberMusicHarness();
@@ -17210,9 +17307,17 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(storageFailure.env.DB.state.memberAiUsageAttempts[0]).toEqual(expect.objectContaining({
       status: 'billing_failed',
       provider_status: 'succeeded',
+      provider_outcome: 'succeeded',
       billing_status: 'failed',
       error_code: 'storage_error',
     }));
+    const retry = await postGenerateMusic({
+      worker: storageFailure.authWorker, env: storageFailure.env, token: storageFailure.token,
+      body: { lyrics: '[Verse]\nStorage failure' }, idempotencyKey: 'member-music-storage-fail-key',
+    });
+    expect(retry.status).toBe(503);
+    expect(storageFailure.calls).toHaveLength(1);
+    expect(storageFailure.env.DB.state.memberCreditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
   });
 
   test('member music billing finalization failures are terminal, no double-debit, and suppress same-key retries', async () => {
@@ -17836,7 +17941,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
   });
 
-  test('Phase 2-D provider failure releases reservation and same-key retry charges exactly once', async () => {
+  test('Phase 2-D ambiguous provider failure retains its reservation and blocks same-key redispatch', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const user = createContractUser({ id: 'phase2d-provider-retry-user', role: 'user' });
     const orgId = 'org_c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2';
@@ -17863,8 +17968,9 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(env.DB.state.usageEvents).toHaveLength(0);
     expect(env.DB.state.creditLedger).toHaveLength(1);
     expect(env.DB.state.aiUsageAttempts[0]).toMatchObject({
-      status: 'provider_failed',
-      billing_status: 'released',
+      status: 'provider_running',
+      provider_outcome: 'unknown',
+      billing_status: 'reserved',
     });
 
     const retry = await postGenerateImage({
@@ -17876,15 +17982,14 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       idempotencyKey: 'phase2d-provider-retry',
     });
     const retryBody = await retry.json();
-    expect(retry.status).toBe(200);
-    expect(retryBody.billing.balance_after).toBe(1);
-    expect(aiCalls).toBe(2);
-    expect(env.DB.state.usageEvents).toHaveLength(1);
-    expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+    expect(retry.status).toBe(409);
+    expect(retryBody.code).toBe('ai_usage_outcome_unknown');
+    expect(aiCalls).toBe(1);
+    expect(env.DB.state.usageEvents).toHaveLength(0);
+    expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
     expect(env.DB.state.aiUsageAttempts).toHaveLength(1);
     expect(env.DB.state.aiUsageAttempts[0]).toMatchObject({
-      status: 'succeeded',
-      billing_status: 'finalized',
+      status: 'provider_running', provider_outcome: 'unknown', billing_status: 'reserved',
     });
   });
 
@@ -18220,8 +18325,9 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(providerFailure.status).toBe(502);
     expect(failingHarness.env.DB.state.usageEvents).toHaveLength(0);
     expect(failingHarness.env.DB.state.aiUsageAttempts[0]).toMatchObject({
-      status: 'provider_failed',
-      billing_status: 'released',
+      status: 'provider_running',
+      provider_outcome: 'unknown',
+      billing_status: 'reserved',
     });
 
     const billingFailHarness = await createMemberTextHarness({
@@ -18868,7 +18974,8 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
 
       expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_scheduled_expired_0000000000000001')).toMatchObject({
         status: 'expired',
-        provider_status: 'expired',
+        provider_status: 'running',
+        provider_outcome: 'unknown',
         billing_status: 'released',
       });
       expect(env.DB.state.aiUsageAttempts.find((row) => row.id === 'aua_scheduled_complete_0000000000000002')).toMatchObject({
@@ -19083,7 +19190,8 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       expect(env.USER_IMAGES.deleteCalls).not.toContain(savedUserMediaKey);
       expect(env.DB.state.memberAiUsageAttempts.find((row) => row.id === 'maua_phase37_reserved_expired')).toMatchObject({
         status: 'expired',
-        provider_status: 'expired',
+        provider_status: 'running',
+        provider_outcome: 'unknown',
         billing_status: 'released',
         result_status: 'none',
       });
@@ -27930,7 +28038,7 @@ test.describe('Worker routes', () => {
       expect(assetFetch.calls).toEqual(['https://provider.example.com/out.mp4?token=secret']);
       expect(env.USER_IMAGES.putCalls).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          key: `users/${admin.id}/video-jobs/${createBody.job.jobId}/output.mp4`,
+          key: `users/${admin.id}/video-jobs/${createBody.job.jobId}/attempts/${env.DB.state.aiVideoJobs[0].processing_token}/output.mp4`,
         }),
       ]));
       expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
@@ -28277,7 +28385,7 @@ test.describe('Worker routes', () => {
       expect(assetFetch.calls).toContain('https://cdn.example.com/generated-video.mp4');
       expect(env.USER_IMAGES.putCalls).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          key: `users/${admin.id}/video-jobs/${createBody.job.jobId}/output.mp4`,
+          key: `users/${admin.id}/video-jobs/${createBody.job.jobId}/attempts/${env.DB.state.aiVideoJobs[0].processing_token}/output.mp4`,
         }),
       ]));
 
@@ -28537,7 +28645,7 @@ test.describe('Worker routes', () => {
       expect(assetFetch.calls).toContain('https://cdn.example.com/generated-video.mp4');
     });
 
-    test('AI video job consumer fails pending provider tasks after max attempts', async () => {
+    test('AI video job consumer preserves unresolved pending provider tasks after local polling exhaustion', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('async-video-pending-exhausted-admin');
       const service = createAiVideoJobServiceBinding(() => ({
@@ -28591,10 +28699,18 @@ test.describe('Worker routes', () => {
 
       expect(exhaustedBatch.states[0]).toMatchObject({ acked: true, retried: false });
       expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
-        status: 'failed',
-        error_code: 'max_attempts_exhausted',
+        status: 'processing',
+        provider_outcome: 'unknown',
+        error_code: 'ai_video_outcome_unknown',
         attempt_count: 3,
       });
+      const duplicateBatch = createQueueBatch([pollMessage], { attempts: 4, queue: AI_VIDEO_JOBS_QUEUE_NAME });
+      await authWorker.queue(duplicateBatch.batch, env, createExecutionContext().execCtx);
+      expect(duplicateBatch.states[0]).toMatchObject({ acked: true, retried: false });
+      expect(service.calls.map((call) => new URL(call.url).pathname)).toEqual([
+        '/internal/ai/video-task/create', '/internal/ai/video-task/poll',
+      ]);
+      expect(env.DB.state.platformBudgetUsageEvents).toHaveLength(0);
       expect(env.AI_VIDEO_JOBS_QUEUE.messages).toHaveLength(0);
       expect(env.DB.state.aiVideoJobPoisonMessages).toEqual(expect.arrayContaining([
         expect.objectContaining({ reason_code: 'max_attempts_exhausted' }),
@@ -28754,7 +28870,7 @@ test.describe('Worker routes', () => {
       expect(service.calls).toHaveLength(1);
     });
 
-    test('AI video job consumer retries transient failures without duplicating provider task creation', async () => {
+    test('AI video job consumer preserves ambiguous create failures without retrying provider task creation', async () => {
       const authWorker = await loadWorker('workers/auth/src/index.js');
       const admin = createAdminUser('async-video-retry-admin');
       const service = createAiVideoJobServiceBinding(() => ({
@@ -28787,11 +28903,12 @@ test.describe('Worker routes', () => {
 
       await authWorker.queue(retryBatch.batch, env, createExecutionContext().execCtx);
 
-      expect(retryBatch.states[0]).toMatchObject({ acked: false, retried: true });
+      expect(retryBatch.states[0]).toMatchObject({ acked: true, retried: false });
       expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
         id: createBody.job.jobId,
-        status: 'queued',
-        error_code: 'upstream_error',
+        status: 'processing',
+        provider_outcome: 'unknown',
+        error_code: 'ai_video_outcome_unknown',
         attempt_count: 1,
       });
       expect(JSON.parse(env.DB.state.aiVideoJobs[0].budget_policy_json)).toMatchObject({
@@ -28807,12 +28924,12 @@ test.describe('Worker routes', () => {
       await authWorker.queue(earlyDuplicateBatch.batch, env, createExecutionContext().execCtx);
       expect(earlyDuplicateBatch.states[0]).toMatchObject({ acked: true, retried: false });
       expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
-        status: 'queued',
+        status: 'processing',
+        provider_outcome: 'unknown',
         attempt_count: 1,
       });
       expect(service.calls).toHaveLength(1);
 
-      env.DB.state.aiVideoJobs[0].attempt_count = 2;
       env.DB.state.aiVideoJobs[0].locked_until = null;
       env.DB.state.aiVideoJobs[0].next_attempt_at = '2000-01-01T00:00:00.000Z';
       const finalBatch = createQueueBatch([queued[0]], { attempts: 4, queue: AI_VIDEO_JOBS_QUEUE_NAME });
@@ -28820,12 +28937,15 @@ test.describe('Worker routes', () => {
 
       expect(finalBatch.states[0]).toMatchObject({ acked: true, retried: false });
       expect(env.DB.state.aiVideoJobs[0]).toMatchObject({
-        status: 'failed',
-        error_code: 'provider_task_create_duplicate_suppressed',
-        attempt_count: 3,
+        status: 'processing',
+        provider_outcome: 'unknown',
+        error_code: 'ai_video_outcome_unknown',
+        attempt_count: 1,
       });
       expect(service.calls).toHaveLength(1);
       expect(env.DB.state.aiVideoJobPoisonMessages).toHaveLength(0);
+      expect(env.DB.state.platformBudgetUsageEvents).toHaveLength(0);
+      expect(env.USER_IMAGES.putCalls).toHaveLength(0);
     });
 
     test('AI video job consumer records malformed queue messages without storing raw bodies', async () => {
@@ -29221,6 +29341,7 @@ test.describe('Worker routes', () => {
       expect(runCalls[0][1]).not.toHaveProperty('temperature');
       expect(runCalls[0][1].messages.every((message) => ['user', 'assistant'].includes(message.role))).toBe(true);
       expect(runCalls[0][2]).toEqual({
+        signal: expect.any(AbortSignal),
         gateway: {
           id: 'admin-ai-gateway',
           metadata: expect.objectContaining({
@@ -30289,7 +30410,7 @@ test.describe('Worker routes', () => {
     });
 
     test('POST /api/admin/ai/test-text returns actionable Unified Billing readiness guidance for Claude Fable 5 failures', async () => {
-      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
         aiRun: async () => {
           throw new Error('insufficient unified billing credits');
         },
@@ -30315,10 +30436,21 @@ test.describe('Worker routes', () => {
         code: 'unified_billing_unavailable',
         error: expect.stringContaining('Unified Billing credits'),
       }));
+      const duplicate = await authWorker.fetch(
+        authJsonRequest('/api/admin/ai/test-text', 'POST', {
+          model: 'anthropic/claude-fable-5', prompt: 'Check billing readiness.', maxTokens: 128, temperature: 0.5,
+        }, { ...authHeaders, 'Idempotency-Key': 'admin-fable-readiness-1' }),
+        env, createExecutionContext().execCtx
+      );
+      expect(duplicate.status).toBe(409);
+      expect(await duplicate.json()).toMatchObject({ code: 'admin_ai_outcome_unknown' });
+      expect(aiLabRequests).toHaveLength(1);
+      expect(env.DB.state.platformBudgetUsageEvents).toHaveLength(0);
       expect(env.DB.state.adminAiUsageAttempts[0]).toEqual(expect.objectContaining({
         model_key: 'anthropic/claude-fable-5',
-        status: 'provider_failed',
-        provider_status: 'failed',
+        status: 'provider_running',
+        provider_outcome: 'unknown',
+        provider_status: 'running',
       }));
     });
 
@@ -30769,7 +30901,7 @@ test.describe('Worker routes', () => {
         }),
       }));
       expect(capturedModelId).toBe('openai/gpt-image-2');
-      expect(capturedOptions).toEqual({ gateway: { id: 'custom-admin-gateway' } });
+      expect(capturedOptions).toEqual({ gateway: { id: 'custom-admin-gateway' }, signal: expect.any(AbortSignal) });
       expect(capturedPayload).toEqual({
         prompt: 'Editorial studio portrait.',
         quality: 'high',
@@ -30825,7 +30957,7 @@ test.describe('Worker routes', () => {
       );
 
       expect(res.status).toBe(200);
-      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' }, signal: expect.any(AbortSignal) });
     });
 
     test('POST /api/admin/ai/test-image resolves Grok Imagine Image source refs and charges organization credits', async () => {
@@ -30978,7 +31110,7 @@ test.describe('Worker routes', () => {
       }));
       expect(body.billing.pricing.provider_cost_usd).toBeCloseTo(0.046, 6);
       expect(capturedModelId).toBe('xai/grok-imagine-image');
-      expect(capturedOptions).toEqual({ gateway: { id: 'custom-grok-image-gateway' } });
+      expect(capturedOptions).toEqual({ gateway: { id: 'custom-grok-image-gateway' }, signal: expect.any(AbortSignal) });
       expect(capturedPayload).toEqual({
         prompt: 'Use internal sources for an editorial image.',
         aspect_ratio: '3:4',
@@ -31112,7 +31244,7 @@ test.describe('Worker routes', () => {
       expect(body.billing.pricing.provider_cost_usd).toBeCloseTo(0.10, 6);
       expect(body.billing.pricing.normalized.inputImageMegapixels).toBeCloseTo(1, 6);
       expect(capturedModelId).toBe('black-forest-labs/flux-2-max');
-      expect(capturedOptions).toEqual({ gateway: { id: 'custom-admin-gateway' } });
+      expect(capturedOptions).toEqual({ gateway: { id: 'custom-admin-gateway' }, signal: expect.any(AbortSignal) });
       expect(capturedPayload).toEqual({
         prompt: 'Admin FLUX.2 Max experiment.',
         width: 1024,
@@ -31283,8 +31415,9 @@ test.describe('Worker routes', () => {
       expect(res.status).toBe(502);
       expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
       expect(env.DB.state.aiUsageAttempts[0]).toEqual(expect.objectContaining({
-        status: 'provider_failed',
-        billing_status: 'released',
+        status: 'provider_running',
+        provider_outcome: 'unknown',
+        billing_status: 'reserved',
       }));
     });
 
@@ -31312,8 +31445,9 @@ test.describe('Worker routes', () => {
       expect(res.status).toBe(502);
       expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
       expect(env.DB.state.aiUsageAttempts[0]).toEqual(expect.objectContaining({
-        status: 'provider_failed',
-        billing_status: 'released',
+        status: 'provider_running',
+        provider_outcome: 'unknown',
+        billing_status: 'reserved',
       }));
     });
 
@@ -32940,7 +33074,7 @@ test.describe('Worker routes', () => {
       expect(aiLabRequests).toHaveLength(1);
     });
 
-    test('admin embeddings provider failure records a terminal attempt and retry does not call provider again', async () => {
+    test('admin embeddings provider failure records an unresolved attempt and retry does not call provider again', async () => {
       const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
         aiRun: async () => {
           throw new Error('simulated provider failure');
@@ -32964,10 +33098,11 @@ test.describe('Worker routes', () => {
       const attempt = env.DB.state.adminAiUsageAttempts[0];
       expect(attempt).toEqual(expect.objectContaining({
         operation_key: 'admin.embeddings.test',
-        status: 'provider_failed',
-        provider_status: 'failed',
+        status: 'provider_running',
+        provider_outcome: 'unknown',
+        provider_status: 'running',
         result_status: 'none',
-        error_code: 'upstream_error',
+        error_code: 'admin_ai_outcome_unknown',
       }));
 
       const second = await authWorker.fetch(
@@ -32978,9 +33113,11 @@ test.describe('Worker routes', () => {
       expect(second.status).toBe(409);
       await expect(second.json()).resolves.toMatchObject({
         ok: false,
-        code: 'admin_ai_idempotency_terminal',
+        code: 'admin_ai_outcome_unknown',
       });
       expect(aiLabRequests).toHaveLength(1);
+      expect(env.DB.state.platformBudgetUsageEvents).toHaveLength(0);
+      expect(attempt.unknown_at).toEqual(expect.any(String));
       expect(JSON.stringify(attempt)).not.toContain('failing embedding request');
     });
 
@@ -33223,10 +33360,11 @@ test.describe('Worker routes', () => {
       const attempt = failingHarness.env.DB.state.adminAiUsageAttempts[0];
       expect(attempt).toEqual(expect.objectContaining({
         operation_key: 'admin.music.test',
-        status: 'provider_failed',
-        provider_status: 'failed',
+        status: 'provider_running',
+        provider_outcome: 'unknown',
+        provider_status: 'running',
         result_status: 'none',
-        error_code: 'upstream_error',
+        error_code: 'admin_ai_outcome_unknown',
       }));
       expect(JSON.stringify(attempt)).not.toContain('Failing music request');
 
@@ -33238,9 +33376,11 @@ test.describe('Worker routes', () => {
       expect(second.status).toBe(409);
       await expect(second.json()).resolves.toMatchObject({
         ok: false,
-        code: 'admin_ai_idempotency_terminal',
+        code: 'admin_ai_outcome_unknown',
       });
       expect(failingHarness.aiLabRequests).toHaveLength(1);
+      expect(failingHarness.env.DB.state.platformBudgetUsageEvents).toHaveLength(0);
+      expect(attempt.unknown_at).toEqual(expect.any(String));
 
       const missingHarness = await createAdminAiContractHarness();
       missingHarness.env.DB.missingTables.add('admin_ai_usage_attempts');
@@ -33424,10 +33564,11 @@ test.describe('Worker routes', () => {
       const attempt = failingHarness.env.DB.state.adminAiUsageAttempts[0];
       expect(attempt).toEqual(expect.objectContaining({
         operation_key: 'admin.compare',
-        status: 'provider_failed',
-        provider_status: 'failed',
+        status: 'provider_running',
+        provider_outcome: 'unknown',
+        provider_status: 'running',
         result_status: 'none',
-        error_code: 'upstream_error',
+        error_code: 'admin_ai_outcome_unknown',
       }));
       expect(JSON.stringify(attempt)).not.toContain('Failing compare request');
 
@@ -33439,9 +33580,11 @@ test.describe('Worker routes', () => {
       expect(second.status).toBe(409);
       await expect(second.json()).resolves.toMatchObject({
         ok: false,
-        code: 'admin_ai_idempotency_terminal',
+        code: 'admin_ai_outcome_unknown',
       });
       expect(failingHarness.aiLabRequests).toHaveLength(1);
+      expect(failingHarness.env.DB.state.platformBudgetUsageEvents).toHaveLength(0);
+      expect(attempt.unknown_at).toEqual(expect.any(String));
 
       const missingHarness = await createAdminAiContractHarness();
       missingHarness.env.DB.missingTables.add('admin_ai_usage_attempts');
@@ -33650,7 +33793,7 @@ test.describe('Worker routes', () => {
       expect(pendingHarness.aiLabRequests).toHaveLength(1);
     });
 
-    test('admin live-agent provider failures are terminal and missing attempts table fails before provider work', async () => {
+    test('admin live-agent ambiguous provider failures remain unresolved and missing attempts table fails before provider work', async () => {
       const payload = {
         messages: [
           { role: 'user', content: 'Failing live-agent request should become terminal.' },
@@ -33672,10 +33815,11 @@ test.describe('Worker routes', () => {
       const attempt = failingHarness.env.DB.state.adminAiUsageAttempts[0];
       expect(attempt).toEqual(expect.objectContaining({
         operation_key: 'admin.live_agent',
-        status: 'provider_failed',
-        provider_status: 'failed',
+        status: 'provider_running',
+        provider_outcome: 'unknown',
+        provider_status: 'running',
         result_status: 'none',
-        error_code: 'upstream_error',
+        error_code: 'admin_ai_outcome_unknown',
       }));
       expect(JSON.stringify(attempt)).not.toContain('Failing live-agent request');
 
@@ -33687,9 +33831,11 @@ test.describe('Worker routes', () => {
       expect(second.status).toBe(409);
       await expect(second.json()).resolves.toMatchObject({
         ok: false,
-        code: 'admin_ai_idempotency_terminal',
+        code: 'admin_ai_outcome_unknown',
       });
       expect(failingHarness.aiLabRequests).toHaveLength(1);
+      expect(failingHarness.env.DB.state.platformBudgetUsageEvents).toHaveLength(0);
+      expect(attempt.unknown_at).toEqual(expect.any(String));
 
       const missingHarness = await createAdminAiContractHarness();
       missingHarness.env.DB.missingTables.add('admin_ai_usage_attempts');
@@ -33867,6 +34013,8 @@ test.describe('Worker routes', () => {
           route: '/api/admin/ai/test-embeddings',
           status: 'provider_running',
           provider_status: 'running',
+          provider_outcome: 'dispatched',
+          dispatch_token: 'fixture-cleanup-dispatch-token',
           expires_at: '2000-01-02T00:00:00.000Z',
           updated_at: '2000-01-02T00:00:00.000Z',
         }),
@@ -33888,7 +34036,19 @@ test.describe('Worker routes', () => {
           expires_at: '2999-01-01T00:00:00.000Z',
           updated_at: '2999-01-01T00:00:00.000Z',
         }),
+        seedAdminAiUsageAttempt({
+          id: 'aaia_phase482_already_unknown',
+          admin_user_id: 'phase482-cleanup-admin',
+          status: 'provider_running',
+          provider_status: 'running',
+          provider_outcome: 'unknown',
+          dispatch_token: 'fixture-already-unknown-token',
+          unknown_at: '1999-01-01T00:00:00.000Z',
+          expires_at: '1999-01-01T00:00:00.000Z',
+          updated_at: '1999-01-01T00:00:00.000Z',
+        }),
       );
+      const unknownBefore = JSON.stringify(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_already_unknown'));
 
       const dryRun = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/admin-usage-attempts/cleanup-expired', 'POST', { limit: 10 }, {
@@ -33930,10 +34090,13 @@ test.describe('Worker routes', () => {
       expect(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_expired_pending')).toMatchObject({
         status: 'expired',
         provider_status: 'not_started',
+        provider_outcome: 'not_dispatched',
       });
       expect(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_expired_running')).toMatchObject({
-        status: 'expired',
-        provider_status: 'failed',
+        status: 'provider_running',
+        provider_status: 'running',
+        provider_outcome: 'unknown',
+        error_code: 'admin_ai_outcome_unknown',
       });
       expect(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_completed')).toMatchObject({
         status: 'succeeded',
@@ -33942,6 +34105,7 @@ test.describe('Worker routes', () => {
       expect(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_fresh_pending')).toMatchObject({
         status: 'pending',
       });
+      expect(JSON.stringify(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_already_unknown'))).toBe(unknownBefore);
       expect(env.DB.state.usageEvents).toHaveLength(0);
       expect(env.DB.state.creditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
       expect(aiLabRequests).toHaveLength(0);
@@ -34026,6 +34190,8 @@ test.describe('Worker routes', () => {
             admin_user_id: admin.id,
             status: 'provider_running',
             provider_status: 'running',
+            provider_outcome: 'dispatched',
+            dispatch_token: 'fixture-cleanup-dispatch-token',
             expires_at: '2000-01-01T00:00:00.000Z',
           }),
           seedAdminAiUsageAttempt({
@@ -34041,8 +34207,10 @@ test.describe('Worker routes', () => {
 
       await authWorker.scheduled({}, env, createExecutionContext().execCtx);
       expect(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_scheduled_expired')).toMatchObject({
-        status: 'expired',
-        provider_status: 'failed',
+        status: 'provider_running',
+        provider_status: 'running',
+        provider_outcome: 'unknown',
+        error_code: 'admin_ai_outcome_unknown',
       });
       expect(env.DB.state.adminAiUsageAttempts.find((row) => row.id === 'aaia_phase482_scheduled_done')).toMatchObject({
         status: 'succeeded',
@@ -34241,7 +34409,7 @@ test.describe('Worker routes', () => {
       expect(capturedPayload.prompt).toContain('Tempo target: 118 BPM.');
       expect(capturedPayload.prompt).toContain('Preferred key center: A Minor.');
       expect(capturedPayload.prompt).toContain('Lead vocals should remain present.');
-      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' }, signal: expect.any(AbortSignal) });
       expect(aiLabRequests).toHaveLength(1);
       expect(aiLabRequests[0].body.__bitbi_ai_caller_policy).toEqual(expect.objectContaining({
         policy_version: 'ai-caller-policy-v1',
@@ -34316,7 +34484,7 @@ test.describe('Worker routes', () => {
       );
 
       expect(res.status).toBe(200);
-      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' }, signal: expect.any(AbortSignal) });
     });
 
     test('POST /api/admin/ai/test-music forwards only supported provider fields for instrumental auto mode', async () => {
@@ -34417,7 +34585,7 @@ test.describe('Worker routes', () => {
     });
 
     test('POST /api/admin/ai/test-music maps provider-declared failures to the upstream error contract', async () => {
-      const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+      const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
         aiRun: async () => ({
           trace_id: 'music-provider-error-trace',
           base_resp: {
@@ -34451,10 +34619,14 @@ test.describe('Worker routes', () => {
       expect(env.DB.state.adminAiUsageAttempts[0]).toMatchObject({
         status: 'provider_failed',
         provider_status: 'failed',
+        provider_outcome: 'failed',
         result_status: 'none',
         error_code: 'upstream_error',
       });
       expect(JSON.stringify(env.DB.state.adminAiUsageAttempts[0])).not.toContain('Minimal house groove.');
+      expect(res.headers.has('x-bitbi-provider-outcome')).toBe(false);
+      expect(aiLabRequests).toHaveLength(1);
+      expect(env.DB.state.platformBudgetUsageEvents).toHaveLength(0);
     });
 
     test('POST /api/admin/ai/test-music validates vocal custom mode lyrics', async () => {
@@ -34530,7 +34702,7 @@ test.describe('Worker routes', () => {
           store_for_inpainting: true,
           sign_with_c2pa: true,
         },
-        options: { gateway: { id: 'admin-music-custom-gateway', collectLog: false } },
+        options: { gateway: { id: 'admin-music-custom-gateway', collectLog: false }, signal: expect.any(AbortSignal) },
       }]);
       const body = await res.json();
       expect(body).toMatchObject({
@@ -34614,7 +34786,7 @@ test.describe('Worker routes', () => {
           prompt,
           music_length_ms: 30000,
         },
-        options: { gateway: { id: 'default', collectLog: false } },
+        options: { gateway: { id: 'default', collectLog: false }, signal: expect.any(AbortSignal) },
       }]);
       const body = await res.json();
       expect(body.result).toMatchObject({
@@ -34668,7 +34840,7 @@ test.describe('Worker routes', () => {
           prompt: 'A synthetic completed gateway response.',
           music_length_ms: 30000,
         },
-        options: { gateway: { id: 'default', collectLog: false } },
+        options: { gateway: { id: 'default', collectLog: false }, signal: expect.any(AbortSignal) },
       }]);
       const body = await res.json();
       expect(body).toMatchObject({
@@ -34740,7 +34912,7 @@ test.describe('Worker routes', () => {
           seed: 42,
           store_for_inpainting: true,
         },
-        options: { gateway: { id: 'default', collectLog: false } },
+        options: { gateway: { id: 'default', collectLog: false }, signal: expect.any(AbortSignal) },
       }]);
       const body = await res.json();
       expect(body.result).toMatchObject({
@@ -34977,7 +35149,7 @@ test.describe('Worker routes', () => {
       ];
 
       for (const testCase of cases) {
-        const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+        const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
           aiRun: async () => testCase.response,
         });
         const res = await authWorker.fetch(
@@ -35004,13 +35176,18 @@ test.describe('Worker routes', () => {
         });
         const attempt = env.DB.state.adminAiUsageAttempts[0];
         expect(attempt, testCase.name).toMatchObject({
-          status: 'provider_failed',
-          provider_status: 'failed',
+          status: testCase.name === 'incomplete' ? 'provider_running' : 'provider_failed',
+          provider_status: completedOutputFailure ? 'succeeded' : testCase.name === 'failed' ? 'failed' : 'running',
+          provider_outcome: completedOutputFailure ? 'succeeded' : testCase.name === 'failed' ? 'failed' : 'unknown',
           result_status: 'none',
-          error_code: completedOutputFailure ? 'provider_output_validation_failed' : 'upstream_error',
+          error_code: completedOutputFailure ? 'provider_output_validation_failed' : testCase.name === 'failed' ? 'upstream_error' : 'admin_ai_outcome_unknown',
         });
         expect(JSON.stringify(attempt), testCase.name).not.toContain(`Safe ${testCase.name}`);
         expect(JSON.stringify(attempt), testCase.name).not.toContain(mp3Base64);
+        expect(res.headers.has('x-bitbi-provider-outcome')).toBe(false);
+        expect(aiLabRequests).toHaveLength(1);
+        expect(env.DB.state.platformBudgetUsageEvents).toHaveLength(0);
+        if (completedOutputFailure) expect(attempt.platform_exposure_units).toBeGreaterThan(0);
       }
     });
 
@@ -35087,7 +35264,7 @@ test.describe('Worker routes', () => {
 
       try {
         for (const testCase of cases) {
-          const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
+          const { authWorker, env, authHeaders, aiLabRequests } = await createAdminAiContractHarness({
             aiRun: async () => testCase.response(),
           });
           const res = await authWorker.fetch(
@@ -35115,9 +35292,15 @@ test.describe('Worker routes', () => {
               : 'Music generation failed',
           });
           expect(env.DB.state.adminAiUsageAttempts[0], testCase.name).toMatchObject({
-            status: 'provider_failed',
-            error_code: completedOutputFailure ? 'provider_output_validation_failed' : 'upstream_error',
+            status: completedOutputFailure ? 'provider_failed' : 'provider_running',
+            provider_status: completedOutputFailure ? 'succeeded' : 'running',
+            provider_outcome: completedOutputFailure ? 'succeeded' : 'unknown',
+            error_code: completedOutputFailure ? 'provider_output_validation_failed' : 'admin_ai_outcome_unknown',
           });
+          expect(res.headers.has('x-bitbi-provider-outcome')).toBe(false);
+          expect(aiLabRequests).toHaveLength(1);
+          expect(env.DB.state.platformBudgetUsageEvents).toHaveLength(0);
+          expect(env.DB.state.adminAiUsageAttempts[0].platform_exposure_units).toBeGreaterThan(0);
         }
 
         const oversizedEvents = diagnostics.entries.filter((entry) =>
@@ -35172,7 +35355,7 @@ test.describe('Worker routes', () => {
           is_instrumental: false,
           lyrics,
         },
-        options: { gateway: { id: 'default' } },
+        options: { gateway: { id: 'default' }, signal: expect.any(AbortSignal) },
       }]);
       const body = await res.json();
       expect(body).toMatchObject({
@@ -35425,7 +35608,7 @@ test.describe('Worker routes', () => {
         seed: 42,
         generate_audio: true,
       }));
-      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' }, signal: expect.any(AbortSignal) });
     });
 
     test('POST /api/admin/ai/test-video passes AI Gateway options for the proxied pixverse model', async () => {
@@ -35446,7 +35629,7 @@ test.describe('Worker routes', () => {
       );
 
       expect(res.status).toBe(200);
-      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' }, signal: expect.any(AbortSignal) });
     });
 
     test('POST /api/admin/ai/test-video accepts HappyHorse T2V and rejects unsupported fields', async () => {
@@ -35523,7 +35706,7 @@ test.describe('Worker routes', () => {
       expect(capturedPayload.audio).toBeUndefined();
       expect(capturedPayload.negative_prompt).toBeUndefined();
       expect(capturedPayload.image_input).toBeUndefined();
-      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' }, signal: expect.any(AbortSignal) });
 
       const rejected = await authWorker.fetch(
         authJsonRequest('/api/admin/ai/test-video', 'POST', {
@@ -35661,7 +35844,7 @@ test.describe('Worker routes', () => {
         aspect_ratio: '4:3',
         resolution: '1080p',
       });
-      expect(aiRunCalls[0][2]).toEqual({ gateway: { id: 'default' } });
+      expect(aiRunCalls[0][2]).toEqual({ gateway: { id: 'default' }, signal: expect.any(AbortSignal) });
       expect(JSON.stringify(aiRunCalls[0][1])).not.toContain('seed');
       expect(JSON.stringify(aiRunCalls[0][1])).not.toContain('audio');
       expect(JSON.stringify(aiRunCalls[0][1])).not.toContain('negative_prompt');
@@ -35705,7 +35888,7 @@ test.describe('Worker routes', () => {
         aspect_ratio: '16:9',
         resolution: '720p',
       });
-      expect(aiRunCalls[1][2]).toEqual({ gateway: { id: 'default' } });
+      expect(aiRunCalls[1][2]).toEqual({ gateway: { id: 'default' }, signal: expect.any(AbortSignal) });
       expect(JSON.stringify(aiRunCalls[1][1])).not.toContain('seed');
       expect(JSON.stringify(aiRunCalls[1][1])).not.toContain('audio');
       expect(JSON.stringify(aiRunCalls[1][1])).not.toContain('negative_prompt');
@@ -35773,7 +35956,7 @@ test.describe('Worker routes', () => {
         aspect_ratio: '16:9',
         resolution: '720p',
       });
-      expect(aiRunCalls[0][2]).toEqual({ gateway: { id: 'admin-gateway' } });
+      expect(aiRunCalls[0][2]).toEqual({ gateway: { id: 'admin-gateway' }, signal: expect.any(AbortSignal) });
       for (const unsupported of [
         'quality',
         'seed',
@@ -35898,7 +36081,7 @@ test.describe('Worker routes', () => {
         video: { url: expect.stringContaining('/api/internal/ai/media-source/') },
         output: { upload_url: 'https://uploads.example.com/output.mp4' },
       });
-      expect(aiRunCalls[0][2]).toEqual({ gateway: { id: 'admin-gateway' } });
+      expect(aiRunCalls[0][2]).toEqual({ gateway: { id: 'admin-gateway' }, signal: expect.any(AbortSignal) });
       expect(aiRunCalls[0][1].quality).toBeUndefined();
       expect(aiRunCalls[0][1].seed).toBeUndefined();
       expect(aiRunCalls[0][1].negative_prompt).toBeUndefined();
@@ -35998,7 +36181,7 @@ test.describe('Worker routes', () => {
       expect(capturedPayload.workflow).toBeUndefined();
       expect(capturedPayload.start_image).toBeUndefined();
       expect(capturedPayload.end_image).toBeUndefined();
-      expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+      expect(capturedOptions).toEqual({ gateway: { id: 'default' }, signal: expect.any(AbortSignal) });
     });
 
     test('POST /api/admin/ai/test-video accepts vidu/q3-pro start/end-frame workflows without sending unsupported fields', async () => {
@@ -36332,7 +36515,7 @@ test.describe('Worker routes', () => {
       expect(typeof capturedPayload.aspect_ratio).toBe('string');
     });
 
-    test('POST /api/admin/ai/test-video accepts gateway_mode=off for vidu/q3-pro and omits the AI Gateway options argument', async () => {
+    test('POST /api/admin/ai/test-video accepts gateway_mode=off for vidu/q3-pro and passes only cancellation options', async () => {
       let capturedArgs = null;
       const { authWorker, env, authHeaders } = await createAdminAiContractHarness({
         aiRun: async (...args) => {
@@ -36357,7 +36540,9 @@ test.describe('Worker routes', () => {
       );
 
       expect(res.status).toBe(200);
-      expect(capturedArgs).toHaveLength(2);
+      expect(capturedArgs).toHaveLength(3);
+      expect(capturedArgs[2]).toEqual({ signal: expect.any(AbortSignal) });
+      expect(capturedArgs[2]).not.toHaveProperty('gateway');
       expect(capturedArgs[0]).toBe('vidu/q3-pro');
       expect(capturedArgs[1]).toEqual({
         prompt: 'This prompt should be ignored in minimal mode.',
@@ -36402,7 +36587,7 @@ test.describe('Worker routes', () => {
         audio: true,
         aspect_ratio: '16:9',
       });
-      expect(capturedArgs[2]).toEqual({ gateway: { id: 'default' } });
+      expect(capturedArgs[2]).toEqual({ gateway: { id: 'default' }, signal: expect.any(AbortSignal) });
     });
 
     test('POST /api/admin/ai/test-video logs aiGatewayLogId after a successful vidu/q3-pro run', async () => {
@@ -36477,7 +36662,9 @@ test.describe('Worker routes', () => {
       );
 
       expect(res.status).toBe(200);
-      expect(capturedArgs).toHaveLength(2);
+      expect(capturedArgs).toHaveLength(3);
+      expect(capturedArgs[2]).toEqual({ signal: expect.any(AbortSignal) });
+      expect(capturedArgs[2]).not.toHaveProperty('gateway');
       expect(capturedArgs[0]).toBe('vidu/q3-pro');
       expect(capturedArgs[1]).toEqual({
         prompt: 'A golden retriever running through a sunlit meadow in slow motion',
@@ -36519,7 +36706,7 @@ test.describe('Worker routes', () => {
         duration: 5,
         resolution: '720p',
       });
-      expect(capturedArgs[2]).toEqual({ gateway: { id: 'default' } });
+      expect(capturedArgs[2]).toEqual({ gateway: { id: 'default' }, signal: expect.any(AbortSignal) });
     });
 
     test('POST /api/admin/ai/test-video fetches and logs the AI Gateway log on vidu/q3-pro failure when a log ID exists', async () => {
@@ -36688,13 +36875,15 @@ test.describe('Worker routes', () => {
       }
     });
 
-    test('POST /api/admin/ai/test-video falls back to the direct Vidu provider when Cloudflare validation fails without a gateway log ID', async () => {
+    test('POST /api/admin/ai/test-video falls back to Vidu only with explicit mocked proof Cloudflare did not dispatch', async () => {
       const diagnostics = captureDiagnosticLogs();
       const originalFetch = global.fetch;
       let pollCount = 0;
       const fetchCalls = [];
       const providerError = new Error('{"error":"Model execution failed (User Input Error): Request validation failed"}');
       providerError.name = 'InferenceUpstreamError';
+      // Explicit local fixture proof; a provider error message alone is ambiguous.
+      providerError.providerOutcome = 'not_dispatched';
       providerError.status = 502;
 
       global.fetch = async (url, init = {}) => {
@@ -36837,6 +37026,8 @@ test.describe('Worker routes', () => {
       const originalFetch = global.fetch;
       const providerError = new Error('{"error":"Model execution failed (User Input Error): Request validation failed"}');
       providerError.name = 'InferenceUpstreamError';
+      // Explicit local fixture proof; a provider error message alone is ambiguous.
+      providerError.providerOutcome = 'not_dispatched';
       providerError.status = 502;
       const dataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8BQDwAEgAF/QualrQ==';
       let capturedCreateBody = null;
@@ -36936,6 +37127,8 @@ test.describe('Worker routes', () => {
       const originalFetch = global.fetch;
       const providerError = new Error('{"error":"Model execution failed (User Input Error): Request validation failed"}');
       providerError.name = 'InferenceUpstreamError';
+      // Explicit local fixture proof; a provider error message alone is ambiguous.
+      providerError.providerOutcome = 'not_dispatched';
       providerError.status = 502;
 
       global.fetch = async (url) => {
@@ -42349,7 +42542,7 @@ test.describe('Worker routes', () => {
     });
     expect(expectedPricing.credits).toBe(250);
     expect(capturedModelId).toBe('openai/gpt-image-2');
-    expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+    expect(capturedOptions).toEqual({ gateway: { id: 'default' }, signal: expect.any(AbortSignal) });
     expect(capturedPayload).toEqual({
       prompt: 'member GPT Image 2 generation',
       quality: 'high',
@@ -42607,7 +42800,7 @@ test.describe('Worker routes', () => {
       },
     });
     expect(capturedModelId).toBe('black-forest-labs/flux-2-max');
-    expect(capturedOptions).toEqual({ gateway: { id: 'default' } });
+    expect(capturedOptions).toEqual({ gateway: { id: 'default' }, signal: expect.any(AbortSignal) });
     expect(capturedPayload).toEqual({
       prompt: 'member FLUX.2 Max generation',
       width: 1024,
@@ -52381,8 +52574,9 @@ test.describe('Worker routes', () => {
     expect(env.DB.state.memberAiUsageAttempts).toEqual([
       expect.objectContaining({
         user_id: 'quota-fail-user',
-        status: 'provider_failed',
-        billing_status: 'released',
+        status: 'provider_running',
+        provider_outcome: 'unknown',
+        billing_status: 'reserved',
       }),
     ]);
   });
@@ -55715,4 +55909,8 @@ test.describe('Worker routes', () => {
     await drainActivityIngestQueue(authWorker, env);
     expect(env.DB.state.adminAuditLog.at(-1).action).toBe('operational_delete_user');
   });
+});
+
+require('./helpers/admin-cap-replay-contract.js').registerAdminCapReplayContractTests({
+  createAdminAiContractHarness, authJsonRequest, createExecutionContext,
 });

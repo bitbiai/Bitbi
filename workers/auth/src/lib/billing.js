@@ -1544,32 +1544,38 @@ export async function consumeMemberCredits({
   };
 
   try {
+    // A stale bucket plan must fail its CHECK constraint inside the batch, so
+    // the ledger and usage writes roll back with the bucket debit.
     const bucketUpdateStatements = bucketDebits.map((debit) =>
       env.DB.prepare(
         `UPDATE member_credit_buckets
          SET balance = balance - ?, updated_at = ?
-         WHERE id = ? AND user_id = ? AND balance >= ?`
+         WHERE id = ? AND user_id = ?`
       ).bind(
         debit.amount,
         now,
         debit.bucketId,
-        normalizedUserId,
-        debit.amount
+        normalizedUserId
       )
     );
+    // Read the serialized post-debit balance. A removed bucket yields NULL,
+    // which the event's NOT NULL constraint rejects in the same transaction.
     const bucketEventStatements = bucketDebits.map((debit) =>
       env.DB.prepare(
         `INSERT INTO member_credit_bucket_events (
            id, user_id, bucket_id, bucket_type, amount, balance_after,
            member_credit_ledger_id, source, idempotency_key, metadata_json, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?,
+           (SELECT balance FROM member_credit_buckets WHERE id = ? AND user_id = ?),
+           ?, ?, ?, ?, ?)`
       ).bind(
         bucketEventId(),
         normalizedUserId,
         debit.bucketId,
         debit.bucketType,
         -debit.amount,
-        debit.balanceAfter,
+        debit.bucketId,
+        normalizedUserId,
         creditId,
         normalizedSource,
         idempotencyKey ? `${idempotencyKey}:${debit.bucketId}` : null,
@@ -1635,6 +1641,12 @@ export async function consumeMemberCredits({
   } catch (error) {
     if (error instanceof BillingError) {
       throw error;
+    }
+    if (/CHECK constraint failed:\s*balance\s*>=\s*0\b|NOT NULL constraint failed:\s*member_credit_bucket_events\.balance_after\b/i.test(String(error))) {
+      throw new BillingError("Insufficient member credits.", {
+        status: 402,
+        code: "insufficient_member_credits",
+      });
     }
     if (String(error).includes("UNIQUE")) {
       throw new BillingError("Usage event conflict.", {

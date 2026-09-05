@@ -919,7 +919,7 @@ async function markVideoBillingFailed(usagePolicy, { code, message }) {
   } catch {}
 }
 
-async function invokeMemberVideoModel(env, modelId, payload, { correlationId, userId }) {
+async function invokeMemberVideoModel(env, modelId, payload, { correlationId, userId, signal: callerSignal, usagePolicy }) {
   const startedAt = Date.now();
   if (!env?.AI || typeof env.AI.run !== "function") {
     return {
@@ -931,7 +931,13 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
   }
 
   try {
-    const result = await runWithGenerationTimeout(() => env.AI.run(modelId, payload, { gateway: { id: "default" } }));
+    const result = await runWithGenerationTimeout((signal) => env.AI.run(modelId, payload, {
+      gateway: { id: "default" }, signal,
+    }), {
+      signal: callerSignal,
+      onLateResult: () => usagePolicy?.recordLateOutcome?.("succeeded"),
+      onLateError: (error) => usagePolicy?.recordLateOutcome?.("failed", error?.code),
+    });
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-generate-video",
@@ -1205,7 +1211,7 @@ export async function handleGenerateVideo(ctx) {
   }
 
   const providerPayload = buildProviderPayload(input);
-  const providerResponse = await invokeMemberVideoModel(env, input.modelId, providerPayload, { correlationId, userId });
+  const providerResponse = await invokeMemberVideoModel(env, input.modelId, providerPayload, { correlationId, userId, signal: request.signal, usagePolicy });
   if (!providerResponse.ok) {
     await markVideoProviderFailed(usagePolicy, {
       code: providerResponse.code || "upstream_error",
@@ -1220,6 +1226,11 @@ export async function handleGenerateVideo(ctx) {
 
   let savedAsset = null;
   try {
+    // Confirm the owned provider result before persistence; storage failure must
+    // retain that outcome without charging or making this operation retryable.
+    if (typeof usagePolicy.markFinalizing === "function") {
+      await usagePolicy.markFinalizing();
+    }
     savedAsset = await persistVideoResult({
       env,
       userId,
@@ -1255,9 +1266,6 @@ export async function handleGenerateVideo(ctx) {
 
   let billingMetadata = null;
   try {
-    if (typeof usagePolicy.markFinalizing === "function") {
-      await usagePolicy.markFinalizing();
-    }
     billingMetadata = await usagePolicy.chargeAfterSuccess({
       model: input.modelId,
       preset: input.preset,

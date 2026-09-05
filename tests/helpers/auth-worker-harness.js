@@ -1,3 +1,4 @@
+const { handleAiDispatchQuery } = require('./auth-ai-dispatch-mock.js');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { webcrypto } = require('crypto');
@@ -559,12 +560,74 @@ function normalizeAiFolderRow(row = {}) {
 
 function normalizeAiVideoJobRow(row = {}) {
   return {
+    provider_outcome: row.status === 'succeeded' ? 'succeeded' : row.provider_task_id ? 'dispatched' : 'not_dispatched',
+    dispatch_token: row.provider_task_id ? `fixture:${row.id}` : null,
+    processing_token: null,
+    dispatched_at: null,
+    unknown_at: null,
+    late_outcome: null,
+    late_evidence_json: '{}',
+    provider_result_json: '{}',
+    platform_exposure_units: 0,
+    platform_window_day: null,
+    platform_window_month: null,
     budget_policy_json: null,
     budget_policy_status: null,
     budget_policy_fingerprint: null,
     budget_policy_version: null,
     ...row,
   };
+}
+
+function normalizeAdminAiUsageAttemptRow(row = {}) {
+  const dispatched = row.provider_status && row.provider_status !== 'not_started';
+  let policy = {};
+  try { policy = JSON.parse(row.budget_policy_json || '{}'); } catch {}
+  return {
+    provider_outcome: dispatched ? (row.provider_status === 'succeeded' ? 'succeeded' : 'unknown') : 'not_dispatched',
+    dispatch_token: dispatched ? `legacy:${row.id}` : null,
+    dispatched_at: dispatched ? row.created_at : null,
+    unknown_at: dispatched && row.provider_status !== 'succeeded' ? row.updated_at : null,
+    late_outcome: null,
+    late_evidence_json: '{}',
+    platform_exposure_units: dispatched ? Math.max(1, Number(policy.estimated_cost_units ?? policy.estimatedCostUnits ?? policy.estimated_credits ?? policy.estimatedCredits ?? 1) || 1) : 0,
+    platform_window_day: dispatched ? String(row.created_at || '').slice(0, 10) : null,
+    platform_window_month: dispatched ? String(row.created_at || '').slice(0, 7) : null,
+    ...row,
+  };
+}
+
+// Mock parity for the durable exposure SQL; real SQLite tests independently
+// exercise atomic claims, original periods, and partial-usage deduplication.
+function platformBudgetHarnessUsage(state, budgetScope, windowType, windowValue) {
+  const windowColumn = windowType === 'daily' ? 'window_day' : 'window_month';
+  const sourceWindowColumn = windowType === 'daily' ? 'platform_window_day' : 'platform_window_month';
+  const events = (state.platformBudgetUsageEvents || []).filter((row) => row.status === 'recorded');
+  const recorded = events.filter((row) => row.budget_scope === budgetScope && row[windowColumn] === windowValue)
+    .reduce((sum, row) => sum + Number(row.units || 0), 0);
+  let exposure = 0;
+  for (const [rows, sourceColumn, video] of [
+    [state.adminAiUsageAttempts || [], 'source_attempt_id', false],
+    [state.aiVideoJobs || [], 'source_job_id', true],
+  ]) {
+    for (const row of rows) {
+      const scope = video ? 'platform_admin_lab_budget' : row.budget_scope;
+      if (scope !== budgetScope || (video && row.scope !== 'admin') || row[sourceWindowColumn] !== windowValue
+        || !['dispatched', 'unknown', 'succeeded'].includes(row.provider_outcome)) continue;
+      const sourceEvents = events.filter((event) => event[sourceColumn] === row.id && event.budget_scope === scope);
+      if (row.provider_outcome === 'succeeded' && sourceEvents.length) continue;
+      const sourceUnits = sourceEvents.reduce((sum, event) => sum + Number(event.units || 0), 0);
+      exposure += Math.max(0, Number(row.platform_exposure_units || 0) - sourceUnits);
+    }
+  }
+  return { used_units: recorded + exposure, recorded_units: recorded };
+}
+
+function platformBudgetHarnessCanDispatch(state, scope, units, day, month) {
+  return (state.platformBudgetLimits || []).filter((limit) => limit.budget_scope === scope
+    && limit.status === 'active' && ['daily', 'monthly'].includes(limit.window_type)
+    && Number(limit.limit_units || 0) >= Number(units || 0)
+      + platformBudgetHarnessUsage(state, scope, limit.window_type, limit.window_type === 'daily' ? day : month).used_units).length === 2;
 }
 
 function latestCreditLedgerEntry(rows, organizationId) {
@@ -1199,6 +1262,7 @@ class MockD1 {
     this.state.tenantAssetMediaResetActions = (this.state.tenantAssetMediaResetActions || []).map((row) => normalizeMediaResetActionRow(row));
     this.state.tenantAssetMediaResetActionEvents = (this.state.tenantAssetMediaResetActionEvents || []).map((row) => normalizeMediaResetActionEventRow(row));
     this.state.aiVideoJobs = (this.state.aiVideoJobs || []).map((row) => normalizeAiVideoJobRow(row));
+    this.state.adminAiUsageAttempts = (this.state.adminAiUsageAttempts || []).map(normalizeAdminAiUsageAttemptRow);
     this.state.aiTextAssets = (this.state.aiTextAssets || []).map((row) => ({
       visibility: 'private',
       published_at: null,
@@ -2317,14 +2381,17 @@ class MockD1 {
       ) || null);
     }
 
-    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at FROM ai_usage_attempts WHERE organization_id = ? AND idempotency_key = ?')) {
+    const dispatchResult = handleAiDispatchQuery(this.state, query, bindings);
+    if (dispatchResult !== undefined) return dispatchResult;
+
+    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at FROM ai_usage_attempts WHERE organization_id = ? AND idempotency_key = ?')) {
       const [organizationId, idempotencyKey] = bindings;
       return deepClone(this.state.aiUsageAttempts.find((row) =>
         row.organization_id === organizationId && row.idempotency_key === idempotencyKey
       ) || null);
     }
 
-    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at FROM ai_usage_attempts WHERE id = ? LIMIT 1')) {
+    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at FROM ai_usage_attempts WHERE id = ? LIMIT 1')) {
       const [attemptId] = bindings;
       return deepClone(this.state.aiUsageAttempts.find((row) => row.id === attemptId) || null);
     }
@@ -2346,7 +2413,7 @@ class MockD1 {
       ) || null);
     }
 
-    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at FROM ai_usage_attempts WHERE (? IS NULL OR status = ?)')) {
+    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at FROM ai_usage_attempts WHERE (? IS NULL OR status = ?)')) {
       const [
         statusFilter,
         statusValue,
@@ -2378,7 +2445,7 @@ class MockD1 {
       return { results: deepClone(rows) };
     }
 
-    if (query.startsWith("SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at FROM ai_usage_attempts WHERE expires_at <= ?")) {
+    if (query.startsWith("SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at FROM ai_usage_attempts WHERE expires_at <= ?")) {
       const [expiresAt, limit] = bindings;
       const eligible = this.state.aiUsageAttempts
         .filter((row) => String(row.expires_at || '') <= String(expiresAt || ''))
@@ -2460,9 +2527,9 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query.startsWith("UPDATE ai_usage_attempts SET status = 'reserved', provider_status = 'not_started', billing_status = 'reserved'")) {
-      const [updatedAt, expiresAt, id, requestFingerprint, ledgerOrganizationId, reservationOrganizationId, reservationNow, excludeId, requiredCredits] = bindings;
-      const row = this.state.aiUsageAttempts.find((entry) => entry.id === id && entry.request_fingerprint === requestFingerprint);
+    if (query.startsWith("UPDATE ai_usage_attempts SET status = 'reserved', reservation_released_at = NULL, provider_status = 'not_started', billing_status = 'reserved'")) {
+      const [updatedAt, expiresAt, id, requestFingerprint, claimNow, ledgerOrganizationId, reservationOrganizationId, reservationNow, excludeId, requiredCredits] = bindings;
+      const row = this.state.aiUsageAttempts.find((entry) => entry.id === id && entry.request_fingerprint === requestFingerprint && entry.provider_outcome === 'not_dispatched' && entry.billing_status === 'released' && entry.expires_at > claimNow);
       if (!row) return { success: true, meta: { changes: 0 } };
       const currentBalance = Number(latestCreditLedgerEntry(this.state.creditLedger, ledgerOrganizationId)?.balance_after || 0);
       const reservedCredits = activeAiUsageReservedCredits(this.state.aiUsageAttempts, reservationOrganizationId, reservationNow, { excludeId });
@@ -2471,6 +2538,7 @@ class MockD1 {
       }
       Object.assign(row, {
         status: 'reserved',
+        reservation_released_at: null,
         provider_status: 'not_started',
         billing_status: 'reserved',
         result_status: 'none',
@@ -2669,14 +2737,14 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query.startsWith('SELECT id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, metadata_json FROM member_ai_usage_attempts WHERE user_id = ? AND idempotency_key = ?')) {
+    if (query.startsWith('SELECT id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, metadata_json, provider_outcome, dispatch_token, reservation_released_at FROM member_ai_usage_attempts WHERE user_id = ? AND idempotency_key = ?')) {
       const [userId, idempotencyKey] = bindings;
       return deepClone(this.state.memberAiUsageAttempts.find((row) =>
         row.user_id === userId && row.idempotency_key === idempotencyKey
       ) || null);
     }
 
-    if (query.startsWith('SELECT id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, metadata_json FROM member_ai_usage_attempts WHERE id = ? LIMIT 1')) {
+    if (query.startsWith('SELECT id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, metadata_json, provider_outcome, dispatch_token, reservation_released_at FROM member_ai_usage_attempts WHERE id = ? LIMIT 1')) {
       const [attemptId] = bindings;
       return deepClone(this.state.memberAiUsageAttempts.find((row) => row.id === attemptId) || null);
     }
@@ -2751,9 +2819,9 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query.startsWith("UPDATE member_ai_usage_attempts SET status = 'reserved', provider_status = 'not_started', billing_status = 'reserved'")) {
-      const [updatedAt, expiresAt, id, requestFingerprint, ledgerUserId, reservationUserId, reservationNow, excludeId, requiredCredits] = bindings;
-      const row = this.state.memberAiUsageAttempts.find((entry) => entry.id === id && entry.request_fingerprint === requestFingerprint);
+    if (query.startsWith("UPDATE member_ai_usage_attempts SET status = 'reserved', reservation_released_at = NULL, provider_status = 'not_started', billing_status = 'reserved'")) {
+      const [updatedAt, expiresAt, id, requestFingerprint, claimNow, ledgerUserId, reservationUserId, reservationNow, excludeId, requiredCredits] = bindings;
+      const row = this.state.memberAiUsageAttempts.find((entry) => entry.id === id && entry.request_fingerprint === requestFingerprint && entry.provider_outcome === 'not_dispatched' && entry.billing_status === 'released' && entry.expires_at > claimNow);
       if (!row) return { success: true, meta: { changes: 0 } };
       const currentBalance = Number(latestMemberCreditLedgerEntry(this.state.memberCreditLedger, ledgerUserId)?.balance_after || 0);
       const reservedCredits = activeMemberAiUsageReservedCredits(this.state.memberAiUsageAttempts, reservationUserId, reservationNow, { excludeId });
@@ -2762,6 +2830,7 @@ class MockD1 {
       }
       Object.assign(row, {
         status: 'reserved',
+        reservation_released_at: null,
         provider_status: 'not_started',
         billing_status: 'reserved',
         result_status: 'none',
@@ -2913,7 +2982,7 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query.startsWith('SELECT id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, metadata_json FROM member_ai_usage_attempts WHERE expires_at <= ?')) {
+    if (query.startsWith('SELECT id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, metadata_json, provider_outcome, dispatch_token, reservation_released_at FROM member_ai_usage_attempts WHERE expires_at <= ?')) {
       const [expiresAt, limit] = bindings;
       const rows = this.state.memberAiUsageAttempts
         .filter((row) =>
@@ -3527,15 +3596,23 @@ class MockD1 {
     if (query.startsWith('UPDATE member_credit_buckets SET balance = balance - ?')) {
       const [amount, updatedAt, id, userId, minBalance] = bindings;
       const row = this.state.memberCreditBuckets.find((entry) => entry.id === id && entry.user_id === userId);
-      if (!row || Number(row.balance || 0) < Number(minBalance || amount || 0)) {
+      if (!row || (query.includes('AND balance >= ?') && Number(row.balance || 0) < Number(minBalance || amount || 0))) {
         return { success: true, meta: { changes: 0 } };
       }
-      row.balance = Number(row.balance || 0) - Number(amount || 0);
+      const nextBalance = Number(row.balance || 0) - Number(amount || 0);
+      if (nextBalance < 0) throw new Error('CHECK constraint failed: balance >= 0');
+      row.balance = nextBalance;
       row.updated_at = updatedAt;
       return { success: true, meta: { changes: 1 } };
     }
 
     if (query.startsWith('INSERT OR IGNORE INTO member_credit_bucket_events') || query.startsWith('INSERT INTO member_credit_bucket_events')) {
+      const eventBindings = [...bindings];
+      if (query.includes('SELECT balance FROM member_credit_buckets WHERE id = ? AND user_id = ?')) {
+        const bucket = this.state.memberCreditBuckets.find((row) => row.id === bindings[5] && row.user_id === bindings[6]);
+        if (!bucket) throw new Error('NOT NULL constraint failed: member_credit_bucket_events.balance_after');
+        eventBindings.splice(5, 2, bucket.balance);
+      }
       const [
         id,
         userId,
@@ -3548,7 +3625,7 @@ class MockD1 {
         idempotencyKey,
         metadataJson,
         createdAt,
-      ] = bindings;
+      ] = eventBindings;
       const exists = this.state.memberCreditBucketEvents.some((row) =>
         row.id === id || (idempotencyKey && row.bucket_id === bucketIdValue && row.idempotency_key === idempotencyKey)
       );
@@ -10685,6 +10762,41 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if (query.startsWith('SELECT (SELECT COALESCE(SUM(exposure.units), 0)')) {
+      const [budgetScope, windowValue] = bindings;
+      const windowType = query.includes("CASE WHEN 'daily' = 'daily'") ? 'daily' : 'monthly';
+      return platformBudgetHarnessUsage(this.state, budgetScope, windowType, windowValue);
+    }
+
+    if (query === 'SELECT platform_window_day, platform_window_month FROM admin_ai_usage_attempts WHERE id = ? AND budget_scope = ?') {
+      const [id, budgetScope] = bindings;
+      return this.state.adminAiUsageAttempts.find((row) => row.id === id && row.budget_scope === budgetScope) || null;
+    }
+    if (query === "SELECT platform_window_day, platform_window_month FROM ai_video_jobs WHERE id = ? AND scope = 'admin'") {
+      return this.state.aiVideoJobs.find((row) => row.id === bindings[0] && row.scope === 'admin') || null;
+    }
+
+    if (query.startsWith('WITH dispatch_budget(scope, units, day, month) AS (VALUES (?, ?, ?, ?))')) {
+      const [scope, units, day, month, dispatchToken, dispatchedAt, exposureUnits, windowDay, windowMonth] = bindings;
+      const admin = query.includes('UPDATE admin_ai_usage_attempts');
+      const [updatedAt, id, expiresCutoff] = admin ? bindings.slice(9) : [];
+      const [jobId, processingToken] = admin ? [] : bindings.slice(9);
+      const row = admin
+        ? this.state.adminAiUsageAttempts.find((item) => item.id === id && item.status === 'pending'
+          && item.provider_status === 'not_started' && item.provider_outcome === 'not_dispatched'
+          && String(item.expires_at || '') > String(expiresCutoff || ''))
+        : this.state.aiVideoJobs.find((item) => item.id === jobId && item.processing_token === processingToken
+          && item.status === 'starting' && item.provider_outcome === 'not_dispatched');
+      const recovery = admin && query.endsWith('AND (1 = 1)');
+      if (!row || (!recovery && !platformBudgetHarnessCanDispatch(this.state, scope, units, day, month))) {
+        return { success: true, meta: { changes: 0 } };
+      }
+      Object.assign(row, { provider_outcome: 'dispatched', dispatch_token: dispatchToken, dispatched_at: dispatchedAt,
+        platform_exposure_units: exposureUnits, platform_window_day: windowDay, platform_window_month: windowMonth });
+      if (admin) Object.assign(row, { status: 'provider_running', provider_status: 'running', updated_at: updatedAt });
+      return { success: true, meta: { changes: 1 } };
+    }
+
     if (query === "SELECT COALESCE(SUM(units), 0) AS used_units FROM platform_budget_usage_events WHERE budget_scope = ? AND window_day = ? AND status = 'recorded'") {
       const [budgetScope, windowDay] = bindings;
       const used = (this.state.platformBudgetUsageEvents || [])
@@ -11489,7 +11601,8 @@ class MockD1 {
     ) {
       const [now, limit] = bindings;
       const rows = this.state.adminAiUsageAttempts
-        .filter((row) => String(row.expires_at || '') <= String(now || '') && ['pending', 'provider_running'].includes(row.status))
+        .filter((row) => String(row.expires_at || '') <= String(now || '') && ['pending', 'provider_running'].includes(row.status)
+          && ['not_dispatched', 'dispatched'].includes(normalizeAdminAiUsageAttemptRow(row).provider_outcome))
         .sort((left, right) => {
           const byExpires = String(left.expires_at || '').localeCompare(String(right.expires_at || ''));
           if (byExpires !== 0) return byExpires;
@@ -11548,7 +11661,7 @@ class MockD1 {
       )) {
         throw new Error('UNIQUE constraint failed: admin_ai_usage_attempts.admin_user_id, admin_ai_usage_attempts.operation_key, admin_ai_usage_attempts.idempotency_key_hash');
       }
-      this.state.adminAiUsageAttempts.push({
+      this.state.adminAiUsageAttempts.push(normalizeAdminAiUsageAttemptRow({
         id,
         operation_key,
         route,
@@ -11571,67 +11684,118 @@ class MockD1 {
         completed_at: null,
         expires_at,
         metadata_json,
-      });
+      }));
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query === "UPDATE admin_ai_usage_attempts SET status = 'provider_running', provider_status = 'running', updated_at = ? WHERE id = ? AND status = 'pending' AND provider_status = 'not_started'") {
-      const [updatedAt, id] = bindings;
-      const row = this.state.adminAiUsageAttempts.find((item) =>
-        item.id === id && item.status === 'pending' && item.provider_status === 'not_started'
-      );
+    if (query.startsWith('UPDATE admin_ai_usage_attempts SET late_outcome = ?')) {
+      const [outcome, evidence, id, token] = bindings;
+      const row = this.state.adminAiUsageAttempts.find((item) => item.id === id && token != null
+        && item.dispatch_token === token && item.provider_outcome === 'unknown' && item.late_outcome == null);
       if (!row) return { success: true, meta: { changes: 0 } };
-      row.status = 'provider_running';
-      row.provider_status = 'running';
-      row.updated_at = updatedAt;
+      Object.assign(row, { late_outcome: outcome, late_evidence_json: evidence });
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query === "UPDATE admin_ai_usage_attempts SET status = 'provider_failed', provider_status = 'failed', result_status = 'none', error_code = ?, error_message = ?, updated_at = ?, completed_at = ? WHERE id = ?") {
-      const [errorCode, errorMessage, updatedAt, completedAt, id] = bindings;
-      const row = this.state.adminAiUsageAttempts.find((item) => item.id === id);
+    if (query.startsWith('UPDATE admin_ai_usage_attempts SET status = ?, provider_status = ?, provider_outcome = ?')) {
+      const [status, providerStatus, outcome, outcomeCheck, unknownAt, code, message, updatedAt, completedAt, id, token] = bindings;
+      const row = this.state.adminAiUsageAttempts.find((item) => item.id === id
+        && (item.dispatch_token || null) === token && ['not_dispatched', 'dispatched'].includes(item.provider_outcome));
       if (!row) return { success: true, meta: { changes: 0 } };
-      row.status = 'provider_failed';
-      row.provider_status = 'failed';
-      row.result_status = 'none';
-      row.error_code = errorCode;
-      row.error_message = errorMessage;
-      row.updated_at = updatedAt;
-      row.completed_at = completedAt;
+      Object.assign(row, { status, provider_status: providerStatus, provider_outcome: outcome,
+        unknown_at: outcomeCheck === 'unknown' ? row.unknown_at || unknownAt : row.unknown_at,
+        error_code: code, error_message: message, updated_at: updatedAt, completed_at: completedAt });
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query === "UPDATE admin_ai_usage_attempts SET status = 'succeeded', provider_status = 'succeeded', result_status = 'metadata_only', result_metadata_json = ?, metadata_json = ?, error_code = NULL, error_message = NULL, updated_at = ?, completed_at = ? WHERE id = ?") {
-      const [resultMetadataJson, metadataJson, updatedAt, completedAt, id] = bindings;
-      const row = this.state.adminAiUsageAttempts.find((item) => item.id === id);
+    if (query.startsWith("UPDATE admin_ai_usage_attempts SET status = 'succeeded', provider_status = 'succeeded', provider_outcome = 'succeeded'")) {
+      const [resultJson, metadataJson, updatedAt, completedAt, id, token, now] = bindings;
+      const row = this.state.adminAiUsageAttempts.find((item) => item.id === id && token != null
+        && item.dispatch_token === token && item.provider_outcome === 'dispatched' && String(item.expires_at || '') > String(now || ''));
       if (!row) return { success: true, meta: { changes: 0 } };
-      row.status = 'succeeded';
-      row.provider_status = 'succeeded';
-      row.result_status = 'metadata_only';
-      row.result_metadata_json = resultMetadataJson;
-      row.metadata_json = metadataJson;
-      row.error_code = null;
-      row.error_message = null;
-      row.updated_at = updatedAt;
-      row.completed_at = completedAt;
+      Object.assign(row, { status: 'succeeded', provider_status: 'succeeded', provider_outcome: 'succeeded',
+        result_status: 'metadata_only', result_metadata_json: resultJson, metadata_json: metadataJson,
+        error_code: null, error_message: null, updated_at: updatedAt, completed_at: completedAt });
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query === "UPDATE admin_ai_usage_attempts SET status = 'expired', provider_status = CASE WHEN provider_status = 'running' THEN 'failed' ELSE provider_status END, result_status = 'none', error_code = ?, error_message = ?, updated_at = ?, completed_at = ? WHERE id = ? AND status IN ('pending', 'provider_running') AND expires_at <= ?") {
-      const [errorCode, errorMessage, updatedAt, completedAt, id, now] = bindings;
-      const row = this.state.adminAiUsageAttempts.find((item) =>
-        item.id === id &&
-        ['pending', 'provider_running'].includes(item.status) &&
-        String(item.expires_at || '') <= String(now || '')
-      );
+    if (query.startsWith("UPDATE admin_ai_usage_attempts SET provider_outcome = 'unknown', unknown_at = COALESCE(unknown_at, ?)")) {
+      const [now, id, token] = bindings;
+      const row = this.state.adminAiUsageAttempts.find((item) => item.id === id && token != null
+        && item.dispatch_token === token && item.provider_outcome === 'dispatched');
       if (!row) return { success: true, meta: { changes: 0 } };
-      row.status = 'expired';
-      if (row.provider_status === 'running') row.provider_status = 'failed';
-      row.result_status = 'none';
-      row.error_code = errorCode;
-      row.error_message = errorMessage;
-      row.updated_at = updatedAt;
-      row.completed_at = completedAt;
+      Object.assign(row, { provider_outcome: 'unknown', unknown_at: row.unknown_at || now });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.startsWith("UPDATE admin_ai_usage_attempts SET status = CASE WHEN provider_outcome = 'not_dispatched' THEN 'expired' ELSE status END")) {
+      const [unknownAt, updatedAt, id, now] = bindings;
+      const row = this.state.adminAiUsageAttempts.find((item) => item.id === id
+        && ['pending', 'provider_running'].includes(item.status) && String(item.expires_at || '') <= String(now || ''));
+      if (!row) return { success: true, meta: { changes: 0 } };
+      // Tests may append fixture rows after construction; supply the schema's
+      // durable columns on that same row before applying the expiry mutation.
+      Object.assign(row, normalizeAdminAiUsageAttemptRow(row));
+      const outcome = row.provider_outcome;
+      if (!['not_dispatched', 'dispatched'].includes(outcome)) return { success: true, meta: { changes: 0 } };
+      if (outcome === 'not_dispatched') row.status = 'expired';
+      if (outcome === 'dispatched') Object.assign(row, { provider_outcome: 'unknown', unknown_at: row.unknown_at || unknownAt });
+      Object.assign(row, { error_code: outcome === 'not_dispatched' ? 'admin_ai_usage_attempt_expired' : 'admin_ai_outcome_unknown',
+        error_message: 'The local processing window ended; provider completion is not established.', updated_at: updatedAt });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT status, processing_token, provider_outcome, locked_until FROM ai_video_jobs WHERE id = ?') {
+      return deepClone(this.state.aiVideoJobs.find((row) => row.id === bindings[0]) || null);
+    }
+    if (query.startsWith("UPDATE ai_video_jobs SET provider_outcome = 'unknown', unknown_at = COALESCE")) {
+      const [now, code, updatedAt, id, token] = bindings;
+      const row = this.state.aiVideoJobs.find((item) => item.id === id && (item.processing_token || null) === token
+        && item.provider_outcome === 'dispatched' && !['succeeded', 'failed', 'cancelled'].includes(item.status));
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, { provider_outcome: 'unknown', unknown_at: row.unknown_at || now, status: 'processing',
+        error_code: code, error_message: 'Provider completion is unresolved; this operation will not be submitted again.',
+        locked_until: null, processing_token: null, updated_at: updatedAt });
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (query.startsWith("UPDATE ai_video_jobs SET provider_outcome = 'succeeded', provider_result_json = ?")) {
+      const [resultJson, taskId, now, id, token] = bindings;
+      const row = this.state.aiVideoJobs.find((item) => item.id === id && item.processing_token === token
+        && ['dispatched', 'succeeded'].includes(item.provider_outcome) && !['succeeded', 'failed', 'cancelled'].includes(item.status));
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, { provider_outcome: 'succeeded', provider_result_json: resultJson,
+        provider_task_id: taskId || row.provider_task_id, updated_at: now });
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (query.startsWith('UPDATE ai_video_jobs SET late_outcome = ?')) {
+      const [outcome, evidence, id, token] = bindings;
+      const row = this.state.aiVideoJobs.find((item) => item.id === id && item.dispatch_token === token && !item.late_outcome
+        && (item.provider_outcome === 'unknown' || ['cancelled', 'failed'].includes(item.status)));
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, { late_outcome: outcome, late_evidence_json: evidence });
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (query.startsWith("UPDATE ai_video_jobs SET provider_outcome = 'failed' WHERE id = ? AND processing_token = ?")) {
+      const [id, token] = bindings;
+      const row = this.state.aiVideoJobs.find((item) => item.id === id && item.processing_token === token && item.provider_outcome === 'dispatched'
+        && !['succeeded', 'failed', 'cancelled'].includes(item.status));
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.provider_outcome = 'failed';
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (query.startsWith('UPDATE ai_video_jobs SET provider_task_id = COALESCE(?, provider_task_id) WHERE id = ? AND processing_token = ?')) {
+      const [taskId, id, token] = bindings;
+      const row = this.state.aiVideoJobs.find((item) => item.id === id && item.processing_token === token
+        && item.provider_outcome === 'dispatched' && !['succeeded', 'failed', 'cancelled'].includes(item.status));
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.provider_task_id = taskId || row.provider_task_id;
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (query.startsWith("UPDATE ai_video_jobs SET status = 'ingesting', processing_token = ?")) {
+      const [token, lock, now, id, status, previousToken] = bindings;
+      const row = this.state.aiVideoJobs.find((item) => item.id === id && item.status === status && (item.processing_token || null) === previousToken);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      Object.assign(row, { status: 'ingesting', processing_token: token, locked_until: lock, updated_at: now });
       return { success: true, meta: { changes: 1 } };
     }
 
@@ -11678,7 +11842,7 @@ class MockD1 {
       ) {
         throw new Error('UNIQUE constraint failed: ai_video_jobs.user_id, ai_video_jobs.scope, ai_video_jobs.idempotency_key');
       }
-      this.state.aiVideoJobs.push({
+      this.state.aiVideoJobs.push(normalizeAiVideoJobRow({
         id,
         user_id,
         scope,
@@ -11713,7 +11877,7 @@ class MockD1 {
         updated_at,
         completed_at,
         expires_at,
-      });
+      }));
       return { success: true, meta: { changes: 1 } };
     }
 
@@ -11800,11 +11964,13 @@ class MockD1 {
       return { success: true, meta: { changes } };
     }
 
-    if (query === "UPDATE ai_video_jobs SET status = 'failed', error_code = ?, error_message = ?, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ?") {
-      const [errorCode, errorMessage, updatedAt, completedAt, jobId] = bindings;
+    if (query.startsWith("UPDATE ai_video_jobs SET status = 'failed', error_code = ?, error_message = ?, locked_until = NULL") && query.includes("processing_token IS ?")) {
+      const [errorCode, errorMessage, updatedAt, completedAt, jobId, processingToken] = bindings;
       let changes = 0;
       for (const row of this.state.aiVideoJobs) {
-        if (row.id !== jobId) continue;
+        if (row.id !== jobId || (row.processing_token || null) !== processingToken
+          || !['queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(row.status)
+          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))) continue;
         row.status = 'failed';
         row.error_code = errorCode;
         row.error_message = errorMessage;
@@ -11816,17 +11982,19 @@ class MockD1 {
       return { success: true, meta: { changes } };
     }
 
-    if (query === "UPDATE ai_video_jobs SET status = 'starting', attempt_count = attempt_count + 1, locked_until = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (locked_until IS NULL OR locked_until < ?) AND (next_attempt_at IS NULL OR next_attempt_at <= ?)") {
-      const [lockedUntil, updatedAt, jobId, now, nextAttemptNow] = bindings;
+    if (query.startsWith("UPDATE ai_video_jobs SET status = 'starting', attempt_count = attempt_count + 1, processing_token = ?")) {
+      const [processingToken, lockedUntil, updatedAt, jobId, now, nextAttemptNow] = bindings;
       let changes = 0;
       for (const row of this.state.aiVideoJobs) {
         if (
           row.id === jobId
+          && row.provider_outcome !== 'unknown'
           && ['queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(row.status)
           && (!row.locked_until || row.locked_until < now)
           && (!row.next_attempt_at || row.next_attempt_at <= nextAttemptNow)
         ) {
           row.status = 'starting';
+          row.processing_token = processingToken;
           row.attempt_count = Number(row.attempt_count || 0) + 1;
           row.locked_until = lockedUntil;
           row.updated_at = updatedAt;
@@ -11836,11 +12004,13 @@ class MockD1 {
       return { success: true, meta: { changes } };
     }
 
-    if (query === "UPDATE ai_video_jobs SET status = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ?") {
-      const [status, providerTaskId, providerState, nextAttemptAt, updatedAt, jobId] = bindings;
+    if (query.startsWith("UPDATE ai_video_jobs SET status = ?, provider_task_id = COALESCE(?, provider_task_id)") && query.includes("processing_token IS ?")) {
+      const [status, providerTaskId, providerState, nextAttemptAt, updatedAt, jobId, processingToken] = bindings;
       let changes = 0;
       for (const row of this.state.aiVideoJobs) {
-        if (row.id !== jobId) continue;
+        if (row.id !== jobId || (row.processing_token || null) !== processingToken
+          || !['queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(row.status)
+          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))) continue;
         row.status = status;
         if (providerTaskId) row.provider_task_id = providerTaskId;
         row.provider_state = providerState;
@@ -11854,25 +12024,28 @@ class MockD1 {
       return { success: true, meta: { changes } };
     }
 
-    if (query === "UPDATE ai_video_jobs SET status = 'ingesting', provider_state = ?, locked_until = NULL, updated_at = ? WHERE id = ?") {
-      const [providerState, updatedAt, jobId] = bindings;
+    if (query.startsWith("UPDATE ai_video_jobs SET status = 'ingesting', provider_state = ?") && query.includes("processing_token IS ?")) {
+      const [providerState, updatedAt, jobId, processingToken] = bindings;
       let changes = 0;
       for (const row of this.state.aiVideoJobs) {
-        if (row.id !== jobId) continue;
+        if (row.id !== jobId || (row.processing_token || null) !== processingToken
+          || !['queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(row.status)
+          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))) continue;
         row.status = 'ingesting';
         row.provider_state = providerState;
-        row.locked_until = null;
         row.updated_at = updatedAt;
         changes += 1;
       }
       return { success: true, meta: { changes } };
     }
 
-    if (query === "UPDATE ai_video_jobs SET status = 'succeeded', output_r2_key = ?, output_url = ?, output_content_type = ?, output_size_bytes = ?, poster_r2_key = ?, poster_url = ?, poster_content_type = ?, poster_size_bytes = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ?") {
-      const [outputR2Key, outputUrl, outputContentType, outputSizeBytes, posterR2Key, posterUrl, posterContentType, posterSizeBytes, providerTaskId, providerState, updatedAt, completedAt, jobId] = bindings;
+    if (query.startsWith("UPDATE ai_video_jobs SET status = 'succeeded', output_r2_key = ?") && query.includes("processing_token IS ?")) {
+      const [outputR2Key, outputUrl, outputContentType, outputSizeBytes, posterR2Key, posterUrl, posterContentType, posterSizeBytes, providerTaskId, providerState, updatedAt, completedAt, jobId, processingToken] = bindings;
       let changes = 0;
       for (const row of this.state.aiVideoJobs) {
-        if (row.id !== jobId) continue;
+        if (row.id !== jobId || (row.processing_token || null) !== processingToken
+          || !['queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(row.status)
+          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))) continue;
         row.status = 'succeeded';
         row.output_r2_key = outputR2Key;
         row.output_url = outputUrl;
@@ -11894,11 +12067,13 @@ class MockD1 {
       return { success: true, meta: { changes } };
     }
 
-    if (query === "UPDATE ai_video_jobs SET budget_policy_json = ?, budget_policy_status = ?, budget_policy_fingerprint = ?, budget_policy_version = ?, updated_at = ? WHERE id = ?") {
-      const [budgetPolicyJson, budgetPolicyStatus, budgetPolicyFingerprint, budgetPolicyVersion, updatedAt, jobId] = bindings;
+    if (query.startsWith("UPDATE ai_video_jobs SET budget_policy_json = ?") && query.includes("processing_token IS ?")) {
+      const [budgetPolicyJson, budgetPolicyStatus, budgetPolicyFingerprint, budgetPolicyVersion, updatedAt, jobId, processingToken] = bindings;
       let changes = 0;
       for (const row of this.state.aiVideoJobs) {
-        if (row.id !== jobId) continue;
+        if (row.id !== jobId || (row.processing_token || null) !== processingToken
+          || !['queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(row.status)
+          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))) continue;
         row.budget_policy_json = budgetPolicyJson;
         row.budget_policy_status = budgetPolicyStatus;
         row.budget_policy_fingerprint = budgetPolicyFingerprint;
@@ -11993,11 +12168,13 @@ class MockD1 {
       return { results: rows.slice(0, limit).map((row) => ({ ...row })) };
     }
 
-    if (query === "UPDATE ai_video_jobs SET status = 'queued', error_code = ?, error_message = ?, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ?") {
-      const [errorCode, errorMessage, nextAttemptAt, updatedAt, jobId] = bindings;
+    if (query.startsWith("UPDATE ai_video_jobs SET status = 'queued', error_code = ?") && query.includes("processing_token IS ?")) {
+      const [errorCode, errorMessage, nextAttemptAt, updatedAt, jobId, processingToken] = bindings;
       let changes = 0;
       for (const row of this.state.aiVideoJobs) {
-        if (row.id !== jobId) continue;
+        if (row.id !== jobId || (row.processing_token || null) !== processingToken
+          || !['queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(row.status)
+          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))) continue;
         row.status = 'queued';
         row.error_code = errorCode;
         row.error_message = errorMessage;

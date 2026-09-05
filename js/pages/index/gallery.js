@@ -851,6 +851,7 @@ export function initGallery() {
             }
         }
 
+        modal.inert = false;
         modal.classList.add('active');
         modal.setAttribute('aria-hidden', 'false');
         document.body.style.overflow = 'hidden';
@@ -875,6 +876,7 @@ export function initGallery() {
         card?.classList.remove('modal-card--public-detail');
         modal.removeAttribute('aria-label');
         modal.setAttribute('aria-labelledby', 'modalTitle');
+        modal.inert = true;
         modal.classList.remove('active');
         modal.setAttribute('aria-hidden', 'true');
         suppressNextGalleryCardClick = true;

@@ -166,8 +166,34 @@ function buildViduProviderCreateRequest(payload) {
   };
 }
 
-async function readJsonOrText(response) {
-  const rawText = await response.text();
+async function fetchViduJsonWithTimeout(fetcher, input, init) {
+  return fetchWithGenerationTimeout(fetcher, input, init, {
+    consumeResponse: async (response, signal) => ({ response, parsed: await readJsonOrText(response, signal) }),
+  });
+}
+
+async function readJsonOrText(response, signal) {
+  const reader = response.body?.getReader();
+  let rawText = "";
+  if (!reader) rawText = await response.text();
+  else {
+    const decoder = new TextDecoder();
+    const abort = () => { Promise.resolve(reader.cancel(signal?.reason)).catch(() => {}); };
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      if (signal?.aborted) { abort(); throw signal.reason; }
+      while (true) {
+        const { value, done } = await reader.read();
+        if (signal?.aborted) throw signal.reason;
+        if (done) break;
+        rawText += decoder.decode(value, { stream: true });
+      }
+      rawText += decoder.decode();
+    } finally {
+      signal?.removeEventListener("abort", abort);
+      reader.releaseLock();
+    }
+  }
   if (!rawText) {
     return { data: null, rawText: "" };
   }
@@ -349,6 +375,10 @@ function shouldAttemptViduProviderFallback({
   if (gatewayMode !== "on") return false;
   if (aiGatewayLogId) return false;
   if (!getViduProviderApiKey(env)) return false;
+  if (isGenerationTimeoutError(error) || error?.name === "AbortError") return false;
+  // An absent gateway log or an error-message substring cannot establish that
+  // a submitted request never reached the provider. Require trusted evidence.
+  if (error?.providerOutcome !== "not_dispatched") return false;
   const errorMessage = String(error?.message || "");
   return /request validation failed/i.test(errorMessage);
 }
@@ -462,12 +492,13 @@ async function invokeViduProviderFallback({
   });
 
   let createResponse;
+  let createResult;
   try {
-    createResponse = await fetchWithGenerationTimeout(globalThis.fetch, `${VIDU_PROVIDER_API_BASE_URL}${createPath}`, {
+    ({ response: createResponse, parsed: createResult } = await fetchViduJsonWithTimeout(globalThis.fetch, `${VIDU_PROVIDER_API_BASE_URL}${createPath}`, {
       method: "POST",
       headers: baseHeaders,
       body: JSON.stringify(createPayload),
-    });
+    }));
   } catch (providerError) {
     if (isGenerationTimeoutError(providerError)) throw providerError;
     throw buildViduProviderError("Vidu provider task creation failed.", {
@@ -476,7 +507,6 @@ async function invokeViduProviderFallback({
     });
   }
 
-  const createResult = await readJsonOrText(createResponse);
   const createBody = createResult.data ?? createResult.rawText;
   if (!createResponse.ok) {
     throw buildViduProviderError("Vidu provider task creation failed.", {
@@ -550,15 +580,16 @@ async function invokeViduProviderFallback({
     pollAttempts += 1;
 
     let pollResponse;
+    let pollResult;
     try {
-      pollResponse = await fetchWithGenerationTimeout(
+      ({ response: pollResponse, parsed: pollResult } = await fetchViduJsonWithTimeout(
         globalThis.fetch,
         `${VIDU_PROVIDER_API_BASE_URL}/ent/v2/tasks/${encodeURIComponent(taskId)}/creations`,
         {
           method: "GET",
           headers: baseHeaders,
         }
-      );
+      ));
     } catch (providerError) {
       if (isGenerationTimeoutError(providerError)) throw providerError;
       throw buildViduProviderError("Vidu provider status check failed.", {
@@ -568,8 +599,7 @@ async function invokeViduProviderFallback({
       });
     }
 
-    const pollResult = await readJsonOrText(pollResponse);
-    const pollBody = pollResult.data ?? pollResult.rawText;
+      const pollBody = pollResult.data ?? pollResult.rawText;
     if (!pollResponse.ok) {
       throw buildViduProviderError("Vidu provider status check failed.", {
         status: pollResponse.status,
@@ -1245,11 +1275,7 @@ async function runWorkersAiVideoOnce(env, model, input, request, startedAt, runO
     size: request.payload.size || null,
     payload_keys: Object.keys(request.payload).sort().join(","),
   });
-  const raw = await runWithGenerationTimeout(() => (
-    runOptions
-      ? env.AI.run(model.id, request.payload, runOptions)
-      : env.AI.run(model.id, request.payload)
-  ));
+  const raw = await runWithGenerationTimeout((signal) => env.AI.run(model.id, request.payload, { ...runOptions, signal }));
   const videoUrl = extractVideoUrl(raw);
   const providerTaskId = extractViduProviderTaskId(raw);
   const providerState = extractViduProviderState(raw);
@@ -1299,15 +1325,16 @@ async function createViduProviderTaskOnce({
 
   const { workflow, createPath, createPayload } = buildViduProviderCreateRequest(effectivePayload);
   let createResponse;
+  let createResult;
   try {
-    createResponse = await fetchWithGenerationTimeout(globalThis.fetch, `${VIDU_PROVIDER_API_BASE_URL}${createPath}`, {
+    ({ response: createResponse, parsed: createResult } = await fetchViduJsonWithTimeout(globalThis.fetch, `${VIDU_PROVIDER_API_BASE_URL}${createPath}`, {
       method: "POST",
       headers: {
         Authorization: `Token ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(createPayload),
-    });
+    }));
   } catch (providerError) {
     if (isGenerationTimeoutError(providerError)) throw providerError;
     throw buildViduProviderError("Vidu provider task creation failed.", {
@@ -1316,7 +1343,6 @@ async function createViduProviderTaskOnce({
     });
   }
 
-  const createResult = await readJsonOrText(createResponse);
   const createBody = createResult.data ?? createResult.rawText;
   if (!createResponse.ok) {
     throw buildViduProviderError("Vidu provider task creation failed.", {
@@ -1452,8 +1478,9 @@ export async function pollVideoProviderTask(env, model, input, task) {
   }
 
   let pollResponse;
+  let pollResult;
   try {
-    pollResponse = await fetchWithGenerationTimeout(
+    ({ response: pollResponse, parsed: pollResult } = await fetchViduJsonWithTimeout(
       globalThis.fetch,
       `${VIDU_PROVIDER_API_BASE_URL}/ent/v2/tasks/${encodeURIComponent(providerTaskId)}/creations`,
       {
@@ -1462,7 +1489,7 @@ export async function pollVideoProviderTask(env, model, input, task) {
           Authorization: `Token ${apiKey}`,
         },
       }
-    );
+    ));
   } catch (providerError) {
     if (isGenerationTimeoutError(providerError)) throw providerError;
     throw buildViduProviderError("Vidu provider status check failed.", {
@@ -1472,7 +1499,6 @@ export async function pollVideoProviderTask(env, model, input, task) {
     });
   }
 
-  const pollResult = await readJsonOrText(pollResponse);
   const pollBody = pollResult.data ?? pollResult.rawText;
   if (!pollResponse.ok) {
     throw buildViduProviderError("Vidu provider status check failed.", {
@@ -1637,11 +1663,7 @@ export async function invokeVideo(env, model, input) {
   let raw;
   let aiGatewayLogId = null;
   try {
-    raw = await runWithGenerationTimeout(() => (
-      runOptions
-        ? env.AI.run(model.id, effectivePayload, runOptions)
-        : env.AI.run(model.id, effectivePayload)
-    ));
+    raw = await runWithGenerationTimeout((signal) => env.AI.run(model.id, effectivePayload, { ...runOptions, signal }));
     aiGatewayLogId = readAiGatewayLogId(env.AI);
     if (model.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) {
       logViduGatewayReference({

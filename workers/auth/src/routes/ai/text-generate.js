@@ -22,6 +22,7 @@ import {
 import {
   BITBI_GENERATION_TIMEOUT_SECONDS,
   fetchWithGenerationTimeout,
+  readGenerationResponseJson,
   isGenerationTimeoutError,
 } from "../../lib/generation-timeout.js";
 import { buildServiceAuthHeaders } from "../../../../../js/shared/service-auth.mjs";
@@ -372,6 +373,7 @@ async function signedAiLabTextRequest({
   }
 
   let response;
+  let body = null;
   try {
     response = await fetchWithGenerationTimeout(env.AI_LAB.fetch.bind(env.AI_LAB), new Request(`${AI_LAB_BASE_URL}${INTERNAL_TEXT_PATH}`, {
       method: "POST",
@@ -383,7 +385,14 @@ async function signedAiLabTextRequest({
         ...serviceAuthHeaders,
       },
       body: bodyText,
-    }));
+      signal: requestInfo?.request?.signal,
+    }), undefined, {
+      consumeResponse: async (received, signal) => {
+        try { body = await readGenerationResponseJson(received, signal); }
+        catch (error) { if (signal.aborted) throw error; body = null; }
+        return received;
+      },
+    });
   } catch (error) {
     if (isGenerationTimeoutError(error)) {
       logDiagnostic({
@@ -417,12 +426,6 @@ async function signedAiLabTextRequest({
     return { ok: false, status: 503, code: "upstream_unavailable" };
   }
 
-  let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    body = null;
-  }
   if (!response.ok || !body?.ok) {
     logDiagnostic({
       service: "bitbi-auth",

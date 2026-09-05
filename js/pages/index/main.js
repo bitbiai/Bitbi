@@ -433,12 +433,31 @@ try { initAuthEntryActions(); } catch (e) { console.warn('authEntryActions:', e)
 try { initAuthNav(); } catch (e) { console.warn('authNav:', e); }
 document.dispatchEvent(new CustomEvent('bitbi:homepage-auth-ui-ready'));
 
+/* Manual tab activation preserves the guest gate and lazy Create modules. */
+function bindModeKeyboard(modeBtns) {
+    const buttons = [...modeBtns];
+    buttons.forEach((button, index) => {
+        button.addEventListener('keydown', (event) => {
+            let nextIndex;
+            if (event.key === 'ArrowRight') nextIndex = (index + 1) % buttons.length;
+            else if (event.key === 'ArrowLeft') nextIndex = (index + buttons.length - 1) % buttons.length;
+            else if (event.key === 'Home') nextIndex = 0;
+            else if (event.key === 'End') nextIndex = buttons.length - 1;
+            else return;
+            event.preventDefault();
+            buttons.forEach((tab, tabIndex) => { tab.tabIndex = tabIndex === nextIndex ? 0 : -1; });
+            buttons[nextIndex].focus();
+        });
+    });
+}
+
 /* Gallery mode toggle (Explore / Create) */
 try {
     const modeBtns = document.querySelectorAll('.gallery-mode__btn');
     const explorePane = document.getElementById('galleryExplore');
     const studioPane = document.getElementById('galleryStudio');
     if (modeBtns.length && explorePane && studioPane) {
+        bindModeKeyboard(modeBtns);
         let studioReady = false;
         let studioInitPromise = null;
         let currentMode = 'explore';
@@ -546,6 +565,7 @@ try {
     const paginationPane = document.getElementById('videoPagination');
     const createPane = document.getElementById('videoCreate');
     if (modeBtns.length && explorePane && createPane) {
+        bindModeKeyboard(modeBtns);
         let createReady = false;
         let createInitPromise = null;
         let currentMode = 'explore';
@@ -660,6 +680,7 @@ try {
     const explorePane = document.getElementById('soundLabExplore');
     const createPane = document.getElementById('soundLabCreate');
     if (modeBtns.length && explorePane && createPane) {
+        bindModeKeyboard(modeBtns);
         let createReady = false;
         let createInitPromise = null;
         let currentMode = 'explore';

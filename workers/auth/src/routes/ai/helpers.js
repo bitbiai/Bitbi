@@ -11,7 +11,32 @@ export function parseBase64Image(str) {
   return null;
 }
 
-export async function toArrayBuffer(v) {
+export async function toArrayBuffer(v, { signal } = {}) {
+  const stream = v?.body?.getReader ? v.body : v?.getReader ? v : null;
+  if (signal && stream) {
+    const reader = stream.getReader();
+    const chunks = [];
+    let size = 0;
+    const abort = () => { Promise.resolve(reader.cancel(signal.reason)).catch(() => {}); };
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      if (signal.aborted) { abort(); throw signal.reason; }
+      while (true) {
+        const { done, value } = await reader.read();
+        if (signal.aborted) throw signal.reason;
+        if (done) break;
+        chunks.push(value);
+        size += value.byteLength;
+      }
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      return bytes.buffer;
+    } finally {
+      signal.removeEventListener("abort", abort);
+      reader.releaseLock();
+    }
+  }
   if (v == null) return null;
   if (v instanceof ArrayBuffer) return v;
   if (typeof v.arrayBuffer === "function") {

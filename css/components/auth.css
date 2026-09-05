@@ -421,8 +421,6 @@
         max-inline-size: min(96vw, 420px);
         inline-size: 100%;
         margin-inline: var(--space-5);
-        max-block-size: 96vh;
-        overflow-y: auto;
     }
 
     .auth-modal__close {
@@ -446,7 +444,9 @@
 
     .auth-modal__card {
         border-radius: var(--radius-xl);
-        overflow: hidden;
+        max-block-size: min(96vh, calc(100dvh - 6rem));
+        overflow-x: hidden;
+        overflow-y: auto;
         background: rgba(13, 27, 42, 0.95);
         backdrop-filter: blur(30px);
         -webkit-backdrop-filter: blur(30px);

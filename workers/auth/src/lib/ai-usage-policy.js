@@ -19,6 +19,8 @@ import {
   markAiUsageAttemptFinalizing,
   markAiUsageAttemptProviderFailed,
   markAiUsageAttemptProviderRunning,
+  markAiUsageAttemptLateOutcome,
+  markAiUsageAttemptUnknown,
   markAiUsageAttemptSucceeded,
 } from "./ai-usage-attempts.js";
 import {
@@ -28,6 +30,8 @@ import {
   markMemberAiUsageAttemptFinalizing,
   markMemberAiUsageAttemptProviderFailed,
   markMemberAiUsageAttemptProviderRunning,
+  markMemberAiUsageAttemptLateOutcome,
+  markMemberAiUsageAttemptUnknown,
   markMemberAiUsageAttemptReplayUnavailable,
   markMemberAiUsageAttemptSucceeded,
   mergeMemberAiUsageAttemptMetadata,
@@ -199,6 +203,16 @@ function aiCostGatewayErrorToBillingError(error) {
   return error;
 }
 
+
+function rejectUnresolvedAttempt(attemptState) {
+  if (!["unresolved", "key_expired", "confirmed_failed"].includes(attemptState.kind)) return;
+  const code = attemptState.kind === "unresolved" ? "ai_usage_outcome_unknown"
+    : attemptState.kind === "key_expired" ? "ai_usage_key_expired" : "ai_usage_confirmed_failed";
+  throw new BillingError(attemptState.kind === "unresolved"
+    ? "This operation has an unresolved provider outcome. Its existing key cannot submit new work."
+    : "This operation is closed. Its key cannot submit new work.", { status: 409, code });
+}
+
 async function prepareMemberGatewayPolicy({
   env,
   request,
@@ -283,6 +297,8 @@ async function prepareMemberGatewayPolicy({
     }),
   });
 
+  rejectUnresolvedAttempt(attemptState);
+  let dispatchToken = null;
   return {
     mode: "member",
     gatewayMode: "ai-cost-pilot",
@@ -303,19 +319,24 @@ async function prepareMemberGatewayPolicy({
       };
     },
     async markProviderRunning() {
-      return markMemberAiUsageAttemptProviderRunning(env, attemptState.attempt.id);
+      dispatchToken = await markMemberAiUsageAttemptProviderRunning(env, attemptState.attempt.id, { signal: request.signal });
+      return dispatchToken;
     },
-    async markProviderFailed({ code = "provider_failed", message = null } = {}) {
-      return markMemberAiUsageAttemptProviderFailed(env, attemptState.attempt.id, { code, message });
+    async markProviderFailed(options = {}) {
+      return markMemberAiUsageAttemptProviderFailed(env, attemptState.attempt.id, { ...options, dispatchToken });
+    },
+    async recordLateOutcome(outcome, code = null) {
+      await markMemberAiUsageAttemptUnknown(env, attemptState.attempt.id, { dispatchToken, code: "late_provider_completion" });
+      return markMemberAiUsageAttemptLateOutcome(env, attemptState.attempt.id, { dispatchToken, outcome, code });
     },
     async markFinalizing() {
-      return markMemberAiUsageAttemptFinalizing(env, attemptState.attempt.id);
+      return markMemberAiUsageAttemptFinalizing(env, attemptState.attempt.id, { dispatchToken });
     },
     async markBillingFailed({ code = "billing_failed", message = null } = {}) {
-      return markMemberAiUsageAttemptBillingFailed(env, attemptState.attempt.id, { code, message });
+      return markMemberAiUsageAttemptBillingFailed(env, attemptState.attempt.id, { code, message, dispatchToken });
     },
     async markSucceeded(result = {}) {
-      return markMemberAiUsageAttemptSucceeded(env, attemptState.attempt.id, result);
+      return markMemberAiUsageAttemptSucceeded(env, attemptState.attempt.id, { ...result, dispatchToken });
     },
     async markReplayUnavailable(result = {}) {
       return markMemberAiUsageAttemptReplayUnavailable(env, attemptState.attempt.id, result);
@@ -528,6 +549,8 @@ export async function prepareAiUsagePolicy({
     quantity: resolvedOperation.quantity || 1,
   });
 
+  rejectUnresolvedAttempt(attemptState);
+  let dispatchToken = null;
   return {
     mode: "organization",
     organizationId,
@@ -537,19 +560,24 @@ export async function prepareAiUsagePolicy({
     attempt: attemptState.attempt,
     idempotencyKey,
     async markProviderRunning() {
-      return markAiUsageAttemptProviderRunning(env, attemptState.attempt.id);
+      dispatchToken = await markAiUsageAttemptProviderRunning(env, attemptState.attempt.id, { signal: request.signal });
+      return dispatchToken;
     },
-    async markProviderFailed({ code = "provider_failed", message = null } = {}) {
-      return markAiUsageAttemptProviderFailed(env, attemptState.attempt.id, { code, message });
+    async markProviderFailed(options = {}) {
+      return markAiUsageAttemptProviderFailed(env, attemptState.attempt.id, { ...options, dispatchToken });
+    },
+    async recordLateOutcome(outcome, code = null) {
+      await markAiUsageAttemptUnknown(env, attemptState.attempt.id, { dispatchToken, code: "late_provider_completion" });
+      return markAiUsageAttemptLateOutcome(env, attemptState.attempt.id, { dispatchToken, outcome, code });
     },
     async markFinalizing() {
-      return markAiUsageAttemptFinalizing(env, attemptState.attempt.id);
+      return markAiUsageAttemptFinalizing(env, attemptState.attempt.id, { dispatchToken });
     },
     async markBillingFailed({ code = "billing_failed", message = null } = {}) {
-      return markAiUsageAttemptBillingFailed(env, attemptState.attempt.id, { code, message });
+      return markAiUsageAttemptBillingFailed(env, attemptState.attempt.id, { code, message, dispatchToken });
     },
     async markSucceeded(result = {}) {
-      return markAiUsageAttemptSucceeded(env, attemptState.attempt.id, result);
+      return markAiUsageAttemptSucceeded(env, attemptState.attempt.id, { ...result, dispatchToken });
     },
     billingMetadata({ replay = false, balanceAfter = null } = {}) {
       return billingMetadataFromAttempt(

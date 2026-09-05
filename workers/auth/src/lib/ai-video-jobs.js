@@ -34,11 +34,12 @@ import {
 } from "./admin-platform-budget-switches.js";
 import {
   checkPlatformBudgetCap,
+  platformBudgetDispatchCapacitySql,
   platformBudgetUnitsFromBudgetPolicy,
   recordPlatformBudgetUsageEvent,
   withPlatformBudgetCapMetadata,
 } from "./platform-budget-caps.js";
-import { proxyToAiLab } from "./admin-ai-proxy.js";
+import { consumeAiLabJsonResponse, proxyToAiLab } from "./admin-ai-proxy.js";
 import {
   beginAdminAiIdempotencyAttempt,
   markAdminAiIdempotencyProviderFailed,
@@ -143,9 +144,10 @@ const JOB_COLUMN_NAMES = [
   "expires_at",
 ];
 
-const JOB_COLUMNS = JOB_COLUMN_NAMES.join(", ");
+const JOB_INSERT_COLUMNS = JOB_COLUMN_NAMES.join(", ");
+const JOB_COLUMNS = [...JOB_COLUMN_NAMES, "provider_outcome", "dispatch_token", "processing_token", "dispatched_at", "unknown_at", "late_outcome", "late_evidence_json", "provider_result_json", "platform_exposure_units", "platform_window_day", "platform_window_month"].join(", ");
 const JOB_INSERT_PLACEHOLDERS = JOB_COLUMN_NAMES.map(() => "?").join(", ");
-const JOB_WITH_USER_JOIN_COLUMNS = `${JOB_COLUMN_NAMES.map((column) => `ai_video_jobs.${column} AS ${column}`).join(", ")}, users.email AS user_email`;
+const JOB_WITH_USER_JOIN_COLUMNS = `${JOB_COLUMNS.split(", ").map((column) => `ai_video_jobs.${column} AS ${column}`).join(", ")}, users.email AS user_email`;
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled", "expired"]);
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -680,6 +682,9 @@ export function serializeAiVideoJob(job) {
   const serialized = {
     jobId: job.id,
     status: job.status,
+    providerOutcome: job.provider_outcome || "not_dispatched",
+    unknownAt: job.unknown_at || null,
+    lateOutcome: job.late_outcome || null,
     provider: job.provider,
     model: job.model,
     createdAt: job.created_at,
@@ -695,7 +700,7 @@ export function serializeAiVideoJob(job) {
     serialized.posterUrl = job.poster_url;
   }
 
-  if (job.status === "failed") {
+  if (job.status === "failed" || job.provider_outcome === "unknown") {
     serialized.error = {
       code: job.error_code || "video_job_failed",
       message: sanitizePublicError(job.error_message),
@@ -893,7 +898,7 @@ async function getQueueJob(env, jobId) {
 
 async function insertJob(env, job) {
   await env.DB.prepare(
-    `INSERT INTO ai_video_jobs (${JOB_COLUMNS}) VALUES (${JOB_INSERT_PLACEHOLDERS})`
+    `INSERT INTO ai_video_jobs (${JOB_INSERT_COLUMNS}) VALUES (${JOB_INSERT_PLACEHOLDERS})`
   ).bind(
     job.id,
     job.user_id,
@@ -1114,35 +1119,100 @@ function permanentVideoJobError(message, code) {
   return error;
 }
 
+function staleJobExecutionError() {
+  return Object.assign(new Error("Video job execution no longer owns the processing claim."), { code: "ai_video_job_stale_execution" });
+}
+
 async function acquireJobLease(env, jobId, now, lockedUntil) {
+  const processingToken = randomTokenHex(24);
   const result = await env.DB.prepare(
-    "UPDATE ai_video_jobs SET status = 'starting', attempt_count = attempt_count + 1, locked_until = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (locked_until IS NULL OR locked_until < ?) AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
-  ).bind(lockedUntil, now, jobId, now, now).run();
+    "UPDATE ai_video_jobs SET status = 'starting', attempt_count = attempt_count + 1, processing_token = ?, locked_until = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND provider_outcome <> 'unknown' AND (locked_until IS NULL OR locked_until < ?) AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
+  ).bind(processingToken, lockedUntil, now, jobId, now, now).run();
   return Number(result?.meta?.changes || 0) > 0;
 }
 
-async function updateJobProviderPending(env, jobId, result, now, nextAttemptAt) {
-  await env.DB.prepare(
-    "UPDATE ai_video_jobs SET status = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ?"
+async function assertJobClaim(env, job) {
+  const row = await env.DB.prepare("SELECT status, processing_token, provider_outcome, locked_until FROM ai_video_jobs WHERE id = ?").bind(job.id).first();
+  if (!row || row.processing_token !== job.processing_token || TERMINAL_STATUSES.has(row.status) || (row.provider_outcome === "unknown" && !job.recoveryClaim)) throw staleJobExecutionError();
+  if (row.locked_until && row.locked_until <= nowIso()) {
+    await markJobOutcomeUnknown(env, job, "provider_processing_lease_expired", nowIso());
+    throw staleJobExecutionError();
+  }
+}
+
+async function claimJobProviderDispatch(env, job, budgetPolicy, now) {
+  const units = platformBudgetUnitsFromBudgetPolicy(budgetPolicy);
+  const dispatchToken = randomTokenHex(24);
+  const result = await env.DB.prepare(
+    `WITH dispatch_budget(scope, units, day, month) AS (VALUES (?, ?, ?, ?))
+     UPDATE ai_video_jobs SET provider_outcome = 'dispatched', dispatch_token = ?, dispatched_at = ?,
+       platform_exposure_units = ?, platform_window_day = ?, platform_window_month = ?
+     WHERE id = ? AND processing_token = ? AND status = 'starting' AND provider_outcome = 'not_dispatched'
+       AND ${platformBudgetDispatchCapacitySql()}`
+  ).bind(budgetPolicy.budget_scope, units, now.slice(0, 10), now.slice(0, 7), dispatchToken, now,
+    units, now.slice(0, 10), now.slice(0, 7), job.id, job.processing_token).run();
+  if (!result?.meta?.changes) throw Object.assign(new Error("Video dispatch is already claimed or platform capacity is unavailable."), { code: "ai_video_dispatch_not_claimed" });
+  job.dispatch_token = dispatchToken;
+  job.provider_outcome = "dispatched";
+}
+
+function boundedProviderResult(result) {
+  const clean = {};
+  for (const key of ["status", "providerTaskId", "providerState", "videoUrl", "posterUrl"]) {
+    if (typeof result?.[key] === "string") clean[key] = result[key].slice(0, key.endsWith("Url") ? 2048 : 256);
+  }
+  return clean;
+}
+
+async function recordJobLateOutcome(env, job, result, outcome = "unknown") {
+  if (!job.dispatch_token) return;
+  const evidence = { observed_at: nowIso(), outcome: String(outcome).slice(0, 80),
+    provider_task_hash: result?.providerTaskId ? await sha256Hex(String(result.providerTaskId)) : null };
+  await env.DB.prepare("UPDATE ai_video_jobs SET late_outcome = ?, late_evidence_json = ? WHERE id = ? AND dispatch_token = ? AND late_outcome IS NULL AND (provider_outcome = 'unknown' OR status IN ('cancelled', 'failed'))")
+    .bind(String(outcome).slice(0, 80), JSON.stringify(evidence), job.id, job.dispatch_token).run();
+}
+
+async function markJobOutcomeUnknown(env, job, code, now) {
+  const result = await env.DB.prepare(
+    "UPDATE ai_video_jobs SET provider_outcome = 'unknown', unknown_at = COALESCE(unknown_at, ?), status = 'processing', error_code = ?, error_message = 'Provider completion is unresolved; this operation will not be submitted again.', locked_until = NULL, processing_token = NULL, updated_at = ? WHERE id = ? AND processing_token IS ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled')"
+  ).bind(now, code || "ai_video_outcome_unknown", now, job.id, job.processing_token || null).run();
+  return Number(result?.meta?.changes || 0);
+}
+
+async function checkpointJobProviderSuccess(env, job, providerResult, now) {
+  const result = await env.DB.prepare(
+    "UPDATE ai_video_jobs SET provider_outcome = 'succeeded', provider_result_json = ?, provider_task_id = COALESCE(?, provider_task_id), updated_at = ? WHERE id = ? AND processing_token = ? AND provider_outcome IN ('dispatched', 'succeeded') AND status NOT IN ('succeeded', 'failed', 'cancelled')"
+  ).bind(JSON.stringify(boundedProviderResult(providerResult)), providerResult.providerTaskId || null, now, job.id, job.processing_token).run();
+  if (!result?.meta?.changes) throw staleJobExecutionError();
+  job.provider_outcome = "succeeded";
+  job.provider_result_json = JSON.stringify(boundedProviderResult(providerResult));
+}
+
+async function updateJobProviderPending(env, job, result, now, nextAttemptAt) {
+  const updated = await env.DB.prepare(
+    `UPDATE ai_video_jobs SET status = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
   ).bind(
     result?.providerTaskId ? "provider_pending" : "polling",
     result?.providerTaskId || null,
     result?.providerState || null,
     nextAttemptAt,
     now,
-    jobId
+    job.id,
+    job.processing_token || null
   ).run();
+  if (!updated?.meta?.changes) throw staleJobExecutionError();
 }
 
-async function updateJobIngesting(env, jobId, providerState, now) {
-  await env.DB.prepare(
-    "UPDATE ai_video_jobs SET status = 'ingesting', provider_state = ?, locked_until = NULL, updated_at = ? WHERE id = ?"
-  ).bind(providerState || null, now, jobId).run();
+async function updateJobIngesting(env, job, providerState, now) {
+  const result = await env.DB.prepare(
+    `UPDATE ai_video_jobs SET status = 'ingesting', provider_state = ?, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
+  ).bind(providerState || null, now, job.id, job.processing_token || null).run();
+  if (!result?.meta?.changes) throw staleJobExecutionError();
 }
 
-async function updateJobSucceeded(env, jobId, result, now) {
-  await env.DB.prepare(
-    "UPDATE ai_video_jobs SET status = 'succeeded', output_r2_key = ?, output_url = ?, output_content_type = ?, output_size_bytes = ?, poster_r2_key = ?, poster_url = ?, poster_content_type = ?, poster_size_bytes = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ?"
+async function updateJobSucceeded(env, job, result, now) {
+  const updated = await env.DB.prepare(
+    `UPDATE ai_video_jobs SET status = 'succeeded', output_r2_key = ?, output_url = ?, output_content_type = ?, output_size_bytes = ?, poster_r2_key = ?, poster_url = ?, poster_content_type = ?, poster_size_bytes = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
   ).bind(
     result?.outputR2Key || null,
     result?.outputUrl || null,
@@ -1156,33 +1226,40 @@ async function updateJobSucceeded(env, jobId, result, now) {
     result?.providerState || "success",
     now,
     now,
-    jobId
+    job.id,
+    job.processing_token || null
   ).run();
+  if (!updated?.meta?.changes) throw staleJobExecutionError();
 }
 
-async function updateJobFailed(env, jobId, code, message, now) {
-  await env.DB.prepare(
-    "UPDATE ai_video_jobs SET status = 'failed', error_code = ?, error_message = ?, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ?"
-  ).bind(code, sanitizePublicError(message), now, now, jobId).run();
+async function updateJobFailed(env, job, code, message, now) {
+  if (job.provider_outcome === "dispatched" && !job.recoveryClaim) return markJobOutcomeUnknown(env, job, "ai_video_outcome_unknown", now);
+  const result = await env.DB.prepare(
+    `UPDATE ai_video_jobs SET status = 'failed', error_code = ?, error_message = ?, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
+  ).bind(code, sanitizePublicError(message), now, now, job.id, job.processing_token || null).run();
+  if (!result?.meta?.changes) throw staleJobExecutionError();
 }
 
-async function updateJobRetry(env, jobId, code, message, now, nextAttemptAt) {
-  await env.DB.prepare(
-    "UPDATE ai_video_jobs SET status = 'queued', error_code = ?, error_message = ?, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ?"
-  ).bind(code, sanitizePublicError(message), nextAttemptAt, now, jobId).run();
+async function updateJobRetry(env, job, code, message, now, nextAttemptAt) {
+  const result = await env.DB.prepare(
+    `UPDATE ai_video_jobs SET status = 'queued', error_code = ?, error_message = ?, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
+  ).bind(code, sanitizePublicError(message), nextAttemptAt, now, job.id, job.processing_token || null).run();
+  if (!result?.meta?.changes) throw staleJobExecutionError();
 }
 
-async function updateJobBudgetPolicyMetadata(env, jobId, budgetPolicy, status, now) {
-  await env.DB.prepare(
-    "UPDATE ai_video_jobs SET budget_policy_json = ?, budget_policy_status = ?, budget_policy_fingerprint = ?, budget_policy_version = ?, updated_at = ? WHERE id = ?"
+async function updateJobBudgetPolicyMetadata(env, job, budgetPolicy, status, now) {
+  const result = await env.DB.prepare(
+    `UPDATE ai_video_jobs SET budget_policy_json = ?, budget_policy_status = ?, budget_policy_fingerprint = ?, budget_policy_version = ?, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
   ).bind(
     budgetPolicyJson(budgetPolicy),
     status || budgetPolicy?.plan_status || null,
     budgetPolicy?.fingerprint || null,
     budgetPolicy?.budget_policy_version || null,
     now,
-    jobId
+    job.id,
+    job.processing_token || null
   ).run();
+  if (!result?.meta?.changes) throw staleJobExecutionError();
 }
 
 function budgetPolicyFailure(message, code) {
@@ -1239,7 +1316,7 @@ async function markProviderTaskCreateAttempted(env, job, budgetPolicy, now) {
       provider_task_id_recorded: false,
     },
   };
-  await updateJobBudgetPolicyMetadata(env, job.id, next, next.plan_status, now);
+  await updateJobBudgetPolicyMetadata(env, job, next, next.plan_status, now);
   return next;
 }
 
@@ -1257,7 +1334,7 @@ async function markProviderTaskIdRecorded(env, job, budgetPolicy, providerTaskId
       provider_task_id_fingerprint: providerTaskId ? await sha256Hex(providerTaskId) : null,
     },
   };
-  await updateJobBudgetPolicyMetadata(env, job.id, next, next.plan_status, now);
+  await updateJobBudgetPolicyMetadata(env, job, next, next.plan_status, now);
   return next;
 }
 
@@ -1656,9 +1733,16 @@ export async function recoverAdminAiVideoJobFromProviderResponse({
     );
   }
 
-  await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+  const recoveryAttempt = await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+  const dispatchToken = recoveryAttempt.dispatchToken;
   const ingestStartedAt = nowIso();
-  await updateJobIngesting(env, job.id, "recovered_provider_response", ingestStartedAt);
+  const processingToken = randomTokenHex(24);
+  const recoveryClaim = await env.DB.prepare("UPDATE ai_video_jobs SET status = 'ingesting', processing_token = ?, locked_until = ?, updated_at = ? WHERE id = ? AND status = ? AND processing_token IS ?")
+    .bind(processingToken, addMillisecondsIso(JOB_LEASE_MS), ingestStartedAt, job.id, previousStatus, job.processing_token || null).run();
+  if (!recoveryClaim?.meta?.changes) throw staleJobExecutionError();
+  job.processing_token = processingToken;
+  job.recoveryClaim = true;
+  await updateJobIngesting(env, job, "recovered_provider_response", ingestStartedAt);
   let ingested;
   try {
     ingested = await ingestProviderVideoOutput(env, job, {
@@ -1668,8 +1752,10 @@ export async function recoverAdminAiVideoJobFromProviderResponse({
     });
   } catch (error) {
     const code = error?.code || "video_output_ingest_failed";
-    await updateJobFailed(env, job.id, code, "Recovered provider video output ingest failed.", nowIso());
+    await updateJobFailed(env, job, code, "Recovered provider video output ingest failed.", nowIso());
     await markAdminAiIdempotencyProviderFailed(env, attemptState.attempt.id, {
+      dispatchToken,
+      confirmedFailure: true,
       code,
       message: "Recovered provider video output ingest failed.",
     });
@@ -1680,12 +1766,13 @@ export async function recoverAdminAiVideoJobFromProviderResponse({
     );
   }
 
-  await updateJobSucceeded(env, job.id, {
+  await updateJobSucceeded(env, job, {
     ...ingested,
     providerTaskId: job.provider_task_id || null,
     providerState: "recovered_provider_response",
   }, nowIso());
   await markAdminAiIdempotencySucceeded(env, attemptState.attempt.id, {
+    dispatchToken,
     resultMetadata: {
       result_kind: "video_job_recovery",
       job_id: job.id,
@@ -1732,7 +1819,7 @@ export async function recoverAdminAiVideoJobFromProviderResponse({
   };
 }
 
-async function readResponseBodyLimited(response, maxBytes, label) {
+async function readResponseBodyLimited(response, maxBytes, label, signal) {
   const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > maxBytes) {
     const error = new Error(`${label} exceeds the maximum allowed size.`);
@@ -1754,21 +1841,30 @@ async function readResponseBodyLimited(response, maxBytes, label) {
 
   const chunks = [];
   let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      try {
-        await reader.cancel();
-      } catch {}
-      const error = new Error(`${label} exceeds the maximum allowed size.`);
-      error.code = `${label}_too_large`;
-      error.permanent = true;
-      throw error;
+  const onAbort = () => { reader.cancel(signal.reason).catch(() => {}); };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    signal?.throwIfAborted();
+    while (true) {
+      const { done, value } = await reader.read();
+      signal?.throwIfAborted();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch {}
+        const error = new Error(`${label} exceeds the maximum allowed size.`);
+        error.code = `${label}_too_large`;
+        error.permanent = true;
+        throw error;
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    reader.releaseLock();
   }
 
   const merged = new Uint8Array(total);
@@ -1784,6 +1880,7 @@ export async function fetchRemoteAsset(env, urlValue, {
   maxBytes,
   allowedContentTypes,
   label,
+  signal,
 }) {
   const url = assertSafeRemoteUrl(urlValue, label);
   const fetcher = env.__TEST_FETCH || globalThis.fetch;
@@ -1792,44 +1889,51 @@ export async function fetchRemoteAsset(env, urlValue, {
     error.code = `${label}_fetch_unavailable`;
     throw error;
   }
-  const response = await fetchWithGenerationTimeout(fetcher, url, { method: "GET" });
-  if (!response.ok) {
-    const error = new Error(`${label} download failed.`);
-    error.status = response.status;
-    error.code = `${label}_download_failed`;
-    throw error;
-  }
-  const contentType = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
-  if (!allowedContentTypes.has(contentType)) {
-    const error = new Error(`${label} content type is not allowed.`);
-    error.code = `${label}_content_type_not_allowed`;
-    error.permanent = true;
-    throw error;
-  }
-  const body = await readResponseBodyLimited(response, maxBytes, label);
-  return {
-    body,
-    contentType,
-    sizeBytes: body.byteLength,
-  };
+  return fetchWithGenerationTimeout(fetcher, url, { method: "GET", signal }, {
+    consumeResponse: async (response, downloadSignal) => {
+      if (!response.ok) {
+        const error = new Error(`${label} download failed.`);
+        error.status = response.status;
+        error.code = `${label}_download_failed`;
+        throw error;
+      }
+      const contentType = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+      if (!allowedContentTypes.has(contentType)) {
+        const error = new Error(`${label} content type is not allowed.`);
+        error.code = `${label}_content_type_not_allowed`;
+        error.permanent = true;
+        throw error;
+      }
+      const body = await readResponseBodyLimited(response, maxBytes, label, downloadSignal);
+      return {
+        body,
+        contentType,
+        sizeBytes: body.byteLength,
+      };
+    },
+  });
 }
 
-function videoOutputKey(jobId, userId) {
-  return `users/${userId}/video-jobs/${jobId}/output.mp4`;
+function videoOutputKey(jobId, userId, processingToken) {
+  return `users/${userId}/video-jobs/${jobId}/attempts/${processingToken}/output.mp4`;
 }
 
-function videoPosterKey(jobId, userId, contentType) {
+function videoPosterKey(jobId, userId, contentType, processingToken) {
   const ext = contentType === "image/png" ? "png" : contentType === "image/jpeg" ? "jpg" : "webp";
-  return `users/${userId}/video-jobs/${jobId}/poster.${ext}`;
+  return `users/${userId}/video-jobs/${jobId}/attempts/${processingToken}/poster.${ext}`;
 }
 
 async function ingestProviderVideoOutput(env, job, providerResult) {
+  // D1 and R2 cannot share a transaction. A stale in-flight put must never
+  // overwrite another claim's bytes; only the winning key is published in D1.
+  if (!job.processing_token) throw staleJobExecutionError();
   const output = await fetchRemoteAsset(env, providerResult.videoUrl, {
     maxBytes: VIDEO_OUTPUT_MAX_BYTES,
     allowedContentTypes: VIDEO_OUTPUT_CONTENT_TYPES,
     label: "video_output",
   });
-  const outputKey = videoOutputKey(job.id, job.user_id);
+  if (job.processing_token) await assertJobClaim(env, job);
+  const outputKey = videoOutputKey(job.id, job.user_id, job.processing_token);
   await env.USER_IMAGES.put(outputKey, output.body, {
     httpMetadata: { contentType: output.contentType },
   });
@@ -1842,7 +1946,8 @@ async function ingestProviderVideoOutput(env, job, providerResult) {
         allowedContentTypes: VIDEO_POSTER_CONTENT_TYPES,
         label: "video_poster",
       });
-      const posterKey = videoPosterKey(job.id, job.user_id, posterAsset.contentType);
+      if (job.processing_token) await assertJobClaim(env, job);
+      const posterKey = videoPosterKey(job.id, job.user_id, posterAsset.contentType, job.processing_token);
       await env.USER_IMAGES.put(posterKey, posterAsset.body, {
         httpMetadata: { contentType: posterAsset.contentType },
       });
@@ -1911,7 +2016,8 @@ async function callVideoProviderTask(env, path, job, parsedInput, correlationId,
       email: job.user_email || "",
     },
     correlationId,
-    null
+    null,
+    { consumeResponse: consumeAiLabJsonResponse }
   );
 }
 
@@ -1921,7 +2027,7 @@ function getProviderTaskResult(responseBody) {
     : null;
 }
 
-export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 } = {}) {
+async function processAiVideoJobMessageWithClaim(env, body, { messageAttempts = 0 } = {}) {
   assertVideoJobConfig(env);
   const startedAt = Date.now();
   let payload;
@@ -1956,7 +2062,12 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     return { status: "noop", reason: TERMINAL_STATUSES.has(initialJob.status) ? "terminal_job" : "user_mismatch" };
   }
 
+  if (initialJob.provider_outcome === "unknown") return { status: "noop", reason: "provider_outcome_unknown" };
   const now = nowIso();
+  if (initialJob.provider_outcome === "dispatched" && !initialJob.provider_task_id && initialJob.locked_until && initialJob.locked_until <= now) {
+    await markJobOutcomeUnknown(env, initialJob, "provider_processing_lease_expired", now);
+    return { status: "noop", reason: "provider_outcome_unknown" };
+  }
   const lockedUntil = addMillisecondsIso(JOB_LEASE_MS);
   const acquired = await acquireJobLease(env, initialJob.id, now, lockedUntil);
   if (!acquired) {
@@ -1982,7 +2093,7 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     parsedInput = JSON.parse(job.input_json);
   } catch (error) {
     const failedAt = nowIso();
-    await updateJobFailed(env, job.id, "bad_stored_payload", "Stored video request is invalid.", failedAt);
+    await updateJobFailed(env, job, "bad_stored_payload", "Stored video request is invalid.", failedAt);
     return { status: "failed", reason: "bad_stored_payload", error };
   }
 
@@ -1992,7 +2103,7 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     const failedAt = nowIso();
     await updateJobFailed(
       env,
-      job.id,
+      job,
       error?.code || ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE,
       error?.message || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
       failedAt
@@ -2012,6 +2123,7 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     return { status: "failed", jobId: job.id, reason: error?.code || ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE };
   }
 
+  const storedProviderResult = job.provider_result_json && job.provider_result_json !== "{}" ? JSON.parse(job.provider_result_json) : null;
   const providerPath = job.provider_task_id
     ? "/internal/ai/video-task/poll"
     : "/internal/ai/video-task/create";
@@ -2020,14 +2132,14 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     : ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID;
   let budgetPolicy;
   try {
-    budgetPolicy = validateJobBudgetPolicy(job, budgetOperationId);
-    if (!job.provider_task_id) {
+    budgetPolicy = validateJobBudgetPolicy(job, storedProviderResult ? ADMIN_VIDEO_TASK_POLL_BUDGET_OPERATION_ID : budgetOperationId);
+    if (!job.provider_task_id && !storedProviderResult) {
       budgetPolicy = await markProviderTaskCreateAttempted(env, job, budgetPolicy, nowIso());
     }
   } catch (error) {
     const failedAt = nowIso();
     const code = error?.code || "budget_policy_invalid";
-    await updateJobFailed(env, job.id, code, "Admin video job budget policy is invalid.", failedAt);
+    await updateJobFailed(env, job, code, "Admin video job budget policy is invalid.", failedAt);
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-video-jobs-queue",
@@ -2056,7 +2168,7 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     );
   } catch (error) {
     const failedAt = nowIso();
-    await updateJobFailed(env, job.id, error?.code || "video_source_resolution_failed", "Video source could not be resolved.", failedAt);
+    await updateJobFailed(env, job, error?.code || "video_source_resolution_failed", "Video source could not be resolved.", failedAt);
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-video-jobs-queue",
@@ -2072,7 +2184,14 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     });
     return { status: "failed", jobId: job.id, reason: error?.code || "video_source_resolution_failed" };
   }
-  const response = await callVideoProviderTask(env, providerPath, job, providerInput, payload.correlationId, budgetPolicy);
+  let response;
+  if (storedProviderResult) {
+    response = Response.json({ ok: true, result: storedProviderResult });
+  } else {
+    if (!job.provider_task_id) await claimJobProviderDispatch(env, job, budgetPolicy, nowIso());
+    await assertJobClaim(env, job);
+    response = await callVideoProviderTask(env, providerPath, job, providerInput, payload.correlationId, budgetPolicy);
+  }
 
   let responseBody = null;
   try {
@@ -2083,6 +2202,12 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
 
   const completedAt = nowIso();
   const providerResult = getProviderTaskResult(responseBody);
+  try {
+    await assertJobClaim(env, job);
+  } catch (error) {
+    await recordJobLateOutcome(env, job, providerResult, providerResult?.status || "unknown");
+    throw error;
+  }
   if (response.ok && responseBody?.ok && providerResult?.status === "succeeded" && providerResult?.videoUrl) {
     if (!job.provider_task_id && providerResult.providerTaskId) {
       await markProviderTaskIdRecorded(
@@ -2094,7 +2219,8 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
         ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID
       );
     }
-    await updateJobIngesting(env, job.id, providerResult.providerState || "success", completedAt);
+    await checkpointJobProviderSuccess(env, job, providerResult, completedAt);
+    await updateJobIngesting(env, job, providerResult.providerState || "success", completedAt);
     let ingested;
     try {
       ingested = await ingestProviderVideoOutput(env, job, providerResult);
@@ -2103,14 +2229,14 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
       if (!error?.permanent && job.attempt_count < job.max_attempts) {
         const delaySeconds = getAiVideoJobRetryDelaySeconds(messageAttempts);
         const nextAttemptAt = addMillisecondsIso(delaySeconds * 1000);
-        await updateJobRetry(env, job.id, code, "Video output ingest failed.", completedAt, nextAttemptAt);
+        await updateJobRetry(env, job, code, "Video output ingest failed.", completedAt, nextAttemptAt);
         return { status: "retry", jobId: job.id, delaySeconds, reason: code };
       }
-      await updateJobFailed(env, job.id, code, "Video output ingest failed.", completedAt);
+      await updateJobFailed(env, job, code, "Video output ingest failed.", completedAt);
       return { status: "failed", jobId: job.id, reason: code };
     }
 
-    await updateJobSucceeded(env, job.id, {
+    await updateJobSucceeded(env, job, {
       ...ingested,
       providerTaskId: providerResult.providerTaskId || job.provider_task_id || null,
       providerState: providerResult.providerState || "success",
@@ -2176,7 +2302,13 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
   }
 
   if (response.ok && responseBody?.ok && providerResult?.status === "failed") {
-    await updateJobFailed(env, job.id, "provider_failed", "Video provider reported failure.", completedAt);
+    const failedOutcome = await env.DB.prepare("UPDATE ai_video_jobs SET provider_outcome = 'failed' WHERE id = ? AND processing_token = ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled')").bind(job.id, job.processing_token).run();
+    if (!failedOutcome?.meta?.changes) {
+      await recordJobLateOutcome(env, job, providerResult, "failed");
+      throw staleJobExecutionError();
+    }
+    job.provider_outcome = "failed";
+    await updateJobFailed(env, job, "provider_failed", "Video provider reported failure.", completedAt);
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-video-jobs-queue",
@@ -2198,13 +2330,12 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     const delaySeconds = parseRetryAfterSeconds(providerResult, getAiVideoJobRetryDelaySeconds(messageAttempts));
     const nextAttemptAt = addMillisecondsIso(delaySeconds * 1000);
     if (job.attempt_count >= job.max_attempts) {
-      await updateJobFailed(
-        env,
-        job.id,
-        "max_attempts_exhausted",
-        "Video provider task did not complete before the retry limit.",
-        completedAt
-      );
+      if (providerResult.providerTaskId) {
+        const pendingOutcome = await env.DB.prepare("UPDATE ai_video_jobs SET provider_task_id = COALESCE(?, provider_task_id) WHERE id = ? AND processing_token = ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled')")
+          .bind(providerResult.providerTaskId, job.id, job.processing_token).run();
+        if (!pendingOutcome?.meta?.changes) throw staleJobExecutionError();
+      }
+      await markJobOutcomeUnknown(env, job, "ai_video_outcome_unknown", completedAt);
       await recordAiVideoPoisonMessage(env, body, "max_attempts_exhausted", payload.correlationId);
       logDiagnostic({
         service: "bitbi-auth",
@@ -2220,7 +2351,7 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
         error_code: "max_attempts_exhausted",
         duration_ms: getDurationMs(startedAt),
       });
-      return { status: "failed", jobId: job.id, reason: "max_attempts_exhausted" };
+      return { status: "noop", jobId: job.id, reason: "provider_outcome_unknown" };
     }
     if (providerResult.providerTaskId) {
       await markProviderTaskIdRecorded(
@@ -2232,7 +2363,7 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
         ADMIN_VIDEO_TASK_CREATE_BUDGET_OPERATION_ID
       );
     }
-    await updateJobProviderPending(env, job.id, providerResult, completedAt, nextAttemptAt);
+    await updateJobProviderPending(env, job, providerResult, completedAt, nextAttemptAt);
     try {
       await enqueueAiVideoJobFollowup(env, {
         ...job,
@@ -2240,7 +2371,7 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
         provider_task_id: providerResult.providerTaskId || job.provider_task_id || null,
       }, payload.correlationId, "poll", delaySeconds);
     } catch (error) {
-      await updateJobRetry(env, job.id, "queue_send_failed", "Video polling could not be queued.", completedAt, nextAttemptAt);
+      await updateJobRetry(env, job, "queue_send_failed", "Video polling could not be queued.", completedAt, nextAttemptAt);
       return { status: "retry", jobId: job.id, delaySeconds, reason: "queue_send_failed" };
     }
     logDiagnostic({
@@ -2262,10 +2393,14 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
 
   const code = getResponseCode(responseBody, response);
   const publicMessage = responseBody?.error || "Video provider request failed.";
+  if (!job.provider_task_id) {
+    await markJobOutcomeUnknown(env, job, "ai_video_outcome_unknown", completedAt);
+    return { status: "noop", jobId: job.id, reason: "provider_outcome_unknown" };
+  }
   if (shouldRetry(response, job)) {
     const delaySeconds = getAiVideoJobRetryDelaySeconds(messageAttempts);
     const nextAttemptAt = addMillisecondsIso(delaySeconds * 1000);
-    await updateJobRetry(env, job.id, code, publicMessage, completedAt, nextAttemptAt);
+    await updateJobRetry(env, job, code, publicMessage, completedAt, nextAttemptAt);
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-video-jobs-queue",
@@ -2284,7 +2419,7 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     return { status: "retry", jobId: job.id, delaySeconds, reason: code };
   }
 
-  await updateJobFailed(env, job.id, code, publicMessage, completedAt);
+  await markJobOutcomeUnknown(env, job, "ai_video_outcome_unknown", completedAt);
   if (job.attempt_count >= job.max_attempts) {
     await recordAiVideoPoisonMessage(env, body, "max_attempts_exhausted", payload.correlationId);
   }
@@ -2302,5 +2437,14 @@ export async function processAiVideoJobMessage(env, body, { messageAttempts = 0 
     error_code: code,
     duration_ms: getDurationMs(startedAt),
   });
-  return { status: "failed", jobId: job.id, reason: code };
+  return { status: "noop", jobId: job.id, reason: "provider_outcome_unknown" };
+}
+
+export async function processAiVideoJobMessage(env, body, options = {}) {
+  try {
+    return await processAiVideoJobMessageWithClaim(env, body, options);
+  } catch (error) {
+    if (error?.code === "ai_video_job_stale_execution") return { status: "noop", reason: "stale_execution" };
+    throw error;
+  }
 }

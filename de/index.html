@@ -522,24 +522,24 @@
                 </div>
                 <div class="gallery-mode reveal" role="tablist" aria-label="Galerie-Modus">
                     <div class="gallery-mode__item">
-                        <button class="gallery-mode__btn gallery-mode__btn--explore active" data-mode="explore" role="tab" aria-selected="true" tabindex="0">
+                        <button class="gallery-mode__btn gallery-mode__btn--explore active" data-mode="explore" id="galleryExploreTab" role="tab" aria-controls="galleryExplore" aria-selected="true" tabindex="0">
                             <svg class="gallery-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                             <span class="gallery-mode__label">Entdecken</span>
                         </button>
                     </div>
                     <div class="gallery-mode__item">
-                        <button class="gallery-mode__btn gallery-mode__btn--create gallery-mode__btn--locked" data-mode="create" role="tab" aria-selected="false" tabindex="-1">
+                        <button class="gallery-mode__btn gallery-mode__btn--create gallery-mode__btn--locked" data-mode="create" id="galleryCreateTab" role="tab" aria-controls="galleryStudio" aria-selected="false" tabindex="-1">
                             <svg class="gallery-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.21 1.21 0 0 0 1.72 0L21.64 5.36a1.21 1.21 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M7 8H3"/><path d="M19 14v4"/><path d="M21 16h-4"/></svg>
                             <span class="gallery-mode__label">Erstellen</span>
                             <span class="gallery-mode__lock" aria-hidden="true">&#x1f512;</span>
                         </button>
                     </div>
                 </div>
-                <div id="galleryExplore">
+                <div id="galleryExplore" role="tabpanel" aria-labelledby="galleryExploreTab">
                     <div id="galleryGrid" class="grid-gallery"></div>
                     <div id="galleryPagination" class="browse-pagination" style="display:none"></div>
                 </div>
-                <div id="galleryStudio" class="creator-create gallery-create" style="display:none">
+                <div id="galleryStudio" role="tabpanel" aria-labelledby="galleryCreateTab" class="creator-create gallery-create" style="display:none">
                     <div class="studio creator-create__studio">
                         <div class="studio__grid creator-create__shell">
                             <section class="studio__card creator-create__panel creator-create__panel--controls reveal" aria-labelledby="galleryCreateTitle">
@@ -637,21 +637,21 @@
                 </div>
                 <div class="video-mode reveal" role="tablist" aria-label="Video-Aktionen">
                     <div class="video-mode__item">
-                        <button type="button" class="video-mode__btn video-mode__btn--explore active" data-video-mode="explore" role="tab" aria-selected="true" tabindex="0">
+                        <button type="button" class="video-mode__btn video-mode__btn--explore active" data-video-mode="explore" id="videoExploreTab" role="tab" aria-controls="videoExplore" aria-selected="true" tabindex="0">
                             <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                             <span class="video-mode__label">Entdecken</span>
                         </button>
                     </div>
                     <div class="video-mode__item">
-                        <button type="button" class="video-mode__btn video-mode__btn--create video-mode__btn--locked" data-video-mode="create" role="tab" aria-selected="false" tabindex="-1">
+                        <button type="button" class="video-mode__btn video-mode__btn--create video-mode__btn--locked" data-video-mode="create" id="videoCreateTab" role="tab" aria-controls="videoCreate" aria-selected="false" tabindex="-1">
                             <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.21 1.21 0 0 0 1.72 0L21.64 5.36a1.21 1.21 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M7 8H3"/><path d="M19 14v4"/><path d="M21 16h-4"/></svg>
                             <span class="video-mode__label">Erstellen</span>
                         </button>
                     </div>
                 </div>
-                <div id="videoExplore" class="video-explore reveal"></div>
+                <div id="videoExplore" role="tabpanel" aria-labelledby="videoExploreTab" class="video-explore reveal"></div>
                 <div id="videoPagination" class="browse-pagination" style="display:none"></div>
-                <div id="videoCreate" class="video-create" style="display:none">
+                <div id="videoCreate" role="tabpanel" aria-labelledby="videoCreateTab" class="video-create" style="display:none">
                     <div class="video-create__shell">
                         <section class="video-create__panel video-create__panel--controls reveal" aria-labelledby="videoCreateTitle">
                             <div class="video-create__panel-head">
@@ -805,23 +805,23 @@
                 </div>
                 <div class="video-mode reveal" role="tablist" aria-label="Sound-Lab-Aktionen">
                     <div class="video-mode__item">
-                        <button type="button" class="video-mode__btn video-mode__btn--explore active" data-sound-mode="explore" role="tab" aria-selected="true" tabindex="0">
+                        <button type="button" class="video-mode__btn video-mode__btn--explore active" data-sound-mode="explore" id="soundLabExploreTab" role="tab" aria-controls="soundLabExplore" aria-selected="true" tabindex="0">
                             <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                             <span class="video-mode__label">Entdecken</span>
                         </button>
                     </div>
                     <div class="video-mode__item">
-                        <button type="button" class="video-mode__btn video-mode__btn--create video-mode__btn--locked" data-sound-mode="create" role="tab" aria-selected="false" tabindex="-1">
+                        <button type="button" class="video-mode__btn video-mode__btn--create video-mode__btn--locked" data-sound-mode="create" id="soundLabCreateTab" role="tab" aria-controls="soundLabCreate" aria-selected="false" tabindex="-1">
                             <svg class="video-mode__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.21 1.21 0 0 0 1.72 0L21.64 5.36a1.21 1.21 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M7 8H3"/><path d="M19 14v4"/><path d="M21 16h-4"/></svg>
                             <span class="video-mode__label">Erstellen</span>
                         </button>
                     </div>
                 </div>
-                <div id="soundLabExplore" class="section__inner section__inner--soundlab">
+                <div id="soundLabExplore" role="tabpanel" aria-labelledby="soundLabExploreTab" class="section__inner section__inner--soundlab">
                     <div class="card-stack" id="soundLabTracks"></div>
                     <div id="playlistPlayer" class="reveal" style="margin-block-start:var(--space-4)"></div>
                 </div>
-                <div id="soundLabCreate" class="section__inner section__inner--soundlab sound-create creator-create" style="display:none">
+                <div id="soundLabCreate" role="tabpanel" aria-labelledby="soundLabCreateTab" class="section__inner section__inner--soundlab sound-create creator-create" style="display:none">
                     <div class="studio sound-create__studio creator-create__studio">
                         <div class="studio__grid creator-create__shell">
                             <section class="studio__card creator-create__panel creator-create__panel--controls reveal" aria-labelledby="soundCreateTitle">
@@ -914,7 +914,7 @@
 </div>
 
 <!-- Galerie Modal -->
-<div id="galleryModal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="modalTitle">
+<div id="galleryModal" class="modal-overlay" inert role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="modalTitle">
     <div class="modal-content">
         <div class="modal-card">
             <a id="modalFullLink" class="modal-action modal-action--left modal-action--detail-full" href="#" target="_blank" rel="noopener noreferrer" aria-label="Bild in voller Auflösung öffnen" title="In voller Größe öffnen" hidden>

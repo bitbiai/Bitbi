@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0080_add_provider_neutral_chat_and_grok_4_6.sql",
+        "latest": "0081_add_ai_dispatch_outcome_guards.sql",
         "databaseName": "bitbi-auth-db"
       }
     },

@@ -45,6 +45,8 @@ import {
   ADMIN_AI_ELEVENLABS_MUSIC_PROXY_TIMEOUT_MS,
   proxyLiveAgentToAiLab,
   proxyToAiLab,
+  consumeAiLabJsonResponse,
+  getAiLabProviderOutcome,
   rateLimitAdminAi,
 } from "../lib/admin-ai-proxy.js";
 import { fetchGeneratedAudioForSave } from "../lib/generated-audio-save.js";
@@ -91,6 +93,7 @@ import {
 import {
   AdminAiIdempotencyError,
   beginAdminAiIdempotencyAttempt,
+  findExistingAdminAiIdempotencyAttempt,
   cleanupExpiredAdminAiUsageAttempts,
   getAdminAiUsageAttemptDetail,
   listAdminAiUsageAttempts as listAdminLabUsageAttempts,
@@ -441,6 +444,11 @@ async function adminLabPlatformBudgetCapResponseOrCheck({
   adminUserId = null,
   requestInfo = null,
 }) {
+  // Existing receipts are responses, not requests for another budget allocation.
+  // beginAdminAiIdempotencyAttempt below still checks the payload fingerprint.
+  if (budgetPolicy.summary?.idempotency_key_hash && await findExistingAdminAiIdempotencyAttempt(env, {
+    adminUserId, operationKey: operationId, idempotencyKeyHash: budgetPolicy.summary.idempotency_key_hash,
+  })) return { capCheck: null, response: null };
   try {
     const capCheck = await checkPlatformBudgetCap(env, {
       budgetScope: budgetPolicy.summary?.budget_scope,
@@ -617,6 +625,14 @@ function adminImageAttemptResponse({
     }), correlationId);
   }
 
+  if (["unresolved", "key_expired", "confirmed_failed"].includes(usageKind)) {
+    return withCorrelationId(json({ ok: false,
+      error: "This operation cannot be submitted again. Its existing outcome is unresolved or unavailable.",
+      code: usageKind === "unresolved" ? "ai_usage_outcome_unknown" : "ai_usage_key_expired",
+      billing: { organization_id: organizationId, usage_attempt_id: attempt?.id || null, credits_charged: 0 },
+    }, { status: 409 }), correlationId);
+  }
+
   if (usageKind === "in_progress") {
     return withCorrelationId(json({
       ok: false,
@@ -634,7 +650,7 @@ function adminImageAttemptResponse({
 
   return withCorrelationId(json({
     ok: false,
-    error: "Admin image test billing could not be finalized. Use a new idempotency key to retry.",
+    error: "Admin image test billing could not be finalized. The existing operation requires reconciliation.",
     code: "ai_usage_billing_failed",
     billing: {
       organization_id: organizationId,
@@ -1252,6 +1268,16 @@ function adminLabAttemptResponse({
     }), correlationId);
   }
 
+  if (kind === "unresolved") {
+    return withCorrelationId(json({ ok: false,
+      error: "Provider completion is unresolved. This operation will not be submitted again.",
+      code: "admin_ai_outcome_unknown",
+      idempotency: { attempt_id: attempt?.id || null, status: attempt?.status || "provider_running",
+        provider_outcome: "unknown", replay_policy: "metadata_only_no_result_replay" },
+      budget_policy: attemptBudget, caller_policy: callerPolicySummary,
+    }, { status: 409 }), correlationId);
+  }
+
   if (kind === "in_progress") {
     return withCorrelationId(json({
       ok: false,
@@ -1270,7 +1296,7 @@ function adminLabAttemptResponse({
 
   return withCorrelationId(json({
     ok: false,
-    error: "This idempotency key is tied to a completed or failed admin AI request. Use a new key to retry.",
+    error: "This idempotency key is tied to an existing admin AI operation and cannot submit it again.",
     code: kind === "expired" ? "admin_ai_idempotency_expired" : "admin_ai_idempotency_terminal",
     idempotency: {
       attempt_id: attempt?.id || null,
@@ -1347,6 +1373,7 @@ function isEventStreamResponse(response) {
 function wrapAdminLiveAgentStreamWithAttemptFinalization(response, {
   env,
   attemptId,
+  dispatchToken,
   requestMetadata,
   budgetPolicy,
   callerPolicy,
@@ -1375,6 +1402,7 @@ function wrapAdminLiveAgentStreamWithAttemptFinalization(response, {
     });
     try {
       await markAdminAiIdempotencySucceeded(env, attemptId, {
+        dispatchToken,
         resultMetadata,
         metadata: adminLabAttemptSafeMetadata({
           requestMetadata,
@@ -1424,6 +1452,7 @@ function wrapAdminLiveAgentStreamWithAttemptFinalization(response, {
     finalized = true;
     try {
       await markAdminAiIdempotencyProviderFailed(env, attemptId, {
+        dispatchToken,
         code,
         message: "Admin live-agent stream did not complete successfully.",
       });
@@ -2863,7 +2892,8 @@ export async function handleAdminAI(ctx) {
           callerPolicy,
         }, correlationId);
       }
-      await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+      const dispatchAttempt = await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+      const dispatchToken = dispatchAttempt.dispatchToken;
       const response = await proxyToAiLab(
         env,
         "/internal/ai/test-text",
@@ -2874,17 +2904,20 @@ export async function handleAdminAI(ctx) {
         },
         result.user,
         correlationId,
-        requestInfo
+        requestInfo,
+        { consumeResponse: consumeAiLabJsonResponse, signal: request.signal }
       );
       const providerBody = await parseJsonResponseBody(response);
       if (!response.ok || !providerBody?.ok) {
         await markAdminAiIdempotencyProviderFailed(env, attemptState.attempt.id, {
+          dispatchToken,
           code: providerBody?.code || "provider_failed",
           message: "Admin text provider call failed.",
         });
         return response;
       }
       const completedAttempt = await markAdminAiIdempotencySucceeded(env, attemptState.attempt.id, {
+        dispatchToken,
         resultMetadata: adminTextResultMetadata(providerBody),
         metadata: adminLabAttemptSafeMetadata({
           requestMetadata: adminTextRequestMetadata(validated),
@@ -3081,7 +3114,6 @@ export async function handleAdminAI(ctx) {
         }, correlationId);
       }
 
-      await markAiUsageAttemptProviderRunning(env, attemptState.attempt.id);
       let providerPayload;
       try {
         providerPayload = await resolveAdminAiGrokImagineImageSourcesForProvider(
@@ -3096,6 +3128,7 @@ export async function handleAdminAI(ctx) {
       } catch (error) {
         try {
           await markAiUsageAttemptProviderFailed(env, attemptState.attempt.id, {
+            definitelyNotDispatched: true,
             code: error?.code || "media_source_failed",
             message: "Admin image media source resolution failed.",
           });
@@ -3108,6 +3141,7 @@ export async function handleAdminAI(ctx) {
         }
         throw error;
       }
+      const dispatchToken = await markAiUsageAttemptProviderRunning(env, attemptState.attempt.id);
       const response = await proxyToAiLab(
         env,
         "/internal/ai/test-image",
@@ -3131,7 +3165,8 @@ export async function handleAdminAI(ctx) {
         },
         result.user,
         correlationId,
-        requestInfo
+        requestInfo,
+        { consumeResponse: consumeAiLabJsonResponse, signal: request.signal }
       );
 
       let providerBody = null;
@@ -3143,6 +3178,7 @@ export async function handleAdminAI(ctx) {
       if (!response.ok || !providerBody?.ok) {
         try {
           await markAiUsageAttemptProviderFailed(env, attemptState.attempt.id, {
+            dispatchToken,
             code: "provider_failed",
             message: "Admin image test provider failed.",
           });
@@ -3150,7 +3186,7 @@ export async function handleAdminAI(ctx) {
         return response;
       }
 
-      await markAiUsageAttemptFinalizing(env, attemptState.attempt.id);
+      await markAiUsageAttemptFinalizing(env, attemptState.attempt.id, { dispatchToken });
       let debit;
       try {
         debit = await consumeOrganizationCredits({
@@ -3202,6 +3238,7 @@ export async function handleAdminAI(ctx) {
             });
         try {
           await markAiUsageAttemptBillingFailed(env, attemptState.attempt.id, {
+            dispatchToken,
             code: responseError.code,
             message: "Admin image test billing finalization failed.",
           });
@@ -3210,6 +3247,7 @@ export async function handleAdminAI(ctx) {
       }
 
       await markAiUsageAttemptSucceeded(env, attemptState.attempt.id, {
+        dispatchToken,
         model: modelId,
         promptLength: payload.prompt ? String(payload.prompt).length : 0,
         steps: pricing.normalized?.steps ?? payload.steps ?? null,
@@ -3354,7 +3392,8 @@ export async function handleAdminAI(ctx) {
           callerPolicy,
         }, correlationId);
       }
-      await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+      const dispatchAttempt = await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+      const dispatchToken = dispatchAttempt.dispatchToken;
       const response = await proxyToAiLab(
         env,
         "/internal/ai/test-embeddings",
@@ -3365,11 +3404,13 @@ export async function handleAdminAI(ctx) {
         },
         result.user,
         correlationId,
-        requestInfo
+        requestInfo,
+        { consumeResponse: consumeAiLabJsonResponse, signal: request.signal }
       );
       const providerBody = await parseJsonResponseBody(response);
       if (!response.ok || !providerBody?.ok) {
         await markAdminAiIdempotencyProviderFailed(env, attemptState.attempt.id, {
+          dispatchToken,
           code: providerBody?.code || "provider_failed",
           message: "Admin embeddings provider call failed.",
         });
@@ -3377,6 +3418,7 @@ export async function handleAdminAI(ctx) {
       }
       const resultMetadata = adminEmbeddingsResultMetadata(providerBody);
       const completedAttempt = await markAdminAiIdempotencySucceeded(env, attemptState.attempt.id, {
+        dispatchToken,
         resultMetadata,
         metadata: adminLabAttemptSafeMetadata({
           requestMetadata: adminEmbeddingsRequestMetadata(validated),
@@ -3517,7 +3559,8 @@ export async function handleAdminAI(ctx) {
           callerPolicy,
         }, correlationId);
       }
-      await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+      const dispatchAttempt = await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+      const dispatchToken = dispatchAttempt.dispatchToken;
       const response = await proxyToAiLab(
         env,
         "/internal/ai/test-music",
@@ -3531,6 +3574,8 @@ export async function handleAdminAI(ctx) {
         requestInfo,
         {
           normalizeResponseCode: false,
+          consumeResponse: consumeAiLabJsonResponse,
+          signal: request.signal,
           ...(modelId === ELEVENLABS_MUSIC_V2_MODEL_ID
             ? { timeoutMs: ADMIN_AI_ELEVENLABS_MUSIC_PROXY_TIMEOUT_MS }
             : {}),
@@ -3540,6 +3585,8 @@ export async function handleAdminAI(ctx) {
       const providerBody = consumedResponse.body;
       if (!consumedResponse.ok || !providerBody?.ok) {
         await markAdminAiIdempotencyProviderFailed(env, attemptState.attempt.id, {
+          dispatchToken,
+          providerOutcome: getAiLabProviderOutcome(response),
           code: providerBody?.code || "provider_failed",
           message: "Admin music provider call failed.",
         });
@@ -3552,6 +3599,7 @@ export async function handleAdminAI(ctx) {
         providerCostEstimate,
       });
       const completedAttempt = await markAdminAiIdempotencySucceeded(env, attemptState.attempt.id, {
+        dispatchToken,
         resultMetadata,
         metadata: adminLabAttemptSafeMetadata({
           requestMetadata,
@@ -3721,7 +3769,8 @@ export async function handleAdminAI(ctx) {
         },
         result.user,
         correlationId,
-        requestInfo
+        requestInfo,
+        { consumeResponse: consumeAiLabJsonResponse, signal: request.signal }
       );
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);
@@ -4125,7 +4174,8 @@ export async function handleAdminAI(ctx) {
           callerPolicy,
         }, correlationId);
       }
-      await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+      const dispatchAttempt = await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+      const dispatchToken = dispatchAttempt.dispatchToken;
       const response = await proxyToAiLab(
         env,
         "/internal/ai/compare",
@@ -4136,11 +4186,13 @@ export async function handleAdminAI(ctx) {
         },
         result.user,
         correlationId,
-        requestInfo
+        requestInfo,
+        { consumeResponse: consumeAiLabJsonResponse, signal: request.signal }
       );
       const providerBody = await parseJsonResponseBody(response);
       if (!response.ok || !providerBody?.ok) {
         await markAdminAiIdempotencyProviderFailed(env, attemptState.attempt.id, {
+          dispatchToken,
           code: providerBody?.code || "provider_failed",
           message: "Admin compare provider call failed.",
         });
@@ -4148,6 +4200,7 @@ export async function handleAdminAI(ctx) {
       }
       const resultMetadata = adminCompareResultMetadata(providerBody);
       const completedAttempt = await markAdminAiIdempotencySucceeded(env, attemptState.attempt.id, {
+        dispatchToken,
         resultMetadata,
         metadata: adminLabAttemptSafeMetadata({
           requestMetadata: adminCompareRequestMetadata(validated),
@@ -4290,7 +4343,8 @@ export async function handleAdminAI(ctx) {
         }, correlationId);
       }
       const streamStartedAt = Date.now();
-      await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+      const dispatchAttempt = await markAdminAiIdempotencyProviderRunning(env, attemptState.attempt.id);
+      const dispatchToken = dispatchAttempt.dispatchToken;
       const response = await proxyLiveAgentToAiLab(
         env,
         validated,
@@ -4302,6 +4356,7 @@ export async function handleAdminAI(ctx) {
       if (!isEventStreamResponse(response)) {
         const providerBody = await parseJsonResponseBody(response);
         await markAdminAiIdempotencyProviderFailed(env, attemptState.attempt.id, {
+          dispatchToken,
           code: providerBody?.code || "provider_failed",
           message: "Admin live-agent provider stream setup failed.",
         });
@@ -4310,6 +4365,7 @@ export async function handleAdminAI(ctx) {
       return wrapAdminLiveAgentStreamWithAttemptFinalization(response, {
         env,
         attemptId: attemptState.attempt.id,
+        dispatchToken,
         requestMetadata,
         budgetPolicy: initialBudgetPolicy,
         callerPolicy,

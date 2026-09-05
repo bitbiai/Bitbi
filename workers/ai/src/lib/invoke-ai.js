@@ -453,31 +453,34 @@ function sanitizeGatewayMetadata(metadata) {
 
 async function fetchRemoteImageCandidate(url) {
   if (typeof url !== "string" || !/^https:\/\//i.test(url)) return null;
-  const response = await fetchWithGenerationTimeout(globalThis.fetch, url, { method: "GET" });
-  if (!response.ok) {
-    throw new Error("Provider image URL could not be fetched.");
-  }
+  return fetchWithGenerationTimeout(globalThis.fetch, url, { method: "GET" }, {
+    consumeResponse: async (response) => {
+      if (!response.ok) {
+        throw new Error("Provider image URL could not be fetched.");
+      }
 
-  const contentType = String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
-  if (!REMOTE_IMAGE_MIME_TYPES.has(contentType)) {
-    throw new Error("Provider image URL returned an unsupported image type.");
-  }
+      const contentType = String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+      if (!REMOTE_IMAGE_MIME_TYPES.has(contentType)) {
+        throw new Error("Provider image URL returned an unsupported image type.");
+      }
 
-  const contentLength = Number(response.headers.get("content-length") || 0);
-  if (Number.isFinite(contentLength) && contentLength > REMOTE_IMAGE_MAX_BYTES) {
-    throw new Error("Provider image URL exceeded the image size limit.");
-  }
+      const contentLength = Number(response.headers.get("content-length") || 0);
+      if (Number.isFinite(contentLength) && contentLength > REMOTE_IMAGE_MAX_BYTES) {
+        throw new Error("Provider image URL exceeded the image size limit.");
+      }
 
-  const buffer = await response.arrayBuffer();
-  if (buffer.byteLength > REMOTE_IMAGE_MAX_BYTES) {
-    throw new Error("Provider image URL exceeded the image size limit.");
-  }
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength > REMOTE_IMAGE_MAX_BYTES) {
+        throw new Error("Provider image URL exceeded the image size limit.");
+      }
 
-  return {
-    imageBase64: bytesToBase64(new Uint8Array(buffer)),
-    mimeType: contentType,
-    imageUrl: url,
-  };
+      return {
+        imageBase64: bytesToBase64(new Uint8Array(buffer)),
+        mimeType: contentType,
+        imageUrl: url,
+      };
+    },
+  });
 }
 
 async function toArrayBuffer(value) {
@@ -783,6 +786,7 @@ function buildMusicProviderError(raw) {
   error.status = 502;
   error.code = "upstream_error";
   error.provider_status_code = providerCode;
+  error.providerOutcome = "failed";
   error.provider_status_message = statusMessage || null;
   error.traceId = raw?.trace_id || null;
   error.provider_error_code = sanitizeErrorValue(firstNestedValue(raw?.data ?? raw ?? null, [
@@ -1055,6 +1059,7 @@ function markElevenLabsProviderOutputValidationError(error, providerState) {
   if (!providerState) return error;
   error.status = 502;
   error.code = "provider_output_validation_failed";
+  error.providerOutcome = "succeeded";
   error.message = "The provider completed the generation, but BITBI could not validate the returned audio output.";
   error.provider_error_kind = error.provider_error_kind || "provider_output_validation_failed";
   error.provider_state = providerState;
@@ -1380,6 +1385,7 @@ function assertElevenLabsProviderState(result) {
   error.status = 502;
   error.code = "upstream_error";
   error.provider_error_kind = failed ? "provider_rejected" : "provider_incomplete";
+  if (failed) error.providerOutcome = "failed";
   error.provider_state = providerState;
   throw error;
 }
@@ -1473,11 +1479,7 @@ export async function invokeText(env, model, input) {
   let raw;
   let accumulatedQuarantinedInvalidUrlCount = 0;
   try {
-    raw = await runWithGenerationTimeout(() => (
-      runOptions
-        ? env.AI.run(model.id, payload, runOptions)
-        : env.AI.run(model.id, payload)
-    ), {
+    raw = await runWithGenerationTimeout((signal) => env.AI.run(model.id, payload, { ...runOptions, signal }), {
       timeoutMs: input.generationTimeoutMs || undefined,
     });
     if (model.id === CLAUDE_FABLE_5_MODEL_ID
@@ -1518,10 +1520,10 @@ export async function invokeText(env, model, input) {
           throw error;
         }
         const continuationPayload = buildPauseTurnContinuationPayload(payload, accumulatedBlocks);
-        raw = await runWithGenerationTimeout(() => env.AI.run(
+        raw = await runWithGenerationTimeout((signal) => env.AI.run(
           model.id,
           continuationPayload,
-          runOptions
+          { ...runOptions, signal }
         ), { timeoutMs: input.generationTimeoutMs || FABLE_CHAT_GENERATION_TIMEOUT_MS });
         continuationCount += 1;
       }
@@ -1930,10 +1932,10 @@ export async function invokeFableChatMemory(env, input) {
   };
   let raw;
   try {
-    raw = await runWithGenerationTimeout(() => env.AI.run(
+    raw = await runWithGenerationTimeout((signal) => env.AI.run(
       QWEN3_30B_A3B_MODEL_ID,
       payload,
-      runOptions
+      { ...runOptions, signal }
     ), { timeoutMs: FABLE_CHAT_MEMORY_TIMEOUT_MS });
   } catch (error) {
     logDiagnostic({
@@ -1979,10 +1981,10 @@ export async function invokeFableChatStream(env, model, input) {
     stream: true,
   });
   try {
-    const stream = await runWithGenerationTimeout(() => env.AI.run(
+    const stream = await runWithGenerationTimeout((signal) => env.AI.run(
       model.id,
       payload,
-      runOptions
+      { ...runOptions, signal }
     ), { timeoutMs: FABLE_CHAT_GENERATION_TIMEOUT_MS });
     if (!stream || typeof stream.getReader !== "function") {
       throw new Error("Model did not return a readable stream.");
@@ -1993,10 +1995,10 @@ export async function invokeFableChatStream(env, model, input) {
       continueAfterPause: input.webSearchEnabled === true || input.webFetchEnabled === true
         ? async (providerBlocks) => {
             const continuationPayload = buildPauseTurnContinuationPayload(payload, providerBlocks);
-            const continuation = await runWithGenerationTimeout(() => env.AI.run(
+            const continuation = await runWithGenerationTimeout((signal) => env.AI.run(
               model.id,
               continuationPayload,
-              runOptions
+              { ...runOptions, signal }
             ), { timeoutMs: FABLE_CHAT_GENERATION_TIMEOUT_MS });
             if (!continuation || typeof continuation.getReader !== "function") {
               throw new Error("Model did not return a readable continuation stream.");
@@ -2171,11 +2173,7 @@ export async function invokeImage(env, model, input) {
 
   let raw;
   try {
-    raw = await runWithGenerationTimeout(() => (
-      runOptions
-        ? env.AI.run(model.id, payload, runOptions)
-        : env.AI.run(model.id, payload)
-    ));
+    raw = await runWithGenerationTimeout((signal) => env.AI.run(model.id, payload, { ...runOptions, signal }));
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
@@ -2238,9 +2236,9 @@ export async function invokeEmbeddings(env, model, input) {
   const startedAt = Date.now();
   let raw;
   try {
-    raw = await runWithGenerationTimeout(() => env.AI.run(model.id, {
+    raw = await runWithGenerationTimeout((signal) => env.AI.run(model.id, {
       text: input.input.length === 1 ? input.input[0] : input.input,
-    }));
+    }, { signal }));
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
@@ -2288,7 +2286,7 @@ export async function invokeMusic(env, model, input) {
   let raw;
   try {
     raw = await runWithinMusicGenerationDeadline(
-      () => env.AI.run(model.id, payload, runOptions),
+      (signal) => env.AI.run(model.id, payload, { ...runOptions, signal }),
       generationDeadlineAt
     );
   } catch (error) {

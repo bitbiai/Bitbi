@@ -39,6 +39,7 @@ import {
 import {
   BITBI_GENERATION_TIMEOUT_SECONDS,
   fetchWithGenerationTimeout,
+  readGenerationResponseJson,
   isGenerationTimeoutError,
 } from "../../lib/generation-timeout.js";
 import { fetchGeneratedAudioForSave } from "../../lib/generated-audio-save.js";
@@ -294,6 +295,7 @@ async function signedAiLabJsonRequest({
   }
 
   let response;
+  let body = null;
   try {
     response = await fetchWithGenerationTimeout(env.AI_LAB.fetch.bind(env.AI_LAB), new Request(`${AI_LAB_BASE_URL}${path}`, {
       method: "POST",
@@ -305,7 +307,14 @@ async function signedAiLabJsonRequest({
         ...serviceAuthHeaders,
       },
       body: bodyText,
-    }));
+      signal: requestInfo?.request?.signal,
+    }), undefined, {
+      consumeResponse: async (received, signal) => {
+        try { body = await readGenerationResponseJson(received, signal); }
+        catch (error) { if (signal.aborted) throw error; body = null; }
+        return received;
+      },
+    });
   } catch (error) {
     if (isGenerationTimeoutError(error)) {
       logDiagnostic({
@@ -339,12 +348,6 @@ async function signedAiLabJsonRequest({
     return { ok: false, status: 503, code: "upstream_unavailable", error: "AI lab service unavailable." };
   }
 
-  let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    body = null;
-  }
 
   if (!response.ok || !body?.ok) {
     logDiagnostic({
@@ -364,6 +367,9 @@ async function signedAiLabJsonRequest({
       status: response.status >= 500 ? 502 : response.status,
       code: body?.code || "upstream_error",
       error: body?.error || "Music generation failed.",
+      // A caller header/body cannot create this service-owned evidence.
+      providerOutcome: path === INTERNAL_MUSIC_PATH && ["failed", "succeeded"].includes(response.headers.get("x-bitbi-provider-outcome"))
+        ? response.headers.get("x-bitbi-provider-outcome") : null,
       body,
     };
   }
@@ -674,10 +680,10 @@ async function replayGeneratedMusicAttempt({ usagePolicy, input, respond }) {
   });
 }
 
-async function markMusicProviderFailed(usagePolicy, { code, message }) {
+async function markMusicProviderFailed(usagePolicy, { code, message, confirmedOutcome = false }) {
   if (typeof usagePolicy?.markProviderFailed !== "function") return;
   try {
-    await usagePolicy.markProviderFailed({ code, message });
+    await usagePolicy.markProviderFailed({ code, message, confirmedOutcome });
   } catch {}
 }
 
@@ -887,10 +893,23 @@ export async function handleGenerateMusic(ctx) {
     return musicResponse.response;
   }
   if (!musicResponse.ok) {
-    await markMusicProviderFailed(usagePolicy, {
-      code: musicResponse.code || "music_provider_failed",
-      message: "Music generation failed.",
-    });
+    if (musicResponse.providerOutcome === "succeeded") {
+      // Provider completion is known even when the local output is invalid.
+      // Preserve the existing no-debit invalid-output policy and claim fences.
+      try {
+        if (typeof usagePolicy.markFinalizing === "function") await usagePolicy.markFinalizing();
+        await markMusicBillingFailed(usagePolicy, {
+          code: musicResponse.code || "provider_output_validation_failed",
+          message: "Music generation completed, but its output could not be validated.",
+        });
+      } catch {}
+    } else {
+      await markMusicProviderFailed(usagePolicy, {
+        code: musicResponse.code || "music_provider_failed",
+        message: "Music generation failed.",
+        confirmedOutcome: musicResponse.providerOutcome === "failed",
+      });
+    }
     return respond({
       ok: false,
       error: musicResponse.error || "Music generation failed.",
@@ -911,6 +930,11 @@ export async function handleGenerateMusic(ctx) {
 
   let savedAsset = null;
   try {
+    // Confirm the owned provider result before persistence; storage failure must
+    // retain that outcome without charging or making this operation retryable.
+    if (typeof usagePolicy.markFinalizing === "function") {
+      await usagePolicy.markFinalizing();
+    }
     savedAsset = await persistMusicResult({
       env,
       userId,
@@ -951,9 +975,6 @@ export async function handleGenerateMusic(ctx) {
 
   let billingMetadata = null;
   try {
-    if (typeof usagePolicy.markFinalizing === "function") {
-      await usagePolicy.markFinalizing();
-    }
     billingMetadata = await usagePolicy.chargeAfterSuccess({
       model: musicResponse.body?.model?.id || MINIMAX_MUSIC_2_6_MODEL_ID,
       preset: musicResponse.body?.preset || "music_studio",

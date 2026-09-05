@@ -152,6 +152,12 @@ export async function handleMusic({
       ...getRequestLogFields({ request, pathname, method }),
       ...getErrorFields(error, { includeMessage: false }),
     });
-    return fromError(error, "Music generation failed");
+    const response = fromError(error, "Music generation failed");
+    // Only parsed provider evidence sets this internal service response marker.
+    // Auth strips it before returning the public response.
+    if (error?.providerOutcome === "failed" || error?.providerOutcome === "succeeded") {
+      response.headers.set("x-bitbi-provider-outcome", error.providerOutcome);
+    }
+    return response;
   }
 }
