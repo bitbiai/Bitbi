@@ -29,6 +29,7 @@ import {
     restoreFlatMediaWallLayout,
 } from './public-media-wall.js?v=__ASSET_VERSION__';
 import { createPublicMediaDetailPanel } from './public-media-detail-panel.js?v=__ASSET_VERSION__';
+import { createCardMediaLoader } from './card-media-loading.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 const MEMVIDS_LIMIT = 60;
@@ -83,6 +84,7 @@ export function initVideoGallery() {
     grid.id = 'videoGrid';
     grid.className = 'grid-video';
     container.appendChild(grid);
+    const cardMedia = createCardMediaLoader(grid, 'video');
     const deck = initMobileCardDeck(grid, {
         cardClass: 'video-card',
         dotsLabel: localeText('browse.videoCards'),
@@ -92,6 +94,7 @@ export function initVideoGallery() {
         dotClass: 'vid-deck-dot',
         maxDots: MAX_MOBILE_DECK_DOTS,
         dotTargetMode: 'proportional',
+        onLayout: (active) => cardMedia.setActive(active),
     });
 
     const $paginationStatus = document.createElement('button');
@@ -902,7 +905,7 @@ export function initVideoGallery() {
         if (item.poster) {
             const img = document.createElement('img');
             img.className = 'video-card__preview';
-            img.src = item.poster.url;
+            cardMedia.defer(img, item.poster.url);
             img.alt = 'Video thumbnail';
             img.loading = 'lazy';
             img.decoding = 'async';
@@ -938,7 +941,7 @@ export function initVideoGallery() {
         if (publisher?.avatar?.url) {
             const avatar = document.createElement('img');
             avatar.className = 'public-media-meta__avatar';
-            avatar.src = publisher.avatar.url;
+            cardMedia.defer(avatar, publisher.avatar.url);
             avatar.alt = '';
             avatar.loading = 'lazy';
             avatar.decoding = 'async';
@@ -996,6 +999,7 @@ export function initVideoGallery() {
                 countProperty: '--bitbi-public-video-column-count',
             });
             grid.append(...cards);
+            cardMedia.setCards(cards);
             return;
         }
         renderFixedMediaWallColumns(grid, cards, {
@@ -1007,6 +1011,7 @@ export function initVideoGallery() {
             estimatedExtraHeight: 74,
             contentSignature,
         });
+        cardMedia.setCards(cards);
     }
 
     function reflowMemvidsFromCache() {

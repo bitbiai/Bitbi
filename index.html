@@ -40,7 +40,7 @@
     <link rel="manifest" href="/assets/favicons/site.webmanifest">
     <link rel="preload" href="fonts/inter-v20-latin_latin-ext-regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="assets/images/1.png" as="image" fetchpriority="high">
+    <link rel="preload" href="assets/images/bitbi-title-lossless.webp" as="image" type="image/webp" fetchpriority="high">
 
     <style>@layer tokens, reset, base, components, pages, utilities;</style>
     <link rel="stylesheet" href="css/base/tokens.css?v=__ASSET_VERSION__">
@@ -105,7 +105,10 @@
 
 <!-- BACKGROUND FAVICON WATERMARK -->
 <div class="watermark" aria-hidden="true">
-    <img src="/assets/favicons/android-chrome-512x512.png" alt="" class="watermark__img" role="presentation" width="512" height="512" fetchpriority="low" loading="lazy" decoding="async">
+    <picture>
+        <source srcset="/assets/images/bitbi-watermark-lossless.webp" type="image/webp">
+        <img src="/assets/favicons/android-chrome-512x512.png" alt="" class="watermark__img" role="presentation" width="512" height="512" fetchpriority="low" loading="lazy" decoding="async">
+    </picture>
 </div>
 
 <!-- NAVBAR -->
@@ -488,8 +491,11 @@
     <div class="hero__content">
         <div class="hero__title-wrap float-anim">
             <h1 class="hero__title">
-                <img src="assets/images/1.png" alt="BITBI" class="hero__title-img"
-                     width="600" height="391" fetchpriority="high" decoding="async">
+                <picture>
+                    <source srcset="assets/images/bitbi-title-lossless.webp" type="image/webp">
+                    <img src="assets/images/1.png" alt="BITBI" class="hero__title-img"
+                         width="600" height="391" fetchpriority="high" decoding="async">
+                </picture>
             </h1>
         </div>
         <div class="hero__actions hero__actions--single-cta">

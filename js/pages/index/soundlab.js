@@ -33,6 +33,7 @@ import {
     parseCssLengthToPixels,
 } from './public-media-wall.js?v=__ASSET_VERSION__';
 import { createPublicMediaDetailPanel } from './public-media-detail-panel.js?v=__ASSET_VERSION__';
+import { createCardMediaLoader } from './card-media-loading.js?v=__ASSET_VERSION__';
 
 const MEMTRACKS_PAGE_LIMIT = 60;
 const PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT = 60;
@@ -57,6 +58,7 @@ export function initSoundLab(revealObserver) {
     const ctn = document.getElementById('soundLabTracks');
     if (!ctn || ctn.dataset.soundlabReady === 'true') return;
     ctn.dataset.soundlabReady = 'true';
+    const cardMedia = createCardMediaLoader(ctn, 'sound');
 
     const plEl = document.getElementById('playlistPlayer');
     if (plEl) {
@@ -935,7 +937,7 @@ export function initSoundLab(revealObserver) {
             if (publisher?.avatar?.url) {
                 const avatar = document.createElement('img');
                 avatar.className = 'public-media-meta__avatar';
-                avatar.src = publisher.avatar.url;
+                cardMedia.defer(avatar, publisher.avatar.url);
                 avatar.alt = '';
                 avatar.loading = 'lazy';
                 avatar.decoding = 'async';
@@ -957,7 +959,7 @@ export function initSoundLab(revealObserver) {
         const posterUrl = item.poster?.url || '';
         if (posterUrl) {
             const img = document.createElement('img');
-            img.src = posterUrl;
+            cardMedia.defer(img, posterUrl);
             img.alt = item.title || 'Memtrack';
             img.loading = 'lazy';
             img.decoding = 'async';
@@ -1163,6 +1165,7 @@ export function initSoundLab(revealObserver) {
             ctn.appendChild(card);
             if (revealObserver) revealObserver.observe(card);
         });
+        cardMedia.setCards(Array.from(ctn.children));
         syncMemtrackCardWidths();
         syncCategoryGhostModels('sound', visibleItems);
         renderMemtrackRows(currentState);
@@ -1270,6 +1273,7 @@ export function initSoundLab(revealObserver) {
                     card.style.pointerEvents = 'none';
                 }
             });
+            cardMedia.setActive(deckActive);
         }
 
         function syncDots() {

@@ -2,7 +2,7 @@
    BITBI — Auth state: centralized state + CustomEvent dispatch
    ============================================================ */
 
-import { apiGetMe, apiLogin, apiLogout, apiRegister } from './auth-api.js';
+import { apiGetMe, apiLogin, apiLogout, apiRegister } from './auth-api.js?v=__ASSET_VERSION__';
 
 let state = { ready: false, loggedIn: false, user: null };
 

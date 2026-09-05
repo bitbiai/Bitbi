@@ -25,6 +25,7 @@ import {
     restoreFlatMediaWallLayout,
 } from './public-media-wall.js?v=__ASSET_VERSION__';
 import { createPublicMediaDetailPanel } from './public-media-detail-panel.js?v=__ASSET_VERSION__';
+import { createCardMediaLoader } from './card-media-loading.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 
@@ -49,6 +50,7 @@ export function initGallery() {
     const modal = document.getElementById('galleryModal');
     const $pagination = document.getElementById('galleryPagination');
     if (!grid || !modal) return;
+    const cardMedia = createCardMediaLoader(grid, 'gallery');
     let renderSeq = 0;
     let mempicsPromise = null;
     const publicWideLayoutQuery = window.matchMedia?.(PUBLIC_WIDE_LAYOUT_MEDIA);
@@ -575,7 +577,7 @@ export function initGallery() {
 
         const img = new Image();
         img.className = 'gallery-item__media';
-        img.src = item.thumb.url;
+        cardMedia.defer(img, item.thumb.url);
         img.alt = item.title;
         img.width = item.thumb.w;
         img.height = item.thumb.h;
@@ -602,7 +604,7 @@ export function initGallery() {
         if (publisher?.avatar?.url) {
             const avatar = new Image();
             avatar.className = 'public-media-meta__avatar';
-            avatar.src = publisher.avatar.url;
+            cardMedia.defer(avatar, publisher.avatar.url);
             avatar.alt = '';
             avatar.loading = 'lazy';
             avatar.decoding = 'async';
@@ -669,6 +671,7 @@ export function initGallery() {
                 countProperty: '--bitbi-public-gallery-column-count',
             });
             grid.append(...cards);
+            cardMedia.setCards(cards);
             return;
         }
         renderFixedMediaWallColumns(grid, cards, {
@@ -679,6 +682,7 @@ export function initGallery() {
             fallbackAspectRatio: 1.333,
             contentSignature,
         });
+        cardMedia.setCards(cards);
     }
 
     function reflowMempicsFromCache() {
@@ -940,6 +944,7 @@ export function initGallery() {
                 c.style.pointerEvents = 'none';
             }
         });
+        cardMedia.setActive(galActive);
     }
 
     function galBuildDots() {

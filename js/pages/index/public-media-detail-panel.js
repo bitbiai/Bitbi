@@ -4,7 +4,7 @@ import {
     apiGetPublicMediaInteractions,
     apiTogglePublicMediaFollow,
     apiTogglePublicMediaLike,
-} from '../../shared/auth-api.js';
+} from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { getAuthState } from '../../shared/auth-state.js';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 

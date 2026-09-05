@@ -5,7 +5,7 @@
    ============================================================ */
 
 import { authLogin, authRegister } from './auth-state.js';
-import { apiResendVerification } from './auth-api.js';
+import { apiResendVerification } from './auth-api.js?v=__ASSET_VERSION__';
 import { setupFocusTrap } from './focus-trap.js';
 import { requestWalletLogin } from './wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { localeText, localizedHref } from './locale.js?v=__ASSET_VERSION__';

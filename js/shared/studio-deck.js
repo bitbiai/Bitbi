@@ -305,6 +305,7 @@ function _createDeck(grid, {
     dotClass = 'studio-deck-dot',
     maxDots = Infinity,
     dotTargetMode = 'grouped',
+    onLayout,
 }) {
     const mql = window.matchMedia('(max-width: 639px)');
     let active = 0;
@@ -363,6 +364,7 @@ function _createDeck(grid, {
                 c.style.pointerEvents = 'none';
             }
         });
+        onLayout?.(active);
     }
 
     /* ── Dots (mirrors galBuildDots / galSyncDots) ── */
