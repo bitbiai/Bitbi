@@ -270,6 +270,12 @@ export function initMobileNav() {
     const closeBtn = document.getElementById('mobileNavClose');
     if (closeBtn) closeBtn.addEventListener('click', () => toggle(false));
 
+    // Finish menu focus restoration before the CTA's target handler opens
+    // auth. Its focus trap then owns focus and can restore the visible button.
+    panel.addEventListener('click', (e) => {
+        if (e.target.closest('.mobile-nav__cta')) toggle(false);
+    }, true);
+
     // Event delegation for all clickable items in the panel
     panel.addEventListener('click', (e) => {
         const link = e.target.closest('.mobile-nav__link, .mobile-nav__link--primary');
@@ -284,11 +290,6 @@ export function initMobileNav() {
             const footerCookieBtn = document.getElementById('openCookieSettings');
             if (footerCookieBtn) footerCookieBtn.click();
             return;
-        }
-
-        const cta = e.target.closest('.mobile-nav__cta');
-        if (cta) {
-            toggle(false);
         }
     });
 
