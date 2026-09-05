@@ -8,14 +8,18 @@ ALTER TABLE member_ai_usage_attempts ADD COLUMN unknown_at TEXT;
 ALTER TABLE member_ai_usage_attempts ADD COLUMN reservation_released_at TEXT;
 ALTER TABLE member_ai_usage_attempts ADD COLUMN late_outcome TEXT;
 ALTER TABLE member_ai_usage_attempts ADD COLUMN late_evidence_json TEXT NOT NULL DEFAULT '{}';
--- Historical generic failures do not prove that a provider did no work.
+-- Every existing member/organization identity may belong to an admitted old
+-- continuation, including one whose legacy running UPDATE changed zero rows.
+-- Preserve confirmed usage; fence all other pre-cutover identities as unknown.
 UPDATE member_ai_usage_attempts
 SET provider_outcome = CASE WHEN provider_status = 'succeeded' THEN 'succeeded' ELSE 'unknown' END,
     dispatch_token = 'legacy:' || id,
     dispatched_at = created_at,
     unknown_at = CASE WHEN provider_status <> 'succeeded' THEN updated_at ELSE NULL END,
     reservation_released_at = CASE WHEN billing_status = 'released' THEN updated_at ELSE NULL END
-WHERE provider_status <> 'not_started';
+;
+
+ALTER TABLE member_credit_ledger ADD COLUMN ai_dispatch_token TEXT;
 
 -- A stale Worker may not reset an unknown or already dispatched identity.
 CREATE TRIGGER member_ai_usage_attempts_no_redispatch
@@ -31,7 +35,8 @@ BEFORE INSERT ON member_credit_ledger
 WHEN NEW.amount < 0 AND EXISTS (
  SELECT 1 FROM member_ai_usage_attempts a WHERE a.user_id = NEW.user_id
  AND a.idempotency_key = NEW.idempotency_key
- AND (a.provider_outcome <> 'succeeded' OR a.reservation_released_at IS NOT NULL
+ AND (NEW.ai_dispatch_token IS NULL OR NEW.ai_dispatch_token IS NOT a.dispatch_token
+      OR a.provider_outcome <> 'succeeded' OR a.reservation_released_at IS NOT NULL
       OR a.status <> 'finalizing' OR a.billing_status <> 'reserved')
 )
 BEGIN SELECT RAISE(ABORT, 'ai_attempt_settlement_forbidden'); END;
@@ -45,14 +50,18 @@ ALTER TABLE ai_usage_attempts ADD COLUMN unknown_at TEXT;
 ALTER TABLE ai_usage_attempts ADD COLUMN reservation_released_at TEXT;
 ALTER TABLE ai_usage_attempts ADD COLUMN late_outcome TEXT;
 ALTER TABLE ai_usage_attempts ADD COLUMN late_evidence_json TEXT NOT NULL DEFAULT '{}';
--- Historical generic failures do not prove that a provider did no work.
+-- Every existing member/organization identity may belong to an admitted old
+-- continuation, including one whose legacy running UPDATE changed zero rows.
+-- Preserve confirmed usage; fence all other pre-cutover identities as unknown.
 UPDATE ai_usage_attempts
 SET provider_outcome = CASE WHEN provider_status = 'succeeded' THEN 'succeeded' ELSE 'unknown' END,
     dispatch_token = 'legacy:' || id,
     dispatched_at = created_at,
     unknown_at = CASE WHEN provider_status <> 'succeeded' THEN updated_at ELSE NULL END,
     reservation_released_at = CASE WHEN billing_status = 'released' THEN updated_at ELSE NULL END
-WHERE provider_status <> 'not_started';
+;
+
+ALTER TABLE credit_ledger ADD COLUMN ai_dispatch_token TEXT;
 
 -- A stale Worker may not reset an unknown or already dispatched identity.
 CREATE TRIGGER ai_usage_attempts_no_redispatch
@@ -68,7 +77,8 @@ BEFORE INSERT ON credit_ledger
 WHEN NEW.amount < 0 AND EXISTS (
  SELECT 1 FROM ai_usage_attempts a WHERE a.organization_id = NEW.organization_id
  AND a.idempotency_key = NEW.idempotency_key
- AND (a.provider_outcome <> 'succeeded' OR a.reservation_released_at IS NOT NULL
+ AND (NEW.ai_dispatch_token IS NULL OR NEW.ai_dispatch_token IS NOT a.dispatch_token
+      OR a.provider_outcome <> 'succeeded' OR a.reservation_released_at IS NOT NULL
       OR a.status <> 'finalizing' OR a.billing_status <> 'reserved')
 )
 BEGIN SELECT RAISE(ABORT, 'ai_attempt_settlement_forbidden'); END;
@@ -125,3 +135,17 @@ WHERE status = 'succeeded' OR provider_task_id IS NOT NULL OR attempt_count > 0
 CREATE INDEX idx_admin_ai_attempts_platform_exposure ON admin_ai_usage_attempts (budget_scope, platform_window_month, provider_outcome);
 CREATE INDEX idx_ai_video_jobs_platform_exposure ON ai_video_jobs (platform_window_month, provider_outcome);
 CREATE INDEX idx_ai_video_jobs_dispatch_outcome ON ai_video_jobs (provider_outcome, locked_until);
+
+-- Protocol cutover: legacy statements must fail even if their WHERE matches zero
+-- rows. Read-only views preserve old reads without a missing-schema fallback.
+-- New writers use the canonical v2 tables; there are NO INSTEAD OF write triggers.
+-- All DDL/backfills/guards in this migration must commit atomically. Already
+-- admitted legacy work may finish remotely; its fenced identity is not replaced.
+ALTER TABLE member_ai_usage_attempts RENAME TO member_ai_usage_attempts_v2;
+ALTER TABLE ai_usage_attempts RENAME TO ai_usage_attempts_v2;
+ALTER TABLE admin_ai_usage_attempts RENAME TO admin_ai_usage_attempts_v2;
+ALTER TABLE ai_video_jobs RENAME TO ai_video_jobs_v2;
+CREATE VIEW member_ai_usage_attempts AS SELECT * FROM member_ai_usage_attempts_v2;
+CREATE VIEW ai_usage_attempts AS SELECT * FROM ai_usage_attempts_v2;
+CREATE VIEW admin_ai_usage_attempts AS SELECT * FROM admin_ai_usage_attempts_v2;
+CREATE VIEW ai_video_jobs AS SELECT * FROM ai_video_jobs_v2;

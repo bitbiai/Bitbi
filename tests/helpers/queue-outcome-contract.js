@@ -38,9 +38,9 @@ async function fixture(provider, { download } = {}) {
     idempotencyKey: key, correlationId: 'local-queue-policy' });
   const { job } = await create();
   const message = env.AI_VIDEO_JOBS_QUEUE.messages.shift();
-  const row = () => db.prepare('SELECT * FROM ai_video_jobs WHERE id = ?').bind(job.id).first();
+  const row = () => db.prepare('SELECT * FROM ai_video_jobs_v2 WHERE id = ?').bind(job.id).first();
   const usage = () => db.prepare('SELECT COUNT(*) AS count FROM platform_budget_usage_events').first();
-  const retryNow = () => db.prepare('UPDATE ai_video_jobs SET next_attempt_at = NULL, locked_until = NULL WHERE id = ?').bind(job.id).run();
+  const retryNow = () => db.prepare('UPDATE ai_video_jobs_v2 SET next_attempt_at = NULL, locked_until = NULL WHERE id = ?').bind(job.id).run();
   return { env, db, jobs, job, message, paths, row, usage, create, retryNow };
 }
 
@@ -64,7 +64,7 @@ function registerQueueOutcomeContractTests() {
           ? `users/${f.job.user_id}/video-jobs/${f.job.id}/attempts/${newerToken}/output.mp4`
           : staleKey;
         await originalPut(newerKey, new Uint8Array([9, 9]), { httpMetadata: { contentType: 'video/mp4' } });
-        await f.db.prepare("UPDATE ai_video_jobs SET processing_token = ?, status = 'succeeded', output_r2_key = ?, output_url = ? WHERE id = ?")
+        await f.db.prepare("UPDATE ai_video_jobs_v2 SET processing_token = ?, status = 'succeeded', output_r2_key = ?, output_url = ? WHERE id = ?")
           .bind(newerToken, newerKey, `/api/admin/ai/video-jobs/${f.job.id}/output`, f.job.id).run();
         finish.resolve();
         await first;
@@ -82,12 +82,12 @@ function registerQueueOutcomeContractTests() {
       let claimReads = 0;
       f.db.prepare = (sql) => {
         const statement = originalPrepare(sql);
-        if (sql !== 'SELECT status, processing_token, provider_outcome, locked_until FROM ai_video_jobs WHERE id = ?') return statement;
+        if (sql !== 'SELECT status, processing_token, provider_outcome, locked_until FROM ai_video_jobs_v2 WHERE id = ?') return statement;
         return { bind(...bindings) {
           const bound = statement.bind(...bindings);
           return { async first() {
             const snapshot = await bound.first(); claimReads += 1;
-            if (claimReads === 2) await originalPrepare("UPDATE ai_video_jobs SET status = 'cancelled', locked_until = NULL WHERE id = ?").bind(f.job.id).run();
+            if (claimReads === 2) await originalPrepare("UPDATE ai_video_jobs_v2 SET status = 'cancelled', locked_until = NULL WHERE id = ?").bind(f.job.id).run();
             return snapshot;
           } };
         } };
@@ -120,7 +120,7 @@ function registerQueueOutcomeContractTests() {
         const original = await f.row();
         expect(original).toMatchObject({ provider_outcome: 'unknown', status: 'processing' });
         expect(original.dispatch_token).toBeTruthy();
-        await f.db.prepare("UPDATE ai_video_jobs SET budget_policy_json = '{}', locked_until = NULL, next_attempt_at = NULL WHERE id = ?").bind(f.job.id).run();
+        await f.db.prepare("UPDATE ai_video_jobs_v2 SET budget_policy_json = '{}', locked_until = NULL, next_attempt_at = NULL WHERE id = ?").bind(f.job.id).run();
         const replay = await f.create();
         expect(replay.job.id).toBe(f.job.id);
         await f.jobs.processAiVideoJobMessage({ ...f.env }, f.message);
@@ -150,7 +150,7 @@ function registerQueueOutcomeContractTests() {
       try {
         const first = f.jobs.processAiVideoJobMessage(f.env, f.message);
         await started.promise;
-        await f.db.prepare("UPDATE ai_video_jobs SET locked_until = '2000-01-01T00:00:00.000Z' WHERE id = ?").bind(f.job.id).run();
+        await f.db.prepare("UPDATE ai_video_jobs_v2 SET locked_until = '2000-01-01T00:00:00.000Z' WHERE id = ?").bind(f.job.id).run();
         expect(await f.jobs.processAiVideoJobMessage(f.env, f.message)).toMatchObject({ status: 'noop', reason: 'provider_outcome_unknown' });
         finish.resolve(); await first;
         expect(await f.row()).toMatchObject({ provider_outcome: 'unknown', late_outcome: 'succeeded' });
@@ -167,7 +167,7 @@ function registerQueueOutcomeContractTests() {
       try {
         const first = f.jobs.processAiVideoJobMessage(f.env, f.message);
         await started.promise;
-        await f.db.prepare("UPDATE ai_video_jobs SET status = 'cancelled', locked_until = NULL WHERE id = ?").bind(f.job.id).run();
+        await f.db.prepare("UPDATE ai_video_jobs_v2 SET status = 'cancelled', locked_until = NULL WHERE id = ?").bind(f.job.id).run();
         finish.resolve(); await first;
         expect(await f.row()).toMatchObject({ status: 'cancelled', late_outcome: 'succeeded' });
         expect(f.env.USER_IMAGES.objects.size).toBe(0);
@@ -184,7 +184,7 @@ function registerQueueOutcomeContractTests() {
       try {
         const first = f.jobs.processAiVideoJobMessage(f.env, f.message);
         await downloading.promise;
-        await f.db.prepare("UPDATE ai_video_jobs SET status = 'cancelled', locked_until = NULL WHERE id = ?").bind(f.job.id).run();
+        await f.db.prepare("UPDATE ai_video_jobs_v2 SET status = 'cancelled', locked_until = NULL WHERE id = ?").bind(f.job.id).run();
         finish.resolve(); await first;
         expect((await f.row()).status).toBe('cancelled');
         expect(f.env.USER_IMAGES.objects.size).toBe(0);

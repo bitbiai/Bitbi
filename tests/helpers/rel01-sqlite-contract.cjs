@@ -50,7 +50,7 @@ async function fixture(t, scope, { legacySchema = false } = {}) {
   const moduleName = scope === 'member' ? 'member-ai-usage-attempts.js' : 'ai-usage-attempts.js';
   let module = await load(moduleName);
   const prefix = scope === 'member' ? 'MemberAiUsageAttempt' : 'AiUsageAttempt';
-  const table = scope === 'member' ? 'member_ai_usage_attempts' : 'ai_usage_attempts';
+  const table = (scope === 'member' ? 'member_ai_usage_attempts' : 'ai_usage_attempts') + (legacySchema ? '' : '_v2');
   const ledger = scope === 'member' ? 'member_credit_ledger' : 'credit_ledger';
   const usage = scope === 'member' ? 'member_usage_events' : 'usage_events';
   const ownerColumn = scope === 'member' ? 'user_id' : 'organization_id';
@@ -66,10 +66,10 @@ async function fixture(t, scope, { legacySchema = false } = {}) {
   const ledgerRows = () => DB.prepare(`SELECT * FROM ${ledger} WHERE ${ownerColumn} = ? ORDER BY rowid`).bind(ownerValue).all().then((r) => r.results);
   const usageRows = () => DB.prepare(`SELECT * FROM ${usage} WHERE ${ownerColumn} = ? ORDER BY rowid`).bind(ownerValue).all().then((r) => r.results);
   const balance = () => scope === 'member' ? billing.getMemberCreditBalance(env, USER) : billing.getCreditBalance(env, ORG);
-  const charge = (overrides = {}) => billing[scope === 'member' ? 'consumeMemberCredits' : 'consumeOrganizationCredits']({
+  const charge = async (overrides = {}) => billing[scope === 'member' ? 'consumeMemberCredits' : 'consumeOrganizationCredits']({
     env, userId: USER, ...(scope === 'organization' ? { organizationId: ORG } : {}), featureKey: FEATURE,
     quantity: 1, credits: COST, idempotencyKey: defaults.idempotencyKey, requestFingerprint: defaults.requestFingerprint,
-    source: 'local_fixture', ...overrides });
+    source: 'local_fixture', aiDispatchToken: (await DB.prepare(`SELECT dispatch_token FROM ${table} WHERE idempotency_key = ? AND ${ownerColumn} = ?`).bind(overrides.idempotencyKey || defaults.idempotencyKey, overrides[scope === 'member' ? 'userId' : 'organizationId'] || ownerValue).first())?.dispatch_token || null, ...overrides });
   let providerCalls = 0;
   const dispatch = async (id) => { const token = await call('ProviderRunning', id); providerCalls += 1; return token; };
   return { DB, env, scope, table, defaults, begin, call, cleanup, row, rows, ledgerRows, usageRows, balance, charge, dispatch,
@@ -615,7 +615,8 @@ for (const scope of ['member', 'organization']) {
     assert.equal(migrated.dispatch_token, `legacy:${id}`);
     assert.ok(migrated.reservation_released_at);
     assert.equal((await f.begin()).kind, 'unresolved');
-    await assert.rejects(f.DB.prepare(`UPDATE ${f.table} SET status = 'reserved', provider_status = 'not_started', billing_status = 'reserved' WHERE id = ?`).bind(id).run(), /ai_attempt_redispatch_forbidden/);
+    await assert.rejects(f.DB.prepare(`UPDATE ${f.table} SET status = 'reserved', provider_status = 'not_started', billing_status = 'reserved' WHERE id = ?`).bind(id).run(), /cannot modify .* because it is a view/);
+    await assert.rejects(f.DB.prepare(`UPDATE ${f.table}_v2 SET status = 'reserved', provider_status = 'not_started', billing_status = 'reserved' WHERE id = ?`).bind(id).run(), /ai_attempt_redispatch_forbidden/);
     assert.equal((await f.row(id)).provider_outcome, 'unknown');
     assert.equal((await f.row(id)).billing_status, 'released');
     assert.equal((await f.rows()).length, 1);

@@ -10,7 +10,9 @@ function deepClone(value) {
 }
 
 function normalizeSql(sql) {
-  return String(sql).replace(/\s+/g, ' ').trim();
+  // The route mock shares logical fixture rows for v2 tables and their read-only
+  // legacy aliases. Actual write fencing is exercised by SQLite/workerd tests.
+  return String(sql).replace(/\b(member_ai_usage_attempts|ai_usage_attempts|admin_ai_usage_attempts|ai_video_jobs)_v2\b/g, '$1').replace(/\s+/g, ' ').trim();
 }
 
 function isArchivedBillingProviderEventInState(state, eventId) {
@@ -1379,7 +1381,7 @@ class MockD1 {
       throw new Error('no such table: admin_mfa_failed_attempts');
     }
     if (this.missingTables.has('ai_video_jobs') && query.includes('ai_video_jobs')) {
-      throw new Error('no such table: ai_video_jobs');
+      throw new Error('no such table: ' + (String(rawQuery).includes('ai_video_jobs_v2') ? 'ai_video_jobs_v2' : 'ai_video_jobs'));
     }
     if (this.missingTables.has('ai_folders') && query.includes('ai_folders')) {
       throw new Error('no such table: ai_folders');
@@ -1483,13 +1485,13 @@ class MockD1 {
     validateCreditInsertArity(query);
 
     if (this.missingTables.has('ai_usage_attempts') && /\bai_usage_attempts\b/.test(query)) {
-      throw new Error('no such table: ai_usage_attempts');
+      throw new Error('no such table: ' + (String(rawQuery).includes('ai_usage_attempts_v2') ? 'ai_usage_attempts_v2' : 'ai_usage_attempts'));
     }
     if (this.missingTables.has('member_ai_usage_attempts') && query.includes('member_ai_usage_attempts')) {
-      throw new Error('no such table: member_ai_usage_attempts');
+      throw new Error('no such table: ' + (String(rawQuery).includes('member_ai_usage_attempts_v2') ? 'member_ai_usage_attempts_v2' : 'member_ai_usage_attempts'));
     }
     if (this.missingTables.has('admin_ai_usage_attempts') && query.includes('admin_ai_usage_attempts')) {
-      throw new Error('no such table: admin_ai_usage_attempts');
+      throw new Error('no such table: ' + (String(rawQuery).includes('admin_ai_usage_attempts_v2') ? 'admin_ai_usage_attempts_v2' : 'admin_ai_usage_attempts'));
     }
     if (this.missingTables.has('admin_runtime_budget_switches') && query.includes('admin_runtime_budget_switch')) {
       throw new Error('no such table: admin_runtime_budget_switches');
@@ -3103,7 +3105,8 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query.startsWith('INSERT INTO credit_ledger ( id, organization_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json ) SELECT')) {
+    if (query.startsWith('INSERT INTO credit_ledger ( id, organization_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json ) SELECT')
+      || query.startsWith('INSERT INTO credit_ledger ( id, organization_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json, ai_dispatch_token ) SELECT')) {
       const [
         id,
         organizationId,
@@ -3117,13 +3120,22 @@ class MockD1 {
         createdByUserId,
         createdAt,
         metadataJson,
-        lookupOrganizationId,
-        requiredCredits,
+        ...ledgerTail
       ] = bindings;
+      const [aiDispatchToken, lookupOrganizationId, requiredCredits] = query.includes('metadata_json, ai_dispatch_token ) SELECT')
+        ? ledgerTail : [null, ...ledgerTail];
       const latest = latestCreditLedgerEntry(this.state.creditLedger, lookupOrganizationId);
       const currentBalance = Number(latest?.balance_after || 0);
       if (currentBalance < Number(requiredCredits)) {
         return { success: true, meta: { changes: 0 } };
+      }
+      if (Number(amount) < 0 && this.state.aiUsageAttempts.some((attempt) =>
+        attempt.organization_id === organizationId && attempt.idempotency_key === idempotencyKey
+        && (aiDispatchToken == null || aiDispatchToken !== attempt.dispatch_token
+          || attempt.provider_outcome !== 'succeeded' || attempt.reservation_released_at != null
+          || attempt.status !== 'finalizing' || attempt.billing_status !== 'reserved')
+      )) {
+        throw new Error('ai_attempt_settlement_forbidden');
       }
       if (this.state.creditLedger.some((row) =>
         row.id === id || (row.organization_id === organizationId && row.idempotency_key === idempotencyKey)
@@ -3143,6 +3155,7 @@ class MockD1 {
         created_by_user_id: createdByUserId,
         created_at: createdAt,
         metadata_json: metadataJson,
+        ai_dispatch_token: aiDispatchToken,
       });
       return { success: true, meta: { changes: 1 } };
     }
@@ -3406,7 +3419,8 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query.startsWith('INSERT INTO member_credit_ledger ( id, user_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json ) SELECT')) {
+    if (query.startsWith('INSERT INTO member_credit_ledger ( id, user_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json ) SELECT')
+      || query.startsWith('INSERT INTO member_credit_ledger ( id, user_id, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json, ai_dispatch_token ) SELECT')) {
       const [
         id,
         userId,
@@ -3420,13 +3434,22 @@ class MockD1 {
         createdByUserId,
         createdAt,
         metadataJson,
-        lookupUserId,
-        requiredCredits,
+        ...ledgerTail
       ] = bindings;
+      const [aiDispatchToken, lookupUserId, requiredCredits] = query.includes('metadata_json, ai_dispatch_token ) SELECT')
+        ? ledgerTail : [null, ...ledgerTail];
       const latest = latestMemberCreditLedgerEntry(this.state.memberCreditLedger, lookupUserId);
       const currentBalance = Number(latest?.balance_after || 0);
       if (currentBalance < Number(requiredCredits)) {
         return { success: true, meta: { changes: 0 } };
+      }
+      if (Number(amount) < 0 && this.state.memberAiUsageAttempts.some((attempt) =>
+        attempt.user_id === userId && attempt.idempotency_key === idempotencyKey
+        && (aiDispatchToken == null || aiDispatchToken !== attempt.dispatch_token
+          || attempt.provider_outcome !== 'succeeded' || attempt.reservation_released_at != null
+          || attempt.status !== 'finalizing' || attempt.billing_status !== 'reserved')
+      )) {
+        throw new Error('ai_attempt_settlement_forbidden');
       }
       if (this.state.memberCreditLedger.some((row) =>
         row.id === id || (idempotencyKey && row.user_id === userId && row.idempotency_key === idempotencyKey)
@@ -3446,6 +3469,7 @@ class MockD1 {
         created_by_user_id: createdByUserId,
         created_at: createdAt,
         metadata_json: metadataJson,
+        ai_dispatch_token: aiDispatchToken,
       });
       return { success: true, meta: { changes: 1 } };
     }

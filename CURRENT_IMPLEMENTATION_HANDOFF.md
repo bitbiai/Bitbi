@@ -67,3 +67,7 @@ Use broader validation such as `npm run release:preflight` before merging substa
 Recommended next track: Fresh Deep Audit From Current Baseline.
 
 Future auditors should start from `docs/audits/NEXT_AUDIT_BASELINE.md`, inspect current code/tests/docs/evidence, and produce new findings and scores from current repository state. Historical reports remain evidence/background only.
+
+## Transition-fenced 0081 successor
+
+A focused successor to 54e89 is locally validated. Unapplied0081 now establishes read-only legacy attempt/job views over canonical `_v2` tables and requires an internal claim token on AI ledger debits. Existing ambiguous identities remain fenced; already accepted old provider work may continue without authorizing a replacement. The revised SQL must commit atomically before the successor Auth Worker. Earlier 54e89/237e bundles are incompatible recovery versions. Deployment and live business-flow verification remain pending; the private release execution record carries exact evidence and operational state.

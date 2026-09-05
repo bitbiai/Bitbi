@@ -1,7 +1,7 @@
 import { BillingError } from './billing.js';
 import { nowIso, randomTokenHex } from './tokens.js';
 
-const TABLES = new Set(['member_ai_usage_attempts', 'ai_usage_attempts']);
+const TABLES = new Set(['member_ai_usage_attempts_v2', 'ai_usage_attempts_v2']);
 function tableName(table) {
   if (!TABLES.has(table)) throw new Error('Unsupported AI attempt table.');
   return table;
@@ -125,7 +125,7 @@ export async function releaseExpiredAiDispatch(env, table, id, now = nowIso()) {
 // result publication. Reconcile it without charging again or fabricating replay.
 export async function reconcileAiDispatchDebit(env, table, id, { dispatchToken, now = nowIso() } = {}) {
   tableName(table);
-  const member = table === 'member_ai_usage_attempts';
+  const member = table === 'member_ai_usage_attempts_v2';
   const ledger = member ? 'member_credit_ledger' : 'credit_ledger';
   const owner = member ? 'user_id' : 'organization_id';
   const result = await env.DB.prepare(`UPDATE ${table}

@@ -809,7 +809,7 @@ function buildAdminUserOperationalDeleteStatements(env, {
     category: "ai_quota_cleanup",
   });
   pushOptional("member_ai_usage_attempts", {
-    statement: env.DB.prepare("DELETE FROM member_ai_usage_attempts WHERE user_id = ?").bind(userId),
+    statement: env.DB.prepare("DELETE FROM member_ai_usage_attempts_v2 WHERE user_id = ?").bind(userId),
     branch: "member_ai_usage_attempts_delete_failed",
     label: "member_ai_usage_attempts_delete",
     category: "ai_attempt_cleanup",

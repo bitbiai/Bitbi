@@ -1,0 +1,193 @@
+{
+  "revision": "c173dd9a8a188b38ba19ad239f6b5e5e79e73454",
+  "purpose": "Frozen public repository source for executing unchanged legacy member-image route continuations against migration 0081. Contains no audit evidence, runtime data, credentials, or dependencies.",
+  "archive": "c173-auth-image-route.json.gz",
+  "archive_sha256": "86f117a86c9f4a226a961429339cb9d04101fa295d94ab8ee7a431fdd8d1c287",
+  "format": "gzip-compressed UTF-8 JSON with revision and files mapping; deterministic mtime=0; no executable archive extraction",
+  "files": {
+    "js/shared/ai-image-models.mjs": {
+      "sha256": "bf81f76911dd1c4ad2d9128f8fa13bbf95254ea45f19b54e10ad767b6e6010c6",
+      "bytes": 4114
+    },
+    "js/shared/ai-model-pricing.mjs": {
+      "sha256": "595dace6912226202f4d9078d54ac9d4c340a2d71a0035ddf78e9ad39c430ee1",
+      "bytes": 10234
+    },
+    "js/shared/generation-timeout.mjs": {
+      "sha256": "ecc992eca4bcfe130f68bcd0f2a71885e14e5c1aa9590d7721355c52dc1eaab0",
+      "bytes": 226
+    },
+    "js/shared/gpt-image-2-pricing.mjs": {
+      "sha256": "ece9e5361b2edc1cb55cd321fbc24242718280ab7605c3c8ab6adb61c1ac5f7a",
+      "bytes": 3794
+    },
+    "js/shared/grok-imagine-image-pricing.mjs": {
+      "sha256": "d02305e2104d3d5e92b028596fca2c90def53856d3de8b71fed247f6d30487d4",
+      "bytes": 7576
+    },
+    "js/shared/grok-imagine-video-15-preview-pricing.mjs": {
+      "sha256": "844becb43599845eb5c3b06b531581dc2c7984723cfdb936b3ebcf1af260fb3b",
+      "bytes": 7822
+    },
+    "js/shared/grok-imagine-video-pricing.mjs": {
+      "sha256": "70ba5a4bd3ada8dcefe2dc27b39e76e54dcdab4ca3755232d7e7dc433460cf45",
+      "bytes": 5328
+    },
+    "js/shared/happyhorse-t2v-pricing.mjs": {
+      "sha256": "e12c19cb4125f82cad6d0cf303d72681e8e0b7fb8b915fa797d45e6477aa17c5",
+      "bytes": 5804
+    },
+    "js/shared/live-credit-packs.mjs": {
+      "sha256": "c40b9ea0389153460617dce4e40a79c1051ff85ecd37e6b5742aba4e49395363",
+      "bytes": 2199
+    },
+    "js/shared/member-subscription.mjs": {
+      "sha256": "f440fbb616c6cc4a16d49fd2bef446b950ffd7d19c2401482730b10b9a7daf4e",
+      "bytes": 482
+    },
+    "js/shared/model-credit-pricing.mjs": {
+      "sha256": "ce981508edad5cedf9f019779ae44f9c04ed645760ec3873427d7626e76a61d0",
+      "bytes": 1802
+    },
+    "js/shared/music-2-6-pricing.mjs": {
+      "sha256": "098f595bb883d5d717fefde1d7d392ba1e5a1914f4f9816bc363a3fb1bd9767b",
+      "bytes": 1152
+    },
+    "js/shared/pixverse-v6-pricing.mjs": {
+      "sha256": "8fce3bf3e000b3b569c8ba937afc6e50bb61814d3b16f810e13b5349c4a1e620",
+      "bytes": 2816
+    },
+    "js/shared/public-media-contract.mjs": {
+      "sha256": "6d9fe77448865d90dd1a7f15482f3cf22fb304f238dd0eacf236a3de707ae64c",
+      "bytes": 3168
+    },
+    "js/shared/request-body.mjs": {
+      "sha256": "3e725f1032bf50c5e74d1045bd5b8c577d4ac21b13a125a7782bf9d7cb339b7c",
+      "bytes": 4859
+    },
+    "js/shared/seedance-2-pricing.mjs": {
+      "sha256": "b9d40660b0a4b50491f03d2b93b649d46b4ceb4623831a197b93a1cec49c9d21",
+      "bytes": 6256
+    },
+    "js/shared/worker-observability.mjs": {
+      "sha256": "199c55fbc79739a7937a265b6e7a0d456f82172b9daa64d330531d0fc9769139",
+      "bytes": 5223
+    },
+    "workers/auth/src/lib/admin-mfa.js": {
+      "sha256": "6d30dd6fd3542ca5c0df3402388b7c4bdd012c163b0e9f0463dc1d9c67dd92bb",
+      "bytes": 33861
+    },
+    "workers/auth/src/lib/ai-cost-gateway.js": {
+      "sha256": "66b54e03648b810ea6014ed5173f089272bf93b5a18f5cb7b686aba06081bacc",
+      "bytes": 21102
+    },
+    "workers/auth/src/lib/ai-cost-operations.js": {
+      "sha256": "1cb5fdc98eaf4bc406d321355fdd8f2afe55134e4d398d4c185911f9858ee9be",
+      "bytes": 102517
+    },
+    "workers/auth/src/lib/ai-image-credit-pricing.js": {
+      "sha256": "fe2040a0944dec6a8db4310d96ecbf3c2d9d82810588d50cfcdee96e3b79e79b",
+      "bytes": 375
+    },
+    "workers/auth/src/lib/ai-image-derivatives.js": {
+      "sha256": "a0756a729a59d457d8cb26b9d1bc939f7d6a344fbce95f05f76136fa14df2c1d",
+      "bytes": 25169
+    },
+    "workers/auth/src/lib/ai-usage-attempts.js": {
+      "sha256": "7b1163caf8cd7a06177bef6c871f24f79919947a6742f2be6cc510c95c368bbe",
+      "bytes": 35747
+    },
+    "workers/auth/src/lib/ai-usage-policy.js": {
+      "sha256": "370a69d119b77558535ff307083736c96a886a6a5741434dc6c1915f5dcfdc2f",
+      "bytes": 18609
+    },
+    "workers/auth/src/lib/asset-storage-quota.js": {
+      "sha256": "df4d02e2199ff204027b6eca0d2989bf2e58026dbae4409e83b1fac63760afef",
+      "bytes": 16663
+    },
+    "workers/auth/src/lib/billing.js": {
+      "sha256": "c8b54f72da183efe5a016952cdde9e2fb78f554180ea8ea9856837444015b460",
+      "bytes": 74459
+    },
+    "workers/auth/src/lib/cookies.js": {
+      "sha256": "f8c8cb694646e825e0e3d77de4a9b3fdc4e01b15b2eabe62cda4ad98bae8d6e9",
+      "bytes": 2043
+    },
+    "workers/auth/src/lib/generation-timeout.js": {
+      "sha256": "05c40d9b9cf26ec02dc803bc4da7148c759cad87ec8dde7e97b9112471de5f53",
+      "bytes": 2414
+    },
+    "workers/auth/src/lib/member-ai-usage-attempts.js": {
+      "sha256": "026eac7cfb77eb4ca626c1bf7a8b44fb382174d8108931bf4db7fda6444ae3cf",
+      "bytes": 34765
+    },
+    "workers/auth/src/lib/orgs.js": {
+      "sha256": "0e4dd0856e0a8d27d46b185f3cb701f120031a81beea80fa81753eb5fbc104c0",
+      "bytes": 27591
+    },
+    "workers/auth/src/lib/profile-avatar-state.js": {
+      "sha256": "93a5f480385ed929415d83ad99c4763a44c72a1e9529e70a497e841bb99a7d93",
+      "bytes": 1494
+    },
+    "workers/auth/src/lib/public-media-comments.js": {
+      "sha256": "d49af50bed4e7128226d03ac0714a40e0365f1daeda0560103bd81b52f70b87e",
+      "bytes": 8754
+    },
+    "workers/auth/src/lib/public-media-interactions.js": {
+      "sha256": "f7d1c4a5d8e9ab2a84f9a6fb65fff9f9591f70a0e8ca5b592438b76cd183cec3",
+      "bytes": 14359
+    },
+    "workers/auth/src/lib/public-media.js": {
+      "sha256": "29508e4ae57f6604a7b82a011a148bcc4f656d147469fb806d19fc7bb59f6749",
+      "bytes": 960
+    },
+    "workers/auth/src/lib/rate-limit.js": {
+      "sha256": "409412bcb283af3882e8f3f8a0cf62aec7993c4640de6d28b2a2ec334627de63",
+      "bytes": 12923
+    },
+    "workers/auth/src/lib/request.js": {
+      "sha256": "37f14182bbda887022b6589bea0e1b6d9da734e6fcae490e760fbbf44e768a84",
+      "bytes": 3436
+    },
+    "workers/auth/src/lib/response.js": {
+      "sha256": "97e42cecd5f590be44455bac6bdf124c7289ce3de977efe641d8d88ee660111c",
+      "bytes": 339
+    },
+    "workers/auth/src/lib/security-secrets.js": {
+      "sha256": "588266705e04e8ef2735048f2d871cc2040d49b7d78f0df98837de681da4ec0b",
+      "bytes": 4284
+    },
+    "workers/auth/src/lib/session.js": {
+      "sha256": "8c142bcac08fcc9ff19eee110be2ad59adee2718bd44b4f3f911b29d538ef390",
+      "bytes": 9360
+    },
+    "workers/auth/src/lib/storage-key-redaction.js": {
+      "sha256": "e73d722bedc6b4a8b23149ccc9f5249b3cd29bbbf05abbb39068cd3e11daf4e0",
+      "bytes": 2511
+    },
+    "workers/auth/src/lib/tenant-asset-ownership.js": {
+      "sha256": "f31c01c6d235937d3eea660f3aeb5d22742dfc20c871c2ac8e88d3b3e1bda439",
+      "bytes": 6033
+    },
+    "workers/auth/src/lib/tokens.js": {
+      "sha256": "9563c42016a23d6b1259f0d3851fc6bb949676f943a6265c7fe9f4dafc8464a9",
+      "bytes": 781
+    },
+    "workers/auth/src/routes/ai/generated-image-save-reference.js": {
+      "sha256": "76eda0515508d6ea7ddc66b02472a49f1af66d4b92fcf97193e3dcc3808eb3c6",
+      "bytes": 8568
+    },
+    "workers/auth/src/routes/ai/helpers.js": {
+      "sha256": "3e21044d1bfb5df41863b8675303ccc1419a17af7ff849c8c2bebe418f3f2d08",
+      "bytes": 10257
+    },
+    "workers/auth/src/routes/ai/images-write.js": {
+      "sha256": "4c9b4fc0b392cbe830cc9adf204a04fbc8ea16d5459cd4d39bcc66c13ac3dd6d",
+      "bytes": 59076
+    },
+    "workers/auth/src/routes/ai/lifecycle.js": {
+      "sha256": "ba061e44627c13885f85e94d3e4889837746a27f8851f982cd60b8cbd5ae0107",
+      "bytes": 39307
+    }
+  }
+}

@@ -147,7 +147,7 @@ const JOB_COLUMN_NAMES = [
 const JOB_INSERT_COLUMNS = JOB_COLUMN_NAMES.join(", ");
 const JOB_COLUMNS = [...JOB_COLUMN_NAMES, "provider_outcome", "dispatch_token", "processing_token", "dispatched_at", "unknown_at", "late_outcome", "late_evidence_json", "provider_result_json", "platform_exposure_units", "platform_window_day", "platform_window_month"].join(", ");
 const JOB_INSERT_PLACEHOLDERS = JOB_COLUMN_NAMES.map(() => "?").join(", ");
-const JOB_WITH_USER_JOIN_COLUMNS = `${JOB_COLUMNS.split(", ").map((column) => `ai_video_jobs.${column} AS ${column}`).join(", ")}, users.email AS user_email`;
+const JOB_WITH_USER_JOIN_COLUMNS = `${JOB_COLUMNS.split(", ").map((column) => `ai_video_jobs_v2.${column} AS ${column}`).join(", ")}, users.email AS user_email`;
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled", "expired"]);
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -835,12 +835,12 @@ export async function listAdminAiVideoFailedJobs(env, searchParams = new URLSear
   const bindings = [];
   let cursorClause = "";
   if (cursor) {
-    cursorClause = "AND (ai_video_jobs.created_at < ? OR (ai_video_jobs.created_at = ? AND ai_video_jobs.id < ?))";
+    cursorClause = "AND (ai_video_jobs_v2.created_at < ? OR (ai_video_jobs_v2.created_at = ? AND ai_video_jobs_v2.id < ?))";
     bindings.push(cursor.createdAt, cursor.createdAt, cursor.id);
   }
   bindings.push(limit + 1);
   const result = await env.DB.prepare(
-    `SELECT ai_video_jobs.id AS id, ai_video_jobs.user_id AS user_id, users.email AS user_email, ai_video_jobs.status AS status, ai_video_jobs.provider AS provider, ai_video_jobs.model AS model, ai_video_jobs.provider_task_id AS provider_task_id, ai_video_jobs.attempt_count AS attempt_count, ai_video_jobs.max_attempts AS max_attempts, ai_video_jobs.output_url AS output_url, ai_video_jobs.poster_url AS poster_url, ai_video_jobs.error_code AS error_code, ai_video_jobs.error_message AS error_message, ai_video_jobs.created_at AS created_at, ai_video_jobs.updated_at AS updated_at, ai_video_jobs.completed_at AS completed_at FROM ai_video_jobs LEFT JOIN users ON users.id = ai_video_jobs.user_id WHERE ai_video_jobs.scope = 'admin' AND ai_video_jobs.status = 'failed' ${cursorClause} ORDER BY ai_video_jobs.created_at DESC, ai_video_jobs.id DESC LIMIT ?`
+    `SELECT ai_video_jobs_v2.id AS id, ai_video_jobs_v2.user_id AS user_id, users.email AS user_email, ai_video_jobs_v2.status AS status, ai_video_jobs_v2.provider AS provider, ai_video_jobs_v2.model AS model, ai_video_jobs_v2.provider_task_id AS provider_task_id, ai_video_jobs_v2.attempt_count AS attempt_count, ai_video_jobs_v2.max_attempts AS max_attempts, ai_video_jobs_v2.output_url AS output_url, ai_video_jobs_v2.poster_url AS poster_url, ai_video_jobs_v2.error_code AS error_code, ai_video_jobs_v2.error_message AS error_message, ai_video_jobs_v2.created_at AS created_at, ai_video_jobs_v2.updated_at AS updated_at, ai_video_jobs_v2.completed_at AS completed_at FROM ai_video_jobs_v2 LEFT JOIN users ON users.id = ai_video_jobs_v2.user_id WHERE ai_video_jobs_v2.scope = 'admin' AND ai_video_jobs_v2.status = 'failed' ${cursorClause} ORDER BY ai_video_jobs_v2.created_at DESC, ai_video_jobs_v2.id DESC LIMIT ?`
   ).bind(...bindings).all();
   const rows = Array.isArray(result?.results) ? result.results : [];
   const page = rows.slice(0, limit);
@@ -854,7 +854,7 @@ export async function listAdminAiVideoFailedJobs(env, searchParams = new URLSear
 export async function getAdminAiVideoFailedJob(env, jobId) {
   assertAiVideoInspectionConfig(env);
   const row = await env.DB.prepare(
-    "SELECT ai_video_jobs.id AS id, ai_video_jobs.user_id AS user_id, users.email AS user_email, ai_video_jobs.status AS status, ai_video_jobs.provider AS provider, ai_video_jobs.model AS model, ai_video_jobs.provider_task_id AS provider_task_id, ai_video_jobs.attempt_count AS attempt_count, ai_video_jobs.max_attempts AS max_attempts, ai_video_jobs.output_url AS output_url, ai_video_jobs.poster_url AS poster_url, ai_video_jobs.error_code AS error_code, ai_video_jobs.error_message AS error_message, ai_video_jobs.created_at AS created_at, ai_video_jobs.updated_at AS updated_at, ai_video_jobs.completed_at AS completed_at FROM ai_video_jobs LEFT JOIN users ON users.id = ai_video_jobs.user_id WHERE ai_video_jobs.id = ? AND ai_video_jobs.scope = 'admin' AND ai_video_jobs.status = 'failed'"
+    "SELECT ai_video_jobs_v2.id AS id, ai_video_jobs_v2.user_id AS user_id, users.email AS user_email, ai_video_jobs_v2.status AS status, ai_video_jobs_v2.provider AS provider, ai_video_jobs_v2.model AS model, ai_video_jobs_v2.provider_task_id AS provider_task_id, ai_video_jobs_v2.attempt_count AS attempt_count, ai_video_jobs_v2.max_attempts AS max_attempts, ai_video_jobs_v2.output_url AS output_url, ai_video_jobs_v2.poster_url AS poster_url, ai_video_jobs_v2.error_code AS error_code, ai_video_jobs_v2.error_message AS error_message, ai_video_jobs_v2.created_at AS created_at, ai_video_jobs_v2.updated_at AS updated_at, ai_video_jobs_v2.completed_at AS completed_at FROM ai_video_jobs_v2 LEFT JOIN users ON users.id = ai_video_jobs_v2.user_id WHERE ai_video_jobs_v2.id = ? AND ai_video_jobs_v2.scope = 'admin' AND ai_video_jobs_v2.status = 'failed'"
   ).bind(jobId).first();
   return row ? serializeFailedJobDiagnostic(row) : null;
 }
@@ -862,13 +862,13 @@ export async function getAdminAiVideoFailedJob(env, jobId) {
 async function findIdempotentJob(env, userId, scope, idempotencyKey) {
   if (!idempotencyKey) return null;
   return normalizeJobRow(await env.DB.prepare(
-    `SELECT ${JOB_COLUMNS} FROM ai_video_jobs WHERE user_id = ? AND scope = ? AND idempotency_key = ?`
+    `SELECT ${JOB_COLUMNS} FROM ai_video_jobs_v2 WHERE user_id = ? AND scope = ? AND idempotency_key = ?`
   ).bind(userId, scope, idempotencyKey).first());
 }
 
 export async function getAdminAiVideoJob(env, adminUser, jobId) {
   return normalizeJobRow(await env.DB.prepare(
-    `SELECT ${JOB_COLUMNS} FROM ai_video_jobs WHERE id = ? AND user_id = ? AND scope = 'admin'`
+    `SELECT ${JOB_COLUMNS} FROM ai_video_jobs_v2 WHERE id = ? AND user_id = ? AND scope = 'admin'`
   ).bind(jobId, adminUser.id).first());
 }
 
@@ -892,13 +892,13 @@ export async function getAdminAiVideoJobOutput(env, adminUser, jobId, kind = "ou
 
 async function getQueueJob(env, jobId) {
   return normalizeJobRow(await env.DB.prepare(
-    `SELECT ${JOB_WITH_USER_JOIN_COLUMNS} FROM ai_video_jobs INNER JOIN users ON users.id = ai_video_jobs.user_id WHERE ai_video_jobs.id = ?`
+    `SELECT ${JOB_WITH_USER_JOIN_COLUMNS} FROM ai_video_jobs_v2 INNER JOIN users ON users.id = ai_video_jobs_v2.user_id WHERE ai_video_jobs_v2.id = ?`
   ).bind(jobId).first());
 }
 
 async function insertJob(env, job) {
   await env.DB.prepare(
-    `INSERT INTO ai_video_jobs (${JOB_INSERT_COLUMNS}) VALUES (${JOB_INSERT_PLACEHOLDERS})`
+    `INSERT INTO ai_video_jobs_v2 (${JOB_INSERT_COLUMNS}) VALUES (${JOB_INSERT_PLACEHOLDERS})`
   ).bind(
     job.id,
     job.user_id,
@@ -940,7 +940,7 @@ async function insertJob(env, job) {
 async function markJobFailedToEnqueue(env, jobId, error, correlationId) {
   const now = nowIso();
   await env.DB.prepare(
-    "UPDATE ai_video_jobs SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, completed_at = ? WHERE id = ?"
+    "UPDATE ai_video_jobs_v2 SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?, completed_at = ? WHERE id = ?"
   ).bind(
     "queue_send_failed",
     sanitizePublicError("Video job could not be queued."),
@@ -1126,13 +1126,13 @@ function staleJobExecutionError() {
 async function acquireJobLease(env, jobId, now, lockedUntil) {
   const processingToken = randomTokenHex(24);
   const result = await env.DB.prepare(
-    "UPDATE ai_video_jobs SET status = 'starting', attempt_count = attempt_count + 1, processing_token = ?, locked_until = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND provider_outcome <> 'unknown' AND (locked_until IS NULL OR locked_until < ?) AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
+    "UPDATE ai_video_jobs_v2 SET status = 'starting', attempt_count = attempt_count + 1, processing_token = ?, locked_until = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND provider_outcome <> 'unknown' AND (locked_until IS NULL OR locked_until < ?) AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
   ).bind(processingToken, lockedUntil, now, jobId, now, now).run();
   return Number(result?.meta?.changes || 0) > 0;
 }
 
 async function assertJobClaim(env, job) {
-  const row = await env.DB.prepare("SELECT status, processing_token, provider_outcome, locked_until FROM ai_video_jobs WHERE id = ?").bind(job.id).first();
+  const row = await env.DB.prepare("SELECT status, processing_token, provider_outcome, locked_until FROM ai_video_jobs_v2 WHERE id = ?").bind(job.id).first();
   if (!row || row.processing_token !== job.processing_token || TERMINAL_STATUSES.has(row.status) || (row.provider_outcome === "unknown" && !job.recoveryClaim)) throw staleJobExecutionError();
   if (row.locked_until && row.locked_until <= nowIso()) {
     await markJobOutcomeUnknown(env, job, "provider_processing_lease_expired", nowIso());
@@ -1145,7 +1145,7 @@ async function claimJobProviderDispatch(env, job, budgetPolicy, now) {
   const dispatchToken = randomTokenHex(24);
   const result = await env.DB.prepare(
     `WITH dispatch_budget(scope, units, day, month) AS (VALUES (?, ?, ?, ?))
-     UPDATE ai_video_jobs SET provider_outcome = 'dispatched', dispatch_token = ?, dispatched_at = ?,
+     UPDATE ai_video_jobs_v2 SET provider_outcome = 'dispatched', dispatch_token = ?, dispatched_at = ?,
        platform_exposure_units = ?, platform_window_day = ?, platform_window_month = ?
      WHERE id = ? AND processing_token = ? AND status = 'starting' AND provider_outcome = 'not_dispatched'
        AND ${platformBudgetDispatchCapacitySql()}`
@@ -1168,20 +1168,20 @@ async function recordJobLateOutcome(env, job, result, outcome = "unknown") {
   if (!job.dispatch_token) return;
   const evidence = { observed_at: nowIso(), outcome: String(outcome).slice(0, 80),
     provider_task_hash: result?.providerTaskId ? await sha256Hex(String(result.providerTaskId)) : null };
-  await env.DB.prepare("UPDATE ai_video_jobs SET late_outcome = ?, late_evidence_json = ? WHERE id = ? AND dispatch_token = ? AND late_outcome IS NULL AND (provider_outcome = 'unknown' OR status IN ('cancelled', 'failed'))")
+  await env.DB.prepare("UPDATE ai_video_jobs_v2 SET late_outcome = ?, late_evidence_json = ? WHERE id = ? AND dispatch_token = ? AND late_outcome IS NULL AND (provider_outcome = 'unknown' OR status IN ('cancelled', 'failed'))")
     .bind(String(outcome).slice(0, 80), JSON.stringify(evidence), job.id, job.dispatch_token).run();
 }
 
 async function markJobOutcomeUnknown(env, job, code, now) {
   const result = await env.DB.prepare(
-    "UPDATE ai_video_jobs SET provider_outcome = 'unknown', unknown_at = COALESCE(unknown_at, ?), status = 'processing', error_code = ?, error_message = 'Provider completion is unresolved; this operation will not be submitted again.', locked_until = NULL, processing_token = NULL, updated_at = ? WHERE id = ? AND processing_token IS ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled')"
+    "UPDATE ai_video_jobs_v2 SET provider_outcome = 'unknown', unknown_at = COALESCE(unknown_at, ?), status = 'processing', error_code = ?, error_message = 'Provider completion is unresolved; this operation will not be submitted again.', locked_until = NULL, processing_token = NULL, updated_at = ? WHERE id = ? AND processing_token IS ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled')"
   ).bind(now, code || "ai_video_outcome_unknown", now, job.id, job.processing_token || null).run();
   return Number(result?.meta?.changes || 0);
 }
 
 async function checkpointJobProviderSuccess(env, job, providerResult, now) {
   const result = await env.DB.prepare(
-    "UPDATE ai_video_jobs SET provider_outcome = 'succeeded', provider_result_json = ?, provider_task_id = COALESCE(?, provider_task_id), updated_at = ? WHERE id = ? AND processing_token = ? AND provider_outcome IN ('dispatched', 'succeeded') AND status NOT IN ('succeeded', 'failed', 'cancelled')"
+    "UPDATE ai_video_jobs_v2 SET provider_outcome = 'succeeded', provider_result_json = ?, provider_task_id = COALESCE(?, provider_task_id), updated_at = ? WHERE id = ? AND processing_token = ? AND provider_outcome IN ('dispatched', 'succeeded') AND status NOT IN ('succeeded', 'failed', 'cancelled')"
   ).bind(JSON.stringify(boundedProviderResult(providerResult)), providerResult.providerTaskId || null, now, job.id, job.processing_token).run();
   if (!result?.meta?.changes) throw staleJobExecutionError();
   job.provider_outcome = "succeeded";
@@ -1190,7 +1190,7 @@ async function checkpointJobProviderSuccess(env, job, providerResult, now) {
 
 async function updateJobProviderPending(env, job, result, now, nextAttemptAt) {
   const updated = await env.DB.prepare(
-    `UPDATE ai_video_jobs SET status = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
+    `UPDATE ai_video_jobs_v2 SET status = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
   ).bind(
     result?.providerTaskId ? "provider_pending" : "polling",
     result?.providerTaskId || null,
@@ -1205,14 +1205,14 @@ async function updateJobProviderPending(env, job, result, now, nextAttemptAt) {
 
 async function updateJobIngesting(env, job, providerState, now) {
   const result = await env.DB.prepare(
-    `UPDATE ai_video_jobs SET status = 'ingesting', provider_state = ?, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
+    `UPDATE ai_video_jobs_v2 SET status = 'ingesting', provider_state = ?, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
   ).bind(providerState || null, now, job.id, job.processing_token || null).run();
   if (!result?.meta?.changes) throw staleJobExecutionError();
 }
 
 async function updateJobSucceeded(env, job, result, now) {
   const updated = await env.DB.prepare(
-    `UPDATE ai_video_jobs SET status = 'succeeded', output_r2_key = ?, output_url = ?, output_content_type = ?, output_size_bytes = ?, poster_r2_key = ?, poster_url = ?, poster_content_type = ?, poster_size_bytes = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
+    `UPDATE ai_video_jobs_v2 SET status = 'succeeded', output_r2_key = ?, output_url = ?, output_content_type = ?, output_size_bytes = ?, poster_r2_key = ?, poster_url = ?, poster_content_type = ?, poster_size_bytes = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
   ).bind(
     result?.outputR2Key || null,
     result?.outputUrl || null,
@@ -1235,21 +1235,21 @@ async function updateJobSucceeded(env, job, result, now) {
 async function updateJobFailed(env, job, code, message, now) {
   if (job.provider_outcome === "dispatched" && !job.recoveryClaim) return markJobOutcomeUnknown(env, job, "ai_video_outcome_unknown", now);
   const result = await env.DB.prepare(
-    `UPDATE ai_video_jobs SET status = 'failed', error_code = ?, error_message = ?, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
+    `UPDATE ai_video_jobs_v2 SET status = 'failed', error_code = ?, error_message = ?, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
   ).bind(code, sanitizePublicError(message), now, now, job.id, job.processing_token || null).run();
   if (!result?.meta?.changes) throw staleJobExecutionError();
 }
 
 async function updateJobRetry(env, job, code, message, now, nextAttemptAt) {
   const result = await env.DB.prepare(
-    `UPDATE ai_video_jobs SET status = 'queued', error_code = ?, error_message = ?, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
+    `UPDATE ai_video_jobs_v2 SET status = 'queued', error_code = ?, error_message = ?, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
   ).bind(code, sanitizePublicError(message), nextAttemptAt, now, job.id, job.processing_token || null).run();
   if (!result?.meta?.changes) throw staleJobExecutionError();
 }
 
 async function updateJobBudgetPolicyMetadata(env, job, budgetPolicy, status, now) {
   const result = await env.DB.prepare(
-    `UPDATE ai_video_jobs SET budget_policy_json = ?, budget_policy_status = ?, budget_policy_fingerprint = ?, budget_policy_version = ?, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
+    `UPDATE ai_video_jobs_v2 SET budget_policy_json = ?, budget_policy_status = ?, budget_policy_fingerprint = ?, budget_policy_version = ?, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
   ).bind(
     budgetPolicyJson(budgetPolicy),
     status || budgetPolicy?.plan_status || null,
@@ -1737,7 +1737,7 @@ export async function recoverAdminAiVideoJobFromProviderResponse({
   const dispatchToken = recoveryAttempt.dispatchToken;
   const ingestStartedAt = nowIso();
   const processingToken = randomTokenHex(24);
-  const recoveryClaim = await env.DB.prepare("UPDATE ai_video_jobs SET status = 'ingesting', processing_token = ?, locked_until = ?, updated_at = ? WHERE id = ? AND status = ? AND processing_token IS ?")
+  const recoveryClaim = await env.DB.prepare("UPDATE ai_video_jobs_v2 SET status = 'ingesting', processing_token = ?, locked_until = ?, updated_at = ? WHERE id = ? AND status = ? AND processing_token IS ?")
     .bind(processingToken, addMillisecondsIso(JOB_LEASE_MS), ingestStartedAt, job.id, previousStatus, job.processing_token || null).run();
   if (!recoveryClaim?.meta?.changes) throw staleJobExecutionError();
   job.processing_token = processingToken;
@@ -2302,7 +2302,7 @@ async function processAiVideoJobMessageWithClaim(env, body, { messageAttempts = 
   }
 
   if (response.ok && responseBody?.ok && providerResult?.status === "failed") {
-    const failedOutcome = await env.DB.prepare("UPDATE ai_video_jobs SET provider_outcome = 'failed' WHERE id = ? AND processing_token = ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled')").bind(job.id, job.processing_token).run();
+    const failedOutcome = await env.DB.prepare("UPDATE ai_video_jobs_v2 SET provider_outcome = 'failed' WHERE id = ? AND processing_token = ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled')").bind(job.id, job.processing_token).run();
     if (!failedOutcome?.meta?.changes) {
       await recordJobLateOutcome(env, job, providerResult, "failed");
       throw staleJobExecutionError();
@@ -2331,7 +2331,7 @@ async function processAiVideoJobMessageWithClaim(env, body, { messageAttempts = 
     const nextAttemptAt = addMillisecondsIso(delaySeconds * 1000);
     if (job.attempt_count >= job.max_attempts) {
       if (providerResult.providerTaskId) {
-        const pendingOutcome = await env.DB.prepare("UPDATE ai_video_jobs SET provider_task_id = COALESCE(?, provider_task_id) WHERE id = ? AND processing_token = ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled')")
+        const pendingOutcome = await env.DB.prepare("UPDATE ai_video_jobs_v2 SET provider_task_id = COALESCE(?, provider_task_id) WHERE id = ? AND processing_token = ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled')")
           .bind(providerResult.providerTaskId, job.id, job.processing_token).run();
         if (!pendingOutcome?.meta?.changes) throw staleJobExecutionError();
       }

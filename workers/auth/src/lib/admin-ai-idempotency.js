@@ -115,7 +115,7 @@ function sanitizeMetadataForAdmin(value, { key = "", depth = 0 } = {}) {
 }
 
 function unavailableAttemptsError(error) {
-  if (String(error || "").includes("no such table: admin_ai_usage_attempts")) {
+  if (String(error || "").includes("no such table: admin_ai_usage_attempts_v2")) {
     return new AdminAiIdempotencyError("Admin AI idempotency tracking is unavailable.", {
       code: "admin_ai_idempotency_unavailable",
       status: 503,
@@ -306,7 +306,7 @@ async function fetchAttemptByIdempotency(env, {
               budget_policy_json, caller_policy_json, status, provider_status,
               result_status, result_metadata_json, error_code, error_message,
               created_at, updated_at, completed_at, expires_at, metadata_json, provider_outcome, dispatch_token, dispatched_at, unknown_at, late_outcome, late_evidence_json, platform_exposure_units, platform_window_day, platform_window_month
-       FROM admin_ai_usage_attempts
+       FROM admin_ai_usage_attempts_v2
        WHERE admin_user_id = ?
          AND operation_key = ?
          AND idempotency_key_hash = ?
@@ -332,7 +332,7 @@ async function fetchAttemptById(env, id) {
               budget_policy_json, caller_policy_json, status, provider_status,
               result_status, result_metadata_json, error_code, error_message,
               created_at, updated_at, completed_at, expires_at, metadata_json, provider_outcome, dispatch_token, dispatched_at, unknown_at, late_outcome, late_evidence_json, platform_exposure_units, platform_window_day, platform_window_month
-       FROM admin_ai_usage_attempts
+       FROM admin_ai_usage_attempts_v2
        WHERE id = ?
        LIMIT 1`
     ).bind(id).first();
@@ -366,7 +366,7 @@ export async function listAdminAiUsageAttempts(env, {
               budget_policy_json, caller_policy_json, status, provider_status,
               result_status, result_metadata_json, error_code, error_message,
               created_at, updated_at, completed_at, expires_at, metadata_json, provider_outcome, dispatch_token, dispatched_at, unknown_at, late_outcome, late_evidence_json, platform_exposure_units, platform_window_day, platform_window_month
-       FROM admin_ai_usage_attempts
+       FROM admin_ai_usage_attempts_v2
        WHERE (? IS NULL OR status = ?)
          AND (? IS NULL OR operation_key = ?)
          AND (? IS NULL OR route = ?)
@@ -404,7 +404,7 @@ export async function getAdminAiUsageAttemptDetail(env, attemptIdValue) {
               budget_policy_json, caller_policy_json, status, provider_status,
               result_status, result_metadata_json, error_code, error_message,
               created_at, updated_at, completed_at, expires_at, metadata_json, provider_outcome, dispatch_token, dispatched_at, unknown_at, late_outcome, late_evidence_json, platform_exposure_units, platform_window_day, platform_window_month
-       FROM admin_ai_usage_attempts
+       FROM admin_ai_usage_attempts_v2
        WHERE id = ?
        LIMIT 1`
     ).bind(attemptIdText).first();
@@ -421,7 +421,7 @@ async function listExpiredAdminAiAttemptCandidates(env, { now, limit }) {
             budget_policy_json, caller_policy_json, status, provider_status,
             result_status, result_metadata_json, error_code, error_message,
             created_at, updated_at, completed_at, expires_at, metadata_json, provider_outcome, dispatch_token, dispatched_at, unknown_at, late_outcome, late_evidence_json, platform_exposure_units, platform_window_day, platform_window_month
-     FROM admin_ai_usage_attempts
+     FROM admin_ai_usage_attempts_v2
      WHERE expires_at <= ?
        AND status IN ('pending', 'provider_running')
        AND provider_outcome IN ('not_dispatched', 'dispatched')
@@ -433,7 +433,7 @@ async function listExpiredAdminAiAttemptCandidates(env, { now, limit }) {
 
 async function markAdminAiAttemptExpired(env, row, now) {
   const result = await env.DB.prepare(
-    `UPDATE admin_ai_usage_attempts
+    `UPDATE admin_ai_usage_attempts_v2
      SET status = CASE WHEN provider_outcome = 'not_dispatched' THEN 'expired' ELSE status END,
          provider_outcome = CASE WHEN provider_outcome = 'dispatched' THEN 'unknown' ELSE provider_outcome END,
          unknown_at = CASE WHEN provider_outcome = 'dispatched' THEN COALESCE(unknown_at, ?) ELSE unknown_at END,
@@ -528,7 +528,7 @@ export async function summarizeAdminAiUsageAttempts(env, { now = nowIso() } = {}
          SUM(CASE WHEN status IN ('provider_failed', 'terminal_failure') THEN 1 ELSE 0 END) AS failed_terminal_count,
          SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END) AS succeeded_count,
          MAX(updated_at) AS latest_updated_at
-       FROM admin_ai_usage_attempts`
+       FROM admin_ai_usage_attempts_v2`
     ).bind(since, now).first();
     return {
       available: true,
@@ -543,7 +543,7 @@ export async function summarizeAdminAiUsageAttempts(env, { now = nowIso() } = {}
       recentWindowHours: 24,
     };
   } catch (error) {
-    if (String(error || "").includes("no such table: admin_ai_usage_attempts")) {
+    if (String(error || "").includes("no such table: admin_ai_usage_attempts_v2")) {
       return {
         available: false,
         code: "admin_ai_idempotency_unavailable",
@@ -579,7 +579,7 @@ function classifyExistingAttempt(existing, now) {
 async function insertAttempt(env, attempt) {
   try {
     await env.DB.prepare(
-      `INSERT INTO admin_ai_usage_attempts (
+      `INSERT INTO admin_ai_usage_attempts_v2 (
          id, operation_key, route, admin_user_id, idempotency_key_hash,
          request_fingerprint, provider_family, model_key, budget_scope,
          budget_policy_json, caller_policy_json, status, provider_status,
@@ -703,7 +703,7 @@ export async function markAdminAiIdempotencyProviderRunning(env, attemptIdValue)
   const units = recovery ? 0 : platformBudgetUnitsFromBudgetPolicy(attempt.budgetPolicy);
   const result = await env.DB.prepare(
     `WITH dispatch_budget(scope, units, day, month) AS (VALUES (?, ?, ?, ?))
-     UPDATE admin_ai_usage_attempts
+     UPDATE admin_ai_usage_attempts_v2
        SET status = 'provider_running', provider_status = 'running',
            provider_outcome = 'dispatched', dispatch_token = ?, dispatched_at = ?,
            platform_exposure_units = ?, platform_window_day = ?, platform_window_month = ?, updated_at = ?
@@ -721,7 +721,7 @@ export async function markAdminAiIdempotencyProviderRunning(env, attemptIdValue)
 
 async function recordAdminAiLateOutcome(env, attemptIdValue, outcome, dispatchToken) {
   await env.DB.prepare(
-    `UPDATE admin_ai_usage_attempts SET late_outcome = ?, late_evidence_json = ?
+    `UPDATE admin_ai_usage_attempts_v2 SET late_outcome = ?, late_evidence_json = ?
        WHERE id = ? AND dispatch_token = ? AND provider_outcome = 'unknown' AND late_outcome IS NULL`
   ).bind(outcome, JSON.stringify({ observed_at: nowIso(), outcome }), attemptIdValue, dispatchToken).run();
 }
@@ -742,7 +742,7 @@ export async function markAdminAiIdempotencyProviderFailed(env, attemptIdValue, 
   const definite = attempt.providerOutcome === "not_dispatched" || observedOutcome !== null;
   const outcome = observedOutcome || (definite ? "failed" : "unknown");
   await env.DB.prepare(
-    `UPDATE admin_ai_usage_attempts
+    `UPDATE admin_ai_usage_attempts_v2
        SET status = ?, provider_status = ?, provider_outcome = ?,
            unknown_at = CASE WHEN ? = 'unknown' THEN COALESCE(unknown_at, ?) ELSE unknown_at END,
            error_code = ?, error_message = ?, updated_at = ?, completed_at = ?
@@ -763,14 +763,14 @@ export async function markAdminAiIdempotencySucceeded(env, attemptIdValue, {
   const claim = dispatchToken;
   const now = nowIso();
   const result = await env.DB.prepare(
-    `UPDATE admin_ai_usage_attempts
+    `UPDATE admin_ai_usage_attempts_v2
        SET status = 'succeeded', provider_status = 'succeeded', provider_outcome = 'succeeded',
            result_status = 'metadata_only', result_metadata_json = ?, metadata_json = ?,
            error_code = NULL, error_message = NULL, updated_at = ?, completed_at = ?
      WHERE id = ? AND dispatch_token = ? AND provider_outcome = 'dispatched' AND expires_at > ?`
   ).bind(safeJson(resultMetadata), safeJson(metadata), now, now, attemptIdValue, claim, now).run();
   if (!result?.meta?.changes) {
-    await env.DB.prepare(`UPDATE admin_ai_usage_attempts SET provider_outcome = 'unknown', unknown_at = COALESCE(unknown_at, ?) WHERE id = ? AND dispatch_token = ? AND provider_outcome = 'dispatched'`).bind(now, attemptIdValue, claim).run();
+    await env.DB.prepare(`UPDATE admin_ai_usage_attempts_v2 SET provider_outcome = 'unknown', unknown_at = COALESCE(unknown_at, ?) WHERE id = ? AND dispatch_token = ? AND provider_outcome = 'dispatched'`).bind(now, attemptIdValue, claim).run();
     await recordAdminAiLateOutcome(env, attemptIdValue, "succeeded", claim);
     throw new AdminAiIdempotencyError("Late provider completion requires reconciliation.", { code: "admin_ai_outcome_unknown", status: 409 });
   }

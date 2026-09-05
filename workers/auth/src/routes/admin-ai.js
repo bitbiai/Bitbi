@@ -3198,6 +3198,7 @@ export async function handleAdminAI(ctx) {
           credits: pricing.credits,
           idempotencyKey: scopedIdempotencyKey,
           requestFingerprint,
+          aiDispatchToken: dispatchToken,
           source: "admin_ai_image_test",
           metadata: {
             source: "admin_ai_image_test",

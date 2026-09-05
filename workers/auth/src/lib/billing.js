@@ -1415,6 +1415,7 @@ export async function consumeMemberCredits({
   credits,
   idempotencyKey = null,
   requestFingerprint = null,
+  aiDispatchToken = null,
   metadata = {},
   source = "usage_event",
 }) {
@@ -1502,9 +1503,9 @@ export async function consumeMemberCredits({
   const ledgerStatement = env.DB.prepare(
     `INSERT INTO member_credit_ledger (
        id, user_id, amount, balance_after, entry_type, feature_key,
-       source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json
+       source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json, ai_dispatch_token
      )
-     SELECT ?, ?, ?, latest.balance_after - ?, ?, ?, ?, ?, ?, ?, ?, ?
+     SELECT ?, ?, ?, latest.balance_after - ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
      FROM (
        SELECT COALESCE((
          SELECT balance_after FROM member_credit_ledger
@@ -1527,6 +1528,7 @@ export async function consumeMemberCredits({
     userId || null,
     now,
     serializeJsonObject(ledgerMetadata),
+    aiDispatchToken,
     normalizedUserId,
     normalizedCredits
   );
@@ -1673,6 +1675,7 @@ export async function consumeOrganizationCredits({
   credits,
   idempotencyKey,
   requestFingerprint = null,
+  aiDispatchToken = null,
   metadata = {},
   source = "usage_event",
 }) {
@@ -1720,9 +1723,9 @@ export async function consumeOrganizationCredits({
   const ledgerStatement = env.DB.prepare(
     `INSERT INTO credit_ledger (
        id, organization_id, amount, balance_after, entry_type, feature_key,
-       source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json
+       source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json, ai_dispatch_token
      )
-     SELECT ?, ?, ?, latest.balance_after - ?, ?, ?, ?, ?, ?, ?, ?, ?
+     SELECT ?, ?, ?, latest.balance_after - ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
      FROM (
        SELECT COALESCE((
          SELECT balance_after FROM credit_ledger
@@ -1745,6 +1748,7 @@ export async function consumeOrganizationCredits({
     userId || null,
     now,
     JSON.stringify({ quantity: normalizedQuantity }),
+    aiDispatchToken,
     orgId,
     normalizedCredits
   );

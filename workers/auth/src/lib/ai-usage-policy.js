@@ -362,6 +362,7 @@ async function prepareMemberGatewayPolicy({
         credits: resolvedOperation.credits,
         idempotencyKey: gatewayPlan.scopedIdempotencyKey,
         requestFingerprint: gatewayPlan.fingerprint,
+        aiDispatchToken: dispatchToken,
         metadata: {
           route,
           operation: resolvedOperation.id,
@@ -598,6 +599,7 @@ export async function prepareAiUsagePolicy({
         credits: resolvedOperation.credits,
         idempotencyKey,
         requestFingerprint,
+        aiDispatchToken: dispatchToken,
         metadata: {
           route,
           operation: resolvedOperation.id,

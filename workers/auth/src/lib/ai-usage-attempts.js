@@ -279,7 +279,7 @@ function serializeAdminAttempt(row, { detail = false, now = nowIso() } = {}) {
 }
 
 function unavailableAttemptsError(error) {
-  if (String(error || "").includes("no such table: ai_usage_attempts")) {
+  if (String(error || "").includes("no such table: ai_usage_attempts_v2")) {
     return new BillingError("AI usage attempt tracking is unavailable.", {
       status: 503,
       code: "ai_usage_attempts_unavailable",
@@ -298,7 +298,7 @@ async function fetchAttemptByIdempotency(env, { organizationId, idempotencyKey }
               result_model, result_prompt_length, result_steps, result_seed,
               balance_after, error_code, error_message, created_at, updated_at,
               completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at
-       FROM ai_usage_attempts
+       FROM ai_usage_attempts_v2
        WHERE organization_id = ? AND idempotency_key = ?
        LIMIT 1`
     ).bind(organizationId, idempotencyKey).first();
@@ -318,7 +318,7 @@ async function fetchAttemptById(env, attemptIdValue) {
               result_model, result_prompt_length, result_steps, result_seed,
               balance_after, error_code, error_message, created_at, updated_at,
               completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at
-       FROM ai_usage_attempts
+       FROM ai_usage_attempts_v2
        WHERE id = ?
        LIMIT 1`
     ).bind(attemptIdValue).first();
@@ -332,7 +332,7 @@ export async function getAiUsageAttemptReplayMetadata(env, attemptIdValue) {
   try {
     const row = await env.DB.prepare(
       `SELECT metadata_json
-       FROM ai_usage_attempts
+       FROM ai_usage_attempts_v2
        WHERE id = ?
          AND status = 'succeeded'
          AND billing_status = 'finalized'
@@ -366,7 +366,7 @@ function classifyExistingAttempt(existing, now) {
 async function reserveExistingAttempt(env, { attempt, now, expiresAt }) {
   try {
     const result = await env.DB.prepare(
-      `UPDATE ai_usage_attempts
+      `UPDATE ai_usage_attempts_v2
        SET status = 'reserved',
            reservation_released_at = NULL,
            provider_status = 'not_started',
@@ -398,7 +398,7 @@ async function reserveExistingAttempt(env, { attempt, now, expiresAt }) {
              LIMIT 1
            ), 0)
            - COALESCE((
-             SELECT SUM(credit_cost) FROM ai_usage_attempts
+             SELECT SUM(credit_cost) FROM ai_usage_attempts_v2
              WHERE organization_id = ?
                AND billing_status = 'reserved'
                AND status IN ('reserved', 'provider_running', 'finalizing')
@@ -436,7 +436,7 @@ async function reserveExistingAttempt(env, { attempt, now, expiresAt }) {
 async function insertReservedAttempt(env, attempt) {
   try {
     const result = await env.DB.prepare(
-      `INSERT INTO ai_usage_attempts (
+      `INSERT INTO ai_usage_attempts_v2 (
          id, organization_id, user_id, feature_key, operation_key, route,
          idempotency_key, request_fingerprint, credit_cost, quantity,
          status, provider_status, billing_status, result_status,
@@ -453,7 +453,7 @@ async function insertReservedAttempt(env, attempt) {
            LIMIT 1
          ), 0)
          - COALESCE((
-           SELECT SUM(credit_cost) FROM ai_usage_attempts
+           SELECT SUM(credit_cost) FROM ai_usage_attempts_v2
            WHERE organization_id = ?
              AND billing_status = 'reserved'
              AND status IN ('reserved', 'provider_running', 'finalizing')
@@ -509,7 +509,7 @@ export async function beginAiUsageAttempt({
   if (existing) {
     assertSameRequest(existing, requestFingerprint);
     if (existing.expiresAt <= now && existing.billingStatus === "reserved" && existing.providerOutcome !== "succeeded") {
-      await releaseExpiredAiDispatch(env, "ai_usage_attempts", existing.id, now);
+      await releaseExpiredAiDispatch(env, "ai_usage_attempts_v2", existing.id, now);
       const refreshed = await fetchAttemptByIdempotency(env, { organizationId: orgId, idempotencyKey });
       return { kind: classifyExistingAttempt(refreshed, now), attempt: refreshed, reused: true, preparation: null };
     }
@@ -553,23 +553,23 @@ export async function beginAiUsageAttempt({
 }
 
 export async function markAiUsageAttemptProviderRunning(env, attemptIdValue, options = {}) {
-  return claimAiDispatch(env, "ai_usage_attempts", attemptIdValue, options);
+  return claimAiDispatch(env, "ai_usage_attempts_v2", attemptIdValue, options);
 }
 
 export async function markAiUsageAttemptProviderFailed(env, attemptIdValue, options = {}) {
-  return failAiDispatch(env, "ai_usage_attempts", attemptIdValue, options);
+  return failAiDispatch(env, "ai_usage_attempts_v2", attemptIdValue, options);
 }
 
 export async function markAiUsageAttemptFinalizing(env, attemptIdValue, options = {}) {
-  return confirmAiDispatchSuccess(env, "ai_usage_attempts", attemptIdValue, options);
+  return confirmAiDispatchSuccess(env, "ai_usage_attempts_v2", attemptIdValue, options);
 }
 
 export async function markAiUsageAttemptBillingFailed(env, attemptIdValue, { code = "billing_failed", message = null, dispatchToken = null } = {}) {
   const now = nowIso();
   try {
-    if (await reconcileAiDispatchDebit(env, "ai_usage_attempts", attemptIdValue, { dispatchToken, now })) return;
+    if (await reconcileAiDispatchDebit(env, "ai_usage_attempts_v2", attemptIdValue, { dispatchToken, now })) return;
     await env.DB.prepare(
-      `UPDATE ai_usage_attempts
+      `UPDATE ai_usage_attempts_v2
        SET status = 'billing_failed',
            provider_status = 'succeeded',
            billing_status = 'failed',
@@ -581,8 +581,8 @@ export async function markAiUsageAttemptBillingFailed(env, attemptIdValue, { cod
        WHERE id = ?
          AND billing_status = 'reserved'
          AND provider_outcome = 'succeeded' AND dispatch_token = ? AND reservation_released_at IS NULL
-         AND NOT EXISTS (SELECT 1 FROM credit_ledger l WHERE l.organization_id = ai_usage_attempts.organization_id
-           AND l.idempotency_key = ai_usage_attempts.idempotency_key AND l.amount < 0)`
+         AND NOT EXISTS (SELECT 1 FROM credit_ledger l WHERE l.organization_id = ai_usage_attempts_v2.organization_id
+           AND l.idempotency_key = ai_usage_attempts_v2.idempotency_key AND l.amount < 0)`
     ).bind(
       normalizeShortText(code, "billing_failed"),
       normalizeShortText(message),
@@ -614,7 +614,7 @@ export async function markAiUsageAttemptSucceeded(env, attemptIdValue, {
   const metadataJson = normalizeMetadataJson(metadata);
   try {
     const result = await env.DB.prepare(
-      `UPDATE ai_usage_attempts
+      `UPDATE ai_usage_attempts_v2
        SET status = 'succeeded',
            provider_status = 'succeeded',
            billing_status = 'finalized',
@@ -716,7 +716,7 @@ export async function listAdminAiUsageAttempts(env, {
               result_model, result_prompt_length, result_steps, result_seed,
               balance_after, error_code, error_message, created_at, updated_at,
               completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at
-       FROM ai_usage_attempts
+       FROM ai_usage_attempts_v2
        WHERE (? IS NULL OR status = ?)
          AND (? IS NULL OR organization_id = ?)
          AND (? IS NULL OR user_id = ?)
@@ -774,14 +774,14 @@ async function listCleanupCandidates(env, { now, limit }) {
             result_model, result_prompt_length, result_steps, result_seed,
             balance_after, error_code, error_message, created_at, updated_at,
             completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at
-     FROM ai_usage_attempts
+     FROM ai_usage_attempts_v2
      WHERE expires_at <= ?
        AND (
          (billing_status = 'reserved' AND status IN ('reserved', 'provider_running', 'provider_failed', 'finalizing'))
          OR (status = 'succeeded' AND billing_status = 'finalized' AND result_status = 'stored')
          OR (status = 'billing_failed' AND billing_status = 'failed' AND provider_outcome = 'succeeded'
-           AND EXISTS (SELECT 1 FROM credit_ledger l WHERE l.organization_id = ai_usage_attempts.organization_id
-             AND l.idempotency_key = ai_usage_attempts.idempotency_key AND l.amount < 0))
+           AND EXISTS (SELECT 1 FROM credit_ledger l WHERE l.organization_id = ai_usage_attempts_v2.organization_id
+             AND l.idempotency_key = ai_usage_attempts_v2.idempotency_key AND l.amount < 0))
        )
      ORDER BY expires_at ASC, updated_at ASC, id ASC
      LIMIT ?`
@@ -804,14 +804,14 @@ function cleanupActionForAttempt(row) {
 }
 
 async function releaseExpiredReservation(env, row, now) {
-  return releaseExpiredAiDispatch(env, "ai_usage_attempts", row.id, now);
+  return releaseExpiredAiDispatch(env, "ai_usage_attempts_v2", row.id, now);
 }
 
 async function markExpiredFinalizationFailed(env, row, now) {
-  const reconciled = await reconcileAiDispatchDebit(env, "ai_usage_attempts", row.id, { dispatchToken: row.dispatch_token, now });
+  const reconciled = await reconcileAiDispatchDebit(env, "ai_usage_attempts_v2", row.id, { dispatchToken: row.dispatch_token, now });
   if (reconciled) return reconciled;
   const result = await env.DB.prepare(
-    `UPDATE ai_usage_attempts
+    `UPDATE ai_usage_attempts_v2
      SET status = 'billing_failed',
          provider_status = 'succeeded',
          billing_status = 'failed',
@@ -827,8 +827,8 @@ async function markExpiredFinalizationFailed(env, row, now) {
        AND billing_status = 'reserved'
        AND expires_at <= ?
        AND NOT EXISTS (SELECT 1 FROM credit_ledger l
-         WHERE l.organization_id = ai_usage_attempts.organization_id
-           AND l.idempotency_key = ai_usage_attempts.idempotency_key AND l.amount < 0)`
+         WHERE l.organization_id = ai_usage_attempts_v2.organization_id
+           AND l.idempotency_key = ai_usage_attempts_v2.idempotency_key AND l.amount < 0)`
   ).bind(
     "ai_usage_billing_expired",
     "AI usage billing finalization expired before completion.",
@@ -842,7 +842,7 @@ async function markExpiredFinalizationFailed(env, row, now) {
 
 async function expireReplayMetadata(env, row, now) {
   const result = await env.DB.prepare(
-    `UPDATE ai_usage_attempts
+    `UPDATE ai_usage_attempts_v2
      SET result_status = 'expired',
          result_temp_key = NULL,
          result_save_reference = NULL,
@@ -1088,9 +1088,9 @@ export async function cleanupExpiredAiUsageAttempts({
 }
 
 export async function markAiUsageAttemptUnknown(env, attemptIdValue, options = {}) {
-  return markAiDispatchUnknown(env, "ai_usage_attempts", attemptIdValue, options);
+  return markAiDispatchUnknown(env, "ai_usage_attempts_v2", attemptIdValue, options);
 }
 
 export async function markAiUsageAttemptLateOutcome(env, attemptIdValue, options = {}) {
-  return recordAiLateOutcome(env, "ai_usage_attempts", attemptIdValue, options);
+  return recordAiLateOutcome(env, "ai_usage_attempts_v2", attemptIdValue, options);
 }

@@ -127,7 +127,7 @@ function register(test) {
     await f.call('ProviderFailed', id, { dispatchToken: claim.dispatchToken, code: 'generation_timeout' });
     assert.equal((await f.row(id)).provider_outcome, 'unknown');
     assert.equal((await f.begin()).kind, 'unresolved');
-    await f.DB.prepare("UPDATE admin_ai_usage_attempts SET metadata_json = '{}', budget_policy_json = '{}' WHERE id = ?").bind(id).run();
+    await f.DB.prepare("UPDATE admin_ai_usage_attempts_v2 SET metadata_json = '{}', budget_policy_json = '{}' WHERE id = ?").bind(id).run();
     await f.restart();
     f.advance(24 * 60 * 60_000 + 1);
     await f.cleanup();
