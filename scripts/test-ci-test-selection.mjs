@@ -16,13 +16,14 @@ function selection(files, options) {
 }
 
 {
-  for (const area of ["shell", "workflows", "context", "media", "ai", "registration"]) {
+  for (const area of ["shell", "workflows", "context", "media", "ai", "ai-compare-view", "registration"]) {
     const result = selection([`tests/oma2-q3-${area}.spec.js`]);
     assert.equal(result.auth, true);
     assert.equal(result.full, false);
   }
   const scripts = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")).scripts;
   assert.match(scripts["test:auth"], /tests\/oma2-q3-/);
+  assert.equal(selection([".githooks/pre-push"]).full, true);
 }
 
 {

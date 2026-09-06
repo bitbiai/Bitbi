@@ -132,7 +132,18 @@ function writeJsonFixture(name, value) {
   assert.equal(safety.bypassedByAcknowledgement, false);
 }
 
+for (const files of [[".githooks/pre-push"], [".githooks/pre-push", "js/pages/admin/ai-lab.js"]]) {
+  const { plan, safety } = safetyFor(files, { eventName: "push" });
+  assert.equal(safety.ok, true);
+  assert.equal(safety.mode, files.length === 1 ? "validation_only" : "static_only");
+  assert.deepEqual(plan.workerDeploys, []);
+  assert.deepEqual(plan.schemaApplies, []);
+  assert.deepEqual(plan.impacts.validationOnlyFiles, [".githooks/pre-push"]);
+}
+
 for (const unknownFile of [
+  ".githooks/pre-push.backup",
+  ".githooks/post-checkout",
   ".agents/skills/deploy-checklist/SKILL.md.backup",
   ".agents/skills/deploy-checklist/deploy.mjs",
   ".agents/skills/unknown/SKILL.md",

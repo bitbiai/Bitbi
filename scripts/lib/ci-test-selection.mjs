@@ -120,6 +120,7 @@ const AUTH_TEST_FILES = new Set([
   "tests/oma2-q3-context.spec.js",
   "tests/oma2-q3-media.spec.js",
   "tests/oma2-q3-ai.spec.js",
+  "tests/oma2-q3-ai-compare-view.spec.js",
   "tests/oma2-q3-registration.spec.js",
 ]);
 

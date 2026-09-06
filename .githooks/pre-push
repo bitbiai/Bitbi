@@ -1,0 +1,4 @@
+#!/bin/sh
+# Git runs pre-push at the worktree root and supplies the proposed refs on stdin.
+set -eu
+exec node scripts/check-push-quality.mjs

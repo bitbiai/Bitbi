@@ -210,11 +210,19 @@ export function collectLargeMaintainabilityFiles(repoRoot, {
 }
 
 export function checkMaintainabilityFileBudgets(repoRoot, budgets = MAINTAINABILITY_FILE_BUDGETS) {
+  return evaluateMaintainabilityFileBudgets((file) => {
+    const absolutePath = path.join(repoRoot, file);
+    return fs.existsSync(absolutePath) ? fs.statSync(absolutePath).size : null;
+  }, budgets);
+}
+
+// CI reads the filesystem; pre-push supplies committed blob sizes. Keep one policy/evaluator.
+export function evaluateMaintainabilityFileBudgets(readSize, budgets = MAINTAINABILITY_FILE_BUDGETS) {
   const issues = [];
   for (const budget of budgets) {
-    const absolutePath = path.join(repoRoot, budget.path);
-    if (!fs.existsSync(absolutePath)) continue;
-    const bytes = fs.statSync(absolutePath).size;
+    const bytes = readSize(budget.path);
+    if (bytes === null) continue; // Same missing-file semantics as the existing CI check.
+    if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error(`Invalid file size: ${budget.path}`);
     if (bytes > budget.maxBytes) {
       issues.push({
         path: budget.path,

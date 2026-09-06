@@ -179,6 +179,7 @@ function isValidationOnlyPath(relativePath) {
     || normalized === ".nvmrc"
     || normalized === ".node-version"
     || normalized === ".gitignore"
+    || normalized === ".githooks/pre-push"
     || normalized === "README.md"
     || /^ALPHA_AUDIT_[0-9_]+\.md$/.test(normalized)
     || /^AUDIT_[A-Z0-9_]+\.md$/.test(normalized)
