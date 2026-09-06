@@ -159,6 +159,9 @@ for (const scenario of scenarios) {
       'Migration preserves all old accounting values and adds only a null dispatch-token column to legacy ledger rows.');
     f.resume.resolve();
     const response = await f.oldRequest;
+    // The controlled legacy request has completed. Current candidate batches
+    // must use real native statements, not the legacy run-only pause wrapper.
+    f.DB.prepare = f.originalPrepare;
     assert.equal(f.providerCalls(), scenario.expectedProviderCalls,
       'Provider invocation count must reflect the actual unchanged legacy route continuation.');
     assert.ok(response.status >= 500, 'A legacy writer must fail closed through its actual route error handling.');

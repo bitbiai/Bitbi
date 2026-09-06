@@ -1507,8 +1507,14 @@ export async function ingestVerifiedBillingProviderEvent({
   verificationStatus = "verified_test_signature",
   receivedAt = nowIso(),
   allowLive = false,
+  creditPackCheckoutIdentity = null,
+  receiptConflictRetry = false,
 }) {
   const normalized = await normalizeBillingProviderEvent({ provider, rawBody, payload, allowLive });
+  if (creditPackCheckoutIdentity && !/^[a-f0-9]{64}$/.test(creditPackCheckoutIdentity)) {
+    throw new BillingEventError("Credit pack checkout identity is invalid.", { status: 400, code: "invalid_checkout_identity" });
+  }
+  if (creditPackCheckoutIdentity) normalized.payloadSummary.creditPackCheckoutIdentity = creditPackCheckoutIdentity;
   const existing = await env.DB.prepare(
     `SELECT id, provider, provider_event_id, provider_account, provider_mode,
             event_type, event_created_at, received_at, processing_status,
@@ -1522,17 +1528,36 @@ export async function ingestVerifiedBillingProviderEvent({
   if (existing) {
     if (existing.payload_hash !== normalized.payloadHash) {
       const existingSummary = parseJsonObject(existing.payload_summary_json);
+      delete existingSummary.creditPackValidatedCheckoutId;
+      const incomingSummary = { ...normalized.payloadSummary };
+      // Older receipts had no checkout identity; retain their established
+      // canonical-payload compatibility, then bind the verified retry below.
+      if (!existingSummary.creditPackCheckoutIdentity) delete incomingSummary.creditPackCheckoutIdentity;
       const sameCanonicalEvent =
         normalized.provider === BILLING_WEBHOOK_STRIPE_PROVIDER &&
         normalized.eventType === "checkout.session.completed" &&
         existing.provider_mode === normalized.providerMode &&
         existing.event_type === normalized.eventType &&
-        payloadSummaryEquivalent(existingSummary, normalized.payloadSummary);
+        payloadSummaryEquivalent(existingSummary, incomingSummary);
       if (!sameCanonicalEvent) {
         throw new BillingEventError("Billing provider event id was replayed with a different payload.", {
           status: 409,
           code: "billing_event_payload_conflict",
         });
+      }
+    }
+    if (creditPackCheckoutIdentity) {
+      const identity = parseJsonObject(existing.payload_summary_json).creditPackCheckoutIdentity;
+      if (identity && identity !== creditPackCheckoutIdentity) {
+        throw new BillingEventError("Billing event checkout identity conflicts.", { status: 409, code: "billing_event_payload_conflict" });
+      }
+      const boundReceipt = await env.DB.prepare(`UPDATE billing_provider_events
+        SET payload_summary_json = json_set(payload_summary_json, '$.creditPackCheckoutIdentity', ?)
+        WHERE id = ? AND (json_extract(payload_summary_json, '$.creditPackCheckoutIdentity') IS NULL
+          OR json_extract(payload_summary_json, '$.creditPackCheckoutIdentity') = ?)` )
+        .bind(creditPackCheckoutIdentity, existing.id, creditPackCheckoutIdentity).run();
+      if (Number(boundReceipt.meta?.changes || 0) !== 1) {
+        throw new BillingEventError("Billing event checkout identity conflicts.", { status: 409, code: "billing_event_payload_conflict" });
       }
     }
     return {
@@ -1560,7 +1585,8 @@ export async function ingestVerifiedBillingProviderEvent({
     : (normalized.supportedAction
       ? null
       : "Billing event type was stored for inspection but has no enabled side effects.");
-  await env.DB.prepare(
+  try {
+    await env.DB.prepare(
     `INSERT INTO billing_provider_events (
        id, provider, provider_event_id, provider_account, provider_mode,
        event_type, event_created_at, received_at, processing_status,
@@ -1592,11 +1618,20 @@ export async function ingestVerifiedBillingProviderEvent({
     now,
     now
   ).run();
+  } catch (error) {
+    // Concurrent pack deliveries may both miss the initial SELECT. Resolve
+    // only an actual receipt identity collision, with the same payload checks.
+    if (!creditPackCheckoutIdentity || receiptConflictRetry || !/UNIQUE/i.test(String(error))) throw error;
+    const winner = await env.DB.prepare("SELECT id FROM billing_provider_events WHERE provider = ? AND provider_event_id = ?")
+      .bind(normalized.provider, normalized.providerEventId).first();
+    if (!winner) throw error;
+    return ingestVerifiedBillingProviderEvent({ env, provider, rawBody, payload, verificationStatus, receivedAt, allowLive, creditPackCheckoutIdentity, receiptConflictRetry: true });
+  }
 
   let actionPlanned = false;
   if (normalized.supportedAction && !tombstone) {
     await env.DB.prepare(
-      `INSERT INTO billing_event_actions (
+      `${creditPackCheckoutIdentity ? "INSERT OR IGNORE" : "INSERT"} INTO billing_event_actions (
          id, event_id, action_type, status, dry_run, summary_json, created_at, updated_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
@@ -1999,6 +2034,13 @@ export async function updateBillingProviderEventProcessing(env, {
     });
   }
   const now = nowIso();
+  // Only a failure may be a late loser of an already committed pack. Keep
+  // non-failure processing updates on their existing SQL/binding contract.
+  const eventFailureGuard = status === "failed" ? `
+       AND NOT EXISTS (
+         SELECT 1 FROM billing_event_actions WHERE event_id = billing_provider_events.id
+         AND json_extract(summary_json, '$.fulfillmentStatus') = 'completed'
+       )` : "";
   await env.DB.prepare(
     `UPDATE billing_provider_events
      SET processing_status = ?,
@@ -2009,7 +2051,7 @@ export async function updateBillingProviderEventProcessing(env, {
          error_message = ?,
          last_processed_at = ?,
          updated_at = ?
-     WHERE id = ?`
+     WHERE id = ?${eventFailureGuard}`
   ).bind(
     status,
     organizationId,
@@ -2023,13 +2065,16 @@ export async function updateBillingProviderEventProcessing(env, {
   ).run();
 
   if (actionType) {
+    const actionFailureGuard = actionStatus === "failed"
+      ? " AND COALESCE(json_extract(summary_json, '$.fulfillmentStatus'), '') <> 'completed'"
+      : "";
     await env.DB.prepare(
       `UPDATE billing_event_actions
        SET status = ?,
            dry_run = ?,
            summary_json = ?,
            updated_at = ?
-       WHERE event_id = ? AND action_type = ?`
+       WHERE event_id = ? AND action_type = ?${actionFailureGuard}`
     ).bind(
       actionStatus,
       actionDryRun ? 1 : 0,

@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0081_add_ai_dispatch_outcome_guards.sql",
+        "latest": "0083_add_r2_cleanup_reference_fence.sql",
         "databaseName": "bitbi-auth-db"
       }
     },

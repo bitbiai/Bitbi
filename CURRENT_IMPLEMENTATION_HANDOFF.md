@@ -17,6 +17,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - OMA2 Q1 is a static-only change: Canvas saves retain identity-scoped patches and failed work; image saves retain their original result/metadata/folder; organization responses and checkout actions use a confirmed current context. No Worker, schema or API contract change is included.
 - Admin storage counts remain a dated historical baseline, not a current inventory pass. Capability availability, upload outcomes and interrupted assistant streams distinguish evidence, failure and completion. Interrupted text is excluded from follow-up assistant history.
 - Authorized commit/push work ends after local checks, diff review and confirmed foreground push, under root `AGENTS.md`, "Commit/push completion: no CI waiting". Stefan owns CI and live-release verification.
+- OMA2 Q2 is an Auth Worker candidate only: atomic lifecycle cleanup release, resumable credit-pack fulfillment and single-use MFA with preserved cookie headers. Its additive schema inputs are 0082 and 0083; no production activation is included. See `docs/runbooks/OMA2_Q2_RELEASE.md` for package-specific recovery gates and test scope.
 
 ## Admin Modularization
 
@@ -37,7 +38,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Production readiness and live billing readiness remain blocked.
 - Live deployment state is not proven by repo files; operator verification is required.
 - Remote auth migrations through the latest auth schema checkpoint in `config/release-compat.json` must be applied before dependent Auth Worker deploys.
-- Local REL-01 remediation adds durable provider outcomes and dispatch/settlement guards. It is not deployed. Unknown attempts remain blocked after their credit reservation expires; late results require reconciliation, without automatic re-debit. A future release requires preserving current Worker versions and data recovery evidence, reviewing legacy unknown rows, and selecting a rollback version that understands the new outcomes. Unmodified older Workers are not a safe mixed-version retry policy. The local release target sets Grok enabled in both Workers to preserve observed availability; activation of this candidate and acceptance of historical provenance uncertainty remain pending combined operator approval.
+- REL-01 code adds durable provider outcomes and dispatch/settlement guards. A bounded read on 2026-09-06 observed the migration receipt named 0081 and Auth version `a7aec8ca-170b-48b7-8564-821ad93d9e1f` at 100% traffic. These metadata do not establish complete SQL or bundle/input identity. Unknown attempts remain fenced after reservation expiry; older Workers are not a safe mixed-version recovery policy. Q2 activation remains pending separate approval and compatible recovery evidence.
 - Tenant isolation, global ownership-backfill readiness, Access-Switch enforcement, and confirmed reset/deletion remain blocked.
 - The single current safe `ai_images` ownership candidate is exact-candidate operator-execution pending only.
 - Manual-review idempotency evidence remains incomplete.
@@ -67,8 +68,8 @@ Use broader validation such as `npm run release:preflight` before merging substa
 
 ## Recommended Next Work
 
-The next implementation decision concerns compatible recovery/release prerequisites and the separate backend integrity findings L01, B03 and S01. Q1 does not resolve those risks or close the full OMA2 audit. Any follow-up implementation requires Stefan's separate explicit instruction; do not start visual expansion or another package automatically.
+The next decision is the separately authorized Q2 Auth/schema release after its specific recovery gates. Q2 does not close the full OMA2 audit, historical migration repair or the separate queue/receipt/memory packages. Do not start another package or any cloud activation automatically.
 
 ## Transition-fenced 0081 successor
 
-A focused successor to 54e89 is locally validated. Unapplied0081 now establishes read-only legacy attempt/job views over canonical `_v2` tables and requires an internal claim token on AI ledger debits. Existing ambiguous identities remain fenced; already accepted old provider work may continue without authorizing a replacement. The revised SQL must commit atomically before the successor Auth Worker. Earlier 54e89/237e bundles are incompatible recovery versions. Deployment and live business-flow verification remain pending; the private release execution record carries exact evidence and operational state.
+The repository 0081 establishes read-only legacy attempt/job views over canonical `_v2` tables and requires an internal claim token on AI ledger debits. Existing ambiguous identities remain fenced; accepted old provider work does not authorize a replacement. Preserve the applied migration history. Earlier 54e89/237e bundles are incompatible recovery versions; a receipt bearing the migration name alone is insufficient evidence of SQL identity. Private release records retain dated metadata and unresolved artifact identity.

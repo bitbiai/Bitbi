@@ -36,6 +36,7 @@
 ## Rollback Considerations
 
 - D1 migrations are forward-only; code rollback must remain compatible with already-applied schema.
+- For OMA2 Q2, use `OMA2_Q2_RELEASE.md`: a pre-Q2 Auth bundle is not a validated recovery target. Preserve MFA consumes, pack ledger/checkout identity, permanent R2 tombstones and 0081 `_v2` writer guards. Require an exactly identified compatible recovery artifact before activation; a Git tag or version number alone is insufficient.
 - Auth and AI Workers must remain compatible for HMAC route contracts.
 - Static Pages deploy does not deploy Workers.
 - Do not use legacy sync video route as broad rollback for async video.

@@ -202,7 +202,15 @@ async function createAuthEnv() {
     PUBLIC_RATE_LIMITER: new MockDurableRateLimiterNamespace(),
     ACTIVITY_INGEST_QUEUE: new MockQueueProducer(),
     USER_IMAGES: {
-      async put(key, bytes) { objects.set(key, new Uint8Array(bytes)); },
+      async put(key, bytes, options = {}) {
+        if (options.onlyIf) {
+          expect(options.onlyIf).toBeInstanceOf(Headers);
+          expect([...options.onlyIf]).toEqual([['if-none-match', '*']]);
+          if (objects.has(key)) return null;
+        }
+        objects.set(key, new Uint8Array(bytes));
+        return { key, size: bytes.byteLength, etag: 'synthetic-etag' };
+      },
       async get(key) {
         const value = objects.get(key);
         return value ? { arrayBuffer: async () => value.slice().buffer } : null;

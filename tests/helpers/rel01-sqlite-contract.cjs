@@ -695,12 +695,19 @@ test('member bucket atomicity: a removed planned bucket aborts ledger and usage 
   const token = await f.call('ProviderRunning', first.attempt.id);
   await f.call('Finalizing', first.attempt.id, { dispatchToken: token });
   const originalBatch = f.DB.batch.bind(f.DB);
+  let injected = 0;
   f.DB.batch = async (statements) => {
-    await f.DB.prepare("DELETE FROM member_credit_buckets WHERE user_id = ? AND bucket_type = 'legacy_or_bonus'").bind(USER).run();
-    f.DB.batch = originalBatch;
+    // Q2 performs a preceding atomic balance reconciliation. Remove the
+    // already planned bucket at the actual debit boundary, not before planning.
+    if (statements.some(statement => /INSERT INTO member_credit_ledger\b/.test(statement.sql))) {
+      injected += 1;
+      await f.DB.prepare("DELETE FROM member_credit_buckets WHERE user_id = ? AND bucket_type = 'legacy_or_bonus'").bind(USER).run();
+      f.DB.batch = originalBatch;
+    }
     return originalBatch(statements);
   };
   await assert.rejects(f.charge({ credits: 40 }), (error) => error.code === 'insufficient_member_credits');
+  assert.equal(injected, 1, 'The bucket must disappear after the debit plan was constructed.');
   assert.equal((await f.ledgerRows()).filter((row) => row.amount < 0).length, 0);
   assert.equal((await f.usageRows()).length, 0);
   const events = await f.DB.prepare('SELECT COUNT(*) AS count FROM member_credit_bucket_events WHERE user_id = ? AND amount < 0').bind(USER).first();

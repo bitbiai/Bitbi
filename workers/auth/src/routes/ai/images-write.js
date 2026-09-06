@@ -1,3 +1,4 @@
+import { putNewManagedR2Object } from "../../lib/r2-cleanup.js";
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
 import {
@@ -1559,7 +1560,7 @@ export async function handleSaveImage(ctx) {
   const now = nowIso();
 
   try {
-    await env.USER_IMAGES.put(r2Key, imageBytes.buffer, {
+    await putNewManagedR2Object(env, r2Key, imageBytes.buffer, {
       httpMetadata: { contentType: savedMimeType },
     });
   } catch (error) {

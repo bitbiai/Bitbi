@@ -9,6 +9,7 @@ import {
 import { enqueueAdminAuditEvent } from "../lib/activity.js";
 import { requireAdmin } from "../lib/session.js";
 import { nowIso, sha256Hex } from "../lib/tokens.js";
+import { isManagedR2WriteTarget } from "../lib/r2-cleanup.js";
 import {
   evaluateSharedRateLimit,
   getClientIp,
@@ -590,6 +591,9 @@ async function handleUpload(ctx, session) {
   const requestedKey = normalizeR2Path(body.key || "", { allowEmpty: true });
   const key = requestedKey || `${prefix || ""}${normalizeR2Path(file.name, { allowEmpty: false })}`;
   if (!key || HIDDEN_SENTINEL_RE.test(key)) return badRequest("Invalid upload key.", "admin_r2_invalid_key");
+  if (isManagedR2WriteTarget(resolved.id, key)) {
+    return badRequest("This namespace is managed by BITBI asset writers. Use the asset workflow or a different raw object prefix.", "admin_r2_managed_target_blocked", 409);
+  }
   if (body.overwrite !== "true" && body.overwrite !== true) {
     const existing = await resolved.bucket.head(key);
     if (existing) return badRequest("Object already exists. Enable overwrite to replace it.", "admin_r2_object_exists", 409);
@@ -624,6 +628,9 @@ async function handleCreateFolder(ctx, session) {
   const prefix = normalizeR2Path(parsed.body?.prefix, { allowEmpty: false, folder: true });
   if (!prefix) return badRequest("Invalid folder prefix.", "admin_r2_invalid_prefix");
   const sentinelKey = `${prefix}${FOLDER_SENTINEL_NAME}`;
+  if (isManagedR2WriteTarget(resolved.id, sentinelKey)) {
+    return badRequest("This namespace is managed by BITBI asset writers. Choose a different raw object prefix.", "admin_r2_managed_target_blocked", 409);
+  }
   await resolved.bucket.put(sentinelKey, "", {
     httpMetadata: { contentType: "text/plain; charset=utf-8" },
     customMetadata: { sentinel: "bitbi-admin-r2-folder", created_at: nowIso() },
@@ -643,6 +650,9 @@ async function copyOneObject(env, source, target, item, targetPrefix) {
   const targetKey = targetKeyFromItem(item, targetPrefix);
   if (!key || !targetKey || HIDDEN_SENTINEL_RE.test(targetKey)) {
     return { key: key || null, ok: false, code: "admin_r2_invalid_key", error: "Invalid source or target key." };
+  }
+  if (isManagedR2WriteTarget(target.id, targetKey)) {
+    return { key, targetKey, ok: false, code: "admin_r2_managed_target_blocked", error: "This namespace is managed by BITBI asset writers. Choose a different raw object target." };
   }
   const object = await source.bucket.get(key);
   if (!object) return { key, targetKey, ok: false, code: "admin_r2_object_not_found", error: "Object not found." };

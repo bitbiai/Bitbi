@@ -1,6 +1,6 @@
 # Auth Worker Current Guide
 
-Date: 2026-07-10
+Date: 2026-09-06
 
 Current release truth: `config/release-compat.json` is authoritative for the latest auth D1 migration; use `npm run release:plan` for the concrete checkpoint before deploy.
 
@@ -36,7 +36,8 @@ Latest auth D1 migration: read `release.schemaCheckpoints.auth.latest` from `con
 
 Current high-impact migration dependencies:
 
-- `0081_add_ai_dispatch_outcome_guards.sql` adds durable dispatch/outcome receipts and ledger settlement guards. Its revised, unapplied cutover renames the four attempt/job tables to canonical `_v2` tables and preserves read-only legacy views; old writers fail even on zero-row updates. AI ledger debits require the matching internal `ai_dispatch_token`. Apply all 0081 statements atomically; preserve pre-cutover identities, confirmed usage and original reservation deadlines. Earlier 54e89/237e bundles cannot be used after this revision. Local remediation only: unknown outcomes must survive reservation expiry, and older Workers that ignore these guards are not a safe mixed-version rollback target. Apply only during a separately approved release after recovery and rollback validation.
+- Q2 adds `0082_add_admin_mfa_mutation_guard.sql` and `0083_add_r2_cleanup_reference_fence.sql` as forward-only candidate files. Apply neither during code preparation. MFA consumes credentials atomically before issuing a credential-bound v2 proof; old v1 proofs require re-verification. Cleanup preserves permanent retired-key fences and holds ambiguous legacy queue entries. Package-specific release/recovery requirements are in `docs/runbooks/OMA2_Q2_RELEASE.md`.
+- `0081_add_ai_dispatch_outcome_guards.sql` defines durable dispatch/outcome receipts, canonical `_v2` writers, read-only legacy views and `ai_dispatch_token` settlement guards. A dated production receipt named 0081 is observed; full applied SQL and serving bundle identity remain separate evidence requirements. Do not edit or reapply this history. Earlier 54e89/237e bundles cannot be used with the revised protocol. Unknown outcomes survive reservation expiry; older Workers that ignore the guards are not safe mixed-version recovery targets.
 
 - `0079_add_fable_prompt_cache_ttl.sql` for the default-five-minute, optional one-hour per-conversation Fable prompt-cache setting and immutable turn snapshots.
 - `0080_add_provider_neutral_chat_and_grok_4_6.sql` for the forward-only provider-neutral model constraint, Grok replay state, and private chat attachments; the local release candidate explicitly preserves the observed Grok availability in both Auth and AI configuration, pending combined operator release approval. This proposed target does not establish historical Worker source provenance or authorize live changes.

@@ -28,9 +28,23 @@ class SqliteD1Statement {
   }
 
   async run() {
-    const result = this._statement().run(...this.bindings);
+    return this.runSync();
+  }
+
+  runSync() {
+    const statement = this._statement();
+    // D1 batch also returns rows for SELECT/RETURNING statements.
+    const returnsRows = statement.columns().length > 0;
+    const changesBefore = returnsRows
+      ? this.database.prepare('SELECT total_changes() AS total').get().total
+      : null;
+    const results = returnsRows ? statement.all(...this.bindings) : [];
+    const result = returnsRows
+      ? this.database.prepare('SELECT CASE WHEN total_changes() = ? THEN 0 ELSE changes() END AS changes, last_insert_rowid() AS lastInsertRowid').get(changesBefore)
+      : statement.run(...this.bindings);
     return {
       success: true,
+      results,
       meta: {
         changes: Number(result.changes || 0),
         last_row_id: Number(result.lastInsertRowid || 0),
@@ -40,8 +54,8 @@ class SqliteD1Statement {
 }
 
 class SqliteD1Database {
-  constructor() {
-    this.database = new DatabaseSync(':memory:');
+  constructor({ filename = ':memory:' } = {}) {
+    this.database = new DatabaseSync(filename);
     this.database.exec('PRAGMA foreign_keys = ON');
   }
 
@@ -54,7 +68,9 @@ class SqliteD1Database {
     try {
       const results = [];
       for (const statement of statements) {
-        results.push(await statement.run());
+        // Do not yield while a transaction is open: another caller's reads or
+        // writes must never execute inside this caller's uncommitted batch.
+        results.push(statement.runSync());
       }
       this.database.exec('COMMIT');
       return results;

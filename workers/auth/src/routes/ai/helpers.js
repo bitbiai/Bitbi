@@ -280,7 +280,7 @@ export function buildBulkDeleteFinalStateGuardSql(userId, imageIds, fileIds) {
 
 export function buildCleanupQueueInsertValuesSql(keys) {
   return `INSERT INTO r2_cleanup_queue (r2_key, status, created_at) VALUES ${keys
-    .map(() => "(?, 'pending', ?)")
+    .map(() => "(?, 'q2_pending', ?)")
     .join(", ")}`;
 }
 

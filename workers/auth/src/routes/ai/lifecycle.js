@@ -1,4 +1,5 @@
 import { nowIso } from "../../lib/tokens.js";
+import { processR2CleanupQueue } from "../../lib/r2-cleanup.js";
 import { listAiImageObjectKeys } from "../../lib/ai-image-derivatives.js";
 import {
   releaseUserAssetStorage,
@@ -25,7 +26,8 @@ import {
   publicMediaLikeEntryForTextAsset,
 } from "../../lib/public-media-interactions.js";
 
-const CLEANUP_QUEUE_BATCH_SIZE = 100;
+// Two bound parameters per key; stay within D1's 100-parameter statement limit.
+const CLEANUP_QUEUE_BATCH_SIZE = 50;
 
 export class AiAssetLifecycleError extends Error {
   constructor(message, status, options = {}) {
@@ -88,36 +90,52 @@ function buildCleanupQueueStatements(env, cleanupKeys, createdAt) {
   return statements;
 }
 
-async function clearPendingCleanupEntries(env, cleanupKeys) {
-  const uniqueKeys = dedupeCleanupKeys(cleanupKeys);
-  for (const chunk of chunkValues(uniqueKeys)) {
-    const placeholders = chunk.map(() => "?").join(",");
-    await env.DB.prepare(
-      `DELETE FROM r2_cleanup_queue WHERE r2_key IN (${placeholders}) AND status = 'pending'`
-    ).bind(...chunk).run();
+function buildSourceSnapshotGuards(env, { userId, images = [], text = [], scope = null, folderId = null }) {
+  const before = [];
+  const after = [];
+  for (const [table, rows, columns] of [
+    ["ai_images", images, ["r2_key", "thumb_key", "medium_key"]],
+    ["ai_text_assets", text, ["r2_key", "poster_r2_key"]],
+  ]) {
+    const scopeSql = scope === "folder" ? " AND folder_id IS ?" : "";
+    const scopeBindings = scope === "folder" ? [folderId] : [];
+    if (scope === "user" || scope === "folder") {
+      // Broad DELETE predicates must still describe the complete snapshot,
+      // including an empty one. Row guards alone miss a new owned asset.
+      before.push(env.DB.prepare(
+        `SELECT CASE WHEN (SELECT COUNT(*) FROM ${table} WHERE user_id = ?${scopeSql}) = ?
+         THEN 1 ELSE json_extract('[]', '$[') END`
+      ).bind(userId, ...scopeBindings, rows.length));
+      after.push(env.DB.prepare(
+        `SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM ${table} WHERE user_id = ?${scopeSql})
+         THEN 1 ELSE json_extract('[]', '$[') END`
+      ).bind(userId, ...scopeBindings));
+    }
+    for (const row of rows) {
+      // An earlier SELECT is not a deletion receipt. The exact owned source
+      // generation must still exist when the transaction starts.
+      before.push(env.DB.prepare(
+        `SELECT CASE WHEN EXISTS (SELECT 1 FROM ${table} WHERE id = ? AND user_id = ?${scopeSql}
+           AND ${columns.map((column) => `${column} IS ?`).join(" AND ")})
+         THEN 1 ELSE json_extract('[]', '$[') END`
+      ).bind(row.id, userId, ...scopeBindings, ...columns.map((column) => row[column] ?? null)));
+      after.push(env.DB.prepare(
+        `SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM ${table} WHERE id = ? AND user_id = ?)
+         THEN 1 ELSE json_extract('[]', '$[') END`
+      ).bind(row.id, userId));
+    }
   }
+  return { before, after };
 }
 
 async function attemptInlineCleanup(env, cleanupKeys) {
-  const cleanedKeys = [];
-  for (const key of dedupeCleanupKeys(cleanupKeys)) {
-    try {
-      await env.USER_IMAGES.delete(key);
-      cleanedKeys.push(key);
-    } catch {
-      // Leave the durable queue entry for scheduled retry.
-    }
+  try {
+    return await processR2CleanupQueue(env, { keys: dedupeCleanupKeys(cleanupKeys) });
+  } catch {
+    // The source batch already committed. Preserve the durable intent for
+    // scheduled recovery; never bypass a failed reference claim with R2.delete.
+    return null;
   }
-
-  if (cleanedKeys.length > 0) {
-    try {
-      await clearPendingCleanupEntries(env, cleanedKeys);
-    } catch {
-      // Scheduled cleanup will safely retry any remaining queue rows.
-    }
-  }
-
-  return cleanedKeys;
 }
 
 function toBatchFailure(error, {
@@ -168,6 +186,7 @@ function normalizeLifecycleStatement(entry, fallbackIndex) {
 
 async function executeLabeledLifecycleStatements({
   env,
+  sourceRows,
   cleanupKeys,
   mutationStatements,
   createdAt = nowIso(),
@@ -184,33 +203,41 @@ async function executeLabeledLifecycleStatements({
   const normalizedMutations = mutationStatements.map((entry, index) => (
     normalizeLifecycleStatement(entry, index + 1)
   ));
-  const results = [];
-
-  for (const item of [...queueStatements, ...normalizedMutations]) {
-    try {
-      results.push(await item.statement.run());
-    } catch (error) {
-      throw toBatchFailure(error, {
-        unavailableMessage,
-        failureMessage,
-        branch: item.branch,
-        details: {
-          ...(details || {}),
-          statement: item.label,
-          category: item.category,
-        },
-      });
-    }
+  const guards = buildSourceSnapshotGuards(env, sourceRows);
+  const statements = [...queueStatements, ...normalizedMutations];
+  let results;
+  try {
+    // Releasing object cleanup and deleting its sources are one D1 transaction.
+    // Never retry individual statements to diagnose a failed batch: doing so
+    // would commit partial cleanup or repeat an additional account mutation.
+    results = await env.DB.batch([
+      ...guards.before,
+      ...statements.map((item) => item.statement),
+      ...guards.after,
+    ]);
+  } catch (error) {
+    throw toBatchFailure(error, {
+      unavailableMessage,
+      failureMessage,
+      branch: "lifecycle_batch_failed",
+      details: {
+        ...(details || {}),
+        statement: "atomic_lifecycle_batch",
+        category: "lifecycle",
+        statements: statements.map((item) => ({ label: item.label, category: item.category })),
+      },
+    });
   }
 
   return {
-    mutationResults: results.slice(queueStatements.length),
+    mutationResults: results.slice(guards.before.length + queueStatements.length, guards.before.length + statements.length),
     cleanupKeys: dedupeCleanupKeys(cleanupKeys),
   };
 }
 
 async function executeLifecycleBatch({
   env,
+  sourceRows,
   cleanupKeys,
   mutationStatements,
   createdAt = nowIso(),
@@ -221,11 +248,14 @@ async function executeLifecycleBatch({
   details = null,
 }) {
   const queueStatements = buildCleanupQueueStatements(env, cleanupKeys, createdAt);
+  const guards = buildSourceSnapshotGuards(env, sourceRows);
   let batchResults;
   try {
     batchResults = await env.DB.batch([
+      ...guards.before,
       ...queueStatements,
       ...mutationStatements,
+      ...guards.after,
     ]);
   } catch (error) {
     throw toBatchFailure(error, {
@@ -238,7 +268,7 @@ async function executeLifecycleBatch({
   }
 
   return {
-    mutationResults: batchResults.slice(queueStatements.length),
+    mutationResults: batchResults.slice(guards.before.length + queueStatements.length, guards.before.length + queueStatements.length + mutationStatements.length),
     cleanupKeys: dedupeCleanupKeys(cleanupKeys),
   };
 }
@@ -626,6 +656,7 @@ export async function deleteUserAiImage({ env, userId, imageId }) {
 
   const { mutationResults, cleanupKeys } = await executeLifecycleBatch({
     env,
+    sourceRows: { userId, images: [row] },
     cleanupKeys: collectCleanupKeys([row], []),
     mutationStatements: [
       ...buildPublicMediaCommentCleanupStatementsForImages(env, [row]),
@@ -709,6 +740,7 @@ export async function deleteUserAiTextAsset({ env, userId, assetId }) {
   try {
     const result = await executeLifecycleBatch({
       env,
+      sourceRows: { userId, text: [row] },
       cleanupKeys: collectCleanupKeys([], [row]),
       mutationStatements,
       unavailableMessage: "Text asset service unavailable. Please try again later.",
@@ -720,6 +752,7 @@ export async function deleteUserAiTextAsset({ env, userId, assetId }) {
     if (!isMissingMemvidStreamPreviewTableError(error?.cause || error)) throw error;
     const result = await executeLifecycleBatch({
       env,
+      sourceRows: { userId, text: [row] },
       cleanupKeys: collectCleanupKeys([], [row]),
       mutationStatements: [
         ...buildHomepageHeroTextAssetCleanupStatements(env, { userId, assetId, links: heroLinks }),
@@ -952,6 +985,7 @@ export async function deleteUserAiAssets({ env, userId, assetIds, createdAt = no
 
   const { mutationResults, cleanupKeys } = await executeLifecycleBatch({
     env,
+    sourceRows: { userId, images: imageRows, text: textRows },
     cleanupKeys: collectCleanupKeys(imageRows, textRows),
     mutationStatements,
     createdAt,
@@ -997,6 +1031,7 @@ export async function deleteUserAiImages({ env, userId, imageIds, createdAt = no
 
   const { mutationResults, cleanupKeys } = await executeLifecycleBatch({
     env,
+    sourceRows: { userId, images: imageRows },
     cleanupKeys: collectCleanupKeys(imageRows, []),
     mutationStatements: [
       ...buildPublicMediaCommentCleanupStatementsForImages(env, imageRows),
@@ -1059,6 +1094,7 @@ export async function deleteUserAiFolder({ env, userId, folderId, createdAt = no
 
     const { cleanupKeys } = await executeLifecycleBatch({
       env,
+      sourceRows: { userId, images: imageRows, text: textRows, scope: "folder", folderId },
       cleanupKeys: collectCleanupKeys(imageRows, textRows),
       mutationStatements,
       createdAt,
@@ -1124,6 +1160,7 @@ export async function deleteAllUserAiAssets({
 
   const { cleanupKeys, mutationResults } = await executeLabeledLifecycleStatements({
     env,
+    sourceRows: { userId, images: imageRows, text: textRows, scope: "user" },
     cleanupKeys: collectCleanupKeys(imageRows, textRows),
     mutationStatements,
     createdAt,

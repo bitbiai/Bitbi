@@ -564,277 +564,99 @@ async function listMemberCreditBucketRows(env, userId) {
   return rows.results || [];
 }
 
-async function insertMemberCreditBucket(env, {
-  userId,
-  bucketType,
-  balance = 0,
-  localSubscriptionId = null,
-  providerSubscriptionId = null,
-  periodStart = null,
-  periodEnd = null,
-  source = null,
-  metadata = {},
-  now = nowIso(),
+function memberCreditBucketGrantStatements(env, {
+  userId, ledgerEntryId, bucketType, source, idempotencyKey,
+  localSubscriptionId = null, providerSubscriptionId = null, periodStart = null, periodEnd = null,
+  metadata = {}, now = nowIso(),
 }) {
-  const id = bucketId();
-  await env.DB.prepare(
-    `INSERT OR IGNORE INTO member_credit_buckets (
-       id, user_id, bucket_type, balance, local_subscription_id,
-       provider_subscription_id, period_start, period_end, source,
-       metadata_json, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(
-    id,
-    userId,
-    bucketType,
-    Math.max(0, Number(balance || 0)),
-    localSubscriptionId,
-    providerSubscriptionId,
-    periodStart,
-    periodEnd,
-    source,
-    serializeJsonObject(metadata),
-    now,
-    now
-  ).run();
-  return id;
+  const type = normalizeCreditBucketType(bucketType);
+  if (type === MEMBER_CREDIT_BUCKET_SUBSCRIPTION && (!providerSubscriptionId || !periodStart)) {
+    throw new BillingError("Member subscription bucket scope is required.", { status: 503, code: "credit_bucket_unavailable" });
+  }
+  const selector = `user_id = ? AND bucket_type = ?${type === MEMBER_CREDIT_BUCKET_SUBSCRIPTION ? " AND provider_subscription_id = ? AND period_start = ?" : ""}`;
+  const selected = [userId, type, ...(type === MEMBER_CREDIT_BUCKET_SUBSCRIPTION ? [providerSubscriptionId, periodStart] : [])];
+  const statements = [];
+  const add = (sql, ...bindings) => statements.push(env.DB.prepare(sql).bind(...bindings));
+  // The fresh ledger ID belongs to this transaction. Replay never increments
+  // the bucket, and a missing target bucket aborts at the event NOT NULL guard.
+  add(`INSERT OR IGNORE INTO member_credit_buckets
+      (id, user_id, bucket_type, balance, local_subscription_id, provider_subscription_id,
+       period_start, period_end, source, metadata_json, created_at, updated_at)
+      SELECT ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (SELECT 1 FROM member_credit_ledger WHERE id = ? AND amount > 0)`,
+    bucketId(), userId, type, localSubscriptionId, providerSubscriptionId, periodStart, periodEnd, source,
+    serializeJsonObject({ ...metadata, credit_bucket: type }), now, now, ledgerEntryId);
+  add(`UPDATE member_credit_buckets
+      SET balance = balance + (SELECT amount FROM member_credit_ledger WHERE id = ?),
+        local_subscription_id = COALESCE(?, local_subscription_id), provider_subscription_id = COALESCE(?, provider_subscription_id),
+        period_start = COALESCE(?, period_start), period_end = COALESCE(?, period_end), source = COALESCE(?, source), updated_at = ?
+      WHERE ${selector} AND EXISTS (SELECT 1 FROM member_credit_ledger WHERE id = ? AND amount > 0)`,
+    ledgerEntryId, localSubscriptionId, providerSubscriptionId, periodStart, periodEnd, source, now, ...selected, ledgerEntryId);
+  add(`INSERT INTO member_credit_bucket_events
+      (id, user_id, bucket_id, bucket_type, amount, balance_after, member_credit_ledger_id, source, idempotency_key, metadata_json, created_at)
+      SELECT ?, ?, (SELECT id FROM member_credit_buckets WHERE ${selector}), ?, l.amount,
+        (SELECT balance FROM member_credit_buckets WHERE ${selector}), l.id, ?, ?, ?, ?
+      FROM member_credit_ledger l WHERE l.id = ? AND l.amount > 0`,
+    bucketEventId(), userId, ...selected, type, ...selected, source, idempotencyKey,
+    serializeJsonObject({ ...metadata, credit_bucket: type }), now, ledgerEntryId);
+  return statements;
 }
 
-async function recordMemberCreditBucketEvent(env, {
-  userId,
-  bucketId: targetBucketId,
-  bucketType,
-  amount,
-  balanceAfter,
-  memberCreditLedgerId = null,
-  source,
-  idempotencyKey = null,
-  metadata = {},
-  createdAt = nowIso(),
-}) {
-  await env.DB.prepare(
-    `INSERT OR IGNORE INTO member_credit_bucket_events (
-       id, user_id, bucket_id, bucket_type, amount, balance_after,
-       member_credit_ledger_id, source, idempotency_key, metadata_json, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(
-    bucketEventId(),
-    userId,
-    targetBucketId,
-    bucketType,
-    amount,
-    balanceAfter,
-    memberCreditLedgerId,
-    source,
-    idempotencyKey,
-    serializeJsonObject(metadata),
-    createdAt
-  ).run();
-}
-
-async function applyMemberCreditBucketGrant(env, {
-  userId,
-  amount,
-  bucketType,
-  source,
-  memberCreditLedgerId = null,
-  idempotencyKey = null,
-  localSubscriptionId = null,
-  providerSubscriptionId = null,
-  periodStart = null,
-  periodEnd = null,
-  metadata = {},
-  now = nowIso(),
-  ensureBuckets = true,
-}) {
-  const normalizedUserId = normalizeUserId(userId);
-  const normalizedBucketType = normalizeCreditBucketType(bucketType);
-  const normalizedAmount = Number(amount || 0);
-  if (normalizedAmount <= 0) return null;
-  if (ensureBuckets) {
-    await ensureMemberCreditBuckets(env, normalizedUserId);
+async function prepareMemberCreditBucketReconciliation(env, userId, now = nowIso()) {
+  const statements = [];
+  const add = (sql, ...bindings) => statements.push(env.DB.prepare(sql).bind(...bindings));
+  const latestBalanceSql = "COALESCE((SELECT balance_after FROM member_credit_ledger WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1), 0)";
+  const balanceSql = "COALESCE((SELECT SUM(balance) FROM member_credit_buckets WHERE user_id = ?), 0)";
+  // Preserve the existing legacy classification, but initialize/reconcile it
+  // inside the fulfillment transaction. A stale no-bucket snapshot cannot
+  // seed old balances over newer ledger activity.
+  const buckets = await listMemberCreditBucketRows(env, userId);
+  if (!buckets.length) {
+    const rows = await listMemberLedgerRows(env, userId);
+    const balances = deriveBucketsFromLegacyLedger(rows);
+    const seedId = bucketId();
+    add(`INSERT INTO member_credit_buckets
+        (id, user_id, bucket_type, balance, source, metadata_json, created_at, updated_at)
+        SELECT ?, ?, 'purchased', ?, 'legacy_ledger_reconciliation', ?, ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM member_credit_buckets WHERE user_id = ?)
+          AND COALESCE((SELECT id FROM member_credit_ledger WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1), '') = ?`,
+      seedId, userId, balances[MEMBER_CREDIT_BUCKET_PURCHASED],
+      serializeJsonObject({ credit_bucket: "purchased", reconciliation_source: "member_credit_ledger", origin_confidence: "stripe_live_checkout_source" }),
+      now, now, userId, userId, rows.at(-1)?.id || "");
+    add(`INSERT INTO member_credit_buckets
+        (id, user_id, bucket_type, balance, source, metadata_json, created_at, updated_at)
+        SELECT ?, ?, 'legacy_or_bonus', ?, 'legacy_ledger_reconciliation', ?, ?, ?
+        WHERE EXISTS (SELECT 1 FROM member_credit_buckets WHERE id = ?)`,
+      bucketId(), userId, balances[MEMBER_CREDIT_BUCKET_LEGACY_OR_BONUS],
+      serializeJsonObject({ credit_bucket: "legacy_or_bonus", reconciliation_source: "member_credit_ledger", origin_confidence: "unproven_or_bonus" }),
+      now, now, seedId);
+  }
+  for (const bucketType of [MEMBER_CREDIT_BUCKET_PURCHASED, MEMBER_CREDIT_BUCKET_LEGACY_OR_BONUS]) {
+    add(`INSERT OR IGNORE INTO member_credit_buckets
+        (id, user_id, bucket_type, balance, source, metadata_json, created_at, updated_at)
+        SELECT ?, ?, ?, 0, 'legacy_ledger_reconciliation', '{}', ?, ?
+        WHERE EXISTS (SELECT 1 FROM member_credit_buckets WHERE user_id = ?)`,
+      bucketId(), userId, bucketType, now, now, userId);
   }
 
-  let row = null;
-  if (normalizedBucketType === MEMBER_CREDIT_BUCKET_SUBSCRIPTION) {
-    row = await env.DB.prepare(
-      `SELECT id, user_id, bucket_type, balance, local_subscription_id,
-              provider_subscription_id, period_start, period_end, source,
-              metadata_json, created_at, updated_at
-       FROM member_credit_buckets
-       WHERE user_id = ?
-         AND bucket_type = 'subscription'
-         AND provider_subscription_id = ?
-         AND period_start = ?
-       LIMIT 1`
-    ).bind(normalizedUserId, providerSubscriptionId, periodStart).first();
-    if (!row) {
-      await insertMemberCreditBucket(env, {
-        userId: normalizedUserId,
-        bucketType: normalizedBucketType,
-        balance: 0,
-        localSubscriptionId,
-        providerSubscriptionId,
-        periodStart,
-        periodEnd,
-        source,
-        metadata: {
-          ...metadata,
-          credit_bucket: normalizedBucketType,
-        },
-        now,
-      });
-      row = await env.DB.prepare(
-        `SELECT id, user_id, bucket_type, balance, local_subscription_id,
-                provider_subscription_id, period_start, period_end, source,
-                metadata_json, created_at, updated_at
-         FROM member_credit_buckets
-         WHERE user_id = ?
-           AND bucket_type = 'subscription'
-           AND provider_subscription_id = ?
-           AND period_start = ?
-         LIMIT 1`
-      ).bind(normalizedUserId, providerSubscriptionId, periodStart).first();
-    }
-  } else {
-    row = await env.DB.prepare(
-      `SELECT id, user_id, bucket_type, balance, local_subscription_id,
-              provider_subscription_id, period_start, period_end, source,
-              metadata_json, created_at, updated_at
-       FROM member_credit_buckets
-       WHERE user_id = ?
-         AND bucket_type = ?
-       LIMIT 1`
-    ).bind(normalizedUserId, normalizedBucketType).first();
-    if (!row) {
-      await insertMemberCreditBucket(env, {
-        userId: normalizedUserId,
-        bucketType: normalizedBucketType,
-        balance: 0,
-        source,
-        metadata: {
-          ...metadata,
-          credit_bucket: normalizedBucketType,
-        },
-        now,
-      });
-      row = await env.DB.prepare(
-        `SELECT id, user_id, bucket_type, balance, local_subscription_id,
-                provider_subscription_id, period_start, period_end, source,
-                metadata_json, created_at, updated_at
-         FROM member_credit_buckets
-         WHERE user_id = ?
-           AND bucket_type = ?
-         LIMIT 1`
-      ).bind(normalizedUserId, normalizedBucketType).first();
-    }
-  }
-
-  if (!row) {
-    throw new BillingError("Member credit bucket could not be resolved.", {
-      status: 503,
-      code: "credit_bucket_unavailable",
-    });
-  }
-
-  await env.DB.prepare(
-    `UPDATE member_credit_buckets
-     SET balance = balance + ?,
-         local_subscription_id = COALESCE(?, local_subscription_id),
-         provider_subscription_id = COALESCE(?, provider_subscription_id),
-         period_start = COALESCE(?, period_start),
-         period_end = COALESCE(?, period_end),
-         source = COALESCE(?, source),
-         updated_at = ?
-     WHERE id = ? AND user_id = ?`
-  ).bind(
-    normalizedAmount,
-    localSubscriptionId,
-    providerSubscriptionId,
-    periodStart,
-    periodEnd,
-    source,
-    now,
-    row.id,
-    normalizedUserId
-  ).run();
-
-  const balanceAfter = Number(row.balance || 0) + normalizedAmount;
-  await recordMemberCreditBucketEvent(env, {
-    userId: normalizedUserId,
-    bucketId: row.id,
-    bucketType: normalizedBucketType,
-    amount: normalizedAmount,
-    balanceAfter,
-    memberCreditLedgerId,
-    source,
-    idempotencyKey,
-    metadata: {
-      ...metadata,
-      credit_bucket: normalizedBucketType,
-    },
-    createdAt: now,
-  });
-  return {
-    bucketId: row.id,
-    bucketType: normalizedBucketType,
-    amount: normalizedAmount,
-    balanceAfter,
-  };
+  add(`UPDATE member_credit_buckets SET balance = balance + MAX(0, ${latestBalanceSql} - ${balanceSql}), updated_at = ?
+       WHERE user_id = ? AND bucket_type = 'legacy_or_bonus'
+         AND ${latestBalanceSql} > ${balanceSql}`, userId, userId, now, userId, userId, userId);
+  return statements;
 }
 
 async function ensureMemberCreditBuckets(env, userId) {
   const normalizedUserId = normalizeUserId(userId);
-  let rows = await listMemberCreditBucketRows(env, normalizedUserId);
-  if (!rows.length) {
-    const ledgerRows = await listMemberLedgerRows(env, normalizedUserId);
-    const balances = deriveBucketsFromLegacyLedger(ledgerRows);
-    const now = nowIso();
-    for (const bucketType of [
-      MEMBER_CREDIT_BUCKET_LEGACY_OR_BONUS,
-      MEMBER_CREDIT_BUCKET_PURCHASED,
-    ]) {
-      await insertMemberCreditBucket(env, {
-        userId: normalizedUserId,
-        bucketType,
-        balance: balances[bucketType],
-        source: "legacy_ledger_reconciliation",
-        metadata: {
-          credit_bucket: bucketType,
-          reconciliation_source: "member_credit_ledger",
-          origin_confidence: bucketType === MEMBER_CREDIT_BUCKET_PURCHASED ? "stripe_live_checkout_source" : "unproven_or_bonus",
-        },
-        now,
-      });
-    }
-    rows = await listMemberCreditBucketRows(env, normalizedUserId);
+  // The SQL compares current ledger and current bucket totals together. A
+  // paused reader can never turn a later Pack commit into a second bonus grant.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await env.DB.batch(await prepareMemberCreditBucketReconciliation(env, normalizedUserId));
+    const rows = await listMemberCreditBucketRows(env, normalizedUserId);
+    if (rows.length) return rows;
   }
-
-  const ledgerBalance = await getMemberLedgerBalance(env, normalizedUserId);
-  const bucketTotal = rows.reduce((sum, row) => sum + Number(row.balance || 0), 0);
-  if (ledgerBalance > bucketTotal) {
-    const legacy = rows.find((row) => row.bucket_type === MEMBER_CREDIT_BUCKET_LEGACY_OR_BONUS);
-    if (legacy) {
-      await env.DB.prepare(
-        `UPDATE member_credit_buckets
-         SET balance = balance + ?, updated_at = ?
-         WHERE id = ? AND user_id = ?`
-      ).bind(ledgerBalance - bucketTotal, nowIso(), legacy.id, normalizedUserId).run();
-    } else {
-      await insertMemberCreditBucket(env, {
-        userId: normalizedUserId,
-        bucketType: MEMBER_CREDIT_BUCKET_LEGACY_OR_BONUS,
-        balance: ledgerBalance - bucketTotal,
-        source: "legacy_ledger_reconciliation",
-        metadata: {
-          credit_bucket: MEMBER_CREDIT_BUCKET_LEGACY_OR_BONUS,
-          reconciliation_source: "member_credit_ledger_delta",
-        },
-      });
-    }
-    rows = await listMemberCreditBucketRows(env, normalizedUserId);
-  }
-  return rows;
+  throw new BillingError("Member credit buckets changed during initialization; retry.", {
+    status: 503, code: "credit_bucket_unavailable",
+  });
 }
 
 export async function getMemberCreditBucketBalances(env, userId) {
@@ -1070,52 +892,37 @@ export async function grantOrganizationCredits({
     };
   }
 
-  const balance = await getCreditBalance(env, orgId);
   const balanceCap = await getBalanceCap(env, orgId);
-  const nextBalance = balance + normalizedAmount;
-  if (balanceCap != null && nextBalance > balanceCap) {
-    throw new BillingError("Credit grant would exceed the organization's balance cap.", {
-      status: 409,
-      code: "credit_balance_cap_exceeded",
-    });
-  }
-
   const now = nowIso();
-  const entry = {
-    id: ledgerId(),
-    organization_id: orgId,
-    amount: normalizedAmount,
-    balance_after: nextBalance,
-    entry_type: "grant",
-    feature_key: null,
-    source,
-    idempotency_key: idempotencyKey,
-    request_hash: requestHash,
-    created_by_user_id: createdByUserId || null,
-    created_at: now,
-  };
-
+  const entryId = ledgerId();
+  let result;
   try {
-    await env.DB.prepare(
+    // Read the balance and enforce its cap inside the insertion. A paused
+    // manual grant must include an intervening checkout grant or debit.
+    result = await env.DB.prepare(
       `INSERT INTO credit_ledger (
          id, organization_id, amount, balance_after, entry_type, feature_key,
          source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       ) SELECT ?, ?, CASE WHEN ? IS NULL OR latest.balance_after + ? <= ? THEN ? ELSE NULL END,
+         latest.balance_after + ?, 'grant', NULL, ?, ?, ?, ?,
+         MAX(?, COALESCE((SELECT created_at FROM credit_ledger WHERE organization_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1), '')), ?
+       FROM (
+         SELECT COALESCE((SELECT balance_after FROM credit_ledger WHERE organization_id = ?
+           ORDER BY created_at DESC, rowid DESC LIMIT 1), 0) AS balance_after
+       ) AS latest
+       WHERE NOT EXISTS (SELECT 1 FROM credit_ledger WHERE organization_id = ? AND idempotency_key = ?)`
     ).bind(
-      entry.id,
-      entry.organization_id,
-      entry.amount,
-      entry.balance_after,
-      entry.entry_type,
-      entry.feature_key,
-      entry.source,
-      entry.idempotency_key,
-      entry.request_hash,
-      entry.created_by_user_id,
-      entry.created_at,
-      JSON.stringify({ reason: normalizeNullableString(reason) })
+      entryId, orgId, balanceCap, normalizedAmount, balanceCap, normalizedAmount,
+      normalizedAmount, source, idempotencyKey, requestHash, createdByUserId || null,
+      now, orgId, JSON.stringify({ reason: normalizeNullableString(reason) }), orgId, orgId, idempotencyKey
     ).run();
   } catch (error) {
+    if (/NOT NULL constraint failed: credit_ledger\.amount/.test(String(error))) {
+      throw new BillingError("Credit grant would exceed the organization's balance cap.", {
+        status: 409,
+        code: "credit_balance_cap_exceeded",
+      });
+    }
     if (String(error).includes("UNIQUE")) {
       throw new BillingError("Credit grant conflict.", {
         status: 409,
@@ -1125,10 +932,26 @@ export async function grantOrganizationCredits({
     throw error;
   }
 
+  if (result?.success !== true || !Number.isInteger(result?.meta?.changes)
+    || ![0, 1].includes(result.meta.changes)) {
+    throw new BillingError("Credit grant was not confirmed.", { status: 503, code: "credit_grant_incomplete" });
+  }
+  const entry = await env.DB.prepare("SELECT * FROM credit_ledger WHERE id = ? AND organization_id = ?")
+    .bind(entryId, orgId).first()
+    || await fetchLedgerByIdempotency(env, { organizationId: orgId, idempotencyKey });
+  if (entry && entry.request_hash !== requestHash) {
+    throw new BillingError("Idempotency-Key conflicts with a different credit grant.", {
+      status: 409, code: "idempotency_conflict",
+    });
+  }
+  if (!entry || (entry.id === entryId && Number(result?.meta?.changes) !== 1)
+    || (entry.id !== entryId && Number(result?.meta?.changes) !== 0)) {
+    throw new BillingError("Credit grant was not confirmed.", { status: 503, code: "credit_grant_incomplete" });
+  }
   return {
     ledgerEntry: serializeLedgerEntry(entry),
-    creditBalance: nextBalance,
-    reused: false,
+    creditBalance: Number(entry.balance_after || 0),
+    reused: entry.id !== entryId,
   };
 }
 
@@ -1140,7 +963,6 @@ export async function topUpMemberDailyCredits({
 }) {
   const normalizedUserId = normalizeUserId(userId);
   await getActiveUser(env, normalizedUserId);
-  await ensureMemberCreditBuckets(env, normalizedUserId);
   const normalizedAllowance = normalizePositiveInteger(allowance, {
     max: MAX_CREDIT_GRANT,
     fieldName: "allowance",
@@ -1179,16 +1001,18 @@ export async function topUpMemberDailyCredits({
   const nowValue = nowIso();
   const entryId = ledgerId();
   try {
-    await env.DB.prepare(
+    const ledgerStatement = env.DB.prepare(
       `INSERT INTO member_credit_ledger (
          id, user_id, amount, balance_after, entry_type, feature_key,
          source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json
        )
        SELECT
          ?, ?, 
-         CASE WHEN latest.balance_after < ? THEN ? - latest.balance_after ELSE 0 END,
+         CASE WHEN EXISTS (SELECT 1 FROM member_credit_buckets WHERE user_id = ?)
+           THEN CASE WHEN latest.balance_after < ? THEN ? - latest.balance_after ELSE 0 END ELSE NULL END,
          CASE WHEN latest.balance_after < ? THEN ? ELSE latest.balance_after END,
-         ?, ?, ?, ?, ?, ?, ?, ?
+         ?, ?, ?, ?, ?, ?,
+         MAX(?, COALESCE((SELECT created_at FROM member_credit_ledger WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1), '')), ?
        FROM (
          SELECT COALESCE((
            SELECT balance_after FROM member_credit_ledger
@@ -1199,6 +1023,7 @@ export async function topUpMemberDailyCredits({
        ) AS latest`
     ).bind(
       entryId,
+      normalizedUserId,
       normalizedUserId,
       normalizedAllowance,
       normalizedAllowance,
@@ -1211,9 +1036,19 @@ export async function topUpMemberDailyCredits({
       requestHash,
       null,
       nowValue,
+      normalizedUserId,
       JSON.stringify({ dayStart, allowance: normalizedAllowance }),
       normalizedUserId
-    ).run();
+    );
+    const initialization = await prepareMemberCreditBucketReconciliation(env, normalizedUserId, nowValue);
+    await env.DB.batch([
+      ...initialization, ledgerStatement,
+      ...memberCreditBucketGrantStatements(env, {
+        userId: normalizedUserId, ledgerEntryId: entryId, bucketType: MEMBER_CREDIT_BUCKET_LEGACY_OR_BONUS,
+        source: "daily_member_top_up", idempotencyKey,
+        metadata: { dayStart, allowance: normalizedAllowance }, now: nowValue,
+      }),
+    ]);
   } catch (error) {
     if (String(error).includes("UNIQUE")) {
       const raced = await fetchMemberLedgerByIdempotency(env, {
@@ -1243,19 +1078,6 @@ export async function topUpMemberDailyCredits({
     userId: normalizedUserId,
     idempotencyKey,
   });
-  if (Number(inserted?.amount || 0) > 0) {
-    await applyMemberCreditBucketGrant(env, {
-      userId: normalizedUserId,
-      amount: Number(inserted.amount || 0),
-      bucketType: MEMBER_CREDIT_BUCKET_LEGACY_OR_BONUS,
-      source: "daily_member_top_up",
-      memberCreditLedgerId: inserted.id,
-      idempotencyKey,
-      metadata: { dayStart, allowance: normalizedAllowance },
-      now: inserted.created_at || nowValue,
-      ensureBuckets: false,
-    });
-  }
   return {
     ledgerEntry: serializeMemberLedgerEntry(inserted),
     creditBalance: await getMemberCreditBalance(env, normalizedUserId),
@@ -1296,7 +1118,6 @@ export async function grantMemberCredits({
 }) {
   const normalizedUserId = normalizeUserId(userId);
   await getActiveUser(env, normalizedUserId);
-  await ensureMemberCreditBuckets(env, normalizedUserId);
   const normalizedAmount = normalizePositiveInteger(amount, {
     max: MAX_CREDIT_GRANT,
     fieldName: "amount",
@@ -1329,82 +1150,39 @@ export async function grantMemberCredits({
     };
   }
 
-  const balance = await getMemberCreditBalance(env, normalizedUserId);
-  const nextBalance = balance + normalizedAmount;
   const now = nowIso();
-  const entry = {
-    id: ledgerId(),
-    user_id: normalizedUserId,
-    amount: normalizedAmount,
-    balance_after: nextBalance,
-    entry_type: "grant",
-    feature_key: null,
-    source,
-    idempotency_key: idempotencyKey,
-    request_hash: requestHash,
-    created_by_user_id: createdByUserId || null,
-    created_at: now,
-  };
-
-  try {
-    await env.DB.prepare(
-      `INSERT INTO member_credit_ledger (
-         id, user_id, amount, balance_after, entry_type, feature_key,
-         source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(
-      entry.id,
-      entry.user_id,
-      entry.amount,
-      entry.balance_after,
-      entry.entry_type,
-      entry.feature_key,
-      entry.source,
-      entry.idempotency_key,
-      entry.request_hash,
-      entry.created_by_user_id,
-      entry.created_at,
-      serializeJsonObject({
-        reason: normalizeNullableString(reason),
-        ...metadata,
-        credit_bucket: normalizedBucketType,
-        bucket_scope: scope,
-      })
-    ).run();
-  } catch (error) {
-    if (String(error).includes("UNIQUE")) {
-      throw new BillingError("Credit grant conflict.", {
-        status: 409,
-        code: "credit_grant_conflict",
-      });
-    }
-    throw error;
-  }
-
-  await applyMemberCreditBucketGrant(env, {
-    userId: normalizedUserId,
-    amount: normalizedAmount,
-    bucketType: normalizedBucketType,
-    source,
-    memberCreditLedgerId: entry.id,
-    idempotencyKey,
+  const entryId = ledgerId();
+  const grantMetadata = { reason: normalizeNullableString(reason), ...metadata };
+  const statements = await prepareMemberCreditBucketReconciliation(env, normalizedUserId, now);
+  statements.push(env.DB.prepare(
+    `INSERT INTO member_credit_ledger (
+       id, user_id, amount, balance_after, entry_type, feature_key,
+       source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json
+     ) SELECT ?, ?, CASE WHEN EXISTS (SELECT 1 FROM member_credit_buckets WHERE user_id = ?) THEN ? ELSE NULL END,
+       COALESCE((SELECT SUM(balance) FROM member_credit_buckets WHERE user_id = ?), 0) + ?,
+       'grant', NULL, ?, ?, ?, ?,
+       MAX(?, COALESCE((SELECT created_at FROM member_credit_ledger WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1), '')), ?`
+  ).bind(entryId, normalizedUserId, normalizedUserId, normalizedAmount, normalizedUserId, normalizedAmount,
+    source, idempotencyKey, requestHash, createdByUserId || null, now, normalizedUserId,
+    serializeJsonObject({ ...grantMetadata, credit_bucket: normalizedBucketType, bucket_scope: scope })));
+  statements.push(...memberCreditBucketGrantStatements(env, {
+    userId: normalizedUserId, ledgerEntryId: entryId, bucketType: normalizedBucketType, source, idempotencyKey,
     localSubscriptionId: scope.localSubscriptionId || scope.local_subscription_id || null,
     providerSubscriptionId: scope.providerSubscriptionId || scope.provider_subscription_id || null,
     periodStart: scope.periodStart || scope.period_start || null,
     periodEnd: scope.periodEnd || scope.period_end || null,
-    metadata: {
-      reason: normalizeNullableString(reason),
-      ...metadata,
-    },
-    now,
-    ensureBuckets: false,
-  });
-
-  return {
-    ledgerEntry: serializeMemberLedgerEntry(entry),
-    creditBalance: await getMemberCreditBalance(env, normalizedUserId),
-    reused: false,
-  };
+    metadata: grantMetadata, now,
+  }));
+  try {
+    await env.DB.batch(statements);
+  } catch (error) {
+    if (String(error).includes("UNIQUE")) {
+      throw new BillingError("Credit grant conflict.", { status: 409, code: "credit_grant_conflict" });
+    }
+    throw error;
+  }
+  const entry = await env.DB.prepare("SELECT * FROM member_credit_ledger WHERE id = ?").bind(entryId).first();
+  return { ledgerEntry: serializeMemberLedgerEntry(entry), creditBalance: await getMemberCreditBalance(env, normalizedUserId), reused: false };
 }
 
 export async function consumeMemberCredits({
@@ -2301,5 +2079,98 @@ export async function getMemberCreditsDashboard({
       dailyAllowance: dailyTopUp.dailyAllowance,
     } : null,
     transactions: (transactionRows.results || []).map(serializeMemberDashboardTransaction),
+  };
+}
+
+// Pack fulfillment is deliberately separate from generic grants and subscription
+// top-ups. The caller appends its checkout/receipt writes to this one D1 batch.
+export async function prepareAtomicCreditPackGrant({
+  env, userId, organizationId = null, amount, createdByUserId,
+  idempotencyKey, source, reason, linkedLedgerEntryId = null, checkoutGuard,
+}) {
+  if (!checkoutGuard?.sql) throw new BillingError("Checkout guard is required.", { status: 409, code: "checkout_guard_required" });
+  const member = organizationId == null;
+  const owner = member ? normalizeUserId(userId) : normalizeOrgId(organizationId);
+  const credits = normalizePositiveInteger(amount, { max: MAX_CREDIT_GRANT, fieldName: "amount" });
+  if (member) await getActiveUser(env, owner);
+  const table = member ? "member_credit_ledger" : "credit_ledger";
+  const ownerColumn = member ? "user_id" : "organization_id";
+  const requestHash = await hashRequest({
+    [member ? "userId" : "organizationId"]: owner,
+    amount: credits, source, reason: normalizeNullableString(reason),
+  });
+  // A pre-existing checkout link (including old test-mode event keys) remains
+  // authoritative only after its owner, amount and grant hash have matched.
+  if (linkedLedgerEntryId) {
+    const linked = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(linkedLedgerEntryId).first();
+    if (!linked || linked[ownerColumn] !== owner || linked.request_hash !== requestHash || Number(linked.amount) !== credits) {
+      throw new BillingError("Checkout credit evidence conflicts with the requested pack.", { status: 409, code: "idempotency_conflict" });
+    }
+    idempotencyKey = linked.idempotency_key;
+  }
+  if (!idempotencyKey) throw new BillingError("Checkout credit identity is missing.", { status: 409, code: "idempotency_conflict" });
+  const existing = await env.DB.prepare(`SELECT * FROM ${table} WHERE ${ownerColumn} = ? AND idempotency_key = ?`).bind(owner, idempotencyKey).first();
+  if (existing && existing.request_hash !== requestHash) {
+    throw new BillingError("Idempotency-Key conflicts with a different credit grant.", { status: 409, code: "idempotency_conflict" });
+  }
+  const now = nowIso();
+  const newLedgerId = ledgerId();
+  const statements = [];
+  const add = (sql, ...bindings) => statements.push(env.DB.prepare(sql).bind(...bindings));
+  const latestBalanceSql = `COALESCE((SELECT balance_after FROM ${table} WHERE ${ownerColumn} = ? ORDER BY created_at DESC, rowid DESC LIMIT 1), 0)`;
+  let balanceSql = latestBalanceSql;
+  let balanceCap = null;
+  if (member) {
+    statements.push(...await prepareMemberCreditBucketReconciliation(env, owner, now));
+    balanceSql = "COALESCE((SELECT SUM(balance) FROM member_credit_buckets WHERE user_id = ?), 0)";
+  } else {
+    balanceCap = existing ? null : await getBalanceCap(env, owner);
+    if (!existing && balanceCap != null && (await getCreditBalance(env, owner)) + credits > balanceCap) {
+      throw new BillingError("Credit grant would exceed the organization's balance cap.", { status: 409, code: "credit_balance_cap_exceeded" });
+    }
+  }
+  const eligibility = member
+    ? "EXISTS (SELECT 1 FROM member_credit_buckets WHERE user_id = ? AND bucket_type = 'purchased')"
+    : `(? IS NULL OR ${balanceSql} + ? <= ?)`;
+  const eligibilityBindings = member ? [owner] : [balanceCap, owner, credits, balanceCap];
+  // A failed in-transaction eligibility guard deliberately violates amount's
+  // NOT NULL constraint: D1 rolls the whole batch back, including bucket seeds.
+  add(`INSERT INTO ${table}
+       (id, ${ownerColumn}, amount, balance_after, entry_type, feature_key, source, idempotency_key, request_hash, created_by_user_id, created_at, metadata_json)
+       SELECT ?, ?, CASE WHEN (${eligibility}) AND (${checkoutGuard.sql}) THEN ? ELSE NULL END, ${balanceSql} + ?, 'grant', NULL, ?, ?, ?, ?, MAX(?, COALESCE((SELECT created_at FROM ${table} WHERE ${ownerColumn} = ? ORDER BY created_at DESC, rowid DESC LIMIT 1), '')), ?
+       WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${ownerColumn} = ? AND idempotency_key = ?)`,
+    newLedgerId, owner, ...eligibilityBindings, ...checkoutGuard.bindings, credits, owner, credits, source, idempotencyKey, requestHash,
+    createdByUserId || null, now, owner,
+    serializeJsonObject({ reason: normalizeNullableString(reason), ...(member ? { credit_bucket: "purchased", bucket_scope: {} } : {}) }), owner, idempotencyKey);
+  // The preflight hash check is also enforced after concurrent receipts have
+  // serialized. No conflicting grant can acquire this checkout's completion.
+  add(`UPDATE ${table} SET amount = NULL WHERE ${ownerColumn} = ? AND idempotency_key = ? AND (request_hash IS NULL OR request_hash <> ?)`, owner, idempotencyKey, requestHash);
+  add(`UPDATE ${table} SET amount = NULL WHERE ${ownerColumn} = ? AND idempotency_key = ? AND NOT (${checkoutGuard.sql})`, owner, idempotencyKey, ...checkoutGuard.bindings);
+  if (member) {
+    add(`UPDATE member_credit_buckets SET balance = balance + ?, updated_at = ?
+         WHERE user_id = ? AND bucket_type = 'purchased'
+           AND EXISTS (SELECT 1 FROM member_credit_ledger WHERE id = ?)`, credits, now, owner, newLedgerId);
+    add(`INSERT INTO member_credit_bucket_events
+         (id, user_id, bucket_id, bucket_type, amount, balance_after, member_credit_ledger_id, source, idempotency_key, metadata_json, created_at)
+         SELECT ?, ?, b.id, 'purchased', ?, b.balance, ?, ?, ?, ?, ?
+         FROM member_credit_buckets b WHERE b.user_id = ? AND b.bucket_type = 'purchased'
+           AND EXISTS (SELECT 1 FROM member_credit_ledger WHERE id = ?)`,
+      bucketEventId(), owner, credits, newLedgerId, source, idempotencyKey,
+      serializeJsonObject({ reason: normalizeNullableString(reason) }), now, owner, newLedgerId);
+  }
+  const ledgerSql = `SELECT id FROM ${table} WHERE ${ownerColumn} = ? AND idempotency_key = ? AND request_hash = ?`;
+  const ledgerBindings = [owner, idempotencyKey, requestHash];
+  return {
+    statements, now, ledgerSql, ledgerBindings, newLedgerId,
+    async result() {
+      const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = (${ledgerSql})`).bind(...ledgerBindings).first();
+      if (!row) throw new BillingError("Checkout credit fulfillment is incomplete.", { status: 503, code: "credit_grant_incomplete" });
+      const balance = await env.DB.prepare(`SELECT ${balanceSql} AS balance`).bind(owner).first();
+      return {
+        ledgerEntry: member ? serializeMemberLedgerEntry(row) : serializeLedgerEntry(row),
+        creditBalance: Number(balance?.balance || 0),
+        reused: row.id !== newLedgerId,
+      };
+    },
   };
 }

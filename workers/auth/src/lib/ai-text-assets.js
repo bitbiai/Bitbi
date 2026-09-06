@@ -1,3 +1,4 @@
+import { putNewManagedR2Object } from "./r2-cleanup.js";
 import { nowIso, randomTokenHex } from "./tokens.js";
 import { sanitizeAssetMetadata } from "./ai-asset-metadata.js";
 import {
@@ -893,7 +894,7 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
   });
 
   try {
-    await env.USER_IMAGES.put(r2Key, bytes, {
+    await putNewManagedR2Object(env, r2Key, bytes, {
       httpMetadata: {
         contentType: mimeType,
         contentDisposition: `inline; filename="${fileName}"`,
@@ -1096,7 +1097,7 @@ export async function saveGeneratedVideoAsset(env, {
   });
 
   try {
-    await env.USER_IMAGES.put(r2Key, bytes, {
+    await putNewManagedR2Object(env, r2Key, bytes, {
       httpMetadata: {
         contentType: normalizedMimeType,
         contentDisposition: `inline; filename="${fileName}"`,

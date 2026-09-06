@@ -1,3 +1,4 @@
+import { putNewManagedR2Object } from "./r2-cleanup.js";
 import {
   GROK_4_6_MODEL_ID,
   GROK_IMAGE_MIME_TYPES,
@@ -168,7 +169,7 @@ export async function createGrokChatAttachment(env, adminUserId, conversationId,
   const expiresAt = new Date(
     Date.now() + GROK_PENDING_ATTACHMENT_RETENTION_SECONDS * 1_000
   ).toISOString();
-  await env.USER_IMAGES.put(key, image.bytes, {
+  await putNewManagedR2Object(env, key, image.bytes, {
     httpMetadata: { contentType: image.mimeType },
     customMetadata: { purpose: "van-ark-chat-attachment", attachment_id: attachment },
   });
@@ -275,7 +276,7 @@ export async function deletePendingGrokChatAttachment(
   const results = await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
-       SELECT r2_key, 'pending', ? FROM fable_chat_attachments
+       SELECT r2_key, 'q2_pending', ? FROM fable_chat_attachments
         WHERE id = ? AND conversation_id = ? AND admin_user_id = ?
           AND state = 'pending' AND deleted_at IS NULL`
     ).bind(deletedAt, row.id, normalizeFableChatConversationId(conversationId), adminUserId),
@@ -300,7 +301,7 @@ export async function cleanupExpiredGrokChatAttachments(env, { limit = 50, now =
     const results = await env.DB.batch([
       env.DB.prepare(
         `INSERT INTO r2_cleanup_queue (r2_key, status, created_at)
-         SELECT r2_key, 'pending', ? FROM fable_chat_attachments
+         SELECT r2_key, 'q2_pending', ? FROM fable_chat_attachments
           WHERE id = ? AND state IN ('pending', 'attached') AND deleted_at IS NULL`
       ).bind(now, row.id),
       env.DB.prepare(

@@ -3,8 +3,7 @@ import {
   getActiveMemberSubscription,
   getMemberSubscriptionState,
   getCreditBalance,
-  grantMemberCredits,
-  grantOrganizationCredits,
+  prepareAtomicCreditPackGrant,
   normalizeBillingIdempotencyKey,
   topUpMemberSubscriptionCredits,
   upsertMemberSubscriptionFromProvider,
@@ -15,6 +14,7 @@ import {
   BillingEventError,
   BILLING_WEBHOOK_STRIPE_PROVIDER,
   ingestVerifiedBillingProviderEvent,
+  getBillingProviderEvent,
   parseBillingWebhookPayload,
   updateBillingProviderEventProcessing,
 } from "./billing-events.js";
@@ -3000,53 +3000,6 @@ async function markStripeEventFailed(env, {
   });
 }
 
-async function upsertCompletedCheckoutSession({
-  env,
-  completion,
-  billingEventId,
-  ledgerEntryId = null,
-  providerMode = STRIPE_MODE_TEST,
-}) {
-  const existing = await fetchCheckoutByProviderSession(env, completion.sessionId);
-  const now = nowIso();
-  if (!existing) {
-    throw new StripeBillingError("Stripe Checkout Session was not created by this installation.", {
-      status: 403,
-      code: "stripe_checkout_session_unrecognized",
-    });
-  }
-  assertCheckoutMatchesCompletion(existing, completion);
-  await env.DB.prepare(
-    `UPDATE billing_checkout_sessions
-     SET status = 'completed',
-         provider_payment_intent_id = COALESCE(?, provider_payment_intent_id),
-         provider_customer_id = COALESCE(?, provider_customer_id),
-         billing_event_id = COALESCE(?, billing_event_id),
-         credit_ledger_entry_id = COALESCE(?, credit_ledger_entry_id),
-         payment_status = COALESCE(?, payment_status),
-         error_code = NULL,
-         error_message = NULL,
-         updated_at = ?,
-         completed_at = COALESCE(completed_at, ?),
-         granted_at = CASE WHEN ? IS NOT NULL THEN COALESCE(granted_at, ?) ELSE granted_at END
-     WHERE provider = 'stripe' AND provider_checkout_session_id = ?`
-  ).bind(
-    completion.paymentIntent && paymentIntentPatternForMode(providerMode).test(completion.paymentIntent)
-      ? completion.paymentIntent
-      : null,
-    completion.customer,
-    billingEventId,
-    ledgerEntryId,
-    completion.paymentStatus || "paid",
-    now,
-    now,
-    ledgerEntryId,
-    now,
-    completion.sessionId
-  ).run();
-  return fetchCheckoutByProviderSession(env, completion.sessionId);
-}
-
 function assertCheckoutMatchesCompletion(checkout, completion) {
   if (
     checkout.organization_id !== completion.organizationId ||
@@ -3098,52 +3051,6 @@ async function requireAdminCreatedCheckoutSession(env, completion) {
     });
   }
   return checkout;
-}
-
-async function upsertCompletedMemberCheckoutSession({
-  env,
-  completion,
-  billingEventId,
-  ledgerEntryId = null,
-}) {
-  const existing = await fetchMemberCheckoutByProviderSession(env, completion.sessionId);
-  const now = nowIso();
-  if (!existing) {
-    throw new StripeBillingError("Stripe live member Checkout Session was not created by this installation.", {
-      status: 403,
-      code: "stripe_checkout_session_unrecognized",
-    });
-  }
-  assertMemberCheckoutMatchesCompletion(existing, completion);
-  await env.DB.prepare(
-    `UPDATE billing_member_checkout_sessions
-     SET status = 'completed',
-         provider_payment_intent_id = COALESCE(?, provider_payment_intent_id),
-         provider_customer_id = COALESCE(?, provider_customer_id),
-         billing_event_id = COALESCE(?, billing_event_id),
-         member_credit_ledger_entry_id = COALESCE(?, member_credit_ledger_entry_id),
-         payment_status = COALESCE(?, payment_status),
-         error_code = NULL,
-         error_message = NULL,
-         updated_at = ?,
-         completed_at = COALESCE(completed_at, ?),
-         granted_at = CASE WHEN ? IS NOT NULL THEN COALESCE(granted_at, ?) ELSE granted_at END
-     WHERE provider = 'stripe' AND provider_checkout_session_id = ?`
-  ).bind(
-    completion.paymentIntent && paymentIntentPatternForMode(STRIPE_MODE_LIVE).test(completion.paymentIntent)
-      ? completion.paymentIntent
-      : null,
-    completion.customer,
-    billingEventId,
-    ledgerEntryId,
-    completion.paymentStatus || "paid",
-    now,
-    now,
-    ledgerEntryId,
-    now,
-    completion.sessionId
-  ).run();
-  return fetchMemberCheckoutByProviderSession(env, completion.sessionId);
 }
 
 function normalizeRepairReason(value) {
@@ -3234,58 +3141,6 @@ function serializeRepairCheckout(row) {
     hasLedgerEntry: Boolean(row?.member_credit_ledger_entry_id),
     repairEligible: row?.status === "created" || row?.status === "failed",
   };
-}
-
-async function markMemberCheckoutRepaired({
-  env,
-  checkout,
-  ledgerEntryId,
-  paymentIntentId = null,
-  providerCustomerId = null,
-  idempotencyKey,
-  reason,
-  adminUserId,
-  now = nowIso(),
-}) {
-  const metadata = {
-    ...parseJsonObject(checkout.metadata_json),
-    repair: {
-      type: "admin_live_member_credit_pack_repair",
-      evidenceMode: LIVE_MEMBER_CREDIT_PACK_REPAIR_EVIDENCE_MODE,
-      repairedAt: now,
-      repairedByAdminUserId: safeString(adminUserId, 128),
-      idempotencyKeyHash: await sha256Hex(`admin-live-credit-pack-repair:${idempotencyKey}`),
-      reason: safeString(reason, 500),
-    },
-  };
-  await env.DB.prepare(
-    `UPDATE billing_member_checkout_sessions
-     SET member_credit_ledger_entry_id = COALESCE(?, member_credit_ledger_entry_id),
-         status = 'completed',
-         provider_payment_intent_id = COALESCE(?, provider_payment_intent_id),
-         provider_customer_id = COALESCE(?, provider_customer_id),
-         payment_status = 'paid',
-         error_code = NULL,
-         error_message = NULL,
-         metadata_json = ?,
-         updated_at = ?,
-         completed_at = COALESCE(completed_at, ?),
-         granted_at = CASE WHEN ? IS NOT NULL THEN COALESCE(granted_at, ?) ELSE granted_at END
-     WHERE id = ?
-       AND provider = 'stripe'
-       AND provider_mode = 'live'`
-  ).bind(
-    ledgerEntryId,
-    paymentIntentId && LIVE_PAYMENT_INTENT_ID_PATTERN.test(paymentIntentId) ? paymentIntentId : null,
-    providerCustomerId,
-    JSON.stringify(metadata),
-    now,
-    now,
-    ledgerEntryId,
-    now,
-    checkout.id
-  ).run();
-  return fetchMemberCheckoutForRepair(env, { checkoutId: checkout.id });
 }
 
 export async function repairPaidLiveMemberCreditPackCheckout({
@@ -3411,7 +3266,6 @@ export async function repairPaidLiveMemberCreditPackCheckout({
 
   assertSafeManualStripeEvidence(evidence, checkout, pack);
 
-  const grantIdempotencyKey = `stripe_live_member_checkout:${checkout.provider_checkout_session_id}:${pack.id}`;
   const plan = {
     checkout: serializeRepairCheckout(checkout),
     wouldGrantCredits: pack.credits,
@@ -3434,25 +3288,15 @@ export async function repairPaidLiveMemberCreditPackCheckout({
     });
   }
 
-  const grant = await grantMemberCredits({
-    env,
-    userId: checkout.user_id,
-    amount: pack.credits,
-    createdByUserId: adminUserId,
-    idempotencyKey: grantIdempotencyKey,
-    source: "stripe_live_checkout",
-    reason: `credit_pack:${pack.id}`,
+  const fulfilled = await fulfillStripeCreditPack({
+    env, checkout, scope: LIVE_MEMBER_AUTH_SCOPE,
+    completion: { checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE, sessionId: checkout.provider_checkout_session_id,
+      userId: checkout.user_id, pack, paymentStatus: "paid",
+      paymentIntent: safeString(evidence?.payment_intent_id || evidence?.paymentIntentId, 128),
+      customer: safeString(evidence?.customer_id || evidence?.customerId, 128) },
+    repair: { idempotencyKey: normalizedKey, reason: operatorReason, adminUserId },
   });
-  const updated = await markMemberCheckoutRepaired({
-    env,
-    checkout,
-    ledgerEntryId: grant?.ledgerEntry?.id || null,
-    paymentIntentId: safeString(evidence?.payment_intent_id || evidence?.paymentIntentId, 128),
-    providerCustomerId: safeString(evidence?.customer_id || evidence?.customerId, 128),
-    idempotencyKey: normalizedKey,
-    reason: operatorReason,
-    adminUserId,
-  });
+  const { grant, checkout: updated } = fulfilled;
   return {
     status: grant?.reused ? "applied_reused_grant" : "applied",
     dryRun: false,
@@ -3586,98 +3430,6 @@ async function requireLiveMemberCheckoutSession(env, completion) {
     });
   }
   return { checkout, scope: LIVE_MEMBER_AUTH_SCOPE };
-}
-
-function isCompletedLiveMemberCheckoutAlreadyGranted(checkout) {
-  return Boolean(
-    checkout &&
-    checkout.provider === "stripe" &&
-    checkout.provider_mode === STRIPE_MODE_LIVE &&
-    checkout.authorization_scope === LIVE_MEMBER_AUTH_SCOPE &&
-    checkout.status === "completed" &&
-    checkout.payment_status === "paid" &&
-    checkout.member_credit_ledger_entry_id
-  );
-}
-
-async function returnLiveMemberCheckoutAlreadyGrantedNoop({
-  env,
-  stored,
-  payload,
-  completion,
-  checkout,
-  scope = LIVE_MEMBER_AUTH_SCOPE,
-  tolerateEventUpdateFailure = false,
-}) {
-  const refreshedCheckout = await upsertCompletedMemberCheckoutSession({
-    env,
-    completion,
-    billingEventId: stored.event.id,
-    ledgerEntryId: checkout.member_credit_ledger_entry_id,
-  });
-  let event = stored.event;
-  try {
-    event = await updateBillingProviderEventProcessing(env, {
-      eventId: stored.event.id,
-      processingStatus: "planned",
-      userId: completion.userId,
-      actionType: payload.type,
-      actionStatus: "planned",
-      actionDryRun: false,
-      actionSummary: {
-        sideEffectsEnabled: true,
-        liveBillingEnabled: true,
-        checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE,
-        authorizationScope: scope,
-        creditGrantStatus: "already_granted",
-        creditPackId: completion.pack.id,
-        credits: completion.pack.credits,
-        creditsGranted: 0,
-        reused: true,
-        checkoutStatus: "completed",
-        ledgerEntryLinked: true,
-      },
-    });
-  } catch (error) {
-    if (!tolerateEventUpdateFailure) throw error;
-  }
-  return {
-    event,
-    duplicate: false,
-    actionPlanned: true,
-    creditGrant: {
-      checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE,
-      userId: completion.userId,
-      creditsGranted: 0,
-      balanceAfter: null,
-      reused: true,
-    },
-    checkout: serializeMemberCheckoutRow(refreshedCheckout || checkout),
-  };
-}
-
-async function recoverLiveMemberCheckoutAlreadyGrantedNoop({
-  env,
-  stored,
-  payload,
-  completion,
-}) {
-  if (completion?.checkoutScope !== LIVE_MEMBER_CHECKOUT_SCOPE) return null;
-  try {
-    const { checkout, scope } = await requireLiveMemberCheckoutSession(env, completion);
-    if (!isCompletedLiveMemberCheckoutAlreadyGranted(checkout)) return null;
-    return await returnLiveMemberCheckoutAlreadyGrantedNoop({
-      env,
-      stored,
-      payload,
-      completion,
-      checkout,
-      scope,
-      tolerateEventUpdateFailure: true,
-    });
-  } catch {
-    return null;
-  }
 }
 
 function assertMemberSubscriptionCheckoutMatchesCompletion(checkout, completion) {
@@ -3896,6 +3648,157 @@ export async function getOrganizationCreditsDashboard({
   };
 }
 
+async function stripeCreditPackCheckoutIdentity(payload) {
+  const session = payload?.data?.object;
+  if (payload?.type !== "checkout.session.completed" || session?.mode !== "payment") return null;
+  const mode = payload.livemode === true ? STRIPE_MODE_LIVE : STRIPE_MODE_TEST;
+  const pattern = mode === STRIPE_MODE_LIVE ? LIVE_CHECKOUT_SESSION_ID_PATTERN : TEST_CHECKOUT_SESSION_ID_PATTERN;
+  return typeof session.id === "string" && pattern.test(session.id)
+    ? sha256Hex(`stripe-credit-pack:${mode}:${session.id}`)
+    : null;
+}
+
+async function fulfillStripeCreditPack({ env, completion, checkout, scope, stored = null, repair = null }) {
+  const member = completion.checkoutScope === LIVE_MEMBER_CHECKOUT_SCOPE;
+  const mode = checkout.provider_mode;
+  const table = member ? "billing_member_checkout_sessions" : "billing_checkout_sessions";
+  const ledgerColumn = member ? "member_credit_ledger_entry_id" : "credit_ledger_entry_id";
+  const identity = await sha256Hex(`stripe-credit-pack:${mode}:${completion.sessionId}`);
+  if (stored) {
+    const expectedVerification = mode === STRIPE_MODE_LIVE ? "verified_live_signature" : "verified_test_signature";
+    if (stored.event.verificationStatus !== expectedVerification) {
+      throw new StripeBillingError("A mode-matched verified receipt is required.", { status: 403, code: "stripe_webhook_verification_required" });
+    }
+    // Receipt/validation is resumable intent. Only the later atomic batch is
+    // proof of a credit grant. No payload, signature or payment data is stored.
+    const validation = await env.DB.prepare(`UPDATE billing_provider_events
+      SET payload_summary_json = json_set(payload_summary_json,
+        '$.creditPackCheckoutIdentity', ?, '$.creditPackValidatedCheckoutId', ?),
+        attempt_count = attempt_count + ?, last_processed_at = ?, updated_at = ?
+      WHERE id = ? AND COALESCE(error_code, '') <> 'operator_purge_tombstone_matched'
+        AND json_extract(payload_summary_json, '$.creditPackCheckoutIdentity') = ?`)
+      .bind(identity, checkout.id, stored.duplicate ? 1 : 0, nowIso(), nowIso(), stored.event.id, identity).run();
+    if (Number(validation.meta?.changes || 0) !== 1) {
+      throw new StripeBillingError("Billing receipt cannot authorize this checkout.", { status: 409, code: "billing_event_payload_conflict" });
+    }
+  }
+  let key = member
+    ? `stripe_live_member_checkout:${completion.sessionId}:${completion.pack.id}`
+    : `stripe_${mode}_checkout:${completion.sessionId}:${completion.pack.id}`;
+  // Test checkouts used an event key before resumable fulfillment. Reuse an
+  // existing receipt's old ledger when present; never give that event twice.
+  if (!member && mode === STRIPE_MODE_TEST && stored && !checkout[ledgerColumn]) {
+    const legacy = await env.DB.prepare(`SELECT id FROM credit_ledger WHERE organization_id = ? AND idempotency_key = ?`)
+      .bind(completion.organizationId, `stripe:${stored.event.providerEventId}`).first();
+    if (legacy) checkout = { ...checkout, [ledgerColumn]: legacy.id };
+  }
+  const authSql = member ? ""
+    : scope === "org_owner"
+      ? `AND EXISTS (SELECT 1 FROM organization_memberships om JOIN organizations o ON o.id = om.organization_id
+          WHERE om.organization_id = c.organization_id AND om.user_id = c.user_id AND om.role = 'owner'
+          AND om.status = 'active' AND o.status = 'active')`
+      : "AND u.role = 'admin'";
+  const checkoutGuard = {
+    sql: `EXISTS (SELECT 1 FROM ${table} c JOIN users u ON u.id = c.user_id
+      WHERE c.id = ? AND c.provider = 'stripe' AND c.provider_mode = ?
+        AND c.provider_checkout_session_id = ? AND c.user_id = ?
+        AND c.credit_pack_id = ? AND c.credits = ? AND c.amount_cents = ? AND lower(c.currency) = ?
+        AND u.status = 'active' ${member ? "AND c.authorization_scope = 'member'" : "AND c.organization_id = ?"} ${authSql})`,
+    bindings: [checkout.id, mode, completion.sessionId, completion.userId, completion.pack.id,
+      completion.pack.credits, completion.pack.amountCents, completion.pack.currency,
+      ...(!member ? [completion.organizationId] : [])],
+  };
+  const plan = await prepareAtomicCreditPackGrant({
+    env, userId: completion.userId, organizationId: member ? null : completion.organizationId,
+    amount: completion.pack.credits, createdByUserId: repair?.adminUserId || completion.userId,
+    idempotencyKey: key, source: mode === STRIPE_MODE_LIVE ? "stripe_live_checkout" : "stripe_test_checkout",
+    reason: `credit_pack:${completion.pack.id}`, linkedLedgerEntryId: checkout[ledgerColumn], checkoutGuard,
+  });
+  const repairMetadata = repair ? {
+    type: "admin_live_member_credit_pack_repair", evidenceMode: LIVE_MEMBER_CREDIT_PACK_REPAIR_EVIDENCE_MODE,
+    repairedAt: plan.now, repairedByAdminUserId: safeString(repair.adminUserId, 128),
+    idempotencyKeyHash: await sha256Hex(`admin-live-credit-pack-repair:${repair.idempotencyKey}`),
+    reason: safeString(repair.reason, 500),
+  } : null;
+  const add = (sql, ...bindings) => plan.statements.push(env.DB.prepare(sql).bind(...bindings));
+  const ledgerTable = member ? "member_credit_ledger" : "credit_ledger";
+  // If a historical writer linked another ledger while this request awaited
+  // preparation, abort rather than replace that link and grant a second pack.
+  add(`UPDATE ${ledgerTable} SET amount = NULL WHERE id IN (${plan.ledgerSql})
+    AND EXISTS (SELECT 1 FROM ${table} c WHERE c.id = ? AND c.${ledgerColumn} IS NOT NULL
+      AND c.${ledgerColumn} <> ${ledgerTable}.id)`, ...plan.ledgerBindings, checkout.id);
+  add(`UPDATE ${table}
+    SET ${ledgerColumn} = (${plan.ledgerSql}), status = 'completed',
+      provider_payment_intent_id = COALESCE(?, provider_payment_intent_id),
+      provider_customer_id = COALESCE(?, provider_customer_id),
+      billing_event_id = COALESCE(?, billing_event_id), payment_status = 'paid',
+      error_code = NULL, error_message = NULL,
+      metadata_json = CASE WHEN ? IS NOT NULL AND status <> 'completed'
+        THEN json_set(metadata_json, '$.repair', json(?)) ELSE metadata_json END,
+      updated_at = ?, completed_at = COALESCE(completed_at, ?), granted_at = COALESCE(granted_at, ?)
+    WHERE id = ? AND (${checkoutGuard.sql})
+      AND EXISTS (${plan.ledgerSql})`,
+    ...plan.ledgerBindings,
+    completion.paymentIntent && paymentIntentPatternForMode(mode).test(completion.paymentIntent) ? completion.paymentIntent : null,
+    completion.customer || null, stored?.event?.id || null,
+    repairMetadata ? JSON.stringify(repairMetadata) : null, repairMetadata ? JSON.stringify(repairMetadata) : null,
+    plan.now, plan.now, plan.now, checkout.id, ...checkoutGuard.bindings, ...plan.ledgerBindings);
+  // Repair may finish a previously validated failed receipt too. Unbound old
+  // receipts and rejected/tombstoned events are never guessed into this set.
+  const eventPredicate = `provider = 'stripe' AND provider_mode = ? AND event_type = 'checkout.session.completed'
+    AND verification_status = ? AND COALESCE(error_code, '') <> 'operator_purge_tombstone_matched'
+    AND json_extract(payload_summary_json, '$.creditPackCheckoutIdentity') = ?
+    AND json_extract(payload_summary_json, '$.creditPackValidatedCheckoutId') = ?
+    AND EXISTS (SELECT 1 FROM ${table} WHERE id = ? AND status = 'completed' AND ${ledgerColumn} = (${plan.ledgerSql}))`;
+  const eventBindings = [mode, mode === STRIPE_MODE_LIVE ? "verified_live_signature" : "verified_test_signature",
+    identity, checkout.id, checkout.id, ...plan.ledgerBindings];
+  add(`UPDATE billing_provider_events SET processing_status = 'planned', organization_id = COALESCE(?, organization_id),
+    user_id = ?, error_code = NULL, error_message = NULL, last_processed_at = ?, updated_at = ?
+    WHERE ${eventPredicate}`, member ? null : completion.organizationId, completion.userId, plan.now, plan.now, ...eventBindings);
+  const summary = {
+    sideEffectsEnabled: true, liveBillingEnabled: mode === STRIPE_MODE_LIVE,
+    checkoutScope: member ? LIVE_MEMBER_CHECKOUT_SCOPE : LIVE_ORGANIZATION_CHECKOUT_SCOPE,
+    authorizationScope: scope, fulfillmentStatus: "completed", checkoutStatus: "completed", ledgerEntryLinked: true,
+    creditPackId: completion.pack.id, credits: completion.pack.credits,
+  };
+  add(`INSERT INTO billing_event_actions (id, event_id, action_type, status, dry_run, summary_json, created_at, updated_at)
+    SELECT 'bea_' || lower(hex(randomblob(16))), id, event_type, 'planned', 0,
+      json_set(?, '$.creditGrantStatus', CASE WHEN EXISTS (SELECT 1 FROM ${member ? "member_credit_ledger" : "credit_ledger"} WHERE id = ?)
+        THEN 'granted' ELSE 'already_granted' END), ?, ?
+    FROM billing_provider_events WHERE ${eventPredicate}
+    ON CONFLICT(event_id, action_type) DO UPDATE SET status = 'planned', dry_run = 0,
+      summary_json = excluded.summary_json, updated_at = excluded.updated_at`,
+    JSON.stringify(summary), plan.newLedgerId, plan.now, plan.now, ...eventBindings);
+  try {
+    await env.DB.batch(plan.statements);
+  } catch (error) {
+    throw new StripeBillingError("Credit pack fulfillment is temporarily unavailable; retry the same checkout.", {
+      status: 503, code: mode === STRIPE_MODE_LIVE ? "stripe_live_credit_grant_failed" : "stripe_credit_grant_failed",
+    });
+  }
+  const grant = await plan.result();
+  const updatedCheckout = member
+    ? await fetchMemberCheckoutByProviderSession(env, completion.sessionId)
+    : await fetchCheckoutByProviderSession(env, completion.sessionId);
+  if (!updatedCheckout || updatedCheckout.status !== "completed" || updatedCheckout[ledgerColumn] !== grant.ledgerEntry.id) {
+    throw new StripeBillingError("Credit pack completion evidence is incomplete.", { status: 503, code: "stripe_credit_grant_incomplete" });
+  }
+  return { grant, checkout: updatedCheckout, event: stored ? await getBillingProviderEvent(env, { id: stored.event.id, includeArchived: true }) : null };
+}
+
+function stripeCreditPackWebhookResult({ stored, completion, fulfilled }) {
+  const member = completion.checkoutScope === LIVE_MEMBER_CHECKOUT_SCOPE;
+  return {
+    event: fulfilled.event, duplicate: Boolean(stored.duplicate), actionPlanned: true,
+    creditGrant: {
+      ...(member ? { checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE, userId: completion.userId } : { organizationId: completion.organizationId }),
+      creditsGranted: fulfilled.grant.reused ? 0 : completion.pack.credits,
+      balanceAfter: fulfilled.grant.creditBalance, reused: fulfilled.grant.reused,
+    },
+    checkout: member ? serializeMemberCheckoutRow(fulfilled.checkout) : serializeCheckoutRow(fulfilled.checkout),
+  };
+}
+
 export async function handleVerifiedStripeWebhookEvent({
   env,
   rawBody,
@@ -3908,14 +3811,16 @@ export async function handleVerifiedStripeWebhookEvent({
       code: "stripe_live_mode_disabled",
     });
   }
+  const packCheckoutIdentity = await stripeCreditPackCheckoutIdentity(payload);
   const stored = await ingestVerifiedBillingProviderEvent({
     env,
     provider: BILLING_WEBHOOK_STRIPE_PROVIDER,
     rawBody,
     payload,
     verificationStatus,
+    creditPackCheckoutIdentity: packCheckoutIdentity,
   });
-  if (stored.duplicate) {
+  if ((packCheckoutIdentity && stored.event?.errorCode === "operator_purge_tombstone_matched") || (stored.duplicate && !packCheckoutIdentity)) {
     return {
       ...stored,
       creditGrant: null,
@@ -3976,54 +3881,9 @@ export async function handleVerifiedStripeWebhookEvent({
   }
 
   try {
-    const existingCheckout = await requireAdminCreatedCheckoutSession(env, completion);
-    let grant = null;
-    if (!existingCheckout.credit_ledger_entry_id) {
-      grant = await grantOrganizationCredits({
-        env,
-        organizationId: completion.organizationId,
-        amount: completion.pack.credits,
-        createdByUserId: completion.userId,
-        idempotencyKey: `stripe:${stored.event.providerEventId}`,
-        source: "stripe_test_checkout",
-        reason: `credit_pack:${completion.pack.id}`,
-      });
-    }
-    const checkout = await upsertCompletedCheckoutSession({
-      env,
-      completion,
-      billingEventId: stored.event.id,
-      ledgerEntryId: grant?.ledgerEntry?.id || existingCheckout.credit_ledger_entry_id || null,
-    });
-    const event = await updateBillingProviderEventProcessing(env, {
-      eventId: stored.event.id,
-      processingStatus: "planned",
-      organizationId: completion.organizationId,
-      userId: completion.userId,
-      actionType: payload.type,
-      actionStatus: "planned",
-      actionDryRun: false,
-      actionSummary: {
-        sideEffectsEnabled: true,
-        creditGrantStatus: existingCheckout.credit_ledger_entry_id
-          ? "already_granted"
-          : (grant.reused ? "already_granted" : "granted"),
-        creditPackId: completion.pack.id,
-        credits: completion.pack.credits,
-      },
-    });
-    return {
-      event,
-      duplicate: false,
-      actionPlanned: true,
-      creditGrant: {
-        organizationId: completion.organizationId,
-        creditsGranted: existingCheckout.credit_ledger_entry_id ? 0 : completion.pack.credits,
-        balanceAfter: grant?.creditBalance ?? null,
-        reused: Boolean(existingCheckout.credit_ledger_entry_id || grant?.reused),
-      },
-      checkout: serializeCheckoutRow(checkout),
-    };
+    const checkout = await requireAdminCreatedCheckoutSession(env, completion);
+    const fulfilled = await fulfillStripeCreditPack({ env, completion, checkout, scope: "platform_admin", stored });
+    return stripeCreditPackWebhookResult({ stored, completion, fulfilled });
   } catch (error) {
     const code = error instanceof BillingError || error instanceof StripeBillingError
       ? error.code
@@ -4292,15 +4152,17 @@ export async function handleVerifiedStripeLiveWebhookEvent({
       code: "stripe_live_webhook_mode_mismatch",
     });
   }
+  const packCheckoutIdentity = await stripeCreditPackCheckoutIdentity(payload);
   const stored = await ingestVerifiedBillingProviderEvent({
     env,
     provider: BILLING_WEBHOOK_STRIPE_PROVIDER,
     rawBody,
     payload,
     verificationStatus,
+    creditPackCheckoutIdentity: packCheckoutIdentity,
     allowLive: true,
   });
-  if (stored.duplicate) {
+  if ((packCheckoutIdentity && stored.event?.errorCode === "operator_purge_tombstone_matched") || (stored.duplicate && !packCheckoutIdentity)) {
     return {
       ...stored,
       creditGrant: null,
@@ -4428,136 +4290,12 @@ export async function handleVerifiedStripeLiveWebhookEvent({
   }
 
   try {
-    if (completion.checkoutScope === LIVE_MEMBER_CHECKOUT_SCOPE) {
-      const { checkout: existingCheckout, scope } = await requireLiveMemberCheckoutSession(env, completion);
-      if (isCompletedLiveMemberCheckoutAlreadyGranted(existingCheckout)) {
-        return await returnLiveMemberCheckoutAlreadyGrantedNoop({
-          env,
-          stored,
-          payload,
-          completion,
-          checkout: existingCheckout,
-          scope,
-        });
-      }
-      let grant = null;
-      if (!existingCheckout.member_credit_ledger_entry_id) {
-        grant = await grantMemberCredits({
-          env,
-          userId: completion.userId,
-          amount: completion.pack.credits,
-          createdByUserId: completion.userId,
-          idempotencyKey: `stripe_live_member_checkout:${completion.sessionId}:${completion.pack.id}`,
-          source: "stripe_live_checkout",
-          reason: `credit_pack:${completion.pack.id}`,
-        });
-      }
-      const checkout = await upsertCompletedMemberCheckoutSession({
-        env,
-        completion,
-        billingEventId: stored.event.id,
-        ledgerEntryId: grant?.ledgerEntry?.id || existingCheckout.member_credit_ledger_entry_id || null,
-      });
-      const event = await updateBillingProviderEventProcessing(env, {
-        eventId: stored.event.id,
-        processingStatus: "planned",
-        userId: completion.userId,
-        actionType: payload.type,
-        actionStatus: "planned",
-        actionDryRun: false,
-        actionSummary: {
-          sideEffectsEnabled: true,
-          liveBillingEnabled: true,
-          checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE,
-          authorizationScope: scope,
-          creditGrantStatus: existingCheckout.member_credit_ledger_entry_id
-            ? "already_granted"
-            : (grant.reused ? "already_granted" : "granted"),
-          creditPackId: completion.pack.id,
-          credits: completion.pack.credits,
-        },
-      });
-      return {
-        event,
-        duplicate: false,
-        actionPlanned: true,
-        creditGrant: {
-          checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE,
-          userId: completion.userId,
-          creditsGranted: existingCheckout.member_credit_ledger_entry_id ? 0 : completion.pack.credits,
-          balanceAfter: grant?.creditBalance ?? null,
-          reused: Boolean(existingCheckout.member_credit_ledger_entry_id || grant?.reused),
-        },
-        checkout: serializeMemberCheckoutRow(checkout),
-      };
-    }
-
-    if (completion.checkoutScope !== LIVE_ORGANIZATION_CHECKOUT_SCOPE) {
-      throw new StripeBillingError("Stripe live checkout scope is invalid.", {
-        status: 400,
-        code: "stripe_checkout_scope_invalid",
-      });
-    }
-
-    const { checkout: existingCheckout, scope } = await requireLiveAuthorizedCheckoutSession(env, completion);
-    let grant = null;
-    if (!existingCheckout.credit_ledger_entry_id) {
-      grant = await grantOrganizationCredits({
-        env,
-        organizationId: completion.organizationId,
-        amount: completion.pack.credits,
-        createdByUserId: completion.userId,
-        idempotencyKey: `stripe_live_checkout:${completion.sessionId}:${completion.pack.id}`,
-        source: "stripe_live_checkout",
-        reason: `credit_pack:${completion.pack.id}`,
-      });
-    }
-    const checkout = await upsertCompletedCheckoutSession({
-      env,
-      completion,
-      billingEventId: stored.event.id,
-      ledgerEntryId: grant?.ledgerEntry?.id || existingCheckout.credit_ledger_entry_id || null,
-      providerMode: STRIPE_MODE_LIVE,
-    });
-    const event = await updateBillingProviderEventProcessing(env, {
-      eventId: stored.event.id,
-      processingStatus: "planned",
-      organizationId: completion.organizationId,
-      userId: completion.userId,
-      actionType: payload.type,
-      actionStatus: "planned",
-      actionDryRun: false,
-      actionSummary: {
-        sideEffectsEnabled: true,
-        liveBillingEnabled: true,
-        authorizationScope: scope,
-        creditGrantStatus: existingCheckout.credit_ledger_entry_id
-          ? "already_granted"
-          : (grant.reused ? "already_granted" : "granted"),
-        creditPackId: completion.pack.id,
-        credits: completion.pack.credits,
-      },
-    });
-    return {
-      event,
-      duplicate: false,
-      actionPlanned: true,
-      creditGrant: {
-        organizationId: completion.organizationId,
-        creditsGranted: existingCheckout.credit_ledger_entry_id ? 0 : completion.pack.credits,
-        balanceAfter: grant?.creditBalance ?? null,
-        reused: Boolean(existingCheckout.credit_ledger_entry_id || grant?.reused),
-      },
-      checkout: serializeCheckoutRow(checkout),
-    };
+    const { checkout, scope } = completion.checkoutScope === LIVE_MEMBER_CHECKOUT_SCOPE
+      ? await requireLiveMemberCheckoutSession(env, completion)
+      : await requireLiveAuthorizedCheckoutSession(env, completion);
+    const fulfilled = await fulfillStripeCreditPack({ env, completion, checkout, scope, stored });
+    return stripeCreditPackWebhookResult({ stored, completion, fulfilled });
   } catch (error) {
-    const recoveredNoop = await recoverLiveMemberCheckoutAlreadyGrantedNoop({
-      env,
-      stored,
-      payload,
-      completion,
-    });
-    if (recoveredNoop) return recoveredNoop;
     const code = error instanceof BillingError || error instanceof StripeBillingError
       ? error.code
       : "stripe_live_credit_grant_failed";

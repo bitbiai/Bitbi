@@ -1,4 +1,7 @@
 const { handleAiDispatchQuery } = require('./auth-ai-dispatch-mock.js');
+const { isMfaSql, executeNativeMfa } = require('./q2-mock-mfa.js');
+const { isBillingSql, executeNativeBilling } = require('./q2-mock-billing.js');
+const { isLifecycleSql, executeNativeLifecycle } = require('./q2-mock-lifecycle.js');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { webcrypto } = require('crypto');
@@ -789,12 +792,21 @@ class MockBucket {
     if (this.failPutKeys.has(key)) {
       throw new Error(`Mock put failure for ${key}`);
     }
+    if (options.onlyIf) {
+      if (!(options.onlyIf instanceof Headers)
+        || [...options.onlyIf].length !== 1
+        || options.onlyIf.get('If-None-Match') !== '*') {
+        throw new Error('Unsupported MockBucket conditional PUT');
+      }
+      if (this.objects.has(key)) return null;
+    }
     this.objects.set(key, {
       body,
       httpMetadata: options.httpMetadata || {},
       size: body?.byteLength ?? (typeof body === 'string' ? body.length : 0),
       uploaded: new Date(),
     });
+    return { key, ...this.objects.get(key), etag: 'synthetic-etag' };
   }
 
   async get(key, options = {}) {
@@ -1168,6 +1180,8 @@ class MockD1 {
       aiDailyQuotaUsage: [],
       userActivityLog: [],
       r2CleanupQueue: [],
+      r2ObjectTombstones: [],
+      fableChatAttachments: [],
       dataLifecycleRequests: [],
       dataLifecycleRequestItems: [],
       dataExportArchives: [],
@@ -1337,6 +1351,15 @@ class MockD1 {
   }
 
   async batch(statements) {
+    if (statements.length && statements.every(statement => statement.db === this && isBillingSql(statement.query))) {
+      return executeNativeBilling(this, statements.map(statement => ({ query: normalizeSql(statement.query), bindings: statement.bindings, mode: 'run' })), { batch: true });
+    }
+    if (statements.length && statements.every(statement => statement.db === this && isMfaSql(statement.query))) {
+      return executeNativeMfa(this, statements.map(statement => ({ query: normalizeSql(statement.query), bindings: statement.bindings, mode: 'run' })), { batch: true });
+    }
+    if (statements.length && statements.every(statement => statement.db === this && isLifecycleSql(normalizeSql(statement.query)))) {
+      return executeNativeLifecycle(this, statements.map(statement => ({ query: normalizeSql(statement.query), bindings: statement.bindings, mode: 'run' })), { batch: true });
+    }
     const snapshot = deepClone(this.state);
     const seq = this._cleanupSeq;
     const lastChanges = this._lastChanges;
@@ -1832,167 +1855,14 @@ class MockD1 {
       return mode === 'all' ? { results: [{ 1: 1 }] } : { 1: 1 };
     }
 
-    if (query === 'SELECT 1 FROM admin_mfa_credentials LIMIT 1') {
-      return mode === 'all' ? { results: [{ 1: 1 }] } : { 1: 1 };
+    if (isMfaSql(query)) {
+      return executeNativeMfa(this, [{ query, bindings, mode }]);
     }
-
-    if (query === 'SELECT 1 FROM admin_mfa_recovery_codes LIMIT 1') {
-      return mode === 'all' ? { results: [{ 1: 1 }] } : { 1: 1 };
+    if (isBillingSql(query)) {
+      return executeNativeBilling(this, [{ query, bindings, mode }]);
     }
-
-    if (query === 'SELECT 1 FROM admin_mfa_failed_attempts LIMIT 1') {
-      return mode === 'all' ? { results: [{ 1: 1 }] } : { 1: 1 };
-    }
-
-    if (query === 'SELECT admin_user_id, secret_ciphertext, secret_iv, pending_secret_ciphertext, pending_secret_iv, enabled_at, last_accepted_timestep, created_at, updated_at FROM admin_mfa_credentials WHERE admin_user_id = ? LIMIT 1') {
-      const [adminUserId] = bindings;
-      return this.state.adminMfaCredentials.find((row) => row.admin_user_id === adminUserId) || null;
-    }
-
-    if (query === 'SELECT COUNT(*) AS unused_count FROM admin_mfa_recovery_codes WHERE admin_user_id = ? AND used_at IS NULL') {
-      const [adminUserId] = bindings;
-      return {
-        unused_count: this.state.adminMfaRecoveryCodes.filter(
-          (row) => row.admin_user_id === adminUserId && row.used_at == null
-        ).length,
-      };
-    }
-
-    if (query === 'INSERT INTO admin_mfa_credentials ( admin_user_id, secret_ciphertext, secret_iv, pending_secret_ciphertext, pending_secret_iv, enabled_at, last_accepted_timestep, created_at, updated_at ) VALUES (?, NULL, NULL, ?, ?, NULL, NULL, ?, ?)') {
-      const [adminUserId, pendingCiphertext, pendingIv, createdAt, updatedAt] = bindings;
-      this.state.adminMfaCredentials.push({
-        admin_user_id: adminUserId,
-        secret_ciphertext: null,
-        secret_iv: null,
-        pending_secret_ciphertext: pendingCiphertext,
-        pending_secret_iv: pendingIv,
-        enabled_at: null,
-        last_accepted_timestep: null,
-        created_at: createdAt,
-        updated_at: updatedAt,
-      });
-      return { success: true, meta: { changes: 1 } };
-    }
-
-    if (query === 'UPDATE admin_mfa_credentials SET pending_secret_ciphertext = ?, pending_secret_iv = ?, updated_at = ? WHERE admin_user_id = ?') {
-      const [pendingCiphertext, pendingIv, updatedAt, adminUserId] = bindings;
-      const row = this.state.adminMfaCredentials.find((item) => item.admin_user_id === adminUserId);
-      if (!row) return { success: true, meta: { changes: 0 } };
-      row.pending_secret_ciphertext = pendingCiphertext;
-      row.pending_secret_iv = pendingIv;
-      row.updated_at = updatedAt;
-      return { success: true, meta: { changes: 1 } };
-    }
-
-    if (query === 'DELETE FROM admin_mfa_recovery_codes WHERE admin_user_id = ?') {
-      const [adminUserId] = bindings;
-      const before = this.state.adminMfaRecoveryCodes.length;
-      this.state.adminMfaRecoveryCodes = this.state.adminMfaRecoveryCodes.filter(
-        (row) => row.admin_user_id !== adminUserId
-      );
-      return { success: true, meta: { changes: before - this.state.adminMfaRecoveryCodes.length } };
-    }
-
-    if (query === 'INSERT INTO admin_mfa_recovery_codes (id, admin_user_id, code_hash, created_at, used_at) VALUES (?, ?, ?, ?, NULL)') {
-      const [id, adminUserId, codeHash, createdAt] = bindings;
-      this.state.adminMfaRecoveryCodes.push({
-        id,
-        admin_user_id: adminUserId,
-        code_hash: codeHash,
-        created_at: createdAt,
-        used_at: null,
-      });
-      return { success: true, meta: { changes: 1 } };
-    }
-
-    if (query === 'UPDATE admin_mfa_credentials SET secret_ciphertext = pending_secret_ciphertext, secret_iv = pending_secret_iv, pending_secret_ciphertext = NULL, pending_secret_iv = NULL, enabled_at = ?, last_accepted_timestep = ?, updated_at = ? WHERE admin_user_id = ?') {
-      const [enabledAt, timestep, updatedAt, adminUserId] = bindings;
-      const row = this.state.adminMfaCredentials.find((item) => item.admin_user_id === adminUserId);
-      if (!row) return { success: true, meta: { changes: 0 } };
-      row.secret_ciphertext = row.pending_secret_ciphertext;
-      row.secret_iv = row.pending_secret_iv;
-      row.pending_secret_ciphertext = null;
-      row.pending_secret_iv = null;
-      row.enabled_at = enabledAt;
-      row.last_accepted_timestep = timestep;
-      row.updated_at = updatedAt;
-      return { success: true, meta: { changes: 1 } };
-    }
-
-    if (query === 'UPDATE admin_mfa_credentials SET last_accepted_timestep = ?, updated_at = ? WHERE admin_user_id = ?') {
-      const [timestep, updatedAt, adminUserId] = bindings;
-      const row = this.state.adminMfaCredentials.find((item) => item.admin_user_id === adminUserId);
-      if (!row) return { success: true, meta: { changes: 0 } };
-      row.last_accepted_timestep = timestep;
-      row.updated_at = updatedAt;
-      return { success: true, meta: { changes: 1 } };
-    }
-
-    if (query === 'SELECT id, code_hash, used_at FROM admin_mfa_recovery_codes WHERE admin_user_id = ?') {
-      const [adminUserId] = bindings;
-      return {
-        results: this.state.adminMfaRecoveryCodes
-          .filter((row) => row.admin_user_id === adminUserId)
-          .map((row) => ({
-            id: row.id,
-            code_hash: row.code_hash,
-            used_at: row.used_at ?? null,
-          })),
-      };
-    }
-
-    if (query === 'UPDATE admin_mfa_recovery_codes SET used_at = ? WHERE id = ? AND used_at IS NULL') {
-      const [usedAt, id] = bindings;
-      const row = this.state.adminMfaRecoveryCodes.find((item) => item.id === id && item.used_at == null);
-      if (!row) return { success: true, meta: { changes: 0 } };
-      row.used_at = usedAt;
-      return { success: true, meta: { changes: 1 } };
-    }
-
-    if (query === 'DELETE FROM admin_mfa_credentials WHERE admin_user_id = ?') {
-      const [adminUserId] = bindings;
-      const before = this.state.adminMfaCredentials.length;
-      this.state.adminMfaCredentials = this.state.adminMfaCredentials.filter(
-        (row) => row.admin_user_id !== adminUserId
-      );
-      return { success: true, meta: { changes: before - this.state.adminMfaCredentials.length } };
-    }
-
-    if (query === 'SELECT admin_user_id, failed_count, first_failed_at, last_failed_at, locked_until, updated_at FROM admin_mfa_failed_attempts WHERE admin_user_id = ? LIMIT 1') {
-      const [adminUserId] = bindings;
-      return this.state.adminMfaFailedAttempts.find((row) => row.admin_user_id === adminUserId) || null;
-    }
-
-    if (query.startsWith('INSERT INTO admin_mfa_failed_attempts ( admin_user_id, failed_count, first_failed_at, last_failed_at, locked_until, updated_at ) VALUES')) {
-      const [adminUserId, failedCount, firstFailedAt, lastFailedAt, lockedUntil, updatedAt] = bindings;
-      let row = this.state.adminMfaFailedAttempts.find((item) => item.admin_user_id === adminUserId);
-      if (!row) {
-        row = {
-          admin_user_id: adminUserId,
-          failed_count: failedCount,
-          first_failed_at: firstFailedAt,
-          last_failed_at: lastFailedAt,
-          locked_until: lockedUntil,
-          updated_at: updatedAt,
-        };
-        this.state.adminMfaFailedAttempts.push(row);
-      } else {
-        row.failed_count = failedCount;
-        row.first_failed_at = firstFailedAt;
-        row.last_failed_at = lastFailedAt;
-        row.locked_until = lockedUntil;
-        row.updated_at = updatedAt;
-      }
-      return { success: true, meta: { changes: 1 } };
-    }
-
-    if (query === 'DELETE FROM admin_mfa_failed_attempts WHERE admin_user_id = ?') {
-      const [adminUserId] = bindings;
-      const before = this.state.adminMfaFailedAttempts.length;
-      this.state.adminMfaFailedAttempts = this.state.adminMfaFailedAttempts.filter(
-        (row) => row.admin_user_id !== adminUserId
-      );
-      return { success: true, meta: { changes: before - this.state.adminMfaFailedAttempts.length } };
+    if (isLifecycleSql(query)) {
+      return executeNativeLifecycle(this, [{ query, bindings, mode }]);
     }
 
     if (query === 'DELETE FROM siwe_challenges WHERE used_at IS NOT NULL OR expires_at < ?') {

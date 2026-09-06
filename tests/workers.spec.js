@@ -8407,8 +8407,8 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
     const calls = [];
     const env = createAuthTestEnv(seedStripeBillingOrg({
       owner,
+      admin,
       extra: {
-        users: [owner, admin],
         fetch: mockStripeCheckoutFetch({ calls }),
       },
     }));
@@ -10394,7 +10394,10 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
           feature_key: null,
           source: 'stripe_live_checkout',
           idempotency_key: `stripe_live_member_checkout:${checkoutSessionId}:live_credits_5000`,
-          request_hash: 'phase2m_repaired_5000_request',
+          request_hash: createHash('sha256').update(JSON.stringify({
+            userId: member.id, amount: 5000, source: 'stripe_live_checkout',
+            reason: 'credit_pack:live_credits_5000',
+          })).digest('hex'),
           created_by_user_id: member.id,
           created_at: '2026-06-13T10:00:00.000Z',
           metadata_json: '{}',
@@ -11897,6 +11900,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
           received_at: '2026-05-15T07:00:01.000Z',
           processing_status: 'ignored',
           verification_status: 'verified_test_signature',
+          dedupe_key: 'stripe:evt_phase24_wrong_price_ignored',
           payload_hash: 'payload_hash_should_not_render',
           payload_summary_json: JSON.stringify({
             event_type: 'invoice.paid',
@@ -11904,7 +11908,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
           }),
           organization_id: null,
           user_id: 'phase2l-owner',
-          billing_customer_id: 'cus_phase24_wrong_price',
+          billing_customer_id: null,
           error_code: 'stripe_live_subscription_price_mismatch',
           error_message: 'Wrong Price ID ignored without credit grant.',
           attempt_count: 1,
@@ -13375,7 +13379,7 @@ test.describe('BITBI Pro member subscriptions', () => {
     } = await loadBillingModule();
     const userId = 'member-legacy-reconcile-idempotent';
     const env = createAuthTestEnv({
-      users: [createContractUser({ id: userId, role: 'user' })],
+      users: [createContractUser({ id: userId, role: 'user' }), createAdminUser('admin-user')],
       billingMemberSubscriptions: [{
         id: `msub_${userId}`,
         user_id: userId,
@@ -13563,7 +13567,7 @@ test.describe('BITBI Pro member subscriptions', () => {
       env,
       rawBody: JSON.stringify(payload),
       payload,
-      verificationStatus: 'verified_test_signature',
+      verificationStatus: 'verified_live_signature',
     });
     expect(result.creditGrant).toEqual(expect.objectContaining({
       userId: member.id,
@@ -13645,7 +13649,7 @@ test.describe('BITBI Pro member subscriptions', () => {
       env,
       rawBody: JSON.stringify(payload),
       payload,
-      verificationStatus: 'verified_test_signature',
+      verificationStatus: 'verified_live_signature',
     });
     expect(result.creditGrant).toEqual(expect.objectContaining({
       userId: member.id,
@@ -13657,7 +13661,7 @@ test.describe('BITBI Pro member subscriptions', () => {
       env,
       rawBody: JSON.stringify(payload),
       payload,
-      verificationStatus: 'verified_test_signature',
+      verificationStatus: 'verified_live_signature',
     });
     expect(duplicate.duplicate).toBe(true);
     expect(env.DB.state.memberCreditLedger).toHaveLength(ledgerCount);
@@ -39859,7 +39863,7 @@ test.describe('Worker routes', () => {
     });
   });
 
-  test('admin delete reports partial state when erasure workflow starts but operational cleanup fails', async () => {
+  test('admin delete preserves erasure workflow but rolls back the failed operational batch', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       failQueries: ['DELETE FROM favorites WHERE user_id = ?'],
@@ -39905,11 +39909,11 @@ test.describe('Worker routes', () => {
     expect(body).toMatchObject({
       ok: false,
       code: 'admin_delete_user_lifecycle_failed',
-      branch: 'favorites_delete_failed',
+      branch: 'lifecycle_batch_failed',
       operationalDelete: {
         completed: false,
         status: 'failed',
-        branch: 'favorites_delete_failed',
+        branch: 'lifecycle_batch_failed',
       },
       dataErasureWorkflow: {
         started: true,
@@ -39921,17 +39925,23 @@ test.describe('Worker routes', () => {
         evidenceRequired: true,
       },
       dependencySummary: {
-        blockingCategories: expect.arrayContaining(['user_preference_cleanup']),
+        blockingCategories: expect.arrayContaining(['lifecycle']),
       },
     });
     expect(body.dataErasureWorkflow.requestId).toMatch(/^dlr_/);
     expect(env.DB.state.dataLifecycleRequests).toHaveLength(1);
     expect(env.DB.state.users.find((row) => row.id === 'user-erasure-partial')).toMatchObject({
       status: 'active',
+      email: 'partial@example.com',
     });
+    expect(env.DB.state.favorites).toHaveLength(1);
+    expect(env.DB.state.favorites[0]).toMatchObject({ id: 11, user_id: 'user-erasure-partial' });
+    expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
+    expect(env.DB.state.r2ObjectTombstones).toHaveLength(0);
+    expect(env.USER_IMAGES.deleteCalls).toHaveLength(0);
   });
 
-  test('admin delete reports precise lifecycle branch when operational cleanup fails', async () => {
+  test('admin delete reports atomic lifecycle failure and preserves operational state', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       failQueries: ['DELETE FROM favorites WHERE user_id = ?'],
@@ -39972,10 +39982,10 @@ test.describe('Worker routes', () => {
     expect(body).toMatchObject({
       ok: false,
       code: 'admin_delete_user_lifecycle_failed',
-      branch: 'favorites_delete_failed',
+      branch: 'lifecycle_batch_failed',
       dependencySummary: {
         mode: 'operational_anonymized_delete',
-        blockingCategories: expect.arrayContaining(['user_preference_cleanup']),
+        blockingCategories: expect.arrayContaining(['lifecycle']),
         safeCounts: expect.objectContaining({
           favorites: 1,
         }),
@@ -39983,6 +39993,12 @@ test.describe('Worker routes', () => {
     });
     expect(JSON.stringify(body)).not.toContain('batch_error');
     expect(env.DB.state.users.find((row) => row.id === 'user-delete-branch')?.status).toBe('active');
+    expect(env.DB.state.users.find((row) => row.id === 'user-delete-branch')?.email).toBe('delete-branch@example.com');
+    expect(env.DB.state.favorites).toHaveLength(1);
+    expect(env.DB.state.favorites[0]).toMatchObject({ id: 10, user_id: 'user-delete-branch' });
+    expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
+    expect(env.DB.state.r2ObjectTombstones).toHaveLength(0);
+    expect(env.USER_IMAGES.deleteCalls).toHaveLength(0);
   });
 
   test('admin session revocation requires explicit confirmation before mutation', async () => {
@@ -52182,10 +52198,10 @@ test.describe('Worker routes', () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
       userImages: {
-        'cleanup/good.webp': {
+        'users/q2-scheduled-cleanup/good.webp': {
           body: new TextEncoder().encode('good').buffer,
         },
-        'cleanup/bad.webp': {
+        'users/q2-scheduled-cleanup/bad.webp': {
           body: new TextEncoder().encode('bad').buffer,
           failDelete: true,
         },
@@ -52193,16 +52209,16 @@ test.describe('Worker routes', () => {
       r2CleanupQueue: [
         {
           id: 1,
-          r2_key: 'cleanup/good.webp',
-          status: 'pending',
+          r2_key: 'users/q2-scheduled-cleanup/good.webp',
+          status: 'q2_pending',
           created_at: nowIso(),
           attempts: 0,
           last_attempt_at: null,
         },
         {
           id: 2,
-          r2_key: 'cleanup/bad.webp',
-          status: 'pending',
+          r2_key: 'users/q2-scheduled-cleanup/bad.webp',
+          status: 'q2_pending',
           created_at: nowIso(),
           attempts: 0,
           last_attempt_at: null,
@@ -52212,11 +52228,14 @@ test.describe('Worker routes', () => {
 
     await authWorker.scheduled({}, env, createExecutionContext().execCtx);
 
-    expect(env.USER_IMAGES.objects.has('cleanup/good.webp')).toBe(false);
-    expect(env.USER_IMAGES.objects.has('cleanup/bad.webp')).toBe(true);
+    expect(env.USER_IMAGES.objects.has('users/q2-scheduled-cleanup/good.webp')).toBe(false);
+    expect(env.USER_IMAGES.objects.has('users/q2-scheduled-cleanup/bad.webp')).toBe(true);
     expect(env.DB.state.r2CleanupQueue.find((row) => row.id === 1)).toBeUndefined();
+    expect(env.DB.state.r2ObjectTombstones.map(row => row.r2_key).sort()).toEqual([
+      'users/q2-scheduled-cleanup/bad.webp', 'users/q2-scheduled-cleanup/good.webp',
+    ]);
     expect(env.DB.state.r2CleanupQueue.find((row) => row.id === 2)).toMatchObject({
-      status: 'pending',
+      status: 'q2_deleting',
       attempts: 1,
     });
   });
@@ -52226,21 +52245,25 @@ test.describe('Worker routes', () => {
     const errorLogs = [];
     const originalConsoleError = console.error;
     const env = createAuthTestEnv({
+      userImages: {
+        'users/q2-scheduled-cleanup/exhausted.webp': { body: new Uint8Array([1]).buffer, failDelete: true },
+        'users/q2-scheduled-cleanup/not-yet.webp': { body: new Uint8Array([2]).buffer, failDelete: true },
+      },
       r2CleanupQueue: [
         {
           id: 1,
-          r2_key: 'cleanup/exhausted.webp',
-          status: 'pending',
+          r2_key: 'users/q2-scheduled-cleanup/exhausted.webp',
+          status: 'q2_pending',
           created_at: nowIso(),
-          attempts: 5,
+          attempts: 4,
           last_attempt_at: new Date(Date.now() - 60_000).toISOString(),
         },
         {
           id: 2,
-          r2_key: 'cleanup/not-yet.webp',
-          status: 'pending',
+          r2_key: 'users/q2-scheduled-cleanup/not-yet.webp',
+          status: 'q2_pending',
           created_at: nowIso(),
-          attempts: 5,
+          attempts: 0,
           last_attempt_at: null,
         },
       ],
@@ -52256,19 +52279,29 @@ test.describe('Worker routes', () => {
     }
 
     expect(env.DB.state.r2CleanupQueue.find((row) => row.id === 1)).toMatchObject({
-      status: 'dead',
+      status: 'q2_dead',
       attempts: 5,
     });
     expect(env.DB.state.r2CleanupQueue.find((row) => row.id === 2)).toMatchObject({
-      status: 'pending',
-      attempts: 5,
-      last_attempt_at: null,
+      status: 'q2_deleting',
+      attempts: 1,
+      last_attempt_at: expect.any(String),
     });
+    expect(env.USER_IMAGES.deleteCalls).toEqual([
+      'users/q2-scheduled-cleanup/exhausted.webp', 'users/q2-scheduled-cleanup/not-yet.webp',
+    ]);
     const serializedLogs = errorLogs.join('\n');
-    expect(serializedLogs).toContain('r2_cleanup_dead_lettered');
-    expect(serializedLogs).not.toContain('cleanup/exhausted.webp');
-    expect(serializedLogs).toContain('"r2_key_included":false');
-    expect(serializedLogs).toMatch(/"r2_key_sha256":"[a-f0-9]{64}"/);
+    expect(serializedLogs).toContain('r2_cleanup_deferred');
+    expect(serializedLogs).toContain('"dead_count":1');
+    expect(serializedLogs).toContain('"failed_count":2');
+    expect(serializedLogs).not.toContain('users/q2-scheduled-cleanup/');
+    expect(serializedLogs).not.toContain('r2_key');
+    // A subsequent scheduled pass may retry the remaining item, but never
+    // calls R2 again for the dead item or loses its retirement evidence.
+    await authWorker.scheduled({}, env, createExecutionContext().execCtx);
+    expect(env.USER_IMAGES.deleteCalls.filter(key => key.endsWith('/exhausted.webp'))).toHaveLength(1);
+    expect(env.DB.state.r2CleanupQueue.find(row => row.id === 1)).toMatchObject({ status: 'q2_dead', attempts: 5 });
+    expect(env.DB.state.r2ObjectTombstones.some(row => row.r2_key.endsWith('/exhausted.webp'))).toBe(true);
   });
 
   test('IMAGES binding mock matches Cloudflare ImageTransformationResult contract', async () => {
@@ -54169,7 +54202,7 @@ test.describe('Worker routes', () => {
         [exportKey]: { body: '{"ok":true}' },
       },
       userImages: {
-        'cleanup/good.webp': {
+        'users/q2-scheduled-cleanup/good.webp': {
           body: new Uint8Array([1, 2, 3]).buffer,
         },
       },
@@ -54214,8 +54247,8 @@ test.describe('Worker routes', () => {
       }],
       r2CleanupQueue: [{
         id: 1,
-        r2_key: 'cleanup/good.webp',
-        status: 'pending',
+        r2_key: 'users/q2-scheduled-cleanup/good.webp',
+        status: 'q2_pending',
         attempts: 0,
         created_at: '2026-04-20T10:00:00.000Z',
         last_attempt_at: null,
@@ -54226,7 +54259,7 @@ test.describe('Worker routes', () => {
 
     expect(env.AUDIT_ARCHIVE.objects.has(exportKey)).toBe(false);
     expect(env.DB.state.dataExportArchives.find((row) => row.id === 'dla_scheduled_cleanup').status).toBe('deleted');
-    expect(env.USER_IMAGES.objects.has('cleanup/good.webp')).toBe(false);
+    expect(env.USER_IMAGES.objects.has('users/q2-scheduled-cleanup/good.webp')).toBe(false);
     expect(env.DB.state.r2CleanupQueue).toHaveLength(0);
   });
 

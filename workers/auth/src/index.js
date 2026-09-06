@@ -93,6 +93,7 @@ import {
 } from "./lib/admin-ai-video-sources.js";
 import { getRoutePolicy } from "./app/route-policy.js";
 import { cleanupExpiredGrokChatAttachments } from "./lib/grok-chat-attachments.js";
+import { processR2CleanupQueue } from "./lib/r2-cleanup.js";
 export { AuthPublicRateLimiterDurableObject } from "./lib/public-rate-limiter-do.js";
 
 const AI_IMAGE_DERIVATIVES_QUEUE_NAME = "bitbi-ai-image-derivatives";
@@ -872,65 +873,20 @@ export default {
       }
     }
 
-    // Process R2 cleanup queue — retry failed blob deletions.
-    // Wrapped in try/catch so the worker is safe to deploy before migration 0010.
-    try {
-      const pending = await env.DB.prepare(
-        "SELECT id, r2_key FROM r2_cleanup_queue WHERE status = 'pending' AND attempts < 5 ORDER BY created_at ASC LIMIT 50"
-      ).all();
-
-      const stmts = [];
-
-      if (pending.results && pending.results.length > 0) {
-        const succeeded = [];
-        const retried = [];
-        for (const row of pending.results) {
-          try {
-            await env.USER_IMAGES.delete(row.r2_key);
-            succeeded.push(row.id);
-          } catch {
-            retried.push(row.id);
-          }
-        }
-        if (succeeded.length > 0) {
-          const ph = succeeded.map(() => "?").join(",");
-          stmts.push(env.DB.prepare(`DELETE FROM r2_cleanup_queue WHERE id IN (${ph})`).bind(...succeeded));
-        }
-        if (retried.length > 0) {
-          const ph = retried.map(() => "?").join(",");
-          stmts.push(env.DB.prepare(
-            `UPDATE r2_cleanup_queue SET attempts = attempts + 1, last_attempt_at = ? WHERE id IN (${ph})`
-          ).bind(now, ...retried));
-        }
-      }
-
-      // Dead-letter entries only after actual retry exhaustion — never based
-      // on raw age alone, so backlog/delayed crons cannot abandon untried jobs.
-      const exhausted = await env.DB.prepare(
-        "SELECT id, r2_key, attempts FROM r2_cleanup_queue WHERE status = 'pending' AND attempts >= 5 AND last_attempt_at IS NOT NULL"
-      ).all();
-      if (exhausted.results && exhausted.results.length > 0) {
-        for (const row of exhausted.results) {
-          const storageKeyFields = await storageKeyLogFields(row.r2_key, { fieldPrefix: "r2_key" });
-          logDiagnostic({
-            service: "bitbi-auth",
-            component: "scheduled-r2-cleanup",
-            event: "r2_cleanup_dead_lettered",
-            level: "error",
-            ...storageKeyFields,
-            attempts: row.attempts,
-          });
-        }
-        const ph = exhausted.results.map(() => "?").join(",");
-        stmts.push(env.DB.prepare(
-          `UPDATE r2_cleanup_queue SET status = 'dead', last_attempt_at = ? WHERE id IN (${ph})`
-        ).bind(now, ...exhausted.results.map(r => r.id)));
-      }
-
-      if (stmts.length > 0) await env.DB.batch(stmts);
-    } catch (e) {
-      // Table may not exist yet if migration 0010 hasn't been applied — skip cleanly
-      if (!String(e).includes("no such table")) throw e;
+    // Q2 outbox entries are executable only after permanent key retirement.
+    // Legacy intents remain held; a schema/reference failure must not delete R2.
+    const r2Cleanup = await processR2CleanupQueue(env, { now, limit: 50 });
+    if (r2Cleanup.failed > 0 || r2Cleanup.held > 0) {
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "scheduled-r2-cleanup",
+        event: "r2_cleanup_deferred",
+        level: r2Cleanup.dead > 0 ? "error" : "warn",
+        deleted_count: r2Cleanup.deleted,
+        failed_count: r2Cleanup.failed,
+        held_count: r2Cleanup.held,
+        dead_count: r2Cleanup.dead,
+      });
     }
 
     // Re-enqueue a small derivative backlog so pending rows recover from
