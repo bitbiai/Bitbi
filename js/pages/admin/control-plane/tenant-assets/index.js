@@ -27,7 +27,7 @@ export function createTenantAssetsDomain({ notify, formatDate }) {
     const evidenceDomain = createTenantAssetEvidenceDomain({ notify });
     const executionDomain = createTenantExecutionDomain({ notify, formatDate });
 
-    const CLEAN_STORAGE_BASELINE = Object.freeze({
+    const HISTORICAL_STORAGE_BASELINE = Object.freeze({
         source: 'latest_local_cloud_map_baseline',
         generatedAt: '2026-06-17T00:00:00.000Z',
         d1Tables: 76,
@@ -45,7 +45,7 @@ export function createTenantAssetsDomain({ notify, formatDate }) {
             { id: 'bitbi-user-images', label: 'bitbi-user-images', binding: 'USER_IMAGES', status: 'Auth Worker Binding', objects: 516, bytes: 1030000000 },
             { id: 'bitbi-private-media', label: 'bitbi-private-media', binding: 'PRIVATE_MEDIA', status: 'Auth Worker Binding', objects: 3, bytes: 136000 },
             { id: 'bitbi-audit-archive', label: 'bitbi-audit-archive', binding: 'AUDIT_ARCHIVE', status: 'Auth Worker Binding', objects: 7, bytes: 13000 },
-            { id: 'bitbi-public-media', label: 'bitbi-public-media', binding: null, status: 'Dashboard sichtbar, nicht im Auth Worker gebunden', objects: 0, bytes: 0 },
+            { id: 'bitbi-public-media', label: 'bitbi-public-media', binding: null, status: 'Dashboard visible; not bound to Auth Worker', objects: 0, bytes: 0 },
         ],
         classifications: [
             { id: 'current_and_valid', label: 'current_and_valid', count: 344, group: 'current' },
@@ -69,149 +69,92 @@ export function createTenantAssetsDomain({ notify, formatDate }) {
         return `${size.toFixed(digits)} ${units[unit]}`;
     }
 
-    function renderStorageHealthSummary(container, report, onRefresh) {
-        const baseline = CLEAN_STORAGE_BASELINE;
-        const isClean = baseline.missingR2Objects === 0
-            && baseline.riskyReviewObjects === 0
-            && baseline.deleteCandidates === 0
-            && baseline.unknownBlocked === 0;
-        const generated = baseline.generatedAt ? formatDate?.(baseline.generatedAt) || baseline.generatedAt : 'not reported';
+    function renderStorageHealthSummary(container, report, res, onRefresh) {
+        const baseline = HISTORICAL_STORAGE_BASELINE;
         const hero = el('div', 'admin-control-hero admin-health-hero glass glass-card reveal visible');
         const copy = el('div');
-        copy.append(el('p', 'admin-control-hero__eyebrow', 'Speicher-Integrität'));
-        copy.append(el('h2', 'admin-control-hero__title', isClean ? 'Status: Sauber' : 'Status: Prüfung erforderlich'));
-        copy.append(el('p', 'admin-control-hero__copy', 'Kompakte Tagesansicht nach der D1/R2-Baseline: aktive Metadaten und R2-Objekte sind zugeordnet, fehlende Objekte und Löschkandidaten stehen bei 0.'));
+        copy.append(el('p', 'admin-control-hero__eyebrow', 'Storage Integrity'));
+        copy.append(el('h2', 'admin-control-hero__title', 'Current storage integrity: not verified'));
+        copy.append(el('p', 'admin-control-hero__copy', 'The stored baseline below is historical. Refresh loads domain evidence; it does not run a current D1/R2 inventory or verify the historical counts.'));
         const badges = el('div', 'admin-control-hero__badges');
-        badges.append(
-            badge(isClean ? 'Status sauber' : 'Prüfung erforderlich', isClean ? 'active' : 'legacy'),
-            badge('Frontend-only summary', 'user'),
-            badge(report?.source || baseline.source, 'legacy'),
-        );
+        badges.append(badge('Not currently verified', 'legacy'), badge('Read-only evidence', 'user'));
         hero.append(copy, badges);
         container.appendChild(hero);
 
-        const metrics = readinessSection('Aktuelle Speicherlage', 'Nicht jedes R2-Objekt muss direkt in D1 referenziert sein. News Pulse, Audit-Archive und Systemobjekte werden bewusst behalten.');
-        metrics.appendChild(readinessCards([
-            {
-                title: 'D1 -> R2 Referenzen',
-                status: baseline.d1R2References,
-                copy: 'Aktive D1-Felder mit R2-Bezug aus der letzten sauberen Cloud-Map-Baseline.',
-                meta: [['D1 Tabellen', baseline.d1Tables], ['R2-referenzierte Objekte', baseline.referencedR2Objects]],
-            },
-            {
-                title: 'Fehlende R2-Objekte',
-                status: baseline.missingR2Objects,
-                copy: 'D1-Referenzen, deren Objekt in der vollständigen R2-Inventur fehlt.',
-                meta: [['Erwartung', '0'], ['Bewertung', baseline.missingR2Objects === 0 ? 'sauber' : 'prüfen']],
-            },
-            {
-                title: 'Riskant / prüfen',
-                status: baseline.riskyReviewObjects,
-                copy: 'Unreferenzierte Objekte, die nicht sicher einer Haltekategorie zugeordnet sind.',
-                meta: [['Unbekannt blockiert', baseline.unknownBlocked], ['Löschkandidaten', baseline.deleteCandidates]],
-            },
-            {
-                title: 'R2 Objekte',
-                status: baseline.r2Objects,
-                copy: 'Gesamtobjekte in den bekannten BITBI Buckets inklusive sicher klassifizierter, nicht direkt D1-referenzierter Dateien.',
-                meta: [['Sicher klassifiziert', baseline.safeClassifiedObjects], ['Gesamtgröße', formatBytes(baseline.totalBytes)]],
-            },
-            {
-                title: 'Owner-Konten',
-                status: baseline.protectedOwnerAccounts,
-                copy: 'Geschützte aktive Owner-Konten aus der Baseline. Diese Ansicht löscht oder ändert keine Accountdaten.',
-                meta: [['Baseline', generated], ['Quelle', 'BITBI Cloud Map / Audit Reports']],
-            },
+        const payloadReport = res.data?.report || res.data?.data?.report;
+        const hasReportedEvidence = res.ok && Array.isArray(payloadReport?.domains);
+        const evidence = readinessSection('Domain evidence', !res.ok
+            ? 'Domain evidence could not be refreshed. Current storage integrity remains unknown.'
+            : hasReportedEvidence
+                ? 'The evidence endpoint responded. This is not a current storage-integrity check.'
+                : 'The endpoint returned no usable domain report. Only static fallback diagnostics are available; current storage integrity remains unknown.');
+        if (!res.ok) {
+            const error = el('div');
+            error.setAttribute('role', 'alert');
+            evidenceDomain.renderEndpointUnavailable(error, res);
+            evidence.appendChild(error);
+        } else if (hasReportedEvidence) {
+            evidence.appendChild(readinessCards([{
+                title: 'Reported evidence',
+                badge: { label: 'Evidence received', variant: 'user' },
+                copy: 'Review the reported scope and limitations in Advanced Diagnostics.',
+                meta: [['Source', report.source || 'Not reported'], ['Generated', report.generatedAt || 'Not reported']],
+            }], (item) => item));
+        }
+        const refresh = el('button', 'btn-action', 'Refresh evidence');
+        refresh.type = 'button';
+        refresh.id = 'tenantAssetEvidenceRefresh';
+        refresh.addEventListener('click', () => {
+            void onRefresh?.({ restoreFocus: document.activeElement === refresh });
+        });
+        evidence.appendChild(refresh);
+        container.appendChild(evidence);
+
+        const history = readinessSection('Historical storage baseline', `Recorded ${baseline.generatedAt}. Source: ${baseline.source}. These fixed figures are not updated by Refresh evidence.`);
+        history.appendChild(readinessCards([
+            { title: 'D1 to R2 references', count: baseline.d1R2References, meta: [['D1 tables', baseline.d1Tables], ['Referenced R2 objects', baseline.referencedR2Objects]] },
+            { title: 'Missing R2 objects', count: baseline.missingR2Objects, meta: [['Risky review objects', baseline.riskyReviewObjects], ['Delete candidates', baseline.deleteCandidates], ['Unknown blocked', baseline.unknownBlocked]] },
+            { title: 'R2 objects', count: baseline.r2Objects, meta: [['Classified for retention', baseline.safeClassifiedObjects], ['Total size', formatBytes(baseline.totalBytes)]] },
+            { title: 'Protected owner accounts', count: baseline.protectedOwnerAccounts, meta: [['Recorded', baseline.generatedAt]] },
         ], (item) => ({
             title: item.title,
-            badge: { label: String(item.status), variant: Number(item.status) === 0 && item.title !== 'Fehlende R2-Objekte' ? 'active' : item.title === 'Fehlende R2-Objekte' && Number(item.status) === 0 ? 'active' : 'user' },
-            copy: item.copy,
+            badge: { label: String(item.count), variant: 'user' },
+            copy: 'Historical count; current value not verified.',
             meta: item.meta,
         })));
-        container.appendChild(metrics);
+        container.appendChild(history);
 
-        const buckets = readinessSection('Bucket-Status', 'Konfigurierte Worker-Bindings bleiben klar getrennt von dashboard-sichtbaren Buckets.');
+        const buckets = readinessSection('Historical bucket inventory', 'Bindings, object counts and classifications below describe the recorded baseline, not current availability.');
         buckets.appendChild(readinessCards(baseline.buckets, (bucket) => ({
             title: bucket.label,
-            badge: { label: bucket.status, variant: bucket.binding ? 'active' : 'legacy' },
-            copy: bucket.binding
-                ? `${bucket.binding} ist im Auth Worker gebunden.`
-                : 'Hinweis: Dashboard sichtbar, derzeit nicht im Auth Worker gebunden.',
-            meta: [
-                ['Objekte', bucket.objects],
-                ['Bytes', formatBytes(bucket.bytes)],
-                ['Binding', bucket.binding || 'nicht gebunden'],
-            ],
+            badge: { label: 'Historical', variant: 'legacy' },
+            copy: bucket.status,
+            meta: [['Objects', bucket.objects], ['Size', formatBytes(bucket.bytes)], ['Recorded binding', bucket.binding || 'Not bound']],
+        })));
+        buckets.appendChild(readinessCards(baseline.classifications, (item) => ({
+            title: readableToken(item.label),
+            badge: { label: String(item.count), variant: 'user' },
+            copy: 'Historical classification; no current inventory verification.',
         })));
         container.appendChild(buckets);
-
-        const classifications = readinessSection('Klassifikation', 'Sicher klassifizierte R2-Objekte sind kein Problem, nur weil sie nicht direkt in D1 referenziert werden.');
-        classifications.appendChild(readinessCards(baseline.classifications, (item) => ({
-            title: readableToken(item.label),
-            badge: { label: String(item.count), variant: item.group === 'current' ? 'active' : 'user' },
-            copy: item.group === 'current'
-                ? 'Aktuelle D1/R2-Beziehung ist gültig.'
-                : 'Bewusst behaltene System-, News-, Avatar- oder Audit-Kategorie.',
-            meta: [['Kategorie', item.id]],
-        })));
-        const actions = el('div', 'admin-control-chip-row');
-        const refresh = el('button', 'btn-action', 'Status aktualisieren');
-        refresh.type = 'button';
-        refresh.addEventListener('click', () => { void onRefresh?.(); });
-        actions.appendChild(refresh);
-        classifications.appendChild(actions);
-        container.appendChild(classifications);
-
-        const proofPath = readinessSection('Beweis-Pfad', 'Die saubere D1/R2-Baseline ist ein Speicherintegritätsbeweis, aber kein globaler Tenant-Isolation-, Backfill-, Access-Switch-, Reset- oder Rechtsabschluss.');
-        proofPath.appendChild(readinessCards([
-            {
-                title: 'Was bewiesen ist',
-                status: 'clean_baseline',
-                copy: 'D1-referenzierte R2-Objekte fehlen nicht; unbekannte Blocker, riskante Prüffälle und Löschkandidaten stehen in der aktuellen Baseline bei 0.',
-                meta: [['Missing R2', baseline.missingR2Objects], ['Risky/delete/unknown', `${baseline.riskyReviewObjects}/${baseline.deleteCandidates}/${baseline.unknownBlocked}`]],
-            },
-            {
-                title: 'Was nicht bewiesen ist',
-                status: 'unclaimed',
-                copy: 'Tenant isolation, runtime access-switch readiness, ownership backfill readiness, confirmed legacy reset readiness, and legal erasure completion remain unclaimed.',
-                meta: [['Tenant isolation', 'not claimed'], ['Access/backfill/reset', 'blocked']],
-            },
-            {
-                title: 'Nächste sichere Evidenz',
-                status: 'read_only',
-                copy: 'Use manual-review supersession dry-runs, redacted evidence exports, selected-user storage checks, and access-switch shadow diagnostics before any execution plan.',
-                meta: [['Live R2 mutation', 'none'], ['D1 mutation', 'none in this view']],
-            },
-            {
-                title: 'Guarded actions',
-                status: 'blocked_by_default',
-                copy: 'Backfill, access switching, confirmed reset, and live R2 cleanup stay hidden behind advanced diagnostics and separate operator approval.',
-                meta: [['First-click actions', 'not exposed'], ['Evidence required', 'yes']],
-            },
-        ], (item) => ({
-            title: item.title,
-            badge: { label: readableToken(item.status), variant: item.status === 'clean_baseline' ? 'active' : item.status === 'read_only' ? 'user' : 'disabled' },
-            copy: item.copy,
-            meta: item.meta,
-        })));
-        container.appendChild(proofPath);
+        container.appendChild(readinessSection('Evidence limits', 'Tenant isolation, runtime access-switch readiness, ownership backfill readiness, confirmed legacy reset readiness, and legal erasure completion remain unclaimed. Guarded tools remain in Advanced Diagnostics.'));
     }
 
-    async function renderTenantAssets() {
+    async function renderTenantAssets({ restoreFocus = false } = {}) {
         const container = byId('tenantAssetCenter');
         if (!container) return;
         clear(container);
         container.appendChild(el('div', 'admin-state', 'Loading storage health evidence...'));
         const { res, report } = await evidenceDomain.loadDomainReport();
         clear(container);
-        renderStorageHealthSummary(container, report, renderTenantAssets);
+        renderStorageHealthSummary(container, report, res, renderTenantAssets);
 
         const advanced = el('details', 'admin-advanced-disclosure glass glass-card reveal visible');
         const summary = el('summary', 'admin-advanced-disclosure__summary');
         const summaryText = el('span');
         summaryText.append(
-            el('strong', null, 'Erweiterte Diagnose anzeigen'),
-            el('span', null, 'Legacy evidence, Backfill-Dry-runs, Access-Switch-Diagnose und Reset-Sicherheitsgrenzen bleiben hier erhalten.'),
+            el('strong', null, 'Show Advanced Diagnostics'),
+            el('span', null, 'Legacy evidence, backfill dry-runs, access-switch diagnostics and reset safety limits remain available here.'),
         );
         summary.append(summaryText, badge('Advanced / Archive', 'legacy'));
         const advancedBody = el('div', 'admin-advanced-disclosure__body admin-control-stack');
@@ -223,6 +166,9 @@ export function createTenantAssetsDomain({ notify, formatDate }) {
         evidenceDomain.renderTenantBlockedActions(advancedBody);
         if (!res.ok) {
             evidenceDomain.renderEndpointUnavailable(advancedBody, res);
+        }
+        if (restoreFocus && document.activeElement === document.body && container.getClientRects().length) {
+            byId('tenantAssetEvidenceRefresh')?.focus();
         }
     }
 

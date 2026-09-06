@@ -139,7 +139,7 @@ export function createOperationsDomain({ notify, formatDate, loadTenantAssetManu
         for (const [label, href] of [
             ['Open Billing Reviews', '#billing-events'],
             ['Open Billing Reconciliation', '#billing-events'],
-            ['Open Speicher-Integrität', '#tenant-assets'],
+            ['Open Storage Integrity', '#tenant-assets'],
             ['Open Manual Review Queue', '#operations'],
             ['Open Data Lifecycle', '#lifecycle'],
             ['Open AI Budget Evidence', '#ai-budget-switches'],

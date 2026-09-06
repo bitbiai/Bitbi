@@ -16,7 +16,7 @@ const OWNER_ACTION_BUCKETS = Object.freeze([
             { label: 'Billing Evidence', href: '#billing-events' },
             { label: 'Live Billing', href: '#live-billing' },
             { label: 'R2 Drive', href: '#object-storage' },
-            { label: 'Speicher-Integrität', href: '#tenant-assets' },
+            { label: 'Storage Integrity', href: '#tenant-assets' },
             { label: 'News Feed Agent', href: '#news-feed-agent' },
             { label: 'Hero Videos', href: '#homepage-hero-videos' },
             { label: 'AI Usage', href: '#ai-usage' },

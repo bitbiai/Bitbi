@@ -32,6 +32,7 @@ const NUMBER_FORMATTER = new Intl.NumberFormat('en-US');
 let currentUser = null;
 let eligibleOrganizations = [];
 let selectedOrganizationId = '';
+let dashboardGeneration = 0;
 
 function show(node) {
     if (node) node.hidden = false;
@@ -224,16 +225,31 @@ function renderDashboard(dashboard = {}) {
 }
 
 async function loadDashboard() {
-    if (!selectedOrganizationId) return renderNeedsSelection();
-    hide($denied);
-    hide($error);
+    const generation = ++dashboardGeneration;
+    const organizationId = selectedOrganizationId;
+    // Clear stale content while keeping the organization picker available.
+    renderNeedsSelection();
+    $dashboard?.removeAttribute('aria-busy');
+    if (!organizationId) return;
+    if ($name) $name.textContent = eligibleOrganizations.find((org) => org.id === organizationId)?.name || localeText('organization.organization');
+    if ($access) $access.textContent = $loading?.textContent || '';
     show($loading);
-    const res = await apiOrganizationDashboard(selectedOrganizationId, { limit: 25 });
+    $dashboard?.setAttribute('aria-busy', 'true');
+    let res;
+    try {
+        res = await apiOrganizationDashboard(organizationId, { limit: 25 });
+    } catch {
+        res = { ok: false };
+    }
+    if (generation !== dashboardGeneration || organizationId !== selectedOrganizationId) return;
+    $dashboard?.removeAttribute('aria-busy');
     if (!res.ok) {
         if (res.status === 401 || res.status === 403 || res.status === 404) return setDenied();
         return setError(res.error || localeText('organization.unavailable'));
     }
-    renderDashboard(res.data?.dashboard || {});
+    const dashboard = res.data?.dashboard;
+    if (dashboard?.organization?.id !== organizationId) return setError(localeText('organization.unavailable'));
+    renderDashboard(dashboard);
 }
 
 async function init() {

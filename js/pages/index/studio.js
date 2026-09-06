@@ -17,11 +17,12 @@ import {
     getAiImageModelConfig,
 } from '../../shared/ai-image-models.mjs?v=__ASSET_VERSION__';
 import { calculateAiImageCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
-import { localeText, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
+import { getCurrentLocale, localeText, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
 let initialized = false;
 let currentImageData = null;
 let currentMeta = null;
+const imageSaveOperations = new Map();
 let folders = [];
 let creditBalance = null;
 let $quotaEl = null;
@@ -184,6 +185,7 @@ async function loadFolders() {
 /* ── Image Generation ── */
 
 async function handleGenerate() {
+    if ($generateBtn.disabled) return;
     const prompt = $prompt.value.trim();
     if (!prompt) {
         showMsg($genMsg, localeText('studio.promptRequiredImage'), 'error');
@@ -196,6 +198,7 @@ async function handleGenerate() {
     $saveBar.classList.remove('visible');
     currentImageData = null;
     currentMeta = null;
+    syncImageSaves();
 
     $preview.innerHTML = `<div class="studio__loading"><div class="studio__spinner"></div><span>${escapeHtml(localeText('studio.creatingImage'))}</span></div>`;
 
@@ -237,13 +240,13 @@ async function handleGenerate() {
     }
 
     currentImageData = `data:${mimeType};base64,${imageBase64}`;
-    currentMeta = {
+    currentMeta = Object.freeze({
         prompt: d.prompt || prompt,
         model: d.model || '',
         steps: d.steps,
         seed: d.seed,
         saveReference: typeof d.saveReference === 'string' ? d.saveReference : null,
-    };
+    });
 
     $preview.innerHTML = '';
     const img = document.createElement('img');
@@ -252,6 +255,7 @@ async function handleGenerate() {
     $preview.appendChild(img);
 
     $saveBar.classList.add('visible');
+    syncImageSaves();
     showMsg($genMsg, localeText('studio.imageGenerated'), 'success');
 
     const balanceAfter = res.data?.billing?.balance_after;
@@ -263,52 +267,121 @@ async function handleGenerate() {
 
 /* ── Save Image ── */
 
+function renderDetachedImageSave(operation) {
+    const { context } = operation;
+    if (context.identity === currentMeta) return;
+    if (!operation.notice) {
+        const notice = document.createElement('div');
+        notice.className = 'studio__msg studio__msg--info';
+        notice.dataset.imageSaveNotice = '';
+        notice.setAttribute('aria-live', 'polite');
+        notice.tabIndex = -1;
+        const image = document.createElement('img');
+        image.src = context.imageData;
+        image.alt = context.meta.prompt;
+        image.width = 72;
+        image.height = 72;
+        image.style.objectFit = 'contain';
+        const description = document.createElement('p');
+        description.style.overflowWrap = 'anywhere';
+        description.textContent = `${context.meta.prompt} · ${context.meta.model} · ${context.folderName}`;
+        const status = document.createElement('p');
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'studio__save-btn creator-create__save-btn';
+        retry.textContent = getCurrentLocale() === 'de' ? 'Dieses Bild erneut speichern' : 'Retry saving this image';
+        retry.addEventListener('click', () => {
+            if (document.activeElement === retry) notice.focus({ preventScroll: true });
+            saveImageOperation(operation);
+        });
+        notice.append(image, description, status, retry);
+        $saveBar.after(notice);
+        Object.assign(operation, { notice, status, retry });
+    }
+    operation.notice.dataset.imageSaveState = operation.pending ? 'pending' : 'failed';
+    operation.status.textContent = operation.pending ? localeText('studio.saving') : (operation.error || localeText('studio.saveFailed'));
+    operation.retry.hidden = operation.pending;
+    operation.retry.disabled = operation.pending;
+}
+
+function syncImageSaves() {
+    for (const operation of imageSaveOperations.values()) renderDetachedImageSave(operation);
+    const pending = imageSaveOperations.get(currentMeta)?.pending === true;
+    $saveBtn.disabled = pending;
+    $saveBtn.textContent = localeText(pending ? 'studio.saving' : 'studio.save');
+}
+
 async function handleSave() {
     if (!currentMeta || (!currentImageData && !currentMeta.saveReference)) return;
+    let operation = imageSaveOperations.get(currentMeta);
+    if (!operation) {
+        document.querySelectorAll('#galleryStudio [data-image-save-state="saved"]').forEach((node) => node.remove());
+        operation = { context: Object.freeze({
+            identity: currentMeta,
+            imageData: currentImageData,
+            meta: Object.freeze({ ...currentMeta }),
+            folderId: $folderSelect.value || null,
+            folderName: $folderSelect.selectedOptions[0]?.textContent || localeText('studio.assetsOption'),
+        }), pending: false, saved: false };
+        imageSaveOperations.set(currentMeta, operation);
+    }
+    await saveImageOperation(operation);
+}
 
-    $saveBtn.disabled = true;
-    $saveBtn.textContent = localeText('studio.saving');
-
-    const folderId = $folderSelect.value || null;
+async function saveImageOperation(operation) {
+    if (operation.pending || operation.saved) return;
+    operation.pending = true;
+    const { identity, imageData, meta, folderId } = operation.context;
+    syncImageSaves();
     let res;
     try {
         res = await apiAiSaveImage(
-            currentMeta.saveReference ? { saveReference: currentMeta.saveReference } : currentImageData,
-            currentMeta.prompt,
-            currentMeta.model,
-            currentMeta.steps,
-            currentMeta.seed,
+            meta.saveReference ? { saveReference: meta.saveReference } : imageData,
+            meta.prompt,
+            meta.model,
+            meta.steps,
+            meta.seed,
             folderId,
         );
         if (
             !res.ok &&
-            currentMeta.saveReference &&
-            currentImageData &&
+            meta.saveReference &&
+            imageData &&
             SAVE_REFERENCE_FALLBACK_CODES.has(res.code)
         ) {
             res = await apiAiSaveImage(
-                currentImageData,
-                currentMeta.prompt,
-                currentMeta.model,
-                currentMeta.steps,
-                currentMeta.seed,
+                imageData,
+                meta.prompt,
+                meta.model,
+                meta.steps,
+                meta.seed,
                 folderId,
             );
         }
     } catch (error) {
         console.warn('Gallery studio save failed:', error);
-        showMsg($genMsg, localeText('studio.saveFailed'), 'error');
-        return;
-    } finally {
-        $saveBtn.disabled = false;
-        $saveBtn.textContent = localeText('studio.save');
+        res = { ok: false, error: localeText('studio.saveFailed') };
     }
-
+    operation.pending = false;
     if (!res.ok) {
-        showMsg($genMsg, res.error, 'error');
+        operation.error = res.error || localeText('studio.saveFailed');
+        syncImageSaves();
+        if (document.activeElement === operation.notice) operation.retry?.focus({ preventScroll: true });
+        if (currentMeta === identity) {
+            showMsg($genMsg, `${operation.error} ${localeText('assets.folder')}: ${operation.context.folderName}.`, 'error');
+        }
         return;
     }
 
+    operation.saved = true;
+    imageSaveOperations.delete(identity);
+    if (operation.notice) {
+        operation.notice.dataset.imageSaveState = 'saved';
+        operation.notice.textContent = `${localeText('studio.imageSavedPrefix')}${meta.prompt}`;
+    }
+    if (currentMeta !== identity) return;
+
+    const restoreSaveFocus = document.activeElement === $saveBtn;
     const assetsLink = document.createElement('a');
     assetsLink.href = localizedHref('/account/assets-manager.html');
     assetsLink.className = 'studio__save-link';
@@ -318,6 +391,8 @@ async function handleSave() {
     $saveBar.classList.remove('visible');
     currentImageData = null;
     currentMeta = null;
+    syncImageSaves();
+    if (restoreSaveFocus) assetsLink.focus({ preventScroll: true });
 }
 
 /* ── Public API ── */

@@ -107,6 +107,17 @@ Do not invent commands/scripts that are not present in this repo.
 - Before committing, inspect the task diff and current remote state. Include only intended changes and preserve unrelated user work. Integrate newer remote work safely; never force-push, overwrite it, or discard changes.
 - Batch a completed task into a sensible commit or small coherent set, then push once. Leave GitHub rules and CI/deployment gates unchanged; do not bypass them, add server-side restrictions, or manually dispatch duplicate workflows started by the push.
 - Direct-push authorization includes existing automatic workflows. Manual Worker deployments, remote migrations, maintenance, destructive operations, and paid calls still require authorization within the specific task's scope.
+- Complete authorized commit/push tasks under the no-wait rule below; CI or deployment completion is not a task-completion requirement.
+
+## Commit/push completion: no CI waiting
+
+- Before an authorized commit/push, complete the required local checks and review the integrated diff. Preserve unrelated work and existing CI/security gates.
+- Run `git push` in the foreground until Git returns, and confirm the transfer result. A rejected or unclear push is not successful; do not fire and forget a background push.
+- After a confirmed push, give the handoff and end the task. Do not wait for CI, Pages or deployment completion: no `gh run watch`, `gh pr checks --watch`, sleep/poll/refresh loops, repeated status/log/build-token/live-asset queries, or five-minute monitoring window.
+- Do not delegate monitoring to subagents, background processes or automations, or start unrelated work to fill pipeline time.
+- No CI query is required. At most one optional immediate status query without a wait flag is allowed for the handoff. If no matching run is visible, use `https://github.com/bitbiai/Bitbi/actions`; do not wait for a run to appear.
+- Report commit SHA(s), confirmed push, the available run or Actions link, and any once-observed status. Mark unverified CI/deployment and live functionality explicitly as not verified. Stefan checks CI and live publication; do not promise later automatic monitoring.
+- Only a later explicit user instruction to monitor a named task changes this default. Words such as commit, push, publish or deploy alone do not authorize waiting. This rule expands no write/deployment permissions and does not override audit-only or no-push restrictions.
 
 ---
 
@@ -144,7 +155,7 @@ Reuse valid evidence for unchanged inputs; repeat checks only for a concrete rea
 - Apply auth migrations before deploying auth code that depends on them.
 - Do not assume secrets/bindings/dashboard rules exist; verify in repo docs/config and call out manual requirements.
 - Preserve current deploy ordering expectations (migrations, workers, then static) unless task explicitly changes release design.
-- For an ordinary push, check and report current CI state without prolonged polling. When a task specifically requires monitoring a static release, allow no more than five minutes total; never use `gh run watch`. Report the workflow URL and last observed status when stopping.
+- Follow “Commit/push completion: no CI waiting”. Post-push CI and live-release acceptance belong to Stefan; do not wait for or require them to finish an authorized commit/push task.
 
 ---
 
@@ -176,7 +187,7 @@ Reuse valid evidence for unchanged inputs; repeat checks only for a concrete rea
 
 ## Output/reporting requirements for Codex changes
 
-End with a short factual summary of changed files and purpose, relevant checks and limitations, commit SHA(s), push result, and current CI/deployment state. Distinguish committed, pushed, CI-passed, and actually deployed; pending or skipped checks are not passes.
+End after the confirmed push with a short factual summary of changed files and purpose, local checks and limitations, commit SHA(s), push result, and a run or Actions link. Follow “Commit/push completion: no CI waiting”: CI/deployment need not be queried; report not verified or the single immediately observed status. Never equate pushed, CI-passed and actually deployed.
 
 For substantial changes, also identify relevant schema/config/binding impact, deploy order, and manual Cloudflare follow-up. No new audit report is required by default.
 

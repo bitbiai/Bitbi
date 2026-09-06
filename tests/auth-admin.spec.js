@@ -15824,7 +15824,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminOwnerActionSummary')).toContainText('Budget switch and cap updates');
     await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: 'Operations' })).toHaveAttribute('href', '#operations');
     await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: 'R2 Drive' })).toHaveAttribute('href', '#object-storage');
-    await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: 'Speicher-Integrität' })).toHaveAttribute('href', '#tenant-assets');
+    await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: 'Storage Integrity' })).toHaveAttribute('href', '#tenant-assets');
     await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: 'News Feed Agent' })).toHaveAttribute('href', '#news-feed-agent');
     await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: 'Budget Switches' })).toHaveAttribute('href', '#ai-budget-switches');
     await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: 'Data Lifecycle safe execution' })).toHaveAttribute('href', '#lifecycle');
@@ -15837,7 +15837,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminWorkbench')).not.toContainText('Production Evidence');
     await expect(page.locator('#adminWorkbench')).toContainText('Billing Evidence');
     await expect(page.locator('#adminWorkbench')).toContainText('AI Budget Controls');
-    await expect(page.locator('#adminWorkbench')).toContainText('Speicher-Integrität');
+    await expect(page.locator('#adminWorkbench')).toContainText('Storage Integrity');
     await expect(page.locator('#adminWorkbench')).toContainText('Data Lifecycle');
     await expect(page.locator('#adminWorkbench')).toContainText('Operations Triage');
     await expect(page.locator('#adminWorkbench')).toContainText('Read-only plus guarded mutation');
@@ -15846,7 +15846,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open AI Budget Controls' })).toHaveAttribute('href', '#ai-budget-switches');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Data Lifecycle' })).toHaveAttribute('href', '#lifecycle');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Operations Triage' })).toHaveAttribute('href', '#operations');
-    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Speicher-Integrität' })).toHaveAttribute('href', '#tenant-assets');
+    await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Storage Integrity' })).toHaveAttribute('href', '#tenant-assets');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Betriebsstatus' })).toHaveCount(0);
     await expect(page.locator('#statTotal')).toHaveText('12');
 
@@ -15858,7 +15858,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('a.admin-nav__link[data-section="ai-usage"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="ai-budget-switches"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="lifecycle"]')).toBeAttached();
-    await expect(page.locator('a.admin-nav__link[data-section="tenant-assets"]')).toHaveText('Speicher-Integrität');
+    await expect(page.locator('a.admin-nav__link[data-section="tenant-assets"]')).toHaveText('Storage Integrity');
     await expect(page.locator('a.admin-nav__link[data-section="object-storage"]')).toHaveText('R2 Drive');
     await expect(page.locator('a.admin-nav__link[data-section="operations"]')).toHaveText('Operations');
     await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toHaveCount(0);
@@ -15888,7 +15888,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Storage Health / Asset Integrity');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('R2 Object Storage');
     await expect(page.getByRole('link', { name: 'Budget Controls' }).first()).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Speicher-Integrität' }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Storage Integrity' }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Operations' }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Help & Archive' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Media Data' })).toHaveCount(0);
@@ -16281,22 +16281,25 @@ test.describe('Admin Control Plane', () => {
 
     await clickAdminNavSection(page, 'tenant-assets');
     await expect(page).toHaveURL(/#tenant-assets$/);
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Speicher-Integrität');
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Status: Sauber');
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Aktuelle Speicherlage');
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Fehlende R2-Objekte');
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Riskant / prüfen');
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Löschkandidaten');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Storage Integrity');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Current storage integrity: not verified');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Historical storage baseline');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('2026-06-17T00:00:00.000Z');
+    await expect(page.locator('#tenantAssetCenter > :not(details) .badge--active')).toHaveCount(0);
+    await expect(page.locator('#sectionTenantAssets')).not.toContainText('Status: Sauber');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Missing R2 objects');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Risky review objects');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Delete candidates');
     await expect(page.locator('#sectionTenantAssets')).toContainText('bitbi-public-media');
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Dashboard sichtbar, nicht im Auth Worker gebunden');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Dashboard visible; not bound to Auth Worker');
     await expect(page.locator('#sectionTenantAssets')).toContainText('current and valid');
     await expect(page.locator('#sectionTenantAssets')).toContainText('news pulse asset');
     await expect(page.locator('#sectionTenantAssets')).toContainText('audit or legal retention keep');
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Beweis-Pfad');
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Was bewiesen ist');
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Was nicht bewiesen ist');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Evidence limits');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Historical count; current value not verified.');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('current storage-integrity check');
     await expect(page.locator('#sectionTenantAssets')).toContainText('Tenant isolation');
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Guarded actions');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Guarded tools remain in Advanced Diagnostics.');
     const tenantAdvanced = page.locator('#sectionTenantAssets details.admin-advanced-disclosure').first();
     await expect(tenantAdvanced).not.toHaveAttribute('open', '');
     await expect(page.locator('#sectionTenantAssets').getByRole('button', { name: 'Ownership Backfill danger explanation' })).toHaveCount(0);
@@ -16380,7 +16383,7 @@ test.describe('Admin Control Plane', () => {
 
     await page.goto('/admin/index.html#storage-health');
     await expect(page.locator('#sectionTenantAssets')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Speicher-Integrität');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Storage Integrity');
 
     for (const oldHash of ['readiness', 'system-status', 'operational-status', 'settings', 'content', 'media', 'access', 'reference', 'help-archive']) {
       await page.goto(`/admin/index.html#${oldHash}`);
@@ -16557,7 +16560,7 @@ test.describe('Admin Control Plane', () => {
 
     await page.goto('/admin/index.html#tenant-assets');
     await expect(page.locator('#sectionTenantAssets')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Speicher-Integrität');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Storage Integrity');
     await expect(page.locator('#adminHeroDesc')).toHaveText('Compact storage health, D1/R2 integrity, and advanced legacy diagnostics');
 
     await page.goto('/admin/index.html#users');
@@ -16583,10 +16586,10 @@ test.describe('Admin Control Plane', () => {
 
     await clickAdminNavSection(page, 'dashboard');
     await expect(page.locator('#sectionDashboard')).toBeVisible();
-    await page.locator('#adminWorkbench').getByRole('link', { name: 'Open Speicher-Integrität' }).click();
+    await page.locator('#adminWorkbench').getByRole('link', { name: 'Open Storage Integrity' }).click();
     await expect(page).toHaveURL(/#tenant-assets$/);
     await expect(page.locator('#sectionTenantAssets')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Speicher-Integrität');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Storage Integrity');
 
     await clickAdminNavSection(page, 'dashboard');
     await expect(page.locator('#adminWorkbench').getByRole('link', { name: 'Open Help & Archive' })).toHaveCount(0);
@@ -16842,7 +16845,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#operatorTimelineFilter')).toContainText('Status');
     await expect(page.locator('#operatorTimelineFilter')).toContainText('Attention');
     await expect(page.locator('#operatorTimelineList')).toContainText('Open Billing Reviews');
-    await expect(page.locator('#operatorTimelineList')).toContainText('Open Speicher-Integrität');
+    await expect(page.locator('#operatorTimelineList')).toContainText('Open Storage Integrity');
     await expect(page.locator('#operatorTimelineList')).toContainText('Open R2 Drive');
     await expect(page.locator('#operatorTimelineList')).not.toContainText('Open Betriebsstatus');
     await expect(page.locator('#operatorTimelineList')).toContainText('Copy event ID');
@@ -17272,7 +17275,7 @@ test.describe('Admin Control Plane', () => {
     await storageHealthNav.scrollIntoViewIfNeeded();
     await expect(storageHealthNav).toBeVisible();
     await storageHealthNav.click();
-    await expect(page.locator('#sectionTenantAssets')).toContainText('Speicher-Integrität');
+    await expect(page.locator('#sectionTenantAssets')).toContainText('Storage Integrity');
     await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toHaveCount(0);
     await expect(page.locator('a.admin-nav__link[data-section="settings"]')).toHaveCount(0);
 

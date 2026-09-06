@@ -20,7 +20,7 @@ const WORKBENCH_TASKS = Object.freeze([
     {
         id: 'ai-budget-controls',
         title: 'AI Budget Controls',
-        status: 'action_available',
+        status: 'guarded_actions',
         mode: 'Read-only plus guarded mutation',
         href: '#ai-budget-switches',
         probe: 'AI budget controls',
@@ -29,8 +29,8 @@ const WORKBENCH_TASKS = Object.freeze([
     },
     {
         id: 'tenant-asset-safety',
-        title: 'Speicher-Integrität',
-        status: 'ready_to_review',
+        title: 'Storage Integrity',
+        status: 'read_only_review',
         mode: 'Read-only first',
         href: '#tenant-assets',
         probe: 'Tenant asset manual review',
@@ -40,7 +40,7 @@ const WORKBENCH_TASKS = Object.freeze([
     {
         id: 'data-lifecycle',
         title: 'Data Lifecycle',
-        status: 'action_available',
+        status: 'guarded_actions',
         mode: 'Read-only plus guarded mutation',
         href: '#lifecycle',
         probe: 'Data lifecycle',
@@ -50,7 +50,7 @@ const WORKBENCH_TASKS = Object.freeze([
     {
         id: 'operations-triage',
         title: 'Operations Triage',
-        status: 'ready_to_review',
+        status: 'read_only_review',
         mode: 'Read-only',
         href: '#operations',
         probe: null,
@@ -58,12 +58,6 @@ const WORKBENCH_TASKS = Object.freeze([
         blockedReason: 'Triage evidence does not mutate live systems or prove readiness by itself.',
     },
 ]);
-
-function statusVariant(status) {
-    if (status === 'action_available' || status === 'ready_to_review') return 'active';
-    if (status === 'blocked' || status === 'unsafe_to_claim') return 'disabled';
-    return 'legacy';
-}
 
 function labelStatus(status) {
     return String(status || 'unknown').replace(/_/g, ' ');
@@ -88,12 +82,16 @@ export function renderAdminWorkbench(probes = []) {
         const article = el('article', 'admin-workbench-card');
         const top = el('div', 'admin-workbench-card__top');
         top.append(el('h4', 'admin-workbench-card__title', task.title));
-        top.appendChild(badge(labelStatus(task.status), statusVariant(task.status)));
+        top.appendChild(badge(
+            probe ? probe.status : 'Availability not checked',
+            probe?.ok === true ? 'active' : probe?.variant || 'legacy',
+        ));
         article.appendChild(top);
 
         article.appendChild(detailRows([
+            ['Implemented workflow', labelStatus(task.status)],
             ['Mode', task.mode],
-            ['API signal', probe ? probe.status : 'Not required'],
+            ['API signal', probe ? probe.status : 'Not checked'],
             ['Next safe action', task.nextAction],
             ['Blocked reason', task.blockedReason],
         ]));

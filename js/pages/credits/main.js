@@ -86,6 +86,10 @@ let subscriptionFeedbackMessage = '';
 let subscriptionDialogFocusCleanup = null;
 let checkoutReturnPolls = 0;
 let checkoutReturnPollTimer = null;
+let dashboardGeneration = 0;
+let confirmedOrganizationId = null;
+let checkoutContextGeneration = 0;
+let pendingCheckout = null;
 
 function show(node) {
     if (node) node.hidden = false;
@@ -110,6 +114,9 @@ function isAuthFailure(result) {
 }
 
 function setDenied({ sessionExpired = false } = {}) {
+    checkoutContextGeneration += 1;
+    pendingCheckout = null;
+    currentDashboard = null;
     hide($loading);
     hide($dashboard);
     hide($error);
@@ -490,8 +497,10 @@ function renderPacks(packs = [], checkoutEnabled) {
         button.type = 'button';
         button.className = 'btn btn-primary credits-pack__cta';
         button.dataset.checkoutPack = pack.id;
-        button.disabled = !checkoutEnabled;
-        button.textContent = checkoutEnabled ? localeText('credits.continueCheckout') : localeText('credits.checkoutUnavailable');
+        button.disabled = !checkoutEnabled || Boolean(pendingCheckout);
+        button.textContent = pendingCheckout?.packId === pack.id
+            ? localeText('credits.creatingCheckout')
+            : localeText(checkoutEnabled ? 'credits.continueCheckout' : 'credits.checkoutUnavailable');
         card.append(title, price, meta, button);
         $packGrid.appendChild(card);
     }
@@ -857,10 +866,20 @@ function renderDashboard(dashboard) {
 }
 
 async function loadMemberDashboard() {
+    const generation = ++dashboardGeneration;
+    // Polling refreshes data for the same account; it does not revoke the
+    // context or pending state of a checkout already requested by that member.
+    if (activeMode !== 'member') {
+        checkoutContextGeneration += 1;
+        pendingCheckout = null;
+        setMode('member');
+    }
+    confirmedOrganizationId = null;
     hide($denied);
     hide($error);
     show($loading);
     const res = await apiAccountCreditsDashboard({ limit: 50 });
+    if (generation !== dashboardGeneration) return;
     if (!res.ok) {
         if (isAuthFailure(res)) return setDenied({ sessionExpired: true });
         return setError(res.error || localeText('credits.unavailable'));
@@ -869,17 +888,37 @@ async function loadMemberDashboard() {
 }
 
 async function loadDashboard() {
-    if (!selectedOrganizationId) return setDenied();
-    hide($denied);
-    hide($error);
+    const generation = ++dashboardGeneration;
+    checkoutContextGeneration += 1;
+    pendingCheckout = null;
+    const organizationId = selectedOrganizationId;
+    confirmedOrganizationId = null;
+    currentDashboard = null;
+    // Keep the picker usable, but remove the previous organization's data/actions.
+    setNeedsOrganizationSelection();
+    $dashboard?.removeAttribute('aria-busy');
+    if (!organizationId) return;
+    if ($orgName) $orgName.textContent = eligibleOrganizations.find((org) => org.id === organizationId)?.name || localeText('credits.organization');
+    if ($accessScope) $accessScope.textContent = $loading?.textContent || '';
     show($loading);
-    const res = await apiOrganizationCreditsDashboard(selectedOrganizationId, { limit: 25 });
+    $dashboard?.setAttribute('aria-busy', 'true');
+    let res;
+    try {
+        res = await apiOrganizationCreditsDashboard(organizationId, { limit: 25 });
+    } catch {
+        res = { ok: false };
+    }
+    if (generation !== dashboardGeneration || organizationId !== selectedOrganizationId) return;
+    $dashboard?.removeAttribute('aria-busy');
     if (!res.ok) {
         if (isAuthFailure(res)) return setDenied({ sessionExpired: true });
         if (res.status === 404) return setDenied();
         return setError(res.error || localeText('credits.unavailable'));
     }
-    renderDashboard(res.data?.dashboard || {});
+    const dashboard = res.data?.dashboard;
+    if (dashboard?.organization?.id !== organizationId) return setError(localeText('credits.unavailable'));
+    confirmedOrganizationId = organizationId;
+    renderDashboard(dashboard);
 }
 
 function closeSubscriptionDialog() {
@@ -979,27 +1018,36 @@ async function openBillingPortal(button) {
 }
 
 async function startCheckout(packId, button) {
-    if (!packId) return;
-    if (activeMode !== 'member' && !selectedOrganizationId) return;
+    if (!packId || button.disabled || pendingCheckout || !currentDashboard || $dashboard?.hidden) return;
+    const mode = activeMode;
+    const organizationId = confirmedOrganizationId;
+    const generation = checkoutContextGeneration;
+    if (mode !== 'member' && (!organizationId || organizationId !== selectedOrganizationId)) return;
     if (!termsAccepted || !immediateDeliveryAccepted) {
         legalError = localeText('credits.legalError');
         renderLegalBlock(true);
         return;
     }
     const original = button.textContent;
-    button.disabled = true;
+    const operation = { generation, packId };
+    pendingCheckout = operation;
+    $packGrid?.querySelectorAll('[data-checkout-pack]').forEach((control) => { control.disabled = true; });
     button.textContent = localeText('credits.creatingCheckout');
     const payload = {
         packId,
-        idempotencyKey: idempotencyKey(packId, selectedOrganizationId),
+        idempotencyKey: idempotencyKey(packId, organizationId),
         termsAccepted: true,
         termsVersion: TERMS_VERSION,
         immediateDeliveryAccepted: true,
         acceptedAt: new Date().toISOString(),
     };
-    const res = activeMode === 'member'
+    const res = mode === 'member'
         ? await apiCreateMemberLiveCreditPackCheckout(payload)
-        : await apiCreateLiveCreditPackCheckout(selectedOrganizationId, payload);
+        : await apiCreateLiveCreditPackCheckout(organizationId, payload);
+    // A checkout response cannot redirect or replace a newly selected context.
+    if (pendingCheckout !== operation || generation !== checkoutContextGeneration || mode !== activeMode
+        || (mode !== 'member' && organizationId !== confirmedOrganizationId)) return;
+    pendingCheckout = null;
     if (!res.ok) {
         button.disabled = false;
         button.textContent = original;
@@ -1047,9 +1095,11 @@ async function init() {
 
 $orgPicker?.addEventListener('change', async () => {
     selectedOrganizationId = $orgPicker.value;
+    termsAccepted = false;
+    immediateDeliveryAccepted = false;
+    legalError = '';
     if (selectedOrganizationId) setActiveOrganizationId(selectedOrganizationId);
     else clearActiveOrganizationId();
-    if (!selectedOrganizationId) return setNeedsOrganizationSelection();
     await loadDashboard();
 });
 

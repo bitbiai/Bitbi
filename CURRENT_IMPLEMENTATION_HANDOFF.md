@@ -1,6 +1,6 @@
 # Current Implementation Handoff
 
-Date: 2026-05-21
+Date: 2026-09-06
 
 Purpose: short restart guide for future Codex sessions. The active baseline is `docs/audits/NEXT_AUDIT_BASELINE.md`.
 
@@ -14,6 +14,9 @@ This handoff is not production approval, live billing approval, legal compliance
 - Workers: `workers/auth` for primary API/auth/admin/media/billing/tenant/lifecycle work, `workers/ai` for internal AI service calls, and `workers/contact` for contact form.
 - Release/deploy contract: `config/release-compat.json`.
 - Historical audit detail is archive/background only; do not carry old audit labels forward unless a fresh audit reconfirms them.
+- OMA2 Q1 is a static-only change: Canvas saves retain identity-scoped patches and failed work; image saves retain their original result/metadata/folder; organization responses and checkout actions use a confirmed current context. No Worker, schema or API contract change is included.
+- Admin storage counts remain a dated historical baseline, not a current inventory pass. Capability availability, upload outcomes and interrupted assistant streams distinguish evidence, failure and completion. Interrupted text is excluded from follow-up assistant history.
+- Authorized commit/push work ends after local checks, diff review and confirmed foreground push, under root `AGENTS.md`, "Commit/push completion: no CI waiting". Stefan owns CI and live-release verification.
 
 ## Admin Modularization
 
@@ -27,7 +30,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Current evidence-index status is `ok:true` with `unsafeCount:0`.
 - Release-plan-aware static deploy safety is in `.github/workflows/static.yml`; Pages deploy does not deploy Workers or apply migrations.
 - Local RC/readiness/resource/rollback tools are non-mutating evidence organizers and keep readiness blocked by default.
-- `npm run test:static` most recently passed with 289 tests before this reset; rerun it when static/Admin/frontend files change.
+- Q1 regression entrypoints are `tests/oma2-q1-canvas.spec.js`, `tests/oma2-q1-member.spec.js` and `tests/oma2-q1-admin.spec.js`; run them with the relevant existing frontend suites in a safe local fixture environment. Local results do not verify deployed functionality.
 
 ## Current Blockers
 
@@ -64,9 +67,7 @@ Use broader validation such as `npm run release:preflight` before merging substa
 
 ## Recommended Next Work
 
-Recommended next track: Fresh Deep Audit From Current Baseline.
-
-Future auditors should start from `docs/audits/NEXT_AUDIT_BASELINE.md`, inspect current code/tests/docs/evidence, and produce new findings and scores from current repository state. Historical reports remain evidence/background only.
+The next implementation decision concerns compatible recovery/release prerequisites and the separate backend integrity findings L01, B03 and S01. Q1 does not resolve those risks or close the full OMA2 audit. Any follow-up implementation requires Stefan's separate explicit instruction; do not start visual expansion or another package automatically.
 
 ## Transition-fenced 0081 successor
 

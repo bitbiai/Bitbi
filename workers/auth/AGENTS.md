@@ -53,4 +53,4 @@ These rules apply specifically to `workers/auth` and override broader repo guida
 
 ## Required report for worker changes
 
-Use the root Git workflow and short completion summary, including checks, commit/push result, and current CI/deployment state. Identify migrations, Wrangler/config/binding impact, deploy order, manual setup, and limitations when relevant; no separate audit report is required.
+Use the root Git workflow and “Commit/push completion: no CI waiting”, including local checks, confirmed push and a run or Actions link. CI/deployment may remain unverified; Stefan performs post-push verification. Identify migrations, Wrangler/config/binding impact, deploy order, manual setup, and limitations when relevant; no separate audit report is required.

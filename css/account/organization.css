@@ -14,6 +14,11 @@
     padding-block-start: 0;
   }
 
+  #organizationDashboard {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .organization-warning {
     margin-block: var(--space-5);
     padding: var(--space-4) var(--space-5);

@@ -7390,10 +7390,14 @@ export function createAdminAiLab({ showToast } = {}) {
         startLiveAgentTimer(controller);
 
         const res = await apiAdminAiLiveAgent({ messages: outMessages }, { signal: controller.signal });
-        if (controller !== liveAgentState.controller) return;
+        if (controller !== liveAgentState.controller) {
+            await res.body?.cancel().catch(() => {});
+            return;
+        }
 
         if (res.aborted) {
             clearLiveAgentTimer(controller);
+            liveAgentState.controller = null;
             liveAgentSetBusy(false);
             liveAgentSetState('aborted', 'Request cancelled.');
             return;
@@ -7401,6 +7405,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         if (!res.ok) {
             clearLiveAgentTimer(controller);
+            liveAgentState.controller = null;
             liveAgentSetBusy(false);
             const code = res.code || '';
             liveAgentSetState('error', ADMIN_AI_CODE_MESSAGES[code] || res.error || 'Live agent request failed.');
@@ -7408,52 +7413,77 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         if (res.stream && res.body) {
-            // Stream SSE response
             const assistantBubble = liveAgentAppendBubble('assistant', '');
             const textSpan = assistantBubble.querySelector('span:last-child');
             assistantBubble.classList.add('admin-ai__chat-msg--streaming');
             let fullText = '';
+            let completed = false;
+            let interrupted = false;
+            let reachedEof = false;
+            let reader;
+            let eventData = [];
+
+            const consumeEvent = () => {
+                if (!eventData.length) return;
+                const data = eventData.join('\n');
+                eventData = [];
+                if (data.trim() === '[DONE]') {
+                    completed = true;
+                    return;
+                }
+                const parsed = JSON.parse(data);
+                if (parsed.error) throw new Error('Stream error event');
+                const chunk = parsed.choices?.[0]?.delta?.content ?? parsed.response ?? '';
+                if (typeof chunk === 'string' && chunk) {
+                    if (completed) throw new Error('Content after stream completion');
+                    fullText += chunk;
+                    textSpan.textContent = fullText;
+                    refs.liveAgent.transcript.scrollTop = refs.liveAgent.transcript.scrollHeight;
+                }
+            };
+            const consumeLine = (line) => {
+                const clean = line.replace(/\r$/, '');
+                if (!clean) consumeEvent();
+                else if (clean.startsWith('data:')) eventData.push(clean.slice(5).replace(/^ /, ''));
+            };
 
             try {
-                const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+                reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
                 let buffer = '';
                 while (true) {
                     const { done, value } = await reader.read();
-                    if (done) break;
+                    if (done) {
+                        reachedEof = true;
+                        break;
+                    }
                     buffer += value;
-
-                    // Parse SSE lines
                     const lines = buffer.split('\n');
                     buffer = lines.pop() || '';
-                    for (const line of lines) {
-                        if (!line.startsWith('data: ')) continue;
-                        const data = line.slice(6);
-                        if (data === '[DONE]') continue;
-                        try {
-                            const parsed = JSON.parse(data);
-                            const chunk = parsed.choices?.[0]?.delta?.content || '';
-                            if (chunk) {
-                                fullText += chunk;
-                                textSpan.textContent = fullText;
-                                refs.liveAgent.transcript.scrollTop = refs.liveAgent.transcript.scrollHeight;
-                            }
-                        } catch {
-                            // Non-JSON SSE line, skip
-                        }
-                    }
+                    for (const line of lines) consumeLine(line);
                 }
-            } catch (e) {
-                if (e?.name !== 'AbortError') {
-                    liveAgentSetState('error', 'Stream interrupted.');
+                if (buffer) consumeLine(buffer);
+                consumeEvent();
+            } catch {
+                interrupted = true;
+            } finally {
+                // Drain a normal stream through EOF: cancelling at [DONE] could mark
+                // the server-side request as cancelled instead of completed.
+                if (reader) {
+                    if (!reachedEof) await reader.cancel().catch(() => {});
+                    reader.releaseLock();
                 }
+                assistantBubble.classList.remove('admin-ai__chat-msg--streaming');
             }
 
-            if (controller !== liveAgentState.controller) {
-                assistantBubble.classList.remove('admin-ai__chat-msg--streaming');
-                return;
-            }
-            assistantBubble.classList.remove('admin-ai__chat-msg--streaming');
-            if (fullText) {
+            const isCurrent = controller === liveAgentState.controller;
+            const isComplete = isCurrent && !controller.signal.aborted && completed && !interrupted;
+            assistantBubble.dataset.completion = isComplete ? 'complete' : 'interrupted';
+            if (!isComplete) {
+                assistantBubble.querySelector('.admin-ai__chat-role').textContent = 'assistant (interrupted)';
+                if (!fullText) textSpan.textContent = 'No complete response received.';
+                if (!isCurrent) return; // Keep the existing cancel/timeout state.
+                liveAgentSetState('error', 'Stream interrupted. The incomplete response is excluded from conversation history.');
+            } else if (fullText) {
                 liveAgentState.messages.push({ role: 'assistant', content: fullText });
                 liveAgentSetState('success', 'Response received.');
                 syncLiveAgentSaveButton();

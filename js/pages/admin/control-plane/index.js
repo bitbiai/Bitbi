@@ -89,8 +89,8 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         renderCards(container, [
             {
                 title: 'Security & Policy',
-                badge: { label: 'Repo-enforced', variant: 'active' },
-                copy: 'Route policy, body parser, secret scan, fail-closed limiter, MFA, service auth, and replay protections are implemented and validated by CI/preflight.',
+                badge: { label: 'Implemented in repository', variant: 'user' },
+                copy: 'Route policy, body parser, secret scan, fail-closed limiter, MFA, service auth, and replay protections are implemented. This card does not verify current CI, deployment or live availability.',
                 href: '#security',
                 cta: 'Review posture',
             },
@@ -141,7 +141,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             {
                 title: 'Storage Health / Asset Integrity',
                 badge: { label: probes[8].status, variant: probes[8].variant },
-                copy: 'Review the clean D1/R2 baseline, bucket status, missing/risky counts, and protected owner account summary. Legacy diagnostics remain behind Advanced.',
+                copy: 'Review domain evidence and the dated historical D1/R2 baseline. Current storage integrity is not verified by this API probe. Legacy diagnostics remain behind Advanced.',
                 href: '#tenant-assets',
                 cta: 'Open health',
             },

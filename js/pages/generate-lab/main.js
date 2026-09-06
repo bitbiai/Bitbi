@@ -28,7 +28,7 @@ import { openAuthModal } from '../../shared/auth-modal.js';
 import { renderPostAuthHint } from '../../shared/auth-post-auth-hint.js?v=__ASSET_VERSION__';
 import { setupFocusTrap } from '../../shared/focus-trap.js';
 import { createSavedAssetsBrowser } from '../../shared/saved-assets-browser.js?v=__ASSET_VERSION__';
-import { localizedHref, localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
+import { getCurrentLocale, localizedHref, localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 import {
     GENERATE_LAB_MEDIA_TYPES,
     calculateGenerateLabCredits,
@@ -60,6 +60,7 @@ let assetsOverlayReturnFocus = null;
 let releaseReferenceSourceFocus = null;
 let referenceSourceDialog = null;
 let pendingReferenceRequest = null;
+const imageSaveOperations = new Map();
 const state = {
     loggedIn: false,
     user: null,
@@ -947,6 +948,7 @@ function renderEmptyResult() {
     const title = el('strong', { text: media.emptyTitle });
     const copy = el('p', { text: media.emptyCopy });
     refs.resultStage?.replaceChildren(el('div', { className: 'generate-lab__empty-state' }, marker, title, copy));
+    syncDetachedImageSaves();
 }
 
 function renderLoadingResult(text) {
@@ -1540,7 +1542,7 @@ function renderImageResult({ imageData, prompt, meta }) {
         text: localeText('generateLab.saveToAssets'),
         attrs: { type: 'button' },
     });
-    save.addEventListener('click', handleSaveImage);
+    save.addEventListener('click', () => handleSaveImage(meta, save));
     const caption = el('div', { className: 'generate-lab__result-meta' },
         el('strong', { text: meta?.modelLabel || localeText('generateLab.generatedImage') }),
         el('span', { text: localeText('generateLab.imagePrivate') }),
@@ -1550,6 +1552,7 @@ function renderImageResult({ imageData, prompt, meta }) {
         el('span', { className: 'generate-lab__result-note', text: localeText('generateLab.unsavedImageNote') }),
     );
     refs.resultStage?.replaceChildren(el('figure', { className: 'generate-lab__result-card generate-lab__result-card--image' }, img, caption, actions));
+    syncDetachedImageSaves();
 }
 
 function renderImageSavedActions() {
@@ -1753,6 +1756,7 @@ function openRecentAsset(asset) {
     state.currentResult = { type: 'recent_asset', assetId: asset.id || null };
     state.currentImageData = null;
     state.currentImageMeta = null;
+    syncDetachedImageSaves();
 
     let opened = false;
     if (isVideoAsset(asset)) {
@@ -1774,56 +1778,122 @@ function openRecentAsset(asset) {
     });
 }
 
-async function handleSaveImage() {
-    if (!state.currentImageMeta || (!state.currentImageData && !state.currentImageMeta.saveReference)) return;
-    const folderId = refs.folderSelect?.value || null;
-    setMessage(localeText('generateLab.savingImage'), 'info');
-    setWorkflowStatus('saving');
-    setCurrentResultSummary('saving');
+function syncDetachedImageSaves() {
+    for (const operation of imageSaveOperations.values()) {
+        const { context } = operation;
+        if (context.identity === state.currentImageMeta) continue;
+        if (!operation.notice) {
+            const image = el('img', { attrs: { src: context.imageData, alt: context.meta.prompt, width: 72, height: 72 } });
+            image.style.objectFit = 'contain';
+            const description = el('p', { text: `${context.meta.prompt} · ${context.meta.modelLabel || context.meta.model} · ${context.folderName}` });
+            description.style.overflowWrap = 'anywhere';
+            const status = el('p');
+            const retry = el('button', {
+                className: 'generate-lab__secondary-btn',
+                text: getCurrentLocale() === 'de' ? 'Dieses Bild erneut speichern' : 'Retry saving this image',
+                attrs: { type: 'button' },
+            });
+            const notice = el('div', {
+                className: 'generate-lab__message generate-lab__message--info',
+                attrs: { 'data-image-save-notice': '', 'aria-live': 'polite', tabindex: -1 },
+            }, image, description, status, retry);
+            retry.addEventListener('click', () => {
+                if (document.activeElement === retry) notice.focus({ preventScroll: true });
+                saveImageOperation(operation);
+            });
+            refs.resultStage?.after(notice);
+            Object.assign(operation, { notice, status, retry });
+        }
+        operation.notice.dataset.imageSaveState = operation.pending ? 'pending' : 'failed';
+        operation.status.textContent = operation.pending ? localeText('generateLab.savingImage') : (operation.error || localeText('studio.saveFailed'));
+        operation.retry.hidden = operation.pending;
+        operation.retry.disabled = operation.pending;
+    }
+}
+
+async function handleSaveImage(identity, button) {
+    if (!identity || state.currentImageMeta !== identity || (!state.currentImageData && !identity.saveReference)) return;
+    let operation = imageSaveOperations.get(identity);
+    if (!operation) {
+        refs.resultStage?.parentElement.querySelectorAll('[data-image-save-state="saved"]').forEach((node) => node.remove());
+        operation = { context: Object.freeze({
+            identity,
+            imageData: state.currentImageData,
+            meta: Object.freeze({ ...identity }),
+            folderId: refs.folderSelect?.value || null,
+            folderName: refs.folderSelect?.selectedOptions[0]?.textContent || localeText('studio.assetsOption'),
+        }), button, pending: false, saved: false };
+        imageSaveOperations.set(identity, operation);
+    }
+    await saveImageOperation(operation);
+}
+
+async function saveImageOperation(operation) {
+    if (operation.pending || operation.saved) return;
+    operation.pending = true;
+    operation.button.disabled = true;
+    const { identity, imageData, meta, folderId } = operation.context;
+    if (state.currentImageMeta === identity) {
+        setMessage(localeText('generateLab.savingImage'), 'info');
+        setWorkflowStatus('saving');
+        setCurrentResultSummary('saving');
+    }
+    syncDetachedImageSaves();
 
     let res;
     try {
         res = await apiAiSaveImage(
-            state.currentImageMeta.saveReference
-                ? { saveReference: state.currentImageMeta.saveReference }
-                : state.currentImageData,
-            state.currentImageMeta.prompt,
-            state.currentImageMeta.model,
-            state.currentImageMeta.steps,
-            state.currentImageMeta.seed,
+            meta.saveReference ? { saveReference: meta.saveReference } : imageData,
+            meta.prompt,
+            meta.model,
+            meta.steps,
+            meta.seed,
             folderId,
         );
-        if (!res.ok && state.currentImageMeta.saveReference && state.currentImageData && SAVE_REFERENCE_FALLBACK_CODES.has(res.code)) {
+        if (!res.ok && meta.saveReference && imageData && SAVE_REFERENCE_FALLBACK_CODES.has(res.code)) {
             res = await apiAiSaveImage(
-                state.currentImageData,
-                state.currentImageMeta.prompt,
-                state.currentImageMeta.model,
-                state.currentImageMeta.steps,
-                state.currentImageMeta.seed,
+                imageData,
+                meta.prompt,
+                meta.model,
+                meta.steps,
+                meta.seed,
                 folderId,
             );
         }
     } catch (error) {
         console.warn('Generate Lab image save failed:', error);
-        setMessage(localeText('generateLab.imageSaveFailedRetry', { error: localeText('studio.saveFailed') }), 'error');
-        setWorkflowStatus('attention');
-        setCurrentResultSummary('saveFailed');
-        return;
+        res = { ok: false, error: localeText('studio.saveFailed') };
     }
-
+    operation.pending = false;
+    operation.button.disabled = false;
     if (!res.ok) {
-        setMessage(localeText('generateLab.imageSaveFailedRetry', { error: res.error || localeText('studio.saveFailed') }), 'error');
-        setWorkflowStatus('attention');
-        setCurrentResultSummary('saveFailed');
+        operation.error = res.error || localeText('studio.saveFailed');
+        syncDetachedImageSaves();
+        if (document.activeElement === operation.notice) operation.retry?.focus({ preventScroll: true });
+        if (state.currentImageMeta === identity) {
+            setMessage(`${localeText('generateLab.imageSaveFailedRetry', { error: operation.error })} ${localeText('assets.folder')}: ${operation.context.folderName}.`, 'error');
+            setWorkflowStatus('attention');
+            setCurrentResultSummary('saveFailed');
+        }
         return;
     }
 
-    state.currentImageData = null;
-    state.currentImageMeta = null;
-    renderImageSavedActions();
-    setWorkflowStatus('saved');
-    setCurrentResultSummary('saved');
-    setMessage(localeText('generateLab.imageSaved'), 'success');
+    operation.saved = true;
+    imageSaveOperations.delete(identity);
+    if (operation.notice) {
+        operation.notice.dataset.imageSaveState = 'saved';
+        operation.notice.textContent = `${localeText('studio.imageSavedPrefix')}${meta.prompt}`;
+    }
+    if (state.currentImageMeta === identity) {
+        const restoreSaveFocus = document.activeElement === operation.button;
+        state.currentImageData = null;
+        state.currentImageMeta = null;
+        renderImageSavedActions();
+        if (restoreSaveFocus) refs.resultStage?.querySelector('.generate-lab__result-actions a')?.focus({ preventScroll: true });
+        setWorkflowStatus('saved');
+        setCurrentResultSummary('saved');
+        setMessage(localeText('generateLab.imageSaved'), 'success');
+    }
     await loadRecentAssets();
 }
 
@@ -1882,10 +1952,10 @@ async function generateImage(prompt) {
     const mimeType = data.mimeType || 'image/png';
     const imageData = `data:${mimeType};base64,${data.imageBase64}`;
     state.currentImageData = imageData;
-    state.currentImageMeta = {
+    state.currentImageMeta = Object.freeze({
         prompt: data.prompt || prompt,
         model: data.model || model,
-        modelLabel: selectedModel().displayName,
+        modelLabel: currentModel.displayName,
         steps: data.steps,
         seed: data.seed,
         quality: data.quality,
@@ -1897,7 +1967,7 @@ async function generateImage(prompt) {
         background: data.background,
         referenceImageCount: data.referenceImageCount,
         saveReference: typeof data.saveReference === 'string' ? data.saveReference : null,
-    };
+    });
     renderImageResult({ imageData, prompt, meta: state.currentImageMeta });
     return res;
 }
@@ -1990,6 +2060,9 @@ async function handleGenerate() {
     setWorkflowStatus('generating');
     setCurrentResultSummary('generating');
     setBusy(true, state.mediaType === 'music' ? localeText('generateLab.generatingMusic') : state.mediaType === 'video' ? localeText('generateLab.generatingVideo') : localeText('generateLab.generatingImage'));
+    state.currentImageData = null;
+    state.currentImageMeta = null;
+    syncDetachedImageSaves();
     renderLoadingResult(state.mediaType === 'music'
         ? localeText('generateLab.creatingTrack')
         : state.mediaType === 'video'

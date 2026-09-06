@@ -195,6 +195,7 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
         search: '',
         clipboard: null,
         uploadMaxBytes: 0,
+        uploading: false,
         loaded: false,
         bound: false,
         searchTimer: 0,
@@ -440,24 +441,50 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
     }
 
     async function handleUploadFiles(files) {
-        if (!files?.length) return;
-        const reason = promptReason(`Upload ${files.length} file(s) to ${state.bucket}/${state.prefix}`);
+        if (!files?.length || state.uploading) return;
+        const batch = Array.from(files);
+        const bucket = state.bucket;
+        const prefix = state.prefix;
+        const reason = promptReason(`Upload ${batch.length} file(s) to ${bucket}/${prefix}`);
         if (!reason) return;
-        for (const file of Array.from(files)) {
-            const response = await apiAdminR2UploadObject({
-                bucket: state.bucket,
-                prefix: state.prefix,
-                file,
-                reason,
-                overwrite: false,
-            });
-            if (!response.ok) {
-                notify?.(response.error || `Upload failed for ${file.name}.`, 'error');
-                break;
+        let succeeded = 0;
+        let failed = 0;
+        let unconfirmed = 0;
+        let failure = '';
+        state.uploading = true;
+        byId('objectStorageUploadBtn').disabled = true;
+        const result = byId('objectStorageUploadResult');
+        renderStatus(result, `Uploading ${batch.length} file(s) to ${bucket}/${prefix}...`);
+        try {
+            for (const file of batch) {
+                let response;
+                try {
+                    response = await apiAdminR2UploadObject({ bucket, prefix, file, reason, overwrite: false });
+                } catch {
+                    response = { ok: false, code: 'network_error' };
+                }
+                if (!response.ok) {
+                    if (response.code === 'network_error' || response.status === 0) {
+                        unconfirmed += 1;
+                        failure = ` ${file.name}: Upload request failed; the object outcome is unknown. Verify the object before retrying.`;
+                    } else {
+                        failed += 1;
+                        failure = ` ${file.name}: ${response.error || 'Upload failed.'}`;
+                    }
+                    break;
+                }
+                succeeded += 1;
             }
+            const notAttempted = batch.length - succeeded - failed - unconfirmed;
+            const message = `Upload result: ${succeeded} succeeded, ${failed} failed, ${notAttempted} not attempted${unconfirmed ? `, ${unconfirmed} unconfirmed` : ''}.${failure}`;
+            const tone = failed || unconfirmed ? 'error' : 'success';
+            renderStatus(result, message, tone);
+            notify?.(message, tone);
+            await loadObjects();
+        } finally {
+            state.uploading = false;
+            byId('objectStorageUploadBtn').disabled = false;
         }
-        notify?.('Upload completed.', 'success');
-        await loadObjects();
     }
 
     function copy(mode) {
@@ -613,6 +640,11 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
         stateLine.id = 'objectStorageState';
         stateLine.setAttribute('aria-live', 'polite');
         root.append(stateLine);
+        const uploadResult = el('div', 'admin-state');
+        uploadResult.id = 'objectStorageUploadResult';
+        uploadResult.setAttribute('role', 'status');
+        uploadResult.setAttribute('aria-live', 'polite');
+        root.append(uploadResult);
 
         const layout = el('div', 'admin-r2-layout');
         const sidebar = el('aside', 'admin-r2-sidebar');

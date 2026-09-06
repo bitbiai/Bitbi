@@ -30,7 +30,7 @@ const SECTION_META = {
     lifecycle: { title: 'Data Lifecycle', desc: 'Export, deletion planning, archive, and retention operations' },
     operations: { title: 'Operations', desc: 'Operator timeline, triage, async AI video diagnostics, and review queues' },
     'object-storage': { title: 'R2 Object Storage', desc: 'Live admin drive for configured Cloudflare R2 buckets, protected by Admin/MFA/audit controls' },
-    'tenant-assets': { title: 'Speicher-Integrität', desc: 'Compact storage health, D1/R2 integrity, and advanced legacy diagnostics' },
+    'tenant-assets': { title: 'Storage Integrity', desc: 'Compact storage health, D1/R2 integrity, and advanced legacy diagnostics' },
     users: { title: 'User Management', desc: 'Manage users, roles, and sessions' },
     'ai-lab': { title: 'AI Lab', desc: 'Admin-only AI tests, previews, and model comparisons' },
     'news-feed-agent': { title: 'News Feed Agent', desc: 'News Pulse visibility, active items, and irreversible cleanup' },

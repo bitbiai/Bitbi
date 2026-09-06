@@ -38,6 +38,7 @@ Produce a deployment checklist for completed bitbi.ai changes. This skill determ
    - secrets update
 5. Recommend deploy ordering.
 6. State exactly what was verified and what remains manual.
+7. Follow root `AGENTS.md`, “Commit/push completion: no CI waiting”. Required local checks and diff review precede commit/push; after confirming the foreground push, hand off and stop. Do not monitor CI or live publication, directly or through subagents/background work. Stefan owns post-push verification; at most one optional immediate CI query is allowed.
 
 # Repository-Specific Constraints
 

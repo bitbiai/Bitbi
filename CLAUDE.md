@@ -122,6 +122,8 @@ Do not invent commands. Do not run deploy or remote mutation commands during aud
 
 ## Reporting
 
+Follow root `AGENTS.md`, “Commit/push completion: no CI waiting”: complete required local checks and diff review, confirm the foreground push, hand off and stop. CI/deployment verification belongs to Stefan; no waiting or delegated monitoring. At most one optional immediate CI status query is allowed.
+
 For substantial changes, report:
 
 - Exact files changed.

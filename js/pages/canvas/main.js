@@ -1,13 +1,13 @@
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initAuthEntryActions } from '../../shared/auth-entry-actions.js?v=__ASSET_VERSION__';
 import { canvasApi } from './api.js?v=__ASSET_VERSION__';
-import { createCanvasState, createDebouncedTask } from './state.js?v=__ASSET_VERSION__';
+import { createCanvasState, createCanvasSaveQueue } from './state.js?v=__ASSET_VERSION__';
 import { createCanvasGraph } from './graph.js?v=__ASSET_VERSION__';
 import { analyzeWorkflow, validationForNode, upstreamDisplayNode } from './workflow.js?v=__ASSET_VERSION__';
 
 const isGerman = document.documentElement.lang === 'de';
 const copy = isGerman ? {
-    saved: 'Gespeichert', saving: 'Wird gespeichert', unsaved: 'Ungespeicherte Änderungen', saveFailed: 'Speichern fehlgeschlagen',
+    saved: 'Gespeichert', saving: 'Wird gespeichert', unsaved: 'Ungespeicherte Änderungen', saveFailed: 'Speichern fehlgeschlagen', retrySave: 'Speichern wiederholen',
     newProject: 'Neue Canvas', projectPrompt: 'Name der Canvas', renamePrompt: 'Canvas umbenennen', deleteProject: 'Diese Canvas löschen? Assets bleiben im Assets Manager erhalten.',
     deleteNode: 'Diesen Node löschen? Das zugrunde liegende Asset bleibt erhalten.', deleteEdge: 'Diese Verbindung löschen?',
     selectedNode: 'Node ausgewählt', selectedEdge: 'Verbindung ausgewählt', selectNode: 'Wähle einen Node zum Bearbeiten',
@@ -25,7 +25,7 @@ const copy = isGerman ? {
     promptRequired: 'Füge einen direkten Prompt hinzu oder verbinde einen Text-Node.', selectedModel: 'Das ausgewählte Modell', imageInputUnsupported: '{model} unterstützt in Canvas keinen Bild-Input.', videoInputUnsupported: '{model} unterstützt in Canvas keinen Video-Input, keine Fortsetzung und keine Erweiterung.', audioInputUnsupported: 'Das ausgewählte Modell akzeptiert keinen Audio-Asset-Input.', jsonInputUnsupported: 'Das ausgewählte Modell akzeptiert keinen JSON-Workflow-Input.', noUsableOutput: 'Die verbundene Quelle hat noch keine nutzbare Ausgabe.',
     quickCreated: 'Text → Bild → Video wurde erstellt. Führe die Nodes von links nach rechts aus.', quickFailed: 'Der schnelle Workflow konnte nicht vollständig erstellt werden.', organizationSelect: 'Organisation auswählen', organizationRequired: 'Wähle eine aktive Organisation für dieses Modell.',
 } : {
-    saved: 'Saved', saving: 'Saving', unsaved: 'Unsaved changes', saveFailed: 'Save failed',
+    saved: 'Saved', saving: 'Saving', unsaved: 'Unsaved changes', saveFailed: 'Save failed', retrySave: 'Retry saving',
     newProject: 'New Canvas', projectPrompt: 'Canvas name', renamePrompt: 'Rename Canvas', deleteProject: 'Delete this Canvas? Assets will remain in Assets Manager.',
     deleteNode: 'Delete this node? Its underlying asset will remain available.', deleteEdge: 'Delete this connection?',
     selectedNode: 'Node selected', selectedEdge: 'Connection selected', selectNode: 'Select a node to edit it',
@@ -59,6 +59,7 @@ const dom = Object.freeze({
 const store = createCanvasState();
 let assetsCache = null;
 let runningNodeId = null;
+let projectTransition = false;
 let toastTimer = 0;
 const pendingRunKeys = new Map();
 let workflowAnalysis = { byNode: new Map(), edgeStates: new Map() };
@@ -83,35 +84,97 @@ function errorMessage(result) {
 }
 
 function renderSaveState() {
-    const { saving, saveError } = store.state;
-    const pending = nodeSave.pending || projectSave.pending;
+    const node = nodeSave.status;
+    const project = projectSave.status;
+    const saving = node.inflight + project.inflight;
+    const saveError = node.failed + project.failed > 0;
+    const pending = node.pending + project.pending > 0;
     const value = saveError ? copy.saveFailed : saving > 0 ? copy.saving : pending ? copy.unsaved : copy.saved;
     dom.save.textContent = value;
     dom.save.dataset.state = saveError ? 'error' : saving > 0 ? 'saving' : pending ? 'unsaved' : 'saved';
+    retrySave.hidden = !saveError;
+    retrySave.disabled = saving > 0;
 }
 
-const projectSave = createDebouncedTask(async (projectId, body) => {
-    store.beginSave();
-    const result = await canvasApi.updateProject(projectId, body);
-    store.endSave(result.ok);
-    if (result.ok && store.state.project?.id === projectId) {
-        store.state.project = result.data.project;
-        const index = store.state.projects.findIndex((project) => project.id === projectId);
-        if (index >= 0) store.state.projects[index] = result.data.project;
-        renderProjects();
-    } else if (!result.ok) showToast(errorMessage(result));
-}, 650);
+// Keep object identities used by inspector and drag handlers. An old full-record
+// reply may confirm only its own fields, never replace newer edits or outputs.
+function applyConfirmedPatch(target, confirmed, patch, pending) {
+    if (!target || !confirmed) return;
+    for (const key of Object.keys(patch)) {
+        if (Object.prototype.hasOwnProperty.call(pending, key)) continue;
+        if (JSON.stringify(target[key]) === JSON.stringify(patch[key])) target[key] = confirmed[key];
+    }
+    target.updated_at = confirmed.updated_at;
+}
 
-const nodeSave = createDebouncedTask(async (projectId, nodeId, body) => {
-    store.beginSave();
-    const result = await canvasApi.updateNode(projectId, nodeId, body);
-    store.endSave(result.ok);
-    if (result.ok) {
-        const index = store.state.nodes.findIndex((node) => node.id === nodeId);
-        if (index >= 0) store.state.nodes[index] = result.data.node;
-        renderGraph();
-    } else showToast(errorMessage(result));
-}, 550);
+function checkedSaveResult(result, record, id, patch, projectId = null) {
+    if (!result.ok) return result;
+    const valid = record && !Array.isArray(record) && record.id === id
+        && (!projectId || record.project_id === projectId)
+        && Object.keys(patch).every((key) => Object.prototype.hasOwnProperty.call(record, key));
+    return valid ? result : { ok: false, code: 'invalid_save_response', error: copy.networkError };
+}
+
+const projectSave = createCanvasSaveQueue({
+    save: async (projectId, patch) => {
+        const result = await canvasApi.updateProject(projectId, patch);
+        return checkedSaveResult(result, result.data?.project, projectId, patch);
+    },
+    delay: 650,
+    onChange: renderSaveState,
+    onError: (result) => showToast(errorMessage(result)),
+    onConfirm(result, { identity: [projectId], patch, pending }) {
+        const project = store.state.projects.find((item) => item.id === projectId);
+        applyConfirmedPatch(project, result.data.project, patch, pending);
+        if (store.state.project?.id === projectId) applyConfirmedPatch(store.state.project, result.data.project, patch, pending);
+        renderProjects();
+    },
+});
+
+const nodeSave = createCanvasSaveQueue({
+    save: async (projectId, nodeId, patch) => {
+        const result = await canvasApi.updateNode(projectId, nodeId, patch);
+        return checkedSaveResult(result, result.data?.node, nodeId, patch, projectId);
+    },
+    onChange: renderSaveState,
+    onError: (result) => showToast(errorMessage(result)),
+    onConfirm(result, { identity: [projectId, nodeId], patch, pending }) {
+        if (store.state.project?.id !== projectId) return;
+        const node = store.state.nodes.find((item) => item.id === nodeId);
+        applyConfirmedPatch(node, result.data.node, patch, pending);
+        // Replacing graph DOM here would interrupt a drag whose pointer is
+        // still captured. Local graph/inspector objects already contain edits.
+        if (!dom.nodes.querySelector('.is-dragging') && !dom.nodes.contains(document.activeElement)) renderGraph();
+    },
+});
+
+const retrySave = el('button', 'canvas-button', copy.retrySave);
+retrySave.id = 'canvasRetrySave';
+retrySave.type = 'button';
+retrySave.hidden = true;
+dom.save.after(retrySave);
+retrySave.addEventListener('click', () => void flushSaves());
+
+async function flushSaves() {
+    do {
+        const results = await Promise.all([nodeSave.flush(), projectSave.flush()]);
+        if (!results.every(Boolean)) { showToast(copy.saveFailed); return false; }
+    } while (nodeSave.dirty || projectSave.dirty);
+    return true;
+}
+
+async function withProjectTransition(task) {
+    if (projectTransition || runningNodeId) return false;
+    projectTransition = true;
+    dom.app.inert = true;
+    try {
+        if (!await flushSaves()) return false;
+        return await task();
+    } finally {
+        projectTransition = false;
+        dom.app.inert = false;
+    }
+}
 
 store.subscribe(renderSaveState);
 
@@ -211,16 +274,21 @@ function selectControl(options, value) {
 
 function scheduleNode(node, patch) {
     Object.assign(node, patch);
-    nodeSave.schedule(store.state.project.id, node.id, patch);
+    nodeSave.schedule(node.project_id, node.id, patch);
     renderSaveState();
+}
+
+function scheduleProject(projectId, patch) {
+    const project = store.state.projects.find((item) => item.id === projectId);
+    if (project) Object.assign(project, patch);
+    if (store.state.project?.id === projectId) Object.assign(store.state.project, patch);
+    projectSave.schedule(projectId, patch);
 }
 
 function bindConfig(node, control, key, parser = (value) => value) {
     control.addEventListener('input', () => {
         const config = { ...(node.config || {}), [key]: parser(control.type === 'checkbox' ? control.checked : control.value) };
-        node.config = config;
-        nodeSave.schedule(store.state.project.id, node.id, { config });
-        renderSaveState();
+        scheduleNode(node, { config });
     });
 }
 
@@ -324,7 +392,7 @@ function renderInspector() {
         text.maxLength = 12000;
         text.addEventListener('input', () => {
             const content = { ...(node.content || {}), [node.type === 'text_prompt' ? 'prompt' : 'text']: text.value };
-            node.content = content; nodeSave.schedule(store.state.project.id, node.id, { content }); renderSaveState();
+            scheduleNode(node, { content });
         });
         dom.inspector.append(field(copy.text, text));
     }
@@ -335,7 +403,7 @@ function renderInspector() {
         const models = store.state.models.filter((model) => model.capability === capability);
         const model = models.find((item) => item.id === node.model_id) || models.find((item) => item.runnable) || null;
         const modelSelect = selectControl(models.map((item) => ({ value: item.id, label: `${item.label}${item.runnable ? '' : ` — ${copy.disabled}`}` })), model?.id);
-        modelSelect.addEventListener('change', () => { node.model_id = modelSelect.value; nodeSave.schedule(store.state.project.id, node.id, { model_id: node.model_id }); renderSaveState(); window.setTimeout(renderInspector); });
+        modelSelect.addEventListener('change', () => { scheduleNode(node, { model_id: modelSelect.value }); window.setTimeout(renderInspector); });
         dom.inspector.append(field(copy.model, modelSelect));
         if (model) {
             dom.inspector.append(el('p', 'canvas-model-note', model.runnable ? model.description : model.disabledReason));
@@ -405,7 +473,7 @@ const graph = createCanvasGraph({
             renderInspector();
         }
     },
-    onMoveEnd(node) { nodeSave.schedule(store.state.project.id, node.id, { x: node.x, y: node.y }); renderSaveState(); },
+    onMoveEnd(node) { scheduleNode(node, { x: node.x, y: node.y }); },
     onPort(nodeId, direction) {
         if (direction === 'out') {
             store.state.connecting = true; store.state.connectionSourceId = nodeId; dom.hint.textContent = copy.connectTarget; renderGraph();
@@ -418,40 +486,44 @@ async function createProject() {
     const suggested = copy.newProject;
     const title = window.prompt(copy.projectPrompt, suggested);
     if (title === null || !title.trim()) return;
-    const result = await canvasApi.createProject({ title: title.trim(), locale: isGerman ? 'de' : 'en' });
-    if (!result.ok) return showToast(errorMessage(result));
-    store.state.projects.unshift(result.data.project);
-    await openProject(result.data.project.id);
-    showToast(copy.projectCreated);
+    return withProjectTransition(async () => {
+        const result = await canvasApi.createProject({ title: title.trim(), locale: isGerman ? 'de' : 'en' });
+        if (!result.ok) return showToast(errorMessage(result));
+        store.state.projects.unshift(result.data.project);
+        if (await loadProject(result.data.project.id)) showToast(copy.projectCreated);
+    });
 }
 
 async function renameProject(project) {
     const next = window.prompt(copy.renamePrompt, project.title);
     if (next === null) return;
     if (next.trim() && next.trim() !== project.title) {
-        const renamed = await canvasApi.updateProject(project.id, { title: next.trim() });
-        if (!renamed.ok) return showToast(errorMessage(renamed));
-        const index = store.state.projects.findIndex((item) => item.id === project.id);
-        store.state.projects[index] = renamed.data.project;
-        if (store.state.project?.id === project.id) { store.state.project = renamed.data.project; dom.title.value = renamed.data.project.title; }
+        scheduleProject(project.id, { title: next.trim() });
+        if (store.state.project?.id === project.id) dom.title.value = next.trim();
         renderProjects();
+        await projectSave.flush(project.id);
     }
 }
 
 async function deleteProject(project) {
     if (!window.confirm(copy.deleteProject)) return;
-    const deleted = await canvasApi.deleteProject(project.id);
-    if (!deleted.ok) return showToast(errorMessage(deleted));
-    store.state.projects = store.state.projects.filter((item) => item.id !== project.id);
-    if (store.state.project?.id === project.id) {
-        store.state.project = null; store.state.nodes = []; store.state.edges = []; store.state.runs = [];
-        if (store.state.projects[0]) await openProject(store.state.projects[0].id); else { dom.title.value = copy.newProject; renderAll(); }
-    } else renderProjects();
-    showToast(copy.projectDeleted);
+    return withProjectTransition(async () => {
+        const deleted = await canvasApi.deleteProject(project.id);
+        if (!deleted.ok) return showToast(errorMessage(deleted));
+        store.state.projects = store.state.projects.filter((item) => item.id !== project.id);
+        if (store.state.project?.id === project.id) {
+            store.state.project = null; store.state.nodes = []; store.state.edges = []; store.state.runs = [];
+            if (store.state.projects[0]) await loadProject(store.state.projects[0].id); else { dom.title.value = copy.newProject; renderAll(); }
+        } else renderProjects();
+        showToast(copy.projectDeleted);
+    });
 }
 
-async function openProject(projectId) {
-    await Promise.all([nodeSave.flush(), projectSave.flush()]);
+function openProject(projectId) {
+    return withProjectTransition(() => loadProject(projectId));
+}
+
+async function loadProject(projectId) {
     const result = await canvasApi.getProject(projectId);
     if (!result.ok) return showToast(errorMessage(result));
     store.state.project = result.data.project;
@@ -462,10 +534,12 @@ async function openProject(projectId) {
     dom.title.value = result.data.project.title;
     renderAll();
     dom.viewport.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+    return true;
 }
 
 async function addNode() {
     if (!store.state.project) { await createProject(); if (!store.state.project) return; }
+    const projectId = store.state.project.id;
     const type = dom.nodeType.value;
     const capability = ({ text_generation: 'text', image_generation: 'image', video_generation: 'video', music_generation: 'music' })[type];
     const model = store.state.models.find((item) => item.capability === capability && item.runnable);
@@ -478,13 +552,16 @@ async function addNode() {
         config: capability ? { prompt: '', ...(capability === 'text' ? { maxTokens: model?.controls?.maxTokens?.default || 500, temperature: .7 } : {}) } : {},
         content: {},
     };
-    const result = await canvasApi.createNode(store.state.project.id, body);
+    const result = await canvasApi.createNode(projectId, body);
     if (!result.ok) return showToast(errorMessage(result));
-    store.state.nodes.push(result.data.node); store.state.selected = { kind: 'node', id: result.data.node.id }; renderAll(); showToast(copy.nodeAdded);
+    if (store.state.project?.id !== projectId) return;
+    if (!store.state.nodes.some((node) => node.id === result.data.node.id)) store.state.nodes.push(result.data.node);
+    store.state.selected = { kind: 'node', id: result.data.node.id }; renderAll(); showToast(copy.nodeAdded);
 }
 
 async function createQuickTextImageVideo() {
     if (!store.state.project) { await createProject(); if (!store.state.project) return; }
+    const projectId = store.state.project.id;
     const textModel = store.state.models.find((model) => model.capability === 'text' && model.runnable);
     const imageModel = store.state.models.find((model) => model.capability === 'image' && model.runnable);
     const videoModel = store.state.models.find((model) => model.capability === 'video' && model.runnable && model.controls?.supportsImageInput);
@@ -500,19 +577,23 @@ async function createQuickTextImageVideo() {
     const created = [];
     try {
         for (const definition of definitions) {
-            const result = await canvasApi.createNode(store.state.project.id, definition);
+            const result = await canvasApi.createNode(projectId, definition);
             if (!result.ok) throw new Error(errorMessage(result));
-            created.push(result.data.node); store.state.nodes.push(result.data.node);
+            created.push(result.data.node);
+            if (store.state.project?.id === projectId && !store.state.nodes.some((node) => node.id === result.data.node.id)) store.state.nodes.push(result.data.node);
         }
         for (let index = 0; index < created.length - 1; index += 1) {
-            const result = await canvasApi.createEdge(store.state.project.id, { source_node_id: created[index].id, target_node_id: created[index + 1].id });
+            const result = await canvasApi.createEdge(projectId, { source_node_id: created[index].id, target_node_id: created[index + 1].id });
             if (!result.ok) throw new Error(errorMessage(result));
-            store.state.edges.push(result.data.edge);
+            if (store.state.project?.id === projectId && !store.state.edges.some((edge) => edge.id === result.data.edge.id)) store.state.edges.push(result.data.edge);
         }
-        store.state.selected = { kind: 'node', id: created[0].id };
-        renderAll(); showToast(copy.quickCreated);
+        if (store.state.project?.id === projectId) {
+            store.state.selected = { kind: 'node', id: created[0].id };
+            renderAll(); showToast(copy.quickCreated);
+        }
     } catch (error) {
-        renderAll(); showToast(error?.message || copy.quickFailed);
+        if (store.state.project?.id === projectId) renderAll();
+        showToast(error?.message || copy.quickFailed);
     } finally {
         dom.quickTextImageVideo.disabled = false;
     }
@@ -521,9 +602,12 @@ async function createQuickTextImageVideo() {
 async function connectNodes(sourceId, targetId) {
     if (sourceId === targetId) return showToast(copy.selfEdge);
     if (store.state.edges.some((edge) => edge.source_node_id === sourceId && edge.target_node_id === targetId)) return showToast(copy.duplicateEdge);
-    const result = await canvasApi.createEdge(store.state.project.id, { source_node_id: sourceId, target_node_id: targetId });
+    const projectId = store.state.project.id;
+    const result = await canvasApi.createEdge(projectId, { source_node_id: sourceId, target_node_id: targetId });
     if (!result.ok) return showToast(errorMessage(result));
-    store.state.edges.push(result.data.edge); store.state.selected = { kind: 'edge', id: result.data.edge.id }; store.state.connecting = false; store.state.connectionSourceId = null; renderGraph(); renderInspector(); showToast(copy.connected);
+    if (store.state.project?.id !== projectId) return;
+    if (!store.state.edges.some((edge) => edge.id === result.data.edge.id)) store.state.edges.push(result.data.edge);
+    store.state.selected = { kind: 'edge', id: result.data.edge.id }; store.state.connecting = false; store.state.connectionSourceId = null; renderGraph(); renderInspector(); showToast(copy.connected);
 }
 
 async function deleteSelection() {
@@ -531,29 +615,41 @@ async function deleteSelection() {
     if (!selected || !store.state.project) return;
     const confirmed = window.confirm(selected.kind === 'node' ? copy.deleteNode : copy.deleteEdge);
     if (!confirmed) return;
-    const result = selected.kind === 'node' ? await canvasApi.deleteNode(store.state.project.id, selected.id) : await canvasApi.deleteEdge(store.state.project.id, selected.id);
-    if (!result.ok) return showToast(errorMessage(result));
-    if (selected.kind === 'node') {
-        store.state.nodes = store.state.nodes.filter((node) => node.id !== selected.id);
-        store.state.edges = store.state.edges.filter((edge) => edge.source_node_id !== selected.id && edge.target_node_id !== selected.id);
-    } else store.state.edges = store.state.edges.filter((edge) => edge.id !== selected.id);
-    store.state.selected = null; renderAll();
+    return withProjectTransition(async () => {
+        const result = selected.kind === 'node' ? await canvasApi.deleteNode(store.state.project.id, selected.id) : await canvasApi.deleteEdge(store.state.project.id, selected.id);
+        if (!result.ok) return showToast(errorMessage(result));
+        if (selected.kind === 'node') {
+            store.state.nodes = store.state.nodes.filter((node) => node.id !== selected.id);
+            store.state.edges = store.state.edges.filter((edge) => edge.source_node_id !== selected.id && edge.target_node_id !== selected.id);
+        } else store.state.edges = store.state.edges.filter((edge) => edge.id !== selected.id);
+        store.state.selected = null; renderAll();
+    });
 }
 
 async function assignAsset(node, assetId) {
-    const result = await canvasApi.setAssetReference(store.state.project.id, node.id, assetId);
-    if (!result.ok) return showToast(errorMessage(result));
-    node.asset_id = result.data.asset.id; node.content = { asset: result.data.asset }; renderGraph(); renderInspector();
+    return withProjectTransition(async () => {
+        const result = await canvasApi.setAssetReference(node.project_id, node.id, assetId);
+        if (!result.ok) return showToast(errorMessage(result));
+        node.asset_id = result.data.asset.id; node.content = { asset: result.data.asset }; renderGraph(); renderInspector();
+    });
 }
 
 async function runSelectedNode(node) {
-    await Promise.all([nodeSave.flush(), projectSave.flush()]);
+    if (runningNodeId || projectTransition) return;
+    // Freeze editing only while the exact graph for this run is being saved.
+    // The API request itself is not treated as cancelled by a browser close.
+    let saved = false;
+    await withProjectTransition(async () => {
+        runningNodeId = node.id;
+        saved = true;
+    });
+    if (!saved) return;
     workflowAnalysis = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy);
     const validation = validationForNode(node, workflowAnalysis.byNode.get(node.id), copy);
-    if (validation) return showToast(validation);
+    if (validation) { runningNodeId = null; return showToast(validation); }
     const model = store.state.models.find((item) => item.id === node.model_id);
     const organizationId = model?.requiresOrganization ? store.state.selectedOrganizationId : null;
-    if (model?.requiresOrganization && !organizationId) return showToast(copy.organizationRequired);
+    if (model?.requiresOrganization && !organizationId) { runningNodeId = null; return showToast(copy.organizationRequired); }
     runningNodeId = node.id; renderInspector();
     const status = document.getElementById('canvasNodeRunStatus');
     if (status) status.textContent = copy.running;
@@ -617,9 +713,7 @@ function bindEvents() {
     dom.deleteSelection.addEventListener('click', () => void deleteSelection());
     dom.title.addEventListener('input', () => {
         if (!store.state.project) return;
-        store.state.project.title = dom.title.value;
-        projectSave.schedule(store.state.project.id, { title: dom.title.value });
-        renderSaveState();
+        scheduleProject(store.state.project.id, { title: dom.title.value });
     });
     dom.title.addEventListener('blur', () => void projectSave.flush());
     dom.viewport.addEventListener('click', (event) => {
@@ -631,7 +725,7 @@ function bindEvents() {
         event.preventDefault(); void deleteSelection();
     });
     window.addEventListener('beforeunload', (event) => {
-        if (!nodeSave.pending && !projectSave.pending && store.state.saving === 0) return;
+        if (!nodeSave.dirty && !projectSave.dirty && !runningNodeId) return;
         event.preventDefault(); event.returnValue = '';
     });
 }
