@@ -34,11 +34,11 @@ export function prepareBuild(artifactParent = os.tmpdir()) {
   assert.ok(relativeParent === '..' || relativeParent.startsWith(`..${path.sep}`) || path.isAbsolute(relativeParent), 'Runtime artifacts must be outside repository');
   const workDir = fs.mkdtempSync(path.join(absoluteParent, 'bitbi-q2-runtime-'));
   fs.chmodSync(workDir, 0o700);
-  for (const folder of ['tmp', 'cache', 'registry', 'build', 'input', 'xdg']) fs.mkdirSync(path.join(workDir, folder));
+  for (const folder of ['tmp', 'cache', 'registry', 'build', 'input', 'xdg', 'home']) fs.mkdirSync(path.join(workDir, folder), { mode: 0o700 });
   const preserved = {};
   for (const key of ['PATH', 'SystemRoot', 'SYSTEMROOT', 'WINDIR']) if (process.env[key]) preserved[key] = process.env[key];
   for (const key of Object.keys(process.env)) delete process.env[key];
-  Object.assign(process.env, preserved, { TMPDIR: path.join(workDir, 'tmp'), TEMP: path.join(workDir, 'tmp'), TMP: path.join(workDir, 'tmp'),
+  Object.assign(process.env, preserved, { HOME: path.join(workDir, 'home'), TMPDIR: path.join(workDir, 'tmp'), TEMP: path.join(workDir, 'tmp'), TMP: path.join(workDir, 'tmp'),
     TZ: 'UTC', CI: '1', DO_NOT_TRACK: '1', NO_UPDATE_CHECK: '1', WRANGLER_SEND_METRICS: 'false', WRANGLER_SEND_ERROR_REPORTS: 'false',
     WRANGLER_HIDE_BANNER: 'true', WRANGLER_NO_SKILLS_UPDATE_PROMPTS: 'true', CLOUDFLARE_CF_FETCH_ENABLED: 'false',
     WRANGLER_CACHE_DIR: path.join(workDir, 'cache'), WRANGLER_LOG_PATH: path.join(workDir, 'wrangler-logs'),

@@ -15,7 +15,7 @@
     "test:assets-manager": "playwright test -c playwright.config.js tests/assets-manager-focused.spec.js --project=chromium",
     "test:auth": "playwright test -c playwright.config.js tests/auth-admin.spec.js tests/wallet-nav.spec.js --project=chromium",
     "test:workers": "playwright test -c playwright.workers.config.js && npm run test:q2-runtime",
-    "test:q2-runtime": "node --test tests/q2-recovery-staging.test.mjs && node scripts/test-q2-runtime.mjs",
+    "test:q2-runtime": "node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs && node scripts/test-q2-runtime.mjs",
     "test:headed": "playwright test -c playwright.config.js --headed",
     "test:release-compat": "node scripts/test-release-compat.mjs",
     "test:release-plan": "node scripts/test-release-plan.mjs",

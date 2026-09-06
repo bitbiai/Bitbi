@@ -113,6 +113,7 @@ Do not invent commands/scripts that are not present in this repo.
 ## Commit/push completion: no CI waiting
 
 - Before an authorized commit/push, complete the required local checks and review the integrated diff. Preserve unrelated work and existing CI/security gates.
+- For an explicitly approved CI-infrastructure repair whose target is the existing Linux CI runner, complete the available local checks and review before commit/push; real Linux acceptance may occur in that CI run. A local Linux installation is not a prerequisite for this narrow delivery. Report the acceptance as pending and retain the actual CI pass as a production-release gate.
 - Run `git push` in the foreground until Git returns, and confirm the transfer result. A rejected or unclear push is not successful; do not fire and forget a background push.
 - After a confirmed push, give the handoff and end the task. Do not wait for CI, Pages or deployment completion: no `gh run watch`, `gh pr checks --watch`, sleep/poll/refresh loops, repeated status/log/build-token/live-asset queries, or five-minute monitoring window.
 - Do not delegate monitoring to subagents, background processes or automations, or start unrelated work to fill pipeline time.

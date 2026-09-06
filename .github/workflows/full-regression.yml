@@ -111,9 +111,14 @@ jobs:
   worker-tests:
     needs: release-security
     runs-on: ubuntu-latest
+    env:
+      Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1'
+      Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -121,8 +126,20 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
+      - name: Install pinned Auth target-runtime test dependencies
+        run: npm --prefix workers/auth ci
+      - name: Verify native Linux isolation before Worker tests
+        run: node scripts/test-q2-runtime.mjs --preflight
       - name: Run full Worker regression
         run: npm run test:workers
+      - name: Upload native Linux acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: q2-linux-runtime-${{ github.sha }}
+          path: ${{ runner.temp }}/q2-runtime-evidence/
+          retention-days: 7
+          if-no-files-found: error
 
   browser-tests:
     needs: release-security

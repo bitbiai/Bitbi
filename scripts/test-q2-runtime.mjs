@@ -1,22 +1,14 @@
-import fs from 'node:fs';
-import {spawnSync} from 'node:child_process';
-import {fileURLToPath} from 'node:url';
-import {runQ2Runtime} from '../tests/helpers/q2-runtime/runner.mjs';
+import { parseRuntimeArgs } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
 
-// Linux CI must isolate native subprocesses too. No sudo, host firewall changes,
-// package installation or silent fallback when user namespaces are unavailable.
+const options = parseRuntimeArgs(process.argv.slice(2), process.env);
+// Project/dependency imports occur only after the Linux child verifies its
+// namespace, filesystem boundary and complete privilege drop.
 if(process.platform==='linux') {
-  const unshare='/usr/bin/unshare';
-  if(!fs.existsSync(unshare)) throw new Error('Q2 native harness requires Linux unshare; unavailable is a hard failure.');
-  const parentNamespace=fs.readlinkSync('/proc/self/ns/net');
-  const environment={PATH:process.env.PATH||'/usr/bin:/bin',TZ:'UTC'};
-  if(process.env.TMPDIR) environment.TMPDIR=process.env.TMPDIR;
-  const child=spawnSync(unshare,['--user','--map-root-user','--net',process.execPath,
-    fileURLToPath(new URL('../tests/helpers/q2-runtime/linux-isolated.mjs',import.meta.url)),parentNamespace,...process.argv.slice(2)],
-    {env:environment,stdio:'inherit'});
-  if(child.error) throw new Error('Q2 Linux network namespace failed: '+child.error.code);
-  if(child.status!==0) throw new Error('Q2 isolated native runner failed; network isolation is never skipped.');
+  const { runHostedLinux } = await import('../tests/helpers/q2-runtime/linux-hosted.mjs');
+  await runHostedLinux(options);
 } else if(process.platform==='darwin') {
+  if (options.preflight) throw new Error('--preflight is the hosted Linux isolation preflight');
   // Local acceptance invokes this entry under the reviewed sandbox-exec profile.
-  await runQ2Runtime(process.argv.slice(2));
+  const { runQ2Runtime } = await import('../tests/helpers/q2-runtime/runner.mjs');
+  await runQ2Runtime(options.artifacts ? ['--artifacts', options.artifacts] : []);
 } else throw new Error('Q2 native harness requires an approved OS network boundary for this platform.');

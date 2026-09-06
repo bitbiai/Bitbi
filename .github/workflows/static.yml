@@ -165,6 +165,10 @@ jobs:
   worker-validation:
     needs: release-compatibility
     runs-on: ubuntu-latest
+    env:
+      # Explicit opt-in only on this disposable GitHub-hosted Linux test VM.
+      Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1'
+      Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
     steps:
       - name: Report skipped Worker tests
         if: needs.release-compatibility.outputs.workers != 'true'
@@ -172,6 +176,8 @@ jobs:
       - name: Checkout
         if: needs.release-compatibility.outputs.workers == 'true'
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Setup Node.js
         if: needs.release-compatibility.outputs.workers == 'true'
         uses: actions/setup-node@v6
@@ -184,9 +190,20 @@ jobs:
       - name: Install pinned Auth target-runtime test dependencies
         if: needs.release-compatibility.outputs.workers == 'true'
         run: npm --prefix workers/auth ci
+      - name: Verify native Linux isolation before Worker tests
+        if: needs.release-compatibility.outputs.workers == 'true'
+        run: node scripts/test-q2-runtime.mjs --preflight
       - name: Run worker route tests
         if: needs.release-compatibility.outputs.workers == 'true'
         run: npm run test:workers
+      - name: Upload native Linux acceptance evidence
+        if: always() && needs.release-compatibility.outputs.workers == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: q2-linux-runtime-${{ github.sha }}
+          path: ${{ runner.temp }}/q2-runtime-evidence/
+          retention-days: 7
+          if-no-files-found: error
 
   browser-validation:
     needs: release-compatibility

@@ -1,0 +1,162 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { selectCiTests } from './lib/ci-test-selection.mjs';
+import { createReleasePlanFromRepo, evaluateStaticDeploySafety } from './lib/release-plan.mjs';
+import { parseRuntimeArgs, assertHostedBootstrapAllowed, stageInputPlan, stageRuntimeInputs, resolveArtifactParent } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
+
+const root = fileURLToPath(new URL('../', import.meta.url));
+const read = name => fs.readFileSync(path.join(root, name), 'utf8');
+
+// These are orchestration regressions, not Linux namespace acceptance. The real
+// hosted job must separately emit kernel/UID/network/native-runtime evidence.
+test('each launcher input selects actual Worker tests without a deploy unit', () => {
+  for (const name of [
+    'scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs',
+    'tests/helpers/q2-runtime/linux-hosted.mjs',
+    'tests/helpers/q2-runtime/linux-bootstrap.py',
+    'tests/helpers/q2-runtime/linux-child-probe.mjs',
+    'tests/helpers/q2-runtime/linux-isolated.mjs',
+    'tests/helpers/q2-runtime/environment.mjs',
+    '.github/workflows/static.yml', '.github/workflows/full-regression.yml',
+  ]) {
+    const selection = selectCiTests([name]);
+    assert.equal(selection.workers, true, name);
+    assert.equal(selection.docsOnly, false, name);
+    const plan = createReleasePlanFromRepo(root, { files: [name] });
+    assert.deepEqual(plan.deploySteps, [], name);
+    assert.deepEqual(plan.impacts.uncategorizedFiles, [], name);
+    const safety = evaluateStaticDeploySafety(plan, { eventName: 'push' });
+    assert.equal(safety.mode, 'validation_only', name);
+    assert.equal(safety.staticRequired, false, name);
+  }
+});
+
+test('argument parser rejects ambiguity; artifacts override is explicit', () => {
+  assert.deepEqual(parseRuntimeArgs([], {}), { preflight: false, artifacts: null });
+  assert.deepEqual(parseRuntimeArgs(['--preflight'], { Q2_RUNTIME_ARTIFACTS: '/tmp/outer' }), { preflight: true, artifacts: '/tmp/outer' });
+  assert.deepEqual(parseRuntimeArgs(['--artifacts', '/tmp/chosen', '--preflight'], { Q2_RUNTIME_ARTIFACTS: '/tmp/outer' }), { preflight: true, artifacts: '/tmp/chosen' });
+  for (const args of [['--preflight', '--preflight'], ['--artifacts'], ['--artifacts', '--preflight'], ['--artifacts', '/tmp/a', '--artifacts', '/tmp/b'], ['--remote'], ['--host-network']]) {
+    assert.throws(() => parseRuntimeArgs(args), /Usage:/);
+  }
+});
+
+test('privileged path is unavailable without explicit hosted Linux context', () => {
+  const env = { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted', RUNNER_OS: 'Linux', Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1' };
+  const identity = { platform: 'linux', uid: 1001, gid: 1001 };
+  assert.doesNotThrow(() => assertHostedBootstrapAllowed(env, identity));
+  for (const key of Object.keys(env)) {
+    const missing = { ...env }; delete missing[key];
+    assert.throws(() => assertHostedBootstrapAllowed(missing, identity));
+  }
+  for (const patch of [{ platform: 'darwin' }, { uid: 0 }, { gid: 0 }, { uid: 65534 }, { gid: 65534 }, { uid: NaN }]) {
+    assert.throws(() => assertHostedBootstrapAllowed(env, { ...identity, ...patch }));
+  }
+  assert.throws(() => assertHostedBootstrapAllowed({ ...env, RUNNER_ENVIRONMENT: 'self-hosted' }, identity));
+  // This tests admission to the launcher, not any claim of kernel isolation.
+});
+
+function fixture(t) {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'q2-launcher-unit-'));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const repo = path.join(base, 'repo'), staged = path.join(base, 'staged');
+  fs.mkdirSync(repo); fs.mkdirSync(staged);
+  const put = (name, bytes = 'synthetic') => {
+    const file = path.join(repo, name); fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, bytes); return file;
+  };
+  return { base, repo, staged, put };
+}
+
+test('staging copies bytes and internal dependency links without executing packages', t => {
+  const f = fixture(t);
+  f.put('node_modules/tool/cli.js', 'throw new Error("must not execute");');
+  fs.mkdirSync(path.join(f.repo, 'node_modules/.bin'));
+  fs.symlinkSync('../tool/cli.js', path.join(f.repo, 'node_modules/.bin/tool'));
+  f.put('workers/auth/src/index.js', 'export default {};');
+  const result = stageRuntimeInputs(f.repo, f.staged, ['node_modules', 'workers/auth/src']);
+  assert.equal(result.files, 2); assert.equal(result.symlinks, 1);
+  assert.equal(fs.readFileSync(path.join(f.staged, 'workers/auth/src/index.js'), 'utf8'), 'export default {};');
+  assert.equal(fs.readlinkSync(path.join(f.staged, 'node_modules/.bin/tool')), '../tool/cli.js');
+  assert.ok(stageInputPlan().includes('workers/auth/migrations'));
+  assert.ok(stageInputPlan().includes('tests/helpers/q2-runtime'));
+  assert.ok(stageInputPlan().every(name => !name.split('/').includes('.git')));
+});
+
+test('staging rejects credential files and never overwrites existing artifacts', t => {
+  const f = fixture(t);
+  for (const name of ['.git/config', '.npmrc', '.env', 'workers/auth/.dev.vars', 'node_modules/pkg/.env.production']) {
+    f.put(name);
+    assert.throws(() => stageRuntimeInputs(f.repo, f.staged, [name]), /Credential\/Git input/);
+  }
+  f.put('input.js', 'new'); fs.writeFileSync(path.join(f.staged, 'input.js'), 'retained');
+  assert.throws(() => stageRuntimeInputs(f.repo, f.staged, ['input.js']), /EEXIST/);
+  assert.equal(fs.readFileSync(path.join(f.staged, 'input.js'), 'utf8'), 'retained');
+  assert.throws(() => stageRuntimeInputs(f.repo, f.repo, ['input.js']), /outside/);
+  assert.throws(() => stageRuntimeInputs(f.repo, f.staged, ['../secret']));
+});
+
+test('staging refuses source symlinks and escaping dependency links', t => {
+  const f = fixture(t);
+  f.put('source.js'); fs.symlinkSync('source.js', path.join(f.repo, 'alias.js'));
+  assert.throws(() => stageRuntimeInputs(f.repo, f.staged, ['alias.js']), /dependency-internal/);
+  f.put('node_modules/pkg/real.js');
+  fs.symlinkSync('../source.js', path.join(f.repo, 'node_modules/escape'));
+  assert.throws(() => stageRuntimeInputs(f.repo, f.staged, ['node_modules/escape']), /escapes/);
+});
+
+test('staging refuses set-ID metadata before copying a file', t => {
+  const f = fixture(t), setId = f.put('set-id');
+  // The macOS execution sandbox strips set-ID bits on chmod. Inject only the
+  // reported stat mode here; this policy unit is not a kernel-isolation test.
+  const lstat = fs.lstatSync;
+  t.mock.method(fs, 'lstatSync', function (file, ...args) {
+    const info = lstat.call(fs, file, ...args);
+    if (file === setId) info.mode |= 0o4000;
+    return info;
+  });
+  assert.throws(() => stageRuntimeInputs(f.repo, f.staged, ['set-id']), /Set-ID/);
+  assert.equal(fs.existsSync(path.join(f.staged, 'set-id')), false);
+});
+
+test('artifact paths are checked through existing symlink ancestors before creation', t => {
+  const f = fixture(t);
+  const absent = path.join(f.repo, 'must-not-create', 'artifacts');
+  assert.throws(() => resolveArtifactParent(f.repo, absent), /outside/);
+  assert.equal(fs.existsSync(path.dirname(absent)), false);
+  const alias = path.join(f.base, 'repo-alias'); fs.symlinkSync(f.repo, alias);
+  assert.throws(() => resolveArtifactParent(f.repo, path.join(alias, 'missing')), /outside/);
+  const external = path.join(f.staged, 'new', 'artifacts');
+  assert.equal(resolveArtifactParent(f.repo, external), path.resolve(external));
+  assert.equal(fs.existsSync(external), false);
+});
+
+test('existing Worker gates retain native suite, fail early and upload only after execution', () => {
+  const pkg = JSON.parse(read('package.json'));
+  assert.match(pkg.scripts['test:workers'], /playwright test -c playwright\.workers\.config\.js && npm run test:q2-runtime$/);
+  assert.match(pkg.scripts['test:q2-runtime'], /tests\/q2-recovery-staging\.test\.mjs/);
+  assert.match(pkg.scripts['test:q2-runtime'], /scripts\/test-q2-runtime-launcher\.mjs/);
+  assert.match(pkg.scripts['test:q2-runtime'], /&& node scripts\/test-q2-runtime\.mjs$/);
+  for (const [file, job, runName] of [
+    ['.github/workflows/static.yml', 'worker-validation', 'Run worker route tests'],
+    ['.github/workflows/full-regression.yml', 'worker-tests', 'Run full Worker regression'],
+  ]) {
+    const content = read(file);
+    const block = content.split(`  ${job}:\n`)[1]?.split(/^  [a-z][a-z-]+:\n/m)[0];
+    assert.ok(block, `${file}: worker job exists`);
+    assert.match(block, /runs-on: ubuntu-latest/);
+    assert.match(block, /Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1'/);
+    assert.match(block, /persist-credentials: false/);
+    const authInstall = block.indexOf('run: npm --prefix workers/auth ci');
+    const preflight = block.indexOf('run: node scripts/test-q2-runtime.mjs --preflight');
+    const main = block.indexOf(`name: ${runName}`);
+    const upload = block.indexOf('uses: actions/upload-artifact@v6');
+    assert.ok(authInstall > 0 && authInstall < preflight && preflight < main && main < upload, file);
+    assert.match(block.slice(main, upload), /run: npm run test:workers/);
+    assert.match(block, /if: always\(\)/);
+    assert.doesNotMatch(block, /continue-on-error|sudo npm|release:apply|wrangler deploy|migrations apply/);
+  }
+});
