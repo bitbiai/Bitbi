@@ -3,6 +3,7 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 
 // This is the FIRST Node/project entry after fixed system setpriv. No loopback
 // setup or other privileged operation is performed by Node.
@@ -29,6 +30,14 @@ try {
   assert.equal(process.env.HOME, '/home/q2');
   assert.equal(Number(process.versions.node.split('.')[0]), 22);
   assert.equal(createHash('sha256').update(fs.readFileSync(process.execPath)).digest('hex'), boundary.node_sha256);
+  const nodeFile = fs.statSync(process.execPath);
+  assert.ok(nodeFile.isFile()); assert.equal(nodeFile.uid, 0); assert.equal(nodeFile.mode & 0o7777, 0o555);
+  const mounts = fs.readFileSync('/proc/self/mountinfo', 'utf8').trim().split('\n').map(line => line.split(' '));
+  for (const target of ['/runtime/node', '/runtime/curl', '/runtime/setpriv', '/workspace']) {
+    const flags = mounts.find(fields => fields[4] === target)?.[5].split(',');
+    assert.ok(flags && ['ro', 'nosuid', 'nodev'].every(flag => flags.includes(flag)) && !flags.includes('noexec'),
+      'Executable inputs require an isolated RO/nosuid/nodev executable mount: ' + target);
+  }
   report.nodeVersion = process.versions.node; report.kernelRelease = os.release(); report.nodeSha256 = boundary.node_sha256;
   report.namespaces = Object.fromEntries(['net', 'mnt', 'pid', 'ipc'].map(name => [name, fs.readlinkSync('/proc/self/ns/' + name)]));
   assert.equal(fs.statSync(process.env.HOME).mode & 0o777, 0o700);
@@ -66,6 +75,26 @@ try {
   const proof = JSON.parse(fs.readFileSync('/artifacts/linux-child-probe.json', 'utf8'));
   assert.equal(proof.passed, true);
   report.checks.push('native_child_denial_and_loopback_control');
+  // Catch actual loader/library/executable-mount failures before the long
+  // Worker suite. This is still preflight, not the Q2 business acceptance.
+  const requireAuth = createRequire('/workspace/workers/auth/package.json');
+  const lock = JSON.parse(fs.readFileSync('/workspace/workers/auth/package-lock.json', 'utf8'));
+  report.nativeTools = {};
+  for (const name of ['workerd', 'esbuild']) {
+    const installed = JSON.parse(fs.readFileSync(`/workspace/workers/auth/node_modules/${name}/package.json`, 'utf8'));
+    assert.equal(installed.version, lock.packages[`node_modules/${name}`].version);
+    report.nativeTools[name] = installed.version;
+  }
+  const workerd = requireAuth('workerd').default;
+  const version = spawnSync(workerd, ['--version'], { env: process.env, encoding: 'utf8', timeout: 15000, maxBuffer: 64 * 1024 });
+  assert.equal(version.error, undefined);
+  assert.equal(version.status, 0, 'Pinned workerd loader failed: ' + version.stderr.slice(0, 1000));
+  assert.equal(version.signal, null);
+  assert.match(version.stdout, /workerd/);
+  report.nativeTools.workerdExecutableSha256 = createHash('sha256').update(fs.readFileSync(workerd)).digest('hex');
+  const transformed = requireAuth('esbuild').transformSync('export const q2 = 2;', { loader: 'js', format: 'esm' });
+  assert.match(transformed.code, /q2/);
+  report.checks.push('pinned_workerd_loader_and_esbuild_native_start');
   report.passed = true;
   fs.writeFileSync('/artifacts/isolation-result.json', JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
   if (boundary.mode === 'runtime') {

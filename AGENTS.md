@@ -117,8 +117,8 @@ Do not invent commands/scripts that are not present in this repo.
 - Run `git push` in the foreground until Git returns, and confirm the transfer result. A rejected or unclear push is not successful; do not fire and forget a background push.
 - After a confirmed push, do not wait for CI, Pages or deployment completion: no `gh run watch`, `gh pr checks --watch`, sleep/poll/refresh loops, status/log/build-token/live-asset polling, or five-minute monitoring window.
 - Do not delegate monitoring to subagents, background processes or automations, or start unrelated work to fill pipeline time.
-- No CI query is required. At most one optional immediate status query without a wait flag is allowed after each push. If the run is queued/running or no matching run is visible, hand off and stop; use `https://github.com/bitbiai/Bitbi/actions` if needed. Do not wait for a run to appear or finish.
-- A completed CI failure may be inspected and repaired within the authorized task, including one already completed at the immediate post-push check. Read its completed logs, make the related fix, validate and push without a new internal approval loop. This is diagnosis of a finished run, not permission to monitor its replacement; apply the same handoff rule after the repair push.
+- No CI query is required. At most one optional immediate status snapshot without a wait flag is allowed after each push, including workflow and individual job states. If no completed failure is available to diagnose and the decisive required job is queued/running or absent, hand off and stop; use `https://github.com/bitbiai/Bitbi/actions` if needed. Do not wait for a run or job to appear or finish.
+- A completed failed CI job may be inspected and repaired within the authorized task even while its overall workflow is still running, including at the immediate post-push snapshot. Read that job's completed logs, make the related fix, validate and push without a new internal approval loop. This is diagnosis of a finished job, not permission to monitor remaining jobs or its replacement; apply the same handoff rule after the repair push.
 - At handoff, report commit SHA(s), confirmed push, the available run or Actions link, and any observed completed result or once-observed status. Mark unverified CI/deployment and live functionality explicitly as not verified. Stefan handles subsequent CI/live verification; do not promise later automatic monitoring.
 - Only a later explicit user instruction to monitor a named task changes this default. Words such as commit, push, publish or deploy alone do not authorize waiting. This rule expands no write/deployment permissions and does not override audit-only or no-push restrictions.
 
@@ -191,7 +191,7 @@ Reuse valid evidence for unchanged inputs; repeat checks only for a concrete rea
 
 ## Output/reporting requirements for Codex changes
 
-At handoff, give a short factual summary of changed files and purpose, local checks and limitations, commit SHA(s), push result, and a run or Actions link. Follow “Commit/push completion: no CI waiting”: completed failures may be diagnosed and repaired, but running or absent runs require handoff without waiting. Report unverified status accurately. Never equate pushed, CI-passed and actually deployed.
+At handoff, give a short factual summary of changed files and purpose, local checks and limitations, commit SHA(s), push result, and a run or Actions link. Follow “Commit/push completion: no CI waiting”: completed failed jobs may be diagnosed and repaired even in running workflows; otherwise queued/running or absent decisive jobs require handoff without waiting. Report unverified status accurately. Never equate pushed, CI-passed and actually deployed.
 
 For substantial changes, also identify relevant schema/config/binding impact, deploy order, and manual Cloudflare follow-up. No new audit report is required by default.
 

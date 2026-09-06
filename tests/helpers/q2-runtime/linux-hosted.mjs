@@ -11,6 +11,41 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const hash = value => createHash('sha256').update(value).digest('hex');
 const contained = (base, candidate) => candidate === base || candidate.startsWith(base + path.sep);
 
+const fileIdentity = info => [info.dev, info.ino, info.size, info.mode, info.uid, info.gid, info.mtimeNs, info.ctimeNs].map(String);
+export function executableMetadata(file) {
+  const info = fs.statSync(file, { bigint: true });
+  return { path: file, regular: info.isFile(), uid: Number(info.uid), gid: Number(info.gid),
+    mode: (Number(info.mode) & 0o7777).toString(8), bytes: Number(info.size),
+    device: String(info.dev), inode: String(info.ino) };
+}
+
+// Ordinary-user I/O only. A hosted toolcache may be writable or owned by its
+// provisioner. Do not execute it as root or chmod it: stage the exact running
+// executable's bytes, then let the fixed bootstrap protect its own copy.
+export function stageNodeExecutable(source, running, destination) {
+  const fd = fs.openSync(source, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  let created = false;
+  try {
+    const before = fs.fstatSync(fd, { bigint: true });
+    assert.ok(before.isFile() && (before.mode & 0o111n) !== 0n && (before.mode & 0o6000n) === 0n,
+      'Node source must be a regular executable without set-ID bits');
+    const active = fs.statSync(running, { bigint: true });
+    assert.equal(before.dev, active.dev, 'Toolchain must match the running executable device');
+    assert.equal(before.ino, active.ino, 'Toolchain must match the running executable inode');
+    const bytes = fs.readFileSync(fd), digest = hash(bytes);
+    assert.equal(digest, hash(fs.readFileSync(running)), 'Running executable bytes changed');
+    assert.deepEqual(fileIdentity(fs.fstatSync(fd, { bigint: true })), fileIdentity(before), 'Node source changed while staging');
+    assert.equal(BigInt(bytes.length), before.size);
+    fs.writeFileSync(destination, bytes, { flag: 'wx', mode: 0o500 }); created = true;
+    fs.chmodSync(destination, 0o500);
+    return { sha256: digest, bytes: bytes.length, runningInodeMatched: true,
+      source: { regular: true, uid: Number(before.uid), gid: Number(before.gid), mode: (Number(before.mode) & 0o7777).toString(8) } };
+  } catch (error) {
+    if (created) fs.unlinkSync(destination);
+    throw error;
+  } finally { fs.closeSync(fd); }
+}
+
 export function parseRuntimeArgs(args, env = {}) {
   const result = { preflight: false, artifacts: env.Q2_RUNTIME_ARTIFACTS || null };
   let explicitArtifacts = false;
@@ -160,14 +195,19 @@ export async function runHostedLinux(options) {
     const socket = net.connect(path.join(session, 'host-control.sock'));
     socket.once('error', reject); socket.once('connect', () => socket.end()); socket.once('close', resolve);
   });
-  let status = null, failure = null, staged = null;
+  let status = null, failure = null, staged = null, nodeSource = null, nodeStaging = null;
   try {
-    staged = stageRuntimeInputs(root, workspace);
     const executable = fs.realpathSync(process.execPath);
+    nodeSource = executableMetadata(executable);
+    process.stdout.write(JSON.stringify({ q2NodeSourceMetadata: nodeSource }) + '\n');
+    assert.match(executable, /^(?:\/opt\/hostedtoolcache\/node\/22\.\d+\.\d+\/(?:x64|arm64)\/bin\/node|\/usr\/bin\/node)$/,
+      'Node must be the canonical hosted Node22 toolchain');
+    nodeStaging = stageNodeExecutable(executable, '/proc/self/exe', path.join(session, 'toolchain-node'));
+    staged = stageRuntimeInputs(root, workspace);
     const bootstrap = path.join(workspace, 'tests/helpers/q2-runtime/linux-bootstrap.py');
     const args = ['-n', '/usr/bin/env', '-i', 'PATH=/usr/bin:/bin', 'LANG=C',
       'GITHUB_ACTIONS=true', 'RUNNER_ENVIRONMENT=github-hosted', 'RUNNER_OS=Linux', 'Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP=1',
-      '/usr/bin/python3', '-I', '-S', bootstrap, '--session', session, '--node', executable,
+      '/usr/bin/python3', '-I', '-S', bootstrap, '--session', session, '--node-sha256', nodeStaging.sha256,
       '--uid', String(process.getuid()), '--gid', String(process.getgid()), '--mode', options.preflight ? 'preflight' : 'runtime'];
     const result = spawnSync('/usr/bin/sudo', args, { env: { PATH: '/usr/bin:/bin', LANG: 'C' },
       stdio: ['ignore', 'inherit', 'inherit'] });
@@ -186,7 +226,7 @@ export async function runHostedLinux(options) {
     for (const name of ['ImageOS', 'ImageVersion', 'RUNNER_ARCH', 'GITHUB_RUN_ID', 'GITHUB_SHA']) {
       if (process.env[name] && /^[A-Za-z0-9._-]{1,100}$/.test(process.env[name])) hostedImage[name] = process.env[name];
     }
-    const report = { mode: options.preflight ? 'preflight' : 'runtime', status, failure, staged, hostedImage, systemTools,
+    const report = { mode: options.preflight ? 'preflight' : 'runtime', status, failure, staged, hostedImage, systemTools, nodeSource, nodeStaging,
       hostUnixListenerPositiveControl: true,
       configuredBoundary: { namespaces: ['net', 'mount', 'pid', 'ipc'], userNamespace: false,
         bootstrapInterpreter: '/usr/bin/python3 -I -S', fixedSystemTools: ['/usr/bin/unshare', '/usr/bin/mount', '/usr/bin/setpriv'],

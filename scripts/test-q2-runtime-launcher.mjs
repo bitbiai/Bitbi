@@ -4,9 +4,11 @@ import path from 'node:path';
 import os from 'node:os';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
 import { createReleasePlanFromRepo, evaluateStaticDeploySafety } from './lib/release-plan.mjs';
-import { parseRuntimeArgs, assertHostedBootstrapAllowed, stageInputPlan, stageRuntimeInputs, resolveArtifactParent } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
+import { parseRuntimeArgs, assertHostedBootstrapAllowed, stageInputPlan, stageRuntimeInputs, resolveArtifactParent, stageNodeExecutable } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
@@ -18,6 +20,7 @@ test('each launcher input selects actual Worker tests without a deploy unit', ()
     'scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs',
     'tests/helpers/q2-runtime/linux-hosted.mjs',
     'tests/helpers/q2-runtime/linux-bootstrap.py',
+    'tests/helpers/q2-runtime/test_linux_bootstrap.py',
     'tests/helpers/q2-runtime/linux-child-probe.mjs',
     'tests/helpers/q2-runtime/linux-isolated.mjs',
     'tests/helpers/q2-runtime/environment.mjs',
@@ -70,6 +73,68 @@ function fixture(t) {
   };
   return { base, repo, staged, put };
 }
+
+test('a writable toolcache source yields a separate protected snapshot of the running bytes', t => {
+  const f = fixture(t), source = f.put('node', 'synthetic executable bytes; never executed');
+  fs.chmodSync(source, 0o777);
+  const before = fs.statSync(source), bytes = fs.readFileSync(source);
+  const target = path.join(f.staged, 'toolchain-node');
+  const result = stageNodeExecutable(source, source, target);
+  assert.equal(result.source.mode, '777');
+  assert.equal(result.runningInodeMatched, true);
+  assert.equal(result.sha256, createHash('sha256').update(bytes).digest('hex'));
+  assert.deepEqual(fs.readFileSync(target), bytes);
+  assert.equal(fs.statSync(target).mode & 0o7777, 0o500);
+  assert.notEqual(fs.statSync(target).ino, before.ino);
+  assert.equal(fs.statSync(source).mode, before.mode);
+  assert.deepEqual(fs.readFileSync(source), bytes);
+  fs.writeFileSync(source, 'subsequent host change');
+  assert.deepEqual(fs.readFileSync(target), bytes, 'Host in-place changes cannot alter the snapshot');
+  // The old guard rejects this input; the new boundary protects its own copy.
+  assert.notEqual(before.mode & 0o022, 0);
+});
+
+test('executable staging rejects another running inode, symlinks, non-executables and overwrite', t => {
+  const f = fixture(t), source = f.put('node', 'same bytes'), other = f.put('other', 'same bytes');
+  fs.chmodSync(source, 0o755); fs.chmodSync(other, 0o755);
+  const target = path.join(f.staged, 'node');
+  assert.throws(() => stageNodeExecutable(source, other, target), /running executable inode/);
+  assert.equal(fs.existsSync(target), false);
+  const link = path.join(f.repo, 'node-link'); fs.symlinkSync('node', link);
+  assert.throws(() => stageNodeExecutable(link, source, target), /ELOOP/);
+  fs.chmodSync(source, 0o644);
+  assert.throws(() => stageNodeExecutable(source, source, target), /regular executable/);
+  fs.chmodSync(source, 0o755); fs.writeFileSync(target, 'retained');
+  assert.throws(() => stageNodeExecutable(source, source, target), /EEXIST/);
+  assert.equal(fs.readFileSync(target, 'utf8'), 'retained');
+});
+
+test('staging rejects a changed source and set-ID stat before publishing bytes', t => {
+  const f = fixture(t), source = f.put('node', 'synthetic'), target = path.join(f.staged, 'node');
+  fs.chmodSync(source, 0o755);
+  const original = fs.fstatSync;
+  let reads = 0;
+  t.mock.method(fs, 'fstatSync', function (...args) {
+    const info = original.apply(fs, args);
+    if (++reads === 2) info.ctimeNs += 1n;
+    return info;
+  });
+  assert.throws(() => stageNodeExecutable(source, source, target), /changed while staging/);
+  assert.equal(fs.existsSync(target), false);
+  t.mock.restoreAll();
+  t.mock.method(fs, 'fstatSync', function (...args) { const info = original.apply(fs, args); info.mode |= 0o4000n; return info; });
+  assert.throws(() => stageNodeExecutable(source, source, target), /without set-ID/);
+  assert.equal(fs.existsSync(target), false);
+});
+
+test('fixed Python snapshot behavior is covered without sudo, namespaces or product execution', t => {
+  const result = spawnSync('/usr/bin/python3', ['-I', '-S', path.join(root, 'tests/helpers/q2-runtime/test_linux_bootstrap.py')],
+    { env: { PATH: '/usr/bin:/bin', TMPDIR: os.tmpdir(), PYTHONDONTWRITEBYTECODE: '1' }, encoding: 'utf8', timeout: 15000 });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /OK/);
+  t.diagnostic(result.stderr.trim());
+});
 
 test('staging copies bytes and internal dependency links without executing packages', t => {
   const f = fixture(t);

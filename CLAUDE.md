@@ -122,7 +122,7 @@ Do not invent commands. Do not run deploy or remote mutation commands during aud
 
 ## Reporting
 
-Follow root `AGENTS.md`, “Commit/push completion: no CI waiting”: complete required local checks and diff review and confirm the foreground push. Completed CI failures, including an immediately completed post-push failure, may be inspected and repaired within scope without fresh internal approval. If the optional immediate status query shows a queued/running run or no run, hand off and stop. No waiting or delegated monitoring; subsequent CI/live verification belongs to Stefan.
+Follow root `AGENTS.md`, “Commit/push completion: no CI waiting”: complete required local checks and diff review and confirm the foreground push. The single optional immediate status snapshot may include job states. Completed failed jobs may be inspected and repaired within scope without fresh internal approval, even while the overall workflow runs. If no completed failure is available and the decisive required job is queued/running or absent, hand off and stop. No waiting or delegated monitoring; subsequent CI/live verification belongs to Stefan.
 
 For substantial changes, report:
 
