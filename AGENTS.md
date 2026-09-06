@@ -107,6 +107,7 @@ Do not invent commands/scripts that are not present in this repo.
 - Before committing, inspect the task diff and current remote state. Include only intended changes and preserve unrelated user work. Integrate newer remote work safely; never force-push, overwrite it, or discard changes.
 - Batch a completed task into a sensible commit or small coherent set, then push once. Leave GitHub rules and CI/deployment gates unchanged; do not bypass them, add server-side restrictions, or manually dispatch duplicate workflows started by the push.
 - Direct-push authorization includes existing automatic workflows. Manual Worker deployments, remote migrations, maintenance, destructive operations, and paid calls still require authorization within the specific task's scope.
+- Complete an approved implementation package coherently: reproduce the relevant failure, make the scoped fix, update regressions/docs, validate, then commit/push without asking again for each internal step. Reuse authorization already given; new product semantics, scope expansion or production operations outside that authorization still need a separate decision. Preserve unrelated user work, keep credentials out of logs and commits, and retain private evidence outside the public repository.
 - Complete authorized commit/push tasks under the no-wait rule below; CI or deployment completion is not a task-completion requirement.
 
 ## Commit/push completion: no CI waiting
@@ -141,6 +142,7 @@ Run the smallest set that truly covers changed surfaces. Routine UI, documentati
 - Static/UI changes: relevant specs from `npm run test:static`; use the broader suite when shared runtime or wider behavior changes warrant it.
 - Worker tooling changes: toolchain, affected dependency checks, and local build-tool smoke checks as needed; no live resources.
 - Worker route/contract, authentication, ownership, accounting, schema, or other high-impact changes: relevant broader suites, including `npm run test:workers` for Worker behavior.
+- D1 migrations and runtime-sensitive Worker changes also need focused regressions in the target workerd/D1 implementation with native local bindings and recorded toolchain versions. Node SQLite or mocks alone do not establish D1 compatibility. Cover the affected entrypoint and populated transition where relevant; preserve specific failures and use synthetic, credential-free fixtures without live providers.
 - Release/config/migration/binding changes: `npm run test:release-compat`, `npm run validate:release`
 - Asset version/build-pipeline changes: `npm run test:asset-version`, `npm run validate:asset-version`, `npm run build:static`
 

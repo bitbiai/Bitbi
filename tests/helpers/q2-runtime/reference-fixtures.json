@@ -1,0 +1,990 @@
+{
+  "scope": "Synthetic reference-relation schema only. Full source/FK/trigger validation belongs to q2-runtime-native.mjs.",
+  "historical_source_commit": "c08af43135bbca02a4ac7657904da950d5fb57ef",
+  "setup": {
+    "require_empty_sqlite_master_user_tables": true,
+    "tables": [
+      "CREATE TABLE ai_images (fixture_id TEXT PRIMARY KEY, medium_key TEXT, r2_key TEXT, thumb_key TEXT)",
+      "CREATE TABLE ai_text_assets (fixture_id TEXT PRIMARY KEY, poster_r2_key TEXT, r2_key TEXT)",
+      "CREATE TABLE ai_video_jobs_v2 (fixture_id TEXT PRIMARY KEY, output_r2_key TEXT, poster_r2_key TEXT)",
+      "CREATE TABLE homepage_hero_video_uploads (fixture_id TEXT PRIMARY KEY, r2_key TEXT)",
+      "CREATE TABLE homepage_hero_video_derivatives (fixture_id TEXT PRIMARY KEY, file_r2_key TEXT, poster_r2_key TEXT, source_r2_key TEXT, status TEXT)",
+      "CREATE TABLE memvid_stream_previews (fixture_id TEXT PRIMARY KEY, source_r2_key TEXT)",
+      "CREATE TABLE fable_chat_attachments (fixture_id TEXT PRIMARY KEY, deleted_at TEXT, r2_key TEXT, state TEXT)",
+      "CREATE TABLE news_pulse_items (fixture_id TEXT PRIMARY KEY, visual_object_key TEXT)",
+      "CREATE TABLE data_export_archives (fixture_id TEXT PRIMARY KEY, r2_bucket TEXT, r2_key TEXT)",
+      "CREATE TABLE platform_budget_evidence_archives (fixture_id TEXT PRIMARY KEY, deleted_at TEXT, storage_bucket TEXT, storage_key TEXT)"
+    ],
+    "fixture_rows": [
+      {
+        "table": "ai_images",
+        "label": "arm-1",
+        "values": {
+          "r2_key": "users/q2-view/arm-01"
+        },
+        "expected_references": [
+          "users/q2-view/arm-01"
+        ]
+      },
+      {
+        "table": "ai_images",
+        "label": "arm-2",
+        "values": {
+          "thumb_key": "users/q2-view/arm-02"
+        },
+        "expected_references": [
+          "users/q2-view/arm-02"
+        ]
+      },
+      {
+        "table": "ai_images",
+        "label": "arm-3",
+        "values": {
+          "medium_key": "users/q2-view/arm-03"
+        },
+        "expected_references": [
+          "users/q2-view/arm-03"
+        ]
+      },
+      {
+        "table": "ai_text_assets",
+        "label": "arm-4",
+        "values": {
+          "r2_key": "users/q2-view/arm-04"
+        },
+        "expected_references": [
+          "users/q2-view/arm-04"
+        ]
+      },
+      {
+        "table": "ai_text_assets",
+        "label": "arm-5",
+        "values": {
+          "poster_r2_key": "users/q2-view/arm-05"
+        },
+        "expected_references": [
+          "users/q2-view/arm-05"
+        ]
+      },
+      {
+        "table": "ai_video_jobs_v2",
+        "label": "arm-6",
+        "values": {
+          "output_r2_key": "users/q2-view/arm-06"
+        },
+        "expected_references": [
+          "users/q2-view/arm-06"
+        ]
+      },
+      {
+        "table": "ai_video_jobs_v2",
+        "label": "arm-7",
+        "values": {
+          "poster_r2_key": "users/q2-view/arm-07"
+        },
+        "expected_references": [
+          "users/q2-view/arm-07"
+        ]
+      },
+      {
+        "table": "homepage_hero_video_uploads",
+        "label": "arm-8",
+        "values": {
+          "r2_key": "users/q2-view/arm-08"
+        },
+        "expected_references": [
+          "users/q2-view/arm-08"
+        ]
+      },
+      {
+        "table": "homepage_hero_video_derivatives",
+        "label": "arm-9",
+        "values": {
+          "status": "queued",
+          "file_r2_key": "users/q2-view/arm-09"
+        },
+        "expected_references": [
+          "users/q2-view/arm-09"
+        ]
+      },
+      {
+        "table": "homepage_hero_video_derivatives",
+        "label": "arm-10",
+        "values": {
+          "status": "queued",
+          "poster_r2_key": "users/q2-view/arm-10"
+        },
+        "expected_references": [
+          "users/q2-view/arm-10"
+        ]
+      },
+      {
+        "table": "homepage_hero_video_derivatives",
+        "label": "arm-11",
+        "values": {
+          "status": "queued",
+          "source_r2_key": "users/q2-view/arm-11"
+        },
+        "expected_references": [
+          "users/q2-view/arm-11"
+        ]
+      },
+      {
+        "table": "memvid_stream_previews",
+        "label": "arm-12",
+        "values": {
+          "source_r2_key": "users/q2-view/arm-12"
+        },
+        "expected_references": [
+          "users/q2-view/arm-12"
+        ]
+      },
+      {
+        "table": "fable_chat_attachments",
+        "label": "arm-13",
+        "values": {
+          "deleted_at": null,
+          "state": "pending",
+          "r2_key": "users/q2-view/arm-13"
+        },
+        "expected_references": [
+          "users/q2-view/arm-13"
+        ]
+      },
+      {
+        "table": "news_pulse_items",
+        "label": "arm-14",
+        "values": {
+          "visual_object_key": "users/q2-view/arm-14"
+        },
+        "expected_references": [
+          "users/q2-view/arm-14"
+        ]
+      },
+      {
+        "table": "data_export_archives",
+        "label": "arm-15",
+        "values": {
+          "r2_bucket": "USER_IMAGES",
+          "r2_key": "users/q2-view/arm-15"
+        },
+        "expected_references": [
+          "users/q2-view/arm-15"
+        ]
+      },
+      {
+        "table": "platform_budget_evidence_archives",
+        "label": "arm-16",
+        "values": {
+          "storage_bucket": "USER_IMAGES",
+          "deleted_at": null,
+          "storage_key": "users/q2-view/arm-16"
+        },
+        "expected_references": [
+          "users/q2-view/arm-16"
+        ]
+      },
+      {
+        "table": "ai_images",
+        "label": "duplicate-every-alias",
+        "values": {
+          "r2_key": "users/q2-view/duplicate",
+          "thumb_key": "users/q2-view/duplicate",
+          "medium_key": "users/q2-view/duplicate"
+        },
+        "expected_references": [
+          "users/q2-view/duplicate",
+          "users/q2-view/duplicate",
+          "users/q2-view/duplicate"
+        ]
+      },
+      {
+        "table": "ai_images",
+        "label": "null-columns",
+        "values": {},
+        "expected_references": []
+      },
+      {
+        "table": "ai_text_assets",
+        "label": "duplicate-every-alias",
+        "values": {
+          "r2_key": "users/q2-view/duplicate",
+          "poster_r2_key": "users/q2-view/duplicate"
+        },
+        "expected_references": [
+          "users/q2-view/duplicate",
+          "users/q2-view/duplicate"
+        ]
+      },
+      {
+        "table": "ai_text_assets",
+        "label": "null-columns",
+        "values": {},
+        "expected_references": []
+      },
+      {
+        "table": "ai_video_jobs_v2",
+        "label": "duplicate-every-alias",
+        "values": {
+          "output_r2_key": "users/q2-view/duplicate",
+          "poster_r2_key": "users/q2-view/duplicate"
+        },
+        "expected_references": [
+          "users/q2-view/duplicate",
+          "users/q2-view/duplicate"
+        ]
+      },
+      {
+        "table": "ai_video_jobs_v2",
+        "label": "null-columns",
+        "values": {},
+        "expected_references": []
+      },
+      {
+        "table": "homepage_hero_video_uploads",
+        "label": "duplicate-every-alias",
+        "values": {
+          "r2_key": "users/q2-view/duplicate"
+        },
+        "expected_references": [
+          "users/q2-view/duplicate"
+        ]
+      },
+      {
+        "table": "homepage_hero_video_uploads",
+        "label": "null-columns",
+        "values": {},
+        "expected_references": []
+      },
+      {
+        "table": "homepage_hero_video_derivatives",
+        "label": "duplicate-every-alias",
+        "values": {
+          "status": "queued",
+          "file_r2_key": "users/q2-view/duplicate",
+          "poster_r2_key": "users/q2-view/duplicate",
+          "source_r2_key": "users/q2-view/duplicate"
+        },
+        "expected_references": [
+          "users/q2-view/duplicate",
+          "users/q2-view/duplicate",
+          "users/q2-view/duplicate"
+        ]
+      },
+      {
+        "table": "homepage_hero_video_derivatives",
+        "label": "null-columns",
+        "values": {
+          "status": "queued"
+        },
+        "expected_references": []
+      },
+      {
+        "table": "memvid_stream_previews",
+        "label": "duplicate-every-alias",
+        "values": {
+          "source_r2_key": "users/q2-view/duplicate"
+        },
+        "expected_references": [
+          "users/q2-view/duplicate"
+        ]
+      },
+      {
+        "table": "memvid_stream_previews",
+        "label": "null-columns",
+        "values": {},
+        "expected_references": []
+      },
+      {
+        "table": "fable_chat_attachments",
+        "label": "duplicate-every-alias",
+        "values": {
+          "deleted_at": null,
+          "state": "pending",
+          "r2_key": "users/q2-view/duplicate"
+        },
+        "expected_references": [
+          "users/q2-view/duplicate"
+        ]
+      },
+      {
+        "table": "fable_chat_attachments",
+        "label": "null-columns",
+        "values": {
+          "deleted_at": null,
+          "state": "pending"
+        },
+        "expected_references": []
+      },
+      {
+        "table": "news_pulse_items",
+        "label": "duplicate-every-alias",
+        "values": {
+          "visual_object_key": "users/q2-view/duplicate"
+        },
+        "expected_references": [
+          "users/q2-view/duplicate"
+        ]
+      },
+      {
+        "table": "news_pulse_items",
+        "label": "null-columns",
+        "values": {},
+        "expected_references": []
+      },
+      {
+        "table": "data_export_archives",
+        "label": "duplicate-every-alias",
+        "values": {
+          "r2_bucket": "USER_IMAGES",
+          "r2_key": "users/q2-view/duplicate"
+        },
+        "expected_references": [
+          "users/q2-view/duplicate"
+        ]
+      },
+      {
+        "table": "data_export_archives",
+        "label": "null-columns",
+        "values": {
+          "r2_bucket": "USER_IMAGES"
+        },
+        "expected_references": []
+      },
+      {
+        "table": "platform_budget_evidence_archives",
+        "label": "duplicate-every-alias",
+        "values": {
+          "storage_bucket": "USER_IMAGES",
+          "deleted_at": null,
+          "storage_key": "users/q2-view/duplicate"
+        },
+        "expected_references": [
+          "users/q2-view/duplicate"
+        ]
+      },
+      {
+        "table": "platform_budget_evidence_archives",
+        "label": "null-columns",
+        "values": {
+          "storage_bucket": "USER_IMAGES",
+          "deleted_at": null
+        },
+        "expected_references": []
+      },
+      {
+        "table": "ai_images",
+        "label": "empty-non-null-is-retained",
+        "values": {
+          "r2_key": ""
+        },
+        "expected_references": [
+          ""
+        ]
+      },
+      {
+        "table": "homepage_hero_video_derivatives",
+        "label": "processing-source",
+        "values": {
+          "source_r2_key": "users/q2-view/processing",
+          "status": "processing"
+        },
+        "expected_references": [
+          "users/q2-view/processing"
+        ]
+      },
+      {
+        "table": "homepage_hero_video_derivatives",
+        "label": "inactive-source-completed",
+        "values": {
+          "file_r2_key": "users/q2-view/completed-file",
+          "poster_r2_key": "users/q2-view/completed-poster",
+          "source_r2_key": "users/q2-view/excluded-completed-source",
+          "status": "completed"
+        },
+        "expected_references": [
+          "users/q2-view/completed-file",
+          "users/q2-view/completed-poster"
+        ]
+      },
+      {
+        "table": "homepage_hero_video_derivatives",
+        "label": "inactive-source-failed",
+        "values": {
+          "file_r2_key": "users/q2-view/failed-file",
+          "poster_r2_key": "users/q2-view/failed-poster",
+          "source_r2_key": "users/q2-view/excluded-failed-source",
+          "status": "failed"
+        },
+        "expected_references": [
+          "users/q2-view/failed-file",
+          "users/q2-view/failed-poster"
+        ]
+      },
+      {
+        "table": "homepage_hero_video_derivatives",
+        "label": "inactive-source-none",
+        "values": {
+          "file_r2_key": "users/q2-view/none-file",
+          "poster_r2_key": "users/q2-view/none-poster",
+          "source_r2_key": "users/q2-view/excluded-none-source",
+          "status": null
+        },
+        "expected_references": [
+          "users/q2-view/none-file",
+          "users/q2-view/none-poster"
+        ]
+      },
+      {
+        "table": "fable_chat_attachments",
+        "label": "attached",
+        "values": {
+          "r2_key": "users/q2-view/attached",
+          "state": "attached",
+          "deleted_at": null
+        },
+        "expected_references": [
+          "users/q2-view/attached"
+        ]
+      },
+      {
+        "table": "fable_chat_attachments",
+        "label": "deleted-pending",
+        "values": {
+          "r2_key": "users/q2-view/excluded-deleted-attachment",
+          "state": "pending",
+          "deleted_at": "2026-01-01"
+        },
+        "expected_references": []
+      },
+      {
+        "table": "fable_chat_attachments",
+        "label": "inactive-state",
+        "values": {
+          "r2_key": "users/q2-view/excluded-inactive-attachment",
+          "state": "failed",
+          "deleted_at": null
+        },
+        "expected_references": []
+      },
+      {
+        "table": "data_export_archives",
+        "label": "excluded-export-PRIVATE_MEDIA",
+        "values": {
+          "r2_key": "users/q2-view/excluded-export-PRIVATE_MEDIA",
+          "r2_bucket": "PRIVATE_MEDIA"
+        },
+        "expected_references": []
+      },
+      {
+        "table": "data_export_archives",
+        "label": "excluded-export-None",
+        "values": {
+          "r2_key": "users/q2-view/excluded-export-None",
+          "r2_bucket": null
+        },
+        "expected_references": []
+      },
+      {
+        "table": "data_export_archives",
+        "label": "excluded-export-user_images",
+        "values": {
+          "r2_key": "users/q2-view/excluded-export-user_images",
+          "r2_bucket": "user_images"
+        },
+        "expected_references": []
+      },
+      {
+        "table": "platform_budget_evidence_archives",
+        "label": "deleted-budget",
+        "values": {
+          "storage_key": "users/q2-view/excluded-budget-deleted",
+          "storage_bucket": "USER_IMAGES",
+          "deleted_at": "2026-01-01"
+        },
+        "expected_references": []
+      },
+      {
+        "table": "platform_budget_evidence_archives",
+        "label": "other-budget-bucket",
+        "values": {
+          "storage_key": "users/q2-view/excluded-budget-bucket",
+          "storage_bucket": "PRIVATE_MEDIA",
+          "deleted_at": null
+        },
+        "expected_references": []
+      },
+      {
+        "table": "platform_budget_evidence_archives",
+        "label": "null-budget-bucket",
+        "values": {
+          "storage_key": "users/q2-view/excluded-budget-null",
+          "storage_bucket": null,
+          "deleted_at": null
+        },
+        "expected_references": []
+      }
+    ],
+    "inserts": [
+      {
+        "sql": "INSERT INTO ai_images (fixture_id, r2_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-000",
+          "users/q2-view/arm-01"
+        ],
+        "label": "arm-1"
+      },
+      {
+        "sql": "INSERT INTO ai_images (fixture_id, thumb_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-001",
+          "users/q2-view/arm-02"
+        ],
+        "label": "arm-2"
+      },
+      {
+        "sql": "INSERT INTO ai_images (fixture_id, medium_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-002",
+          "users/q2-view/arm-03"
+        ],
+        "label": "arm-3"
+      },
+      {
+        "sql": "INSERT INTO ai_text_assets (fixture_id, r2_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-003",
+          "users/q2-view/arm-04"
+        ],
+        "label": "arm-4"
+      },
+      {
+        "sql": "INSERT INTO ai_text_assets (fixture_id, poster_r2_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-004",
+          "users/q2-view/arm-05"
+        ],
+        "label": "arm-5"
+      },
+      {
+        "sql": "INSERT INTO ai_video_jobs_v2 (fixture_id, output_r2_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-005",
+          "users/q2-view/arm-06"
+        ],
+        "label": "arm-6"
+      },
+      {
+        "sql": "INSERT INTO ai_video_jobs_v2 (fixture_id, poster_r2_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-006",
+          "users/q2-view/arm-07"
+        ],
+        "label": "arm-7"
+      },
+      {
+        "sql": "INSERT INTO homepage_hero_video_uploads (fixture_id, r2_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-007",
+          "users/q2-view/arm-08"
+        ],
+        "label": "arm-8"
+      },
+      {
+        "sql": "INSERT INTO homepage_hero_video_derivatives (fixture_id, status, file_r2_key) VALUES (?, ?, ?)",
+        "binds": [
+          "fixture-008",
+          "queued",
+          "users/q2-view/arm-09"
+        ],
+        "label": "arm-9"
+      },
+      {
+        "sql": "INSERT INTO homepage_hero_video_derivatives (fixture_id, status, poster_r2_key) VALUES (?, ?, ?)",
+        "binds": [
+          "fixture-009",
+          "queued",
+          "users/q2-view/arm-10"
+        ],
+        "label": "arm-10"
+      },
+      {
+        "sql": "INSERT INTO homepage_hero_video_derivatives (fixture_id, status, source_r2_key) VALUES (?, ?, ?)",
+        "binds": [
+          "fixture-010",
+          "queued",
+          "users/q2-view/arm-11"
+        ],
+        "label": "arm-11"
+      },
+      {
+        "sql": "INSERT INTO memvid_stream_previews (fixture_id, source_r2_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-011",
+          "users/q2-view/arm-12"
+        ],
+        "label": "arm-12"
+      },
+      {
+        "sql": "INSERT INTO fable_chat_attachments (fixture_id, deleted_at, state, r2_key) VALUES (?, ?, ?, ?)",
+        "binds": [
+          "fixture-012",
+          null,
+          "pending",
+          "users/q2-view/arm-13"
+        ],
+        "label": "arm-13"
+      },
+      {
+        "sql": "INSERT INTO news_pulse_items (fixture_id, visual_object_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-013",
+          "users/q2-view/arm-14"
+        ],
+        "label": "arm-14"
+      },
+      {
+        "sql": "INSERT INTO data_export_archives (fixture_id, r2_bucket, r2_key) VALUES (?, ?, ?)",
+        "binds": [
+          "fixture-014",
+          "USER_IMAGES",
+          "users/q2-view/arm-15"
+        ],
+        "label": "arm-15"
+      },
+      {
+        "sql": "INSERT INTO platform_budget_evidence_archives (fixture_id, storage_bucket, deleted_at, storage_key) VALUES (?, ?, ?, ?)",
+        "binds": [
+          "fixture-015",
+          "USER_IMAGES",
+          null,
+          "users/q2-view/arm-16"
+        ],
+        "label": "arm-16"
+      },
+      {
+        "sql": "INSERT INTO ai_images (fixture_id, r2_key, thumb_key, medium_key) VALUES (?, ?, ?, ?)",
+        "binds": [
+          "fixture-016",
+          "users/q2-view/duplicate",
+          "users/q2-view/duplicate",
+          "users/q2-view/duplicate"
+        ],
+        "label": "duplicate-every-alias"
+      },
+      {
+        "sql": "INSERT INTO ai_images (fixture_id) VALUES (?)",
+        "binds": [
+          "fixture-017"
+        ],
+        "label": "null-columns"
+      },
+      {
+        "sql": "INSERT INTO ai_text_assets (fixture_id, r2_key, poster_r2_key) VALUES (?, ?, ?)",
+        "binds": [
+          "fixture-018",
+          "users/q2-view/duplicate",
+          "users/q2-view/duplicate"
+        ],
+        "label": "duplicate-every-alias"
+      },
+      {
+        "sql": "INSERT INTO ai_text_assets (fixture_id) VALUES (?)",
+        "binds": [
+          "fixture-019"
+        ],
+        "label": "null-columns"
+      },
+      {
+        "sql": "INSERT INTO ai_video_jobs_v2 (fixture_id, output_r2_key, poster_r2_key) VALUES (?, ?, ?)",
+        "binds": [
+          "fixture-020",
+          "users/q2-view/duplicate",
+          "users/q2-view/duplicate"
+        ],
+        "label": "duplicate-every-alias"
+      },
+      {
+        "sql": "INSERT INTO ai_video_jobs_v2 (fixture_id) VALUES (?)",
+        "binds": [
+          "fixture-021"
+        ],
+        "label": "null-columns"
+      },
+      {
+        "sql": "INSERT INTO homepage_hero_video_uploads (fixture_id, r2_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-022",
+          "users/q2-view/duplicate"
+        ],
+        "label": "duplicate-every-alias"
+      },
+      {
+        "sql": "INSERT INTO homepage_hero_video_uploads (fixture_id) VALUES (?)",
+        "binds": [
+          "fixture-023"
+        ],
+        "label": "null-columns"
+      },
+      {
+        "sql": "INSERT INTO homepage_hero_video_derivatives (fixture_id, status, file_r2_key, poster_r2_key, source_r2_key) VALUES (?, ?, ?, ?, ?)",
+        "binds": [
+          "fixture-024",
+          "queued",
+          "users/q2-view/duplicate",
+          "users/q2-view/duplicate",
+          "users/q2-view/duplicate"
+        ],
+        "label": "duplicate-every-alias"
+      },
+      {
+        "sql": "INSERT INTO homepage_hero_video_derivatives (fixture_id, status) VALUES (?, ?)",
+        "binds": [
+          "fixture-025",
+          "queued"
+        ],
+        "label": "null-columns"
+      },
+      {
+        "sql": "INSERT INTO memvid_stream_previews (fixture_id, source_r2_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-026",
+          "users/q2-view/duplicate"
+        ],
+        "label": "duplicate-every-alias"
+      },
+      {
+        "sql": "INSERT INTO memvid_stream_previews (fixture_id) VALUES (?)",
+        "binds": [
+          "fixture-027"
+        ],
+        "label": "null-columns"
+      },
+      {
+        "sql": "INSERT INTO fable_chat_attachments (fixture_id, deleted_at, state, r2_key) VALUES (?, ?, ?, ?)",
+        "binds": [
+          "fixture-028",
+          null,
+          "pending",
+          "users/q2-view/duplicate"
+        ],
+        "label": "duplicate-every-alias"
+      },
+      {
+        "sql": "INSERT INTO fable_chat_attachments (fixture_id, deleted_at, state) VALUES (?, ?, ?)",
+        "binds": [
+          "fixture-029",
+          null,
+          "pending"
+        ],
+        "label": "null-columns"
+      },
+      {
+        "sql": "INSERT INTO news_pulse_items (fixture_id, visual_object_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-030",
+          "users/q2-view/duplicate"
+        ],
+        "label": "duplicate-every-alias"
+      },
+      {
+        "sql": "INSERT INTO news_pulse_items (fixture_id) VALUES (?)",
+        "binds": [
+          "fixture-031"
+        ],
+        "label": "null-columns"
+      },
+      {
+        "sql": "INSERT INTO data_export_archives (fixture_id, r2_bucket, r2_key) VALUES (?, ?, ?)",
+        "binds": [
+          "fixture-032",
+          "USER_IMAGES",
+          "users/q2-view/duplicate"
+        ],
+        "label": "duplicate-every-alias"
+      },
+      {
+        "sql": "INSERT INTO data_export_archives (fixture_id, r2_bucket) VALUES (?, ?)",
+        "binds": [
+          "fixture-033",
+          "USER_IMAGES"
+        ],
+        "label": "null-columns"
+      },
+      {
+        "sql": "INSERT INTO platform_budget_evidence_archives (fixture_id, storage_bucket, deleted_at, storage_key) VALUES (?, ?, ?, ?)",
+        "binds": [
+          "fixture-034",
+          "USER_IMAGES",
+          null,
+          "users/q2-view/duplicate"
+        ],
+        "label": "duplicate-every-alias"
+      },
+      {
+        "sql": "INSERT INTO platform_budget_evidence_archives (fixture_id, storage_bucket, deleted_at) VALUES (?, ?, ?)",
+        "binds": [
+          "fixture-035",
+          "USER_IMAGES",
+          null
+        ],
+        "label": "null-columns"
+      },
+      {
+        "sql": "INSERT INTO ai_images (fixture_id, r2_key) VALUES (?, ?)",
+        "binds": [
+          "fixture-036",
+          ""
+        ],
+        "label": "empty-non-null-is-retained"
+      },
+      {
+        "sql": "INSERT INTO homepage_hero_video_derivatives (fixture_id, source_r2_key, status) VALUES (?, ?, ?)",
+        "binds": [
+          "fixture-037",
+          "users/q2-view/processing",
+          "processing"
+        ],
+        "label": "processing-source"
+      },
+      {
+        "sql": "INSERT INTO homepage_hero_video_derivatives (fixture_id, file_r2_key, poster_r2_key, source_r2_key, status) VALUES (?, ?, ?, ?, ?)",
+        "binds": [
+          "fixture-038",
+          "users/q2-view/completed-file",
+          "users/q2-view/completed-poster",
+          "users/q2-view/excluded-completed-source",
+          "completed"
+        ],
+        "label": "inactive-source-completed"
+      },
+      {
+        "sql": "INSERT INTO homepage_hero_video_derivatives (fixture_id, file_r2_key, poster_r2_key, source_r2_key, status) VALUES (?, ?, ?, ?, ?)",
+        "binds": [
+          "fixture-039",
+          "users/q2-view/failed-file",
+          "users/q2-view/failed-poster",
+          "users/q2-view/excluded-failed-source",
+          "failed"
+        ],
+        "label": "inactive-source-failed"
+      },
+      {
+        "sql": "INSERT INTO homepage_hero_video_derivatives (fixture_id, file_r2_key, poster_r2_key, source_r2_key, status) VALUES (?, ?, ?, ?, ?)",
+        "binds": [
+          "fixture-040",
+          "users/q2-view/none-file",
+          "users/q2-view/none-poster",
+          "users/q2-view/excluded-none-source",
+          null
+        ],
+        "label": "inactive-source-none"
+      },
+      {
+        "sql": "INSERT INTO fable_chat_attachments (fixture_id, r2_key, state, deleted_at) VALUES (?, ?, ?, ?)",
+        "binds": [
+          "fixture-041",
+          "users/q2-view/attached",
+          "attached",
+          null
+        ],
+        "label": "attached"
+      },
+      {
+        "sql": "INSERT INTO fable_chat_attachments (fixture_id, r2_key, state, deleted_at) VALUES (?, ?, ?, ?)",
+        "binds": [
+          "fixture-042",
+          "users/q2-view/excluded-deleted-attachment",
+          "pending",
+          "2026-01-01"
+        ],
+        "label": "deleted-pending"
+      },
+      {
+        "sql": "INSERT INTO fable_chat_attachments (fixture_id, r2_key, state, deleted_at) VALUES (?, ?, ?, ?)",
+        "binds": [
+          "fixture-043",
+          "users/q2-view/excluded-inactive-attachment",
+          "failed",
+          null
+        ],
+        "label": "inactive-state"
+      },
+      {
+        "sql": "INSERT INTO data_export_archives (fixture_id, r2_key, r2_bucket) VALUES (?, ?, ?)",
+        "binds": [
+          "fixture-044",
+          "users/q2-view/excluded-export-PRIVATE_MEDIA",
+          "PRIVATE_MEDIA"
+        ],
+        "label": "excluded-export-PRIVATE_MEDIA"
+      },
+      {
+        "sql": "INSERT INTO data_export_archives (fixture_id, r2_key, r2_bucket) VALUES (?, ?, ?)",
+        "binds": [
+          "fixture-045",
+          "users/q2-view/excluded-export-None",
+          null
+        ],
+        "label": "excluded-export-None"
+      },
+      {
+        "sql": "INSERT INTO data_export_archives (fixture_id, r2_key, r2_bucket) VALUES (?, ?, ?)",
+        "binds": [
+          "fixture-046",
+          "users/q2-view/excluded-export-user_images",
+          "user_images"
+        ],
+        "label": "excluded-export-user_images"
+      },
+      {
+        "sql": "INSERT INTO platform_budget_evidence_archives (fixture_id, storage_key, storage_bucket, deleted_at) VALUES (?, ?, ?, ?)",
+        "binds": [
+          "fixture-047",
+          "users/q2-view/excluded-budget-deleted",
+          "USER_IMAGES",
+          "2026-01-01"
+        ],
+        "label": "deleted-budget"
+      },
+      {
+        "sql": "INSERT INTO platform_budget_evidence_archives (fixture_id, storage_key, storage_bucket, deleted_at) VALUES (?, ?, ?, ?)",
+        "binds": [
+          "fixture-048",
+          "users/q2-view/excluded-budget-bucket",
+          "PRIVATE_MEDIA",
+          null
+        ],
+        "label": "other-budget-bucket"
+      },
+      {
+        "sql": "INSERT INTO platform_budget_evidence_archives (fixture_id, storage_key, storage_bucket, deleted_at) VALUES (?, ?, ?, ?)",
+        "binds": [
+          "fixture-049",
+          "users/q2-view/excluded-budget-null",
+          null,
+          null
+        ],
+        "label": "null-budget-bucket"
+      }
+    ]
+  },
+  "original_arm_sql": [
+    "SELECT r2_key AS r2_key FROM ai_images WHERE r2_key IS NOT NULL AND (1)",
+    "SELECT thumb_key AS r2_key FROM ai_images WHERE thumb_key IS NOT NULL AND (1)",
+    "SELECT medium_key AS r2_key FROM ai_images WHERE medium_key IS NOT NULL AND (1)",
+    "SELECT r2_key AS r2_key FROM ai_text_assets WHERE r2_key IS NOT NULL AND (1)",
+    "SELECT poster_r2_key AS r2_key FROM ai_text_assets WHERE poster_r2_key IS NOT NULL AND (1)",
+    "SELECT output_r2_key AS r2_key FROM ai_video_jobs_v2 WHERE output_r2_key IS NOT NULL AND (1)",
+    "SELECT poster_r2_key AS r2_key FROM ai_video_jobs_v2 WHERE poster_r2_key IS NOT NULL AND (1)",
+    "SELECT r2_key AS r2_key FROM homepage_hero_video_uploads WHERE r2_key IS NOT NULL AND (1)",
+    "SELECT file_r2_key AS r2_key FROM homepage_hero_video_derivatives WHERE file_r2_key IS NOT NULL AND (1)",
+    "SELECT poster_r2_key AS r2_key FROM homepage_hero_video_derivatives WHERE poster_r2_key IS NOT NULL AND (1)",
+    "SELECT source_r2_key AS r2_key FROM homepage_hero_video_derivatives WHERE source_r2_key IS NOT NULL AND (status IN ('queued', 'processing'))",
+    "SELECT source_r2_key AS r2_key FROM memvid_stream_previews WHERE source_r2_key IS NOT NULL AND (1)",
+    "SELECT r2_key AS r2_key FROM fable_chat_attachments WHERE r2_key IS NOT NULL AND (deleted_at IS NULL AND state IN ('pending', 'attached'))",
+    "SELECT visual_object_key AS r2_key FROM news_pulse_items WHERE visual_object_key IS NOT NULL AND (1)",
+    "SELECT r2_key AS r2_key FROM data_export_archives WHERE r2_key IS NOT NULL AND (r2_bucket = 'USER_IMAGES')",
+    "SELECT storage_key AS r2_key FROM platform_budget_evidence_archives WHERE storage_key IS NOT NULL AND (storage_bucket = 'USER_IMAGES' AND deleted_at IS NULL)"
+  ]
+}

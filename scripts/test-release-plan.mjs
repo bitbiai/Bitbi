@@ -17,6 +17,15 @@ function createContext() {
   return context;
 }
 
+for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/restriction-adapter.mjs"]) {
+  const plan = createReleasePlanFromRepo(repoRoot, { files: [file] });
+  assert.deepEqual(Object.keys(plan.impacts.workers), ["auth"]);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.equal(plan.impacts.static.required, false);
+  assert.deepEqual(plan.schemaApplies, []);
+  assert.deepEqual(plan.workerDeploys.map(step => step.worker), ["auth"]);
+}
+
 {
   const plan = createReleasePlanFromRepo(repoRoot, {
     files: ["workers/contact/src/index.js"],

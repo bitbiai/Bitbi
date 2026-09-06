@@ -307,6 +307,9 @@ export function classifyChangedFiles(context, changedFiles) {
       if (
         input === worker.wranglerPath ||
         input.startsWith(`${worker.sourceDirectory}/`) ||
+        // Restricted Q2 entries are private Auth deploy inputs, although the
+        // default src/index.js intentionally does not import them.
+        (workerId === "auth" && input.startsWith(`${worker.workerDirectory}/recovery/`)) ||
         isWorkerPackagePath(input, worker)
       ) {
         addImpact(impacts.workers, workerId, input, "changes the worker runtime/config");

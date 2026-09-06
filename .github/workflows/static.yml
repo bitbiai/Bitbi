@@ -181,6 +181,9 @@ jobs:
       - name: Install dependencies
         if: needs.release-compatibility.outputs.workers == 'true'
         run: npm ci
+      - name: Install pinned Auth target-runtime test dependencies
+        if: needs.release-compatibility.outputs.workers == 'true'
+        run: npm --prefix workers/auth ci
       - name: Run worker route tests
         if: needs.release-compatibility.outputs.workers == 'true'
         run: npm run test:workers

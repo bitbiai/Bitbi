@@ -1,0 +1,7 @@
+{
+  "source_commit": "c08af43135bbca02a4ac7657904da950d5fb57ef",
+  "source_path": "workers/auth/migrations/0083_add_r2_cleanup_reference_fence.sql",
+  "fixture": "0083-original-c08-frozen.sql",
+  "sha256": "157976d8a9f49752d693213e67aa1a759eec183db04f3fd5bdd575752c7b4365",
+  "purpose": "Frozen pre-fix native D1 compound-SELECT rejection fixture. Never an applied current migration."
+}
