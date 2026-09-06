@@ -16,6 +16,7 @@ import {
     apiAdminDataLifecycleRequestEvidence,
     apiAdminDataLifecycleRequestExport,
     apiAdminDataLifecycleRequests,
+    createAdminIdempotencyKey,
 } from '../../../shared/auth-api.js?v=__ASSET_VERSION__';
 import {
     addCell,
@@ -43,6 +44,17 @@ import {
 
 export function createLifecycleDomain({ notify, formatDate }) {
     let lifecycleDetailOverlay = null;
+    let listGeneration = 0;
+    let archiveGeneration = 0;
+    let listPending = false;
+    let archivePending = false;
+    const detailGenerations = new WeakMap();
+    const pendingRequests = new Set();
+    const actionIntents = new Map();
+    const objectUrls = new Set();
+    function currentDetail(requestId, bodyNode) {
+        return lifecycleDetailOverlay?.requestId === requestId && lifecycleDetailOverlay?.body === bodyNode && bodyNode.isConnected;
+    }
 
     async function loadLifecycle() {
         await Promise.all([loadLifecycleRequests(), loadLifecycleArchives()]);
@@ -274,13 +286,14 @@ export function createLifecycleDomain({ notify, formatDate }) {
         if (items.length > 12) panel.appendChild(el('p', 'admin-shell__desc', `Showing 12 of ${items.length} redacted plan items.`));
     }
 
-    function closeLifecycleDetailOverlay() {
+    function closeLifecycleDetailOverlay({ restoreFocus = true } = {}) {
         if (!lifecycleDetailOverlay) return;
         document.removeEventListener('keydown', lifecycleDetailOverlay.onKeydown, true);
         lifecycleDetailOverlay.modal.remove();
         const opener = lifecycleDetailOverlay.opener;
         const requestId = lifecycleDetailOverlay.requestId;
         lifecycleDetailOverlay = null;
+        if (!restoreFocus) return;
         if (restoreFocusSafely(opener)) return;
         const refreshedOpener = Array.from(document.querySelectorAll('[data-lifecycle-request-open]'))
             .find((button) => button instanceof HTMLElement && button.dataset.lifecycleRequestOpen === requestId);
@@ -293,9 +306,12 @@ export function createLifecycleDomain({ notify, formatDate }) {
     }
 
     async function refreshLifecycleDetail(requestId, bodyNode) {
+        const generation = (detailGenerations.get(bodyNode) || 0) + 1;
+        detailGenerations.set(bodyNode, generation);
         clear(bodyNode);
         bodyNode.appendChild(el('p', 'admin-state', 'Loading lifecycle request detail...'));
         const res = await apiAdminDataLifecycleRequest(requestId);
+        if (!currentDetail(requestId, bodyNode) || generation !== detailGenerations.get(bodyNode)) return null;
         clear(bodyNode);
         if (!res.ok) {
             const box = el('div', 'admin-alert admin-alert--danger');
@@ -304,38 +320,59 @@ export function createLifecycleDomain({ notify, formatDate }) {
             bodyNode.appendChild(box);
             return null;
         }
+        if (res.data?.request?.id && res.data.request.id !== requestId) {
+            bodyNode.appendChild(el('p', 'admin-state', 'Lifecycle response identity did not match the requested record.'));
+            return null;
+        }
         renderLifecycleDetailBody(requestId, res.data, bodyNode);
         return res.data;
     }
 
     async function runLifecycleAction({ requestId, button, bodyNode, stateNode, action, call, successMessage }) {
+        if (pendingRequests.has(requestId) || !currentDetail(requestId, bodyNode)) return;
+        const signature = `${requestId}:${action}`;
+        let intent = actionIntents.get(signature);
+        const retry = !!intent;
+        if (!intent) {
+            intent = { call, key: createAdminIdempotencyKey('data-lifecycle-action'), requestId, action };
+            actionIntents.set(signature, intent);
+        }
+        pendingRequests.add(requestId);
         setSubmitting(button, true);
-        stateNode.textContent = `${action}...`;
+        stateNode.textContent = `${retry ? 'Retrying the original ' : ''}${action} for ${requestId}...`;
         stateNode.dataset.state = 'neutral';
         try {
-            const res = await call();
-            if (!res.ok) {
-                stateNode.textContent = formatLifecycleError(res, `${action} failed.`);
-                stateNode.dataset.state = 'error';
-                notify(`${action} failed.`, 'error');
-                return;
-            }
+            const res = await intent.call(intent.key);
+            if (!res.ok) throw new Error(formatLifecycleError(res, `${action} failed.`));
+            actionIntents.delete(signature);
+            if (!currentDetail(requestId, bodyNode)) return;
             stateNode.textContent = successMessage;
             stateNode.dataset.state = 'success';
             notify(successMessage, 'success');
             await refreshLifecycleDetail(requestId, bodyNode);
-            await loadLifecycleRequests();
+            if (currentDetail(requestId, bodyNode)) await loadLifecycleRequests();
+        } catch (error) {
+            intent.error = error.message || 'The operation outcome is unknown.';
+            if (currentDetail(requestId, bodyNode)) {
+                stateNode.textContent = `${requestId}: ${intent.error} Inspect current evidence before retrying; the original request and key are retained.`;
+                stateNode.dataset.state = 'error';
+                button.textContent = `Retry original ${action}`;
+            }
         } finally {
+            pendingRequests.delete(requestId);
             setSubmitting(button, false);
         }
     }
 
     async function exportLifecycleEvidence(requestId, format, button, stateNode) {
+        if (button.disabled) return;
+        const overlay = lifecycleDetailOverlay;
         setSubmitting(button, true);
         stateNode.textContent = `Preparing ${format} evidence packet...`;
         stateNode.dataset.state = 'neutral';
         try {
             const res = await apiAdminDataLifecycleRequestEvidence(requestId, { format });
+            if (lifecycleDetailOverlay !== overlay || !button.isConnected) return;
             if (!res.ok) {
                 stateNode.textContent = formatLifecycleError(res, 'Evidence export failed.');
                 stateNode.dataset.state = 'error';
@@ -347,8 +384,9 @@ export function createLifecycleDomain({ notify, formatDate }) {
             if (format === 'html' && typeof window.open === 'function' && typeof Blob !== 'undefined' && window.URL?.createObjectURL) {
                 const blob = new Blob([res.text || ''], { type: contentType });
                 const url = window.URL.createObjectURL(blob);
+                objectUrls.add(url);
                 const popup = window.open(url, '_blank', 'noopener');
-                window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+                window.setTimeout(() => { window.URL.revokeObjectURL(url); objectUrls.delete(url); }, 60_000);
                 if (popup) {
                     stateNode.textContent = 'PDF-friendly evidence HTML opened. Use browser print or Save as PDF.';
                     stateNode.dataset.state = 'success';
@@ -394,7 +432,13 @@ export function createLifecycleDomain({ notify, formatDate }) {
             ]),
         );
         header.appendChild(headerText);
+        stateNode.setAttribute('aria-live', 'polite');
         bodyNode.append(header, stateNode);
+        for (const intent of actionIntents.values()) if (intent.requestId === requestId) {
+            const notice = el('p', 'admin-state', `${intent.action}: ${intent.error || 'Original operation still in progress.'} Inspect evidence before retrying the original action.`);
+            notice.setAttribute('role', intent.error ? 'alert' : 'status');
+            bodyNode.append(notice);
+        }
 
         const grid = el('div', 'admin-lifecycle-layout');
 
@@ -436,7 +480,7 @@ export function createLifecycleDomain({ notify, formatDate }) {
                 bodyNode,
                 stateNode,
                 action: 'Generate Plan',
-                call: () => apiAdminDataLifecycleGeneratePlan(requestId),
+                call: (idempotencyKey) => apiAdminDataLifecycleGeneratePlan(requestId, { idempotencyKey }),
                 successMessage: 'Plan generated or refreshed.',
             }),
         });
@@ -464,13 +508,14 @@ export function createLifecycleDomain({ notify, formatDate }) {
                     stateNode.dataset.state = 'error';
                     return;
                 }
+                const approvalNote = approveReason.value.trim();
                 runLifecycleAction({
                     requestId,
                     button: event.currentTarget,
                     bodyNode,
                     stateNode,
                     action: 'Approve',
-                    call: () => apiAdminDataLifecycleApprove(requestId, { reason: approveReason.value.trim() }),
+                    call: (idempotencyKey) => apiAdminDataLifecycleApprove(requestId, { reason: approvalNote, idempotencyKey }),
                     successMessage: 'Lifecycle request approved.',
                 });
             },
@@ -500,7 +545,7 @@ export function createLifecycleDomain({ notify, formatDate }) {
                 bodyNode,
                 stateNode,
                 action: 'Execute Safe Dry-run',
-                call: () => apiAdminDataLifecycleExecuteSafe(requestId, { dryRun: true }),
+                call: (idempotencyKey) => apiAdminDataLifecycleExecuteSafe(requestId, { dryRun: true, idempotencyKey }),
                 successMessage: 'Safe execution dry-run completed.',
             }),
         });
@@ -519,7 +564,7 @@ export function createLifecycleDomain({ notify, formatDate }) {
                     bodyNode,
                     stateNode,
                     action: 'Execute Safe',
-                    call: () => apiAdminDataLifecycleExecuteSafe(requestId, { dryRun: false }),
+                    call: (idempotencyKey) => apiAdminDataLifecycleExecuteSafe(requestId, { dryRun: false, idempotencyKey }),
                     successMessage: 'Safe lifecycle actions executed.',
                 });
             },
@@ -558,13 +603,14 @@ export function createLifecycleDomain({ notify, formatDate }) {
                     stateNode.dataset.state = 'error';
                     return;
                 }
+                const note = completionNote.value.trim();
                 runLifecycleAction({
                     requestId,
                     button: event.currentTarget,
                     bodyNode,
                     stateNode,
                     action: 'Mark Completed',
-                    call: () => apiAdminDataLifecycleComplete(requestId, { completionNote: completionNote.value.trim() }),
+                    call: (idempotencyKey) => apiAdminDataLifecycleComplete(requestId, { completionNote: note, idempotencyKey }),
                     successMessage: 'Lifecycle completion evidence recorded.',
                 });
             },
@@ -607,13 +653,15 @@ export function createLifecycleDomain({ notify, formatDate }) {
                     stateNode.dataset.state = 'error';
                     return;
                 }
+                const reason = closeReason.value.trim();
+                const finalStatus = closeStatus.value;
                 runLifecycleAction({
                     requestId,
                     button: event.currentTarget,
                     bodyNode,
                     stateNode,
                     action: 'Reject',
-                    call: () => apiAdminDataLifecycleReject(requestId, { reason: closeReason.value.trim() }),
+                    call: (idempotencyKey) => apiAdminDataLifecycleReject(requestId, { reason, idempotencyKey }),
                     successMessage: 'Lifecycle request rejected without data execution.',
                 });
             },
@@ -628,15 +676,16 @@ export function createLifecycleDomain({ notify, formatDate }) {
                     stateNode.dataset.state = 'error';
                     return;
                 }
+                const reason = closeReason.value.trim();
+                const finalStatus = closeStatus.value;
                 runLifecycleAction({
                     requestId,
                     button: event.currentTarget,
                     bodyNode,
                     stateNode,
                     action: 'Close',
-                    call: () => apiAdminDataLifecycleClose(requestId, {
-                        reason: closeReason.value.trim(),
-                        finalStatus: closeStatus.value,
+                    call: (idempotencyKey) => apiAdminDataLifecycleClose(requestId, {
+                        reason, finalStatus, idempotencyKey,
                     }),
                     successMessage: 'Lifecycle request closed without data execution.',
                 });
@@ -669,7 +718,7 @@ export function createLifecycleDomain({ notify, formatDate }) {
                     bodyNode,
                     stateNode,
                     action: 'Generate Private Archive',
-                    call: () => apiAdminDataLifecycleGenerateExport(requestId),
+                    call: (idempotencyKey) => apiAdminDataLifecycleGenerateExport(requestId, { idempotencyKey }),
                     successMessage: 'Private export archive generated.',
                 }),
             });
@@ -739,7 +788,7 @@ export function createLifecycleDomain({ notify, formatDate }) {
             }
             trapLifecycleOverlayFocus(event);
         };
-        lifecycleDetailOverlay = { modal, opener, requestId, onKeydown };
+        lifecycleDetailOverlay = { modal, body, opener, requestId, onKeydown };
         document.body.appendChild(modal);
         document.addEventListener('keydown', onKeydown, true);
         focusElementSafely(closeButton);
@@ -747,10 +796,14 @@ export function createLifecycleDomain({ notify, formatDate }) {
     }
 
     async function loadLifecycleRequests() {
+        const generation = ++listGeneration;
+        listPending = true;
         const holder = byId('lifecycleRequests');
         setState('lifecycleRequestsState', 'Loading requests...');
         clear(holder);
         const res = await apiAdminDataLifecycleRequests({ limit: 20 });
+        if (generation !== listGeneration) return;
+        listPending = false;
         if (!res.ok) {
             setState('lifecycleRequestsState', '');
             renderUnavailable(holder, res, 'Lifecycle requests unavailable.');
@@ -785,10 +838,14 @@ export function createLifecycleDomain({ notify, formatDate }) {
     }
 
     async function loadLifecycleArchives() {
+        const generation = ++archiveGeneration;
+        archivePending = true;
         const holder = byId('lifecycleArchives');
         setState('lifecycleArchivesState', 'Loading archives...');
         clear(holder);
         const res = await apiAdminDataLifecycleArchives({ limit: 20 });
+        if (generation !== archiveGeneration) return;
+        archivePending = false;
         if (!res.ok) {
             setState('lifecycleArchivesState', '');
             renderUnavailable(holder, res, 'Export archive metadata unavailable.');
@@ -819,8 +876,15 @@ export function createLifecycleDomain({ notify, formatDate }) {
         byId('lifecycleArchivesRefresh')?.addEventListener('click', loadLifecycleArchives);
     }
 
+    function hide() {
+        listGeneration += 1; archiveGeneration += 1;
+        closeLifecycleDetailOverlay({ restoreFocus: false });
+        for (const url of objectUrls) window.URL.revokeObjectURL(url);
+        objectUrls.clear();
+    }
+
     return {
-        bind,
+        bind, hide, needsReload: () => listPending || archivePending,
         loadLifecycle,
         loadLifecycleRequests,
         loadLifecycleArchives,

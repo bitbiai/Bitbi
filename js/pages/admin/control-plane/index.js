@@ -1,3 +1,4 @@
+import { loadAdminModule } from '../module-loader.js?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI — Admin Control Plane
    Safe frontend-only surfaces for implemented admin APIs.
@@ -29,25 +30,6 @@ import {
 import {
     renderAdminWorkbench,
 } from './guidance.js?v=__ASSET_VERSION__';
-import {
-    createAiBudgetDomain,
-} from './ai-budget.js?v=__ASSET_VERSION__';
-import {
-    createBillingDomain,
-} from './billing.js?v=__ASSET_VERSION__';
-import {
-    createLifecycleDomain,
-} from './lifecycle.js?v=__ASSET_VERSION__';
-import {
-    createOperationsDomain,
-} from './operations.js?v=__ASSET_VERSION__';
-import {
-    createObjectStorageDomain,
-} from './object-storage.js?v=__ASSET_VERSION__';
-import {
-    createTenantAssetsDomain,
-} from './tenant-assets.js?v=__ASSET_VERSION__';
-
 export function createAdminControlPlane({ showToast, formatDate }) {
     const loaded = new Set();
 
@@ -56,17 +38,29 @@ export function createAdminControlPlane({ showToast, formatDate }) {
     }
 
     const domainContext = { notify, formatDate };
-    const billingDomain = createBillingDomain(domainContext);
-    const aiBudgetDomain = createAiBudgetDomain(domainContext);
-    const lifecycleDomain = createLifecycleDomain(domainContext);
-    const tenantAssetsDomain = createTenantAssetsDomain(domainContext);
-    const objectStorageDomain = createObjectStorageDomain(domainContext);
-    const operationsDomain = createOperationsDomain({
-        ...domainContext,
-        loadTenantAssetManualReviewQueue: tenantAssetsDomain.loadTenantAssetManualReviewQueue,
-    });
+    const domains = new Map();
+    const imports = new Map();
+    const groups = { orgs:'billing', billing:'billing', 'live-billing':'billing', 'billing-events':'billing', 'ai-usage':'budget', 'ai-budget-switches':'budget', lifecycle:'lifecycle', operations:'operations', 'tenant-assets':'tenant', 'object-storage':'storage' };
+    const factories = {
+        billing: () => loadAdminModule(new URL('./billing.js?v=__ASSET_VERSION__', import.meta.url)).then(m => () => m.createBillingDomain(domainContext)),
+        budget: () => loadAdminModule(new URL('./ai-budget.js?v=__ASSET_VERSION__', import.meta.url)).then(m => () => m.createAiBudgetDomain(domainContext)),
+        lifecycle: () => loadAdminModule(new URL('./lifecycle.js?v=__ASSET_VERSION__', import.meta.url)).then(m => () => m.createLifecycleDomain(domainContext)),
+        tenant: () => loadAdminModule(new URL('./tenant-assets.js?v=__ASSET_VERSION__', import.meta.url)).then(m => () => m.createTenantAssetsDomain(domainContext)),
+        storage: () => loadAdminModule(new URL('./object-storage.js?v=__ASSET_VERSION__', import.meta.url)).then(m => () => m.createObjectStorageDomain(domainContext)),
+        operations: () => loadAdminModule(new URL('./operations.js?v=__ASSET_VERSION__', import.meta.url)).then(m => () => m.createOperationsDomain({ ...domainContext,
+            loadTenantAssetManualReviewQueue: async () => (await domain('tenant')).loadTenantAssetManualReviewQueue(),
+        })),
+    };
+    async function domain(key, isCurrent = () => true) {
+        if (domains.has(key)) return domains.get(key);
+        if (!imports.has(key)) imports.set(key, factories[key]().catch(error => { imports.delete(key); throw error; }));
+        const factory = await imports.get(key);
+        if (!isCurrent()) return null;
+        if (!domains.has(key)) { const instance = factory(); instance.bind?.(); domains.set(key, instance); }
+        return domains.get(key);
+    }
 
-    async function loadCommandCenter() {
+    async function loadCommandCenter(isCurrent) {
         const container = byId('controlPlaneCapabilityGrid');
         if (!container) return;
         clear(container);
@@ -84,6 +78,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             capabilityProbe('Tenant asset manual review', () => apiAdminTenantAssetManualReviewEvidence({ limit: 1, includeItems: false })),
             capabilityProbe('R2 Object Storage', () => apiAdminR2Buckets()),
         ]);
+        if (!isCurrent() || !container.isConnected) return;
         renderAdminWorkbench(probes);
 
         renderCards(container, [
@@ -159,42 +154,32 @@ export function createAdminControlPlane({ showToast, formatDate }) {
         renderSecurityPosturePanel({ container: byId('controlSecurity'), renderCards });
     }
 
-    function bind() {
-        billingDomain.bind();
-        aiBudgetDomain.bind();
-        lifecycleDomain.bind();
-        operationsDomain.bind();
-        tenantAssetsDomain.bind();
-        objectStorageDomain.bind();
+    function bind() {}
+
+    function leave(previous, next) {
+        if (groups[previous] === groups[next]) return;
+        const previousDomain = domains.get(groups[previous]);
+        if (previousDomain?.needsReload?.()) loaded.delete(previous);
+        previousDomain?.setActive?.(false);
+        previousDomain?.hide?.();
     }
 
-    async function load(sectionName) {
+    async function load(sectionName, { context, isCurrent = () => true } = {}) {
         if (!CONTROL_SECTIONS.has(sectionName)) return;
-        if (sectionName === 'dashboard') {
-            await loadCommandCenter();
-            return;
+        if (sectionName === 'dashboard') { await loadCommandCenter(isCurrent); return; }
+        if (sectionName === 'security') { renderSecurity(); return; }
+        const active = await domain(groups[sectionName], isCurrent);
+        if (!active || !isCurrent()) return;
+        active.setActive?.(true);
+        if (active.needsRefresh?.(sectionName)) loaded.delete(sectionName);
+        const loaders = { orgs:'loadOrgs', billing:'loadBillingPlans', 'live-billing':'loadLiveBillingCommandCenter', 'billing-events':'loadBillingEventsPanel', 'ai-usage':'loadAiAttempts', 'ai-budget-switches':'loadAiBudgetSwitchesPanel', lifecycle:'loadLifecycle', operations:'loadOperations', 'object-storage':'loadObjectStorage', 'tenant-assets':'renderTenantAssets' };
+        if (!loaded.has(sectionName)) {
+            await active[loaders[sectionName]]();
+            if (!isCurrent()) return;
+            loaded.add(sectionName);
         }
-        if (sectionName === 'security') {
-            renderSecurity();
-            return;
-        }
-        if (loaded.has(sectionName)) return;
-        loaded.add(sectionName);
-        if (sectionName === 'orgs') await billingDomain.loadOrgs();
-        if (sectionName === 'billing') await billingDomain.loadBillingPlans();
-        if (sectionName === 'live-billing') await billingDomain.loadLiveBillingCommandCenter();
-        if (sectionName === 'billing-events') await billingDomain.loadBillingEventsPanel();
-        if (sectionName === 'ai-usage') await aiBudgetDomain.loadAiAttempts();
-        if (sectionName === 'ai-budget-switches') await aiBudgetDomain.loadAiBudgetSwitchesPanel();
-        if (sectionName === 'lifecycle') await lifecycleDomain.loadLifecycle();
-        if (sectionName === 'operations') await operationsDomain.loadOperations();
-        if (sectionName === 'object-storage') await objectStorageDomain.loadObjectStorage();
-        if (sectionName === 'tenant-assets') await tenantAssetsDomain.renderTenantAssets();
+        if (context && isCurrent()) await active.activateContext?.({ ...context, section: sectionName });
     }
 
-    return {
-        bind,
-        load,
-        sections: CONTROL_SECTIONS,
-    };
+    return { bind, load, leave, sections: CONTROL_SECTIONS };
 }

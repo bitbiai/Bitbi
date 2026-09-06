@@ -115,6 +115,12 @@ const ASSETS_MANAGER_SHARED_FILES = new Set([
 const AUTH_TEST_FILES = new Set([
   "tests/auth-admin.spec.js",
   "tests/wallet-nav.spec.js",
+  "tests/oma2-q3-shell.spec.js",
+  "tests/oma2-q3-workflows.spec.js",
+  "tests/oma2-q3-context.spec.js",
+  "tests/oma2-q3-media.spec.js",
+  "tests/oma2-q3-ai.spec.js",
+  "tests/oma2-q3-registration.spec.js",
 ]);
 
 const WORKER_TEST_PREFIXES = [

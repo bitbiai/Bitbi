@@ -7,16 +7,21 @@ function setAdminNavGroupExpanded(group, expanded) {
 
 export function createAdminNav() {
     let offsetObserver = null;
-    let pendingLinkCollapseGroup = null;
+    let offsetFrame = 0;
 
     function syncOffset() {
         const siteNav = document.querySelector('header .site-nav');
         if (!siteNav) return;
 
         const navHeight = Math.ceil(siteNav.getBoundingClientRect().height);
-        if (navHeight > 0) {
+        if (navHeight > 0 && document.documentElement.style.getPropertyValue('--admin-nav-top-offset') !== `${navHeight}px`) {
             document.documentElement.style.setProperty('--admin-nav-top-offset', `${navHeight}px`);
         }
+    }
+
+    function scheduleOffset() {
+        if (offsetFrame) return;
+        offsetFrame = requestAnimationFrame(() => { offsetFrame = 0; syncOffset(); });
     }
 
     function bindOffset() {
@@ -25,123 +30,58 @@ export function createAdminNav() {
         const siteNav = document.querySelector('header .site-nav');
         if (siteNav && 'ResizeObserver' in window) {
             offsetObserver?.disconnect?.();
-            offsetObserver = new ResizeObserver(() => syncOffset());
+            offsetObserver = new ResizeObserver(scheduleOffset);
             offsetObserver.observe(siteNav);
         }
 
-        window.addEventListener('resize', syncOffset);
-        window.visualViewport?.addEventListener?.('resize', syncOffset);
+        window.addEventListener('resize', scheduleOffset);
+        window.visualViewport?.addEventListener?.('resize', scheduleOffset);
     }
 
-    function bindGroups() {
-        const groups = document.querySelectorAll('.admin-nav__group');
-        groups.forEach((group) => {
-            const toggle = group.querySelector('.admin-nav__group-toggle');
-            if (!toggle || toggle.dataset.bound === '1') return;
-            toggle.dataset.bound = '1';
-            const initiallyExpanded = toggle.getAttribute('aria-expanded') === 'true';
-            group.classList.toggle('admin-nav__group--expanded', initiallyExpanded);
-            toggle.addEventListener('click', () => {
-                const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
-                if (!isExpanded) {
-                    groups.forEach((other) => {
-                        if (other !== group) setAdminNavGroupExpanded(other, false);
-                    });
-                }
-                setAdminNavGroupExpanded(group, !isExpanded);
-            });
-            toggle.addEventListener('keydown', (event) => {
-                const groupList = Array.from(document.querySelectorAll('.admin-nav__group'));
-                const index = groupList.indexOf(group);
-                if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
-                    event.preventDefault();
-                    groupList.forEach((other) => {
-                        if (other !== group) setAdminNavGroupExpanded(other, false);
-                    });
-                    setAdminNavGroupExpanded(group, true);
-                    group.querySelector('.admin-nav__link')?.focus();
-                    return;
-                }
-                if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
-                    event.preventDefault();
-                    const previous = groupList[(index - 1 + groupList.length) % groupList.length];
-                    previous?.querySelector('.admin-nav__group-toggle')?.focus();
-                    return;
-                }
-                if (event.key === 'Home') {
-                    event.preventDefault();
-                    groupList[0]?.querySelector('.admin-nav__group-toggle')?.focus();
-                    return;
-                }
-                if (event.key === 'End') {
-                    event.preventDefault();
-                    groupList[groupList.length - 1]?.querySelector('.admin-nav__group-toggle')?.focus();
-                }
-            });
+    const mobile = () => window.matchMedia('(max-width: 899px)').matches;
+    const nav = () => document.getElementById('adminNav');
+    const toggle = () => document.getElementById('adminNavToggle');
+    function setOpen(open, restore = false) {
+        nav()?.classList.toggle('admin-nav--open', open);
+        toggle()?.setAttribute('aria-expanded', String(open));
+        if (restore) toggle()?.focus();
+    }
+    function bind() {
+        toggle()?.addEventListener('click', () => setOpen(toggle().getAttribute('aria-expanded') !== 'true'));
+        document.querySelectorAll('.admin-nav__group-toggle').forEach(button => {
+            button.addEventListener('click', () => setAdminNavGroupExpanded(button.closest('.admin-nav__group'), button.getAttribute('aria-expanded') !== 'true'));
         });
-    }
-
-    function bindLinkCollapse() {
-        document.querySelectorAll('.admin-nav__group-items .admin-nav__link').forEach((link) => {
-            if (link.dataset.collapseBound === '1') return;
-            link.dataset.collapseBound = '1';
-            link.addEventListener('click', () => {
-                const group = link.closest('.admin-nav__group');
-                if (!group) return;
-                const linkHash = link.getAttribute('href') || '';
-                const currentHash = location.hash || '#dashboard';
-                if (linkHash === currentHash) {
-                    setAdminNavGroupExpanded(group, false);
-                    return;
-                }
-                pendingLinkCollapseGroup = group;
-            });
-            link.addEventListener('keydown', (event) => {
-                if (event.key !== 'Escape') return;
-                const group = link.closest('.admin-nav__group');
-                if (!group) return;
+        nav()?.addEventListener('click', event => {
+            if (event.target.closest('a') && mobile()) setOpen(false);
+        });
+        nav()?.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && mobile()) { event.preventDefault(); setOpen(false, true); return; }
+            const group = event.target.closest('.admin-nav__group');
+            const button = group?.querySelector('.admin-nav__group-toggle');
+            if (!button) return;
+            if (event.key === 'Escape') {
+                event.preventDefault(); setAdminNavGroupExpanded(group, false); button.focus();
+            } else if (event.target === button && event.key === 'ArrowDown') {
+                event.preventDefault(); setAdminNavGroupExpanded(group, true); group.querySelector('a')?.focus();
+            } else if (event.target === button && ['Home','End'].includes(event.key)) {
                 event.preventDefault();
-                setAdminNavGroupExpanded(group, false);
-                group.querySelector('.admin-nav__group-toggle')?.focus();
-            });
+                const buttons = [...nav().querySelectorAll('.admin-nav__group-toggle')];
+                buttons[event.key === 'Home' ? 0 : buttons.length - 1]?.focus();
+            }
         });
+        window.addEventListener('resize', () => { if (!mobile()) setOpen(false); });
     }
-
     function syncActiveSection(sectionName) {
         document.querySelectorAll('.admin-nav__link').forEach(link => {
-            const isActive = link.dataset.section === sectionName;
-            link.classList.toggle('admin-nav__link--active', isActive);
+            const active = link.dataset.section === sectionName;
+            link.classList.toggle('admin-nav__link--active', active);
+            if (active) link.setAttribute('aria-current', 'page');
+            else link.removeAttribute('aria-current');
         });
-
-        const activeLink = document.querySelector(`.admin-nav__link[data-section="${sectionName}"]`);
-        const activeGroup = activeLink?.closest('.admin-nav__group');
-        const allGroups = document.querySelectorAll('.admin-nav__group');
-        allGroups.forEach((group) => {
-            group.classList.toggle('admin-nav__group--active', group === activeGroup);
-        });
-        allGroups.forEach((group) => {
-            if (group !== activeGroup) setAdminNavGroupExpanded(group, false);
-        });
-
-        if (!activeGroup) {
-            pendingLinkCollapseGroup = null;
-            return;
-        }
-
-        const collapseAfterClick = pendingLinkCollapseGroup === activeGroup;
-        pendingLinkCollapseGroup = null;
-        const shouldExpand = sectionName !== 'dashboard' && !collapseAfterClick;
-        setAdminNavGroupExpanded(activeGroup, shouldExpand);
+        const active = Array.from(document.querySelectorAll('.admin-nav__link')).find(link => link.dataset.section === sectionName);
+        const group = active?.closest('.admin-nav__group');
+        if (group) setAdminNavGroupExpanded(group, true);
+        document.querySelectorAll('.admin-nav__group').forEach(item => item.classList.toggle('admin-nav__group--active', item === group));
     }
-
-    function bind() {
-        bindGroups();
-        bindLinkCollapse();
-    }
-
-    return {
-        bind,
-        bindOffset,
-        syncActiveSection,
-    };
+    return { bind, bindOffset, syncActiveSection };
 }

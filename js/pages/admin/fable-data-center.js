@@ -66,7 +66,8 @@ function statusTone(status) {
 function copyButton(value, label = 'Copy ID') {
     const control = button(label, 'btn-action btn-action--secondary');
     control.addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(String(value || '')); } catch { /* no persistent fallback */ }
+        try { await navigator.clipboard.writeText(String(value || '')); control.textContent = 'Copied'; }
+        catch { control.textContent = 'Copy unavailable'; }
     });
     return control;
 }
@@ -135,7 +136,7 @@ function webSearchDetails(value) {
     };
 }
 
-export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
+export function createAdminFableDataCenter({ showToast, formatDate, onOpen, onClose }) {
     const refs = {
         card: document.getElementById('fableDataCard'),
         cardStats: document.getElementById('fableDataCardStats'),
@@ -193,6 +194,66 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     let dialogResolve = null;
     let dialogReturnFocus = null;
     const detailOffsets = { transcript: 0, attempts: 0, memory: 0, usage: 0 };
+    let viewGeneration = 0;
+    let selectionGeneration = 0;
+    let listGeneration = 0;
+    let overviewGeneration = 0;
+    const tabGenerations = new Map();
+    const mutationIntents = new Map();
+    function captureConversation() {
+        if (!selectedDetail || selectedDetail.conversation.id !== selected) return null;
+        return { id: selected, revision: selectedDetail.conversation.adminRevisionVersion,
+            detail: selectedDetail, generation: selectionGeneration, view: viewGeneration };
+    }
+    function isCurrent(context) {
+        return context && open && context.id === selected && context.generation === selectionGeneration && context.view === viewGeneration;
+    }
+    async function mutate(context, operation, payload, call, success, { purge = false } = {}) {
+        const signature = JSON.stringify([context.id, operation, payload]);
+        let intent = mutationIntents.get(signature);
+        if (intent?.pending || intent?.done) return;
+        if (!intent) {
+            intent = { operation, key: idempotencyKey(), payload: structuredClone(payload), call, context, success, purge };
+            mutationIntents.set(signature, intent);
+        }
+        intent.pending = true;
+        try {
+            const response = await intent.call(intent.payload, intent.key);
+            if (!response.ok) throw new Error(response.error || 'Operation not confirmed.');
+            intent.done = true;
+            if (!isCurrent(context)) return;
+            showToast(`${success} (${context.id})`);
+            if (purge) {
+                selected = null; selectedDetail = null; selectionGeneration += 1;
+                refs.detailContent.hidden = true; refs.detailEmpty.hidden = false;
+                await Promise.all([loadOverview(), loadConversations()]);
+            } else {
+                await selectConversation(context.id);
+            }
+        } catch (error) {
+            intent.error = error.message || 'Outcome unknown.';
+            if (isCurrent(context)) renderMutationResult(intent);
+        } finally { intent.pending = false; }
+    }
+    function renderMutationResult(intent) {
+        const notice = node('div', 'admin-fable-data__notice');
+        notice.setAttribute('role', 'alert');
+        notice.append(node('p', '', `${intent.context.id}: ${intent.error} Inspect the current record before retrying the original operation.`));
+        const retry = button('Retry original operation');
+        retry.addEventListener('click', async () => {
+            if (intent.pending || intent.done) return;
+            const accepted = await confirmDialog({ title: `Retry operation for ${intent.context.id}`, build(container) {
+                container.append(node('p', '', 'The original target, payload, revision and idempotency key are retained. This does not start a different operation.'));
+            } });
+            if (!accepted) return;
+            notice.remove();
+            const current = captureConversation();
+            const context = current?.id === intent.context.id ? current : intent.context;
+            await mutate(context, intent.operation, intent.payload, intent.call, intent.success, { purge: intent.purge });
+        });
+        notice.append(retry);
+        refs.detailActions.append(notice);
+    }
 
     function setStatus(message, kind = 'neutral') {
         refs.status.textContent = message;
@@ -237,7 +298,10 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     }
 
     async function loadOverview() {
+        const request = ++overviewGeneration;
+        const view = viewGeneration;
         const response = await apiAdminFableDataOverview();
+        if (request !== overviewGeneration || view !== viewGeneration) return;
         if (!response.ok) {
             refs.cardStats.textContent = 'Statistics unavailable.';
             if (open) setStatus(response.error || 'Statistics unavailable.', 'error');
@@ -294,8 +358,12 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     }
 
     async function loadConversations() {
+        const request = ++listGeneration;
+        const view = viewGeneration;
+        const query = filters();
         setStatus('Loading conversations...');
-        const response = await apiAdminFableDataConversations(filters());
+        const response = await apiAdminFableDataConversations(query);
+        if (request !== listGeneration || view !== viewGeneration || !open) return;
         if (!response.ok) {
             setStatus(response.error || 'Could not load conversations.', 'error');
             refs.list.replaceChildren(node('p', 'admin-fable-data__empty', 'Load failed. Use Refresh to retry.'));
@@ -353,6 +421,11 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
             refs.detailActions.append(settings);
         }
         refs.detailActions.append(lifecycle, copyButton(detail.conversation.id));
+        if (detail.conversation.ownerId) {
+            const owner = button('Inspect owner', 'btn-action btn-action--secondary');
+            owner.addEventListener('click', () => document.dispatchEvent(new CustomEvent('admin:open-context', { detail: { section: 'users', userId: detail.conversation.ownerId } })));
+            refs.detailActions.append(owner);
+        }
         if (detail.conversation.state === 'deleted') {
             const purge = button('Permanent purge', 'btn-action admin-fable-data__danger');
             purge.addEventListener('click', purgeConversation);
@@ -361,12 +434,23 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     }
 
     async function selectConversation(id) {
+        const request = ++selectionGeneration;
+        const view = viewGeneration;
         if (id !== selected) Object.keys(detailOffsets).forEach((key) => { detailOffsets[key] = 0; });
         selected = id;
+        selectedDetail = null;
+        refs.detailContent.hidden = true;
+        refs.detailEmpty.hidden = false;
+        refs.detailEmpty.textContent = 'Loading selected conversation...';
         setStatus('Loading conversation...');
         const response = await apiAdminFableDataConversation(id);
+        if (!open || request !== selectionGeneration || view !== viewGeneration || selected !== id) return;
         if (!response.ok) {
             setStatus(response.error || 'Conversation could not be loaded.', 'error');
+            return;
+        }
+        if (response.data?.conversation?.id !== id) {
+            setStatus('Conversation response identity did not match the requested record.', 'error');
             return;
         }
         selectedDetail = response.data;
@@ -377,6 +461,8 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
         renderOverview(response.data);
         buildActionButtons(response.data);
         await showTab(activeTab, { force: true });
+        if (request !== selectionGeneration || view !== viewGeneration) return;
+        for (const intent of mutationIntents.values()) if (intent.context.id === id && intent.error && !intent.done) renderMutationResult(intent);
         await loadConversations();
     }
 
@@ -542,7 +628,12 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     }
 
     async function renderRawRecord(kind = 'conversation', recordId = selected) {
-        const response = await apiAdminFableDataRawRecord(selected, kind, recordId);
+        const context = captureConversation();
+        if (!context) return;
+        const request = (tabGenerations.get('raw') || 0) + 1;
+        tabGenerations.set('raw', request);
+        const response = await apiAdminFableDataRawRecord(context.id, kind, recordId);
+        if (!isCurrent(context) || tabGenerations.get('raw') !== request || activeTab !== 'raw') return;
         if (!response.ok) throw new Error(response.error || 'Raw record unavailable.');
         const note = node('p', 'admin-fable-data__notice', 'Allowlisted Van Ark chat-domain columns only. Cryptographic and private provider fields are redacted; no SQL is accepted.');
         const toggle = button('Show UTC timestamps', 'btn-action btn-action--secondary');
@@ -569,6 +660,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     }
 
     async function showRawRecord(kind, recordId) {
+        const context = captureConversation();
         try {
             activeTab = 'raw';
             for (const [key, panel] of Object.entries(panels)) panel.hidden = key !== 'raw';
@@ -580,6 +672,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
             panels.raw.replaceChildren(node('p', 'admin-fable-data__empty', 'Loading record...'));
             await renderRawRecord(kind, recordId);
         } catch (error) {
+            if (!isCurrent(context) || activeTab !== 'raw') return;
             panels.raw.replaceChildren(node('p', 'admin-fable-data__empty', error.message));
         }
     }
@@ -607,15 +700,19 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     }
 
     async function loadTab(name) {
-        if (!selected || !TAB_LOADERS.has(name)) return;
+        const context = captureConversation();
+        if (!context || !TAB_LOADERS.has(name)) return;
+        const request = (tabGenerations.get(name) || 0) + 1;
+        tabGenerations.set(name, request);
         panels[name].replaceChildren(node('p', 'admin-fable-data__empty', 'Loading...'));
         const detailOffset = detailOffsets[name] || 0;
-        const response = name === 'transcript' ? await apiAdminFableDataTranscript(selected, { limit: DETAIL_PAGE_SIZE, offset: detailOffset })
-            : name === 'attempts' ? await apiAdminFableDataAttempts(selected, { limit: DETAIL_PAGE_SIZE, offset: detailOffset })
-                : name === 'memory' ? await apiAdminFableDataCheckpoints(selected, { limit: DETAIL_PAGE_SIZE, offset: detailOffset })
-                    : name === 'search' ? await apiAdminFableDataWebSearch(selected)
-                        : name === 'usage' ? await apiAdminFableDataUsage(selected, { limit: DETAIL_PAGE_SIZE, offset: detailOffset })
+        const response = name === 'transcript' ? await apiAdminFableDataTranscript(context.id, { limit: DETAIL_PAGE_SIZE, offset: detailOffset })
+            : name === 'attempts' ? await apiAdminFableDataAttempts(context.id, { limit: DETAIL_PAGE_SIZE, offset: detailOffset })
+                : name === 'memory' ? await apiAdminFableDataCheckpoints(context.id, { limit: DETAIL_PAGE_SIZE, offset: detailOffset })
+                    : name === 'search' ? await apiAdminFableDataWebSearch(context.id)
+                        : name === 'usage' ? await apiAdminFableDataUsage(context.id, { limit: DETAIL_PAGE_SIZE, offset: detailOffset })
                             : null;
+        if (!isCurrent(context) || tabGenerations.get(name) !== request || activeTab !== name) return;
         if (name === 'raw') return renderRawRecord();
         if (!response?.ok) throw new Error(response?.error || 'Panel data could not be loaded.');
         if (name === 'transcript') renderTranscript(response.data.messages || []);
@@ -631,6 +728,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     }
 
     async function showTab(name, { force = false } = {}) {
+        const context = captureConversation();
         if (!panels[name]) return;
         activeTab = name;
         for (const [key, panel] of Object.entries(panels)) panel.hidden = key !== name;
@@ -641,6 +739,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
         });
         if (force || TAB_LOADERS.has(name)) {
             try { await loadTab(name); } catch (error) {
+                if (!isCurrent(context) || activeTab !== name) return;
                 panels[name].replaceChildren(node('p', 'admin-fable-data__empty', error.message));
             }
         }
@@ -658,6 +757,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     }
 
     function confirmDialog({ title, build, confirmLabel = 'Confirm', danger = false }) {
+        if (dialogResolve) return Promise.resolve(null);
         dialogReturnFocus = document.activeElement;
         refs.dialogTitle.textContent = title;
         refs.dialogBody.replaceChildren();
@@ -684,7 +784,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
                 if (typedId) {
                     const confirm = node('input');
                     confirm.name = 'confirmation'; confirm.autocomplete = 'off';
-                    container.append(makeField(`Type ${selected} to confirm`, confirm));
+                    container.append(makeField(`Type ${typedId} to confirm`, confirm));
                 }
             },
         });
@@ -696,18 +796,19 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     }
 
     async function conversationAction(operation) {
-        if (!selectedDetail) return;
+        const context = captureConversation();
+        if (!context) return;
         let payload;
         if (operation === 'rename') {
             const form = await confirmDialog({ title: 'Rename conversation', build(container) {
-                const title = node('input'); title.name = 'title'; title.maxLength = 120; title.value = selectedDetail.conversation.title;
+                const title = node('input'); title.name = 'title'; title.maxLength = 120; title.value = context.detail.conversation.title;
                 const reason = node('textarea'); reason.name = 'reason'; reason.maxLength = 500;
                 container.append(makeField('Title', title), makeField('Administrative reason', reason));
             } });
             if (!form) return;
             payload = { title: form.querySelector('[name="title"]').value, reason: form.querySelector('[name="reason"]').value };
         } else if (operation === 'settings') {
-            const current = selectedDetail.conversation.settings;
+            const current = context.detail.conversation.settings;
             const form = await confirmDialog({ title: 'Update Fable settings', build(container) {
                 const effort = node('select'); effort.name = 'effort';
                 ['medium', 'high', 'xhigh', 'max'].forEach((value) => { const option = node('option', '', value); option.value = value; option.selected = current.effort === value; effort.append(option); });
@@ -736,15 +837,14 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
             if (!payload) return;
         }
         payload.operation = operation;
-        payload.expectedRevision = selectedDetail.conversation.adminRevisionVersion;
-        const response = await apiAdminFableDataConversationMutation(selected, payload, idempotencyKey());
-        if (!response.ok) return showToast(response.error || 'Update failed.', 'error');
-        showToast('Conversation updated.');
-        await selectConversation(selected);
-        await loadOverview();
+        payload.expectedRevision = context.revision;
+        return mutate(context, operation, payload,
+            (body, key) => apiAdminFableDataConversationMutation(context.id, body, key), 'Conversation updated.');
     }
 
     async function editMessage(message) {
+        const context = captureConversation();
+        if (!context) return;
         const form = await confirmDialog({ title: 'Revise visible message', build(container) {
             container.append(node('p', 'admin-fable-data__notice', 'The original message and provider evidence remain immutable. Future context uses this revision.'));
             const content = node('textarea'); content.name = 'content'; content.value = message.content; content.maxLength = 400000;
@@ -760,43 +860,44 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
         let citations;
         try { citations = message.role === 'assistant' ? JSON.parse(form.querySelector('[name="citations"]').value) : undefined; }
         catch { return showToast('Citations must be valid JSON.', 'error'); }
-        const response = await apiAdminFableDataMessageMutation(selected, message.id, {
+        const payload = {
             content: form.querySelector('[name="content"]').value,
             citations,
             reason: form.querySelector('[name="reason"]').value,
-            expectedRevision: selectedDetail.conversation.adminRevisionVersion,
+            expectedRevision: context.revision,
             expectedMessageRevision: message.revision,
-        }, idempotencyKey());
-        if (!response.ok) return showToast(response.error || 'Message revision failed.', 'error');
-        showToast('Visible message revision recorded.');
-        await selectConversation(selected);
+        };
+        return mutate(context, `message:${message.id}`, payload,
+            (body, key) => apiAdminFableDataMessageMutation(context.id, message.id, body, key), 'Visible message revision recorded.');
     }
 
     async function turnActionDialog(message) {
+        const context = captureConversation();
+        if (!context) return;
         const action = message.administrativelyDeleted ? 'restore' : 'delete';
         const payload = await reasonDialog(`${action === 'delete' ? 'Delete' : 'Restore'} complete turn`, 'Both user and assistant sides are changed together. Original rows and provider/accounting evidence remain immutable.');
         if (!payload) return;
         Object.assign(payload, {
-            expectedRevision: selectedDetail.conversation.adminRevisionVersion,
+            expectedRevision: context.revision,
             expectedTurnRevision: message.turnRevision,
         });
-        const response = await apiAdminFableDataTurnMutation(selected, message.turnId, action, payload, idempotencyKey());
-        if (!response.ok) return showToast(response.error || 'Turn update failed.', 'error');
-        showToast(`Complete turn ${action} recorded.`);
-        await selectConversation(selected);
+        return mutate(context, `turn:${message.turnId}:${action}`, payload,
+            (body, key) => apiAdminFableDataTurnMutation(context.id, message.turnId, action, body, key), `Complete turn ${action} recorded.`);
     }
 
     async function invalidateCheckpoint(checkpoint) {
+        const context = captureConversation();
+        if (!context) return;
         const payload = await reasonDialog('Invalidate checkpoint', 'The summary remains immutable evidence but will no longer be selected for future context. No provider call is triggered.');
         if (!payload) return;
-        payload.expectedRevision = selectedDetail.conversation.adminRevisionVersion;
-        const response = await apiAdminFableDataCheckpointInvalidate(selected, checkpoint.id, payload, idempotencyKey());
-        if (!response.ok) return showToast(response.error || 'Checkpoint invalidation failed.', 'error');
-        showToast('Checkpoint invalidated.');
-        await selectConversation(selected);
+        payload.expectedRevision = context.revision;
+        return mutate(context, `checkpoint:${checkpoint.id}`, payload,
+            (body, key) => apiAdminFableDataCheckpointInvalidate(context.id, checkpoint.id, body, key), 'Checkpoint invalidated.');
     }
 
     async function revealSummary(checkpoint, record) {
+        const context = captureConversation();
+        if (!context) return;
         const accepted = await confirmDialog({
             title: 'Reveal hidden summary',
             confirmLabel: 'Reveal summary',
@@ -805,7 +906,8 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
             },
         });
         if (!accepted) return;
-        const response = await apiAdminFableDataRevealSummary(selected, checkpoint.id);
+        const response = await apiAdminFableDataRevealSummary(context.id, checkpoint.id);
+        if (!isCurrent(context) || !record.isConnected) return;
         if (!response.ok) return showToast(response.error || 'Summary unavailable.', 'error');
         const holder = node('section', 'admin-fable-data__revealed');
         holder.append(node('strong', '', 'Hidden summary (sensitive)'));
@@ -818,18 +920,17 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
     }
 
     async function purgeConversation() {
-        const payload = await reasonDialog('Permanent purge', 'This deletes only the selected conversation domain graph through foreign-key cascades. External audit and accounting evidence remain retained.', { typedId: true });
+        const context = captureConversation();
+        if (!context) return;
+        const payload = await reasonDialog('Permanent purge', 'This deletes only the selected conversation domain graph through foreign-key cascades. External audit and accounting evidence remain retained.', { typedId: context.id });
         if (!payload) return;
-        payload.expectedRevision = selectedDetail.conversation.adminRevisionVersion;
-        const response = await apiAdminFableDataPurge(selected, payload, idempotencyKey());
-        if (!response.ok) return showToast(response.error || 'Permanent purge failed.', 'error');
-        showToast('Conversation permanently purged.');
-        selected = null; selectedDetail = null;
-        refs.detailContent.hidden = true; refs.detailEmpty.hidden = false;
-        await Promise.all([loadOverview(), loadConversations()]);
+        payload.expectedRevision = context.revision;
+        return mutate(context, 'purge', payload,
+            (body, key) => apiAdminFableDataPurge(context.id, body, key), 'Conversation permanently purged.', { purge: true });
     }
 
     async function openWorkspace() {
+        onOpen?.();
         open = true;
         refs.card.hidden = true;
         refs.workspace.hidden = false;
@@ -839,7 +940,16 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
         await Promise.all([loadOverview(), loadConversations()]);
     }
 
+    function hide() {
+        viewGeneration += 1;
+        selectionGeneration += 1;
+        window.clearTimeout(filterTimer);
+        if (dialogResolve) closeDialog(null);
+        refs.workspace?.querySelectorAll('.admin-fable-data__revealed').forEach((item) => item.remove());
+    }
+
     function closeWorkspace() {
+        hide();
         open = false;
         refs.workspace.hidden = true;
         refs.card.hidden = false;
@@ -857,6 +967,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
         refs.filters.addEventListener('submit', (event) => { event.preventDefault(); offset = 0; loadConversations(); });
         for (const input of [refs.search, refs.owner, refs.errorCategory]) {
             input.addEventListener('input', () => {
+                listGeneration += 1;
                 window.clearTimeout(filterTimer);
                 filterTimer = window.setTimeout(() => { offset = 0; loadConversations(); }, 300);
             });
@@ -896,5 +1007,5 @@ export function createAdminFableDataCenter({ showToast, formatDate, onClose }) {
         if (!open) loadOverview();
     }
 
-    return { bind, show, close: closeWorkspace };
+    return { bind, show, hide, close: closeWorkspace };
 }

@@ -180,6 +180,9 @@ for (const viewport of viewports) {
       test(`U11 workbench availability follows API ${status}, separately from implementation`, async ({ page, baseURL }) => {
         const unexpected = await setup(page, baseURL, () => ({ status, body: status === 200 ? { ok: true } : { ok: false, error: 'Q1 probe unavailable' } }));
         await openAdmin(page, 'dashboard');
+        await page.locator('#adminCapabilityDetails > summary').click();
+        await page.locator('#adminCapabilitiesRefresh').click();
+        await expect(page.locator('#adminCapabilitiesState')).toContainText('API responses observed');
         const cards = page.locator('#adminWorkbenchTasks .admin-workbench-card');
         await expect(cards).toHaveCount(5);
         await expect(page.locator('#adminWorkbenchTasks')).toContainText('Implemented workflow');

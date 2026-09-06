@@ -57,6 +57,49 @@ export function createAdminUserStorage({
         hasMore: false,
     };
     let storageModalOpener = null;
+    let viewGeneration = 0;
+    let listRequest = 0;
+    let reconciliationRequest = 0;
+    let appending = false;
+    const mutationIntents = new Map();
+
+    function current(user, generation = viewGeneration) {
+        return generation === viewGeneration && !refs.modal?.hidden && storageModalState.user?.id === user?.id;
+    }
+
+    async function mutate(user, identity, payload, call, success) {
+        const deletion = identity[0].startsWith('delete-');
+        const key = JSON.stringify([user.id, identity, deletion ? null : payload]);
+        let intent = mutationIntents.get(key);
+        if (intent?.pending) return;
+        if (intent?.done && deletion) { showToast('This operation was already confirmed. Refresh to inspect the stored result.', 'success'); return; }
+        if (!intent) {
+            intent = { call, idempotencyKey: createAdminIdempotencyKey('admin-storage-operation') };
+            mutationIntents.set(key, intent);
+        }
+        intent.pending = true;
+        const generation = viewGeneration;
+        try {
+            const res = await (deletion ? intent.call : call)(intent.idempotencyKey);
+            intent.done = res.ok;
+            if (!current(user, generation)) return;
+            if (res.ok) {
+                showToast(success, 'success');
+                await loadDetails(user);
+            } else {
+                const message = res.error || 'Operation not confirmed. Inspect the stored state before retrying this same operation.';
+                const error = userCreditState(message, 'error');
+                error.setAttribute('role', 'alert');
+                refs.body.prepend(error);
+            }
+        } catch {
+            if (current(user, generation)) {
+                const error = userCreditState('Operation outcome is unknown. Inspect the stored state before retrying this same operation.', 'error');
+                error.setAttribute('role', 'alert');
+                refs.body.prepend(error);
+            }
+        } finally { intent.pending = false; }
+    }
 
     function syncBodyLock() {
         const hasOpenModal = [
@@ -75,6 +118,10 @@ export function createAdminUserStorage({
     }
 
     function close({ restoreFocus = true } = {}) {
+        viewGeneration += 1;
+        listRequest += 1;
+        reconciliationRequest += 1;
+        appending = false;
         setModalOpen(false);
         if (restoreFocus) restoreFocusSafely(storageModalOpener);
         storageModalOpener = null;
@@ -380,7 +427,10 @@ export function createAdminUserStorage({
 
     async function loadReconciliation(user) {
         if (!user?.id) return;
+        const generation = viewGeneration;
+        const request = ++reconciliationRequest;
         const res = await apiAdminUserStorageReconciliation(user.id);
+        if (!current(user, generation) || request !== reconciliationRequest) return;
         if (!res.ok) {
             showToast(res.error || 'Could not run storage reconciliation.', 'error');
             return;
@@ -398,7 +448,12 @@ export function createAdminUserStorage({
     }
 
     async function loadDetails(user, { append = false } = {}) {
+        if (append && (appending || !current(user))) return;
+        const generation = viewGeneration;
+        const request = ++listRequest;
+        appending = append;
         if (!append) {
+            reconciliationRequest += 1;
             resetState(user);
             if (refs.body) {
                 refs.body.textContent = '';
@@ -409,19 +464,25 @@ export function createAdminUserStorage({
             limit: 100,
             cursor: append ? storageModalState.nextCursor : undefined,
         });
+        if (!current(user, generation) || request !== listRequest) return;
+        appending = false;
         if (!res.ok) {
             if (refs.body) {
-                refs.body.textContent = '';
+                if (!append) refs.body.textContent = '';
                 refs.body.appendChild(userCreditState(res.error || 'Could not load storage usage.', 'error'));
             }
             return;
         }
         const payload = res.data?.data || res.data || {};
+        if (payload.user?.id && payload.user.id !== user.id) {
+            refs.body.replaceChildren(userCreditState('Storage response identity did not match the requested user.', 'error'));
+            return;
+        }
         storageModalState = {
             user: payload.user || user,
             folders: Array.isArray(payload.folders) ? payload.folders : [],
             assets: append
-                ? storageModalState.assets.concat(Array.isArray(payload.assets) ? payload.assets : [])
+                ? [...new Map(storageModalState.assets.concat(Array.isArray(payload.assets) ? payload.assets : []).map((asset) => [asset.id, asset])).values()]
                 : (Array.isArray(payload.assets) ? payload.assets : []),
             summary: payload.summary || {},
             storageUsage: payload.storageUsage || null,
@@ -440,6 +501,8 @@ export function createAdminUserStorage({
 
     async function open(user, opener = null) {
         if (!refs.modal || !refs.body) return;
+        viewGeneration += 1;
+        user = { ...user };
         storageModalOpener = opener instanceof HTMLElement
             ? opener
             : document.activeElement instanceof HTMLElement
@@ -452,45 +515,19 @@ export function createAdminUserStorage({
         await loadDetails(user);
     }
 
-    async function refreshOpenDetails() {
-        if (!storageModalState.user || !refs.modal || refs.modal.hidden) return;
-        await loadDetails(storageModalState.user);
-    }
-
     async function handleRenameAsset(user, asset) {
         const currentName = getAssetDisplayName(asset);
-        const name = prompt('Rename asset', currentName);
-        if (name === null) return;
-        const trimmed = name.trim();
-        if (!trimmed || trimmed === currentName) return;
-        const res = await apiAdminRenameUserAsset(user.id, asset.id, trimmed);
-        if (res.ok) {
-            showToast('Asset renamed.', 'success');
-            await refreshOpenDetails();
-        } else {
-            showToast(res.error, 'error');
-        }
+        const name = prompt(`Rename asset ${asset.id} for ${user.email || user.id}`, currentName);
+        if (name === null || !name.trim() || name.trim() === currentName) return;
+        return mutate(user, ['rename-asset', asset.id], name.trim(), () => apiAdminRenameUserAsset(user.id, asset.id, name.trim()), 'Asset renamed.');
     }
 
     async function handleMoveAsset(user, asset, folderId) {
-        const res = await apiAdminMoveUserAsset(user.id, asset.id, folderId);
-        if (res.ok) {
-            showToast('Asset moved.', 'success');
-            await refreshOpenDetails();
-        } else {
-            showToast(res.error, 'error');
-            await refreshOpenDetails();
-        }
+        return mutate(user, ['move-asset', asset.id], folderId, () => apiAdminMoveUserAsset(user.id, asset.id, folderId), 'Asset moved.');
     }
 
     async function handleSetAssetVisibility(user, asset, visibility) {
-        const res = await apiAdminSetUserAssetVisibility(user.id, asset.id, visibility);
-        if (res.ok) {
-            showToast('Asset visibility updated.', 'success');
-            await refreshOpenDetails();
-        } else {
-            showToast(res.error, 'error');
-        }
+        return mutate(user, ['visibility', asset.id], visibility, () => apiAdminSetUserAssetVisibility(user.id, asset.id, visibility), 'Asset visibility updated.');
     }
 
     async function handleDeleteAsset(user, asset) {
@@ -503,16 +540,8 @@ export function createAdminUserStorage({
             showToast('Deletion reason must be at least 8 characters.', 'error');
             return;
         }
-        const res = await apiAdminDeleteUserAsset(user.id, asset.id, {
-            reason: trimmedReason,
-            idempotencyKey: createAdminIdempotencyKey('admin-storage-asset-delete'),
-        });
-        if (res.ok) {
-            showToast('Asset deleted.', 'success');
-            await refreshOpenDetails();
-        } else {
-            showToast(res.error, 'error');
-        }
+        return mutate(user, ['delete-asset', asset.id], trimmedReason,
+            (idempotencyKey) => apiAdminDeleteUserAsset(user.id, asset.id, { reason: trimmedReason, idempotencyKey }), 'Asset deleted.');
     }
 
     async function handleRenameFolder(user, folder) {
@@ -520,13 +549,8 @@ export function createAdminUserStorage({
         if (name === null) return;
         const trimmed = name.trim();
         if (!trimmed || trimmed === folder.name) return;
-        const res = await apiAdminRenameUserFolder(user.id, folder.id, trimmed);
-        if (res.ok) {
-            showToast('Folder renamed.', 'success');
-            await refreshOpenDetails();
-        } else {
-            showToast(res.error, 'error');
-        }
+        return mutate(user, ['rename-folder', folder.id], trimmed,
+            () => apiAdminRenameUserFolder(user.id, folder.id, trimmed), 'Folder renamed.');
     }
 
     async function handleDeleteFolder(user, folder) {
@@ -539,16 +563,8 @@ export function createAdminUserStorage({
             showToast('Deletion reason must be at least 8 characters.', 'error');
             return;
         }
-        const res = await apiAdminDeleteUserFolder(user.id, folder.id, {
-            reason: trimmedReason,
-            idempotencyKey: createAdminIdempotencyKey('admin-storage-folder-delete'),
-        });
-        if (res.ok) {
-            showToast('Folder deleted.', 'success');
-            await refreshOpenDetails();
-        } else {
-            showToast(res.error, 'error');
-        }
+        return mutate(user, ['delete-folder', folder.id], trimmedReason,
+            (idempotencyKey) => apiAdminDeleteUserFolder(user.id, folder.id, { reason: trimmedReason, idempotencyKey }), 'Folder deleted.');
     }
 
     function bind() {

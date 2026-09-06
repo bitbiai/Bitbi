@@ -48,13 +48,21 @@ function normalizeDateInput(value) {
     if (!value) return '';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '';
-    return date.toISOString().slice(0, 16);
+    const pad = (number, length = 2) => String(number).padStart(length, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
 }
 
-function isoFromDatetimeLocal(value) {
-    if (!value) return null;
+function isoFromDatetimeLocal(value, original, { required = false } = {}) {
+    // An unchanged control retains the original instant, including an ambiguous DST occurrence.
+    if (value && new Date(value).getTime() === new Date(normalizeDateInput(original)).getTime()) return original;
+    if (!value) {
+        if (required) throw new Error('Published at is required.');
+        return null;
+    }
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
+    if (Number.isNaN(date.getTime()) || !normalizeDateInput(date).startsWith(value.replace(/:00(?:\.000)?$/, ''))) {
+        throw new Error('This local time does not exist. Choose a valid time outside the daylight-saving gap.');
+    }
     return date.toISOString();
 }
 
@@ -88,7 +96,55 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
         nextCursor: null,
         hasMore: false,
         editItem: null,
+        editGeneration: 0,
+        editRevision: 0,
+        listGeneration: 0,
+        loadGeneration: 0,
+        active: true,
+        saving: false,
+        intents: new Map(),
+        message: '',
+        messageTone: 'neutral',
+        visibilityRevision: 0,
     };
+
+    function setActive(active) {
+        state.active = active;
+        if (!active) { state.editGeneration += 1; state.listGeneration += 1; state.loadGeneration += 1; }
+    }
+
+    function setMessage(message, tone = 'neutral') {
+        state.message = message;
+        state.messageTone = tone;
+        const status = refs.container?.querySelector('[data-news-pulse-status]');
+        if (status) { status.textContent = message; status.dataset.state = tone; }
+    }
+
+    function updateMutationControls() {
+        refs.container?.querySelectorAll('[data-news-pulse-action="save-edit"], [data-news-pulse-action="save-visibility"], [data-news-pulse-action="delete-selected"]').forEach(button => { button.disabled = state.saving; });
+    }
+
+    async function mutate(action, payload, request) {
+        if (state.saving) return null;
+        const signature = JSON.stringify([action, payload]);
+        const idempotencyKey = state.intents.get(signature) || createAdminIdempotencyKey(action);
+        state.intents.set(signature, idempotencyKey);
+        state.saving = true;
+        updateMutationControls();
+        setMessage('Saving the selected News operation. Awaiting confirmation.');
+        try {
+            const res = await request(payload, { idempotencyKey });
+            if (!res.ok && res.status !== 207) {
+                setMessage(`${formatApiError?.(res, 'News operation not confirmed.') || res.error} Verify the outcome before retrying the same intent.`, 'error');
+                return null;
+            }
+            state.intents.delete(signature);
+            return res;
+        } catch {
+            setMessage('News operation outcome unknown. Verify before retrying; its original request identity is retained.', 'error');
+            return null;
+        } finally { state.saving = false; updateMutationControls(); }
+    }
 
     function renderState(message, tone = 'neutral') {
         clear(refs.container);
@@ -118,7 +174,7 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
         const counts = overview.counts || {};
         const visibility = overview.visibility?.settings || state.visibility?.settings || {};
         const card = el('section', 'admin-control-card admin-news-feed__overview');
-        const statusTone = counts.expired || counts.hidden ? 'warn' : 'ok';
+        const statusTone = counts.expired || counts.hidden ? 'warn' : 'neutral';
         card.append(
             el('h3', 'admin-control-card__title', 'Status'),
             el('p', 'admin-shell__desc', 'Visibility switches only affect public rendering/loading. OpenClaw ingest, scheduled refresh, D1 storage, and thumbnail generation continue.'),
@@ -211,12 +267,14 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
         reason.className = 'admin-ai__input';
         reason.type = 'text';
         reason.placeholder = 'Deletion reason';
+        reason.setAttribute('aria-label', 'Deletion reason');
         reason.maxLength = 500;
         const confirmation = document.createElement('input');
         confirmation.id = 'newsPulseDeleteConfirmation';
         confirmation.className = 'admin-ai__input';
         confirmation.type = 'text';
         confirmation.placeholder = DELETE_CONFIRMATION;
+        confirmation.setAttribute('aria-label', 'Deletion confirmation');
         const button = el('button', 'btn-action btn-action--danger', `Delete selected (${state.selected.size})`);
         button.type = 'button';
         button.dataset.newsPulseAction = 'delete-selected';
@@ -234,6 +292,7 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
         const selectAll = document.createElement('input');
         selectAll.type = 'checkbox';
         selectAll.dataset.newsPulseAction = 'select-all';
+        selectAll.setAttribute('aria-label', 'Select all loaded News rows');
         selectAll.checked = state.items.length > 0 && state.items.every((item) => state.selected.has(item.id));
         selectTh.appendChild(selectAll);
         headerRow.append(selectTh);
@@ -259,6 +318,7 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.dataset.newsPulseSelect = item.id;
+            checkbox.setAttribute('aria-label', `Select News row: ${item.title || item.id}`);
             checkbox.checked = state.selected.has(item.id);
             selectCell.appendChild(checkbox);
             const thumbCell = document.createElement('td');
@@ -294,7 +354,10 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
             tbody.appendChild(row);
         }
         table.appendChild(tbody);
-        const scroll = el('div', 'admin-table-scroll');
+        const scroll = el('div', 'admin-table-scroll admin-table-wrap');
+        scroll.tabIndex = 0;
+        scroll.setAttribute('role', 'region');
+        scroll.setAttribute('aria-label', 'News items; scroll for more columns and actions');
         scroll.appendChild(table);
         card.appendChild(scroll);
         if (state.hasMore) {
@@ -310,11 +373,13 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
         const item = state.editItem;
         const card = el('section', 'admin-control-card admin-news-feed__edit');
         card.id = 'newsPulseEditPanel';
+        card.dataset.itemId = item?.id || '';
         card.appendChild(el('h3', 'admin-control-card__title', item ? `Edit: ${item.title}` : 'Edit item'));
         if (!item) {
             card.appendChild(el('p', 'admin-shell__desc', 'Select an item to edit title, summary, source, URL, status, and expiry.'));
             return card;
         }
+        card.append(el('p', 'admin-shell__desc', `Times use your local timezone (${Intl.DateTimeFormat().resolvedOptions().timeZone}). Unchanged times retain their exact instant. A newly entered repeated autumn time uses its earlier occurrence; nonexistent spring times are rejected. Empty expiry means no expiry.`));
         const fields = el('div', 'admin-news-feed__edit-grid');
         const fieldDefs = [
             ['newsPulseEditTitle', 'Title', 'text', item.title || ''],
@@ -332,6 +397,7 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
             input.id = id;
             input.className = 'admin-ai__input';
             if (type !== 'textarea') input.type = type;
+            if (type === 'datetime-local') input.step = '0.001';
             input.value = value;
             field.appendChild(input);
             fields.appendChild(field);
@@ -377,16 +443,23 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
 
     function render() {
         if (!refs.container) return;
+        // Keep the live draft node on unrelated list/overview updates: no lost input or focus.
+        const oldEdit = refs.container.querySelector('#newsPulseEditPanel');
+        const keepEdit = oldEdit && oldEdit.dataset.itemId === state.editItem?.id;
+        const focus = refs.container.contains(document.activeElement) ? document.activeElement : null;
+        const visibility = refs.container.querySelector('.admin-news-feed__visibility');
+        const keepVisibility = visibility?.dataset.dirty === 'true';
         clear(refs.container);
+        const status = el('div', 'admin-state', state.message);
+        status.dataset.newsPulseStatus = '1';
+        status.dataset.state = state.messageTone;
+        status.setAttribute('role', 'status');
         refs.container.append(
-            renderHeader(),
-            renderOverview(),
-            renderVisibility(),
-            renderFilters(),
-            renderBulkDelete(),
-            renderItemsTable(),
-            renderEditPanel(),
+            renderHeader(), status, renderOverview(), keepVisibility ? visibility : renderVisibility(),
+            renderFilters(), renderBulkDelete(), renderItemsTable(), keepEdit ? oldEdit : renderEditPanel(),
         );
+        updateMutationControls();
+        if (focus?.isConnected) focus.focus({ preventScroll: true });
     }
 
     function collectFilters() {
@@ -397,6 +470,7 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
     }
 
     async function loadItems({ append = false } = {}) {
+        const generation = ++state.listGeneration;
         const res = await apiAdminNewsPulseListItems({
             locale: state.filters.locale,
             status: state.filters.status,
@@ -405,110 +479,134 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
             limit: 50,
             cursor: append ? state.nextCursor : null,
         });
+        if (generation !== state.listGeneration || !state.active) return false;
         if (!res.ok) throw new Error(formatApiError?.(res, 'Failed to load News Pulse items.') || res.error);
         const data = res.data?.data || res.data || {};
-        state.items = append ? [...state.items, ...(data.items || [])] : (data.items || []);
+        state.items = [...new Map([...(append ? state.items : []), ...(data.items || [])].map(item => [item.id, item])).values()];
+        if (!append) state.selected = new Set([...state.selected].filter(id => state.items.some(item => item.id === id)));
         state.hasMore = data.has_more === true;
         state.nextCursor = data.next_cursor || null;
+        return true;
     }
 
     async function load() {
         if (!refs.container) return;
         if (!state.loaded) renderState('Loading News Feed Agent controls...');
         state.loading = true;
+        const generation = ++state.loadGeneration;
         try {
             const [overview, visibility] = await Promise.all([
                 apiAdminNewsPulseOverview(),
                 apiAdminNewsPulseVisibilityGet(),
             ]);
+            if (generation !== state.loadGeneration || !state.active) return;
             if (!overview.ok) throw new Error(formatApiError?.(overview, 'Failed to load News Pulse overview.') || overview.error);
             if (!visibility.ok) throw new Error(formatApiError?.(visibility, 'Failed to load News Pulse visibility.') || visibility.error);
             state.overview = overview.data?.data || overview.data || null;
             state.visibility = visibility.data?.data || visibility.data || null;
-            await loadItems();
+            if (!await loadItems()) return;
+            if (generation !== state.loadGeneration || !state.active) return;
             state.loaded = true;
             render();
         } catch (error) {
-            renderState(error?.message || 'Failed to load News Feed Agent controls.', 'error');
+            if (generation !== state.loadGeneration || !state.active) return;
+            if (state.loaded) setMessage(error?.message || 'News refresh failed. Your draft is retained.', 'error');
+            else renderState(error?.message || 'Failed to load News Feed Agent controls.', 'error');
         } finally {
             state.loading = false;
         }
     }
 
     async function saveVisibility() {
+        const revision = state.visibilityRevision;
         const reason = valueOf(refs.container, '#newsPulseVisibilityReason');
         const payload = {
             desktop_enabled: checked(refs.container, '#newsPulseDesktopEnabled'),
             mobile_enabled: checked(refs.container, '#newsPulseMobileEnabled'),
             reason,
         };
-        const res = await apiAdminNewsPulseVisibilityUpdate(payload, {
-            idempotencyKey: createAdminIdempotencyKey('admin-news-pulse-visibility'),
-        });
+        const res = await mutate('admin-news-pulse-visibility', payload, apiAdminNewsPulseVisibilityUpdate);
+        if (!res) return;
         if (!res.ok) {
             showToast(formatApiError?.(res, 'Visibility update failed.') || res.error, 'error');
             return;
         }
+        if (revision === state.visibilityRevision) refs.container.querySelector('.admin-news-feed__visibility')?.removeAttribute('data-dirty');
+        setMessage('News Pulse visibility updated.', 'success');
         showToast('News Pulse visibility updated.');
-        await load();
+        if (state.active) await load();
     }
 
     async function openEdit(id) {
+        const generation = ++state.editGeneration;
         const res = await apiAdminNewsPulseGetItem(id);
+        if (generation !== state.editGeneration || !state.active) return;
         if (!res.ok) {
+            setMessage(formatApiError?.(res, 'Failed to load News Pulse item.') || res.error, 'error');
             showToast(formatApiError?.(res, 'Failed to load News Pulse item.') || res.error, 'error');
             return;
         }
         state.editItem = res.data?.data?.item || res.data?.item || null;
         render();
+        refs.container.querySelector('#newsPulseEditTitle')?.focus({ preventScroll: true });
     }
 
     async function saveEdit() {
         const item = state.editItem;
-        if (!item) return;
-        const payload = {
+        if (!item || state.saving) return;
+        const generation = state.editGeneration;
+        const revision = state.editRevision;
+        let payload;
+        try { payload = {
             title: valueOf(refs.container, '#newsPulseEditTitle'),
             summary: valueOf(refs.container, '#newsPulseEditSummary'),
             source: valueOf(refs.container, '#newsPulseEditSource'),
             url: valueOf(refs.container, '#newsPulseEditUrl'),
             category: valueOf(refs.container, '#newsPulseEditCategory'),
-            published_at: isoFromDatetimeLocal(valueOf(refs.container, '#newsPulseEditPublished')),
-            expires_at: isoFromDatetimeLocal(valueOf(refs.container, '#newsPulseEditExpires')),
+            published_at: isoFromDatetimeLocal(valueOf(refs.container, '#newsPulseEditPublished'), item.published_at, { required: true }),
+            expires_at: isoFromDatetimeLocal(valueOf(refs.container, '#newsPulseEditExpires'), item.expires_at),
             status: valueOf(refs.container, '#newsPulseEditStatus'),
             reason: valueOf(refs.container, '#newsPulseEditReason'),
             reset_visual: checked(refs.container, '#newsPulseEditResetVisual'),
         };
-        const res = await apiAdminNewsPulseUpdateItem(item.id, payload, {
-            idempotencyKey: createAdminIdempotencyKey('admin-news-pulse-item'),
+        } catch (error) { setMessage(error.message, 'error'); return; }
+        const res = await mutate('admin-news-pulse-item', { id: item.id, ...payload }, (input, options) => {
+            const { id, ...body } = input;
+            return apiAdminNewsPulseUpdateItem(id, body, options);
         });
+        if (!res) return;
         if (!res.ok) {
             showToast(formatApiError?.(res, 'News Pulse item update failed.') || res.error, 'error');
             return;
         }
-        showToast('News Pulse item updated.');
-        state.editItem = null;
-        await load();
+        const sameEditor = state.editItem === item && generation === state.editGeneration;
+        const unchangedDraft = sameEditor && revision === state.editRevision;
+        showToast(`News row ${item.id} updated.`);
+        if (unchangedDraft) {
+            setMessage(`News row ${item.id} updated.`, 'success');
+            state.editItem = null;
+        } else if (sameEditor) {
+            setMessage(`Earlier request for News row ${item.id} saved. Current edits remain unsaved.`, 'warning');
+        } else {
+            setMessage(`News row ${item.id} updated. Current editor unchanged.`, 'neutral');
+        }
+        if (state.active) await load();
     }
 
     async function deleteSelected() {
         const ids = [...state.selected];
         const reason = valueOf(refs.container, '#newsPulseDeleteReason');
         const confirmation = valueOf(refs.container, '#newsPulseDeleteConfirmation');
-        const res = await apiAdminNewsPulseDeleteItems({
-            ids,
-            reason,
-            confirmation,
-        }, {
-            idempotencyKey: createAdminIdempotencyKey('admin-news-pulse-delete'),
-        });
+        const res = await mutate('admin-news-pulse-delete', { ids, reason, confirmation }, apiAdminNewsPulseDeleteItems);
+        if (!res) return;
         if (!res.ok && res.status !== 207) {
             showToast(formatApiError?.(res, 'News Pulse deletion failed.') || res.error, 'error');
             return;
         }
         const data = res.data?.data || {};
         showToast(`Deleted ${data.deleted_rows || 0} rows and ${data.deleted_visuals || 0} thumbnails.${data.failed_count ? ' Some items failed.' : ''}`, data.failed_count ? 'error' : 'success');
-        state.selected.clear();
-        await load();
+        ids.forEach(id => state.selected.delete(id));
+        if (state.active) await load();
     }
 
     function bind() {
@@ -523,8 +621,7 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
                 await saveVisibility();
             } else if (action === 'load-more') {
                 try {
-                    await loadItems({ append: true });
-                    render();
+                    if (await loadItems({ append: true })) render();
                 } catch (error) {
                     showToast(error?.message || 'Failed to load more News Pulse rows.', 'error');
                 }
@@ -540,11 +637,20 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
             } else if (action === 'save-edit') {
                 await saveEdit();
             } else if (action === 'cancel-edit') {
+                state.editGeneration += 1;
                 state.editItem = null;
                 render();
             }
             const editId = target?.dataset?.newsPulseEdit;
             if (editId) await openEdit(editId);
+        });
+        refs.container.addEventListener('input', event => {
+            const visibility = event.target.closest('.admin-news-feed__visibility');
+            if (visibility) { visibility.dataset.dirty = 'true'; state.visibilityRevision += 1; }
+            if (event.target.closest('.admin-news-feed__edit')) {
+                state.editRevision += 1;
+                setMessage('Current News edits are not saved.', 'warning');
+            }
         });
         refs.container.addEventListener('change', async (event) => {
             const target = event.target;
@@ -558,8 +664,7 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
                 collectFilters();
                 state.selected.clear();
                 try {
-                    await loadItems();
-                    render();
+                    if (await loadItems()) render();
                 } catch (error) {
                     showToast(error?.message || 'Failed to filter News Pulse rows.', 'error');
                 }
@@ -569,6 +674,7 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
 
     return {
         bind,
+        setActive,
         load,
     };
 }

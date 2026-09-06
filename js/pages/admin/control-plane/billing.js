@@ -59,9 +59,42 @@ export function createBillingDomain({ notify, formatDate }) {
         userGrant: null,
     };
     let selectedBillingReviewId = '';
-    let billingReviewResolutionSubmitting = false;
     let visibleBillingEventRefs = [];
     let visibleBillingReviewRefs = [];
+    const readGenerations = new Map();
+    const pendingReads = new Set();
+    const grantBusy = new Set();
+    const grantIntents = new Map();
+    const billingOperations = new Map();
+    let billingActive = true;
+    let billingDirty = false;
+    function beginRead(key) {
+        const generation = (readGenerations.get(key) || 0) + 1;
+        readGenerations.set(key, generation);
+        if (key !== 'orgView') pendingReads.add(key);
+        return () => {
+            const current = readGenerations.get(key) === generation;
+            if (current) pendingReads.delete(key);
+            return current;
+        };
+    }
+    function invalidateRead(key) {
+        readGenerations.set(key, (readGenerations.get(key) || 0) + 1);
+        pendingReads.delete(key);
+    }
+    function beginOrgView() {
+        const isCurrent = beginRead('orgView');
+        invalidateRead('orgLookup'); invalidateRead('orgBilling');
+        billingTargets.orgLookup = null;
+        clear(byId('orgBillingDetail')); clearLookupMatches('orgBillingMatches');
+        return isCurrent;
+    }
+    function contextLink(label, context) {
+        const control = el('button', 'btn-action btn-action--secondary', label);
+        control.type = 'button';
+        control.addEventListener('click', () => document.dispatchEvent(new CustomEvent('admin:open-context', { detail: context })));
+        return control;
+    }
 
     function normalizeLookupValue(value) {
         return String(value || '').trim().toLowerCase();
@@ -117,7 +150,10 @@ export function createBillingDomain({ notify, formatDate }) {
     async function resolveOrganizationByName({ inputId, matchesId, stateId, key, onSelect }) {
         const existing = matchingStoredTarget({ key, inputId, labelFn: orgDisplayName });
         if (existing) return existing;
+        const viewCurrent = key === 'orgLookup' ? beginOrgView() : () => true;
         const search = byId(inputId)?.value.trim();
+        const isCurrent = beginRead(key);
+        const currentInput = () => viewCurrent() && isCurrent() && byId(inputId)?.value.trim() === search;
         billingTargets[key] = null;
         clearLookupMatches(matchesId);
         if (!search) {
@@ -126,6 +162,7 @@ export function createBillingDomain({ notify, formatDate }) {
         }
         setState(stateId, 'Finding organization...');
         const res = await apiAdminOrganizations({ search, limit: 10 });
+        if (!currentInput()) return null;
         if (!res.ok) {
             setState(stateId, apiUnavailableMessage(res, 'Organization lookup failed.'), 'error');
             return null;
@@ -160,6 +197,7 @@ export function createBillingDomain({ notify, formatDate }) {
                 .filter(Boolean)
                 .join(' - '),
             (org) => {
+                if (!currentInput()) return;
                 rememberLookupTarget({
                     key,
                     inputId,
@@ -180,6 +218,8 @@ export function createBillingDomain({ notify, formatDate }) {
         const existing = matchingStoredTarget({ key, inputId, labelFn: userDisplayEmail });
         if (existing) return existing;
         const search = byId(inputId)?.value.trim();
+        const isCurrent = beginRead(key);
+        const currentInput = () => isCurrent() && byId(inputId)?.value.trim() === search;
         billingTargets[key] = null;
         clearLookupMatches(matchesId);
         if (!search) {
@@ -188,6 +228,7 @@ export function createBillingDomain({ notify, formatDate }) {
         }
         setState(stateId, 'Finding user...');
         const res = await apiAdminUsers(search, { limit: 10 });
+        if (!currentInput()) return null;
         if (!res.ok) {
             setState(stateId, apiUnavailableMessage(res, 'User lookup failed.'), 'error');
             return null;
@@ -217,6 +258,7 @@ export function createBillingDomain({ notify, formatDate }) {
             users,
             (user) => userDisplayEmail(user) || 'User without email',
             (user) => {
+                if (!currentInput()) return;
                 rememberLookupTarget({
                     key,
                     inputId,
@@ -234,11 +276,13 @@ export function createBillingDomain({ notify, formatDate }) {
     }
 
     async function loadOrgs() {
+        const isCurrent = beginRead('orgs');
         const state = byId('orgsState');
         const list = byId('orgsList');
         setState('orgsState', 'Loading organizations...');
         clear(list);
         const res = await apiAdminOrganizations({ limit: 50 });
+        if (!isCurrent()) return;
         if (!res.ok) {
             setState('orgsState', '');
             renderUnavailable(list, res, 'Organizations API unavailable.');
@@ -271,11 +315,13 @@ export function createBillingDomain({ notify, formatDate }) {
     }
 
     async function loadOrgDetail(orgId) {
+        const isCurrent = beginRead('orgDetail');
         const detail = byId('orgDetail');
         if (!detail) return;
         detail.hidden = false;
         detail.textContent = 'Loading organization detail...';
         const res = await apiAdminOrganization(orgId);
+        if (!isCurrent()) return;
         clear(detail);
         if (!res.ok) {
             renderUnavailable(detail, res, 'Organization detail unavailable.');
@@ -290,11 +336,13 @@ export function createBillingDomain({ notify, formatDate }) {
             ['Created by', notReported(org.createdByEmail)],
             ['Created', formatDate(org.createdAt || org.created_at)],
         ]));
+        if (org.id) detail.appendChild(contextLink('Inspect organization credits', { section: 'billing', orgId: org.id }));
         const members = Array.isArray(res.data?.members) ? res.data.members : [];
         const { wrap, tbody } = table(['Email', 'Role', 'Status', 'Created']);
         for (const member of members) {
             const tr = document.createElement('tr');
-            addCell(tr, member.email || shortId(member.userId || member.user_id));
+            const memberId = member.userId || member.user_id;
+            addCell(tr, memberId ? contextLink(member.email || shortId(memberId), { section: 'users', userId: memberId }) : (member.email || 'User ID unavailable'));
             addCell(tr, badge(member.role, member.role === 'owner' || member.role === 'admin' ? 'admin' : 'user'));
             addCell(tr, badge(member.status, variantFor(member.status)));
             addCell(tr, formatDate(member.createdAt || member.created_at));
@@ -350,10 +398,13 @@ export function createBillingDomain({ notify, formatDate }) {
         refs.state.textContent = successMessage || 'Loading user access...';
         refs.state.dataset.state = 'neutral';
         clear(refs.list);
+        const isCurrent = beginRead(`access:${orgId}`);
+        const search = refs.input?.value.trim();
         const res = await apiAdminOrganizationUserAccess(orgId, {
             search: refs.input?.value.trim(),
             limit: 100,
         });
+        if (!isCurrent() || !refs.list.isConnected || search !== refs.input?.value.trim()) return;
         if (!res.ok) {
             renderUnavailable(refs.list, res, 'Organization user access unavailable.');
             refs.state.textContent = '';
@@ -411,6 +462,8 @@ export function createBillingDomain({ notify, formatDate }) {
     }
 
     async function toggleOrgUserAccess({ checkbox, user, org, refs }) {
+        if (checkbox.dataset.pending === 'true') return;
+        checkbox.dataset.pending = 'true';
         const targetAssigned = checkbox.checked === true;
         const previousAssigned = !targetAssigned;
         checkbox.disabled = true;
@@ -423,6 +476,8 @@ export function createBillingDomain({ notify, formatDate }) {
         const res = targetAssigned
             ? await apiAdminAssignOrganizationUser(org.id, user.userId, { idempotencyKey })
             : await apiAdminRemoveOrganizationUser(org.id, user.userId, { idempotencyKey });
+        delete checkbox.dataset.pending;
+        if (!refs.list.isConnected) return;
         if (!res.ok) {
             checkbox.checked = previousAssigned;
             checkbox.setAttribute('aria-checked', String(previousAssigned));
@@ -442,10 +497,12 @@ export function createBillingDomain({ notify, formatDate }) {
     }
 
     async function loadBillingPlans() {
+        const isCurrent = beginRead('loadBillingPlans');
         const holder = byId('billingPlans');
         setState('billingPlansState', 'Loading plans...');
         clear(holder);
         const res = await apiAdminBillingPlans();
+        if (!isCurrent()) return;
         if (!res.ok) {
             setState('billingPlansState', '');
             renderUnavailable(holder, res, 'Billing plan API unavailable.');
@@ -477,6 +534,7 @@ export function createBillingDomain({ notify, formatDate }) {
     }
 
     async function loadOrgBilling(orgId, organization = null) {
+        const isCurrent = beginRead('orgBilling');
         const state = byId('orgBillingState');
         const detail = byId('orgBillingDetail');
         clear(detail);
@@ -486,6 +544,7 @@ export function createBillingDomain({ notify, formatDate }) {
         }
         setState('orgBillingState', 'Loading organization billing...');
         const res = await apiAdminOrganizationBilling(orgId);
+        if (!isCurrent()) return;
         if (!res.ok) {
             setState('orgBillingState', '');
             renderUnavailable(detail, res, 'Organization billing unavailable.');
@@ -497,7 +556,7 @@ export function createBillingDomain({ notify, formatDate }) {
             ['Organization', orgDisplayName(organization) || '-'],
             ['Plan', billing.plan?.name || billing.planCode || billing.plan?.code || '-'],
             ['Credit balance', billing.creditBalance ?? billing.balance ?? '-'],
-            ['Live payments', 'Disabled'],
+            ['Live payments', typeof billing.livePaymentProviderEnabled === 'boolean' ? (billing.livePaymentProviderEnabled ? 'Reported enabled' : 'Reported disabled') : 'Not reported by this response'],
         ]));
         const entitlements = Array.isArray(billing.entitlements)
             ? billing.entitlements
@@ -513,6 +572,7 @@ export function createBillingDomain({ notify, formatDate }) {
     }
 
     async function loadUserBilling(userId, user = null) {
+        const isCurrent = beginRead('userBilling');
         const detail = byId('userBillingDetail');
         clear(detail);
         if (!userId) {
@@ -521,6 +581,7 @@ export function createBillingDomain({ notify, formatDate }) {
         }
         setState('userBillingState', 'Loading user billing...');
         const res = await apiAdminUserBilling(userId);
+        if (!isCurrent()) return;
         if (!res.ok) {
             setState('userBillingState', '');
             renderUnavailable(detail, res, 'User billing unavailable.');
@@ -537,96 +598,108 @@ export function createBillingDomain({ notify, formatDate }) {
         ]));
     }
 
-    async function handleCreditGrant(event) {
-        event.preventDefault();
-        const submitButton = event.submitter;
-        const org = await resolveOrganizationByName({
-            inputId: 'creditGrantOrgSearch',
-            matchesId: 'creditGrantOrgMatches',
-            stateId: 'creditGrantResult',
-            key: 'orgGrant',
-        });
-        const amount = Number(byId('creditGrantAmount')?.value);
-        const reason = byId('creditGrantReason')?.value.trim();
-        if (!org || !org.id || !Number.isInteger(amount) || amount <= 0 || !reason) {
-            setState('creditGrantResult', 'Organization name, positive credit amount, and reason are required.', 'error');
-            return;
-        }
-        if (!confirm(`Grant ${amount} credits to ${orgDisplayName(org)}? This creates a credit ledger entry.`)) {
-            return;
-        }
-        const idempotencyKey = createIdempotencyKey('admin-credit-grant');
-        setState('creditGrantResult', 'Submitting credit grant...');
-        setSubmitting(submitButton, true);
+    async function submitGrant(intent) {
+        if (intent.pending || intent.done) return;
+        intent.pending = true;
+        const { target, amount, reason, kind, idempotencyKey, result, retry } = intent;
+        retry.disabled = true;
+        result.dataset.state = 'neutral';
+        result.firstChild.textContent = `Submitting ${amount} credits for ${intent.label} (${target.id})...`;
         try {
-            const res = await apiAdminGrantOrganizationCredits(org.id, { amount, reason, idempotencyKey });
-            if (!res.ok) {
-                setState('creditGrantResult', apiUnavailableMessage(res, 'Credit grant failed.'), 'error');
-                notify('Credit grant failed.', 'error');
+            const response = kind === 'org'
+                ? await apiAdminGrantOrganizationCredits(target.id, { amount, reason, idempotencyKey })
+                : await apiAdminGrantUserCredits(target.id, { amount, reason, idempotencyKey });
+            if (!response.ok) {
+                result.dataset.state = 'error';
+                result.firstChild.textContent = `${intent.label} (${target.id}): ${apiUnavailableMessage(response, 'Grant not confirmed. Inspect the ledger before retrying.')} Retry retains this exact request.`;
+                retry.hidden = false;
                 return;
             }
-            const balance = res.data?.ledgerEntry?.balanceAfter ?? res.data?.ledgerEntry?.balance_after ?? '-';
-            setState('creditGrantResult', `Credit grant recorded for ${orgDisplayName(org)}. Balance after: ${balance}.`, 'success');
-            notify('Credit grant recorded.', 'success');
-            const lookup = byId('orgBillingSearch');
-            if (lookup) lookup.value = orgDisplayName(org);
-            billingTargets.orgLookup = org;
-            loadOrgBilling(org.id, org);
-        } finally {
-            setSubmitting(submitButton, false);
-        }
+            intent.done = true;
+            result.dataset.state = 'success';
+            const balance = response.data?.ledgerEntry?.balanceAfter ?? response.data?.ledgerEntry?.balance_after ?? '-';
+            result.firstChild.textContent = `${kind === 'org' ? 'Credit' : 'User credit'} grant recorded for ${intent.label} (${target.id}). Balance after: ${balance}.`;
+            retry.hidden = true;
+            const current = billingTargets[kind === 'org' ? 'orgLookup' : 'userLookup'];
+            if (current?.id === target.id && !byId(kind === 'org' ? 'orgBillingDetail' : 'userBillingDetail')?.closest('[hidden]')) {
+                if (kind === 'org') await loadOrgBilling(target.id, target);
+                else await loadUserBilling(target.id, target);
+            }
+        } catch {
+            result.dataset.state = 'error';
+            result.firstChild.textContent = `${intent.label} (${target.id}): Grant outcome unknown. Inspect the ledger before retrying this exact request.`;
+            retry.hidden = false;
+        } finally { intent.pending = false; retry.disabled = false; }
     }
 
-    async function handleUserCreditGrant(event) {
+    async function handleGrant(event, kind) {
         event.preventDefault();
-        const submitButton = event.submitter;
-        const user = await resolveUserByEmail({
-            inputId: 'creditGrantUserSearch',
-            matchesId: 'creditGrantUserMatches',
-            stateId: 'userCreditGrantResult',
-            key: 'userGrant',
-        });
-        const amount = Number(byId('userCreditGrantAmount')?.value);
-        const reason = byId('userCreditGrantReason')?.value.trim();
-        if (!user || !user.id || !Number.isInteger(amount) || amount <= 0 || !reason) {
-            setState('userCreditGrantResult', 'User email, positive credit amount, and reason are required.', 'error');
-            return;
-        }
-        if (!confirm(`Grant ${amount} credits to ${userDisplayEmail(user)}? This creates a member credit ledger entry.`)) {
-            return;
-        }
-        const idempotencyKey = createIdempotencyKey('admin-user-credit-grant');
-        setState('userCreditGrantResult', 'Submitting user credit grant...');
+        if (grantBusy.has(kind)) return;
+        grantBusy.add(kind);
+        const submitButton = event.submitter || event.currentTarget?.querySelector('[type="submit"]');
         setSubmitting(submitButton, true);
+        const orgMode = kind === 'org';
+        const stateId = orgMode ? 'creditGrantResult' : 'userCreditGrantResult';
+        const inputId = orgMode ? 'creditGrantOrgSearch' : 'creditGrantUserSearch';
+        const lookupStateId = stateId + 'Lookup';
+        if (!byId(lookupStateId)) {
+            const lookupState = el('div', 'admin-state');
+            lookupState.id = lookupStateId; lookupState.setAttribute('aria-live', 'polite');
+            byId(stateId)?.before(lookupState);
+        }
+        const amount = Number(byId(orgMode ? 'creditGrantAmount' : 'userCreditGrantAmount')?.value);
+        const reason = byId(orgMode ? 'creditGrantReason' : 'userCreditGrantReason')?.value.trim();
         try {
-            const res = await apiAdminGrantUserCredits(user.id, { amount, reason, idempotencyKey });
-            if (!res.ok) {
-                setState('userCreditGrantResult', apiUnavailableMessage(res, 'User credit grant failed.'), 'error');
-                notify('User credit grant failed.', 'error');
+            if (!Number.isInteger(amount) || amount <= 0 || !reason) {
+                setState(lookupStateId, 'A positive credit amount and reason are required.', 'error');
                 return;
             }
-            const balance = res.data?.ledgerEntry?.balanceAfter ?? res.data?.ledgerEntry?.balance_after ?? '-';
-            setState('userCreditGrantResult', `User credit grant recorded for ${userDisplayEmail(user)}. Balance after: ${balance}.`, 'success');
-            notify('User credit grant recorded.', 'success');
-            const lookup = byId('userBillingSearch');
-            if (lookup) lookup.value = userDisplayEmail(user);
-            billingTargets.userLookup = user;
-            loadUserBilling(user.id, user);
-        } finally {
-            setSubmitting(submitButton, false);
-        }
+            const options = { inputId, stateId: lookupStateId,
+                matchesId: orgMode ? 'creditGrantOrgMatches' : 'creditGrantUserMatches',
+                key: orgMode ? 'orgGrant' : 'userGrant' };
+            const found = orgMode ? await resolveOrganizationByName(options) : await resolveUserByEmail(options);
+            if (!found?.id) return;
+            const target = { ...found };
+            const label = orgMode ? orgDisplayName(target) : userDisplayEmail(target);
+            const signature = JSON.stringify([kind, target.id, amount, reason]);
+            const existing = grantIntents.get(signature);
+            if (existing) {
+                byId(stateId)?.append(existing.result);
+                existing.result.scrollIntoView({ block: 'nearest' });
+                if (existing.done) notify('This exact grant was already confirmed. Inspect its result before starting a different adjustment.', 'success');
+                return;
+            }
+            if (!confirm(`Grant ${amount} credits to ${label} (${target.id})? Reason: ${reason}. This creates a credit ledger entry.`)) return;
+            const result = el('div', 'admin-state');
+            result.setAttribute('aria-live', 'polite');
+            result.append(el('span'));
+            const retry = el('button', 'btn-action', 'Retry this exact grant');
+            retry.type = 'button'; retry.hidden = true;
+            result.append(retry);
+            const intent = { kind, target, label, amount, reason, result, retry,
+                idempotencyKey: createIdempotencyKey(orgMode ? 'admin-credit-grant' : 'admin-user-credit-grant') };
+            grantIntents.set(signature, intent);
+            byId(stateId)?.append(result);
+            retry.addEventListener('click', () => {
+                if (!intent.pending && confirm(`Retry the original ${amount}-credit grant for ${label} (${target.id}) with the same idempotency key? Inspect the current ledger first.`)) submitGrant(intent);
+            });
+            await submitGrant(intent);
+        } finally { grantBusy.delete(kind); setSubmitting(submitButton, false); }
     }
+
+    const handleCreditGrant = (event) => handleGrant(event, 'org');
+    const handleUserCreditGrant = (event) => handleGrant(event, 'user');
 
     function archiveSummaryText(summary = {}) {
         const total = Number(summary.totalArchived || 0);
         const hidden = Number(summary.hiddenArchivedCount || 0);
         if (hidden > 0) {
-            return `Archivierte Einträge sind in dieser aktiven Ansicht ausgeblendet (${hidden} in diesem Filter, ${total} insgesamt). Öffne das Archiv, um sie zu sehen.`;
+            return `Archived records are hidden from this active view (${hidden} in this filter, ${total} total). Open the archive to inspect them.`;
         }
         if (total > 0) {
-            return `Archivierte Einträge sind in aktiven Auswertungen ausgeblendet (${total} insgesamt). Öffne das Archiv, um sie zu sehen.`;
+            return `Archived records are hidden from active views (${total} total). Open the archive to inspect them.`;
         }
-        return 'Archivierte Einträge sind in dieser aktiven Ansicht ausgeblendet. Öffne das Archiv, um sie zu sehen.';
+        return 'Archived records are hidden from this active view. Open the archive to inspect them.';
     }
 
     function appendArchiveNote(container, summary = {}) {
@@ -659,48 +732,9 @@ export function createBillingDomain({ notify, formatDate }) {
         return (Array.isArray(refs) ? refs : []).filter((ref) => ref?.itemType && ref?.itemId);
     }
 
-    function providerEventIdsFromArchiveRefs(refs) {
-        const ids = new Set();
-        for (const ref of nonEmptyRefs(refs)) {
-            const itemId = String(ref.itemId || '');
-            if ((ref.itemType === 'billing_provider_event' || ref.itemType === 'billing_review') && itemId.startsWith('bpe_')) {
-                ids.add(itemId);
-            } else if ((ref.itemType === 'payment_problem' || ref.itemType === 'reconciliation_item') && itemId.startsWith('event-bpe_')) {
-                ids.add(itemId.slice('event-'.length));
-            } else if ((ref.itemType === 'payment_problem' || ref.itemType === 'reconciliation_item') && itemId.startsWith('bpe_')) {
-                ids.add(itemId);
-            }
-            if (String(ref.billingEventId || '').startsWith('bpe_')) ids.add(ref.billingEventId);
-            if (String(ref.id || '').startsWith('bpe_')) ids.add(ref.id);
-        }
-        return [...ids];
-    }
-
-    async function verifyArchivedRefsHiddenFromActiveEvents(refs, stateId) {
-        const archivedEventIds = providerEventIdsFromArchiveRefs(refs);
-        if (archivedEventIds.length === 0) return true;
-        const provider = byId('billingEventsProvider')?.value || '';
-        const status = byId('billingEventsStatus')?.value || '';
-        const res = await apiAdminBillingEvents({ provider, status, limit: 100 });
-        if (!res.ok) {
-            setState(stateId, apiUnavailableMessage(res, 'Archiv wurde gespeichert, aber die aktive Ansicht konnte nicht nachgeprüft werden.'), 'error');
-            return false;
-        }
-        const returned = (Array.isArray(res.data?.events) ? res.data.events : [])
-            .filter((event) => archivedEventIds.includes(event.id));
-        if (returned.length > 0) {
-            setState(
-                stateId,
-                `Archiv wurde gespeichert, aber die aktive API liefert weiterhin archivierte IDs: ${returned.map((event) => shortId(event.id)).join(', ')}. Bitte Auth-Worker-Deploy und Migration prüfen.`,
-                'error'
-            );
-            notify('Archiv-Regressionsprüfung fehlgeschlagen.', 'error');
-            return false;
-        }
-        return true;
-    }
-
     async function refreshBillingArchiveDependentPanels() {
+        if (!billingActive) { billingDirty = true; return; }
+        billingDirty = false;
         await Promise.all([
             loadBillingEvidenceStatus(),
             loadBillingReconciliation(),
@@ -710,81 +744,109 @@ export function createBillingDomain({ notify, formatDate }) {
         ]);
     }
 
-    async function archiveBillingRefs(refs, { stateId = 'billingArchiveActionState', defaultReason = 'Aus aktiver Admin-Billing-Auswertung archiviert.' } = {}) {
-        const itemRefs = nonEmptyRefs(refs);
-        if (itemRefs.length === 0) {
-            setState(stateId, 'Keine archivfähigen Einträge ausgewählt.', 'error');
-            return;
+    function operationArea(stateId) {
+        const state = byId(stateId) || byId('billingEventsState');
+        let area = byId(`${state.id}Operations`);
+        if (!area) {
+            area = el('div', 'admin-control-stack'); area.id = `${state.id}Operations`;
+            state.after(area);
         }
-        const reason = window.prompt(
-            'Grund für das Archivieren eingeben. Keine Secrets, Cookies, Karten- oder Rohdaten eintragen.',
-            defaultReason
-        );
-        if (!reason || !reason.trim()) {
-            setState(stateId, 'Archivieren abgebrochen: Grund ist erforderlich.', 'error');
-            return;
-        }
-        if (!window.confirm(`Archivieren blendet ${itemRefs.length} Eintrag/Einträge nur aus der aktiven Auswertung aus. Im Archiv bleiben sie erhalten und können wiederhergestellt werden.`)) {
-            setState(stateId, 'Archivieren abgebrochen.', 'neutral');
-            return;
-        }
-        setState(stateId, 'Archivieren läuft...');
-        const res = await apiAdminArchiveBillingItems({
-            itemRefs,
-            reason: reason.trim(),
-            dryRun: false,
-        }, {
-            idempotencyKey: createIdempotencyKey('admin-billing-archive'),
-        });
-        if (!res.ok) {
-            setState(stateId, apiUnavailableMessage(res, 'Archivieren fehlgeschlagen.'), 'error');
-            notify('Archivieren fehlgeschlagen.', 'error');
-            return;
-        }
-        setState(stateId, `${itemRefs.length} Eintrag/Einträge wurden aus der aktiven Ansicht ausgeblendet.`, 'success');
-        notify('Einträge archiviert.', 'success');
-        await refreshBillingArchiveDependentPanels();
-        await verifyArchivedRefsHiddenFromActiveEvents(itemRefs, stateId);
+        return area;
     }
 
-    async function restoreBillingRefs(refs, { stateId = 'billingArchiveState' } = {}) {
-        const itemRefs = nonEmptyRefs(refs);
-        if (itemRefs.length === 0) {
-            setState(stateId, 'Keine archivierten Einträge ausgewählt.', 'error');
-            return;
-        }
-        const reason = window.prompt(
-            'Grund für die Wiederherstellung eingeben.',
-            'Archivierten Admin-Billing-Eintrag wieder sichtbar machen.'
-        );
-        if (!reason || !reason.trim()) {
-            setState(stateId, 'Wiederherstellen abgebrochen: Grund ist erforderlich.', 'error');
-            return;
-        }
-        setState(stateId, 'Wiederherstellung läuft...');
-        const res = await apiAdminRestoreBillingItems({
-            itemRefs,
-            reason: reason.trim(),
-        }, {
-            idempotencyKey: createIdempotencyKey('admin-billing-restore'),
+    function createBillingOperation(signature, { action, payload, stateId, targetLabel, call }) {
+        const result = el('div', 'admin-state'); result.setAttribute('aria-live', 'polite');
+        const identity = el('strong', null, `${action}: ${targetLabel}`);
+        const message = el('p');
+        const retry = el('button', 'btn-action', `Retry original ${action.toLowerCase()}`);
+        retry.type = 'button'; retry.hidden = true;
+        const refresh = el('button', 'btn-action btn-action--secondary', 'Refresh affected billing views');
+        refresh.type = 'button'; refresh.hidden = true;
+        result.append(identity, message, retry, refresh);
+        const intent = { signature, action, payload, targetLabel, call, result, message, retry, refresh,
+            key: createIdempotencyKey(`admin-billing-${action.toLowerCase()}`), pending: false, done: false };
+        billingOperations.set(signature, intent);
+        operationArea(stateId).appendChild(result);
+        retry.addEventListener('click', () => {
+            if (!intent.pending && !intent.done && confirm(`Retry the original ${action.toLowerCase()} for ${targetLabel}, with its original inputs and key? Inspect the recorded outcome first.`)) submitBillingOperation(intent);
         });
-        if (!res.ok) {
-            setState(stateId, apiUnavailableMessage(res, 'Wiederherstellung fehlgeschlagen.'), 'error');
-            notify('Wiederherstellung fehlgeschlagen.', 'error');
+        refresh.addEventListener('click', async () => {
+            if (!billingActive || refresh.disabled) return;
+            refresh.disabled = true;
+            try { await refreshBillingArchiveDependentPanels(); } finally { refresh.disabled = false; }
+        });
+        return intent;
+    }
+
+    async function submitBillingOperation(intent) {
+        if (intent.pending || intent.done) return;
+        intent.pending = true; intent.retry.hidden = true;
+        intent.result.dataset.state = 'neutral'; intent.message.textContent = `Submitting original ${intent.action.toLowerCase()}…`;
+        try {
+            const res = await intent.call(intent.payload, intent.key);
+            if (!res.ok) {
+                intent.result.dataset.state = 'error';
+                intent.message.textContent = `${apiUnavailableMessage(res, `${intent.action} failed.`)} Outcome may be unconfirmed. Inspect the record before retrying this original operation.`;
+                intent.retry.hidden = false;
+                return;
+            }
+            intent.done = true; billingDirty = true;
+            if (res.data?.reused === false && ['Archive', 'Restore'].includes(intent.action)) {
+                const opposite = intent.action === 'Archive' ? 'Restore' : 'Archive';
+                const previousSignature = JSON.stringify([opposite, intent.payload.itemRefs.map(ref => [ref.itemType, ref.itemId]).sort()]);
+                const previous = billingOperations.get(previousSignature);
+                // A newly confirmed opposite operation permits a deliberate new
+                // cycle. Retain uncertain/in-flight records and reused receipts.
+                if (previous?.done) billingOperations.delete(previousSignature);
+            }
+            intent.result.dataset.state = res.data?.reused ? 'neutral' : 'success';
+            intent.message.textContent = res.data?.reused
+                ? `Stored ${intent.action.toLowerCase()} receipt returned. The current record state is not verified; refresh the affected views.`
+                : `${intent.action} request acknowledged. Refresh the affected views to inspect its recorded state.`;
+            intent.refresh.hidden = false;
+            // No automatic replay or hidden fan-out. Reads resume on explicit refresh
+            // or re-entry; the immutable operation result remains beside its task.
+        } finally { intent.pending = false; }
+    }
+
+    async function startArchiveOperation(action, refs, { stateId, defaultReason } = {}) {
+        const itemRefs = nonEmptyRefs(refs).map(ref => ({ ...ref }));
+        if (!itemRefs.length) { setState(stateId, 'No eligible records selected.', 'error'); return; }
+        const signature = JSON.stringify([action, itemRefs.map(ref => [ref.itemType, ref.itemId]).sort()]);
+        const existing = billingOperations.get(signature);
+        if (existing) {
+            operationArea(stateId).appendChild(existing.result);
+            existing.result.scrollIntoView({ block: 'nearest' });
             return;
         }
-        setState(stateId, `${itemRefs.length} Eintrag/Einträge wurden wiederhergestellt.`, 'success');
-        notify('Einträge wiederhergestellt.', 'success');
-        await refreshBillingArchiveDependentPanels();
+        const reason = window.prompt(action === 'Archive'
+            ? 'Enter an archive reason. Do not include secrets, cookies, card data or raw payloads.'
+            : 'Enter a reason for restoring visibility.', defaultReason || 'Restore visibility of an archived admin billing record.');
+        if (!reason?.trim()) { setState(stateId, `${action} cancelled: a reason is required.`, 'error'); return; }
+        const targetLabel = itemRefs.map(ref => `${ref.itemType} ${ref.itemId}`).join(', ');
+        if (!confirm(action === 'Archive'
+            ? `Archive hides ${itemRefs.length} records from active views only. Target: ${targetLabel}. They remain in the archive and can be restored.`
+            : `Restore visibility of ${itemRefs.length} archived records? Target: ${targetLabel}.`)) return;
+        const payload = { itemRefs, reason: reason.trim(), ...(action === 'Archive' ? { dryRun: false } : {}) };
+        const intent = createBillingOperation(signature, { action, payload, stateId, targetLabel,
+            call: (body, key) => action === 'Archive'
+                ? apiAdminArchiveBillingItems(body, { idempotencyKey: key })
+                : apiAdminRestoreBillingItems(body, { idempotencyKey: key }) });
+        await submitBillingOperation(intent);
     }
+
+    const archiveBillingRefs = (refs, { stateId = 'billingEventsState', defaultReason = 'Archived from the active admin billing view.' } = {}) => startArchiveOperation('Archive', refs, { stateId, defaultReason });
+    const restoreBillingRefs = (refs, { stateId = 'billingArchiveState' } = {}) => startArchiveOperation('Restore', refs, { stateId });
 
     async function loadBillingEvents() {
+        const isCurrent = beginRead('events');
         const provider = byId('billingEventsProvider')?.value || '';
         const status = byId('billingEventsStatus')?.value || '';
         const list = byId('billingEventsList');
         setState('billingEventsState', 'Loading billing events...');
         clear(list);
         const res = await apiAdminBillingEvents({ provider, status, limit: 25 });
+        if (!isCurrent()) return;
         if (!res.ok) {
             setState('billingEventsState', '');
             renderUnavailable(list, res, 'Billing events unavailable.');
@@ -798,13 +860,13 @@ export function createBillingDomain({ notify, formatDate }) {
         if (leakedArchivedEvents.length > 0) {
             setState(
                 'billingEventsState',
-                `Aktive API hat archivierte Einträge zurückgegeben: ${leakedArchivedEvents.map((event) => shortId(event.id)).join(', ')}. Diese Zeilen werden nicht als aktive Einträge gerendert; bitte Auth-Worker prüfen.`,
+                `Active API returned archived records: ${leakedArchivedEvents.map((event) => shortId(event.id)).join(', ')}. These rows are not rendered as active records; inspect the Auth Worker.`,
                 'error'
             );
         }
         if (events.length === 0) {
             if (leakedArchivedEvents.length === 0) {
-                setState('billingEventsState', `Keine aktiven Billing Events gefunden. Archivierte Einträge findest du im Archiv. ${archiveSummaryText(res.data?.archiveSummary || {})}`);
+                setState('billingEventsState', `No active billing events found. Archived records remain in the archive. ${archiveSummaryText(res.data?.archiveSummary || {})}`);
             }
             return;
         }
@@ -824,11 +886,11 @@ export function createBillingDomain({ notify, formatDate }) {
             const btn = el('button', 'btn-action', 'Inspect');
             btn.type = 'button';
             btn.addEventListener('click', () => loadBillingEventDetail(event.id));
-            const archiveBtn = el('button', 'btn-action btn-action--secondary', 'Archivieren');
+            const archiveBtn = el('button', 'btn-action btn-action--secondary', 'Archive');
             archiveBtn.type = 'button';
             archiveBtn.addEventListener('click', () => archiveBillingRefs([eventArchiveRef(event)], {
                 stateId: 'billingEventsState',
-                defaultReason: `Provider Event ${shortId(event.id)} aus aktiver Admin-Ansicht archivieren.`,
+                defaultReason: `Provider Event ${shortId(event.id)} archive from the active admin view.`,
             }));
             actions.append(btn, archiveBtn);
             addCell(tr, actions);
@@ -838,10 +900,12 @@ export function createBillingDomain({ notify, formatDate }) {
     }
 
     async function loadBillingEventDetail(eventId) {
+        const isCurrent = beginRead('eventDetail');
         const detail = byId('billingEventDetail');
         detail.hidden = false;
         detail.textContent = 'Loading billing event detail...';
         const res = await apiAdminBillingEvent(eventId);
+        if (!isCurrent()) return;
         clear(detail);
         if (!res.ok) {
             renderUnavailable(detail, res, 'Billing event detail unavailable.');
@@ -858,24 +922,34 @@ export function createBillingDomain({ notify, formatDate }) {
             ['Verification', event.verificationStatus || '-'],
             ['Organization', shortId(event.organizationId)],
             ['Received', formatDate(event.receivedAt)],
+            ['Validated checkout reference', event.payloadSummary?.creditPackValidatedCheckoutId || 'Not reported'],
             ['Summary', renderJsonSummary(event.payloadSummary)],
         ]));
         const archiveActions = el('div', 'admin-control-chip-row');
-        const archiveButton = el('button', 'btn-action btn-action--secondary', 'Diesen Eintrag archivieren');
+        if (event.organizationId) archiveActions.appendChild(contextLink('Inspect organization credits', { section: 'billing', orgId: event.organizationId }));
+        if (event.userId) archiveActions.appendChild(contextLink('Inspect user', { section: 'users', userId: event.userId }));
+        const archiveButton = el('button', 'btn-action btn-action--secondary', 'Archive this record');
         archiveButton.type = 'button';
         archiveButton.addEventListener('click', () => archiveBillingRefs([eventArchiveRef(event)], {
             stateId: 'billingEventsState',
-            defaultReason: `Provider Event ${shortId(event.id)} aus aktiver Admin-Ansicht archivieren.`,
+            defaultReason: `Provider Event ${shortId(event.id)} archive from the active admin view.`,
         }));
         archiveActions.appendChild(archiveButton);
         detail.appendChild(archiveActions);
         if (Array.isArray(event.actions) && event.actions.length) {
-            const { wrap, tbody } = table(['Action', 'Status', 'Dry-run', 'Summary']);
+            const { wrap, tbody } = table(['Action', 'Recorded status', 'Dry-run', 'Fulfillment evidence', 'Summary']);
             for (const action of event.actions) {
                 const tr = document.createElement('tr');
                 addCell(tr, action.actionType || '-');
                 addCell(tr, badge(action.status || '-', variantFor(action.status)));
                 addCell(tr, action.dryRun ? 'Yes' : 'No');
+                const summary = action.summary || {};
+                addCell(tr, [
+                    `Fulfillment: ${summary.fulfillmentStatus || 'not reported'}`,
+                    `Checkout: ${summary.checkoutStatus || 'not reported'}`,
+                    `Ledger linked: ${summary.ledgerEntryLinked === true ? 'yes; entry ID not reported' : summary.ledgerEntryLinked === false ? 'no' : 'not reported'}`,
+                    `Credit grant: ${summary.creditGrantStatus || 'not reported'}`,
+                ].join(' · '));
                 addCell(tr, renderJsonSummary(action.summary));
                 tbody.appendChild(tr);
             }
@@ -1232,11 +1306,13 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
     }
 
     async function loadLiveBillingCommandCenter() {
+        const isCurrent = beginRead('loadLiveBillingCommandCenter');
         const panel = byId('liveBillingPanel');
         const topBadges = byId('liveBillingTopBadges');
         setState('liveBillingState', 'Loading live billing readiness...');
         clear(panel);
         const res = await apiAdminBillingLiveReadinessStatus();
+        if (!isCurrent()) return;
         if (!res.ok) {
             setState('liveBillingState', '');
             renderUnavailable(panel, res, 'Live billing readiness unavailable.');
@@ -1400,10 +1476,12 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
     }
 
     async function loadBillingEvidenceStatus() {
+        const isCurrent = beginRead('loadBillingEvidenceStatus');
         const panel = byId('billingEvidencePanel');
         setState('billingEvidenceState', 'Loading billing evidence status...');
         clear(panel);
         const res = await apiAdminBillingEvidenceStatus();
+        if (!isCurrent()) return;
         if (!res.ok) {
             setState('billingEvidenceState', '');
             renderUnavailable(panel, res, 'Billing evidence status unavailable.');
@@ -1561,37 +1639,37 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
 
     function reconciliationSeverityLabel(severity) {
         const value = String(severity || '').toLowerCase();
-        if (value === 'critical') return 'Kritisch';
-        if (value === 'warning') return 'Warnung';
+        if (value === 'critical') return 'Critical';
+        if (value === 'warning') return 'Warning';
         return 'Info';
     }
 
     const CHECKOUT_RECONCILIATION_TITLES = new Map([
-        ['Live member credit-pack checkout remains created after the verification window.', 'Live-Credit-Pack-Checkout ist nach der Prüfzeit noch offen.'],
-        ['Ledger-linked live checkout sessions are missing billing event links.', 'Checkout mit Ledger-Verknüpfung hat keinen Billing-Event-Link.'],
-        ['Provider-sourced credit grants are missing checkout links.', 'Provider-Gutschriften haben keinen Checkout-Link.'],
-        ['Live checkout webhook events lack linked local ledger evidence.', 'Live-Checkout-Webhooks haben keinen lokalen Ledger-Nachweis.'],
-        ['Completed live credit-pack checkout sessions without linked ledger entries.', 'Live-Credit-Pack-Checkout hat keinen lokalen Ledger-Nachweis.'],
+        ['Live member credit-pack checkout remains created after the verification window.', 'Live credit-pack checkout remains open after its verification window.'],
+        ['Ledger-linked live checkout sessions are missing billing event links.', 'Ledger-linked checkout has no billing event link.'],
+        ['Provider-sourced credit grants are missing checkout links.', 'Provider grants have no checkout link.'],
+        ['Live checkout webhook events lack linked local ledger evidence.', 'Live checkout webhooks have no local ledger evidence.'],
+        ['Completed live credit-pack checkout sessions without linked ledger entries.', 'Live credit-pack checkout has no local ledger evidence.'],
     ]);
 
     const CHECKOUT_RECONCILIATION_DETAILS = new Map([
-        ['Live member credit-pack checkout remains created after the verification window.', 'Die Zahlung braucht Prüfung, weil der lokale Checkout nach der erwarteten Prüfzeit noch nicht abgeschlossen ist.'],
-        ['Ledger-linked live checkout sessions are missing billing event links.', 'Die Gutschrift ist im Ledger verknüpft, aber der passende Billing-Event-Link fehlt für die Nachvollziehbarkeit.'],
-        ['Provider-sourced credit grants are missing checkout links.', 'Eine Provider-Gutschrift ist sichtbar, aber der lokale Checkout-Link fehlt als sauberer Nachweis.'],
-        ['Live checkout webhook events lack linked local ledger evidence.', 'Der Live-Webhook ist bekannt, aber der lokale Ledger-Nachweis fehlt oder ist nicht verknüpft.'],
-        ['Completed live credit-pack checkout sessions without linked ledger entries.', 'Der Checkout wirkt abgeschlossen, aber der lokale Ledger-Nachweis fehlt. Bitte nicht erneut kassieren, sondern sicher prüfen.'],
+        ['Live member credit-pack checkout remains created after the verification window.', 'Review this payment because its local checkout remains incomplete after the expected verification window.'],
+        ['Ledger-linked live checkout sessions are missing billing event links.', 'The grant is ledger-linked, but its billing event link is missing.'],
+        ['Provider-sourced credit grants are missing checkout links.', 'A provider grant is visible, but the local checkout evidence link is missing.'],
+        ['Live checkout webhook events lack linked local ledger evidence.', 'The live webhook is known, but local ledger evidence is missing or unlinked.'],
+        ['Completed live credit-pack checkout sessions without linked ledger entries.', 'The checkout appears complete, but local ledger evidence is missing. Inspect it safely without charging again.'],
     ]);
 
     const RECONCILIATION_REF_LABELS = {
         id: 'ID',
         checkoutSessionId: 'Checkout',
         providerEventId: 'Provider Event',
-        eventType: 'Event-Typ',
-        providerMode: 'Modus',
+        eventType: 'Event type',
+        providerMode: 'Mode',
         userId: 'User',
-        organizationId: 'Organisation',
-        subscriptionId: 'Abo',
-        repairCandidate: 'Reparatur',
+        organizationId: 'Organization',
+        subscriptionId: 'Subscription',
+        repairCandidate: 'Repair',
     };
 
     function isCheckoutReconciliationSection(section) {
@@ -1602,7 +1680,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
 
     function reconciliationItemTitle(item, section) {
         if (isCheckoutReconciliationSection(section)) {
-            return CHECKOUT_RECONCILIATION_TITLES.get(item?.title) || 'Checkout-Session braucht Prüfung.';
+            return CHECKOUT_RECONCILIATION_TITLES.get(item?.title) || 'Checkout session needs review.';
         }
         return item?.title || 'Billing reconciliation item';
     }
@@ -1610,14 +1688,14 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
     function reconciliationItemDetail(item, section) {
         if (isCheckoutReconciliationSection(section)) {
             return CHECKOUT_RECONCILIATION_DETAILS.get(item?.title)
-                || 'Dieser Punkt weist auf eine mögliche Abweichung in lokalen Checkout-Daten hin. Bitte prüfe die sichere Referenz.';
+                || 'A possible local checkout discrepancy needs review. Inspect the safe reference.';
         }
         return item?.detail || '';
     }
 
     function safeReconciliationRefValue(value) {
         if (value == null || value === '') return '';
-        if (typeof value === 'boolean') return value ? 'Ja' : 'Nein';
+        if (typeof value === 'boolean') return value ? 'Yes' : 'No';
         if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
         if (Array.isArray(value) || typeof value === 'object') return '';
         const safe = safeSummaryValue(value);
@@ -1636,7 +1714,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         const entries = reconciliationRefEntries(refs);
         const wrap = el('div', 'admin-reconciliation-ref-chips');
         if (entries.length === 0) {
-            wrap.appendChild(el('span', 'admin-reconciliation-ref-chip admin-reconciliation-ref-chip--empty', 'Keine sichere Referenz gemeldet.'));
+            wrap.appendChild(el('span', 'admin-reconciliation-ref-chip admin-reconciliation-ref-chip--empty', 'No safe reference reported.'));
             return wrap;
         }
         for (const [key, value] of entries) {
@@ -1644,6 +1722,16 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             chip.appendChild(el('span', 'admin-reconciliation-ref-chip__label', RECONCILIATION_REF_LABELS[key]));
             chip.appendChild(el('span', 'admin-reconciliation-ref-chip__value', value));
             wrap.appendChild(chip);
+            if (key === 'userId' && typeof refs[key] === 'string') wrap.appendChild(contextLink('Inspect user', { section: 'users', userId: refs[key] }));
+            if (key === 'organizationId' && typeof refs[key] === 'string') wrap.appendChild(contextLink('Inspect organization credits', { section: 'billing', orgId: refs[key] }));
+            if (key === 'id' && /^bpe_[a-f0-9]{32}$/.test(refs[key])) wrap.appendChild(contextLink('Inspect event', { section: 'billing-events', eventId: refs[key] }));
+            if (key === 'providerEventId' && typeof refs[key] === 'string') {
+                const copy = el('button', 'btn-action btn-action--secondary', 'Copy provider event reference');
+                copy.type = 'button';
+                copy.addEventListener('click', async () => { copy.textContent = await copyTextToClipboard(refs[key]) ? 'Provider event reference copied' : 'Copy unavailable'; });
+                wrap.appendChild(copy);
+                if (!/^bpe_[a-f0-9]{32}$/.test(refs.id || '')) wrap.appendChild(el('span', 'admin-shell__desc', 'Local event reference not reported.'));
+            }
         }
         return wrap;
     }
@@ -1652,12 +1740,12 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         const card = el('article', `admin-reconciliation-compact-card admin-reconciliation-compact-card--${item.severity || 'info'}`);
         const header = el('div', 'admin-reconciliation-compact-card__header');
         header.appendChild(badge(reconciliationSeverityLabel(item.severity), reconciliationSeverityVariant(item.severity)));
-        if (item.count != null) header.appendChild(badge(`${item.count} ${Number(item.count) === 1 ? 'Fall' : 'Fälle'}`, 'user'));
+        if (item.count != null) header.appendChild(badge(`${item.count} ${Number(item.count) === 1 ? 'case' : 'cases'}`, 'user'));
         card.appendChild(header);
         card.appendChild(el('h4', 'admin-reconciliation-compact-card__title', reconciliationItemTitle(item, section)));
         const detail = reconciliationItemDetail(item, section);
         if (detail) card.appendChild(el('p', 'admin-reconciliation-compact-card__desc', detail));
-        card.appendChild(el('p', 'admin-reconciliation-compact-card__label', 'Sichere Referenz'));
+        card.appendChild(el('p', 'admin-reconciliation-compact-card__label', 'Safe reference'));
         card.appendChild(renderReconciliationRefChips(item.refs));
         return card;
     }
@@ -1714,10 +1802,12 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
     }
 
     async function loadBillingReconciliation() {
+        const isCurrent = beginRead('loadBillingReconciliation');
         const panel = byId('billingReconciliationPanel');
         setState('billingReconciliationState', 'Loading billing reconciliation...');
         clear(panel);
         const res = await apiAdminBillingReconciliation();
+        if (!isCurrent()) return;
         if (!res.ok) {
             setState('billingReconciliationState', '');
             renderUnavailable(panel, res, 'Billing reconciliation report unavailable.');
@@ -1741,7 +1831,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             ['Source', report.source || 'local_d1_only'],
             ['Production readiness', report.productionReadiness || 'blocked'],
             ['Live billing readiness', report.liveBillingReadiness || 'blocked'],
-            ['Archiv ausgeblendet', archiveSummary.totalArchived ? `${archiveSummary.totalArchived} Eintrag/Einträge` : '0'],
+            ['Archived records hidden', archiveSummary.totalArchived ? `${archiveSummary.totalArchived} records` : '0'],
             ['Notes', Array.isArray(report.notes) ? report.notes.join(' ') : 'Read-only local report.'],
         ]));
         panel.appendChild(overview);
@@ -1855,49 +1945,35 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         }
 
         form.append(safety, noteField, confirmationField, actions, result);
+        const signature = `review-resolution:${review.id}`;
+        const previous = billingOperations.get(signature);
+        if (previous) operationArea('billingReviewsState').appendChild(previous.result);
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
-            const resolutionStatus = event.submitter?.dataset?.resolutionStatus || '';
-            const resolutionNote = note.value.trim();
-            if (billingReviewResolutionSubmitting) return;
-            if (!resolutionNote || !checkbox.checked) {
-                result.dataset.state = 'error';
-                result.textContent = 'Resolution note and confirmation are required.';
+            const existing = billingOperations.get(signature);
+            if (existing) {
+                operationArea('billingReviewsState').appendChild(existing.result);
+                existing.result.scrollIntoView({ block: 'nearest' });
                 return;
             }
-            billingReviewResolutionSubmitting = true;
-            form.querySelectorAll('button').forEach((button) => setSubmitting(button, true));
-            result.dataset.state = 'neutral';
-            result.textContent = 'Recording review resolution...';
-            try {
-                const res = await apiAdminResolveBillingReview(review.id, {
-                    resolutionStatus,
-                    resolutionNote,
-                    idempotencyKey: createIdempotencyKey('billing-review-resolution'),
-                });
-                if (!res.ok) {
-                    result.dataset.state = 'error';
-                    result.textContent = apiUnavailableMessage(res, 'Billing review resolution failed.');
-                    notify('Billing review resolution failed.', 'error');
-                    return;
-                }
-                result.dataset.state = 'success';
-                result.textContent = res.data?.reused
-                    ? 'Billing review resolution was already recorded for this request.'
-                    : 'Billing review resolution recorded.';
-                notify('Billing review resolution recorded.', 'success');
-                selectedBillingReviewId = res.data?.review?.id || review.id;
-                await loadBillingReviews();
-                await loadBillingReviewDetail(selectedBillingReviewId);
-            } finally {
-                billingReviewResolutionSubmitting = false;
-                form.querySelectorAll('button').forEach((button) => setSubmitting(button, false));
+            const resolutionStatus = event.submitter?.dataset?.resolutionStatus || '';
+            const resolutionNote = note.value.trim();
+            if (!resolutionNote || !checkbox.checked || !['resolved', 'dismissed'].includes(resolutionStatus)) {
+                result.dataset.state = 'error'; result.textContent = 'Resolution note and confirmation are required.'; return;
             }
+            const payload = { resolutionStatus, resolutionNote };
+            const intent = createBillingOperation(signature, { action: 'Resolution', payload, stateId: 'billingReviewsState',
+                targetLabel: `${review.id}; ${resolutionStatus}; note: ${resolutionNote}`,
+                call: (body, key) => apiAdminResolveBillingReview(review.id, { ...body, idempotencyKey: key }) });
+            form.querySelectorAll('button').forEach(button => setSubmitting(button, true));
+            try { await submitBillingOperation(intent); }
+            finally { form.querySelectorAll('button').forEach(button => setSubmitting(button, false)); }
         });
         container.appendChild(form);
     }
 
     async function loadBillingReviews() {
+        const isCurrent = beginRead('loadBillingReviews');
         const reviewState = byId('billingReviewsStateFilter')?.value || '';
         const providerMode = byId('billingReviewsProviderMode')?.value || 'live';
         const eventType = byId('billingReviewsEventType')?.value.trim() || '';
@@ -1911,6 +1987,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             eventType,
             limit: 25,
         });
+        if (!isCurrent()) return;
         if (!res.ok) {
             setState('billingReviewsState', '');
             renderUnavailable(list, res, 'Billing review queue unavailable.');
@@ -1920,7 +1997,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         visibleBillingReviewRefs = reviews.map((review) => reviewArchiveRef(review)).filter(Boolean);
         appendArchiveNote(list, res.data?.archiveSummary || {});
         if (reviews.length === 0) {
-            setState('billingReviewsState', `Keine aktiven Billing Reviews für die Filter gefunden. ${archiveSummaryText(res.data?.archiveSummary || {})}`);
+            setState('billingReviewsState', `No active billing reviews match these filters. ${archiveSummaryText(res.data?.archiveSummary || {})}`);
             return;
         }
         setState('billingReviewsState', `Showing ${reviews.length} sanitized billing review event${reviews.length === 1 ? '' : 's'} in the active view. ${archiveSummaryText(res.data?.archiveSummary || {})}`);
@@ -1943,11 +2020,11 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
                 selectedBillingReviewId = review.id;
                 loadBillingReviewDetail(review.id);
             });
-            const archiveBtn = el('button', 'btn-action btn-action--secondary', 'Archivieren');
+            const archiveBtn = el('button', 'btn-action btn-action--secondary', 'Archive');
             archiveBtn.type = 'button';
             archiveBtn.addEventListener('click', () => archiveBillingRefs([reviewArchiveRef(review)], {
                 stateId: 'billingReviewsState',
-                defaultReason: `Billing Review ${shortId(review.id)} aus aktiver Admin-Ansicht archivieren.`,
+                defaultReason: `Billing Review ${shortId(review.id)} archive from the active admin view.`,
             }));
             actions.append(btn, archiveBtn);
             addCell(tr, actions);
@@ -1957,11 +2034,13 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
     }
 
     async function loadBillingReviewDetail(reviewId) {
+        const isCurrent = beginRead('reviewDetail');
         const detail = byId('billingReviewDetail');
         if (!detail) return;
         detail.hidden = false;
         detail.textContent = 'Loading billing review detail...';
         const res = await apiAdminBillingReview(reviewId);
+        if (!isCurrent()) return;
         clear(detail);
         if (!res.ok) {
             renderUnavailable(detail, res, 'Billing review detail unavailable.');
@@ -1989,11 +2068,12 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             ['Resolution note', review.resolutionNote || '-'],
         ]));
         const archiveActions = el('div', 'admin-control-chip-row');
-        const archiveButton = el('button', 'btn-action btn-action--secondary', 'Diesen Review archivieren');
+        if (/^bpe_[a-f0-9]{32}$/.test(review.id || '')) archiveActions.appendChild(contextLink('Inspect event', { section: 'billing-events', eventId: review.id }));
+        const archiveButton = el('button', 'btn-action btn-action--secondary', 'Archive this review');
         archiveButton.type = 'button';
         archiveButton.addEventListener('click', () => archiveBillingRefs([reviewArchiveRef(review)], {
             stateId: 'billingReviewsState',
-            defaultReason: `Billing Review ${shortId(review.id)} aus aktiver Admin-Ansicht archivieren.`,
+            defaultReason: `Billing Review ${shortId(review.id)} archive from the active admin view.`,
         }));
         archiveActions.appendChild(archiveButton);
         detail.appendChild(archiveActions);
@@ -2015,7 +2095,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         if (!date || Number.isNaN(date.getTime())) {
             return {
                 key: 'unknown',
-                label: 'Datum unbekannt',
+                label: 'Unknown date',
                 timeLabel: '',
                 timestamp: 0,
                 sortValue: Number.NEGATIVE_INFINITY,
@@ -2027,12 +2107,12 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         const day = String(date.getDate()).padStart(2, '0');
         return {
             key: `${year}-${month}-${day}`,
-            label: new Intl.DateTimeFormat('de-DE', {
+            label: new Intl.DateTimeFormat('en-GB', {
                 day: '2-digit',
                 month: '2-digit',
                 year: 'numeric',
             }).format(date),
-            timeLabel: new Intl.DateTimeFormat('de-DE', {
+            timeLabel: new Intl.DateTimeFormat('en-GB', {
                 hour: '2-digit',
                 minute: '2-digit',
             }).format(date),
@@ -2057,11 +2137,11 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
     function archiveTypeLabel(itemType) {
         const type = String(itemType || '').toLowerCase();
         if (type === 'billing_provider_event') return 'Provider Events';
-        if (type === 'payment_problem') return 'Zahlungsprobleme';
+        if (type === 'payment_problem') return 'Payment problems';
         if (type === 'billing_review') return 'Billing Reviews';
-        if (type === 'reconciliation_item') return 'Abgleich-Punkte';
+        if (type === 'reconciliation_item') return 'Reconciliation items';
         if (type === 'checkout_session') return 'Checkouts';
-        return readableToken(itemType || 'Einträge');
+        return readableToken(itemType || 'Records');
     }
 
     function archiveTypeSummary(items) {
@@ -2071,7 +2151,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             counts.set(label, (counts.get(label) || 0) + 1);
         }
         return Array.from(counts.entries())
-            .sort(([left], [right]) => left.localeCompare(right, 'de'))
+            .sort(([left], [right]) => left.localeCompare(right, 'en'))
             .map(([label, count]) => `${label}: ${count}`)
             .join(' · ');
     }
@@ -2134,7 +2214,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
     }
 
     function renderArchiveItemTableOrCards(items) {
-        const { wrap, tbody } = table(['Typ', 'Eintrag', 'Zusammenfassung', 'Grund', 'Archiviert um', 'Aktion']);
+        const { wrap, tbody } = table(['Type', 'Record', 'Summary', 'Reason', 'Archived at', 'Action']);
         wrap.classList.add('admin-billing-archive-table');
         for (const item of items) {
             const tr = document.createElement('tr');
@@ -2146,7 +2226,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             addCell(tr, summary);
             addCell(tr, item.reason || '-');
             addCell(tr, archiveTimeLabel(item) || formatDate(item.archivedAt || item.createdAt));
-            const restoreButton = el('button', 'btn-action', 'Wiederherstellen');
+            const restoreButton = el('button', 'btn-action', 'Restore visibility');
             restoreButton.type = 'button';
             restoreButton.addEventListener('click', () => restoreBillingRefs([{
                 itemType: item.itemType,
@@ -2163,11 +2243,11 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         const summary = el('summary', 'admin-billing-archive-summary');
         const primary = el('span', 'admin-billing-archive-summary__primary');
         primary.appendChild(el('strong', null, group.label));
-        primary.appendChild(el('span', 'admin-billing-archive-summary__count', `${group.items.length} ${group.items.length === 1 ? 'Eintrag' : 'Einträge'}`));
+        primary.appendChild(el('span', 'admin-billing-archive-summary__count', `${group.items.length} ${group.items.length === 1 ? 'Record' : 'Records'}`));
         const secondary = el('span', 'admin-billing-archive-summary__secondary');
-        secondary.appendChild(el('span', null, archiveTypeSummary(group.items) || 'Archivierte Einträge'));
-        if (group.latestTimeLabel) secondary.appendChild(el('span', null, `zuletzt ${group.latestTimeLabel}`));
-        secondary.appendChild(el('span', 'badge badge--legacy', 'Archiviert, nicht gelöscht'));
+        secondary.appendChild(el('span', null, archiveTypeSummary(group.items) || 'Archived records'));
+        if (group.latestTimeLabel) secondary.appendChild(el('span', null, `Latest ${group.latestTimeLabel}`));
+        secondary.appendChild(el('span', 'badge badge--legacy', 'Archived, not deleted'));
         summary.append(primary, secondary);
         const body = el('div', 'admin-billing-archive-group__body');
         body.appendChild(renderArchiveItemTableOrCards(group.items));
@@ -2176,28 +2256,30 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
     }
 
     async function loadOperatorBillingArchive() {
+        const isCurrent = beginRead('loadOperatorBillingArchive');
         const list = byId('billingArchiveList');
         if (!list) return;
         const q = byId('billingArchiveSearch')?.value.trim() || '';
-        setState('billingArchiveState', 'Archiv wird geladen...');
+        setState('billingArchiveState', 'Loading archive...');
         clear(list);
         const res = await apiAdminBillingOperatorArchive({ limit: 100, q });
+        if (!isCurrent()) return;
         if (!res.ok) {
             setState('billingArchiveState', '');
-            renderUnavailable(list, res, 'Billing-Archiv ist nicht verfügbar.');
+            renderUnavailable(list, res, 'Billing archive unavailable.');
             return;
         }
         const archiveItems = Array.isArray(res.data?.archiveItems) ? res.data.archiveItems : [];
         const filteredArchiveItems = archiveItems.filter((item) => archiveItemMatchesSearch(item, q));
         const archiveGroups = groupArchiveItemsByDate(filteredArchiveItems);
         if (filteredArchiveItems.length === 0) {
-            setState('billingArchiveState', 'Keine archivierten Billing-Einträge gefunden.');
-            list.appendChild(el('div', 'admin-shell__empty', 'Archivierte Zahlungsereignisse werden hier angezeigt. Aktive Ansichten bleiben davon getrennt.'));
+            setState('billingArchiveState', 'No archived billing records found.');
+            list.appendChild(el('div', 'admin-shell__empty', 'Archived payment events appear here, separately from active views.'));
             return;
         }
         setState(
             'billingArchiveState',
-            `${filteredArchiveItems.length} archivierte Billing-Einträge in ${archiveGroups.length} ${archiveGroups.length === 1 ? 'Datumsgruppe' : 'Datumsgruppen'} gefunden. Öffne ein Datum, um die Einträge zu sehen.`
+            `${filteredArchiveItems.length} archived billing records in ${archiveGroups.length} date groups. Open a date to inspect its records.`
         );
         const groups = el('div', 'admin-billing-archive-groups');
         for (const group of archiveGroups) groups.appendChild(renderArchiveDateGroup(group));
@@ -2205,10 +2287,20 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
     }
 
     async function loadBillingEventsPanel() {
+        billingDirty = false;
         await Promise.all([loadBillingEvidenceStatus(), loadBillingReconciliation(), loadBillingReviews(), loadBillingEvents(), loadOperatorBillingArchive()]);
     }
 
     function bind() {
+        for (const [inputId, key, panelKey, detailId] of [
+            ['orgBillingSearch', 'orgLookup', 'orgBilling', 'orgBillingDetail'],
+            ['userBillingSearch', 'userLookup', 'userBilling', 'userBillingDetail'],
+            ['creditGrantOrgSearch', 'orgGrant'], ['creditGrantUserSearch', 'userGrant'],
+        ]) byId(inputId)?.addEventListener('input', () => {
+            if (key === 'orgLookup') beginOrgView();
+            billingTargets[key] = null; invalidateRead(key);
+            if (panelKey) { invalidateRead(panelKey); clear(byId(detailId)); }
+        });
         byId('orgsRefresh')?.addEventListener('click', loadOrgs);
         byId('billingPlansRefresh')?.addEventListener('click', loadBillingPlans);
         byId('orgBillingLookupForm')?.addEventListener('submit', async (event) => {
@@ -2246,13 +2338,13 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         byId('billingReviewsRefresh')?.addEventListener('click', loadBillingReviews);
         byId('billingReviewsArchiveVisible')?.addEventListener('click', () => archiveBillingRefs(visibleBillingReviewRefs, {
             stateId: 'billingReviewsState',
-            defaultReason: 'Sichtbare Billing Reviews aus aktiver Admin-Ansicht archivieren.',
+            defaultReason: 'Visible billing reviews archive from the active admin view.',
         }));
         byId('billingEvidenceRefresh')?.addEventListener('click', loadBillingEvidenceStatus);
         byId('billingReconciliationRefresh')?.addEventListener('click', loadBillingReconciliation);
         byId('billingEventsArchiveVisible')?.addEventListener('click', () => archiveBillingRefs(visibleBillingEventRefs, {
             stateId: 'billingEventsState',
-            defaultReason: 'Sichtbare Provider Events aus aktiver Admin-Ansicht archivieren.',
+            defaultReason: 'Visible provider events archive from the active admin view.',
         }));
         byId('billingArchiveRefresh')?.addEventListener('click', loadOperatorBillingArchive);
         byId('billingArchiveSearchForm')?.addEventListener('submit', (event) => {
@@ -2262,8 +2354,33 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         byId('liveBillingRefresh')?.addEventListener('click', loadLiveBillingCommandCenter);
     }
 
+    async function activateContext({ section, orgId, userId, eventId } = {}) {
+        if (section === 'orgs' && orgId) return loadOrgDetail(orgId);
+        if (eventId) return loadBillingEventDetail(eventId);
+        if (orgId) {
+            const isCurrent = beginOrgView();
+            if (byId('orgBillingSearch')) byId('orgBillingSearch').value = '';
+            setState('orgBillingState', 'Loading requested organization…');
+            const result = await apiAdminOrganization(orgId);
+            if (!isCurrent()) return;
+            const org = result.ok && result.data?.organization;
+            if (!org || org.id !== orgId) {
+                setState('orgBillingState', 'Requested organization unavailable. No fallback organization was selected.', 'error');
+                return;
+            }
+            billingTargets.orgLookup = org;
+            if (byId('orgBillingSearch')) byId('orgBillingSearch').value = orgDisplayName(org);
+            return loadOrgBilling(orgId, org);
+        }
+        if (userId) return loadUserBilling(userId);
+    }
+
+    function hide() { billingActive = false; for (const key of readGenerations.keys()) invalidateRead(key); }
+
     return {
-        bind,
+        bind, activateContext, hide, setActive: value => { billingActive = value; },
+        needsReload: () => pendingReads.size > 0,
+        needsRefresh: section => section === 'billing-events' && billingDirty,
         loadOrgs,
         loadBillingPlans,
         loadLiveBillingCommandCenter,

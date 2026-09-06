@@ -174,10 +174,11 @@ async function clickAiLabMode(page, mode, rootSelector = '#sectionAiLab') {
 }
 
 async function clickAdminNavSection(page, sectionName) {
-  // Admin nav groups are accordion-style and collapse-on-click — clicking a
-  // child link auto-collapses the parent. This helper ensures the parent is
-  // expanded before each click, regardless of prior nav state.
+  // Groups retain their desktop state; the narrow disclosure closes after navigation.
+  // Open only a collapsed disclosure before exercising the real link.
   await page.evaluate((name) => {
+    const mobile = document.getElementById('adminNavToggle');
+    if (matchMedia('(max-width:899px)').matches && mobile?.getAttribute('aria-expanded') !== 'true') mobile?.click();
     const link = document.querySelector(`a.admin-nav__link[data-section="${name}"]`);
     const toggle = link?.closest('.admin-nav__group')?.querySelector('.admin-nav__group-toggle');
     if (toggle && toggle.getAttribute('aria-expanded') === 'false') {
@@ -1218,6 +1219,13 @@ async function mockAdminAiLab(page, captures = {}) {
   const adminOrgBilling = captures.adminOrgBilling || Object.fromEntries(
     adminOrganizations.map((org) => [org.id, { organizationId: org.id, creditBalance: 100 }]),
   );
+
+  // Match the authenticated header actor to the independently gated Admin API.
+  // A local 404 here is an unavailable session, not a valid admin fixture.
+  await page.route('**/api/me', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ loggedIn: true, user: { id: 'admin-1', email: 'admin@bitbi.ai', role: 'admin' } }),
+  }));
 
   await page.route('**/api/admin/me', async (route) => {
     await route.fulfill({
@@ -15535,7 +15543,7 @@ test.describe('Admin Control Plane', () => {
       value: option.value,
       text: option.textContent,
     })))).toEqual([
-      { value: '9:16', text: 'Hochkant (9:16)' },
+      { value: '9:16', text: 'Portrait (9:16)' },
       { value: '1:1', text: 'Square (1:1)' },
       { value: '16:9', text: 'Landscape (16:9)' },
     ]);
@@ -15811,26 +15819,15 @@ test.describe('Admin Control Plane', () => {
     const response = await page.goto('/admin/index.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#controlPlaneTitle')).toContainText('Operate BITBI');
-    await expect(page.locator('#sectionDashboard')).toContainText('Production blocked');
-    await expect(page.locator('#sectionDashboard')).toContainText('Testmode only');
-    await expect(page.locator('#sectionDashboard')).toContainText('What to check first today');
-    await expect(page.locator('#adminOwnerActionSummary')).toContainText('Safe review now');
-    await expect(page.locator('#adminOwnerActionSummary')).toContainText('Blocked until evidence');
-    await expect(page.locator('#adminOwnerActionSummary')).toContainText('Guarded actions');
-    await expect(page.locator('#adminOwnerActionSummary')).toContainText('Production readiness blocked');
-    await expect(page.locator('#adminOwnerActionSummary')).toContainText('Live billing readiness blocked');
-    await expect(page.locator('#adminOwnerActionSummary')).toContainText('Tenant isolation and access-switch unclaimed');
-    await expect(page.locator('#adminOwnerActionSummary')).toContainText('Budget switch and cap updates');
-    await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: 'Operations' })).toHaveAttribute('href', '#operations');
-    await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: 'R2 Drive' })).toHaveAttribute('href', '#object-storage');
-    await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: 'Storage Integrity' })).toHaveAttribute('href', '#tenant-assets');
-    await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: 'News Feed Agent' })).toHaveAttribute('href', '#news-feed-agent');
-    await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: 'Budget Switches' })).toHaveAttribute('href', '#ai-budget-switches');
-    await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: 'Data Lifecycle safe execution' })).toHaveAttribute('href', '#lifecycle');
-    await expect(page.locator('#sectionDashboard')).toContainText('Evidence required');
-    await expect(page.locator('#sectionDashboard')).toContainText('Blocked claims remain');
-    await expect(page.locator('#adminOwnerActionSummary')).toContainText('repo-local checks do not approve them');
+    await expect(page.locator('#dashboardOwnerActionTitle')).toHaveText('What would you like to work on?');
+    await expect(page.locator('#adminOwnerActionSummary a')).toHaveCount(6);
+    await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: /Find a user/ })).toHaveAttribute('href', '#users');
+    await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: /Trace a payment/ })).toHaveAttribute('href', '#billing-events');
+    await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: /Browse stored media/ })).toHaveAttribute('href', '#object-storage');
+    await expect(page.locator('#adminAttentionScope')).toContainText('No global readiness claim');
+    await page.locator('#adminCapabilityDetails > summary').click();
+    await page.locator('#adminCapabilitiesRefresh').click();
+    await expect(page.locator('#adminCapabilitiesState')).toContainText('do not verify deployment or business readiness');
     await expect(page.locator('#adminWorkbench')).toContainText('Operator Tasks');
     await expect(page.locator('#adminWorkbench .admin-workbench-card')).toHaveCount(5);
     await expect(page.locator('#adminWorkbench')).not.toContainText('Betriebsstatus');
@@ -15860,24 +15857,22 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('a.admin-nav__link[data-section="lifecycle"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="tenant-assets"]')).toHaveText('Storage Integrity');
     await expect(page.locator('a.admin-nav__link[data-section="object-storage"]')).toHaveText('R2 Drive');
-    await expect(page.locator('a.admin-nav__link[data-section="operations"]')).toHaveText('Operations');
+    await expect(page.locator('a.admin-nav__link[data-section="operations"]')).toHaveText('Diagnostics');
     await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toHaveCount(0);
     await expect(page.locator('a.admin-nav__link[data-section="settings"]')).toHaveCount(0);
     await expect(page.locator('a.admin-nav__link[data-section="content"]')).toHaveCount(0);
     await expect(page.locator('a.admin-nav__link[data-section="media"]')).toHaveCount(0);
     await expect(page.locator('a.admin-nav__link[data-section="access"]')).toHaveCount(0);
     await expect(page.locator('.admin-nav__group-label')).toContainText([
-      'Overview',
-      'Users',
-      'AI',
-      'Finance',
-      'Organization',
-      'System',
+      'People & payments',
+      'Creative work',
+      'Operations',
+      'Advanced evidence',
     ]);
     await expect(page.locator('.admin-nav__group-label').filter({ hasText: 'Help & Archive' })).toHaveCount(0);
     const missingInternalNavTargets = await page.locator('a.admin-nav__link[data-section]').evaluateAll((links) => links
       .filter((link) => (link.getAttribute('href') || '').startsWith('#'))
-      .map((link) => link.dataset.section)
+      .map((link) => link.dataset.section === 'fable-data-center' ? 'ai-lab' : link.dataset.section)
       .filter((section) => !document.getElementById(`section${section.split('-').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join('')}`)));
     expect(missingInternalNavTargets).toEqual([]);
 
@@ -15887,9 +15882,9 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('AI Budget Controls');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('Storage Health / Asset Integrity');
     await expect(page.locator('#controlPlaneCapabilityGrid')).toContainText('R2 Object Storage');
-    await expect(page.getByRole('link', { name: 'Budget Controls' }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Budget controls', exact: true }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Storage Integrity' }).first()).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Operations' }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Diagnostics', exact: true }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Help & Archive' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Media Data' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Runbooks' })).toHaveCount(0);
@@ -16388,7 +16383,7 @@ test.describe('Admin Control Plane', () => {
     for (const oldHash of ['readiness', 'system-status', 'operational-status', 'settings', 'content', 'media', 'access', 'reference', 'help-archive']) {
       await page.goto(`/admin/index.html#${oldHash}`);
       await expect(page.locator('#sectionDashboard')).toBeVisible();
-      await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+      await expect(page.locator('#adminHeroTitle')).toHaveText('Workspace');
       await expect(page.locator('#sectionReadiness')).toHaveCount(0);
       await expect(page.locator('#sectionSettings')).toHaveCount(0);
       await expect(page.locator('#adminPanel')).not.toContainText('Help & Archive');
@@ -16556,7 +16551,7 @@ test.describe('Admin Control Plane', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#sectionDashboard')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Workspace');
 
     await page.goto('/admin/index.html#tenant-assets');
     await expect(page.locator('#sectionTenantAssets')).toBeVisible();
@@ -16574,7 +16569,7 @@ test.describe('Admin Control Plane', () => {
     for (const oldHash of ['settings', 'system-status', 'operational-status', 'content', 'media', 'access', 'reference', 'help-archive']) {
       await page.goto(`/admin/index.html#${oldHash}`);
       await expect(page.locator('#sectionDashboard')).toBeVisible();
-      await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+      await expect(page.locator('#adminHeroTitle')).toHaveText('Workspace');
       await expect(page.locator('#sectionReadiness')).toHaveCount(0);
       await expect(page.locator('#sectionSettings')).toHaveCount(0);
     }
@@ -16586,6 +16581,7 @@ test.describe('Admin Control Plane', () => {
 
     await clickAdminNavSection(page, 'dashboard');
     await expect(page.locator('#sectionDashboard')).toBeVisible();
+    await page.locator('#adminCapabilityDetails').evaluate(el => { el.open = true; });
     await page.locator('#adminWorkbench').getByRole('link', { name: 'Open Storage Integrity' }).click();
     await expect(page).toHaveURL(/#tenant-assets$/);
     await expect(page.locator('#sectionTenantAssets')).toBeVisible();
@@ -16649,7 +16645,7 @@ test.describe('Admin Control Plane', () => {
     for (const oldHash of ['content', 'media', 'access', 'reference', 'help-archive']) {
       await page.goto(`/admin/index.html#${oldHash}`);
       await expect(page.locator('#sectionDashboard')).toBeVisible();
-      await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+      await expect(page.locator('#adminHeroTitle')).toHaveText('Workspace');
       await expect(page.locator('#adminPanel')).not.toContainText('Help & Archive');
       await expect(page.locator('#adminPanel')).not.toContainText('Handbook & Archive');
       await expect(page.locator('#adminPanel')).not.toContainText('Media Data Reference');
@@ -16746,7 +16742,7 @@ test.describe('Admin Control Plane', () => {
       confirm: true,
       reason: 'Reviewed plan for static lifecycle overlay test',
     });
-    expect(captures.lifecycleApproveRequests[0].idempotencyKey).toMatch(/^data-lifecycle-approve-/);
+    expect(captures.lifecycleApproveRequests[0].idempotencyKey).toMatch(/^data-lifecycle-action-/);
 
     await dialog.getByRole('button', { name: 'Execute Safe Dry-run' }).click();
     await expect.poll(() => captures.lifecycleExecuteSafeRequests.length).toBe(1);
@@ -16755,7 +16751,7 @@ test.describe('Admin Control Plane', () => {
     await dialog.getByRole('button', { name: 'Execute Safe', exact: true }).click();
     await expect.poll(() => captures.lifecycleExecuteSafeRequests.length).toBe(2);
     expect(captures.lifecycleExecuteSafeRequests[1].body).toMatchObject({ dryRun: false, confirm: true });
-    expect(captures.lifecycleExecuteSafeRequests[1].idempotencyKey).toMatch(/^data-lifecycle-execute-safe-/);
+    expect(captures.lifecycleExecuteSafeRequests[1].idempotencyKey).toMatch(/^data-lifecycle-action-/);
     await expect(dialog.getByRole('button', { name: 'Mark Completed' })).toBeEnabled();
     await dialog.getByRole('button', { name: 'Mark Completed' }).click();
     await expect(dialog.locator('.admin-state')).toContainText('Completion acknowledgement is required.');
@@ -16767,7 +16763,7 @@ test.describe('Admin Control Plane', () => {
       confirm: true,
       completionNote: 'Evidence reviewed; retained categories remain under policy.',
     });
-    expect(captures.lifecycleCompleteRequests[0].idempotencyKey).toMatch(/^data-lifecycle-complete-/);
+    expect(captures.lifecycleCompleteRequests[0].idempotencyKey).toMatch(/^data-lifecycle-action-/);
     await expect(dialog).toContainText('completed with retention');
     await expect(dialog.locator('.admin-lifecycle-detail__panel', { hasText: 'Reject / Close' }).getByRole('button', { name: 'Reject' })).toBeDisabled();
     await expect(dialog.locator('.admin-lifecycle-detail__panel', { hasText: 'Reject / Close' }).getByRole('button', { name: 'Close' })).toBeDisabled();
@@ -16870,7 +16866,7 @@ test.describe('Admin Control Plane', () => {
       expect(response.status()).toBe(200);
       await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
       await expect(page.locator('#sectionDashboard')).toBeVisible();
-      await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+      await expect(page.locator('#adminHeroTitle')).toHaveText('Workspace');
       await expect(page.locator('#sectionReadiness')).toHaveCount(0);
       await expect(page.locator('#sectionSettings')).toHaveCount(0);
       await expect(page.locator('a.admin-nav__link[data-section="readiness"]')).toHaveCount(0);
@@ -17092,6 +17088,9 @@ test.describe('Admin Control Plane', () => {
       button.click();
       button.click();
     });
+    await expect(page.locator('#billingReviewsStateOperations')).toContainText('Resolution request acknowledged');
+    await page.locator('#billingReviewsStateOperations').getByRole('button', { name: 'Refresh affected billing views' }).click();
+    await page.locator('#billingReviewsList').getByRole('button', { name: 'Inspect Review' }).first().click();
     await expect(reviewDetail).toContainText('resolved');
     expect(captures.billingReviewResolutionRequests).toHaveLength(1);
     expect(captures.billingReviewResolutionRequests[0]).toMatchObject({
@@ -17102,7 +17101,7 @@ test.describe('Admin Control Plane', () => {
         resolution_note: 'Reviewed invoice failure with support. No automatic credit or Stripe action was taken.',
       },
     });
-    expect(captures.billingReviewResolutionRequests[0].idempotencyKey).toMatch(/^billing-review-resolution-/);
+    expect(captures.billingReviewResolutionRequests[0].idempotencyKey).toMatch(/^admin-billing-resolution-/);
   });
 
   test('renders billing reconciliation report as a read-only local-only operator view', async ({
@@ -17121,12 +17120,12 @@ test.describe('Admin Control Plane', () => {
     const panel = page.locator('#billingReconciliationPanel');
     await expect(panel).toContainText('2 critical');
     await expect(panel).toContainText('Unresolved blocked billing review events exist.');
-    await expect(panel).toContainText('Live-Credit-Pack-Checkout ist nach der Prüfzeit noch offen.');
-    await expect(panel).toContainText('Live-Credit-Pack-Checkout hat keinen lokalen Ledger-Nachweis.');
-    await expect(panel).toContainText('Checkout mit Ledger-Verknüpfung hat keinen Billing-Event-Link.');
+    await expect(panel).toContainText('Live credit-pack checkout remains open after its verification window.');
+    await expect(panel).toContainText('Live credit-pack checkout has no local ledger evidence.');
+    await expect(panel).toContainText('Ledger-linked checkout has no billing event link.');
     await expect(panel.locator('.admin-reconciliation-compact-grid')).toHaveCount(1);
     await expect(panel.locator('.admin-reconciliation-compact-card')).toHaveCount(3);
-    await expect(panel.locator('.admin-reconciliation-compact-card').first()).toContainText('9 Fälle');
+    await expect(panel.locator('.admin-reconciliation-compact-card').first()).toContainText('9 cases');
     await expect(panel.locator('.admin-reconciliation-ref-chip').first()).toContainText('ID');
     await expect(panel.locator('.admin-reconciliation-ref-chip').nth(1)).toContainText('Provider Event');
     const checkoutSection = panel.locator('.admin-reconciliation-section', { hasText: 'Checkout Sessions' });
@@ -17154,36 +17153,42 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
     const archive = page.locator('#billingArchiveList');
-    await expect(page.locator('#billingArchiveState')).toContainText('3 archivierte Billing-Einträge in 2 Datumsgruppen gefunden');
+    await expect(page.locator('#billingArchiveState')).toContainText('3 archived billing records in 2 date groups');
     await expect(archive.locator('details.admin-billing-archive-group')).toHaveCount(2);
-    await expect(archive.locator('summary', { hasText: '14.07.2026' })).toContainText('1 Eintrag');
-    await expect(archive.locator('summary', { hasText: '13.06.2026' })).toContainText('2 Einträge');
+    await expect(archive.locator('summary', { hasText: '14/07/2026' })).toContainText('1 Record');
+    await expect(archive.locator('summary', { hasText: '13/06/2026' })).toContainText('2 Records');
     await expect(archive.getByText('Provider Event 13 A')).toBeHidden();
     await expect(archive.getByText('Zahlungsproblem 14 C')).toBeHidden();
 
-    const juneGroup = archive.locator('details.admin-billing-archive-group', { hasText: '13.06.2026' });
+    const juneGroup = archive.locator('details.admin-billing-archive-group', { hasText: '13/06/2026' });
     await juneGroup.locator('summary').click();
     await expect(juneGroup.getByText('Provider Event 13 A')).toBeVisible();
     await expect(juneGroup.getByText('Zahlungsproblem 13 B')).toBeVisible();
     await expect(juneGroup.getByText('Zahlungsproblem 14 C')).toHaveCount(0);
 
-    const julyGroup = archive.locator('details.admin-billing-archive-group', { hasText: '14.07.2026' });
+    const julyGroup = archive.locator('details.admin-billing-archive-group', { hasText: '14/07/2026' });
     await julyGroup.locator('summary').click();
     await expect(julyGroup.getByText('Zahlungsproblem 14 C')).toBeVisible();
     await expect(julyGroup.getByText('Provider Event 13 A')).toHaveCount(0);
 
     await page.locator('#billingArchiveSearch').fill('Zahlungsproblem 14');
-    await page.locator('#billingArchiveSearchForm').getByRole('button', { name: 'Archiv suchen' }).click();
-    await expect(page.locator('#billingArchiveState')).toContainText('1 archivierte Billing-Einträge in 1 Datumsgruppe gefunden');
+    await page.locator('#billingArchiveSearchForm').getByRole('button', { name: 'Search archive' }).click();
+    await expect(page.locator('#billingArchiveState')).toContainText('1 archived billing records in 1 date groups');
     await expect(archive.locator('details.admin-billing-archive-group')).toHaveCount(1);
-    await expect(archive.locator('summary', { hasText: '14.07.2026' })).toBeVisible();
+    await expect(archive.locator('summary', { hasText: '14/07/2026' })).toBeVisible();
     await expect(archive.getByText('Zahlungsproblem 14 C')).toBeHidden();
-    await archive.locator('summary', { hasText: '14.07.2026' }).click();
-    page.once('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('Grund für die Wiederherstellung');
-      await dialog.accept('Test: archivierten Eintrag wieder sichtbar machen.');
+    await archive.locator('summary', { hasText: '14/07/2026' }).click();
+    page.on('dialog', async (dialog) => {
+      if (dialog.type() === 'prompt') {
+        expect(dialog.message()).toContain('reason for restoring visibility');
+        await dialog.accept('Synthetic visibility restoration');
+      } else {
+        expect(dialog.message()).toContain('Restore visibility of 1 archived records');
+        expect(dialog.message()).toContain('event-bpe_archive_20260714_problem');
+        await dialog.accept();
+      }
     });
-    await archive.getByRole('button', { name: 'Wiederherstellen' }).click();
+    await archive.getByRole('button', { name: 'Restore visibility', exact: true }).click();
     await expect.poll(() => captures.billingArchiveRestoreRequests.length).toBe(1);
     expect(captures.billingArchiveRestoreRequests[0].body.itemRefs).toEqual([
       { itemType: 'payment_problem', itemId: 'event-bpe_archive_20260714_problem' },
@@ -17231,6 +17236,8 @@ test.describe('Admin Control Plane', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/admin/index.html');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#adminCapabilityDetails > summary').click();
+    await page.locator('#adminCapabilitiesRefresh').click();
     await expect(page.locator('#controlPlaneCapabilityGrid .admin-control-card')).toHaveCount(10);
     const managementShellWidth = await page.locator('.admin-management-shell').evaluate((node) =>
       Math.round(node.getBoundingClientRect().width)
@@ -17383,7 +17390,7 @@ test.describe('Admin Control Plane', () => {
     expect(deleteDialogs).toEqual(['confirm', 'prompt']);
     const deleteRequest = captures.storageRequests.find((request) => request.method === 'DELETE' && request.path.endsWith('/assets/a100cafe'));
     expect(deleteRequest).toEqual(expect.objectContaining({
-      idempotencyKey: expect.stringMatching(/^admin-storage-asset-delete-/),
+      idempotencyKey: expect.stringMatching(/^admin-storage-operation-/),
       body: expect.objectContaining({
         confirm: true,
         confirmation: 'delete_user_asset',
@@ -17414,7 +17421,7 @@ test.describe('Admin Control Plane', () => {
     expect(folderDeleteDialogs).toEqual(['confirm', 'prompt']);
     const folderDeleteRequest = captures.storageRequests.find((request) => request.method === 'DELETE' && request.path.endsWith('/folders/f100cafe'));
     expect(folderDeleteRequest).toEqual(expect.objectContaining({
-      idempotencyKey: expect.stringMatching(/^admin-storage-folder-delete-/),
+      idempotencyKey: expect.stringMatching(/^admin-storage-operation-/),
       body: expect.objectContaining({
         confirm: true,
         confirmation: 'delete_user_folder',
@@ -17473,7 +17480,8 @@ test.describe('Admin Control Plane', () => {
       maintenanceMessage: 'Registrations are temporarily disabled due to maintenance work. Please try again later.',
     });
     await expect(page.locator('#registrationAvailabilityStatusText')).toHaveText('Registrations disabled for maintenance');
-    await expect(page.locator('#registrationAvailabilityState')).toContainText('disabled');
+    await expect(page.locator('#registrationAvailabilityState')).toHaveAttribute('data-state', 'success');
+    await expect(page.locator('#registrationAvailabilityState')).toContainText('change saved');
 
     await page.locator('#registrationEnabledToggle').setChecked(true);
     await page.locator('#registrationAvailabilityReason').fill('Maintenance complete');
@@ -17900,7 +17908,7 @@ test.describe('Admin Control Plane', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#sectionAiUsage')).toBeVisible();
-    await expect(page.locator('#aiAttemptsList')).toContainText('Backend dependency is unavailable or fail-closed');
+    await expect(page.locator('#aiAttemptsState')).toContainText('Backend dependency is unavailable or fail-closed');
     await expect(page.locator('#aiAttemptsList')).not.toContainText('Showing 1 sanitized attempts');
   });
 });
@@ -17996,69 +18004,33 @@ test.describe('Admin nav accordion behavior', () => {
     expect(metrics.documentScrollWidth).toBeLessThanOrEqual(metrics.viewportWidth + 1);
   });
 
-  test('cold load with no hash keeps every nav group collapsed while Dashboard content is visible', async ({ page }) => {
+  test('cold workspace exposes grouped tasks and each group can collapse independently', async ({ page }) => {
     await page.goto('/admin/index.html');
-    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-
-    // Dashboard content must be visible even though the Overview dropdown is collapsed.
     await expect(page.locator('#sectionDashboard')).toBeVisible();
-
-    const overviewToggle = page.locator('.admin-nav__group:has(a[data-section="dashboard"]) > .admin-nav__group-toggle');
-    const usersToggle = page.locator('.admin-nav__group:has(a[data-section="users"]) > .admin-nav__group-toggle');
-    const aiToggle = page.locator('.admin-nav__group:has(a[data-section="ai-lab"]) > .admin-nav__group-toggle');
-    const systemToggle = page.locator('.admin-nav__group:has(a[data-section="operations"]) > .admin-nav__group-toggle');
-
-    await expect(overviewToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(usersToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(aiToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(systemToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.locator('.admin-nav__group:has(a[data-section="content"])')).toHaveCount(0);
+    const toggles = page.locator('.admin-nav__group-toggle');
+    await expect(toggles).toHaveCount(4);
+    for (const toggle of await toggles.all()) await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await toggles.nth(1).click();
+    await expect(toggles.nth(1)).toHaveAttribute('aria-expanded','false');
+    await expect(toggles.nth(0)).toHaveAttribute('aria-expanded','true');
+    await toggles.nth(1).click();
+    await expect(toggles.nth(1)).toHaveAttribute('aria-expanded','true');
   });
 
-  test('opening one nav group collapses any previously open group (single-open accordion)', async ({ page }) => {
+  test('grouped navigation retains keyboard expansion, child focus and Escape collapse', async ({ page }) => {
     await page.goto('/admin/index.html#dashboard');
-    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-
-    const usersToggle = page.locator('.admin-nav__group:has(a[data-section="users"]) > .admin-nav__group-toggle');
-    const aiToggle = page.locator('.admin-nav__group:has(a[data-section="ai-lab"]) > .admin-nav__group-toggle');
-    const systemToggle = page.locator('.admin-nav__group:has(a[data-section="operations"]) > .admin-nav__group-toggle');
-
-    await usersToggle.click();
-    await expect(usersToggle).toHaveAttribute('aria-expanded', 'true');
-
-    await aiToggle.click();
-    await expect(aiToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(usersToggle).toHaveAttribute('aria-expanded', 'false');
-
-    await systemToggle.click();
-    await expect(systemToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(aiToggle).toHaveAttribute('aria-expanded', 'false');
-
-    // Clicking the currently open group toggles it closed.
-    await systemToggle.click();
-    await expect(systemToggle).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  test('nav accordion supports keyboard expansion, child focus, and Escape collapse', async ({ page }) => {
-    await page.goto('/admin/index.html#dashboard');
-    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-
-    const usersGroup = page.locator('.admin-nav__group:has(a[data-section="users"])');
-    const usersToggle = usersGroup.locator('> .admin-nav__group-toggle');
-    const usersLink = usersGroup.locator('a[data-section="users"]');
-
-    await usersToggle.focus();
+    await expect(page.locator('#sectionDashboard')).toHaveAttribute('data-load-state', 'ready');
+    const group = page.locator('.admin-nav__group:has(a[data-section="users"])');
+    const toggle = group.locator('> .admin-nav__group-toggle');
+    await toggle.focus();
     await page.keyboard.press('ArrowDown');
-    await expect(usersToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(usersLink).toBeFocused();
-
+    await expect(toggle).toHaveAttribute('aria-expanded','true');
+    await expect(group.locator('a').first()).toBeFocused();
     await page.keyboard.press('Escape');
-    await expect(usersToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(usersToggle).toBeFocused();
-
+    await expect(toggle).toHaveAttribute('aria-expanded','false');
+    await expect(toggle).toBeFocused();
     await page.keyboard.press('End');
-    const systemToggle = page.locator('.admin-nav__group:has(a[data-section="operations"]) > .admin-nav__group-toggle');
-    await expect(systemToggle).toBeFocused();
+    await expect(page.locator('.admin-nav__group-toggle').last()).toBeFocused();
   });
 
   test('cold deep link to #ai-lab auto-expands the AI group on load', async ({ page }) => {
@@ -18077,7 +18049,7 @@ test.describe('Admin nav accordion behavior', () => {
     await page.goto('/admin/index.html#settings');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#sectionDashboard')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Workspace');
     await expect(page.locator('#sectionSettings')).toHaveCount(0);
     await expect(page.locator('a.admin-nav__link[data-section="settings"]')).toHaveCount(0);
     await expect(page.locator('.admin-nav__group:has(a[data-section="operations"])')).not.toHaveClass(/admin-nav__group--active/);
@@ -18087,78 +18059,24 @@ test.describe('Admin nav accordion behavior', () => {
     await page.goto('/admin/index.html#content');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#sectionDashboard')).toBeVisible();
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Workspace');
     await expect(page.locator('.admin-nav__group:has(a[data-section="content"])')).toHaveCount(0);
   });
 
-  test('clicking a child link collapses its parent group while keeping the active highlight', async ({ page }) => {
+  test('desktop section navigation retains its active group and selected target', async ({ page }) => {
     await page.goto('/admin/index.html#dashboard');
-    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-
-    // ── AI: open heading manually, then click AI Lab child link ──
-    const aiGroup = page.locator('.admin-nav__group:has(a[data-section="ai-lab"])');
-    const aiToggle = aiGroup.locator('> .admin-nav__group-toggle');
-    const aiLabLink = aiGroup.locator('a[data-section="ai-lab"]');
-
-    await expect(aiToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(aiGroup).not.toHaveClass(/admin-nav__group--active/);
-
-    await aiToggle.click();
-    await expect(aiToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(aiGroup).toHaveClass(/admin-nav__group--expanded/);
-
-    await aiLabLink.click();
-    // Wait for navigation to settle: URL hash, visible section, and active link.
-    await expect(page).toHaveURL(/#ai-lab$/);
-    await expect(page.locator('#sectionAiLab')).toBeVisible();
-    await expect(aiLabLink).toHaveClass(/admin-nav__link--active/);
-
-    // After navigation settles, the parent group must be collapsed even
-    // though it remains the active group.
-    await expect(aiToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(aiGroup).not.toHaveClass(/admin-nav__group--expanded/);
-    await expect(aiGroup).toHaveClass(/admin-nav__group--active/);
-
-    // ── Users: open heading, click Users child link ──
-    const usersGroup = page.locator('.admin-nav__group:has(a[data-section="users"])');
-    const usersToggle = usersGroup.locator('> .admin-nav__group-toggle');
-    const usersLink = usersGroup.locator('a[data-section="users"]');
-
-    await usersToggle.click();
-    await expect(usersToggle).toHaveAttribute('aria-expanded', 'true');
-
-    await usersLink.click();
-    await expect(page).toHaveURL(/#users$/);
-    await expect(page.locator('#sectionUsers')).toBeVisible();
-    await expect(usersLink).toHaveClass(/admin-nav__link--active/);
-
-    await expect(usersToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(usersGroup).not.toHaveClass(/admin-nav__group--expanded/);
-    await expect(usersGroup).toHaveClass(/admin-nav__group--active/);
-
-    // AI is no longer the active group.
-    await expect(aiGroup).not.toHaveClass(/admin-nav__group--active/);
-
-    // ── System: open heading, click Operations child link ──
-    const systemGroup = page.locator('.admin-nav__group:has(a[data-section="operations"])');
-    const systemToggle = systemGroup.locator('> .admin-nav__group-toggle');
-    const operationsLink = systemGroup.locator('a[data-section="operations"]');
-
-    await systemToggle.click();
-    await expect(systemToggle).toHaveAttribute('aria-expanded', 'true');
-
-    await operationsLink.click();
-    await expect(page).toHaveURL(/#operations$/);
-    await expect(page.locator('#sectionOperations')).toBeVisible();
-    await expect(operationsLink).toHaveClass(/admin-nav__link--active/);
-
-    await expect(systemToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(systemGroup).not.toHaveClass(/admin-nav__group--expanded/);
-    await expect(systemGroup).toHaveClass(/admin-nav__group--active/);
-
-    // Users is no longer the active group.
-    await expect(usersGroup).not.toHaveClass(/admin-nav__group--active/);
+    await expect(page.locator('#sectionDashboard')).toHaveAttribute('data-load-state','ready');
+    for (const [name,id] of [['ai-lab','sectionAiLab'],['users','sectionUsers'],['operations','sectionOperations']]) {
+      await clickAdminNavSection(page,name);
+      await expect(page.locator('#'+id)).toHaveAttribute('data-load-state','ready');
+      const link = page.locator(`.admin-nav__link[data-section="${name}"]`);
+      await expect(link).toHaveAttribute('aria-current','page');
+      const group = page.locator('.admin-nav__group').filter({has:link});
+      await expect(group.locator('.admin-nav__group-toggle')).toHaveAttribute('aria-expanded','true');
+      await expect(group).toHaveClass(/admin-nav__group--active/);
+    }
   });
+
 });
 
 // ---------------------------------------------------------------------------
@@ -18382,7 +18300,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiMusicDownload')).toBeVisible();
 
     await clickAdminNavSection(page, 'dashboard');
-    await expect(page.locator('#adminHeroTitle')).toHaveText('Command Center');
+    await expect(page.locator('#adminHeroTitle')).toHaveText('Workspace');
     await expect(page.locator('#statTotal')).toHaveText('12');
   });
 

@@ -333,6 +333,12 @@ export function createHomepageHeroVideosAdmin({
     const state = {
         bound: false,
         loading: false,
+        active: true,
+        viewGeneration: 0,
+        candidateGeneration: 0,
+        recentGeneration: 0,
+        presetDirty: false,
+        writeInFlight: false,
         selectedSlot: 'right_top',
         selectedCandidate: null,
         pendingDerivative: null,
@@ -341,6 +347,7 @@ export function createHomepageHeroVideosAdmin({
         slots: [],
         candidates: [],
         recentDerivatives: [],
+        retryMessages: new Map(),
         derivativePollTimer: 0,
         derivativePollInFlight: false,
         manualUploadsEnabled: false,
@@ -358,6 +365,34 @@ export function createHomepageHeroVideosAdmin({
         statusState: 'neutral',
     };
 
+    function isVisible() {
+        return state.active && document.visibilityState !== 'hidden' && refs.container?.isConnected
+            && !refs.container.closest('[hidden], .hidden, [aria-hidden="true"]');
+    }
+
+    function setActive(active) {
+        state.active = active;
+        if (!active) {
+            state.viewGeneration += 1;
+            state.candidateGeneration += 1;
+            state.recentGeneration += 1;
+            state.loading = false;
+            stopDerivativePolling();
+        } else if (state.pendingDerivative && !isDerivativeTerminal(state.pendingDerivative)) {
+            startDerivativePolling(state.pendingDerivative.id);
+        }
+    }
+
+    function visibilityChanged() {
+        if (!isVisible()) stopDerivativePolling();
+        else if (state.pendingDerivative && !isDerivativeTerminal(state.pendingDerivative)) startDerivativePolling(state.pendingDerivative.id);
+    }
+
+    function dispose() {
+        setActive(false);
+        document.removeEventListener('visibilitychange', visibilityChanged);
+    }
+
     function setStatus(message, statusState = 'neutral') {
         state.status = message;
         state.statusState = statusState;
@@ -369,6 +404,7 @@ export function createHomepageHeroVideosAdmin({
     }
 
     const manualUpload = createManualHeroVideoUploadController({
+        aspectRatioLabels: { '9:16': 'Portrait (9:16)' },
         isEnabled: () => state.manualUploadsEnabled,
         getOperatorReason: () => readReason(),
         setStatus,
@@ -402,7 +438,7 @@ export function createHomepageHeroVideosAdmin({
     function syncFeatureState(configData = {}) {
         state.featureStatus = configData.feature_status || state.featureStatus || null;
         state.presetStatus = configData.preset_status || state.presetStatus || null;
-        state.presetDraft = state.presetStatus?.preset ? { ...state.presetStatus.preset } : state.presetDraft;
+        if (!state.presetDirty) state.presetDraft = state.presetStatus?.preset ? { ...state.presetStatus.preset } : state.presetDraft;
         const manualFeature = state.featureStatus?.features?.homepage_hero_manual_uploads || null;
         const ffmpegFeature = state.featureStatus?.features?.homepage_hero_external_ffmpeg || null;
         state.manualUploadsEnabled = typeof configData.manual_uploads_enabled === 'boolean'
@@ -417,6 +453,12 @@ export function createHomepageHeroVideosAdmin({
 
     function renderShell() {
         if (!refs.container) return;
+        const focused = refs.container.contains(document.activeElement) ? document.activeElement : null;
+        const focusSelector = focused?.dataset.presetField ? `[data-preset-field="${focused.dataset.presetField}"]`
+            : focused?.dataset.field ? `[data-field="${focused.dataset.field}"]`
+                : focused?.dataset.action ? ['action', 'source', 'slot', 'assetId', 'derivativeId', 'feature'].filter(key => focused.dataset[key]).map(key => `[data-${key.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}="${CSS.escape(focused.dataset[key])}"]`).join('') : null;
+        const selection = focused && ['text', 'search', 'textarea'].includes(focused.type)
+            ? [focused.selectionStart, focused.selectionEnd] : null;
         clear(refs.container);
 
         const shell = el('section', 'admin-hero-videos');
@@ -458,6 +500,11 @@ export function createHomepageHeroVideosAdmin({
         shell.append(workbench);
 
         refs.container.append(shell);
+        if (focusSelector) {
+            const next = refs.container.querySelector(focusSelector);
+            next?.focus({ preventScroll: true });
+            if (selection) next?.setSelectionRange?.(...selection);
+        }
     }
 
     function renderOperationsSummary() {
@@ -578,6 +625,7 @@ export function createHomepageHeroVideosAdmin({
         const select = document.createElement('select');
         select.className = 'admin-search__input';
         select.dataset.presetField = 'encoderPreset';
+        select.disabled = state.presetSaving;
         ['veryfast', 'fast', 'medium', 'slow', 'slower'].forEach((value) => {
             const option = document.createElement('option');
             option.value = value;
@@ -624,6 +672,9 @@ export function createHomepageHeroVideosAdmin({
             btn.dataset.action = 'switch-source';
             btn.dataset.source = source;
             btn.setAttribute('role', 'tab');
+            btn.tabIndex = state.currentSource === source ? 0 : -1;
+            btn.id = `hero-source-${source}`;
+            btn.setAttribute('aria-controls', 'heroCandidatePanel');
             btn.setAttribute('aria-selected', state.currentSource === source ? 'true' : 'false');
             tabs.append(btn);
         });
@@ -632,6 +683,9 @@ export function createHomepageHeroVideosAdmin({
         browser.append(renderManualUploadPanel());
 
         const candidates = el('div', 'admin-hero-videos__candidate-grid');
+        candidates.id = 'heroCandidatePanel';
+        candidates.setAttribute('role', 'tabpanel');
+        candidates.setAttribute('aria-labelledby', `hero-source-${state.currentSource}`);
         if (state.candidates.length) {
             state.candidates.forEach((candidate) => candidates.append(renderCandidateCard(candidate, state)));
         } else {
@@ -684,6 +738,14 @@ export function createHomepageHeroVideosAdmin({
                     meta.append(createMetaRow('Error', derivative.error_message));
                 }
                 card.append(meta);
+
+                const retryMessage = state.retryMessages.get(derivative.id);
+                if (retryMessage) {
+                    const note = el('p', 'admin-hero-videos__status', retryMessage.message);
+                    note.dataset.state = retryMessage.tone;
+                    note.setAttribute('role', 'status');
+                    card.append(note);
+                }
 
                 const actions = el('div', 'admin-hero-videos__actions');
                 const select = el('button', 'btn-action admin-hero-videos__button--ghost', 'Select derivative');
@@ -812,10 +874,12 @@ export function createHomepageHeroVideosAdmin({
     }
 
     async function refreshDerivativeById(derivativeId, { render = true } = {}) {
-        if (!derivativeId || state.derivativePollInFlight) return null;
+        if (!derivativeId || state.derivativePollInFlight || !isVisible()) return null;
+        const viewGeneration = state.viewGeneration;
         state.derivativePollInFlight = true;
         try {
             const res = await apiAdminHomepageHeroVideoDerivative(derivativeId);
+            if (viewGeneration !== state.viewGeneration || !state.active) return null;
             if (!res.ok) {
                 setStatus(formatApiError?.(res, 'Derivative status could not be refreshed.') || res.error, 'error');
                 return null;
@@ -833,18 +897,18 @@ export function createHomepageHeroVideosAdmin({
                         setStatus(`Conversion job ${derivative.status || 'queued'}.`, 'neutral');
                     }
                 }
-                if (isDerivativeTerminal(derivative)) stopDerivativePolling();
+                if (isDerivativeTerminal(derivative) && state.pendingDerivative?.id === derivative.id) stopDerivativePolling();
             }
             return derivative;
         } finally {
             state.derivativePollInFlight = false;
-            if (render) renderShell();
+            if (render && viewGeneration === state.viewGeneration && state.active) renderShell();
         }
     }
 
     function startDerivativePolling(derivativeId, { immediate = false } = {}) {
-        if (!derivativeId) return;
         stopDerivativePolling();
+        if (!derivativeId || !isVisible()) return;
         if (immediate) {
             refreshDerivativeById(derivativeId).catch((error) => {
                 console.warn(error);
@@ -853,8 +917,7 @@ export function createHomepageHeroVideosAdmin({
             });
         }
         state.derivativePollTimer = window.setInterval(() => {
-            const section = refs.container?.closest('[hidden]');
-            if (document.visibilityState === 'hidden' || section || !refs.container?.isConnected) return;
+            if (!isVisible()) { stopDerivativePolling(); return; }
             refreshDerivativeById(derivativeId).catch((error) => {
                 console.warn(error);
                 setStatus('Derivative status could not be refreshed.', 'error');
@@ -877,14 +940,15 @@ export function createHomepageHeroVideosAdmin({
     }
 
     async function loadRecentDerivatives({ render = false } = {}) {
+        const generation = ++state.recentGeneration;
         const res = await apiAdminHomepageHeroVideoDerivatives({
             includeUnassigned: true,
             limit: 50,
         });
+        if (generation !== state.recentGeneration) return;
         if (!res.ok) {
-            state.recentDerivatives = [];
             setStatus(formatApiError?.(res, 'Recent conversions could not be loaded.') || res.error, 'error');
-            return;
+            return false;
         }
         state.recentDerivatives = Array.isArray(res.data?.data?.derivatives) ? res.data.data.derivatives : [];
         if (state.pendingDerivative?.id) {
@@ -893,30 +957,37 @@ export function createHomepageHeroVideosAdmin({
             if (match && !isDerivativeTerminal(match)) startDerivativePolling(match.id);
         }
         if (render) renderShell();
+        return true;
     }
 
     async function loadCandidates(source = state.currentSource) {
+        const generation = ++state.candidateGeneration;
+        state.currentSource = source;
         const res = await apiAdminHomepageHeroVideoCandidates(source, { limit: 24 });
+        if (generation !== state.candidateGeneration || source !== state.currentSource) return;
         if (!res.ok) {
             state.candidates = [];
             setStatus(formatApiError?.(res, 'Hero video candidates could not be loaded.') || res.error, 'error');
-            return;
+            return false;
         }
         state.currentSource = source;
         state.candidates = Array.isArray(res.data?.data?.candidates) ? res.data.data.candidates : [];
+        return true;
     }
 
     async function load() {
         if (!refs.container || state.loading) return;
         state.loading = true;
+        const generation = ++state.viewGeneration;
         renderShell();
         setStatus('Loading homepage hero videos...');
         try {
-            const [config] = await Promise.all([
+            const [config, candidatesLoaded, derivativesLoaded] = await Promise.all([
                 apiAdminHomepageHeroVideos(),
                 loadCandidates(state.currentSource),
                 loadRecentDerivatives(),
             ]);
+            if (generation !== state.viewGeneration || !state.active) return;
             if (!config.ok) {
                 setStatus(formatApiError?.(config, 'Homepage hero video config could not be loaded.') || config.error, 'error');
                 return;
@@ -926,10 +997,15 @@ export function createHomepageHeroVideosAdmin({
             if (state.pendingDerivative?.id) {
                 await refreshDerivativeById(state.pendingDerivative.id, { render: false });
             }
-            setStatus('Homepage hero video configuration loaded.', 'success');
+            setStatus(candidatesLoaded && derivativesLoaded
+                ? 'Homepage hero video configuration loaded.'
+                : 'Configuration loaded; candidates or recent conversions are unavailable. Refresh to retry.',
+            candidatesLoaded && derivativesLoaded ? 'success' : 'warning');
         } finally {
-            state.loading = false;
-            renderShell();
+            if (generation === state.viewGeneration) {
+                state.loading = false;
+                if (state.active) renderShell();
+            }
         }
     }
 
@@ -941,13 +1017,15 @@ export function createHomepageHeroVideosAdmin({
 
     async function convertSelected() {
         if (!state.selectedCandidate || !state.selectedSlot) return;
+        const origin = { candidate: state.selectedCandidate, slot: state.selectedSlot, provider: state.provider };
         const reason = readReason();
         if (reason.length < 8) {
             setStatus('Enter an operator reason before converting.', 'error');
             return;
         }
         await loadRecentDerivatives();
-        const reusable = findReusableDerivative();
+        const sameSelection = () => state.selectedCandidate === origin.candidate && state.selectedSlot === origin.slot;
+        const reusable = sameSelection() ? findReusableDerivative() : null;
         if (reusable) {
             state.pendingDerivative = reusable;
             upsertRecentDerivative(reusable);
@@ -964,10 +1042,10 @@ export function createHomepageHeroVideosAdmin({
         }
         setStatus('Creating conversion job...');
         const res = await apiAdminCreateHomepageHeroVideoDerivative({
-            slot: state.selectedSlot,
-            source_type: state.selectedCandidate.source_type,
-            source_asset_id: state.selectedCandidate.source_asset_id,
-            provider: state.provider,
+            slot: origin.slot,
+            source_type: origin.candidate.source_type,
+            source_asset_id: origin.candidate.source_asset_id,
+            provider: origin.provider,
             operator_reason: reason,
         }, {
             idempotencyKey: createAdminIdempotencyKey('homepage-hero-video-convert'),
@@ -978,10 +1056,11 @@ export function createHomepageHeroVideosAdmin({
             showToast?.(message, 'error');
             return;
         }
-        state.pendingDerivative = res.data?.data?.derivative || null;
-        upsertRecentDerivative(state.pendingDerivative);
-        const status = state.pendingDerivative?.status || 'queued';
-        setStatus(`Conversion job ${status}.`, status === 'succeeded' ? 'success' : 'neutral');
+        const derivative = res.data?.data?.derivative || null;
+        upsertRecentDerivative(derivative);
+        if (sameSelection()) state.pendingDerivative = derivative;
+        const status = derivative?.status || 'queued';
+        setStatus(`Conversion for ${SLOT_LABELS[origin.slot]} / ${origin.candidate.title || origin.candidate.source_asset_id}: ${status}.`, status === 'succeeded' ? 'success' : 'neutral');
         showToast?.(`Hero video conversion job ${status}.`, status === 'succeeded' ? 'success' : 'info');
         if (state.pendingDerivative?.id && !isDerivativeTerminal(state.pendingDerivative)) {
             startDerivativePolling(state.pendingDerivative.id, { immediate: true });
@@ -1061,7 +1140,7 @@ export function createHomepageHeroVideosAdmin({
             return;
         }
         state.slots = Array.isArray(res.data?.data?.slots) ? res.data.data.slots : state.slots;
-        state.pendingDerivative = null;
+        if (state.pendingDerivative?.id === derivative.id) state.pendingDerivative = null;
         await loadRecentDerivatives();
         setStatus('Slot assignment saved.', 'success');
         showToast?.('Homepage hero video slot saved.', 'success');
@@ -1069,6 +1148,10 @@ export function createHomepageHeroVideosAdmin({
     }
 
     async function retryDerivative(derivativeId) {
+        const origin = { candidate: state.selectedCandidate, slot: state.selectedSlot, pending: state.pendingDerivative, view: state.viewGeneration };
+        const currentSelection = () => state.active && state.viewGeneration === origin.view
+            && state.selectedCandidate === origin.candidate && state.selectedSlot === origin.slot
+            && state.pendingDerivative === origin.pending;
         const reason = readReason();
         if (reason.length < 8) {
             setStatus('Enter an operator reason before retrying a derivative.', 'error');
@@ -1082,19 +1165,25 @@ export function createHomepageHeroVideosAdmin({
         });
         if (!res.ok) {
             const message = formatApiError?.(res, 'Conversion retry could not be queued.') || res.error;
-            setStatus(message, 'error');
-            showToast?.(message, 'error');
+            state.retryMessages.set(derivativeId, { message: `Retry ${derivativeId} not confirmed: ${message}`, tone: 'error' });
+            if (currentSelection()) setStatus(message, 'error');
+            showToast?.(`Retry ${derivativeId}: ${message}`, 'error');
+            if (state.active) renderShell();
             return;
         }
         const derivative = res.data?.data?.derivative || null;
+        const stillCurrent = currentSelection();
         if (derivative) {
-            state.pendingDerivative = derivative;
             upsertRecentDerivative(derivative);
-            startDerivativePolling(derivative.id, { immediate: true });
+            if (stillCurrent) {
+                state.pendingDerivative = derivative;
+                startDerivativePolling(derivative.id, { immediate: true });
+            }
         }
-        setStatus('Conversion retry queued.', 'success');
-        showToast?.('Conversion retry queued.', 'success');
-        renderShell();
+        state.retryMessages.set(derivativeId, { message: `Retry ${derivativeId} queued.`, tone: 'success' });
+        if (stillCurrent) setStatus('Conversion retry queued.', 'success');
+        showToast?.(`Retry ${derivativeId} queued.`, 'success');
+        if (state.active) renderShell();
     }
 
     async function disableSlot(slotName) {
@@ -1125,10 +1214,13 @@ export function createHomepageHeroVideosAdmin({
     }
 
     async function refreshConfigOnly() {
+        if (!state.active) return;
+        const generation = state.viewGeneration;
         const [res] = await Promise.all([
             apiAdminHomepageHeroVideos(),
             loadRecentDerivatives(),
         ]);
+        if (generation !== state.viewGeneration || !state.active) return;
         if (res.ok) {
             state.slots = Array.isArray(res.data?.data?.slots) ? res.data.data.slots : state.slots;
             syncFeatureState(res.data?.data || {});
@@ -1179,11 +1271,13 @@ export function createHomepageHeroVideosAdmin({
             setStatus('Enter an operator reason before saving the conversion preset.', 'error');
             return;
         }
+        if (state.presetSaving) return;
+        const preset = structuredClone(getPresetDraft());
         state.presetSaving = true;
         setStatus('Saving hero conversion preset...');
         renderShell();
         const res = await apiAdminUpdateHomepageHeroVideoPreset({
-            preset: getPresetDraft(),
+            preset,
             operator_reason: reason,
         }, {
             idempotencyKey: createAdminIdempotencyKey('homepage-hero-ffmpeg-preset'),
@@ -1197,6 +1291,7 @@ export function createHomepageHeroVideosAdmin({
             return;
         }
         state.presetStatus = res.data?.data?.preset_status || state.presetStatus;
+        state.presetDirty = false;
         state.presetDraft = state.presetStatus?.preset ? { ...state.presetStatus.preset } : state.presetDraft;
         setStatus('Hero conversion preset saved.', 'success');
         showToast?.('Hero conversion preset saved.', 'success');
@@ -1245,12 +1340,31 @@ export function createHomepageHeroVideosAdmin({
             candidate.source_asset_id === assetId && candidate.source_type === sourceType
         )) || null;
         state.pendingDerivative = null;
+        stopDerivativePolling();
         renderShell();
+    }
+
+    async function runWrite(task) {
+        if (state.writeInFlight) return;
+        state.writeInFlight = true;
+        try { return await task(); }
+        finally { state.writeInFlight = false; }
     }
 
     function bind() {
         if (!refs.container || state.bound) return;
         state.bound = true;
+        document.addEventListener('visibilitychange', visibilityChanged);
+        refs.container.addEventListener('keydown', event => {
+            const tab = event.target.closest('[role="tab"]');
+            if (!tab || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const tabs = [...refs.container.querySelectorAll('[role="tab"]')];
+            const index = tabs.indexOf(tab);
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+            tabs[next].focus();
+            tabs[next].click();
+        });
         refs.container.addEventListener('click', (event) => {
             const target = event.target.closest('[data-action]');
             if (!target) return;
@@ -1267,7 +1381,7 @@ export function createHomepageHeroVideosAdmin({
                 renderShell();
             }
             if (action === 'disable-slot') {
-                disableSlot(target.dataset.slot).catch((error) => {
+                runWrite(() => disableSlot(target.dataset.slot)).catch((error) => {
                     console.warn(error);
                     setStatus('Slot could not be disabled.', 'error');
                 });
@@ -1276,6 +1390,10 @@ export function createHomepageHeroVideosAdmin({
                 const source = target.dataset.source || 'public';
                 state.selectedCandidate = null;
                 state.pendingDerivative = null;
+                stopDerivativePolling();
+                state.candidates = [];
+                state.currentSource = source;
+                renderShell();
                 loadCandidates(source)
                     .then(() => renderShell())
                     .catch((error) => {
@@ -1295,6 +1413,7 @@ export function createHomepageHeroVideosAdmin({
             if (action === 'select-derivative') {
                 const derivative = state.recentDerivatives.find((entry) => entry.id === target.dataset.derivativeId) || null;
                 state.pendingDerivative = derivative;
+                if (derivative) setStatus(`Selected conversion ${derivative.id}: ${derivative.status || 'unknown'}.`, 'neutral');
                 if (derivative && !isDerivativeTerminal(derivative)) {
                     startDerivativePolling(derivative.id, { immediate: true });
                 }
@@ -1302,7 +1421,7 @@ export function createHomepageHeroVideosAdmin({
             }
             if (action === 'assign-derivative') {
                 const derivative = state.recentDerivatives.find((entry) => entry.id === target.dataset.derivativeId) || null;
-                assignDerivative(derivative).catch((error) => {
+                runWrite(() => assignDerivative(derivative)).catch((error) => {
                     console.warn(error);
                     setStatus('Slot assignment could not be saved.', 'error');
                 });
@@ -1314,7 +1433,7 @@ export function createHomepageHeroVideosAdmin({
                 startDerivativePolling(derivativeId, { immediate: true });
             }
             if (action === 'retry-derivative') {
-                retryDerivative(target.dataset.derivativeId).catch((error) => {
+                runWrite(() => retryDerivative(target.dataset.derivativeId)).catch((error) => {
                     console.warn(error);
                     setStatus('Conversion retry could not be queued.', 'error');
                 });
@@ -1328,14 +1447,14 @@ export function createHomepageHeroVideosAdmin({
                 });
             }
             if (action === 'convert') {
-                convertSelected().catch((error) => {
+                runWrite(convertSelected).catch((error) => {
                     console.warn(error);
                     setStatus('Conversion job could not be created.', 'error');
                 });
             }
             if (manualUpload.handleClick(event)) return;
             if (action === 'run-stream-preview-processing') {
-                runStreamPreviewProcessing().catch((error) => {
+                runWrite(runStreamPreviewProcessing).catch((error) => {
                     console.warn(error);
                     state.streamBackfillBusy = false;
                     setStatus('Stream preview processing could not be started.', 'error');
@@ -1343,7 +1462,7 @@ export function createHomepageHeroVideosAdmin({
                 });
             }
             if (action === 'toggle-feature') {
-                toggleFeature(target.dataset.feature, target.dataset.enabled === 'true').catch((error) => {
+                runWrite(() => toggleFeature(target.dataset.feature, target.dataset.enabled === 'true')).catch((error) => {
                     console.warn(error);
                     state.savingFeatureKey = '';
                     setStatus('Video delivery switch could not be saved.', 'error');
@@ -1351,7 +1470,7 @@ export function createHomepageHeroVideosAdmin({
                 });
             }
             if (action === 'save-preset') {
-                savePreset().catch((error) => {
+                runWrite(savePreset).catch((error) => {
                     console.warn(error);
                     state.presetSaving = false;
                     setStatus('Hero conversion preset could not be saved.', 'error');
@@ -1359,7 +1478,7 @@ export function createHomepageHeroVideosAdmin({
                 });
             }
             if (action === 'assign' || action === 'save') {
-                assignDerivative().catch((error) => {
+                runWrite(() => assignDerivative()).catch((error) => {
                     console.warn(error);
                     setStatus('Slot assignment could not be saved.', 'error');
                 });
@@ -1371,11 +1490,12 @@ export function createHomepageHeroVideosAdmin({
             }
             if (manualUpload.handleChange(event)) return;
             if (event.target?.dataset?.presetField) {
+                state.presetDirty = true;
                 const draft = getPresetDraft();
                 const field = event.target.dataset.presetField;
                 draft[field] = event.target.type === 'checkbox'
                     ? event.target.checked
-                    : event.target.value;
+                    : event.target.type === 'number' ? Number(event.target.value) : event.target.value;
             }
         });
         refs.container.addEventListener('input', (event) => {
@@ -1384,17 +1504,20 @@ export function createHomepageHeroVideosAdmin({
             }
             if (manualUpload.handleInput(event)) return;
             if (event.target?.dataset?.presetField) {
+                state.presetDirty = true;
                 const draft = getPresetDraft();
                 const field = event.target.dataset.presetField;
-                draft[field] = event.target.type === 'number'
-                    ? Number(event.target.value)
-                    : event.target.value;
+                draft[field] = event.target.type === 'checkbox'
+                    ? event.target.checked
+                    : event.target.type === 'number' ? Number(event.target.value) : event.target.value;
             }
         });
     }
 
     return {
         bind,
+        setActive,
+        dispose,
         load,
     };
 }

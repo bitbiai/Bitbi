@@ -56,6 +56,8 @@ export function createAdminUsersDomain({
     let selectedInfoUser = null;
     let infoModalOpener = null;
     let creditModalOpener = null;
+    let creditRequest = 0;
+    let userContextRequest = 0;
 
     async function copyText(text, successMessage = 'Copied.') {
         if (!text) return;
@@ -113,6 +115,7 @@ export function createAdminUsersDomain({
     }
 
     function closeUserCreditDetails({ restoreFocus = true } = {}) {
+        creditRequest += 1;
         setUserCreditModalOpen(false);
         if (restoreFocus) restoreFocusSafely(creditModalOpener);
         creditModalOpener = null;
@@ -130,6 +133,7 @@ export function createAdminUsersDomain({
     }
 
     function closeUserInfoDetails({ restoreFocus = true } = {}) {
+        userContextRequest += 1;
         selectedInfoUser = null;
         setUserInfoModalOpen(false);
         if (restoreFocus) restoreFocusSafely(infoModalOpener);
@@ -204,6 +208,7 @@ export function createAdminUsersDomain({
     function buildMobileCard(user) {
         const card = document.createElement('div');
         card.className = 'admin-mobile-card';
+        card.dataset.adminUserId = user.id;
 
         const isLegacy = user.verification_method === 'legacy_auto';
         const isVerified = !!user.email_verified_at && !isLegacy;
@@ -386,6 +391,7 @@ export function createAdminUsersDomain({
     }
 
     function openUserInfoDetails(user, opener = null) {
+        userContextRequest += 1;
         if (!refs.infoModal || !refs.infoModalBody) return;
         infoModalOpener = opener instanceof HTMLElement
             ? opener
@@ -516,6 +522,8 @@ export function createAdminUsersDomain({
 
     async function openUserCreditDetails(user, opener = null) {
         if (!refs.creditModal || !refs.creditModalBody) return;
+        const request = ++creditRequest;
+        user = { ...user };
         creditModalOpener = opener instanceof HTMLElement
             ? opener
             : document.activeElement instanceof HTMLElement
@@ -534,9 +542,14 @@ export function createAdminUsersDomain({
         } catch {
             res = { ok: false, error: 'Could not load credit details.' };
         }
+        if (request !== creditRequest || refs.creditModal.hidden) return;
         if (!res.ok) {
             refs.creditModalBody.textContent = '';
             refs.creditModalBody.appendChild(userCreditState(res.error || 'Could not load credit details.', 'error'));
+            return;
+        }
+        if (res.data?.billing?.userId && res.data.billing.userId !== user.id) {
+            refs.creditModalBody.replaceChildren(userCreditState('Billing response identity did not match the requested user.', 'error'));
             return;
         }
         renderUserCreditDetails(user, res.data?.billing || {});
@@ -567,6 +580,7 @@ export function createAdminUsersDomain({
             refs.table.style.display = 'none';
             refs.mobileSection.style.display = 'none';
             refs.empty.style.display = '';
+            refs.empty.textContent = 'No users match this search.';
             updatePagination([]);
             return;
         }
@@ -577,6 +591,7 @@ export function createAdminUsersDomain({
 
         for (const user of users) {
             const tr = document.createElement('tr');
+            tr.dataset.adminUserId = user.id;
 
             const tdEmail = document.createElement('td');
             tdEmail.textContent = user.email;
@@ -655,7 +670,11 @@ export function createAdminUsersDomain({
         }
 
         if (!res.ok) {
-            showToast(res.error, 'error');
+            if (!append) {
+                refs.empty.style.display = '';
+                refs.empty.replaceChildren(document.createTextNode(res.error || 'Could not load users.'));
+                refs.empty.appendChild(createActionBtn('Retry user search', () => load(normalizedSearch)));
+            } else showToast(res.error, 'error');
             return;
         }
 
@@ -733,8 +752,38 @@ export function createAdminUsersDomain({
         }
     }
 
-    return {
-        bind,
-        load,
-    };
+    async function openUser(userId) {
+        const request = ++userContextRequest;
+        const known = usersEntries.find((user) => user.id === userId);
+        if (known) { openUserInfoDetails(known); return true; }
+        selectedInfoUser = null;
+        infoModalOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        refs.infoModalTitle.textContent = 'User details';
+        refs.infoModalSubtitle.textContent = 'Loading the requested account…';
+        refs.infoModalBody.replaceChildren(userCreditState('Loading account identity…'));
+        setUserInfoModalOpen(true);
+        focusElementSafely(refs.infoModal.querySelector('[data-close-user-info]') || refs.infoModal.querySelector('button'));
+        // The bounded users search matches email only. Use the existing exact-ID,
+        // read-only billing response for account identity instead of scanning every user.
+        const result = await apiAdminUserBilling(userId);
+        if (request !== userContextRequest) return false;
+        const billing = result.ok && result.data?.billing;
+        const exact = billing?.userId === userId ? { id: userId, email: billing.email, role: billing.role, status: billing.status } : null;
+        if (!exact) {
+            refs.infoModalBody.replaceChildren(userCreditState('The requested user identity is unavailable from the authorized account response.', 'error'));
+            return false;
+        }
+        openUserInfoDetails(exact);
+        return true;
+    }
+
+    function hide() {
+        usersVersion += 1;
+        userContextRequest += 1;
+        closeUserCreditDetails({ restoreFocus: false });
+        closeUserInfoDetails({ restoreFocus: false });
+        storage.close({ restoreFocus: false });
+    }
+
+    return { bind, load, openUser, hide };
 }

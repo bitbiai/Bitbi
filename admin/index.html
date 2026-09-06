@@ -22,11 +22,12 @@
     <link rel="stylesheet" href="../css/components/components.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/admin/admin.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/admin/workspace.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/account/assets-manager.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
 </head>
-<body>
+<body class="admin-workspace">
 
 <a href="#main-content" class="skip-link">Skip to main content</a>
 
@@ -94,92 +95,36 @@
 
 <main id="main-content">
 
-<!-- HERO AREA -->
-<section class="hero hero--compact" aria-label="Admin Dashboard">
-    <canvas id="heroCanvas" aria-hidden="true"></canvas>
-    <div class="hero__gradient-overlay" style="background:linear-gradient(180deg,#0A0A0A 0%,rgba(13,27,42,0.4) 50%,#0A0A0A 100%)" aria-hidden="true"></div>
-    <div class="hero__glow hero__glow--cyan-sm" style="top:30%;left:20%;width:300px;height:300px" aria-hidden="true"></div>
-    <div class="hero__glow hero__glow--gold-sm" style="bottom:20%;right:20%;width:250px;height:250px" aria-hidden="true"></div>
-    <div class="hero__binary-rain" id="binaryRain" aria-hidden="true"></div>
-
-    <div class="hero__content hero__content--narrow">
-        <h1 id="adminHeroTitle" class="legal-hero__title gt-gold-cyan">Dashboard</h1>
-        <p id="adminHeroDesc" class="legal-hero__desc">System overview and quick actions</p>
-    </div>
-</section>
-
 <!-- ADMIN NAV -->
-<nav id="adminNav" class="admin-nav" aria-label="Admin sections" style="display:none">
-    <div class="admin-nav__inner">
-        <div class="admin-nav__group" role="group" aria-label="Overview">
-            <button type="button" class="admin-nav__group-toggle" aria-expanded="false" aria-controls="adminNavGroupOverview">
-                <span class="admin-nav__group-label">Overview</span>
-                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
-            </button>
-            <div class="admin-nav__group-items" id="adminNavGroupOverview">
-                <a href="#dashboard" class="admin-nav__link admin-nav__link--active" data-section="dashboard">Dashboard</a>
-            </div>
-        </div>
-        <div class="admin-nav__group" role="group" aria-label="Users">
-            <button type="button" class="admin-nav__group-toggle" aria-expanded="false" aria-controls="adminNavGroupUsers">
-                <span class="admin-nav__group-label">Users</span>
-                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
-            </button>
-            <div class="admin-nav__group-items" id="adminNavGroupUsers">
-                <a href="#users" class="admin-nav__link" data-section="users">Users</a>
-                <a href="#security" class="admin-nav__link" data-section="security">Security</a>
-                <a href="#lifecycle" class="admin-nav__link" data-section="lifecycle">Data Lifecycle</a>
-                <a href="#activity" class="admin-nav__link" data-section="activity">Activity</a>
-            </div>
-        </div>
-        <div class="admin-nav__group" role="group" aria-label="AI">
-            <button type="button" class="admin-nav__group-toggle" aria-expanded="false" aria-controls="adminNavGroupAi">
-                <span class="admin-nav__group-label">AI</span>
-                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
-            </button>
-            <div class="admin-nav__group-items" id="adminNavGroupAi">
-                <a href="#ai-lab" class="admin-nav__link" data-section="ai-lab">AI Lab</a>
-                <a href="#news-feed-agent" class="admin-nav__link" data-section="news-feed-agent">News Feed Agent</a>
-                <a href="#homepage-hero-videos" class="admin-nav__link" data-section="homepage-hero-videos">Hero Videos</a>
-                <a href="#ai-usage" class="admin-nav__link" data-section="ai-usage">AI Usage</a>
-                <a href="#ai-budget-switches" class="admin-nav__link" data-section="ai-budget-switches">Budget Switches</a>
-            </div>
-        </div>
-        <div class="admin-nav__group" role="group" aria-label="Finance">
-            <button type="button" class="admin-nav__group-toggle" aria-expanded="false" aria-controls="adminNavGroupFinance">
-                <span class="admin-nav__group-label">Finance</span>
-                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
-            </button>
-            <div class="admin-nav__group-items" id="adminNavGroupFinance">
-                <a href="#billing" class="admin-nav__link" data-section="billing">Billing</a>
-                <a href="#live-billing" class="admin-nav__link" data-section="live-billing">Live Billing</a>
-                <a href="#billing-events" class="admin-nav__link" data-section="billing-events">Billing Events</a>
-                <a href="/account/credits.html" class="admin-nav__link admin-nav__link--external" data-section="credits">Credits</a>
-            </div>
-        </div>
-        <div class="admin-nav__group" role="group" aria-label="Organization">
-            <button type="button" class="admin-nav__group-toggle" aria-expanded="false" aria-controls="adminNavGroupOrg">
-                <span class="admin-nav__group-label">Organization</span>
-                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
-            </button>
-            <div class="admin-nav__group-items" id="adminNavGroupOrg">
-                <a href="#orgs" class="admin-nav__link" data-section="orgs">Organizations</a>
-                <a href="/account/organization.html" class="admin-nav__link admin-nav__link--external" data-section="organization">Organization</a>
-            </div>
-        </div>
-        <div class="admin-nav__group" role="group" aria-label="System">
-            <button type="button" class="admin-nav__group-toggle" aria-expanded="false" aria-controls="adminNavGroupSystem">
-                <span class="admin-nav__group-label">System</span>
-                <span class="admin-nav__group-chevron" aria-hidden="true"></span>
-            </button>
-            <div class="admin-nav__group-items" id="adminNavGroupSystem">
-                <a href="#operations" class="admin-nav__link" data-section="operations">Operations</a>
-                <a href="#object-storage" class="admin-nav__link" data-section="object-storage">R2 Drive</a>
-                <a href="#tenant-assets" class="admin-nav__link" data-section="tenant-assets">Storage Integrity</a>
-            </div>
-        </div>
-    </div>
-</nav>
+<button id="adminNavToggle" class="admin-nav-toggle btn-action" type="button" aria-expanded="false" aria-controls="adminNav" hidden>Admin navigation</button>
+<nav id="adminNav" class="admin-nav" aria-label="Admin sections" style="display:none"><div class="admin-nav__inner">
+<div class="admin-nav__group" role="group" aria-label="People & payments"><button type="button" class="admin-nav__group-toggle" aria-expanded="true" aria-controls="adminNavGroupWork"><span class="admin-nav__group-label">People & payments</span><span class="admin-nav__group-chevron" aria-hidden="true"></span></button><div class="admin-nav__group-items" id="adminNavGroupWork">
+<a href="#dashboard" class="admin-nav__link" data-section="dashboard">Workspace</a>
+<a href="#users" class="admin-nav__link" data-section="users">Users</a>
+<a href="#orgs" class="admin-nav__link" data-section="orgs">Organizations</a>
+<a href="#billing" class="admin-nav__link" data-section="billing">Billing & credits</a>
+<a href="#billing-events" class="admin-nav__link" data-section="billing-events">Billing events</a>
+</div></div>
+<div class="admin-nav__group" role="group" aria-label="Creative work"><button type="button" class="admin-nav__group-toggle" aria-expanded="true" aria-controls="adminNavGroupCreate"><span class="admin-nav__group-label">Creative work</span><span class="admin-nav__group-chevron" aria-hidden="true"></span></button><div class="admin-nav__group-items" id="adminNavGroupCreate">
+<a href="#ai-lab" class="admin-nav__link" data-section="ai-lab">AI Lab</a>
+<a href="#fable-data-center" class="admin-nav__link" data-section="fable-data-center">Fable data</a>
+<a href="#news-feed-agent" class="admin-nav__link" data-section="news-feed-agent">News Feed Agent</a>
+<a href="#homepage-hero-videos" class="admin-nav__link" data-section="homepage-hero-videos">Hero Videos</a>
+</div></div>
+<div class="admin-nav__group" role="group" aria-label="Operations"><button type="button" class="admin-nav__group-toggle" aria-expanded="true" aria-controls="adminNavGroupOperate"><span class="admin-nav__group-label">Operations</span><span class="admin-nav__group-chevron" aria-hidden="true"></span></button><div class="admin-nav__group-items" id="adminNavGroupOperate">
+<a href="#ai-usage" class="admin-nav__link" data-section="ai-usage">AI usage</a>
+<a href="#ai-budget-switches" class="admin-nav__link" data-section="ai-budget-switches">Budget controls</a>
+<a href="#object-storage" class="admin-nav__link" data-section="object-storage">R2 Drive</a>
+<a href="#lifecycle" class="admin-nav__link" data-section="lifecycle">Data lifecycle</a>
+<a href="#activity" class="admin-nav__link" data-section="activity">Activity</a>
+</div></div>
+<div class="admin-nav__group" role="group" aria-label="Advanced evidence"><button type="button" class="admin-nav__group-toggle" aria-expanded="true" aria-controls="adminNavGroupEvidence"><span class="admin-nav__group-label">Advanced evidence</span><span class="admin-nav__group-chevron" aria-hidden="true"></span></button><div class="admin-nav__group-items" id="adminNavGroupEvidence">
+<a href="#operations" class="admin-nav__link" data-section="operations">Diagnostics</a>
+<a href="#tenant-assets" class="admin-nav__link" data-section="tenant-assets">Storage Integrity</a>
+<a href="#security" class="admin-nav__link" data-section="security">Security & policy</a>
+<a href="#live-billing" class="admin-nav__link" data-section="live-billing">Billing readiness</a>
+</div></div>
+<div class="admin-nav__account"><span class="admin-nav__group-label">Your account</span><a href="/account/credits.html" class="admin-nav__link admin-nav__link--external" data-section="credits">Account credits ↗</a><a href="/account/organization.html" class="admin-nav__link admin-nav__link--external" data-section="organization">Account organization ↗</a></div></div></nav>
 
 <!-- CONTENT -->
 <div class="section-divider" aria-hidden="true"></div>
@@ -245,57 +190,15 @@
 
         <!-- Admin Panel (shown after auth) -->
         <div id="adminPanel" style="display:none">
+            <header class="admin-workspace-heading"><p class="admin-workspace-eyebrow">BITBI / ADMIN</p><h1 id="adminHeroTitle">Workspace</h1><p id="adminHeroDesc">Choose a task to begin.</p></header>
+            <div id="adminSectionState" class="admin-section-state" role="status" hidden></div>
 
             <!-- ═══════════════════════════════════════
                  DASHBOARD
                  ═══════════════════════════════════════ -->
             <div id="sectionDashboard" class="admin-section">
-                <div class="admin-control-hero glass glass-card reveal visible" aria-labelledby="controlPlaneTitle">
-                    <div>
-                        <p class="admin-control-hero__eyebrow">Admin Control Plane</p>
-                        <h2 id="controlPlaneTitle" class="admin-control-hero__title">Operate BITBI without exposing internals.</h2>
-                        <p class="admin-control-hero__copy">Security, SaaS, billing, AI, data lifecycle, and operational foundations are surfaced from existing admin APIs. Live production readiness remains a staging/deployment task.</p>
-                    </div>
-                    <div class="admin-control-hero__badges" aria-label="Control plane status">
-                        <span class="badge badge--legacy">Review required</span>
-                        <span class="badge badge--legacy">Main-only verification required</span>
-                        <span class="badge badge--disabled">Production blocked</span>
-                        <span class="badge badge--user">Testmode only</span>
-                    </div>
-                </div>
-
-                <section class="admin-operator-guidance glass glass-card reveal visible" aria-labelledby="dashboardOwnerActionTitle">
-                    <div class="admin-operator-guidance__header">
-                        <div>
-                            <p class="admin-operator-guidance__eyebrow">Owner action map</p>
-                            <h3 id="dashboardOwnerActionTitle" class="admin-section-title">What to check first today</h3>
-                            <p class="admin-shell__desc">Start with safe review surfaces, keep blocked claims visible, and open guarded actions only after evidence is current.</p>
-                        </div>
-                        <div class="admin-control-toolbar__badges" aria-label="Dashboard blocked claims">
-                            <span class="badge badge--user">Safe review first</span>
-                            <span class="badge badge--legacy">Evidence required</span>
-                            <span class="badge badge--disabled">Guarded actions</span>
-                        </div>
-                    </div>
-                    <div id="adminOwnerActionSummary" class="admin-owner-summary__grid" aria-label="Owner action summary"></div>
-                </section>
-
-                <section id="adminWorkbench" class="admin-workbench glass glass-card reveal visible" aria-labelledby="adminWorkbenchTitle" aria-live="polite">
-                    <div class="admin-workbench__header">
-                        <div>
-                            <p class="admin-operator-guidance__eyebrow">Operator Workbench</p>
-                            <h3 id="adminWorkbenchTitle" class="admin-section-title">Operator Tasks</h3>
-                            <p class="admin-shell__desc">Task-oriented map of read-only evidence, blocked claims, and guarded execution areas. It does not execute backend actions.</p>
-                        </div>
-                        <div class="admin-control-toolbar__badges" aria-label="Workbench safety summary">
-                            <span class="badge badge--user">Review first</span>
-                            <span class="badge badge--legacy">Execute later</span>
-                            <span class="badge badge--disabled">Blocked claims remain</span>
-                        </div>
-                    </div>
-                    <div id="adminWorkbenchTasks" class="admin-workbench__grid"></div>
-                </section>
-
+                <section class="admin-task-section" aria-labelledby="dashboardOwnerActionTitle"><div class="admin-task-heading"><h2 id="dashboardOwnerActionTitle">What would you like to work on?</h2><p>Start with the record. Keep its context through the next decision.</p></div><div id="adminOwnerActionSummary" class="admin-owner-summary__grid" aria-label="Owner action summary"></div></section>
+                <section class="admin-attention glass glass-card" aria-labelledby="adminAttentionTitle"><div class="admin-task-heading"><h2 id="adminAttentionTitle">Review queue</h2><p id="adminAttentionScope">A bounded sample of recent records, not a full system readiness check.</p></div><div id="adminAttention" role="status"></div><button type="button" id="adminOverviewRefresh" class="btn-action">Refresh overview</button></section>
                 <!-- Stats Cards -->
                 <div class="admin-stats-meta">
                     <span id="statsUpdated" class="admin-stats-updated"></span>
@@ -327,59 +230,25 @@
                     </div>
                 </div>
 
-                <!-- Quick Links -->
-                <div class="admin-quick-links" style="margin-block-start:var(--space-6)">
-                    <a href="#users" class="admin-quick-link glass glass-card reveal" data-nav="users">
-                        <span class="admin-quick-link__icon">&#x1F465;</span>
-                        <span class="admin-quick-link__label">Manage Users</span>
-                    </a>
-                    <a href="#orgs" class="admin-quick-link glass glass-card reveal" data-nav="orgs">
-                        <span class="admin-quick-link__icon">&#x1F3E2;</span>
-                        <span class="admin-quick-link__label">Organizations</span>
-                    </a>
-                    <a href="#billing" class="admin-quick-link glass glass-card reveal" data-nav="billing">
-                        <span class="admin-quick-link__icon">&#x1F4B3;</span>
-                        <span class="admin-quick-link__label">Billing & Credits</span>
-                    </a>
-                    <a href="#ai-usage" class="admin-quick-link glass glass-card reveal" data-nav="ai-usage">
-                        <span class="admin-quick-link__icon">&#x1F9E0;</span>
-                        <span class="admin-quick-link__label">AI Usage</span>
-                    </a>
-                    <a href="#ai-budget-switches" class="admin-quick-link glass glass-card reveal" data-nav="ai-budget-switches">
-                        <span class="admin-quick-link__icon">AI</span>
-                        <span class="admin-quick-link__label">Budget Controls</span>
-                    </a>
-                    <a href="#lifecycle" class="admin-quick-link glass glass-card reveal" data-nav="lifecycle">
-                        <span class="admin-quick-link__icon">&#x1F512;</span>
-                        <span class="admin-quick-link__label">Data Lifecycle</span>
-                    </a>
-                    <a href="#ai-lab" class="admin-quick-link glass glass-card reveal" data-nav="ai-lab">
-                        <span class="admin-quick-link__icon">&#x1F9EA;</span>
-                        <span class="admin-quick-link__label">AI Lab</span>
-                    </a>
-                    <a href="/account/credits.html" class="admin-quick-link glass glass-card reveal" data-nav="credits">
-                        <span class="admin-quick-link__icon">&#x1F4B0;</span>
-                        <span class="admin-quick-link__label">Credits</span>
-                    </a>
-                    <a href="/account/organization.html" class="admin-quick-link glass glass-card reveal" data-nav="organization">
-                        <span class="admin-quick-link__icon">&#x1F3DB;</span>
-                        <span class="admin-quick-link__label">Organization</span>
-                    </a>
-                    <a href="#activity" class="admin-quick-link glass glass-card reveal" data-nav="activity">
-                        <span class="admin-quick-link__icon">&#x1F4CB;</span>
-                        <span class="admin-quick-link__label">Activity Log</span>
-                    </a>
-                    <a href="#tenant-assets" class="admin-quick-link glass glass-card reveal" data-nav="tenant-assets">
-                        <span class="admin-quick-link__icon">SI</span>
-                        <span class="admin-quick-link__label">Storage Integrity</span>
-                    </a>
-                    <a href="#operations" class="admin-quick-link glass glass-card reveal" data-nav="operations">
-                        <span class="admin-quick-link__icon">Ops</span>
-                        <span class="admin-quick-link__label">Operations</span>
-                    </a>
-                </div>
+                <details class="admin-diagnostics" id="adminCapabilityDetails"><summary>Capabilities and evidence</summary><p>Implemented features and API observations are different. Refresh only when you need this diagnostic overview.</p><button type="button" id="adminCapabilitiesRefresh" class="btn-action">Check API availability</button><p id="adminCapabilitiesState" role="status">Availability not checked.</p>
+                <section id="adminWorkbench" class="admin-workbench glass glass-card reveal visible" aria-labelledby="adminWorkbenchTitle" aria-live="polite">
+                    <div class="admin-workbench__header">
+                        <div>
+                            <p class="admin-operator-guidance__eyebrow">Operator Workbench</p>
+                            <h3 id="adminWorkbenchTitle" class="admin-section-title">Operator Tasks</h3>
+                            <p class="admin-shell__desc">Task-oriented map of read-only evidence, blocked claims, and guarded execution areas. It does not execute backend actions.</p>
+                        </div>
+                        <div class="admin-control-toolbar__badges" aria-label="Workbench safety summary">
+                            <span class="badge badge--user">Review first</span>
+                            <span class="badge badge--legacy">Execute later</span>
+                            <span class="badge badge--disabled">Blocked claims remain</span>
+                        </div>
+                    </div>
+                    <div id="adminWorkbenchTasks" class="admin-workbench__grid"></div>
+                </section>
 
-                <div id="controlPlaneCapabilityGrid" class="admin-control-grid" aria-live="polite"></div>
+                <div id="controlPlaneCapabilityGrid" class="admin-control-grid" aria-live="polite"></div></details>
+                <div class="admin-account-shortcuts"><a href="/account/credits.html" class="admin-quick-link" data-nav="credits">Account credits</a><a href="/account/organization.html" class="admin-quick-link" data-nav="organization">Account organization</a></div>
             </div>
 
             <!-- ═══════════════════════════════════════
@@ -648,7 +517,7 @@
                     </form>
                     <div class="admin-control-toolbar__badges">
                         <button type="button" id="billingReviewsRefresh" class="btn-action">Refresh</button>
-                        <button type="button" id="billingReviewsArchiveVisible" class="btn-action btn-action--secondary">Archivieren</button>
+                        <button type="button" id="billingReviewsArchiveVisible" class="btn-action btn-action--secondary">Archive visible reviews</button>
                     </div>
                     <div id="billingReviewsState" class="admin-state" aria-live="polite">Loading billing reviews...</div>
                     <div id="billingReviewsList"></div>
@@ -679,22 +548,22 @@
                     <button type="submit" class="btn-action">Apply</button>
                 </form>
                 <div class="admin-control-toolbar__badges">
-                    <button type="button" id="billingEventsArchiveVisible" class="btn-action btn-action--secondary">Sichtbare Einträge archivieren</button>
+                    <button type="button" id="billingEventsArchiveVisible" class="btn-action btn-action--secondary">Archive visible entries</button>
                 </div>
                 <div id="billingEventsState" class="admin-state">Loading billing events...</div>
                 <div id="billingEventsList"></div>
                 <div id="billingEventDetail" class="admin-control-detail glass glass-card" hidden></div>
                 </div>
                 <div class="admin-control-subsection">
-                    <h3 class="admin-section-title">Billing Archiv</h3>
-                    <p class="admin-shell__desc">Archivierte Zahlungsereignisse werden nicht gelöscht. Sie erscheinen nicht mehr in der aktiven Auswertung und bleiben im Archiv nachvollziehbar.</p>
+                    <h3 class="admin-section-title">Billing archive</h3>
+                    <p class="admin-shell__desc">Archived payment events are retained. They leave the active review view and remain traceable in the archive.</p>
                     <form id="billingArchiveSearchForm" class="admin-control-filter glass glass-card">
                         <label class="admin-ai__field">
-                            <span class="admin-ai__label">Archiv suchen</span>
-                            <input id="billingArchiveSearch" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="Typ, ID, Grund oder Ereignis suchen">
+                            <span class="admin-ai__label">Search archive</span>
+                            <input id="billingArchiveSearch" class="admin-ai__input" type="text" autocomplete="off" spellcheck="false" placeholder="Search type, ID, reason or event">
                         </label>
-                        <button type="submit" class="btn-action">Archiv suchen</button>
-                        <button type="button" id="billingArchiveRefresh" class="btn-action btn-action--secondary">Archiv aktualisieren</button>
+                        <button type="submit" class="btn-action">Search archive</button>
+                        <button type="button" id="billingArchiveRefresh" class="btn-action btn-action--secondary">Refresh archive</button>
                     </form>
                     <div id="billingArchiveState" class="admin-state" aria-live="polite">Loading billing archive...</div>
                     <div id="billingArchiveList"></div>
@@ -1343,6 +1212,53 @@
                             </div>
                         </div>
 
+                        <div class="admin-user-tools"><a class="btn-action" href="#registration-settings" data-admin-panel-target="registrationAvailabilityPanel">Registration settings</a></div>
+
+                        <!-- Search -->
+                        <form id="searchForm" class="admin-search">
+                            <label for="searchInput" class="sr-only">Search users by email</label>
+                            <input type="text" id="searchInput" class="admin-search__input" placeholder="Search email..." autocomplete="off" spellcheck="false" autocapitalize="off">
+                            <button type="submit" class="admin-search__btn">Search</button>
+                        </form>
+
+                        <!-- Loading State -->
+                        <div id="loadingState" class="admin-state">Loading users...</div>
+
+                        <!-- Empty State -->
+                        <div id="emptyState" class="admin-state" style="display:none">No users found.</div>
+
+                        <!-- User Table (desktop) -->
+                        <div class="admin-table-wrap" tabindex="0" role="region" aria-label="User accounts; scroll for more columns and actions">
+                            <table class="admin-table" id="userTable" style="display:none">
+                                <thead><tr>
+                                    <th>Email</th>
+                                    <th>User ID</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>Verified</th>
+                                    <th class="hide-mobile">Created</th>
+                                    <th>Actions</th>
+                                </tr></thead>
+                                <tbody id="userTbody"></tbody>
+                            </table>
+                        </div>
+
+                        <!-- User List (mobile) -->
+                        <div id="mobileSection" class="admin-mobile-section" style="display:none">
+                            <div class="admin-mobile-header" aria-hidden="true">
+                                <span></span>
+                                <span class="admin-mobile-header__col">Role</span>
+                                <span class="admin-mobile-header__col">Status</span>
+                                <span class="admin-mobile-header__col">Verified</span>
+                                <span></span>
+                            </div>
+                            <div id="userMobileList" class="admin-mobile-list"></div>
+                        </div>
+
+                        <div id="userPagination" style="display:none;text-align:center;padding:var(--space-4) 0">
+                            <div id="userPaginationStatus" class="admin-state" style="padding-block-end:var(--space-3)"></div>
+                            <button type="button" id="userLoadMoreBtn" class="btn-action">Load more users</button>
+                        </div>
                         <!-- Registration Availability -->
                         <section id="registrationAvailabilityPanel" class="admin-registration-panel" aria-labelledby="registrationAvailabilityTitle">
                             <div class="admin-registration-panel__header">
@@ -1375,51 +1291,6 @@
                             <div id="registrationAvailabilityState" class="admin-state" aria-live="polite">Loading registration availability...</div>
                         </section>
 
-                        <!-- Search -->
-                        <form id="searchForm" class="admin-search">
-                            <label for="searchInput" class="sr-only">Search users by email</label>
-                            <input type="text" id="searchInput" class="admin-search__input" placeholder="Search email..." autocomplete="off" spellcheck="false" autocapitalize="off">
-                            <button type="submit" class="admin-search__btn">Search</button>
-                        </form>
-
-                        <!-- Loading State -->
-                        <div id="loadingState" class="admin-state">Loading users...</div>
-
-                        <!-- Empty State -->
-                        <div id="emptyState" class="admin-state" style="display:none">No users found.</div>
-
-                        <!-- User Table (desktop) -->
-                        <div class="admin-table-wrap">
-                            <table class="admin-table" id="userTable" style="display:none">
-                                <thead><tr>
-                                    <th>Email</th>
-                                    <th>User ID</th>
-                                    <th>Role</th>
-                                    <th>Status</th>
-                                    <th>Verified</th>
-                                    <th class="hide-mobile">Created</th>
-                                    <th>Actions</th>
-                                </tr></thead>
-                                <tbody id="userTbody"></tbody>
-                            </table>
-                        </div>
-
-                        <!-- User List (mobile) -->
-                        <div id="mobileSection" class="admin-mobile-section" style="display:none">
-                            <div class="admin-mobile-header" aria-hidden="true">
-                                <span></span>
-                                <span class="admin-mobile-header__col">Role</span>
-                                <span class="admin-mobile-header__col">Status</span>
-                                <span class="admin-mobile-header__col">Verified</span>
-                                <span></span>
-                            </div>
-                            <div id="userMobileList" class="admin-mobile-list"></div>
-                        </div>
-
-                        <div id="userPagination" style="display:none;text-align:center;padding:var(--space-4) 0">
-                            <div id="userPaginationStatus" class="admin-state" style="padding-block-end:var(--space-3)"></div>
-                            <button type="button" id="userLoadMoreBtn" class="btn-action">Load more users</button>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -2795,7 +2666,7 @@
                     <div id="activityLog" class="admin-activity">
                         <div id="activityLoading" class="admin-state">Loading logs...</div>
                         <div id="activityEmpty" class="admin-state" style="display:none">No log entries yet.</div>
-                        <div class="admin-table-wrap">
+                        <div class="admin-table-wrap" tabindex="0" role="region" aria-label="Activity log; scroll for more columns">
                             <table id="activityTable" class="admin-table" style="display:none">
                                 <thead id="activityThead"><tr>
                                     <th>Time</th>

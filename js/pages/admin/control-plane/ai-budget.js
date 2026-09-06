@@ -44,45 +44,54 @@ import {
 } from './core.js?v=__ASSET_VERSION__';
 
 export function createAiBudgetDomain({ notify, formatDate }) {
-    async function loadAiAttempts() {
-        const list = byId('aiAttemptsList');
-        setState('aiAttemptsState', 'Loading usage attempts...');
-        clear(list);
-        const res = await apiAdminAiUsageAttempts({
+    let attemptRequest = 0;
+    let detailRequest = 0;
+    let attemptRows = [];
+    let nextAttemptCursor = null;
+    let attemptsBusy = false;
+    let attemptFilterKey = '';
+    async function loadAiAttempts({ append = false } = {}) {
+        const filter = {
             feature: byId('aiAttemptsFeature')?.value || undefined,
             status: byId('aiAttemptsStatus')?.value.trim() || undefined,
             organizationId: byId('aiAttemptsOrgId')?.value.trim() || undefined,
-            limit: 25,
-        });
-        if (!res.ok) {
-            setState('aiAttemptsState', '');
-            renderUnavailable(list, res, 'AI usage attempts unavailable.');
-            return;
+        };
+        const key = JSON.stringify(filter);
+        if (append && (attemptsBusy || !nextAttemptCursor || key !== attemptFilterKey)) return;
+        const request = ++attemptRequest;
+        if (!append) { attemptRows = []; nextAttemptCursor = null; attemptFilterKey = key; ++detailRequest; byId('aiAttemptDetail').hidden = true; }
+        attemptsBusy = true;
+        renderAttempts();
+        setState('aiAttemptsState', append ? 'Loading next page…' : 'Loading usage attempts…');
+        const res = await apiAdminAiUsageAttempts({ ...filter, limit:25, cursor:append ? nextAttemptCursor : undefined });
+        if (request !== attemptRequest) return;
+        attemptsBusy = false;
+        if (!res.ok) { renderAttempts(); setState('aiAttemptsState', apiUnavailableMessage(res, 'AI usage attempts unavailable. Refresh or retry this page.'), 'error'); return; }
+        const rows = Array.isArray(res.data?.attempts) ? res.data.attempts : [];
+        attemptRows = Array.from(new Map([...attemptRows,...rows].map(item => [item.attemptId,item])).values());
+        nextAttemptCursor = typeof res.data?.nextCursor === 'string' ? res.data.nextCursor : null;
+        renderAttempts();
+        setState('aiAttemptsState', attemptRows.length ? `Showing ${attemptRows.length} sanitized attempts${nextAttemptCursor ? '; more available' : ''}.` : 'No AI usage attempts found.');
+    }
+    function renderAttempts() {
+        const list = byId('aiAttemptsList'); clear(list);
+        if (attemptRows.length) {
+            const { wrap, tbody } = table(['Feature', 'Status', 'Provider', 'Billing', 'Credits', 'Replay', 'Updated', 'Actions']);
+            for (const attempt of attemptRows) {
+                const tr = document.createElement('tr');
+                const feature = FEATURE_BADGES[attempt.feature] || [attempt.feature || '-', 'user'];
+                addCell(tr, badge(feature[0], feature[1])); addCell(tr, badge(attempt.status || '-', variantFor(attempt.status)));
+                addCell(tr, attempt.providerStatus || '-'); addCell(tr, attempt.billingStatus || '-'); addCell(tr, attempt.creditCost ?? '-');
+                addCell(tr, attempt.replay?.available ? 'Available' : (attempt.replay?.status || '-')); addCell(tr, formatDate(attempt.updatedAt));
+                const button = el('button','btn-action','Inspect'); button.type='button';
+                button.addEventListener('click', () => loadAiAttemptDetail(attempt.attemptId)); addCell(tr,button); tbody.append(tr);
+            }
+            list.append(wrap);
         }
-        const attempts = Array.isArray(res.data?.attempts) ? res.data.attempts : [];
-        if (attempts.length === 0) {
-            setState('aiAttemptsState', 'No AI usage attempts found.');
-            return;
+        if (nextAttemptCursor) {
+            const more = el('button','btn-action','Load more attempts'); more.type='button'; more.disabled=attemptsBusy;
+            more.addEventListener('click', () => loadAiAttempts({append:true})); list.append(more);
         }
-        setState('aiAttemptsState', `Showing ${attempts.length} sanitized attempts.`);
-        const { wrap, tbody } = table(['Feature', 'Status', 'Provider', 'Billing', 'Credits', 'Replay', 'Updated', 'Actions']);
-        for (const attempt of attempts) {
-            const tr = document.createElement('tr');
-            const feature = FEATURE_BADGES[attempt.feature] || [attempt.feature || '-', 'user'];
-            addCell(tr, badge(feature[0], feature[1]));
-            addCell(tr, badge(attempt.status || '-', variantFor(attempt.status)));
-            addCell(tr, attempt.providerStatus || '-');
-            addCell(tr, attempt.billingStatus || '-');
-            addCell(tr, attempt.creditCost ?? '-');
-            addCell(tr, attempt.replay?.available ? 'Available' : (attempt.replay?.status || '-'));
-            addCell(tr, formatDate(attempt.updatedAt));
-            const btn = el('button', 'btn-action', 'Inspect');
-            btn.type = 'button';
-            btn.addEventListener('click', () => loadAiAttemptDetail(attempt.attemptId));
-            addCell(tr, btn);
-            tbody.appendChild(tr);
-        }
-        list.appendChild(wrap);
     }
 
     async function loadAiBudgetSwitches() {
@@ -678,16 +687,26 @@ export function createAiBudgetDomain({ notify, formatDate }) {
     }
 
     async function loadAiAttemptDetail(attemptId) {
+        const request = ++detailRequest;
         const detail = byId('aiAttemptDetail');
         detail.hidden = false;
         detail.textContent = 'Loading attempt detail...';
         const res = await apiAdminAiUsageAttempt(attemptId);
+        if (request !== detailRequest) return;
         clear(detail);
         if (!res.ok) {
             renderUnavailable(detail, res, 'AI usage attempt detail unavailable.');
             return;
         }
         const attempt = res.data?.attempt || {};
+        if (attempt.attemptId !== attemptId) { detail.textContent = 'This response does not identify the requested attempt.'; return; }
+        const contextLinks = el('div','admin-control-chip-row');
+        for (const [label,section,idKey,id] of [['Inspect user','users','userId',attempt.userId],['Inspect organization credits','billing','orgId',attempt.organizationId]]) {
+            if (typeof id !== 'string' || !id) continue;
+            const button = el('button','btn-action',label); button.type='button';
+            button.addEventListener('click', () => document.dispatchEvent(new CustomEvent('admin:open-context',{detail:{section,[idKey]:id}}))); contextLinks.append(button);
+        }
+        const budget = el('a','btn-action','Open budget controls'); budget.href='#ai-budget-switches'; contextLinks.append(budget); detail.append(contextLinks);
         detail.appendChild(el('h3', 'admin-section-title', 'AI Usage Attempt Detail'));
         detail.appendChild(detailRows([
             ['Attempt', shortId(attempt.attemptId)],
@@ -775,6 +794,12 @@ export function createAiBudgetDomain({ notify, formatDate }) {
 
     return {
         bind,
+        needsReload: () => attemptsBusy,
+        hide() { ++attemptRequest; ++detailRequest; attemptsBusy = false; byId('aiAttemptDetail').hidden = true; },
+        async activateContext({ attemptId, orgId } = {}) {
+            if (orgId) { byId('aiAttemptsOrgId').value = orgId; await loadAiAttempts(); }
+            if (attemptId) await loadAiAttemptDetail(attemptId);
+        },
         loadAiAttempts,
         loadAiBudgetSwitchesPanel,
     };

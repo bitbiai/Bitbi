@@ -214,6 +214,29 @@ export function createAdminUserActions({
     reloadUsers,
     invalidateStats,
 } = {}) {
+    const pendingUsers = new Set();
+    let deletionPending = false;
+    function actionError(userId, message) {
+        for (const row of document.querySelectorAll('[data-admin-user-id]')) {
+            if (row.dataset.adminUserId !== userId) continue;
+            const actions = row.querySelector('.admin-actions, .admin-mobile-card__actions');
+            if (!actions) continue;
+            actions.querySelector('[data-user-action-error]')?.remove();
+            const error = document.createElement('p');
+            error.dataset.userActionError = 'true'; error.setAttribute('role', 'alert');
+            error.textContent = `${userId}: ${message || 'Operation not confirmed. Inspect the account before retrying.'}`;
+            actions.append(error);
+        }
+        showToast(message || 'Operation not confirmed.', 'error');
+    }
+    async function withUser(userId, operation) {
+        if (pendingUsers.has(userId)) return;
+        pendingUsers.add(userId);
+        try { return await operation(); }
+        catch { actionError(userId, 'The operation is not confirmed. Inspect the account before retrying.'); }
+        finally { pendingUsers.delete(userId); }
+    }
+
     async function handleChangeRole(userId, newRole) {
         const res = await apiAdminChangeRole(userId, newRole);
         if (res.ok) {
@@ -221,7 +244,7 @@ export function createAdminUserActions({
             showToast(res.data?.message || 'Role changed', 'success');
             reloadUsers?.(getSearchValue?.() || '');
         } else {
-            showToast(res.error, 'error');
+            actionError(userId, res.error);
         }
     }
 
@@ -232,17 +255,17 @@ export function createAdminUserActions({
             showToast(res.data?.message || 'Status changed', 'success');
             reloadUsers?.(getSearchValue?.() || '');
         } else {
-            showToast(res.error, 'error');
+            actionError(userId, res.error);
         }
     }
 
     async function handleRevokeSessions(userId) {
-        if (!confirm('Revoke all sessions for this user?')) return;
+        if (!confirm(`Revoke all sessions for user ${userId}?`)) return;
         const res = await apiAdminRevokeSessions(userId);
         if (res.ok) {
             showToast(res.data?.message || 'Sessions revoked', 'success');
         } else {
-            showToast(res.error, 'error');
+            actionError(userId, res.error);
         }
     }
 
@@ -258,10 +281,11 @@ export function createAdminUserActions({
             return;
         }
 
+        const button = event?.currentTarget;
+        user = { ...user };
         const decision = await openDeleteUserDialog(user);
         if (!decision.confirmed) return;
 
-        const button = event?.currentTarget;
         if (button) button.disabled = true;
         const res = await apiAdminDeleteUser(userId, {
             startDataErasureWorkflow: decision.startDataErasureWorkflow === true,
@@ -284,14 +308,18 @@ export function createAdminUserActions({
             reloadUsers?.(getSearchValue?.() || '');
         } else {
             if (button) button.disabled = false;
-            showToast(formatApiError(res, 'Failed to delete user.'), 'error');
+            actionError(userId, formatApiError(res, 'Failed to delete user. Inspect the account before retrying.'));
         }
     }
 
     return {
-        handleChangeRole,
-        handleChangeStatus,
-        handleRevokeSessions,
-        handleDeleteUser,
+        handleChangeRole: (userId, role) => withUser(userId, () => handleChangeRole(userId, role)),
+        handleChangeStatus: (userId, status) => withUser(userId, () => handleChangeStatus(userId, status)),
+        handleRevokeSessions: (userId) => withUser(userId, () => handleRevokeSessions(userId)),
+        handleDeleteUser: (user, event) => {
+            if (deletionPending) return;
+            deletionPending = true;
+            return withUser(user?.id, () => handleDeleteUser(user, event)).finally(() => { deletionPending = false; });
+        },
     };
 }

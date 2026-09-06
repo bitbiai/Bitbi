@@ -1,6 +1,6 @@
 # OMA2 Q2 Auth release decision
 
-Status: Q2 correction and its regression/docs/commit/push package are approved; production activation remains conditional on a verified transition. The current task permits bounded queue suspension and a restricted API entry only when that transition is demonstrably safe. This is not yet a GO decision. The release contract is `config/release-compat.json`; commands in this document do not expand the authorized scope.
+Status: technically activated on 2026-09-06 at 20:04 UTC, with immediate resource/schema checks at 20:08 UTC recorded in the private Q2 release handoff. Auth `93c35af7-00f7-4e5a-b2ad-2ca19c442f0b` serves 100% traffic; Original 0082 and corrected 0083 are applied. Maintenance ended and all three release-paused queues resumed. This is not a full business-flow live acceptance. The following procedure describes the controlled release and recovery requirements; it does not authorize repeating applied migrations or starting another release. `config/release-compat.json` remains the release contract.
 
 ## Scope and schema
 
@@ -12,7 +12,7 @@ Status: Q2 correction and its regression/docs/commit/push package are approved; 
 
 0082 adds a nullable MFA mutation marker. 0083 adds permanent object tombstones, reference guards/indexes and distinct cleanup statuses. It holds existing ambiguous `pending` receipts as `legacy_held`; it does not authorize executing or deleting them. Do not edit applied migrations, remove tombstones or turn foreign keys off. The local full migration chain starts empty; populated transition fixtures are separate evidence and do not resolve historical 0065 effects.
 
-The original 0083 reference view fails in the target workerd/D1 implementation with `too many terms in compound SELECT`, despite passing Node SQLite. The repository now contains the approved correction grouping the same 16 reference arms without `LIMIT`; its complete SQL SHA-256 is `c4a53134309e2ced9d2487dc9e5779829a8aed29b2c6a65918b28d2efd219624`. A bounded target-D1 read confirmed 0082/0083 were unapplied before this replacement. Recheck receipts before any eventual activation; preserve the original failure fixture and never rewrite applied history.
+The original 0083 reference view fails in the target workerd/D1 implementation with `too many terms in compound SELECT`, despite passing Node SQLite. The repository now contains the approved correction grouping the same 16 reference arms without `LIMIT`; its complete SQL SHA-256 is `c4a53134309e2ced9d2487dc9e5779829a8aed29b2c6a65918b28d2efd219624`. A bounded target-D1 read confirmed 0082/0083 were unapplied before this replacement. For later releases, read current receipts and preserve the original failure fixture and never rewrite applied history.
 
 Q2 affects Auth, its scheduled consumer and its schema. AI, Contact, external processors, public frontend behavior, bindings and secrets are unchanged. No new cloud resource or secret is required. Build inputs and exact bundle bytes must still be recorded separately from commit and serving version.
 

@@ -963,6 +963,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
     const state = {
         initialized: false,
+        active: true,
         activeMode:
             MODES.includes(persisted?.activeMode) && persisted.activeMode !== 'dashboard'
                 ? persisted.activeMode
@@ -1473,7 +1474,15 @@ export function createAdminAiLab({ showToast } = {}) {
         foldersUnavailableMessage: 'Could not load folders. Showing all saved assets.',
     });
 
+    let savedAssetsDirty = false;
+    let savedAssetsWasShown = false;
+    let savedAssetsShowing = null;
+
     async function refreshSavedAssetsBrowser() {
+        if (!state.active || refs.savedAssets.root?.hidden) {
+            savedAssetsDirty = true;
+            return;
+        }
         try {
             await savedAssetsBrowser.refresh();
         } catch (error) {
@@ -1482,9 +1491,16 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function showSavedAssetsBrowser() {
-        savedAssetsBrowser.show().catch((error) => {
+        if (!state.active || savedAssetsShowing) return;
+        const needsRefresh = savedAssetsDirty && savedAssetsWasShown;
+        savedAssetsDirty = false;
+        savedAssetsShowing = savedAssetsBrowser.show().then(async () => {
+            savedAssetsWasShown = true;
+            if (needsRefresh) await refreshSavedAssetsBrowser();
+        }).catch((error) => {
+            savedAssetsDirty = true;
             console.warn('AI Lab saved assets load failed:', error);
-        });
+        }).finally(() => { savedAssetsShowing = null; });
     }
 
     function getVideoModelSummary(modelId = ADMIN_AI_VIDEO_MODEL_ID) {
@@ -3528,7 +3544,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         refs.image.organization.disabled = isBusy || state.imageBilling.status === 'loading';
         const selectedOrgId = state.forms.image.organizationId || '';
-        const balance = state.imageBilling.balance;
+        const balance = state.imageBilling.billingOrganizationId === selectedOrgId ? state.imageBilling.balance : null;
 
         if (state.imageBilling.status === 'loading') {
             refs.image.organizationState.textContent = 'Loading organizations for charged image tests...';
@@ -3544,6 +3560,14 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         if (!selectedOrgId) {
             refs.image.organizationState.textContent = 'Select an organization before running this charged image test.';
+            return;
+        }
+        if (state.imageBilling.billingStatus === 'loading') {
+            refs.image.organizationState.textContent = 'Loading the selected organization balance...';
+            return;
+        }
+        if (state.imageBilling.billingStatus === 'error') {
+            refs.image.organizationState.textContent = state.imageBilling.error || 'The selected organization balance is unavailable.';
             return;
         }
         const selectedOrg = getSelectedImageOrganization();
@@ -3588,6 +3612,7 @@ export function createAdminAiLab({ showToast } = {}) {
             data?.organization?.creditBalance,
         ];
         for (const value of candidates) {
+            if (value === undefined || value === null || value === '') continue;
             const number = Number(value);
             if (Number.isFinite(number)) return number;
         }
@@ -3596,19 +3621,29 @@ export function createAdminAiLab({ showToast } = {}) {
 
     async function loadSelectedImageOrganizationBilling() {
         const orgId = state.forms.image.organizationId || '';
+        const seq = (state.imageBilling.requestSeq || 0) + 1;
+        state.imageBilling.requestSeq = seq;
         state.imageBilling.balance = null;
+        state.imageBilling.billingOrganizationId = null;
+        state.imageBilling.billingStatus = orgId ? 'loading' : 'idle';
         if (!orgId) {
             syncImageBillingUi();
             return;
         }
+        state.imageBilling.error = '';
+        syncImageBillingUi();
         const res = await apiAdminOrganizationBilling(orgId);
+        if (seq !== state.imageBilling.requestSeq || orgId !== state.forms.image.organizationId) return;
         if (!res.ok) {
+            state.imageBilling.billingStatus = 'error';
             state.imageBilling.balance = null;
             state.imageBilling.error = res.error || 'Organization billing is unavailable.';
             syncImageBillingUi();
             return;
         }
         state.imageBilling.error = '';
+        state.imageBilling.billingStatus = 'ready';
+        state.imageBilling.billingOrganizationId = orgId;
         state.imageBilling.balance = extractCreditBalance(res.data);
         syncImageBillingUi();
     }
@@ -4529,7 +4564,14 @@ export function createAdminAiLab({ showToast } = {}) {
 
     function setMode(mode) {
         if (!MODES.includes(mode)) mode = 'text';
+        const previousMode = state.activeMode;
         state.activeMode = mode;
+        if (previousMode === 'video' && mode !== 'video') {
+            revokePreviewBlobUrl();
+            state._previewForResult = null;
+            refs.video.preview?.querySelector('video')?.pause();
+        }
+        resumeVideoReads?.();
         refs.modeButtons.forEach((button) => {
             const isActive = button.dataset.aiMode === mode;
             button.classList.toggle('admin-ai__mode--active', isActive);
@@ -4547,9 +4589,13 @@ export function createAdminAiLab({ showToast } = {}) {
         if (refs.savedAssets.root) {
             refs.savedAssets.root.hidden = !showAssets;
         }
-        if (showAssets) {
+        if (showAssets && state.active) {
             showSavedAssetsBrowser();
         }
+        if (mode === 'image' && state.active && state.imageBilling.status === 'idle') {
+            loadImageBillingOrganizations();
+        }
+        if (mode === 'video' && state.active) renderVideoResult();
     }
 
     function renderResetLabel() {
@@ -5351,7 +5397,10 @@ export function createAdminAiLab({ showToast } = {}) {
         return null;
     }
 
+    let videoPreviewVersion = 0;
+
     function revokePreviewBlobUrl() {
+        videoPreviewVersion += 1;
         if (state._previewBlobUrl) {
             URL.revokeObjectURL(state._previewBlobUrl);
             state._previewBlobUrl = null;
@@ -5364,7 +5413,11 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.video.download.hidden = !videoUrl;
         refs.video.save.hidden = !getCurrentSaveIntent('video');
 
+        if (!state.active || state.activeMode !== 'video') return;
+        if (state._previewForResult === result && refs.video.preview.querySelector('video')) return;
         revokePreviewBlobUrl();
+        const version = videoPreviewVersion;
+        state._previewForResult = result;
 
         if (!videoUrl) {
             if (result?.status === 'loading' && !payload) {
@@ -5412,6 +5465,10 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.video.preview.appendChild(wrapper);
 
         loadVideoBlob(videoUrl).then(blobUrl => {
+            if (version !== videoPreviewVersion || !state.active || state.activeMode !== 'video') {
+                if (blobUrl) URL.revokeObjectURL(blobUrl);
+                return;
+            }
             if (blobUrl) {
                 state._previewBlobUrl = blobUrl;
                 video.src = blobUrl;
@@ -5702,11 +5759,16 @@ export function createAdminAiLab({ showToast } = {}) {
                 reject(new DOMException('Request cancelled.', 'AbortError'));
                 return;
             }
-            const timeout = window.setTimeout(resolve, ms);
-            signal?.addEventListener('abort', () => {
+            const aborted = () => {
                 window.clearTimeout(timeout);
+                signal?.removeEventListener('abort', aborted);
                 reject(new DOMException('Request cancelled.', 'AbortError'));
-            }, { once: true });
+            };
+            const timeout = window.setTimeout(() => {
+                signal?.removeEventListener('abort', aborted);
+                resolve();
+            }, ms);
+            signal?.addEventListener('abort', aborted, { once: true });
         });
     }
 
@@ -5808,13 +5870,40 @@ export function createAdminAiLab({ showToast } = {}) {
         return response?.status === 429 || code === 'rate_limited';
     }
 
+    let resumeVideoReads = null;
+    function waitForVideoView(signal) {
+        if (state.active && state.activeMode === 'video' && !document.hidden) return Promise.resolve();
+        return new Promise((resolve, reject) => {
+            const cleanup = () => {
+                signal.removeEventListener('abort', aborted);
+                document.removeEventListener('visibilitychange', visible);
+                if (resumeVideoReads === visible) resumeVideoReads = null;
+            };
+            const visible = () => {
+                if (!state.active || state.activeMode !== 'video' || document.hidden) return;
+                cleanup();
+                resolve();
+            };
+            const aborted = () => {
+                cleanup();
+                reject(new DOMException('Status viewing cancelled.', 'AbortError'));
+            };
+            resumeVideoReads = visible;
+            signal.addEventListener('abort', aborted, { once: true });
+            document.addEventListener('visibilitychange', visible);
+            if (signal.aborted) aborted();
+        });
+    }
+
     async function pollVideoJobUntilTerminal(job, controller, seq) {
         let current = job;
         let delayMs = VIDEO_JOB_POLL_INITIAL_DELAY_MS;
         while (current && !isTerminalVideoJobStatus(current.status)) {
             rememberVideoJob(current);
             setStatus(describeVideoJobStatus(current), 'loading');
+            await waitForVideoView(controller.signal);
             await waitForVideoJobPoll(delayMs, controller.signal);
+            await waitForVideoView(controller.signal);
             if (seq !== state.requestSeq.video) return null;
             const statusRes = await apiAdminAiGetVideoJob(current.jobId, {
                 signal: controller.signal,
@@ -6355,8 +6444,8 @@ export function createAdminAiLab({ showToast } = {}) {
         });
     }
 
-    function setTaskSuccessState(task, raw, errorCode) {
-        state.results[task] = createSuccessTaskResult(raw, errorCode);
+    function setTaskSuccessState(task, raw, errorCode, input = null) {
+        state.results[task] = createSuccessTaskResult(raw, errorCode, input);
     }
 
     function cancelTask(task, label) {
@@ -6413,6 +6502,7 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     async function runText() {
+        if (state.results.text?.status === 'loading') return;
         if (!hasCatalog()) {
             setStatus('Load the model catalog before running a text test.', 'error');
             return;
@@ -6420,6 +6510,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         addHistoryEntry('text', state.forms.text.prompt);
 
+        const inputSnapshot = structuredClone(state.forms.text);
         const seq = ++state.requestSeq.text;
         clearTaskTimer('text');
         state.controllers.text?.abort();
@@ -6460,7 +6551,7 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
-        setTaskSuccessState('text', res.data, getApiCode(res));
+        setTaskSuccessState('text', res.data, getApiCode(res), inputSnapshot);
         setStatus('Text test completed.', 'success');
         renderTextResult();
     }
@@ -6562,6 +6653,7 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     async function runImage() {
+        if (state.results.image?.status === 'loading') return;
         if (!hasCatalog()) {
             setStatus('Load the model catalog before running an image test.', 'error');
             return;
@@ -6569,6 +6661,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         addHistoryEntry('image', state.forms.image.prompt);
 
+        const inputSnapshot = structuredClone(state.forms.image);
         const seq = ++state.requestSeq.image;
         clearTaskTimer('image');
         state.controllers.image?.abort();
@@ -6603,8 +6696,15 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         const payload = buildSelectedImageTestPayload();
+        const requiredCredits = getSelectedImageCreditCost();
+        const isChargeable = isSelectedImageModelChargeable();
+        const organizationId = isChargeable
+            ? syncImageOrganizationSelection({ persist: true, preferDom: true }).id || ''
+            : '';
+        const knownBalance = state.imageBilling.billingOrganizationId === organizationId ? state.imageBilling.balance : null;
 
         const referenceImageError = await validateFlux2DevReferenceImagesClient(payload.referenceImages || []);
+        if (seq !== state.requestSeq.image || controller.signal.aborted) return;
         if (referenceImageError) {
             setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
             clearTaskTimer('image', controller);
@@ -6621,11 +6721,8 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
-        const requiredCredits = getSelectedImageCreditCost();
-        const isChargeable = isSelectedImageModelChargeable();
         const requestOptions = { signal: controller.signal };
         if (isChargeable) {
-            const organizationId = syncImageOrganizationSelection({ persist: true, preferDom: true }).id || '';
             if (!organizationId) {
                 setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
                 clearTaskTimer('image', controller);
@@ -6637,11 +6734,11 @@ export function createAdminAiLab({ showToast } = {}) {
                 syncImageBillingUi();
                 return;
             }
-            if (requiredCredits && typeof state.imageBilling.balance === 'number' && state.imageBilling.balance < requiredCredits) {
+            if (requiredCredits && typeof knownBalance === 'number' && knownBalance < requiredCredits) {
                 setTaskBusy('image', false, TASK_UI.image.busyText, TASK_UI.image.idleText);
                 clearTaskTimer('image', controller);
                 state.controllers.image = null;
-                const message = `Selected organization has ${state.imageBilling.balance} credits; this image test needs ${requiredCredits}.`;
+                const message = `Selected organization has ${knownBalance} credits; this image test needs ${requiredCredits}.`;
                 setTaskErrorState('image', previous, message, 'insufficient_credits', previous.raw);
                 setStatus(message, 'error');
                 renderImageResult();
@@ -6654,7 +6751,6 @@ export function createAdminAiLab({ showToast } = {}) {
             };
         }
 
-        removeFlux2MaxUnsupportedPayloadFields(payload);
         const res = await apiAdminAiTestImage(payload, {
             ...requestOptions,
         });
@@ -6674,8 +6770,8 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
-        setTaskSuccessState('image', res.data, getApiCode(res));
-        if (typeof res.data?.billing?.balance_after === 'number') {
+        setTaskSuccessState('image', res.data, getApiCode(res), inputSnapshot);
+        if (payload.organization_id === state.forms.image.organizationId && typeof res.data?.billing?.balance_after === 'number') {
             state.imageBilling.balance = res.data.billing.balance_after;
             syncImageBillingUi();
         }
@@ -6685,6 +6781,7 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     async function runEmbeddings() {
+        if (state.results.embeddings?.status === 'loading') return;
         if (!hasCatalog()) {
             setStatus('Load the model catalog before running embeddings.', 'error');
             return;
@@ -6692,6 +6789,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         addHistoryEntry('embeddings', state.forms.embeddings.input);
 
+        const inputSnapshot = structuredClone(state.forms.embeddings);
         const seq = ++state.requestSeq.embeddings;
         clearTaskTimer('embeddings');
         state.controllers.embeddings?.abort();
@@ -6734,12 +6832,13 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
-        setTaskSuccessState('embeddings', res.data, getApiCode(res));
+        setTaskSuccessState('embeddings', res.data, getApiCode(res), inputSnapshot);
         setStatus('Embeddings test completed.', 'success');
         renderEmbeddingsResult();
     }
 
     async function runMusic() {
+        if (state.results.music?.status === 'loading') return;
         if (!hasCatalog()) {
             setStatus('Load the model catalog before generating music.', 'error');
             return;
@@ -6756,6 +6855,7 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         setMusicInlineError('');
+        const inputSnapshot = structuredClone(state.forms.music);
         const seq = ++state.requestSeq.music;
         clearTaskTimer('music');
         state.controllers.music?.abort();
@@ -6794,12 +6894,13 @@ export function createAdminAiLab({ showToast } = {}) {
             return;
         }
 
-        setTaskSuccessState('music', res.data, getApiCode(res));
+        setTaskSuccessState('music', res.data, getApiCode(res), inputSnapshot);
         setStatus('Music generation completed.', 'success');
         renderMusicResult();
     }
 
     async function runVideo() {
+        if (state.results.video?.status === 'loading') return;
         if (!hasCatalog()) {
             setStatus('Load the model catalog before generating video.', 'error');
             return;
@@ -6816,6 +6917,7 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         setVideoInlineError('');
+        const inputSnapshot = structuredClone(state.forms.video);
         const seq = ++state.requestSeq.video;
         clearTaskTimer('video');
         state.controllers.video?.abort();
@@ -6924,7 +7026,7 @@ export function createAdminAiLab({ showToast } = {}) {
                     renderVideoResult();
                     return;
                 }
-                setTaskSuccessState('video', syncRes.data, getApiCode(syncRes));
+                setTaskSuccessState('video', syncRes.data, getApiCode(syncRes), inputSnapshot);
                 setStatus('Video generation completed.', 'success');
                 renderVideoResult();
                 return;
@@ -6974,7 +7076,7 @@ export function createAdminAiLab({ showToast } = {}) {
             }
 
             const successResponse = buildVideoJobSuccessResponse(terminalJob, payload, videoSpec);
-            setTaskSuccessState('video', successResponse, 'async_video_job_succeeded');
+            setTaskSuccessState('video', successResponse, 'async_video_job_succeeded', inputSnapshot);
             setStatus('Video generation completed.', 'success');
             renderVideoResult();
         } catch (error) {
@@ -7097,6 +7199,7 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     async function runCompare() {
+        if (state.results.compare?.status === 'loading') return;
         if (!hasCatalog()) {
             setStatus('Load the model catalog before running compare.', 'error');
             return;
@@ -7114,6 +7217,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         addHistoryEntry('compare', state.forms.compare.prompt);
 
+        const inputSnapshot = structuredClone(state.forms.compare);
         const seq = ++state.requestSeq.compare;
         clearTaskTimer('compare');
         state.controllers.compare?.abort();
@@ -7154,7 +7258,7 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         const successCode = getApiCode(res);
-        setTaskSuccessState('compare', res.data, successCode);
+        setTaskSuccessState('compare', res.data, successCode, inputSnapshot);
         setStatus(
             successCode === 'partial_success'
                 ? 'Compare request completed with partial success. Review warnings and per-model errors.'
@@ -8030,10 +8134,24 @@ export function createAdminAiLab({ showToast } = {}) {
             liveAgentUpdateSystemCount();
             syncLiveAgentSaveButton();
             renderAll();
-            loadImageBillingOrganizations();
+        },
+
+        setActive(active) {
+            state.active = !!active;
+            resumeVideoReads?.();
+            if (!state.active) {
+                revokePreviewBlobUrl();
+                state._previewForResult = null;
+                refs.video.preview?.querySelector('video')?.pause();
+            }
+        },
+
+        hide() {
+            this.setActive(false);
         },
 
         show() {
+            this.setActive(true);
             this.init();
             setMode(state.activeMode);
             if (state.catalog.status === 'idle') {
@@ -8041,7 +8159,7 @@ export function createAdminAiLab({ showToast } = {}) {
             } else {
                 renderAll();
             }
-            if (state.imageBilling.status === 'idle') {
+            if (state.activeMode === 'image' && state.imageBilling.status === 'idle') {
                 loadImageBillingOrganizations();
             }
         },

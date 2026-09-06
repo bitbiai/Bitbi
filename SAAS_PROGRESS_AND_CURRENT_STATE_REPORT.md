@@ -20,6 +20,8 @@ This report is not production readiness, live billing readiness, legal complianc
 | Privacy/data lifecycle | Inventory, retention baseline, export/archive cleanup, safe executor foundations, final completion, close/reject, retained-category evidence, and JSON/Markdown/HTML evidence exports exist; completion remains evidence/policy-controlled and is not automatic legal advice. |
 | Admin UX | Admin Control Plane is modularized and exposes implemented operator panels, readiness/evidence status, production execution command copy, clearer high-risk-flow guardrails, and improved accessibility/focus/modal/keyboard behavior without proving production readiness. |
 
+Q2 technical release evidence (2026-09-06): Auth `93c35af7-00f7-4e5a-b2ad-2ca19c442f0b` at 100%, migrations 0082/0083 applied, maintenance closed and queues resumed. Q3 updates only the static Admin workspace, contextual task paths and guarded UI state. Neither delivery establishes full live billing readiness; subscription-FK and historical repair remain separate.
+
 ## Current Implemented Capabilities
 
 - Static site and Cloudflare Worker architecture remain intentionally lightweight and Cloudflare-native.

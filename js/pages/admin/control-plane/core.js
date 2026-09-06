@@ -236,6 +236,9 @@ export function detailRows(entries) {
 
 export function table(headers) {
     const wrap = el('div', 'admin-table-wrap');
+    wrap.tabIndex = 0;
+    wrap.setAttribute('role', 'region');
+    wrap.setAttribute('aria-label', 'Scrollable table: ' + headers.join(', '));
     const tbl = el('table', 'admin-table');
     const thead = document.createElement('thead');
     const tr = document.createElement('tr');

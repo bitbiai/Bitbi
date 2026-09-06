@@ -1,5 +1,7 @@
 // @ts-check
 
+import { focusElementSafely, restoreFocusSafely, trapFocusWithin } from './ui.js?v=__ASSET_VERSION__';
+
 import {
   buildCompareSaveIntent,
   buildEmbeddingsSaveIntent,
@@ -44,21 +46,21 @@ export function buildAdminAiLabSaveIntent(task, context) {
   case 'text':
     return buildTextSaveIntent({
       response: context.results.text?.raw,
-      prompt: context.forms.text.prompt,
-      system: context.forms.text.system,
+      prompt: (context.results.text?.input || {}).prompt,
+      system: (context.results.text?.input || {}).system,
       warnings: context.getWarnings(context.results.text?.raw),
       receivedAt: toIso(context.results.text?.receivedAt),
     });
   case 'image':
     return buildImageSaveIntent({
       response: context.results.image?.raw,
-      prompt: context.forms.image.prompt,
-      fallbackModel: context.forms.image.model,
+      prompt: (context.results.image?.input || {}).prompt,
+      fallbackModel: (context.results.image?.input || {}).model,
     });
   case 'embeddings':
     return buildEmbeddingsSaveIntent({
       response: context.results.embeddings?.raw,
-      input: context.forms.embeddings.input,
+      input: (context.results.embeddings?.input || {}).input,
       warnings: context.getWarnings(context.results.embeddings?.raw),
       receivedAt: toIso(context.results.embeddings?.receivedAt),
     });
@@ -68,8 +70,8 @@ export function buildAdminAiLabSaveIntent(task, context) {
     const diff = context.buildCompareDiff(results);
     return buildCompareSaveIntent({
       response,
-      prompt: context.forms.compare.prompt,
-      system: context.forms.compare.system,
+      prompt: (context.results.compare?.input || {}).prompt,
+      system: (context.results.compare?.input || {}).system,
       warnings: context.getWarnings(response),
       diffSummary: diff.available ? diff : null,
       receivedAt: toIso(context.results.compare?.receivedAt),
@@ -86,14 +88,14 @@ export function buildAdminAiLabSaveIntent(task, context) {
   case 'music':
     return buildMusicSaveIntent({
       response: context.results.music?.raw,
-      prompt: context.forms.music.prompt,
+      prompt: (context.results.music?.input || {}).prompt,
       warnings: context.getWarnings(context.results.music?.raw),
       receivedAt: toIso(context.results.music?.receivedAt),
     });
   case 'video':
     return buildVideoSaveIntent({
       response: context.results.video?.raw,
-      prompt: context.forms.video.prompt,
+      prompt: (context.results.video?.input || {}).prompt,
       warnings: context.getWarnings(context.results.video?.raw),
       receivedAt: toIso(context.results.video?.receivedAt),
     });
@@ -170,12 +172,19 @@ export async function saveImageIntentWithFallback(payload, options) {
   return response;
 }
 
+// These endpoints do not expose a shared receipt/idempotency lookup. A network or
+// server failure may follow persistence; retain the attempt and require inspection
+// instead of automatically creating a second asset.
+function saveFailure(response, fallback) {
+  const knownRejected = [400, 401, 403, 413, 422, 429].includes(response?.status);
+  return { ok: false, error: response?.error || fallback, uncertain: !knownRejected };
+}
+
 /**
  * @param {object} params
  * @param {any} params.intent
  * @param {string} params.title
  * @param {string | null} params.folderId
- * @param {HTMLElement | null | undefined} params.videoPreviewRoot
  * @param {(arg0: any, ...rest: any[]) => Promise<any>} params.apiAiSaveImage
  * @param {(payload: any) => Promise<any>} params.apiAiSaveAudio
  * @param {(payload: any) => Promise<any>} params.apiAdminAiSaveTextAsset
@@ -184,7 +193,6 @@ export async function saveAdminAiLabIntent({
   intent,
   title,
   folderId,
-  videoPreviewRoot,
   apiAiSaveImage,
   apiAiSaveAudio,
   apiAdminAiSaveTextAsset,
@@ -195,7 +203,7 @@ export async function saveAdminAiLabIntent({
       folderId,
     });
     if (!response.ok) {
-      return { ok: false, error: response.error || 'Image save failed.' };
+      return saveFailure(response, 'Image save failed.');
     }
 
     return {
@@ -203,13 +211,6 @@ export async function saveAdminAiLabIntent({
       statusMessage: 'Image saved to the shared folder structure.',
       toastMessage: 'Image saved.',
     };
-  }
-
-  if (intent.sourceModule === 'video') {
-    const posterBase64 = captureVideoPosterBase64(videoPreviewRoot);
-    if (posterBase64) {
-      intent.payload.posterBase64 = posterBase64;
-    }
   }
 
   const payload = { ...intent.payload };
@@ -228,7 +229,7 @@ export async function saveAdminAiLabIntent({
     });
 
   if (!response.ok) {
-    return { ok: false, error: response.error || 'Save failed.' };
+    return saveFailure(response, 'Save failed.');
   }
 
   if (intent.sourceModule === 'music') {
@@ -274,6 +275,40 @@ export async function saveAdminAiLabIntent({
  * @param {(payload: any) => Promise<any>} deps.apiAdminAiSaveTextAsset
  */
 export function createAdminAiLabSaveFlow(deps) {
+  let dialogVersion = 0;
+  let returnFocus = null;
+  // Keep settled/unknown attempts by their generated result for this in-memory
+  // session. Close/reopen must not silently turn an uncertain save into a new one.
+  const attempts = new WeakMap();
+  let currentAttempt = null;
+  let transcriptIdentity = { messages: null, length: -1, key: {} };
+  const newCopy = document.createElement('button');
+  newCopy.type = 'button';
+  newCopy.id = 'aiLabSaveNewCopy';
+  newCopy.className = 'btn-action';
+  newCopy.textContent = 'Save another copy';
+  newCopy.hidden = true;
+  deps.refs.saveModal.confirm.insertAdjacentElement('afterend', newCopy);
+  newCopy.addEventListener('click', () => {
+    if (deps.state.save.saving || currentAttempt?.status !== 'success') return;
+    // This is a deliberate new copy, not a retry of the completed operation.
+    // Keep its completed record until a new save is actually confirmed.
+    currentAttempt = null;
+    deps.setSaveState('neutral', 'Creating a separate copy of this generated result. Choose its title and folder.');
+    renderSaveModal();
+    focusElementSafely(deps.state.save.intent?.type === 'image' ? deps.refs.saveModal.folder : deps.refs.saveModal.input);
+  });
+
+  deps.refs.saveModal.root.addEventListener('keydown', event => {
+    if (!deps.state.save.open) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeSaveModal();
+    } else trapFocusWithin(deps.refs.saveModal.root, event);
+  });
+  deps.refs.saveModal.state.setAttribute('role', 'status');
+  deps.refs.saveModal.state.setAttribute('aria-live', 'polite');
   function renderSaveModal() {
     const modal = deps.refs.saveModal.root;
     const isOpen = !!deps.state.save.open;
@@ -281,6 +316,7 @@ export function createAdminAiLabSaveFlow(deps) {
     modal.setAttribute('aria-hidden', String(!isOpen));
     if (!isOpen) return;
 
+    newCopy.hidden = currentAttempt?.status !== 'success';
     const intent = deps.state.save.intent;
     const isImage = intent?.type === 'image';
 
@@ -288,13 +324,13 @@ export function createAdminAiLabSaveFlow(deps) {
     deps.refs.saveModal.desc.textContent = intent?.description || 'Save the current AI Lab result.';
     deps.refs.saveModal.titleField.hidden = isImage;
     deps.refs.saveModal.input.value = deps.state.save.title || '';
-    deps.refs.saveModal.input.disabled = deps.state.save.saving || isImage;
-    deps.refs.saveModal.folder.disabled = deps.state.save.saving;
+    deps.refs.saveModal.input.disabled = deps.state.save.saving || !!currentAttempt || isImage;
+    deps.refs.saveModal.folder.disabled = deps.state.save.saving || !!currentAttempt;
     deps.refs.saveModal.note.textContent = deps.state.save.note || '';
-    deps.refs.saveModal.confirm.disabled = deps.state.save.saving;
+    deps.refs.saveModal.confirm.disabled = deps.state.save.saving || ['unknown', 'success'].includes(currentAttempt?.status);
     deps.refs.saveModal.confirm.textContent = deps.state.save.saving
       ? 'Saving...'
-      : (intent?.confirmLabel || 'Save');
+      : (currentAttempt?.status === 'unknown' ? 'Verify saved assets first' : currentAttempt?.status === 'success' ? 'Already saved' : currentAttempt?.status === 'rejected' ? 'Retry this save' : (intent?.confirmLabel || 'Save'));
     deps.setResultState(
       deps.refs.saveModal.state,
       deps.state.save.stateTone,
@@ -305,6 +341,7 @@ export function createAdminAiLabSaveFlow(deps) {
 
   function closeSaveModal() {
     if (!deps.state.save.open || deps.state.save.saving) return;
+    dialogVersion += 1;
     deps.state.save.open = false;
     deps.state.save.task = null;
     deps.state.save.type = null;
@@ -315,11 +352,14 @@ export function createAdminAiLabSaveFlow(deps) {
     deps.state.save.note = '';
     deps.setSaveState('neutral', 'Ready to save.');
     renderSaveModal();
+    restoreFocusSafely(returnFocus);
+    returnFocus = null;
   }
 
   async function loadSaveFolders() {
     const result = await deps.apiAiGetFolders();
-    deps.state.save.folders = Array.isArray(result?.folders) ? result.folders : [];
+    if (result?.ok === false) throw new Error('Folders unavailable');
+    return Array.isArray(result?.folders) ? result.folders : [];
   }
 
   function getSaveIntent(task) {
@@ -336,6 +376,7 @@ export function createAdminAiLabSaveFlow(deps) {
   }
 
   async function openSaveModal(task) {
+    if (deps.state.save.saving) return;
     const intent = getSaveIntent(task);
     if (!intent) {
       const unavailableMessage = getSaveIntentUnavailableMessage(task);
@@ -344,37 +385,57 @@ export function createAdminAiLabSaveFlow(deps) {
       return;
     }
 
+    const version = ++dialogVersion;
+    const messages = task === 'live-agent' ? deps.getLiveAgentMessages() : null;
+    if (messages && (transcriptIdentity.messages !== messages || transcriptIdentity.length !== messages.length)) {
+      transcriptIdentity = { messages, length: messages.length, key: {} };
+    }
+    const resultIdentity = task === 'live-agent' ? transcriptIdentity.key : deps.state.results[task]?.raw;
+    currentAttempt = resultIdentity && typeof resultIdentity === 'object' ? attempts.get(resultIdentity) || null : null;
+    const snapshot = currentAttempt?.intent || structuredClone(intent);
+    if (!currentAttempt && snapshot.sourceModule === 'video') {
+      const posterBase64 = captureVideoPosterBase64(deps.refs.video?.preview);
+      if (posterBase64) snapshot.payload.posterBase64 = posterBase64;
+    }
+    if (!deps.state.save.open) {
+      // WebKit pointer activation does not necessarily focus the clicked button.
+      returnFocus = deps.refs[task === 'live-agent' ? 'liveAgent' : task]?.save || document.activeElement;
+    }
+    deps.state.save.resultIdentity = resultIdentity;
     deps.state.save.open = true;
     deps.state.save.task = task;
     deps.state.save.type = intent.type;
-    deps.state.save.intent = intent;
+    deps.state.save.intent = snapshot;
     deps.state.save.saving = false;
-    deps.state.save.title = intent.defaultTitle || '';
-    deps.state.save.folderId = '';
-    deps.state.save.note = intent.note || '';
+    deps.state.save.title = currentAttempt?.title || snapshot.defaultTitle || '';
+    deps.state.save.folderId = currentAttempt?.folderId || '';
+    deps.state.save.note = snapshot.note || '';
     deps.setSaveState('loading', 'Loading folders...');
     renderSaveModal();
 
+    focusElementSafely(intent.type === 'image' ? deps.refs.saveModal.folder : deps.refs.saveModal.input);
     try {
-      await loadSaveFolders();
-      deps.setSaveState('neutral', 'Choose a folder and confirm the save.');
+      const folders = await loadSaveFolders();
+      if (version !== dialogVersion || !deps.state.save.open) return;
+      deps.state.save.folders = folders;
+      deps.setSaveState(currentAttempt?.status === 'unknown' ? 'error' : 'neutral',
+        currentAttempt?.status === 'unknown' ? 'Save outcome is unknown. Inspect saved assets before creating another copy.' :
+        currentAttempt?.status === 'success' ? 'This result was already saved.' :
+        currentAttempt?.status === 'rejected' ? 'The previous save was rejected. Retry keeps its original title, folder and generated inputs.' :
+        'Choose a folder and confirm the save.');
     } catch {
+      if (version !== dialogVersion || !deps.state.save.open) return;
       deps.state.save.folders = [];
-      deps.setSaveState('error', 'Folder list unavailable. You can still save to Assets.');
+      deps.setSaveState('error', currentAttempt?.status === 'unknown'
+        ? 'Save outcome is unknown. Folder list unavailable; inspect saved assets before creating another copy.'
+        : 'Folder list unavailable. You can still save to Assets.');
     }
-
     renderSaveModal();
-    if (intent.type === 'image') {
-      deps.refs.saveModal.folder.focus();
-    } else {
-      deps.refs.saveModal.input.focus();
-      deps.refs.saveModal.input.select();
-    }
   }
 
   async function confirmSaveModal() {
     const intent = deps.state.save.intent;
-    if (!deps.state.save.open || !intent || deps.state.save.saving) return;
+    if (!deps.state.save.open || !intent || deps.state.save.saving || ['unknown', 'success'].includes(currentAttempt?.status)) return;
 
     if (intent.type !== 'image' && !(deps.state.save.title || '').trim()) {
       deps.setSaveState('error', 'Title is required.');
@@ -382,35 +443,52 @@ export function createAdminAiLabSaveFlow(deps) {
       return;
     }
 
+    const version = dialogVersion;
+    const attempt = currentAttempt || {
+      intent: structuredClone(intent), title: deps.state.save.title,
+      folderId: deps.state.save.folderId || null, status: 'pending',
+    };
+    currentAttempt = attempt;
+    if (deps.state.save.resultIdentity && typeof deps.state.save.resultIdentity === 'object') {
+      attempts.set(deps.state.save.resultIdentity, attempt);
+    }
+    attempt.status = 'pending';
     deps.state.save.saving = true;
     deps.setSaveState('loading', 'Saving asset...');
     renderSaveModal();
 
     try {
       const saveResult = await saveAdminAiLabIntent({
-        intent,
-        title: deps.state.save.title,
-        folderId: deps.state.save.folderId || null,
-        videoPreviewRoot: deps.refs.video?.preview,
+        intent: attempt.intent,
+        title: attempt.title,
+        folderId: attempt.folderId,
         apiAiSaveImage: deps.apiAiSaveImage,
         apiAiSaveAudio: deps.apiAiSaveAudio,
         apiAdminAiSaveTextAsset: deps.apiAdminAiSaveTextAsset,
       });
 
+      if (version !== dialogVersion) return;
       if (!saveResult.ok) {
-        deps.setSaveState('error', saveResult.error || 'Save failed.');
+        attempt.status = saveResult.uncertain ? 'unknown' : 'rejected';
+        deps.setSaveState('error', saveResult.uncertain
+          ? `${saveResult.error || 'Save failed.'} Outcome unknown. Inspect saved assets before creating another copy.`
+          : `${saveResult.error || 'Save rejected.'} Retry keeps this original save intent.`);
         deps.state.save.saving = false;
         renderSaveModal();
         return;
       }
 
+      attempt.status = 'success';
       deps.state.save.saving = false;
       closeSaveModal();
-      await deps.refreshSavedAssetsBrowser();
       deps.setStatus(saveResult.statusMessage, 'success');
       if (deps.showToast) deps.showToast(saveResult.toastMessage);
+      // A failed follow-up read must not turn confirmed persistence into a failed save.
+      try { await deps.refreshSavedAssetsBrowser(); } catch { /* Refresh is independently retryable. */ }
     } catch {
-      deps.setSaveState('error', 'Save failed. Please try again.');
+      if (version !== dialogVersion) return;
+      attempt.status = 'unknown';
+      deps.setSaveState('error', 'Save outcome is unknown. Inspect saved assets before creating another copy.');
       deps.state.save.saving = false;
       renderSaveModal();
     }

@@ -1,5 +1,6 @@
 import {
     adminR2ObjectFileUrl,
+    createAdminIdempotencyKey,
     apiAdminR2Buckets,
     apiAdminR2CopyObjects,
     apiAdminR2CreateFolder,
@@ -199,7 +200,72 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
         loaded: false,
         bound: false,
         searchTimer: 0,
+        listGeneration: 0,
+        detailGeneration: 0,
+        listing: false,
+        detailLoading: false,
+        mutation: null,
+        intents: new Map(),
+        active: true,
     };
+
+    function context() {
+        return JSON.stringify([state.bucket, state.prefix, state.search]);
+    }
+
+    function setActive(active) {
+        state.active = active;
+        if (!active) {
+            window.clearTimeout(state.searchTimer);
+            state.searchTimer = 0;
+            state.detailLoading = false;
+            state.listGeneration += 1;
+            state.detailGeneration += 1;
+            state.listing = false;
+        }
+    }
+
+    // Retries retain the exact payload and key. A lost reply is never retried automatically.
+    async function mutate(action, payload, request, onSuccess) {
+        if (state.mutation) return;
+        const signature = JSON.stringify([action, payload]);
+        let intent = state.intents.get(signature);
+        if (!intent) {
+            intent = { key: createAdminIdempotencyKey(`admin-r2-${action}`), payload: structuredClone(payload) };
+            state.intents.set(signature, intent);
+        }
+        const target = `${payload.targetBucket || payload.bucket || payload.sourceBucket}/${payload.targetPrefix || payload.prefix || ''}`;
+        const origin = context();
+        state.mutation = intent;
+        updateToolbar();
+        renderStatus(byId('objectStorageMutationResult'), `${action}: ${target} — waiting for confirmation.`);
+        try {
+            const response = await request(intent.payload, { idempotencyKey: intent.key });
+            if (!response.ok) {
+                const message = `${action}: ${target} — ${response.error || 'Request not confirmed.'} Verify the result before retrying this same intent.`;
+                renderStatus(byId('objectStorageMutationResult'), message, 'error');
+                notify?.(message, 'error');
+                return;
+            }
+            const results = response.data?.data?.results || response.data?.results || [];
+            const failed = results.filter((item) => !item.ok);
+            const message = failed.length
+                ? `${action}: ${target} — ${results.length - failed.length} confirmed, ${failed.length} blocked or failed. Review each object before another action.`
+                : `${action}: ${target} — confirmed.`;
+            renderStatus(byId('objectStorageMutationResult'), message, failed.length ? 'warning' : 'success');
+            notify?.(message, failed.length ? 'warning' : 'success');
+            if (!failed.length) {
+                state.intents.delete(signature);
+                onSuccess?.();
+            }
+            if (state.active && origin === context()) await loadObjects();
+        } catch {
+            renderStatus(byId('objectStorageMutationResult'), `${action}: ${target} — outcome unknown. Verify before retrying; the original request identity is retained.`, 'error');
+        } finally {
+            state.mutation = null;
+            updateToolbar();
+        }
+    }
 
     function refs() {
         return {
@@ -229,8 +295,14 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
             ['objectStorageDetailsBtn', hasAnySelection],
         ]) {
             const button = byId(id);
-            if (button) button.disabled = !enabled;
+            if (button) button.disabled = !enabled || !!state.mutation;
         }
+        for (const id of ['objectStorageNewFolderBtn']) {
+            const button = byId(id);
+            if (button) button.disabled = !!state.mutation || !state.bucket;
+        }
+        const more = byId('objectStorageLoadMoreBtn');
+        if (more) { more.hidden = !state.hasMore; more.disabled = state.listing; }
         const clipboard = byId('objectStorageClipboard');
         if (clipboard) {
             clipboard.textContent = state.clipboard
@@ -259,9 +331,14 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
         if (!item || item.type !== 'object') return;
         const detail = refs().detail;
         if (!detail) return;
+        const generation = ++state.detailGeneration;
+        const origin = context();
         clear(detail);
         detail.append(el('p', 'admin-state', 'Loading object detail...'));
+        state.detailLoading = true;
         const response = await apiAdminR2ObjectDetail({ bucket: item.bucket, key: item.key });
+        if (generation !== state.detailGeneration || origin !== context() || !state.active) return;
+        state.detailLoading = false;
         if (!response.ok) {
             renderUnavailable(detail, response, 'Object detail is unavailable.');
             return;
@@ -320,6 +397,9 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
             return;
         }
         const wrap = el('div', 'admin-table-wrap admin-r2-table-wrap');
+        wrap.tabIndex = 0;
+        wrap.setAttribute('role', 'region');
+        wrap.setAttribute('aria-label', 'R2 objects; scroll for more columns and actions');
         const table = el('table', 'admin-table admin-r2-table');
         const thead = document.createElement('thead');
         const headRow = document.createElement('tr');
@@ -337,7 +417,7 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
             checkbox.addEventListener('change', () => {
                 if (checkbox.checked) state.selected.add(itemId(item));
                 else state.selected.delete(itemId(item));
-                renderTable();
+                tr.dataset.selected = checkbox.checked ? 'true' : 'false';
                 updateToolbar();
             });
             selectCell.append(checkbox);
@@ -375,10 +455,12 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
     }
 
     async function loadBuckets() {
+        const generation = state.listGeneration;
         const response = await apiAdminR2Buckets();
+        if (!state.active || generation !== state.listGeneration) return false;
         if (!response.ok) {
             renderStatus(refs().state, response.error || 'R2 bucket discovery failed.', 'error');
-            return;
+            return false;
         }
         const data = response.data?.data || response.data || {};
         state.buckets = data.buckets || [];
@@ -388,37 +470,54 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
         if (data.unavailableBuckets?.length) {
             renderStatus(refs().state, `${state.buckets.length} bound bucket(s). PUBLIC_MEDIA is not exposed unless it is added as a Worker binding.`, 'warning');
         }
+        return true;
     }
 
     async function loadObjects({ append = false } = {}) {
+        if (!state.active) return;
         if (!state.bucket) {
             renderStatus(refs().state, 'No configured R2 bucket binding is available.', 'warning');
             return;
         }
-        renderStatus(refs().state, 'Loading R2 objects...', 'neutral');
-        const response = await apiAdminR2Objects({
-            bucket: state.bucket,
-            prefix: state.prefix,
-            delimiter: '/',
-            limit: DEFAULT_LIMIT,
-            cursor: append ? state.cursor : null,
-            search: state.search,
-            includeLinked: true,
-        });
-        if (!response.ok) {
-            renderStatus(refs().state, response.error || 'R2 listing failed.', 'error');
-            return;
+        if (append && (state.listing || !state.hasMore || !state.cursor)) return;
+        const origin = context();
+        const generation = ++state.listGeneration;
+        state.listing = true;
+        if (!append) {
+            state.items = [];
+            state.selected.clear();
+            state.cursor = null;
+            state.hasMore = false;
+            state.detailGeneration += 1;
+            clear(refs().detail);
+            clear(refs().table);
         }
-        const data = response.data?.data || response.data || {};
-        state.cursor = data.cursor || null;
-        state.hasMore = data.hasMore === true;
-        const nextItems = [...(data.folders || []), ...(data.objects || [])];
-        state.items = append ? state.items.concat(nextItems) : nextItems;
-        state.selected.clear();
         renderBuckets();
         renderBreadcrumbs();
-        renderTable();
-        renderStatus(refs().state, `${state.items.length} item(s) shown in ${state.bucket}${state.prefix ? ` / ${state.prefix}` : ''}.`, 'success');
+        updateToolbar();
+        renderStatus(refs().state, `Loading R2 objects in ${state.bucket}/${state.prefix}...`, 'neutral');
+        try {
+            const response = await apiAdminR2Objects({
+                bucket: state.bucket, prefix: state.prefix, delimiter: '/', limit: DEFAULT_LIMIT,
+                cursor: append ? state.cursor : null, search: state.search, includeLinked: true,
+            });
+            if (generation !== state.listGeneration || origin !== context() || !state.active) return;
+            if (!response.ok) {
+                renderStatus(refs().state, `${response.error || 'R2 listing failed.'} ${append ? 'Use Load more to retry this page.' : 'Use Refresh to retry this location.'}`, 'error');
+                return;
+            }
+            const data = response.data?.data || response.data || {};
+            state.cursor = data.cursor || null;
+            state.hasMore = data.hasMore === true && !!state.cursor;
+            const nextItems = [...(data.folders || []), ...(data.objects || [])];
+            state.items = [...new Map([...(append ? state.items : []), ...nextItems].map(item => [itemId(item), item])).values()];
+            renderTable();
+            renderStatus(refs().state, `${state.items.length} item(s) shown in ${state.bucket}${state.prefix ? ` / ${state.prefix}` : ''}.${state.hasMore ? ' More results are available.' : ''}`, 'success');
+        } catch {
+            if (generation === state.listGeneration && origin === context()) renderStatus(refs().state, 'R2 listing failed. Retry this location.', 'error');
+        } finally {
+            if (generation === state.listGeneration) { state.listing = false; updateToolbar(); }
+        }
     }
 
     async function createFolder() {
@@ -427,13 +526,7 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
         const reason = promptReason('Create R2 folder prefix');
         if (!reason) return;
         const prefix = `${state.prefix}${normalizePrefix(name).replace(/\/?$/, '/')}`;
-        const response = await apiAdminR2CreateFolder({ bucket: state.bucket, prefix, reason });
-        if (!response.ok) {
-            notify?.(response.error || 'Folder creation failed.', 'error');
-            return;
-        }
-        notify?.('Folder prefix created.', 'success');
-        await loadObjects();
+        await mutate('folder', { bucket: state.bucket, prefix, reason }, apiAdminR2CreateFolder);
     }
 
     async function uploadFile() {
@@ -445,6 +538,7 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
         const batch = Array.from(files);
         const bucket = state.bucket;
         const prefix = state.prefix;
+        const origin = context();
         const reason = promptReason(`Upload ${batch.length} file(s) to ${bucket}/${prefix}`);
         if (!reason) return;
         let succeeded = 0;
@@ -480,7 +574,7 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
             const tone = failed || unconfirmed ? 'error' : 'success';
             renderStatus(result, message, tone);
             notify?.(message, tone);
-            await loadObjects();
+            if (state.active && origin === context()) await loadObjects();
         } finally {
             state.uploading = false;
             byId('objectStorageUploadBtn').disabled = false;
@@ -500,75 +594,43 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
     }
 
     async function paste() {
-        if (!state.clipboard) return;
-        const reason = promptReason(`${state.clipboard.mode === 'cut' ? 'Move' : 'Copy'} ${state.clipboard.items.length} object(s) into ${state.bucket}/${state.prefix}`);
+        if (!state.clipboard || state.mutation) return;
+        const clipboard = state.clipboard;
+        const reason = promptReason(`${clipboard.mode === 'cut' ? 'Move' : 'Copy'} ${clipboard.items.length} object(s) into ${state.bucket}/${state.prefix}`);
         if (!reason) return;
-        const payload = {
-            sourceBucket: state.clipboard.bucket,
-            targetBucket: state.bucket,
-            targetPrefix: state.prefix,
-            items: state.clipboard.items,
-            reason,
-        };
-        const response = state.clipboard.mode === 'cut'
-            ? await apiAdminR2MoveObjects(payload)
-            : await apiAdminR2CopyObjects(payload);
-        if (!response.ok) {
-            notify?.(response.error || 'Paste failed.', 'error');
-            return;
-        }
-        const results = response.data?.data?.results || [];
-        const failed = results.filter((item) => !item.ok);
-        if (failed.length) notify?.(`${failed.length} item(s) were blocked or failed. Open Details for app-managed objects before changing raw keys.`, 'warning');
-        else notify?.('Paste completed.', 'success');
-        if (state.clipboard.mode === 'cut') state.clipboard = null;
-        await loadObjects();
+        await mutate(clipboard.mode === 'cut' ? 'move' : 'copy', {
+            sourceBucket: clipboard.bucket, targetBucket: state.bucket, targetPrefix: state.prefix,
+            items: clipboard.items, reason,
+        }, clipboard.mode === 'cut' ? apiAdminR2MoveObjects : apiAdminR2CopyObjects, () => {
+            if (clipboard.mode === 'cut' && state.clipboard === clipboard) state.clipboard = null;
+        });
     }
 
     async function renameSelected() {
+        if (state.mutation) return;
         const object = selectedObjects(state)[0];
         if (!object) return;
         const nextName = window.prompt('New object name', object.name || '');
         if (!nextName) return;
-        const reason = promptReason('Rename R2 object');
+        const reason = promptReason(`Rename R2 object: ${object.bucket}/${object.key}`);
         if (!reason) return;
         const targetKey = `${dirname(object.key)}${normalizePrefix(nextName)}`;
-        const response = await apiAdminR2MoveObjects({
-            sourceBucket: state.bucket,
-            targetBucket: state.bucket,
-            items: [{ key: object.key, targetKey }],
-            reason,
-        });
-        if (!response.ok) {
-            notify?.(response.error || 'Rename failed.', 'error');
-            return;
-        }
-        const failed = (response.data?.data?.results || []).filter((item) => !item.ok);
-        notify?.(failed.length ? failed[0].error || 'Rename blocked.' : 'Object renamed.', failed.length ? 'warning' : 'success');
-        await loadObjects();
+        await mutate('move', {
+            sourceBucket: object.bucket, targetBucket: object.bucket,
+            items: [{ key: object.key, targetKey }], reason,
+        }, apiAdminR2MoveObjects);
     }
 
     async function deleteSelected() {
+        if (state.mutation) return;
         const objects = selectedObjects(state);
         if (!objects.length) return;
-        const confirmation = window.prompt(`Delete ${objects.length} object(s) from ${state.bucket}?\n\nType ${DELETE_CONFIRMATION} to continue. DB-linked/app-managed objects are blocked server-side.`);
+        const bucket = state.bucket;
+        const confirmation = window.prompt(`Delete ${objects.length} object(s) from ${bucket}?\n${objects.map(item => item.key).join('\n')}\n\nType ${DELETE_CONFIRMATION} to continue. DB-linked/app-managed objects are blocked server-side.`);
         if (confirmation !== DELETE_CONFIRMATION) return;
         const reason = promptReason('Delete R2 object(s)');
         if (!reason) return;
-        const response = await apiAdminR2DeleteObjects({
-            bucket: state.bucket,
-            items: buildItemRefs(objects),
-            reason,
-            confirmation,
-        });
-        if (!response.ok) {
-            notify?.(response.error || 'Delete failed.', 'error');
-            return;
-        }
-        const results = response.data?.data?.results || [];
-        const failed = results.filter((item) => !item.ok);
-        notify?.(failed.length ? `${failed.length} delete item(s) were blocked or failed.` : 'Object(s) deleted.', failed.length ? 'warning' : 'success');
-        await loadObjects();
+        await mutate('delete', { bucket, items: buildItemRefs(objects), reason, confirmation }, apiAdminR2DeleteObjects);
     }
 
     function downloadSelected() {
@@ -581,6 +643,7 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
         const item = selectedItems(state)[0];
         if (!item) return;
         if (item.type === 'folder') {
+            state.detailGeneration += 1;
             const detail = refs().detail;
             clear(detail);
             detail.append(detailRows([
@@ -602,7 +665,7 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
         const hero = el('div', 'admin-control-hero');
         hero.append(el('div', 'admin-control-hero__eyebrow', 'System / R2 Drive'));
         hero.append(el('h2', 'admin-control-hero__title', 'R2 Object Storage'));
-        hero.append(el('p', 'admin-control-hero__copy', 'Browse configured Cloudflare R2 buckets like a drive. Mutations stay behind Admin/MFA, same-origin requests, idempotency, reason capture, and audit logging. DB-linked objects are detected and protected from unsafe raw key changes.'));
+        hero.append(el('p', 'admin-control-hero__copy', 'Browse objects by bucket and prefix. Changes require a reason and target confirmation; linked objects remain protected.'));
         root.append(hero);
 
         const toolbar = el('div', 'admin-r2-toolbar admin-control-toolbar');
@@ -632,6 +695,7 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
         search.className = 'admin-search__input';
         search.type = 'search';
         search.placeholder = 'Search keys, names, users, email, or prefix';
+        search.setAttribute('aria-label', 'Search R2 objects in the current bucket and prefix');
         filter.append(search, el('span', 'admin-r2-clipboard', 'Clipboard empty'));
         filter.querySelector('.admin-r2-clipboard').id = 'objectStorageClipboard';
         root.append(filter);
@@ -645,6 +709,10 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
         uploadResult.setAttribute('role', 'status');
         uploadResult.setAttribute('aria-live', 'polite');
         root.append(uploadResult);
+        const mutationResult = el('div', 'admin-state');
+        mutationResult.id = 'objectStorageMutationResult';
+        mutationResult.setAttribute('role', 'status');
+        root.append(mutationResult);
 
         const layout = el('div', 'admin-r2-layout');
         const sidebar = el('aside', 'admin-r2-sidebar');
@@ -659,7 +727,10 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
         breadcrumbs.setAttribute('aria-label', 'R2 breadcrumbs');
         const table = el('div', 'admin-r2-table-host');
         table.id = 'objectStorageTable';
-        main.append(breadcrumbs, table);
+        const more = createButton('Load more', 'btn-action', { id: 'objectStorageLoadMoreBtn' });
+        more.hidden = true;
+        more.addEventListener('click', () => loadObjects({ append: true }));
+        main.append(breadcrumbs, table, more);
 
         const detail = el('aside', 'admin-r2-detail glass glass-card');
         detail.id = 'objectStorageDetail';
@@ -687,8 +758,18 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
             event.target.value = '';
         });
         refs().search?.addEventListener('input', () => {
+            state.search = refs().search?.value || '';
+            state.listGeneration += 1;
+            state.detailGeneration += 1;
+            state.selected.clear();
+            state.hasMore = false;
+            state.items = [];
+            clear(refs().table);
+            clear(refs().detail);
+            updateToolbar();
             window.clearTimeout(state.searchTimer);
             state.searchTimer = window.setTimeout(async () => {
+                state.searchTimer = 0;
                 state.search = refs().search?.value || '';
                 await loadObjects();
             }, 220);
@@ -697,17 +778,23 @@ export function createObjectStorageDomain({ notify, formatDate: formatDateFn } =
     }
 
     async function loadObjectStorage() {
+        if (!state.active) return;
         renderShell();
         bind();
         if (!state.loaded) {
-            state.loaded = true;
-            await loadBuckets();
+            const generation = state.listGeneration;
+            const loaded = await loadBuckets();
+            if (!state.active || generation !== state.listGeneration) return;
+            state.loaded = loaded;
+            if (!state.loaded) return;
         }
         await loadObjects();
     }
 
     return {
         bind,
+        setActive,
+        needsReload: () => !state.loaded || state.listing || state.detailLoading || Boolean(state.searchTimer),
         loadObjectStorage,
     };
 }

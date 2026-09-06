@@ -17,13 +17,14 @@ This handoff is not production approval, live billing approval, legal compliance
 - OMA2 Q1 is a static-only change: Canvas saves retain identity-scoped patches and failed work; image saves retain their original result/metadata/folder; organization responses and checkout actions use a confirmed current context. No Worker, schema or API contract change is included.
 - Admin storage counts remain a dated historical baseline, not a current inventory pass. Capability availability, upload outcomes and interrupted assistant streams distinguish evidence, failure and completion. Interrupted text is excluded from follow-up assistant history.
 - Authorized commit/push work ends after local checks, diff review and confirmed foreground push, under root `AGENTS.md`, "Commit/push completion: no CI waiting". Stefan owns CI and live-release verification.
-- OMA2 Q2 is an Auth Worker candidate only: atomic lifecycle cleanup release, resumable credit-pack fulfillment and single-use MFA with preserved cookie headers. Its additive schema inputs are 0082 and 0083; no production activation is included. See `docs/runbooks/OMA2_Q2_RELEASE.md` for package-specific recovery gates and test scope.
+- OMA2 Q2 was technically activated on 2026-09-06 at 20:04 UTC: Auth `93c35af7-00f7-4e5a-b2ad-2ca19c442f0b` at 100% traffic, Original 0082 and corrected 0083 applied, maintenance ended and all three release-paused queues resumed. The private Q2 release handoff records the immediate checks; this is not full business-flow live acceptance. See `docs/runbooks/OMA2_Q2_RELEASE.md`.
 
 ## Admin Modularization
 
-- `js/pages/admin/main.js` is now a bootstrap/composition file.
+- Q3 uses an authenticated, lazy Admin workspace: People & payments, Creative work, Operations and Advanced evidence. All sections and legacy aliases remain; account links open their actual pages. IDs travel only in transient context events, never new shared URLs or persistent storage.
+- `js/pages/admin/main.js` composes domains on demand. Dashboard samples are bounded reads, and capability probes require an explicit action. Hidden read polling stops; in-flight business intentions keep their result identity.
 - Admin domains live in focused modules: dashboard, router, nav, activity, reference views, avatar lightbox, security, settings, users, user actions/storage, and AI Lab.
-- Control Plane domains are split into readiness, billing, AI budget, lifecycle, operations, tenant assets, and tenant-assets subdomains.
+- Control Plane domains load independently, retain current drafts, and resume interrupted reads on return. Object browsing keeps bucket/filter/cursor context; News preserves unchanged UTC timestamps; generated AI saves retain their original inputs. Unknown mutation outcomes require verification, not automatic replay.
 - Admin high-risk flows include clearer blocked states, exact confirmations, idempotency expectations, safer evidence exports, and improved focus/modal/keyboard behavior.
 
 ## Safety And Evidence
@@ -31,6 +32,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Current evidence-index status is `ok:true` with `unsafeCount:0`.
 - Release-plan-aware static deploy safety is in `.github/workflows/static.yml`; Pages deploy does not deploy Workers or apply migrations.
 - Local RC/readiness/resource/rollback tools are non-mutating evidence organizers and keep readiness blocked by default.
+- Q3 regressions are `tests/oma2-q3-*.spec.js`, included in `test:auth` and `test:static`; local Chromium/WebKit fixture results and same-build before/after lab measurements are recorded in the private Q3 handoff. They do not establish deployed performance or real-device accessibility.
 - Q1 regression entrypoints are `tests/oma2-q1-canvas.spec.js`, `tests/oma2-q1-member.spec.js` and `tests/oma2-q1-admin.spec.js`; run them with the relevant existing frontend suites in a safe local fixture environment. Local results do not verify deployed functionality.
 
 ## Current Blockers
@@ -38,7 +40,7 @@ This handoff is not production approval, live billing approval, legal compliance
 - Production readiness and live billing readiness remain blocked.
 - Live deployment state is not proven by repo files; operator verification is required.
 - Remote auth migrations through the latest auth schema checkpoint in `config/release-compat.json` must be applied before dependent Auth Worker deploys.
-- REL-01 code adds durable provider outcomes and dispatch/settlement guards. A bounded read on 2026-09-06 observed the migration receipt named 0081 and Auth version `a7aec8ca-170b-48b7-8564-821ad93d9e1f` at 100% traffic. These metadata do not establish complete SQL or bundle/input identity. Unknown attempts remain fenced after reservation expiry; older Workers are not a safe mixed-version recovery policy. Q2 activation remains pending separate approval and compatible recovery evidence.
+- REL-01 code adds durable provider outcomes and dispatch/settlement guards. A bounded read on 2026-09-06 observed the migration receipt named 0081 and Auth version `a7aec8ca-170b-48b7-8564-821ad93d9e1f` at 100% traffic. These metadata do not establish complete SQL or bundle/input identity. Unknown attempts remain fenced after reservation expiry; older Workers are not a safe mixed-version recovery policy. This earlier observation is superseded by the dated Q2 technical activation above; it remains historical input, not current serving identity.
 - Tenant isolation, global ownership-backfill readiness, Access-Switch enforcement, and confirmed reset/deletion remain blocked.
 - The single current safe `ai_images` ownership candidate is exact-candidate operator-execution pending only.
 - Manual-review idempotency evidence remains incomplete.
@@ -68,7 +70,7 @@ Use broader validation such as `npm run release:preflight` before merging substa
 
 ## Recommended Next Work
 
-The next decision is the separately authorized Q2 Auth/schema release after its specific recovery gates. Q2 does not close the full OMA2 audit, historical migration repair or the separate queue/receipt/memory packages. Do not start another package or any cloud activation automatically.
+Q2 technical activation does not close the full OMA2 audit. Subscription customer-FK, historical 0065 effects and the separate provider/queue/receipt/memory packages remain independent follow-up work. Q3 is a static Admin delivery and does not repair those backend issues. Do not start another package or cloud operation automatically.
 
 ## Transition-fenced 0081 successor
 

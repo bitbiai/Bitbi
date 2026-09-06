@@ -19,7 +19,7 @@ const SECTION_DOM_IDS = {
 };
 
 const SECTION_META = {
-    dashboard: { title: 'Command Center', desc: 'System overview, safety status, and control-plane entrypoints' },
+    dashboard: { title: 'Workspace', desc: 'People, creative work and operations — with the evidence behind each decision.' },
     security: { title: 'Security & Policy', desc: 'Route policy, MFA, service auth, and fail-closed guardrails' },
     orgs: { title: 'Organizations', desc: 'Organization, tenant, and membership inspection' },
     billing: { title: 'Billing & Credits', desc: 'Plans, entitlements, balances, and safe manual credit grants' },
@@ -39,6 +39,8 @@ const SECTION_META = {
 };
 
 const SECTION_ALIASES = {
+    'registration-settings': { section: 'users', panel: 'registrationAvailabilityPanel' },
+    'fable-data-center': { section: 'ai-lab', panel: 'fableDataCard' },
     'platform-budget-caps': { section: 'ai-budget-switches', panel: 'platformBudgetCapsPanel' },
     'budget-reconciliation': { section: 'ai-budget-switches', panel: 'platformBudgetReconciliationPanel' },
     'budget-repair': { section: 'ai-budget-switches', panel: 'platformBudgetReconciliationPanel' },
@@ -72,87 +74,101 @@ function resolveSectionRoute(name) {
     return { section: routeName, panel: null };
 }
 
-function focusAdminPanelTarget(panelId) {
-    if (!panelId) return;
-    window.requestAnimationFrame(() => {
-        const panel = document.getElementById(panelId);
-        if (!panel) return;
-        panel.scrollIntoView({ block: 'start', behavior: 'auto' });
-    });
-}
-
-export function createAdminRouter({
-    heroTitle,
-    heroDesc,
-    nav,
-    loadSection,
-}) {
+// Each navigation owns its completion. Context IDs live only in this page's memory.
+export function createAdminRouter({ heroTitle, heroDesc, nav, loadSection, leaveSection }) {
     const sections = createSectionRefs();
-    let pendingPanelTarget = null;
-    let currentSection = 'dashboard';
+    const status = document.getElementById('adminSectionState');
+    let generation = 0;
+    let currentSection = null;
+    let pendingNavigation = null;
 
-    function showSection(routeName) {
+    function renderState(message, failed = false, retry) {
+        if (!status) return;
+        status.replaceChildren();
+        status.hidden = !message;
+        status.dataset.state = failed ? 'error' : 'loading';
+        status.setAttribute('role', failed ? 'alert' : 'status');
+        status.append(document.createTextNode(message));
+        if (retry) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn-action';
+            button.textContent = 'Try again';
+            button.addEventListener('click', retry, { once: true });
+            status.append(button);
+        }
+    }
+
+    async function showSection(routeName, options = {}) {
+        const token = ++generation;
+        if (routeName === 'credits' || routeName === 'organization') {
+            location.assign(`/account/${routeName}.html`);
+            return;
+        }
         const route = resolveSectionRoute(routeName);
-        let name = route.section;
-        pendingPanelTarget = route.panel;
-        if (!sections[name]) name = 'dashboard';
+        const name = route.section;
+        const previous = currentSection;
         currentSection = name;
-
-        for (const [key, el] of Object.entries(sections)) {
-            if (el) el.style.display = key === name ? '' : 'none';
+        leaveSection?.(previous, name);
+        const known = Object.hasOwn(sections, name) && sections[name];
+        for (const [key, section] of Object.entries(sections)) {
+            if (section) { section.hidden = key !== name; section.style.display = key === name ? '' : 'none'; }
         }
-
-        nav?.syncActiveSection?.(name);
-
+        nav?.syncActiveSection?.(routeName === 'fable-data-center' ? routeName : name);
         const meta = SECTION_META[name];
-        if (meta) {
-            if (heroTitle) heroTitle.textContent = meta.title;
-            if (heroDesc) heroDesc.textContent = meta.desc;
+        if (heroTitle) heroTitle.textContent = meta?.title || 'Section unavailable';
+        if (heroDesc) heroDesc.textContent = meta?.desc || 'This link does not identify an available admin section. Choose a task from the navigation.';
+        if (!known) { renderState('Unknown admin destination. Choose an available section.', true); return; }
+        const panelTarget = options.panel || route.panel;
+        const focusedAtStart = document.activeElement;
+        sections[name].dataset.loadState = 'loading';
+        renderState('Loading ' + meta.title + '…');
+        try {
+            await loadSection?.(name, { context: options.context, isCurrent: () => token === generation, panel: panelTarget });
+            if (token !== generation) return;
+            sections[name].dataset.loadState = 'ready';
+            renderState('');
+            window.requestAnimationFrame(() => {
+                if (token !== generation) return;
+                // A user who has already started working keeps their input focus.
+                if (document.activeElement !== focusedAtStart && document.activeElement !== document.body) return;
+                const panel = panelTarget ? document.getElementById(panelTarget) : heroTitle;
+                if (!panel || (panelTarget && !sections[name].contains(panel))) return;
+                panel.tabIndex = -1;
+                panel.focus({ preventScroll: true });
+                (panelTarget ? panel : panel.closest('header') || panel).scrollIntoView({ block: 'start', behavior: 'auto' });
+            });
+        } catch {
+            if (token !== generation) return;
+            sections[name].dataset.loadState = 'failed';
+            renderState('This section could not be loaded. Other admin tasks remain available.', true, () => showSection(routeName, options));
         }
+    }
 
-        Promise.resolve(loadSection?.(name)).finally(() => {
-            const panelTarget = pendingPanelTarget;
-            pendingPanelTarget = null;
-            focusAdminPanelTarget(panelTarget);
-        });
+    function navigate(section, options = {}) {
+        if ((location.hash.slice(1) || 'dashboard') === section) return showSection(section, options);
+        pendingNavigation = { section, options };
+        location.hash = section;
     }
 
     function bind() {
         function onHashChange() {
-            const hash = location.hash.replace('#', '') || 'dashboard';
-            showSection(hash);
+            const hash = location.hash.slice(1) || 'dashboard';
+            const options = pendingNavigation?.section === hash ? pendingNavigation.options : {};
+            pendingNavigation = null;
+            void showSection(hash, options);
         }
-
         window.addEventListener('hashchange', onHashChange);
-
-        document.querySelectorAll('.admin-quick-link[data-nav]').forEach(link => {
-            if (link.dataset.routerBound === '1') return;
-            link.dataset.routerBound = '1';
-            link.addEventListener('click', (event) => {
-                event.preventDefault();
-                location.hash = link.dataset.nav;
-            });
+        document.addEventListener('click', event => {
+            const link = event.target.closest?.('a[data-nav], a[data-admin-panel-target]');
+            if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            const url = new URL(link.href, location.href);
+            // Account links remain real links; data-nav does not redefine their destination.
+            if (url.origin !== location.origin || url.pathname !== location.pathname || !url.hash) return;
+            event.preventDefault();
+            navigate(url.hash.slice(1), { panel: link.dataset.adminPanelTarget });
         });
-
-        document.querySelectorAll('[data-admin-panel-target]').forEach(link => {
-            if (link.dataset.panelTargetBound === '1') return;
-            link.dataset.panelTargetBound = '1';
-            link.addEventListener('click', () => {
-                const panelTarget = link.dataset.adminPanelTarget || null;
-                pendingPanelTarget = panelTarget;
-                const linkHash = (link.getAttribute('href') || '').replace('#', '');
-                if (linkHash && linkHash === (location.hash || '').replace('#', '')) {
-                    focusAdminPanelTarget(panelTarget);
-                }
-            });
-        });
-
         onHashChange();
     }
-
-    return {
-        bind,
-        getCurrentSection: () => currentSection,
-        showSection,
-    };
+    return { bind, navigate, showSection, stop: () => { generation += 1; pendingNavigation = null; }, getCurrentSection: () => currentSection };
 }

@@ -1900,17 +1900,18 @@ export async function apiAiGetFolders() {
     // Backward compat: old worker returns { folders: [...] } without counts,
     // or legacy shape could be a bare array. Normalize both.
     if (Array.isArray(d)) {
-        return { folders: d, counts: {}, unfolderedCount: 0, storageUsage: null };
+        return { ok: res.ok, folders: d, counts: {}, unfolderedCount: 0, storageUsage: null };
     }
     if (d && typeof d === 'object') {
         return {
+            ok: res.ok,
             folders: Array.isArray(d.folders) ? d.folders : [],
             counts: d.counts || {},
             unfolderedCount: d.unfolderedCount || 0,
             storageUsage,
         };
     }
-    return { folders: [], counts: {}, unfolderedCount: 0, storageUsage: null };
+    return { ok: res.ok, folders: [], counts: {}, unfolderedCount: 0, storageUsage: null };
 }
 
 export async function apiAiGetFoldersForDelete() {

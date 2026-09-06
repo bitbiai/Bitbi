@@ -8,6 +8,7 @@
  * @typedef {object} AdminAiRetainedResult
  * @property {any | null} raw
  * @property {Date | null} receivedAt
+ * @property {Record<string, any> | null} input
  */
 
 /**
@@ -18,6 +19,7 @@
  * @property {any | null} raw
  * @property {any | null} debugRaw
  * @property {Date | null} receivedAt
+ * @property {Record<string, any> | null} input
  */
 
 /**
@@ -51,13 +53,14 @@ export function getWarnings(result) {
 }
 
 /**
- * @param {{ raw?: any, receivedAt?: Date | null } | null | undefined} current
+ * @param {{ raw?: any, receivedAt?: Date | null, input?: Record<string, any> | null } | null | undefined} current
  * @returns {AdminAiRetainedResult}
  */
 export function getRetainedResult(current) {
   return {
     raw: current?.raw || null,
     receivedAt: current?.receivedAt || null,
+    input: current?.input || null,
   };
 }
 
@@ -72,6 +75,7 @@ export function createLoadingTaskResult(previous) {
     raw: previous?.raw || null,
     debugRaw: previous?.raw || null,
     receivedAt: previous?.receivedAt || null,
+    input: previous?.input || null,
   };
 }
 
@@ -88,6 +92,7 @@ export function createAbortedTaskResult(previous, error = "Request cancelled.") 
     raw: previous?.raw || null,
     debugRaw: previous?.raw || null,
     receivedAt: previous?.receivedAt || null,
+    input: previous?.input || null,
   };
 }
 
@@ -104,6 +109,7 @@ export function createTimeoutTaskResult(previous, error) {
     raw: previous?.raw || null,
     debugRaw: previous?.raw || null,
     receivedAt: previous?.receivedAt || null,
+    input: previous?.input || null,
   };
 }
 
@@ -124,20 +130,24 @@ export function createErrorTaskResult({ previous, error, errorCode, debugRaw }) 
     raw: previous?.raw || null,
     debugRaw: debugRaw === undefined ? fallbackDebugRaw : debugRaw,
     receivedAt: previous?.receivedAt || null,
+    input: previous?.input || null,
   };
 }
 
 /**
  * @param {any} raw
  * @param {string | null | undefined} [errorCode]
+ * @param {Record<string, any> | null} [input]
  * @returns {AdminAiTaskResultState}
  */
-export function createSuccessTaskResult(raw, errorCode = null) {
+export function createSuccessTaskResult(raw, errorCode = null, input = null) {
   return {
     status: "success",
     errorCode: errorCode || null,
     raw,
     debugRaw: raw,
     receivedAt: new Date(),
+    // The request snapshot stays with the retained response, never with a later form.
+    input: input ? structuredClone(input) : null,
   };
 }

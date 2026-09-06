@@ -217,6 +217,7 @@ export function createManualHeroVideoUploadController({
     showToast = null,
     formatApiError = null,
     onUploadSuccess = null,
+    aspectRatioLabels = {},
     panelTitle = 'Manual source upload',
     panelDescription = 'Uploads create private admin source assets only. Public playback still requires an optimized derivative.',
     disabledMessage = 'Manual uploads are disabled by the Admin switch or Worker hard-disable.',
@@ -358,7 +359,7 @@ export function createManualHeroVideoUploadController({
         MANUAL_UPLOAD_ASPECT_RATIOS.forEach(([value, label]) => {
             const option = document.createElement('option');
             option.value = value;
-            option.textContent = label;
+            option.textContent = aspectRatioLabels[value] || label;
             option.selected = (state.uploadAspectRatio || DEFAULT_MANUAL_UPLOAD_ASPECT_RATIO) === value;
             aspect.append(option);
         });
