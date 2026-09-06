@@ -123,7 +123,19 @@ function writeJsonFixture(name, value) {
   assert.equal(safety.bypassedByAcknowledgement, false);
 }
 
+{
+  const { plan, safety } = safetyFor([".agents/skills/deploy-checklist/SKILL.md"], { eventName: "push" });
+  assert.deepEqual(plan.deploySteps, []);
+  assert.equal(safety.ok, true);
+  assert.equal(safety.mode, "validation_only");
+  assert.equal(safety.staticRequired, false);
+  assert.equal(safety.bypassedByAcknowledgement, false);
+}
+
 for (const unknownFile of [
+  ".agents/skills/deploy-checklist/SKILL.md.backup",
+  ".agents/skills/deploy-checklist/deploy.mjs",
+  ".agents/skills/unknown/SKILL.md",
   "UNCLASSIFIED.md",
   "workers/auth/AGENTS.md.backup",
   "workers/auth/CLAUDE.md.backup",

@@ -186,7 +186,19 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
 }
 
 {
+  const file = ".agents/skills/deploy-checklist/SKILL.md";
+  const plan = createReleasePlanFromRepo(repoRoot, { files: [file] });
+  assert.deepEqual(plan.impacts.validationOnlyFiles, [file]);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.deepEqual(plan.deploySteps, []);
+  assert.equal(plan.isNoop, true);
+}
+
+{
   const unknownFiles = [
+    ".agents/skills/deploy-checklist/SKILL.md.backup",
+    ".agents/skills/deploy-checklist/deploy.mjs",
+    ".agents/skills/unknown/SKILL.md",
     "UNCLASSIFIED.md",
     "workers/auth/AGENTS.md.backup",
     "workers/auth/CLAUDE.md.backup",

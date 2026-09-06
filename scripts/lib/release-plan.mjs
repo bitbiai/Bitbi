@@ -29,6 +29,7 @@ const VALIDATION_ONLY_PREFIXES = [
 ];
 
 const AGENT_INSTRUCTION_FILES = new Set([
+  ".agents/skills/deploy-checklist/SKILL.md",
   "AGENTS.md",
   "CLAUDE.md",
   "workers/ai/AGENTS.md",

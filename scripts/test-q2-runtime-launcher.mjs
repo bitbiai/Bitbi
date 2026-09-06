@@ -160,3 +160,40 @@ test('existing Worker gates retain native suite, fail early and upload only afte
     assert.doesNotMatch(block, /continue-on-error|sudo npm|release:apply|wrangler deploy|migrations apply/);
   }
 });
+
+// GitHub resolves job.env before assigning a runner. YAML syntax alone cannot
+// reject runner.temp there. Keep this focused on the two real Q2 callers:
+// https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability
+function assertArtifactContext(content, job) {
+  const block = content.split(`  ${job}:\n`)[1]?.split(/^  [a-z][a-z-]+:\n/m)[0];
+  assert.ok(block, 'Worker job must exist');
+  const [beforeSteps] = block.split('    steps:\n');
+  assert.doesNotMatch(beforeSteps, /\$\{\{[^\n}]*\brunner\s*\./, 'Runner context is unavailable in job env');
+  const steps = block.split(/^      - /m).slice(1);
+  for (const command of ['node scripts/test-q2-runtime.mjs --preflight', 'npm run test:workers']) {
+    const matches = steps.filter(step => step.includes(`        run: ${command}\n`));
+    assert.equal(matches.length, 1, `Actual native caller must exist once: ${command}`);
+    assert.match(matches[0], /^        env:\n          Q2_RUNTIME_ARTIFACTS: \$\{\{ runner\.temp \}\}\/q2-runtime-evidence$/m,
+      'Artifact environment must be available on each actual execution step');
+  }
+  const upload = steps.find(step => step.includes('uses: actions/upload-artifact@v6'));
+  assert.ok(upload, 'Outer artifact upload must remain');
+  assert.match(upload, /^          path: \$\{\{ runner\.temp \}\}\/q2-runtime-evidence\/$/m);
+}
+
+test('native artifact paths use runner context only after runner assignment', () => {
+  for (const [file, job] of [['.github/workflows/static.yml', 'worker-validation'], ['.github/workflows/full-regression.yml', 'worker-tests']]) {
+    const content = read(file);
+    assertArtifactContext(content, job);
+    // Reintroduce exactly the rejected job-level assignment from f316019d.
+    const broken = content.replace("      Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1'\n",
+      "      Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1'\n      Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence\n");
+    assert.throws(() => assertArtifactContext(broken, job), /Runner context is unavailable/);
+    // Losing the path on either caller must not hide its result from upload.
+    const stepEnv = '        env:\n          Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence\n';
+    assert.throws(() => assertArtifactContext(content.replace(stepEnv, ''), job), /Artifact environment/);
+    const last = content.lastIndexOf(stepEnv);
+    assert.ok(last >= 0);
+    assert.throws(() => assertArtifactContext(content.slice(0, last) + content.slice(last + stepEnv.length), job), /Artifact environment/);
+  }
+});

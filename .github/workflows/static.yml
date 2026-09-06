@@ -168,7 +168,6 @@ jobs:
     env:
       # Explicit opt-in only on this disposable GitHub-hosted Linux test VM.
       Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1'
-      Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
     steps:
       - name: Report skipped Worker tests
         if: needs.release-compatibility.outputs.workers != 'true'
@@ -192,9 +191,13 @@ jobs:
         run: npm --prefix workers/auth ci
       - name: Verify native Linux isolation before Worker tests
         if: needs.release-compatibility.outputs.workers == 'true'
+        env:
+          Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
         run: node scripts/test-q2-runtime.mjs --preflight
       - name: Run worker route tests
         if: needs.release-compatibility.outputs.workers == 'true'
+        env:
+          Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
         run: npm run test:workers
       - name: Upload native Linux acceptance evidence
         if: always() && needs.release-compatibility.outputs.workers == 'true'

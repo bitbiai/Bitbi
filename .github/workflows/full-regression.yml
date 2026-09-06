@@ -113,7 +113,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1'
-      Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -129,8 +128,12 @@ jobs:
       - name: Install pinned Auth target-runtime test dependencies
         run: npm --prefix workers/auth ci
       - name: Verify native Linux isolation before Worker tests
+        env:
+          Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
         run: node scripts/test-q2-runtime.mjs --preflight
       - name: Run full Worker regression
+        env:
+          Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
         run: npm run test:workers
       - name: Upload native Linux acceptance evidence
         if: always()
