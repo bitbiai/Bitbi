@@ -261,6 +261,30 @@ function selection(files, options) {
   assert.equal(result.full, false);
 }
 
+for (const file of [
+  "playwright.homepage.config.js",
+  "playwright.homepage-performance.config.js",
+  "tests/homepage-creation-stream-anchor.spec.js",
+  "tests/homepage-hero-playback.spec.js",
+  "tests/homepage-hero-state.spec.js",
+  "tests/homepage-media-loading.spec.js",
+  "tests/homepage-performance-contract.spec.js",
+]) {
+  const result = selection([file]);
+  assert.equal(result.homepage, true, `${file} must select early homepage acceptance`);
+  assert.equal(result.carousel, true);
+  assert.equal(result.full, false);
+}
+
+{
+  // This existing suite is not in either short homepage configuration. Its
+  // isolated edits must retain the complete static regression that executes it.
+  const result = selection(["tests/homepage-performance.spec.js"]);
+  assert.equal(result.full, true);
+  assert.equal(result.homepage, true);
+  assert.equal(result.carousel, true);
+}
+
 {
   const result = selection(["tests/assets-manager-focused.spec.js"]);
   assert.equal(result.assets, true);

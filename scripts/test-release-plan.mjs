@@ -225,6 +225,8 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
     files: [
       "playwright.config.js",
       "playwright.carousel.config.js",
+      "playwright.homepage.config.js",
+      "playwright.homepage-performance.config.js",
       "playwright.workers.config.js",
     ],
   });
@@ -232,6 +234,8 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
   assert.deepEqual(plan.impacts.validationOnlyFiles, [
     "playwright.carousel.config.js",
     "playwright.config.js",
+    "playwright.homepage-performance.config.js",
+    "playwright.homepage.config.js",
     "playwright.workers.config.js",
   ]);
   assert.deepEqual(plan.impacts.uncategorizedFiles, []);

@@ -3961,6 +3961,8 @@ test.describe('Homepage', () => {
           active: hero.dataset.homepageHeroLargeScale === 'true',
           scale: Number.parseFloat(hero.dataset.homepageHeroScale || '1') || 1,
           verticalScale: Number.parseFloat(hero.dataset.homepageHeroVerticalScale || '1') || 1,
+          viewportWidth: window.visualViewport?.width || document.documentElement.clientWidth,
+          innerWidth: window.innerWidth,
           stageWidth: Number.parseFloat(heroStyle.getPropertyValue('--homepage-hero-stage-width')) || 0,
           stageInlineMargin: Number.parseFloat(heroStyle.getPropertyValue('--homepage-hero-stage-inline-margin')) || 0,
           titleWidth: title.width,
@@ -3984,10 +3986,10 @@ test.describe('Homepage', () => {
     const shortDesktop = await measureHero(1920, 1080, true);
     const large = await measureHero(2560, 1440, true);
     const fourK = await measureHero(3840, 2160, true);
-    const expectedShortScale = 1920 / 1728;
-    const expectedLargeScale = 2560 / 1728;
+    const expectedShortScale = shortDesktop.viewportWidth / 1728;
+    const expectedLargeScale = large.viewportWidth / 1728;
     const expectedLargeVerticalScale = 1440 / 1117;
-    const expectedFourKScale = 3840 / 1728;
+    const expectedFourKScale = fourK.viewportWidth / 1728;
 
     expect(baseline.active).toBe(false);
     expect(shortDesktop.active).toBe(true);
@@ -4004,7 +4006,13 @@ test.describe('Homepage', () => {
     expect(large.newsWidth).toBeGreaterThan(baseline.newsWidth * 1.2);
     expect(large.newsHeight).toBeGreaterThan(baseline.newsHeight * 1.15);
     expectWithinPx(large.stageInlineMargin, 0, 'large stage inline margin', 0.5);
-    expectWithinPx(large.stageWidth, 2560, 'large stage width fills viewport', 1);
+    // A native scrollbar can reduce WebKit's visual viewport (2555 vs 2560).
+    // Keep the exact fill contract against the available viewport, not its
+    // configured outer width; edge attachment is asserted independently below.
+    expect(large.innerWidth).toBe(2560);
+    expect(large.viewportWidth).toBeGreaterThan(0);
+    expect(large.viewportWidth).toBeLessThanOrEqual(large.innerWidth);
+    expectWithinPx(large.stageWidth, large.viewportWidth, 'large stage width fills visual viewport', 1);
     expectWithinPx(large.leftInset, 0, 'left model remains edge-attached', 2);
     expectWithinPx(large.rightInset, 0, 'right model remains edge-attached', 2);
     expect(large.ctaHref).toBe('/generate-lab/');

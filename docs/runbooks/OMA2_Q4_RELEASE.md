@@ -33,6 +33,12 @@ Node SQLite keeps foreign keys enabled. Actual Wrangler dry-run bytes are separa
 
 Required completion includes Q3 import/MFA regressions, current budgets/active hook, syntax/secret/route/DOM checks, release/selection/docs/toolchain checks and independent integrity review. The pre-push hook checks committed budgets; it does not establish functional or Linux acceptance. No CI waiting.
 
+## Homepage acceptance before activation
+
+Normal, full-regression and fast UI CI retain their existing broad suites and add an independent mandatory `homepage-validation` job. `check:homepage-selection` records actual discovery/coverage; `test:homepage-functional` checks Chromium/WebKit carousel, Hero and media behavior. `test:homepage-performance` uses one Chromium worker, no retries and no tracing during timing; its 50 ms page-work gate remains required. Failure evidence is uploaded without waiting for the long browser regression. Discovery counts and successful retries are not acceptance.
+
+The performance observer reads no geometry, includes tasks crossing input/completion boundaries and drains late native records. It reports the complete document through the stable post-settle window, not guessed carousel attribution or field INP. Functional runs publish timing but cannot replace this controlled performance gate. Native blocking countercontrols must be rejected; missing Long Tasks support is a failed performance prerequisite. Real-clock measurements remain separate from Hero clock/state fixtures. Hero continuity is checked during confirmed suspension and at native resume; a legitimately due next video after resume is tested separately. The original CI145/162 ms tasks lack function attribution; no runner-load explanation is asserted without evidence.
+
 ## Conditional activation sequence
 
 1. Require successful applicable CI for the exact candidate, including executed hosted Linux native stages; no old/other/skip-only result. Refresh only serving version/traffic, correct Auth D1/schema receipts/definitions, artifact hashes and valid access. Confirm no unexpected migration or newer producer changes.

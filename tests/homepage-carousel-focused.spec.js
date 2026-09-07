@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
+const { installHomepageWorkProbe, summarizeTaskWindow, assertHomepageWorkBudget } = require('./helpers/homepage-work-probe.cjs');
 
 const TEST_PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==',
@@ -40,15 +41,23 @@ function summarizeLayoutShiftWindow(entries, startTime, endTime) {
 }
 
 async function installCarouselWorkInstrumentation(page) {
+  await page.addInitScript(installHomepageWorkProbe);
   await page.addInitScript(() => {
+    // Use the module identity actually loaded by the page in source AND built
+    // fixtures. A placeholder query on a built page creates a second singleton.
+    window.__carouselModuleUrl = modulePath => {
+      const entry = document.querySelector('script[type="module"][src*="js/pages/index/main.js"]');
+      if (!entry) throw new Error('Homepage module entry missing');
+      const url = new URL(modulePath, location.href);
+      url.search = new URL(entry.src).search;
+      return url.href;
+    };
     window.__carouselTestWork = {
       cls: 0,
       innerHtmlWrites: { gallery: 0, video: 0, sound: 0 },
       replaceChildren: { gallery: 0, video: 0, sound: 0 },
       cardRectReads: { gallery: 0, video: 0, sound: 0 },
       layoutShifts: [],
-      longTaskSupported: false,
-      longTasks: [],
     };
     const roundedRect = (rect) => rect ? {
       x: Math.round(rect.x * 100) / 100,
@@ -77,8 +86,8 @@ async function installCarouselWorkInstrumentation(page) {
           transitioning: stage?.classList.contains('is-transitioning') || false,
           viewportInlineHeight: viewport?.style.height || '',
           viewportInlineMinHeight: viewport?.style.minHeight || '',
-          stageRect: roundedRect(stage?.getBoundingClientRect()),
-          viewportRect: roundedRect(viewport?.getBoundingClientRect()),
+          // Native source rectangles below describe the shift without forcing
+          // another layout from inside its observer notification.
           scrollY: Math.round(window.scrollY * 100) / 100,
           walls: Object.fromEntries(Object.entries({ gallery: '#galleryGrid', video: '#videoGrid' }).map(([key, selector]) => {
             const grid = document.querySelector(selector);
@@ -146,23 +155,7 @@ async function installCarouselWorkInstrumentation(page) {
         window.__carouselLayoutShiftObserver = observer;
         window.__flushCarouselLayoutShifts = () => recordLayoutShifts(observer.takeRecords());
       } catch {}
-      try {
-        if (PerformanceObserver.supportedEntryTypes?.includes('longtask')) {
-          window.__carouselTestWork.longTaskSupported = true;
-          const observer = new PerformanceObserver((list) => {
-            for (const entry of list.getEntries()) {
-              window.__carouselTestWork.longTasks.push({
-                startTime: entry.startTime,
-                duration: entry.duration,
-              });
-            }
-            if (window.__carouselTestWork.longTasks.length > 200) {
-              window.__carouselTestWork.longTasks.splice(0, window.__carouselTestWork.longTasks.length - 200);
-            }
-          });
-          observer.observe({ type: 'longtask', buffered: true });
-        }
-      } catch {}
+
     }
     HTMLMediaElement.prototype.play = function playMock() {
       this.dataset.playState = 'playing';
@@ -844,8 +837,6 @@ async function measureWarmSwitch(page, category) {
             clearTimeout(timeoutId);
             cancelAnimationFrame(frameId);
             link.removeEventListener('pointerdown', handleInput, true);
-            const longTasks = (window.__carouselTestWork?.longTasks || [])
-              .filter((entry) => entry.startTime >= inputDispatchedAt && entry.startTime <= completedAt);
             resolve({
               targetCategory: nextCategory,
               setupAt,
@@ -861,9 +852,6 @@ async function measureWarmSwitch(page, category) {
               viewportMinOpacity,
               globalCls: Number(window.__carouselTestWork?.cls || 0),
               layoutShifts: (window.__carouselTestWork?.layoutShifts || []).slice(),
-              longTaskSupported: !!window.__carouselTestWork?.longTaskSupported,
-              longTaskCount: longTasks.length,
-              maxLongTaskMs: longTasks.reduce((largest, entry) => Math.max(largest, entry.duration), 0),
               finalState: {
                 activeCategory: stage.dataset.activeCategory || '',
                 transitioning: stage.classList.contains('is-transitioning'),
@@ -917,7 +905,13 @@ async function measureWarmSwitch(page, category) {
     rawMeasurement.setupAt,
     rawMeasurement.inputDispatchedAt - 0.001,
   ).value;
-  const measurement = { ...rawMeasurement };
+  // Read after the settled observation, including notifications delivered after
+  // the input/completion task. Retain the complete page window, not attribution
+  // guessed from a function name or a temporal coincidence.
+  const pageProbe = await page.evaluate(() => window.__homepageWorkProbe.flush());
+  const pageWork = summarizeTaskWindow(pageProbe, rawMeasurement.inputDispatchedAt, settledWindow.endTime);
+  const transitionWork = summarizeTaskWindow(pageProbe, rawMeasurement.inputDispatchedAt, rawMeasurement.settledAt);
+  const measurement = { ...rawMeasurement, longTaskSupported: pageProbe.supported, maxLongTaskMs: pageWork.maxLongTaskMs, longTaskCount: pageWork.count, pageWork, transitionWork };
   delete measurement.layoutShifts;
   return {
     ...measurement,
@@ -1096,7 +1090,7 @@ test.describe('Populated homepage carousel', () => {
     await routePopulatedHomepage(page);
   });
 
-  test('settles exact transitions, keeps populated walls warm, and honors the latest rapid choice', async ({ page, browserName }, testInfo) => {
+  test('settles exact transitions, keeps populated walls warm, and honors the latest rapid choice', { tag: '@homepage-performance' }, async ({ page, browserName }, testInfo) => {
     test.skip(browserName === 'webkit', 'WebKit instant switching has dedicated coverage.');
     await page.setViewportSize(getStagedTestViewport(browserName));
     await waitForPopulatedHomepage(page);
@@ -1152,13 +1146,13 @@ test.describe('Populated homepage carousel', () => {
     expect(productionTestHooks).toEqual([]);
     await page.locator('#soundLabTracks .snd-card--memtrack .snd-play').first().evaluate((button) => button.click());
     await expect.poll(() => page.evaluate(async () => {
-      const { getGlobalAudioState } = await import('/js/shared/audio/audio-manager.js?v=__ASSET_VERSION__');
+      const { getGlobalAudioState } = await import(window.__carouselModuleUrl('/js/shared/audio/audio-manager.js'));
       const state = getGlobalAudioState();
       return `${state.trackId || ''}|${state.status || ''}|${String(!!state.playIntent)}`;
     })).toBe('memtrack:carousel-memtrack-1|playing|true');
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const audioBeforeWarmCycle = await page.evaluate(async () => {
-      const { getGlobalAudioState } = await import('/js/shared/audio/audio-manager.js?v=__ASSET_VERSION__');
+      const { getGlobalAudioState } = await import(window.__carouselModuleUrl('/js/shared/audio/audio-manager.js'));
       const state = getGlobalAudioState();
       return { trackId: state.trackId, status: state.status, playIntent: state.playIntent };
     });
@@ -1190,19 +1184,23 @@ test.describe('Populated homepage carousel', () => {
     expect(afterWarmCycle.work.innerHtmlWrites).toEqual(beforeWarmCycle.work.innerHtmlWrites);
     expect(afterWarmCycle.work.cardRectReads).toEqual(beforeWarmCycle.work.cardRectReads);
     const audioAfterWarmCycle = await page.evaluate(async () => {
-      const { getGlobalAudioState } = await import('/js/shared/audio/audio-manager.js?v=__ASSET_VERSION__');
+      const { getGlobalAudioState } = await import(window.__carouselModuleUrl('/js/shared/audio/audio-manager.js'));
       const state = getGlobalAudioState();
       return { trackId: state.trackId, status: state.status, playIntent: state.playIntent };
     });
     expect(audioAfterWarmCycle).toEqual(audioBeforeWarmCycle);
     const sortedFirstMotion = warmMeasurements.map((entry) => entry.firstMotionMs).sort((a, b) => a - b);
-    const p95FirstMotion = sortedFirstMotion[Math.ceil(sortedFirstMotion.length * 0.95) - 1];
-    const metrics = { browserName, p95FirstMotion, warmMeasurements };
+    const maxFirstMotionMs = sortedFirstMotion.at(-1);
+    const metrics = {
+      browserName, maxFirstMotionMs, warmMeasurements,
+      scope: 'Whole-document task overlap from real pointer capture through stable post-settle observation; no function attribution or field INP',
+      conditions: { viewport: page.viewportSize(), media: 'synthetic populated walls; playback mocked here, native Hero suite separate', performanceGate: testInfo.project.metadata.homepagePerformanceGate === true, retry: testInfo.retry },
+    };
     await testInfo.attach('carousel-metrics', {
       body: Buffer.from(JSON.stringify(metrics, null, 2)),
       contentType: 'application/json',
     });
-    expect(p95FirstMotion).toBeLessThanOrEqual(100);
+    expect(maxFirstMotionMs).toBeLessThanOrEqual(100);
     for (const measurement of warmMeasurements) {
       expect(measurement.firstMotionMs).toBeGreaterThanOrEqual(0);
       expect(measurement.activationMs).toBeGreaterThanOrEqual(0);
@@ -1223,9 +1221,10 @@ test.describe('Populated homepage carousel', () => {
         videoReady: 'true',
         soundReady: 'true',
       });
-      if (measurement.longTaskSupported) {
-        expect(measurement.maxLongTaskMs).toBeLessThanOrEqual(50);
-      }
+      // Timing acceptance is mandatory in the isolated Chromium performance
+      // project; other engines/runs retain the full functional/geometry checks
+      // and publish page-wide timing without pretending unsupported data passed.
+      if (testInfo.project.metadata.homepagePerformanceGate) assertHomepageWorkBudget(measurement.pageWork);
     }
     await expectSingleInteractivePanel(page, 'sound');
 
@@ -1269,6 +1268,28 @@ test.describe('Populated homepage carousel', () => {
     await waitForPublicWall(page, 'gallery');
     const stableNarrowToken = await page.locator('#galleryGrid').evaluate((grid) => grid.dataset.mediaWallRenderToken || '');
     expect(stableNarrowToken).toBe(narrowGallery.token);
+  });
+
+  test('page-work gate rejects deliberately blocking work on a real carousel input', { tag: '@homepage-performance' }, async ({ page, browserName }, testInfo) => {
+    test.skip(browserName !== 'chromium', 'Native Long Tasks countercontrol runs in required Chromium performance project.');
+    await page.setViewportSize(getStagedTestViewport(browserName));
+    await waitForPopulatedHomepage(page);
+    await waitForSettledCategory(page, 'video');
+    await selectCategory(page, 'gallery');
+    await waitForPublicWall(page, 'gallery');
+    await selectCategory(page, 'video');
+    await waitForPublicWall(page, 'video');
+    // Deliberately block the real input task BEFORE the link capture timestamp.
+    // The previous startTime-only filter could drop exactly this relevant work.
+    await page.evaluate(() => document.addEventListener('pointerdown', () => {
+      const end = performance.now() + 90;
+      while (performance.now() < end) { /* local negative control, not product code */ }
+    }, { capture: true, once: true }));
+    const result = await measureWarmSwitch(page, 'gallery');
+    expect(() => assertHomepageWorkBudget(result.pageWork)).toThrow(/exceeds 50 ms/);
+    expect(result.pageWork.entries.some(entry => entry.startTime < result.inputDispatchedAt)).toBe(true);
+    await expectSingleInteractivePanel(page, 'gallery');
+    await testInfo.attach('carousel-blocking-countercontrol', { body: JSON.stringify(result), contentType: 'application/json' });
   });
 
   test('WebKit switches categories instantly with one precise scroll and no settling corrections', async ({ page, browserName }) => {
@@ -1450,7 +1471,7 @@ test.describe('Populated homepage carousel', () => {
       const {
         calculateFixedMediaWallMetrics,
         renderFixedMediaWallColumns,
-      } = await import('/js/pages/index/public-media-wall.js?v=__ASSET_VERSION__');
+      } = await import(window.__carouselModuleUrl('/js/pages/index/public-media-wall.js'));
       const host = document.createElement('div');
       host.id = 'mediaWallGeometryFixture';
       host.style.cssText = 'display:none;width:1395px;padding:0;';
@@ -1512,7 +1533,7 @@ test.describe('Populated homepage carousel', () => {
     await expect(page.locator('#mediaWallGeometryGrid')).toHaveAttribute('data-media-wall-ready', 'false');
 
     const recovery = await page.evaluate(async () => {
-      const { renderFixedMediaWallColumns } = await import('/js/pages/index/public-media-wall.js?v=__ASSET_VERSION__');
+      const { renderFixedMediaWallColumns } = await import(window.__carouselModuleUrl('/js/pages/index/public-media-wall.js'));
       const host = document.getElementById('mediaWallGeometryFixture');
       const grid = document.getElementById('mediaWallGeometryGrid');
       const cards = Array.from(grid.querySelectorAll('[data-fixture-card]'))

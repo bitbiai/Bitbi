@@ -96,7 +96,14 @@ const CAROUSEL_FILES = new Set([
   "js/pages/index/soundlab.js",
   "js/pages/index/video-gallery.js",
   "playwright.carousel.config.js",
+  "playwright.homepage.config.js",
+  "playwright.homepage-performance.config.js",
   "tests/homepage-carousel-focused.spec.js",
+  "tests/homepage-creation-stream-anchor.spec.js",
+  "tests/homepage-hero-playback.spec.js",
+  "tests/homepage-hero-state.spec.js",
+  "tests/homepage-media-loading.spec.js",
+  "tests/homepage-performance-contract.spec.js",
 ]);
 
 const ASSETS_MANAGER_PAGE_FILES = new Set([

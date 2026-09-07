@@ -131,6 +131,8 @@ jobs:
         run: npm run test:static-deploy-safety
       - name: Run CI test selection fixtures
         run: npm run test:ci-selection
+      - name: Test mandatory homepage selection
+        run: npm run test:homepage-selection
       - name: Run Cloudflare deploy prerequisite tests
         run: npm run test:cloudflare-prereqs
       - name: Run Cloudflare resource model tests
@@ -208,6 +210,56 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  # Short homepage feedback runs independently of the long browser regression.
+  homepage-validation:
+    needs: release-compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report unselected homepage acceptance
+        if: ${{ !(needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true') }}
+        run: echo "Homepage acceptance is not selected for this change."
+      - name: Checkout
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Setup Node.js
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'npm'
+      - name: Install dependencies
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        run: npm ci
+      - name: Install short homepage browser matrix
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        run: npx playwright install --with-deps chromium webkit
+      - name: Verify mandatory homepage discovery and coverage
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        id: homepage_discovery
+        run: npm run check:homepage-selection
+      - name: Run short homepage functional acceptance
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        run: npm run test:homepage-functional
+      - name: Run controlled homepage performance acceptance
+        if: ${{ !cancelled() && steps.homepage_discovery.outcome == 'success' }}
+        run: npm run test:homepage-performance
+      - name: Upload short homepage evidence
+        if: always() && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true')
+        uses: actions/upload-artifact@v6
+        with:
+          name: homepage-acceptance-${{ github.sha }}
+          path: |
+            test-results/homepage-*.json
+            test-results/homepage-discovery-*/
+            test-results/homepage-functional/
+            test-results/homepage-performance/
+            playwright-report/homepage-functional/
+            playwright-report/homepage-performance/
+          retention-days: 7
+          if-no-files-found: warn
+
   browser-validation:
     needs: release-compatibility
     runs-on: ubuntu-latest
@@ -262,7 +314,7 @@ jobs:
 
   # Deployment remains gated by the release checks and every selected suite.
   deploy:
-    needs: [release-compatibility, worker-validation, browser-validation]
+    needs: [release-compatibility, worker-validation, browser-validation, homepage-validation]
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

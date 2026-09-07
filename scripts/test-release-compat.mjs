@@ -1146,8 +1146,14 @@ function createValidContext() {
     needs: release-compatibility
   browser-validation:
     needs: release-compatibility
+  homepage-validation:
+    needs: release-compatibility
+    steps:
+      - run: npm run check:homepage-selection
+      - run: npm run test:homepage-functional
+      - run: npm run test:homepage-performance
   deploy:
-    needs: [release-compatibility, worker-validation, browser-validation]
+    needs: [release-compatibility, worker-validation, browser-validation, homepage-validation]
     steps:
       - run: npm run build:static
     `,
@@ -1173,6 +1179,33 @@ function createValidContext() {
 {
   const issues = validateReleaseCompatibility(loadReleaseCompatibilityContext(repoRoot));
   assert.deepEqual(issues, []);
+}
+
+for (const missing of ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation"]) {
+  const context = createValidContext();
+  const gates = ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation"];
+  context.workflowSource = context.workflowSource.replace(
+    `needs: [${gates.join(", ")}]`,
+    `needs: [${gates.filter((gate) => gate !== missing).join(", ")}]`,
+  );
+  assert.ok(validateReleaseCompatibility(context).some((issue) => issue.startsWith('Deploy job must depend')),
+    `Removing ${missing} must fail the release gate`);
+}
+
+{
+  const context = createValidContext();
+  context.workflowSource = context.workflowSource.replace(
+    "  homepage-validation:\n    needs: release-compatibility",
+    "  homepage-validation:\n    needs: unrelated-job",
+  );
+  assert.ok(validateReleaseCompatibility(context).some((issue) => issue.startsWith('Homepage validation job must depend')));
+}
+
+for (const command of ["check:homepage-selection", "test:homepage-functional", "test:homepage-performance"]) {
+  const context = createValidContext();
+  context.workflowSource = context.workflowSource.replace(`      - run: npm run ${command}\n`, "");
+  assert.ok(validateReleaseCompatibility(context).some((issue) => issue.includes(`npm run ${command}`)),
+    `Missing ${command} must fail the release gate`);
 }
 
 {

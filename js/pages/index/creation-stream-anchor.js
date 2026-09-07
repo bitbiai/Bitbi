@@ -262,25 +262,9 @@ function getFallbackEndpointPoint(slotRect, role, side = 'right') {
     };
 }
 
-function getPointInSvgSpace(sourceElement, sourcePoint, targetSvg) {
-    if (typeof DOMPoint !== 'function') return null;
-
-    const sourceMatrix = sourceElement.getScreenCTM?.();
-    const targetMatrix = targetSvg.getScreenCTM?.();
-    if (!sourceMatrix || !targetMatrix) return null;
-
-    try {
-        const screenPoint = new DOMPoint(sourcePoint.x, sourcePoint.y)
-            .matrixTransform(sourceMatrix);
-
-        return screenPoint.matrixTransform(targetMatrix.inverse());
-    } catch {
-        return null;
-    }
-}
-
-function getEdgeGlowEndpointPoint(svg, edgeGlowPath, role) {
-    if (!edgeGlowPath || typeof edgeGlowPath.getTotalLength !== 'function') {
+function readEdgeGlowGeometry(svg, edgeGlowPath) {
+    if (typeof DOMPoint !== 'function' || !edgeGlowPath
+        || typeof edgeGlowPath.getTotalLength !== 'function') {
         return null;
     }
 
@@ -288,23 +272,37 @@ function getEdgeGlowEndpointPoint(svg, edgeGlowPath, role) {
     const viewBox = edgeSvg?.viewBox?.baseVal;
     if (!edgeSvg || !viewBox || !viewBox.height) return null;
 
-    const targetY = viewBox.y + (viewBox.height * clamp(role.y, 0.2, 0.82));
-    let totalLength = 0;
-
     try {
-        totalLength = edgeGlowPath.getTotalLength();
+        const totalLength = edgeGlowPath.getTotalLength();
+        if (!Number.isFinite(totalLength) || totalLength <= 0) return null;
+        const sourceMatrix = edgeGlowPath.getScreenCTM?.();
+        const targetMatrix = svg.getScreenCTM?.();
+        if (!sourceMatrix || !targetMatrix) return null;
+        const targetInverse = targetMatrix.inverse();
+        const points = [];
+        // Read the same 97 native samples once for this sync. Every route and
+        // flare uses this geometry; nothing survives a resize/scale update.
+        for (let index = 0; index <= 96; index += 1) {
+            points.push(edgeGlowPath.getPointAtLength((totalLength * index) / 96));
+        }
+        return {
+            y: viewBox.y, height: viewBox.height, points, sourceMatrix,
+            targetInverse, endpoints: new Map(),
+        };
     } catch {
         return null;
     }
+}
 
-    if (!Number.isFinite(totalLength) || totalLength <= 0) return null;
+function getEdgeGlowEndpointPoint(geometry, role) {
+    if (!geometry) return null;
+    const y = clamp(role.y, 0.2, 0.82);
+    if (geometry.endpoints.has(y)) return geometry.endpoints.get(y);
+    const targetY = geometry.y + (geometry.height * y);
 
     let nearestPoint = null;
     let nearestDistance = Number.POSITIVE_INFINITY;
-    const samples = 96;
-
-    for (let index = 0; index <= samples; index += 1) {
-        const point = edgeGlowPath.getPointAtLength((totalLength * index) / samples);
+    for (const point of geometry.points) {
         const distance = Math.abs(point.y - targetY);
         if (distance < nearestDistance) {
             nearestDistance = distance;
@@ -313,12 +311,18 @@ function getEdgeGlowEndpointPoint(svg, edgeGlowPath, role) {
     }
 
     if (!nearestPoint) return null;
-
-    return getPointInSvgSpace(edgeGlowPath, nearestPoint, svg);
+    try {
+        const point = new DOMPoint(nearestPoint.x, nearestPoint.y)
+            .matrixTransform(geometry.sourceMatrix).matrixTransform(geometry.targetInverse);
+        geometry.endpoints.set(y, point);
+        return point;
+    } catch {
+        return null;
+    }
 }
 
-function getEndpointPoint(svg, edgeGlowPath, slotRect, role, side = 'right') {
-    return getEdgeGlowEndpointPoint(svg, edgeGlowPath, role)
+function getEndpointPoint(geometry, slotRect, role, side = 'right') {
+    return getEdgeGlowEndpointPoint(geometry, role)
         || getFallbackEndpointPoint(slotRect, role, side);
 }
 
@@ -525,7 +529,9 @@ export function initCreationStreamAnchor(root = document) {
 
     const sync = () => {
         frame = 0;
-        instances.forEach((instance) => {
+        // Finish all native geometry reads before any stream attributes change.
+        // A write on one side must not force the next side's reads to relayout.
+        const updates = instances.map((instance) => {
             const zone = getOriginZone(instance.svg, cta);
             const videoStackRect = getVideoStackRect(
                 instance.svg,
@@ -533,13 +539,23 @@ export function initCreationStreamAnchor(root = document) {
                 instance.bottomSlot,
                 instance.modelsModule,
             );
-            if (!zone || !videoStackRect) return;
+            if (!zone || !videoStackRect) return null;
+            const geometry = readEdgeGlowGeometry(instance.svg, instance.edgeGlowPath);
+            const endpoint = role => getEndpointPoint(geometry, videoStackRect, role, instance.side);
+            return {
+                instance, zone,
+                endpoints: instance.routes.map(route => endpoint(route.endpointRole)),
+                topEndpoint: endpoint({ y: 0.3, xOffset: 0.012 }),
+                bottomEndpoint: endpoint({ y: 0.66, xOffset: 0.012 }),
+            };
+        }).filter(Boolean);
 
+        updates.forEach(({ instance, zone, endpoints, topEndpoint, bottomEndpoint }) => {
             instance.routes.forEach((route, index) => {
                 anchorPath(
                     route,
                     getOriginPoint(zone, index),
-                    getEndpointPoint(instance.svg, instance.edgeGlowPath, videoStackRect, route.endpointRole, instance.side),
+                    endpoints[index],
                     instance.side,
                 );
             });
@@ -555,8 +571,6 @@ export function initCreationStreamAnchor(root = document) {
                 anchorCircle(particle, getOriginPoint(zone, index, ORIGIN_PARTICLE_JITTERS));
             });
 
-            const topEndpoint = getEndpointPoint(instance.svg, instance.edgeGlowPath, videoStackRect, { y: 0.3, xOffset: 0.012 }, instance.side);
-            const bottomEndpoint = getEndpointPoint(instance.svg, instance.edgeGlowPath, videoStackRect, { y: 0.66, xOffset: 0.012 }, instance.side);
             if (instance.topFlare) anchorCircle(instance.topFlare, topEndpoint);
             if (instance.bottomFlare) anchorCircle(instance.bottomFlare, bottomEndpoint);
             if (instance.topFlareRay) anchorFlareRay(instance.topFlareRay, topEndpoint, 18);

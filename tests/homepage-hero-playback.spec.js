@@ -83,14 +83,51 @@ async function expectPlaying(page) {
 async function startContinuityProbe(page) {
   await page.evaluate(selector => {
     const videos = Array.from(document.querySelectorAll(selector));
-    const probe = { videos, sources: videos.map(video => video.getAttribute('src')), sourceChanges: 0, emptied: 0 };
+    const probe = { videos, sources: videos.map(video => video.getAttribute('src')), sourceChanges: 0, emptied: 0, resumes: [] };
     videos.forEach(video => {
+      // Observe the native resume call itself, before an independently due cycle
+      // may add its incoming face. Playback and decoding are not mocked here.
+      const nativePlay = video.play;
+      video.play = function (...args) {
+        const current = Array.from(document.querySelectorAll(selector));
+        probe.resumes.push({
+          sameVideos: current.length === videos.length && current.every((item, index) => item === videos[index]),
+          sameSources: videos.every((item, index) => item.getAttribute('src') === probe.sources[index]),
+          sourceChanges: probe.sourceChanges, emptied: probe.emptied,
+        });
+        return Reflect.apply(nativePlay, this, args);
+      };
       video.addEventListener('emptied', () => { probe.emptied += 1; });
       new MutationObserver(records => { probe.sourceChanges += records.length; })
         .observe(video, { attributes: true, attributeFilter: ['src'] });
     });
     window.__heroContinuityProbe = probe;
   }, HERO_VIDEOS);
+}
+
+async function expectNativeResumeContinuity(page, testInfo, label) {
+  const resumes = await page.evaluate(() => window.__heroContinuityProbe.resumes);
+  expect(resumes.length, `${label}: native resume observed`).toBeGreaterThan(0);
+  for (const resume of resumes) {
+    expect(resume).toEqual({ sameVideos: true, sameSources: true, sourceChanges: 0, emptied: 0 });
+  }
+  await testInfo.attach(label, { body: JSON.stringify(resumes), contentType: 'application/json' });
+}
+
+async function suspendAtNativeTurn(page) {
+  await page.evaluate(selector => {
+    const observer = new MutationObserver(suspend);
+    function suspend() {
+      if (!document.querySelector(`${selector}.is-turning`)) return;
+      observer.disconnect();
+      // Capture the actual turn in the same DOM update, not a later driver task
+      // which might already be beyond animationend or its fallback deadline.
+      window.__setHeroDocumentHidden(true);
+    }
+    observer.observe(document.querySelector('#hero'), { attributes: true, attributeFilter: ['class'], subtree: true });
+    suspend();
+  }, HERO_SLOTS);
+  await expect(page.locator(`${HERO_SLOTS}.is-turning`).first()).toBeAttached({ timeout: 3000 });
 }
 
 async function expectContinuity(page) {
@@ -181,20 +218,22 @@ for (const locale of ['en', 'de']) {
   test(`${locale}: fallback freezes media and its staggered cycle while suspended`, async ({ page }, testInfo) => {
     const state = await openHome(page, locale, { configured: false });
     await expectPlaying(page);
+    await scrollHeroOffscreen(page);
+    await expect.poll(() => page.locator(HERO_VIDEOS).evaluateAll(videos => videos.every(video => video.paused))).toBe(true);
+    // The offscreen observer is asynchronous. The frozen interval begins at
+    // confirmed suspension, not at a driver sample that may precede a due turn.
     await startContinuityProbe(page);
     const cyclesBefore = await page.locator(HERO_SLOTS).evaluateAll(slots => slots.map(slot => slot.dataset.transitionCount));
-    await scrollHeroOffscreen(page);
     await expectFrozen(page, testInfo, 'fallback-offscreen-native-playback', 2400);
     expect(await page.locator(HERO_SLOTS).evaluateAll(slots => slots.map(slot => slot.dataset.transitionCount))).toEqual(cyclesBefore);
     await expectContinuity(page);
     await page.evaluate(() => window.scrollTo(0, 0));
     await expectPlaying(page);
-    await expectContinuity(page);
-    await expect.poll(() => page.locator(HERO_SLOTS).evaluateAll(slots => slots.some(slot => Number(slot.dataset.transitionCount) > 0)), { timeout: 3000 }).toBe(true);
+    await expectNativeResumeContinuity(page, testInfo, 'fallback-native-resume');
 
     // Suspension during an actual cube turn retains both faces and resumes it.
-    await expect(page.locator(`${HERO_SLOTS}.is-turning`).first()).toBeAttached();
-    await page.evaluate(() => window.__setHeroDocumentHidden(true));
+    await suspendAtNativeTurn(page);
+    expect(await page.locator(HERO_SLOTS).evaluateAll(slots => slots.some(slot => Number(slot.dataset.transitionCount) > 0))).toBe(true);
     await startContinuityProbe(page);
     const duringTurn = await page.locator(HERO_SLOTS).evaluateAll(slots => slots.map(slot => slot.dataset.transitionCount));
     await expectFrozen(page, testInfo, 'fallback-hidden-during-transition', 1250);
@@ -202,6 +241,7 @@ for (const locale of ['en', 'de']) {
     await expectContinuity(page);
     await page.evaluate(() => window.__setHeroDocumentHidden(false));
     await expectPlaying(page);
+    await expectNativeResumeContinuity(page, testInfo, 'fallback-native-turn-resume');
     await expect(page.locator(`${HERO_SLOTS}.is-turning`)).toHaveCount(0, { timeout: 2000 });
     expect(state.errors).toEqual([]);
   });
@@ -251,11 +291,12 @@ for (const locale of ['en', 'de']) {
     await expect.poll(() => page.locator(HERO_SLOTS).evaluateAll(slots => slots.some(slot => Number(slot.dataset.transitionCount) > 0)), { timeout: 3000 }).toBe(true);
     await expect(page.locator(`${HERO_SLOTS}.is-turning`)).toHaveCount(0);
     await scrollHeroOffscreen(page);
+    await expect.poll(() => page.locator(HERO_VIDEOS).evaluateAll(videos => videos.every(video => video.paused))).toBe(true);
     await startContinuityProbe(page);
     await expectFrozen(page, testInfo, 'tablet-reduced-motion-offscreen');
     await page.evaluate(() => window.scrollTo(0, 0));
     await expectPlaying(page);
-    await expectContinuity(page);
+    await expectNativeResumeContinuity(page, testInfo, 'reduced-motion-native-resume');
     await page.setViewportSize({ width: 820, height: 650 });
     await expect(page.locator(HERO_VIDEOS)).toHaveCount(0);
     await page.setViewportSize({ width: 1440, height: 900 });

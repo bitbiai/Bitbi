@@ -231,9 +231,60 @@ jobs:
           FAST_UI_HEAD_REF: ${{ steps.changed-files.outputs.head_ref }}
         run: node scripts/select-ci-tests.mjs --base "$FAST_UI_BASE_REF" --head "$FAST_UI_HEAD_REF" --github-output
 
+  # Short homepage feedback runs independently of the long browser regression.
+  homepage-validation:
+    needs: guard
+    runs-on: ubuntu-latest
+    if: needs.guard.outputs.ui_only == 'true'
+    steps:
+      - name: Report unselected homepage acceptance
+        if: ${{ !(needs.guard.outputs.homepage == 'true' || needs.guard.outputs.carousel == 'true') }}
+        run: echo "Homepage acceptance is not selected for this change."
+      - name: Checkout
+        if: needs.guard.outputs.homepage == 'true' || needs.guard.outputs.carousel == 'true'
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Setup Node.js
+        if: needs.guard.outputs.homepage == 'true' || needs.guard.outputs.carousel == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'npm'
+      - name: Install dependencies
+        if: needs.guard.outputs.homepage == 'true' || needs.guard.outputs.carousel == 'true'
+        run: npm ci
+      - name: Install short homepage browser matrix
+        if: needs.guard.outputs.homepage == 'true' || needs.guard.outputs.carousel == 'true'
+        run: npx playwright install --with-deps chromium webkit
+      - name: Verify mandatory homepage discovery and coverage
+        if: needs.guard.outputs.homepage == 'true' || needs.guard.outputs.carousel == 'true'
+        id: homepage_discovery
+        run: npm run check:homepage-selection
+      - name: Run short homepage functional acceptance
+        if: needs.guard.outputs.homepage == 'true' || needs.guard.outputs.carousel == 'true'
+        run: npm run test:homepage-functional
+      - name: Run controlled homepage performance acceptance
+        if: ${{ !cancelled() && steps.homepage_discovery.outcome == 'success' }}
+        run: npm run test:homepage-performance
+      - name: Upload short homepage evidence
+        if: always() && (needs.guard.outputs.homepage == 'true' || needs.guard.outputs.carousel == 'true')
+        uses: actions/upload-artifact@v6
+        with:
+          name: homepage-acceptance-${{ github.sha }}
+          path: |
+            test-results/homepage-*.json
+            test-results/homepage-discovery-*/
+            test-results/homepage-functional/
+            test-results/homepage-performance/
+            playwright-report/homepage-functional/
+            playwright-report/homepage-performance/
+          retention-days: 7
+          if-no-files-found: warn
+
   deploy:
     name: Validate and deploy fast-safe change
-    needs: guard
+    needs: [guard, homepage-validation]
     if: needs.guard.outputs.ui_only == 'true'
     runs-on: ubuntu-latest
     environment:
