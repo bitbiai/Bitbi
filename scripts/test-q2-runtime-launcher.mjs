@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
 import { createReleasePlanFromRepo, evaluateStaticDeploySafety } from './lib/release-plan.mjs';
-import { parseRuntimeArgs, assertHostedBootstrapAllowed, stageInputPlan, stageRuntimeInputs, resolveArtifactParent, stageNodeExecutable } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
+import { canonicalInterfaces, canonicalRoutes, networkFieldDiff, throwHostedFailures, parseRuntimeArgs, assertHostedBootstrapAllowed, stageInputPlan, stageRuntimeInputs, resolveArtifactParent, stageNodeExecutable } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
@@ -269,6 +269,7 @@ test('native artifact paths use runner context only after runner assignment', ()
 test('default native runtime plan stages every actual Q4 import and control input', async t => {
   const { runtimeSuites } = await import('../tests/helpers/q2-runtime/runner.mjs');
   const expected = [
+    ['q4-public-video', 'tests/q4-runtime-public-video.mjs', 'runPublicVideoTests'],
     ['q4-stream', 'tests/q4-runtime-stream.mjs', 'runStreamTests'],
     ['q4-memory', 'tests/q4-runtime-memory.mjs', 'runMemoryTests'],
     ['q4-video', 'tests/q4-runtime-video.mjs', 'runVideoTests'],
@@ -308,5 +309,36 @@ test('default native runtime plan stages every actual Q4 import and control inpu
   const staged = stageRuntimeInputs(root, f.staged, imports);
   assert.equal(staged.files, imports.length);
   for (const filename of imports) assert.deepEqual(fs.readFileSync(path.join(f.staged, filename)), fs.readFileSync(path.join(root, filename)), filename);
-  t.diagnostic(`Resolved and staged ${imports.length} actual source modules; four Q4 suites plus ${controls.length} native controls. Packages retain the existing locked dependency staging.`);
+  t.diagnostic(`Resolved and staged ${imports.length} actual source modules; ${expected.length} Q4 suites plus ${controls.length} native controls. Packages retain the existing locked dependency staging.`);
+});
+
+
+test('host network comparison canonicalizes order but retains interface, address, MTU and route changes', () => {
+  const rows = [{ ifname: 'eth0', ifindex: 2, flags: ['UP','LOWER_UP'], mtu: 1500, operstate: 'UP',
+    addr_info: [{ family:'inet', local:'192.0.2.1', prefixlen:24, scope:'global' }, {family:'inet6',local:'2001:db8::1',prefixlen:64,scope:'global'}] },
+    {ifname:'lo',ifindex:1,flags:['LOOPBACK','UP'],mtu:65536,addr_info:[]}];
+  const before = canonicalInterfaces(rows), reordered = structuredClone(rows).reverse();
+  for (const row of reordered) { row.flags.reverse(); row.addr_info.reverse(); }
+  assert.deepEqual(canonicalInterfaces(reordered),before);
+  for (const mutate of [x=>x.push({ifname:'new0',ifindex:3,flags:[],mtu:1500,addr_info:[]}),
+    x=>x[0].mtu++,x=>x[0].flags.pop(),x=>x[0].operstate='DOWN',x=>x[0].addr_info[0].local='192.0.2.2',
+    x=>x[0].addr_info[0].prefixlen=16,x=>x[0].master='other']) {
+    const changed = structuredClone(rows); mutate(changed); assert.notDeepEqual(canonicalInterfaces(changed),before);
+    const diff = networkFieldDiff(before,canonicalInterfaces(changed),'synthetic-local-diff-key');
+    assert.ok(diff.length); assert.ok(!JSON.stringify(diff).includes('192.0.2.'));
+  }
+  const routes=[{dst:'default',gateway:'192.0.2.254',dev:'eth0',metric:100,flags:['onlink','linkdown']},{dst:'2001:db8::/64',dev:'eth0',metric:256}];
+  assert.deepEqual(canonicalRoutes(routes),canonicalRoutes(structuredClone(routes).reverse().map(x=>({...x,flags:x.flags?.reverse()})).map(x=>{if(!x.flags)delete x.flags;return x;})));
+  for (const patch of [{gateway:'192.0.2.253'},{dev:'other'},{metric:101},{dst:'192.0.2.0/24'}])
+    assert.notDeepEqual(canonicalRoutes(routes),canonicalRoutes([{...routes[0],...patch},routes[1]]));
+  assert.deepEqual(canonicalRoutes(routes),canonicalRoutes(routes.map(x=>({...x,expires:2}))));
+});
+
+test('postcheck failures retain the earlier bootstrap or runtime failure', () => {
+  const primary=new Error('native assertion failed'),post=new Error('network changed');
+  assert.throws(()=>throwHostedFailures(primary,[post]),error=>error instanceof AggregateError
+    && error.errors[0]===primary && error.errors[1]===post && /Execution: native assertion failed/.test(error.message));
+  assert.throws(()=>throwHostedFailures(null,[post]),/Postcheck: network changed/);
+  assert.throws(()=>throwHostedFailures(primary,[]),/Execution: native assertion failed/);
+  assert.doesNotThrow(()=>throwHostedFailures(null,[]));
 });

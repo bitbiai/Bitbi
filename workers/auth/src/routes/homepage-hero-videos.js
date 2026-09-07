@@ -1,3 +1,4 @@
+import { publicVideoResponse } from "../lib/public-video-response.mjs";
 import { STREAM_RECEIPT_PROTOCOL, StreamReceiptError, claimStreamPreviewJobs, beginStreamUpload, recordStreamUpload, getStreamUploadReceipt, completeStreamUpload, failStreamUpload } from '../lib/memvid-stream-upload-receipts.js';
 import { json } from "../lib/response.js";
 import {
@@ -3565,6 +3566,11 @@ async function handlePublicHeroMedia(ctx, slot, version, kind) {
     const key = kind === "poster" ? row?.poster_r2_key : row?.file_r2_key;
     if (!key) {
       return json({ ok: false, error: "Hero video not found." }, { status: 404 });
+    }
+    if (kind === "file") {
+      const response = await publicVideoResponse(ctx.request, ctx.env.USER_IMAGES, key, object =>
+        buildPublicMediaHeaders(row.file_mime_type || object.httpMetadata?.contentType || "video/mp4", object.size, { immutable: true }));
+      return response || json({ ok: false, error: "Hero video not found." }, { status: 404 });
     }
     const object = await ctx.env.USER_IMAGES.get(key);
     if (!object) {

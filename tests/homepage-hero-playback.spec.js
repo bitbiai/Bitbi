@@ -15,7 +15,8 @@ test.afterEach(async ({ page }, testInfo) => {
   if (events) await testInfo.attach('native-media-events', { body: JSON.stringify(events), contentType: 'application/json' });
 });
 
-async function fixture(page, { configured = true, initiallyHidden = false } = {}) {
+async function fixture(page, { configured = true, initiallyHidden = false, rangeSupport = true } = {}) {
+  const { publicVideoResponse } = await import('../workers/auth/src/lib/public-video-response.mjs');
   const requests = [];
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -56,12 +57,16 @@ async function fixture(page, { configured = true, initiallyHidden = false } = {}
         poster: { url: `/api/gallery/memvids/playback-${index}/v1/poster`, w: 320, h: 180 },
       })), has_more: false, next_cursor: null } });
     }
-    // Match the existing public Hero/Memvid full-response contract. Do not turn
-    // Range requests into 206 here: those product handlers currently return 200.
-    if (url.pathname.endsWith('/file')) return route.fulfill({
-      status: 200, contentType: 'video/mp4', body: VIDEO,
-      headers: { 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' },
-    });
+    if (url.pathname.endsWith('/file')) {
+      const metadata = { size: VIDEO.length, etag: 'fixture-video', httpEtag: '"fixture-video"', uploaded: new Date('2026-09-07T00:00:00Z') };
+      const response = await publicVideoResponse(new Request(url, { headers: rangeSupport ? route.request().headers() : {} }), {
+        head: async () => metadata,
+        get: async (key, options) => ({ ...metadata, body: options?.range
+          ? VIDEO.subarray(options.range.offset, options.range.offset + options.range.length) : VIDEO }),
+      }, 'synthetic-video', () => new Headers({ 'Content-Type':'video/mp4','Content-Length':String(VIDEO.length),
+        'Cache-Control':'public, max-age=31536000, immutable','X-Content-Type-Options':'nosniff' }));
+      return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) });
+    }
     if (url.pathname.endsWith('/poster')) return route.fulfill({ status: 200, contentType: 'image/jpeg', body: POSTER });
     return json({ ok: true, data: { items: [], has_more: false, next_cursor: null } });
   });
@@ -184,8 +189,48 @@ async function scrollHeroOffscreen(page) {
   await expect.poll(() => page.locator('#hero').evaluate(hero => hero.getBoundingClientRect().bottom)).toBeLessThan(0);
 }
 
+// Same short MP4 outside the Hero distinguishes transport/decoder behavior from
+// controller lifecycle. Legacy200 is a diagnostic control, never a product pass.
+for (const rangeSupport of [false, true]) {
+  test(`native plain video: ${rangeSupport ? 'public range response loops and seeks' : 'legacy full200 transport diagnosis'}`, async ({ page, browserName }, testInfo) => {
+    await fixture(page, { rangeSupport });
+    const requests = [];
+    page.on('response', response => {
+      if (response.url().endsWith('/plain/file')) requests.push({ status:response.status(),range:response.request().headers().range || null,
+        contentRange:response.headers()['content-range'] || null,length:response.headers()['content-length'] || null });
+    });
+    await page.route('http://localhost:3000/plain-video', route => route.fulfill({contentType:'text/html',body:'<!doctype html><video muted playsinline loop controls></video>'}));
+    await page.goto('/plain-video');
+    const result=await page.evaluate(async () => {
+      const v=document.querySelector('video');v.muted=true;v.src='/api/plain/file';
+      let frames=0, loops=0, previous=0;const events=[];
+      const frame=(_,meta)=>{frames++;if(meta.mediaTime+0.3<previous)loops++;previous=meta.mediaTime;v.requestVideoFrameCallback(frame);};
+      if(!v.requestVideoFrameCallback)throw Error('Native frame callback unavailable');v.requestVideoFrameCallback(frame);
+      for(const name of ['error','seeking','seeked','playing','pause'])v.addEventListener(name,()=>events.push({name,time:v.currentTime,error:v.error?.code || null}));
+      const progress=()=>new Promise(resolve=>{
+        const start=frames, deadline=performance.now()+4500;
+        const inspect=()=>{if(v.error || (loops>=2&&frames-start>=12)||performance.now()>deadline)resolve();else requestAnimationFrame(inspect);};inspect();
+      });
+      let rejected=null;try{await v.play();}catch(error){rejected=error.name;}
+      await progress();
+      const initial={frames,loops,error:v.error?.code||null,rejected};
+      let resumed=false,seeked=false;
+      if(!v.error&&loops>=2){
+        v.pause();v.currentTime=0.3;
+        seeked=await new Promise(resolve=>{v.addEventListener('seeked',()=>resolve(true),{once:true});setTimeout(()=>resolve(false),1000);});
+        const start=frames;try{await v.play();}catch(error){rejected=error.name;}
+        await new Promise(resolve=>{const end=performance.now()+2000;const check=()=>{if(frames>start+2||v.error||performance.now()>end)resolve();else requestAnimationFrame(check);};check();});resumed=frames>start+2;
+      }
+      v.pause();return{initial,resumed,seeked,error:v.error?.code||null,readyState:v.readyState,networkState:v.networkState,events};
+    });
+    await testInfo.attach('plain-native-transport',{body:JSON.stringify({browserName,rangeSupport,requests,result}),contentType:'application/json'});
+    if(rangeSupport){expect(result.initial.loops).toBeGreaterThanOrEqual(2);expect(result.error).toBeNull();expect(result.seeked).toBe(true);expect(result.resumed).toBe(true);}
+    else { expect(result.error===2 || (result.initial.loops>=2&&result.resumed)).toBe(true); }
+  });
+}
+
 for (const locale of ['en', 'de']) {
-  test(`${locale}: configured native media loops in every slot with the existing full-response file contract`, async ({ page }, testInfo) => {
+  test(`${locale}: configured native media loops in every slot with the public range file contract`, async ({ page }, testInfo) => {
     await openHome(page, locale);
     await expectPlaying(page);
     const initial = await page.evaluate(() => window.__heroNativeProbe.sample());
@@ -196,10 +241,10 @@ for (const locale of ['en', 'de']) {
       const current = await page.evaluate(() => window.__heroNativeProbe.sample());
       return everyActiveSlotProgressed(initial, current) && current.every(video => {
         const first = initial.find(item => item.id === video.id);
-        return first && video.frames !== null && first.frames !== null && video.frames - first.frames >= 24;
+        return first && video.presentedFrames !== null && first.presentedFrames !== null && video.presentedFrames - first.presentedFrames >= 24;
       });
     }).toBe(true);
-    await testInfo.attach('native-full-response-loop', {
+    await testInfo.attach('native-range-response-loop', {
       body: JSON.stringify({ initial, current: await page.evaluate(() => window.__heroNativeProbe.sample()) }),
       contentType: 'application/json',
     });

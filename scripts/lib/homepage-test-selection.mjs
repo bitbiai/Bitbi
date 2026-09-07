@@ -19,10 +19,10 @@ export const HOMEPAGE_PERFORMANCE_REQUIRED = Object.freeze({
     'native blocking countercontrol retains a task crossing completion despite delayed observation',
   ],
 });
-export const HOMEPAGE_WEBKIT_REQUIRED = Object.freeze(['en', 'de'].flatMap((locale) => [
+export const HOMEPAGE_WEBKIT_REQUIRED = Object.freeze(['native plain video: legacy full200 transport diagnosis', 'native plain video: public range response loops and seeks', ...['en', 'de'].flatMap((locale) => [
   `${locale}: fallback freezes media and its staggered cycle while suspended`,
   `${locale}: phone and tablet breakpoints retain existing policy with reduced motion`,
-]));
+])]);
 
 export function flattenHomepageDiscovery(report) {
   assert.ok(Array.isArray(report?.suites), 'Missing Playwright discovery suites');

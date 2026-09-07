@@ -10,8 +10,11 @@ import { runMemoryTests } from '../../q4-runtime-memory.mjs';
 import { runVideoTests } from '../../q4-runtime-video.mjs';
 import { runSubscriptionTests } from '../../q4-runtime-subscription.mjs';
 
+import { runPublicVideoTests } from '../../q4-runtime-public-video.mjs';
+
 export const runtimeSuites = Object.freeze([
   ['native', runNativeTests, {}], ['references', runReferenceTests, { referenceOnly: true }], ['recovery', runRecoveryTests, { restricted: true }],
+  ['q4-public-video', runPublicVideoTests, {}],
   ['q4-stream', runStreamTests, { restricted: true }],
   ['q4-memory', runMemoryTests, { restricted: true, q4Control: 'q4-memory-control.mjs' }],
   ['q4-video', runVideoTests, { restricted: true, q4Control: 'q4-video-control.mjs' }],

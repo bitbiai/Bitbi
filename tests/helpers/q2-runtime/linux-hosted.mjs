@@ -3,7 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -76,7 +76,7 @@ export function stageInputPlan() {
     'workers/shared', 'js/shared', 'config', 'scripts/lib/release-compat.mjs',
     'tests/helpers/q2-runtime', 'tests/q2-runtime-native.mjs',
     'tests/q2-runtime-references.mjs', 'tests/q2-runtime-recovery.mjs',
-    'tests/q4-runtime-stream.mjs', 'tests/q4-runtime-memory.mjs', 'tests/q4-runtime-video.mjs', 'tests/q4-runtime-subscription.mjs',
+    'tests/q4-runtime-public-video.mjs', 'tests/q4-runtime-stream.mjs', 'tests/q4-runtime-memory.mjs', 'tests/q4-runtime-video.mjs', 'tests/q4-runtime-subscription.mjs',
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-control.mjs', 'tests/helpers/q4-memory-fixture.mjs',
     'tests/helpers/q4-video-control.mjs', 'tests/helpers/q4-subscription-payloads.cjs',
   ];
@@ -132,40 +132,70 @@ export function stageRuntimeInputs(repo, destination, inputs = stageInputPlan())
   return { files, symlinks, inputs };
 }
 
-function hostNetworkSnapshot() {
-  const ip = ['/usr/sbin/ip', '/usr/bin/ip'].find(file => fs.existsSync(file));
-  assert.ok(ip, 'Preinstalled iproute2 is required');
-  const result = spawnSync(ip, ['-j', 'address', 'show'], { env: { PATH: '/usr/bin:/bin', LANG: 'C' }, encoding: 'utf8' });
-  assert.equal(result.status, 0, 'Cannot read host interface metadata');
-  const rows = JSON.parse(result.stdout).map(row => ({ name: row.ifname, index: row.ifindex, flags: row.flags,
-    mtu: row.mtu, addresses: row.addr_info.map(a => ({ family: a.family, address: a.local, prefix: a.prefixlen, scope: a.scope })) }));
-  return { sha256: hash(JSON.stringify(rows)), names: rows.map(row => row.name) };
+const ordered = rows => rows.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+export function canonicalInterfaces(input) {
+  assert.ok(Array.isArray(input), 'Expected interface metadata array');
+  return ordered(input.map(row => ({ name: row.ifname, index: row.ifindex,
+    flags: [...row.flags].sort(), mtu: row.mtu, state: row.operstate ?? null,
+    linkType: row.link_type ?? null, master: row.master ?? null,
+    address: row.address ?? null,
+    addresses: ordered(row.addr_info.map(a => ({ family: a.family, address: a.local,
+      peer: a.peer ?? null, broadcast: a.broadcast ?? null, prefix: a.prefixlen,
+      scope: a.scope, label: a.label ?? null, flags: [...(a.flags || [])].sort() }))) })));
 }
 
-function hostRouteSnapshot() {
-  const ip = ['/usr/sbin/ip', '/usr/bin/ip'].find(file => fs.existsSync(file));
-  assert.ok(ip, 'Preinstalled iproute2 is required');
-  // Lifetime/cached-use counters can change without any routing change. Keep
-  // route identities, devices, next hops, flags, metrics and other stable data;
-  // persist only their hashes/counts, never host addresses.
+export function canonicalRoutes(input) {
+  assert.ok(Array.isArray(input), 'Expected route metadata array');
   const volatile = new Set(['expires', 'expire', 'age', 'cache', 'lastuse', 'last_used', 'used', 'users', 'refcnt', 'ts', 'tsage']);
   const stable = value => {
-    if (Array.isArray(value)) return value.map(stable);
+    if (Array.isArray(value)) return ordered(value.map(stable));
     if (!value || typeof value !== 'object') return value;
-    return Object.fromEntries(Object.keys(value).filter(key => !volatile.has(key)).sort().map(key =>
-      [key, key === 'flags' && Array.isArray(value[key]) ? [...value[key]].sort() : stable(value[key])]));
+    return Object.fromEntries(Object.keys(value).filter(key => !volatile.has(key)).sort()
+      .map(key => [key, stable(value[key])]));
   };
-  const families = {};
-  for (const family of [4, 6]) {
-    const result = spawnSync(ip, ['-j', `-${family}`, 'route', 'show', 'table', 'all'],
-      { env: { PATH: '/usr/bin:/bin', LANG: 'C' }, encoding: 'utf8' });
-    assert.equal(result.status, 0, `Cannot read IPv${family} host routing metadata`);
-    const parsed = JSON.parse(result.stdout);
-    assert.ok(Array.isArray(parsed), 'Expected a route array from iproute2');
-    const rows = parsed.map(row => JSON.stringify(stable(row))).sort();
-    families[`ipv${family}`] = { sha256: hash(JSON.stringify(rows)), routeCount: rows.length };
+  return ordered(input.map(stable));
+}
+
+// Redact individual addresses with a per-execution secret, retained only in
+// memory. Equality and field differences remain observable without host IPs.
+export function networkFieldDiff(before, after, secret) {
+  const protect = (value, key = '') => {
+    if (Array.isArray(value)) return value.map(item => protect(item, key));
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k,v]) => [k,protect(v,k)]));
+    return typeof value === 'string' && !/^(name|family|scope|state|linkType|flags|master|label|dev|protocol|type|pref|table)$/.test(key)
+      ? 'address-' + createHmac('sha256', secret).update(JSON.stringify(value)).digest('hex').slice(0, 20) : value;
+  };
+  const left = protect(before), right = protect(after), changes = [];
+  function compare(a, b, field) {
+    if (JSON.stringify(a) === JSON.stringify(b)) return;
+    if (Array.isArray(a) && Array.isArray(b)) {
+      for (let i = 0; i < Math.max(a.length, b.length); i++) compare(a[i], b[i], field + '[' + i + ']');
+    } else if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
+      for (const key of [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()) compare(a[key],b[key],field ? field + '.' + key : key);
+    } else changes.push({ field, before: a ?? null, after: b ?? null });
   }
-  return { ...families, sha256: hash(JSON.stringify(families)) };
+  compare(left, right, ''); return changes;
+}
+
+function readIp(args) {
+  const ip = ['/usr/sbin/ip', '/usr/bin/ip'].find(file => fs.existsSync(file));
+  assert.ok(ip, 'Preinstalled iproute2 is required');
+  const result = spawnSync(ip, ['-j', ...args], { env: { PATH: '/usr/bin:/bin', LANG: 'C' }, encoding: 'utf8' });
+  assert.equal(result.status, 0, 'Cannot read host network metadata');
+  return JSON.parse(result.stdout);
+}
+function hostNetworkSnapshot() {
+  const rows = canonicalInterfaces(readIp(['address', 'show']));
+  return { rows, sha256: hash(JSON.stringify(rows)), names: rows.map(row => row.name), namespace: fs.readlinkSync('/proc/self/ns/net') };
+}
+function hostRouteSnapshot() {
+  const rows = Object.fromEntries([4,6].map(family => ['ipv' + family, canonicalRoutes(readIp([`-${family}`, 'route', 'show', 'table', 'all']))]));
+  return { rows, sha256: hash(JSON.stringify(rows)) };
+}
+const digestSnapshot = ({ rows, ...summary }) => summary;
+export function throwHostedFailures(primary, checks) {
+  const errors = [...(primary ? [primary] : []), ...checks];
+  if (errors.length) throw new AggregateError(errors, errors.map((error, i) => `${primary && i === 0 ? 'Execution' : 'Postcheck'}: ${error.message}`).join('; '));
 }
 
 function systemToolVersions() {
@@ -189,8 +219,11 @@ export async function runHostedLinux(options) {
   const output = fs.mkdtempSync(path.join(parent, options.preflight ? 'preflight-' : 'native-'));
   const session = fs.mkdtempSync('/tmp/bitbi-q2-linux-');
   const workspace = path.join(session, 'workspace'); fs.mkdirSync(workspace, { mode: 0o755 });
-  const before = hostNetworkSnapshot();
-  const routesBefore = hostRouteSnapshot();
+  const preparationBefore = hostNetworkSnapshot();
+  const preparationRoutes = hostRouteSnapshot();
+  const diffSecret = randomBytes(32);
+  let before = null, routesBefore = null, after = null, routesAfter = null;
+  const checks = [];
   const systemTools = systemToolVersions();
   const sentinel = net.createServer(socket => socket.destroy());
   await new Promise((resolve, reject) => { sentinel.once('error', reject); sentinel.listen(path.join(session, 'host-control.sock'), resolve); });
@@ -212,39 +245,52 @@ export async function runHostedLinux(options) {
       'GITHUB_ACTIONS=true', 'RUNNER_ENVIRONMENT=github-hosted', 'RUNNER_OS=Linux', 'Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP=1',
       '/usr/bin/python3', '-I', '-S', bootstrap, '--session', session, '--node-sha256', nodeStaging.sha256,
       '--uid', String(process.getuid()), '--gid', String(process.getgid()), '--mode', options.preflight ? 'preflight' : 'runtime'];
+    // Snapshot immediately before the privileged/isolated execution. The
+    // preceding phase only stages files as the ordinary runner user. Record
+    // preparation drift separately; never excuse drift inside this boundary.
+    before = hostNetworkSnapshot(); routesBefore = hostRouteSnapshot();
     const result = spawnSync('/usr/bin/sudo', args, { env: { PATH: '/usr/bin:/bin', LANG: 'C' },
       stdio: ['ignore', 'inherit', 'inherit'] });
     status = result.status;
+    // End the comparison before ordinary-user report copying/cleanup.
+    try { after = hostNetworkSnapshot(); routesAfter = hostRouteSnapshot(); }
+    catch (error) { checks.push(error); }
     if (result.error) throw new Error('Hosted bootstrap could not start: ' + result.error.code);
     const reports = path.join(session, 'reports');
     if (fs.existsSync(reports)) fs.cpSync(reports, path.join(output, 'reports'), { recursive: true, errorOnExist: true, force: false });
     assert.equal(result.signal, null, 'Hosted bootstrap terminated by signal');
     assert.equal(status, 0, 'Hosted bootstrap/native runtime failed; there is no unisolated fallback');
     assert.equal(JSON.parse(fs.readFileSync(path.join(output, 'reports/isolation-result.json'), 'utf8')).passed, true);
-  } catch (error) { failure = error.message; throw error; }
+  } catch (error) { failure = error; }
   finally {
-    const after = hostNetworkSnapshot();
-    const routesAfter = hostRouteSnapshot();
     const hostedImage = {};
     for (const name of ['ImageOS', 'ImageVersion', 'RUNNER_ARCH', 'GITHUB_RUN_ID', 'GITHUB_SHA']) {
       if (process.env[name] && /^[A-Za-z0-9._-]{1,100}$/.test(process.env[name])) hostedImage[name] = process.env[name];
     }
-    const report = { mode: options.preflight ? 'preflight' : 'runtime', status, failure, staged, hostedImage, systemTools, nodeSource, nodeStaging,
+    const report = { mode: options.preflight ? 'preflight' : 'runtime', status, failure: failure?.message || null, staged, hostedImage, systemTools, nodeSource, nodeStaging,
       hostUnixListenerPositiveControl: true,
       configuredBoundary: { namespaces: ['net', 'mount', 'pid', 'ipc'], userNamespace: false,
         bootstrapInterpreter: '/usr/bin/python3 -I -S', fixedSystemTools: ['/usr/bin/unshare', '/usr/bin/mount', '/usr/bin/setpriv'],
         privilegeDrop: ['--reuid=65534', '--regid=65534', '--clear-groups', '--bounding-set=-all', '--inh-caps=-all', '--ambient-caps=-all', '--no-new-privs'] },
-      hostNetworkBefore: before, hostNetworkAfter: after, hostInterfacesUnchanged: before.sha256 === after.sha256,
-      hostRoutesBefore: routesBefore, hostRoutesAfter: routesAfter, hostRoutesUnchanged: routesBefore.sha256 === routesAfter.sha256,
+      preparationInterfaceDrift: before ? networkFieldDiff(preparationBefore.rows, before.rows, diffSecret) : null,
+      preparationRouteDrift: routesBefore ? networkFieldDiff(preparationRoutes.rows, routesBefore.rows, diffSecret) : null,
+      hostNetworkBefore: before ? digestSnapshot(before) : null, hostNetworkAfter: after ? digestSnapshot(after) : null,
+      hostInterfacesUnchanged: !!before && !!after && before.sha256 === after.sha256 && before.namespace === after.namespace,
+      hostInterfaceDiff: before && after ? networkFieldDiff(before.rows, after.rows, diffSecret) : null,
+      hostRoutesBefore: routesBefore ? digestSnapshot(routesBefore) : null, hostRoutesAfter: routesAfter ? digestSnapshot(routesAfter) : null,
+      hostRoutesUnchanged: !!routesBefore && !!routesAfter && routesBefore.sha256 === routesAfter.sha256,
+      hostRouteDiff: routesBefore && routesAfter ? networkFieldDiff(routesBefore.rows, routesAfter.rows, diffSecret) : null,
       scope: 'Hosted Linux isolation evidence only; no Cloud/deployment or old invocation drain claim.' };
-    fs.writeFileSync(path.join(output, 'launcher-result.json'), JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
-    // The fixed root bootstrap removes only its own root-owned jail/output after
-    // the PID namespace exits; all remaining staging belongs to this user.
-    await new Promise(resolve => sentinel.close(resolve));
-    fs.rmSync(session, { recursive: true, force: true });
+    if (before && !report.hostInterfacesUnchanged) checks.push(new Error('Host interface metadata or namespace changed during isolated execution'));
+    if (routesBefore && !report.hostRoutesUnchanged) checks.push(new Error('Stable IPv4/IPv6 host routing metadata changed during isolated execution'));
+    try { await new Promise(resolve => sentinel.close(resolve)); fs.rmSync(session, { recursive: true, force: true }); }
+    catch (error) { checks.push(error); }
+    report.postcheckFailures = checks.map(error => error.message);
+    try { fs.writeFileSync(path.join(output, 'launcher-result.json'), JSON.stringify(report, null, 2) + '\n', { flag: 'wx' }); }
+    catch (error) { checks.push(error); }
     process.stdout.write(JSON.stringify({ q2LinuxEvidence: output, hostInterfacesUnchanged: report.hostInterfacesUnchanged,
-      hostRoutesUnchanged: report.hostRoutesUnchanged }) + '\n');
-    assert.ok(report.hostInterfacesUnchanged, 'Host interface metadata changed during isolated execution');
-    assert.ok(report.hostRoutesUnchanged, 'Stable IPv4/IPv6 host routing metadata changed during isolated execution');
+      hostRoutesUnchanged: report.hostRoutesUnchanged, executionFailure: failure?.message || null,
+      postcheckFailures: checks.map(error => error.message) }) + '\n');
+    throwHostedFailures(failure, checks);
   }
 }

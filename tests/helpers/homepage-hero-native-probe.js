@@ -3,12 +3,20 @@
 async function installHeroNativeProbe(page) {
   await page.addInitScript(() => {
     const ids = new WeakMap();
+    const presentations = new WeakMap();
     let sequence = 0;
     const events = [];
     const isHeroVideo = video => video instanceof HTMLVideoElement
       && video.classList.contains('latest-models-video-module__video');
     function sample(video) {
-      if (!ids.has(video)) ids.set(video, ++sequence);
+      if (!ids.has(video)) {
+        ids.set(video, ++sequence);
+        if (video.requestVideoFrameCallback) {
+          presentations.set(video, 0);
+          const observe = () => { presentations.set(video, presentations.get(video) + 1); if (video.isConnected) video.requestVideoFrameCallback(observe); };
+          video.requestVideoFrameCallback(observe);
+        }
+      }
       const slot = video.closest('[data-latest-models-slot]');
       const module = slot?.closest('[data-latest-models-video-module]');
       const face = video.closest('.latest-models-video-module__face');
@@ -35,6 +43,7 @@ async function installHeroNativeProbe(page) {
         },
         connected: video.isConnected, src: video.getAttribute('src'),
         time: video.currentTime, duration: Number.isFinite(video.duration) ? video.duration : null,
+        presentedFrames: presentations.get(video) ?? null,
         frames: video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? null,
         paused: video.paused, ended: video.ended, seeking: video.seeking,
         readyState: video.readyState, networkState: video.networkState,
@@ -81,7 +90,7 @@ function everyActiveSlotProgressed(previous, current) {
   return active.every(video => {
     const before = previous.find(item => item.id === video.id && item.slot === video.slot && item.src === video.src);
     return before && video.connected && !video.paused && video.readyState >= 2 && video.error === null
-      && (video.time > before.time || (video.frames !== null && before.frames !== null && video.frames > before.frames));
+      && ((!video.seeking && video.time > before.time) || (video.presentedFrames != null && before.presentedFrames != null && video.presentedFrames > before.presentedFrames) || (video.frames !== null && before.frames !== null && video.frames > before.frames));
   });
 }
 

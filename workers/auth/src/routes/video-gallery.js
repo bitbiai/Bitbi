@@ -1,3 +1,4 @@
+import { publicVideoResponse } from "../lib/public-video-response.mjs";
 import { json } from "../lib/response.js";
 import {
   decodePaginationCursor,
@@ -364,21 +365,9 @@ async function handleGetMemvidFile(ctx, videoId, version) {
     return json({ ok: false, error: "Video not found." }, { status: 404 });
   }
 
-  const object = await env.USER_IMAGES.get(row.r2_key);
-  if (!object) {
-    return json({ ok: false, error: "Video not found." }, { status: 404 });
-  }
-
-  return new Response(
-    object.body,
-    {
-      headers: buildPublicMediaHeaders(
-        row.mime_type || object.httpMetadata?.contentType || "video/mp4",
-        object.size,
-        { immutable: true }
-      ),
-    }
-  );
+  const response = await publicVideoResponse(ctx.request, env.USER_IMAGES, row.r2_key, object =>
+    buildPublicMediaHeaders(row.mime_type || object.httpMetadata?.contentType || "video/mp4", object.size, { immutable: true }));
+  return response || json({ ok: false, error: "Video not found." }, { status: 404 });
 }
 
 async function handleGetMemvidPoster(ctx, videoId, version) {
