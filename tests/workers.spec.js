@@ -124,7 +124,7 @@ async function loadAdminMfaModule() {
 
 async function loadAdminAiSaveFlowModule() {
   const modulePath = pathToFileURL(
-    path.join(process.cwd(), 'js/pages/admin/ai-lab-save-flow.mjs')
+    path.join(process.cwd(), 'js/pages/admin/ai-lab-save-operations.mjs')
   ).href;
   return import(modulePath);
 }

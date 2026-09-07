@@ -3,7 +3,8 @@ import { loadAdminModule } from './module-loader.js?v=__ASSET_VERSION__';
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initCookieConsent } from '../../shared/cookie-consent.js?v=__ASSET_VERSION__';
 import { apiAdminMe } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
-import { getAuthState } from '../../shared/auth-state.js?v=__ASSET_VERSION__';
+// Use the same module identity initialized by site-header/auth-nav/wallet.
+import { getAuthState } from '../../shared/auth-state.js';
 import { createAdminNav } from './nav.js?v=__ASSET_VERSION__';
 import { createAdminRouter } from './router.js?v=__ASSET_VERSION__';
 import { ADMIN_MFA_GATE_CODES, createAdminMfaGate } from './security.js?v=__ASSET_VERSION__';
@@ -16,12 +17,13 @@ const $adminNav = document.getElementById('adminNav');
 const $toast = document.getElementById('adminToast');
 let currentAdminUser = null;
 let authorizationLost = false;
+let authorizationUncertain = false;
 const instances = new Map();
 const pending = new Map();
 const nav = createAdminNav();
 
 function showToast(message, type = 'success') {
-    if (authorizationLost) return;
+    if (authorizationLost || authorizationUncertain) return;
     const node = document.createElement('div');
     node.className = `admin-toast__item admin-toast__item--${type}`;
     node.textContent = message;
@@ -55,10 +57,11 @@ const factories = {
     })),
 };
 async function getDomain(key, isCurrent = () => true) {
+    if (!isCurrent() || authorizationLost || authorizationUncertain || !currentAdminUser) return null;
     if (instances.has(key)) return instances.get(key);
     if (!pending.has(key)) pending.set(key, factories[key]().catch(error => { pending.delete(key); throw error; }));
     const factory = await pending.get(key);
-    if (!isCurrent() || authorizationLost || !currentAdminUser) return null;
+    if (!isCurrent() || authorizationLost || authorizationUncertain || !currentAdminUser) return null;
     if (!instances.has(key)) { const instance = factory(); instance.bind?.(); instances.set(key, instance); }
     return instances.get(key);
 }
@@ -71,7 +74,7 @@ function leaveSection(previous, next) {
     }
 }
 async function loadAdminSection(name, { context, isCurrent, panel } = {}) {
-    if (authorizationLost) return;
+    if (authorizationLost || authorizationUncertain) return;
     const key = sectionDomain[name] || 'control';
     const domain = await getDomain(key, isCurrent);
     if (!domain || !isCurrent()) return;
@@ -110,6 +113,22 @@ function showAccessDenied() {
     document.getElementById('adminNavToggle')?.setAttribute('hidden','');
     $denied.style.display = ''; $denied.classList.add('visible');
     $deniedMessage.style.display = ''; $mfaGate.style.display = 'none';
+    $deniedMessage.querySelector('.admin-denied__title').textContent = 'Access Denied';
+    $deniedMessage.querySelector('.admin-denied__text').textContent = 'You do not have permission to access this area. Please sign in with an admin account.';
+    document.getElementById('adminSessionRetry')?.remove();
+}
+function showSessionUncertain() {
+    authorizationUncertain = true;
+    router.stop(); leaveSection(router.getCurrentSection(), null);
+    document.querySelector('.admin-delete-dialog [aria-label="Cancel user deletion"]')?.click();
+    document.getElementById('avatarLightbox')?.classList.remove('admin-lightbox--visible');
+    document.getElementById('avatarLightbox')?.setAttribute('aria-hidden', 'true');
+    showAccessDenied();
+    $deniedMessage.querySelector('.admin-denied__title').textContent = 'Admin session check unavailable';
+    $deniedMessage.querySelector('.admin-denied__text').textContent = 'Session status could not be confirmed. Admin work is hidden; this does not confirm a sign-out. Reload to check again. Reloading discards unsaved drafts.';
+    const retry = document.createElement('button'); retry.id = 'adminSessionRetry'; retry.type = 'button'; retry.className = 'btn-action';
+    retry.textContent = 'Reload to check again'; retry.addEventListener('click', () => window.location.reload());
+    $deniedMessage.append(retry);
 }
 function showAdminMfaGate() {
     showAccessDenied(); $deniedMessage.style.display = 'none'; $mfaGate.style.display = '';
@@ -168,13 +187,22 @@ async function init() {
     const me = await apiAdminMe();
     if (!me.ok) {
         if (ADMIN_MFA_GATE_CODES.has(me.code)) await adminMfaGate.refresh(me.code);
-        else showAccessDenied();
+        // Only the structured authorization response establishes a denial.
+        // A gateway page, network error or service failure establishes neither access nor logout.
+        else if ([401, 403].includes(me.status) && me.data?.ok === false
+            && typeof me.data.error === 'string' && me.data.error.trim()) showAccessDenied();
+        else showSessionUncertain();
         return;
     }
-    currentAdminUser = me.data?.user || me.data?.admin || null;
-    if (!currentAdminUser) { showAccessDenied(); return; }
+    const candidate = me.data?.user || me.data?.admin || null;
+    if (me.data?.ok === false || typeof candidate?.id !== 'string' || !candidate.id.trim()
+        || typeof candidate.role !== 'string' || !candidate.role.trim()) { showSessionUncertain(); return; }
+    if (candidate.role !== 'admin') { showAccessDenied(); return; }
     const auth = getAuthState();
-    if (auth.ready && (!auth.loggedIn || auth.user?.id !== currentAdminUser.id || auth.user?.role !== 'admin')) { showAccessDenied(); return; }
+    if (auth.ready && auth.sessionConfirmed === false) { showSessionUncertain(); return; }
+    if (auth.ready && (!auth.loggedIn || auth.user?.id !== candidate.id || auth.user?.role !== 'admin')) { showAccessDenied(); return; }
+    // Never expose an identity to navigation until both available checks agree.
+    currentAdminUser = candidate;
     $denied.style.display = 'none'; $panel.style.display = ''; $adminNav.style.display = '';
     document.getElementById('adminNavToggle')?.removeAttribute('hidden');
     nav.bind(); router.bind();
@@ -190,7 +218,7 @@ $panel.addEventListener('keydown', event => {
     region.scrollBy({ left: event.key === 'ArrowRight' ? 64 : -64, behavior: 'instant' });
 });
 document.addEventListener('admin:open-context', event => {
-    if (!currentAdminUser || authorizationLost) return;
+    if (!currentAdminUser || authorizationLost || authorizationUncertain) return;
     const { section, userId, orgId, eventId, attemptId } = event.detail || {};
     if (!['users','orgs','billing','billing-events','ai-usage','lifecycle'].includes(section)) return;
     const context = Object.fromEntries(Object.entries({userId,orgId,eventId,attemptId}).filter(([,value]) => typeof value === 'string' && value.length > 0 && value.length <= 200));
@@ -198,8 +226,9 @@ document.addEventListener('admin:open-context', event => {
 });
 document.addEventListener('bitbi:auth-change', ({ detail }) => {
     if (!currentAdminUser || !detail?.ready) return;
+    if (detail.sessionConfirmed === false) { if (!authorizationLost) showSessionUncertain(); return; }
     if (detail.loggedIn && detail.user?.id === currentAdminUser.id && detail.user?.role === 'admin') return;
-    authorizationLost = true; currentAdminUser = null;
+    authorizationLost = true; authorizationUncertain = false; currentAdminUser = null;
     router.stop(); leaveSection(router.getCurrentSection(), null);
     // Settle a still-unsubmitted destructive confirmation through its normal cancel path.
     document.querySelector('.admin-delete-dialog [aria-label="Cancel user deletion"]')?.click();

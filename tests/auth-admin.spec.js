@@ -7633,6 +7633,12 @@ test.describe('Admin MFA gate', () => {
       ],
     };
 
+    // MFA changes the proof, not the signed-in account used by the shared header.
+    await page.route('**/api/me', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ loggedIn: true, user: { id: 'admin-mfa-1', email: 'admin@bitbi.ai', role: 'admin' } }),
+    }));
+
     await page.route('**/api/admin/me', async (route) => {
       if (state.phase === 'verified') {
         await route.fulfill({
@@ -7781,12 +7787,20 @@ test.describe('Admin MFA gate', () => {
 
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#adminDenied')).toBeHidden();
+    await expect(page.locator('#sectionDashboard')).toHaveAttribute('data-load-state', 'ready');
+    await expect(page.locator('#statTotal')).toHaveText('12');
+    await expect(page.locator('#adminOwnerActionSummary a[href="#users"]')).toBeVisible();
   });
 
   test('admin page blocks on MFA verification until a current code is accepted, then unlocks the dashboard', async ({ page }) => {
     const state = {
       phase: 'mfa_required',
     };
+
+    await page.route('**/api/me', route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ loggedIn: true, user: { id: 'admin-mfa-2', email: 'verified-admin@bitbi.ai', role: 'admin' } }),
+    }));
 
     await page.route('**/api/admin/me', async (route) => {
       if (state.phase === 'verified') {
@@ -7912,6 +7926,9 @@ test.describe('Admin MFA gate', () => {
 
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#adminDenied')).toBeHidden();
+    await expect(page.locator('#sectionDashboard')).toHaveAttribute('data-load-state', 'ready');
+    await expect(page.locator('#statTotal')).toHaveText('12');
+    await expect(page.locator('#adminOwnerActionSummary a[href="#users"]')).toBeVisible();
   });
 });
 
@@ -7921,6 +7938,14 @@ test.describe('Admin users pagination', () => {
   });
 
   test('admin users table loads more results with the current cursor', async ({ page }) => {
+    // Header and privileged API describe the same authenticated test actor.
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: true, user: { id: 'admin-1', email: 'admin@bitbi.ai', role: 'admin' } }),
+      });
+    });
     await page.route('**/api/admin/me', async (route) => {
       await route.fulfill({
         status: 200,
@@ -21016,6 +21041,14 @@ test.describe('AI Lab Image capability controls', () => {
     page,
   }) => {
     await seedCookieConsent(page);
+    // Header and privileged API describe the same authenticated test actor.
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: true, user: { id: 'a1', email: 'admin@bitbi.ai', role: 'admin' } }),
+      });
+    });
     await page.route('**/api/admin/me', async (route) => {
       await route.fulfill({
         contentType: 'application/json',
@@ -21083,6 +21116,14 @@ test.describe('AI Lab Image capability controls', () => {
 
   test('shows GPT Image 2 controls, 16 reference slots, and credit preview', async ({ page }) => {
     await seedCookieConsent(page);
+    // Header and privileged API describe the same authenticated test actor.
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: true, user: { id: 'a1', email: 'admin@bitbi.ai', role: 'admin' } }),
+      });
+    });
     await page.route('**/api/admin/me', async (route) => {
       await route.fulfill({
         contentType: 'application/json',
@@ -21264,6 +21305,14 @@ test.describe('AI Lab Image capability controls', () => {
     page,
   }) => {
     await seedCookieConsent(page);
+    // Header and privileged API describe the same authenticated test actor.
+    await page.route('**/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: true, user: { id: 'a1', email: 'admin@bitbi.ai', role: 'admin' } }),
+      });
+    });
     await page.route('**/api/admin/me', async (route) => {
       await route.fulfill({
         contentType: 'application/json',

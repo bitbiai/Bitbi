@@ -361,7 +361,8 @@ async function getGenerateLabHeaderMetrics(page) {
     const headerInset = insetProbe.getBoundingClientRect().left;
     insetProbe.remove();
     return {
-      viewportWidth: window.innerWidth,
+      // Fixed header geometry uses the layout viewport, excluding a non-overlay scrollbar.
+      viewportWidth: document.documentElement.clientWidth,
       publicHeaderInset: headerInset,
       logo: rectFor('header .site-nav__logo'),
       headerBar: rectFor('header .site-nav__bar'),
@@ -393,8 +394,9 @@ async function expectGenerateLabHeaderAligned(page, { locale }) {
     metrics.viewportWidth / 2,
     `${locale} Generate Lab center header status`,
   );
-  expect(metrics.headerBar.left).toBeLessThan(metrics.workspace.left);
-  expect(metrics.headerBar.right).toBeGreaterThan(metrics.workspace.right);
+  // The fluid workspace may occupy the same available width as the header.
+  expect(metrics.headerBar.left).toBeLessThanOrEqual(metrics.workspace.left);
+  expect(metrics.headerBar.right).toBeGreaterThanOrEqual(metrics.workspace.right);
   expect(metrics.logoHref).toBeNull();
   expect(metrics.logoTarget).toBeNull();
   expect(metrics.logoRel).toBeNull();

@@ -16,13 +16,21 @@ function selection(files, options) {
 }
 
 {
-  for (const area of ["shell", "workflows", "context", "media", "ai", "ai-compare-view", "registration"]) {
+  for (const area of ["shell", "workflows", "context", "media", "ai", "ai-compare-view", "registration", "auth-lifecycle"]) {
     const result = selection([`tests/oma2-q3-${area}.spec.js`]);
     assert.equal(result.auth, true);
     assert.equal(result.full, false);
   }
   const scripts = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")).scripts;
   assert.match(scripts["test:auth"], /tests\/oma2-q3-/);
+  assert.match(scripts["test:q3-integration"], /playwright\.workers\.config\.js/);
+  assert.match(scripts["test:q3-integration"], /tests\/workers\.spec\.js tests\/admin-ai-save-operations\.spec\.js/);
+  assert.match(scripts["test:q3-integration"], /playwright\.q3-integration\.config\.js/);
+  assert.equal(selection(["tests/admin-ai-save-operations.spec.js"]).workers, true);
+  const integration = selection(["playwright.q3-integration.config.js"]);
+  assert.equal(integration.workers, true);
+  assert.equal(integration.auth, true);
+  assert.equal(integration.full, false);
   assert.equal(selection([".githooks/pre-push"]).full, true);
 }
 

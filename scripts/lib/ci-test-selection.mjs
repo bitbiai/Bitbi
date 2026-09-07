@@ -122,6 +122,7 @@ const AUTH_TEST_FILES = new Set([
   "tests/oma2-q3-ai.spec.js",
   "tests/oma2-q3-ai-compare-view.spec.js",
   "tests/oma2-q3-registration.spec.js",
+  "tests/oma2-q3-auth-lifecycle.spec.js",
 ]);
 
 const WORKER_TEST_PREFIXES = [
@@ -129,6 +130,7 @@ const WORKER_TEST_PREFIXES = [
   "tests/helpers/auth-worker-harness.js",
   "tests/helpers/sqlite-d1.js",
   "tests/workers.spec.js",
+  "tests/admin-ai-save-operations.spec.js",
 ];
 
 const FULL_REGRESSION_PATHS = new Set([
@@ -280,6 +282,11 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     }
     if (file === "playwright.workers.config.js") {
       addReason(selection, "workers", file, "changes Worker test execution");
+      continue;
+    }
+    if (file === "playwright.q3-integration.config.js") {
+      addReason(selection, "workers", file, "changes the native Admin save import check");
+      addReason(selection, "auth", file, "changes the Admin MFA and save integration matrix");
       continue;
     }
     if (file === "playwright.config.js") {

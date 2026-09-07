@@ -14,6 +14,7 @@
     "test:homepage": "npm run test:homepage-core && npm run test:homepage-carousel",
     "test:assets-manager": "playwright test -c playwright.config.js tests/assets-manager-focused.spec.js --project=chromium",
     "test:auth": "playwright test -c playwright.config.js tests/auth-admin.spec.js tests/wallet-nav.spec.js tests/oma2-q3- --project=chromium",
+    "test:q3-integration": "playwright test -c playwright.workers.config.js tests/workers.spec.js tests/admin-ai-save-operations.spec.js --grep \"admin AI (save|image save|saves)\" --retries=0 && playwright test -c playwright.q3-integration.config.js",
     "test:workers": "playwright test -c playwright.workers.config.js && npm run test:q2-runtime",
     "test:q2-runtime": "node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs && node scripts/test-q2-runtime.mjs",
     "test:headed": "playwright test -c playwright.config.js --headed",

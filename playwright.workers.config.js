@@ -4,6 +4,7 @@ module.exports = defineConfig({
   testDir: './tests',
   testMatch: [
     '**/workers.spec.js',
+    '**/admin-ai-save-operations.spec.js',
     '**/fable-chat-workers.spec.js',
     '**/fable-chat-advanced.spec.js',
     '**/grok-chat-workers.spec.js',
