@@ -32,6 +32,7 @@ import {
   normalizeFableChatWebSearchConfiguration,
 } from "../../../shared/fable-chat-contract.mjs";
 import { nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
+import { checkpointSourceCurrentSql } from "./fable-chat-memory.js";
 import { GROK_4_6_MODEL_ID } from "../../../shared/chat-model-contract.mjs";
 import {
   defaultGrokProviderSettings,
@@ -950,7 +951,8 @@ export async function listFableChatAdminCheckpoints(env, conversationId, input =
             m.error_code, m.created_at, m.updated_at, m.completed_at, m.expires_at,
             CASE WHEN m.input_fingerprint IS NOT NULL THEN 1 ELSE 0 END AS fingerprint_present,
             COALESCE(json_array_length(json_extract(m.hidden_summary_content, '$.sources')), 0) AS source_count,
-            i.invalidated_at, i.reason AS invalidation_reason, i.mutation_version
+            i.invalidated_at, i.reason AS invalidation_reason, i.mutation_version,
+            CASE WHEN ${checkpointSourceCurrentSql("m")} THEN 1 ELSE 0 END AS source_current
        FROM fable_chat_memory_checkpoints m
        LEFT JOIN fable_chat_memory_checkpoint_invalidations i ON i.checkpoint_id = m.id
       WHERE m.conversation_id = ? AND m.admin_user_id = ? AND (? IS NULL OR m.profile = ?)
@@ -966,7 +968,7 @@ export async function listFableChatAdminCheckpoints(env, conversationId, input =
       profile: row.profile,
       version: Number(row.summary_version),
       status: row.status,
-      validForContext: row.status === "succeeded" && !row.invalidated_at,
+      validForContext: row.status === "succeeded" && !row.invalidated_at && Number(row.source_current) === 1,
       modelId: row.summarizer_model_id,
       promptVersion: Number(row.summarizer_prompt_version),
       baseCheckpointId: row.base_checkpoint_id || null,

@@ -5,6 +5,18 @@ import { safeError } from './assertions.mjs';
 import { runNativeTests } from '../../q2-runtime-native.mjs';
 import { runReferenceTests } from '../../q2-runtime-references.mjs';
 import { runRecoveryTests } from '../../q2-runtime-recovery.mjs';
+import { runStreamTests } from '../../q4-runtime-stream.mjs';
+import { runMemoryTests } from '../../q4-runtime-memory.mjs';
+import { runVideoTests } from '../../q4-runtime-video.mjs';
+import { runSubscriptionTests } from '../../q4-runtime-subscription.mjs';
+
+export const runtimeSuites = Object.freeze([
+  ['native', runNativeTests, {}], ['references', runReferenceTests, { referenceOnly: true }], ['recovery', runRecoveryTests, { restricted: true }],
+  ['q4-stream', runStreamTests, { restricted: true }],
+  ['q4-memory', runMemoryTests, { restricted: true, q4Control: 'q4-memory-control.mjs' }],
+  ['q4-video', runVideoTests, { restricted: true, q4Control: 'q4-video-control.mjs' }],
+  ['q4-subscription', runSubscriptionTests, { restricted: true }],
+].map(([name, run, options]) => Object.freeze([name, run, Object.freeze(options)])));
 
 // Local-only entry. The CI/operator wrapper must additionally deny non-loopback
 // networking at OS level for native children (sandbox-exec / network namespace).
@@ -20,9 +32,7 @@ let build;
 const reports = [];
 try {
   build = prepareBuild(artifactParent);
-  for (const [name, run, options] of [
-    ['native', runNativeTests, {}], ['references', runReferenceTests, { referenceOnly: true }], ['recovery', runRecoveryTests, { restricted: true }],
-  ]) {
+  for (const [name, run, options] of runtimeSuites) {
     const report = { suite: name, records: [], metrics: [], trace: [], failure: null };
     let runtime;
     try {

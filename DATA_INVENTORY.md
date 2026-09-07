@@ -74,3 +74,5 @@ Purpose: current engineering data inventory for audit restart. This is not legal
 ## Historical Context
 
 Historical implementation evidence is indexed in `docs/audits/README.md`. Current audit restart starts at `docs/audits/NEXT_AUDIT_BASELINE.md`.
+
+Q4 candidate data: `memvid_stream_upload_receipts` retains source-bound upload intents/UIDs after source removal for safe reconciliation; it stores no source contents or signed URLs. The advisory `app_settings` repair cursor contains only job ID/time. Member subscription customer/fulfillment relations and Memory source revision metadata are added by candidate migrations 0084–0086, pending release. Retired/unknown receipts are not a new automatic deletion authorization; retention/reconciliation remains explicit. See `docs/runbooks/OMA2_Q4_RELEASE.md`.

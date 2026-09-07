@@ -652,7 +652,7 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
   if (limited) return { kind: "response", response: correlated(limited, correlationId) };
 
   if (settings.model === GROK_4_6_MODEL_ID) {
-    const memorySelection = await getFableChatMemorySelection(
+    let memorySelection = await getFableChatMemorySelection(
       env,
       adminUser.id,
       conversationId,
@@ -666,6 +666,7 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
       memorySelection,
       attachmentIds: input.attachmentIds,
     });
+    memorySelection = modelContext.memorySelection;
     const requestFingerprint = await buildGrokChatRequestFingerprint({
       conversationId,
       message: input.message,
@@ -766,6 +767,7 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
     memorySelection,
     webReplaySelection,
   });
+  memorySelection = modelContext.memorySelection;
   let standardMemoryPreflightAttempted = false;
   if (settings.memoryMode === "standard" && webReplaySelection.advanced === true) {
     try {
@@ -797,6 +799,7 @@ async function prepareSend(ctx, adminUser, conversationId, { streamMode = false 
           memorySelection,
           webReplaySelection,
         });
+        memorySelection = modelContext.memorySelection;
       }
     } catch (error) {
       logDiagnostic({

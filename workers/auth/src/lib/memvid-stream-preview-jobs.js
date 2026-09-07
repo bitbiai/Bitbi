@@ -419,6 +419,8 @@ export function serializeMemvidStreamPreviewJob(row) {
   return {
     id: row.id,
     asset_id: row.asset_id,
+    receipt_protocol: row.receipt_protocol,
+    claim_token: row.claim_token,
     type: row.repair_download ? "memvid_stream_download_repair" : "memvid_stream_preview",
     stream_uid: row.stream_uid || null,
     repair_download: row.repair_download === true,
@@ -435,6 +437,7 @@ export function serializeMemvidStreamPreviewJob(row) {
       shortPreviewOnly: true,
     },
     completion: {
+      receipt_url: `/api/internal/memvid-stream-previews/jobs/${encodeURIComponent(row.id)}/receipt`,
       url: `/api/internal/memvid-stream-previews/jobs/${encodeURIComponent(row.id)}/complete`,
       failure_url: `/api/internal/memvid-stream-previews/jobs/${encodeURIComponent(row.id)}/fail`,
     },

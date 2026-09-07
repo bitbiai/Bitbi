@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
@@ -261,4 +262,51 @@ test('native artifact paths use runner context only after runner assignment', ()
     assert.ok(last >= 0);
     assert.throws(() => assertArtifactContext(content.slice(0, last) + content.slice(last + stepEnv.length), job), /Artifact environment/);
   }
+});
+
+// Resolve the actual repository module graph. This validates staging closure,
+// not kernel isolation or native product acceptance; no suite executes here.
+test('default native runtime plan stages every actual Q4 import and control input', async t => {
+  const { runtimeSuites } = await import('../tests/helpers/q2-runtime/runner.mjs');
+  const expected = [
+    ['q4-stream', 'tests/q4-runtime-stream.mjs', 'runStreamTests'],
+    ['q4-memory', 'tests/q4-runtime-memory.mjs', 'runMemoryTests'],
+    ['q4-video', 'tests/q4-runtime-video.mjs', 'runVideoTests'],
+    ['q4-subscription', 'tests/q4-runtime-subscription.mjs', 'runSubscriptionTests'],
+  ];
+  assert.deepEqual(runtimeSuites.filter(([name]) => name.startsWith('q4-')).map(([name]) => name), expected.map(([name]) => name));
+  for (const [name, filename, exportName] of expected) {
+    const actual = await import(pathToFileURL(path.join(root, filename)).href);
+    assert.equal(runtimeSuites.find(([suite]) => suite === name)[1], actual[exportName], 'Run the actual exported suite function');
+  }
+  const controls = runtimeSuites.map(([, , options]) => options.q4Control)
+    .filter(Boolean).map(name => `tests/helpers/${name}`);
+  const entryPoints = ['tests/helpers/q2-runtime/runner.mjs', ...controls];
+  const requireAuth = createRequire(path.join(root, 'workers/auth/package.json'));
+  const esbuild = requireAuth('esbuild');
+  const compiled = esbuild.buildSync({ absWorkingDir: root, entryPoints, bundle: true, write: false,
+    metafile: true, packages: 'external', platform: 'node', format: 'esm',
+    outdir: 'unused-q4-closure-output', logLevel: 'silent' });
+  const imports = Object.keys(compiled.metafile.inputs).sort();
+  const plan = stageInputPlan();
+  const coveredBy = (input, candidatePlan) => candidatePlan.some(item => input === item || input.startsWith(`${item}/`));
+  const checkClosure = candidatePlan => {
+    const missing = imports.filter(input => !coveredBy(input, candidatePlan));
+    assert.deepEqual(missing, [], 'Every resolved repository import must exist in the Linux stage plan');
+  };
+  checkClosure(plan);
+  for (const filename of [
+    ...expected.map(([, filename]) => filename), ...controls,
+    'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-fixture.mjs',
+    'tests/helpers/q4-subscription-payloads.cjs',
+  ]) {
+    assert.ok(imports.includes(filename), `Actual resolved graph includes ${filename}`);
+    assert.throws(() => checkClosure(plan.filter(item => item !== filename)), /Every resolved repository import/,
+      `Removing ${filename} must fail before a hosted run`);
+  }
+  const f = fixture(t);
+  const staged = stageRuntimeInputs(root, f.staged, imports);
+  assert.equal(staged.files, imports.length);
+  for (const filename of imports) assert.deepEqual(fs.readFileSync(path.join(f.staged, filename)), fs.readFileSync(path.join(root, filename)), filename);
+  t.diagnostic(`Resolved and staged ${imports.length} actual source modules; four Q4 suites plus ${controls.length} native controls. Packages retain the existing locked dependency staging.`);
 });

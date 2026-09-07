@@ -76,6 +76,9 @@ export function stageInputPlan() {
     'workers/shared', 'js/shared', 'config', 'scripts/lib/release-compat.mjs',
     'tests/helpers/q2-runtime', 'tests/q2-runtime-native.mjs',
     'tests/q2-runtime-references.mjs', 'tests/q2-runtime-recovery.mjs',
+    'tests/q4-runtime-stream.mjs', 'tests/q4-runtime-memory.mjs', 'tests/q4-runtime-video.mjs', 'tests/q4-runtime-subscription.mjs',
+    'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-control.mjs', 'tests/helpers/q4-memory-fixture.mjs',
+    'tests/helpers/q4-video-control.mjs', 'tests/helpers/q4-subscription-payloads.cjs',
   ];
 }
 

@@ -58,3 +58,7 @@ while Stream processing catches up is retried within the bounded polling window.
 Public hover previews use that stored Cloudflare delivery URL after the Worker
 validates the host. Manual `/downloads` curl calls are not part of the production
 operator flow.
+
+## Q4 Memvid receipt protocol
+
+The Memvid path requires Auth receipt protocol 2 before claiming. It records an upload intent before Stream Create and the returned UID before download preparation. A restarted processor resumes a stored UID; an unconfirmed Create remains held for explicit provider reconciliation and must not be blindly repeated. Source retirement does not erase its receipt or authorize publication. Scan diagnostics distinguish a partial bounded legacy repair scan from exhaustion. Hero/source-poster paths retain their existing protocol. See `../../docs/runbooks/OMA2_Q4_RELEASE.md` for candidate ordering and recovery. A workflow dispatch processes real media; it is not a harmless deploy check.

@@ -291,7 +291,49 @@ function checkpointFromRow(row, profile) {
   }
 }
 
-async function readLatestCheckpoint(env, adminUserId, conversationId, profile) {
+// Invalidating an inherited summary also excludes descendants, even when the
+// underlying transcript bytes did not change. UNION deduplicates the finite
+// same-owner/conversation lineage, including malformed cyclic references.
+function checkpointLineageInvalidatedSql(anchorIds) {
+  return `EXISTS (
+    WITH RECURSIVE source_lineage(id, conversation_id, admin_user_id) AS (
+      SELECT id, conversation_id, admin_user_id FROM fable_chat_memory_checkpoints
+        WHERE id IN (${anchorIds})
+      UNION
+      SELECT parent.id, parent.conversation_id, parent.admin_user_id
+        FROM source_lineage child
+        JOIN fable_chat_memory_checkpoints current ON current.id = child.id
+        JOIN fable_chat_memory_checkpoints parent
+          ON parent.id IN (current.base_checkpoint_id, current.source_base_checkpoint_id)
+          AND parent.conversation_id = child.conversation_id
+          AND parent.admin_user_id = child.admin_user_id
+    )
+    SELECT 1 FROM source_lineage
+      JOIN fable_chat_memory_checkpoint_invalidations invalidated
+        ON invalidated.checkpoint_id = source_lineage.id
+    LIMIT 1)`;
+}
+
+// The immutable transcript is changed only through append-only Admin revisions.
+// Their mutation claims share the write transaction with those changes. Compare
+// the covered prefix, not updated_at/turn_count: a new later turn is still valid.
+export function checkpointSourceCurrentSql(alias) {
+  return `${alias}.source_admin_revision_version IS NOT NULL
+    AND EXISTS (SELECT 1 FROM fable_chat_conversations source_conversation
+      WHERE source_conversation.id = ${alias}.conversation_id
+        AND source_conversation.admin_user_id = ${alias}.admin_user_id
+        AND source_conversation.deleted_at IS NULL
+        AND source_conversation.admin_revision_version >= ${alias}.source_admin_revision_version)
+    AND NOT EXISTS (SELECT 1 FROM fable_chat_admin_mutation_claims source_mutation
+      WHERE source_mutation.conversation_id = ${alias}.conversation_id
+        AND source_mutation.to_revision > ${alias}.source_admin_revision_version
+        AND source_mutation.invalidated_from_turn_order <= ${alias}.coverage_turn_order)
+    AND NOT ${checkpointLineageInvalidatedSql(`${alias}.id`)}`;
+}
+
+async function readLatestCheckpoint(env, adminUserId, conversationId, profile, {
+  checkpointId = null,
+} = {}) {
   const row = await env.DB.prepare(
     `SELECT m.id, m.profile, m.summary_version, m.hidden_summary_content,
             m.estimated_summary_tokens, m.coverage_turn_order,
@@ -303,16 +345,18 @@ async function readLatestCheckpoint(env, adminUserId, conversationId, profile) {
       WHERE m.conversation_id = ? AND m.admin_user_id = ? AND m.profile = ?
         AND m.status = 'succeeded' AND i.checkpoint_id IS NULL
         AND c.admin_user_id = ? AND c.deleted_at IS NULL
+        AND (? IS NULL OR m.id = ?)
+        AND ${checkpointSourceCurrentSql('m')}
       ORDER BY m.summary_version DESC, m.id DESC
       LIMIT 1`
-  ).bind(conversationId, adminUserId, profile, adminUserId).first();
+  ).bind(conversationId, adminUserId, profile, adminUserId, checkpointId, checkpointId).first();
   return checkpointFromRow(row, profile);
 }
 
-export async function getFableChatMemorySelection(env, adminUserId, conversationId, mode) {
+export async function getFableChatMemorySelection(env, adminUserId, conversationId, mode, options = {}) {
   const id = normalizeConversationId(conversationId);
   const profile = normalizeFableChatMemoryMode(mode || FABLE_CHAT_DEFAULT_MEMORY_MODE);
-  const checkpoint = await readLatestCheckpoint(env, adminUserId, id, profile);
+  const checkpoint = await readLatestCheckpoint(env, adminUserId, id, profile, options);
   if (!checkpoint) {
     return {
       mode: profile,
@@ -331,6 +375,27 @@ export async function getFableChatMemorySelection(env, adminUserId, conversation
     coverageTurnOrder: checkpoint.coverageTurnOrder,
     summary: checkpoint.canonicalSummary,
   };
+}
+
+// A selection is an input snapshot, not a portable authorization or freshness
+// proof. Reload its exact checkpoint through the current owner/prefix guards.
+export async function revalidateFableChatMemorySelection(env, adminUserId, conversationId, mode, selection) {
+  if (!selection) return getFableChatMemorySelection(env, adminUserId, conversationId, mode);
+  if (!selection.checkpointId) return {
+    mode: normalizeFableChatMemoryMode(mode), contractVersion: FABLE_CHAT_MEMORY_CONTRACT_VERSION,
+    checkpointId: null, checkpointVersion: 0, coverageTurnOrder: -1, summary: null,
+  };
+  return getFableChatMemorySelection(env, adminUserId, conversationId, mode, {
+    checkpointId: selection.checkpointId,
+  });
+}
+
+export async function isFableChatMemoryContextCurrent(env, adminUserId, conversationId, revision) {
+  const current = await env.DB.prepare(
+    `SELECT id FROM fable_chat_conversations WHERE id = ? AND admin_user_id = ?
+      AND deleted_at IS NULL AND admin_revision_version = ? LIMIT 1`
+  ).bind(conversationId, adminUserId, revision).first();
+  return Boolean(current);
 }
 
 export function buildFableChatSystemWithMemory(baseSystem, selection) {
@@ -603,6 +668,7 @@ async function buildCompactionCandidate(env, adminUserId, conversationId, profil
     coverage: nextCoverage,
     triggerReason,
     providerTriggerDiagnostics,
+    sourceAdminRevisionVersion: conversationState.adminRevisionVersion,
   };
 }
 
@@ -646,12 +712,18 @@ async function claimCompaction(env, adminUserId, conversationId, candidate, {
          source_start_turn_id, source_end_turn_id, source_start_turn_order,
          source_end_turn_order, source_turn_count, estimated_input_tokens,
          input_fingerprint, usage_json, provider_duration_ms, provider_cost_usd_micros,
-         error_code, created_at, updated_at, completed_at, expires_at
+         error_code, created_at, updated_at, completed_at, expires_at,
+         source_admin_revision_version
        )
        SELECT ?, c.id, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, NULL, NULL, ?, ?, ?,
-              ?, ?, ?, ?, ?, ?, ?, '{}', NULL, NULL, NULL, ?, ?, NULL, ?
+              ?, ?, ?, ?, ?, ?, ?, '{}', NULL, NULL, NULL, ?, ?, NULL, ?, ?
          FROM fable_chat_conversations c
-        WHERE c.id = ? AND c.admin_user_id = ? AND c.deleted_at IS NULL`
+        WHERE c.id = ? AND c.admin_user_id = ? AND c.deleted_at IS NULL
+          AND c.admin_revision_version >= ?
+          AND NOT EXISTS (SELECT 1 FROM fable_chat_admin_mutation_claims source_mutation
+            WHERE source_mutation.conversation_id = c.id AND source_mutation.to_revision > ?
+              AND source_mutation.invalidated_from_turn_order <= ?)
+          AND NOT ${checkpointLineageInvalidatedSql("?, ?")}`
     ).bind(
       id,
       adminUserId,
@@ -677,8 +749,14 @@ async function claimCompaction(env, adminUserId, conversationId, candidate, {
       createdAt,
       createdAt,
       addMinutesIso(FABLE_CHAT_MEMORY_LEASE_MINUTES),
+      candidate.sourceAdminRevisionVersion,
       conversationId,
-      adminUserId
+      adminUserId,
+      candidate.sourceAdminRevisionVersion,
+      candidate.sourceAdminRevisionVersion,
+      candidate.coverage.turnOrder,
+      candidate.current?.id || null,
+      candidate.previous?.id || null
     ).run();
     if (!Number(result?.meta?.changes || 0)) return null;
     return { id, version };
@@ -686,6 +764,19 @@ async function claimCompaction(env, adminUserId, conversationId, candidate, {
     if (isUniqueConstraintError(error)) return null;
     throw error;
   }
+}
+
+async function startCompaction(env, adminUserId, conversationId, claim, candidate) {
+  const at = nowIso();
+  const result = await env.DB.prepare(
+    `UPDATE fable_chat_memory_checkpoints AS m SET status = 'running', updated_at = ?
+      WHERE m.id = ? AND m.conversation_id = ? AND m.admin_user_id = ?
+        AND m.profile = ? AND m.status = 'pending' AND m.expires_at > ?
+        AND m.input_fingerprint = ? AND m.source_admin_revision_version = ?
+        AND ${checkpointSourceCurrentSql('m')}`
+  ).bind(at, claim.id, conversationId, adminUserId, candidate.profile, at,
+    candidate.inputFingerprint, candidate.sourceAdminRevisionVersion).run();
+  return Number(result?.meta?.changes || 0) === 1;
 }
 
 async function markCompactionState(env, id, status, errorCode = null) {
@@ -715,39 +806,40 @@ async function finalizeCompaction(env, adminUserId, conversationId, claim, candi
     throw new TypeError("Memory provider cost metadata is inconsistent.");
   }
   const completedAt = nowIso();
-  const result = await env.DB.prepare(
-    `UPDATE fable_chat_memory_checkpoints
-        SET status = 'succeeded', hidden_summary_content = ?, estimated_summary_tokens = ?,
-            usage_json = ?, provider_duration_ms = ?, provider_cost_usd_micros = ?,
-            error_code = NULL, updated_at = ?, completed_at = ?
-      WHERE id = ? AND conversation_id = ? AND admin_user_id = ? AND profile = ?
-        AND status = 'running' AND input_fingerprint = ?
-        AND EXISTS (
-          SELECT 1 FROM fable_chat_conversations c
-           WHERE c.id = fable_chat_memory_checkpoints.conversation_id
-             AND c.admin_user_id = fable_chat_memory_checkpoints.admin_user_id
-             AND c.deleted_at IS NULL
-        )`
-  ).bind(
-    normalized.canonical,
-    normalized.estimatedTokens,
-    JSON.stringify(usage),
-    Math.max(0, Math.floor(Number(output.elapsedMs) || 0)),
-    Math.max(0, Math.round(calculatedCost * 1_000_000)),
-    completedAt,
-    completedAt,
-    claim.id,
-    conversationId,
-    adminUserId,
-    candidate.profile,
-    candidate.inputFingerprint
-  ).run();
-  if (!Number(result?.meta?.changes || 0)) {
-    const error = new Error("Memory checkpoint finalization lost its concurrency claim.");
-    error.code = "fable_chat_memory_finalize_conflict";
+  // Provider consumption and applicability are distinct. Even a valid response
+  // arriving after a source edit or lease expiry retains its measured cost.
+  let applied;
+  try {
+    const results = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE fable_chat_memory_checkpoints
+          SET usage_json = ?, provider_duration_ms = ?, provider_cost_usd_micros = ?, updated_at = ?
+          WHERE id = ? AND conversation_id = ? AND admin_user_id = ? AND profile = ?
+            AND input_fingerprint = ? AND status IN ('running', 'unknown')`
+      ).bind(JSON.stringify(usage), Math.max(0, Math.floor(Number(output.elapsedMs) || 0)),
+        Math.max(0, Math.round(calculatedCost * 1_000_000)), completedAt,
+        claim.id, conversationId, adminUserId, candidate.profile, candidate.inputFingerprint),
+      env.DB.prepare(
+        `UPDATE fable_chat_memory_checkpoints AS m
+          SET status = 'succeeded', hidden_summary_content = ?, estimated_summary_tokens = ?,
+              error_code = NULL, updated_at = ?, completed_at = ?
+          WHERE m.id = ? AND m.conversation_id = ? AND m.admin_user_id = ? AND m.profile = ?
+            AND m.status = 'running' AND m.input_fingerprint = ? AND m.expires_at > ?
+            AND m.source_admin_revision_version = ?
+            AND ${checkpointSourceCurrentSql('m')}`
+      ).bind(normalized.canonical, normalized.estimatedTokens, completedAt, completedAt,
+        claim.id, conversationId, adminUserId, candidate.profile, candidate.inputFingerprint,
+        completedAt, candidate.sourceAdminRevisionVersion),
+    ]);
+    applied = Number(results?.[1]?.meta?.changes || 0) === 1;
+    if (!applied) await markCompactionState(env, claim.id, 'failed', 'memory_source_stale');
+  } catch (error) {
+    error.memoryProviderOutcome = { usage, providerCostUsd: calculatedCost, durationMs: output.elapsedMs };
     throw error;
   }
+
   return {
+    applied,
     checkpointId: claim.id,
     checkpointVersion: claim.version,
     estimatedSummaryTokens: normalized.estimatedTokens,
@@ -809,6 +901,8 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile, options
   );
   if (!claim) return { attempted: false, succeeded: false };
   let providerStarted = false;
+  let validatedProviderOutcome = null;
+  let validatedFinalState = null;
   try {
     await admitFableChatMemoryBudgetUsage({
       env: ctx.env,
@@ -818,7 +912,7 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile, options
       units: budget.units,
       metadata: budget.metadata,
     });
-    if (!await markCompactionState(ctx.env, claim.id, "running")) {
+    if (!await startCompaction(ctx.env, adminUser.id, conversationId, claim, candidate)) {
       throw Object.assign(new Error("Memory compaction lost its admission claim."), {
         code: "fable_chat_memory_claim_conflict",
       });
@@ -907,12 +1001,18 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile, options
         elapsedMs: body?.elapsedMs,
       }
     );
-    await recordFableChatMemoryBudgetOutcome(ctx.env, claim.id, {
-      finalState: "succeeded",
-      durationMs: body?.elapsedMs,
-      usage: finalized.usage,
+    validatedProviderOutcome = {
+      durationMs: body?.elapsedMs, usage: finalized.usage,
       providerCostUsd: finalized.providerCostUsd,
+    };
+    validatedFinalState = finalized.applied ? "succeeded" : "failed";
+    await recordFableChatMemoryBudgetOutcome(ctx.env, claim.id, {
+      finalState: validatedFinalState, ...validatedProviderOutcome,
     });
+    if (!finalized.applied) return {
+      attempted: true, succeeded: false, triggerReason: candidate.triggerReason,
+      providerTriggerDiagnostics: candidate.providerTriggerDiagnostics,
+    };
     logDiagnostic({
       service: "bitbi-auth",
       component: "fable-chat-memory",
@@ -1006,7 +1106,10 @@ async function runOneCompaction(ctx, adminUser, conversationId, profile, options
         state,
         error?.rejectionCategory || error?.code
       );
-      await recordFableChatMemoryBudgetOutcome(ctx.env, claim.id, { finalState: state });
+      await recordFableChatMemoryBudgetOutcome(ctx.env, claim.id, {
+        finalState: validatedFinalState || state,
+        ...(error?.memoryProviderOutcome || validatedProviderOutcome || {}),
+      });
     } catch {
       // The durable lease later resolves a stranded provider attempt to unknown.
     }

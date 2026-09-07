@@ -87,6 +87,9 @@ export async function runRecoveryTests(f) {
         VALUES('q2-c-live',?,?,'synthetic fixture','synthetic-model',3,?,'ready',1)`,MEMBER,liveKey,now).run();
     });
   }
+  for (const migration of migrations.filter(row => Number(row.path.slice(0,4)) > 83)) {
+    await db.batch(migration.statements.map(statement => db.prepare(statement)));
+  }
   await test('actual_three_module_C_login_MFA_verification_cookie_clear_and_protected_diagnosis',async()=>{
     jar.clear();
     const login=await request(restricted,'/api/login',{email:`${ADMIN}@example.invalid`,password});

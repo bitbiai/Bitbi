@@ -82,7 +82,8 @@ import {
 } from "../../../shared/fable-chat-memory-contract.mjs";
 import {
   buildFableChatSystemWithMemory,
-  getFableChatMemorySelection,
+  revalidateFableChatMemorySelection,
+  isFableChatMemoryContextCurrent,
   selectFableChatMemoryRawTurns,
 } from "./fable-chat-memory.js";
 import {
@@ -2954,12 +2955,18 @@ export async function buildFableChatModelContext(env, {
       LIMIT ?`
   ).bind(id, adminUserId, adminUserId, FABLE_CHAT_MAX_CONTEXT_PRIOR_TURNS).all();
 
-  const selectedMemory = memorySelection || await getFableChatMemorySelection(
+  const selectedMemory = await revalidateFableChatMemorySelection(
     env,
     adminUserId,
     id,
-    appliedSettings.memoryMode
+    appliedSettings.memoryMode,
+    memorySelection
   );
+  if (!await isFableChatMemoryContextCurrent(env, adminUserId, id, appliedSettings.adminRevisionVersion)) {
+    throw new FableChatError("Conversation changed while memory context was prepared.", {
+      status: 409, code: "fable_chat_settings_conflict",
+    });
+  }
   if (selectedMemory.mode !== appliedSettings.memoryMode) {
     throw new FableChatError("Conversation memory changed before context was prepared.", {
       status: 409,

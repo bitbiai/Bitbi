@@ -1509,6 +1509,7 @@ export async function ingestVerifiedBillingProviderEvent({
   allowLive = false,
   creditPackCheckoutIdentity = null,
   receiptConflictRetry = false,
+  resumableSubscription = false,
 }) {
   const normalized = await normalizeBillingProviderEvent({ provider, rawBody, payload, allowLive });
   if (creditPackCheckoutIdentity && !/^[a-f0-9]{64}$/.test(creditPackCheckoutIdentity)) {
@@ -1534,7 +1535,7 @@ export async function ingestVerifiedBillingProviderEvent({
       // canonical-payload compatibility, then bind the verified retry below.
       if (!existingSummary.creditPackCheckoutIdentity) delete incomingSummary.creditPackCheckoutIdentity;
       const sameCanonicalEvent =
-        normalized.provider === BILLING_WEBHOOK_STRIPE_PROVIDER &&
+        !resumableSubscription && normalized.provider === BILLING_WEBHOOK_STRIPE_PROVIDER &&
         normalized.eventType === "checkout.session.completed" &&
         existing.provider_mode === normalized.providerMode &&
         existing.event_type === normalized.eventType &&
@@ -1621,17 +1622,17 @@ export async function ingestVerifiedBillingProviderEvent({
   } catch (error) {
     // Concurrent pack deliveries may both miss the initial SELECT. Resolve
     // only an actual receipt identity collision, with the same payload checks.
-    if (!creditPackCheckoutIdentity || receiptConflictRetry || !/UNIQUE/i.test(String(error))) throw error;
+    if ((!creditPackCheckoutIdentity && !resumableSubscription) || receiptConflictRetry || !/UNIQUE/i.test(String(error))) throw error;
     const winner = await env.DB.prepare("SELECT id FROM billing_provider_events WHERE provider = ? AND provider_event_id = ?")
       .bind(normalized.provider, normalized.providerEventId).first();
     if (!winner) throw error;
-    return ingestVerifiedBillingProviderEvent({ env, provider, rawBody, payload, verificationStatus, receivedAt, allowLive, creditPackCheckoutIdentity, receiptConflictRetry: true });
+    return ingestVerifiedBillingProviderEvent({ env, provider, rawBody, payload, verificationStatus, receivedAt, allowLive, creditPackCheckoutIdentity, resumableSubscription, receiptConflictRetry: true });
   }
 
   let actionPlanned = false;
   if (normalized.supportedAction && !tombstone) {
     await env.DB.prepare(
-      `${creditPackCheckoutIdentity ? "INSERT OR IGNORE" : "INSERT"} INTO billing_event_actions (
+      `${creditPackCheckoutIdentity || resumableSubscription ? "INSERT OR IGNORE" : "INSERT"} INTO billing_event_actions (
          id, event_id, action_type, status, dry_run, summary_json, created_at, updated_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(

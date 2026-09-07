@@ -2039,6 +2039,28 @@ export const ROUTE_POLICIES = Object.freeze([
     providerSignature: "processor-bearer-secret",
     notes: "Records sanitized external_ffmpeg errors without exposing raw provider stderr or secrets.",
   }),
+  safeRead("internal.memvid-stream-previews.protocol", "GET", "/api/internal/memvid-stream-previews/jobs/claim", "homepage", {
+    auth: "anonymous", csrf: "not-browser-facing", sensitivity: "high",
+    config: ["ENABLE_MEMVID_STREAM_PREVIEWS", "MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET"],
+    rateLimit: { noneReason: "Authenticated processor capability read before any claim or provider action." },
+    providerSignature: "processor-bearer-secret",
+  }),
+  safeRead("internal.memvid-stream-previews.receipt.read", "GET", "/api/internal/memvid-stream-previews/jobs/:id/receipt", "homepage", {
+    auth: "anonymous", csrf: "not-browser-facing", sensitivity: "high",
+    config: ["DB", "ENABLE_MEMVID_STREAM_PREVIEWS", "MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET"],
+    rateLimit: { noneReason: "Authenticated processor reads one retained receipt without dispatching work." },
+    providerSignature: "processor-bearer-secret",
+  }),
+  policy({
+    id: "internal.memvid-stream-previews.receipt.write",
+    method: "POST", path: "/api/internal/memvid-stream-previews/jobs/:id/receipt",
+    auth: "anonymous", csrf: "not-browser-facing",
+    body: { kind: "json", maxBytesName: "homepageHeroProcessorJson", contentType: "application/json" },
+    rateLimit: { noneReason: "Authenticated, claim-bound processor intent/receipt, never a provider dispatch." },
+    config: ["DB", "ENABLE_MEMVID_STREAM_PREVIEWS", "MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET"],
+    audit: { noneReason: "Durable source-bound phase and timestamp recorded in memvid_stream_upload_receipts." },
+    owner: "homepage", sensitivity: "high", providerSignature: "processor-bearer-secret",
+  }),
   policy({
     id: "internal.memvid-stream-previews.jobs.claim",
     method: "POST",

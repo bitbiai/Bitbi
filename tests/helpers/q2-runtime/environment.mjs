@@ -78,14 +78,16 @@ export function prepareBuild(artifactParent = os.tmpdir()) {
   assert.equal(built.status, 0, `Local Wrangler dry-run must succeed; retained build log: ${path.join(workDir, 'wrangler-build.log')}`);
   const bundlePath = path.join(buildDir, 'index.js'), bundle = fs.readFileSync(bundlePath, 'utf8');
   const migrations = readMigrations(repoRoot);
-  assert.equal(migrations.at(-1).path, '0083_add_r2_cleanup_reference_fence.sql', 'Update native Q2 matrix for a newer schema');
+  const latest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'config/release-compat.json'), 'utf8')).release.schemaCheckpoints.auth.latest;
+  assert.equal(migrations.at(-1).path, latest, 'Native build and declared release schema must match');
+  assert.deepEqual(migrations.filter(row => Number(row.path.slice(0, 4)) > 83).map(row => row.path.slice(0, 4)), ['0084', '0085', '0086'], 'Q4 target-runtime matrix covers precisely the approved additive migrations');
   const provenance = { versions, compatibilityDate: config.compatibility_date, bundleSha256: sha256(bundle), sourceLedger,
     workerdBinarySha256: sha256(fs.readFileSync(workerd.default)), migrations: migrations.map(({ path: name, sha256: hash }) => ({ path: name, sha256: hash })) };
   fs.writeFileSync(path.join(workDir, 'build-provenance.json'), JSON.stringify(provenance, null, 2), { flag: 'wx' });
   return { workDir, bundlePath, bundle, config, migrations, provenance, esbuild };
 }
 
-export async function createRuntime(build, name, { restricted = false, referenceOnly = false } = {}) {
+export async function createRuntime(build, name, { restricted = false, referenceOnly = false, q4Control = null } = {}) {
   const executionDir = path.join(build.workDir, name); fs.mkdirSync(executionDir);
   for (const folder of ['state', 'isolated', 'tmp', 'registry']) fs.mkdirSync(path.join(executionDir, folder));
   const counters = { outboundDenied: 0, serviceDenied: 0, structuredLogs: 0, toolLogs: 0 };
@@ -95,6 +97,7 @@ export async function createRuntime(build, name, { restricted = false, reference
   const bindings = { BITBI_ENV: 'production', APP_BASE_URL: 'https://bitbi.ai', ALLOW_LEGACY_SECURITY_SECRET_FALLBACK: 'false', STRIPE_MODE: 'test',
     STRIPE_LIVE_WEBHOOK_SECRET: webhookSecret, STRIPE_WEBHOOK_SECRET: webhookSecret, NEWS_PULSE_SOURCE_URLS: '',
     ENABLE_NEWS_PULSE_VISUAL_BUDGET: 'false', Q2_CONTROL_TOKEN: controlToken };
+  if (name.startsWith('q4-')) Object.assign(bindings, { MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'q4-stream-processor-synthetic-not-a-production-secret', ENABLE_MEMVID_STREAM_PREVIEWS: 'true', STREAM_ACCOUNT_ID: 'synthetic-q4-account', STREAM_API_TOKEN: 'test-q4-provider-no-credentials', STRIPE_LIVE_SUBSCRIPTION_PRICE_ID: 'price_q4_subscription_monthly' });
   for (const key of ['SESSION_HASH_SECRET', 'PAGINATION_SIGNING_SECRET', 'ADMIN_MFA_ENCRYPTION_KEY', 'ADMIN_MFA_PROOF_SECRET', 'ADMIN_MFA_RECOVERY_HASH_SECRET', 'AI_SAVE_REFERENCE_SIGNING_SECRET']) bindings[key] = `q2-synthetic-${key}-not-live-0000000000000000`;
   const deny = async () => { counters.outboundDenied += 1; throw new Error('Native test outbound denied'); };
   const denyService = async () => { counters.serviceDenied += 1; throw new Error('Native test provider service denied'); };
@@ -118,7 +121,8 @@ export async function createRuntime(build, name, { restricted = false, reference
   if (referenceOnly) workers.push({ ...shared, name: 'q2-candidate', script: 'export default {fetch(){return new Response(null,{status:404});}};' });
   else {
     workers.push({ ...shared, name: 'q2-candidate', script: build.bundle, durableObjects: limiter(restricted ? limiterOwner : null), queueProducers: queues });
-    const control = await build.esbuild.build({ entryPoints: [fileURLToPath(new URL('./control.mjs', import.meta.url))], bundle: true, write: false,
+    const controlEntry = q4Control ? fileURLToPath(new URL(`../${q4Control}`, import.meta.url)) : fileURLToPath(new URL('./control.mjs', import.meta.url));
+    const control = await build.esbuild.build({ entryPoints: [controlEntry], bundle: true, write: false,
       format: 'esm', platform: 'browser', target: 'es2022', metafile: true, logLevel: 'silent', legalComments: 'none' });
     assert.equal(control.outputFiles.length, 1);
     assert.ok(Object.values(control.metafile.outputs).every(output => output.imports.length === 0));

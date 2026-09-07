@@ -82,6 +82,9 @@ export async function runNativeTests(f) {
     await sql("INSERT INTO r2_cleanup_queue(r2_key,status,created_at) VALUES ('users/q2-workerd-member/late-legacy.webp','pending',?)", now).run();
     assert.equal(await scalar("SELECT COUNT(*) AS value FROM r2_cleanup_queue WHERE status='legacy_held'"), 3);
   });
+  for (const migration of migrations.filter(row => Number(row.path.slice(0,4)) > 83)) {
+    await db.batch(migration.statements.map(statement => db.prepare(statement)));
+  }
   await test('native_D1_batch_rollback_zero_row_meta_and_RETURNING', async () => {
     await sql('CREATE TABLE q2_native_probe(id TEXT PRIMARY KEY,value INTEGER NOT NULL)').run();
     await expectNativeRejection(

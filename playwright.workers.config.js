@@ -9,6 +9,7 @@ module.exports = defineConfig({
     '**/fable-chat-advanced.spec.js',
     '**/grok-chat-workers.spec.js',
     '**/q2-*.spec.js',
+    '**/q4-*.spec.js',
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

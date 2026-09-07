@@ -20,7 +20,11 @@ import {
   FABLE_CHAT_SYSTEM_PRESETS,
   FABLE_CHAT_SYSTEM_PRESET_VERSION,
 } from "../../../shared/fable-chat-contract.mjs";
-import { buildFableChatSystemWithMemory } from "./fable-chat-memory.js";
+import {
+  buildFableChatSystemWithMemory,
+  revalidateFableChatMemorySelection,
+  isFableChatMemoryContextCurrent,
+} from "./fable-chat-memory.js";
 import { estimateFableChatMemoryTextTokens } from "../../../shared/fable-chat-memory-contract.mjs";
 import { sha256Hex } from "./tokens.js";
 
@@ -254,7 +258,7 @@ export async function buildGrokChatModelContext(env, {
 }) {
   const conversation = await env.DB.prepare(
     `SELECT id, model_id, system_preset_id, system_preset_version, memory_mode,
-            provider_settings_json, provider_settings_version
+            provider_settings_json, provider_settings_version, admin_revision_version
        FROM fable_chat_conversations
       WHERE id = ? AND admin_user_id = ? AND deleted_at IS NULL LIMIT 1`
   ).bind(conversationId, adminUserId).first();
@@ -279,14 +283,9 @@ export async function buildGrokChatModelContext(env, {
       code: "fable_chat_settings_conflict",
     });
   }
-  const selectedMemory = memorySelection || {
-    mode: conversation.memory_mode || "standard",
-    contractVersion: 1,
-    checkpointId: null,
-    checkpointVersion: 0,
-    coverageTurnOrder: -1,
-    summary: null,
-  };
+  const selectedMemory = await revalidateFableChatMemorySelection(
+    env, adminUserId, conversationId, conversation.memory_mode || "standard", memorySelection
+  );
   const systemBase = `${GROK_BASE_SYSTEM_PROMPT}\n\n${presetInstruction(
     conversation.system_preset_id,
     conversation.system_preset_version
@@ -327,6 +326,7 @@ export async function buildGrokChatModelContext(env, {
     normalizeGrokAttachmentIds(attachmentIds)
   );
   const currentBlocks = currentAttachments.blocks;
+
   const currentUserContent = currentBlocks.length > 0
     ? [...currentBlocks, { type: "text", text: currentMessage }]
     : currentMessage;
@@ -372,6 +372,13 @@ export async function buildGrokChatModelContext(env, {
     `grok-cache\n${conversationId}\n${stableJsonStringify(fingerprintSettings)}`
   );
   const privacyIdentity = await sha256Hex(`van-ark-user\n${adminUserId}\n${GROK_4_6_MODEL_ID}`);
+  if (!await isFableChatMemoryContextCurrent(
+    env, adminUserId, conversationId, Number(conversation.admin_revision_version || 0)
+  )) {
+    throw new GrokChatContextError("Conversation changed while memory context was prepared.", {
+      status: 409, code: "fable_chat_settings_conflict",
+    });
+  }
   return {
     model: GROK_4_6_MODEL_ID,
     messages,

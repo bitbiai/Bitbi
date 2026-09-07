@@ -126,6 +126,8 @@ const AUTH_TEST_FILES = new Set([
 ]);
 
 const WORKER_TEST_PREFIXES = [
+  "tests/q4-",
+  "tests/helpers/q4-",
   "tests/fable-chat-",
   "tests/helpers/auth-worker-harness.js",
   "tests/helpers/sqlite-d1.js",

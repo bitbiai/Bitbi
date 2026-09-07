@@ -1,3 +1,4 @@
+import { STREAM_RECEIPT_PROTOCOL, StreamReceiptError, claimStreamPreviewJobs, beginStreamUpload, recordStreamUpload, getStreamUploadReceipt, completeStreamUpload, failStreamUpload } from '../lib/memvid-stream-upload-receipts.js';
 import { json } from "../lib/response.js";
 import {
   BODY_LIMITS,
@@ -3405,21 +3406,11 @@ async function handleMemvidStreamPreviewClaimJobs(ctx) {
   const repairDownloads = parsed.body?.repair_downloads === true
     || parsed.body?.repairDownloads === true
     || String(parsed.body?.repair_downloads || "").toLowerCase() === "true";
-  const rows = await listSharedQueuedMemvidStreamPreviewJobs(ctx.env, limit, { repairDownloads });
-  const now = nowIso();
-  for (const row of rows) {
-    if (row.repair_download) continue;
-    await ctx.env.DB.prepare(
-      `UPDATE memvid_stream_previews
-       SET status = 'processing',
-           updated_at = ?
-       WHERE id = ?
-         AND status = 'queued'`
-    ).bind(now, row.id).run();
-    row.status = "processing";
-  }
-  return json({ ok: true, data: { jobs: rows.map(serializeSharedMemvidStreamPreviewJob) } }, {
-    headers: { "Cache-Control": "no-store" },
+  if (parsed.body?.receipt_protocol !== STREAM_RECEIPT_PROTOCOL)
+    return json({ ok: false, code: 'stream_receipt_protocol_required', error: 'Processor receipt protocol 2 is required.' }, { status: 409 });
+  const result = await claimStreamPreviewJobs(ctx.env, { limit, repairDownloads });
+  return json({ ok: true, data: { receipt_protocol: STREAM_RECEIPT_PROTOCOL, jobs: result.jobs.map(serializeSharedMemvidStreamPreviewJob), scan: result.scan } }, {
+    headers: { 'Cache-Control': 'no-store' },
   });
 }
 
@@ -3465,6 +3456,9 @@ async function handleMemvidStreamPreviewComplete(ctx, jobIdFromPath) {
       code: "stream_download_url_required",
     }, { status: 400 });
   }
+  if (new URL(downloadUrl).pathname !== `/${encodeURIComponent(streamUid)}/downloads/default.mp4`) {
+    return json({ ok: false, code: 'stream_download_uid_mismatch', error: 'Download must identify the confirmed Stream resource.' }, { status: 400 });
+  }
   const config = getMemvidStreamPreviewConfig(ctx.env);
   const duration = clampNumber(body.preview_duration_seconds || body.duration_seconds, {
     fallback: config.previewDurationSeconds,
@@ -3477,44 +3471,14 @@ async function handleMemvidStreamPreviewComplete(ctx, jobIdFromPath) {
     max: config.maxLoopCount,
   });
   const now = nowIso();
-  await ctx.env.DB.prepare(
-    `UPDATE memvid_stream_previews
-     SET status = 'ready',
-         stream_uid = ?,
-         preview_duration_seconds = ?,
-         max_loop_count = ?,
-         completed_at = ?,
-         updated_at = ?,
-         error_code = NULL,
-         error_message = NULL,
-         provider_metadata_json = ?
-     WHERE id = ?
-       AND status IN ('queued', 'uploading', 'processing', 'ready')`
-  ).bind(
-    streamUid,
-    duration,
-    maxLoops,
-    now,
-    now,
-    JSON.stringify({
-      provider: "cloudflare_stream",
-      provider_metadata: {
-        ...providerMetadata,
-        download_status: "ready",
-        download_url: downloadUrl,
-        cloudflare_stream_download_status: "ready",
-        cloudflare_stream_download_url: downloadUrl,
-        cloudflare_stream_download_percent_complete: providerMetadata.cloudflare_stream_download_percent_complete
-          ?? providerMetadata.download_percent_complete
-          ?? providerMetadata.download?.percent_complete
-          ?? null,
-        cloudflare_stream_download_checked_at: providerMetadata.cloudflare_stream_download_checked_at || now,
-      },
-      source_fingerprint: sanitizeShortText(body.source_fingerprint, ""),
-    }),
-    jobId
-  ).run();
-  return json({ ok: true, data: { id: jobId, status: "ready", stream_uid: streamUid } });
+  const outcome = await completeStreamUpload(ctx.env, jobId, body, {
+    duration, maxLoops,
+    metadata: JSON.stringify({ provider: 'cloudflare_stream', source_fingerprint: body.source_fingerprint,
+      provider_metadata: { ...providerMetadata, download_status: 'ready', download_url: downloadUrl,
+        cloudflare_stream_download_status: 'ready', cloudflare_stream_download_url: downloadUrl,
+        cloudflare_stream_download_checked_at: now } }),
+  });
+  return json({ ok: true, data: { id: jobId, ...outcome } });
 }
 
 async function handleMemvidStreamPreviewFail(ctx, jobIdFromPath) {
@@ -3524,51 +3488,32 @@ async function handleMemvidStreamPreviewFail(ctx, jobIdFromPath) {
   if (!/^msp_[A-Fa-f0-9]{16,64}$/.test(jobId)) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
   const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.homepageHeroProcessorJson });
   if (parsed.response) return parsed.response;
-  const now = nowIso();
-  const existing = await getMemvidStreamPreviewJob(ctx.env, jobId);
-  if (existing?.status === "ready") {
-    const metadata = parseStreamProviderMetadata(existing.provider_metadata_json);
-    const providerMetadata = metadata.provider_metadata && typeof metadata.provider_metadata === "object"
-      ? metadata.provider_metadata
-      : {};
-    await ctx.env.DB.prepare(
-      `UPDATE memvid_stream_previews
-       SET provider_metadata_json = ?,
-           updated_at = ?
-       WHERE id = ?
-         AND status = 'ready'`
-    ).bind(
-      JSON.stringify({
-        ...metadata,
-        provider: "cloudflare_stream",
-        provider_metadata: {
-          ...providerMetadata,
-          download_repair_status: "failed",
-          download_repair_error_code: sanitizeErrorCode(parsed.body?.error_code || parsed.body?.code),
-          download_repair_error_message: sanitizeErrorMessage(parsed.body?.error_message || parsed.body?.message),
-          download_repair_failed_at: now,
-        },
-      }),
-      now,
-      jobId
-    ).run();
-    return json({ ok: true, data: { id: jobId, status: "ready", download_repair_status: "failed" } });
+  const outcome = await failStreamUpload(ctx.env, jobId, parsed.body);
+  return json({ ok: true, data: { id: jobId, ...outcome } });
+}
+
+async function receiptResponse(operation) {
+  try { return await operation(); }
+  catch (error) {
+    if (!(error instanceof StreamReceiptError)) throw error;
+    return json({ ok: false, code: error.code, error: error.message }, { status: error.status });
   }
-  await ctx.env.DB.prepare(
-    `UPDATE memvid_stream_previews
-     SET status = 'failed',
-         error_code = ?,
-         error_message = ?,
-         updated_at = ?
-     WHERE id = ?
-       AND status IN ('queued', 'uploading', 'processing', 'failed')`
-  ).bind(
-    sanitizeErrorCode(parsed.body?.error_code || parsed.body?.code),
-    sanitizeErrorMessage(parsed.body?.error_message || parsed.body?.message),
-    now,
-    jobId
-  ).run();
-  return json({ ok: true, data: { id: jobId, status: "failed" } });
+}
+
+async function handleMemvidStreamReceipt(ctx, jobId) {
+  const authResponse = await memvidStreamProcessorAuthResponse(ctx);
+  if (authResponse) return authResponse;
+  if (!/^msp_[A-Fa-f0-9]{16,64}$/.test(jobId)) return json({ ok: false, code: 'job_not_found' }, { status: 404 });
+  if (ctx.method === 'GET') {
+    const row = await getStreamUploadReceipt(ctx.env, jobId);
+    if (!row) return json({ ok: false, code: 'job_not_found' }, { status: 404 });
+    return json({ ok: true, data: { phase: row.phase, stream_uid: row.stream_uid,
+      source_fingerprint: row.source_fingerprint, retired: !!row.retired_at, error_code: row.last_error_code } }, { headers: { 'Cache-Control': 'no-store' } });
+  }
+  const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.homepageHeroProcessorJson });
+  if (parsed.response) return parsed.response;
+  const operation = parsed.body?.phase === 'begin' ? beginStreamUpload : recordStreamUpload;
+  return json({ ok: true, data: await operation(ctx.env, jobId, parsed.body) }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 async function handlePublicHeroVideos(ctx) {
@@ -3729,9 +3674,20 @@ export async function handleAdminHomepageHeroVideos(ctx) {
 export async function handleHomepageHeroVideos(ctx) {
   const { pathname, method } = ctx;
 
+  // route-policy: internal.memvid-stream-previews.protocol
+  if (pathname === '/api/internal/memvid-stream-previews/jobs/claim' && method === 'GET') {
+    const denied = await memvidStreamProcessorAuthResponse(ctx);
+    return denied || json({ ok: true, data: { receipt_protocol: STREAM_RECEIPT_PROTOCOL } }, { headers: { 'Cache-Control': 'no-store' } });
+  }
+  const receiptMatch = pathname.match(/^\/api\/internal\/memvid-stream-previews\/jobs\/([^/]+)\/receipt$/);
+  // route-policy: internal.memvid-stream-previews.receipt.read
+  if (receiptMatch && method === 'GET') return receiptResponse(() => handleMemvidStreamReceipt(ctx, receiptMatch[1]));
+  // route-policy: internal.memvid-stream-previews.receipt.write
+  if (receiptMatch && method === 'POST') return receiptResponse(() => handleMemvidStreamReceipt(ctx, receiptMatch[1]));
+
   // route-policy: internal.memvid-stream-previews.jobs.claim
   if (pathname === "/api/internal/memvid-stream-previews/jobs/claim" && method === "POST") {
-    return handleMemvidStreamPreviewClaimJobs(ctx);
+    return receiptResponse(() => handleMemvidStreamPreviewClaimJobs(ctx));
   }
 
   const streamPreviewSourceMatch = pathname.match(/^\/api\/internal\/memvid-stream-previews\/jobs\/([^/]+)\/source$/);
@@ -3742,13 +3698,13 @@ export async function handleHomepageHeroVideos(ctx) {
   const streamPreviewCompleteMatch = pathname.match(/^\/api\/internal\/memvid-stream-previews\/jobs\/([^/]+)\/complete$/);
   // route-policy: internal.memvid-stream-previews.jobs.complete
   if (streamPreviewCompleteMatch && method === "POST") {
-    return handleMemvidStreamPreviewComplete(ctx, streamPreviewCompleteMatch[1]);
+    return receiptResponse(() => handleMemvidStreamPreviewComplete(ctx, streamPreviewCompleteMatch[1]));
   }
 
   const streamPreviewFailMatch = pathname.match(/^\/api\/internal\/memvid-stream-previews\/jobs\/([^/]+)\/fail$/);
   // route-policy: internal.memvid-stream-previews.jobs.fail
   if (streamPreviewFailMatch && method === "POST") {
-    return handleMemvidStreamPreviewFail(ctx, streamPreviewFailMatch[1]);
+    return receiptResponse(() => handleMemvidStreamPreviewFail(ctx, streamPreviewFailMatch[1]));
   }
 
   // route-policy: internal.homepage.hero-videos.jobs.claim

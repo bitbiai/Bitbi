@@ -1,6 +1,6 @@
 # Current Implementation Handoff
 
-Date: 2026-09-06
+Date: 2026-09-07
 
 Purpose: short restart guide for future Codex sessions. The active baseline is `docs/audits/NEXT_AUDIT_BASELINE.md`.
 
@@ -18,6 +18,10 @@ This handoff is not production approval, live billing approval, legal compliance
 - Admin storage counts remain a dated historical baseline, not a current inventory pass. Capability availability, upload outcomes and interrupted assistant streams distinguish evidence, failure and completion. Interrupted text is excluded from follow-up assistant history.
 - Authorized commit/push work ends after local checks, diff review and confirmed foreground push, under root `AGENTS.md`, "Commit/push completion: no CI waiting". Stefan owns CI and live-release verification.
 - OMA2 Q2 was technically activated on 2026-09-06 at 20:04 UTC: Auth `93c35af7-00f7-4e5a-b2ad-2ca19c442f0b` at 100% traffic, Original 0082 and corrected 0083 applied, maintenance ended and all three release-paused queues resumed. The private Q2 release handoff records the immediate checks; this is not full business-flow live acceptance. See `docs/runbooks/OMA2_Q2_RELEASE.md`.
+
+## Q4 Candidate
+
+- Subscription fulfillment, video claims/outcomes, Stream receipts and Memory revision guards are prepared with additive candidate migrations 0084–0086. Production activation requires matching final runtime/CI and the controlled transition in `docs/runbooks/OMA2_Q4_RELEASE.md`; Q4 is not declared active. No historical repair or new business policy is included.
 
 ## Admin Modularization
 

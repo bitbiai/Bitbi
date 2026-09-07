@@ -1128,15 +1128,52 @@ async function acquireJobLease(env, jobId, now, lockedUntil) {
   const result = await env.DB.prepare(
     "UPDATE ai_video_jobs_v2 SET status = 'starting', attempt_count = attempt_count + 1, processing_token = ?, locked_until = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND provider_outcome <> 'unknown' AND (locked_until IS NULL OR locked_until < ?) AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
   ).bind(processingToken, lockedUntil, now, jobId, now, now).run();
-  return Number(result?.meta?.changes || 0) > 0;
+  return Number(result?.meta?.changes || 0) === 1 ? processingToken : null;
 }
 
 async function assertJobClaim(env, job) {
+  if (!job.processing_token) throw staleJobExecutionError();
+  if (job.leaseFailure) {
+    await markJobOutcomeUnknown(env, job, "provider_processing_lease_lost", nowIso());
+    throw staleJobExecutionError();
+  }
   const row = await env.DB.prepare("SELECT status, processing_token, provider_outcome, locked_until FROM ai_video_jobs_v2 WHERE id = ?").bind(job.id).first();
   if (!row || row.processing_token !== job.processing_token || TERMINAL_STATUSES.has(row.status) || (row.provider_outcome === "unknown" && !job.recoveryClaim)) throw staleJobExecutionError();
-  if (row.locked_until && row.locked_until <= nowIso()) {
+  if (!row.locked_until || row.locked_until <= nowIso()) {
     await markJobOutcomeUnknown(env, job, "provider_processing_lease_expired", nowIso());
     throw staleJobExecutionError();
+  }
+}
+
+async function renewJobLease(env, job) {
+  const now = nowIso();
+  const result = await env.DB.prepare(
+    `UPDATE ai_video_jobs_v2 SET locked_until = ? WHERE id = ? AND processing_token = ?
+       AND locked_until > ? AND status IN ('starting', 'provider_pending', 'polling', 'processing', 'ingesting')
+       AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
+  ).bind(addMillisecondsIso(JOB_LEASE_MS), job.id, job.processing_token, now).run();
+  if (Number(result?.meta?.changes || 0) !== 1) throw staleJobExecutionError();
+}
+
+// This timer belongs to one awaited queue/recovery execution. It cannot renew
+// an expired/replaced claim, outlive completion, or authorize another dispatch.
+async function withJobLease(env, job, task) {
+  let stopped = false;
+  let timer;
+  let renewal;
+  const tick = async () => {
+    renewal = renewJobLease(env, job);
+    try { await renewal; }
+    catch (error) { job.leaseFailure = error; return; }
+    finally { renewal = null; }
+    if (!stopped) timer = setTimeout(tick, JOB_LEASE_MS / 3);
+  };
+  timer = setTimeout(tick, JOB_LEASE_MS / 3);
+  try { return await task(); }
+  finally {
+    stopped = true;
+    clearTimeout(timer);
+    if (renewal) await renewal.catch(() => {});
   }
 }
 
@@ -1148,9 +1185,9 @@ async function claimJobProviderDispatch(env, job, budgetPolicy, now) {
      UPDATE ai_video_jobs_v2 SET provider_outcome = 'dispatched', dispatch_token = ?, dispatched_at = ?,
        platform_exposure_units = ?, platform_window_day = ?, platform_window_month = ?
      WHERE id = ? AND processing_token = ? AND status = 'starting' AND provider_outcome = 'not_dispatched'
-       AND ${platformBudgetDispatchCapacitySql()}`
+       AND ${platformBudgetDispatchCapacitySql()} AND locked_until > ?`
   ).bind(budgetPolicy.budget_scope, units, now.slice(0, 10), now.slice(0, 7), dispatchToken, now,
-    units, now.slice(0, 10), now.slice(0, 7), job.id, job.processing_token).run();
+    units, now.slice(0, 10), now.slice(0, 7), job.id, job.processing_token, now).run();
   if (!result?.meta?.changes) throw Object.assign(new Error("Video dispatch is already claimed or platform capacity is unavailable."), { code: "ai_video_dispatch_not_claimed" });
   job.dispatch_token = dispatchToken;
   job.provider_outcome = "dispatched";
@@ -1162,6 +1199,22 @@ function boundedProviderResult(result) {
     if (typeof result?.[key] === "string") clean[key] = result[key].slice(0, key.endsWith("Url") ? 2048 : 256);
   }
   return clean;
+}
+
+async function recordJobProviderReceipt(env, job, result) {
+  if (!job.dispatch_token) throw staleJobExecutionError();
+  // Keep a usable private receipt even if processing ownership has changed.
+  // Dispatch identity authorizes evidence only: Unknown/cancelled stay blocked,
+  // and this write cannot publish R2 output, settle usage or replace a receipt.
+  await env.DB.prepare(
+    "UPDATE ai_video_jobs_v2 SET provider_result_json = ? WHERE id = ? AND dispatch_token = ? AND provider_result_json = '{}'"
+  ).bind(JSON.stringify(boundedProviderResult(result)), job.id, job.dispatch_token).run();
+  const row = await env.DB.prepare(
+    "SELECT provider_result_json FROM ai_video_jobs_v2 WHERE id = ? AND dispatch_token = ?"
+  ).bind(job.id, job.dispatch_token).first();
+  const receipt = row?.provider_result_json ? JSON.parse(row.provider_result_json) : null;
+  if (receipt?.status !== "succeeded" || !receipt.videoUrl) throw staleJobExecutionError();
+  return receipt;
 }
 
 async function recordJobLateOutcome(env, job, result, outcome = "unknown") {
@@ -1181,8 +1234,8 @@ async function markJobOutcomeUnknown(env, job, code, now) {
 
 async function checkpointJobProviderSuccess(env, job, providerResult, now) {
   const result = await env.DB.prepare(
-    "UPDATE ai_video_jobs_v2 SET provider_outcome = 'succeeded', provider_result_json = ?, provider_task_id = COALESCE(?, provider_task_id), updated_at = ? WHERE id = ? AND processing_token = ? AND provider_outcome IN ('dispatched', 'succeeded') AND status NOT IN ('succeeded', 'failed', 'cancelled')"
-  ).bind(JSON.stringify(boundedProviderResult(providerResult)), providerResult.providerTaskId || null, now, job.id, job.processing_token).run();
+    "UPDATE ai_video_jobs_v2 SET provider_outcome = 'succeeded', provider_result_json = ?, provider_task_id = COALESCE(?, provider_task_id), updated_at = ? WHERE id = ? AND processing_token = ? AND provider_outcome IN ('dispatched', 'succeeded') AND status NOT IN ('succeeded', 'failed', 'cancelled') AND locked_until > ?"
+  ).bind(JSON.stringify(boundedProviderResult(providerResult)), providerResult.providerTaskId || null, now, job.id, job.processing_token, nowIso()).run();
   if (!result?.meta?.changes) throw staleJobExecutionError();
   job.provider_outcome = "succeeded";
   job.provider_result_json = JSON.stringify(boundedProviderResult(providerResult));
@@ -1190,7 +1243,7 @@ async function checkpointJobProviderSuccess(env, job, providerResult, now) {
 
 async function updateJobProviderPending(env, job, result, now, nextAttemptAt) {
   const updated = await env.DB.prepare(
-    `UPDATE ai_video_jobs_v2 SET status = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
+    `UPDATE ai_video_jobs_v2 SET status = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1) AND locked_until > ?`
   ).bind(
     result?.providerTaskId ? "provider_pending" : "polling",
     result?.providerTaskId || null,
@@ -1198,21 +1251,22 @@ async function updateJobProviderPending(env, job, result, now, nextAttemptAt) {
     nextAttemptAt,
     now,
     job.id,
-    job.processing_token || null
+    job.processing_token || null,
+    nowIso()
   ).run();
   if (!updated?.meta?.changes) throw staleJobExecutionError();
 }
 
 async function updateJobIngesting(env, job, providerState, now) {
   const result = await env.DB.prepare(
-    `UPDATE ai_video_jobs_v2 SET status = 'ingesting', provider_state = ?, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
-  ).bind(providerState || null, now, job.id, job.processing_token || null).run();
+    `UPDATE ai_video_jobs_v2 SET status = 'ingesting', provider_state = ?, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1) AND locked_until > ?`
+  ).bind(providerState || null, now, job.id, job.processing_token || null, nowIso()).run();
   if (!result?.meta?.changes) throw staleJobExecutionError();
 }
 
 async function updateJobSucceeded(env, job, result, now) {
   const updated = await env.DB.prepare(
-    `UPDATE ai_video_jobs_v2 SET status = 'succeeded', output_r2_key = ?, output_url = ?, output_content_type = ?, output_size_bytes = ?, poster_r2_key = ?, poster_url = ?, poster_content_type = ?, poster_size_bytes = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
+    `UPDATE ai_video_jobs_v2 SET status = 'succeeded', output_r2_key = ?, output_url = ?, output_content_type = ?, output_size_bytes = ?, poster_r2_key = ?, poster_url = ?, poster_content_type = ?, poster_size_bytes = ?, provider_task_id = COALESCE(?, provider_task_id), provider_state = ?, error_code = NULL, error_message = NULL, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1) AND locked_until > ?`
   ).bind(
     result?.outputR2Key || null,
     result?.outputUrl || null,
@@ -1227,7 +1281,8 @@ async function updateJobSucceeded(env, job, result, now) {
     now,
     now,
     job.id,
-    job.processing_token || null
+    job.processing_token || null,
+    nowIso()
   ).run();
   if (!updated?.meta?.changes) throw staleJobExecutionError();
 }
@@ -1235,21 +1290,21 @@ async function updateJobSucceeded(env, job, result, now) {
 async function updateJobFailed(env, job, code, message, now) {
   if (job.provider_outcome === "dispatched" && !job.recoveryClaim) return markJobOutcomeUnknown(env, job, "ai_video_outcome_unknown", now);
   const result = await env.DB.prepare(
-    `UPDATE ai_video_jobs_v2 SET status = 'failed', error_code = ?, error_message = ?, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
-  ).bind(code, sanitizePublicError(message), now, now, job.id, job.processing_token || null).run();
+    `UPDATE ai_video_jobs_v2 SET status = 'failed', error_code = ?, error_message = ?, locked_until = NULL, updated_at = ?, completed_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1) AND locked_until > ?`
+  ).bind(code, sanitizePublicError(message), now, now, job.id, job.processing_token || null, nowIso()).run();
   if (!result?.meta?.changes) throw staleJobExecutionError();
 }
 
 async function updateJobRetry(env, job, code, message, now, nextAttemptAt) {
   const result = await env.DB.prepare(
-    `UPDATE ai_video_jobs_v2 SET status = 'queued', error_code = ?, error_message = ?, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
-  ).bind(code, sanitizePublicError(message), nextAttemptAt, now, job.id, job.processing_token || null).run();
+    `UPDATE ai_video_jobs_v2 SET status = 'queued', error_code = ?, error_message = ?, next_attempt_at = ?, locked_until = NULL, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1) AND (locked_until IS NULL OR locked_until > ?)`
+  ).bind(code, sanitizePublicError(message), nextAttemptAt, now, job.id, job.processing_token || null, nowIso()).run();
   if (!result?.meta?.changes) throw staleJobExecutionError();
 }
 
 async function updateJobBudgetPolicyMetadata(env, job, budgetPolicy, status, now) {
   const result = await env.DB.prepare(
-    `UPDATE ai_video_jobs_v2 SET budget_policy_json = ?, budget_policy_status = ?, budget_policy_fingerprint = ?, budget_policy_version = ?, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1)`
+    `UPDATE ai_video_jobs_v2 SET budget_policy_json = ?, budget_policy_status = ?, budget_policy_fingerprint = ?, budget_policy_version = ?, updated_at = ? WHERE id = ? AND processing_token IS ? AND status IN ('queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting') AND (provider_outcome <> 'unknown' OR ${job.recoveryClaim === true ? '1' : '0'} = 1) AND locked_until > ?`
   ).bind(
     budgetPolicyJson(budgetPolicy),
     status || budgetPolicy?.plan_status || null,
@@ -1257,7 +1312,8 @@ async function updateJobBudgetPolicyMetadata(env, job, budgetPolicy, status, now
     budgetPolicy?.budget_policy_version || null,
     now,
     job.id,
-    job.processing_token || null
+    job.processing_token || null,
+    nowIso()
   ).run();
   if (!result?.meta?.changes) throw staleJobExecutionError();
 }
@@ -1745,11 +1801,11 @@ export async function recoverAdminAiVideoJobFromProviderResponse({
   await updateJobIngesting(env, job, "recovered_provider_response", ingestStartedAt);
   let ingested;
   try {
-    ingested = await ingestProviderVideoOutput(env, job, {
+    ingested = await withJobLease(env, job, () => ingestProviderVideoOutput(env, job, {
       videoUrl: safeVideoUrl,
       posterUrl: safePosterUrl,
       providerState: "recovered_provider_response",
-    });
+    }));
   } catch (error) {
     const code = error?.code || "video_output_ingest_failed";
     await updateJobFailed(env, job, code, "Recovered provider video output ingest failed.", nowIso());
@@ -2027,6 +2083,53 @@ function getProviderTaskResult(responseBody) {
     : null;
 }
 
+async function recordJobBudgetUsage(env, job, budgetPolicy) {
+  await recordPlatformBudgetUsageEvent(env, {
+    budgetScope: budgetPolicy.budget_scope,
+    operationKey: ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID,
+    sourceRoute: "/api/admin/ai/video-jobs",
+    actorUserId: job.user_id,
+    actorRole: "admin",
+    units: platformBudgetUnitsFromBudgetPolicy(budgetPolicy),
+    idempotencyKeyHash: job.idempotency_key ? await sha256Hex(job.idempotency_key) : null,
+    requestFingerprint: job.budget_policy_fingerprint || job.request_hash || null,
+    sourceJobId: job.id,
+    metadata: {
+      model_id: job.model,
+      provider_family: budgetPolicy.provider_family || job.provider,
+      result_status: "succeeded",
+      operation: budgetPolicy.grok_imagine_pricing?.operation || null,
+      duration: budgetPolicy.seedance_pricing?.duration || budgetPolicy.grok_imagine_pricing?.duration || null,
+      resolution: budgetPolicy.seedance_pricing?.resolution || budgetPolicy.grok_imagine_pricing?.resolution || null,
+      aspect_ratio: budgetPolicy.seedance_pricing?.aspect_ratio || budgetPolicy.grok_imagine_pricing?.aspect_ratio || null,
+      size: budgetPolicy.grok_imagine_pricing?.size || null,
+      ...(budgetPolicy.seedance_pricing ? {
+        seedance_pricing_status: budgetPolicy.seedance_pricing.status || null,
+        seedance_pricing_configured: budgetPolicy.seedance_pricing.pricing_configured === true,
+        seedance_credit_debit: budgetPolicy.seedance_pricing.credit_debit === true,
+        seedance_estimated_credits: budgetPolicy.seedance_pricing.estimated_credits || null,
+        seedance_provider_cost_usd: budgetPolicy.seedance_pricing.provider_cost_usd || null,
+        seedance_internal_cost_usd: budgetPolicy.seedance_pricing.internal_cost_usd || null,
+      } : {}),
+      ...(budgetPolicy.grok_imagine_pricing ? {
+        grok_imagine_pricing_status: budgetPolicy.grok_imagine_pricing.status || null,
+        grok_imagine_pricing_configured: budgetPolicy.grok_imagine_pricing.pricing_configured === true,
+        grok_imagine_credit_debit: budgetPolicy.grok_imagine_pricing.credit_debit === true,
+        grok_imagine_estimated_credits: budgetPolicy.grok_imagine_pricing.estimated_credits || null,
+        grok_imagine_provider_cost_usd: budgetPolicy.grok_imagine_pricing.provider_cost_usd || null,
+        grok_imagine_workflow: budgetPolicy.grok_imagine_pricing.workflow || null,
+        grok_imagine_has_image_input: budgetPolicy.grok_imagine_pricing.has_image_input === true,
+        grok_imagine_has_video_input: budgetPolicy.grok_imagine_pricing.has_video_input === true,
+        grok_imagine_source_media_type: budgetPolicy.grok_imagine_pricing.source_media_type || null,
+        grok_imagine_source_type: budgetPolicy.grok_imagine_pricing.source_type || null,
+        grok_imagine_source_asset_id: budgetPolicy.grok_imagine_pricing.source_asset_id || null,
+        grok_imagine_reference_image_count: budgetPolicy.grok_imagine_pricing.reference_image_count || 0,
+        grok_imagine_output_upload_url_present: budgetPolicy.grok_imagine_pricing.output_upload_url_present === true,
+      } : {}),
+    },
+  });
+}
+
 async function processAiVideoJobMessageWithClaim(env, body, { messageAttempts = 0 } = {}) {
   assertVideoJobConfig(env);
   const startedAt = Date.now();
@@ -2058,23 +2161,48 @@ async function processAiVideoJobMessageWithClaim(env, body, { messageAttempts = 
     return { status: "noop", reason: "missing_job" };
   }
 
-  if (initialJob.user_id !== payload.userId || TERMINAL_STATUSES.has(initialJob.status)) {
-    return { status: "noop", reason: TERMINAL_STATUSES.has(initialJob.status) ? "terminal_job" : "user_mismatch" };
+  if (initialJob.user_id !== payload.userId) return { status: "noop", reason: "user_mismatch" };
+  if (TERMINAL_STATUSES.has(initialJob.status)) {
+    // A confirmed output and the usage event are separate D1 writes. Queue
+    // retry must finish a missing event, using its existing unique job identity,
+    // before acknowledgement. No provider/R2 work or historical repair follows.
+    if (initialJob.status === "succeeded" && initialJob.provider_outcome === "succeeded"
+      && initialJob.dispatch_token && initialJob.output_r2_key
+      && initialJob.provider_result_json && initialJob.provider_result_json !== "{}") {
+      await recordJobBudgetUsage(env, initialJob,
+        validateJobBudgetPolicy(initialJob, ADMIN_VIDEO_TASK_POLL_BUDGET_OPERATION_ID));
+    }
+    return { status: "noop", reason: "terminal_job" };
   }
 
   if (initialJob.provider_outcome === "unknown") return { status: "noop", reason: "provider_outcome_unknown" };
   const now = nowIso();
-  if (initialJob.provider_outcome === "dispatched" && !initialJob.provider_task_id && initialJob.locked_until && initialJob.locked_until <= now) {
+  const hasKnownReceipt = initialJob.provider_result_json && initialJob.provider_result_json !== "{}";
+  if (!hasKnownReceipt && initialJob.provider_outcome === "dispatched" && !initialJob.provider_task_id && initialJob.locked_until && initialJob.locked_until <= now) {
     await markJobOutcomeUnknown(env, initialJob, "provider_processing_lease_expired", now);
     return { status: "noop", reason: "provider_outcome_unknown" };
   }
   const lockedUntil = addMillisecondsIso(JOB_LEASE_MS);
   const acquired = await acquireJobLease(env, initialJob.id, now, lockedUntil);
   if (!acquired) {
+    // A persisted completion must retain a delivery until its processing lease
+    // or retry delay ends. This retries ingestion only, never provider creation.
+    if (hasKnownReceipt) return { status: "retry", reason: "receipt_processing_pending",
+      delaySeconds: getAiVideoJobRetryDelaySeconds(messageAttempts) };
     return { status: "noop", reason: "lease_not_acquired" };
   }
 
   const job = await getQueueJob(env, initialJob.id);
+  if (!job || job.processing_token !== acquired) {
+    return { status: "noop", reason: "stale_execution" };
+  }
+  await assertJobClaim(env, job);
+  return withJobLease(env, job, () => processClaimedAiVideoJob(env, body, {
+    messageAttempts, startedAt, payload, job,
+  }));
+}
+
+async function processClaimedAiVideoJob(env, body, { messageAttempts, startedAt, payload, job }) {
   logDiagnostic({
     service: "bitbi-auth",
     component: "ai-video-jobs-queue",
@@ -2201,7 +2329,12 @@ async function processAiVideoJobMessageWithClaim(env, body, { messageAttempts = 
   }
 
   const completedAt = nowIso();
-  const providerResult = getProviderTaskResult(responseBody);
+  let providerResult = getProviderTaskResult(responseBody);
+  if (response.ok && responseBody?.ok === true && providerResult?.status === "succeeded" && providerResult.videoUrl) {
+    // Persist before any claim-dependent mutation, including metadata updates:
+    // losing the claim between a read and CAS must not lose provider evidence.
+    providerResult = await recordJobProviderReceipt(env, job, providerResult);
+  }
   try {
     await assertJobClaim(env, job);
   } catch (error) {
@@ -2241,50 +2374,7 @@ async function processAiVideoJobMessageWithClaim(env, body, { messageAttempts = 
       providerTaskId: providerResult.providerTaskId || job.provider_task_id || null,
       providerState: providerResult.providerState || "success",
     }, nowIso());
-    await recordPlatformBudgetUsageEvent(env, {
-      budgetScope: budgetPolicy.budget_scope,
-      operationKey: ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID,
-      sourceRoute: "/api/admin/ai/video-jobs",
-      actorUserId: job.user_id,
-      actorRole: "admin",
-      units: platformBudgetUnitsFromBudgetPolicy(budgetPolicy),
-      idempotencyKeyHash: job.idempotency_key ? await sha256Hex(job.idempotency_key) : null,
-      requestFingerprint: job.budget_policy_fingerprint || job.request_hash || null,
-      sourceJobId: job.id,
-      metadata: {
-        model_id: job.model,
-        provider_family: budgetPolicy.provider_family || job.provider,
-        result_status: "succeeded",
-        operation: budgetPolicy.grok_imagine_pricing?.operation || null,
-        duration: budgetPolicy.seedance_pricing?.duration || budgetPolicy.grok_imagine_pricing?.duration || null,
-        resolution: budgetPolicy.seedance_pricing?.resolution || budgetPolicy.grok_imagine_pricing?.resolution || null,
-        aspect_ratio: budgetPolicy.seedance_pricing?.aspect_ratio || budgetPolicy.grok_imagine_pricing?.aspect_ratio || null,
-        size: budgetPolicy.grok_imagine_pricing?.size || null,
-        ...(budgetPolicy.seedance_pricing ? {
-          seedance_pricing_status: budgetPolicy.seedance_pricing.status || null,
-          seedance_pricing_configured: budgetPolicy.seedance_pricing.pricing_configured === true,
-          seedance_credit_debit: budgetPolicy.seedance_pricing.credit_debit === true,
-          seedance_estimated_credits: budgetPolicy.seedance_pricing.estimated_credits || null,
-          seedance_provider_cost_usd: budgetPolicy.seedance_pricing.provider_cost_usd || null,
-          seedance_internal_cost_usd: budgetPolicy.seedance_pricing.internal_cost_usd || null,
-        } : {}),
-        ...(budgetPolicy.grok_imagine_pricing ? {
-          grok_imagine_pricing_status: budgetPolicy.grok_imagine_pricing.status || null,
-          grok_imagine_pricing_configured: budgetPolicy.grok_imagine_pricing.pricing_configured === true,
-          grok_imagine_credit_debit: budgetPolicy.grok_imagine_pricing.credit_debit === true,
-          grok_imagine_estimated_credits: budgetPolicy.grok_imagine_pricing.estimated_credits || null,
-          grok_imagine_provider_cost_usd: budgetPolicy.grok_imagine_pricing.provider_cost_usd || null,
-          grok_imagine_workflow: budgetPolicy.grok_imagine_pricing.workflow || null,
-          grok_imagine_has_image_input: budgetPolicy.grok_imagine_pricing.has_image_input === true,
-          grok_imagine_has_video_input: budgetPolicy.grok_imagine_pricing.has_video_input === true,
-          grok_imagine_source_media_type: budgetPolicy.grok_imagine_pricing.source_media_type || null,
-          grok_imagine_source_type: budgetPolicy.grok_imagine_pricing.source_type || null,
-          grok_imagine_source_asset_id: budgetPolicy.grok_imagine_pricing.source_asset_id || null,
-          grok_imagine_reference_image_count: budgetPolicy.grok_imagine_pricing.reference_image_count || 0,
-          grok_imagine_output_upload_url_present: budgetPolicy.grok_imagine_pricing.output_upload_url_present === true,
-        } : {}),
-      },
-    });
+    await recordJobBudgetUsage(env, job, budgetPolicy);
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-video-jobs-queue",
@@ -2302,7 +2392,7 @@ async function processAiVideoJobMessageWithClaim(env, body, { messageAttempts = 
   }
 
   if (response.ok && responseBody?.ok && providerResult?.status === "failed") {
-    const failedOutcome = await env.DB.prepare("UPDATE ai_video_jobs_v2 SET provider_outcome = 'failed' WHERE id = ? AND processing_token = ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled')").bind(job.id, job.processing_token).run();
+    const failedOutcome = await env.DB.prepare("UPDATE ai_video_jobs_v2 SET provider_outcome = 'failed' WHERE id = ? AND processing_token = ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled') AND locked_until > ?").bind(job.id, job.processing_token, nowIso()).run();
     if (!failedOutcome?.meta?.changes) {
       await recordJobLateOutcome(env, job, providerResult, "failed");
       throw staleJobExecutionError();
@@ -2331,8 +2421,8 @@ async function processAiVideoJobMessageWithClaim(env, body, { messageAttempts = 
     const nextAttemptAt = addMillisecondsIso(delaySeconds * 1000);
     if (job.attempt_count >= job.max_attempts) {
       if (providerResult.providerTaskId) {
-        const pendingOutcome = await env.DB.prepare("UPDATE ai_video_jobs_v2 SET provider_task_id = COALESCE(?, provider_task_id) WHERE id = ? AND processing_token = ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled')")
-          .bind(providerResult.providerTaskId, job.id, job.processing_token).run();
+        const pendingOutcome = await env.DB.prepare("UPDATE ai_video_jobs_v2 SET provider_task_id = COALESCE(?, provider_task_id) WHERE id = ? AND processing_token = ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled') AND locked_until > ?")
+          .bind(providerResult.providerTaskId, job.id, job.processing_token, nowIso()).run();
         if (!pendingOutcome?.meta?.changes) throw staleJobExecutionError();
       }
       await markJobOutcomeUnknown(env, job, "ai_video_outcome_unknown", completedAt);
@@ -2444,7 +2534,17 @@ export async function processAiVideoJobMessage(env, body, options = {}) {
   try {
     return await processAiVideoJobMessageWithClaim(env, body, options);
   } catch (error) {
-    if (error?.code === "ai_video_job_stale_execution") return { status: "noop", reason: "stale_execution" };
+    if (error?.code === "ai_video_job_stale_execution") {
+      const payload = validateQueueMessage(body);
+      const current = await getQueueJob(env, payload.jobId);
+      if (current?.user_id === payload.userId && !TERMINAL_STATUSES.has(current.status)
+        && current.provider_outcome !== "unknown" && current.provider_result_json
+        && current.provider_result_json !== "{}") {
+        return { status: "retry", reason: "receipt_processing_pending",
+          delaySeconds: getAiVideoJobRetryDelaySeconds(options.messageAttempts) };
+      }
+      return { status: "noop", reason: "stale_execution" };
+    }
     throw error;
   }
 }

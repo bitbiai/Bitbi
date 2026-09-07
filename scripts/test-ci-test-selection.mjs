@@ -11,6 +11,12 @@ import { selectCiTests } from "./lib/ci-test-selection.mjs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
+for (const file of ["tests/q4-stream-receipts.spec.js", "tests/q4-runtime-memory.mjs", "tests/helpers/q4-video-control.mjs"]) {
+  const selected = selectCiTests([file]);
+  assert.equal(selected.workers, true, `${file} must reach the real Worker/native command`);
+  assert.equal(selected.full, false);
+}
+
 function selection(files, options) {
   return selectCiTests(files, options);
 }

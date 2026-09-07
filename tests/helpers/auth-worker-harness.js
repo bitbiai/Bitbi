@@ -10674,13 +10674,14 @@ class MockD1 {
       const [scope, units, day, month, dispatchToken, dispatchedAt, exposureUnits, windowDay, windowMonth] = bindings;
       const admin = query.includes('UPDATE admin_ai_usage_attempts');
       const [updatedAt, id, expiresCutoff] = admin ? bindings.slice(9) : [];
-      const [jobId, processingToken] = admin ? [] : bindings.slice(9);
+      const [jobId, processingToken, leaseCutoff] = admin ? [] : bindings.slice(9);
       const row = admin
         ? this.state.adminAiUsageAttempts.find((item) => item.id === id && item.status === 'pending'
           && item.provider_status === 'not_started' && item.provider_outcome === 'not_dispatched'
           && String(item.expires_at || '') > String(expiresCutoff || ''))
         : this.state.aiVideoJobs.find((item) => item.id === jobId && item.processing_token === processingToken
-          && item.status === 'starting' && item.provider_outcome === 'not_dispatched');
+          && item.status === 'starting' && item.provider_outcome === 'not_dispatched'
+          && (!query.includes('AND locked_until > ?') || String(item.locked_until || '') > leaseCutoff));
       const recovery = admin && query.endsWith('AND (1 = 1)');
       if (!row || (!recovery && !platformBudgetHarnessCanDispatch(this.state, scope, units, day, month))) {
         return { success: true, meta: { changes: 0 } };
@@ -11642,6 +11643,28 @@ class MockD1 {
     if (query === 'SELECT status, processing_token, provider_outcome, locked_until FROM ai_video_jobs WHERE id = ?') {
       return deepClone(this.state.aiVideoJobs.find((row) => row.id === bindings[0]) || null);
     }
+    if (query.startsWith('UPDATE ai_video_jobs SET locked_until = ? WHERE id = ? AND processing_token = ?')) {
+      const [lockedUntil, id, token, cutoff] = bindings;
+      const row = this.state.aiVideoJobs.find(item => item.id === id && item.processing_token === token
+        && String(item.locked_until || '') > cutoff
+        && ['starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(item.status)
+        && (item.provider_outcome !== 'unknown' || query.includes('OR 1 = 1')));
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.locked_until = lockedUntil;
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (query === "UPDATE ai_video_jobs SET provider_result_json = ? WHERE id = ? AND dispatch_token = ? AND provider_result_json = '{}'") {
+      const [result, id, token] = bindings;
+      const row = this.state.aiVideoJobs.find(item => item.id === id && item.dispatch_token === token && item.provider_result_json === '{}');
+      if (!row) return { success: true, meta: { changes: 0 } };
+      row.provider_result_json = result;
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (query === 'SELECT provider_result_json FROM ai_video_jobs WHERE id = ? AND dispatch_token = ?') {
+      const [id, token] = bindings;
+      const row = this.state.aiVideoJobs.find(item => item.id === id && item.dispatch_token === token);
+      return row ? { provider_result_json: row.provider_result_json } : null;
+    }
     if (query.startsWith("UPDATE ai_video_jobs SET provider_outcome = 'unknown', unknown_at = COALESCE")) {
       const [now, code, updatedAt, id, token] = bindings;
       const row = this.state.aiVideoJobs.find((item) => item.id === id && (item.processing_token || null) === token
@@ -11653,9 +11676,10 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
     if (query.startsWith("UPDATE ai_video_jobs SET provider_outcome = 'succeeded', provider_result_json = ?")) {
-      const [resultJson, taskId, now, id, token] = bindings;
+      const [resultJson, taskId, now, id, token, cutoff] = bindings;
       const row = this.state.aiVideoJobs.find((item) => item.id === id && item.processing_token === token
-        && ['dispatched', 'succeeded'].includes(item.provider_outcome) && !['succeeded', 'failed', 'cancelled'].includes(item.status));
+        && ['dispatched', 'succeeded'].includes(item.provider_outcome) && !['succeeded', 'failed', 'cancelled'].includes(item.status)
+        && (!query.includes('AND locked_until > ?') || String(item.locked_until || '') > cutoff));
       if (!row) return { success: true, meta: { changes: 0 } };
       Object.assign(row, { provider_outcome: 'succeeded', provider_result_json: resultJson,
         provider_task_id: taskId || row.provider_task_id, updated_at: now });
@@ -11670,17 +11694,19 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
     if (query.startsWith("UPDATE ai_video_jobs SET provider_outcome = 'failed' WHERE id = ? AND processing_token = ?")) {
-      const [id, token] = bindings;
+      const [id, token, cutoff] = bindings;
       const row = this.state.aiVideoJobs.find((item) => item.id === id && item.processing_token === token && item.provider_outcome === 'dispatched'
-        && !['succeeded', 'failed', 'cancelled'].includes(item.status));
+        && !['succeeded', 'failed', 'cancelled'].includes(item.status)
+        && (!query.includes('AND locked_until > ?') || String(item.locked_until || '') > cutoff));
       if (!row) return { success: true, meta: { changes: 0 } };
       row.provider_outcome = 'failed';
       return { success: true, meta: { changes: 1 } };
     }
     if (query.startsWith('UPDATE ai_video_jobs SET provider_task_id = COALESCE(?, provider_task_id) WHERE id = ? AND processing_token = ?')) {
-      const [taskId, id, token] = bindings;
+      const [taskId, id, token, cutoff] = bindings;
       const row = this.state.aiVideoJobs.find((item) => item.id === id && item.processing_token === token
-        && item.provider_outcome === 'dispatched' && !['succeeded', 'failed', 'cancelled'].includes(item.status));
+        && item.provider_outcome === 'dispatched' && !['succeeded', 'failed', 'cancelled'].includes(item.status)
+        && (!query.includes('AND locked_until > ?') || String(item.locked_until || '') > cutoff));
       if (!row) return { success: true, meta: { changes: 0 } };
       row.provider_task_id = taskId || row.provider_task_id;
       return { success: true, meta: { changes: 1 } };
@@ -11864,7 +11890,9 @@ class MockD1 {
       for (const row of this.state.aiVideoJobs) {
         if (row.id !== jobId || (row.processing_token || null) !== processingToken
           || !['queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(row.status)
-          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))) continue;
+          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))
+          || (query.includes("AND locked_until > ?") && (!row.locked_until || row.locked_until <= bindings.at(-1)))
+          || (query.includes("AND (locked_until IS NULL OR locked_until > ?)") && row.locked_until != null && row.locked_until <= bindings.at(-1))) continue;
         row.status = 'failed';
         row.error_code = errorCode;
         row.error_message = errorMessage;
@@ -11904,7 +11932,9 @@ class MockD1 {
       for (const row of this.state.aiVideoJobs) {
         if (row.id !== jobId || (row.processing_token || null) !== processingToken
           || !['queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(row.status)
-          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))) continue;
+          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))
+          || (query.includes("AND locked_until > ?") && (!row.locked_until || row.locked_until <= bindings.at(-1)))
+          || (query.includes("AND (locked_until IS NULL OR locked_until > ?)") && row.locked_until != null && row.locked_until <= bindings.at(-1))) continue;
         row.status = status;
         if (providerTaskId) row.provider_task_id = providerTaskId;
         row.provider_state = providerState;
@@ -11924,7 +11954,9 @@ class MockD1 {
       for (const row of this.state.aiVideoJobs) {
         if (row.id !== jobId || (row.processing_token || null) !== processingToken
           || !['queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(row.status)
-          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))) continue;
+          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))
+          || (query.includes("AND locked_until > ?") && (!row.locked_until || row.locked_until <= bindings.at(-1)))
+          || (query.includes("AND (locked_until IS NULL OR locked_until > ?)") && row.locked_until != null && row.locked_until <= bindings.at(-1))) continue;
         row.status = 'ingesting';
         row.provider_state = providerState;
         row.updated_at = updatedAt;
@@ -11939,7 +11971,9 @@ class MockD1 {
       for (const row of this.state.aiVideoJobs) {
         if (row.id !== jobId || (row.processing_token || null) !== processingToken
           || !['queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(row.status)
-          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))) continue;
+          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))
+          || (query.includes("AND locked_until > ?") && (!row.locked_until || row.locked_until <= bindings.at(-1)))
+          || (query.includes("AND (locked_until IS NULL OR locked_until > ?)") && row.locked_until != null && row.locked_until <= bindings.at(-1))) continue;
         row.status = 'succeeded';
         row.output_r2_key = outputR2Key;
         row.output_url = outputUrl;
@@ -11967,7 +12001,9 @@ class MockD1 {
       for (const row of this.state.aiVideoJobs) {
         if (row.id !== jobId || (row.processing_token || null) !== processingToken
           || !['queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(row.status)
-          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))) continue;
+          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))
+          || (query.includes("AND locked_until > ?") && (!row.locked_until || row.locked_until <= bindings.at(-1)))
+          || (query.includes("AND (locked_until IS NULL OR locked_until > ?)") && row.locked_until != null && row.locked_until <= bindings.at(-1))) continue;
         row.budget_policy_json = budgetPolicyJson;
         row.budget_policy_status = budgetPolicyStatus;
         row.budget_policy_fingerprint = budgetPolicyFingerprint;
@@ -12068,7 +12104,9 @@ class MockD1 {
       for (const row of this.state.aiVideoJobs) {
         if (row.id !== jobId || (row.processing_token || null) !== processingToken
           || !['queued', 'starting', 'provider_pending', 'polling', 'processing', 'ingesting'].includes(row.status)
-          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))) continue;
+          || (row.provider_outcome === 'unknown' && !query.includes("OR 1 = 1"))
+          || (query.includes("AND locked_until > ?") && (!row.locked_until || row.locked_until <= bindings.at(-1)))
+          || (query.includes("AND (locked_until IS NULL OR locked_until > ?)") && row.locked_until != null && row.locked_until <= bindings.at(-1))) continue;
         row.status = 'queued';
         row.error_code = errorCode;
         row.error_message = errorMessage;

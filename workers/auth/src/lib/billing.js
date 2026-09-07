@@ -217,7 +217,7 @@ function bucketSortOrder(bucketType) {
   return 2;
 }
 
-function serializeMemberSubscriptionRow(row) {
+export function serializeMemberSubscriptionRow(row) {
   if (!row) return null;
   return {
     id: row.id,
@@ -1874,6 +1874,71 @@ export async function topUpMemberSubscriptionCredits({
     allowance: normalizedAllowance,
     reused: grant.reused,
   };
+}
+
+// Q4 webhook-only period mutation. The caller includes these statements in the
+// same batch as the verified operation, subscription, checkout and event result.
+export async function prepareAtomicSubscriptionPeriod({ env, userId, input, eventId, token, now }) {
+  const allowance = MEMBER_SUBSCRIPTION_CREDIT_ALLOWANCE;
+  const periodId = `msp_${randomTokenHex(16)}`;
+  const entryId = ledgerId();
+  const key = `subscription-period:${await sha256Hex(`${input.subscriptionId}:${input.currentPeriodStart}`)}`;
+  const owns = "EXISTS (SELECT 1 FROM billing_member_subscription_operations WHERE event_id = ? AND mutation_token = ? AND state = 'started')";
+  const own = [eventId, token];
+  const scope = { providerSubscriptionId: input.subscriptionId, periodStart: input.currentPeriodStart, periodEnd: input.currentPeriodEnd };
+  const statements = await prepareMemberCreditBucketReconciliation(env, userId, now);
+  const add = (sql,...args) => statements.push(env.DB.prepare(sql).bind(...args));
+  // A legacy bucket may survive a removed grant ledger. Its remaining balance
+  // is not proof that the allowance has never been delivered. Recheck in-batch.
+  add(`UPDATE billing_member_subscription_operations SET mutation_token=CASE WHEN
+      NOT EXISTS(SELECT 1 FROM member_credit_buckets WHERE user_id=? AND bucket_type='subscription' AND provider_subscription_id=? AND period_start=?)
+      OR EXISTS(SELECT 1 FROM billing_member_subscription_periods WHERE provider_subscription_id=? AND period_start=?)
+      OR EXISTS(SELECT 1 FROM member_credit_ledger WHERE user_id=? AND source='subscription_period_top_up' AND amount>0
+        AND json_extract(metadata_json,'$.bucket_scope.providerSubscriptionId')=? AND json_extract(metadata_json,'$.bucket_scope.periodStart')=? AND json_extract(metadata_json,'$.bucket_scope.periodEnd')=?)
+      THEN mutation_token ELSE NULL END WHERE event_id=? AND mutation_token=? AND state='started'`,
+    userId,input.subscriptionId,input.currentPeriodStart,input.subscriptionId,input.currentPeriodStart,userId,input.subscriptionId,input.currentPeriodStart,input.currentPeriodEnd,...own);
+  add(`INSERT INTO billing_member_subscription_periods
+      (id,user_id,provider_subscription_id,period_start,period_end,allowance,provider_invoice_id,mutation_token,created_at)
+      SELECT ?,?,?,?,?,?,?,?,? WHERE ${owns}
+      ON CONFLICT(provider_subscription_id,period_start) DO NOTHING`,
+    periodId,userId,input.subscriptionId,input.currentPeriodStart,input.currentPeriodEnd,allowance,input.invoiceId,token,now,...own);
+  add(`UPDATE billing_member_subscription_operations SET mutation_token = CASE WHEN EXISTS (
+      SELECT 1 FROM billing_member_subscription_periods WHERE provider_subscription_id = ? AND period_start = ?
+      AND user_id = ? AND period_end = ? AND allowance = ?) THEN mutation_token ELSE NULL END
+      WHERE event_id = ? AND mutation_token = ? AND state = 'started'`,
+    input.subscriptionId,input.currentPeriodStart,userId,input.currentPeriodEnd,allowance,...own);
+  // Recognize an exact pre-Q4 grant proof, including its old invoice-bearing
+  // key. Spending later cannot turn an old delivered allowance into a new one.
+  add(`UPDATE billing_member_subscription_periods SET ledger_entry_id = (
+      SELECT l.id FROM member_credit_ledger l WHERE l.user_id = ? AND l.source = 'subscription_period_top_up'
+      AND l.amount > 0 AND json_extract(l.metadata_json,'$.bucket_scope.providerSubscriptionId') = ?
+      AND json_extract(l.metadata_json,'$.bucket_scope.periodStart') = ?
+      AND json_extract(l.metadata_json,'$.bucket_scope.periodEnd') = ? ORDER BY l.rowid LIMIT 1)
+      WHERE id = ? AND mutation_token = ? AND ${owns}`,
+    userId,input.subscriptionId,input.currentPeriodStart,input.currentPeriodEnd,periodId,token,...own);
+  const amount = `MAX(0, ? - COALESCE((SELECT balance FROM member_credit_buckets WHERE user_id = ?
+    AND bucket_type = 'subscription' AND provider_subscription_id = ? AND period_start = ?),0))`;
+  const amountArgs = [allowance,userId,input.subscriptionId,input.currentPeriodStart];
+  const metadata = { provider_event_id: input.providerEventId, stripe_invoice_id: input.invoiceId, allowance,
+    period_start: input.currentPeriodStart, period_end: input.currentPeriodEnd, credit_bucket: 'subscription', bucket_scope: scope };
+  add(`INSERT INTO member_credit_ledger
+      (id,user_id,amount,balance_after,entry_type,source,idempotency_key,request_hash,created_by_user_id,created_at,metadata_json)
+      SELECT ?,?,${amount},COALESCE((SELECT SUM(balance) FROM member_credit_buckets WHERE user_id=?),0)+${amount},
+        'grant','subscription_period_top_up',?,?,?,MAX(?,COALESCE((SELECT created_at FROM member_credit_ledger WHERE user_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1),'')),?
+      WHERE EXISTS (SELECT 1 FROM billing_member_subscription_periods WHERE id=? AND mutation_token=? AND ledger_entry_id IS NULL)
+        AND ${amount} > 0 AND ${owns}`,
+    entryId,userId,...amountArgs,userId,...amountArgs,key,await hashRequest({userId,subscriptionId:input.subscriptionId,periodStart:input.currentPeriodStart,periodEnd:input.currentPeriodEnd,allowance}),userId,now,userId,
+    serializeJsonObject(metadata),periodId,token,...amountArgs,...own);
+  statements.push(...memberCreditBucketGrantStatements(env,{userId,ledgerEntryId:entryId,bucketType:'subscription',source:'subscription_period_top_up',idempotencyKey:key,
+    ...scope,metadata,now}));
+  add(`UPDATE member_credit_buckets SET local_subscription_id = (SELECT id FROM billing_member_subscriptions WHERE provider_subscription_id=? AND user_id=?)
+    WHERE user_id=? AND bucket_type='subscription' AND provider_subscription_id=? AND period_start=? AND ${owns}`,
+    input.subscriptionId,userId,userId,input.subscriptionId,input.currentPeriodStart,...own);
+  add(`UPDATE billing_member_subscription_periods SET
+      ledger_entry_id=COALESCE(ledger_entry_id,(SELECT id FROM member_credit_ledger WHERE id=?)),
+      granted_credits=COALESCE((SELECT amount FROM member_credit_ledger WHERE id=?),0)
+      WHERE id=? AND mutation_token=? AND ${owns}`,entryId,entryId,periodId,token,...own);
+  return statements;
 }
 
 export async function listAdminPlans(env) {

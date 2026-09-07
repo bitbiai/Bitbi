@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { runMemvidPreviewFlow } from './memvid-preview-flow.mjs';
 
 const BASE_URL = String(process.env.AUTH_WORKER_BASE_URL || "").replace(/\/+$/, "");
 const SECRET = String(process.env.HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET
@@ -180,11 +181,16 @@ async function claimSourcePosterJobs() {
 }
 
 async function claimMemvidPreviewJobs() {
+  // An old Auth deployment must be detected before its legacy claim mutates
+  // jobs. Conversely the new Auth rejects legacy processors before claiming.
+  const protocol = await requestJson('/api/internal/memvid-stream-previews/jobs/claim');
+  if (protocol?.data?.receipt_protocol !== 2) throw new Error('Stream receipt protocol 2 is unavailable.');
   const body = await requestJson("/api/internal/memvid-stream-previews/jobs/claim", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ limit: JOB_LIMIT, repair_downloads: REPAIR_MEMVID_STREAM_DOWNLOADS }),
+    body: JSON.stringify({ limit: JOB_LIMIT, repair_downloads: REPAIR_MEMVID_STREAM_DOWNLOADS, receipt_protocol: 2 }),
   });
+  if (body?.data?.scan?.incomplete) console.log(JSON.stringify({ phase: "repair_scan", status: "partial", checked: body.data.scan.checked, next_action: "continue_bounded_scan" }));
   return Array.isArray(body?.data?.jobs) ? body.data.jobs : [];
 }
 
@@ -444,6 +450,7 @@ async function uploadPreviewToStream(filePath, job) {
   form.append("meta", JSON.stringify({
     name: `BITBI Memvid preview ${job.asset_id || job.id}`,
     bitbi_preview_job_id: job.id,
+    bitbi_upload_intent: job.upload_token,
   }));
   const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(STREAM_ACCOUNT_ID)}/stream`, {
     method: "POST",
@@ -819,6 +826,7 @@ async function completeMemvidPreviewJob(job, result, streamResult) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      claim_token: job.claim_token,
       stream_uid: streamResult.uid,
       preview_duration_seconds: Math.min(
         Number(job.preset?.maxDurationSeconds || 5) || 5,
@@ -848,11 +856,11 @@ async function failMemvidPreviewJob(job, error) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      claim_token: job.claim_token,
       error_code: sanitizeProcessorErrorCode(error?.code),
-      error_message: String(error?.message || error || "Stream preview failed").slice(0, 240),
     }),
   }).catch((callbackError) => {
-    console.error(`Failed to report Stream preview failure for ${job.id}:`, callbackError.message);
+    console.error(JSON.stringify({ job_id: job.id, phase: 'failure_receipt', code: 'stream_failure_receipt_unconfirmed', http_status: callbackError.status || null }));
   });
 }
 
@@ -901,35 +909,26 @@ async function processSourcePosterJob(job) {
 async function processMemvidPreviewJob(job) {
   console.log(`Processing Memvid Stream preview job ${job.id} (${job.asset_id})`);
   if (DRY_RUN) {
-    console.log(JSON.stringify({ dryRun: true, streamPreviewJob: job }, null, 2));
-    return;
-  }
-  if (job.repair_download && job.stream_uid) {
-    try {
-      const download = await ensureStreamDownloadReady(job.stream_uid);
-      await completeMemvidPreviewJob(job, { metadata: {} }, {
-        uid: job.stream_uid,
-        metadata: { status: "ready", uploaded: null },
-        download,
-      });
-      console.log(`Repaired Memvid Stream download metadata for job ${job.id}`);
-    } catch (error) {
-      console.error(`Failed Memvid Stream download repair for ${job.id}:`, error.message);
-      await failMemvidPreviewJob(job, error);
-      process.exitCode = 1;
-    }
+    console.log(JSON.stringify({ dryRun: true, kind: "memvid-stream-preview", jobId: job.id, receiptProtocol: job.receipt_protocol, hasKnownUid: Boolean(job.stream_uid) }));
     return;
   }
   await mkdir(WORK_DIR, { recursive: true });
   const dir = await mkdtemp(path.join(WORK_DIR, `bitbi-memvid-preview-${job.id}-`));
+  const receipt = (claimed, body) => requestJson(claimed.completion.receipt_url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
   try {
-    const result = await convertMemvidPreviewJob(job, dir);
-    const streamResult = await uploadPreviewToStream(result.output, job);
-    streamResult.download = await ensureStreamDownloadReady(streamResult.uid);
-    await completeMemvidPreviewJob(job, result, streamResult);
-    console.log(`Completed Memvid Stream preview job ${job.id}`);
+    await runMemvidPreviewFlow(job, {
+      convert: () => convertMemvidPreviewJob(job, dir),
+      begin: async claimed => (await receipt(claimed, { phase: 'begin', claim_token: claimed.claim_token, source_fingerprint: claimed.source?.fingerprint }))?.data,
+      upload: uploadPreviewToStream,
+      receipt,
+      downloads: ensureStreamDownloadReady,
+      complete: completeMemvidPreviewJob,
+    });
+    console.log(JSON.stringify({ job_id: job.id, phase: 'complete', status: 'confirmed' }));
   } catch (error) {
-    console.error(`Failed Memvid Stream preview job ${job.id}:`, error.message);
+    console.error(JSON.stringify({ job_id: job.id, phase: error.phase || 'processing', code: sanitizeProcessorErrorCode(error.code), status: 'incomplete' }));
     await failMemvidPreviewJob(job, error);
     process.exitCode = 1;
   } finally {

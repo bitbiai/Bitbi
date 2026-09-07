@@ -564,7 +564,7 @@ test.describe('Private admin Fable chat', () => {
       path.join(process.cwd(), 'workers/auth/migrations/0080_add_provider_neutral_chat_and_grok_4_6.sql'),
       'utf8'
     );
-    expect(CURRENT_AUTH_MIGRATION).toBe('0083_add_r2_cleanup_reference_fence.sql');
+    expect(CURRENT_AUTH_MIGRATION).toBe('0086_add_fable_memory_source_revision.sql');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_conversations');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_turns');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_messages');

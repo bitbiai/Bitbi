@@ -932,7 +932,7 @@ function closeSubscriptionDialog() {
     }
 }
 
-function openSubscriptionDialog(action) {
+function openSubscriptionDialog(action, trigger) {
     if (!$subscriptionDialog || !$subscriptionDialogTitle || !$subscriptionDialogBody || !$subscriptionDialogConfirm) return;
     pendingSubscriptionAction = action;
     const isReactivate = action === 'reactivate';
@@ -954,6 +954,9 @@ function openSubscriptionDialog(action) {
         try { subscriptionDialogFocusCleanup(); } catch {}
         subscriptionDialogFocusCleanup = null;
     }
+    // Pointer activation need not focus its button (notably in WebKit).
+    // Let the existing focus trap capture the actual dialog origin.
+    trigger?.focus({ preventScroll: true });
     subscriptionDialogFocusCleanup = setupFocusTrap($subscriptionDialog);
     const focusTarget = isReactivate ? $subscriptionDialogConfirm : $subscriptionDialogCancel;
     focusTarget?.focus();
@@ -1117,7 +1120,7 @@ $subscriptionSection?.addEventListener('click', (event) => {
     }
     const button = event.target.closest('[data-subscription-action]');
     if (!button) return;
-    openSubscriptionDialog(button.dataset.subscriptionAction);
+    openSubscriptionDialog(button.dataset.subscriptionAction, button);
 });
 
 $subscriptionDialogCancel?.addEventListener('click', closeSubscriptionDialog);
