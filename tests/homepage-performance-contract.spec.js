@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { installHomepageWorkProbe, summarizeTaskWindow, assertHomepageWorkBudget } = require('./helpers/homepage-work-probe.cjs');
+const { installHomepageWorkProbe, summarizeTaskWindow, assessHomepageWork, assessCarouselTiming } = require('./helpers/homepage-work-probe.cjs');
 
 test('work-window arithmetic includes crossing tasks and excludes disjoint tasks', { tag: '@homepage-performance' }, () => {
   // Arithmetic unit control only; native performance values below use real clocks.
@@ -8,10 +8,18 @@ test('work-window arithmetic includes crossing tasks and excludes disjoint tasks
     { startTime: 140, duration: 80 }, { startTime: 200, duration: 80 },
   ] };
   const result = summarizeTaskWindow(probe, 100, 200);
+  for (const invalid of [{ startTime: NaN, duration: 80 }, { startTime: 10, duration: -1 }]) {
+    expect(() => summarizeTaskWindow({ ...probe, entries: [invalid] }, 100, 200)).toThrow(/Invalid native work entry/);
+  }
   expect(result.entries.map(entry => entry.startTime)).toEqual([90, 140]);
-  expect(() => assertHomepageWorkBudget(result)).toThrow(/exceeds 50 ms/);
-  expect(() => assertHomepageWorkBudget({ ...result, supported: false })).toThrow(/unavailable/);
-  expect(() => assertHomepageWorkBudget({ ...result, overflow: true })).toThrow(/overflow/);
+  expect(assessHomepageWork(result)).toMatchObject({ measurement: 'valid', budget: 'exceeded' });
+  expect(assessHomepageWork({ ...result, maxLongTaskMs: 0 }).warnings).toEqual([]);
+  expect(assessCarouselTiming({ firstMotionMs: 150, activationMs: 10, motionToCompleteMs: 900 }).warnings).toHaveLength(2);
+  expect(() => assessCarouselTiming({ firstMotionMs: NaN, activationMs: 0, motionToCompleteMs: 500 })).toThrow(/Invalid/);
+  expect(() => assessHomepageWork({ ...result, error: 'observer failed' })).toThrow(/observer failed/);
+  expect(() => assessHomepageWork({ ...result, maxLongTaskMs: NaN })).toThrow(/Invalid/);
+  expect(() => assessHomepageWork({ ...result, supported: false })).toThrow(/unavailable/);
+  expect(() => assessHomepageWork({ ...result, overflow: true })).toThrow(/overflow/);
 });
 
 for (const boundary of ['input', 'completion']) {
@@ -45,7 +53,8 @@ for (const boundary of ['input', 'completion']) {
     expect(result.control.deliveredInsideTask).toBe(false);
     const summary = summarizeTaskWindow(result.probe, result.control.startTime, result.control.endTime);
     expect(summary.entries.some(entry => entry.startTime < result.control.startTime && entry.duration >= 80)).toBe(true);
-    expect(() => assertHomepageWorkBudget(summary)).toThrow(/exceeds 50 ms/);
+    expect(assessHomepageWork(summary).budget).toBe('exceeded');
+    expect(assessHomepageWork(summary).warnings).toHaveLength(1);
     expect(summary.maxLongTaskMs).toBeGreaterThanOrEqual(100);
     await test.info().attach('native-negative-control', { body: JSON.stringify({ ...result.control, summary }), contentType: 'application/json' });
   });

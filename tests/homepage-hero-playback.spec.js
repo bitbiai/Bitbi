@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
+const { installHeroNativeProbe, everyActiveSlotProgressed } = require('./helpers/homepage-hero-native-probe');
 
 const VIDEO = fs.readFileSync(path.join(__dirname, 'fixtures/media/test-video.mp4'));
 const POSTER = fs.readFileSync(path.join(__dirname, 'fixtures/media/favorite-thumb.jpg'));
@@ -8,10 +9,17 @@ const HERO_VIDEOS = '#hero [data-latest-models-video-module] video';
 const HERO_SLOTS = '#hero [data-latest-models-slot]';
 const SLOT_NAMES = ['right_top', 'right_bottom', 'left_top', 'left_bottom'];
 
+test.afterEach(async ({ page }, testInfo) => {
+  if (page.isClosed()) return;
+  const events = await page.evaluate(() => window.__heroNativeProbe?.events ?? null);
+  if (events) await testInfo.attach('native-media-events', { body: JSON.stringify(events), contentType: 'application/json' });
+});
+
 async function fixture(page, { configured = true, initiallyHidden = false } = {}) {
   const requests = [];
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  await installHeroNativeProbe(page);
   await page.setViewportSize({ width: 1440, height: 1200 });
   await page.addInitScript(({ initiallyHidden }) => {
     localStorage.setItem('bitbi_cookie_consent', JSON.stringify({ necessary: true, analytics: false, marketing: false, timestamp: Date.now() }));
@@ -48,7 +56,12 @@ async function fixture(page, { configured = true, initiallyHidden = false } = {}
         poster: { url: `/api/gallery/memvids/playback-${index}/v1/poster`, w: 320, h: 180 },
       })), has_more: false, next_cursor: null } });
     }
-    if (url.pathname.endsWith('/file')) return route.fulfill({ status: 200, contentType: 'video/mp4', body: VIDEO });
+    // Match the existing public Hero/Memvid full-response contract. Do not turn
+    // Range requests into 206 here: those product handlers currently return 200.
+    if (url.pathname.endsWith('/file')) return route.fulfill({
+      status: 200, contentType: 'video/mp4', body: VIDEO,
+      headers: { 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' },
+    });
     if (url.pathname.endsWith('/poster')) return route.fulfill({ status: 200, contentType: 'image/jpeg', body: POSTER });
     return json({ ok: true, data: { items: [], has_more: false, next_cursor: null } });
   });
@@ -75,9 +88,22 @@ async function snapshot(page) {
 }
 
 async function expectPlaying(page) {
-  await expect.poll(() => page.locator(HERO_VIDEOS).evaluateAll(videos =>
-    videos.length >= 4 && videos.every(video => !video.paused && video.readyState >= 2 && video.currentTime > 0)
-  )).toBe(true);
+  const baseline = new Map();
+  const samples = [];
+  try {
+    await expect.poll(async () => {
+      const current = await page.evaluate(() => window.__heroNativeProbe.sample());
+      samples.push(current);
+      const progressed = everyActiveSlotProgressed([...baseline.values()], current);
+      current.forEach(video => { if (!baseline.has(video.id)) baseline.set(video.id, video); });
+      return progressed;
+    }).toBe(true);
+  } finally {
+    await test.info().attach('native-active-slot-progress', {
+      body: JSON.stringify({ samples }),
+      contentType: 'application/json',
+    });
+  }
 }
 
 async function startContinuityProbe(page) {
@@ -85,18 +111,8 @@ async function startContinuityProbe(page) {
     const videos = Array.from(document.querySelectorAll(selector));
     const probe = { videos, sources: videos.map(video => video.getAttribute('src')), sourceChanges: 0, emptied: 0, resumes: [] };
     videos.forEach(video => {
-      // Observe the native resume call itself, before an independently due cycle
-      // may add its incoming face. Playback and decoding are not mocked here.
-      const nativePlay = video.play;
-      video.play = function (...args) {
-        const current = Array.from(document.querySelectorAll(selector));
-        probe.resumes.push({
-          sameVideos: current.length === videos.length && current.every((item, index) => item === videos[index]),
-          sameSources: videos.every((item, index) => item.getAttribute('src') === probe.sources[index]),
-          sourceChanges: probe.sourceChanges, emptied: probe.emptied,
-        });
-        return Reflect.apply(nativePlay, this, args);
-      };
+      // The single pass-through native observer captures resume before a due
+      // cycle can add a face. Repeated probes do not wrap play a second time.
       video.addEventListener('emptied', () => { probe.emptied += 1; });
       new MutationObserver(records => { probe.sourceChanges += records.length; })
         .observe(video, { attributes: true, attributeFilter: ['src'] });
@@ -169,6 +185,30 @@ async function scrollHeroOffscreen(page) {
 }
 
 for (const locale of ['en', 'de']) {
+  test(`${locale}: configured native media loops in every slot with the existing full-response file contract`, async ({ page }, testInfo) => {
+    await openHome(page, locale);
+    await expectPlaying(page);
+    const initial = await page.evaluate(() => window.__heroNativeProbe.sample());
+    expect(initial.every(video => video.duration === 1)).toBe(true);
+    // The same one-second MP4 must play beyond its first complete decode in all
+    // four slots. An initial playing state does not establish looping support.
+    await expect.poll(async () => {
+      const current = await page.evaluate(() => window.__heroNativeProbe.sample());
+      return everyActiveSlotProgressed(initial, current) && current.every(video => {
+        const first = initial.find(item => item.id === video.id);
+        return first && video.frames !== null && first.frames !== null && video.frames - first.frames >= 24;
+      });
+    }).toBe(true);
+    await testInfo.attach('native-full-response-loop', {
+      body: JSON.stringify({ initial, current: await page.evaluate(() => window.__heroNativeProbe.sample()) }),
+      contentType: 'application/json',
+    });
+    await page.evaluate(() => window.__setHeroDocumentHidden(true));
+    await expectFrozen(page, testInfo, 'native-loop-suspended', 200);
+    await page.evaluate(() => window.__setHeroDocumentHidden(false));
+    await expectPlaying(page);
+  });
+
   test(`${locale}: configured hero pauses offscreen and hidden, resumes existing media and respects an existing pause`, async ({ page }, testInfo) => {
     const state = await openHome(page, locale);
     await expectPlaying(page);

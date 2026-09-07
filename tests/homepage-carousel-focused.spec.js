@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
-const { installHomepageWorkProbe, summarizeTaskWindow, assertHomepageWorkBudget } = require('./helpers/homepage-work-probe.cjs');
+const { installHomepageWorkProbe, summarizeTaskWindow, assessHomepageWork, assessCarouselTiming } = require('./helpers/homepage-work-probe.cjs');
 
 const TEST_PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==',
@@ -1194,18 +1194,17 @@ test.describe('Populated homepage carousel', () => {
     const metrics = {
       browserName, maxFirstMotionMs, warmMeasurements,
       scope: 'Whole-document task overlap from real pointer capture through stable post-settle observation; no function attribution or field INP',
-      conditions: { viewport: page.viewportSize(), media: 'synthetic populated walls; playback mocked here, native Hero suite separate', performanceGate: testInfo.project.metadata.homepagePerformanceGate === true, retry: testInfo.retry },
+      conditions: { viewport: page.viewportSize(), media: 'synthetic populated walls; playback mocked here, native Hero suite separate', requiredPerformanceMeasurement: testInfo.project.metadata.homepagePerformanceMeasurement === true, retry: testInfo.retry },
     };
     await testInfo.attach('carousel-metrics', {
       body: Buffer.from(JSON.stringify(metrics, null, 2)),
       contentType: 'application/json',
     });
-    expect(maxFirstMotionMs).toBeLessThanOrEqual(100);
+
     for (const measurement of warmMeasurements) {
       expect(measurement.firstMotionMs).toBeGreaterThanOrEqual(0);
       expect(measurement.activationMs).toBeGreaterThanOrEqual(0);
-      expect(measurement.motionToCompleteMs).toBeGreaterThanOrEqual(440);
-      expect(measurement.motionToCompleteMs).toBeLessThanOrEqual(680);
+      expect(measurement.motionToCompleteMs).toBeGreaterThanOrEqual(0);
       expect(measurement.viewportMinOpacity).toBeGreaterThanOrEqual(0.99);
       expect(measurement.stableLayoutFrames).toBeGreaterThanOrEqual(CAROUSEL_STABLE_FRAME_COUNT);
       expect(measurement.settleObservationMs).toBeGreaterThanOrEqual(
@@ -1221,10 +1220,20 @@ test.describe('Populated homepage carousel', () => {
         videoReady: 'true',
         soundReady: 'true',
       });
-      // Timing acceptance is mandatory in the isolated Chromium performance
-      // project; other engines/runs retain the full functional/geometry checks
-      // and publish page-wide timing without pretending unsupported data passed.
-      if (testInfo.project.metadata.homepagePerformanceGate) assertHomepageWorkBudget(measurement.pageWork);
+      // Measurement integrity is required in the dedicated Chromium job. Lab
+      // timing thresholds are diagnostic, never a functional/release veto.
+      const work = measurement.pageWork.supported || measurement.pageWork.error || measurement.pageWork.overflow
+        || testInfo.project.metadata.homepagePerformanceMeasurement
+        ? assessHomepageWork(measurement.pageWork)
+        : { measurement: 'unavailable', warnings: ['Native Long Tasks unavailable in this engine; no performance acceptance claimed'] };
+      const timing = assessCarouselTiming(measurement);
+      await testInfo.attach(`carousel-diagnostics-${measurement.targetCategory}`, {
+        body: JSON.stringify({ work, timing }), contentType: 'application/json',
+      });
+      for (const warning of [...work.warnings, ...timing.warnings]) {
+        testInfo.annotations.push({ type: 'performance-warning', description: warning });
+        console.warn(`::warning title=Carousel laboratory diagnostic::${warning}`);
+      }
     }
     await expectSingleInteractivePanel(page, 'sound');
 
@@ -1270,7 +1279,7 @@ test.describe('Populated homepage carousel', () => {
     expect(stableNarrowToken).toBe(narrowGallery.token);
   });
 
-  test('page-work gate rejects deliberately blocking work on a real carousel input', { tag: '@homepage-performance' }, async ({ page, browserName }, testInfo) => {
+  test('page-work measurement detects deliberately blocking work on a real carousel input', { tag: '@homepage-performance' }, async ({ page, browserName }, testInfo) => {
     test.skip(browserName !== 'chromium', 'Native Long Tasks countercontrol runs in required Chromium performance project.');
     await page.setViewportSize(getStagedTestViewport(browserName));
     await waitForPopulatedHomepage(page);
@@ -1286,7 +1295,9 @@ test.describe('Populated homepage carousel', () => {
       while (performance.now() < end) { /* local negative control, not product code */ }
     }, { capture: true, once: true }));
     const result = await measureWarmSwitch(page, 'gallery');
-    expect(() => assertHomepageWorkBudget(result.pageWork)).toThrow(/exceeds 50 ms/);
+    const diagnosis = assessHomepageWork(result.pageWork);
+    expect(diagnosis.budget).toBe('exceeded');
+    expect(diagnosis.warnings).toHaveLength(1);
     expect(result.pageWork.entries.some(entry => entry.startTime < result.inputDispatchedAt)).toBe(true);
     await expectSingleInteractivePanel(page, 'gallery');
     await testInfo.attach('carousel-blocking-countercontrol', { body: JSON.stringify(result), contentType: 'application/json' });

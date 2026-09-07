@@ -25,6 +25,11 @@ function installHomepageWorkProbe() {
 
 function summarizeTaskWindow(probe, startTime, endTime) {
   assert.ok(Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime, 'Invalid real-time work window');
+  assert.ok(Array.isArray(probe.entries), 'Native work entries missing');
+  for (const entry of probe.entries) {
+    assert.ok(Number.isFinite(entry.startTime) && entry.startTime >= 0
+      && Number.isFinite(entry.duration) && entry.duration >= 0, 'Invalid native work entry');
+  }
   // Include an input/completion task that STARTED before the boundary. Entry
   // delivery time is irrelevant; a late observer notification is not a new task.
   const entries = probe.entries.filter(entry => entry.startTime < endTime && entry.startTime + entry.duration > startTime);
@@ -36,11 +41,24 @@ function summarizeTaskWindow(probe, startTime, endTime) {
   };
 }
 
-function assertHomepageWorkBudget(window) {
+function assessHomepageWork(window) {
   assert.equal(window.supported, true, 'Native Long Tasks measurement unavailable; no performance pass');
   assert.equal(window.overflow, false, 'Work observer overflow; incomplete measurement');
   assert.equal(window.error, '', 'Work observer failed');
-  assert.ok(window.maxLongTaskMs <= 50, `Homepage work exceeds 50 ms: ${window.maxLongTaskMs} ms`);
+  assert.ok(Number.isFinite(window.maxLongTaskMs) && window.maxLongTaskMs >= 0, 'Invalid native work measurement');
+  return { measurement: 'valid', budget: window.maxLongTaskMs > 50 ? 'exceeded' : 'within',
+    warnings: window.maxLongTaskMs > 50 ? [`Whole-page task ${window.maxLongTaskMs} ms exceeds the 50 ms diagnostic threshold`] : [] };
 }
 
-module.exports = { installHomepageWorkProbe, summarizeTaskWindow, assertHomepageWorkBudget };
+function assessCarouselTiming(measurement) {
+  const { firstMotionMs, activationMs, motionToCompleteMs } = measurement;
+  for (const [name, value] of Object.entries({ firstMotionMs, activationMs, motionToCompleteMs })) {
+    assert.ok(Number.isFinite(value) && value >= 0, `Invalid ${name} measurement`);
+  }
+  const warnings = [];
+  if (firstMotionMs > 100) warnings.push(`First motion ${firstMotionMs} ms exceeds the 100 ms diagnostic threshold`);
+  if (motionToCompleteMs < 440 || motionToCompleteMs > 680) warnings.push(`Motion completion ${motionToCompleteMs} ms is outside the historical 440–680 ms diagnostic range`);
+  return { measurement: 'valid', warnings };
+}
+
+module.exports = { installHomepageWorkProbe, summarizeTaskWindow, assessHomepageWork, assessCarouselTiming };

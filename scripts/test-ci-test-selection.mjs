@@ -264,6 +264,7 @@ function selection(files, options) {
 for (const file of [
   "playwright.homepage.config.js",
   "playwright.homepage-performance.config.js",
+  "playwright.homepage-webkit.config.js",
   "tests/homepage-creation-stream-anchor.spec.js",
   "tests/homepage-hero-playback.spec.js",
   "tests/homepage-hero-state.spec.js",

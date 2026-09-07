@@ -25,6 +25,7 @@ try {
     standard: 'playwright.config.js',
     carousel: 'playwright.carousel.config.js',
     functional: 'playwright.homepage.config.js',
+    webkit: 'playwright.homepage-webkit.config.js',
     performance: 'playwright.homepage-performance.config.js',
   })) {
     // Discovery does not start browsers, the web server or Playwright bodies.

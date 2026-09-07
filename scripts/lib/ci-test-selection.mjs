@@ -98,6 +98,7 @@ const CAROUSEL_FILES = new Set([
   "playwright.carousel.config.js",
   "playwright.homepage.config.js",
   "playwright.homepage-performance.config.js",
+  "playwright.homepage-webkit.config.js",
   "tests/homepage-carousel-focused.spec.js",
   "tests/homepage-creation-stream-anchor.spec.js",
   "tests/homepage-hero-playback.spec.js",

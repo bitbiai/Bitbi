@@ -1,7 +1,58 @@
 const { test, expect } = require('@playwright/test');
+const { installHeroNativeProbe, everyActiveSlotProgressed } = require('./helpers/homepage-hero-native-probe');
 
 const SLOTS = '#hero [data-latest-models-slot]';
 const VIDEOS = `${SLOTS} video`;
+
+test('probe only: every active slot needs its own native progress and identity', () => {
+  const previous = ['left_top', 'left_bottom', 'right_top', 'right_bottom'].map((slot, index) => ({
+    id: index + 1, slot, active: true, connected: true, src: `/fixture-${index}.mp4`,
+    time: 0.2, frames: 3, paused: false, readyState: 4, error: null,
+  }));
+  const progressed = previous.map(video => ({ ...video, time: 0.4, frames: 6 }));
+  expect(everyActiveSlotProgressed(previous, progressed)).toBe(true);
+  expect(everyActiveSlotProgressed(previous, progressed.slice(1))).toBe(false);
+  expect(everyActiveSlotProgressed(previous, [{ ...previous[0] }, ...progressed.slice(1)])).toBe(false);
+  expect(everyActiveSlotProgressed(previous, [{ ...progressed[0], paused: true }, ...progressed.slice(1)])).toBe(false);
+  expect(everyActiveSlotProgressed(previous, [{ ...progressed[0], id: 99 }, ...progressed.slice(1)])).toBe(false);
+  expect(everyActiveSlotProgressed(previous, [{ ...progressed[0], slot: 'unknown_top' }, ...progressed.slice(1)])).toBe(false);
+  expect(everyActiveSlotProgressed(previous, [{ ...progressed[0], error: 3 }, ...progressed.slice(1)])).toBe(false);
+  expect(everyActiveSlotProgressed(previous, [{ ...previous[0], time: 0 }, ...progressed.slice(1)])).toBe(false);
+  expect(everyActiveSlotProgressed(previous, [{ ...progressed[0], time: 0 }, ...progressed.slice(1)])).toBe(true);
+  // A retired/outgoing face is not an active slot, but a newly incoming target
+  // still needs progress from that exact video's own prior sample.
+  const outgoing = { ...previous[0], active: false, role: 'outgoing', paused: true };
+  expect(everyActiveSlotProgressed(previous, [...progressed, outgoing])).toBe(true);
+  const incoming = { ...previous[0], id: 5, role: 'incoming', time: 0, frames: 0 };
+  expect(everyActiveSlotProgressed([...previous, incoming], [incoming, ...progressed.slice(1), outgoing])).toBe(false);
+  expect(everyActiveSlotProgressed([...previous, incoming], [{ ...incoming, time: 0.1, frames: 2 }, ...progressed.slice(1), outgoing])).toBe(true);
+});
+
+test('probe only: the appended target is distinguished from the outgoing face in both transition shapes', async ({ page }) => {
+  await installHeroNativeProbe(page);
+  await controlledHero(page);
+  const roles = await page.evaluate(() => {
+    const slot = document.querySelector('#hero [data-latest-models-slot]');
+    const cube = slot.querySelector('.latest-models-video-module__cube');
+    const incoming = cube.firstElementChild.cloneNode(true);
+    const slotKey = window.__heroNativeProbe.sample()[0].slot;
+    const read = () => window.__heroNativeProbe.sample().filter(video => video.slot === slotKey)
+      .map(({ role, active }) => ({ role, active }));
+    cube.append(incoming);
+    incoming.classList.replace('latest-models-video-module__face--front', 'latest-models-video-module__face--right');
+    slot.classList.add('is-turning');
+    const normal = read();
+    slot.classList.replace('is-turning', 'is-reduced-transition');
+    incoming.classList.replace('latest-models-video-module__face--right', 'latest-models-video-module__face--front');
+    const reduced = read();
+    cube.firstElementChild.remove();
+    slot.classList.remove('is-reduced-transition');
+    return { normal, reduced, settled: read() };
+  });
+  expect(roles.normal).toEqual([{ role: 'outgoing', active: false }, { role: 'selected-target', active: true }]);
+  expect(roles.reduced).toEqual(roles.normal);
+  expect(roles.settled).toEqual([{ role: 'active', active: true }]);
+});
 
 async function controlledHero(page) {
   // This suite tests controller timing only. The separate playback suite uses

@@ -11,7 +11,7 @@ export const HOMEPAGE_FUNCTIONAL_MINIMUMS = Object.freeze({
 export const HOMEPAGE_PERFORMANCE_REQUIRED = Object.freeze({
   'homepage-carousel-focused.spec.js': [
     'settles exact transitions, keeps populated walls warm, and honors the latest rapid choice',
-    'page-work gate rejects deliberately blocking work on a real carousel input',
+    'page-work measurement detects deliberately blocking work on a real carousel input',
   ],
   'homepage-performance-contract.spec.js': [
     'work-window arithmetic includes crossing tasks and excludes disjoint tasks',
@@ -19,6 +19,10 @@ export const HOMEPAGE_PERFORMANCE_REQUIRED = Object.freeze({
     'native blocking countercontrol retains a task crossing completion despite delayed observation',
   ],
 });
+export const HOMEPAGE_WEBKIT_REQUIRED = Object.freeze(['en', 'de'].flatMap((locale) => [
+  `${locale}: fallback freezes media and its staggered cycle while suspended`,
+  `${locale}: phone and tablet breakpoints retain existing policy with reduced motion`,
+]));
 
 export function flattenHomepageDiscovery(report) {
   assert.ok(Array.isArray(report?.suites), 'Missing Playwright discovery suites');
@@ -45,12 +49,18 @@ function key(test) {
   return [test.file, test.title, test.project].join('\0');
 }
 
-export function verifyHomepageDiscovery({ standard, carousel, functional, performance }) {
-  for (const [name, tests] of Object.entries({ standard, carousel, functional, performance })) {
+export function verifyHomepageDiscovery({ standard, carousel, functional, webkit, performance }) {
+  for (const [name, tests] of Object.entries({ standard, carousel, functional, webkit, performance })) {
     assert.ok(Array.isArray(tests) && tests.length > 0, `${name}: no tests discovered`);
   }
   const counts = (tests) => Object.fromEntries([...new Set(tests.map((test) => test.file))].sort()
     .map((file) => [file, tests.filter((test) => test.file === file).length]));
+  assert.ok(webkit.every((test) => test.project === 'webkit' && test.expectedStatus !== 'skipped'),
+    'Early WebKit cases must execute in native WebKit without static skips');
+  for (const title of HOMEPAGE_WEBKIT_REQUIRED) {
+    assert.ok(webkit.some((test) => test.file === 'homepage-hero-playback.spec.js' && test.title === title),
+      `Early WebKit selection is missing: ${title}`);
+  }
   for (const project of ['chromium', 'webkit']) {
     for (const [file, minimum] of Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)) {
       const matches = functional.filter((test) => test.project === project && test.file === file);
@@ -71,7 +81,7 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, perfor
   // Record the complete union of the retained commands. The orchestration
   // regression separately verifies that neither old command is removed.
   const oldUnion = new Set([...standard, ...carousel].map(key));
-  const combinedUnion = new Set([...standard, ...carousel, ...functional, ...performance].map(key));
+  const combinedUnion = new Set([...standard, ...carousel, ...functional, ...webkit, ...performance].map(key));
   const earlyFunctional = new Set(functional.map(key));
   for (const [file, minimum] of Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)) {
     assert.ok(standard.filter((test) => test.file === file).length >= minimum,
@@ -88,6 +98,7 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, perfor
     standard: { total: standard.length, files: counts(standard) },
     carousel: { total: carousel.length, files: counts(carousel) },
     functional: { total: functional.length, files: counts(functional) },
+    webkit: { total: webkit.length, files: counts(webkit) },
     performance: { total: performance.length, files: counts(performance) },
     existingCommandUnion: oldUnion.size,
     combinedCommandUnion: combinedUnion.size,

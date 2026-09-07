@@ -227,6 +227,7 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
       "playwright.carousel.config.js",
       "playwright.homepage.config.js",
       "playwright.homepage-performance.config.js",
+      "playwright.homepage-webkit.config.js",
       "playwright.workers.config.js",
     ],
   });
@@ -235,6 +236,7 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
     "playwright.carousel.config.js",
     "playwright.config.js",
     "playwright.homepage-performance.config.js",
+    "playwright.homepage-webkit.config.js",
     "playwright.homepage.config.js",
     "playwright.workers.config.js",
   ]);
