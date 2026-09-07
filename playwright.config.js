@@ -23,7 +23,7 @@ module.exports = defineConfig({
     },
   ],
   webServer: {
-    command: 'npx serve -l 3000',
+    command: 'node tests/helpers/homepage-media-server.mjs',
     port: 3000,
     reuseExistingServer: !process.env.CI,
   },

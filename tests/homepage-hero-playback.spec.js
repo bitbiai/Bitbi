@@ -1,24 +1,38 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
-const { installHeroNativeProbe, everyActiveSlotProgressed } = require('./helpers/homepage-hero-native-probe');
+const { installHeroNativeProbe, createProgressWindow } = require('./helpers/homepage-hero-native-probe');
 
 const VIDEO = fs.readFileSync(path.join(__dirname, 'fixtures/media/test-video.mp4'));
 const POSTER = fs.readFileSync(path.join(__dirname, 'fixtures/media/favorite-thumb.jpg'));
 const HERO_VIDEOS = '#hero [data-latest-models-video-module] video';
 const HERO_SLOTS = '#hero [data-latest-models-slot]';
 const SLOT_NAMES = ['right_top', 'right_bottom', 'left_top', 'left_bottom'];
+const transports = new WeakMap();
 
 test.afterEach(async ({ page }, testInfo) => {
+  const transport=transports.get(page);
+  if(transport) {
+    await testInfo.attach('media-http-transport',{body:JSON.stringify(transport),contentType:'application/json'});
+    if(transport.mode==='http') {
+      const complete=transport.responses.filter(r=>[200,206].includes(r.status)&&!r.broken);
+      expect(complete.every(r=>r.transport==='http')).toBe(true);
+    }
+  }
   if (page.isClosed()) return;
   const events = await page.evaluate(() => window.__heroNativeProbe?.events ?? null);
   if (events) await testInfo.attach('native-media-events', { body: JSON.stringify(events), contentType: 'application/json' });
 });
 
-async function fixture(page, { configured = true, initiallyHidden = false, rangeSupport = true } = {}) {
+async function fixture(page, { configured = true, initiallyHidden = false, transport = 'http' } = {}) {
   const { publicVideoResponse } = await import('../workers/auth/src/lib/public-video-response.mjs');
   const requests = [];
   const errors = [];
+  const transportEvidence={mode:transport,responses:[]};transports.set(page,transportEvidence);
+  page.on('response', response=>{
+    const url=new URL(response.url());
+    if(url.pathname.endsWith('/file')) transportEvidence.responses.push({path:url.pathname,broken:url.searchParams.has('broken'),status:response.status(),transport:response.headers()['x-test-media-transport']||null});
+  });
   page.on('pageerror', error => errors.push(error.message));
   await installHeroNativeProbe(page);
   await page.setViewportSize({ width: 1440, height: 1200 });
@@ -33,7 +47,10 @@ async function fixture(page, { configured = true, initiallyHidden = false, range
     };
     if (initiallyHidden) window.__setHeroDocumentHidden(true);
   }, { initiallyHidden });
-  await page.route('**/*', async route => {
+  // File requests in the positive HTTP path have no Playwright route handler.
+  await page.route(/^(?!http:\/\/(?:localhost|127\.0\.0\.1):3000\/)/, route => route.abort());
+  const apiPattern = transport === 'http' ? /\/api\/(?!.*\/file(?:[?#]|$))/ : /\/api\//;
+  await page.route(apiPattern, async route => {
     const request = route.request();
     const url = new URL(request.url());
     if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return route.abort();
@@ -59,7 +76,7 @@ async function fixture(page, { configured = true, initiallyHidden = false, range
     }
     if (url.pathname.endsWith('/file')) {
       const metadata = { size: VIDEO.length, etag: 'fixture-video', httpEtag: '"fixture-video"', uploaded: new Date('2026-09-07T00:00:00Z') };
-      const response = await publicVideoResponse(new Request(url, { headers: rangeSupport ? route.request().headers() : {} }), {
+      const response = await publicVideoResponse(new Request(url, { headers: route.request().headers() }), {
         head: async () => metadata,
         get: async (key, options) => ({ ...metadata, body: options?.range
           ? VIDEO.subarray(options.range.offset, options.range.offset + options.range.length) : VIDEO }),
@@ -93,14 +110,13 @@ async function snapshot(page) {
 }
 
 async function expectPlaying(page) {
-  const baseline = new Map();
+  const window = createProgressWindow();
   const samples = [];
   try {
     await expect.poll(async () => {
       const current = await page.evaluate(() => window.__heroNativeProbe.sample());
       samples.push(current);
-      const progressed = everyActiveSlotProgressed([...baseline.values()], current);
-      current.forEach(video => { if (!baseline.has(video.id)) baseline.set(video.id, video); });
+      const progressed = window(current);
       return progressed;
     }).toBe(true);
   } finally {
@@ -189,65 +205,79 @@ async function scrollHeroOffscreen(page) {
   await expect.poll(() => page.locator('#hero').evaluate(hero => hero.getBoundingClientRect().bottom)).toBeLessThan(0);
 }
 
-// Same short MP4 outside the Hero distinguishes transport/decoder behavior from
-// controller lifecycle. Legacy200 is a diagnostic control, never a product pass.
-for (const rangeSupport of [false, true]) {
-  test(`native plain video: ${rangeSupport ? 'public range response loops and seeks' : 'legacy full200 transport diagnosis'}`, async ({ page, browserName }, testInfo) => {
-    await fixture(page, { rangeSupport });
+// The intercepted transport is diagnostic only. The real HTTP path must pass
+// the same native loop/seek/resume contract, before testing the actual Hero.
+for (const transport of ['fulfill', 'http']) {
+  test(`native plain video: ${transport === 'http' ? 'HTTP response loops and seeks' : 'fulfill transport comparison'}`, async ({ page, browserName }, testInfo) => {
+    await fixture(page, { transport });
     const requests = [];
     page.on('response', response => {
-      if (response.url().endsWith('/plain/file')) requests.push({ status:response.status(),range:response.request().headers().range || null,
-        contentRange:response.headers()['content-range'] || null,length:response.headers()['content-length'] || null });
+      if (response.url().includes('/plain/file')) requests.push({ status:response.status(),range:response.request().headers().range || null,
+        contentRange:response.headers()['content-range'] || null,length:response.headers()['content-length'] || null,transport:response.headers()['x-test-media-transport'] || null });
     });
-    await page.route('http://localhost:3000/plain-video', route => route.fulfill({contentType:'text/html',body:'<!doctype html><video muted playsinline loop controls></video>'}));
     await page.goto('/plain-video');
+    await page.evaluate(() => { document.body.replaceChildren(); const video=document.createElement('video');video.id='plain';video.muted=true;video.playsInline=true;video.loop=true;video.controls=true;document.body.append(video); });
     const result=await page.evaluate(async () => {
-      const v=document.querySelector('video');v.muted=true;v.src='/api/plain/file';
-      let frames=0, loops=0, previous=0;const events=[];
-      const frame=(_,meta)=>{frames++;if(meta.mediaTime+0.3<previous)loops++;previous=meta.mediaTime;v.requestVideoFrameCallback(frame);};
-      if(!v.requestVideoFrameCallback)throw Error('Native frame callback unavailable');v.requestVideoFrameCallback(frame);
-      for(const name of ['error','seeking','seeked','playing','pause'])v.addEventListener(name,()=>events.push({name,time:v.currentTime,error:v.error?.code || null}));
-      const progress=()=>new Promise(resolve=>{
-        const start=frames, deadline=performance.now()+4500;
-        const inspect=()=>{if(v.error || (loops>=2&&frames-start>=12)||performance.now()>deadline)resolve();else requestAnimationFrame(inspect);};inspect();
+      const v=document.querySelector('#plain');v.src='/api/plain/file';
+      const probe=window.__heroNativeProbe;
+      const baseline=probe.observe(v);const samples=[];
+      const waitFor=predicate=>new Promise(resolve=>{
+        const deadline=performance.now()+4500;
+        const inspect=()=>{const sample=probe.observe(v);samples.push(sample);if(predicate(sample)||v.error||performance.now()>deadline)resolve(sample);else requestAnimationFrame(inspect);};inspect();
       });
       let rejected=null;try{await v.play();}catch(error){rejected=error.name;}
-      await progress();
-      const initial={frames,loops,error:v.error?.code||null,rejected};
+      const initial=await waitFor(s=>s.completedLoops-baseline.completedLoops>=2);
       let resumed=false,seeked=false;
-      if(!v.error&&loops>=2){
-        v.pause();v.currentTime=0.3;
-        seeked=await new Promise(resolve=>{v.addEventListener('seeked',()=>resolve(true),{once:true});setTimeout(()=>resolve(false),1000);});
-        const start=frames;try{await v.play();}catch(error){rejected=error.name;}
-        await new Promise(resolve=>{const end=performance.now()+2000;const check=()=>{if(frames>start+2||v.error||performance.now()>end)resolve();else requestAnimationFrame(check);};check();});resumed=frames>start+2;
+      if(!v.error&&initial.completedLoops-baseline.completedLoops>=2){
+        v.pause();
+        const seek=new Promise(resolve=>{v.addEventListener('seeked',()=>resolve(true),{once:true});setTimeout(()=>resolve(false),1000);});
+        v.currentTime=0.3;seeked=await seek;
+        const before=probe.observe(v);try{await v.play();}catch(error){rejected=error.name;}
+        const after=await waitFor(s=>s.outputAdvances>before.outputAdvances);
+        resumed=after.outputAdvances>before.outputAdvances;
       }
-      v.pause();return{initial,resumed,seeked,error:v.error?.code||null,readyState:v.readyState,networkState:v.networkState,events};
+      v.pause();return{initial,resumed,seeked,rejected,error:v.error?.code||null,samples};
     });
-    await testInfo.attach('plain-native-transport',{body:JSON.stringify({browserName,rangeSupport,requests,result}),contentType:'application/json'});
-    if(rangeSupport){expect(result.initial.loops).toBeGreaterThanOrEqual(2);expect(result.error).toBeNull();expect(result.seeked).toBe(true);expect(result.resumed).toBe(true);}
-    else { expect(result.error===2 || (result.initial.loops>=2&&result.resumed)).toBe(true); }
+    await testInfo.attach('plain-native-transport',{body:JSON.stringify({browserName,transport,requests,result}),contentType:'application/json'});
+    if(transport==='http') {
+      expect(requests.some(r=>r.transport==='http')).toBe(true);
+      expect(result.initial.completedLoops).toBeGreaterThanOrEqual(2);expect(result.error).toBeNull();expect(result.rejected).toBeNull();expect(result.seeked).toBe(true);expect(result.resumed).toBe(true);
+    } else {
+      // A measured interception stall remains a diagnostic failure, not native
+      // product acceptance. A broken observer/test setup still fails this test.
+      expect(requests.length).toBeGreaterThan(0);expect(result.samples.length).toBeGreaterThan(1);
+      console.log('FULFILL TRANSPORT DIAGNOSTIC', JSON.stringify({loops:result.initial.completedLoops,error:result.error,resumed:result.resumed}));
+    }
   });
 }
+
+test('native HTTP corrupt media is rejected, not mistaken for playback', async ({ page }) => {
+  await fixture(page);
+  await page.goto('/plain-video');
+  const result=await page.evaluate(async()=>{
+    document.body.replaceChildren();const v=document.createElement('video');v.muted=true;document.body.append(v);window.__heroNativeProbe.observe(v);v.src='/api/plain/file?broken=1';
+    const error=new Promise(resolve=>{v.addEventListener('error',()=>resolve(v.error?.code),{once:true});setTimeout(()=>resolve(null),4500);});
+    v.play().catch(()=>{});return{error:await error,sample:window.__heroNativeProbe.observe(v)};
+  });
+  expect([3,4]).toContain(result.error);expect(result.sample.outputAdvances).toBe(0);
+  expect(transports.get(page).responses.some(r=>r.broken&&r.status===200)).toBe(true);
+});
 
 for (const locale of ['en', 'de']) {
   test(`${locale}: configured native media loops in every slot with the public range file contract`, async ({ page }, testInfo) => {
     await openHome(page, locale);
     await expectPlaying(page);
-    const initial = await page.evaluate(() => window.__heroNativeProbe.sample());
-    expect(initial.every(video => video.duration === 1)).toBe(true);
-    // The same one-second MP4 must play beyond its first complete decode in all
-    // four slots. An initial playing state does not establish looping support.
-    await expect.poll(async () => {
-      const current = await page.evaluate(() => window.__heroNativeProbe.sample());
-      return everyActiveSlotProgressed(initial, current) && current.every(video => {
-        const first = initial.find(item => item.id === video.id);
-        return first && video.presentedFrames !== null && first.presentedFrames !== null && video.presentedFrames - first.presentedFrames >= 24;
-      });
-    }).toBe(true);
-    await testInfo.attach('native-range-response-loop', {
-      body: JSON.stringify({ initial, current: await page.evaluate(() => window.__heroNativeProbe.sample()) }),
-      contentType: 'application/json',
-    });
+    const window = createProgressWindow({ loops: 2 });
+    const samples=[];
+    try {
+      await expect.poll(async () => {
+        const current=await page.evaluate(() => window.__heroNativeProbe.sample());samples.push(current);
+        expect(current.every(video => video.duration === 1)).toBe(true);
+        return window(current);
+      }).toBe(true);
+    } finally {
+      await testInfo.attach('native-range-response-loop',{body:JSON.stringify({samples}),contentType:'application/json'});
+    }
     await page.evaluate(() => window.__setHeroDocumentHidden(true));
     await expectFrozen(page, testInfo, 'native-loop-suspended', 200);
     await page.evaluate(() => window.__setHeroDocumentHidden(false));

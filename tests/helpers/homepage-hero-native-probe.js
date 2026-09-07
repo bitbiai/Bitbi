@@ -3,20 +3,48 @@
 async function installHeroNativeProbe(page) {
   await page.addInitScript(() => {
     const ids = new WeakMap();
-    const presentations = new WeakMap();
+    const observations = new WeakMap();
     let sequence = 0;
     const events = [];
     const isHeroVideo = video => video instanceof HTMLVideoElement
       && video.classList.contains('latest-models-video-module__video');
-    function sample(video) {
-      if (!ids.has(video)) {
-        ids.set(video, ++sequence);
-        if (video.requestVideoFrameCallback) {
-          presentations.set(video, 0);
-          const observe = () => { presentations.set(video, presentations.get(video) + 1); if (video.isConnected) video.requestVideoFrameCallback(observe); };
-          video.requestVideoFrameCallback(observe);
-        }
+    function observation(video) {
+      let state=observations.get(video);
+      if(!state) {
+        state={epoch:0, src:video.getAttribute('src'), lastTime:video.currentTime, lastFrames:0, maxTime:0,
+          outputAdvances:0, completedLoops:0, loopPending:false, callbackPending:false, frameCallbacks:0, nativePresentedFrames:null};
+        observations.set(video,state);ids.set(video,++sequence);
+        const reset=()=>{state.epoch++;state.loopPending=false;state.maxTime=0;state.lastTime=video.currentTime;
+          state.lastFrames=video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? 0;};
+        video.addEventListener('pause',reset);video.addEventListener('emptied',reset);
+        video.addEventListener('seeking',()=>{
+          state.loopPending=video.loop && !video.paused && video.currentTime < video.duration*0.2 && state.maxTime>video.duration*0.5;
+          state.lastTime=video.currentTime;state.maxTime=0;
+          state.lastFrames=video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? 0;
+        });
+        video.addEventListener('timeupdate',()=>observation(video));
       }
+      const source=video.getAttribute('src');
+      if(source!==state.src){state.epoch++;state.src=source;state.loopPending=false;state.maxTime=0;state.lastTime=video.currentTime;state.lastFrames=0;}
+      const frames=video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? null;
+      if(!video.paused && !video.seeking && video.currentTime>state.lastTime && frames!==null && frames>state.lastFrames) {
+        state.outputAdvances++;
+        if(state.loopPending){state.completedLoops++;state.loopPending=false;}
+      }
+      if(!video.seeking){state.maxTime=Math.max(state.maxTime,video.currentTime);state.lastTime=video.currentTime;state.lastFrames=frames;}
+      // Diagnostic only: callback frequency is not a frame-rate or loop gate.
+      // A disconnected pre-insertion video is registered on its next sample.
+      if(video.isConnected && video.requestVideoFrameCallback && !state.callbackPending) {
+        state.callbackPending=true;
+        video.requestVideoFrameCallback((_now,metadata)=>{
+          state.callbackPending=false;state.frameCallbacks++;state.nativePresentedFrames=metadata.presentedFrames;
+          observation(video);
+        });
+      }
+      return state;
+    }
+    function sample(video) {
+      const observationState=observation(video);
       const slot = video.closest('[data-latest-models-slot]');
       const module = slot?.closest('[data-latest-models-video-module]');
       const face = video.closest('.latest-models-video-module__face');
@@ -43,7 +71,8 @@ async function installHeroNativeProbe(page) {
         },
         connected: video.isConnected, src: video.getAttribute('src'),
         time: video.currentTime, duration: Number.isFinite(video.duration) ? video.duration : null,
-        presentedFrames: presentations.get(video) ?? null,
+        epoch: observationState.epoch, outputAdvances: observationState.outputAdvances, completedLoops: observationState.completedLoops,
+        frameCallbacks: observationState.frameCallbacks, nativePresentedFrames: observationState.nativePresentedFrames,
         frames: video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? null,
         paused: video.paused, ended: video.ended, seeking: video.seeking,
         readyState: video.readyState, networkState: video.networkState,
@@ -77,7 +106,7 @@ async function installHeroNativeProbe(page) {
     };
     window.__heroNativeProbe = {
       sample: () => Array.from(document.querySelectorAll('#hero [data-latest-models-video-module] video'), sample),
-      events,
+      events, observe: sample,
     };
   });
 }
@@ -90,8 +119,31 @@ function everyActiveSlotProgressed(previous, current) {
   return active.every(video => {
     const before = previous.find(item => item.id === video.id && item.slot === video.slot && item.src === video.src);
     return before && video.connected && !video.paused && video.readyState >= 2 && video.error === null
-      && ((!video.seeking && video.time > before.time) || (video.presentedFrames != null && before.presentedFrames != null && video.presentedFrames > before.presentedFrames) || (video.frames !== null && before.frames !== null && video.frames > before.frames));
+      && (video.epoch ?? 0) === (before.epoch ?? 0)
+      && ((video.outputAdvances != null && video.outputAdvances > before.outputAdvances) || (!video.seeking && video.frames !== null && before.frames !== null && video.frames > before.frames));
   });
 }
 
-module.exports = { installHeroNativeProbe, everyActiveSlotProgressed };
+// One invocation is one observation interval. Retain each slot's evidence,
+// never evidence from a retired identity, paused epoch or another source.
+function createProgressWindow({ loops=0 }={}) {
+  const states=new Map();
+  return current=>{
+    const active=current.filter(video=>video.active);
+    const slots=['left_top','left_bottom','right_top','right_bottom'];
+    if(active.length!==4 || new Set(active.map(v=>v.slot)).size!==4 || active.some(v=>!slots.includes(v.slot))) {states.clear();return false;}
+    for(const video of active) {
+      const key=JSON.stringify([video.id,video.src,video.epoch ?? 0]);
+      let state=states.get(video.slot);
+      if(!state || state.key!==key || video.paused || video.error || !video.connected) {
+        state={key,before:video,progress:false,loops:false};states.set(video.slot,state);
+      }
+      if(!video.paused && video.readyState>=2 && video.error===null && video.connected) {
+        if(video.outputAdvances>state.before.outputAdvances)state.progress=true;
+        if((video.completedLoops ?? 0)-(state.before.completedLoops ?? 0)>=loops)state.loops=true;
+      }
+    }
+    return active.every(video=>{const s=states.get(video.slot);return s.progress && s.loops && !video.paused && video.readyState>=2 && video.error===null && video.connected;});
+  };
+}
+module.exports = { installHeroNativeProbe, everyActiveSlotProgressed, createProgressWindow };

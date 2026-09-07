@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, verifyHomepageDiscovery } from './lib/homepage-test-selection.mjs';
+import { flattenHomepageDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_EARLY_CHROMIUM_REQUIRED, verifyHomepageDiscovery } from './lib/homepage-test-selection.mjs';
 import { validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
@@ -17,16 +17,16 @@ const carousel = ['chromium', 'firefox', 'webkit'].flatMap((project) => Array.fr
 const performance = Object.entries(HOMEPAGE_PERFORMANCE_REQUIRED).flatMap(([file, titles]) => titles.map((title) => ({
   ...fixture(file, 'chromium-performance', 0), title, tags: ['homepage-performance'],
 })));
-const webkit = HOMEPAGE_WEBKIT_REQUIRED.map((title) => ({ ...fixture('homepage-hero-playback.spec.js', 'webkit', 0), title }));
+const webkit = [...HOMEPAGE_WEBKIT_REQUIRED.map((title) => ({ ...fixture('homepage-hero-playback.spec.js', 'webkit', 0), title })), ...HOMEPAGE_EARLY_CHROMIUM_REQUIRED.map(title=>({...fixture('homepage-hero-playback.spec.js','chromium',0),title}))];
 const valid = { standard, carousel, functional, webkit, performance };
 assert.equal(verifyHomepageDiscovery(valid).existingCommandUnion, standard.length + 10);
 assert.throws(() => verifyHomepageDiscovery({ ...valid, performance: [] }), /no tests/);
 assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: [] }), /no tests/);
 for (let missing = 0; missing < webkit.length; missing += 1) {
-  assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.filter((_, index) => index !== missing) }), /Early WebKit selection is missing/);
+  assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.filter((_, index) => index !== missing) }), /Early (WebKit|Chromium) selection is missing/);
 }
-assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.map((test) => ({ ...test, project: 'chromium' })) }), /native WebKit/);
-assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.map((test) => ({ ...test, expectedStatus: 'skipped' })) }), /native WebKit/);
+assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.map((test) => ({ ...test, project: 'chromium' })) }), /native WebKit|Early WebKit selection is missing/);
+assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.map((test) => ({ ...test, expectedStatus: 'skipped' })) }), /native WebKit|Early WebKit selection is missing/);
 for (let missing = 0; missing < performance.length; missing += 1) {
   assert.throws(() => verifyHomepageDiscovery({ ...valid, performance: performance.filter((_, index) => index !== missing) }), /required marked scenario/);
 }
@@ -66,7 +66,8 @@ assert.equal(performanceConfig.projects[0].metadata.homepagePerformanceMeasureme
 assert.equal(performanceConfig.projects[0].metadata.homepagePerformanceGate, undefined);
 assert.ok(performanceConfig.grep.test('@homepage-performance'));
 const earlyWebKit = require(path.join(root, 'playwright.homepage-webkit.config.js'));
-assert.deepEqual(earlyWebKit.projects, [{ name: 'webkit', use: { browserName: 'webkit' } }]);
+assert.deepEqual(earlyWebKit.projects.map(p=>[p.name,p.use.browserName]), [['chromium','chromium'],['webkit','webkit']]);
+for(const title of HOMEPAGE_EARLY_CHROMIUM_REQUIRED) assert.ok(earlyWebKit.projects[0].grep.test(title));
 for (const title of HOMEPAGE_WEBKIT_REQUIRED) assert.ok(earlyWebKit.grep.test(title));
 assert.equal(earlyWebKit.grep.test('unrelated scenario'), false);
 

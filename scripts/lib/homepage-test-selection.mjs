@@ -19,7 +19,9 @@ export const HOMEPAGE_PERFORMANCE_REQUIRED = Object.freeze({
     'native blocking countercontrol retains a task crossing completion despite delayed observation',
   ],
 });
-export const HOMEPAGE_WEBKIT_REQUIRED = Object.freeze(['native plain video: legacy full200 transport diagnosis', 'native plain video: public range response loops and seeks', ...['en', 'de'].flatMap((locale) => [
+export const HOMEPAGE_EARLY_CHROMIUM_REQUIRED = Object.freeze(['native plain video: fulfill transport comparison', 'native plain video: HTTP response loops and seeks', 'native HTTP corrupt media is rejected, not mistaken for playback']);
+export const HOMEPAGE_WEBKIT_REQUIRED = Object.freeze([...HOMEPAGE_EARLY_CHROMIUM_REQUIRED, ...['en', 'de'].flatMap((locale) => [
+  `${locale}: configured native media loops in every slot with the public range file contract`,
   `${locale}: fallback freezes media and its staggered cycle while suspended`,
   `${locale}: phone and tablet breakpoints retain existing policy with reduced motion`,
 ])]);
@@ -55,12 +57,13 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, webkit
   }
   const counts = (tests) => Object.fromEntries([...new Set(tests.map((test) => test.file))].sort()
     .map((file) => [file, tests.filter((test) => test.file === file).length]));
-  assert.ok(webkit.every((test) => test.project === 'webkit' && test.expectedStatus !== 'skipped'),
+  assert.ok(webkit.every((test) => ['webkit','chromium'].includes(test.project) && test.expectedStatus !== 'skipped'),
     'Early WebKit cases must execute in native WebKit without static skips');
   for (const title of HOMEPAGE_WEBKIT_REQUIRED) {
-    assert.ok(webkit.some((test) => test.file === 'homepage-hero-playback.spec.js' && test.title === title),
+    assert.ok(webkit.some((test) => test.project === 'webkit' && test.file === 'homepage-hero-playback.spec.js' && test.title === title),
       `Early WebKit selection is missing: ${title}`);
   }
+  for (const title of HOMEPAGE_EARLY_CHROMIUM_REQUIRED) assert.ok(webkit.some(test=>test.project==='chromium' && test.file==='homepage-hero-playback.spec.js' && test.title===title), `Early Chromium selection is missing: ${title}`);
   for (const project of ['chromium', 'webkit']) {
     for (const [file, minimum] of Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)) {
       const matches = functional.filter((test) => test.project === project && test.file === file);

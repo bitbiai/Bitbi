@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { installHeroNativeProbe, everyActiveSlotProgressed } = require('./helpers/homepage-hero-native-probe');
+const { installHeroNativeProbe, everyActiveSlotProgressed, createProgressWindow } = require('./helpers/homepage-hero-native-probe');
 
 const SLOTS = '#hero [data-latest-models-slot]';
 const VIDEOS = `${SLOTS} video`;
@@ -26,6 +26,24 @@ test('probe only: every active slot needs its own native progress and identity',
   const incoming = { ...previous[0], id: 5, role: 'incoming', time: 0, frames: 0 };
   expect(everyActiveSlotProgressed([...previous, incoming], [incoming, ...progressed.slice(1), outgoing])).toBe(false);
   expect(everyActiveSlotProgressed([...previous, incoming], [{ ...incoming, time: 0.1, frames: 2 }, ...progressed.slice(1), outgoing])).toBe(true);
+});
+
+test('probe window retains asynchronous slot proof but rejects frozen, changed and resumed identities', () => {
+  const initial=['left_top','left_bottom','right_top','right_bottom'].map((slot,id)=>({id,slot,src:`/${id}`,epoch:0,active:true,connected:true,paused:false,readyState:4,error:null,frames:1,outputAdvances:0,completedLoops:0}));
+  const observe=createProgressWindow({loops:2});expect(observe(initial)).toBe(false);
+  const current=structuredClone(initial);
+  for(let i=0;i<4;i++) {
+    current[i]={...current[i],outputAdvances:1,completedLoops:2};
+    expect(observe(current)).toBe(i===3);
+  }
+  // No output from even one active slot must remain a failure.
+  const frozen=createProgressWindow();frozen(initial);expect(frozen([initial[0],...current.slice(1)])).toBe(false);
+  for(const patch of [{src:'/other'},{id:99},{epoch:1},{paused:true},{error:3},{readyState:0}]) {
+    const w=createProgressWindow();w(initial);expect(w(current)).toBe(true);
+    expect(w([{...current[0],...patch},...current.slice(1)])).toBe(false);
+  }
+  // Fresh invocation after resume cannot inherit the previous invocation's proof.
+  expect(createProgressWindow()(current)).toBe(false);
 });
 
 test('probe only: the appended target is distinguished from the outgoing face in both transition shapes', async ({ page }) => {
