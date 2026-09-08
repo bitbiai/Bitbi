@@ -107,5 +107,34 @@ class SnapshotTests(unittest.TestCase):
         self.assertFalse(self.target.exists())
 
 
+class NamespaceCommandTests(unittest.TestCase):
+    def test_no_privileged_command_before_private_namespace_proof(self):
+        parent = {n: 'host-' + n for n in ['net', 'mnt', 'pid', 'ipc']}
+        private = {n: 'private-' + n for n in parent}
+        def readlink(name): return private[name.rsplit('/', 1)[-1]]
+        with patch.object(bootstrap.os, 'readlink', side_effect=readlink), \
+                patch.object(bootstrap, 'regular_system_file'), \
+                patch.object(bootstrap.subprocess, 'run') as run:
+            with patch.object(bootstrap, 'PRIVATE_BOUNDARY', None):
+                with self.assertRaisesRegex(RuntimeError, 'No private namespace'):
+                    bootstrap.fixed_run(['/usr/bin/ip', 'link', 'set', 'lo', 'up'])
+            run.assert_not_called()
+            with patch.object(bootstrap, 'PRIVATE_BOUNDARY', (parent, dict(private))):
+                bootstrap.fixed_run(['/usr/bin/ip', 'link', 'set', 'lo', 'up'])
+                run.assert_called_once()
+                for name in parent:
+                    run.reset_mock()
+                    prior = private[name]
+                    private[name] = parent[name]
+                    with self.assertRaisesRegex(RuntimeError, 'not isolated'):
+                        bootstrap.fixed_run(['/usr/bin/ip', 'link', 'set', 'lo', 'up'])
+                    run.assert_not_called()
+                    private[name] = 'another-private-' + name
+                    with self.assertRaisesRegex(RuntimeError, 'namespace changed'):
+                        bootstrap.fixed_run(['/usr/bin/mount', '--make-rprivate', '/'])
+                    run.assert_not_called()
+                    private[name] = prior
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,7 @@ import path from 'node:path';
 export const HOMEPAGE_FUNCTIONAL_MINIMUMS = Object.freeze({
   'homepage-carousel-focused.spec.js': 5,
   'homepage-creation-stream-anchor.spec.js': 4,
-  'homepage-hero-playback.spec.js': 13,
+  'homepage-hero-playback.spec.js': 14,
   'homepage-native-control.spec.js': 2,
   'homepage-hero-state.spec.js': 3,
   'homepage-media-loading.spec.js': 8,
@@ -20,7 +20,7 @@ export const HOMEPAGE_PERFORMANCE_REQUIRED = Object.freeze({
     'native blocking countercontrol retains a task crossing completion despite delayed observation',
   ],
 });
-export const HOMEPAGE_EARLY_CHROMIUM_REQUIRED = Object.freeze(['native plain video: fulfill transport comparison', 'native plain video: HTTP response loops and seeks', 'native HTTP corrupt media is rejected, not mistaken for playback']);
+export const HOMEPAGE_EARLY_CHROMIUM_REQUIRED = Object.freeze(['native plain video: fulfill transport comparison', 'native plain video: HTTP response loops and seeks', 'native HTTP corrupt media is rejected, not mistaken for playback', 'native pause contract rejects ignored pause, transient source changes and stale resume proof']);
 export const HOMEPAGE_WEBKIT_REQUIRED = Object.freeze([...HOMEPAGE_EARLY_CHROMIUM_REQUIRED, ...['en', 'de'].flatMap((locale) => [
   `${locale}: configured hero pauses offscreen and hidden, resumes existing media and respects an existing pause`,
   `${locale}: hidden initialization and bfcache restore preserve media; ordinary pagehide cleans up`,

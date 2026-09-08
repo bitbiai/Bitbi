@@ -165,7 +165,11 @@ export function networkFieldDiff(before, after, secret) {
     return typeof value === 'string' && !/^(name|family|scope|state|linkType|flags|master|label|dev|protocol|type|pref|table)$/.test(key)
       ? 'address-' + createHmac('sha256', secret).update(JSON.stringify(value)).digest('hex').slice(0, 20) : value;
   };
-  const left = protect(before), right = protect(after), changes = [];
+  // Interfaces are identified by kernel index + name, not their array position.
+  // Insertion of an unrelated interface must not invent changes to every row.
+  const keyed = rows => Array.isArray(rows) && rows.every(row => row && typeof row.name === 'string' && Number.isInteger(row.index))
+    ? Object.fromEntries(rows.map(row => [`interface:${row.index}:${row.name}`, row])) : rows;
+  const left = protect(keyed(before)), right = protect(keyed(after)), changes = [];
   function compare(a, b, field) {
     if (JSON.stringify(a) === JSON.stringify(b)) return;
     if (Array.isArray(a) && Array.isArray(b)) {
@@ -193,6 +197,17 @@ function hostRouteSnapshot() {
   return { rows, sha256: hash(JSON.stringify(rows)) };
 }
 const digestSnapshot = ({ rows, ...summary }) => summary;
+export function assertHostedCompletion({ before, after, initial, final }) {
+  assert.ok(before?.namespace && after?.namespace, 'Missing host namespace evidence');
+  assert.equal(after.namespace, before.namespace, 'Launcher host network namespace changed');
+  assert.equal(initial?.passed, true, 'Initial child isolation proof missing or failed');
+  assert.equal(final?.passed, true, 'Final child isolation proof missing or failed');
+  assert.deepEqual(final.namespaces, initial.namespaces, 'Child isolation namespaces changed');
+  assert.notEqual(final.namespaces.net, before.namespace, 'Child shares the host network namespace');
+  // Ambient interface/address/route inventories are retained as diagnostics.
+  // The privileged bootstrap and child proofs establish our own boundary.
+}
+
 export function throwHostedFailures(primary, checks) {
   const errors = [...(primary ? [primary] : []), ...checks];
   if (errors.length) throw new AggregateError(errors, errors.map((error, i) => `${primary && i === 0 ? 'Execution' : 'Postcheck'}: ${error.message}`).join('; '));
@@ -231,7 +246,7 @@ export async function runHostedLinux(options) {
     const socket = net.connect(path.join(session, 'host-control.sock'));
     socket.once('error', reject); socket.once('connect', () => socket.end()); socket.once('close', resolve);
   });
-  let status = null, failure = null, staged = null, nodeSource = null, nodeStaging = null;
+  let status = null, failure = null, staged = null, nodeSource = null, nodeStaging = null, initial = null, final = null;
   try {
     const executable = fs.realpathSync(process.execPath);
     nodeSource = executableMetadata(executable);
@@ -247,7 +262,7 @@ export async function runHostedLinux(options) {
       '--uid', String(process.getuid()), '--gid', String(process.getgid()), '--mode', options.preflight ? 'preflight' : 'runtime'];
     // Snapshot immediately before the privileged/isolated execution. The
     // preceding phase only stages files as the ordinary runner user. Record
-    // preparation drift separately; never excuse drift inside this boundary.
+    // preparation and ambient drift separately from the child isolation proof.
     before = hostNetworkSnapshot(); routesBefore = hostRouteSnapshot();
     const result = spawnSync('/usr/bin/sudo', args, { env: { PATH: '/usr/bin:/bin', LANG: 'C' },
       stdio: ['ignore', 'inherit', 'inherit'] });
@@ -260,7 +275,9 @@ export async function runHostedLinux(options) {
     if (fs.existsSync(reports)) fs.cpSync(reports, path.join(output, 'reports'), { recursive: true, errorOnExist: true, force: false });
     assert.equal(result.signal, null, 'Hosted bootstrap terminated by signal');
     assert.equal(status, 0, 'Hosted bootstrap/native runtime failed; there is no unisolated fallback');
-    assert.equal(JSON.parse(fs.readFileSync(path.join(output, 'reports/isolation-result.json'), 'utf8')).passed, true);
+    initial = JSON.parse(fs.readFileSync(path.join(output, 'reports/isolation-result.json'), 'utf8'));
+    final = JSON.parse(fs.readFileSync(path.join(output, 'reports/isolation-final.json'), 'utf8'));
+    assertHostedCompletion({ before, after, initial, final });
   } catch (error) { failure = error; }
   finally {
     const hostedImage = {};
@@ -280,9 +297,10 @@ export async function runHostedLinux(options) {
       hostRoutesBefore: routesBefore ? digestSnapshot(routesBefore) : null, hostRoutesAfter: routesAfter ? digestSnapshot(routesAfter) : null,
       hostRoutesUnchanged: !!routesBefore && !!routesAfter && routesBefore.sha256 === routesAfter.sha256,
       hostRouteDiff: routesBefore && routesAfter ? networkFieldDiff(routesBefore.rows, routesAfter.rows, diffSecret) : null,
+      childBoundaryVerified: initial?.passed === true && final?.passed === true && !failure,
+      topologyScope: 'Ambient host changes are diagnostic, unattributed; child start/end boundaries are mandatory.',
       scope: 'Hosted Linux isolation evidence only; no Cloud/deployment or old invocation drain claim.' };
-    if (before && !report.hostInterfacesUnchanged) checks.push(new Error('Host interface metadata or namespace changed during isolated execution'));
-    if (routesBefore && !report.hostRoutesUnchanged) checks.push(new Error('Stable IPv4/IPv6 host routing metadata changed during isolated execution'));
+    if (before && after && before.namespace !== after.namespace) checks.push(new Error('Launcher host network namespace changed'));
     try { await new Promise(resolve => sentinel.close(resolve)); fs.rmSync(session, { recursive: true, force: true }); }
     catch (error) { checks.push(error); }
     report.postcheckFailures = checks.map(error => error.message);

@@ -4,13 +4,16 @@ import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { readIsolatedBoundary, assertIsolatedBoundary } from './linux-isolation-contract.mjs';
 
 // This is the FIRST Node/project entry after fixed system setpriv. No loopback
 // setup or other privileged operation is performed by Node.
 assert.equal(process.platform, 'linux');
 const report = { passed: false, checks: [], scope: 'Local hosted isolation, not production/runtime acceptance' };
+let boundary, primary;
 try {
-  const boundary = JSON.parse(fs.readFileSync('/runtime/boundary.json', 'utf8'));
+  boundary = JSON.parse(fs.readFileSync('/runtime/boundary.json', 'utf8'));
+  assertIsolatedBoundary(readIsolatedBoundary(boundary), boundary);
   assert.equal(process.getuid(), 65534); assert.equal(process.getgid(), 65534);
   assert.ok(process.getgroups().every(group => group === 65534));
   const status = fs.readFileSync('/proc/self/status', 'utf8');
@@ -98,13 +101,38 @@ try {
   report.passed = true;
   fs.writeFileSync('/artifacts/isolation-result.json', JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
   if (boundary.mode === 'runtime') {
-    const { runQ2Runtime } = await import('./runner.mjs');
-    await runQ2Runtime(['--artifacts', '/artifacts']);
+    // The builder deliberately sanitizes/replaces its environment. Keep it in
+    // an unprivileged child; the supervising entry can check its own original
+    // boundary after all runtime work returns, including a failed build/test.
+    const runtime = spawnSync(process.execPath, ['/workspace/tests/helpers/q2-runtime/linux-runtime-child.mjs'],
+      { env: process.env, stdio: 'inherit' });
+    assert.equal(runtime.error, undefined, 'Native runtime child must start');
+    assert.equal(runtime.signal, null, 'Native runtime child terminated by signal');
+    assert.equal(runtime.status, 0, 'Native runtime child failed; retained suite reports are authoritative');
   } else assert.equal(boundary.mode, 'preflight');
 } catch (error) {
   if (!fs.existsSync('/artifacts/isolation-result.json')) {
     report.error = { name: error.name, message: error.message };
     fs.writeFileSync('/artifacts/isolation-result.json', JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
   }
-  throw error;
+  primary = error;
+} finally {
+  const final = { passed: false, phase: 'after-execution', scope: 'Child isolation postcheck; not a product pass' };
+  let postcheck;
+  try {
+    assert.ok(boundary, 'Initial private boundary missing');
+    const snapshot = readIsolatedBoundary(boundary);
+    final.snapshot = snapshot; final.namespaces = snapshot.namespaces;
+    assertIsolatedBoundary(snapshot, boundary);
+    assert.throws(() => process.setuid(0), { code: 'EPERM' });
+    assert.throws(() => fs.writeFileSync('/workspace/q2-isolation-must-not-write', ''), error => ['EROFS', 'EACCES'].includes(error.code));
+    const child = spawnSync(process.execPath, ['/workspace/tests/helpers/q2-runtime/linux-child-probe.mjs', '--final'],
+      { env: process.env, encoding: 'utf8', timeout: 15000, maxBuffer: 128 * 1024 });
+    assert.equal(child.error, undefined); assert.equal(child.status, 0, child.stderr);
+    assert.equal(JSON.parse(fs.readFileSync('/artifacts/linux-child-probe-final.json', 'utf8')).passed, true);
+    final.passed = true;
+  } catch (error) { postcheck = error; final.error = { name: error.name, message: error.message }; }
+  fs.writeFileSync('/artifacts/isolation-final.json', JSON.stringify(final, null, 2) + '\n', { flag: 'wx' });
+  if (primary || postcheck) throw new AggregateError([primary, postcheck].filter(Boolean),
+    [primary && 'Execution: ' + primary.message, postcheck && 'Boundary postcheck: ' + postcheck.message].filter(Boolean).join('; '));
 }

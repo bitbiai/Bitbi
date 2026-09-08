@@ -35,6 +35,6 @@ module.exports = defineConfig({
   webServer: {
     command: 'node tests/helpers/homepage-media-server.mjs _site',
     port: 3000,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
   },
 });

@@ -3,7 +3,7 @@
 function installBrowserProbe(createProgressWindow, observeProgress) {
     const ids = new WeakMap();
     const observations = new WeakMap();
-    let sequence = 0;
+    let sequence = 0, eventSequence = 0;
     const events = [];
     const isHeroVideo = video => video instanceof HTMLVideoElement
       && video.classList.contains('latest-models-video-module__video');
@@ -86,7 +86,11 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
         time: video.currentTime, duration: Number.isFinite(video.duration) ? video.duration : null,
         epoch: observationState.epoch, outputAdvances: observationState.outputAdvances, completedLoops: observationState.completedLoops,
         frameCallbacks: observationState.frameCallbacks, nativePresentedFrames: observationState.nativePresentedFrames,
+        // Different engine statistics, never an interchangeable pause budget.
         frames: video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? null,
+        frameStatistics: { totalVideoFrames: video.getVideoPlaybackQuality?.().totalVideoFrames ?? null,
+          droppedVideoFrames: video.getVideoPlaybackQuality?.().droppedVideoFrames ?? null,
+          decodedFrames: video.webkitDecodedFrameCount ?? null },
         paused: video.paused, ended: video.ended, seeking: video.seeking,
         readyState: video.readyState, networkState: video.networkState,
         error: video.error?.code ?? null,
@@ -94,7 +98,7 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
     }
     function record(type, video, extra = {}) {
       if (!isHeroVideo(video)) return;
-      events.push({ at: performance.now(), type, ...sample(video), ...extra });
+      events.push({ serial: ++eventSequence, at: performance.now(), type, ...sample(video), ...extra });
       if (events.length > 500) events.shift();
     }
     for (const type of ['playing', 'pause', 'ended', 'seeking', 'seeked', 'waiting', 'stalled', 'error', 'emptied']) {
@@ -117,9 +121,46 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
       result?.then(() => record('play-resolved', this), error => record('play-rejected', this, { rejection: error.name }));
       return result;
     };
+    async function observeFrozen(duration) {
+      const start = performance.now(), firstEvent = eventSequence;
+      const read = () => Array.from(document.querySelectorAll('#hero [data-latest-models-video-module] video'), sample);
+      const before = read();
+      const issues = new Set();
+      const transitions = () => Array.from(document.querySelectorAll('#hero [data-latest-models-slot]'))
+        .map(slot => [slot.closest('[data-latest-models-video-module]')?.dataset.latestModelsVideoModuleSide,
+          slot.dataset.latestModelsSlot, slot.dataset.transitionCount]);
+      const beforeTransitions = transitions();
+      const check = current => {
+        if (before.length < 4 || current.length !== before.length) issues.add('video-count');
+        for (const video of current) {
+          const old = before.find(item => item.id === video.id);
+          if (!old || video.src !== old.src || video.slot !== old.slot || !video.connected) issues.add('identity-or-source');
+          if (!video.paused) issues.add('not-paused');
+          if (old && video.time !== old.time) issues.add('timeline-advanced');
+        }
+        if (JSON.stringify(transitions()) !== JSON.stringify(beforeTransitions)) issues.add('cycle-advanced');
+      };
+      check(before);
+      const mutations = new MutationObserver(records => {
+        if (records.some(record => record.type === 'attributes' && record.attributeName === 'src'
+            && record.target instanceof HTMLVideoElement)) issues.add('source-mutation');
+        check(read());
+      });
+      mutations.observe(document.querySelector('#hero'), { subtree:true, childList:true, attributes:true,
+        attributeFilter:['src','data-transition-count'] });
+      const timer = setInterval(() => check(read()), 40);
+      let after;
+      try { await new Promise(resolve => setTimeout(resolve, duration)); after = read(); check(after); }
+      finally { clearInterval(timer); mutations.disconnect(); }
+      const during = events.filter(event => event.serial > firstEvent);
+      if (during.some(event => event.type === 'play-call' || (event.type === 'playing' && !event.paused))) issues.add('play-resumed');
+      return { passed: issues.size === 0, issues: [...issues], before, after, duration: performance.now()-start,
+        beforeTransitions, afterTransitions: transitions(), events: during,
+        scope: 'Pause, timeline, source/DOM identity and cycle continuity; frame statistics are diagnostic.' };
+    }
     window.__heroNativeProbe = {
       sample: () => Array.from(document.querySelectorAll('#hero [data-latest-models-video-module] video'), sample),
-      events, observe: sample,
+      events, observe: sample, observeFrozen,
       waitForProgress: options => observeProgress(window.__heroNativeProbe.sample, options, createProgressWindow),
     };
 }
@@ -158,19 +199,6 @@ function observeProgress(sample, { loops = 0, timeout = 5000 } = {}, factory = c
   });
 }
 
-function everyActiveSlotProgressed(previous, current) {
-  const active = current.filter(video => video.active);
-  const expectedSlots = ['left_top', 'left_bottom', 'right_top', 'right_bottom'];
-  if (active.length !== 4 || new Set(active.map(video => video.slot)).size !== 4
-      || active.some(video => !expectedSlots.includes(video.slot))) return false;
-  return active.every(video => {
-    const before = previous.find(item => item.id === video.id && item.slot === video.slot && item.src === video.src);
-    return before && video.connected && !video.paused && video.readyState >= 2 && video.error === null
-      && (video.epoch ?? 0) === (before.epoch ?? 0)
-      && ((video.outputAdvances != null && video.outputAdvances > before.outputAdvances) || (!video.seeking && video.frames !== null && before.frames !== null && video.frames > before.frames));
-  });
-}
-
 // One invocation is one observation interval. Retain each slot's evidence,
 // never evidence from a retired identity, paused epoch or another source.
 function createProgressWindow({ loops=0 }={}) {
@@ -193,4 +221,4 @@ function createProgressWindow({ loops=0 }={}) {
     return active.every(video=>{const s=states.get(video.slot);return s.progress && s.loops && !video.paused && video.readyState>=2 && video.error===null && video.connected;});
   };
 }
-module.exports = { installHeroNativeProbe, everyActiveSlotProgressed, createProgressWindow, observeProgress };
+module.exports = { installHeroNativeProbe, createProgressWindow, observeProgress };

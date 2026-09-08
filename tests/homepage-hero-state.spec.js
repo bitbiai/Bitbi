@@ -1,31 +1,39 @@
 const { test, expect } = require('@playwright/test');
-const { installHeroNativeProbe, everyActiveSlotProgressed, createProgressWindow } = require('./helpers/homepage-hero-native-probe');
+const { installHeroNativeProbe, createProgressWindow } = require('./helpers/homepage-hero-native-probe');
 
 const SLOTS = '#hero [data-latest-models-slot]';
 const VIDEOS = `${SLOTS} video`;
 
 test('probe only: every active slot needs its own native progress and identity', () => {
+  // Exercise the actual browser progress window, not the retired frame-count
+  // surrogate. Decoder statistics alone cannot prove new visible output.
+  const progressedBetween = (before, after) => { const window = createProgressWindow(); window(before); return window(after); };
   const previous = ['left_top', 'left_bottom', 'right_top', 'right_bottom'].map((slot, index) => ({
     id: index + 1, slot, active: true, connected: true, src: `/fixture-${index}.mp4`,
-    time: 0.2, frames: 3, paused: false, readyState: 4, error: null,
+    time: 0.2, frames: 3, outputAdvances: 0, paused: false, readyState: 4, error: null,
   }));
-  const progressed = previous.map(video => ({ ...video, time: 0.4, frames: 6 }));
-  expect(everyActiveSlotProgressed(previous, progressed)).toBe(true);
-  expect(everyActiveSlotProgressed(previous, progressed.slice(1))).toBe(false);
-  expect(everyActiveSlotProgressed(previous, [{ ...previous[0] }, ...progressed.slice(1)])).toBe(false);
-  expect(everyActiveSlotProgressed(previous, [{ ...progressed[0], paused: true }, ...progressed.slice(1)])).toBe(false);
-  expect(everyActiveSlotProgressed(previous, [{ ...progressed[0], id: 99 }, ...progressed.slice(1)])).toBe(false);
-  expect(everyActiveSlotProgressed(previous, [{ ...progressed[0], slot: 'unknown_top' }, ...progressed.slice(1)])).toBe(false);
-  expect(everyActiveSlotProgressed(previous, [{ ...progressed[0], error: 3 }, ...progressed.slice(1)])).toBe(false);
-  expect(everyActiveSlotProgressed(previous, [{ ...previous[0], time: 0 }, ...progressed.slice(1)])).toBe(false);
-  expect(everyActiveSlotProgressed(previous, [{ ...progressed[0], time: 0 }, ...progressed.slice(1)])).toBe(true);
+  const progressed = previous.map(video => ({ ...video, time: 0.4, frames: 6, outputAdvances: 1 }));
+  expect(progressedBetween(previous, progressed)).toBe(true);
+  expect(progressedBetween(previous, previous.map(video => ({ ...video, frames: 6 })))).toBe(false);
+  expect(progressedBetween(previous, progressed.slice(1))).toBe(false);
+  expect(progressedBetween(previous, [{ ...previous[0] }, ...progressed.slice(1)])).toBe(false);
+  expect(progressedBetween(previous, [{ ...progressed[0], paused: true }, ...progressed.slice(1)])).toBe(false);
+  expect(progressedBetween(previous, [{ ...progressed[0], id: 99 }, ...progressed.slice(1)])).toBe(false);
+  expect(progressedBetween(previous, [{ ...progressed[0], slot: 'unknown_top' }, ...progressed.slice(1)])).toBe(false);
+  expect(progressedBetween(previous, [{ ...progressed[0], error: 3 }, ...progressed.slice(1)])).toBe(false);
+  expect(progressedBetween(previous, [{ ...previous[0], time: 0 }, ...progressed.slice(1)])).toBe(false);
+  expect(progressedBetween(previous, [{ ...progressed[0], time: 0 }, ...progressed.slice(1)])).toBe(true);
   // A retired/outgoing face is not an active slot, but a newly incoming target
   // still needs progress from that exact video's own prior sample.
   const outgoing = { ...previous[0], active: false, role: 'outgoing', paused: true };
-  expect(everyActiveSlotProgressed(previous, [...progressed, outgoing])).toBe(true);
+  expect(progressedBetween(previous, [...progressed, outgoing])).toBe(true);
   const incoming = { ...previous[0], id: 5, role: 'incoming', time: 0, frames: 0 };
-  expect(everyActiveSlotProgressed([...previous, incoming], [incoming, ...progressed.slice(1), outgoing])).toBe(false);
-  expect(everyActiveSlotProgressed([...previous, incoming], [{ ...incoming, time: 0.1, frames: 2 }, ...progressed.slice(1), outgoing])).toBe(true);
+  expect(progressedBetween([...previous, incoming], [incoming, ...progressed.slice(1), outgoing])).toBe(false);
+  // A newly active identity first establishes its own baseline. Only its
+  // subsequent output may pass; progress while it was inactive is not reused.
+  const incomingWindow = createProgressWindow();
+  expect(incomingWindow([incoming, ...previous.slice(1), outgoing])).toBe(false);
+  expect(incomingWindow([{ ...incoming, time: 0.1, outputAdvances: 1 }, ...progressed.slice(1), outgoing])).toBe(true);
 });
 
 test('probe window retains asynchronous slot proof but rejects frozen, changed and resumed identities', () => {

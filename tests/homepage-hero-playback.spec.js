@@ -171,20 +171,17 @@ async function expectContinuity(page) {
 }
 
 async function expectFrozen(page, testInfo, label, duration = 450) {
-  await expect.poll(() => page.locator(HERO_VIDEOS).evaluateAll(videos => videos.every(video => video.paused))).toBe(true);
-  // Let the decoder finish any frame already in flight before sampling.
-  await page.waitForTimeout(150);
-  const before = await snapshot(page);
-  await page.waitForTimeout(duration);
-  const after = await snapshot(page);
-  expect(after).toHaveLength(before.length);
-  after.forEach((video, index) => {
-    expect(Math.abs(video.time - before[index].time), `${label}: currentTime ${index}`).toBeLessThan(0.01);
-    if (video.frames !== null && before[index].frames !== null) {
-      expect(video.frames - before[index].frames, `${label}: decoded frames ${index}`).toBeLessThanOrEqual(1);
-    }
-  });
-  await testInfo.attach(label, { body: JSON.stringify({ before, after }, null, 2), contentType: 'application/json' });
+  let result;
+  try {
+    await expect.poll(() => page.locator(HERO_VIDEOS).evaluateAll(videos => videos.length >= 4 && videos.every(video => video.paused))).toBe(true);
+    result = await page.evaluate(duration => window.__heroNativeProbe.observeFrozen(duration), duration);
+  } finally {
+    // Raw evidence also survives a failure to enter the paused phase.
+    result ||= { phase: 'pause-not-confirmed', samples: await page.evaluate(() => window.__heroNativeProbe.sample()) };
+    await testInfo.attach(label, { body: JSON.stringify(result), contentType: 'application/json' });
+  }
+  expect(result.issues, label).toEqual([]);
+  expect(result.passed, label).toBe(true);
 }
 
 async function scrollHeroOffscreen(page) {
@@ -402,3 +399,27 @@ for (const locale of ['en', 'de']) {
     await expectPlaying(page);
   });
 }
+
+
+test('native pause contract rejects ignored pause, transient source changes and stale resume proof', async ({ page }, testInfo) => {
+  await openHome(page, 'en');
+  await expectPlaying(page);
+  const ignored = await page.evaluate(() => window.__heroNativeProbe.observeFrozen(200));
+  await testInfo.attach('negative-ignored-pause', { body: JSON.stringify(ignored), contentType: 'application/json' });
+  expect(ignored.passed).toBe(false); expect(ignored.issues).toContain('not-paused');
+  await page.evaluate(() => window.__setHeroDocumentHidden(true));
+  await expectFrozen(page, testInfo, 'positive-native-pause', 200);
+  const changed = await page.evaluate(async () => {
+    const v = document.querySelector('#hero video');
+    const pending = window.__heroNativeProbe.observeFrozen(200);
+    const src = v.getAttribute('src'); v.setAttribute('src', src + '?different=1'); v.setAttribute('src', src);
+    return pending;
+  });
+  await testInfo.attach('negative-transient-source', { body: JSON.stringify(changed), contentType: 'application/json' });
+  expect(changed.passed).toBe(false); expect(changed.issues).toContain('source-mutation');
+  // Prior successful playing evidence cannot pass a fresh paused interval.
+  const stale = await page.evaluate(() => window.__heroNativeProbe.waitForProgress({ timeout: 200 }));
+  expect(stale.passed).toBe(false);
+  await page.evaluate(() => window.__setHeroDocumentHidden(false));
+  await expectPlaying(page); // Real native output after the invalidated source.
+});

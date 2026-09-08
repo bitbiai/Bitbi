@@ -3,6 +3,8 @@ import net from 'node:net';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 
+assert.ok(process.argv.length === 2 || (process.argv.length === 3 && process.argv[2] === '--final'));
+const reportPath = process.argv[2] === '--final' ? '/artifacts/linux-child-probe-final.json' : '/artifacts/linux-child-probe.json';
 const report = { passed: false, checks: [], uid: process.getuid(), gid: process.getgid() };
 const runCurl = args => new Promise((resolve, reject) => {
   const child = spawn('/runtime/curl', args, { env: { LANG: 'C', HOME: '/home/q2' }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -51,5 +53,5 @@ try {
 } catch (error) { report.error = { name: error.name, message: error.message }; process.exitCode = 1; }
 finally {
   if (server) await new Promise(resolve => server.close(resolve));
-  fs.writeFileSync('/artifacts/linux-child-probe.json', JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
+  fs.writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
 }

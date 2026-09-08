@@ -240,7 +240,7 @@ jobs:
           set -eu
           test "$(id -u)" -gt 0
           mkdir -p "$RUNNER_TEMP/homepage-home" "$RUNNER_TEMP/homepage-tmp"
-          env -i PATH="$PATH" HOME="$RUNNER_TEMP/homepage-home" TMPDIR="$RUNNER_TEMP/homepage-tmp" CI=true GITHUB_SHA="$GITHUB_SHA" PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/homepage-browsers" /usr/bin/sandbox-exec -f tests/helpers/homepage-macos.sb /bin/sh -c 'node scripts/check-homepage-runtime.mjs --macos && npm run test:homepage-webkit -- --max-failures=1'
+          env -i PATH="$PATH" HOME="$RUNNER_TEMP/homepage-home" TMPDIR="$RUNNER_TEMP/homepage-tmp" CI=true GITHUB_SHA="$GITHUB_SHA" PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/homepage-browsers" /usr/bin/sandbox-exec -f tests/helpers/homepage-macos.sb /bin/sh -c 'node scripts/check-homepage-runtime.mjs --macos && npm run test:homepage-webkit'
       - name: Upload mandatory macOS media evidence
         if: always()
         uses: actions/upload-artifact@v6

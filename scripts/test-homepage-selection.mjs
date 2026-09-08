@@ -75,6 +75,11 @@ for (const file of ['playwright.homepage.config.js', 'playwright.homepage-webkit
   assert.equal(config.use.serviceWorkers, 'block');
   assert.equal(config.use.trace, file.includes('-performance.') ? 'off' : 'retain-on-failure');
 }
+for (const file of ['playwright.homepage.config.js', 'playwright.homepage-webkit.config.js', 'playwright.homepage-performance.config.js', 'playwright.homepage-linux-diagnostic.config.js']) {
+  const server = require(path.join(root, file)).webServer;
+  assert.equal(server.command, 'node tests/helpers/homepage-media-server.mjs _site');
+  assert.equal(server.reuseExistingServer, false, 'Acceptance cannot reuse a stale source/build server');
+}
 const performanceConfig = require(path.join(root, 'playwright.homepage-performance.config.js'));
 assert.equal(performanceConfig.projects.length, 1);
 assert.equal(performanceConfig.projects[0].name, 'chromium-performance');
@@ -134,6 +139,7 @@ for (const workflow of ['static.yml', 'full-regression.yml', 'ui-fast-deploy.yml
   assert.ok(mac.includes('npx playwright install webkit') && !mac.includes('--with-deps'));
   assert.ok(mac.includes('env -i ') && mac.includes('/usr/bin/sandbox-exec'));
   assert.ok(mac.includes('check-homepage-runtime.mjs --macos && npm run test:homepage-webkit'));
+  assert.ok(!mac.includes('--max-failures'), 'Final native media acceptance must execute the complete group');
   assert.ok(mac.includes('if: always()') && mac.includes('if-no-files-found: error'));
   assert.ok(!mac.includes('continue-on-error') && !mac.includes('secrets.'));
   const early = job(text, 'homepage-validation');

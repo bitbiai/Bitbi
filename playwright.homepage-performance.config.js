@@ -31,8 +31,8 @@ module.exports = defineConfig({
     metadata: { homepagePerformanceMeasurement: true },
   }],
   webServer: {
-    command: 'npx serve -l 3000',
+    command: 'node tests/helpers/homepage-media-server.mjs _site',
     port: 3000,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
   },
 });

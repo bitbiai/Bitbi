@@ -16,7 +16,7 @@ import sys
 import tempfile
 
 SAFE_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
-REPORT_NAMES = {"isolation-result.json", "linux-child-probe.json", "result.json",
+REPORT_NAMES = {"isolation-result.json", "isolation-final.json", "linux-child-probe.json", "linux-child-probe-final.json", "result.json",
                 "native-result.json", "references-result.json", "recovery-result.json",
                 "build-provenance.json", "wrangler-build.log"}
 
@@ -26,7 +26,21 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
+PRIVATE_BOUNDARY = None
+
+
+def assert_private_namespaces(parent, expected=None):
+    current = {name: os.readlink("/proc/self/ns/" + name) for name in ["net", "mnt", "pid", "ipc"]}
+    for name, value in current.items():
+        require(name in parent and value != parent[name], "A required namespace was not isolated: " + name)
+        if expected is not None:
+            require(value == expected[name], "Private namespace changed before privileged operation: " + name)
+    return current
+
+
 def fixed_run(arguments):
+    require(PRIVATE_BOUNDARY is not None, "No private namespace proof before privileged operation")
+    assert_private_namespaces(*PRIVATE_BOUNDARY)
     require(arguments[0] in ["/usr/bin/mount", "/usr/sbin/ip", "/usr/bin/ip"], "Unexpected privileged system command")
     regular_system_file(arguments[0])
     return subprocess.run(arguments, check=True, env=SAFE_ENV, stdin=subprocess.DEVNULL,
@@ -127,9 +141,9 @@ def inner(config_path):
     require(config_file.parent.stat().st_uid == 0 and config_file.stat().st_uid == 0,
             "Inner configuration must belong to the fixed root bootstrap")
     config = json.loads(config_file.read_text())
-    for name in ["net", "mnt", "pid", "ipc"]:
-        require(os.readlink("/proc/self/ns/" + name) != config["parent_namespaces"][name],
-                "A required namespace was not isolated")
+    global PRIVATE_BOUNDARY
+    private_namespaces = assert_private_namespaces(config["parent_namespaces"])
+    PRIVATE_BOUNDARY = (config["parent_namespaces"], private_namespaces)
     fixed_run(["/usr/bin/mount", "--make-rprivate", "/"])
     ip = next((p for p in ["/usr/sbin/ip", "/usr/bin/ip"] if Path(p).exists()), None)
     require(ip is not None, "Preinstalled iproute2 is required")
@@ -176,7 +190,7 @@ def inner(config_path):
     # No host pathname, fd or inherited environment provides another filesystem
     # root after the chroot. setpriv is a fixed, root-owned system executable.
     (jail / "runtime/boundary.json").write_text(json.dumps({
-        "parent_namespaces": config["parent_namespaces"], "mode": config["mode"],
+        "parent_namespaces": config["parent_namespaces"], "private_namespaces": private_namespaces, "mode": config["mode"],
         "host_socket_path": config["host_socket_path"], "node_sha256": config["node_sha256"]}))
     os.chroot(jail)
     os.chdir("/")

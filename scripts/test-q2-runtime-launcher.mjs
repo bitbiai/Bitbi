@@ -9,7 +9,9 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
 import { createReleasePlanFromRepo, evaluateStaticDeploySafety } from './lib/release-plan.mjs';
-import { canonicalInterfaces, canonicalRoutes, networkFieldDiff, throwHostedFailures, parseRuntimeArgs, assertHostedBootstrapAllowed, stageInputPlan, stageRuntimeInputs, resolveArtifactParent, stageNodeExecutable } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
+import { canonicalInterfaces, canonicalRoutes, networkFieldDiff, assertHostedCompletion, throwHostedFailures, parseRuntimeArgs, assertHostedBootstrapAllowed, stageInputPlan, stageRuntimeInputs, resolveArtifactParent, stageNodeExecutable } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
+
+import { assertIsolatedBoundary } from '../tests/helpers/q2-runtime/linux-isolation-contract.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
@@ -282,7 +284,8 @@ test('default native runtime plan stages every actual Q4 import and control inpu
   }
   const controls = runtimeSuites.map(([, , options]) => options.q4Control)
     .filter(Boolean).map(name => `tests/helpers/${name}`);
-  const entryPoints = ['tests/helpers/q2-runtime/runner.mjs', ...controls];
+  const entryPoints = ['tests/helpers/q2-runtime/runner.mjs', 'tests/helpers/q2-runtime/linux-isolated.mjs',
+    'tests/helpers/q2-runtime/linux-runtime-child.mjs', ...controls];
   const requireAuth = createRequire(path.join(root, 'workers/auth/package.json'));
   const esbuild = requireAuth('esbuild');
   const compiled = esbuild.buildSync({ absWorkingDir: root, entryPoints, bundle: true, write: false,
@@ -341,4 +344,37 @@ test('postcheck failures retain the earlier bootstrap or runtime failure', () =>
   assert.throws(()=>throwHostedFailures(null,[post]),/Postcheck: network changed/);
   assert.throws(()=>throwHostedFailures(primary,[]),/Execution: native assertion failed/);
   assert.doesNotThrow(()=>throwHostedFailures(null,[]));
+});
+
+
+test('ambient host inventory is diagnostic; own namespace and child completion remain required', () => {
+  const before = { namespace: 'host-net', sha256: 'old', names: ['eth0', 'lo'] };
+  const after = { namespace: 'host-net', sha256: 'new', names: ['ambient0', 'eth0', 'lo'] };
+  const initial = { passed: true, namespaces: { net: 'private-net', mnt: 'private-mnt', pid: 'private-pid', ipc: 'private-ipc' } };
+  const final = structuredClone(initial);
+  assert.doesNotThrow(() => assertHostedCompletion({ before, after, initial, final }));
+  for (const patch of [{ after: { ...after, namespace: 'other-host' } }, { final: null }, { initial: { passed: false } },
+    { final: { ...final, namespaces: { ...final.namespaces, net: 'host-net' } } }]) {
+    assert.throws(() => assertHostedCompletion({ before, after, initial, final, ...patch }));
+  }
+  const row = (name, index) => ({ name, index, mtu: 1500, addresses: [] });
+  const diff = networkFieldDiff([row('eth0',2), row('lo',1)], [row('ambient0',4), row('eth0',2), row('lo',1)], 'local-secret');
+  assert.equal(diff.length, 1); assert.equal(diff[0].field, 'interface:4:ambient0');
+});
+
+test('child final boundary rejects privilege, routes, mounts, credentials and namespace loss', () => {
+  const boundary = { parent_namespaces: {}, private_namespaces: {} };
+  for (const name of ['net','mnt','pid','ipc']) { boundary.parent_namespaces[name] = 'host-' + name; boundary.private_namespaces[name] = 'private-' + name; }
+  const good = { privileges: { Uid:'65534 65534 65534 65534', Gid:'65534 65534 65534 65534', Groups:'',
+    CapInh:'0', CapPrm:'0', CapEff:'0', CapBnd:'0', CapAmb:'0', NoNewPrivs:'1' }, namespaces: { ...boundary.private_namespaces },
+    interfaces:['lo'], ipv4Routes:[], ipv6Devices:['lo'], exposedPaths:[], unexpectedEnvironment:[],
+    mounts:Object.fromEntries(['/runtime/node','/runtime/curl','/runtime/setpriv','/workspace'].map(n => [n,['ro','nosuid','nodev']])) };
+  assert.doesNotThrow(() => assertIsolatedBoundary(good, boundary));
+  const faults = [s => { s.privileges.Uid = '0 0 0 0'; }, s => { s.privileges.NoNewPrivs = '0'; },
+    ...['CapInh','CapPrm','CapEff','CapBnd','CapAmb'].map(k => s => { s.privileges[k] = '1'; }),
+    s => { s.privileges.Groups = '0'; }, s => { s.namespaces.net = 'host-net'; }, s => { delete s.namespaces.ipc; },
+    s => { s.interfaces.push('eth0'); }, s => { s.ipv4Routes.push('outside'); }, s => { s.ipv6Devices.push('eth0'); },
+    s => { s.mounts['/workspace'] = ['rw']; }, s => { s.exposedPaths.push('/var/run/docker.sock'); },
+    s => { s.unexpectedEnvironment.push('CLOUDFLARE_API_TOKEN'); }];
+  for (const fault of faults) { const state = structuredClone(good); fault(state); assert.throws(() => assertIsolatedBoundary(state, boundary)); }
 });
