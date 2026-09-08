@@ -8,13 +8,13 @@ async function installHeroNativeProbe(page) {
     const events = [];
     const isHeroVideo = video => video instanceof HTMLVideoElement
       && video.classList.contains('latest-models-video-module__video');
-    function observation(video) {
+    function observation(video, output = null) {
       let state=observations.get(video);
       if(!state) {
         state={epoch:0, src:video.getAttribute('src'), lastTime:video.currentTime, lastFrames:0, maxTime:0,
-          outputAdvances:0, completedLoops:0, loopPending:false, callbackPending:false, frameCallbacks:0, nativePresentedFrames:null};
+          outputAdvances:0, completedLoops:0, loopPending:false, callbackPending:false, frameCallbacks:0, nativePresentedFrames:null, lastOutputTime:null, outputLoopPending:false};
         observations.set(video,state);ids.set(video,++sequence);
-        const reset=()=>{state.epoch++;state.loopPending=false;state.maxTime=0;state.lastTime=video.currentTime;
+        const reset=()=>{state.epoch++;state.loopPending=false;state.outputLoopPending=false;state.lastOutputTime=null;state.maxTime=0;state.lastTime=video.currentTime;
           state.lastFrames=video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? 0;};
         video.addEventListener('pause',reset);video.addEventListener('emptied',reset);
         video.addEventListener('seeking',()=>{
@@ -25,20 +25,34 @@ async function installHeroNativeProbe(page) {
         video.addEventListener('timeupdate',()=>observation(video));
       }
       const source=video.getAttribute('src');
-      if(source!==state.src){state.epoch++;state.src=source;state.loopPending=false;state.maxTime=0;state.lastTime=video.currentTime;state.lastFrames=0;}
+      if(source!==state.src){state.epoch++;state.src=source;state.loopPending=false;state.outputLoopPending=false;state.lastOutputTime=null;state.maxTime=0;state.lastTime=video.currentTime;state.lastFrames=0;}
       const frames=video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? null;
-      if(!video.paused && !video.seeking && video.currentTime>state.lastTime && frames!==null && frames>state.lastFrames) {
+      // Decoded counters can stay cached while already-decoded frames are
+      // presented again after resume. Native frame mediaTime proves output;
+      // callback frequency and cached decode counts are not progress quotas.
+      if(output && !video.paused && !video.seeking) {
+        const previous=state.lastOutputTime;
+        if(previous!==null && output.mediaTime<previous && video.loop) state.outputLoopPending=true;
+        else if(previous!==null && output.mediaTime>previous) {
+          state.outputAdvances++;
+          if(state.outputLoopPending){state.completedLoops++;state.outputLoopPending=false;}
+        }
+        state.lastOutputTime=output.mediaTime;
+      }
+      if(!video.requestVideoFrameCallback && !video.paused && !video.seeking && video.currentTime>state.lastTime && frames!==null && frames>state.lastFrames) {
         state.outputAdvances++;
         if(state.loopPending){state.completedLoops++;state.loopPending=false;}
       }
       if(!video.seeking){state.maxTime=Math.max(state.maxTime,video.currentTime);state.lastTime=video.currentTime;state.lastFrames=frames;}
-      // Diagnostic only: callback frequency is not a frame-rate or loop gate.
+      // Native output metadata is evidence; callback frequency is diagnostic only.
       // A disconnected pre-insertion video is registered on its next sample.
       if(video.isConnected && video.requestVideoFrameCallback && !state.callbackPending) {
         state.callbackPending=true;
+        const registeredEpoch=state.epoch, registeredSource=state.src;
         video.requestVideoFrameCallback((_now,metadata)=>{
           state.callbackPending=false;state.frameCallbacks++;state.nativePresentedFrames=metadata.presentedFrames;
-          observation(video);
+          const current=registeredEpoch===state.epoch && registeredSource===video.getAttribute('src');
+          observation(video,current ? metadata : null);
         });
       }
       return state;

@@ -11,13 +11,17 @@ const require = createRequire(import.meta.url);
 const serve = require('serve-handler');
 const compression = require('compression')();
 const video = fs.readFileSync(new URL('../fixtures/media/test-video.mp4', import.meta.url));
+const changingVideo = fs.readFileSync(new URL('../fixtures/media/test-video-changing.mp4', import.meta.url));
 const root = path.resolve(process.argv[2] || '.');
-const metadata = { size: video.length, etag: 'fixture-video', httpEtag: '"fixture-video"', uploaded: new Date('2026-09-07T00:00:00Z') };
+function fixtureBucket(bytes) {
+const metadata = { size: bytes.length, etag: 'fixture-video', httpEtag: '"fixture-video"', uploaded: new Date('2026-09-07T00:00:00Z') };
 const bucket = {
   head: async () => metadata,
   get: async (_key, options) => ({ ...metadata, body: options?.range
-    ? video.subarray(options.range.offset, options.range.offset + options.range.length) : video }),
+    ? bytes.subarray(options.range.offset, options.range.offset + options.range.length) : bytes }),
 };
+return bucket;
+}
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost:3000');
@@ -25,8 +29,9 @@ const server = http.createServer(async (req, res) => {
     if (/^\/api\/(homepage\/hero-videos|gallery\/memvids|plain)\/.*\/file$/.test(url.pathname) || url.pathname === '/api/plain/file') {
       if (req.method !== 'GET') { res.writeHead(404); res.end(); return; }
       if (url.searchParams.has('broken')) { res.writeHead(200, { 'Content-Type':'video/mp4', 'Content-Length':16 }); res.end(Buffer.alloc(16)); return; }
-      const response = await publicVideoResponse(new Request(url, { headers:req.headers }), bucket, 'fixture', () => new Headers({
-        'Content-Type':'video/mp4', 'Content-Length':String(video.length), 'Cache-Control':'public, max-age=31536000, immutable', 'X-Content-Type-Options':'nosniff', 'X-Test-Media-Transport':'http',
+      const bytes = url.searchParams.has('changing') ? changingVideo : video;
+      const response = await publicVideoResponse(new Request(url, { headers:req.headers }), fixtureBucket(bytes), 'fixture', () => new Headers({
+        'Content-Type':'video/mp4', 'Content-Length':String(bytes.length), 'Cache-Control':'public, max-age=31536000, immutable', 'X-Content-Type-Options':'nosniff', 'X-Test-Media-Transport':'http',
       }));
       res.writeHead(response.status, Object.fromEntries(response.headers));
       await pipeline(Readable.fromWeb(response.body), res);

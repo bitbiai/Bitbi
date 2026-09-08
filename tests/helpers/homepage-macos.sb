@@ -1,0 +1,10 @@
+(version 1)
+(allow default)
+; Native browser children inherit this boundary. No external IP or Unix sockets.
+(deny network*)
+(allow network-bind (local ip "localhost:3000"))
+(allow network-inbound (local ip "localhost:3000"))
+(allow network-outbound (remote ip "localhost:3000"))
+(deny file-read-data (regex #"/[.](env|dev[.]vars)([./].*)?$"))
+(deny file-read-data (regex #"/[.](ssh|aws|wrangler)(/.*)?$"))
+(deny process-exec (literal "/usr/bin/sudo") (literal "/usr/bin/su"))

@@ -202,3 +202,48 @@ test('state only: suspended transition retains both faces, remaining deadline an
   await page.clock.runFor(960);
   expect(await cycles(page)).toEqual([1, 1, 1, 1]);
 });
+
+test('probe only: cached decode counts do not hide output; frozen frames and stale epochs never pass', async ({ page }) => {
+  // Deliberately simulated metadata unit test of the actual observer, not a
+  // native playback pass. The independent HTTP native control stays separate.
+  await installHeroNativeProbe(page);
+  await page.goto('/plain-video');
+  const result = await page.evaluate(() => {
+    const video = document.createElement('video');
+    document.body.append(video);
+    let next, time = 0, paused = false;
+    Object.defineProperties(video, {
+      currentTime: { get: () => time }, paused: { get: () => paused },
+      seeking: { get: () => false }, readyState: { get: () => 4 },
+    });
+    video.getVideoPlaybackQuality = () => ({ totalVideoFrames: 15 });
+    video.requestVideoFrameCallback = callback => { next = callback; return 1; };
+    const read = () => window.__heroNativeProbe.observe(video);
+    const emit = value => { time = value; next(performance.now(), { mediaTime: value, presentedFrames: 15 }); return read().outputAdvances; };
+    read(); emit(0.1);
+    const baseline = read().outputAdvances;
+    const frozen = emit(0.1);
+    const progress = emit(0.2);
+    paused = true; video.dispatchEvent(new Event('pause'));
+    const pauseEpoch = read().epoch;
+    emit(0.3); // pending callback from the retired epoch is discarded
+    paused = false;
+    const resumeBaseline = emit(0.4);
+    const resumeProgress = emit(0.5);
+    video.setAttribute('src', '/synthetic-other-source.mp4');
+    const sourceEpoch = read().epoch;
+    const sourceBaseline = emit(0.6); // callback registered for previous source
+    const sourceFirst = emit(0.1);
+    const sourceProgress = emit(0.2);
+    return { baseline, frozen, progress, pauseEpoch, resumeBaseline, resumeProgress, sourceEpoch, sourceBaseline, sourceFirst, sourceProgress };
+  });
+  expect(result.frozen).toBe(result.baseline);
+  expect(result.progress).toBe(result.baseline + 1);
+  expect(result.resumeBaseline).toBe(result.progress);
+  expect(result.resumeProgress).toBe(result.progress + 1);
+  expect(result.pauseEpoch).toBeGreaterThan(0);
+  expect(result.sourceEpoch).toBeGreaterThan(result.pauseEpoch);
+  expect(result.sourceBaseline).toBe(result.resumeProgress);
+  expect(result.sourceFirst).toBe(result.sourceBaseline);
+  expect(result.sourceProgress).toBe(result.sourceFirst + 1);
+});

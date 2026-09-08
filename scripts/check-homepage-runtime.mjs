@@ -25,6 +25,14 @@ export function validateHomepageRuntime(state) {
   }
 }
 
+export function validateHomepageMacRuntime(state) {
+  assert.equal(state.platform, 'darwin', 'Native WebKit replacement requires macOS');
+  assert.match(state.node, /^v22\./, 'Repository test code requires Node 22');
+  assert.ok(state.uid > 0 && state.gid > 0, 'Native media must run without root');
+  assert.equal(state.playwright, state.lockVersion, 'Installed Playwright must match package-lock');
+  assert.ok(state.browsers.webkit && state.browsers.webkit.startsWith(state.browserRoot + path.sep), 'Use the installed private WebKit bundle');
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const require = createRequire(import.meta.url);
   const root = fileURLToPath(new URL('../', import.meta.url));
@@ -35,7 +43,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     assert.ok(!Object.keys(process.env).some((name) => /^(?:CLOUDFLARE_API_TOKEN|CLOUDFLARE_API_KEY|CF_API_TOKEN|STRIPE_.*(?:KEY|SECRET)|OPENAI_API_KEY|ANTHROPIC_API_KEY)$/.test(name)
       && process.env[name]), 'Production provider credentials must not be passed into this job');
     const { chromium, firefox, webkit } = require('playwright');
-    const proc = fs.readFileSync('/proc/self/status', 'utf8');
+    const mac = process.argv.includes('--macos');
+    const proc = mac ? '' : fs.readFileSync('/proc/self/status', 'utf8');
     const privileges = Object.fromEntries(['CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs']
       .map((name) => [name, proc.match(new RegExp(`^${name}:\\s*(\\S+)`, 'm'))?.[1]]));
     Object.assign(report, {
@@ -44,20 +53,21 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
       playwright: require('playwright/package.json').version,
       lockVersion: JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'))
         .packages['node_modules/@playwright/test'].version,
-      docker: JSON.parse(fs.readFileSync('/ms-playwright/.docker-info', 'utf8')),
+      docker: mac ? null : JSON.parse(fs.readFileSync('/ms-playwright/.docker-info', 'utf8')),
+      browserRoot: process.env.PLAYWRIGHT_BROWSERS_PATH,
       // Public executable paths only: Chromium's default headless-shell child
       // is verified by the required native launch, not by this file preflight.
-      browsers: Object.fromEntries(Object.entries({ chromium, firefox, webkit })
+      browsers: Object.fromEntries(Object.entries(mac ? { webkit } : { chromium, firefox, webkit })
         .map(([name, type]) => [name, type.executablePath()])),
     });
-    validateHomepageRuntime(report);
+    if (mac) validateHomepageMacRuntime(report); else validateHomepageRuntime(report);
     for (const executable of Object.values(report.browsers)) fs.accessSync(executable, fs.constants.X_OK);
-    for (const directory of [root, process.env.HOME, process.env.RUNNER_TOOL_CACHE, process.env.npm_config_cache]) {
+    for (const directory of (mac ? [root, process.env.HOME, process.env.TMPDIR] : [root, process.env.HOME, process.env.RUNNER_TOOL_CACHE, process.env.npm_config_cache])) {
       assert.ok(directory, 'Workspace, HOME and caches must be explicitly available');
       fs.accessSync(directory, fs.constants.W_OK);
     }
     report.status = 'passed';
-    console.log('Non-root Node 22, pinned image browsers and writable CI paths verified. Native tests follow.');
+    console.log(`${mac ? 'macOS WebKit' : 'Linux image'}: non-root Node 22, lock-matched browser and writable paths verified. Native tests follow.`);
   } catch (error) {
     report.error = error.message;
     console.error(error.message);

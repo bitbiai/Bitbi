@@ -76,14 +76,19 @@ for (const locale of ['/', '/de/']) {
     for (const surface of SURFACES) {
       const grid = page.locator(surface.grid);
       const cards = grid.locator(surface.card);
-      await grid.scrollIntoViewIfNeeded();
+      // Finish test-driven scrolling before choosing native pointer coordinates.
+      // The failed WebKit trace moved past the dot without selecting its target.
+      await grid.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' }));
       await expectLoaded(cards.first().locator(surface.image));
       expect(fixture.thumbnailRequests(surface.collection).length).toBeLessThanOrEqual(4);
       expect(fixture.avatarRequests(surface.collection).length).toBeLessThanOrEqual(4);
       await expect(cards.nth(20).locator(surface.image)).not.toHaveAttribute('src');
       const dot = page.locator(surface.dots).nth(4);
       const target = Number(await dot.getAttribute('data-target-index'));
+      await dot.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' }));
       await dot.click();
+      await expect(dot).toHaveAttribute('aria-selected', 'true');
+      await expect(cards.nth(target)).toHaveCSS('opacity', '1');
       await expectLoaded(cards.nth(target).locator(surface.image));
       await expectLoaded(cards.nth(target + 2).locator(surface.image));
       expect(fixture.thumbnailRequests(surface.collection).length).toBeLessThanOrEqual(9);

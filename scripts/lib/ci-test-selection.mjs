@@ -102,6 +102,7 @@ const CAROUSEL_FILES = new Set([
   "tests/homepage-carousel-focused.spec.js",
   "tests/homepage-creation-stream-anchor.spec.js",
   "tests/homepage-hero-playback.spec.js",
+  "tests/homepage-native-control.spec.js",
   "tests/homepage-hero-state.spec.js",
   "tests/homepage-media-loading.spec.js",
   "tests/homepage-performance-contract.spec.js",

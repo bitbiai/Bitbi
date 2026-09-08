@@ -4,7 +4,8 @@ import path from 'node:path';
 export const HOMEPAGE_FUNCTIONAL_MINIMUMS = Object.freeze({
   'homepage-carousel-focused.spec.js': 5,
   'homepage-creation-stream-anchor.spec.js': 4,
-  'homepage-hero-playback.spec.js': 8,
+  'homepage-hero-playback.spec.js': 13,
+  'homepage-native-control.spec.js': 2,
   'homepage-hero-state.spec.js': 3,
   'homepage-media-loading.spec.js': 8,
 });
@@ -21,6 +22,8 @@ export const HOMEPAGE_PERFORMANCE_REQUIRED = Object.freeze({
 });
 export const HOMEPAGE_EARLY_CHROMIUM_REQUIRED = Object.freeze(['native plain video: fulfill transport comparison', 'native plain video: HTTP response loops and seeks', 'native HTTP corrupt media is rejected, not mistaken for playback']);
 export const HOMEPAGE_WEBKIT_REQUIRED = Object.freeze([...HOMEPAGE_EARLY_CHROMIUM_REQUIRED, ...['en', 'de'].flatMap((locale) => [
+  `${locale}: configured hero pauses offscreen and hidden, resumes existing media and respects an existing pause`,
+  `${locale}: hidden initialization and bfcache restore preserve media; ordinary pagehide cleans up`,
   `${locale}: configured native media loops in every slot with the public range file contract`,
   `${locale}: fallback freezes media and its staggered cycle while suspended`,
   `${locale}: phone and tablet breakpoints retain existing policy with reduced motion`,
@@ -57,20 +60,28 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, webkit
   }
   const counts = (tests) => Object.fromEntries([...new Set(tests.map((test) => test.file))].sort()
     .map((file) => [file, tests.filter((test) => test.file === file).length]));
-  assert.ok(webkit.every((test) => ['webkit','chromium'].includes(test.project) && test.expectedStatus !== 'skipped'),
-    'Early WebKit cases must execute in native WebKit without static skips');
-  for (const title of HOMEPAGE_WEBKIT_REQUIRED) {
-    assert.ok(webkit.some((test) => test.project === 'webkit' && test.file === 'homepage-hero-playback.spec.js' && test.title === title),
-      `Early WebKit selection is missing: ${title}`);
-  }
-  for (const title of HOMEPAGE_EARLY_CHROMIUM_REQUIRED) assert.ok(webkit.some(test=>test.project==='chromium' && test.file==='homepage-hero-playback.spec.js' && test.title===title), `Early Chromium selection is missing: ${title}`);
+  const nativeFiles = ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js'];
+  assert.ok(webkit.every(test => test.project === 'webkit' && nativeFiles.includes(test.file)
+    && test.expectedStatus !== 'skipped'), 'macOS replacement must execute only native WebKit media, without skips');
+  for (const title of HOMEPAGE_WEBKIT_REQUIRED) assert.ok(webkit.some(test => test.file === nativeFiles[0] && test.title === title),
+    `Required macOS WebKit scenario missing: ${title}`);
   for (const project of ['chromium', 'webkit']) {
     for (const [file, minimum] of Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)) {
-      const matches = functional.filter((test) => test.project === project && test.file === file);
+      const matches = functional.filter(test => test.project === project && test.file === file);
+      if (project === 'webkit' && file === nativeFiles[0]) {
+        assert.equal(matches.length, 0, 'Linux must not duplicate the moved native WebKit cases');
+        continue;
+      }
       assert.ok(matches.length >= minimum, `${project}/${file}: ${matches.length} tests; require at least ${minimum}`);
-      assert.ok(matches.every((test) => test.expectedStatus !== 'skipped'), `${project}/${file}: statically skipped mandatory case`);
+      assert.ok(matches.every(test => test.expectedStatus !== 'skipped'), `${project}/${file}: statically skipped mandatory case`);
     }
   }
+  // Exact scenario union: every Chromium native scenario also executes on the
+  // replacement WebKit platform. Missing/extra media cases fail discovery.
+  const mediaKey = test => [test.file, test.title].join('\0');
+  const chromiumMedia = functional.filter(test => test.project === 'chromium' && nativeFiles.includes(test.file));
+  assert.deepEqual([...new Set(webkit.map(mediaKey))].sort(), [...new Set(chromiumMedia.map(mediaKey))].sort(),
+    'macOS/Linux native media scenario union differs');
   assert.ok(performance.every((test) => test.project === 'chromium-performance'), 'Performance must use its controlled Chromium project');
   assert.ok(performance.every((test) => test.expectedStatus !== 'skipped'), 'Performance acceptance cannot be statically skipped');
   for (const [file, titles] of Object.entries(HOMEPAGE_PERFORMANCE_REQUIRED)) {
@@ -87,6 +98,10 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, webkit
   const combinedUnion = new Set([...standard, ...carousel, ...functional, ...webkit, ...performance].map(key));
   const earlyFunctional = new Set(functional.map(key));
   for (const [file, minimum] of Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)) {
+    if (nativeFiles.includes(file)) {
+      assert.equal(standard.filter(test => test.file === file).length, 0, 'Native media should not repeat in the broad job');
+      continue;
+    }
     assert.ok(standard.filter((test) => test.file === file).length >= minimum,
       `Full static regression no longer includes ${file}`);
     for (const test of standard.filter((entry) => entry.file === file)) {

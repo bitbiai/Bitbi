@@ -1152,8 +1152,13 @@ function createValidContext() {
       - run: npm run check:homepage-selection
       - run: npm run test:homepage-functional
       - run: npm run test:homepage-performance
+  homepage-webkit-media:
+    needs: release-compatibility
+    runs-on: macos-15
+    steps:
+      - run: npm run test:homepage-webkit
   deploy:
-    needs: [release-compatibility, worker-validation, browser-validation, homepage-validation]
+    needs: [release-compatibility, worker-validation, browser-validation, homepage-validation, homepage-webkit-media]
     steps:
       - run: npm run build:static
     `,
@@ -1181,9 +1186,9 @@ function createValidContext() {
   assert.deepEqual(issues, []);
 }
 
-for (const missing of ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation"]) {
+for (const missing of ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "homepage-webkit-media"]) {
   const context = createValidContext();
-  const gates = ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation"];
+  const gates = ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "homepage-webkit-media"];
   context.workflowSource = context.workflowSource.replace(
     `needs: [${gates.join(", ")}]`,
     `needs: [${gates.filter((gate) => gate !== missing).join(", ")}]`,
@@ -1199,6 +1204,16 @@ for (const missing of ["release-compatibility", "worker-validation", "browser-va
     "  homepage-validation:\n    needs: unrelated-job",
   );
   assert.ok(validateReleaseCompatibility(context).some((issue) => issue.startsWith('Homepage validation job must depend')));
+}
+
+for (const [before, after] of [
+  ['runs-on: macos-15', 'runs-on: ubuntu-latest'],
+  ['npm run test:homepage-webkit', 'echo omitted'],
+  ['  homepage-webkit-media:\n    needs: release-compatibility', '  homepage-webkit-media:\n    needs: unrelated-job'],
+]) {
+  const context = createValidContext();
+  context.workflowSource = context.workflowSource.replace(before, after);
+  assert.ok(validateReleaseCompatibility(context).some(issue => issue.startsWith('Native WebKit media job')));
 }
 
 for (const command of ["check:homepage-selection", "test:homepage-functional", "test:homepage-performance"]) {

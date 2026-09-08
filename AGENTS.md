@@ -205,3 +205,7 @@ For substantial changes, also identify relevant schema/config/binding impact, de
 - Do not append long phase-by-phase history to active current-state docs.
 - Preserve historical detail in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, or dedicated evidence files.
 - Do not claim production readiness, live billing readiness, tenant isolation, access-switch readiness, ownership backfill readiness, confirmed legacy media reset readiness, or deployment completion without evidence.
+
+## Q4 native media acceptance
+
+For the authorized Q4 release, native WebKit video acceptance runs on the required standard macOS CI job; Linux keeps Worker/runtime/security, Chromium video, and non-decoder WebKit homepage checks. Preserve the complete scenario union and both required jobs. The documented Linux media divergence is diagnostic, not a repaired-product claim. Missing or failed macOS acceptance still blocks release. Narrow Carousel timing budgets remain diagnostic; functional and safety gates remain binding.

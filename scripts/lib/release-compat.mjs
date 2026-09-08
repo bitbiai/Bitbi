@@ -189,7 +189,7 @@ function extractPathLiterals(source, prefix) {
 }
 
 function workflowRequiresJob(workflowSource, jobName, needsMatcher) {
-  const blockPattern = new RegExp(`^\\s{2}${jobName}:\\n([\\s\\S]*?)(?=^\\s{2}[a-zA-Z0-9_-]+:|$)`, "m");
+  const blockPattern = new RegExp(`^\\s{2}${jobName}:\\n([\\s\\S]*?)(?=^\\s{2}[a-zA-Z0-9_-]+:|$(?![\\s\\S]))`, "m");
   const match = workflowSource.match(blockPattern);
   if (!match) return false;
   return needsMatcher.test(match[1]);
@@ -1214,6 +1214,13 @@ function validateWorkflowCompatibility(context) {
   if (!workflowRequiresJob(workflowSource, "homepage-validation", /needs:\s*release-compatibility/)) {
     issues.push('Homepage validation job must depend on "release-compatibility".');
   }
+  if (!workflowRequiresJob(workflowSource, "homepage-webkit-media", /needs:\s*release-compatibility/)) {
+    issues.push('Native WebKit media job must depend on "release-compatibility".');
+  }
+  if (!workflowRequiresJob(workflowSource, "homepage-webkit-media", /runs-on:\s*macos-15/)
+      || !workflowRequiresJob(workflowSource, "homepage-webkit-media", /npm run test:homepage-webkit/)) {
+    issues.push('Native WebKit media job must execute "npm run test:homepage-webkit" on macos-15.');
+  }
   for (const command of ["npm run check:homepage-selection", "npm run test:homepage-functional", "npm run test:homepage-performance"]) {
     if (!includesRouteLiteral(workflowSource, command)) {
       issues.push(`Static workflow does not run "${command}".`);
@@ -1223,10 +1230,10 @@ function validateWorkflowCompatibility(context) {
     !workflowRequiresJob(
       workflowSource,
       "deploy",
-      /needs:\s*\[\s*release-compatibility\s*,\s*worker-validation\s*,\s*browser-validation\s*,\s*homepage-validation\s*\]/
+      /needs:\s*\[\s*release-compatibility\s*,\s*worker-validation\s*,\s*browser-validation\s*,\s*homepage-validation\s*,\s*homepage-webkit-media\s*\]/
     )
   ) {
-    issues.push('Deploy job must depend on ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation"].');
+    issues.push('Deploy job must depend on ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "homepage-webkit-media"].');
   }
   if (!includesRouteLiteral(workflowSource, "npm run build:static")) {
     issues.push('Static workflow must build deploy assets via "npm run build:static".');

@@ -2,7 +2,8 @@ const { defineConfig } = require('@playwright/test');
 
 module.exports = defineConfig({
   testDir: './tests',
-  testIgnore: ['**/workers.spec.js', '**/fable-chat-workers.spec.js', '**/admin-ai-save-operations.spec.js', '**/q4-*.spec.js'],
+  // Native video is mandatory in the dedicated Linux/macOS homepage jobs.
+  testIgnore: ['**/homepage-hero-playback.spec.js', '**/homepage-native-control.spec.js', '**/workers.spec.js', '**/fable-chat-workers.spec.js', '**/admin-ai-save-operations.spec.js', '**/q4-*.spec.js'],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

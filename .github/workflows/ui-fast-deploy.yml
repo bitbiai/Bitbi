@@ -232,6 +232,48 @@ jobs:
         run: node scripts/select-ci-tests.mjs --base "$FAST_UI_BASE_REF" --head "$FAST_UI_HEAD_REF" --github-output
 
   # Short homepage feedback runs independently of the long browser regression.
+  # Only native WebKit video moves to macOS; all other Linux gates remain.
+  homepage-webkit-media:
+    needs: guard
+    runs-on: macos-15
+    permissions:
+      contents: read
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.23.2
+          cache: npm
+      - name: Install locked test dependencies and WebKit
+        run: |
+          npm ci
+          PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/homepage-browsers" npx playwright install webkit
+      - name: Build the candidate static site
+        run: npm run build:static
+      - name: Run required native WebKit media with private HOME and loopback only
+        run: |
+          set -eu
+          test "$(id -u)" -gt 0
+          mkdir -p "$RUNNER_TEMP/homepage-home" "$RUNNER_TEMP/homepage-tmp"
+          env -i PATH="$PATH" HOME="$RUNNER_TEMP/homepage-home" TMPDIR="$RUNNER_TEMP/homepage-tmp" CI=true GITHUB_SHA="$GITHUB_SHA" PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/homepage-browsers" /usr/bin/sandbox-exec -f tests/helpers/homepage-macos.sb /bin/sh -c 'node scripts/check-homepage-runtime.mjs --macos && npm run test:homepage-webkit -- --max-failures=1'
+      - name: Upload mandatory macOS media evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: homepage-macos-media-${{ github.sha }}
+          path: |
+            test-results/homepage-runtime.json
+            test-results/homepage-webkit.json
+            test-results/homepage-webkit/
+          retention-days: 7
+          if-no-files-found: error
+
   homepage-validation:
     needs: guard
     runs-on: ubuntu-latest
@@ -278,18 +320,17 @@ jobs:
       - name: Verify pinned browser image and unprivileged runtime
         if: needs.guard.outputs.homepage == 'true' || needs.guard.outputs.carousel == 'true'
         run: npm run check:homepage-runtime
+      - name: Build the candidate static site
+        run: npm run build:static
       - name: Verify mandatory homepage discovery and coverage
         if: needs.guard.outputs.homepage == 'true' || needs.guard.outputs.carousel == 'true'
         id: homepage_discovery
         run: npm run check:homepage-selection
-      - name: Run first native WebKit Hero regressions
-        if: ${{ !cancelled() && steps.homepage_discovery.outcome == 'success' }}
-        run: npm run test:homepage-webkit
-      - name: Run short homepage functional acceptance
-        if: ${{ !cancelled() && steps.homepage_discovery.outcome == 'success' }}
-        run: npm run test:homepage-functional
+      - name: Run Linux homepage functional acceptance
+        if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
+        run: npm run test:homepage-functional -- --max-failures=1
       - name: Record controlled homepage performance diagnostics
-        if: ${{ !cancelled() && steps.homepage_discovery.outcome == 'success' }}
+        if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
         run: npm run test:homepage-performance
       - name: Upload short homepage evidence
         if: always() && (needs.guard.outputs.homepage == 'true' || needs.guard.outputs.carousel == 'true')
@@ -310,7 +351,7 @@ jobs:
 
   deploy:
     name: Validate and deploy fast-safe change
-    needs: [guard, homepage-validation]
+    needs: [guard, homepage-validation, homepage-webkit-media]
     if: needs.guard.outputs.ui_only == 'true'
     runs-on: ubuntu-latest
     environment:
