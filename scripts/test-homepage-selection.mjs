@@ -12,7 +12,7 @@ const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 const fixture = (file, project, index) => ({ file, project, title: `case ${index}`, expectedStatus: 'passed', tags: [] });
 const allFunctional = ['chromium', 'webkit'].flatMap((project) => Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)
   .flatMap(([file, count]) => Array.from({ length: count }, (_, index) => fixture(file, project, index))));
-const functional = allFunctional.filter(test => !(test.project === 'webkit' && test.file === 'homepage-hero-playback.spec.js'));
+const functional = allFunctional.filter(test => !(test.project === 'webkit' && ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js'].includes(test.file)));
 const standard = functional.filter(test => test.project === 'chromium' && !['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js'].includes(test.file));
 const carousel = ['chromium', 'firefox', 'webkit'].flatMap((project) => Array.from({ length: 5 }, (_, index) => fixture('homepage-carousel-focused.spec.js', project, index)));
 const performance = Object.entries(HOMEPAGE_PERFORMANCE_REQUIRED).flatMap(([file, titles]) => titles.map((title) => ({
@@ -25,8 +25,18 @@ for (const project of ['chromium', 'webkit']) {
 }
 const webkit = functional.filter(test => test.project === 'chromium' && ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js'].includes(test.file))
   .map(test => ({ ...test, project: 'webkit' }));
-const valid = { standard, carousel, functional, webkit, performance };
+const diagnostic = webkit.filter(test => test.file === 'homepage-native-control.spec.js');
+const valid = { standard, carousel, functional, webkit, performance, diagnostic };
+assert.throws(() => verifyHomepageDiscovery({ ...valid, diagnostic: [] }), /no tests/);
+assert.throws(() => verifyHomepageDiscovery({ ...valid, diagnostic: diagnostic.slice(1) }), /lost an independent/);
 assert.equal(verifyHomepageDiscovery(valid).existingCommandUnion, standard.length + 10);
+for (const file of ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js']) {
+  assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: [...functional, fixture(file, 'webkit', 0)] }), /must not duplicate/);
+  assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: functional.filter(t => t.file !== file) }), /require at least/);
+}
+for (const file of ['homepage-hero-state.spec.js', 'homepage-media-loading.spec.js']) {
+  assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: functional.filter(t => !(t.project === 'webkit' && t.file === file)) }), /require at least/);
+}
 assert.throws(() => verifyHomepageDiscovery({ ...valid, performance: [] }), /no tests/);
 assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: [] }), /no tests/);
 for (let missing = 0; missing < webkit.length; missing += 1) {
@@ -72,6 +82,12 @@ assert.equal(performanceConfig.projects[0].use.browserName, 'chromium');
 assert.equal(performanceConfig.projects[0].metadata.homepagePerformanceMeasurement, true);
 assert.equal(performanceConfig.projects[0].metadata.homepagePerformanceGate, undefined);
 assert.ok(performanceConfig.grep.test('@homepage-performance'));
+const linux = require(path.join(root, 'playwright.homepage.config.js'));
+assert.deepEqual(linux.projects.find(p => p.name === 'webkit').testIgnore, ['**/homepage-hero-playback.spec.js', '**/homepage-native-control.spec.js']);
+assert.equal(linux.projects.find(p => p.name === 'chromium').testIgnore, undefined);
+const diagnosis = require(path.join(root, 'playwright.homepage-linux-diagnostic.config.js'));
+assert.deepEqual(diagnosis.testMatch, ['homepage-native-control.spec.js']);
+assert.equal(diagnosis.projects[0].metadata.nativeMediaDiagnostic, true);
 const earlyWebKit = require(path.join(root, 'playwright.homepage-webkit.config.js'));
 assert.deepEqual(earlyWebKit.projects.map(p => [p.name, p.use.browserName]), [['webkit', 'webkit']]);
 assert.notEqual(earlyWebKit.projects[0].metadata?.nativeMediaDiagnostic, true);
@@ -137,6 +153,9 @@ for (const workflow of ['static.yml', 'full-regression.yml', 'ui-fast-deploy.yml
   assert.ok(!early.includes('pages: write') && !early.includes('secrets.'));
   assert.ok(!early.includes('playwright install') && !early.includes('apt-get') && !early.includes('sudo'));
   assert.ok(early.includes('npm run test:homepage-performance'));
+  assert.ok(early.includes('npm run diagnose:homepage-linux-media'));
+  assert.ok(early.indexOf('npm run diagnose:homepage-linux-media') > early.indexOf('npm run test:homepage-functional'));
+  assert.ok(early.includes('test-results/homepage-linux-diagnostic.log'));
   assert.ok(early.includes("success() && steps.homepage_discovery.outcome == 'success'"));
   assert.ok(!early.includes('!cancelled()'), 'Earlier setup/function failure must stop subsequent test steps');
   assert.ok(early.includes('if: always()'));

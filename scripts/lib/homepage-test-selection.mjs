@@ -54,8 +54,8 @@ function key(test) {
   return [test.file, test.title, test.project].join('\0');
 }
 
-export function verifyHomepageDiscovery({ standard, carousel, functional, webkit, performance }) {
-  for (const [name, tests] of Object.entries({ standard, carousel, functional, webkit, performance })) {
+export function verifyHomepageDiscovery({ standard, carousel, functional, webkit, performance, diagnostic }) {
+  for (const [name, tests] of Object.entries({ standard, carousel, functional, webkit, performance, diagnostic })) {
     assert.ok(Array.isArray(tests) && tests.length > 0, `${name}: no tests discovered`);
   }
   const counts = (tests) => Object.fromEntries([...new Set(tests.map((test) => test.file))].sort()
@@ -68,7 +68,7 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, webkit
   for (const project of ['chromium', 'webkit']) {
     for (const [file, minimum] of Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)) {
       const matches = functional.filter(test => test.project === project && test.file === file);
-      if (project === 'webkit' && file === nativeFiles[0]) {
+      if (project === 'webkit' && nativeFiles.includes(file)) {
         assert.equal(matches.length, 0, 'Linux must not duplicate the moved native WebKit cases');
         continue;
       }
@@ -82,6 +82,10 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, webkit
   const chromiumMedia = functional.filter(test => test.project === 'chromium' && nativeFiles.includes(test.file));
   assert.deepEqual([...new Set(webkit.map(mediaKey))].sort(), [...new Set(chromiumMedia.map(mediaKey))].sort(),
     'macOS/Linux native media scenario union differs');
+  assert.ok(diagnostic.every(test => test.project === 'webkit' && test.file === nativeFiles[1]
+    && test.expectedStatus !== 'skipped'), 'Linux diagnosis must contain only the independent native controls');
+  assert.deepEqual(diagnostic.map(mediaKey).sort(), webkit.filter(test => test.file === nativeFiles[1]).map(mediaKey).sort(),
+    'Linux diagnosis has lost an independent source control');
   assert.ok(performance.every((test) => test.project === 'chromium-performance'), 'Performance must use its controlled Chromium project');
   assert.ok(performance.every((test) => test.expectedStatus !== 'skipped'), 'Performance acceptance cannot be statically skipped');
   for (const [file, titles] of Object.entries(HOMEPAGE_PERFORMANCE_REQUIRED)) {
@@ -118,6 +122,7 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, webkit
     functional: { total: functional.length, files: counts(functional) },
     webkit: { total: webkit.length, files: counts(webkit) },
     performance: { total: performance.length, files: counts(performance) },
+    diagnostic: { total: diagnostic.length, files: counts(diagnostic), acceptance: false },
     existingCommandUnion: oldUnion.size,
     combinedCommandUnion: combinedUnion.size,
     note: 'Discovery counts are not passed tests. Existing engine-specific runtime skips remain visible in execution reports.',

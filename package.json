@@ -15,6 +15,7 @@
     "test:homepage-selection": "node scripts/test-homepage-selection.mjs",
     "check:homepage-runtime": "node scripts/check-homepage-runtime.mjs",
     "test:homepage-webkit": "playwright test -c playwright.homepage-webkit.config.js",
+    "diagnose:homepage-linux-media": "node scripts/diagnose-homepage-linux-media.mjs",
     "test:homepage-functional": "playwright test -c playwright.homepage.config.js",
     "test:homepage-performance": "playwright test -c playwright.homepage-performance.config.js",
     "test:homepage": "npm run test:homepage-core && npm run test:homepage-carousel",

@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
-const { installHeroNativeProbe, createProgressWindow } = require('./helpers/homepage-hero-native-probe');
+const { installHeroNativeProbe } = require('./helpers/homepage-hero-native-probe');
 
 const VIDEO = fs.readFileSync(path.join(__dirname, 'fixtures/media/test-video.mp4'));
 const POSTER = fs.readFileSync(path.join(__dirname, 'fixtures/media/favorite-thumb.jpg'));
@@ -110,21 +110,11 @@ async function snapshot(page) {
 }
 
 async function expectPlaying(page) {
-  const window = createProgressWindow();
-  const samples = [];
-  try {
-    await expect.poll(async () => {
-      const current = await page.evaluate(() => window.__heroNativeProbe.sample());
-      samples.push(current);
-      const progressed = window(current);
-      return progressed;
-    }).toBe(true);
-  } finally {
-    await test.info().attach('native-active-slot-progress', {
-      body: JSON.stringify({ samples }),
-      contentType: 'application/json',
-    });
-  }
+  const result = await page.evaluate(() => window.__heroNativeProbe.waitForProgress());
+  await test.info().attach('native-active-slot-progress', {
+    body: JSON.stringify(result), contentType: 'application/json',
+  });
+  expect(result.passed).toBe(true);
 }
 
 async function startContinuityProbe(page) {
@@ -267,17 +257,10 @@ for (const locale of ['en', 'de']) {
   test(`${locale}: configured native media loops in every slot with the public range file contract`, async ({ page }, testInfo) => {
     await openHome(page, locale);
     await expectPlaying(page);
-    const window = createProgressWindow({ loops: 2 });
-    const samples=[];
-    try {
-      await expect.poll(async () => {
-        const current=await page.evaluate(() => window.__heroNativeProbe.sample());samples.push(current);
-        expect(current.every(video => video.duration === 1)).toBe(true);
-        return window(current);
-      }).toBe(true);
-    } finally {
-      await testInfo.attach('native-range-response-loop',{body:JSON.stringify({samples}),contentType:'application/json'});
-    }
+    const result = await page.evaluate(() => window.__heroNativeProbe.waitForProgress({ loops: 2 }));
+    await testInfo.attach('native-range-response-loop', { body: JSON.stringify(result), contentType: 'application/json' });
+    expect(result.samples.flat().every(video => video.duration === 1)).toBe(true);
+    expect(result.passed).toBe(true);
     await page.evaluate(() => window.__setHeroDocumentHidden(true));
     await expectFrozen(page, testInfo, 'native-loop-suspended', 200);
     await page.evaluate(() => window.__setHeroDocumentHidden(false));

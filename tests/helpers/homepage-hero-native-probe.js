@@ -1,7 +1,6 @@
 // Observational native-media probe. It never replaces a player, clock, source,
 // currentTime, pause result or play promise; every play call goes to the engine.
-async function installHeroNativeProbe(page) {
-  await page.addInitScript(() => {
+function installBrowserProbe(createProgressWindow, observeProgress) {
     const ids = new WeakMap();
     const observations = new WeakMap();
     let sequence = 0;
@@ -121,7 +120,41 @@ async function installHeroNativeProbe(page) {
     window.__heroNativeProbe = {
       sample: () => Array.from(document.querySelectorAll('#hero [data-latest-models-video-module] video'), sample),
       events, observe: sample,
+      waitForProgress: options => observeProgress(window.__heroNativeProbe.sample, options, createProgressWindow),
     };
+}
+
+async function installHeroNativeProbe(page) {
+  // Install the exact exported functions together, without an additional loader
+  // or a second copy of the identity contract in the browser.
+  await page.addInitScript({ content: `(${installBrowserProbe})(${createProgressWindow}, ${observeProgress});` });
+}
+
+// Observe inside one browser call. Transport delays must not discard output
+// already seen before a normal source transition. Each invocation starts fresh.
+function observeProgress(sample, { loops = 0, timeout = 5000 } = {}, factory = createProgressWindow) {
+  const progress = factory({ loops });
+  return new Promise((resolve, reject) => {
+    const start = performance.now();
+    const samples = [];
+    let timer, deadline, sampleCount = 0, settled = false;
+    const finish = (passed, error) => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); clearTimeout(deadline);
+      if (error) reject(error);
+      else resolve({ passed, elapsed: performance.now() - start, sampleCount, samples });
+    };
+    const tick = () => {
+      try {
+        const current = sample(); sampleCount++;
+        samples.push(current); if (samples.length > 60) samples.shift();
+        if (progress(current)) return finish(true);
+        if (performance.now() - start >= timeout) return finish(false);
+        timer = setTimeout(tick, 16);
+      } catch (error) { finish(false, error); }
+    };
+    deadline = setTimeout(() => finish(false), timeout);
+    tick();
   });
 }
 
@@ -160,4 +193,4 @@ function createProgressWindow({ loops=0 }={}) {
     return active.every(video=>{const s=states.get(video.slot);return s.progress && s.loops && !video.paused && video.readyState>=2 && video.error===null && video.connected;});
   };
 }
-module.exports = { installHeroNativeProbe, everyActiveSlotProgressed, createProgressWindow };
+module.exports = { installHeroNativeProbe, everyActiveSlotProgressed, createProgressWindow, observeProgress };

@@ -27,6 +27,7 @@ try {
     functional: 'playwright.homepage.config.js',
     webkit: 'playwright.homepage-webkit.config.js',
     performance: 'playwright.homepage-performance.config.js',
+    diagnostic: 'playwright.homepage-linux-diagnostic.config.js',
   })) {
     // Discovery does not start browsers, the web server or Playwright bodies.
     // The existing node:test mock import also writes TAP diagnostics to stdout;

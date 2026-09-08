@@ -311,6 +311,9 @@ jobs:
       - name: Record controlled homepage performance diagnostics
         if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
         run: npm run test:homepage-performance
+      - name: Record bounded Linux WebKit media divergence (not acceptance)
+        if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
+        run: npm run diagnose:homepage-linux-media
       - name: Upload short homepage evidence
         if: always() && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true')
         uses: actions/upload-artifact@v6
@@ -321,6 +324,8 @@ jobs:
             test-results/homepage-discovery-*/
             test-results/homepage-webkit/
             test-results/homepage-functional/
+            test-results/homepage-linux-diagnostic/
+            test-results/homepage-linux-diagnostic.log
             test-results/homepage-performance/
             playwright-report/homepage-webkit/
             playwright-report/homepage-functional/

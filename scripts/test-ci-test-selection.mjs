@@ -17,6 +17,10 @@ for (const file of ["tests/q4-stream-receipts.spec.js", "tests/q4-runtime-memory
   assert.equal(selected.full, false);
 }
 
+for (const file of ['playwright.homepage-linux-diagnostic.config.js', 'scripts/diagnose-homepage-linux-media.mjs']) {
+  assert.equal(selectCiTests([file]).carousel, true, `${file} must retain Linux and macOS media coverage`);
+}
+
 function selection(files, options) {
   return selectCiTests(files, options);
 }

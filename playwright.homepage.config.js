@@ -30,8 +30,7 @@ module.exports = defineConfig({
   },
   projects: [
     { name: 'chromium', use: { browserName: 'chromium' } },
-    { name: 'webkit', testIgnore: ['**/homepage-hero-playback.spec.js'],
-      metadata: { nativeMediaDiagnostic: true }, use: { browserName: 'webkit' } },
+    { name: 'webkit', testIgnore: ['**/homepage-hero-playback.spec.js', '**/homepage-native-control.spec.js'], use: { browserName: 'webkit' } },
   ],
   webServer: {
     command: 'node tests/helpers/homepage-media-server.mjs _site',

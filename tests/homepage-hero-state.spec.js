@@ -46,6 +46,55 @@ test('probe window retains asynchronous slot proof but rejects frozen, changed a
   expect(createProgressWindow()(current)).toBe(false);
 });
 
+test('browser progress window survives delayed transport but never reuses a changed or frozen slot', async ({ page }) => {
+  // Instrument regression only: synthetic samples and real browser timers.
+  // Native decoding is independently required by homepage-hero-playback.
+  await installHeroNativeProbe(page);
+  await page.goto('/plain-video');
+  await page.evaluate(() => {
+    const initial = ['left_top','left_bottom','right_top','right_bottom'].map((slot,id) => ({
+      id, slot, src: `/${id}`, epoch: 0, active: true, connected: true,
+      paused: false, readyState: 4, error: null, outputAdvances: 0, completedLoops: 0,
+    }));
+    let current = structuredClone(initial);
+    const snapshots = [];
+    window.__heroNativeProbe.sample = () => { snapshots.push(structuredClone(current)); return structuredClone(current); };
+    window.__transportProof = window.__heroNativeProbe.waitForProgress({ timeout: 500 });
+    // Each slot outputs at a different instant; a normal source transition then
+    // retires two identities before the deliberately delayed caller reads back.
+    [0,1,2,3].forEach(i => setTimeout(() => { current[i].outputAdvances++; }, 25 + i * 25));
+    setTimeout(() => { current[0].src = '/next'; current[1].src = '/next-2'; }, 160);
+    window.__transportSnapshots = snapshots;
+    window.__transportInitial = initial;
+    window.__transportCurrent = () => current;
+  });
+  // A browser timer models delayed protocol consumption, not playback success.
+  const result = await page.evaluate(async () => {
+    await new Promise(resolve => setTimeout(resolve, 250));
+    return { proof: await window.__transportProof, before: window.__transportInitial, after: window.__transportCurrent() };
+  });
+  expect(result.proof.passed).toBe(true);
+  const oldRoundTrips = createProgressWindow();
+  expect(oldRoundTrips(result.before)).toBe(false);
+  expect(oldRoundTrips(result.after)).toBe(false); // Old two-roundtrip observation loses that valid window.
+  for (const fault of ['frozen', 'source', 'epoch', 'paused', 'missing']) {
+    const rejected = await page.evaluate(async fault => {
+      const current = structuredClone(window.__transportInitial);
+      window.__heroNativeProbe.sample = () => structuredClone(current);
+      const pending = window.__heroNativeProbe.waitForProgress({ timeout: 120 });
+      setTimeout(() => {
+        current.forEach((v,i) => { if (i !== 0 || fault !== 'frozen') v.outputAdvances++; });
+        if (fault === 'source') current[0].src = '/unproved';
+        if (fault === 'epoch') current[0].epoch++;
+        if (fault === 'paused') current[0].paused = true;
+        if (fault === 'missing') current.shift();
+      }, 25);
+      return pending;
+    }, fault);
+    expect(rejected.passed, fault).toBe(false);
+  }
+});
+
 test('probe only: the appended target is distinguished from the outgoing face in both transition shapes', async ({ page }) => {
   await installHeroNativeProbe(page);
   await controlledHero(page);
