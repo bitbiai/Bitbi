@@ -304,3 +304,76 @@ test('probe only: cached decode counts do not hide output; frozen frames and sta
   expect(result.sourceFirst).toBe(result.sourceBaseline);
   expect(result.sourceProgress).toBe(result.sourceFirst + 1);
 });
+
+test('probe only: paused transition proof rejects foreign targets and survives later cycles', async ({ page }, testInfo) => {
+  await installHeroNativeProbe(page);
+  await page.goto('/plain-video');
+  // DOM/observer countercontrols only. Real controller/CSS/video completion is
+  // required separately by both EN/DE native fallback playback scenarios.
+  const results = await page.evaluate(async () => {
+    const results = [];
+    const mount = () => {
+      document.body.replaceChildren();
+      const hero = document.createElement('section'); hero.id = 'hero';
+      const module = document.createElement('div'); module.dataset.latestModelsVideoModule = '';
+      module.dataset.latestModelsVideoModuleSide = 'left'; hero.append(module); document.body.append(hero);
+      const slot = document.createElement('span'); module.append(slot);
+      slot.dataset.latestModelsSlot = 'top'; slot.className = 'is-turning';
+      Object.assign(slot.dataset, { transitionCount: '2', activeVideoId: 'target', activeIndex: '1' });
+      const cube = document.createElement('span'); cube.className = 'latest-models-video-module__cube is-turning';
+      cube.style.animationPlayState = 'paused'; slot.append(cube);
+      const outgoing = document.createElement('span'); outgoing.className = 'latest-models-video-module__face--front';
+      const face = document.createElement('span'); face.className = 'latest-models-video-module__face--right';
+      const video = document.createElement('video'); video.className = 'latest-models-video-module__video';
+      // No fake frame/time/play event. This source is never played by the unit.
+      video.preload = 'none'; video.src = '/synthetic-transition-target.mp4'; face.append(video); cube.append(outgoing, face);
+      const settle = (target = face) => {
+        const next = document.createElement('span'); next.className = 'latest-models-video-module__cube';
+        target.className = 'latest-models-video-module__face--front'; next.append(target);
+        slot.replaceChildren(next); slot.classList.remove('is-turning');
+      };
+      return { slot, cube, face, video, settle };
+    };
+    for (const mode of ['empty', 'missing', 'hung', 'wrong', 'removed', 'source', 'foreign-number', 'foreign-slot', 'previous', 'completed-then-next']) {
+      const t = mount();
+      if (mode === 'empty') t.slot.remove();
+      if (mode === 'missing') t.face.remove();
+      if (mode === 'previous') t.settle();
+      const proof = window.__heroNativeProbe.observePausedTransitions({ timeout: 120 });
+      if (mode === 'wrong') t.settle(t.face.cloneNode(true));
+      if (mode === 'removed') t.face.remove();
+      if (mode === 'source') { t.video.src = '/synthetic-wrong-source.mp4'; t.settle(); }
+      if (mode === 'foreign-number') { t.slot.dataset.transitionCount = '3'; t.settle(); }
+      if (mode === 'foreign-slot') {
+        const other = t.slot.cloneNode(true); other.dataset.latestModelsSlot = 'bottom';
+        t.slot.parentNode.append(other); other.classList.remove('is-turning'); other.firstElementChild.classList.remove('is-turning');
+      }
+      if (mode === 'completed-then-next') {
+        t.settle();
+        await Promise.resolve(); // Allow the exact settled state to be observed.
+        const next = document.createElement('span'); next.className = 'latest-models-video-module__cube is-turning';
+        const later = t.face.cloneNode(true); later.className = 'latest-models-video-module__face--right';
+        later.querySelector('video').src = '/synthetic-later-target.mp4'; next.append(t.face, later);
+        t.slot.replaceChildren(next); t.slot.classList.add('is-turning');
+        t.slot.dataset.transitionCount = '3'; t.slot.dataset.activeVideoId = 'later';
+        // Delayed consumer reads after a valid subsequent turn already began.
+        await new Promise(resolve => setTimeout(resolve, 160));
+      }
+      results.push({ mode, proof: await proof, nowTurning: t.slot.classList.contains('is-turning'), number: t.slot.dataset.transitionCount });
+    }
+    return results;
+  });
+  await testInfo.attach('transition-instance-countercontrols', { body: JSON.stringify(results), contentType: 'application/json' });
+  const expectedReasons = { empty: 'no-paused-transition', missing: 'invalid-paused-target',
+    hung: 'transition-deadline', wrong: 'target-removed-or-replaced', removed: 'target-removed-or-replaced',
+    source: 'target-removed-or-replaced', 'foreign-number': 'unobserved-or-foreign-completion',
+    'foreign-slot': 'transition-deadline', previous: 'no-paused-transition', 'completed-then-next': 'captured-targets-settled' };
+  for (const row of results) {
+    expect(row.proof.passed, row.mode).toBe(row.mode === 'completed-then-next');
+    expect(row.proof.reason, row.mode).toBe(expectedReasons[row.mode]);
+  }
+  const success = results.at(-1);
+  expect(success.number).toBe('3'); expect(success.nowTurning).toBe(true);
+  expect(success.proof.targets[0].completed.number).toBe('2');
+  expect(success.proof.targets[0].completed.videoId).toBe(success.proof.targets[0].videoId);
+});

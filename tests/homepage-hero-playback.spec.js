@@ -334,10 +334,19 @@ for (const locale of ['en', 'de']) {
     await expectFrozen(page, testInfo, 'fallback-hidden-during-transition', 1250);
     expect(await page.locator(HERO_SLOTS).evaluateAll(slots => slots.map(slot => slot.dataset.transitionCount))).toEqual(duringTurn);
     await expectContinuity(page);
-    await page.evaluate(() => window.__setHeroDocumentHidden(false));
-    await expectPlaying(page);
-    await expectNativeResumeContinuity(page, testInfo, 'fallback-native-turn-resume');
-    await expect(page.locator(`${HERO_SLOTS}.is-turning`)).toHaveCount(0, { timeout: 2000 });
+    await page.evaluate(() => {
+      window.__heroTurnCompletion = window.__heroNativeProbe.observePausedTransitions();
+      window.__setHeroDocumentHidden(false); // Observe and resume in the same task.
+    });
+    let completion;
+    try {
+      await expectPlaying(page);
+      await expectNativeResumeContinuity(page, testInfo, 'fallback-native-turn-resume');
+    } finally {
+      completion = await page.evaluate(() => window.__heroTurnCompletion);
+      await testInfo.attach('resumed-transition-targets', { body: JSON.stringify(completion), contentType: 'application/json' });
+    }
+    expect(completion.passed, completion.reason).toBe(true);
     expect(state.errors).toEqual([]);
   });
 

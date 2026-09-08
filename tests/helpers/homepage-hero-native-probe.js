@@ -121,6 +121,67 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
       result?.then(() => record('play-resolved', this), error => record('play-rejected', this, { rejection: error.name }));
       return result;
     };
+    function observePausedTransitions({ timeout = 2000 } = {}) {
+      const selector = '#hero [data-latest-models-slot]';
+      const targets = Array.from(document.querySelectorAll(`${selector}.is-turning`)).map(slot => {
+        const cube = slot.firstElementChild;
+        const face = cube?.lastElementChild;
+        const video = face?.querySelector('video');
+        return { slot, cube, face, video, source: video?.getAttribute('src'),
+          key: video ? sample(video).slot : null, videoId: video ? sample(video).id : null,
+          number: slot.dataset.transitionCount, target: slot.dataset.activeVideoId, index: slot.dataset.activeIndex,
+          completed: null };
+      });
+      const start = performance.now();
+      const describe = t => ({ slot: t.key, number: t.number, target: t.target, index: t.index,
+        videoId: t.videoId, source: t.source, completed: t.completed,
+        current: { connected: t.slot.isConnected, number: t.slot.dataset.transitionCount,
+          target: t.slot.dataset.activeVideoId, turning: t.slot.classList.contains('is-turning'),
+          originalCubeConnected: t.cube?.isConnected, incomingFaceConnected: t.face?.isConnected,
+          video: t.video ? sample(t.video) : null } });
+      return new Promise(resolve => {
+        let observer, deadline, finished = false;
+        const finish = (passed, reason) => {
+          if (finished) return;
+          finished = true; observer?.disconnect(); clearTimeout(deadline);
+          resolve({ passed, reason, elapsed: performance.now() - start, targets: targets.map(describe),
+            scope: 'Exact paused transition targets; later cycles do not revoke observed completion.' });
+        };
+        if (!targets.length) return finish(false, 'no-paused-transition');
+        if (targets.some(t => !t.key || !t.target || !t.source || !/^[1-9]\d*$/.test(t.number || '')
+            || !t.cube?.classList.contains('is-turning') || t.cube.style.animationPlayState !== 'paused'
+            || !t.face?.classList.contains('latest-models-video-module__face--right')
+            || !t.video?.paused || !t.video.isConnected)
+            || new Set(targets.map(t => t.key)).size !== targets.length) return finish(false, 'invalid-paused-target');
+        const check = () => {
+          try {
+            for (const t of targets) {
+              if (t.completed) continue; // Preserve this instance, not global idle.
+              if (!t.slot.isConnected || !t.face.isConnected || !t.video.isConnected
+                  || t.video.getAttribute('src') !== t.source || t.face.querySelector('video') !== t.video)
+                return finish(false, 'target-removed-or-replaced');
+              if (t.slot.dataset.transitionCount !== t.number || t.slot.dataset.activeVideoId !== t.target
+                  || t.slot.dataset.activeIndex !== t.index) return finish(false, 'unobserved-or-foreign-completion');
+              const currentCube = t.slot.firstElementChild;
+              if (!t.slot.classList.contains('is-turning') && currentCube !== t.cube && !t.cube.isConnected) {
+                if (!currentCube?.classList.contains('latest-models-video-module__cube')
+                    || currentCube.classList.contains('is-turning') || currentCube.children.length !== 1
+                    || currentCube.firstElementChild !== t.face
+                    || !t.face.classList.contains('latest-models-video-module__face--front'))
+                  return finish(false, 'wrong-settled-target');
+                t.completed = { at: performance.now() - start, number: t.number, videoId: t.videoId, source: t.source };
+              }
+            }
+            if (targets.every(t => t.completed)) finish(true, 'captured-targets-settled');
+          } catch (error) { finish(false, 'observation-error: ' + error.message); }
+        };
+        observer = new MutationObserver(check);
+        observer.observe(document.querySelector('#hero'), { subtree: true, childList: true, attributes: true,
+          attributeFilter: ['class', 'src', 'data-active-video-id', 'data-active-index', 'data-transition-count'] });
+        deadline = setTimeout(() => finish(false, 'transition-deadline'), timeout);
+        check(); // Registration completes synchronously, before caller resumes.
+      });
+    }
     async function observeFrozen(duration) {
       const start = performance.now(), firstEvent = eventSequence;
       const read = () => Array.from(document.querySelectorAll('#hero [data-latest-models-video-module] video'), sample);
@@ -160,7 +221,7 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
     }
     window.__heroNativeProbe = {
       sample: () => Array.from(document.querySelectorAll('#hero [data-latest-models-video-module] video'), sample),
-      events, observe: sample, observeFrozen,
+      events, observe: sample, observeFrozen, observePausedTransitions,
       waitForProgress: options => observeProgress(window.__heroNativeProbe.sample, options, createProgressWindow),
     };
 }
