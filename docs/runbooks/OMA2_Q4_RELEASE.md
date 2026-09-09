@@ -63,6 +63,31 @@ Native pause acceptance requires confirmed pause, stable timeline/video/source i
 All three workflow paths use the same npm/config/selection contracts. Dependencies install from lockfiles before isolated execution. The complete Q4 activation still requires matching release, Worker, broad browser, Linux homepage and macOS media jobs. No duplicate job is removed on the strength of a different platform, source tree, token or fixture.
 
 
+## Pages release preflight and completion
+
+The private activation receipts record Q4 Auth/schema activation; a failed Pages
+workflow does not undo that backend state. Do not repeat migrations or roll back
+Auth because the static release guard failed.
+
+The standard workflow runs the actual static safety CLI before test selection and
+again immediately before Pages setup, with the same event, acknowledgement and
+complete base/head range. All validation and deployment checkouts use the event
+SHA. The Q4 release comparison remains based on `8292a492`; unknown paths and
+invalid plans still block even with the manual dependency acknowledgement.
+`playwright.homepage-linux-diagnostic.config.js` is an exact validation-only path;
+this classification does not disable its diagnostic execution.
+
+Standard and fast Pages workflows use the existing official
+[`actions/deploy-pages`](https://github.com/actions/deploy-pages/blob/v5/src/internal/deployment.js)
+action as the sole completion authority. Build/upload/guard failures, missing
+outputs and cancellation cannot start deployment. Action failures remain fatal;
+no independent SHA-based reconciliation can mistake an earlier publication for
+this attempt. Status requests belong to the action's created deployment, with a
+10-minute bound and one API error before failure. No reconciliation runs after a
+skipped action. Run `npm run test:static-deploy-safety` for the full Q4 path and
+workflow-state countercontrols; this is local orchestration evidence, not a live
+GitHub deployment. Codex's No-CI-Wait rule remains unchanged.
+
 ## Conditional activation sequence
 
 1. Require successful applicable CI for the exact candidate, including executed hosted Linux native stages; no old/other/skip-only result. Refresh only serving version/traffic, correct Auth D1/schema receipts/definitions, artifact hashes and valid access. Confirm no unexpected migration or newer producer changes.

@@ -176,6 +176,7 @@ function isValidationOnlyPath(relativePath) {
     || normalized === "playwright.config.js"
     || normalized === "playwright.carousel.config.js"
     || normalized === "playwright.homepage.config.js"
+    || normalized === "playwright.homepage-linux-diagnostic.config.js"
     || normalized === "playwright.homepage-webkit.config.js"
     || normalized === "playwright.homepage-performance.config.js"
     || normalized === "playwright.workers.config.js"

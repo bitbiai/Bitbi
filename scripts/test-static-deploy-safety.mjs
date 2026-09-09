@@ -1,3 +1,4 @@
+import "./test-pages-workflow.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -74,17 +75,9 @@ function writeJsonFixture(name, value) {
   assert(workflow.includes("Report skipped static deploy"));
   assert(workflow.includes("steps.static_safety.outputs.static_deploy_skipped != 'true'"));
   assert(workflow.includes("steps.static_safety.outputs.static_deploy_required == 'true'"));
-  assert(workflow.includes("timeout: 1800000"));
-  assert(workflow.includes("Reconcile authoritative GitHub Pages deployment"));
-  assert(workflow.includes("repos/${GITHUB_REPOSITORY}/pages/deployments/${GITHUB_SHA}"));
-  assert(workflow.includes("Authoritative GitHub Pages deployment status: succeed"));
   const fastWorkflow = fs.readFileSync(
-    path.join(repoRoot, ".github/workflows/ui-fast-deploy.yml"),
-    "utf8"
+    path.join(repoRoot, ".github/workflows/ui-fast-deploy.yml"), "utf8"
   );
-  assert(fastWorkflow.includes("timeout: 1800000"));
-  assert(fastWorkflow.includes("Reconcile authoritative GitHub Pages deployment"));
-  assert(fastWorkflow.includes("repos/${GITHUB_REPOSITORY}/pages/deployments/${GITHUB_SHA}"));
   const workflowPaths = (source, key) => {
     const match = source.match(new RegExp(`^    ${key}:\\n((?:      - "[^"]+"\\n)+)`, "m"));
     assert(match, `expected ${key} block`);
@@ -518,3 +511,35 @@ for (const unknownFile of [
 }
 
 console.log("Static deploy safety tests passed.");
+
+{
+  const fixture = JSON.parse(fs.readFileSync(path.join(repoRoot, "scripts/fixtures/release-plan/q4-448bde6.json")));
+  assert.equal(fixture.files.length, 104, "frozen full Q4 release path fixture");
+  const diagnostic = "playwright.homepage-linux-diagnostic.config.js";
+  assert(fixture.files.includes(diagnostic));
+  const only = safetyFor([diagnostic], { eventName: "push" });
+  assert.deepEqual(only.plan.impacts.validationOnlyFiles, [diagnostic]);
+  assert.deepEqual(only.plan.deploySteps, []);
+  assert.equal(only.safety.mode, "validation_only");
+  assert.equal(only.safety.staticRequired, false);
+  const plan = safetyFor(fixture.files).plan;
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert(plan.workerDeploys.some(step => step.worker === "auth"));
+  assert(plan.schemaApplies.length > 0);
+  assert(plan.deploySteps.some(step => step.type === "service"));
+  const options = {eventName: "workflow_dispatch", acknowledgement: STATIC_DEPLOY_DEPENDENCY_ACKNOWLEDGEMENT};
+  assert.equal(evaluateStaticDeploySafety(plan, options).ok, true);
+  for (const acknowledgement of ["", "wrong"]) {
+    assert.equal(evaluateStaticDeploySafety(plan, {...options, acknowledgement}).ok, false);
+  }
+  const push = evaluateStaticDeploySafety(plan, {...options, eventName: "push"});
+  assert.equal(push.ok, false);
+  assert.equal(push.skipped, true, "push may validate but must not acknowledge mixed dependencies");
+  const unknown = safetyFor([...fixture.files, "playwright.homepage-unknown.config.js"], options);
+  assert.equal(unknown.safety.ok, false);
+  assert.equal(unknown.safety.skipped, false);
+  assert.deepEqual(unknown.plan.impacts.uncategorizedFiles, ["playwright.homepage-unknown.config.js"]);
+  assert.equal(evaluateStaticDeploySafety(null, options).ok, false);
+  assert.equal(evaluateStaticDeploySafety({...plan, consistencyIssues: ["invalid fixture plan"]}, options).ok, false);
+  console.log("Full Q4 path/acknowledgement and exact diagnostic classification controls passed.");
+}
