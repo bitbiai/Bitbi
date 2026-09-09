@@ -124,6 +124,7 @@ const ASSETS_MANAGER_SHARED_FILES = new Set([
 ]);
 
 const AUTH_TEST_FILES = new Set([
+  "tests/oma2-q3-newsfeed.spec.js",
   "tests/auth-admin.spec.js",
   "tests/wallet-nav.spec.js",
   "tests/oma2-q3-shell.spec.js",

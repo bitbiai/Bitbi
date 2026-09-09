@@ -26,16 +26,16 @@ on:
   workflow_dispatch:
     inputs:
       release_plan_base_ref:
-        description: "Git base ref/SHA for release-plan comparison. Use the original complete Q4 release base."
+        description: "Optional wider release base; empty uses the last verified successful Pages deployment."
         required: false
-        default: "8292a4926bb1bf24679db9dd2b87cd6882f4d4f7"
+        default: ""
       release_plan_dependency_acknowledgement:
         description: "Optional manual static deploy acknowledgement after release-plan Worker/schema dependencies are handled. Must equal I_CONFIRM_RELEASE_PLAN_DEPENDENCIES_HANDLED."
         required: false
         default: ""
 
       candidate_run_id:
-        description: "Publish this completed full candidate run without repeating its suites (leave empty to validate)."
+        description: "Publish this completed scope-matched candidate run without repeating its suites (leave empty to validate)."
         required: false
         default: ""
       candidate_run_attempt:
@@ -47,19 +47,19 @@ on:
 permissions:
   contents: read
   actions: read
+  deployments: read
   pages: write
   id-token: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Cumulative unpublished Q4 scope; not the last test-only pushdiff.
-  CANDIDATE_BASE: ${{ github.event.inputs.release_plan_base_ref || '8292a4926bb1bf24679db9dd2b87cd6882f4d4f7' }}
   
 jobs:
   release-compatibility:
     if: ${{ !github.event.inputs.candidate_run_id }}
     runs-on: ubuntu-latest
     outputs:
+      candidate_base: ${{ steps.baseline.outputs.base }}
       pages_allowed: ${{ steps.release_preflight.outputs.static_deploy_allowed }}
       pages_required: ${{ steps.release_preflight.outputs.static_deploy_required }}
       docs_only: ${{ steps.selection.outputs.docs_only }}
@@ -83,6 +83,12 @@ jobs:
         with:
           node-version: 22
           cache: 'npm'
+      - name: Resolve verified published Pages baseline
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BASE_INPUT: ${{ github.event.inputs.release_plan_base_ref }}
+        run: node scripts/pages-candidate.mjs baseline
       - name: Install dependencies
         run: npm ci
       - name: Preflight complete static release plan
@@ -98,19 +104,10 @@ jobs:
       - name: Select tests from changed files
         id: selection
         env:
-          # Change selection is separate from the cumulative release guard.
-          CI_BASE_REF: ${{ github.event_name == 'push' && github.event.before || env.CANDIDATE_BASE }}
+          # Failed/skipped pushes remain in the unpublished range.
+          CI_BASE_REF: ${{ env.CANDIDATE_BASE }}
           CI_HEAD_REF: ${{ github.sha }}
-          # Dispatch validation covers the cumulative release. Push selection
-          # follows its changed inputs; workflow changes select full themselves.
-          CI_FORCE_FULL: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          set -euo pipefail
-          args=(--base "${CI_BASE_REF:-}" --head "${CI_HEAD_REF:-HEAD}" --github-output)
-          if [ "$CI_FORCE_FULL" = "true" ]; then
-            args+=(--force-full)
-          fi
-          node scripts/select-ci-tests.mjs "${args[@]}"
+        run: node scripts/select-ci-tests.mjs --base "$CI_BASE_REF" --head "$CI_HEAD_REF" --github-output
       - name: Audit root dependencies
         if: steps.selection.outputs.dependencies == 'true'
         run: npm audit --audit-level=low
@@ -211,6 +208,7 @@ jobs:
         if: needs.release-compatibility.outputs.workers == 'true'
         uses: actions/checkout@v5
         with:
+          fetch-depth: 0
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Setup Node.js
@@ -252,41 +250,54 @@ jobs:
     permissions:
       contents: read
     env:
+      CANDIDATE_BASE: ${{ needs.release-compatibility.outputs.candidate_base }}
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
+      - name: Report unselected native WebKit acceptance
+        if: ${{ !(needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true') }}
+        run: echo "Native WebKit is unrelated to this release scope."
       - name: Checkout
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         uses: actions/checkout@v5
         with:
+          fetch-depth: 0
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Setup Node.js
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 22.23.2
           cache: npm
       - name: Install locked test dependencies and WebKit
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         run: |
           npm ci
           PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/homepage-browsers" npx playwright install webkit
       - name: Download candidate build
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         uses: actions/download-artifact@v8
         with:
           name: pages-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: candidate
           digest-mismatch: error
       - name: Restore exact candidate static site
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         run: node scripts/pages-candidate.mjs restore
       - name: Run required native WebKit media with private HOME and loopback only
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         run: |
           set -eu
           test "$(id -u)" -gt 0
           mkdir -p "$RUNNER_TEMP/homepage-home" "$RUNNER_TEMP/homepage-tmp"
           env -i PATH="$PATH" HOME="$RUNNER_TEMP/homepage-home" TMPDIR="$RUNNER_TEMP/homepage-tmp" CI=true GITHUB_SHA="$GITHUB_SHA" PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/homepage-browsers" /usr/bin/sandbox-exec -f tests/helpers/homepage-macos.sb /bin/sh -c 'node scripts/check-homepage-runtime.mjs --macos && npm run test:homepage-webkit'
       - name: Confirm tested candidate bytes
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         env:
           CANDIDATE_REPORT: test-results/homepage-webkit.json
         run: node scripts/pages-candidate.mjs proof
       - name: Upload tested candidate identity
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: pages-proof-homepage-webkit-media-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -294,7 +305,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Upload mandatory macOS media evidence
-        if: always()
+        if: always() && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true')
         uses: actions/upload-artifact@v6
         with:
           name: homepage-macos-media-${{ github.sha }}
@@ -315,6 +326,7 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
       options: --user 1001:1001 --init --ipc=host --cap-drop=ALL --security-opt=no-new-privileges
     env:
+      CANDIDATE_BASE: ${{ needs.release-compatibility.outputs.candidate_base }}
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       # The image has Node 24; setup-node selects 22 from the runner-mounted
@@ -337,6 +349,7 @@ jobs:
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         uses: actions/checkout@v5
         with:
+          fetch-depth: 0
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Setup Node.js
@@ -352,12 +365,14 @@ jobs:
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         run: npm run check:homepage-runtime
       - name: Download candidate build
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         uses: actions/download-artifact@v8
         with:
           name: pages-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: candidate
           digest-mismatch: error
       - name: Restore exact candidate static site
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         run: node scripts/pages-candidate.mjs restore
       - name: Verify mandatory homepage discovery and coverage
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
@@ -407,6 +422,9 @@ jobs:
   browser-validation:
     needs: [release-compatibility, homepage-validation, homepage-webkit-media, worker-validation]
     runs-on: ubuntu-latest
+    env:
+      CANDIDATE_BASE: ${{ needs.release-compatibility.outputs.candidate_base }}
+      STATIC_TEST_ROOT: _site
     steps:
       - name: Report skipped browser tests
         if: needs.release-compatibility.outputs.homepage != 'true' && needs.release-compatibility.outputs.carousel != 'true' && needs.release-compatibility.outputs.assets != 'true' && needs.release-compatibility.outputs.auth != 'true'
@@ -415,6 +433,7 @@ jobs:
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
         uses: actions/checkout@v5
         with:
+          fetch-depth: 0
           ref: ${{ github.sha }}
       - name: Setup Node.js
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
@@ -431,23 +450,44 @@ jobs:
       - name: Install Chromium for selected frontend tests
         if: needs.release-compatibility.outputs.carousel != 'true' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true')
         run: npx playwright install --with-deps chromium
+      - name: Download candidate build
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: pages-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: candidate
+          digest-mismatch: error
+      - name: Restore exact candidate static site
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
+        run: node scripts/pages-candidate.mjs restore
       - name: Run full static browser regression
         if: needs.release-compatibility.outputs.full == 'true'
         run: |
-          npm run test:static
-          npm run test:homepage-carousel
+          PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-static.json npm run test:static -- --reporter=list,json
+          PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-carousel.json npm run test:homepage-carousel -- --reporter=list,json
       - name: Run selected homepage core tests
         if: needs.release-compatibility.outputs.homepage == 'true' && needs.release-compatibility.outputs.full != 'true'
-        run: npm run test:homepage-core
+        run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-homepage.json npm run test:homepage-core -- --reporter=list,json
       - name: Run selected homepage carousel tests
         if: needs.release-compatibility.outputs.carousel == 'true' && needs.release-compatibility.outputs.full != 'true'
-        run: npm run test:homepage-carousel
+        run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-carousel.json npm run test:homepage-carousel -- --reporter=list,json
       - name: Run selected Assets Manager tests
         if: needs.release-compatibility.outputs.assets == 'true' && needs.release-compatibility.outputs.full != 'true'
-        run: npm run test:assets-manager
+        run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-assets.json npm run test:assets-manager -- --reporter=list,json
       - name: Run selected auth and admin tests
         if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.full != 'true'
-        run: npm run test:auth
+        run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:auth -- --reporter=list,json
+      - name: Confirm tested browser candidate bytes
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
+        run: node scripts/pages-candidate.mjs proof
+      - name: Upload tested browser candidate identity
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: pages-proof-browser-validation-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: candidate-proofs/
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload Playwright report
         if: (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true') && failure()
         uses: actions/upload-artifact@v6
@@ -464,8 +504,10 @@ jobs:
     permissions:
       contents: read
       actions: read
+      deployments: read
     outputs:
       artifact_ids: ${{ steps.source.outputs.artifact_ids }}
+      candidate_base: ${{ steps.baseline.outputs.base }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -477,6 +519,12 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
+      - name: Resolve verified published Pages baseline
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BASE_INPUT: ${{ github.event.inputs.release_plan_base_ref }}
+        run: node scripts/pages-candidate.mjs baseline
       - name: Preflight acknowledged full release
         env:
           STATIC_DEPLOY_ACK: ${{ github.event.inputs.release_plan_dependency_acknowledgement }}
@@ -497,6 +545,7 @@ jobs:
       group: "pages"
       cancel-in-progress: false
     env:
+      CANDIDATE_BASE: ${{ needs.reuse-candidate.outputs.candidate_base || needs.release-compatibility.outputs.candidate_base }}
       CANDIDATE_RUN: ${{ github.event.inputs.candidate_run_id || github.run_id }}
       CANDIDATE_ATTEMPT: ${{ github.event.inputs.candidate_run_id && github.event.inputs.candidate_run_attempt || github.run_attempt }}
     environment:

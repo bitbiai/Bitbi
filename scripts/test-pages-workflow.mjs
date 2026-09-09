@@ -31,7 +31,9 @@ assert.equal(guardInputs(preflight), guardInputs(guard), 'early and last guard u
 assert(early.indexOf(preflight) < early.findIndex(s => s.name === 'Select tests from changed files'));
 assert(guardInputs(preflight).includes('STATIC_DEPLOY_HEAD_REF: ${{ github.sha }}'));
 assert(guardInputs(preflight).includes('env.CANDIDATE_BASE'));
-assert(standard.includes("CANDIDATE_BASE: ${{ github.event.inputs.release_plan_base_ref || '8292a4926bb1bf24679db9dd2b87cd6882f4d4f7' }}"));
+assert(early.find(s => s.name === 'Resolve verified published Pages baseline').source.includes('node scripts/pages-candidate.mjs baseline'));
+assert(standard.includes('candidate_base: ${{ steps.baseline.outputs.base }}'));
+assert(!standard.includes("|| '8292a492"), 'completed Q4 must not remain an implicit unpublished base');
 assert(guardInputs(preflight).includes('github.event.inputs.release_plan_dependency_acknowledgement'));
 for (const source of [standard, fast]) {
   for (const checkout of source.matchAll(/uses: actions\/checkout@v5\n([\s\S]*?)(?=^      - name:)/gm)) {

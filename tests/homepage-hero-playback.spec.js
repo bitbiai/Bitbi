@@ -26,7 +26,7 @@ test.afterEach(async ({ page }, testInfo) => {
   if (details) await testInfo.attach('native-media-final-details', { body: JSON.stringify(details), contentType: 'application/json' });
 });
 
-async function fixture(page, { configured = true, initiallyHidden = false, transport = 'http', broken = false } = {}) {
+async function fixture(page, { configured = true, initiallyHidden = false, transport = 'http', broken = false, loadingFixture = false } = {}) {
   const { publicVideoResponse } = await import('../workers/auth/src/lib/public-video-response.mjs');
   const requests = [];
   const errors = [];
@@ -72,7 +72,7 @@ async function fixture(page, { configured = true, initiallyHidden = false, trans
       return json({ ok: true, data: { items: Array.from({ length: 10 }, (_, index) => ({
         id: `playback-${index}`, slug: `playback-${index}`, category: 'memvids',
         published_at: `2026-05-${String(20 - index).padStart(2, '0')}T08:00:00.000Z`,
-        file: { url: `/api/gallery/memvids/playback-${index}/v1/file` },
+        file: { url: `/api/gallery/memvids/playback-${index}/v1/file${loadingFixture ? "?loading-fixture=1" : ""}` },
         poster: { url: `/api/gallery/memvids/playback-${index}/v1/poster`, w: 320, h: 180 },
       })), has_more: false, next_cursor: null } });
     }
@@ -360,16 +360,23 @@ for (const locale of ['en', 'de']) {
     let release;
     const gate = new Promise(resolve => { release = resolve; });
     const pending = [];
-    await page.route(/\/api\/gallery\/memvids\/playback-(2|7)\/v1\/file$/, async route => {
+    await page.route(/\/api\/gallery\/memvids\/playback-(2|7)\/v1\/file\?loading-fixture=1$/, async route => {
       pending.push(route.request().url());
       await gate;
       await route.continue(); // Native bytes still come from the real HTTP server.
     });
     try {
-      await openHome(page, locale, { configured: false });
+      // A 12-second, stream-copied version of the same native clip separates
+      // this loading contract from one-second loop-seek scheduling. Short-clip
+      // loop checks and the old-controller readiness countercontrol remain.
+      await openHome(page, locale, { configured: false, loadingFixture: true });
       await expectPlaying(page);
       const bottoms = page.locator(`${HERO_SLOTS}[data-latest-models-slot="bottom"]`);
-      await expect.poll(() => bottoms.evaluateAll(slots => slots.map(s => s.dataset.previewPreparation))).toEqual(['loading', 'loading']);
+      // Each real successor request must occur; unrelated slots need not enter
+      // speculation in the same driver sample. No request is not an adoption pass.
+      for (const id of ['playback-2','playback-7']) {
+        await expect.poll(() => pending.some(url => url.includes(`/${id}/`)), { message: `Expected held successor request for ${id}` }).toBe(true);
+      }
       const kept = await bottoms.evaluateAll(slots => slots.map(s => ({ id: s.dataset.activeVideoId, src: s.querySelector('video').getAttribute('src') })));
       expect(kept.map(s => s.id).sort()).toEqual(['playback-1','playback-6']);
       await expectPlaying(page); // Each visible identity outputs while next bytes are held.

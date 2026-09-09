@@ -413,3 +413,12 @@ for (const file of [
 }
 
 console.log("CI test selection fixtures passed.");
+
+// The actual additive Newsfeed delivery reaches the existing test:auth caller.
+{
+ const files=['admin/index.html','css/admin/newsfeed.css','js/pages/admin/main.js','js/pages/admin/newsfeed.js','js/pages/admin/router.js','tests/oma2-q3-newsfeed.spec.js'];
+ const result=selectCiTests(files);
+ assert.equal(result.auth,true); assert.equal(result.static,true); assert.equal(result.full,false);
+ assert.equal(result.workers,false); assert.equal(result.homepage,false);
+ assert.equal(selectCiTests([...files,'tests/unknown-feature.spec.js']).full,true);
+}

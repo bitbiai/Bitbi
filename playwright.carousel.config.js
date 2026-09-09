@@ -22,7 +22,7 @@ module.exports = defineConfig({
     { name: 'webkit', use: { browserName: 'webkit' } },
   ],
   webServer: {
-    command: 'npx serve -l 3000',
+    command: `npx serve -l 3000 ${process.env.STATIC_TEST_ROOT || '.'}`,
     port: 3000,
     reuseExistingServer: !process.env.CI,
   },
