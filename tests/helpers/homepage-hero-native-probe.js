@@ -10,22 +10,24 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
     function observation(video, output = null) {
       let state=observations.get(video);
       if(!state) {
-        state={epoch:0, src:video.getAttribute('src'), lastTime:video.currentTime, lastFrames:0, maxTime:0,
+        state={epoch:0, src:video.getAttribute('src'), lastTime:video.currentTime, lastFrames:0, maxTime:0, nativeOutput:[],
           outputAdvances:0, completedLoops:0, loopPending:false, callbackPending:false, frameCallbacks:0, nativePresentedFrames:null, lastOutputTime:null, outputLoopPending:false};
         observations.set(video,state);ids.set(video,++sequence);
         const reset=()=>{state.epoch++;state.loopPending=false;state.outputLoopPending=false;state.lastOutputTime=null;state.maxTime=0;state.lastTime=video.currentTime;
-          state.lastFrames=video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? 0;};
+          state.lastFrames=video.requestVideoFrameCallback ? 0 : video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? 0;};
         video.addEventListener('pause',reset);video.addEventListener('emptied',reset);
         video.addEventListener('seeking',()=>{
           state.loopPending=video.loop && !video.paused && video.currentTime < video.duration*0.2 && state.maxTime>video.duration*0.5;
           state.lastTime=video.currentTime;state.maxTime=0;
-          state.lastFrames=video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? 0;
+          state.lastFrames=video.requestVideoFrameCallback ? 0 : video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? 0;
         });
         video.addEventListener('timeupdate',()=>observation(video));
       }
       const source=video.getAttribute('src');
       if(source!==state.src){state.epoch++;state.src=source;state.loopPending=false;state.outputLoopPending=false;state.lastOutputTime=null;state.maxTime=0;state.lastTime=video.currentTime;state.lastFrames=0;}
-      const frames=video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? null;
+      // Native frame callbacks already provide output. Do not synchronously
+      // query decoder statistics on every callback/timeupdate as well.
+      const frames=video.requestVideoFrameCallback ? null : video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? null;
       // Decoded counters can stay cached while already-decoded frames are
       // presented again after resume. Native frame mediaTime proves output;
       // callback frequency and cached decode counts are not progress quotas.
@@ -37,6 +39,11 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
           if(state.outputLoopPending){state.completedLoops++;state.outputLoopPending=false;}
         }
         state.lastOutputTime=output.mediaTime;
+      }
+      if(output) {
+        state.nativeOutput.push({mediaTime:output.mediaTime,presentationTime:output.presentationTime,
+          seeking:video.seeking,paused:video.paused,epoch:state.epoch});
+        if(state.nativeOutput.length>12)state.nativeOutput.shift();
       }
       if(!video.requestVideoFrameCallback && !video.paused && !video.seeking && video.currentTime>state.lastTime && frames!==null && frames>state.lastFrames) {
         state.outputAdvances++;
@@ -56,7 +63,8 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
       }
       return state;
     }
-    function sample(video) {
+    function sample(video, details = false) {
+      details = details === true; // Array.from's index is not a diagnostics flag.
       const observationState=observation(video);
       const slot = video.closest('[data-latest-models-slot]');
       const module = slot?.closest('[data-latest-models-video-module]');
@@ -67,30 +75,33 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
       // not which rotated pixels are visually foremost midway through a turn.
       const target = !!face && face === faces?.[faces.length - 1];
       const turning = !!slot && (slot.classList.contains('is-turning') || slot.classList.contains('is-reduced-transition'));
-      const rect = video.getBoundingClientRect();
-      const style = getComputedStyle(video);
+      // Layout/style/decoder reads belong to explicit diagnostics, not the
+      // progress polling/event hot path. They can force synchronous rendering.
+      const rect = details ? video.getBoundingClientRect() : null;
+      const style = details ? getComputedStyle(video) : null;
       return {
         id: ids.get(video),
         slot: slot ? `${module?.dataset.latestModelsVideoModuleSide}_${slot.dataset.latestModelsSlot}` : null,
         role: !slot ? 'detached' : turning ? (target ? 'selected-target' : 'outgoing') : 'active',
         active: target,
-        visibility: {
+        visibility: details ? {
           documentHidden: document.hidden,
           rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
           intersectsViewport: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight && rect.right > 0 && rect.left < innerWidth,
           display: style.display, visibility: style.visibility, opacity: style.opacity,
           animationPlayState: slot?.querySelector('.latest-models-video-module__cube')?.style.animationPlayState || '',
           // Geometry/style observations are not a proof of visual occlusion.
-        },
+        } : undefined,
         connected: video.isConnected, src: video.getAttribute('src'),
         time: video.currentTime, duration: Number.isFinite(video.duration) ? video.duration : null,
         epoch: observationState.epoch, outputAdvances: observationState.outputAdvances, completedLoops: observationState.completedLoops,
         frameCallbacks: observationState.frameCallbacks, nativePresentedFrames: observationState.nativePresentedFrames,
         // Different engine statistics, never an interchangeable pause budget.
-        frames: video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? null,
-        frameStatistics: { totalVideoFrames: video.getVideoPlaybackQuality?.().totalVideoFrames ?? null,
+        frames: details ? video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? null : null,
+        frameStatistics: details ? { totalVideoFrames: video.getVideoPlaybackQuality?.().totalVideoFrames ?? null,
           droppedVideoFrames: video.getVideoPlaybackQuality?.().droppedVideoFrames ?? null,
-          decodedFrames: video.webkitDecodedFrameCount ?? null },
+          decodedFrames: video.webkitDecodedFrameCount ?? null } : undefined,
+        nativeOutput: details ? observationState.nativeOutput.slice() : undefined,
         paused: video.paused, ended: video.ended, seeking: video.seeking,
         readyState: video.readyState, networkState: video.networkState,
         error: video.error?.code ?? null,
@@ -222,6 +233,7 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
     window.__heroNativeProbe = {
       sample: () => Array.from(document.querySelectorAll('#hero [data-latest-models-video-module] video'), sample),
       events, observe: sample, observeFrozen, observePausedTransitions,
+      diagnostics: () => Array.from(document.querySelectorAll('#hero [data-latest-models-video-module] video'), video => sample(video,true)),
       waitForProgress: options => observeProgress(window.__heroNativeProbe.sample, options, createProgressWindow),
     };
 }
@@ -244,7 +256,8 @@ function observeProgress(sample, { loops = 0, timeout = 5000 } = {}, factory = c
       if (settled) return;
       settled = true; clearTimeout(timer); clearTimeout(deadline);
       if (error) reject(error);
-      else resolve({ passed, elapsed: performance.now() - start, sampleCount, samples });
+      else resolve({ passed, phase: loops ? 'loop' : 'play-or-resume',
+        issues: progress.issues?.() || [], elapsed: performance.now() - start, sampleCount, samples });
     };
     const tick = () => {
       try {
@@ -264,22 +277,37 @@ function observeProgress(sample, { loops = 0, timeout = 5000 } = {}, factory = c
 // never evidence from a retired identity, paused epoch or another source.
 function createProgressWindow({ loops=0 }={}) {
   const states=new Map();
-  return current=>{
+  let issues=[];
+  const observe=current=>{
     const active=current.filter(video=>video.active);
     const slots=['left_top','left_bottom','right_top','right_bottom'];
-    if(active.length!==4 || new Set(active.map(v=>v.slot)).size!==4 || active.some(v=>!slots.includes(v.slot))) {states.clear();return false;}
+    if(active.length!==4 || new Set(active.map(v=>v.slot)).size!==4 || active.some(v=>!slots.includes(v.slot))) {
+      states.clear();issues=[{condition:'four-distinct-active-slots-required',slots:active.map(v=>v.slot)}];return false;
+    }
     for(const video of active) {
       const key=JSON.stringify([video.id,video.src,video.epoch ?? 0]);
       let state=states.get(video.slot);
       if(!state || state.key!==key || video.paused || video.error || !video.connected) {
         state={key,before:video,progress:false,loops:false};states.set(video.slot,state);
       }
+      // Seek completion alone is not output. A captured seek needs subsequent
+      // output in this identity, even if it progressed before that seek.
+      if(video.seeking) { state.seekBaseline=video.outputAdvances;state.progress=false; }
       if(!video.paused && video.readyState>=2 && video.error===null && video.connected) {
-        if(video.outputAdvances>state.before.outputAdvances)state.progress=true;
+        if(!video.seeking && video.outputAdvances>Math.max(state.before.outputAdvances,state.seekBaseline ?? -1))state.progress=true;
         if((video.completedLoops ?? 0)-(state.before.completedLoops ?? 0)>=loops)state.loops=true;
       }
     }
-    return active.every(video=>{const s=states.get(video.slot);return s.progress && s.loops && !video.paused && video.readyState>=2 && video.error===null && video.connected;});
+    issues=active.flatMap(video=>{
+      const s=states.get(video.slot);
+      const condition=!video.connected?'detached':video.error?'media-error':video.paused?'paused':video.seeking?'seek-in-progress':
+        video.readyState<2?'not-ready':!s.progress?'no-new-output':!s.loops?'loops-incomplete':null;
+      return condition?[{slot:video.slot,id:video.id,src:video.src,epoch:video.epoch ?? 0,condition,
+        beforeOutput:s.before.outputAdvances,output:video.outputAdvances,time:video.time}]:[];
+    });
+    return issues.length===0;
   };
+  observe.issues=()=>issues;
+  return observe;
 }
 module.exports = { installHeroNativeProbe, createProgressWindow, observeProgress };

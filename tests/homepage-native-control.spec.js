@@ -4,18 +4,19 @@ const { test, expect } = require('@playwright/test');
 // libx264/yuv420p, -movflags +faststart. The original 1s/15fps MP4 stays tested.
 // Independent of __heroNativeProbe, its counters and the Hero controller.
 // A loop requires native output to restart and then advance from that restart.
-for (const source of ['original', 'changing']) {
-  test(`independent native HTTP output: ${source} source loops, seeks and resumes`, async ({ page }, testInfo) => {
+for (const count of [1, 4]) for (const source of ['original', 'changing']) {
+  test(`independent native HTTP output: ${source} source loops, seeks and resumes${count === 4 ? ' in four simultaneous slots' : ''}`, async ({ page }, testInfo) => {
     await page.route(/^https?:\/\/(?!localhost(?::|\/)|127\.0\.0\.1(?::|\/))/, route => route.abort());
     const responses = [];
     page.on('response', response => {
-      if (response.url().includes('/api/plain/file')) responses.push({
+      if (new URL(response.url()).pathname.endsWith('/file')) responses.push({
         status: response.status(), length: response.headers()['content-length'],
         range: response.headers()['content-range'], transport: response.headers()['x-test-media-transport'],
       });
     });
     await page.goto('/plain-video');
-    const result = await page.evaluate(async source => {
+    const results = await page.evaluate(async ({source,count}) => {
+      async function exercise(index) {
       const v = document.createElement('video');
       v.muted = true; v.playsInline = true; v.loop = true; v.width = 160; v.height = 160;
       document.body.append(v);
@@ -43,7 +44,8 @@ for (const source of ['original', 'changing']) {
       };
       if (!v.requestVideoFrameCallback) return { supported: false };
       callback = v.requestVideoFrameCallback(observe);
-      v.src = `/api/plain/file${source === 'changing' ? '?changing=1' : ''}`;
+      const slots=['left_top','left_bottom','right_top','right_bottom'];
+      v.src = `${count === 4 ? `/api/homepage/hero-videos/${slots[index]}/playback-v1/file` : '/api/plain/file'}${source === 'changing' ? '?changing=1' : ''}`;
       const timeouts = [];
       const bounded = async (promise, phase, milliseconds) => {
         let timer;
@@ -91,8 +93,12 @@ for (const source of ['original', 'changing']) {
       const identity = v.currentSrc; const error = v.error?.code || null;
       v.pause(); v.cancelVideoFrameCallback(callback);
       return { supported: true, source, identity, loopState, resumed, stayedPaused, seeked, rejection, error, observationError, timeouts, frames, events };
-    }, source);
-    await testInfo.attach('independent-native-output', { body: JSON.stringify({ platform: process.platform, browser: testInfo.project.name, responses, result }), contentType: 'application/json' });
+      }
+      return Promise.all(Array.from({length:count},(_,index)=>exercise(index)));
+    }, {source,count});
+    await testInfo.attach('independent-native-output', { body: JSON.stringify({ platform: process.platform, browser: testInfo.project.name, responses, results }), contentType: 'application/json' });
+    expect(results).toHaveLength(count);
+    for (const result of results) {
     const diagnostic = process.platform === 'linux' && testInfo.project.metadata.nativeMediaDiagnostic === true;
     if (diagnostic) {
       testInfo.annotations.push({ type: 'linux-webkit-media-diagnostic', description: `loops=${result.loopState?.loops}; resumed=${result.resumed}; error=${result.error}; not functional acceptance` });
@@ -107,6 +113,7 @@ for (const source of ['original', 'changing']) {
       expect(result.resumed).toBe(true); expect(result.seeked).toBe(true);
       expect(result.error).toBeNull(); expect(result.rejection).toBeNull();
       if (source === 'changing') expect(new Set(result.frames.map(f => f.checksum)).size).toBeGreaterThan(1);
+    }
     }
   });
 }

@@ -5,7 +5,7 @@ export const HOMEPAGE_FUNCTIONAL_MINIMUMS = Object.freeze({
   'homepage-carousel-focused.spec.js': 5,
   'homepage-creation-stream-anchor.spec.js': 4,
   'homepage-hero-playback.spec.js': 14,
-  'homepage-native-control.spec.js': 2,
+  'homepage-native-control.spec.js': 4,
   'homepage-hero-state.spec.js': 3,
   'homepage-media-loading.spec.js': 8,
 });
@@ -21,6 +21,8 @@ export const HOMEPAGE_PERFORMANCE_REQUIRED = Object.freeze({
   ],
 });
 export const HOMEPAGE_EARLY_CHROMIUM_REQUIRED = Object.freeze(['native plain video: fulfill transport comparison', 'native plain video: HTTP response loops and seeks', 'native HTTP corrupt media is rejected, not mistaken for playback', 'native pause contract rejects ignored pause, transient source changes and stale resume proof']);
+export const HOMEPAGE_NATIVE_CONTROLS_REQUIRED = Object.freeze([1, 4].flatMap(count => ['original', 'changing'].map(source =>
+  `independent native HTTP output: ${source} source loops, seeks and resumes${count === 4 ? ' in four simultaneous slots' : ''}`)));
 export const HOMEPAGE_WEBKIT_REQUIRED = Object.freeze([...HOMEPAGE_EARLY_CHROMIUM_REQUIRED, ...['en', 'de'].flatMap((locale) => [
   `${locale}: configured hero pauses offscreen and hidden, resumes existing media and respects an existing pause`,
   `${locale}: hidden initialization and bfcache restore preserve media; ordinary pagehide cleans up`,
@@ -65,6 +67,8 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, webkit
     && test.expectedStatus !== 'skipped'), 'macOS replacement must execute only native WebKit media, without skips');
   for (const title of HOMEPAGE_WEBKIT_REQUIRED) assert.ok(webkit.some(test => test.file === nativeFiles[0] && test.title === title),
     `Required macOS WebKit scenario missing: ${title}`);
+  for (const title of HOMEPAGE_NATIVE_CONTROLS_REQUIRED) assert.ok(webkit.some(test => test.file === nativeFiles[1] && test.title === title),
+    `Required independent native scenario missing: ${title}`);
   for (const project of ['chromium', 'webkit']) {
     for (const [file, minimum] of Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)) {
       const matches = functional.filter(test => test.project === project && test.file === file);

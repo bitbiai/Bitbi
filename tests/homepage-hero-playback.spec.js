@@ -22,6 +22,8 @@ test.afterEach(async ({ page }, testInfo) => {
   if (page.isClosed()) return;
   const events = await page.evaluate(() => window.__heroNativeProbe?.events ?? null);
   if (events) await testInfo.attach('native-media-events', { body: JSON.stringify(events), contentType: 'application/json' });
+  const details = await page.evaluate(() => window.__heroNativeProbe?.diagnostics?.() ?? null);
+  if (details) await testInfo.attach('native-media-final-details', { body: JSON.stringify(details), contentType: 'application/json' });
 });
 
 async function fixture(page, { configured = true, initiallyHidden = false, transport = 'http' } = {}) {
@@ -114,7 +116,7 @@ async function expectPlaying(page) {
   await test.info().attach('native-active-slot-progress', {
     body: JSON.stringify(result), contentType: 'application/json',
   });
-  expect(result.passed).toBe(true);
+  expect(result.passed, `${result.phase}: ${JSON.stringify(result.issues)}`).toBe(true);
 }
 
 async function startContinuityProbe(page) {
@@ -257,7 +259,7 @@ for (const locale of ['en', 'de']) {
     const result = await page.evaluate(() => window.__heroNativeProbe.waitForProgress({ loops: 2 }));
     await testInfo.attach('native-range-response-loop', { body: JSON.stringify(result), contentType: 'application/json' });
     expect(result.samples.flat().every(video => video.duration === 1)).toBe(true);
-    expect(result.passed).toBe(true);
+    expect(result.passed, `${result.phase}: ${JSON.stringify(result.issues)}`).toBe(true);
     await page.evaluate(() => window.__setHeroDocumentHidden(true));
     await expectFrozen(page, testInfo, 'native-loop-suspended', 200);
     await page.evaluate(() => window.__setHeroDocumentHidden(false));

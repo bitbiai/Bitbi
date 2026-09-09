@@ -4,6 +4,26 @@ const { installHeroNativeProbe, createProgressWindow } = require('./helpers/home
 const SLOTS = '#hero [data-latest-models-slot]';
 const VIDEOS = `${SLOTS} video`;
 
+test('probe replay: recorded stalled fourth slot stays red; seek needs fresh output in every identity', () => {
+  const recorded = require('./fixtures/media/hero-stalled-slot.json');
+  const observe = createProgressWindow();
+  for (const row of recorded.samples) expect(observe(row)).toBe(false);
+  expect(observe.issues()).toContainEqual(expect.objectContaining({slot:'right_bottom',condition:'seek-in-progress'}));
+  const start = recorded.samples[0].map(v=>({...v,seeking:false,outputAdvances:0,completedLoops:0}));
+  const good = start.map(v=>({...v,time:0.4,outputAdvances:1}));
+  const seeking = good.map((v,i)=>i===3?{...v,time:0,seeking:true}:v);
+  const seeked = seeking.map(v=>({...v,seeking:false}));
+  const fresh = seeked.map((v,i)=>i===3?{...v,time:0.1,outputAdvances:2}:v);
+  const phase=createProgressWindow();expect(phase(start)).toBe(false);expect(phase(good)).toBe(true);
+  expect(phase(seeking)).toBe(false);expect(phase(seeked)).toBe(false);expect(phase(fresh)).toBe(true);
+  // Old phase proof and three healthy neighbours cannot cover a blocked seek.
+  expect(createProgressWindow()(fresh)).toBe(false);
+  for(const fault of [{seeking:true},{error:3},{src:'/retired'},{epoch:99},{id:99}]) {
+    const window=createProgressWindow();window(start);window(seeking);
+    expect(window(fresh.map((v,i)=>i===3?{...v,...fault}:v))).toBe(false);
+  }
+});
+
 test('probe only: every active slot needs its own native progress and identity', () => {
   // Exercise the actual browser progress window, not the retired frame-count
   // surrogate. Decoder statistics alone cannot prove new visible output.
@@ -273,7 +293,10 @@ test('probe only: cached decode counts do not hide output; frozen frames and sta
       currentTime: { get: () => time }, paused: { get: () => paused },
       seeking: { get: () => false }, readyState: { get: () => 4 },
     });
-    video.getVideoPlaybackQuality = () => ({ totalVideoFrames: 15 });
+    // Decoder/layout inspection must not burden the output hot path. Explicit
+    // final diagnostics may read these APIs separately from progress evidence.
+    video.getVideoPlaybackQuality = () => { throw new Error('unexpected hot-path decoder query'); };
+    video.getBoundingClientRect = () => { throw new Error('unexpected hot-path layout flush'); };
     video.requestVideoFrameCallback = callback => { next = callback; return 1; };
     const read = () => window.__heroNativeProbe.observe(video);
     const emit = value => { time = value; next(performance.now(), { mediaTime: value, presentedFrames: 15 }); return read().outputAdvances; };

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_EARLY_CHROMIUM_REQUIRED, verifyHomepageDiscovery } from './lib/homepage-test-selection.mjs';
+import { flattenHomepageDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_NATIVE_CONTROLS_REQUIRED, HOMEPAGE_EARLY_CHROMIUM_REQUIRED, verifyHomepageDiscovery } from './lib/homepage-test-selection.mjs';
 import { validateHomepageMacRuntime, validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
@@ -22,6 +22,8 @@ const performance = Object.entries(HOMEPAGE_PERFORMANCE_REQUIRED).flatMap(([file
 for (const project of ['chromium', 'webkit']) {
   const cases = functional.filter(test => test.project === project && test.file === 'homepage-hero-playback.spec.js');
   cases.forEach((test, index) => { test.title = HOMEPAGE_WEBKIT_REQUIRED[index]; });
+  functional.filter(test => test.project === project && test.file === 'homepage-native-control.spec.js')
+    .forEach((test, index) => { test.title = HOMEPAGE_NATIVE_CONTROLS_REQUIRED[index]; });
 }
 const webkit = functional.filter(test => test.project === 'chromium' && ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js'].includes(test.file))
   .map(test => ({ ...test, project: 'webkit' }));
@@ -41,6 +43,12 @@ assert.throws(() => verifyHomepageDiscovery({ ...valid, performance: [] }), /no 
 assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: [] }), /no tests/);
 for (let missing = 0; missing < webkit.length; missing += 1) {
   assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.filter((_, index) => index !== missing) }), /scenario missing|scenario union/);
+}
+// Matching OS unions alone cannot detect removal/renaming on every platform.
+for (const title of HOMEPAGE_NATIVE_CONTROLS_REQUIRED) {
+  const renamed = Object.fromEntries(Object.entries(valid).map(([name, tests]) => [name,
+    tests.map(test => test.title === title ? { ...test, title: 'unrelated replacement' } : test)]));
+  assert.throws(() => verifyHomepageDiscovery(renamed), /Required independent native scenario missing/);
 }
 assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.map(test => ({ ...test, project: 'chromium' })) }), /replacement/);
 assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.map(test => ({ ...test, expectedStatus: 'skipped' })) }), /replacement/);
