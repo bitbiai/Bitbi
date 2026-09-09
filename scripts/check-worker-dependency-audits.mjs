@@ -1,3 +1,4 @@
+import { validateInstalledSharp } from "./lib/worker-sharp.mjs";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -160,6 +161,11 @@ function runDevToolingAudit(workerDir) {
 
 const failures = [];
 for (const workerDir of WORKERS) {
+  try {
+    console.log(`${workerDir}: native tooling resolution ${JSON.stringify(validateInstalledSharp(path.join(repoRoot, workerDir)))}`);
+  } catch (error) {
+    failures.push({ errors: [`${workerDir}: native tooling resolution failed: ${error.message}`] });
+  }
   const runtimeResult = runRuntimeAudit(workerDir);
   if (!runtimeResult.ok) {
     failures.push(runtimeResult);

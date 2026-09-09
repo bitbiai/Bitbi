@@ -1,3 +1,4 @@
+import { validateInstalledSharp } from '../../../scripts/lib/worker-sharp.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -45,7 +46,7 @@ export function prepareBuild(artifactParent = os.tmpdir()) {
     XDG_CONFIG_HOME: path.join(workDir, 'xdg'), XDG_CACHE_HOME: path.join(workDir, 'cache'),
     MINIFLARE_CACHE_DIR: path.join(workDir, 'cache'), MINIFLARE_REGISTRY_PATH: path.join(workDir, 'registry') });
   const lock = JSON.parse(fs.readFileSync(path.join(authRoot, 'package-lock.json'), 'utf8'));
-  const versions = { node: process.versions.node };
+  const versions = { node: process.versions.node, nativeImages: validateInstalledSharp(authRoot) };
   for (const name of ['wrangler', 'miniflare', 'workerd', 'esbuild']) {
     const installed = JSON.parse(fs.readFileSync(path.join(authRoot, 'node_modules', name, 'package.json'), 'utf8'));
     assert.equal(installed.version, lock.packages[`node_modules/${name}`].version, `Installed ${name} must match auth lock`);
@@ -129,6 +130,13 @@ export async function createRuntime(build, name, { restricted = false, reference
     fs.writeFileSync(path.join(executionDir, 'control-metafile.json'), JSON.stringify(control.metafile, null, 2), { flag: 'wx' });
     workers.push({ ...shared, name: 'q2-control', script: control.outputFiles[0].text, durableObjects: limiter(limiterOwner) });
   }
+  if (name === 'native') workers.push({ name: 'q2-images', modules: true,
+    compatibilityDate: build.config.compatibility_date, images: { binding: 'IMAGES' }, outboundService: deny,
+    script: `export default { async fetch(request, env) {
+      if (new URL(request.url).pathname === '/info') return Response.json(await env.IMAGES.info(request.body));
+      try { return (await env.IMAGES.input(request.body).transform({width: 3, height: 2, fit: 'fill'}).output({format: 'image/png'})).response(); }
+      catch (error) { return Response.json({error: error.message}, {status: 422}); }
+    }};` });
   const mf = new Miniflare(convertV4MiniflareOptions({ rootPath: executionDir, host: '127.0.0.1', port: 0, cf: false,
     telemetry: { enabled: false }, logRequests: false, verbose: false, log: new Quiet(LogLevel.NONE), unsafeTriggerHandlers: true,
     unsafeLocalExplorer: false, unsafeObservability: false, unsafeInspectDurableObjects: false, handleStructuredLogs() { counters.structuredLogs += 1; },

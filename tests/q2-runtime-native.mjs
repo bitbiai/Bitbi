@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -244,6 +245,31 @@ export async function runNativeTests(f) {
     assert.equal(duplicatePut.status,409);
     assert.equal((await duplicatePut.json()).code,'object_key_already_exists');
     assert.deepEqual([...new Uint8Array(await (await bucket.get(key)).arrayBuffer())],[9,8,7]);
+  });
+  const requireImages = createRequire(new URL('../workers/auth/node_modules/miniflare/package.json', import.meta.url));
+  const sharp = requireImages('sharp');
+  const imageWorker = await mf.getWorker('q2-images');
+  const image = await sharp({create: {width: 6, height: 4, channels: 3, background: '#336699'}}).png().toBuffer();
+  await test('native_images_binding_decodes_and_transforms_synthetic_png_with_patched_sharp', async () => {
+    const info = await imageWorker.fetch('https://images.invalid/info', {method: 'POST', body: image});
+    assert.equal(info.status, 200); const metadata = await info.json();
+    assert.equal(metadata.width, 6); assert.equal(metadata.height, 4);
+    const response = await imageWorker.fetch('https://images.invalid/resize', {method: 'POST', body: image});
+    assert.equal(response.status, 200); assert.equal(response.headers.get('content-type'), 'image/png');
+    const output = await sharp(Buffer.from(await response.arrayBuffer())).metadata();
+    assert.equal(output.width, 3); assert.equal(output.height, 2); assert.equal(output.format, 'png');
+  });
+  await test('native_images_binding_uses_libheif_for_safe_synthetic_avif', async () => {
+    const avif = await sharp(image).avif().toBuffer();
+    const response = await imageWorker.fetch('https://images.invalid/resize', {method: 'POST', body: avif});
+    assert.equal(response.status, 200);
+    const output = await sharp(Buffer.from(await response.arrayBuffer())).metadata();
+    assert.equal(output.format, 'png'); assert.equal(output.width, 3); assert.equal(output.height, 2);
+  });
+  await test('native_images_binding_rejects_non_image_input_without_output', async () => {
+    const response = await imageWorker.fetch('https://images.invalid/resize', {method: 'POST', body: 'synthetic invalid image'});
+    assert.equal(response.status, 422);
+    assert.match((await response.json()).error, /unsupported image format/i);
   });
   await test('final_native_integrity_and_no_outbound_attempts',async()=>{
     assert.deepEqual(await rows('PRAGMA foreign_key_check'),[]);

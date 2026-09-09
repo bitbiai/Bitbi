@@ -63,6 +63,25 @@ Native pause acceptance requires confirmed pause, stable timeline/video/source i
 All three workflow paths use the same npm/config/selection contracts. Dependencies install from lockfiles before isolated execution. The complete Q4 activation still requires matching release, Worker, broad browser, Linux homepage and macOS media jobs. No duplicate job is removed on the strength of a different platform, source tree, token or fixture.
 
 
+## Native image tooling security
+
+Auth, Contact and AI each pin Miniflare's sharp resolution to `0.35.4` via a
+scoped npm override for [GHSA-rgj7-g3m4-5g8c](https://github.com/lovell/sharp/security/advisories/GHSA-rgj7-g3m4-5g8c).
+The npm-generated locks retain every optional platform; patched prebuilt libvips
+packages are `1.3.3`. The dependency audit guard checks the actual Miniflare import
+and loaded libheif (at least `1.23.2`) before auditing runtime and tooling. Existing
+esbuild exceptions are not expanded. Quality tests reject old/nested resolutions
+and missing native platform packages. The existing isolated native Worker entry
+also transforms safe PNG/AVIF through the real local Images binding and rejects
+invalid image data. Mac and Linux execution evidence remains separate.
+
+sharp is used by Miniflare's local Images emulation, not by the deployed Worker
+Images service. A tooling update still requires build-input/module comparison and
+native acceptance; package classification alone does not require redeploying all
+Workers. Preserve active Q4 schema/version receipts and distinguish changed local
+build provenance from the already active artifact. No automatic migration,
+processor run or production media operation is part of this dependency repair.
+
 ## Pages release preflight and completion
 
 The private activation receipts record Q4 Auth/schema activation; a failed Pages
