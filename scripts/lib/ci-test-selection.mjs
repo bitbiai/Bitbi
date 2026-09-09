@@ -153,6 +153,24 @@ const FULL_REGRESSION_PATHS = new Set([
   "scripts/test-ci-test-selection.mjs",
 ]);
 
+// Reviewed Admin-reader production surface and its release-only follow-up.
+// This is a closed path set, not a generic scripts/workflow exemption. Any
+// additional runtime, dependency, security or unknown input uses normal impact.
+const ADMIN_READER_PRODUCTION = new Set([
+  'admin/index.html', 'css/admin/newsfeed.css', 'js/pages/admin/main.js',
+  'js/pages/admin/newsfeed.js', 'js/pages/admin/router.js',
+]);
+const ADMIN_READER_VALIDATION = new Set([
+  '.github/workflows/static.yml', 'playwright.config.js', 'playwright.carousel.config.js',
+  'playwright.admin-release.config.js', 'scripts/lib/ci-test-selection.mjs',
+  'scripts/select-ci-tests.mjs', 'scripts/pages-candidate.mjs',
+  'scripts/test-ci-test-selection.mjs', 'scripts/test-pages-candidate.mjs',
+  'scripts/test-pages-workflow.mjs', 'scripts/lib/release-plan.mjs',
+  'scripts/test-release-plan.mjs', 'tests/oma2-q3-newsfeed.spec.js',
+  'tests/fixtures/media/test-video-loading.mp4', 'tests/helpers/homepage-media-server.mjs',
+  'tests/homepage-hero-playback.spec.js',
+]);
+
 function normalizeFile(value) {
   return String(value || "")
     .trim()
@@ -202,6 +220,8 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
   const changedFiles = normalizeFiles(files);
   const selection = {
     files: changedFiles,
+    policy: "impact-v1",
+    adminRelease: false,
     docsOnly: false,
     homepage: false,
     memberModels: false,
@@ -231,6 +251,18 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
   if (forceFull) selectFullRegression(selection, "<forced>", forceReason);
   if (changedFiles.length === 0) {
     selectFullRegression(selection, "", "empty or unresolved diff fails closed");
+  }
+
+  if (!forceFull && changedFiles.some(file => ADMIN_READER_PRODUCTION.has(file))
+      && changedFiles.every(file => isDocumentation(file) || ADMIN_READER_PRODUCTION.has(file) || ADMIN_READER_VALIDATION.has(file))) {
+    selection.policy = 'admin-reader-v1';
+    selection.adminRelease = true;
+    selection.auth = true;
+    selection.static = true;
+    selection.runtime = true;
+    selection.reasons.auth.push('Reviewed Admin-reader scope: both engines, News/navigation/session/MFA and short homepage smoke; release orchestration checks remain mandatory');
+    selection.reasons.static.push('Complete unpublished Admin production inputs; same tested artifact must be published');
+    return selection;
   }
 
   let documentationCount = 0;
@@ -429,5 +461,6 @@ export function formatCiTestSelection(selection) {
     `Docs only: ${selection.docsOnly ? "yes" : "no"}`,
     `Static deploy input: ${selection.static ? "yes" : "no"}`,
     `Full regression: ${selection.full ? "yes" : "no"}`,
+    `Acceptance policy: ${selection.policy}`,
   ].join("\n");
 }

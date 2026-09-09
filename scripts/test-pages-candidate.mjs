@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
-import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, requiredJobs, proofJobs, validatePublishedDeployment, tree, validateSource, verifyManifest, verifyProofs, MEDIA_POLICY } from './pages-candidate.mjs';
+import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, requiredJobs, proofJobs, validatePublishedDeployment, verifyAdminReport, tree, validateSource, verifyManifest, verifyProofs, MEDIA_POLICY } from './pages-candidate.mjs';
 const sha='a'.repeat(40),expected={repository:REPOSITORY,sha,base:Q4_BASE,run:'123',attempt:'1',currentRun:'456'};
 const run={repository:{full_name:REPOSITORY},head_repository:{full_name:REPOSITORY},head_sha:sha,head_branch:'main',id:123,run_attempt:1,path:'.github/workflows/static.yml',event:'push',status:'completed',conclusion:'success',created_at:'2026-09-09T00:00:00Z'};
 const jobs=Object.entries(REQUIRED_JOBS).map(([name,steps])=>({name,head_sha:sha,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
@@ -51,15 +51,32 @@ assert.equal(validatePublishedDeployment(published,status,run,deploymentJob),sha
 for(const patch of [{state:'pending'},{state:'failure'},{log_url:'https://github.com/foreign/repo/actions/runs/123/job/456'}])assert.throws(()=>validatePublishedDeployment(published,{...status,...patch},run,deploymentJob));
 for(const patch of [{head_sha:'b'.repeat(40)},{steps:[]},{conclusion:'skipped'},{id:999}])assert.throws(()=>validatePublishedDeployment(published,status,run,{...deploymentJob,...patch}));
 assert.throws(()=>validatePublishedDeployment(published,status,{...run,path:'.github/workflows/unknown.yml'},deploymentJob));
+const adminReport={stats:{expected:10,unexpected:0,flaky:0,skipped:0},suites:[{specs:[]}]} ;
+for(const engine of ['chromium','webkit'])for(const [scope,files] of [
+ ['reader',['oma2-q3-newsfeed.spec.js','oma2-q3-shell.spec.js','oma2-q3-auth-lifecycle.spec.js']],
+ ['mfa',['auth-admin.spec.js']],['smoke',['smoke.spec.js']],
+])for(const file of files)adminReport.suites[0].specs.push({id:engine+file,file,tests:[{projectName:`${engine}-${scope}`,results:[{status:'passed'}]}]});
+verifyAdminReport(adminReport,adminReport);
+for(const fault of ['missing','failed','skipped','empty','foreign']) {
+ const bad=structuredClone(adminReport);
+ if(fault==='missing')bad.suites[0].specs.pop();
+ else if(fault==='empty')bad.suites=[];
+ else if(fault==='foreign')bad.suites[0].specs[0].id='wrong-build-case';
+ else bad.suites[0].specs[0].tests[0].results[0].status=fault;
+ assert.throws(()=>verifyAdminReport(bad,adminReport),fault);
+}
+assert.throws(()=>verifyAdminReport({suites:[]},{suites:[]}));
+const missingDiscovery=structuredClone(adminReport);missingDiscovery.suites[0].specs.pop();
+assert.throws(()=>verifyAdminReport(missingDiscovery,missingDiscovery));
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-candidate-'));
 try {
  const git=(...args)=>{const r=spawnSync('git',args,{cwd:dir,encoding:'utf8'});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};
  git('init','-q');git('config','user.name','Synthetic');git('config','user.email','synthetic@example.invalid');
  fs.writeFileSync(path.join(dir,'README.md'),'base');git('add','.');git('commit','-qm','base');const base=git('rev-parse','HEAD');
  fs.mkdirSync(path.join(dir,'admin'));fs.writeFileSync(path.join(dir,'admin/index.html'),'unpublished news');git('add','.');git('commit','-qm','failed unpublished push');
- fs.mkdirSync(path.join(dir,'.github/workflows'),{recursive:true});fs.writeFileSync(path.join(dir,'.github/workflows/static.yml'),'synthetic broad input');
+ fs.mkdirSync(path.join(dir,'.github/workflows'),{recursive:true});fs.writeFileSync(path.join(dir,'.github/workflows/full-regression.yml'),'synthetic broad input');
  git('add','.');git('commit','-qm','candidate');const candidateSha=git('rev-parse','HEAD');
- const selection=selectCiTests(['.github/workflows/static.yml','admin/index.html']);
+ const selection=selectCiTests(['.github/workflows/full-regression.yml','admin/index.html']);
  const candidateExpected={...expected,sha:candidateSha,base,selection};
  fs.mkdirSync(path.join(dir,'_site'));fs.writeFileSync(path.join(dir,'_site/index.html'),'<main>synthetic candidate</main>');
  const cli=new URL('./pages-candidate.mjs',import.meta.url).pathname;
@@ -105,9 +122,10 @@ try {
  assert.equal(ordinaryManifest.full,false);
  assert.throws(()=>invoke('proof',{GITHUB_JOB:'homepage-webkit-media',CANDIDATE_REPORT:'report.json'}));
  assert.throws(()=>invoke('proof',{GITHUB_JOB:'browser-validation'}));
- fs.writeFileSync(path.join(dir,'test-results/candidate-auth.json'),JSON.stringify({stats:{expected:1,unexpected:0,flaky:0},suites:[]}));
+ fs.writeFileSync(path.join(dir,'test-results/candidate-admin-release.json'),JSON.stringify({stats:{expected:1,unexpected:0,flaky:0},suites:[]}));
  assert.throws(()=>invoke('proof',{GITHUB_JOB:'browser-validation'}));
- fs.copyFileSync(path.join(dir,'report.json'),path.join(dir,'test-results/candidate-auth.json'));invoke('proof',{GITHUB_JOB:'browser-validation'});
+ fs.writeFileSync(path.join(dir,'test-results/admin-discovery.json'),JSON.stringify(adminReport));
+ fs.writeFileSync(path.join(dir,'test-results/candidate-admin-release.json'),JSON.stringify(adminReport));invoke('proof',{GITHUB_JOB:'browser-validation'});
  fs.copyFileSync(path.join(dir,'candidate-proofs/proof-browser-validation.json'),path.join(dir,'candidate/proof-browser-validation.json'));
  const ordinaryBytes=tree(path.join(dir,'_site'));fs.rmSync(path.join(dir,'_site'),{recursive:true});invoke('publish');assert.deepEqual(tree(path.join(dir,'_site')),ordinaryBytes);
 
@@ -186,3 +204,27 @@ for (const [file,jobName,required] of [
  // different from a required failed/skipped job; existing selection owns it.
  assert(starts({...passed,[required.at(-1)]:'success'}));
 }
+
+// Real Playwright discovery guards this config against lost News coverage or an
+// accidental single-engine/empty selection. It does not execute the browser.
+const discoveryDir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-admin-discovery-'));
+try {
+ const root=new URL('../',import.meta.url).pathname;
+ const discover=(config,files=[])=>{
+   const output=path.join(discoveryDir,'list.json');
+   const r=spawnSync(process.execPath,[path.join(root,'node_modules/@playwright/test/cli.js'),'test','-c',config,...files,'--list','--reporter=json'],{cwd:root,env:{...process.env,PLAYWRIGHT_JSON_OUTPUT_NAME:output},encoding:'utf8'});
+   assert.equal(r.status,0,r.stderr);return JSON.parse(fs.readFileSync(output));
+ };
+ const scoped=discover('playwright.admin-release.config.js');
+ const baseline=discover('playwright.config.js',['tests/oma2-q3-newsfeed.spec.js']);
+ const cases=(report,project)=>{
+   const result=[];const visit=suite=>{for(const spec of suite.specs||[])if(path.basename(spec.file)==='oma2-q3-newsfeed.spec.js'&&spec.tests.some(t=>t.projectName===project))result.push(`${spec.line}:${spec.title}`);(suite.suites||[]).forEach(visit);};(report.suites||[]).forEach(visit);return result.sort();
+ };
+ const allNews=cases(baseline,'chromium');assert(allNews.length>0);
+ for(const engine of ['chromium','webkit'])assert.deepEqual(cases(scoped,`${engine}-reader`),allNews,'Every existing News scenario must be selected');
+ // Fill synthetic result statuses only to exercise the discovery contract;
+ // real acceptance still requires the separate actual report and bytes.
+ const sample=structuredClone(scoped);const fill=suite=>{for(const spec of suite.specs||[])for(const t of spec.tests)t.results=[{status:'passed'}];(suite.suites||[]).forEach(fill);};sample.suites.forEach(fill);
+ verifyAdminReport(sample,scoped);
+ console.log(`Admin discovery: ${allNews.length} News scenarios in each engine; all reader/MFA/smoke groups present (discovery only).`);
+} finally { fs.rmSync(discoveryDir,{recursive:true,force:true}); }

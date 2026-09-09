@@ -521,4 +521,14 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
   );
 }
 
+{
+  const plan = createReleasePlanFromRepo(repoRoot, { files: ['playwright.admin-release.config.js'] });
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+  assert.equal(plan.impacts.static.required, false);
+  assert.deepEqual(plan.workerDeploys, []);
+  assert.deepEqual(plan.schemaApplies, []);
+  const unknown = createReleasePlanFromRepo(repoRoot, { files: ['playwright.admin-unknown.config.js'] });
+  assert.deepEqual(unknown.impacts.uncategorizedFiles, ['playwright.admin-unknown.config.js']);
+}
+
 console.log("Release planner tests passed.");

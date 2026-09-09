@@ -75,6 +75,7 @@ function writeGithubOutput(selection) {
   if (!outputPath) throw new Error("GITHUB_OUTPUT is required with --github-output");
   const outputs = {
     docs_only: selection.docsOnly,
+    admin_release: selection.adminRelease,
     homepage: selection.homepage,
     member_models: selection.memberModels,
     carousel: selection.carousel,

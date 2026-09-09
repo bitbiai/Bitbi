@@ -68,6 +68,7 @@ jobs:
       assets: ${{ steps.selection.outputs.assets }}
       workers: ${{ steps.selection.outputs.workers }}
       auth: ${{ steps.selection.outputs.auth }}
+      admin_release: ${{ steps.selection.outputs.admin_release }}
       dependencies: ${{ steps.selection.outputs.dependencies }}
       worker_dependencies: ${{ steps.selection.outputs.worker_dependencies }}
       static: ${{ steps.selection.outputs.static }}
@@ -448,8 +449,11 @@ jobs:
         if: needs.release-compatibility.outputs.carousel == 'true'
         run: npx playwright install --with-deps chromium firefox webkit
       - name: Install Chromium for selected frontend tests
-        if: needs.release-compatibility.outputs.carousel != 'true' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true')
+        if: needs.release-compatibility.outputs.admin_release != 'true' && needs.release-compatibility.outputs.carousel != 'true' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true')
         run: npx playwright install --with-deps chromium
+      - name: Install Admin acceptance browsers
+        if: needs.release-compatibility.outputs.admin_release == 'true'
+        run: npx playwright install --with-deps chromium webkit
       - name: Download candidate build
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
         uses: actions/download-artifact@v8
@@ -460,6 +464,11 @@ jobs:
       - name: Restore exact candidate static site
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
         run: node scripts/pages-candidate.mjs restore
+      - name: Run selected Admin release acceptance
+        if: needs.release-compatibility.outputs.admin_release == 'true'
+        run: |
+          PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/admin-discovery.json npm run test:static -- --config playwright.admin-release.config.js --list --reporter=json
+          PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-admin-release.json npm run test:static -- --config playwright.admin-release.config.js --reporter=list,json
       - name: Run full static browser regression
         if: needs.release-compatibility.outputs.full == 'true'
         run: |
@@ -475,7 +484,7 @@ jobs:
         if: needs.release-compatibility.outputs.assets == 'true' && needs.release-compatibility.outputs.full != 'true'
         run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-assets.json npm run test:assets-manager -- --reporter=list,json
       - name: Run selected auth and admin tests
-        if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.full != 'true'
+        if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.full != 'true' && needs.release-compatibility.outputs.admin_release != 'true'
         run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:auth -- --reporter=list,json
       - name: Confirm tested browser candidate bytes
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'

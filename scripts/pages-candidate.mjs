@@ -21,6 +21,12 @@ export const REQUIRED_JOBS = {
 export function requiredJobs(selection) {
   if (!selection) return REQUIRED_JOBS; // Frozen schema-1 Q4 evidence only.
   const jobs = { 'release-compatibility': ['Preflight complete static release plan','Run quality gate tests','Record candidate build'] };
+  if (selection.adminRelease) jobs['release-compatibility'].push(
+    'Check committed secrets', 'Check DOM sink baseline', 'Check auth route policy coverage',
+    'Check targeted JavaScript syntax', 'Run release compatibility tests', 'Run release planner tests',
+    'Run static deploy safety tests', 'Run CI test selection fixtures',
+    'Run asset version tests', 'Validate asset version sources',
+  );
   if (selection.dependencies) jobs['release-compatibility'].push('Audit root dependencies');
   if (selection.workerDependencies) jobs['release-compatibility'].push('Validate worker package dependencies');
   if (selection.workers) jobs['worker-validation'] = REQUIRED_JOBS['worker-validation'];
@@ -29,7 +35,8 @@ export function requiredJobs(selection) {
     jobs['homepage-webkit-media'] = REQUIRED_JOBS['homepage-webkit-media'];
   }
   const browser = [];
-  if (selection.full) browser.push('Run full static browser regression');
+  if (selection.adminRelease) browser.push('Run selected Admin release acceptance');
+  else if (selection.full) browser.push('Run full static browser regression');
   else for (const [key,step] of [['homepage','Run selected homepage core tests'],['carousel','Run selected homepage carousel tests'],['assets','Run selected Assets Manager tests'],['auth','Run selected auth and admin tests']]) if (selection[key]) browser.push(step);
   if (browser.length) jobs['browser-validation'] = [...browser,'Confirm tested browser candidate bytes'];
   return jobs;
@@ -146,6 +153,30 @@ export function verifyProofs(manifest,proofs) {
     assert.equal(p.status,'passed');assert(p.reportHash&&p.tests>0,'No executed browser report');
   }
 }
+// Bind each discovered required case to its executed result in the same job.
+// Discovery alone is not acceptance; neither a healthy neighbour nor a skip
+// can substitute for a missing News/Admin/MFA/smoke scenario.
+export function verifyAdminReport(report, discovery) {
+  const collect = report => {
+    const rows=[];
+    const visit=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests||[])
+      rows.push({key:`${test.projectName}:${spec.id}`,project:test.projectName,file:path.basename(spec.file),results:test.results||[]});
+      (suite.suites||[]).forEach(visit);}; (report.suites||[]).forEach(visit); return rows;
+  };
+  const expected=collect(discovery), actual=collect(report);
+  for(const engine of ['chromium','webkit'])for(const [scope,files] of [
+    ['reader',['oma2-q3-newsfeed.spec.js','oma2-q3-shell.spec.js','oma2-q3-auth-lifecycle.spec.js']],
+    ['mfa',['auth-admin.spec.js']],['smoke',['smoke.spec.js']],
+  ])for(const file of files)assert(expected.some(r=>r.project===`${engine}-${scope}`&&r.file===file),`Missing required Admin discovery ${engine}/${file}`);
+  assert.equal(new Set(expected.map(r=>r.key)).size,expected.length,'Duplicate Admin discovery');
+  assert.equal(actual.length,expected.length,'Admin case set changed after discovery');
+  for(const e of expected) {
+    const found=actual.filter(r=>r.key===e.key&&r.file===e.file);
+    assert.equal(found.length,1,`Missing executed Admin case ${e.key}/${e.file}`);
+    assert.deepEqual(found[0].results.map(r=>r.status),['passed'],`Admin case did not pass without retry: ${e.key}/${e.file}`);
+  }
+}
+
 async function api(endpoint) {
   assert(process.env.GH_TOKEN,'Missing read-only Actions token');
   const response=await fetch(`https://api.github.com/repos/${REPOSITORY}/${endpoint}`,{headers:{Authorization:`Bearer ${process.env.GH_TOKEN}`,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},signal:AbortSignal.timeout(20000)});
@@ -197,7 +228,7 @@ async function main(command) {
     verifyManifest(manifest,e,'_site',{allowPartial:true});
     assert(proofJobs(manifest.selection).includes(process.env.GITHUB_JOB),'Unselected browser proof');
     const names=process.env.GITHUB_JOB==='browser-validation'
-      ? (manifest.selection.full ? ['static','carousel'] : ['homepage','carousel','assets','auth'].filter(key=>manifest.selection[key])).map(key=>`test-results/candidate-${key}.json`)
+      ? (manifest.selection.adminRelease ? ['admin-release'] : manifest.selection.full ? ['static','carousel'] : ['homepage','carousel','assets','auth'].filter(key=>manifest.selection[key])).map(key=>`test-results/candidate-${key}.json`)
       : [process.env.CANDIDATE_REPORT];
     const reports=names.map(name=>JSON.parse(fs.readFileSync(name)));
     for(const report of reports) {
@@ -212,6 +243,7 @@ async function main(command) {
       assert(executed>0,'No executed cases');
     }
     const report=reports[0];
+    if (manifest.selection?.adminRelease) verifyAdminReport(report, JSON.parse(fs.readFileSync('test-results/admin-discovery.json')));
     if(['homepage-webkit-media','homepage-validation'].includes(process.env.GITHUB_JOB)) {
       const engine=process.env.GITHUB_JOB==='homepage-webkit-media'?'webkit':'chromium';
       if(engine==='webkit') assert.equal(report.stats.skipped,0,'Native core cases skipped');

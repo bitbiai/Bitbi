@@ -422,3 +422,21 @@ console.log("CI test selection fixtures passed.");
  assert.equal(result.workers,false); assert.equal(result.homepage,false);
  assert.equal(selectCiTests([...files,'tests/unknown-feature.spec.js']).full,true);
 }
+
+// Bounded production scope, including its carried unpublished validation work.
+const adminDelivery=[
+ 'admin/index.html','css/admin/newsfeed.css','js/pages/admin/main.js','js/pages/admin/newsfeed.js','js/pages/admin/router.js',
+ 'tests/oma2-q3-newsfeed.spec.js','.github/workflows/static.yml','playwright.config.js','playwright.carousel.config.js',
+ 'playwright.admin-release.config.js','scripts/lib/ci-test-selection.mjs','scripts/select-ci-tests.mjs',
+ 'scripts/pages-candidate.mjs','scripts/test-ci-test-selection.mjs','scripts/test-pages-candidate.mjs','scripts/test-pages-workflow.mjs',
+ 'scripts/lib/release-plan.mjs','tests/helpers/homepage-media-server.mjs','tests/homepage-hero-playback.spec.js','tests/fixtures/media/test-video-loading.mp4',
+];
+const scoped=selection(adminDelivery);
+assert.equal(scoped.policy,'admin-reader-v1');assert(scoped.adminRelease&&scoped.auth&&scoped.static);
+for(const key of ['full','workers','homepage','carousel','assets','dependencies'])assert.equal(scoped[key],false,key);
+for(const input of ['js/shared/auth.js','workers/auth/src/index.js','workers/auth/migrations/0087_example.sql','js/pages/index/latest-models-video-module.js','css/pages/index.css','scripts/unknown.mjs','tests/unknown.spec.js','package-lock.json','config/release-compat.json']) {
+ const broad=selection([...adminDelivery,input]);assert.equal(broad.adminRelease,false,input);
+ assert(broad.full||broad.workers||broad.homepage||broad.dependencies,input);
+}
+assert.equal(selection(adminDelivery,{forceFull:true}).full,true);
+assert.equal(selection(adminDelivery,{forceFull:true}).adminRelease,false);
