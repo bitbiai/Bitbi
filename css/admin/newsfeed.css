@@ -1,0 +1,42 @@
+/* Additive reader surface; every selector is scoped to the admin Newsfeed. */
+@layer pages {
+    .admin-reader { color: #eef3f6; }
+    .admin-reader .admin-reader__toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; padding-block: 4px 22px; border-bottom: 1px solid var(--admin-line); }
+    .admin-reader label, .admin-reader .admin-reader__filter { display: grid; gap: 8px; color: var(--admin-muted); font-size: 12px; }
+    .admin-reader .admin-reader__search { flex: 1 1 260px; }
+    .admin-reader input, .admin-reader select { min-height: 44px; width: 100%; min-width: 0; border: 1px solid #40515e; border-radius: 8px; padding: 10px 12px; color: #eef3f6; background: #10171d; font: inherit; font-size: 14px; }
+    .admin-reader input::placeholder { color: #94a7b5; }
+    .admin-reader .btn-action { min-height: 44px; }
+    .admin-reader :is(a,button,input,select,summary):focus-visible { outline: 2px solid #7cece0; outline-offset: 4px; }
+    .admin-reader .admin-reader__info { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 20px; padding-block: 18px 24px; font-size: 12px; }
+    .admin-reader .admin-reader__notice { color: #b5c6cf; }
+    .admin-reader .admin-reader__notice[data-error="true"] { color: #ffceab; }
+    .admin-reader .admin-reader__grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start; gap: 28px; }
+    .admin-reader .admin-reader__card { min-width: 0; border: 1px solid var(--admin-line); background: #10171d; border-radius: 16px; overflow: hidden; }
+    .admin-reader .admin-reader__image { position: relative; margin: 0; aspect-ratio: 16/9; background: linear-gradient(130deg,#163139,#17222b 58%,#292a24); display: grid; place-items: center; overflow: hidden; }
+    .admin-reader .admin-reader__image img { width: 100%; height: 100%; object-fit: contain; position: absolute; inset: 0; }
+    .admin-reader .admin-reader__placeholder { position: relative; text-align: center; max-width: 32ch; padding: 22px; color: #b5c6cf; font-size: 13px; }
+    .admin-reader .admin-reader__card-body { padding: clamp(20px,2.5vw,32px); }
+    .admin-reader .admin-reader__eyebrow { color: #84d9cf; text-transform: uppercase; font-size: 11px; letter-spacing: .12em; margin-bottom: 14px; }
+    .admin-reader h2 { font-family: var(--font-display,Georgia,serif); font-size: clamp(24px,2.15vw,34px); line-height: 1.2; letter-spacing: -.025em; color: #f3f4f0; margin: 0 0 18px; overflow-wrap: anywhere; }
+    .admin-reader .admin-reader__excerpt { color: #d0dbe1; line-height: 1.75; font-size: 15px; white-space: pre-line; }
+    .admin-reader .admin-reader__byline { color: #aabcc8; font-size: 12px; line-height: 1.7; margin-top: 20px; }
+    .admin-reader .admin-reader__details { margin-top: 22px; border-top: 1px solid var(--admin-line); }
+    .admin-reader summary { cursor: pointer; min-height: 44px; padding-block: 14px; color: #a5e8df; font-size: 13px; }
+    .admin-reader .admin-reader__detail-body { display: grid; gap: 18px; padding-top: 8px; }
+    .admin-reader .admin-reader__muted { color: #b2c1cc; font-size: 13px; line-height: 1.7; }
+    .admin-reader .admin-reader__source-link { color: #a5e8df; text-decoration: underline; text-underline-offset: 4px; width: fit-content; padding-block: 8px; }
+    .admin-reader .admin-reader__metadata { display: grid; grid-template-columns: minmax(90px,.4fr) minmax(0,1fr); gap: 12px 20px; font-size: 13px; line-height: 1.6; margin-block: 18px; }
+    .admin-reader dt { color: #aabcc8; } .admin-reader dd { margin: 0; overflow-wrap: anywhere; }
+    .admin-reader .admin-reader__card:has(.admin-reader__enlarge[open]) { grid-column: 1/-1; }
+    .admin-reader .admin-reader__image--large { aspect-ratio: 2/1; background: #090f14; }
+    .admin-reader .admin-reader__more { margin-block: 28px; }
+    .admin-reader .admin-reader__empty { color: #b2c1cc; padding: 40px 0; line-height: 1.7; }
+    @media (max-width: 1050px) { .admin-reader .admin-reader__grid { grid-template-columns: minmax(0,1fr); } }
+    @media (max-width: 500px) {
+        .admin-reader .admin-reader__filter { flex: 1 1 40%; min-width: 0; }
+        .admin-reader .admin-reader__metadata { grid-template-columns: 1fr; gap: 4px; }
+        .admin-reader dd { margin-bottom: 12px; }
+        .admin-reader .admin-reader__image--large { aspect-ratio: 1; }
+    }
+}
