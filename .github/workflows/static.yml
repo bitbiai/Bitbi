@@ -104,12 +104,7 @@ jobs:
         run: npm audit --audit-level=low
       - name: Validate worker package dependencies
         if: steps.selection.outputs.worker_dependencies == 'true'
-        run: |
-          for worker in workers/auth workers/contact workers/ai; do
-            npm --prefix "$worker" ci
-            npm --prefix "$worker" ls --depth=0
-          done
-          npm run check:worker-dependency-audits
+        run: npm run check:worker-dependency-audits -- --install
       - name: Check toolchain pinning
         run: npm run check:toolchain
       - name: Run quality gate tests

@@ -19,7 +19,10 @@ for (const worker of WORKER_PROJECTS) {
   const oldNative = structuredClone(lock);
   oldNative.packages['node_modules/sharp'].optionalDependencies['@img/sharp-libvips-linux-x64'] = '1.3.1';
   assert.throws(() => validateSharpLock(pkg, oldNative), /patched native package/);
-  const noOverride = structuredClone(pkg); delete noOverride.overrides.miniflare;
-  assert.throws(() => validateSharpLock(noOverride, lock), /Miniflare sharp override/);
+  const noOverride = structuredClone(pkg); delete noOverride.overrides.sharp;
+  assert.throws(() => validateSharpLock(noOverride, lock), /project sharp override/);
+  const nestedOverride = structuredClone(noOverride);
+  nestedOverride.overrides.miniflare = { sharp: '0.35.4' };
+  assert.throws(() => validateSharpLock(nestedOverride, lock), /project sharp override/);
 }
 console.log('Worker sharp lock consistency and old/nested/missing-platform countercontrols passed.');

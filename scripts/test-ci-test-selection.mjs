@@ -360,7 +360,9 @@ for (const file of [
   assert(workflow.includes("npm run test:assets-manager"));
   assert(workflow.includes("npm run test:homepage-carousel"));
   assert(workflow.includes("steps.static_safety.outputs.static_deploy_required == 'true'"));
-  assert(workflow.includes("npm run check:worker-dependency-audits"));
+  assert(workflow.includes("npm run check:worker-dependency-audits -- --install"));
+  const fullWorkflow = fs.readFileSync(path.join(repoRoot, ".github/workflows/full-regression.yml"), "utf8");
+  assert(fullWorkflow.includes("npm run check:worker-dependency-audits -- --install"));
 }
 
 {

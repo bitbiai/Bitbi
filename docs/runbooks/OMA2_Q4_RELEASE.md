@@ -65,8 +65,18 @@ All three workflow paths use the same npm/config/selection contracts. Dependenci
 
 ## Native image tooling security
 
-Auth, Contact and AI each pin Miniflare's sharp resolution to `0.35.4` via a
-scoped npm override for [GHSA-rgj7-g3m4-5g8c](https://github.com/lovell/sharp/security/advisories/GHSA-rgj7-g3m4-5g8c).
+Auth, Contact and AI each pin sharp to `0.35.4` via a project-level npm override
+for [GHSA-rgj7-g3m4-5g8c](https://github.com/lovell/sharp/security/advisories/GHSA-rgj7-g3m4-5g8c).
+Miniflare is the only sharp parent. The former nested override passes npm12 but
+fails npm10.9.8 cold `ci` with missing sharp0.35.2, both with `--prefix` and cwd;
+the direct override supports the existing CI npm without an upgrade.
+Generate locks with npm10.9.8 and validate from a clean checkout: `npm ci`, then
+`npm run check:worker-dependency-audits -- --install`. This is also the early
+standard/full-regression CI step: all three `ci`/`ls` calls, unchanged package/lock
+bytes and both audits, using the invoking npm throughout. No preceding install
+may repair the lock during acceptance. Report actual Node/npm/OS; npm12-only
+acceptance is insufficient. npm10 omits libc hints in the lock serialization,
+but preserves every platform package/version/integrity and native package bytes.
 The npm-generated locks retain every optional platform; patched prebuilt libvips
 packages are `1.3.3`. The dependency audit guard checks the actual Miniflare import
 and loaded libheif (at least `1.23.2`) before auditing runtime and tooling. Existing

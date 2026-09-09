@@ -8,6 +8,38 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const WORKERS = Object.freeze(["workers/auth", "workers/contact", "workers/ai"]);
 
+const args = process.argv.slice(2);
+if (args.some(arg => arg !== "--install")) throw new Error("Only --install is supported");
+// Keep nested installs/audits on the npm that started this command, even when
+// another npm happens to precede it on PATH (e.g. a local npm10 acceptance run).
+const npmCli = process.env.npm_execpath;
+function runNpm(args, options = {}) {
+  return spawnSync(npmCli ? process.execPath : "npm", npmCli ? [npmCli, ...args] : args, {
+    cwd: repoRoot, encoding: "utf8", ...options,
+  });
+}
+
+if (args.includes("--install")) {
+  const version = runNpm(["--version"]);
+  if (version.status !== 0) throw new Error("Cannot identify the effective npm");
+  console.log(`Worker cold-install contract: Node ${process.version}, npm ${version.stdout.trim()}, ${process.platform}/${process.arch}`);
+  for (const worker of WORKERS) {
+    const files = ["package.json", "package-lock.json"].map(name => path.join(repoRoot, worker, name));
+    const before = files.map(file => fs.readFileSync(file));
+    try {
+      // npm ci replaces node_modules; never npm install and never a cached pass.
+      for (const command of [["ci"], ["ls", "--depth=0"]]) {
+        const result = runNpm(["--prefix", worker, ...command], { stdio: "inherit" });
+        if (result.status !== 0) throw new Error(`${worker}: npm ${command[0]} failed (${result.status ?? result.error?.message})`);
+      }
+    } finally {
+      files.forEach((file, index) => {
+        if (!fs.readFileSync(file).equals(before[index])) throw new Error(`Installation changed ${file}`);
+      });
+    }
+  }
+}
+
 // TODO(GHSA-gv7w-rqvm-qjhr): remove this worker devDependency exception once
 // Wrangler ships a dependency chain with esbuild >=0.28.1. This guard still
 // runs a blocking runtime audit with --omit=dev for every worker package.
@@ -78,10 +110,7 @@ function auditFindings(report) {
 }
 
 function runNpmAudit(workerDir, args, label) {
-  const result = spawnSync("npm", ["--prefix", workerDir, "audit", ...args, "--json"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  });
+  const result = runNpm(["--prefix", workerDir, "audit", ...args, "--json"]);
   return {
     status: result.status ?? 1,
     ...parseAuditOutput(result, workerDir, label),

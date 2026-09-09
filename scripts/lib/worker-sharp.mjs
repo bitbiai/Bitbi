@@ -7,10 +7,12 @@ export const WORKER_PROJECTS = ['workers/auth', 'workers/contact', 'workers/ai']
 export const PATCHED_SHARP = '0.35.4';
 const read = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 
-// Exact, temporary Miniflare override for GHSA-rgj7-g3m4-5g8c. This is a
-// resolution guard, never an npm-audit exception. Revisit with the parent bump.
+// Exact project-level override for GHSA-rgj7-g3m4-5g8c. npm 10 cold installs
+// cannot reconstruct the nested Miniflare override used previously. Miniflare
+// is the only sharp parent in these projects; this is never an audit exception.
 export function validateSharpLock(pkg, lock) {
-  assert.equal(pkg.overrides?.miniflare?.sharp, PATCHED_SHARP, 'Miniflare sharp override');
+  assert.equal(pkg.overrides?.sharp, PATCHED_SHARP, 'project sharp override');
+  assert.equal(pkg.overrides?.miniflare?.sharp, undefined, 'do not restore the npm10-incompatible nested override');
   const packages = lock.packages;
   assert(packages?.['node_modules/miniflare']?.dependencies?.sharp, 'Miniflare sharp dependency missing');
   const sharp = packages['node_modules/sharp'];
