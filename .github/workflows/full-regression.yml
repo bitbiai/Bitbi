@@ -229,7 +229,7 @@ jobs:
         run: npm run check:homepage-selection
       - name: Run Linux homepage functional acceptance
         if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
-        run: npm run test:homepage-functional -- --max-failures=1
+        run: npm run test:homepage-functional
       - name: Record controlled homepage performance diagnostics
         if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
         run: npm run test:homepage-performance
@@ -256,7 +256,7 @@ jobs:
           if-no-files-found: warn
 
   browser-tests:
-    needs: release-security
+    needs: [release-security, homepage-validation]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

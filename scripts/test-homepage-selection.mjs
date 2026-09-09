@@ -152,7 +152,8 @@ for (const workflow of ['static.yml', 'full-regression.yml', 'ui-fast-deploy.yml
   assert.ok(!mac.includes('continue-on-error') && !mac.includes('secrets.'));
   const early = job(text, 'homepage-validation');
   assert.ok(early.includes('npm run check:homepage-selection'));
-  assert.ok(early.includes('npm run test:homepage-functional -- --max-failures=1'));
+  assert.ok(early.includes('run: npm run test:homepage-functional\n'));
+  assert.ok(!early.includes('--max-failures'), 'Complete homepage acceptance must not leave the remaining scenarios unexecuted');
   assert.ok(!early.includes('npm run test:homepage-webkit'), 'Do not repeat a failed native preflight in the longer sequence');
   assert.ok(early.includes('npm run check:homepage-runtime'));
   assert.match(early, new RegExp(`image: mcr\\.microsoft\\.com/playwright:v${lockVersion.replace(/\./g, '\\.')}\-noble@sha256:[a-f0-9]{64}`));

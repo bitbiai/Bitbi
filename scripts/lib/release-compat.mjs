@@ -1208,8 +1208,8 @@ function validateWorkflowCompatibility(context) {
   if (!workflowRequiresJob(workflowSource, "worker-validation", /needs:\s*release-compatibility/)) {
     issues.push('Worker validation job must depend on "release-compatibility".');
   }
-  if (!workflowRequiresJob(workflowSource, "browser-validation", /needs:\s*release-compatibility/)) {
-    issues.push('Browser validation job must depend on "release-compatibility".');
+  if (!workflowRequiresJob(workflowSource, "browser-validation", /needs:\s*\[\s*release-compatibility\s*,\s*homepage-validation\s*\]/)) {
+    issues.push('Browser validation job must depend on "release-compatibility" and "homepage-validation".');
   }
   if (!workflowRequiresJob(workflowSource, "homepage-validation", /needs:\s*release-compatibility/)) {
     issues.push('Homepage validation job must depend on "release-compatibility".');
@@ -1230,10 +1230,10 @@ function validateWorkflowCompatibility(context) {
     !workflowRequiresJob(
       workflowSource,
       "deploy",
-      /needs:\s*\[\s*release-compatibility\s*,\s*worker-validation\s*,\s*browser-validation\s*,\s*homepage-validation\s*,\s*homepage-webkit-media\s*\]/
+      /needs:\s*\[\s*release-compatibility\s*,\s*worker-validation\s*,\s*browser-validation\s*,\s*homepage-validation\s*,\s*homepage-webkit-media\s*,\s*reuse-candidate\s*\]/
     )
   ) {
-    issues.push('Deploy job must depend on ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "homepage-webkit-media"].');
+    issues.push('Deploy job must depend on ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "homepage-webkit-media", "reuse-candidate"].');
   }
   if (!includesRouteLiteral(workflowSource, "npm run build:static")) {
     issues.push('Static workflow must build deploy assets via "npm run build:static".');

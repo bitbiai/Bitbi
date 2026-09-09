@@ -30,7 +30,8 @@ const guardInputs = s => s.source.slice(s.source.indexOf('        env:'));
 assert.equal(guardInputs(preflight), guardInputs(guard), 'early and last guard use identical command and GitHub inputs');
 assert(early.indexOf(preflight) < early.findIndex(s => s.name === 'Select tests from changed files'));
 assert(guardInputs(preflight).includes('STATIC_DEPLOY_HEAD_REF: ${{ github.sha }}'));
-assert(guardInputs(preflight).includes('github.event.inputs.release_plan_base_ref'));
+assert(guardInputs(preflight).includes('env.CANDIDATE_BASE'));
+assert(standard.includes("CANDIDATE_BASE: ${{ github.event.inputs.release_plan_base_ref || '8292a4926bb1bf24679db9dd2b87cd6882f4d4f7' }}"));
 assert(guardInputs(preflight).includes('github.event.inputs.release_plan_dependency_acknowledgement'));
 for (const source of [standard, fast]) {
   for (const checkout of source.matchAll(/uses: actions\/checkout@v5\n([\s\S]*?)(?=^      - name:)/gm)) {
@@ -39,7 +40,7 @@ for (const source of [standard, fast]) {
   assert(!/pages\/deployments\/|Reconcile authoritative|DEPLOY_PAGES_OUTCOME|deadline=/.test(source), 'no independent SHA-based or ambient reconciliation');
 }
 for (const name of ['worker-validation', 'browser-validation', 'homepage-validation', 'homepage-webkit-media']) {
-  assert(job(standard, name).includes('needs: release-compatibility'), `${name} waits for actual preflight`);
+  assert(job(standard, name).includes(name==='browser-validation' ? 'needs: [release-compatibility, homepage-validation]' : 'needs: release-compatibility'), `${name} waits for actual preflight`);
 }
 
 for (const [name, source] of [['standard', standard], ['fast', fast]]) {
@@ -97,3 +98,5 @@ for (const [name, source] of [['standard', standard], ['fast', fast]]) {
   }
 }
 console.log('Pages workflow state, immutable checkout and identical early/final guard controls passed.');
+
+await import('./test-pages-candidate.mjs');

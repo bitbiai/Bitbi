@@ -1145,7 +1145,7 @@ function createValidContext() {
   worker-validation:
     needs: release-compatibility
   browser-validation:
-    needs: release-compatibility
+    needs: [release-compatibility, homepage-validation]
   homepage-validation:
     needs: release-compatibility
     steps:
@@ -1158,7 +1158,7 @@ function createValidContext() {
     steps:
       - run: npm run test:homepage-webkit
   deploy:
-    needs: [release-compatibility, worker-validation, browser-validation, homepage-validation, homepage-webkit-media]
+    needs: [release-compatibility, worker-validation, browser-validation, homepage-validation, homepage-webkit-media, reuse-candidate]
     steps:
       - run: npm run build:static
     `,
@@ -1186,9 +1186,9 @@ function createValidContext() {
   assert.deepEqual(issues, []);
 }
 
-for (const missing of ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "homepage-webkit-media"]) {
+for (const missing of ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "homepage-webkit-media", "reuse-candidate"]) {
   const context = createValidContext();
-  const gates = ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "homepage-webkit-media"];
+  const gates = ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "homepage-webkit-media", "reuse-candidate"];
   context.workflowSource = context.workflowSource.replace(
     `needs: [${gates.join(", ")}]`,
     `needs: [${gates.filter((gate) => gate !== missing).join(", ")}]`,
@@ -1204,6 +1204,12 @@ for (const missing of ["release-compatibility", "worker-validation", "browser-va
     "  homepage-validation:\n    needs: unrelated-job",
   );
   assert.ok(validateReleaseCompatibility(context).some((issue) => issue.startsWith('Homepage validation job must depend')));
+}
+
+for (const needs of ['release-compatibility', 'homepage-validation', 'unrelated-job']) {
+  const context = createValidContext();
+  context.workflowSource = context.workflowSource.replace('  browser-validation:\n    needs: [release-compatibility, homepage-validation]', `  browser-validation:\n    needs: ${needs}`);
+  assert.ok(validateReleaseCompatibility(context).some(issue => issue.startsWith('Browser validation job must depend')));
 }
 
 for (const [before, after] of [

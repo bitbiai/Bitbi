@@ -331,7 +331,7 @@ jobs:
         run: npm run check:homepage-selection
       - name: Run Linux homepage functional acceptance
         if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
-        run: npm run test:homepage-functional -- --max-failures=1
+        run: npm run test:homepage-functional
       - name: Record controlled homepage performance diagnostics
         if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
         run: npm run test:homepage-performance
@@ -444,6 +444,11 @@ jobs:
         with:
           path: '_site'
 
+      - name: Refuse superseded static candidate
+        if: success() && needs.guard.result == 'success' && steps.static_build.outcome == 'success' && steps.pages_artifact.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/pages-candidate.mjs current
       - name: Deploy to GitHub Pages
         id: deployment
         if: success() && needs.guard.result == 'success' && steps.static_build.outcome == 'success' && steps.pages_artifact.outcome == 'success'

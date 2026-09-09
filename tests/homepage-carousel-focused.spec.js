@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const { installHomepageWorkProbe, summarizeTaskWindow, assessHomepageWork, assessCarouselTiming } = require('./helpers/homepage-work-probe.cjs');
+const { wallIssue, createWallWindow } = require('./helpers/public-wall-readiness.cjs');
 
 const TEST_PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==',
@@ -18,6 +19,24 @@ const WALLS = {
 const HOMEPAGE_REQUEST_COUNTS = new WeakMap();
 const CAROUSEL_STABLE_FRAME_COUNT = 3;
 const CAROUSEL_POST_SETTLE_OBSERVATION_MS = 120;
+
+test('public wall readiness rejects stale generations, hidden boxes and lost cards', () => {
+  const good = {category:'video',active:'video',hidden:false,transitioning:false,viewport:820,token:'2',ready:'true',
+    width:787,available:787,measured:787,cards:2,expectedCards:2,identities:true,columns:2,
+    resolved:392.5,columnWidths:[392,392],cardWidths:[392,392],overflow:0};
+  const observe=createWallWindow();
+  const old={...good,token:'1',measured:736};
+  expect(observe(old)).toBe(false);expect(observe(old)).toBe(false);
+  expect(observe(good)).toBe(false);
+  expect(observe({...good,hidden:true,width:0,ready:'false'})).toBe(false);
+  expect(observe(good)).toBe(false);expect(observe(good)).toBe(false);expect(observe(good)).toBe(true);
+  for(const fault of [{ready:'false'},{token:'3',ready:'false'},{active:'gallery'},{measured:NaN},{width:0},{cards:1},{identities:false},{cardWidths:[0,392]}]) {
+    const next=createWallWindow();for(let i=0;i<6;i++)expect(next({...good,...fault})).toBe(false);
+  }
+  const resize=createWallWindow();resize(good);resize(good);
+  expect(resize({...good,token:'3'})).toBe(false);expect(resize({...good,token:'3'})).toBe(false);
+  expect(resize({...good,token:'3'})).toBe(true);
+});
 
 function getStagedTestViewport(browserName, { narrow = false } = {}) {
   // Headless Firefox pointer/hover media features vary by host. Its tablet
@@ -535,9 +554,36 @@ async function waitForSoundLayout(page) {
 
 async function waitForPublicWall(page, category) {
   const selector = WALLS[category];
-  await expect.poll(() => page.locator(selector).evaluate((grid) => (
-    grid.dataset.mediaWallReady || grid.dataset.publicMediaWallReady || ''
-  )), { timeout: 12_000 }).toBe('true');
+  const result = await page.evaluate(async ({ selector, category, issueSource, windowSource }) => {
+    const wallIssue = (0, eval)(`(${issueSource})`);
+    const observe = eval(`(${windowSource})`)();
+    const { getStableMediaWallAvailableWidth } = await import(window.__carouselModuleUrl('/js/pages/index/public-media-wall.js'));
+    const grid = document.querySelector(selector);
+    const cardSelector = category === 'gallery' ? '.gallery-item' : '.video-card';
+    const expected = window.__breakpointCardNodes?.[category] || Array.from(grid.querySelectorAll(cardSelector));
+    const end = performance.now() + 12000, samples = [];
+    let passed = false;
+    do {
+      await new Promise(requestAnimationFrame);
+      const cards = Array.from(grid.querySelectorAll(cardSelector));
+      const panel = grid.closest('.home-categories__panel');
+      const stage = document.querySelector('#homeCategories');
+      const s = { category, active: stage.dataset.activeCategory, transitioning: stage.classList.contains('is-transitioning'),
+        hidden: panel?.inert || panel?.getAttribute('aria-hidden') === 'true', viewport: innerWidth,
+        token: grid.dataset.mediaWallRenderToken || '', ready: grid.dataset.mediaWallReady,
+        width: grid.clientWidth, available: getStableMediaWallAvailableWidth(grid), measured: Number(grid.dataset.mediaWallAvailableWidth),
+        resolved: Number(grid.dataset.mediaWallResolvedWidth), columns: Number(grid.dataset.mediaWallColumnCount),
+        columnWidths: Array.from(grid.querySelectorAll(':scope > .public-media-wall__column'), n => n.clientWidth),
+        cardWidths: cards.map(n => n.clientWidth), cards: cards.length, expectedCards: expected.length,
+        identities: cards.length === expected.length && cards.every(n => expected.includes(n)), overflow: grid.scrollWidth - grid.clientWidth };
+      samples.push(s); if (samples.length > 12) samples.shift();
+      passed = observe(s);
+    } while (!passed && performance.now() < end);
+    return { passed, issue: wallIssue(samples.at(-1)), samples };
+  }, { selector, category, issueSource: wallIssue.toString(), windowSource: createWallWindow.toString() });
+  await test.info().attach(`wall-${category}`, { body: JSON.stringify(result), contentType: 'application/json' });
+  expect(result.passed, `${category} ${result.issue}: ${JSON.stringify(result.samples.at(-1))}`).toBe(true);
+  return result.samples.at(-1);
 }
 
 async function readSoundLayout(page) {
@@ -1778,10 +1824,11 @@ test.describe('Populated homepage carousel', () => {
     }));
     expect(restoredBreakpoint.identity).toEqual({ gallery: true, video: true });
     expect(restoredBreakpoint.galleryReady).toBe('true');
-    expect(restoredBreakpoint.videoReady).toBe('true');
+    // The inactive Video wall may be pending after a width generation changed.
+    // Its cards/columns must survive; visible readiness belongs to Gallery now.
     expect(restoredBreakpoint.galleryWrappers).toBeGreaterThan(0);
     expect(restoredBreakpoint.videoWrappers).toBeGreaterThan(0);
-    for (const [category, wall] of Object.entries(restoredBreakpoint.walls)) {
+    for (const [category, wall] of Object.entries(restoredBreakpoint.walls).filter(([category]) => category === 'gallery')) {
       expect(wall.token, `${category} token`).not.toBe('');
       expect(wall.columns, `${category} columns`).toBeGreaterThan(1);
       expect(wall.resolvedWidth, `${category} resolved width`).toBeGreaterThan(0);
@@ -1794,10 +1841,22 @@ test.describe('Populated homepage carousel', () => {
       gallery: document.querySelector('#galleryGrid')?.dataset.mediaWallRenderToken || '',
       video: document.querySelector('#videoGrid')?.dataset.mediaWallRenderToken || '',
     }));
-    expect(stableRestoredTokens).toEqual({
-      gallery: restoredBreakpoint.walls.gallery.token,
-      video: restoredBreakpoint.walls.video.token,
+    expect(stableRestoredTokens.gallery).toBe(restoredBreakpoint.walls.gallery.token);
+    await selectCategory(page, 'video');
+    await waitForPublicWall(page, 'video');
+    await expectSingleInteractivePanel(page, 'video');
+    const reopenedVideo = await page.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll('#videoGrid .video-card'));
+      const expected = window.__breakpointCardNodes.video;
+      window.__breakpointFocusedNode.focus({ preventScroll: true });
+      return { same: cards.length === expected.length && cards.every(n => expected.includes(n)),
+        focused: document.activeElement === window.__breakpointFocusedNode,
+        innerHtmlWrites: JSON.parse(JSON.stringify(window.__carouselTestWork.innerHtmlWrites)) };
     });
+    expect(reopenedVideo.same).toBe(true);
+    expect(reopenedVideo.focused).toBe(true);
+    expect(reopenedVideo.innerHtmlWrites).toEqual(breakpointWork.innerHtmlWrites);
+    expect(HOMEPAGE_REQUEST_COUNTS.get(page)).toEqual(breakpointRequests);
     await expectCarouselHorizontalFit(page, 'dynamic 820x1180 staged');
 
     await page.setViewportSize(getStagedTestViewport(browserName));
