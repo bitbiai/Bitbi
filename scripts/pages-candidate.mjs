@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { HOMEPAGE_WEBKIT_REQUIRED } from './lib/homepage-test-selection.mjs';
+export const MEDIA_POLICY = 'decorative-core-v1';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -26,10 +28,11 @@ export function tree(directory) {
   }
   visit(directory); assert(Object.keys(files).length>0,'Empty static candidate'); return files;
 }
-export function verifyManifest(manifest, expected, site) {
+export function verifyManifest(manifest, expected, site, { allowPartial = false } = {}) {
   assert.equal(manifest.schema,1); assert.equal(manifest.repository,REPOSITORY);
   for(const field of ['sha','base','run','attempt']) assert.equal(String(manifest[field]),String(expected[field]),`Candidate ${field} mismatch`);
-  assert.equal(manifest.full,true,'Not a complete candidate acceptance');
+  assert.equal(manifest.mediaPolicy,MEDIA_POLICY,'Different media acceptance policy');
+  if (!allowPartial) assert.equal(manifest.full,true,'Not a complete candidate acceptance');
   assert.deepEqual(tree(site),manifest.files,'Static bytes differ from tested candidate');
   return digest(JSON.stringify(manifest));
 }
@@ -104,18 +107,29 @@ async function main(command) {
     console.log(`Accepted exact source ${e.run}/${e.attempt} for ${e.sha}`);return;
   }
   if(command==='record') {
-    assert.equal(e.repository,REPOSITORY);assert.equal(process.env.CANDIDATE_FULL,'true');assert.equal(e.base,Q4_BASE);assert(/^[a-f0-9]{40}$/.test(e.sha));
+    assert.equal(e.repository,REPOSITORY);assert(['true','false'].includes(process.env.CANDIDATE_FULL));assert.equal(e.base,Q4_BASE);assert(/^[a-f0-9]{40}$/.test(e.sha));
     fs.mkdirSync(dir,{recursive:true});fs.cpSync('_site',path.join(dir,'site'),{recursive:true});
-    const manifest={schema:1,repository:e.repository,sha:e.sha,base:e.base,run:String(e.run),attempt:String(e.attempt),full:true,files:tree('_site')};
+    const manifest={schema:1,repository:e.repository,sha:e.sha,base:e.base,run:String(e.run),attempt:String(e.attempt),full:process.env.CANDIDATE_FULL==='true',mediaPolicy:MEDIA_POLICY,files:tree('_site')};
     fs.writeFileSync(manifestFile,JSON.stringify(manifest));return;
   }
   const manifest=JSON.parse(fs.readFileSync(manifestFile));
-  const hash=verifyManifest(manifest,e,path.join(dir,'site'));
+  const hash=verifyManifest(manifest,e,path.join(dir,'site'),{allowPartial:command!=='publish'});
   if(command==='restore') {assert(!fs.existsSync('_site'),'Refuse to replace an existing test/build server input');fs.cpSync(path.join(dir,'site'),'_site',{recursive:true});return;}
   if(command==='proof') {
-    verifyManifest(manifest,e,'_site');
+    verifyManifest(manifest,e,'_site',{allowPartial:true});
     const report=JSON.parse(fs.readFileSync(process.env.CANDIDATE_REPORT));assert(report.stats.expected>0&&report.stats.unexpected===0&&report.stats.flaky===0,'Browser acceptance missing or failed');
-    if(process.env.GITHUB_JOB==='homepage-webkit-media')assert.equal(report.stats.skipped,0,'Native cases skipped');
+    if(['homepage-webkit-media','homepage-validation'].includes(process.env.GITHUB_JOB)) {
+      const engine=process.env.GITHUB_JOB==='homepage-webkit-media'?'webkit':'chromium';
+      if(engine==='webkit') assert.equal(report.stats.skipped,0,'Native core cases skipped');
+      const passed=new Set();
+      const visit=suite=>{
+        for(const spec of suite.specs||[]) for(const test of spec.tests||[])
+          if(test.projectName===engine && test.results?.length===1 && test.results[0].status==='passed') passed.add(spec.title);
+        (suite.suites||[]).forEach(visit);
+      };
+      (report.suites||[]).forEach(visit);
+      for(const title of HOMEPAGE_WEBKIT_REQUIRED) assert(passed.has(title),'Missing executed core media scenario: '+title);
+    }
     fs.mkdirSync('candidate-proofs',{recursive:true});fs.writeFileSync(`candidate-proofs/proof-${process.env.GITHUB_JOB}.json`,JSON.stringify({job:process.env.GITHUB_JOB,status:'passed',manifestHash:hash,reportHash:digest(fs.readFileSync(process.env.CANDIDATE_REPORT)),tests:report.stats.expected}));return;
   }
   if(command==='publish') {

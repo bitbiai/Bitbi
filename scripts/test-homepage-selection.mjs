@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_NATIVE_CONTROLS_REQUIRED, HOMEPAGE_EARLY_CHROMIUM_REQUIRED, verifyHomepageDiscovery } from './lib/homepage-test-selection.mjs';
+import { flattenHomepageDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_NATIVE_CONTROLS_REQUIRED, HOMEPAGE_EXTENDED_REQUIRED, verifyHomepageDiscovery } from './lib/homepage-test-selection.mjs';
 import { validateHomepageMacRuntime, validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
@@ -12,7 +12,7 @@ const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 const fixture = (file, project, index) => ({ file, project, title: `case ${index}`, expectedStatus: 'passed', tags: [] });
 const allFunctional = ['chromium', 'webkit'].flatMap((project) => Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)
   .flatMap(([file, count]) => Array.from({ length: count }, (_, index) => fixture(file, project, index))));
-const functional = allFunctional.filter(test => !(test.project === 'webkit' && ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js'].includes(test.file)));
+const functional = [...allFunctional, ...HOMEPAGE_WEBKIT_REQUIRED.map(title => ({ ...fixture('homepage-hero-playback.spec.js', 'chromium', 0), title }))];
 const standard = functional.filter(test => test.project === 'chromium' && !['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js'].includes(test.file));
 const carousel = ['chromium', 'firefox', 'webkit'].flatMap((project) => Array.from({ length: 5 }, (_, index) => fixture('homepage-carousel-focused.spec.js', project, index)));
 const performance = Object.entries(HOMEPAGE_PERFORMANCE_REQUIRED).flatMap(([file, titles]) => titles.map((title) => ({
@@ -27,14 +27,15 @@ for (const project of ['chromium', 'webkit']) {
 }
 const webkit = functional.filter(test => test.project === 'chromium' && ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js'].includes(test.file))
   .map(test => ({ ...test, project: 'webkit' }));
-const diagnostic = webkit.filter(test => test.file === 'homepage-native-control.spec.js');
-const valid = { standard, carousel, functional, webkit, performance, diagnostic };
+const extended = [...webkit, ...HOMEPAGE_EXTENDED_REQUIRED.map(title => ({ ...fixture(HOMEPAGE_NATIVE_CONTROLS_REQUIRED.includes(title) ? 'homepage-native-control.spec.js' : 'homepage-hero-playback.spec.js', 'webkit', 0), title, tags: ['homepage-extended'] }))];
+const diagnostic = extended.filter(test => test.file === 'homepage-native-control.spec.js');
+const valid = { standard, carousel, functional, webkit, extended, performance, diagnostic };
 assert.throws(() => verifyHomepageDiscovery({ ...valid, diagnostic: [] }), /no tests/);
 assert.throws(() => verifyHomepageDiscovery({ ...valid, diagnostic: diagnostic.slice(1) }), /lost an independent/);
 assert.equal(verifyHomepageDiscovery(valid).existingCommandUnion, standard.length + 10);
 for (const file of ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js']) {
   assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: [...functional, fixture(file, 'webkit', 0)] }), /must not duplicate/);
-  assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: functional.filter(t => t.file !== file) }), /require at least/);
+  if (file === 'homepage-hero-playback.spec.js') assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: functional.filter(t => t.file !== file) }), /scenario union/);
 }
 for (const file of ['homepage-hero-state.spec.js', 'homepage-media-loading.spec.js']) {
   assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: functional.filter(t => !(t.project === 'webkit' && t.file === file)) }), /require at least/);
@@ -45,10 +46,10 @@ for (let missing = 0; missing < webkit.length; missing += 1) {
   assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.filter((_, index) => index !== missing) }), /scenario missing|scenario union/);
 }
 // Matching OS unions alone cannot detect removal/renaming on every platform.
-for (const title of HOMEPAGE_NATIVE_CONTROLS_REQUIRED) {
+for (const title of HOMEPAGE_EXTENDED_REQUIRED) {
   const renamed = Object.fromEntries(Object.entries(valid).map(([name, tests]) => [name,
     tests.map(test => test.title === title ? { ...test, title: 'unrelated replacement' } : test)]));
-  assert.throws(() => verifyHomepageDiscovery(renamed), /Required independent native scenario missing/);
+  assert.throws(() => verifyHomepageDiscovery(renamed), /Required extended scenario missing/);
 }
 assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.map(test => ({ ...test, project: 'chromium' })) }), /replacement/);
 assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.map(test => ({ ...test, expectedStatus: 'skipped' })) }), /replacement/);
@@ -152,7 +153,7 @@ for (const workflow of ['static.yml', 'full-regression.yml', 'ui-fast-deploy.yml
   assert.ok(!mac.includes('continue-on-error') && !mac.includes('secrets.'));
   const early = job(text, 'homepage-validation');
   assert.ok(early.includes('npm run check:homepage-selection'));
-  assert.ok(early.includes('run: npm run test:homepage-functional\n'));
+  assert.ok(early.includes(workflow === 'full-regression.yml' ? 'run: npm run test:homepage-functional:extended\n' : 'run: npm run test:homepage-functional\n'));
   assert.ok(!early.includes('--max-failures'), 'Complete homepage acceptance must not leave the remaining scenarios unexecuted');
   assert.ok(!early.includes('npm run test:homepage-webkit'), 'Do not repeat a failed native preflight in the longer sequence');
   assert.ok(early.includes('npm run check:homepage-runtime'));

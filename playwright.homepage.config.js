@@ -3,6 +3,7 @@ const { defineConfig } = require('@playwright/test');
 // Short, mandatory functional feedback. The existing full suites remain intact.
 module.exports = defineConfig({
   testDir: './tests',
+  grepInvert: process.env.HOMEPAGE_EXTENDED === 'true' ? undefined : /@homepage-extended/,
   testMatch: [
     'homepage-carousel-focused.spec.js',
     'homepage-creation-stream-anchor.spec.js',

@@ -2820,62 +2820,22 @@ test.describe('Homepage', () => {
     await expect(bottomSlot).toHaveAttribute('data-active-video-id', 'models-module-02');
     await expect(leftTopSlot).toHaveAttribute('data-active-video-id', 'models-module-06');
     await expect(leftBottomSlot).toHaveAttribute('data-active-video-id', 'models-module-07');
-    await expect(topSlot).toHaveAttribute('data-next-delay-ms', '4000');
-    await expect(bottomSlot).toHaveAttribute('data-next-delay-ms', '2000');
-    await expect(leftTopSlot).toHaveAttribute('data-next-delay-ms', '4000');
-    await expect(leftBottomSlot).toHaveAttribute('data-next-delay-ms', '2000');
     await expect(topSlot.locator('video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/models-module-01\/vpub\/file$/);
     await expect(leftTopSlot.locator('video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/models-module-06\/vpub\/file$/);
     await expect(leftBottomSlot.locator('video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/models-module-07\/vpub\/file$/);
 
-    await expect
-      .poll(async () => bottomSlot.evaluate((slot) => {
-        const incoming = slot.querySelector('.latest-models-video-module__face--right video');
-        if (!incoming) return '';
-        incoming.dataset.continuityMarker = 'bottom-incoming-survives';
-        return incoming.getAttribute('src') || '';
-      }), { timeout: 3000 })
-      .toContain('/api/gallery/memvids/models-module-03/vpub/file');
-    await expect
-      .poll(async () => bottomSlot.evaluate((slot) => {
-        const incoming = slot.querySelector('.latest-models-video-module__face--front video');
-        if (slot.classList.contains('is-turning') || !incoming) return '';
-        return [
-          incoming.dataset.continuityMarker || '',
-          slot.dataset.nextDelayMs || '',
-          slot.dataset.transitionCount || '',
-          incoming.getAttribute('src') || '',
-        ].join('|');
-      }), { timeout: 2200 })
-      .toContain('bottom-incoming-survives|4000|1|/api/gallery/memvids/models-module-03/vpub/file');
-    await expect.poll(() => bottomSlot.getAttribute('data-transition-count'), { timeout: 3200 }).toBe('1');
-    expect(['0', '1']).toContain(await topSlot.getAttribute('data-transition-count'));
-
-    await expect
-      .poll(async () => topSlot.evaluate((slot) => {
-        const incoming = slot.querySelector('.latest-models-video-module__face--right video');
-        if (!incoming) return '';
-        incoming.dataset.continuityMarker = 'top-incoming-survives';
-        return incoming.getAttribute('src') || '';
-      }), { timeout: 2600 })
-      .toContain('/api/gallery/memvids/models-module-02/vpub/file');
-    await expect.poll(() => topSlot.getAttribute('data-transition-count'), { timeout: 1200 }).toBe('1');
-    await expect
-      .poll(async () => topSlot.evaluate((slot) => {
-        const incoming = slot.querySelector('.latest-models-video-module__face--front video');
-        if (slot.classList.contains('is-turning') || !incoming) return '';
-        return [
-          incoming.dataset.continuityMarker || '',
-          slot.dataset.nextDelayMs || '',
-          slot.dataset.transitionCount || '',
-          incoming.getAttribute('src') || '',
-        ].join('|');
-      }), { timeout: 2200 })
-      .toContain('top-incoming-survives|4000|1|/api/gallery/memvids/models-module-02/vpub/file');
-    await expect.poll(() => videoRequests.slice(), { timeout: 3000 }).toEqual(expect.arrayContaining([
+    // This fixture deliberately returns non-decodable mock-video bytes.
+    // Navigation must remain usable with the existing posters, not require
+    // timer-driven swaps into further broken sources. Actual output/controlled
+    // source adoption is covered by the built native core and controller tests.
+    const posters = modelsButtons.locator('.latest-models-video-module__poster');
+    await expect(posters).toHaveCount(4);
+    await expect.poll(() => posters.evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0))).toBe(true);
+    for (const poster of await posters.all()) await expect(poster).toBeVisible();
+    expect(await modelsButtons.locator('[data-latest-models-slot]').evaluateAll(slots => slots.map(s => s.dataset.transitionCount))).toEqual(['0','0','0','0']);
+    expect(videoRequests).toEqual(expect.arrayContaining([
       '/api/gallery/memvids/models-module-01/vpub/file',
       '/api/gallery/memvids/models-module-02/vpub/file',
-      '/api/gallery/memvids/models-module-03/vpub/file',
       '/api/gallery/memvids/models-module-06/vpub/file',
       '/api/gallery/memvids/models-module-07/vpub/file',
     ]));

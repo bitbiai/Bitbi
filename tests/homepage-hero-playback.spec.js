@@ -26,7 +26,7 @@ test.afterEach(async ({ page }, testInfo) => {
   if (details) await testInfo.attach('native-media-final-details', { body: JSON.stringify(details), contentType: 'application/json' });
 });
 
-async function fixture(page, { configured = true, initiallyHidden = false, transport = 'http' } = {}) {
+async function fixture(page, { configured = true, initiallyHidden = false, transport = 'http', broken = false } = {}) {
   const { publicVideoResponse } = await import('../workers/auth/src/lib/public-video-response.mjs');
   const requests = [];
   const errors = [];
@@ -64,7 +64,7 @@ async function fixture(page, { configured = true, initiallyHidden = false, trans
     if (url.pathname === '/api/homepage/hero-videos') {
       return json({ ok: true, data: { configured, slots: configured ? SLOT_NAMES.map(slot => ({
         slot, version: 'playback-v1',
-        file: { url: `/api/homepage/hero-videos/${slot}/playback-v1/file` },
+        file: { url: `/api/homepage/hero-videos/${slot}/playback-v1/file${broken ? '?broken=1' : ''}` },
         poster: { url: `/api/homepage/hero-videos/${slot}/playback-v1/poster` },
       })) : [] } });
     }
@@ -188,7 +188,7 @@ async function scrollHeroOffscreen(page) {
 // The intercepted transport is diagnostic only. The real HTTP path must pass
 // the same native loop/seek/resume contract, before testing the actual Hero.
 for (const transport of ['fulfill', 'http']) {
-  test(`native plain video: ${transport === 'http' ? 'HTTP response loops and seeks' : 'fulfill transport comparison'}`, async ({ page, browserName }, testInfo) => {
+  test(`native plain video: ${transport === 'http' ? 'HTTP response loops and seeks' : 'fulfill transport comparison'}`, { tag: '@homepage-extended' }, async ({ page, browserName }, testInfo) => {
     await fixture(page, { transport });
     const requests = [];
     page.on('response', response => {
@@ -233,6 +233,13 @@ for (const transport of ['fulfill', 'http']) {
 
 test('native HTTP corrupt media is rejected, not mistaken for playback', async ({ page }) => {
   await fixture(page);
+  // Byte transport control is independent of playback instrumentation.
+  const full = await page.request.get('/api/plain/file');
+  expect(full.status()).toBe(200); expect(await full.body()).toEqual(VIDEO);
+  const range = await page.request.get('/api/plain/file', { headers: { Range: 'bytes=3-31' } });
+  expect(range.status()).toBe(206); expect(await range.body()).toEqual(VIDEO.subarray(3,32));
+  expect(range.headers()['content-range']).toBe(`bytes 3-31/${VIDEO.length}`);
+  expect(range.headers()['content-length']).toBe('29');
   await page.goto('/plain-video');
   const result=await page.evaluate(async()=>{
     document.body.replaceChildren();const v=document.createElement('video');v.muted=true;document.body.append(v);window.__heroNativeProbe.observe(v);v.src='/api/plain/file?broken=1';
@@ -243,8 +250,21 @@ test('native HTTP corrupt media is rejected, not mistaken for playback', async (
   expect(transports.get(page).responses.some(r=>r.broken&&r.status===200)).toBe(true);
 });
 
+test('decorative unavailable video retains visible poster and usable Models navigation', async ({ page }, testInfo) => {
+  await openHome(page, 'en', { broken: true });
+  await expect.poll(() => page.locator(HERO_VIDEOS).evaluateAll(v => v.every(v => v.error))).toBe(true);
+  const posters = page.locator(`${HERO_SLOTS} .latest-models-video-module__poster`);
+  await expect(posters).toHaveCount(4);
+  await expect.poll(() => posters.evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0))).toBe(true);
+  expect(await page.locator(HERO_VIDEOS).evaluateAll(videos => videos.every(v => getComputedStyle(v).opacity === '0'))).toBe(true);
+  for (const poster of await posters.all()) await expect(poster).toBeVisible();
+  await testInfo.attach('visible-poster-fallback', { body: await page.screenshot(), contentType: 'image/png' });
+  await page.locator('#hero [data-models-link]').first().click();
+  await expect(page.locator('.models-overlay')).toBeVisible();
+});
+
 for (const locale of ['en', 'de']) {
-  test(`${locale}: configured native media loops in every slot with the public range file contract`, async ({ page }, testInfo) => {
+  test(`${locale}: configured native media loops in every slot with the public range file contract`, { tag: '@homepage-extended' }, async ({ page }, testInfo) => {
     await openHome(page, locale);
     await expectPlaying(page);
     const result = await page.evaluate(() => window.__heroNativeProbe.waitForProgress({ loops: 2 }));
@@ -299,7 +319,7 @@ for (const locale of ['en', 'de']) {
     expect(state.errors).toEqual([]);
   });
 
-  test(`${locale}: fallback freezes media and its staggered cycle while suspended`, async ({ page }, testInfo) => {
+  test(`${locale}: fallback freezes media and its staggered cycle while suspended`, { tag: '@homepage-extended' }, async ({ page }, testInfo) => {
     const state = await openHome(page, locale, { configured: false });
     await expectPlaying(page);
     await scrollHeroOffscreen(page);
@@ -334,6 +354,42 @@ for (const locale of ['en', 'de']) {
     expect(completion.passed, `${completion.reason}: ${JSON.stringify(completion.targets)}`).toBe(true);
     await expectNativeResumeContinuity(page, testInfo, 'fallback-native-turn-resume');
     expect(state.errors).toEqual([]);
+  });
+
+  test(`${locale}: decorative fallback retains playable content while next media loads`, async ({ page }, testInfo) => {
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const pending = [];
+    await page.route(/\/api\/gallery\/memvids\/playback-(2|7)\/v1\/file$/, async route => {
+      pending.push(route.request().url());
+      await gate;
+      await route.continue(); // Native bytes still come from the real HTTP server.
+    });
+    try {
+      await openHome(page, locale, { configured: false });
+      await expectPlaying(page);
+      const bottoms = page.locator(`${HERO_SLOTS}[data-latest-models-slot="bottom"]`);
+      await expect.poll(() => bottoms.evaluateAll(slots => slots.map(s => s.dataset.previewPreparation))).toEqual(['loading', 'loading']);
+      const kept = await bottoms.evaluateAll(slots => slots.map(s => ({ id: s.dataset.activeVideoId, src: s.querySelector('video').getAttribute('src') })));
+      expect(kept.map(s => s.id).sort()).toEqual(['playback-1','playback-6']);
+      await expectPlaying(page); // Each visible identity outputs while next bytes are held.
+      expect(pending.length).toBeGreaterThanOrEqual(2);
+      if (locale === 'en') {
+        release();
+        await expect.poll(() => bottoms.evaluateAll(slots => slots.map(s => s.dataset.activeVideoId).sort())).toEqual(['playback-2','playback-7']);
+        await expectPlaying(page); // Adopted sources must supply their own output.
+      } else {
+        await page.evaluate(() => window.__setHeroDocumentHidden(true));
+        await expectFrozen(page, testInfo, 'decorative-loading-suspended', 200);
+        // Suspension cancels speculation; late responses cannot win after resume.
+        release();
+        await page.evaluate(() => window.__setHeroDocumentHidden(false));
+        await expectPlaying(page);
+        expect(await bottoms.evaluateAll(slots => slots.map(s => ({ id: s.dataset.activeVideoId, src: s.querySelector('video').getAttribute('src') })))).toEqual(kept);
+      }
+      await page.locator('#hero [data-models-link]').first().click();
+      await expect(page.locator('.models-overlay')).toBeVisible();
+    } finally { release(); }
   });
 
   test(`${locale}: hidden initialization and bfcache restore preserve media; ordinary pagehide cleans up`, async ({ page }, testInfo) => {
@@ -378,7 +434,6 @@ for (const locale of ['en', 'de']) {
     await page.setViewportSize({ width: 820, height: 1180 });
     await expect(page.locator(HERO_VIDEOS)).toHaveCount(4);
     await expectPlaying(page);
-    await expect.poll(() => page.locator(HERO_SLOTS).evaluateAll(slots => slots.some(slot => Number(slot.dataset.transitionCount) > 0)), { timeout: 3000 }).toBe(true);
     await expect(page.locator(`${HERO_SLOTS}.is-turning`)).toHaveCount(0);
     await scrollHeroOffscreen(page);
     await expect.poll(() => page.locator(HERO_VIDEOS).evaluateAll(videos => videos.every(video => video.paused))).toBe(true);

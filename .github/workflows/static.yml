@@ -101,9 +101,9 @@ jobs:
           # Change selection is separate from the cumulative release guard.
           CI_BASE_REF: ${{ github.event_name == 'push' && github.event.before || env.CANDIDATE_BASE }}
           CI_HEAD_REF: ${{ github.sha }}
-          # Temporary full Q4 acceptance, not a permanent all-push test policy.
-          # Retire the pending Q4 default after its confirmed Pages publication.
-          CI_FORCE_FULL: ${{ env.CANDIDATE_BASE == '8292a4926bb1bf24679db9dd2b87cd6882f4d4f7' || github.event_name == 'workflow_dispatch' }}
+          # Dispatch validation covers the cumulative release. Push selection
+          # follows its changed inputs; workflow changes select full themselves.
+          CI_FORCE_FULL: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           set -euo pipefail
           args=(--base "${CI_BASE_REF:-}" --head "${CI_HEAD_REF:-HEAD}" --github-output)
@@ -373,10 +373,12 @@ jobs:
         if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
         run: npm run diagnose:homepage-linux-media
       - name: Confirm tested candidate bytes
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         env:
           CANDIDATE_REPORT: test-results/homepage-functional.json
         run: node scripts/pages-candidate.mjs proof
       - name: Upload tested candidate identity
+        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: pages-proof-homepage-validation-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}

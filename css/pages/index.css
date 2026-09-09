@@ -5515,6 +5515,7 @@
 
         .latest-models-video-module__cube,
         .latest-models-video-module__face,
+        .latest-models-video-module__poster,
         .latest-models-video-module__video,
         .latest-models-video-module__fallback {
             position: absolute;
@@ -5549,16 +5550,25 @@
             transform: rotateY(90deg) translateZ(var(--latest-models-cube-depth));
         }
 
+        .latest-models-video-module__poster {
+            object-fit: cover;
+        }
+
         .latest-models-video-module__video {
+            opacity: 0;
             object-fit: cover;
             object-position: center center;
             background: transparent;
             filter: saturate(1.08) contrast(1.05) brightness(0.94);
         }
 
+        .latest-models-video-module__video.has-output {
+            opacity: 1;
+        }
+
         .latest-models-video-module__fallback {
             overflow: hidden;
-            background: transparent;
+            background: linear-gradient(135deg, #09252d, #132d37 50%, #193343);
         }
 
         .latest-models-video-module__fallback::before {

@@ -26,6 +26,7 @@ try {
     carousel: 'playwright.carousel.config.js',
     functional: 'playwright.homepage.config.js',
     webkit: 'playwright.homepage-webkit.config.js',
+    extended: 'playwright.homepage-webkit.config.js',
     performance: 'playwright.homepage-performance.config.js',
     diagnostic: 'playwright.homepage-linux-diagnostic.config.js',
   })) {
@@ -35,7 +36,7 @@ try {
     const rawOutput = path.join(rawDirectory, `${name}.json`);
     const result = spawnSync(process.execPath, [cli, 'test', '-c', config, '--list', '--reporter=json'], {
       cwd: root,
-      env: { ...process.env, PLAYWRIGHT_JSON_OUTPUT_FILE: rawOutput },
+      env: { ...process.env, HOMEPAGE_EXTENDED: name === 'extended' ? 'true' : 'false', PLAYWRIGHT_JSON_OUTPUT_FILE: rawOutput },
       encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
     });
     fs.writeFileSync(path.join(rawDirectory, `${name}.log`), `${result.stdout || ''}${result.stderr || ''}`);

@@ -171,7 +171,7 @@ jobs:
           set -eu
           test "$(id -u)" -gt 0
           mkdir -p "$RUNNER_TEMP/homepage-home" "$RUNNER_TEMP/homepage-tmp"
-          env -i PATH="$PATH" HOME="$RUNNER_TEMP/homepage-home" TMPDIR="$RUNNER_TEMP/homepage-tmp" CI=true GITHUB_SHA="$GITHUB_SHA" PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/homepage-browsers" /usr/bin/sandbox-exec -f tests/helpers/homepage-macos.sb /bin/sh -c 'node scripts/check-homepage-runtime.mjs --macos && npm run test:homepage-webkit'
+          env -i PATH="$PATH" HOME="$RUNNER_TEMP/homepage-home" TMPDIR="$RUNNER_TEMP/homepage-tmp" CI=true GITHUB_SHA="$GITHUB_SHA" PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/homepage-browsers" /usr/bin/sandbox-exec -f tests/helpers/homepage-macos.sb /bin/sh -c 'node scripts/check-homepage-runtime.mjs --macos && npm run test:homepage-webkit:extended'
       - name: Upload mandatory macOS media evidence
         if: always()
         uses: actions/upload-artifact@v6
@@ -229,7 +229,7 @@ jobs:
         run: npm run check:homepage-selection
       - name: Run Linux homepage functional acceptance
         if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
-        run: npm run test:homepage-functional
+        run: npm run test:homepage-functional:extended
       - name: Record controlled homepage performance diagnostics
         if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
         run: npm run test:homepage-performance
@@ -271,7 +271,7 @@ jobs:
       - name: Install Playwright browser matrix
         run: npx playwright install --with-deps chromium firefox webkit
       - name: Run full static regression
-        run: npm run test:static
+        run: HOMEPAGE_EXTENDED=true npm run test:static
       - name: Run full homepage carousel matrix
         run: npm run test:homepage-carousel
       - name: Upload Playwright report

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
+import { HOMEPAGE_WEBKIT_REQUIRED } from './lib/homepage-test-selection.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
-import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, tree, validateSource, verifyManifest, verifyProofs } from './pages-candidate.mjs';
+import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, tree, validateSource, verifyManifest, verifyProofs, MEDIA_POLICY } from './pages-candidate.mjs';
 const sha='a'.repeat(40),expected={repository:REPOSITORY,sha,base:Q4_BASE,run:'123',attempt:'1',currentRun:'456'};
 const run={repository:{full_name:REPOSITORY},head_repository:{full_name:REPOSITORY},head_sha:sha,head_branch:'main',id:123,run_attempt:1,path:'.github/workflows/static.yml',event:'push',status:'completed',conclusion:'success',created_at:'2026-09-09T00:00:00Z'};
 const jobs=Object.entries(REQUIRED_JOBS).map(([name,steps])=>({name,head_sha:sha,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
@@ -35,10 +36,21 @@ try {
  const invoke=(command,extra={})=>{const r=spawnSync(process.execPath,[cli,command],{cwd:dir,env:{...env,...extra},encoding:'utf8'});assert.equal(r.status,0,r.stderr);};
  invoke('record');
  const manifest=JSON.parse(fs.readFileSync(path.join(dir,'candidate/manifest.json')));
+ assert.equal(manifest.mediaPolicy,MEDIA_POLICY);
  verifyManifest(manifest,expected,path.join(dir,'_site'));
  assert.throws(()=>verifyManifest({...manifest,full:false},expected,path.join(dir,'_site')));
- fs.writeFileSync(path.join(dir,'report.json'),JSON.stringify({stats:{expected:18,unexpected:0,flaky:0,skipped:0}}));
+ verifyManifest({...manifest,full:false},expected,path.join(dir,'_site'),{allowPartial:true});
+ assert.throws(()=>verifyManifest({...manifest,mediaPolicy:'retired'},expected,path.join(dir,'_site')));
+ fs.writeFileSync(path.join(dir,'report.json'),JSON.stringify({stats:{expected:2*HOMEPAGE_WEBKIT_REQUIRED.length,unexpected:0,flaky:0,skipped:0},suites:[{specs:HOMEPAGE_WEBKIT_REQUIRED.map(title=>({file:'homepage-hero-playback.spec.js',title,tests:['webkit','chromium'].map(projectName=>({projectName,expectedStatus:'passed',results:[{status:'passed'}]}))}))}]}));
  for(const job of ['homepage-validation','homepage-webkit-media'])invoke('proof',{GITHUB_JOB:job,CANDIDATE_REPORT:'report.json'});
+ const goodReport=JSON.parse(fs.readFileSync(path.join(dir,'report.json')));
+ for(const fault of ['missing','unexecuted','failed']) {
+   const bad=structuredClone(goodReport);
+   if(fault==='missing')bad.suites[0].specs.pop();
+   else bad.suites[0].specs[0].tests[0].results=fault==='unexecuted'?[]:[{status:'failed'}];
+   fs.writeFileSync(path.join(dir,'bad-report.json'),JSON.stringify(bad));
+   assert.throws(()=>invoke('proof',{GITHUB_JOB:'homepage-webkit-media',CANDIDATE_REPORT:'bad-report.json'}));
+ }
  const proofs=fs.readdirSync(path.join(dir,'candidate-proofs')).map(f=>JSON.parse(fs.readFileSync(path.join(dir,'candidate-proofs',f))));
  verifyProofs(manifest,proofs);assert.throws(()=>verifyProofs(manifest,proofs.slice(1)));assert.throws(()=>verifyProofs(manifest,proofs.map(p=>({...p,manifestHash:'foreign'}))));
  for(const file of fs.readdirSync(path.join(dir,'candidate-proofs')))fs.copyFileSync(path.join(dir,'candidate-proofs',file),path.join(dir,'candidate',file));
@@ -54,7 +66,7 @@ for (const [job, steps] of Object.entries(REQUIRED_JOBS)) {
   for (const step of steps) assert(block(job).includes(`- name: ${step}\n`), `Unwired required evidence: ${job}/${step}`);
 }
 const forceFull=block('release-compatibility').match(/CI_FORCE_FULL: \$\{\{ (.+) \}\}/)[1];
-for(const [base,event,wanted] of [[Q4_BASE,'push',true],[sha,'push',false],[sha,'workflow_dispatch',true]]) {
+for(const [base,event,wanted] of [[Q4_BASE,'push',false],[sha,'push',false],[sha,'workflow_dispatch',true]]) {
  assert.equal(vm.runInNewContext(forceFull,{env:{CANDIDATE_BASE:base},github:{event_name:event}}),wanted);
 }
 assert(block('release-compatibility').includes("CI_BASE_REF: ${{ github.event_name == 'push' && github.event.before || env.CANDIDATE_BASE }}"));

@@ -18,6 +18,9 @@ const HOMEPAGE_HERO_VIDEO_SLOTS = ['right_top', 'right_bottom', 'left_top', 'lef
 const LATEST_MEMVID_LIMIT = 60;
 const CYCLE_MS = 4000;
 const BOTTOM_START_OFFSET_MS = 2000;
+// Decorative preparation is bounded; failure retains the current preview.
+// This is a resource deadline, not a promised visual switching cadence.
+const PREPARE_TIMEOUT_MS = 8000;
 const TRANSITION_MS = 920;
 const TRANSITION_FALLBACK_MS = TRANSITION_MS + 120;
 
@@ -175,7 +178,6 @@ function createVideo(entry, playing = true) {
     video.disablePictureInPicture = true;
     video.src = entry.src;
     if (entry.poster) video.poster = entry.poster;
-    if (playing) playVideo(video);
     return video;
 }
 
@@ -183,11 +185,30 @@ function createFace(entry, side, playing = true) {
     const face = document.createElement('span');
     face.className = `latest-models-video-module__face latest-models-video-module__face--${side}`;
     face.setAttribute('aria-hidden', 'true');
-    face.appendChild(entry ? createVideo(entry, playing) : createFallback());
+    if (entry?.poster) {
+        const poster = document.createElement('img');
+        poster.className = 'latest-models-video-module__poster';
+        poster.alt = '';
+        poster.src = entry.poster;
+        face.append(poster);
+    } else {
+        face.append(createFallback());
+    }
+    if (entry) {
+        const video = createVideo(entry, playing);
+        // An actual poster layer stays visible on loading/error/autoplay denial.
+        // loadeddata is not advertised as proof of ongoing playback.
+        video.addEventListener('playing', () => video.classList.add('has-output'));
+        video.addEventListener('error', () => video.classList.remove('has-output'));
+        face.append(video);
+    }
     return face;
 }
 
 function disposeVideos(root, preserveRoot = null) {
+    root?.querySelectorAll?.('.latest-models-video-module__poster')?.forEach((poster) => {
+        if (!preserveRoot?.contains?.(poster)) poster.removeAttribute('src');
+    });
     root?.querySelectorAll?.('video')?.forEach((video) => {
         if (preserveRoot?.contains?.(video)) return;
         video.pause();
@@ -216,6 +237,7 @@ function clearSlot(slot) {
     slot.removeAttribute('data-active-index');
     slot.removeAttribute('data-transition-count');
     slot.removeAttribute('data-next-delay-ms');
+    slot.removeAttribute('data-preview-preparation');
 }
 
 function renderSettledSlot(slot, entry, index, transitionCount, preservedFace = null, playing = true) {
@@ -235,6 +257,7 @@ function renderSettledSlot(slot, entry, index, transitionCount, preservedFace = 
     slot.dataset.activeVideoId = entry?.id || '';
     slot.dataset.activeIndex = String(index);
     slot.dataset.transitionCount = String(transitionCount);
+    if (playing && !preservedFace && face.querySelector('video')) playVideo(face.querySelector('video'));
 }
 
 function makeSlotController(slot, entries, startIndex, { reducedMotion = false, suspended = false } = {}) {
@@ -249,9 +272,13 @@ function makeSlotController(slot, entries, startIndex, { reducedMotion = false, 
     let transitionRemaining = 0;
     let finishTransition = null;
     const resumeVideos = new Set();
+    let cancelPreparation = null;
+    let cancelInitialWait = null;
 
     function stop() {
         stopped = true;
+        cancelPreparation?.();
+        cancelInitialWait?.();
         window.clearTimeout(timer);
         window.clearTimeout(transitionTimer);
         finishTransition = null;
@@ -262,6 +289,15 @@ function makeSlotController(slot, entries, startIndex, { reducedMotion = false, 
     function schedule(delay = CYCLE_MS) {
         window.clearTimeout(timer);
         if (stopped || entries.length < 2) return;
+        cancelInitialWait?.();
+        const current = slot.querySelector('video');
+        // A timer must never outrun the initial source (or a deliberate pause).
+        if (current && (current.readyState < 2 || current.paused) && !suspended) {
+            const ready = () => { if (!stopped && !suspended && !current.paused && current.readyState >= 2) schedule(delay); };
+            current.addEventListener('playing', ready);
+            cancelInitialWait = () => { current.removeEventListener('playing', ready); cancelInitialWait = null; };
+            return;
+        }
         cycleRemaining = delay;
         slot.dataset.nextDelayMs = String(delay);
         if (suspended) return;
@@ -274,6 +310,9 @@ function makeSlotController(slot, entries, startIndex, { reducedMotion = false, 
         suspended = nextSuspended;
         const cube = slot.querySelector('.latest-models-video-module__cube');
         if (suspended) {
+            // Abandon only speculative loading, never reload the visible media.
+            cancelPreparation?.();
+            cancelInitialWait?.();
             if (timer) cycleRemaining = Math.max(0, cycleDue - performance.now());
             if (transitionTimer) transitionRemaining = Math.max(0, transitionDue - performance.now());
             window.clearTimeout(timer);
@@ -316,53 +355,88 @@ function makeSlotController(slot, entries, startIndex, { reducedMotion = false, 
         timer = 0;
         cycleRemaining = null;
         const nextIndex = (index + 1) % entries.length;
-        transitionCount += 1;
+        const current = slot.querySelector('video');
+        if (current?.paused || (current && current.readyState < 2)) return;
         slot.removeAttribute('data-next-delay-ms');
 
         const previousChildren = Array.from(slot.children);
         const existingFrontFace = slot.querySelector(':scope > .latest-models-video-module__cube > .latest-models-video-module__face--front');
         const frontFace = existingFrontFace || createFace(entries[index], 'front');
-        const incomingFace = createFace(entries[nextIndex], reducedMotion ? 'front' : 'right');
-
-        if (reducedMotion) {
-            slot.classList.add('is-reduced-transition');
-            previousChildren.forEach((node) => disposeVideos(node, incomingFace));
-            settle(nextIndex, incomingFace);
-            return;
-        }
-
-        const cube = document.createElement('span');
-        cube.className = 'latest-models-video-module__cube is-turning';
-        setFaceSide(frontFace, 'front');
-        setFaceSide(incomingFace, 'right');
-        cube.append(
-            frontFace,
-            incomingFace,
-        );
-        previousChildren.forEach((node) => disposeVideos(node, frontFace));
-        slot.replaceChildren(cube);
-        slot.classList.add('is-turning', 'is-ready');
-        slot.dataset.activeVideoId = entries[nextIndex]?.id || '';
-        slot.dataset.activeIndex = String(nextIndex);
-        slot.dataset.transitionCount = String(transitionCount);
-        window.clearTimeout(transitionTimer);
-
-        let didSettle = false;
-        const finish = (event) => {
-            if (event && event.target !== cube) return;
-            if (didSettle || suspended) return;
-            didSettle = true;
-            cube.removeEventListener('animationend', finish);
-            window.clearTimeout(transitionTimer);
-            transitionTimer = 0;
-            finishTransition = null;
-            if (!stopped) settle(nextIndex, incomingFace);
+        const incomingFace = createFace(entries[nextIndex], reducedMotion ? 'front' : 'right', false);
+        const incoming = incomingFace.querySelector('video');
+        slot.dataset.previewPreparation = 'loading';
+        let deadline;
+        const cleanup = () => {
+            clearTimeout(deadline);
+            incoming.removeEventListener('loadeddata', ready);
+            incoming.removeEventListener('error', failed);
+            cancelPreparation = null;
         };
-        cube.addEventListener('animationend', finish);
-        finishTransition = finish;
-        transitionRemaining = TRANSITION_FALLBACK_MS;
-        transitionDue = performance.now() + transitionRemaining;
-        transitionTimer = window.setTimeout(finish, TRANSITION_FALLBACK_MS);
+        const failed = () => {
+            cleanup();
+            disposeVideos(incomingFace);
+            slot.dataset.previewPreparation = 'held';
+            // No retry or next-source chain on error/timeout/policy rejection.
+        };
+        const ready = () => {
+            if (stopped || suspended || cancelPreparation !== failed || incoming.readyState < 2) return;
+            if (current?.paused) { failed(); return; }
+            cleanup();
+            slot.dataset.previewPreparation = 'ready';
+            transitionCount += 1;
+            commit();
+        };
+        cancelPreparation = failed;
+        incoming.addEventListener('loadeddata', ready);
+        incoming.addEventListener('error', failed);
+        incoming.preload = 'auto';
+        deadline = window.setTimeout(failed, PREPARE_TIMEOUT_MS);
+        if (incoming.readyState >= 2) ready();
+
+        function commit() {
+
+            if (reducedMotion) {
+                slot.classList.add('is-reduced-transition');
+                previousChildren.forEach((node) => disposeVideos(node, incomingFace));
+                settle(nextIndex, incomingFace);
+                playVideo(incoming);
+                return;
+            }
+
+            const cube = document.createElement('span');
+            cube.className = 'latest-models-video-module__cube is-turning';
+            setFaceSide(frontFace, 'front');
+            setFaceSide(incomingFace, 'right');
+            cube.append(
+                frontFace,
+                incomingFace,
+            );
+            previousChildren.forEach((node) => disposeVideos(node, frontFace));
+            slot.replaceChildren(cube);
+            playVideo(incoming);
+            slot.classList.add('is-turning', 'is-ready');
+            slot.dataset.activeVideoId = entries[nextIndex]?.id || '';
+            slot.dataset.activeIndex = String(nextIndex);
+            slot.dataset.transitionCount = String(transitionCount);
+            window.clearTimeout(transitionTimer);
+
+            let didSettle = false;
+            const finish = (event) => {
+                if (event && event.target !== cube) return;
+                if (didSettle || suspended) return;
+                didSettle = true;
+                cube.removeEventListener('animationend', finish);
+                window.clearTimeout(transitionTimer);
+                transitionTimer = 0;
+                finishTransition = null;
+                if (!stopped) settle(nextIndex, incomingFace);
+            };
+            cube.addEventListener('animationend', finish);
+            finishTransition = finish;
+            transitionRemaining = TRANSITION_FALLBACK_MS;
+            transitionDue = performance.now() + transitionRemaining;
+            transitionTimer = window.setTimeout(finish, TRANSITION_FALLBACK_MS);
+        }
     }
 
     renderSettledSlot(slot, entries[index], index, transitionCount, null, !suspended);

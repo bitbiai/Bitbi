@@ -112,7 +112,9 @@
     "release:cutover-evidence:markdown": "node scripts/release-cutover-evidence.mjs --markdown",
     "release:rollback-drill": "node scripts/rollback-drill.mjs",
     "release:preflight": "node scripts/release-preflight.mjs",
-    "release:apply": "node scripts/release-apply.mjs"
+    "release:apply": "node scripts/release-apply.mjs",
+    "test:homepage-webkit:extended": "HOMEPAGE_EXTENDED=true playwright test -c playwright.homepage-webkit.config.js",
+    "test:homepage-functional:extended": "HOMEPAGE_EXTENDED=true playwright test -c playwright.homepage.config.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

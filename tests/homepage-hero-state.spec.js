@@ -162,9 +162,21 @@ async function controlledHero(page) {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
     window.__heroHidden = value => { hidden = value; document.dispatchEvent(new Event('visibilitychange')); };
     const playing = new WeakSet();
+    window.__readyNewMedia = true;
+    window.__controlledVideos = [];
+    const create = document.createElement.bind(document);
+    document.createElement = (...args) => {
+      const element = create(...args);
+      if (args[0] === 'video') {
+        window.__controlledVideos.push(element);
+        element.__ready = window.__readyNewMedia;
+      }
+      return element;
+    };
     Object.defineProperties(HTMLMediaElement.prototype, {
+      readyState: { configurable: true, get() { return this.__ready ? 4 : 0; } },
       paused: { configurable: true, get() { return !playing.has(this); } },
-      play: { configurable: true, value() { playing.add(this); return Promise.resolve(); } },
+      play: { configurable: true, value() { playing.add(this); this.dispatchEvent(new Event('playing')); return Promise.resolve(); } },
       pause: { configurable: true, value() { playing.delete(this); } },
     });
   });
@@ -188,8 +200,11 @@ async function controlledHero(page) {
       return route.fulfill({ json: { ok: true, data: { items: Array.from({ length: 10 }, (_, index) => ({
         id: `state-${index}`, published_at: `2026-05-${String(20 - index).padStart(2, '0')}T00:00:00Z`,
         file: { url: `/api/gallery/memvids/state-${index}/v1/file` },
+        poster: { url: `/api/gallery/memvids/state-${index}/v1/poster` },
       })), has_more: false, next_cursor: null } } });
     }
+    if (url.pathname.endsWith('/poster')) return route.fulfill({ contentType: 'image/jpeg', body: require('fs').readFileSync(require('path').join(__dirname, 'fixtures/media/favorite-thumb.jpg')) });
+    if (url.pathname.endsWith('/file')) return route.fulfill({ contentType: 'video/mp4', body: require('fs').readFileSync(require('path').join(__dirname, 'fixtures/media/test-video.mp4')) });
     if (url.pathname.startsWith('/api/')) return route.fulfill({ status: 404, body: '' });
     return route.continue();
   });
@@ -197,6 +212,66 @@ async function controlledHero(page) {
   await expect(page.locator(VIDEOS)).toHaveCount(4);
   await expect(page.locator('[data-video-module-state="ready"]')).toHaveCount(2);
 }
+
+test('preview readiness: slow, failed and retired next sources retain the current face; valid source commits once', async ({ page }) => {
+  await controlledHero(page);
+  await page.evaluate(() => { window.__heroHidden(false); window.__readyNewMedia = false; });
+  await rememberMedia(page);
+  await page.clock.runFor(2100);
+  expect(await cycles(page)).toEqual([0,0,0,0]);
+  expect(await continuity(page)).toEqual(unchanged);
+  expect(await page.evaluate(() => window.__controlledVideos.length)).toBe(6); // one speculative source per due slot
+  // Release one real controller input, fail its neighbour; these are state
+  // controls, not a native playback claim.
+  await page.evaluate(() => {
+    const [valid, failed] = window.__controlledVideos.slice(4);
+    valid.__ready = true; valid.dispatchEvent(new Event('loadeddata'));
+    failed.dispatchEvent(new Event('error'));
+    window.__released = valid; window.__retired = failed;
+  });
+  await page.clock.runFor(1100);
+  expect(await cycles(page)).toEqual([0,1,0,0]);
+  expect(await page.evaluate(() => window.__released.isConnected)).toBe(true);
+  expect(await page.evaluate(() => window.__retired.hasAttribute('src'))).toBe(false);
+  expect(await page.evaluate(() => window.__retired.parentElement.querySelector('img').hasAttribute('src'))).toBe(false);
+  // A stale successful callback after failure cannot replace the held source.
+  await page.evaluate(() => { window.__retired.__ready = true; window.__retired.dispatchEvent(new Event('loadeddata')); });
+  expect(await cycles(page)).toEqual([0,1,0,0]);
+  await page.clock.runFor(20000); // 4s cycle + 8s preparation after settlement
+  expect(await page.locator(`${SLOTS}[data-preview-preparation="held"]`).count()).toBe(4);
+  const count = await page.evaluate(() => window.__controlledVideos.length);
+  await page.clock.runFor(60000);
+  expect(await page.evaluate(() => window.__controlledVideos.length)).toBe(count);
+  await expect(page.locator(VIDEOS)).toHaveCount(4);
+  // Pending work at a visibility change is abandoned without changing the
+  // current source. A late callback cannot reactivate an offscreen slot.
+  await page.reload();
+  await expect(page.locator(VIDEOS)).toHaveCount(4);
+  await page.evaluate(() => { window.__heroHidden(false); window.__readyNewMedia = false; });
+  await page.clock.runFor(2100);
+  await rememberMedia(page);
+  await page.evaluate(() => {
+    window.__pendingBeforeHide = window.__controlledVideos.slice(4);
+    window.__heroHidden(true);
+    window.__pendingBeforeHide.forEach(v => { v.__ready=true; v.dispatchEvent(new Event('loadeddata')); });
+  });
+  expect(await continuity(page)).toEqual(unchanged);
+  expect(await page.locator(VIDEOS).evaluateAll(v => v.every(v => v.paused))).toBe(true);
+  await page.evaluate(() => window.__heroHidden(false));
+  expect(await continuity(page)).toEqual(unchanged);
+});
+
+test('preview readiness respects a manual pause made while the next source is preparing', async ({ page }) => {
+  await controlledHero(page);
+  await page.evaluate(() => { window.__heroHidden(false); window.__readyNewMedia = false; });
+  await page.clock.runFor(2100);
+  await rememberMedia(page);
+  await page.locator(`${SLOTS}[data-latest-models-slot="bottom"] video`).first().evaluate(v => v.pause());
+  await page.evaluate(() => { const next=window.__controlledVideos[4]; next.__ready=true; next.dispatchEvent(new Event('loadeddata')); });
+  expect(await cycles(page)).toEqual([0,0,0,0]);
+  expect(await continuity(page)).toEqual(unchanged);
+  expect(await page.locator(`${SLOTS}[data-latest-models-slot="bottom"]`).first().getAttribute('data-preview-preparation')).toBe('held');
+});
 
 async function rememberMedia(page) {
   await page.evaluate(selector => {
@@ -220,7 +295,7 @@ const unchanged = { sameVideos: true, retained: true, sameSources: true };
 const cycles = page => page.locator(SLOTS).evaluateAll(slots => slots.map(slot => Number(slot.dataset.transitionCount)));
 
 for (const elapsed of [100, 1999]) {
-  test(`state only: fallback retains the ${2000 - elapsed}ms remaining cycle across suspension`, async ({ page }) => {
+  test(`state only: fallback retains the ${2000 - elapsed}ms remaining cycle across suspension`, { tag: '@homepage-extended' }, async ({ page }) => {
     await controlledHero(page);
     await page.evaluate(() => window.__heroHidden(false));
     await page.clock.runFor(elapsed);
@@ -252,7 +327,7 @@ for (const elapsed of [100, 1999]) {
   });
 }
 
-test('state only: suspended transition retains both faces, remaining deadline and manual pause', async ({ page }) => {
+test('state only: suspended transition retains both faces, remaining deadline and manual pause', { tag: '@homepage-extended' }, async ({ page }) => {
   await controlledHero(page);
   await page.evaluate(() => window.__heroHidden(false));
   await page.clock.runFor(2400);
@@ -279,7 +354,7 @@ test('state only: suspended transition retains both faces, remaining deadline an
   await page.evaluate(() => window.__heroTurningCubes.forEach(cube => cube.dispatchEvent(new Event('animationend'))));
   expect(await cycles(page)).toEqual([0, 1, 0, 1]);
   await page.clock.runFor(960);
-  expect(await cycles(page)).toEqual([1, 1, 1, 1]);
+  expect(await cycles(page)).toEqual([0, 1, 1, 1]); // Deliberately paused left-top content is not replaced.
 });
 
 test('probe only: cached decode counts do not hide output; frozen frames and stale epochs never pass', async ({ page }) => {

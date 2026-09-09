@@ -1,11 +1,12 @@
 const { test, expect } = require('@playwright/test');
+test.describe.configure({ mode: 'default' });
 
 // Second synthetic fixture: FFmpeg testsrc2=size=32x32:rate=15:duration=1,
 // libx264/yuv420p, -movflags +faststart. The original 1s/15fps MP4 stays tested.
 // Independent of __heroNativeProbe, its counters and the Hero controller.
 // A loop requires native output to restart and then advance from that restart.
 for (const count of [1, 4]) for (const source of ['original', 'changing']) {
-  test(`independent native HTTP output: ${source} source loops, seeks and resumes${count === 4 ? ' in four simultaneous slots' : ''}`, async ({ page }, testInfo) => {
+  test(`independent native HTTP output: ${source} source loops, seeks and resumes${count === 4 ? ' in four simultaneous slots' : ''}`, { tag: '@homepage-extended' }, async ({ page }, testInfo) => {
     await page.route(/^https?:\/\/(?!localhost(?::|\/)|127\.0\.0\.1(?::|\/))/, route => route.abort());
     const responses = [];
     page.on('response', response => {

@@ -4,8 +4,6 @@ import path from 'node:path';
 export const HOMEPAGE_FUNCTIONAL_MINIMUMS = Object.freeze({
   'homepage-carousel-focused.spec.js': 5,
   'homepage-creation-stream-anchor.spec.js': 4,
-  'homepage-hero-playback.spec.js': 14,
-  'homepage-native-control.spec.js': 4,
   'homepage-hero-state.spec.js': 3,
   'homepage-media-loading.spec.js': 8,
 });
@@ -20,16 +18,29 @@ export const HOMEPAGE_PERFORMANCE_REQUIRED = Object.freeze({
     'native blocking countercontrol retains a task crossing completion despite delayed observation',
   ],
 });
-export const HOMEPAGE_EARLY_CHROMIUM_REQUIRED = Object.freeze(['native plain video: fulfill transport comparison', 'native plain video: HTTP response loops and seeks', 'native HTTP corrupt media is rejected, not mistaken for playback', 'native pause contract rejects ignored pause, transient source changes and stale resume proof']);
 export const HOMEPAGE_NATIVE_CONTROLS_REQUIRED = Object.freeze([1, 4].flatMap(count => ['original', 'changing'].map(source =>
   `independent native HTTP output: ${source} source loops, seeks and resumes${count === 4 ? ' in four simultaneous slots' : ''}`)));
-export const HOMEPAGE_WEBKIT_REQUIRED = Object.freeze([...HOMEPAGE_EARLY_CHROMIUM_REQUIRED, ...['en', 'de'].flatMap((locale) => [
-  `${locale}: configured hero pauses offscreen and hidden, resumes existing media and respects an existing pause`,
-  `${locale}: hidden initialization and bfcache restore preserve media; ordinary pagehide cleans up`,
-  `${locale}: configured native media loops in every slot with the public range file contract`,
-  `${locale}: fallback freezes media and its staggered cycle while suspended`,
-  `${locale}: phone and tablet breakpoints retain existing policy with reduced motion`,
-])]);
+// Required user scenarios, not a historical native stress-test count.
+export const HOMEPAGE_WEBKIT_REQUIRED = Object.freeze([
+  'native HTTP corrupt media is rejected, not mistaken for playback',
+  'native pause contract rejects ignored pause, transient source changes and stale resume proof',
+  'decorative unavailable video retains visible poster and usable Models navigation',
+  ...['en','de'].flatMap(locale => [
+    `${locale}: configured hero pauses offscreen and hidden, resumes existing media and respects an existing pause`,
+    `${locale}: hidden initialization and bfcache restore preserve media; ordinary pagehide cleans up`,
+    `${locale}: decorative fallback retains playable content while next media loads`,
+    `${locale}: phone and tablet breakpoints retain existing policy with reduced motion`,
+  ]),
+]);
+export const HOMEPAGE_EXTENDED_REQUIRED = Object.freeze([
+  'native plain video: fulfill transport comparison',
+  'native plain video: HTTP response loops and seeks',
+  ...['en','de'].flatMap(locale => [
+    `${locale}: configured native media loops in every slot with the public range file contract`,
+    `${locale}: fallback freezes media and its staggered cycle while suspended`,
+  ]),
+  ...HOMEPAGE_NATIVE_CONTROLS_REQUIRED,
+]);
 
 export function flattenHomepageDiscovery(report) {
   assert.ok(Array.isArray(report?.suites), 'Missing Playwright discovery suites');
@@ -56,8 +67,8 @@ function key(test) {
   return [test.file, test.title, test.project].join('\0');
 }
 
-export function verifyHomepageDiscovery({ standard, carousel, functional, webkit, performance, diagnostic }) {
-  for (const [name, tests] of Object.entries({ standard, carousel, functional, webkit, performance, diagnostic })) {
+export function verifyHomepageDiscovery({ standard, carousel, functional, webkit, extended, performance, diagnostic }) {
+  for (const [name, tests] of Object.entries({ standard, carousel, functional, webkit, extended, performance, diagnostic })) {
     assert.ok(Array.isArray(tests) && tests.length > 0, `${name}: no tests discovered`);
   }
   const counts = (tests) => Object.fromEntries([...new Set(tests.map((test) => test.file))].sort()
@@ -67,8 +78,11 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, webkit
     && test.expectedStatus !== 'skipped'), 'macOS replacement must execute only native WebKit media, without skips');
   for (const title of HOMEPAGE_WEBKIT_REQUIRED) assert.ok(webkit.some(test => test.file === nativeFiles[0] && test.title === title),
     `Required macOS WebKit scenario missing: ${title}`);
-  for (const title of HOMEPAGE_NATIVE_CONTROLS_REQUIRED) assert.ok(webkit.some(test => test.file === nativeFiles[1] && test.title === title),
-    `Required independent native scenario missing: ${title}`);
+  for (const title of [...HOMEPAGE_WEBKIT_REQUIRED, ...HOMEPAGE_EXTENDED_REQUIRED]) assert.ok(extended.some(test => test.title === title && test.project === 'webkit' && test.expectedStatus !== 'skipped'),
+    `Required extended scenario missing: ${title}`);
+  assert.ok(webkit.every(test => HOMEPAGE_WEBKIT_REQUIRED.includes(test.title)), 'Extended decoder/timing diagnosis leaked into core');
+  assert.ok(functional.every(test => !test.tags.some(tag => tag.replace(/^@/,'') === 'homepage-extended')), 'Extended case leaked into Linux core');
+  assert.equal(functional.filter(test => test.project === 'webkit' && nativeFiles.includes(test.file)).length, 0, 'Linux must not duplicate the moved native WebKit cases');
   for (const project of ['chromium', 'webkit']) {
     for (const [file, minimum] of Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)) {
       const matches = functional.filter(test => test.project === project && test.file === file);
@@ -88,7 +102,7 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, webkit
     'macOS/Linux native media scenario union differs');
   assert.ok(diagnostic.every(test => test.project === 'webkit' && test.file === nativeFiles[1]
     && test.expectedStatus !== 'skipped'), 'Linux diagnosis must contain only the independent native controls');
-  assert.deepEqual(diagnostic.map(mediaKey).sort(), webkit.filter(test => test.file === nativeFiles[1]).map(mediaKey).sort(),
+  assert.deepEqual(diagnostic.map(mediaKey).sort(), extended.filter(test => test.file === nativeFiles[1]).map(mediaKey).sort(),
     'Linux diagnosis has lost an independent source control');
   assert.ok(performance.every((test) => test.project === 'chromium-performance'), 'Performance must use its controlled Chromium project');
   assert.ok(performance.every((test) => test.expectedStatus !== 'skipped'), 'Performance acceptance cannot be statically skipped');
@@ -125,6 +139,7 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, webkit
     carousel: { total: carousel.length, files: counts(carousel) },
     functional: { total: functional.length, files: counts(functional) },
     webkit: { total: webkit.length, files: counts(webkit) },
+    extended: { total: extended.length, files: counts(extended), acceptance: 'Full-regression only' },
     performance: { total: performance.length, files: counts(performance) },
     diagnostic: { total: diagnostic.length, files: counts(diagnostic), acceptance: false },
     existingCommandUnion: oldUnion.size,
