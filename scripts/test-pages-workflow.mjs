@@ -40,7 +40,7 @@ for (const source of [standard, fast]) {
   assert(!/pages\/deployments\/|Reconcile authoritative|DEPLOY_PAGES_OUTCOME|deadline=/.test(source), 'no independent SHA-based or ambient reconciliation');
 }
 for (const name of ['worker-validation', 'browser-validation', 'homepage-validation', 'homepage-webkit-media']) {
-  assert(job(standard, name).includes(name==='browser-validation' ? 'needs: [release-compatibility, homepage-validation]' : 'needs: release-compatibility'), `${name} waits for actual preflight`);
+  assert(job(standard, name).includes(name==='browser-validation' ? 'needs: [release-compatibility, homepage-validation, homepage-webkit-media, worker-validation]' : 'needs: release-compatibility'), `${name} waits for actual preflight`);
 }
 
 for (const [name, source] of [['standard', standard], ['fast', fast]]) {

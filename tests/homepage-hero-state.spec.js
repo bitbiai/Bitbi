@@ -34,6 +34,8 @@ test('probe only: every active slot needs its own native progress and identity',
   }));
   const progressed = previous.map(video => ({ ...video, time: 0.4, frames: 6, outputAdvances: 1 }));
   expect(progressedBetween(previous, progressed)).toBe(true);
+  expect(progressedBetween(previous, progressed.map((v,i)=>({...v,time:previous[i].time})))).toBe(true); // loops may return to the same position
+  expect(progressedBetween(previous, previous)).toBe(false); // equal position without output remains frozen
   expect(progressedBetween(previous, previous.map(video => ({ ...video, frames: 6 })))).toBe(false);
   expect(progressedBetween(previous, progressed.slice(1))).toBe(false);
   expect(progressedBetween(previous, [{ ...previous[0] }, ...progressed.slice(1)])).toBe(false);
@@ -357,12 +359,28 @@ test('probe only: paused transition proof rejects foreign targets and survives l
       };
       return { slot, cube, face, video, settle };
     };
-    for (const mode of ['empty', 'missing', 'hung', 'wrong', 'removed', 'source', 'foreign-number', 'foreign-slot', 'previous', 'completed-then-next']) {
+    for (const mode of ['empty', 'missing', 'hung', 'wrong', 'removed', 'source', 'foreign-number', 'foreign-slot', 'previous', 'completed-then-next', 'resume-no-output', 'resume-fresh-then-next', 'resume-old-epoch']) {
       const t = mount();
       if (mode === 'empty') t.slot.remove();
       if (mode === 'missing') t.face.remove();
       if (mode === 'previous') t.settle();
-      const proof = window.__heroNativeProbe.observePausedTransitions({ timeout: 120 });
+      const requireOutput = mode.startsWith('resume-');
+      let emit, resume;
+      if(requireOutput) {
+        // Explicit observer unit only: feed controlled metadata to the existing
+        // probe. The unchanged native HTTP EN/DE cases provide real decoding.
+        let callback, paused=true;
+        Object.defineProperties(t.video, { paused:{get:()=>paused}, seeking:{get:()=>false}, readyState:{get:()=>4} });
+        t.video.requestVideoFrameCallback = next => { callback=next; return 1; };
+        resume = () => { paused=false; };
+        emit = time => { paused=false; callback(performance.now(), {mediaTime:time,presentedFrames:1}); };
+      }
+      const proof = window.__heroNativeProbe.observePausedTransitions({ timeout: 120, requireOutput });
+      if(requireOutput) {
+        t.settle(); resume();
+        if(mode==='resume-old-epoch') t.video.dispatchEvent(new Event('pause'));
+        if(mode!=='resume-no-output') { emit(0.1);emit(0.2); }
+      }
       if (mode === 'wrong') t.settle(t.face.cloneNode(true));
       if (mode === 'removed') t.face.remove();
       if (mode === 'source') { t.video.src = '/synthetic-wrong-source.mp4'; t.settle(); }
@@ -371,7 +389,7 @@ test('probe only: paused transition proof rejects foreign targets and survives l
         const other = t.slot.cloneNode(true); other.dataset.latestModelsSlot = 'bottom';
         t.slot.parentNode.append(other); other.classList.remove('is-turning'); other.firstElementChild.classList.remove('is-turning');
       }
-      if (mode === 'completed-then-next') {
+      if (mode === 'completed-then-next' || mode === 'resume-fresh-then-next') {
         t.settle();
         await Promise.resolve(); // Allow the exact settled state to be observed.
         const next = document.createElement('span'); next.className = 'latest-models-video-module__cube is-turning';
@@ -390,12 +408,13 @@ test('probe only: paused transition proof rejects foreign targets and survives l
   const expectedReasons = { empty: 'no-paused-transition', missing: 'invalid-paused-target',
     hung: 'transition-deadline', wrong: 'target-removed-or-replaced', removed: 'target-removed-or-replaced',
     source: 'target-removed-or-replaced', 'foreign-number': 'unobserved-or-foreign-completion',
-    'foreign-slot': 'transition-deadline', previous: 'no-paused-transition', 'completed-then-next': 'captured-targets-settled' };
+    'foreign-slot': 'transition-deadline', previous: 'no-paused-transition', 'completed-then-next': 'captured-targets-settled',
+    'resume-no-output':'resumed-target-no-output','resume-fresh-then-next':'captured-targets-settled','resume-old-epoch':'target-epoch-changed' };
   for (const row of results) {
-    expect(row.proof.passed, row.mode).toBe(row.mode === 'completed-then-next');
+    expect(row.proof.passed, row.mode).toBe(['completed-then-next','resume-fresh-then-next'].includes(row.mode));
     expect(row.proof.reason, row.mode).toBe(expectedReasons[row.mode]);
   }
-  const success = results.at(-1);
+  const success = results.find(row=>row.mode==='resume-fresh-then-next');
   expect(success.number).toBe('3'); expect(success.nowTurning).toBe(true);
   expect(success.proof.targets[0].completed.number).toBe('2');
   expect(success.proof.targets[0].completed.videoId).toBe(success.proof.targets[0].videoId);

@@ -53,8 +53,11 @@ const block=name=>workflow.match(new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [a-z]
 for (const [job, steps] of Object.entries(REQUIRED_JOBS)) {
   for (const step of steps) assert(block(job).includes(`- name: ${step}\n`), `Unwired required evidence: ${job}/${step}`);
 }
-assert(block('release-compatibility').includes("CI_FORCE_FULL: 'true'"));
-assert(block('release-compatibility').includes('CI_BASE_REF: ${{ env.CANDIDATE_BASE }}'));
+const forceFull=block('release-compatibility').match(/CI_FORCE_FULL: \$\{\{ (.+) \}\}/)[1];
+for(const [base,event,wanted] of [[Q4_BASE,'push',true],[sha,'push',false],[sha,'workflow_dispatch',true]]) {
+ assert.equal(vm.runInNewContext(forceFull,{env:{CANDIDATE_BASE:base},github:{event_name:event}}),wanted);
+}
+assert(block('release-compatibility').includes("CI_BASE_REF: ${{ github.event_name == 'push' && github.event.before || env.CANDIDATE_BASE }}"));
 const expression=name=>block(name).match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
 const permits=(name,ctx)=>Boolean(vm.runInNewContext(expression(name).replace(/needs\.([\w-]+)/g, (_, key) => `needs[${JSON.stringify(key)}]`),ctx));
 const context={github:{event_name:'workflow_dispatch',event:{inputs:{candidate_run_id:'123'}}},cancelled:()=>false,needs:Object.fromEntries([...Object.keys(REQUIRED_JOBS),'reuse-candidate'].map(name=>[name,{result:name==='reuse-candidate'?'success':'skipped'}]))};
@@ -68,8 +71,26 @@ assert.equal(permits('deploy',validationOnly),false,'Validation-only run must no
 assert.equal(permits('release-compatibility',normal),true);assert.equal(permits('reuse-candidate',normal),false);assert.equal(permits('deploy',normal),true);
 for(const name of Object.keys(REQUIRED_JOBS))assert.equal(permits('deploy',{...normal,needs:{...normal.needs,[name]:{...normal.needs[name],result:'failure'}}}),false);
 assert(!/^concurrency:/m.test(workflow));assert(block('deploy').includes('group: "pages"'));
-assert(block('browser-validation').includes('needs: [release-compatibility, homepage-validation]'));
+assert(block('browser-validation').includes('needs: [release-compatibility, homepage-validation, homepage-webkit-media, worker-validation]'));
 assert(!block('deploy').includes('npm run build:static'),'Publication must not regenerate its tested artifact');
 for(const job of ['homepage-validation','homepage-webkit-media'])assert(block(job).includes('node scripts/pages-candidate.mjs restore')&&block(job).includes('node scripts/pages-candidate.mjs proof'));
 assert(block('deploy').includes('digest-mismatch: error'));assert(block('deploy').includes('node scripts/pages-candidate.mjs source'));
 console.log('Exact candidate/run/attempt/suite/artifact, later-failure, full-scope, immutable bytes and no-second-suite controls passed.');
+
+for (const [file,jobName,required] of [
+ ['static.yml','browser-validation',['release-compatibility','homepage-validation','homepage-webkit-media','worker-validation']],
+ ['full-regression.yml','browser-tests',['release-security','homepage-validation','homepage-webkit-media','worker-tests']],
+]) {
+ const source=fs.readFileSync(new URL(`../.github/workflows/${file}`,import.meta.url),'utf8');
+ const section=source.match(new RegExp(`^  ${jobName}:\\n[\\s\\S]*?(?=^  [a-z][\\w-]*:|$(?![\\s\\S]))`,'m'))[0];
+ const dependencies=section.match(/^    needs: \[(.+)\]/m)[1].split(',').map(s=>s.trim());
+ assert.deepEqual(dependencies,required);
+ assert(!/^    if:/m.test(section),'Default success() must retain upstream failure/cancellation gating');
+ const starts=states=>dependencies.every(name=>states[name]==='success');
+ const passed=Object.fromEntries(required.map(name=>[name,'success']));
+ assert(starts(passed));
+ for(const name of required)for(const state of ['failure','cancelled','skipped',undefined])assert(!starts({...passed,[name]:state}),`${file} started after ${name}/${state}`);
+ // Worker job deliberately reporting unselected work is successful. That is
+ // different from a required failed/skipped job; existing selection owns it.
+ assert(starts({...passed,[required.at(-1)]:'success'}));
+}

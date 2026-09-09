@@ -1145,7 +1145,7 @@ function createValidContext() {
   worker-validation:
     needs: release-compatibility
   browser-validation:
-    needs: [release-compatibility, homepage-validation]
+    needs: [release-compatibility, homepage-validation, homepage-webkit-media, worker-validation]
   homepage-validation:
     needs: release-compatibility
     steps:
@@ -1208,7 +1208,7 @@ for (const missing of ["release-compatibility", "worker-validation", "browser-va
 
 for (const needs of ['release-compatibility', 'homepage-validation', 'unrelated-job']) {
   const context = createValidContext();
-  context.workflowSource = context.workflowSource.replace('  browser-validation:\n    needs: [release-compatibility, homepage-validation]', `  browser-validation:\n    needs: ${needs}`);
+  context.workflowSource = context.workflowSource.replace('  browser-validation:\n    needs: [release-compatibility, homepage-validation, homepage-webkit-media, worker-validation]', `  browser-validation:\n    needs: ${needs}`);
   assert.ok(validateReleaseCompatibility(context).some(issue => issue.startsWith('Browser validation job must depend')));
 }
 

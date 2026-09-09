@@ -1208,8 +1208,8 @@ function validateWorkflowCompatibility(context) {
   if (!workflowRequiresJob(workflowSource, "worker-validation", /needs:\s*release-compatibility/)) {
     issues.push('Worker validation job must depend on "release-compatibility".');
   }
-  if (!workflowRequiresJob(workflowSource, "browser-validation", /needs:\s*\[\s*release-compatibility\s*,\s*homepage-validation\s*\]/)) {
-    issues.push('Browser validation job must depend on "release-compatibility" and "homepage-validation".');
+  if (!workflowRequiresJob(workflowSource, "browser-validation", /needs:\s*\[\s*release-compatibility\s*,\s*homepage-validation\s*,\s*homepage-webkit-media\s*,\s*worker-validation\s*\]/)) {
+    issues.push('Browser validation job must depend on release, Linux homepage, native WebKit and Worker validation.');
   }
   if (!workflowRequiresJob(workflowSource, "homepage-validation", /needs:\s*release-compatibility/)) {
     issues.push('Homepage validation job must depend on "release-compatibility".');

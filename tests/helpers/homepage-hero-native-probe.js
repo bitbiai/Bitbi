@@ -132,7 +132,7 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
       result?.then(() => record('play-resolved', this), error => record('play-rejected', this, { rejection: error.name }));
       return result;
     };
-    function observePausedTransitions({ timeout = 2000 } = {}) {
+    function observePausedTransitions({ timeout = 2000, requireOutput = false } = {}) {
       const selector = '#hero [data-latest-models-slot]';
       const targets = Array.from(document.querySelectorAll(`${selector}.is-turning`)).map(slot => {
         const cube = slot.firstElementChild;
@@ -141,22 +141,22 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
         return { slot, cube, face, video, source: video?.getAttribute('src'),
           key: video ? sample(video).slot : null, videoId: video ? sample(video).id : null,
           number: slot.dataset.transitionCount, target: slot.dataset.activeVideoId, index: slot.dataset.activeIndex,
-          completed: null };
+          before: video ? sample(video) : null, settled: null, output: null, completed: null };
       });
       const start = performance.now();
       const describe = t => ({ slot: t.key, number: t.number, target: t.target, index: t.index,
-        videoId: t.videoId, source: t.source, completed: t.completed,
+        videoId: t.videoId, source: t.source, before: t.before, settled: t.settled, output: t.output, completed: t.completed,
         current: { connected: t.slot.isConnected, number: t.slot.dataset.transitionCount,
           target: t.slot.dataset.activeVideoId, turning: t.slot.classList.contains('is-turning'),
           originalCubeConnected: t.cube?.isConnected, incomingFaceConnected: t.face?.isConnected,
           video: t.video ? sample(t.video) : null } });
       return new Promise(resolve => {
-        let observer, deadline, finished = false;
+        let observer, deadline, progressTimer, finished = false;
         const finish = (passed, reason) => {
           if (finished) return;
-          finished = true; observer?.disconnect(); clearTimeout(deadline);
+          finished = true; observer?.disconnect(); clearTimeout(deadline); clearInterval(progressTimer);
           resolve({ passed, reason, elapsed: performance.now() - start, targets: targets.map(describe),
-            scope: 'Exact paused transition targets; later cycles do not revoke observed completion.' });
+            scope: requireOutput ? 'Exact paused targets: settled destination and own post-resume output; later cycles are separate.' : 'Exact paused transition geometry; no native output claim.' });
         };
         if (!targets.length) return finish(false, 'no-paused-transition');
         if (targets.some(t => !t.key || !t.target || !t.source || !/^[1-9]\d*$/.test(t.number || '')
@@ -173,6 +173,10 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
                 return finish(false, 'target-removed-or-replaced');
               if (t.slot.dataset.transitionCount !== t.number || t.slot.dataset.activeVideoId !== t.target
                   || t.slot.dataset.activeIndex !== t.index) return finish(false, 'unobserved-or-foreign-completion');
+              const media = sample(t.video);
+              if(requireOutput && media.epoch !== t.before.epoch) return finish(false, 'target-epoch-changed');
+              if(!media.paused && !media.seeking && media.readyState >= 2 && media.error === null
+                  && media.outputAdvances > t.before.outputAdvances) t.output = { at: performance.now()-start, advances: media.outputAdvances };
               const currentCube = t.slot.firstElementChild;
               if (!t.slot.classList.contains('is-turning') && currentCube !== t.cube && !t.cube.isConnected) {
                 if (!currentCube?.classList.contains('latest-models-video-module__cube')
@@ -180,7 +184,8 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
                     || currentCube.firstElementChild !== t.face
                     || !t.face.classList.contains('latest-models-video-module__face--front'))
                   return finish(false, 'wrong-settled-target');
-                t.completed = { at: performance.now() - start, number: t.number, videoId: t.videoId, source: t.source };
+                t.settled ||= { at: performance.now() - start, number: t.number, videoId: t.videoId, source: t.source };
+                if(!requireOutput || t.output) t.completed = t.settled;
               }
             }
             if (targets.every(t => t.completed)) finish(true, 'captured-targets-settled');
@@ -189,7 +194,8 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
         observer = new MutationObserver(check);
         observer.observe(document.querySelector('#hero'), { subtree: true, childList: true, attributes: true,
           attributeFilter: ['class', 'src', 'data-active-video-id', 'data-active-index', 'data-transition-count'] });
-        deadline = setTimeout(() => finish(false, 'transition-deadline'), timeout);
+        deadline = setTimeout(() => finish(false, requireOutput && targets.some(t=>t.settled&&!t.output) ? 'resumed-target-no-output' : 'transition-deadline'), timeout);
+        if(requireOutput) progressTimer = setInterval(check, 16);
         check(); // Registration completes synchronously, before caller resumes.
       });
     }

@@ -98,9 +98,12 @@ jobs:
       - name: Select tests from changed files
         id: selection
         env:
-          CI_BASE_REF: ${{ env.CANDIDATE_BASE }}
+          # Change selection is separate from the cumulative release guard.
+          CI_BASE_REF: ${{ github.event_name == 'push' && github.event.before || env.CANDIDATE_BASE }}
           CI_HEAD_REF: ${{ github.sha }}
-          CI_FORCE_FULL: 'true'
+          # Temporary full Q4 acceptance, not a permanent all-push test policy.
+          # Retire the pending Q4 default after its confirmed Pages publication.
+          CI_FORCE_FULL: ${{ env.CANDIDATE_BASE == '8292a4926bb1bf24679db9dd2b87cd6882f4d4f7' || github.event_name == 'workflow_dispatch' }}
         run: |
           set -euo pipefail
           args=(--base "${CI_BASE_REF:-}" --head "${CI_HEAD_REF:-HEAD}" --github-output)
@@ -400,7 +403,7 @@ jobs:
           if-no-files-found: warn
 
   browser-validation:
-    needs: [release-compatibility, homepage-validation]
+    needs: [release-compatibility, homepage-validation, homepage-webkit-media, worker-validation]
     runs-on: ubuntu-latest
     steps:
       - name: Report skipped browser tests

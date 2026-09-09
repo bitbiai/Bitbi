@@ -256,7 +256,7 @@ jobs:
           if-no-files-found: warn
 
   browser-tests:
-    needs: [release-security, homepage-validation]
+    needs: [release-security, homepage-validation, homepage-webkit-media, worker-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

@@ -102,15 +102,6 @@ async function openHome(page, locale, options) {
   return state;
 }
 
-async function snapshot(page) {
-  return page.locator(HERO_VIDEOS).evaluateAll(videos => videos.map(video => ({
-    time: video.currentTime,
-    frames: video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? null,
-    paused: video.paused,
-    src: video.getAttribute('src'),
-  })));
-}
-
 async function expectPlaying(page) {
   const result = await page.evaluate(() => window.__heroNativeProbe.waitForProgress());
   await test.info().attach('native-active-slot-progress', {
@@ -270,12 +261,8 @@ for (const locale of ['en', 'de']) {
     const state = await openHome(page, locale);
     await expectPlaying(page);
     await startContinuityProbe(page);
-    const initial = await snapshot(page);
-    await page.waitForTimeout(250);
-    const playing = await snapshot(page);
-    expect(playing.some((video, index) => video.time !== initial[index].time)).toBe(true);
-    await testInfo.attach('visible-native-playback', { body: JSON.stringify({ initial, playing }, null, 2), contentType: 'application/json' });
-
+    // expectPlaying already proves each identity's new native output. Two
+    // external currentTime snapshots can match after a legitimate loop.
     await scrollHeroOffscreen(page);
     await expectFrozen(page, testInfo, 'offscreen-native-playback');
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -337,18 +324,15 @@ for (const locale of ['en', 'de']) {
     expect(await page.locator(HERO_SLOTS).evaluateAll(slots => slots.map(slot => slot.dataset.transitionCount))).toEqual(duringTurn);
     await expectContinuity(page);
     await page.evaluate(() => {
-      window.__heroTurnCompletion = window.__heroNativeProbe.observePausedTransitions();
+      window.__heroTurnCompletion = window.__heroNativeProbe.observePausedTransitions({ requireOutput: true });
       window.__setHeroDocumentHidden(false); // Observe and resume in the same task.
     });
-    let completion;
-    try {
-      await expectPlaying(page);
-      await expectNativeResumeContinuity(page, testInfo, 'fallback-native-turn-resume');
-    } finally {
-      completion = await page.evaluate(() => window.__heroTurnCompletion);
-      await testInfo.attach('resumed-transition-targets', { body: JSON.stringify(completion), contentType: 'application/json' });
-    }
-    expect(completion.passed, completion.reason).toBe(true);
+    // This is the paused transition's resume, not an open-ended requirement
+    // that every later fallback target finish loading in the same interval.
+    const completion = await page.evaluate(() => window.__heroTurnCompletion);
+    await testInfo.attach('resumed-transition-targets', { body: JSON.stringify(completion), contentType: 'application/json' });
+    expect(completion.passed, `${completion.reason}: ${JSON.stringify(completion.targets)}`).toBe(true);
+    await expectNativeResumeContinuity(page, testInfo, 'fallback-native-turn-resume');
     expect(state.errors).toEqual([]);
   });
 
