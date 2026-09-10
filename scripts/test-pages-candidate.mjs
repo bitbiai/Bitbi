@@ -228,3 +228,50 @@ try {
  verifyAdminReport(sample,scoped);
  console.log(`Admin discovery: ${allNews.length} News scenarios in each engine; all reader/MFA/smoke groups present (discovery only).`);
 } finally { fs.rmSync(discoveryDir,{recursive:true,force:true}); }
+
+// Exercise the workflow's real discovery -> execution commands. No browser
+// fixture is requested: this isolates Playwright's output cleanup lifecycle.
+const lifecycleDir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-admin-report-lifecycle-')));
+try {
+ const root=new URL('../',import.meta.url).pathname;
+ const commands=block('browser-validation').split('      - name: Run selected Admin release acceptance\n')[1]
+   .split('      - name:')[0].split('        run: |\n')[1].trim().split('\n').map(line=>line.trim());
+ assert.equal(commands.length,3,'Keep lifecycle regression aligned with the complete Admin command sequence');
+ for(const oldLayout of [true,false]) {
+   const cwd=path.join(lifecycleDir,oldLayout?'old':'fixed');fs.mkdirSync(cwd);
+   fs.writeFileSync(path.join(cwd,'package.json'),JSON.stringify({scripts:{'test:static':`node ${JSON.stringify(path.join(root,'node_modules/@playwright/test/cli.js'))} test`}}));
+   fs.writeFileSync(path.join(cwd,'playwright.admin-release.config.js'),`
+     const config=require(${JSON.stringify(path.join(root,'playwright.admin-release.config.js'))});
+     module.exports={...config,testDir:__dirname,webServer:undefined,
+       outputDir:require('node:path').resolve(__dirname,${oldLayout?"'test-results'":"config.outputDir"}),
+       projects:config.projects.map(project=>({...project,testMatch:'lifecycle.spec.js',grep:undefined}))};
+   `);
+   fs.writeFileSync(path.join(cwd,'lifecycle.spec.js'),`
+     const {test,expect}=require(${JSON.stringify(path.join(root,'node_modules/@playwright/test'))});
+     test('writes disposable evidence',async({},info)=>{
+       require('node:fs').writeFileSync(info.outputPath('artifact.txt'),'current run');
+       expect(true).toBe(true);
+     });
+   `);
+   const discovery=path.join(cwd,'test-results/admin-discovery.json');
+   const report=path.join(cwd,'test-results/candidate-admin-release.json');
+   const output=path.join(cwd,oldLayout?'test-results':'test-results/admin-artifacts');
+   fs.mkdirSync(output,{recursive:true});
+   for(const file of [discovery,report,path.join(output,'stale.txt')])fs.writeFileSync(file,'stale');
+   const execute=command=>{
+     const r=spawnSync('/bin/sh',['-ec',command],{cwd,env:{...process.env,CI:'1'},encoding:'utf8',timeout:30000});
+     assert.equal(r.status,0,r.error?.message||r.stdout+r.stderr);
+   };
+   execute(commands[0]);assert(!fs.existsSync(discovery)&&!fs.existsSync(report),'Evidence starts fresh');
+   execute(commands[1]);const before=fs.readFileSync(discovery);
+   const listed=JSON.parse(before);assert.equal(listed.config.projects.length,6);
+   for(const project of listed.config.projects)assert.equal(project.outputDir,output);
+   execute(commands[2]);
+   assert(!fs.existsSync(path.join(output,'stale.txt')),'Disposable output must still be cleaned');
+   const result=JSON.parse(fs.readFileSync(report));
+   assert.equal(result.stats.expected,6);assert.equal(result.stats.unexpected+result.stats.skipped+result.stats.flaky,0);
+   assert.equal(fs.existsSync(discovery),!oldLayout,'Old layout must lose discovery; fixed layout must retain it');
+   if(!oldLayout)assert.deepEqual(fs.readFileSync(discovery),before,'Execution must preserve exact pre-run discovery bytes');
+ }
+ console.log('Actual Playwright lifecycle: old layout loses discovery; isolated artifacts retain fresh discovery and all 6 project results. Browser-free control.');
+} finally {fs.rmSync(lifecycleDir,{recursive:true,force:true});}

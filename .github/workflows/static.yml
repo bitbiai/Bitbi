@@ -467,6 +467,7 @@ jobs:
       - name: Run selected Admin release acceptance
         if: needs.release-compatibility.outputs.admin_release == 'true'
         run: |
+          rm -f test-results/admin-discovery.json test-results/candidate-admin-release.json
           PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/admin-discovery.json npm run test:static -- --config playwright.admin-release.config.js --list --reporter=json
           PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-admin-release.json npm run test:static -- --config playwright.admin-release.config.js --reporter=list,json
       - name: Run full static browser regression

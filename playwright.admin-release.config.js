@@ -9,6 +9,9 @@ const scopes = [
 ];
 module.exports = {
   ...base,
+  // Playwright cleans only disposable artifacts; discovery/result JSON stay
+  // beside this directory for the subsequent candidate proof.
+  outputDir: 'test-results/admin-artifacts',
   retries: 0,
   workers: 1,
   projects: ['chromium', 'webkit'].flatMap(browserName => scopes.map(scope => ({
