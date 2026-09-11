@@ -267,6 +267,11 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 
   let documentationCount = 0;
   for (const file of changedFiles) {
+    if (['frontend/index.mjs','frontend/wrangler.jsonc','config/static-hosting.json'].includes(file)) {
+      addReason(selection,'static',file,'changes frontend hosting runtime or authority');
+      selectFullRegression(selection,file,'changes frontend hosting and requires native routing plus full candidate acceptance');
+      continue;
+    }
     if (isDocumentation(file)) {
       documentationCount += 1;
       continue;

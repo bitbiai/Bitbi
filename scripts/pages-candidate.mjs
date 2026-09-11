@@ -1,3 +1,4 @@
+import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase } from './lib/frontend-hosting.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
@@ -20,7 +21,7 @@ export const REQUIRED_JOBS = {
 // One selection contract for recording, executing and accepting the unpublished range.
 export function requiredJobs(selection) {
   if (!selection) return REQUIRED_JOBS; // Frozen schema-1 Q4 evidence only.
-  const jobs = { 'release-compatibility': ['Preflight complete static release plan','Run quality gate tests','Record candidate build'] };
+  const jobs = { 'release-compatibility': ['Preflight complete static release plan','Run quality gate tests','Record candidate build', 'Check frontend hosting package'] };
   if (selection.adminRelease) jobs['release-compatibility'].push(
     'Check committed secrets', 'Check DOM sink baseline', 'Check auth route policy coverage',
     'Check targeted JavaScript syntax', 'Run release compatibility tests', 'Run release planner tests',
@@ -44,7 +45,7 @@ export function requiredJobs(selection) {
 export function proofJobs(selection) {
   return Object.keys(requiredJobs(selection)).filter(job => job.startsWith('homepage-') || (selection && job === 'browser-validation'));
 }
-function gitSelection(base, sha) {
+export function gitSelection(base, sha) {
   assert(/^[a-f0-9]{40}$/.test(base || ''), 'Missing exact release base');
   assert(/^[a-f0-9]{40}$/.test(sha || ''), 'Missing exact release head');
   execFileSync('git',['merge-base','--is-ancestor',base,sha],{stdio:'pipe'});
@@ -65,6 +66,11 @@ export function validatePublishedDeployment(deployment,status,run,job) {
   return deployment.sha;
 }
 async function publishedBase() {
+  const policy=fs.existsSync('config/static-hosting.json')?hostingPolicy():null;
+  if(policy?.provider==='cloudflare') {
+    const hosted=await cloudflarePublishedBase(api,policy);
+    if(hosted)return hosted;
+  }
   // Only a successful deployment receipt, never a green validation or HEAD^.
   for (let page=1;page<=10;page++) {
     const deployments=await api(`deployments?environment=github-pages&per_page=100&page=${page}`);
@@ -74,7 +80,12 @@ async function publishedBase() {
       if(status?.state!=='success') continue;
       const match=status.log_url?.match(/\/actions\/runs\/(\d+)\/job\/(\d+)$/); assert(match,'Unassigned successful deployment');
       const [run,job]=await Promise.all([api(`actions/runs/${match[1]}`),api(`actions/jobs/${match[2]}`)]);
-      return {sha:validatePublishedDeployment(deployment,status,run,job),deployment:deployment.id,run:run.id};
+      const sha=validatePublishedDeployment(deployment,status,run,job);
+      if(policy?.provider==='cloudflare') {
+        assert.equal(sha,policy.bootstrapPagesSha,'Unreviewed bootstrap Pages SHA');
+        assert.equal(deployment.id,policy.bootstrapPagesDeployment,'Unreviewed bootstrap deployment');
+      }
+      return {sha,deployment:deployment.id,run:run.id};
     }
     if(deployments.length<100) break;
   }
@@ -82,6 +93,7 @@ async function publishedBase() {
 }
 const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 export function tree(directory) {
+  assert(fs.lstatSync(directory).isDirectory()&&!fs.lstatSync(directory).isSymbolicLink(),'Candidate root is not a real directory');
   const files = {};
   function visit(dir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a,b) => a.name.localeCompare(b.name, 'en'))) {
@@ -108,17 +120,25 @@ export function verifyManifest(manifest, expected, site, { allowPartial = false 
   assert.deepEqual(tree(site),manifest.files,'Static bytes differ from tested candidate');
   return digest(JSON.stringify(manifest));
 }
-export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected) {
+export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected, {previewBranch, currentPublication=false}={}) {
   assert.equal(expected.repository,REPOSITORY,'Foreign repository');
   if (!expected.selection) assert.equal(expected.base,Q4_BASE,'Incomplete legacy Q4 release scope');
   assert.equal(mainSha,expected.sha,'Superseded candidate');
   assert.equal(run.repository?.full_name,REPOSITORY); assert.equal(run.head_repository?.full_name,REPOSITORY);
-  assert.equal(run.head_sha,expected.sha,'Source SHA mismatch'); assert.equal(run.head_branch,'main');
+  assert.equal(run.head_sha,expected.sha,'Source SHA mismatch'); assert.equal(run.head_branch,previewBranch||'main');
+  if(previewBranch && previewBranch!=='main')assert.equal(run.event,'workflow_dispatch','Branch preview must use explicit dispatch');
   assert.equal(String(run.id),String(expected.run)); assert.equal(String(run.run_attempt),String(expected.attempt),'Source attempt mismatch');
   assert.equal(run.path,'.github/workflows/static.yml','Wrong validation workflow');
   assert(['push','workflow_dispatch'].includes(run.event),'Untrusted source event');
-  assert.equal(run.status,'completed');
-  assert(['success','failure'].includes(run.conclusion),'Source acceptance cancelled or incomplete');
+  if(currentPublication) {
+    assert(!previewBranch);assert.equal(String(run.id),String(expected.currentRun));
+    assert.equal(run.status,'in_progress');
+    assert(jobs.some(j=>j.name==='deploy'&&j.status==='in_progress'),'No current publishing job');
+  } else {
+    assert.equal(run.status,'completed');
+    assert(['success','failure'].includes(run.conclusion),'Source acceptance cancelled or incomplete');
+  }
+  if(previewBranch) {assert.equal(run.conclusion,'success');assert(jobs.some(j=>j.name==='deploy'&&j.conclusion==='skipped'),'Preview unexpectedly published');}
   if(run.conclusion==='failure') {
     assert(jobs.some(j=>j.name==='deploy'&&j.conclusion==='failure'),'Unexplained source failure');
     assert(jobs.filter(j=>j.name!=='deploy').every(j=>['success','skipped'].includes(j.conclusion)),'Source validation failed');
@@ -147,7 +167,7 @@ export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected)
   });
 }
 export function verifyProofs(manifest,proofs) {
-  for(const job of proofJobs(manifest.selection)) {
+  for(const job of [...proofJobs(manifest.selection),...(manifest.hosting?['frontend-runtime']:[])]) {
     const p=proofs.find(p=>p.job===job); assert(p,`Missing tested build proof ${job}`);
     assert.equal(p.manifestHash,digest(JSON.stringify(manifest)),'Different OS build inputs');
     assert.equal(p.status,'passed');assert(p.reportHash&&p.tests>0,'No executed browser report');
@@ -177,17 +197,18 @@ export function verifyAdminReport(report, discovery) {
   }
 }
 
-async function api(endpoint) {
+export async function api(endpoint) {
   assert(process.env.GH_TOKEN,'Missing read-only Actions token');
   const response=await fetch(`https://api.github.com/repos/${REPOSITORY}/${endpoint}`,{headers:{Authorization:`Bearer ${process.env.GH_TOKEN}`,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},signal:AbortSignal.timeout(20000)});
   assert(response.ok,`GitHub ${endpoint.split('?')[0]} returned ${response.status}`);return response.json();
 }
-async function collection(endpoint,key) {
+export async function collection(endpoint,key) {
   const rows=[];
   for(let page=1;page<=10;page++) { const data=await api(`${endpoint}${endpoint.includes('?')?'&':'?'}per_page=100&page=${page}`);rows.push(...data[key]);if(rows.length>=data.total_count)return rows; }
   throw new Error('Evidence pagination exceeded bounded scope');
 }
 function expected(env=process.env) { return {repository:env.GITHUB_REPOSITORY,sha:env.GITHUB_SHA,base:env.CANDIDATE_BASE,run:env.CANDIDATE_RUN||env.GITHUB_RUN_ID,attempt:env.CANDIDATE_ATTEMPT||env.GITHUB_RUN_ATTEMPT,currentRun:env.GITHUB_RUN_ID}; }
+function policyName(){return fs.existsSync('config/static-hosting.json')?hostingPolicy().provider:'github-pages';}
 async function main(command) {
   const e=expected(),dir='candidate',manifestFile=path.join(dir,'manifest.json');
   if(command==='baseline') {
@@ -199,10 +220,17 @@ async function main(command) {
     gitSelection(base,e.sha);
     if(process.env.GITHUB_ENV)fs.appendFileSync(process.env.GITHUB_ENV,`CANDIDATE_BASE=${base}\n`);
     if(process.env.GITHUB_OUTPUT)fs.appendFileSync(process.env.GITHUB_OUTPUT,`base=${base}\n`);
-    console.log(`Verified published Pages baseline ${published.sha} (deployment ${published.deployment}); release base ${base}`);return;
+    console.log(`Verified published ${policyName()} baseline ${published.sha} (deployment ${published.deployment}); release base ${base}`);return;
   }
   e.selection=gitSelection(e.base,e.sha);
-  if(command==='current') { assert.equal((await api('git/ref/heads/main')).object.sha,e.sha,'Superseded candidate');return; }
+  if(command==='current') {
+    assert.equal((await api('git/ref/heads/main')).object.sha,e.sha,'Superseded candidate');
+    if (fs.existsSync('config/static-hosting.json')) {
+      const remote=await api('contents/config/static-hosting.json?ref=main');
+      assert.deepEqual(JSON.parse(Buffer.from(remote.content,'base64')),hostingPolicy(),'Hosting authority changed');
+    }
+    return;
+  }
   if(command==='source') {
     assert(/^\d+$/.test(e.run||'')&&/^\d+$/.test(e.attempt||''),'Explicit source run/attempt required');
     const [run,jobs,artifacts,laterRuns,ref]=await Promise.all([api(`actions/runs/${e.run}`),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),collection(`actions/runs/${e.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${e.sha}`,'workflow_runs'),api('git/ref/heads/main')]);
@@ -218,9 +246,11 @@ async function main(command) {
     assert.equal(e.repository,REPOSITORY);assert.equal(process.env.CANDIDATE_FULL,String(e.selection.full),'Selection and build scope differ');
     fs.mkdirSync(dir,{recursive:true});fs.cpSync('_site',path.join(dir,'site'),{recursive:true});
     const manifest={schema:2,selection:e.selection,repository:e.repository,sha:e.sha,base:e.base,run:String(e.run),attempt:String(e.attempt),full:process.env.CANDIDATE_FULL==='true',mediaPolicy:MEDIA_POLICY,files:tree('_site')};
+    if (fs.existsSync('frontend/wrangler.jsonc')) prepareFrontend(manifest,tree);
     fs.writeFileSync(manifestFile,JSON.stringify(manifest));return;
   }
   const manifest=JSON.parse(fs.readFileSync(manifestFile));
+  if (manifest.hosting) verifyFrontend(manifest,tree);
   if(manifest.schema===1)delete e.selection;
   const hash=verifyManifest(manifest,e,path.join(dir,'site'),{allowPartial:command!=='publish'});
   if(command==='restore') {assert(!fs.existsSync('_site'),'Refuse to replace an existing test/build server input');fs.cpSync(path.join(dir,'site'),'_site',{recursive:true});return;}

@@ -78,13 +78,12 @@ function writeJsonFixture(name, value) {
   const fastWorkflow = fs.readFileSync(
     path.join(repoRoot, ".github/workflows/ui-fast-deploy.yml"), "utf8"
   );
-  const workflowPaths = (source, key) => {
-    const match = source.match(new RegExp(`^    ${key}:\\n((?:      - "[^"]+"\\n)+)`, "m"));
-    assert(match, `expected ${key} block`);
-    return [...match[1].matchAll(/^      - "([^"]+)"$/gm)].map((entry) => entry[1]);
-  };
-  assert.deepEqual(workflowPaths(fastWorkflow, "paths"), FAST_DEPLOY_WORKFLOW_PATHS);
-  assert.deepEqual(workflowPaths(workflow, "paths-ignore"), FAST_DEPLOY_WORKFLOW_PATHS);
+  const { yaml } = await import('../node_modules/playwright-core/lib/utilsBundle.js');
+  const normalEvents=yaml.parse(workflow).on, fastEvents=yaml.parse(fastWorkflow).on;
+  assert.deepEqual(normalEvents.push,{branches:['main']},'Normal candidate path owns every automatic static publication');
+  assert(!fastEvents.push,'Legacy fast writer is manual-only');
+  assert(fastEvents.workflow_dispatch,'Keep the explicitly guarded transition path');
+
   assert(
     workflow.indexOf("Check static deploy release-plan safety")
       < workflow.indexOf("Setup Pages"),

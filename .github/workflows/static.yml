@@ -2,29 +2,24 @@
 name: Deploy static content to Pages
 
 on:
-  # Homepage/UI-only and narrowly-owned member-model exposure pushes use the
-  # fast workflow. Every other main push is classified below so unrelated
-  # browser and Worker suites can be skipped.
+  # One artifact-producing publication owner for all static changes. The legacy
+  # Fast UI path is manual-only during cutover and is fenced after retirement.
   push:
     branches: ["main"]
-    paths-ignore:
-      - "index.html"
-      - "de/index.html"
-      - "css/pages/index.css"
-      - "css/base/**"
-      - "css/components/**"
-      - "js/pages/index/**"
-      - "assets/images/**"
-      - "assets/favicons/**"
-      - "fonts/**"
-      - "js/shared/member-model-exposure.mjs"
-      - "js/shared/models-overlay.js"
-      - "tests/locale.spec.js"
-      - "tests/smoke.spec.js"
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
     inputs:
+      frontend_recovery_receipt:
+        description: "Protected recovery only: durable GitHub deployment receipt ID of the known frontend version."
+        default: ""
+      frontend_expected_deployment:
+        description: "Exact current Cloudflare deployment ID before recovery."
+        default: ""
+      validation_only:
+        description: "Validate this exact branch/commit without publication."
+        type: boolean
+        default: false
       release_plan_base_ref:
         description: "Optional wider release base; empty uses the last verified successful Pages deployment."
         required: false
@@ -48,17 +43,16 @@ permissions:
   contents: read
   actions: read
   deployments: read
-  pages: write
-  id-token: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   
 jobs:
   release-compatibility:
-    if: ${{ !github.event.inputs.candidate_run_id }}
+    if: ${{ !github.event.inputs.candidate_run_id && !github.event.inputs.frontend_recovery_receipt }}
     runs-on: ubuntu-latest
     outputs:
+      hosting_provider: ${{ steps.hosting.outputs.provider }}
       candidate_base: ${{ steps.baseline.outputs.base }}
       pages_allowed: ${{ steps.release_preflight.outputs.static_deploy_allowed }}
       pages_required: ${{ steps.release_preflight.outputs.static_deploy_required }}
@@ -79,15 +73,21 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'npm'
+      - name: Read hosting target
+        id: hosting
+        run: node scripts/frontend-release.mjs target
       - name: Resolve verified published Pages baseline
         id: baseline
         env:
           GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_FRONTEND_READ_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_FRONTEND_ACCOUNT_ID }}
           RELEASE_BASE_INPUT: ${{ github.event.inputs.release_plan_base_ref }}
         run: node scripts/pages-candidate.mjs baseline
       - name: Install dependencies
@@ -186,6 +186,10 @@ jobs:
         run: |
           npm run build:static
           node scripts/pages-candidate.mjs record
+      - name: Install pinned frontend runtime tooling
+        run: npm --prefix workers/contact ci
+      - name: Check frontend hosting package
+        run: npm run test:frontend-hosting
       - name: Upload immutable candidate build
         uses: actions/upload-artifact@v6
         with:
@@ -436,6 +440,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Setup Node.js
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
         uses: actions/setup-node@v6
@@ -509,7 +514,7 @@ jobs:
           retention-days: 7
 
   reuse-candidate:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.candidate_run_id != '' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.candidate_run_id != '' && !github.event.inputs.frontend_recovery_receipt }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -517,6 +522,7 @@ jobs:
       deployments: read
     outputs:
       artifact_ids: ${{ steps.source.outputs.artifact_ids }}
+      hosting_provider: ${{ steps.hosting.outputs.provider }}
       candidate_base: ${{ steps.baseline.outputs.base }}
     steps:
       - name: Checkout
@@ -529,10 +535,15 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
+      - name: Read hosting target
+        id: hosting
+        run: node scripts/frontend-release.mjs target
       - name: Resolve verified published Pages baseline
         id: baseline
         env:
           GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_FRONTEND_READ_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_FRONTEND_ACCOUNT_ID }}
           RELEASE_BASE_INPUT: ${{ github.event.inputs.release_plan_base_ref }}
         run: node scripts/pages-candidate.mjs baseline
       - name: Preflight acknowledged full release
@@ -549,17 +560,24 @@ jobs:
 
   # Deployment remains gated by the release checks and every selected suite.
   deploy:
+    permissions:
+      contents: read
+      actions: read
+      deployments: write
+      pages: write
+      id-token: write
     needs: [release-compatibility, worker-validation, browser-validation, homepage-validation, homepage-webkit-media, reuse-candidate]
-    if: ${{ !cancelled() && ((needs.reuse-candidate.result == 'success' && github.event.inputs.candidate_run_id != '') || (!github.event.inputs.candidate_run_id && (github.event_name == 'workflow_dispatch' || (needs.release-compatibility.outputs.pages_allowed == 'true' && needs.release-compatibility.outputs.pages_required == 'true')) && needs.release-compatibility.result == 'success' && needs.worker-validation.result == 'success' && needs.browser-validation.result == 'success' && needs.homepage-validation.result == 'success' && needs.homepage-webkit-media.result == 'success')) }}
+    if: ${{ !cancelled() && !github.event.inputs.frontend_recovery_receipt && github.ref == 'refs/heads/main' && github.event.inputs.validation_only != 'true' && ((needs.reuse-candidate.result == 'success' && github.event.inputs.candidate_run_id != '') || (!github.event.inputs.candidate_run_id && (github.event_name == 'workflow_dispatch' || (needs.release-compatibility.outputs.pages_allowed == 'true' && needs.release-compatibility.outputs.pages_required == 'true')) && needs.release-compatibility.result == 'success' && needs.worker-validation.result == 'success' && needs.browser-validation.result == 'success' && needs.homepage-validation.result == 'success' && needs.homepage-webkit-media.result == 'success')) }}
     concurrency:
       group: "pages"
       cancel-in-progress: false
     env:
+      HOSTING_PROVIDER: ${{ needs.reuse-candidate.outputs.hosting_provider || needs.release-compatibility.outputs.hosting_provider }}
       CANDIDATE_BASE: ${{ needs.reuse-candidate.outputs.candidate_base || needs.release-compatibility.outputs.candidate_base }}
       CANDIDATE_RUN: ${{ github.event.inputs.candidate_run_id || github.run_id }}
       CANDIDATE_ATTEMPT: ${{ github.event.inputs.candidate_run_id && github.event.inputs.candidate_run_attempt || github.run_attempt }}
     environment:
-      name: github-pages
+      name: ${{ (needs.reuse-candidate.outputs.hosting_provider || needs.release-compatibility.outputs.hosting_provider) == 'cloudflare' && 'cloudflare-static-production' || 'github-pages' }}
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
@@ -568,6 +586,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -594,7 +613,7 @@ jobs:
         if: steps.static_safety.outputs.static_deploy_skipped != 'true' && steps.static_safety.outputs.static_deploy_required != 'true' && github.event_name != 'workflow_dispatch'
         run: echo "Static deploy skipped because no GitHub Pages source changed."
       - name: Setup Pages
-        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
+        if: env.HOSTING_PROVIDER == 'github-pages' && success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
         uses: actions/configure-pages@v6
       - name: Validate JS import paths
         if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
@@ -727,12 +746,12 @@ jobs:
         run: node scripts/pages-candidate.mjs publish
       - name: Upload artifact
         id: pages_artifact
-        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
+        if: env.HOSTING_PROVIDER == 'github-pages' && success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-pages-artifact@v4
         with:
           path: '_site'
       - name: Refuse superseded or newly failed publication
-        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch') && steps.static_build.outcome == 'success' && steps.pages_artifact.outcome == 'success'
+        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch') && steps.static_build.outcome == 'success' && (env.HOSTING_PROVIDER == 'cloudflare' || steps.pages_artifact.outcome == 'success')
         env:
           CANDIDATE_ARTIFACT_IDS: ${{ needs.reuse-candidate.outputs.artifact_ids }}
           REUSED_CANDIDATE: ${{ github.event.inputs.candidate_run_id }}
@@ -747,10 +766,83 @@ jobs:
             node scripts/pages-candidate.mjs current
           fi
       - name: Deploy to GitHub Pages
-        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch') && steps.static_build.outcome == 'success' && steps.pages_artifact.outcome == 'success'
+        if: env.HOSTING_PROVIDER == 'github-pages' && success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch') && steps.static_build.outcome == 'success' && steps.pages_artifact.outcome == 'success'
         id: deployment
         # The official action checks this run's created deployment; its failure remains fatal.
         uses: actions/deploy-pages@v5
         with:
           timeout: 600000
           error_count: 1
+
+      - name: Install pinned frontend deploy tooling
+        if: success() && env.HOSTING_PROVIDER == 'cloudflare' && steps.static_build.outcome == 'success'
+        run: npm --prefix workers/contact ci
+      - name: Deploy and verify Cloudflare frontend
+        if: success() && env.HOSTING_PROVIDER == 'cloudflare' && steps.static_build.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_FRONTEND_DEPLOY_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_FRONTEND_ACCOUNT_ID }}
+        run: node scripts/frontend-release.mjs deploy
+      - name: Record durable frontend receipt
+        if: success() && env.HOSTING_PROVIDER == 'cloudflare' && steps.static_build.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_FRONTEND_DEPLOY_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_FRONTEND_ACCOUNT_ID }}
+        run: node scripts/frontend-release.mjs receipt
+      - name: Preserve Cloudflare activation receipt
+        if: success() && env.HOSTING_PROVIDER == 'cloudflare' && steps.static_build.outcome == 'success'
+        uses: actions/upload-artifact@v6
+        with:
+          name: frontend-receipt-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: hosting-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Preserve failed frontend upload identity
+        if: failure() && !cancelled() && env.HOSTING_PROVIDER == 'cloudflare'
+        uses: actions/upload-artifact@v6
+        with:
+          name: frontend-failed-upload-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/frontend-upload.ndjson
+          if-no-files-found: warn
+          retention-days: 7
+
+  recover-frontend:
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.event.inputs.validation_only != 'true' && github.event.inputs.frontend_recovery_receipt != '' }}
+    runs-on: ubuntu-latest
+    environment: cloudflare-static-production
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      deployments: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install pinned frontend recovery tooling
+        run: npm --prefix workers/contact ci
+      - name: Activate approved frontend recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_FRONTEND_DEPLOY_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_FRONTEND_ACCOUNT_ID }}
+          FRONTEND_RECOVERY_RECEIPT: ${{ github.event.inputs.frontend_recovery_receipt }}
+          FRONTEND_EXPECTED_DEPLOYMENT: ${{ github.event.inputs.frontend_expected_deployment }}
+        run: node scripts/frontend-release.mjs recover
+      - name: Record durable frontend receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_FRONTEND_DEPLOY_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_FRONTEND_ACCOUNT_ID }}
+        run: node scripts/frontend-release.mjs receipt

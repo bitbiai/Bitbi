@@ -52,10 +52,11 @@ for (const [name, source] of [['standard', standard], ['fast', fast]]) {
   assert(!action.source.includes('continue-on-error'), 'official action failure must remain fatal');
   assert(action.source.includes('timeout: 600000'));
   assert(action.source.includes('error_count: 1'), 'API errors are not silently treated as pending for 35 minutes');
-  assert.equal(deploySteps.at(-1), action, 'official action is sole deployment completion authority');
+  if(name==='fast')assert.equal(deploySteps.at(-1),action);
+  else assert(deploySteps.filter(s=>s.name==='Deploy and verify Cloudflare frontend').length===1);
   const context = (overrides = {}) => ({
     success: () => true,
-    github: {event_name: 'workflow_dispatch'},
+    github: {event_name: 'workflow_dispatch'}, env:{HOSTING_PROVIDER:'github-pages'},
     needs: {guard: {result: 'success'}},
     steps: {
       static_safety: {outcome: 'success', outputs: {static_deploy_allowed: 'true', static_deploy_skipped: 'false', static_deploy_required: 'true'}},
@@ -96,9 +97,25 @@ for (const [name, source] of [['standard', standard], ['fast', fast]]) {
     const states = new Map(deploySteps.map(step => [step, 'success']));
     states.set(action, outcome);
     assert.equal([...states.values()].includes('failure'), outcome === 'failure');
-    assert.equal(deploySteps.slice(deploySteps.indexOf(action) + 1).length, 0);
+    for(const later of deploySteps.slice(deploySteps.indexOf(action)+1).filter(s=>s.name!=='Preserve failed frontend upload identity'))assert.equal(permits(later,context()),false,'Cloudflare steps must not follow a Pages publication');
   }
 }
+
+const cfSteps=steps(job(standard,'deploy'));
+const cfDeploy=cfSteps.find(s=>s.name==='Deploy and verify Cloudflare frontend');
+const cfContext={success:()=>true,env:{HOSTING_PROVIDER:'cloudflare'},steps:{static_build:{outcome:'success'}}};
+assert(permits(cfDeploy,cfContext));
+for(const outcome of ['failure','skipped','cancelled',undefined])assert(!permits(cfDeploy,{...cfContext,steps:{static_build:{outcome}}}));
+assert(!permits(cfDeploy,{...cfContext,success:()=>false}));
+assert(!permits(cfDeploy,{...cfContext,env:{HOSTING_PROVIDER:'github-pages'}}));
+assert(!/\n  push:/.test(fast),'Legacy fast writer must not compete with normal build-once pushes');
+assert(standard.includes('name: Check frontend hosting package') && standard.includes('npm run test:frontend-hosting'));
 console.log('Pages workflow state, immutable checkout and identical early/final guard controls passed.');
 
 await import('./test-pages-candidate.mjs');
+
+const diagnostic=cfSteps.find(s=>s.name==='Preserve failed frontend upload identity');
+assert(diagnostic.source.includes('path: test-results/frontend-upload.ndjson'));
+for(const failed of [true,false])for(const cancelled of [true,false])for(const provider of ['github-pages','cloudflare']) {
+ assert.equal(Boolean(vm.runInNewContext(diagnostic.condition,{failure:()=>failed,cancelled:()=>cancelled,env:{HOSTING_PROVIDER:provider}})),failed&&!cancelled&&provider==='cloudflare');
+}

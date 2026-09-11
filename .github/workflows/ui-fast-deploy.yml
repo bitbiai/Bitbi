@@ -19,43 +19,17 @@
 # carry model-control, request-mode, pricing, or Worker-shared behavior and
 # must stay on the broad static workflow.
 #
-# The push paths filter starts this workflow only for likely UI commits. The
-# internal guard still compares all changed files because a mixed commit can
-# include both an allowed UI file and a risky file. Mixed/risky changes fail
-# before validation, before the Pages environment, and before Pages concurrency.
-#
-# Operator policy:
-# - Normal UI work should use normal commits and `git push origin main`.
-# - Avoid `git commit --amend` / force-push for routine UI deploys; if a push
-#   base disappears, the guard will fall back to HEAD^ only when that is safe.
-# - Manual workflow dispatch can intentionally redeploy current HEAD with
-#   `allow_empty_deploy=true`.
-# - For manual changed-file checks, provide a known previous commit SHA in
-#   `base_ref`.
+# Legacy manual Pages path. Normal pushes use static.yml and one tested artifact.
+# Both writers share the production lock; this path rejects the retired provider.
+# A manual wider base must include the complete verified unpublished range.
 
 name: Fast UI and Member Models Deploy to Pages
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - "index.html"
-      - "de/index.html"
-      - "css/pages/index.css"
-      - "css/base/**"
-      - "css/components/**"
-      - "js/pages/index/**"
-      - "assets/images/**"
-      - "assets/favicons/**"
-      - "fonts/**"
-      - "js/shared/member-model-exposure.mjs"
-      - "js/shared/models-overlay.js"
-      - "tests/locale.spec.js"
-      - "tests/smoke.spec.js"
   workflow_dispatch:
     inputs:
       base_ref:
-        description: "Optional base ref/SHA for changed-file guard. Defaults to HEAD^."
+        description: "Optional base ref/SHA for changed-file guard. Defaults to verified published baseline."
         required: false
         default: ""
       allow_empty_deploy:
@@ -69,6 +43,8 @@ on:
 
 permissions:
   contents: read
+  deployments: read
+  actions: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -91,19 +67,31 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Setup Node.js for test selection
         uses: actions/setup-node@v6
         with:
           node-version: 22
 
+      - name: Resolve published baseline and fence retired Pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BASE_INPUT: ${{ github.event.inputs.base_ref }}
+        run: |
+          test "$(node scripts/frontend-release.mjs target)" = github-pages || { echo "Legacy Pages writer is retired."; exit 1; }
+          node scripts/pages-candidate.mjs baseline
+      - name: Check Pages authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/frontend-release.mjs pages-guard
       - name: Guard changed files are fast-path safe
         id: changed-files
         env:
           EVENT_NAME: ${{ github.event_name }}
           PUSH_BASE: ${{ github.event.before }}
           PUSH_HEAD: ${{ github.sha }}
-          MANUAL_BASE: ${{ github.event.inputs.base_ref }}
+          MANUAL_BASE: ${{ env.CANDIDATE_BASE }}
           ALLOW_EMPTY_DEPLOY: ${{ github.event.inputs.allow_empty_deploy || 'false' }}
         run: |
           set -euo pipefail
@@ -367,6 +355,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     permissions:
       contents: read
+      actions: read
+      deployments: read
       pages: write
       id-token: write
     # Keep the shared production Pages lock only on the actual deploy job.
@@ -375,6 +365,7 @@ jobs:
       group: "pages"
       cancel-in-progress: false
     env:
+      CANDIDATE_BASE: ${{ needs.guard.outputs.base_ref }}
       FAST_UI_BASE_REF: ${{ needs.guard.outputs.base_ref }}
       FAST_UI_HEAD_REF: ${{ needs.guard.outputs.head_ref }}
     steps:
@@ -383,6 +374,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -448,7 +440,7 @@ jobs:
         if: success() && needs.guard.result == 'success' && steps.static_build.outcome == 'success' && steps.pages_artifact.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/pages-candidate.mjs current
+        run: node scripts/frontend-release.mjs pages-guard
       - name: Deploy to GitHub Pages
         id: deployment
         if: success() && needs.guard.result == 'success' && steps.static_build.outcome == 'success' && steps.pages_artifact.outcome == 'success'

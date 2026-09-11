@@ -170,11 +170,11 @@ assert(block('browser-validation').includes('node scripts/pages-candidate.mjs re
 assert(block('browser-validation').includes('pages-proof-browser-validation-'));
 const expression=name=>block(name).match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
 const permits=(name,ctx)=>Boolean(vm.runInNewContext(expression(name).replace(/needs\.([\w-]+)/g, (_, key) => `needs[${JSON.stringify(key)}]`),ctx));
-const context={github:{event_name:'workflow_dispatch',event:{inputs:{candidate_run_id:'123'}}},cancelled:()=>false,needs:Object.fromEntries([...Object.keys(REQUIRED_JOBS),'reuse-candidate'].map(name=>[name,{result:name==='reuse-candidate'?'success':'skipped'}]))};
+const context={github:{ref:'refs/heads/main',event_name:'workflow_dispatch',event:{inputs:{candidate_run_id:'123'}}},cancelled:()=>false,needs:Object.fromEntries([...Object.keys(REQUIRED_JOBS),'reuse-candidate'].map(name=>[name,{result:name==='reuse-candidate'?'success':'skipped'}]))};
 assert.equal(permits('release-compatibility',context),false);assert.equal(permits('reuse-candidate',context),true);assert.equal(permits('deploy',context),true);
 for(const result of ['failure','skipped','cancelled'])assert.equal(permits('deploy',{...context,needs:{...context.needs,'reuse-candidate':{result}}}),false);
 assert.equal(permits('deploy',{...context,cancelled:()=>true}),false);
-const normal={...context,github:{event_name:'push',event:{inputs:{}}},needs:Object.fromEntries([...Object.keys(REQUIRED_JOBS),'reuse-candidate'].map(name=>[name,{result:name==='reuse-candidate'?'skipped':'success',outputs:{pages_allowed:'true',pages_required:'true'}}]))};
+const normal={...context,github:{ref:'refs/heads/main',event_name:'push',event:{inputs:{}}},needs:Object.fromEntries([...Object.keys(REQUIRED_JOBS),'reuse-candidate'].map(name=>[name,{result:name==='reuse-candidate'?'skipped':'success',outputs:{pages_allowed:'true',pages_required:'true'}}]))};
 const validationOnly={...normal,needs:{...normal.needs,'release-compatibility':{result:'success',outputs:{pages_allowed:'false',pages_required:'true'}}}};
 assert.equal(permits('deploy',{...normal,needs:{...normal.needs,'release-compatibility':{result:'success',outputs:{}}}}),false);
 assert.equal(permits('deploy',validationOnly),false,'Validation-only run must not acquire the production write lock');
@@ -275,3 +275,8 @@ try {
  }
  console.log('Actual Playwright lifecycle: old layout loses discovery; isolated artifacts retain fresh discovery and all 6 project results. Browser-free control.');
 } finally {fs.rmSync(lifecycleDir,{recursive:true,force:true});}
+
+for(const c of [context,normal]) {
+ assert.equal(permits('deploy',{...c,github:{...c.github,ref:'refs/heads/prep/hosting'}}),false);
+ assert.equal(permits('deploy',{...c,github:{...c.github,event:{inputs:{...c.github.event.inputs,validation_only:'true'}}}}),false);
+}

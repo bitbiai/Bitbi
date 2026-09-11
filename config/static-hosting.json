@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "provider": "github-pages",
+  "worker": "bitbi-frontend",
+  "previewWorker": "bitbi-frontend-preview",
+  "wranglerVersion": "4.129.0",
+  "wranglerPackage": "workers/contact",
+  "productionEnvironment": "cloudflare-static-production",
+  "bootstrapPagesSha": "d6b53c85f433c94b3c41a641a92e4dd859d2cde4",
+  "bootstrapPagesDeployment": 6364415557,
+  "domains": ["bitbi.ai", "www.bitbi.ai"]
+}

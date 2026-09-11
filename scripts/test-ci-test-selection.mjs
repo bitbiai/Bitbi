@@ -381,13 +381,12 @@ for (const file of [
 {
   const fastWorkflow = fs.readFileSync(path.join(repoRoot, ".github/workflows/ui-fast-deploy.yml"), "utf8");
   const staticWorkflow = fs.readFileSync(path.join(repoRoot, ".github/workflows/static.yml"), "utf8");
-  const workflowPaths = (workflow, key) => {
-    const match = workflow.match(new RegExp(`^    ${key}:\\n((?:      - "[^"]+"\\n)+)`, "m"));
-    assert(match, `expected ${key} block`);
-    return [...match[1].matchAll(/^      - "([^"]+)"$/gm)].map((entry) => entry[1]);
-  };
-  assert.deepEqual(workflowPaths(fastWorkflow, "paths"), FAST_DEPLOY_WORKFLOW_PATHS);
-  assert.deepEqual(workflowPaths(staticWorkflow, "paths-ignore"), FAST_DEPLOY_WORKFLOW_PATHS);
+  const { yaml } = await import('../node_modules/playwright-core/lib/utilsBundle.js');
+  const normalEvents=yaml.parse(staticWorkflow).on, fastEvents=yaml.parse(fastWorkflow).on;
+  assert.deepEqual(normalEvents.push,{branches:['main']},'Normal candidate path owns every automatic static publication');
+  assert(!fastEvents.push,'Legacy fast writer is manual-only');
+  assert(fastEvents.workflow_dispatch,'Keep the explicitly guarded transition path');
+
   assert(!fastWorkflow.includes("full-regression.yml"));
 }
 
@@ -440,3 +439,9 @@ for(const input of ['js/shared/auth.js','workers/auth/src/index.js','workers/aut
 }
 assert.equal(selection(adminDelivery,{forceFull:true}).full,true);
 assert.equal(selection(adminDelivery,{forceFull:true}).adminRelease,false);
+
+for(const file of ['frontend/index.mjs','frontend/wrangler.jsonc','config/static-hosting.json']) {
+ const selected=selectCiTests([file]);assert(selected.full && selected.static && selected.workers && selected.homepage && selected.auth);
+ assert(selected.reasons.full.some(reason=>reason.includes('native routing')));
+ assert(!isFastDeploySafePath(file));
+}

@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -104,6 +106,8 @@ jobs:
         run: npm run validate:asset-version
       - name: Build static site
         run: npm run build:static
+      - name: Check frontend hosting package
+        run: npm run test:frontend-hosting -- --standalone
 
   worker-tests:
     needs: release-security
@@ -261,6 +265,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:

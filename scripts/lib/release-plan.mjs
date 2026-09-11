@@ -13,6 +13,9 @@ const IGNORED_CHANGE_PREFIXES = [
 ];
 
 const STATIC_BUILD_RELATED_FILES = new Set([
+  "frontend/index.mjs",
+  "frontend/wrangler.jsonc",
+  "config/static-hosting.json",
   "scripts/build-static-site.mjs",
   "scripts/lib/asset-version.mjs",
   "scripts/test-asset-version.mjs",

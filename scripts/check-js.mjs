@@ -7,6 +7,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
 const CHECK_TARGETS = [
+  "frontend/index.mjs",
+  "scripts/lib/frontend-source.mjs",
+  "scripts/test-frontend-review.mjs",
+  "scripts/lib/frontend-receipts.mjs",
+  "scripts/frontend-release.mjs",
+  "scripts/lib/frontend-hosting.mjs",
+  "scripts/test-frontend-hosting.mjs",
   "scripts/check-dom-sinks.mjs",
   "scripts/check-admin-activity-query-shape.mjs",
   "scripts/check-data-lifecycle-policy.mjs",
