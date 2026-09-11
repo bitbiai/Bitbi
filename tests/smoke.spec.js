@@ -69,6 +69,32 @@ const TEST_PNG_BYTES = Buffer.from(
 
 const expectedModelCatalogs = new Map();
 
+// Reuse the homepage-entry version contract used by the carousel tests, but
+// require the already loaded audio module to match before importing from tests.
+async function resolveSoundLabAudioModule(page, responses) {
+  const built = path.resolve(process.env.STATIC_TEST_ROOT || '.') !== path.resolve(__dirname, '..');
+  return page.evaluate(({ built, responses }) => {
+    const fail = detail => { throw new Error(`Sound Lab audio module identity: ${detail}`); };
+    const entries = [...document.querySelectorAll('script[type="module"][src]')]
+      .map(script => new URL(script.src))
+      .filter(url => url.pathname === '/js/pages/index/main.js');
+    if (entries.length !== 1) fail('missing or ambiguous homepage entry');
+    const entry = entries[0];
+    const versions = entry.searchParams.getAll('v');
+    if (entry.origin !== location.origin || entry.hash || versions.length !== 1
+      || [...entry.searchParams.keys()].some(key => key !== 'v') || !versions[0]) fail('invalid entry origin/version');
+    if (built && versions[0] === '__ASSET_VERSION__') fail('built page contains source placeholder');
+    const expected = new URL('/js/shared/audio/audio-manager.js', location.origin);
+    expected.search = entry.search;
+    if (responses.some(response => response.status !== 200 && response.status !== 304)) fail('audio module response failed');
+    const loaded = [...new Set(responses.map(response => response.url))];
+    if (loaded.length !== 1 || loaded[0] !== expected.href) {
+      fail(`expected ${expected.href}; loaded ${JSON.stringify(loaded)}`);
+    }
+    return expected.href;
+  }, { built, responses });
+}
+
 function buildNewsPulseItems(prefix = 'mobile-pulse') {
   return Array.from({ length: 3 }, (_, index) => ({
     id: `${prefix}-${index + 1}`,
@@ -8608,6 +8634,14 @@ test.describe('Homepage', () => {
   });
 
   test('homepage Sound Lab More starts at 60 Memtracks, caps at 100, and keeps playback usable', async ({ page }) => {
+    // Observe only this module, before navigation/test imports. Unlike resource
+    // timing's bounded buffer, this retains late conflicting module identities.
+    const audioModuleResponses = [];
+    page.on('response', response => {
+      if (new URL(response.url()).pathname === '/js/shared/audio/audio-manager.js') {
+        audioModuleResponses.push({ url: response.url(), status: response.status() });
+      }
+    });
     const items = Array.from({ length: 120 }, (_, index) => {
       const id = `progressive-memtrack-${index + 1}`;
       return {
@@ -8696,15 +8730,21 @@ test.describe('Homepage', () => {
     await expect(showMore).toBeHidden();
     await expect(page.locator('.snd-memtracks-pagination .browse-pagination__status')).toHaveText('Showing 100 Memtracks.');
 
-    await page.evaluate(async () => {
-      localStorage.removeItem('bitbi_audio_state_v1');
-      const { clearGlobalAudio } = await import('/js/shared/audio/audio-manager.js?v=__ASSET_VERSION__');
-      clearGlobalAudio();
+    const audioModuleUrl = await resolveSoundLabAudioModule(page, audioModuleResponses);
+    await test.info().attach('sound-lab-module-identity', {
+      body: JSON.stringify({ audioModuleUrl, staticRoot: process.env.STATIC_TEST_ROOT || '.' }),
+      contentType: 'application/json',
     });
+    const resetAudio = () => page.evaluate(async (url) => {
+      localStorage.removeItem('bitbi_audio_state_v1');
+      const { clearGlobalAudio } = await import(url);
+      clearGlobalAudio();
+    }, audioModuleUrl);
+    await resetAudio();
     await cards.first().locator('.snd-play').evaluate((button) => button.click());
-    await expect.poll(() => page.evaluate(async () => {
+    await expect.poll(() => page.evaluate(async (url) => {
       try {
-        const { getGlobalAudioState } = await import('/js/shared/audio/audio-manager.js?v=__ASSET_VERSION__');
+        const { getGlobalAudioState } = await import(url);
         const state = getGlobalAudioState();
         const playCalls = window.__bitbiSoundMoreAudioMock?.playCalls || 0;
         return state.trackId === 'memtrack:progressive-memtrack-1'
@@ -8719,11 +8759,31 @@ test.describe('Homepage', () => {
       } catch {
         return 'missing';
       }
-    })).toBe('selected');
+    }, audioModuleUrl)).toBe('selected');
     const idsAfterClick = await cards.evaluateAll((nodes) => nodes.map((node) => node.dataset.memtrackId));
     expect(new Set(idsAfterClick).size).toBe(idsAfterClick.length);
     expect(idsAfterClick).toContain('progressive-memtrack-100');
     expect(idsAfterClick).not.toContain('progressive-memtrack-101');
+
+    await test.step('reset and reading use the application instance; foreign imports cannot impersonate it', async () => {
+      const readTrack = () => page.evaluate(async (url) => (await import(url)).getGlobalAudioState().trackId, audioModuleUrl);
+      await resetAudio();
+      await expect.poll(readTrack).toBe('');
+      await cards.first().locator('.snd-play').evaluate(button => button.click());
+      await expect.poll(readTrack).toBe('memtrack:progressive-memtrack-1');
+      const foreignUrl = new URL(audioModuleUrl);
+      foreignUrl.searchParams.set('v', `${foreignUrl.searchParams.get('v')}-wrong-instance`);
+      const foreignTrack = await page.evaluate(async (url) => {
+        const other = await import(url);
+        other.clearGlobalAudio();
+        return other.getGlobalAudioState().trackId;
+      }, foreignUrl.href);
+      expect(foreignTrack).toBe('');
+      await expect.poll(readTrack).toBe('memtrack:progressive-memtrack-1');
+      await expect(resolveSoundLabAudioModule(page, audioModuleResponses)).rejects.toThrow('Sound Lab audio module identity: expected');
+      await resetAudio();
+      await expect.poll(readTrack).toBe('');
+    });
   });
 
   test('homepage public media detail likes use the live interaction flow for Mempics and Memvids', async ({ page }) => {
