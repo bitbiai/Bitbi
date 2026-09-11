@@ -24,6 +24,32 @@ test('probe replay: recorded stalled fourth slot stays red; seek needs fresh out
   }
 });
 
+test('probe replay: bfcache seek invalidation reports the effective deadline boundary without forgiving it', () => {
+  const recorded = require('./fixtures/media/hero-bfcache-seek-window.json');
+  const observe = createProgressWindow();
+  for (const [index,row] of recorded.samples.entries()) {
+    expect(observe(row)).toBe(false);
+    if (index < 11) expect(observe.issues()).toContainEqual(expect.objectContaining({slot:'left_top',condition:'seek-in-progress'}));
+  }
+  expect(observe.issues()).toEqual([expect.objectContaining({slot:'right_bottom',beforeOutput:9,
+    effectiveOutputBaseline:20,seekBaseline:20,output:20,progress:false,everProgress:true,
+    lastInvalidation:{index:12,at:null,reason:'seeking'},observedIndex:14,condition:'no-new-output'})]);
+  expect(observe.diagnostics().find(v=>v.slot==='left_top')).toMatchObject({
+    progress:true,output:7,effectiveOutputBaseline:5,lastInvalidation:{index:11,at:null,reason:'seeking'},
+  });
+  const last = recorded.samples.at(-1);
+  const subsequent = last.map(v=>({...v,outputAdvances:v.outputAdvances+1}));
+  // Hypothetical subsequent output tests the contract; it never recertifies the
+  // expired original native interval. A new interval needs its own evidence.
+  expect(observe(subsequent)).toBe(true);
+  expect(createProgressWindow()(subsequent)).toBe(false);
+  for (const fault of [{seeking:true},{paused:true},{src:'/other'},{epoch:2},{id:99},{error:3},{}]) {
+    const probe=createProgressWindow();recorded.samples.forEach(row=>probe(row));
+    const changed=last.map(v=>v.slot==='right_bottom'?{...v,...fault}:v);
+    expect(probe(changed)).toBe(false);
+  }
+});
+
 test('probe only: every active slot needs its own native progress and identity', () => {
   // Exercise the actual browser progress window, not the retired frame-count
   // surrogate. Decoder statistics alone cannot prove new visible output.
@@ -104,6 +130,15 @@ test('browser progress window survives delayed transport but never reuses a chan
     return { proof: await window.__transportProof, before: window.__transportInitial, after: window.__transportCurrent() };
   });
   expect(result.proof.passed).toBe(true);
+  expect(result.proof.deadlineAt - result.proof.startedAt).toBe(500);
+  expect(result.proof.decisions).toHaveLength(result.proof.samples.length);
+  expect(result.proof.decisions.length).toBeLessThanOrEqual(60);
+  for (const decision of result.proof.decisions) {
+    expect(decision.at).toBeLessThanOrEqual(decision.sampledAt);
+    expect(decision.sampledAt).toBeLessThanOrEqual(decision.evaluatedAt);
+    expect(decision.slots).toHaveLength(4);
+    expect(decision.slots[0].lastInvalidation).toMatchObject({index:1,reason:'initial'});
+  }
   const oldRoundTrips = createProgressWindow();
   expect(oldRoundTrips(result.before)).toBe(false);
   expect(oldRoundTrips(result.after)).toBe(false); // Old two-roundtrip observation loses that valid window.

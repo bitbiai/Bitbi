@@ -41,7 +41,8 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
         state.lastOutputTime=output.mediaTime;
       }
       if(output) {
-        state.nativeOutput.push({mediaTime:output.mediaTime,presentationTime:output.presentationTime,
+        state.nativeOutput.push({observedAt:performance.now(),mediaTime:output.mediaTime,presentationTime:output.presentationTime,
+          presentedFrames:output.presentedFrames,
           seeking:video.seeking,paused:video.paused,epoch:state.epoch});
         if(state.nativeOutput.length>12)state.nativeOutput.shift();
       }
@@ -102,6 +103,7 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
           droppedVideoFrames: video.getVideoPlaybackQuality?.().droppedVideoFrames ?? null,
           decodedFrames: video.webkitDecodedFrameCount ?? null } : undefined,
         nativeOutput: details ? observationState.nativeOutput.slice() : undefined,
+        lastNativeOutput: observationState.nativeOutput.at(-1) ?? null,
         paused: video.paused, ended: video.ended, seeking: video.seeking,
         readyState: video.readyState, networkState: video.networkState,
         error: video.error?.code ?? null,
@@ -256,20 +258,27 @@ function observeProgress(sample, { loops = 0, timeout = 5000 } = {}, factory = c
   const progress = factory({ loops });
   return new Promise((resolve, reject) => {
     const start = performance.now();
-    const samples = [];
+    const samples = [], decisions = [];
     let timer, deadline, sampleCount = 0, settled = false;
     const finish = (passed, error) => {
       if (settled) return;
       settled = true; clearTimeout(timer); clearTimeout(deadline);
       if (error) reject(error);
       else resolve({ passed, phase: loops ? 'loop' : 'play-or-resume',
-        issues: progress.issues?.() || [], elapsed: performance.now() - start, sampleCount, samples });
+        issues: progress.issues?.() || [], elapsed: performance.now() - start, sampleCount, samples, decisions, timeout,
+        startedAt: start, deadlineAt: start + timeout });
     };
     const tick = () => {
       try {
+        const at = performance.now() - start;
         const current = sample(); sampleCount++;
+        const sampledAt = performance.now() - start;
+        const passed = progress(current, { index: sampleCount, at: sampledAt });
+        decisions.push({ index: sampleCount, at, sampledAt, evaluatedAt: performance.now() - start,
+          slots: progress.diagnostics?.() || [] });
+        if (decisions.length > 60) decisions.shift();
         samples.push(current); if (samples.length > 60) samples.shift();
-        if (progress(current)) return finish(true);
+        if (passed) return finish(true);
         if (performance.now() - start >= timeout) return finish(false);
         timer = setTimeout(tick, 16);
       } catch (error) { finish(false, error); }
@@ -283,8 +292,8 @@ function observeProgress(sample, { loops = 0, timeout = 5000 } = {}, factory = c
 // never evidence from a retired identity, paused epoch or another source.
 function createProgressWindow({ loops=0 }={}) {
   const states=new Map();
-  let issues=[];
-  const observe=current=>{
+  let issues=[], sequence=0;
+  const observe=(current, { index=++sequence, at=null }={})=>{
     const active=current.filter(video=>video.active);
     const slots=['left_top','left_bottom','right_top','right_bottom'];
     if(active.length!==4 || new Set(active.map(v=>v.slot)).size!==4 || active.some(v=>!slots.includes(v.slot))) {
@@ -294,26 +303,43 @@ function createProgressWindow({ loops=0 }={}) {
       const key=JSON.stringify([video.id,video.src,video.epoch ?? 0]);
       let state=states.get(video.slot);
       if(!state || state.key!==key || video.paused || video.error || !video.connected) {
-        state={key,before:video,progress:false,loops:false};states.set(video.slot,state);
+        state={key,before:video,progress:false,loops:false,everProgress:false,
+          lastInvalidation:{index,at,reason:!state?'initial':state.key!==key?'identity-or-epoch':video.paused?'paused':video.error?'media-error':'detached'}};
+        states.set(video.slot,state);
       }
       // Seek completion alone is not output. A captured seek needs subsequent
       // output in this identity, even if it progressed before that seek.
-      if(video.seeking) { state.seekBaseline=video.outputAdvances;state.progress=false; }
+      if(video.seeking) {
+        state.seekBaseline=video.outputAdvances;state.progress=false;
+        state.lastInvalidation={index,at,reason:'seeking'};
+      }
       if(!video.paused && video.readyState>=2 && video.error===null && video.connected) {
         if(!video.seeking && video.outputAdvances>Math.max(state.before.outputAdvances,state.seekBaseline ?? -1))state.progress=true;
         if((video.completedLoops ?? 0)-(state.before.completedLoops ?? 0)>=loops)state.loops=true;
       }
+      state.everProgress ||= state.progress;
+      state.current=video;
     }
     issues=active.flatMap(video=>{
       const s=states.get(video.slot);
       const condition=!video.connected?'detached':video.error?'media-error':video.paused?'paused':video.seeking?'seek-in-progress':
         video.readyState<2?'not-ready':!s.progress?'no-new-output':!s.loops?'loops-incomplete':null;
       return condition?[{slot:video.slot,id:video.id,src:video.src,epoch:video.epoch ?? 0,condition,
-        beforeOutput:s.before.outputAdvances,output:video.outputAdvances,time:video.time}]:[];
+        beforeOutput:s.before.outputAdvances,seekBaseline:s.seekBaseline ?? null,
+        effectiveOutputBaseline:Math.max(s.before.outputAdvances,s.seekBaseline ?? -1),
+        lastInvalidation:s.lastInvalidation,progress:s.progress,everProgress:s.everProgress,
+        observedIndex:index,observedAt:at,output:video.outputAdvances,time:video.time}]:[];
     });
     return issues.length===0;
   };
   observe.issues=()=>issues;
+  // Bounded per-tick diagnostics, using only already sampled values. No extra
+  // media, decoder or layout reads; none of these fields grants a pass.
+  observe.diagnostics=()=>[...states].map(([slot,s])=>({slot,id:s.current.id,src:s.current.src,
+    epoch:s.current.epoch ?? 0,beforeOutput:s.before.outputAdvances,seekBaseline:s.seekBaseline ?? null,
+    effectiveOutputBaseline:Math.max(s.before.outputAdvances,s.seekBaseline ?? -1),
+    lastInvalidation:s.lastInvalidation,progress:s.progress,everProgress:s.everProgress,
+    output:s.current.outputAdvances,seeking:s.current.seeking,time:s.current.time}));
   return observe;
 }
 module.exports = { installHeroNativeProbe, createProgressWindow, observeProgress };
