@@ -111,7 +111,7 @@ function handleOverlayKeydown(event) {
     closeMobileMediaGrid();
 }
 
-function openMobileMediaDetail({
+export function openMobileMediaDetail({
     title = 'Media detail',
     className = '',
     standalone = false,

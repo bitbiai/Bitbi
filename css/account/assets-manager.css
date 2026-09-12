@@ -1549,85 +1549,15 @@
         cursor: pointer;
     }
 
-    .studio__image-item--sound {
-        min-block-size: 16rem;
-        background:
-            linear-gradient(180deg, rgba(255, 179, 0, 0.12) 0%, rgba(255, 255, 255, 0.02) 100%),
-            rgba(255, 255, 255, 0.02);
-    }
-
-    .studio__image-item--sound.studio__image-item--has-cover {
-        background:
-            linear-gradient(180deg, rgba(7, 12, 20, 0.3) 0%, rgba(6, 10, 16, 0.84) 100%),
-            rgba(255, 255, 255, 0.02);
-    }
-
-    .studio__asset-cover-bg {
-        position: absolute;
-        inset: 0;
-        z-index: 0;
-        background-position: center;
-        background-size: cover;
-        transform: scale(1.02);
-        filter: saturate(0.98) contrast(1.02);
-    }
-
-    .studio__asset-cover-bg::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background:
-            linear-gradient(180deg, rgba(5, 9, 16, 0.16) 0%, rgba(5, 9, 16, 0.72) 64%, rgba(5, 9, 16, 0.9) 100%),
-            radial-gradient(circle at 18% 14%, rgba(255, 179, 0, 0.18), transparent 38%),
-            radial-gradient(circle at 86% 18%, rgba(0, 240, 255, 0.14), transparent 42%);
-    }
-
-    .studio__image-item--sound.studio__image-item--has-cover > :not(.studio__asset-cover-bg) {
-        position: relative;
-        z-index: 1;
-    }
-
-    .studio__image-item--sound > .studio__asset-badge,
-    .studio__image-item--sound.studio__image-item--has-cover > .studio__asset-badge {
-        position: absolute;
-        inset-block-start: 8px;
-        inset-inline-start: 8px;
-        z-index: 3;
-        max-inline-size: calc(50% - 12px);
-    }
-
-    .studio__image-item--sound > .studio__image-visibility,
-    .studio__image-item--sound.studio__image-item--has-cover > .studio__image-visibility {
-        position: absolute;
-        inset-block-start: 8px;
-        inset-inline-end: 8px;
-        z-index: 3;
-        inline-size: auto;
-        max-inline-size: calc(50% - 12px);
-        align-self: auto;
-    }
-
-    .studio__image-item--sound .studio__asset-title {
-        margin-block-start: 2.15rem;
-    }
-
-    .studio__image-item--sound.studio__image-item--has-cover .studio__asset-title,
-    .studio__image-item--sound.studio__image-item--has-cover .studio__asset-meta {
-        text-shadow: 0 1px 16px rgba(0, 0, 0, 0.72);
-    }
-
-    .studio__image-item--sound .studio__asset-actions {
-        margin-block-start: 0.15rem;
-    }
-
     .studio__image-item--video {
         background:
             linear-gradient(180deg, rgba(255, 94, 91, 0.14) 0%, rgba(255, 255, 255, 0.02) 100%),
             rgba(255, 255, 255, 0.02);
     }
 
-    /* Shared square image/video cards: only poster bytes are loaded here. */
-    .studio__image-item--video {
+    /* Shared square image/video/audio cards: only poster bytes load here. */
+    .studio__image-item--video,
+    .studio__image-item--sound {
         display: block;
         aspect-ratio: 1;
         min-block-size: 0;
@@ -1635,7 +1565,7 @@
     }
 
     .studio__image-item--video > .studio__asset-badge { display: none; }
-    .studio__image-item--video .studio__asset-video-trigger {
+    .studio__image-item--visual .studio__asset-video-trigger {
         position: absolute;
         inset: 0;
         block-size: 100%;
@@ -1644,7 +1574,7 @@
         border-radius: inherit;
         aspect-ratio: 1;
     }
-    .studio__image-item--video .studio__asset-video-trigger:focus-visible {
+    .studio__image-item--visual .studio__asset-video-trigger:focus-visible {
         outline-offset: -4px;
     }
     .studio__card-play {
@@ -1683,7 +1613,8 @@
         opacity: 0;
         pointer-events: none;
     }
-    .studio__image-item--video .studio__card-actions {
+    .studio__image-item--video .studio__card-actions,
+    .studio__image-item--sound .studio__card-actions {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .studio__image-item--visual .studio__card-actions > button {
@@ -1735,6 +1666,36 @@
         color: white;
         cursor: pointer;
     }
+    .studio__card-menu::before {
+        content: '';
+        display: block;
+        inline-size: 22px;
+        block-size: 22px;
+        margin: auto;
+        background: currentColor;
+        mask: var(--asset-media-icon) center / contain no-repeat;
+    }
+    .studio__card-menu[data-card-media="image"] {
+        --asset-media-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Crect x='3' y='3' width='18' height='18' rx='2'/%3E%3Ccircle cx='8' cy='8' r='1'/%3E%3Cpath d='m3 17 5-5 4 4 4-6 5 7'/%3E%3C/svg%3E");
+    }
+    .studio__card-menu[data-card-media="video"] {
+        --asset-media-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Crect x='2' y='5' width='13' height='14' rx='2'/%3E%3Cpath d='m15 9 7-4v14l-7-4'/%3E%3C/svg%3E");
+    }
+    .studio__card-menu[data-card-media="sound"] {
+        --asset-media-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M9 18V5l12-3v13M9 9l12-3'/%3E%3Cellipse cx='6' cy='18' rx='3' ry='3'/%3E%3Cellipse cx='18' cy='15' rx='3' ry='3'/%3E%3C/svg%3E");
+    }
+    .studio__asset-sound-fallback {
+        inline-size: 100%;
+        block-size: 100%;
+        background: radial-gradient(circle at 30% 25%, rgba(255,179,0,0.28), transparent 65%), #121922;
+    }
+    /* The existing mobile deck scales active cards to 0.9. Keep the rendered
+       action hit areas above 44px without changing the deck or card geometry. */
+    .studio-deck .studio__image-item--visual .studio__card-menu,
+    .studio-deck .studio__image-item--visual .studio__card-actions > button {
+        min-inline-size: 50px;
+        min-block-size: 50px;
+    }
     .studio__card-menu:focus-visible, .studio__card-actions > button:focus-visible {
         outline: 2px solid var(--color-cyan);
         outline-offset: -2px;
@@ -1747,6 +1708,11 @@
     @media (hover: hover) and (pointer: fine) {
         .studio__image-item--visual:hover .studio__card-actions { opacity: 1; pointer-events: auto; }
         .studio__image-item--visual .studio__card-actions > button { font-size: 0; }
+    }
+    /* Explicit disclosure keeps names visible on touch and hybrid devices,
+       even when the browser also reports a fine/hover-capable pointer. */
+    .studio__image-item--visual.is-actions-open .studio__card-actions > button {
+        font-size: 10px;
     }
     .studio--selecting .studio__card-actions,
     .studio--selecting .studio__card-menu,
@@ -3102,6 +3068,9 @@
             text-align: center;
         }
 
+    }
+
+    /* Existing media detail is also used by desktop music cards. */
         .mobile-media-detail-overlay {
             position: fixed;
             inset: 0;
@@ -3112,6 +3081,8 @@
         }
 
         .mobile-media-detail-overlay__shell {
+            max-inline-size: 64rem;
+            margin-inline: auto;
             min-block-size: 100svh;
             min-block-size: 100dvh;
             max-block-size: 100svh;
@@ -3231,7 +3202,7 @@
             background: #03070d;
         }
 
-        .mobile-media-detail-overlay__media--audio {
+        .mobile-media-detail-overlay--media-first .mobile-media-detail-overlay__media--audio {
             block-size: auto;
             min-block-size: 0;
         }
@@ -3244,7 +3215,9 @@
             box-sizing: border-box;
         }
 
-        .mobile-media-detail-overlay__asset-audio-cover {
+        .mobile-media-detail-overlay__media .mobile-media-detail-overlay__asset-audio-cover {
+            block-size: auto;
+            max-block-size: min(40svh, 24rem);
             inline-size: 100%;
             aspect-ratio: 1;
             border-radius: 0.95rem;
@@ -3320,7 +3293,6 @@
             font-weight: 800;
             text-decoration: none;
         }
-    }
 
     @media (prefers-reduced-motion: reduce) {
         .studio-deck > .studio__image-item,

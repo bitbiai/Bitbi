@@ -199,6 +199,8 @@ const MEMBER_ASSET_PRODUCTION = new Set([
   'workers/auth/src/routes/ai/video-generate.js', 'workers/auth/src/routes/ai/music-generate.js',
 ]);
 const MEMBER_ASSET_VALIDATION = new Set([
+  'js/shared/mobile-media-grid-overlay.js', // existing detail export consumed by shared audio cards
+
   'playwright.assets.config.js', 'tests/assets-manager-focused.spec.js',
   'tests/member-generation.cases.js', 'tests/member-generation-runtime.mjs',
   'tests/helpers/member-generation-control.mjs', 'tests/helpers/auth-worker-harness.js', 'scripts/lib/release-plan.mjs',

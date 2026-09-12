@@ -25,6 +25,7 @@ import {
     getMobileMediaGridQuery,
     isMobileMediaGridEnabled,
     openMobileMediaDetailView,
+    openMobileMediaDetail,
     openMobileMediaGrid,
     syncMobileMediaTrigger,
 } from './mobile-media-grid-overlay.js?v=__ASSET_VERSION__';
@@ -293,28 +294,12 @@ function getDeleteResultCode(result) {
     return getDeleteResultPayload(result)?.code || result?.data?.code || result?.code || '';
 }
 
-function buildSoundPlayIndicator() {
-    const indicator = document.createElement('div');
-    indicator.className = 'studio__asset-play-indicator';
-    indicator.dataset.playing = 'false';
-    indicator.setAttribute('aria-hidden', 'true');
-
-    for (let index = 0; index < 4; index += 1) {
-        const bar = document.createElement('span');
-        bar.className = 'studio__asset-play-bar';
-        indicator.appendChild(bar);
-    }
-
-    return indicator;
-}
-
-function buildSoundCoverBackground(asset) {
-    if (!asset?.poster_url) return null;
-    const cover = document.createElement('div');
-    cover.className = 'studio__asset-cover-bg';
-    cover.setAttribute('aria-hidden', 'true');
-    cover.style.backgroundImage = `url("${String(asset.poster_url).replace(/"/g, '%22')}")`;
-    return cover;
+function buildSoundPosterPlaceholder() {
+    const fallback = document.createElement('div');
+    fallback.className = 'studio__asset-sound-fallback';
+    fallback.setAttribute('aria-label', localeText('assets.previewUnavailable'));
+    fallback.setAttribute('role', 'img');
+    return fallback;
 }
 
 function getPublicationLabels(asset) {
@@ -513,8 +498,6 @@ export function createSavedAssetsBrowser({
     let assetDeck = null;
     let folderLoadSeq = 0;
     let assetLoadSeq = 0;
-    let activeSoundAudio = null;
-    let activeSoundIndicator = null;
     let assetNextCursor = null;
     let assetHasMore = false;
     let assetLoadingMore = false;
@@ -1109,46 +1092,6 @@ export function createSavedAssetsBrowser({
         $storageUsage.setAttribute('aria-label', `${label}: ${text}`);
     }
 
-    function setSoundIndicatorState(indicator, isActive) {
-        if (!indicator) return;
-        indicator.dataset.playing = isActive ? 'true' : 'false';
-        indicator.classList.toggle('is-active', !!isActive);
-    }
-
-    function clearActiveSoundIndicator() {
-        if (activeSoundIndicator) {
-            setSoundIndicatorState(activeSoundIndicator, false);
-        }
-        activeSoundAudio = null;
-        activeSoundIndicator = null;
-    }
-
-    function bindSoundPlaybackIndicator(audio, indicator) {
-        if (!audio || !indicator) return;
-
-        const activate = () => {
-            if (activeSoundAudio && activeSoundAudio !== audio) {
-                setSoundIndicatorState(activeSoundIndicator, false);
-            }
-            activeSoundAudio = audio;
-            activeSoundIndicator = indicator;
-            setSoundIndicatorState(indicator, true);
-        };
-
-        const deactivate = () => {
-            if (activeSoundAudio === audio) {
-                activeSoundAudio = null;
-                activeSoundIndicator = null;
-            }
-            setSoundIndicatorState(indicator, false);
-        };
-
-        audio.addEventListener('play', activate);
-        audio.addEventListener('pause', deactivate);
-        audio.addEventListener('ended', deactivate);
-        audio.addEventListener('emptied', deactivate);
-    }
-
     function openExternalAsset(url) {
         if (!url) return;
         window.open(url, '_blank', 'noopener,noreferrer');
@@ -1185,6 +1128,22 @@ export function createSavedAssetsBrowser({
             closeTitle: localeText('assets.closePreview'),
             details: getAssetDetailRows(asset),
             statusText: localeText('assets.detailSafeStatus'),
+        });
+    }
+
+    function openSoundAsset(asset, returnFocus) {
+        if (!asset?.file_url) return;
+        // Reuse the existing media detail, native audio controls and cleanup on
+        // every viewport. Only this explicit user activation starts playback.
+        const title = getFileTitle(asset);
+        const rendered = renderAssetMobileDetailContent(asset, title);
+        openMobileMediaDetail({
+            standalone: true, title, returnFocus,
+            className: 'mobile-media-detail-overlay--assets mobile-media-detail-overlay--media-first',
+            renderContent: () => rendered,
+        });
+        rendered.node.querySelector('audio')?.play().catch(() => {
+            // Native controls remain available if playback is disallowed.
         });
     }
 
@@ -1471,7 +1430,6 @@ export function createSavedAssetsBrowser({
         assetNextCursor = null;
         assetHasMore = false;
         assetLoadingMore = false;
-        clearActiveSoundIndicator();
         $assetGrid.innerHTML = '';
         const empty = document.createElement('div');
         empty.className = 'studio__gallery-empty';
@@ -2127,9 +2085,9 @@ export function createSavedAssetsBrowser({
         });
     }
 
-    // One compact action treatment for the shared image/video cards. Native
+    // One compact action treatment for the shared image/video/music cards. Native
     // buttons retain their handlers; the explicit disclosure also works on touch.
-    function decorateCardActions(item, actions) {
+    function decorateCardActions(item, actions, asset) {
         item.classList.add('studio__image-item--visual');
         actions.classList.add('studio__card-actions');
         for (const button of actions.querySelectorAll('button')) {
@@ -2139,9 +2097,10 @@ export function createSavedAssetsBrowser({
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.className = 'studio__card-menu';
-        toggle.textContent = '•••';
-        toggle.setAttribute('aria-label', localeText('browse.moreActions'));
-        toggle.title = localeText('browse.moreActions');
+        toggle.dataset.cardMedia = item.dataset.assetType || 'image';
+        const actionLabel = `${getAssetTypeLabel(asset)} – ${localeText('browse.moreActions')}`;
+        toggle.setAttribute('aria-label', actionLabel);
+        toggle.title = actionLabel;
         toggle.setAttribute('aria-expanded', 'false');
         const setOpen = (open) => {
             item.classList.toggle('is-actions-open', open);
@@ -2169,6 +2128,7 @@ export function createSavedAssetsBrowser({
         if (selectMode || pickerMode) return;
         const card = [...$assetGrid.children].find(item => item.dataset.assetId === asset.id);
         if (!card?.getClientRects().length) return;
+        assetDeck?.setActive([...$assetGrid.children].indexOf(card));
         const toggle = card.querySelector('.studio__card-menu');
         if (!toggle) return;
         // Refresh replaces the activated button. Preserve this interaction's
@@ -2320,7 +2280,7 @@ export function createSavedAssetsBrowser({
         overlay.appendChild(publishButton);
         overlay.appendChild(deleteButton);
         item.appendChild(overlay);
-        decorateCardActions(item, overlay);
+        decorateCardActions(item, overlay, asset);
         appendSelectionCheck(item);
         item.addEventListener('click', (event) => {
             if (event.defaultPrevented) return;
@@ -2346,20 +2306,15 @@ export function createSavedAssetsBrowser({
         const item = document.createElement('article');
         const isSound = isAudioAsset(asset);
         const isVideo = isVideoAsset(asset);
-        const hasSoundCover = isSound && asset.poster_url;
-        item.className = `studio__image-item studio__image-item--file ${isSound ? 'studio__image-item--sound' : isVideo ? 'studio__image-item--video' : 'studio__image-item--text'}${hasSoundCover ? ' studio__image-item--has-cover' : ''}`;
+        item.className = `studio__image-item studio__image-item--file ${isSound ? 'studio__image-item--sound' : isVideo ? 'studio__image-item--video' : 'studio__image-item--text'}`;
         item.dataset.assetId = asset.id;
         item.dataset.assetType = isSound ? 'sound' : isVideo ? 'video' : 'text';
         item.title = getFileTitle(asset);
 
-        if (hasSoundCover) {
-            item.appendChild(buildSoundCoverBackground(asset));
-        }
-
         const badge = document.createElement('span');
         badge.className = `studio__asset-badge ${isSound ? 'studio__asset-badge--sound' : isVideo ? 'studio__asset-badge--video' : 'studio__asset-badge--text'}`;
         badge.textContent = getFileBadge(asset);
-        item.appendChild(badge);
+        if (!isVideo && !isSound) item.appendChild(badge);
 
         if (isVideo || isSound) {
             const isPublished = isPublishedAsset(asset);
@@ -2372,7 +2327,7 @@ export function createSavedAssetsBrowser({
         const title = document.createElement('h3');
         title.className = 'studio__asset-title';
         title.textContent = getFileTitle(asset);
-        if (!isVideo) item.appendChild(title);
+        if (!isVideo && !isSound) item.appendChild(title);
 
         if (!isVideo && !isSound) {
             const preview = document.createElement('p');
@@ -2381,22 +2336,11 @@ export function createSavedAssetsBrowser({
             item.appendChild(preview);
         }
 
-        if (isSound && asset.file_url) {
-            const playIndicator = buildSoundPlayIndicator();
-            item.appendChild(playIndicator);
-
-            const audio = document.createElement('audio');
-            audio.className = 'studio__asset-audio';
-            audio.controls = true;
-            audio.preload = 'none';
-            audio.src = asset.file_url;
-            bindSoundPlaybackIndicator(audio, playIndicator);
-            item.appendChild(audio);
-        } else if (isVideo) {
+        if (isSound || isVideo) {
             const videoTrigger = document.createElement('button');
             videoTrigger.type = 'button';
             videoTrigger.className = 'studio__asset-video-trigger';
-            videoTrigger.setAttribute('aria-label', localeText('assets.openVideo', { title: getFileTitle(asset) }));
+            videoTrigger.setAttribute('aria-label', localeText(isSound ? 'browse.play' : 'assets.openVideo', { title: getFileTitle(asset) }));
             videoTrigger.disabled = !asset.file_url;
             videoTrigger.addEventListener('click', (event) => {
                 event.preventDefault();
@@ -2409,7 +2353,8 @@ export function createSavedAssetsBrowser({
                     toggleSelection(item);
                     return;
                 }
-                openVideoAsset(asset);
+                if (isSound) openSoundAsset(asset, videoTrigger);
+                else openVideoAsset(asset);
             });
 
             if (asset.poster_url) {
@@ -2422,11 +2367,11 @@ export function createSavedAssetsBrowser({
                 if (asset.poster_width) posterImg.width = asset.poster_width;
                 if (asset.poster_height) posterImg.height = asset.poster_height;
                 posterImg.addEventListener('error', () => {
-                    posterImg.replaceWith(buildVideoPosterPlaceholder(asset));
+                    posterImg.replaceWith(isSound ? buildSoundPosterPlaceholder() : buildVideoPosterPlaceholder(asset));
                 }, { once: true });
                 videoTrigger.appendChild(posterImg);
             } else {
-                videoTrigger.appendChild(buildVideoPosterPlaceholder(asset));
+                videoTrigger.appendChild(isSound ? buildSoundPosterPlaceholder() : buildVideoPosterPlaceholder(asset));
             }
 
             const play = document.createElement('span');
@@ -2560,7 +2505,7 @@ export function createSavedAssetsBrowser({
                 if (selectMode) return;
                 if (event.target.closest('button, a, audio, summary, details, .studio__image-check')) return;
                 if (isVideo) openVideoAsset(asset);
-                else if (isMobileMediaGridEnabled()) openAssetMobileDetail(asset);
+                else openSoundAsset(asset, item);
             });
             item.addEventListener('keydown', (event) => {
                 if (event.target !== item) return;
@@ -2575,7 +2520,7 @@ export function createSavedAssetsBrowser({
                     return;
                 }
                 if (isVideo) openVideoAsset(asset);
-                else if (isMobileMediaGridEnabled()) openAssetMobileDetail(asset);
+                else openSoundAsset(asset, item);
             });
         } else if (!isSound && !isVideo && asset.file_url) {
             item.setAttribute('role', 'button');
@@ -2611,7 +2556,7 @@ export function createSavedAssetsBrowser({
         }
 
         item.appendChild(actions);
-        if (isVideo) decorateCardActions(item, actions);
+        if (isVideo || isSound) decorateCardActions(item, actions, asset);
         appendSelectionCheck(item);
         decoratePickerCard(item, asset);
         return item;
@@ -2630,7 +2575,6 @@ export function createSavedAssetsBrowser({
             assetLoadingMore = false;
             assetNextCursor = null;
             assetHasMore = false;
-            clearActiveSoundIndicator();
             $assetGrid.innerHTML = '';
             const loading = document.createElement('div');
             loading.className = 'studio__gallery-empty';

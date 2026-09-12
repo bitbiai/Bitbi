@@ -123,6 +123,19 @@ owner rename/publication and durable-client neighbors in Chromium/WebKit on `_si
 The selected Assets step discovers and executes those cases; candidate proof checks
 every discovered result and both engines, outside disposable Playwright output.
 
+Music follow-up: old inline audio controls made cards tall and the disclosure
+used an ambiguous ellipsis. All three media now share the square card/disclosure;
+music opens the existing native audio detail with explicit return focus and cleanup.
+The existing mobile deck scales hit areas: scoped 50px controls retain >44px on screen.
+`shared music cards` in `tests/assets-manager-focused.spec.js` executes through the
+same Assets command on both engines: cover/missing cover, media icons, rendered
+bounds, publish/unpublish, cancelled deletion, selection without playback, native
+play/pause, Escape cleanup and focus return. Explicit disclosure keeps visible action
+names on hybrid pointers; the media-icon attribute does not reuse Generate Lab tab
+selectors, and the existing reference-order badge must render. No provider/storage/naming change.
+The shared detail export is narrow only with this classified card delta; alone it
+retains ordinary homepage/auth selection.
+
 `asset-names.js` shares first-three-word naming and the existing filename sanitizer.
 Image/video/music storage uses it without changing provider input, storage keys,
 credits or jobs. Explicit names and later renames win; durable image saving forwards
