@@ -18,7 +18,7 @@ const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 
 // These are orchestration regressions, not Linux namespace acceptance. The real
 // hosted job must separately emit kernel/UID/network/native-runtime evidence.
-test('each launcher input selects actual Worker tests without a deploy unit', () => {
+test('launcher inputs retain Worker coverage while static release tooling keeps its bounded selection', () => {
   for (const name of [
     'scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs',
     'tests/helpers/q2-runtime/linux-hosted.mjs',
@@ -30,7 +30,13 @@ test('each launcher input selects actual Worker tests without a deploy unit', ()
     '.github/workflows/static.yml', '.github/workflows/full-regression.yml',
   ]) {
     const selection = selectCiTests([name]);
-    assert.equal(selection.workers, true, name);
+    const staticTooling = name === '.github/workflows/static.yml';
+    assert.equal(selection.workers, !staticTooling, name);
+    assert.equal(selection.full, name === '.github/workflows/full-regression.yml', name);
+    if (staticTooling) {
+      assert.equal(selection.static, true, name);
+      assert.equal(selection.homepage, false, name);
+    }
     assert.equal(selection.docsOnly, false, name);
     const plan = createReleasePlanFromRepo(root, { files: [name] });
     assert.deepEqual(plan.deploySteps, [], name);
@@ -202,9 +208,37 @@ test('artifact paths are checked through existing symlink ancestors before creat
   assert.equal(fs.existsSync(external), false);
 });
 
-test('existing Worker gates retain native suite, fail early and upload only after execution', () => {
+test('existing Worker gates retain native suite, fail early and upload only after execution', t => {
   const pkg = JSON.parse(read('package.json'));
-  assert.match(pkg.scripts['test:workers'], /playwright test -c playwright\.workers\.config\.js && npm run test:q2-runtime$/);
+  const command = pkg.scripts['test:workers'];
+  const steps = command.split(/\s*&&\s*/);
+  const required = ['node scripts/check-q4-selection.mjs',
+    'playwright test -c playwright.workers.config.js',
+    'npm run test:homepage-ffmpeg-processor', 'npm run test:q2-runtime'];
+  let previous = -1;
+  for (const step of required) {
+    const index = steps.indexOf(step);
+    assert.ok(index > previous, `Required step in order: ${step}`);
+    assert.equal(steps.lastIndexOf(step), index, `Run required step once: ${step}`);
+    previous = index;
+  }
+  // Exercise the real shell chain with harmless command doubles. Inserting a
+  // required intermediate check must preserve stop-on-error, not adjacency.
+  const f = fixture(t), bin = path.join(f.base, 'bin'), trace = path.join(f.base, 'trace');
+  fs.mkdirSync(bin);
+  for (const step of steps) assert.match(step, /^(?:node|playwright|npm) [a-zA-Z0-9_./: -]+$/);
+  for (const name of ['node', 'playwright', 'npm']) {
+    fs.writeFileSync(path.join(bin, name), '#!/bin/sh\ncommand="${0##*/} $*"\nprintf "%s\\n" "$command" >> "$TRACE"\n[ "$command" != "$FAIL_COMMAND" ] || exit 37\n', { mode: 0o700 });
+  }
+  for (const failedIndex of [-1, ...steps.map((_, index) => index)]) {
+    fs.writeFileSync(trace, '');
+    const result = spawnSync('/bin/sh', ['-c', command], { cwd: f.base,
+      env: { PATH: bin, TRACE: trace, FAIL_COMMAND: steps[failedIndex] || '' }, encoding: 'utf8', timeout: 5000 });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, failedIndex < 0 ? 0 : 37, result.stderr);
+    assert.deepEqual(fs.readFileSync(trace, 'utf8').trim().split('\n'),
+      failedIndex < 0 ? steps : steps.slice(0, failedIndex + 1), 'No downstream check starts after failure');
+  }
   assert.match(pkg.scripts['test:q2-runtime'], /tests\/q2-recovery-staging\.test\.mjs/);
   assert.match(pkg.scripts['test:q2-runtime'], /scripts\/test-q2-runtime-launcher\.mjs/);
   assert.match(pkg.scripts['test:q2-runtime'], /&& node scripts\/test-q2-runtime\.mjs$/);

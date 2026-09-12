@@ -219,6 +219,7 @@ function isStaticSource(file) {
 }
 
 function isWorkerTest(file) {
+  if (['scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs'].includes(file)) return true;
   return WORKER_TEST_PREFIXES.some((entry) => (
     entry.endsWith("/") ? file.startsWith(entry) : file === entry || file.startsWith(entry)
   ));

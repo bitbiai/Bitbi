@@ -73,3 +73,14 @@ can finish after30minutes; an unknown result arriving after reservation release
 is stored privately (including video bytes) for explicit credit reconciliation,
 never exposed or automatically charged. Missing receipts remain unknown. Both
 Node and native workerd execute these controls through the existing callers.
+
+Run34702468263 passed1270 Worker routes and the FFmpeg/member-mode contracts,
+but launcher self-tests still imposed Worker selection on static release tooling
+and immediate Playwright-to-native adjacency. The launcher now checks the scoped
+selection and executes the actual npm shell chain with harmless command doubles:
+required Q4-selection, route, processor and native steps run once in order; a
+failure at each step stops all downstream commands. The two exact launcher
+scripts select Worker/native checks without unrelated full regression; unknown
+script names remain broad. Caller: `node --test tests/q2-recovery-staging.test.mjs
+scripts/test-q2-runtime-launcher.mjs`, also required by `test:q2-runtime`.
+These orchestration checks do not certify Linux execution or deployment.

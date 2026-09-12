@@ -25,6 +25,15 @@ function selection(files, options) {
   return selectCiTests(files, options);
 }
 
+for (const file of ['scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs']) {
+  const result = selection([file]);
+  assert.equal(result.workers, true, file);
+  assert.equal(result.full, false, file);
+  assert.equal(result.homepage, false, file);
+  assert.equal(result.static, false, file);
+}
+assert.equal(selection(['scripts/test-q2-runtime-launcher-unknown.mjs']).full, true);
+
 {
   for (const area of ["shell", "workflows", "context", "media", "ai", "ai-compare-view", "registration", "auth-lifecycle"]) {
     const result = selection([`tests/oma2-q3-${area}.spec.js`]);
@@ -329,6 +338,7 @@ for (const file of [
   const result = selection([".github/workflows/static.yml"]);
   assert.equal(result.full, false);
   assert.equal(result.static, true);
+  assert.equal(result.workers, false);
   assert.equal(result.carousel, false);
   assert.equal(result.assets, false);
 }
