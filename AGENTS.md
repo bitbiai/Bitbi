@@ -161,7 +161,7 @@ Reuse valid evidence for unchanged inputs; repeat checks only for a concrete rea
 
 ## Deploy-sensitive rules
 
-- Static-hosting migration preparation is documented in `docs/runbooks/STATIC_HOSTING_MIGRATION.md`. `config/static-hosting.json` is still Pages-authoritative until a separately approved cutover; no preview/upload/domain change follows from local tests. Preserve candidate bytes, independent active-version evidence, and the shared publication lock.
+- Static-hosting migration preparation is documented in `docs/runbooks/STATIC_HOSTING_MIGRATION.md`. `config/static-hosting.json` selects the reviewed hosting target; production authority still requires the matching verified deployment receipt. No preview/upload/domain change follows from local tests alone. Preserve candidate bytes, independent active-version evidence, and the shared publication lock.
 
 - Static Pages deploy (`.github/workflows/static.yml`) does **not** deploy workers.
 - Keep worker routes/bindings consistent with `config/release-compat.json`.

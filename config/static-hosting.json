@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "provider": "github-pages",
+  "provider": "cloudflare",
   "worker": "bitbi-frontend",
   "previewWorker": "bitbi-frontend-preview",
   "wranglerVersion": "4.129.0",

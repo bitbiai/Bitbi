@@ -1,6 +1,8 @@
-# Static hosting migration — local preparation, 11 September 2026
+# Static hosting migration — authorized cutover candidate, 12 September 2026
 
-**Not activated.** `config/static-hosting.json` still selects `github-pages`.
+**Not yet activated in production.** This reviewed cutover candidate selects
+`cloudflare`; production continues serving the verified Pages origin until the
+protected cutover and active-version checks actually complete.
 Read-only deployment resolution identified main and the published Pages SHA
 `d6b53c85f433c94b3c41a641a92e4dd859d2cde4`, deployment `6364415557`.
 This is the bootstrap receipt, not a permanent baseline. Refresh it against the
@@ -79,89 +81,71 @@ existing environment protection. **The shared lock alone is not a retirement
 fence for already queued pre-migration workflow revisions.** Preserve the old
 site for rollback, but deny its deployment jobs after switching authority.
 
-## Required access — not provisioned by this preparation
+## Cutover authorization and effective access — 12 September 2026
 
-The read-only GitHub environment inspection found only `github-pages`, protected
-by a custom branch policy; no Cloudflare production environment was configured.
-Do not claim reviewers or Cloudflare secrets already exist. The owner must create
-`cloudflare-static-production`, restrict it to protected `main`, and configure
-required reviewer protection if supported by this repository/account plan.
-Until that is confirmed, do not give its job a write token.
+The owner authorized production cutover in `CODEX-PRODUKTIONSUMSTELLUNG-JETZT.md`
+and confirmed access in `ZUGAENGE-EINGERICHTET.md`. GitHub readbacks confirm:
 
-- Separate CI deployment token: account **Workers Scripts Write/Edit** for the
-  chosen BITBI account, as required by Wrangler Worker/asset upload/deployment.
-  Cloudflare does **not** restrict that permission to one Worker name; its wider
-  account Worker reach is a material limitation. No D1/R2/KV/AI/Stripe permissions.
-- Baseline reader: separate **Workers Scripts Read** token for that account.
-  Store as `CF_FRONTEND_READ_TOKEN` where the trusted validation job can read it;
-  `CF_FRONTEND_DEPLOY_TOKEN` only in the protected production environment.
-  Store the account ID as `CF_FRONTEND_ACCOUNT_ID` variable.
-- Cutover operator token: Workers Scripts Write for Custom Domain endpoints and
-  **DNS Write limited to zone bitbi.ai** for the exact DNS records removed or
-  restored. Zone Read is needed for identification if the ID is not supplied.
-  No account-wide DNS permission and no unrelated zone changes.
-- GitHub validation uses only contents/actions/deployments read, with
-  `persist-credentials: false` on every checkout. Branch and validation-only
-  jobs do not inherit publication permissions. The transitional
-  publication job retains Pages write and OIDC permissions for the old Pages
-  action; the protected publication/recovery jobs additionally use Deployments
-  Write to record durable platform metadata. Recovery has no Pages/OIDC rights.
-  Cloudflare itself uses only its explicit environment token. No
-  `pull_request_target` or secrets with untrusted PR checkout.
+- `github-pages` allows only the nonexistent branch
+  `retired/github-pages-disabled`, requires owner review, and disallows admin
+  bypass. The old runs 26336296648 and 25906701120 still report queued without
+  jobs/pending deployments; both historical workflows use this fenced environment.
+  Normal and force cancellation returned 409. The owner explicitly accepted this
+  verified fence instead of claiming the runs were cancelled; preserve the fence.
+- `cloudflare-static-production` allows main only, requires owner `bitbiai` review,
+  and disallows admin bypass. Main has administrator-enforced linear-history,
+  force-push and deletion protection. The actual workflow suites remain required
+  before publication; protection names alone do not prove CI success.
+- `CF_FRONTEND_READ_TOKEN` is a repository secret, while
+  `CF_FRONTEND_DEPLOY_TOKEN` exists only in the protected production environment.
+  `CF_FRONTEND_ACCOUNT_ID` identifies the BITBI account. Secret presence is not
+  an execution proof; validate each credential in its consuming context.
+- The separately scoped local operator credential is in the development Mac's
+  login keychain, service `BITBI-Frontend-Cutover`. Read it only into the child
+  process environment; never print it or persist its value in files. No changes
+  to the operations Mac or Super's read tokens are authorized.
 
-Do not copy or upgrade Supers' observer tokens or use the operations Mac. The
-owner enters secrets directly in GitHub/Cloudflare's protected UI (or an existing
-hidden-input local channel). Never put tokens in commands, tracked files or logs.
+The CI reader needs Account Workers Scripts Read. The protected CI deployer
+needs Account Workers Scripts Edit. The local cutover operator additionally needs
+DNS Edit restricted to zone bitbi.ai. Workers Scripts permissions span the selected
+account, not one Worker name; execution must target only the frontend Workers.
+No D1/R2/KV/AI/Stripe/mail permissions are required. GitHub validation retains
+read-only permissions and non-persisting checkouts; secrets are not exposed to
+untrusted pull requests. The owner completes any required environment review
+through the ordinary GitHub protection flow, never an administrative bypass.
 
-## Next external phase — separate authorization required
+## Final main candidate and one complete acceptance
 
-All commands below are a **future operator procedure, not commands executed in
-this phase**. Use the developer's authorized repository access. The first scope
-is branch publication and CI, not production cutover:
+Preserve the accepted branch candidate and evidence separately. The reviewed
+cutover commit selects Cloudflare and pins the freshly verified Pages bootstrap.
+Review/stage only its explicit changed paths, run the active hook, and record
+commit/tree identity. Fast-forward main normally only after both environment
+fences and the cutover/rollback credentials are verified. No force push.
 
-The current branch is **uncommitted**. First review the explicit file list in
-`LOCAL_PREPARATION.json` against `git status` and the current diff. In the later
-approved phase, stage only those reviewed paths (never `git add .`), including
-new files, then inspect the staged diff and use the active budget hook:
+Before pushing, keep both production environments fenced. Identify and cancel
+only the automatically triggered static push run for that exact SHA, confirm
+its terminal state, and run a single explicit main validation:
 
 ```sh
-# Only in the later authorized phase: verify each reviewed file, then stage
-# exactly that manifest list. Refuse an existing staged delta or changed bytes.
-python3 - <<'PYFILES'
-import pathlib,json,hashlib,subprocess
-m=json.load(open('/Users/bitbi/Bitbi-hosting-prep-20260911/LOCAL_PREPARATION.json'))
-assert subprocess.run(['git','diff','--cached','--quiet']).returncode==0
-for name,digest in m['changedFiles'].items():
-    assert hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest()==digest,name
-subprocess.run(['git','add','--',*sorted(m['changedFiles'])],check=True)
-PYFILES
-git diff --cached --check
-git diff --cached --stat
-git commit -m "Prepare verified Workers Static Assets hosting"
-git rev-parse HEAD HEAD^{tree}
-export GITHUB_REPOSITORY=bitbiai/Bitbi
-export GITHUB_SHA="$(git rev-parse HEAD)"
-# Existing read-only GH_TOKEN is supplied privately, never printed.
-BASE_EVIDENCE="$(mktemp)"
-GITHUB_OUTPUT="$BASE_EVIDENCE" node scripts/pages-candidate.mjs baseline
-export CANDIDATE_BASE="$(sed -n 's/^base=//p' "$BASE_EVIDENCE")"
-# Retain the output as the complete unpublished-range evidence.
-node scripts/select-ci-tests.mjs --base "$CANDIDATE_BASE" --head "$(git rev-parse HEAD)"
-git push origin HEAD:refs/heads/prep/workers-static-assets
-git ls-remote origin refs/heads/prep/workers-static-assets
-# Compare the returned SHA with the recorded commit before dispatch:
-gh workflow run static.yml --repo bitbiai/Bitbi --ref prep/workers-static-assets \
-  -f validation_only=true
+gh workflow run static.yml --repo bitbiai/Bitbi --ref main \
+  -f validation_only=true \
+  -f release_plan_base_ref=d6b53c85f433c94b3c41a641a92e4dd859d2cde4
 ```
 
-Do not merge main, queue duplicate workflows, or treat committing as this phase's
-authorization. The owner records the resulting run ID and exact attempt, then
-uses `gh api repos/bitbiai/Bitbi/actions/runs/<run-id>` (id, head_sha,
-head_branch, event, run_attempt, status, conclusion)
-to identify the completed branch validation. A workflow_dispatch file must exist
-on the default branch for GitHub to expose the workflow; static.yml already does.
-The branch revision must contain these new source/permission guards. A successful
-local check cannot provision environment protection or authorize an upload.
+Confirm its exact SHA, run and attempt. All selected Linux/macOS/browser/security
+jobs and package proofs must actually pass. The earlier branch candidate is not
+this new main build. Preserve failures and repair their actual causes; never rerun
+unchanged failures for a lucky pass. Retain the old candidate directory privately
+before downloading the new one. Use `production-source` / `production-config`
+with exact main identities after acceptance, then `CANDIDATE_BRANCH=main` for
+previewing those same final bytes. No second full suite solely for publication.
+
+The public Pages fallback uses the snapshotted **proxied** DNS records and existing
+Full SSL configuration. Direct origin TLS currently has an expired certificate;
+do not claim direct origin TLS validation, disable verification, switch to
+DNS-only, or alter SSL mode. Reconfirm the public fallback and its recorded
+configuration before the first domain mutation. The 15-minute cutover limit and
+bounded rollback below still apply.
 
 The concrete read-only preview source/download/preparation sequence, from a
 clean checkout of the tested SHA, is:
