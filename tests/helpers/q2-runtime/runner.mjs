@@ -27,7 +27,13 @@ export const runtimeSuites = Object.freeze([
 // networking at OS level for native children (sandbox-exec / network namespace).
 // Miniflare outbound denial and sanitized bindings are defense in depth, not an
 // invented attestation of that external OS boundary.
-export async function runQ2Runtime(args) {
+export function selectedRuntimeSuites(suite) {
+  if (suite && suite !== 'member-generation') throw new Error('Unsupported native suite');
+  return suite ? runtimeSuites.filter(([name]) => name === suite) : runtimeSuites;
+}
+
+export async function runQ2Runtime(args, suite) {
+const selected = selectedRuntimeSuites(suite);
 let artifactParent;
 if (args.length) {
   if (args.length !== 2 || args[0] !== '--artifacts') throw new Error('Usage: node scripts/test-q2-runtime.mjs [--artifacts <outside-repository-directory>]');
@@ -37,7 +43,7 @@ let build;
 const reports = [];
 try {
   build = prepareBuild(artifactParent);
-  for (const [name, run, options] of runtimeSuites) {
+  for (const [name, run, options] of selected) {
     const report = { suite: name, records: [], metrics: [], trace: [], failure: null };
     let runtime;
     try {
@@ -50,6 +56,7 @@ try {
         process.stdout.write(JSON.stringify({ suite: name, ...report.records.at(-1) }) + '\n');
       };
       await run(runtime);
+      if (!report.records.length) throw new Error(`Native suite ${name} executed no cases`);
     } catch (error) {
       report.failure = { stage: runtime?.stage || 'runtime_start', ...safeError(error) };
       process.exitCode = 1;

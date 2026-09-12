@@ -3,13 +3,13 @@ const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');
 const {createAuthTestEnv}=require('./helpers/auth-worker-harness.js');
 const {pathToFileURL}=require('node:url');
 const path=require('node:path');
-for(const name of ['clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart']) {
+for(const name of ['asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart']) {
   test(`durable member generation: ${name}`,async()=>{
     const db=new SqliteD1Database();applyAuthMigrations(db);
     try {
       const {memberGenerationCase}=await import(pathToFileURL(path.join(__dirname,'helpers/member-generation-control.mjs')).href);
       const result=await memberGenerationCase({...createAuthTestEnv(),DB:db},name);
-      expect(result.calls.provider).toBe(name==='execution-exhausted'?0:name.startsWith('music') && name!=='music-failed'?2:1);
+      expect(result.calls.provider).toBe(name==='execution-exhausted'?0:(name.startsWith('music') || name.startsWith('asset-naming-music')) && name!=='music-failed'?2:1);
       expect(result.status).toBe(['provider-unknown','clock-credit-expired'].includes(name)?'outcome_unknown':['music-failed','execution-exhausted'].includes(name)?'failed':'succeeded');
       expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
       await test.info().attach('member-generation-result',{body:JSON.stringify(result),contentType:'application/json'});
@@ -35,4 +35,14 @@ test('durable member generation: one pending poster dispatches the existing proc
     env.ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH='false';
     expect((await maybeDispatchMemvidStreamPreviewProcessor(env,options)).dispatch_skipped_reason).toBe('auto_dispatch_disabled');
   } finally {global.fetch=original;}
+});
+
+
+test('asset naming: whitespace, short and empty prompts; existing filename sanitizer', async () => {
+  const {promptAssetTitle,slugifyFileName}=await import('../workers/auth/src/lib/asset-names.js');
+  for(const [prompt,expected] of [['a little worm in a pile','a little worm'],['  a\n little \t worm  in','a little worm'],['two words','two words'],['alone','alone'],[' \n ', 'Generated Video']]) {
+    expect(promptAssetTitle(prompt,'Generated Video')).toBe(expected);
+  }
+  expect(slugifyFileName(promptAssetTitle('a little worm in a pile'))+'.mp4').toBe('a-little-worm.mp4');
+  expect(slugifyFileName('../My own manual name')).toBe('my-own-manual-name');
 });

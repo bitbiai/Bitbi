@@ -7088,10 +7088,10 @@ class MockD1 {
       return { success: true, meta: { changes: before - this.state.aiGenerationLog.length } };
     }
 
-    if (query === 'SELECT r2_key FROM ai_images WHERE id = ? AND user_id = ?') {
+    if (query === 'SELECT r2_key FROM ai_images WHERE id = ? AND user_id = ?' || query === 'SELECT r2_key, prompt FROM ai_images WHERE id = ? AND user_id = ?') {
       const [imageId, userId] = bindings;
       const row = this.state.aiImages.find((item) => item.id === imageId && item.user_id === userId);
-      return row ? { r2_key: row.r2_key } : null;
+      return row ? { r2_key: row.r2_key, ...(query.includes('r2_key, prompt') ? {prompt:row.prompt} : {}) } : null;
     }
 
     if (query.startsWith("SELECT id, user_id, created_at, published_at, 'mempics' AS media_type FROM ai_images WHERE id = ? AND visibility = 'public'")) {

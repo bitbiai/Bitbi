@@ -10,5 +10,5 @@ if(process.platform==='linux') {
   if (options.preflight) throw new Error('--preflight is the hosted Linux isolation preflight');
   // Local acceptance invokes this entry under the reviewed sandbox-exec profile.
   const { runQ2Runtime } = await import('../tests/helpers/q2-runtime/runner.mjs');
-  await runQ2Runtime(options.artifacts ? ['--artifacts', options.artifacts] : []);
+  await runQ2Runtime(options.artifacts ? ['--artifacts', options.artifacts] : [], options.suite);
 } else throw new Error('Q2 native harness requires an approved OS network boundary for this platform.');

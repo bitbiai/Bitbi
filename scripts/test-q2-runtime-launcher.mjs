@@ -257,7 +257,7 @@ test('existing Worker gates retain native suite, fail early and upload only afte
     const main = block.indexOf(`name: ${runName}`);
     const upload = block.indexOf('uses: actions/upload-artifact@v6');
     assert.ok(authInstall > 0 && authInstall < preflight && preflight < main && main < upload, file);
-    assert.match(block.slice(main, upload), /run: npm run test:workers/);
+    assert.match(block.slice(main, upload), /npm run test:workers/);
     assert.match(block, /if: always\(\)/);
     assert.doesNotMatch(block, /continue-on-error|sudo npm|release:apply|wrangler deploy|migrations apply/);
   }
@@ -273,7 +273,7 @@ function assertArtifactContext(content, job) {
   assert.doesNotMatch(beforeSteps, /\$\{\{[^\n}]*\brunner\s*\./, 'Runner context is unavailable in job env');
   const steps = block.split(/^      - /m).slice(1);
   for (const command of ['node scripts/test-q2-runtime.mjs --preflight', 'npm run test:workers']) {
-    const matches = steps.filter(step => step.includes(`        run: ${command}\n`));
+    const matches = steps.filter(step => step.split('\n').some(line => [command,`run: ${command}`].includes(line.trim())));
     assert.equal(matches.length, 1, `Actual native caller must exist once: ${command}`);
     assert.match(matches[0], /^        env:\n          Q2_RUNTIME_ARTIFACTS: \$\{\{ runner\.temp \}\}\/q2-runtime-evidence$/m,
       'Artifact environment must be available on each actual execution step');
@@ -411,4 +411,33 @@ test('child final boundary rejects privilege, routes, mounts, credentials and na
     s => { s.mounts['/workspace'] = ['rw']; }, s => { s.exposedPaths.push('/var/run/docker.sock'); },
     s => { s.unexpectedEnvironment.push('CLOUDFLARE_API_TOKEN'); }];
   for (const fault of faults) { const state = structuredClone(good); fault(state); assert.throws(() => assertIsolatedBoundary(state, boundary)); }
+});
+
+// A scoped suite changes coverage, never the namespace/credential boundary.
+test('member runtime scope is explicit and leaves the default full runtime intact', async () => {
+  const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
+  assert.deepEqual(parseRuntimeArgs(['--suite','member-generation'],{}),{preflight:false,artifacts:null,suite:'member-generation'});
+  assert.throws(()=>parseRuntimeArgs(['--suite','unknown'],{}));
+  assert.throws(()=>parseRuntimeArgs(['--suite','member-generation','--suite','member-generation'],{}));
+  assert.deepEqual(selectedRuntimeSuites('member-generation').map(([name])=>name),['member-generation']);
+  assert.deepEqual(selectedRuntimeSuites(),runtimeSuites);
+  assert.throws(()=>selectedRuntimeSuites('unknown'));
+  const bootstrap=read('tests/helpers/q2-runtime/linux-bootstrap.py');
+  assert.match(bootstrap,/choices=\["member-generation"\]/);
+  assert.match(read('tests/helpers/q2-runtime/linux-runtime-child.mjs'),/boundary.json/);
+});
+
+test('actual selected Worker shell stops before downstream work on every failure', t => {
+  const f=fixture(t),bin=path.join(f.base,'bin'),trace=path.join(f.base,'trace');fs.mkdirSync(bin);
+  for(const name of ['node','npx','npm'])fs.writeFileSync(path.join(bin,name),'#!/bin/sh\ncommand="${0##*/} $*"\nprintf "%s\\n" "$command" >> "$TRACE"\n[ "$command" != "$FAIL_COMMAND" ] || exit 37\n',{mode:0o700});
+  const block=read('.github/workflows/static.yml').split('      - name: Run worker route tests\n')[1].split('      - name:')[0];
+  const script=block.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n');
+  for(const selected of ['true','false']) {
+    const command=script.replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
+    const run=fail=>{fs.writeFileSync(trace,'');const result=spawnSync('/bin/sh',['-c',command],{cwd:f.base,env:{PATH:bin,TRACE:trace,FAIL_COMMAND:fail||''},encoding:'utf8'});return {status:result.status,commands:fs.readFileSync(trace,'utf8').trim().split('\n')};};
+    const passed=run();assert.equal(passed.status,0);assert.equal(passed.commands.length,selected==='true'?3:1);
+    if(selected==='true')assert.match(passed.commands[2],/--suite member-generation$/);
+    else assert.deepEqual(passed.commands,['npm run test:workers']);
+    for(const [i,failed] of passed.commands.entries()) {const result=run(failed);assert.equal(result.status,37);assert.deepEqual(result.commands,passed.commands.slice(0,i+1));}
+  }
 });

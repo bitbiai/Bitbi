@@ -1,3 +1,4 @@
+import { slugifyFileName } from './asset-names.js';
 import { generationExecution } from "./member-generation-jobs.js";
 import { existingGenerationAsset, generationStorageReservation } from "./member-generation-storage.js";
 import { putNewManagedR2Object } from "./r2-cleanup.js";
@@ -130,14 +131,6 @@ export function extensionForMusicAssetMimeType(mimeType) {
   return mimeType === "audio/mpeg" ? "mp3" : null;
 }
 
-function slugifyFileName(value, fallback = "asset") {
-  const slug = String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-  return slug || fallback;
-}
 
 function formatJsonBlock(value) {
   if (!value || (typeof value === "object" && Object.keys(value).length === 0)) {

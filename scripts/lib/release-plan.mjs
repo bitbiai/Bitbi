@@ -185,6 +185,7 @@ function isValidationOnlyPath(relativePath) {
     || normalized === "playwright.workers.config.js"
     || normalized === "playwright.q3-integration.config.js"
     || normalized === "playwright.admin-release.config.js"
+    || normalized === "playwright.assets.config.js"
     || normalized === ".nvmrc"
     || normalized === ".node-version"
     || normalized === ".gitignore"

@@ -1,3 +1,4 @@
+import { promptAssetTitle } from '../../lib/asset-names.js';
 import { existingGenerationAsset, cacheGenerationDownload } from '../../lib/member-generation-storage.js';
 import { acceptMemberGeneration, generationUser, generationExecution } from "../../lib/member-generation-jobs.js";
 import {
@@ -254,9 +255,7 @@ function normalizeFolderId(body) {
 }
 
 function titleFromPrompt(prompt, fallback = DEFAULT_TITLE) {
-  const compact = String(prompt || "").replace(/\s+/g, " ").trim();
-  if (!compact) return fallback;
-  return compact.slice(0, MAX_TITLE_LENGTH);
+  return promptAssetTitle(prompt, fallback).slice(0, MAX_TITLE_LENGTH);
 }
 
 function normalizeImageInput(value) {

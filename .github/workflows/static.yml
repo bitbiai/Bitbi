@@ -63,6 +63,7 @@ jobs:
       workers: ${{ steps.selection.outputs.workers }}
       auth: ${{ steps.selection.outputs.auth }}
       admin_release: ${{ steps.selection.outputs.admin_release }}
+      member_assets: ${{ steps.selection.outputs.member_assets }}
       dependencies: ${{ steps.selection.outputs.dependencies }}
       worker_dependencies: ${{ steps.selection.outputs.worker_dependencies }}
       static: ${{ steps.selection.outputs.static }}
@@ -236,7 +237,14 @@ jobs:
         if: needs.release-compatibility.outputs.workers == 'true'
         env:
           Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
-        run: npm run test:workers
+        run: |
+          if [ "${{ needs.release-compatibility.outputs.member_assets }}" = 'true' ]; then
+            node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
+            npx playwright test -c playwright.workers.config.js tests/workers.spec.js tests/admin-ai-save-operations.spec.js --grep 'image|video|music|text asset|text-asset|durable member|asset naming' --retries=0 &&
+            node scripts/test-q2-runtime.mjs --suite member-generation
+          else
+            npm run test:workers
+          fi
       - name: Upload native Linux acceptance evidence
         if: always() && needs.release-compatibility.outputs.workers == 'true'
         uses: actions/upload-artifact@v6
@@ -447,10 +455,10 @@ jobs:
         if: needs.release-compatibility.outputs.carousel == 'true'
         run: npx playwright install --with-deps chromium firefox webkit
       - name: Install Chromium for selected frontend tests
-        if: needs.release-compatibility.outputs.admin_release != 'true' && needs.release-compatibility.outputs.carousel != 'true' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true')
+        if: needs.release-compatibility.outputs.assets != 'true' && needs.release-compatibility.outputs.admin_release != 'true' && needs.release-compatibility.outputs.carousel != 'true' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true')
         run: npx playwright install --with-deps chromium
       - name: Install Admin acceptance browsers
-        if: needs.release-compatibility.outputs.admin_release == 'true'
+        if: needs.release-compatibility.outputs.admin_release == 'true' || needs.release-compatibility.outputs.assets == 'true'
         run: npx playwright install --with-deps chromium webkit
       - name: Download candidate build
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
@@ -483,7 +491,10 @@ jobs:
         run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-carousel.json npm run test:homepage-carousel -- --reporter=list,json
       - name: Run selected Assets Manager tests
         if: needs.release-compatibility.outputs.assets == 'true' && needs.release-compatibility.outputs.full != 'true'
-        run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-assets.json npm run test:assets-manager -- --output=test-results/browser-artifacts --reporter=list,json
+        run: |
+          rm -f test-results/assets-discovery.json test-results/candidate-assets.json
+          PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/assets-discovery.json npm run test:static -- --config playwright.assets.config.js --list --reporter=json
+          PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-assets.json npm run test:static -- --config playwright.assets.config.js --reporter=list,json
       - name: Run selected auth and admin tests
         if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.full != 'true' && needs.release-compatibility.outputs.admin_release != 'true'
         run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:auth -- --output=test-results/browser-artifacts --reporter=list,json

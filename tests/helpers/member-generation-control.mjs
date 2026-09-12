@@ -27,7 +27,7 @@ export async function memberGenerationCase(nativeEnv,name,fixture={}) {
 }
 
 async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
-  const kind=name==='image'?'image':name.startsWith('music')?'music':'video';
+  const kind=(name==='image'||name.startsWith('asset-naming-image'))?'image':(name.startsWith('music')||name.startsWith('asset-naming-music'))?'music':'video';
   const videoBytes=fixture.videoBase64 ? bytes(fixture.videoBase64) : new Uint8Array([0,0,0,24,102,116,121,112]);
   const db=nativeEnv.DB, owner=`durable-${name}`, now=new Date().toISOString();
   const calls={provider:0,download:0,ack:0,retry:0,poster:0};
@@ -78,7 +78,26 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const fetch = (path,options={})=>worker.fetch(new Request('https://bitbi.ai'+path,options),env,{waitUntil(){throw new Error('No detached HTTP work allowed');}});
   const headers={'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:`bitbi_session=${owner}`,'Idempotency-Key':`member-${name}-idempotency`,Prefer:'respond-async'};
   const abort=new AbortController();
-  const body=JSON.stringify(kind==='video'?{prompt:'Synthetic backend-only fixture',duration:5,quality:'720p',generate_audio:true}:kind==='image'?{prompt:'Synthetic backend-only image'}:{prompt:'Synthetic instrumental track',instrumental:true});
+  const input=kind==='video'?{prompt:'Synthetic backend-only fixture',duration:5,quality:'720p',generate_audio:true}:kind==='image'?{prompt:'Synthetic backend-only image'}:{prompt:'Synthetic instrumental track',instrumental:true};
+  if(name.startsWith('asset-naming-')) input.prompt='a  little worm in a pile of leaves';
+  if(name.startsWith('asset-naming-') && name.includes('manual')) input.title='My deliberately long manual video name';
+  const body=JSON.stringify(input);
+  const checkName = async (asset, id) => {
+    if(!name.startsWith('asset-naming-')) return;
+    const expected=input.title || 'a little worm';
+    check((kind==='image'?asset.prompt:asset.title)===expected,'Persisted title honors three words or explicit name');
+    const ext=kind==='image'?'png':kind==='music'?'mp3':'mp4';
+    const expectedFile=expected.toLowerCase().replace(/[^a-z0-9]+/g,'-')+'.'+ext;
+    if(kind!=='image')check(asset.file_name===expectedFile,'Stored filename uses safe title and actual extension');
+    const file=await fetch(`/api/ai/${kind==='image'?'images':'text-assets'}/${id}/file`,{headers:{Cookie:`bitbi_session=${owner}`}});
+    check(file.ok && file.headers.get('content-disposition')===`inline; filename="${expectedFile}"`,'Owned download filename matches stored name');
+    const renamed='My later manually renamed asset';
+    env.PUBLIC_RATE_LIMITER=browserLimiter;
+    const response=await fetch(`/api/ai/${kind==='image'?'images':'text-assets'}/${id}/rename`,{method:'PATCH',headers,body:JSON.stringify({name:renamed})});
+    check(response.ok,`Existing owner rename remains available: ${response.status}`);
+    const row=await db.prepare(`SELECT * FROM ${kind==='image'?'ai_images':'ai_text_assets'} WHERE id=?`).bind(id).first();
+    check((kind==='image'?row.prompt:row.title)===renamed,'Manual rename is never shortened');
+  };
   const accepted=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body,signal:abort.signal});
   const acceptance=await accepted.json();
   check(accepted.status===202,`Durable acceptance: ${accepted.status} ${acceptance.code||''}`);
@@ -164,6 +183,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     const table=kind==='image'?'ai_images':'ai_text_assets';
     const asset=await db.prepare(`SELECT * FROM ${table} WHERE id=? AND user_id=?`).bind(id,owner).first();
     check(Boolean(asset?.r2_key && await nativeEnv.USER_IMAGES.get(asset.r2_key)),'Generated media automatically persisted');
+    await checkName(asset,id);
     if(kind==='music')check(Boolean(asset.poster_r2_key && await nativeEnv.USER_IMAGES.get(asset.poster_r2_key)),'Music cover persisted');
     await deliver();
     const credits=await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
@@ -272,6 +292,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const credits=await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
   check(credits.n===1 && calls.provider===1,'One successful generation debit, no poster debit');
   check((await db.prepare('SELECT COUNT(*) AS n FROM ai_text_assets WHERE user_id=?').bind(owner).first()).n===1,'Exactly one owner asset');
+  await checkName(await db.prepare('SELECT * FROM ai_text_assets WHERE id=?').bind(id).first(),id);
   const completion={name,calls,status:(await row()).status,debits:credits.n,ownerDenied:denied.status};
   if(name==='closed-browser') {
     const removed=await fetch(`/api/ai/text-assets/${id}`,{method:'DELETE',headers});
@@ -287,6 +308,6 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
 export default {async fetch(request,env) {
   if(request.method!=='POST'||request.headers.get('x-q2-control')!==env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
   const {name,...fixture}=await request.json();
-  if(!['clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
+  if(!['asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
   return Response.json(await memberGenerationCase(env,name,fixture));
 }};

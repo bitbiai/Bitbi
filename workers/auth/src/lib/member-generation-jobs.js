@@ -205,7 +205,7 @@ export async function processMemberGeneration(env, body, execute) {
     if (job.media_type === 'image') {
       const data = result.data;
       const request = new Request('https://bitbi.ai/api/ai/images/save', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        prompt:data.prompt || bodyInput.prompt, model:data.model, steps:data.steps, seed:data.seed,
+        prompt:data.prompt || bodyInput.prompt, title:bodyInput.title, model:data.model, steps:data.steps, seed:data.seed,
         imageData:`data:${data.mimeType || 'image/png'};base64,${data.imageBase64}`, folder_id:bodyInput.folder_id,
       })});
       const response = await execute({env:scoped,request,pathname:new URL(request.url).pathname,method:'POST',correlationId:null});

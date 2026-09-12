@@ -189,6 +189,24 @@ const ADMIN_READER_VALIDATION = new Set([
   'tests/homepage-hero-playback.spec.js',
 ]);
 
+// Member storage/card domain: real route security + durable queue tests and the
+// shared card/picker browser path. Unknown inputs still use ordinary impact.
+const MEMBER_ASSET_PRODUCTION = new Set([
+  'css/account/assets-manager.css', 'js/shared/saved-assets-browser.js',
+  'workers/auth/src/lib/asset-names.js', 'workers/auth/src/lib/ai-text-assets.js',
+  'workers/auth/src/lib/member-generation-jobs.js',
+  'workers/auth/src/routes/ai/files-read.js', 'workers/auth/src/routes/ai/images-write.js',
+  'workers/auth/src/routes/ai/video-generate.js', 'workers/auth/src/routes/ai/music-generate.js',
+]);
+const MEMBER_ASSET_VALIDATION = new Set([
+  'playwright.assets.config.js', 'tests/assets-manager-focused.spec.js',
+  'tests/member-generation.cases.js', 'tests/member-generation-runtime.mjs',
+  'tests/helpers/member-generation-control.mjs', 'tests/helpers/auth-worker-harness.js', 'scripts/lib/release-plan.mjs',
+  'scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs',
+  'tests/helpers/q2-runtime/runner.mjs', 'tests/helpers/q2-runtime/linux-hosted.mjs',
+  'tests/helpers/q2-runtime/linux-bootstrap.py', 'tests/helpers/q2-runtime/linux-runtime-child.mjs',
+]);
+
 function normalizeFile(value) {
   return String(value || "")
     .trim()
@@ -284,6 +302,18 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     return selection;
   }
 
+  if (!forceFull && changedFiles.some(file => MEMBER_ASSET_PRODUCTION.has(file))
+      && changedFiles.every(file => isDocumentation(file) || MEMBER_ASSET_PRODUCTION.has(file)
+        || MEMBER_ASSET_VALIDATION.has(file) || RELEASE_TOOLING_FILES.has(file))) {
+    selection.policy = 'member-assets-v1';
+    selection.memberAssets = true;
+    selection.assets = selection.static = selection.runtime = true;
+    selection.workers = changedFiles.some(file => file.startsWith('workers/') || file.includes('member-generation') || file.includes('q2-runtime') || file === 'tests/helpers/auth-worker-harness.js');
+    selection.reasons.assets.push('Shared cards, owner actions/picker and durable client in Chromium/WebKit; same candidate build');
+    if (selection.workers) selection.reasons.workers.push('Affected image/video/music/storage routes including access/credit failures, durable jobs and native member-generation suite; no unrelated Auth/Admin or Q4 suite');
+    return selection;
+  }
+
   let documentationCount = 0;
   for (const file of changedFiles) {
     if (['frontend/index.mjs','frontend/wrangler.jsonc'].includes(file) || RELEASE_TOOLING_FILES.has(file)) {
@@ -375,7 +405,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       continue;
     }
 
-    if (file === "tests/assets-manager-focused.spec.js") {
+    if (file === "tests/assets-manager-focused.spec.js" || file === "playwright.assets.config.js") {
       addReason(selection, "assets", file, "changes focused Assets Manager regression coverage");
       continue;
     }

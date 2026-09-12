@@ -2127,6 +2127,60 @@ export function createSavedAssetsBrowser({
         });
     }
 
+    // One compact action treatment for the shared image/video cards. Native
+    // buttons retain their handlers; the explicit disclosure also works on touch.
+    function decorateCardActions(item, actions) {
+        item.classList.add('studio__image-item--visual');
+        actions.classList.add('studio__card-actions');
+        for (const button of actions.querySelectorAll('button')) {
+            button.title = button.textContent;
+            if (!button.hasAttribute('aria-label')) button.setAttribute('aria-label', button.textContent);
+        }
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'studio__card-menu';
+        toggle.textContent = '•••';
+        toggle.setAttribute('aria-label', localeText('browse.moreActions'));
+        toggle.title = localeText('browse.moreActions');
+        toggle.setAttribute('aria-expanded', 'false');
+        const setOpen = (open) => {
+            item.classList.toggle('is-actions-open', open);
+            toggle.setAttribute('aria-expanded', String(open));
+        };
+        toggle.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (selectMode || pickerMode) return;
+            setOpen(!item.classList.contains('is-actions-open'));
+        });
+        item.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape' || !item.classList.contains('is-actions-open')) return;
+            event.stopPropagation();
+            setOpen(false);
+            toggle.focus();
+        });
+        item.addEventListener('focusout', (event) => {
+            if (!item.contains(event.relatedTarget)) setOpen(false);
+        });
+        item.appendChild(toggle);
+    }
+
+    function restorePublicationActions(asset) {
+        if (selectMode || pickerMode) return;
+        const card = [...$assetGrid.children].find(item => item.dataset.assetId === asset.id);
+        if (!card?.getClientRects().length) return;
+        const toggle = card.querySelector('.studio__card-menu');
+        if (!toggle) return;
+        // Refresh replaces the activated button. Preserve this interaction's
+        // disclosure and keyboard position instead of leaving a detached focus.
+        card.classList.add('is-actions-open');
+        toggle.setAttribute('aria-expanded', 'true');
+        const active = document.activeElement;
+        if (active === document.body || card.contains(active)) {
+            card.querySelector('.studio__image-publish')?.focus({ preventScroll: true });
+        }
+    }
+
     function buildImageCard(asset) {
         const item = document.createElement('div');
         const title = asset.title || asset.preview_text || localeText('assets.savedImage');
@@ -2226,6 +2280,7 @@ export function createSavedAssetsBrowser({
                 return;
             }
             await refresh();
+            restorePublicationActions(asset);
             setActionResult({
                 type: 'success',
                 title: localeText('assets.actionVisibilitySuccessTitle'),
@@ -2265,6 +2320,7 @@ export function createSavedAssetsBrowser({
         overlay.appendChild(publishButton);
         overlay.appendChild(deleteButton);
         item.appendChild(overlay);
+        decorateCardActions(item, overlay);
         appendSelectionCheck(item);
         item.addEventListener('click', (event) => {
             if (event.defaultPrevented) return;
@@ -2316,7 +2372,7 @@ export function createSavedAssetsBrowser({
         const title = document.createElement('h3');
         title.className = 'studio__asset-title';
         title.textContent = getFileTitle(asset);
-        item.appendChild(title);
+        if (!isVideo) item.appendChild(title);
 
         if (!isVideo && !isSound) {
             const preview = document.createElement('p');
@@ -2365,15 +2421,23 @@ export function createSavedAssetsBrowser({
                 posterImg.decoding = 'async';
                 if (asset.poster_width) posterImg.width = asset.poster_width;
                 if (asset.poster_height) posterImg.height = asset.poster_height;
+                posterImg.addEventListener('error', () => {
+                    posterImg.replaceWith(buildVideoPosterPlaceholder(asset));
+                }, { once: true });
                 videoTrigger.appendChild(posterImg);
             } else {
                 videoTrigger.appendChild(buildVideoPosterPlaceholder(asset));
             }
 
+            const play = document.createElement('span');
+            play.className = 'studio__card-play';
+            play.textContent = '▶';
+            play.setAttribute('aria-hidden', 'true');
+            videoTrigger.appendChild(play);
             item.appendChild(videoTrigger);
         }
 
-        if (!isSound) {
+        if (!isSound && !isVideo) {
             const meta = document.createElement('div');
             meta.className = 'studio__asset-meta';
             meta.textContent = [
@@ -2435,6 +2499,7 @@ export function createSavedAssetsBrowser({
                     return;
                 }
                 await refresh();
+                restorePublicationActions(asset);
                 const labels = getPublicationLabels(asset);
                 setActionResult({
                     type: 'success',
@@ -2494,9 +2559,11 @@ export function createSavedAssetsBrowser({
                 }
                 if (selectMode) return;
                 if (event.target.closest('button, a, audio, summary, details, .studio__image-check')) return;
-                if (isMobileMediaGridEnabled()) openAssetMobileDetail(asset);
+                if (isVideo) openVideoAsset(asset);
+                else if (isMobileMediaGridEnabled()) openAssetMobileDetail(asset);
             });
             item.addEventListener('keydown', (event) => {
+                if (event.target !== item) return;
                 if (event.key !== 'Enter' && event.key !== ' ') return;
                 event.preventDefault();
                 if (pickerMode) {
@@ -2507,7 +2574,8 @@ export function createSavedAssetsBrowser({
                     toggleSelection(item);
                     return;
                 }
-                if (isMobileMediaGridEnabled()) openAssetMobileDetail(asset);
+                if (isVideo) openVideoAsset(asset);
+                else if (isMobileMediaGridEnabled()) openAssetMobileDetail(asset);
             });
         } else if (!isSound && !isVideo && asset.file_url) {
             item.setAttribute('role', 'button');
@@ -2527,6 +2595,7 @@ export function createSavedAssetsBrowser({
                 openTextAsset(asset);
             });
             item.addEventListener('keydown', (event) => {
+                if (event.target !== item) return;
                 if (event.key !== 'Enter' && event.key !== ' ') return;
                 event.preventDefault();
                 if (pickerMode) {
@@ -2542,6 +2611,7 @@ export function createSavedAssetsBrowser({
         }
 
         item.appendChild(actions);
+        if (isVideo) decorateCardActions(item, actions);
         appendSelectionCheck(item);
         decoratePickerCard(item, asset);
         return item;

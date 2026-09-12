@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
-import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, requiredJobs, proofJobs, isRequiredValidationRun, validatePublishedDeployment, verifyAdminReport, tree, validateSource, verifyManifest, verifyProofs, MEDIA_POLICY } from './pages-candidate.mjs';
+import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, requiredJobs, proofJobs, isRequiredValidationRun, validatePublishedDeployment, verifyAdminReport, verifyAssetReport, tree, validateSource, verifyManifest, verifyProofs, MEDIA_POLICY } from './pages-candidate.mjs';
 const sha='a'.repeat(40),expected={repository:REPOSITORY,sha,base:Q4_BASE,run:'123',attempt:'1',currentRun:'456'};
 const run={repository:{full_name:REPOSITORY},head_repository:{full_name:REPOSITORY},head_sha:sha,head_branch:'main',id:123,run_attempt:1,path:'.github/workflows/static.yml',event:'push',status:'completed',conclusion:'success',created_at:'2026-09-09T00:00:00Z'};
 const jobs=Object.entries(REQUIRED_JOBS).map(([name,steps])=>({name,head_sha:sha,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
@@ -141,7 +141,7 @@ assert(!block('release-compatibility').includes('CI_FORCE_FULL:'));
 assert(block('release-compatibility').includes('CI_BASE_REF: ${{ env.CANDIDATE_BASE }}'));
 assert(!block('release-compatibility').includes('github.event.before'));
 // Evaluate the real selected-step conditions, not only job names/counts.
-for(const files of [['admin/index.html','tests/oma2-q3-newsfeed.spec.js'],['README.md'],['workers/auth/src/index.js'],['index.html'],['.github/workflows/static.yml']]) {
+for(const files of [['js/shared/saved-assets-browser.js','workers/auth/src/lib/asset-names.js'],['admin/index.html','tests/oma2-q3-newsfeed.spec.js'],['README.md'],['workers/auth/src/index.js'],['index.html'],['.github/workflows/static.yml']]) {
  const selection=selectCiTests(files);
  const outputs=Object.fromEntries(Object.entries(selection).map(([k,v])=>[k.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()),String(v)]));
  const ctx={needs:{'release-compatibility':{outputs}},steps:{selection:{outputs},homepage_discovery:{outcome:selection.homepage||selection.carousel?'success':'skipped'}},success:()=>true};
@@ -342,20 +342,21 @@ try {
    fs.writeFileSync(path.join(cwd,'README.md'),'base');git('add','.');git('commit','-qm','base');
    const base=git('rev-parse','HEAD');
    fs.mkdirSync(path.join(cwd,'tests'));
-   for(const file of ['assets-manager-focused.spec.js','auth-admin.spec.js'])fs.writeFileSync(path.join(cwd,'tests',file),`
+   for(const file of ['assets-manager-focused.spec.js','auth-admin.spec.js','oma2-q1-member.spec.js'])fs.writeFileSync(path.join(cwd,'tests',file),`
      const {test,expect}=require(${JSON.stringify(path.join(root,'node_modules/@playwright/test'))});
-     test('selected ${file}',async({},info)=>{
+     test('${file==='auth-admin.spec.js'?'account Assets Manager lets the owner publish':file==='oma2-q1-member.spec.js'?'durable generation selected':'selected cards'}',async({},info)=>{
        expect(require('node:fs').existsSync(require('node:path').join(info.project.outputDir,'stale.txt'))).toBe(false);
        require('node:fs').writeFileSync(info.outputPath('artifact.txt'),'current invocation');
      });
    `);
    git('add','.');git('commit','-qm','selected candidate');const head=git('rev-parse','HEAD');
-   fs.writeFileSync(path.join(cwd,'package.json'),JSON.stringify({scripts:Object.fromEntries(['test:assets-manager','test:auth'].map(name=>[name,scripts[name].replace(/^playwright /,`node ${JSON.stringify(path.join(root,'node_modules/@playwright/test/cli.js'))} `)]))}));
+   fs.writeFileSync(path.join(cwd,'package.json'),JSON.stringify({scripts:Object.fromEntries(['test:static','test:assets-manager','test:auth'].map(name=>[name,scripts[name].replace(/^playwright /,`node ${JSON.stringify(path.join(root,'node_modules/@playwright/test/cli.js'))} `)]))}));
    fs.writeFileSync(path.join(cwd,'playwright.config.js'),`
      const config=require(${JSON.stringify(path.join(root,'playwright.config.js'))});
      module.exports={...config,testDir:require('node:path').join(__dirname,'tests'),webServer:undefined,
        retries:0};
    `);
+   fs.writeFileSync(path.join(cwd,'playwright.assets.config.js'),fs.readFileSync(path.join(root,'playwright.assets.config.js'),'utf8') + `\nmodule.exports.outputDir=${JSON.stringify(oldLayout?'test-results':'test-results/asset-artifacts')};`);
    fs.mkdirSync(path.join(cwd,'scripts'));fs.writeFileSync(path.join(cwd,'scripts/pages-candidate.mjs'),`import {spawnSync} from 'node:child_process';const r=spawnSync(process.execPath,[${JSON.stringify(new URL('./pages-candidate.mjs',import.meta.url).pathname)},...process.argv.slice(2)],{stdio:'inherit'});process.exitCode=r.status ?? 1;`);
    const env={...process.env,CI:'1',GITHUB_REPOSITORY:REPOSITORY,GITHUB_SHA:head,GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1',GITHUB_JOB:'browser-validation',CANDIDATE_BASE:base,CANDIDATE_FULL:'false'};
    const execute=(command,success=true,extra={})=>{if(oldLayout)command=command.replace(' --output=test-results/browser-artifacts','');const r=spawnSync('/bin/sh',['-ec',command],{cwd,env:{...env,...extra},encoding:'utf8',timeout:30000});assert.equal(r.status===0,success,r.error?.message||r.stdout+r.stderr);return r;};
@@ -369,18 +370,20 @@ try {
    execute(stepRun('Confirm tested browser candidate bytes'),false);
    execute(stepRun('Run selected Assets Manager tests'));
    const first=fs.readFileSync(reports[0]);
-   const report=JSON.parse(first);assert.equal(report.stats.expected,1);
+   const report=JSON.parse(first);assert.equal(report.stats.expected,6);
    const output=report.config.projects[0].outputDir;
-   assert.equal(output,path.join(cwd,oldLayout?'test-results':'test-results/browser-artifacts'));
-   fs.writeFileSync(path.join(output,'stale.txt'),'previous invocation');
+   assert.equal(output,path.join(cwd,oldLayout?'test-results':'test-results/asset-artifacts'));
+   const nextOutput=path.join(cwd,oldLayout?'test-results':'test-results/browser-artifacts');
+   fs.mkdirSync(nextOutput,{recursive:true});
+   fs.writeFileSync(path.join(nextOutput,'stale.txt'),'previous invocation');
    execute(stepRun('Run selected auth and admin tests'));
-   assert(!fs.existsSync(path.join(output,'stale.txt')),'Second invocation must still clean disposable output');
+   assert(!fs.existsSync(path.join(nextOutput,'stale.txt')),'Second invocation must still clean disposable output');
    assert.equal(fs.existsSync(reports[0]),!oldLayout);
    execute(stepRun('Confirm tested browser candidate bytes'),!oldLayout);
    if(!oldLayout) {
      assert.deepEqual(fs.readFileSync(reports[0]),first);
      const proofFile=path.join(cwd,'candidate-proofs/proof-browser-validation.json');
-     const proof=JSON.parse(fs.readFileSync(proofFile));assert.equal(proof.tests,2);
+     const proof=JSON.parse(fs.readFileSync(proofFile));assert.equal(proof.tests,8);
      const auth=fs.readFileSync(reports[1]);
      for(const fault of ['missing','failed','empty']) {
        if(fault==='missing')fs.unlinkSync(reports[1]);
@@ -398,3 +401,17 @@ for(const c of [context,normal]) {
  assert.equal(permits('deploy',{...c,github:{...c.github,ref:'refs/heads/prep/hosting'}}),false);
  assert.equal(permits('deploy',{...c,github:{...c.github,event:{inputs:{...c.github.event.inputs,validation_only:'true'}}}}),false);
 }
+
+const assetReport={suites:[{specs:[]}]};
+for(const engine of ['chromium','webkit'])for(const [scope,file] of [['cards','assets-manager-focused.spec.js'],['jobs','oma2-q1-member.spec.js'],['actions','auth-admin.spec.js']])
+ assetReport.suites[0].specs.push({id:engine+file,file,tests:[{projectName:`${engine}-${scope}`,results:[{status:'passed'}]}]});
+verifyAssetReport(assetReport,assetReport);
+for(const fault of ['missing','failed','skipped','empty','foreign']) {
+ const bad=structuredClone(assetReport);
+ if(fault==='missing')bad.suites[0].specs.pop();
+ else if(fault==='empty')bad.suites=[];
+ else if(fault==='foreign')bad.suites[0].specs[0].id='another-case';
+ else bad.suites[0].specs[0].tests[0].results[0].status=fault;
+ assert.throws(()=>verifyAssetReport(bad,assetReport),fault);
+}
+assert.throws(()=>verifyAssetReport({suites:[]},{suites:[]}));

@@ -190,7 +190,7 @@ def inner(config_path):
     # No host pathname, fd or inherited environment provides another filesystem
     # root after the chroot. setpriv is a fixed, root-owned system executable.
     (jail / "runtime/boundary.json").write_text(json.dumps({
-        "parent_namespaces": config["parent_namespaces"], "private_namespaces": private_namespaces, "mode": config["mode"],
+        "parent_namespaces": config["parent_namespaces"], "private_namespaces": private_namespaces, "mode": config["mode"], "suite": config.get("suite"),
         "host_socket_path": config["host_socket_path"], "node_sha256": config["node_sha256"]}))
     os.chroot(jail)
     os.chdir("/")
@@ -243,6 +243,7 @@ def main():
     parser.add_argument("--node-sha256", required=True)
     parser.add_argument("--uid", required=True, type=int)
     parser.add_argument("--gid", required=True, type=int)
+    parser.add_argument("--suite", choices=["member-generation"])
     parser.add_argument("--mode", required=True, choices=["preflight", "runtime"])
     args = parser.parse_args()
     session = Path(args.session)
@@ -266,7 +267,7 @@ def main():
         report["node"] = snapshot_executable(node, private / "node", args.node_sha256, args.uid)
         script = private / "bootstrap.py"
         script.write_bytes(Path(__file__).read_bytes())
-        config = {"workspace": str(workspace), "node": str(private / "node"), "mode": args.mode,
+        config = {"workspace": str(workspace), "node": str(private / "node"), "mode": args.mode, "suite": args.suite,
                   "host_socket_path": str(session / "host-control.sock"),
                   "node_sha256": report["node"]["sha256"],
                   "parent_namespaces": {n: os.readlink("/proc/self/ns/" + n) for n in ["net", "mnt", "pid", "ipc"]}}

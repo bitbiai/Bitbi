@@ -211,9 +211,10 @@ assert.equal(selection(['scripts/test-q2-runtime-launcher-unknown.mjs']).full, t
 {
   const result = selection(["js/shared/saved-assets-browser.js"]);
   assert.equal(result.assets, true);
-  assert.equal(result.auth, true);
+  assert.equal(result.auth, false);
   assert.equal(result.homepage, false);
   assert.equal(result.carousel, false);
+  assert.equal(result.memberAssets, true);
 }
 
 {
@@ -369,7 +370,7 @@ for (const file of [
   assert(workflow.includes("needs.release-compatibility.outputs.assets == 'true'"));
   assert(workflow.includes("needs.release-compatibility.outputs.auth == 'true'"));
   assert(workflow.includes("npm run test:homepage-core"));
-  assert(workflow.includes("npm run test:assets-manager"));
+  assert(workflow.includes("npm run test:static -- --config playwright.assets.config.js"));
   assert(workflow.includes("npm run test:homepage-carousel"));
   assert(workflow.includes("steps.static_safety.outputs.static_deploy_required == 'true'"));
   assert(workflow.includes("npm run check:worker-dependency-audits -- --install"));
@@ -467,7 +468,7 @@ for(const file of ['frontend/index.mjs','frontend/wrangler.jsonc','config/static
 
 // Generation/Auth clients are covered by the existing account/assets/browser
 // commands, not decorative decoder/performance tests. Unknown input stays broad.
-const generationChange=['workers/auth/src/lib/member-generation-jobs.js',
+const generationChange=['workers/auth/src/lib/member-generation-storage.js',
  'workers/auth/migrations/0087_add_member_generation_jobs.sql','config/release-compat.json',
  '.github/workflows/memvid-stream-preview-processor.yml','services/homepage-ffmpeg-processor/processor.mjs',
  'js/shared/auth-api.js','js/shared/locale.js','js/shared/member-generation-client.js',
@@ -494,3 +495,22 @@ assert.match(fs.readFileSync(path.join(repoRoot,'tests/workers.spec.js'),'utf8')
   assert.equal(selected.full, false);
   assert.equal(selected.homepage, false);
 }
+
+// Complete member cards + naming delta uses its real bounded consumers.
+const memberFiles=['css/account/assets-manager.css','js/shared/saved-assets-browser.js',
+ 'workers/auth/src/lib/asset-names.js','workers/auth/src/routes/ai/video-generate.js',
+ 'workers/auth/src/routes/ai/music-generate.js','workers/auth/src/routes/ai/images-write.js',
+ 'workers/auth/src/routes/ai/files-read.js','workers/auth/src/lib/ai-text-assets.js',
+ 'tests/helpers/auth-worker-harness.js','tests/member-generation-runtime.mjs',
+ 'tests/member-generation.cases.js','tests/helpers/member-generation-control.mjs',
+ 'tests/assets-manager-focused.spec.js','playwright.assets.config.js','.github/workflows/static.yml'];
+const member=selection(memberFiles);
+assert.equal(member.policy,'member-assets-v1');
+for(const key of ['assets','workers','static'])assert.equal(member[key],true,key);
+for(const key of ['auth','full','homepage','carousel'])assert.equal(member[key],false,key);
+for(const extra of ['unknown-root.js','workers/auth/src/lib/session.js','workers/auth/src/lib/member-generation-storage.js','workers/auth/src/lib/credit-ledger.js','js/pages/index/gallery.js','package.json']) {
+ const result=selection([...memberFiles,extra]);
+ assert.notEqual(result.policy,'member-assets-v1',extra);
+ assert(result.full||result.auth||result.homepage||result.dependencies,extra);
+}
+assert.equal(selection(memberFiles,{forceFull:true}).full,true);

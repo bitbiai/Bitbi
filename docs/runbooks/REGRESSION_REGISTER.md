@@ -109,3 +109,33 @@ scripts select Worker/native checks without unrelated full regression; unknown
 script names remain broad. Caller: `node --test tests/q2-recovery-staging.test.mjs
 scripts/test-q2-runtime-launcher.mjs`, also required by `test:q2-runtime`.
 These orchestration checks do not certify Linux execution or deployment.
+
+### Shared asset cards and automatic names
+
+The shared saved-assets browser had tall video cards and inherited action margins
+that clipped/shrank controls. Images/videos now share square previews, a permanent
+video Play control and a keyboard/touch disclosure. Native buttons retain the
+existing owner actions; nested key events no longer also activate the card.
+Publication refresh restores the active disclosure/focus instead of leaving a
+detached button and a visible but non-interactive overlay.
+`playwright.assets.config.js` runs the focused cards, Generate Lab reference picker,
+owner rename/publication and durable-client neighbors in Chromium/WebKit on `_site`.
+The selected Assets step discovers and executes those cases; candidate proof checks
+every discovered result and both engines, outside disposable Playwright output.
+
+`asset-names.js` shares first-three-word naming and the existing filename sanitizer.
+Image/video/music storage uses it without changing provider input, storage keys,
+credits or jobs. Explicit names and later renames win; durable image saving forwards
+the explicit title. Existing image `prompt` is also its rename/display-name field.
+Old assets lack reliable automatic-name provenance: retain their names rather than
+infer origin or rewrite records. Existing title/filename length limits remain.
+`workers.spec.js` loads naming and owner-file/rename controls from
+`member-generation.cases.js`; the same six storage cases run with real workerd/D1/R2
+in `test-q2-runtime.mjs --suite member-generation`, including the existing failure
+and credit/ownership controls. This scope uses the unchanged isolation boundaries;
+no option still executes all runtime suites. The standard selected Worker job runs
+image/video/music/text-asset route neighbors plus this native suite. Unknown,
+additional security/dependency or homepage inputs retain ordinary wider selection;
+Full Regression remains full. `test:ci-selection`, launcher and candidate tests
+exercise both choices, failed commands and missing/failed/wrong-build evidence.
+Local synthetic/native results are neither Linux CI nor paid-provider live proof.

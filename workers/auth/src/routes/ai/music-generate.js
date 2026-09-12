@@ -1,3 +1,4 @@
+import { promptAssetTitle } from '../../lib/asset-names.js';
 import { existingGenerationAsset, cacheGenerationDownload } from '../../lib/member-generation-storage.js';
 import { acceptMemberGeneration, generationUser, generationExecution } from "../../lib/member-generation-jobs.js";
 import { AdminAiValidationError, validateAdminAiMusicBody } from "../../../../../js/shared/admin-ai-contract.mjs";
@@ -163,9 +164,7 @@ function normalizeFolderId(body) {
 }
 
 function titleFromPrompt(prompt) {
-  const compact = String(prompt || "").replace(/\s+/g, " ").trim();
-  if (!compact) return DEFAULT_MUSIC_TITLE;
-  return compact.slice(0, MAX_TITLE_LENGTH);
+  return promptAssetTitle(prompt, DEFAULT_MUSIC_TITLE).slice(0, MAX_TITLE_LENGTH);
 }
 
 export function calculateMemberMusic26CreditCost({ separateLyricsGeneration = false } = {}) {

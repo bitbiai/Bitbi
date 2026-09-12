@@ -1,3 +1,4 @@
+import { slugifyFileName } from '../../lib/asset-names.js';
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
 import {
@@ -59,7 +60,7 @@ export async function handleGetImageFile(ctx, imageId) {
   if (session instanceof Response) return session;
 
   const row = await env.DB.prepare(
-    "SELECT r2_key FROM ai_images WHERE id = ? AND user_id = ?"
+    "SELECT r2_key, prompt FROM ai_images WHERE id = ? AND user_id = ?"
   ).bind(imageId, session.user.id).first();
 
   if (!row) {
@@ -73,6 +74,8 @@ export async function handleGetImageFile(ctx, imageId) {
 
   const headers = new Headers();
   headers.set("Content-Type", object.httpMetadata?.contentType || "image/png");
+  const extension = ({'image/jpeg':'jpg','image/webp':'webp','image/png':'png'})[object.httpMetadata?.contentType] || 'png';
+  headers.set('Content-Disposition', `inline; filename="${slugifyFileName(row.prompt, 'image')}.${extension}"`);
   headers.set("Cache-Control", "private, max-age=3600");
   return new Response(object.body, { headers });
 }

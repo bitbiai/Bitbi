@@ -53,7 +53,9 @@ export function parseRuntimeArgs(args, env = {}) {
     if (args[i] === '--preflight' && !result.preflight) result.preflight = true;
     else if (args[i] === '--artifacts' && !explicitArtifacts && args[i + 1] && !args[i + 1].startsWith('--')) {
       result.artifacts = args[++i]; explicitArtifacts = true;
-    } else throw new Error('Usage: test-q2-runtime [--preflight] [--artifacts <outside-repository-directory>]');
+    } else if (args[i] === '--suite' && !result.suite && args[i+1] === 'member-generation') {
+      result.suite = args[++i];
+    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation] [--artifacts <outside-repository-directory>]');
   }
   return result;
 }
@@ -262,6 +264,7 @@ export async function runHostedLinux(options) {
       'GITHUB_ACTIONS=true', 'RUNNER_ENVIRONMENT=github-hosted', 'RUNNER_OS=Linux', 'Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP=1',
       '/usr/bin/python3', '-I', '-S', bootstrap, '--session', session, '--node-sha256', nodeStaging.sha256,
       '--uid', String(process.getuid()), '--gid', String(process.getgid()), '--mode', options.preflight ? 'preflight' : 'runtime'];
+    if (options.suite) args.push('--suite', options.suite);
     // Snapshot immediately before the privileged/isolated execution. The
     // preceding phase only stages files as the ordinary runner user. Record
     // preparation and ambient drift separately from the child isolation proof.

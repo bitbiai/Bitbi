@@ -1,3 +1,4 @@
+import { promptAssetTitle } from '../../lib/asset-names.js';
 import { existingGenerationAsset, generationStorageReservation } from "../../lib/member-generation-storage.js";
 import { acceptMemberGeneration, generationUser, generationExecution } from "../../lib/member-generation-jobs.js";
 import { putNewManagedR2Object } from "../../lib/r2-cleanup.js";
@@ -1607,7 +1608,10 @@ export async function handleSaveImage(ctx) {
     folder_id: folderId,
   });
 
-  const prompt = String(body.prompt).slice(0, MAX_PROMPT_LENGTH);
+  // ai_images.prompt is the existing prompt-backed display name (also used by
+  // rename). Durable jobs retain the original generation input separately.
+  const explicitTitle = typeof body.title === 'string' ? body.title.trim() : '';
+  const prompt = (explicitTitle || promptAssetTitle(body.prompt, 'Generated Image')).slice(0, MAX_PROMPT_LENGTH);
   const model = String(body.model || MODEL).slice(0, 100);
   const steps = body.steps ? Math.floor(Number(body.steps)) : null;
   const seed = body.seed !== undefined && body.seed !== null ? Math.floor(Number(body.seed)) : null;
