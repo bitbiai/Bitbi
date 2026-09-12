@@ -44812,6 +44812,49 @@ test.describe('Worker routes', () => {
     );
     expect(videoRes.status).toBe(200);
     expect(videoRes.headers.get('content-type')).toContain('video/mp4');
+
+    // Compare the actual router SQL/bindings with SQLite, including unready rows
+    // before pagination. Legacy assets without a job must remain visible.
+    const { SqliteD1Database, applyAuthMigrations } = require('./helpers/sqlite-d1');
+    const schema = new SqliteD1Database();
+    const mirror = new SqliteD1Database();
+    applyAuthMigrations(schema);
+    env.DB.state.aiImages.push({...env.DB.state.aiImages[0],id:'1ab100ce',created_at:'2026-04-11T00:00:00.000Z'});
+    env.DB.state.aiTextAssets.push({...env.DB.state.aiTextAssets[2],id:'abe100ac',created_at:'2026-04-11T01:00:00.000Z'});
+    env.DB.state.memberGenerationJobs.push({id:'1ab100ce',usage_attempt_id:'pending-image'}, {id:'abe100ac',usage_attempt_id:'pending-video'}, {id:'abe100ab',usage_attempt_id:'ready-video'});
+    env.DB.state.memberAiUsageAttempts.push({id:'pending-image',billing_status:'reserved'}, {id:'pending-video',billing_status:'released'}, {id:'ready-video',billing_status:'finalized'});
+    try {
+      for (const [table,key] of [['ai_images','aiImages'],['ai_text_assets','aiTextAssets'],['member_generation_jobs','memberGenerationJobs'],['member_ai_usage_attempts_v2','memberAiUsageAttempts']]) {
+        const columns=(await schema.prepare(`PRAGMA table_info(${table})`).all()).results.map(row=>row.name);
+        // Read-query parity fixture, not a claim to test insertion constraints.
+        mirror.exec(`CREATE TABLE ${table} (${columns.map(name=>`"${name}"`).join(',')})`);
+        for(const row of env.DB.state[key]) {
+          const keys=Object.keys(row).filter(key=>columns.includes(key));
+          await mirror.prepare(`INSERT INTO ${table} (${keys.join(',')}) VALUES (${keys.map(()=>'?').join(',')})`).bind(...keys.map(key=>row[key]??null)).run();
+        }
+      }
+      const migration=fs.readFileSync(path.join(process.cwd(),'workers/auth/migrations/0087_add_member_generation_jobs.sql'),'utf8');
+      mirror.exec(migration.match(/CREATE VIEW member_generation_unready_assets[\s\S]*?;/)[0]);
+      const execute=env.DB.execute.bind(env.DB);
+      let compared=0;
+      env.DB.execute=async(sql,bindings,mode)=>{
+        const result=await execute(sql,bindings,mode);
+        if(mode==='all' && sql.includes('NOT EXISTS(SELECT 1 FROM member_generation_unready_assets')) {
+          const expected=await mirror.prepare(sql).bind(...bindings).all();
+          expect(result.results.map(row=>row.id)).toEqual(expected.results.map(row=>row.id));
+          expect(result.results.map(row=>row.id)).not.toEqual(expect.arrayContaining(['1ab100ce','abe100ac']));
+          compared++;
+        }
+        return result;
+      };
+      for(const route of ['/api/ai/assets?folder_id=f01da123&limit=2','/api/ai/assets?limit=2','/api/ai/images?folder_id=f01da123','/api/ai/images']) {
+        const response=await authWorker.fetch(authJsonRequest(route,'GET',undefined,{Cookie:`bitbi_session=${token}`}),env,createExecutionContext().execCtx);
+        expect(response.status).toBe(200);
+        const data=(await response.json()).data;
+        expect((data.assets||data.images).length).toBeGreaterThan(0);
+      }
+      expect(compared).toBe(4);
+    } finally {schema.close();mirror.close();}
   });
 
   test('AI text asset audio file route returns byte ranges for seekable member playback', async () => {

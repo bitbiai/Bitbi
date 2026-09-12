@@ -3,14 +3,14 @@ const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');
 const {createAuthTestEnv}=require('./helpers/auth-worker-harness.js');
 const {pathToFileURL}=require('node:url');
 const path=require('node:path');
-for(const name of ['closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart']) {
+for(const name of ['clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart']) {
   test(`durable member generation: ${name}`,async()=>{
     const db=new SqliteD1Database();applyAuthMigrations(db);
     try {
       const {memberGenerationCase}=await import(pathToFileURL(path.join(__dirname,'helpers/member-generation-control.mjs')).href);
       const result=await memberGenerationCase({...createAuthTestEnv(),DB:db},name);
       expect(result.calls.provider).toBe(name==='execution-exhausted'?0:name.startsWith('music') && name!=='music-failed'?2:1);
-      expect(result.status).toBe(name==='provider-unknown'?'outcome_unknown':['music-failed','execution-exhausted'].includes(name)?'failed':'succeeded');
+      expect(result.status).toBe(['provider-unknown','clock-credit-expired'].includes(name)?'outcome_unknown':['music-failed','execution-exhausted'].includes(name)?'failed':'succeeded');
       expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
       await test.info().attach('member-generation-result',{body:JSON.stringify(result),contentType:'application/json'});
     } finally {db.close();}

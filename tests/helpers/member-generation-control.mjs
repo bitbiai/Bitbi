@@ -15,18 +15,31 @@ function interceptDb(db, intercept, interceptBatch = (_, execute) => execute()) 
 }
 
 export async function memberGenerationCase(nativeEnv,name,fixture={}) {
+  if(!name.startsWith('clock-')) return runMemberGenerationCase(nativeEnv,name,fixture);
+  const RealDate=globalThis.Date;
+  let offset=0;
+  globalThis.Date=class extends RealDate {
+    constructor(...args){super(...(args.length?args:[RealDate.now()+offset]));}
+    static now(){return RealDate.now()+offset;}
+  };
+  try {return await runMemberGenerationCase(nativeEnv,name,{...fixture,advance:ms=>{offset+=ms;}});}
+  finally {globalThis.Date=RealDate;}
+}
+
+async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const kind=name==='image'?'image':name.startsWith('music')?'music':'video';
   const videoBytes=fixture.videoBase64 ? bytes(fixture.videoBase64) : new Uint8Array([0,0,0,24,102,116,121,112]);
   const db=nativeEnv.DB, owner=`durable-${name}`, now=new Date().toISOString();
   const calls={provider:0,download:0,ack:0,retry:0,poster:0};
   const messages=[];
   let fail=true;
+  let duringProvider=async()=>{};
   const env={...nativeEnv, ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG:'false',
     MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:'synthetic-member-poster-secret-not-live',
     HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET:'synthetic-member-poster-secret-not-live',
     AI_VIDEO_JOBS_QUEUE:{async send(body){messages.push(body);}},
     AI_IMAGE_DERIVATIVES_QUEUE:{async send(){}},
-    AI:{async run(){calls.provider++;if(kind==='image'||kind==='music')return {image:fixture.imageBase64||png};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');return {video_url:'https://fixture.invalid/member.mp4'};}},
+    AI:{async run(){calls.provider++;await duringProvider();if(kind==='image'||kind==='music')return {image:fixture.imageBase64||png};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');return {video_url:'https://fixture.invalid/member.mp4'};}},
     AI_SERVICE_AUTH_SECRET:'synthetic-service-secret-not-live',
     AI_LAB:{async fetch(){calls.provider++;if(name==='music-failed')return Response.json({ok:false,code:'provider_rejected',error:'Synthetic confirmed rejection'},{status:422,headers:{'x-bitbi-provider-outcome':'failed'}});return Response.json({ok:true,result:{audioBase64:'SUQzBAAAAAAA',mimeType:'audio/mpeg',mode:'song',durationMs:1000},model:{id:'minimax/music-2.6'},preset:'music_studio'});}},
     __TEST_FETCH:async()=>{calls.download++;return new Response(videoBytes,{headers:{'Content-Type':'video/mp4'}});},
@@ -44,8 +57,8 @@ export async function memberGenerationCase(nativeEnv,name,fixture={}) {
     }
     return execute();
   });
-  if(['finalization-response-lost','storage-restart'].includes(name)) env.DB=interceptDb(db,async(sql,execute)=>{
-    if(fail && name==='storage-restart' && sql.includes('INSERT INTO ai_text_assets')) {fail=false;throw new Error('synthetic database unavailable before asset insertion');}
+  if(['finalization-response-lost','storage-restart','clock-finalization-expired'].includes(name)) env.DB=interceptDb(db,async(sql,execute)=>{
+    if(fail && ['storage-restart','clock-finalization-expired'].includes(name) && sql.includes('INSERT INTO ai_text_assets')) {fail=false;throw new Error('synthetic database unavailable before asset insertion');}
     const result=await execute();
     if(fail && name==='finalization-response-lost' && sql.includes("SET status = 'succeeded'") && sql.includes("result_save_reference = ?")) {fail=false;throw new Error('synthetic finalized reply lost');}
     return result;
@@ -83,6 +96,18 @@ export async function memberGenerationCase(nativeEnv,name,fixture={}) {
   const row=()=>db.prepare('SELECT * FROM member_generation_jobs WHERE id=?').bind(id).first();
   const deliver=()=>worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body:messages[0],attempts:1,
     ack(){calls.ack++;},retry(){calls.retry++;}}]},env,{waitUntil(){throw new Error('No detached queue work allowed');}});
+  if(['clock-lease-expired','clock-credit-expired'].includes(name)) {
+    const usage=await db.prepare('SELECT expires_at FROM member_ai_usage_attempts_v2 WHERE id=?').bind((await row()).usage_attempt_id).first();
+    check(Math.abs(Date.parse(usage.expires_at)-Date.now()-30*60_000)<5000,'Credit reservation starts at 30 minutes');
+    duringProvider=async()=>{
+      const active=await row();
+      check(Math.abs(Date.parse(active.locked_until)-Date.now()-15*60_000)<5000,'Job lease starts at 15 minutes');
+      fixture.advance(16*60_000);
+      await deliver(); // A second consumer must not submit the uncertain intent.
+      check(calls.provider===1,'Expired lease does not authorize duplicate generation');
+      if(name==='clock-credit-expired')fixture.advance(15*60_000);
+    };
+  }
   if(name==='execution-exhausted') {
     await db.prepare("UPDATE member_generation_jobs SET status='processing',attempt_count=8,locked_until='2000-01-01T00:00:00.000Z' WHERE id=?").bind(id).run();
     await deliver();await deliver();
@@ -96,6 +121,30 @@ export async function memberGenerationCase(nativeEnv,name,fixture={}) {
     check(messages.length===1,'Scheduled repair recovers durable acceptance without browser polling');
     await Promise.all([deliver(),deliver()]);
   } else await deliver();
+  if(['clock-lease-expired','clock-credit-expired'].includes(name)) {
+    fixture.advance(61_000);
+    await worker.scheduled({cron:'*/5 * * * *'},env,{waitUntil(){throw new Error('Scheduled recovery must be awaited');}});
+    await deliver();
+    if(name==='clock-credit-expired') {
+      const current=await row();
+      const usage=await db.prepare('SELECT provider_outcome,billing_status,late_outcome FROM member_ai_usage_attempts_v2 WHERE id=?').bind(current.usage_attempt_id).first();
+      const receipts=JSON.parse(current.provider_receipts_json);
+      check(current.status==='outcome_unknown' && current.error_code==='generation_result_requires_credit_review',`Late result review: ${current.status} ${current.error_code}`);
+      check(usage.billing_status==='released' && usage.late_outcome==='succeeded','Expired reservation stays released; late success is recorded');
+      const retained=receipts['download-video'] && await env.USER_IMAGES.get(receipts['download-video'].key);
+      const retainedBytes=retained && new Uint8Array(await new Response(retained.body).arrayBuffer());
+      check(retainedBytes?.length===videoBytes.length && retainedBytes.every((value,index)=>value===videoBytes[index]),'Exact late video bytes survive URL expiry privately');
+      const denied=await fetch(`/api/ai/text-assets/${id}/file`,{headers:{Cookie:`bitbi_session=${owner}`}});
+      check(denied.status===404,'Unbilled late video is not directly readable');
+      const list=await fetch('/api/ai/assets',{headers:{Cookie:`bitbi_session=${owner}`}});
+      check(list.ok && !(await list.json()).data.assets.some(asset=>asset.id===id),'Unbilled late video is not exposed as complete');
+      await worker.scheduled({cron:'*/5 * * * *'},env,{waitUntil(){}});await deliver();
+      const debit=await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
+      check(calls.provider===1 && debit.n===0,'No new generation or charge after expiry');
+      return {name,calls,status:current.status,debits:debit.n,lateOutcome:usage.late_outcome,archived:true};
+    }
+    check((await row()).status==='preview_pending',`Lease recovery: ${(await row()).status} ${(await row()).error_code}`);
+  }
   check(internalLimitCalls===0,'Durably accepted execution does not consume the browser HTTP throttle again');
   if(name==='music-failed') {
     await deliver();
@@ -121,7 +170,7 @@ export async function memberGenerationCase(nativeEnv,name,fixture={}) {
     check(credits.n===1 && calls.provider===(kind==='image'?1:2),'One media debit and no repeated cover generation');
     return {name,calls,status:(await row()).status,debits:credits.n};
   }
-  if(['debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) {
+  if(['debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart','clock-finalization-expired'].includes(name)) {
     check(!fail,'The requested interruption was actually injected');
     check((await row()).status==='queued',`Retryable checkpoint: ${(await row()).status} ${(await row()).error_code}`);
     if(name==='unpublished-asset') {
@@ -133,6 +182,7 @@ export async function memberGenerationCase(nativeEnv,name,fixture={}) {
       try {await db.prepare("UPDATE ai_text_assets SET visibility='public' WHERE id=?").bind(id).run();} catch {blocked=true;}
       check(blocked,'Uncharged staged video cannot be published');
     }
+    if(name==='clock-finalization-expired')fixture.advance(31*60_000);
     env.__TEST_FETCH=async()=>{throw new Error('Provider URL expired after the first saved download');};
     await db.prepare("UPDATE member_generation_jobs SET next_attempt_at='2000-01-01T00:00:00.000Z',locked_until=NULL WHERE id=?").bind(id).run();
     await deliver();
@@ -140,9 +190,11 @@ export async function memberGenerationCase(nativeEnv,name,fixture={}) {
   }
   if(name==='provider-unknown') {
     await db.prepare("UPDATE member_generation_jobs SET next_attempt_at='2000-01-01T00:00:00.000Z',locked_until=NULL WHERE id=?").bind(id).run();
+    await worker.scheduled({cron:'*/5 * * * *'},env,{waitUntil(){}});
     await deliver();
     check(calls.provider===1,'Unknown provider receipt must never generate again');
     check((await row()).status==='outcome_unknown','Unknown outcome remains visible');
+    check((await row()).next_attempt_at>new Date().toISOString(),'Missing receipts rotate behind other due recovery rows');
     return {name,calls,status:(await row()).status};
   }
   if(name==='insert-response-lost') check(!fail,'Lost insert reply was actually injected');
@@ -235,6 +287,6 @@ export async function memberGenerationCase(nativeEnv,name,fixture={}) {
 export default {async fetch(request,env) {
   if(request.method!=='POST'||request.headers.get('x-q2-control')!==env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
   const {name,...fixture}=await request.json();
-  if(!['closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
+  if(!['clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
   return Response.json(await memberGenerationCase(env,name,fixture));
 }};

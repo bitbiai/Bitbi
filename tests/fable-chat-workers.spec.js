@@ -564,7 +564,13 @@ test.describe('Private admin Fable chat', () => {
       path.join(process.cwd(), 'workers/auth/migrations/0080_add_provider_neutral_chat_and_grok_4_6.sql'),
       'utf8'
     );
-    expect(CURRENT_AUTH_MIGRATION).toBe('0086_add_fable_memory_source_revision.sql');
+    const migrations = fs.readdirSync(path.join(process.cwd(), 'workers/auth/migrations')).filter(name => /^\d{4}_.*\.sql$/.test(name)).sort();
+    // Later unrelated migrations must not invalidate Fable's own prerequisite.
+    expect(migrations).toContain(CURRENT_AUTH_MIGRATION);
+    expect(migrations.indexOf(CURRENT_AUTH_MIGRATION)).toBeGreaterThanOrEqual(
+      migrations.indexOf('0086_add_fable_memory_source_revision.sql')
+    );
+    expect(migrations).toContain('0086_add_fable_memory_source_revision.sql');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_conversations');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_turns');
     expect(baseMigration).toContain('CREATE TABLE fable_chat_messages');

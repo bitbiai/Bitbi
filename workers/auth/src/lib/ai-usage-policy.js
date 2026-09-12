@@ -309,7 +309,8 @@ async function prepareMemberGatewayPolicy({
     const owned = attemptState.attempt;
     if ((attemptState.kind === 'in_progress' && owned.billingStatus === 'reserved')
       || (['completed', 'completed_expired'].includes(attemptState.kind) && owned.billingStatus === 'finalized')
-      || (attemptState.kind === 'key_expired' && owned.providerOutcome === 'succeeded' && owned.billingStatus === 'reserved')) {
+      || (attemptState.kind === 'key_expired' && owned.providerOutcome === 'succeeded' && owned.billingStatus === 'reserved')
+      || (attemptState.kind === 'unresolved' && execution.receiptReplay && owned.dispatchToken)) {
       attemptState.kind = 'reserved';
     }
   }
@@ -352,6 +353,21 @@ async function prepareMemberGatewayPolicy({
       return markMemberAiUsageAttemptLateOutcome(env, attemptState.attempt.id, { dispatchToken, outcome, code });
     },
     async markFinalizing() {
+      if(execution?.receiptReplay && attemptState.attempt.providerOutcome==='unknown') {
+        await execution.assertClaim();
+        // The route has validated the retained provider response. Restore only
+        // the original still-reserved dispatch; never extend or re-reserve credit.
+        const now=new Date().toISOString();
+        const recovered=await env.DB.prepare(`UPDATE member_ai_usage_attempts_v2 SET provider_outcome='dispatched'
+          WHERE id=? AND user_id=? AND dispatch_token=? AND provider_outcome='unknown'
+          AND billing_status='reserved' AND reservation_released_at IS NULL AND expires_at>?`)
+          .bind(attemptState.attempt.id,user.id,dispatchToken,now).run();
+        if(!recovered.meta?.changes) {
+          await markMemberAiUsageAttemptLateOutcome(env,attemptState.attempt.id,{dispatchToken,outcome:'succeeded',code:'retained_generation_receipt'});
+          execution.creditReview=true;
+          return; // Preserve video bytes privately before the billing gate.
+        }
+      }
       if (execution && attemptState.attempt.providerOutcome === 'succeeded') { await execution.assertClaim(); return; }
       return markMemberAiUsageAttemptFinalizing(env, attemptState.attempt.id, { dispatchToken });
     },
@@ -385,6 +401,8 @@ async function prepareMemberGatewayPolicy({
       );
     },
     async chargeAfterSuccess(metadata = {}) {
+      if(execution?.creditReview) throw new BillingError('The retained result requires credit reconciliation.',
+        {status:409,code:'generation_result_requires_credit_review'});
       const result = await consumeMemberCredits({
         env,
         userId: user?.id || null,

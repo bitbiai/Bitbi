@@ -79,6 +79,13 @@ export async function readMemberGenerationJobs(ctx, id = null) {
   return json({ ok: true, data: { job: publicJob(row), result } }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
+async function hasPrimaryReceipt(env, job) {
+  const receipts=JSON.parse(job.provider_receipts_json || '{}');
+  const name=receipts['ai-0']?'ai-0':'service-0', receipt=receipts[name];
+  const expected=`users/${job.user_id}/generation-jobs/${job.id}/provider-${name}.json`;
+  return Boolean(receipt?.key===expected && /^[a-f0-9]{64}$/.test(receipt.fingerprint||'') && await env.USER_IMAGES.head(expected));
+}
+
 async function assertClaim(env, job) {
   const row = await env.DB.prepare(`SELECT id FROM member_generation_jobs
     WHERE id = ? AND processing_token = ? AND locked_until > ? AND status IN ('processing','ingesting')`)
@@ -167,7 +174,7 @@ export async function processMemberGeneration(env, body, execute) {
     return { status:'failed' };
   }
   const scoped = { ...env };
-  const execution = { job, user, assertClaim: () => assertClaim(env,job) };
+  const execution = { job, user, receiptReplay: await hasPrimaryReceipt(env,job), assertClaim: () => assertClaim(env,job) };
   executions.set(scoped, execution);
   let calls = 0;
   if (env.AI) scoped.AI = { run: async (...args) => providerCall(env,job,`ai-${calls++}`,await sha256Hex(JSON.stringify(args.slice(0,2))),()=>env.AI.run(...args)) };
@@ -242,6 +249,20 @@ export async function processMemberGeneration(env, body, execute) {
 }
 
 export async function requeueMemberGenerations(env) {
+  // A receipt may arrive after a second consumer has fenced the lost lease.
+  // Reuse only this job's immutable primary receipt; never repeat paid inference.
+  const late=await env.DB.prepare(`SELECT * FROM member_generation_jobs WHERE status='outcome_unknown'
+    AND error_code!='generation_result_requires_credit_review' AND attempt_count<8 AND next_attempt_at<=?
+    ORDER BY next_attempt_at LIMIT 25`).bind(nowIso()).all();
+  for(const job of late.results||[]) {
+    if(await hasPrimaryReceipt(env,job)) await env.DB.prepare(`UPDATE member_generation_jobs
+      SET status='queued',locked_until=NULL,updated_at=? WHERE id=? AND status='outcome_unknown' AND provider_receipts_json=?`)
+      .bind(nowIso(),job.id,job.provider_receipts_json).run();
+    else await env.DB.prepare(`UPDATE member_generation_jobs SET next_attempt_at=?
+      WHERE id=? AND status='outcome_unknown' AND next_attempt_at=?`)
+      .bind(new Date(Date.now()+5*60_000).toISOString(),job.id,job.next_attempt_at).run();
+    // Rotate unresolved rows so older missing receipts cannot starve later ones.
+  }
   // A killed processor may never send /fail. Surface exhaustion after its lease
   // expires so the owner can retry only the missing preview.
   await env.DB.prepare(`UPDATE member_generation_jobs SET error_code='preview_retry_exhausted',locked_until=NULL,updated_at=?

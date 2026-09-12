@@ -59,3 +59,17 @@ are checked in `test:homepage-ffmpeg-processor`. Selector regression keeps these
 real callers required without making unchanged decorative decoder suites gates.
 Local native evidence is not a Linux-CI or paid-provider/live acceptance. Unknown
 provider outcomes without a retained receipt remain review cases, not retry permission.
+
+Run34700787400 exposed a stale Fable latest-checkpoint assertion and a MockD1
+anti-join/parser gap (including shifted folder bindings in mixed asset lists).
+Fable now checks its required migration remains included; the actual asset-read
+SQL is compared with SQLite for legacy, finalized and unfinalized rows before
+pagination. Caller: the affected `workers.spec.js` and `fable-chat-workers.spec.js`
+cases in `test:workers`; no production list SQL was changed.
+Simulated16/31-minute cases in the same member-generation controls exposed late
+receipts stranded after lease loss. Cron now resumes only an owned retained
+receipt, with no second inference or extended credit reservation. Known success
+can finish after30minutes; an unknown result arriving after reservation release
+is stored privately (including video bytes) for explicit credit reconciliation,
+never exposed or automatically charged. Missing receipts remain unknown. Both
+Node and native workerd execute these controls through the existing callers.

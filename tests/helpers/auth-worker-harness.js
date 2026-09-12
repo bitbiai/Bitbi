@@ -1379,16 +1379,30 @@ class MockD1 {
   }
 
   async execute(rawQuery, bindings, mode) {
-    const query = normalizeSql(rawQuery);
+    const originalQuery = normalizeSql(rawQuery);
+    let query = originalQuery;
+    // These correlated anti-joins consume no parameters. Keep the existing
+    // folder/cursor parser, but apply the view's SQL semantics before LIMIT.
+    const unreadyTables = new Set();
+    for (const table of ['ai_images', 'ai_text_assets']) {
+      const predicate = `NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=${table}.id)`;
+      if (query.includes(predicate)) {
+        unreadyTables.add(table);
+        query = query.replace(`WHERE ${predicate} AND `, 'WHERE ').replace(` AND ${predicate}`, '');
+      }
+    }
+    const visibleGeneration = (row, table) => !unreadyTables.has(table) || !this.state.memberGenerationJobs.some(job =>
+      job.id === row.id && this.state.memberAiUsageAttempts.some(attempt => attempt.id === job.usage_attempt_id
+        && attempt.billing_status != null && attempt.billing_status !== 'finalized'));
 
     if (mode === 'run') {
       this.runCalls.push({
-        query,
+        query: originalQuery,
         bindings: deepClone(bindings),
       });
     }
 
-    if (this.failQueries.some((value) => query.includes(value))) {
+    if (this.failQueries.some((value) => originalQuery.includes(value))) {
       throw new Error('forced query failure');
     }
 
@@ -7955,7 +7969,7 @@ class MockD1 {
       const limit = bindings[index];
 
       let rows = this.state.aiImages
-        .filter((row) => row.user_id === imageUserId)
+        .filter((row) => row.user_id === imageUserId && visibleGeneration(row, 'ai_images'))
         .filter((row) => {
           if (query.includes('FROM ai_images WHERE user_id = ? AND folder_id IS NULL')) {
             return row.folder_id == null;
@@ -7999,7 +8013,7 @@ class MockD1 {
 
       rows = rows.concat(
         this.state.aiTextAssets
-          .filter((row) => row.user_id === textUserId)
+          .filter((row) => row.user_id === textUserId && visibleGeneration(row, 'ai_text_assets'))
           .filter((row) => {
             if (query.includes('FROM ai_text_assets WHERE user_id = ? AND folder_id IS NULL')) {
               return row.folder_id == null;
@@ -9018,7 +9032,7 @@ class MockD1 {
       }
       const limit = query.endsWith('LIMIT ?') ? bindings[index] : 200;
 
-      let rows = this.state.aiImages.filter((row) => row.user_id === userId);
+      let rows = this.state.aiImages.filter((row) => row.user_id === userId && visibleGeneration(row, 'ai_images'));
       if (query.includes('AND folder_id IS NULL')) {
         rows = rows.filter((row) => row.folder_id == null);
       } else if (query.includes('AND folder_id = ?')) {
@@ -11809,7 +11823,7 @@ class MockD1 {
     if (query === 'SELECT id FROM member_generation_unready_assets WHERE id=?') {
       const job=this.state.memberGenerationJobs.find(row=>row.id===bindings[0]);
       const attempt=job && this.state.memberAiUsageAttempts.find(row=>row.id===job.usage_attempt_id);
-      return attempt && attempt.billing_status!=='finalized' ? {id:job.id} : null;
+      return attempt && attempt.billing_status != null && attempt.billing_status!=='finalized' ? {id:job.id} : null;
     }
 
     if (query === 'SELECT id, scope, status, provider, model, prompt, output_r2_key, poster_r2_key, created_at, completed_at, error_code FROM ai_video_jobs WHERE user_id = ? ORDER BY created_at DESC') {
