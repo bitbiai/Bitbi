@@ -326,6 +326,74 @@ try {
  console.log('Actual Playwright lifecycle: old layout loses discovery; isolated artifacts retain fresh discovery and all 6 project results. Browser-free control.');
 } finally {fs.rmSync(lifecycleDir,{recursive:true,force:true});}
 
+// Same config and npm/workflow commands as the selected Assets -> Auth job.
+// Only the product scenarios are replaced by tiny browser-free cases.
+const sequenceDir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-selected-report-lifecycle-')));
+try {
+ const root=new URL('../',import.meta.url).pathname;
+ const workflow=block('browser-validation');
+ const stepRun=name=>workflow.split(`      - name: ${name}\n`)[1].split('      - name:')[0]
+   .split('        run: ')[1].replace(/^\|\n/,'').trim().split('\n').map(s=>s.trim()).join('\n');
+ const scripts=JSON.parse(fs.readFileSync(path.join(root,'package.json'))).scripts;
+ for(const oldLayout of [true,false]) {
+   const cwd=path.join(sequenceDir,oldLayout?'old':'fixed');fs.mkdirSync(cwd);
+   const git=(...args)=>{const r=spawnSync('git',args,{cwd,encoding:'utf8'});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};
+   git('init','-q');git('config','user.name','Synthetic');git('config','user.email','synthetic@example.invalid');
+   fs.writeFileSync(path.join(cwd,'README.md'),'base');git('add','.');git('commit','-qm','base');
+   const base=git('rev-parse','HEAD');
+   fs.mkdirSync(path.join(cwd,'tests'));
+   for(const file of ['assets-manager-focused.spec.js','auth-admin.spec.js'])fs.writeFileSync(path.join(cwd,'tests',file),`
+     const {test,expect}=require(${JSON.stringify(path.join(root,'node_modules/@playwright/test'))});
+     test('selected ${file}',async({},info)=>{
+       expect(require('node:fs').existsSync(require('node:path').join(info.project.outputDir,'stale.txt'))).toBe(false);
+       require('node:fs').writeFileSync(info.outputPath('artifact.txt'),'current invocation');
+     });
+   `);
+   git('add','.');git('commit','-qm','selected candidate');const head=git('rev-parse','HEAD');
+   fs.writeFileSync(path.join(cwd,'package.json'),JSON.stringify({scripts:Object.fromEntries(['test:assets-manager','test:auth'].map(name=>[name,scripts[name].replace(/^playwright /,`node ${JSON.stringify(path.join(root,'node_modules/@playwright/test/cli.js'))} `)]))}));
+   fs.writeFileSync(path.join(cwd,'playwright.config.js'),`
+     const config=require(${JSON.stringify(path.join(root,'playwright.config.js'))});
+     module.exports={...config,testDir:require('node:path').join(__dirname,'tests'),webServer:undefined,
+       retries:0};
+   `);
+   fs.mkdirSync(path.join(cwd,'scripts'));fs.writeFileSync(path.join(cwd,'scripts/pages-candidate.mjs'),`import {spawnSync} from 'node:child_process';const r=spawnSync(process.execPath,[${JSON.stringify(new URL('./pages-candidate.mjs',import.meta.url).pathname)},...process.argv.slice(2)],{stdio:'inherit'});process.exitCode=r.status ?? 1;`);
+   const env={...process.env,CI:'1',GITHUB_REPOSITORY:REPOSITORY,GITHUB_SHA:head,GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1',GITHUB_JOB:'browser-validation',CANDIDATE_BASE:base,CANDIDATE_FULL:'false'};
+   const execute=(command,success=true,extra={})=>{if(oldLayout)command=command.replace(' --output=test-results/browser-artifacts','');const r=spawnSync('/bin/sh',['-ec',command],{cwd,env:{...env,...extra},encoding:'utf8',timeout:30000});assert.equal(r.status===0,success,r.error?.message||r.stdout+r.stderr);return r;};
+   fs.mkdirSync(path.join(cwd,'_site'));fs.writeFileSync(path.join(cwd,'_site/index.html'),'synthetic tested build');
+   execute('node scripts/pages-candidate.mjs record');fs.rmSync(path.join(cwd,'_site'),{recursive:true});
+   const reportDir=path.join(cwd,'test-results');fs.mkdirSync(reportDir);
+   const reports=['candidate-assets.json','candidate-auth.json'].map(f=>path.join(reportDir,f));
+   for(const f of reports)fs.writeFileSync(f,'stale report');
+   execute(stepRun('Restore exact candidate static site'));
+   for(const f of reports)assert(!fs.existsSync(f),'Restore must remove stale evidence before any selected invocation');
+   execute(stepRun('Confirm tested browser candidate bytes'),false);
+   execute(stepRun('Run selected Assets Manager tests'));
+   const first=fs.readFileSync(reports[0]);
+   const report=JSON.parse(first);assert.equal(report.stats.expected,1);
+   const output=report.config.projects[0].outputDir;
+   assert.equal(output,path.join(cwd,oldLayout?'test-results':'test-results/browser-artifacts'));
+   fs.writeFileSync(path.join(output,'stale.txt'),'previous invocation');
+   execute(stepRun('Run selected auth and admin tests'));
+   assert(!fs.existsSync(path.join(output,'stale.txt')),'Second invocation must still clean disposable output');
+   assert.equal(fs.existsSync(reports[0]),!oldLayout);
+   execute(stepRun('Confirm tested browser candidate bytes'),!oldLayout);
+   if(!oldLayout) {
+     assert.deepEqual(fs.readFileSync(reports[0]),first);
+     const proofFile=path.join(cwd,'candidate-proofs/proof-browser-validation.json');
+     const proof=JSON.parse(fs.readFileSync(proofFile));assert.equal(proof.tests,2);
+     const auth=fs.readFileSync(reports[1]);
+     for(const fault of ['missing','failed','empty']) {
+       if(fault==='missing')fs.unlinkSync(reports[1]);
+       else {const bad=JSON.parse(auth);bad.stats.expected=0;bad.stats.unexpected=fault==='failed'?1:0;fs.writeFileSync(reports[1],JSON.stringify(bad));}
+       execute(stepRun('Confirm tested browser candidate bytes'),false);fs.writeFileSync(reports[1],auth);
+     }
+     for(const extra of [{GITHUB_SHA:'b'.repeat(40)},{GITHUB_RUN_ID:'999'},{GITHUB_RUN_ATTEMPT:'2'}])execute(stepRun('Confirm tested browser candidate bytes'),false,extra);
+     fs.appendFileSync(path.join(cwd,'_site/index.html'),'changed bytes');execute(stepRun('Confirm tested browser candidate bytes'),false);
+   }
+ }
+ console.log('Actual selected Assets -> Auth -> proof: old output loses Assets; fixed output preserves both reports, cleans disposable files and rejects missing/failed/empty evidence or wrong candidate identity.');
+} finally {fs.rmSync(sequenceDir,{recursive:true,force:true});}
+
 for(const c of [context,normal]) {
  assert.equal(permits('deploy',{...c,github:{...c.github,ref:'refs/heads/prep/hosting'}}),false);
  assert.equal(permits('deploy',{...c,github:{...c.github,event:{inputs:{...c.github.event.inputs,validation_only:'true'}}}}),false);

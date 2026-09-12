@@ -60,6 +60,17 @@ real callers required without making unchanged decorative decoder suites gates.
 Local native evidence is not a Linux-CI or paid-provider/live acceptance. Unknown
 provider outcomes without a retained receipt remain review cases, not retry permission.
 
+Run34705981330 passed Assets/Auth execution but Auth's default Playwright cleanup
+removed `candidate-assets.json` before the common proof. The existing workflow
+now passes `--output=test-results/browser-artifacts` to every default-config
+report producer (static/core/assets/auth); dedicated Admin/Carousel directories
+remain isolated. Candidate reports and prior browser proof start clean after
+restore. `test:static-deploy-safety` invokes `test-pages-candidate.mjs`, whose
+browser-free real npm/Playwright Assets -> Auth -> CLI proof sequence reproduces
+the old loss and checks retained reports, disposable cleanup, stale/missing/failed
+reports and wrong SHA/run/attempt/build rejection. No product suite is replaced
+by this lifecycle control; the final CI still executes selected product cases.
+
 Run34703893895 passed Worker/native Linux acceptance but two member UI cases
 still required legacy caller prefixes. Member opt-in deliberately uses a stored
 UUID plus `Prefer: respond-async`. The Sound Lab/PixVerse cases now exercise

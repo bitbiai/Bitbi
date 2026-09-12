@@ -461,7 +461,9 @@ jobs:
           digest-mismatch: error
       - name: Restore exact candidate static site
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
-        run: node scripts/pages-candidate.mjs restore
+        run: |
+          node scripts/pages-candidate.mjs restore
+          rm -f test-results/candidate-*.json test-results/admin-discovery.json candidate-proofs/proof-browser-validation.json
       - name: Run selected Admin release acceptance
         if: needs.release-compatibility.outputs.admin_release == 'true'
         run: |
@@ -471,20 +473,20 @@ jobs:
       - name: Run full static browser regression
         if: needs.release-compatibility.outputs.full == 'true'
         run: |
-          PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-static.json npm run test:static -- --reporter=list,json
+          PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-static.json npm run test:static -- --output=test-results/browser-artifacts --reporter=list,json
           PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-carousel.json npm run test:homepage-carousel -- --reporter=list,json
       - name: Run selected homepage core tests
         if: needs.release-compatibility.outputs.homepage == 'true' && needs.release-compatibility.outputs.full != 'true'
-        run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-homepage.json npm run test:homepage-core -- --reporter=list,json
+        run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-homepage.json npm run test:homepage-core -- --output=test-results/browser-artifacts --reporter=list,json
       - name: Run selected homepage carousel tests
         if: needs.release-compatibility.outputs.carousel == 'true' && needs.release-compatibility.outputs.full != 'true'
         run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-carousel.json npm run test:homepage-carousel -- --reporter=list,json
       - name: Run selected Assets Manager tests
         if: needs.release-compatibility.outputs.assets == 'true' && needs.release-compatibility.outputs.full != 'true'
-        run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-assets.json npm run test:assets-manager -- --reporter=list,json
+        run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-assets.json npm run test:assets-manager -- --output=test-results/browser-artifacts --reporter=list,json
       - name: Run selected auth and admin tests
         if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.full != 'true' && needs.release-compatibility.outputs.admin_release != 'true'
-        run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:auth -- --reporter=list,json
+        run: PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:auth -- --output=test-results/browser-artifacts --reporter=list,json
       - name: Confirm tested browser candidate bytes
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
         run: node scripts/pages-candidate.mjs proof
