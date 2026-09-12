@@ -187,6 +187,7 @@ jobs:
           npm run build:static
           node scripts/pages-candidate.mjs record
       - name: Install pinned frontend runtime tooling
+        if: steps.selection.outputs.worker_dependencies != 'true'
         run: npm --prefix workers/contact ci
       - name: Check frontend hosting package
         run: npm run test:frontend-hosting
@@ -201,14 +202,12 @@ jobs:
 
   worker-validation:
     needs: release-compatibility
+    if: ${{ needs.release-compatibility.outputs.workers == 'true' }}
     runs-on: ubuntu-latest
     env:
       # Explicit opt-in only on this disposable GitHub-hosted Linux test VM.
       Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1'
     steps:
-      - name: Report skipped Worker tests
-        if: needs.release-compatibility.outputs.workers != 'true'
-        run: echo "Worker tests skipped because no Worker-related files changed."
       - name: Checkout
         if: needs.release-compatibility.outputs.workers == 'true'
         uses: actions/checkout@v5
@@ -251,6 +250,7 @@ jobs:
   # Only native WebKit video moves to macOS; all other Linux gates remain.
   homepage-webkit-media:
     needs: release-compatibility
+    if: ${{ needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' }}
     runs-on: macos-15
     permissions:
       contents: read
@@ -258,9 +258,6 @@ jobs:
       CANDIDATE_BASE: ${{ needs.release-compatibility.outputs.candidate_base }}
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
-      - name: Report unselected native WebKit acceptance
-        if: ${{ !(needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true') }}
-        run: echo "Native WebKit is unrelated to this release scope."
       - name: Checkout
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         uses: actions/checkout@v5
@@ -323,6 +320,7 @@ jobs:
 
   homepage-validation:
     needs: release-compatibility
+    if: ${{ needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -347,9 +345,6 @@ jobs:
           test -n "${RUNNER_TOOL_CACHE:-}"
           test -w "$RUNNER_TOOL_CACHE"
           test -w "$HOME"
-      - name: Report unselected homepage acceptance
-        if: ${{ !(needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true') }}
-        run: echo "Homepage acceptance is not selected for this change."
       - name: Checkout
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
         uses: actions/checkout@v5
@@ -426,14 +421,12 @@ jobs:
 
   browser-validation:
     needs: [release-compatibility, homepage-validation, homepage-webkit-media, worker-validation]
+    if: ${{ !cancelled() && needs.release-compatibility.result == 'success' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true') && (needs.release-compatibility.outputs.workers == 'false' || (needs.release-compatibility.outputs.workers == 'true' && needs.worker-validation.result == 'success')) && ((needs.release-compatibility.outputs.homepage == 'false' && needs.release-compatibility.outputs.carousel == 'false') || ((needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true') && needs.homepage-validation.result == 'success' && needs.homepage-webkit-media.result == 'success')) }}
     runs-on: ubuntu-latest
     env:
       CANDIDATE_BASE: ${{ needs.release-compatibility.outputs.candidate_base }}
       STATIC_TEST_ROOT: _site
     steps:
-      - name: Report skipped browser tests
-        if: needs.release-compatibility.outputs.homepage != 'true' && needs.release-compatibility.outputs.carousel != 'true' && needs.release-compatibility.outputs.assets != 'true' && needs.release-compatibility.outputs.auth != 'true'
-        run: echo "Browser tests skipped because no frontend, homepage, auth, or admin files changed."
       - name: Checkout
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
         uses: actions/checkout@v5
@@ -567,7 +560,7 @@ jobs:
       pages: write
       id-token: write
     needs: [release-compatibility, worker-validation, browser-validation, homepage-validation, homepage-webkit-media, reuse-candidate]
-    if: ${{ !cancelled() && !github.event.inputs.frontend_recovery_receipt && github.ref == 'refs/heads/main' && github.event.inputs.validation_only != 'true' && ((needs.reuse-candidate.result == 'success' && github.event.inputs.candidate_run_id != '') || (!github.event.inputs.candidate_run_id && (github.event_name == 'workflow_dispatch' || (needs.release-compatibility.outputs.pages_allowed == 'true' && needs.release-compatibility.outputs.pages_required == 'true')) && needs.release-compatibility.result == 'success' && needs.worker-validation.result == 'success' && needs.browser-validation.result == 'success' && needs.homepage-validation.result == 'success' && needs.homepage-webkit-media.result == 'success')) }}
+    if: ${{ !cancelled() && !github.event.inputs.frontend_recovery_receipt && github.ref == 'refs/heads/main' && github.event.inputs.validation_only != 'true' && ((needs.reuse-candidate.result == 'success' && github.event.inputs.candidate_run_id != '') || (!github.event.inputs.candidate_run_id && (github.event_name == 'workflow_dispatch' || (needs.release-compatibility.outputs.pages_allowed == 'true' && needs.release-compatibility.outputs.pages_required == 'true')) && needs.release-compatibility.result == 'success' && (needs.release-compatibility.outputs.workers == 'false' || (needs.release-compatibility.outputs.workers == 'true' && needs.worker-validation.result == 'success')) && ((needs.release-compatibility.outputs.homepage == 'false' && needs.release-compatibility.outputs.carousel == 'false') || ((needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true') && needs.homepage-validation.result == 'success' && needs.homepage-webkit-media.result == 'success')) && ((needs.release-compatibility.outputs.homepage == 'false' && needs.release-compatibility.outputs.carousel == 'false' && needs.release-compatibility.outputs.assets == 'false' && needs.release-compatibility.outputs.auth == 'false') || ((needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true') && needs.browser-validation.result == 'success')))) }}
     concurrency:
       group: "pages"
       cancel-in-progress: false

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
-import {api,collection,gitSelection,validateSource,verifyManifest,verifyProofs,tree,REPOSITORY} from '../pages-candidate.mjs';
+import {api,collection,gitSelection,isRequiredValidationRun,validateSource,verifyManifest,verifyProofs,tree,REPOSITORY} from '../pages-candidate.mjs';
 import {hash,readJson,verifyFrontend} from './frontend-hosting.mjs';
 
 export function sourceExpectation(preview, env=process.env) {
@@ -25,7 +25,7 @@ export async function sourceArchives(preview, env=process.env) {
     collection(`actions/runs/${e.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${e.sha}`,'workflow_runs'),
     api(`git/ref/heads/${e.branch.split('/').map(encodeURIComponent).join('/')}`),
   ]);
-  const relevant=laterRuns.filter(r=>['.github/workflows/static.yml','.github/workflows/full-regression.yml','.github/workflows/ui-fast-deploy.yml'].includes(r.path));
+  const relevant=laterRuns.filter(r=>isRequiredValidationRun(r,e.selection));
   for(const later of relevant.filter(r=>String(r.id)!==String(e.currentRun)&&Date.parse(r.created_at)>Date.parse(run.created_at)&&r.conclusion!=='success'))later.jobs=await collection(`actions/runs/${later.id}/attempts/${later.run_attempt}/jobs`,'jobs');
   const currentPublication=!preview && env.GITHUB_ACTIONS==='true' && env.GITHUB_JOB==='deploy' && env.GITHUB_REF==='refs/heads/main' && e.run===env.GITHUB_RUN_ID;
   const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{previewBranch:preview?e.branch:undefined,currentPublication});

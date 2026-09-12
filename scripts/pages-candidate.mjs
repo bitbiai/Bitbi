@@ -22,7 +22,7 @@ export const REQUIRED_JOBS = {
 export function requiredJobs(selection) {
   if (!selection) return REQUIRED_JOBS; // Frozen schema-1 Q4 evidence only.
   const jobs = { 'release-compatibility': ['Preflight complete static release plan','Run quality gate tests','Record candidate build', 'Check frontend hosting package'] };
-  if (selection.adminRelease) jobs['release-compatibility'].push(
+  jobs['release-compatibility'].push(
     'Check committed secrets', 'Check DOM sink baseline', 'Check auth route policy coverage',
     'Check targeted JavaScript syntax', 'Run release compatibility tests', 'Run release planner tests',
     'Run static deploy safety tests', 'Run CI test selection fixtures',
@@ -44,6 +44,13 @@ export function requiredJobs(selection) {
 }
 export function proofJobs(selection) {
   return Object.keys(requiredJobs(selection)).filter(job => job.startsWith('homepage-') || (selection && job === 'browser-validation'));
+}
+// Full is supplementary for impact-selected releases; it is mandatory when
+// the change itself selects full acceptance. Normal static failures still block.
+export function isRequiredValidationRun(run, selection) {
+  return run.path === '.github/workflows/static.yml'
+    || run.path === '.github/workflows/ui-fast-deploy.yml'
+    || (run.path === '.github/workflows/full-regression.yml' && (!selection || selection.full));
 }
 export function gitSelection(base, sha) {
   assert(/^[a-f0-9]{40}$/.test(base || ''), 'Missing exact release base');
@@ -151,6 +158,9 @@ export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected,
   // Never select an older green run around a known later failure or pending
   // validation of this SHA. The current publication request is not validation.
   for(const later of laterRuns.filter(r=>String(r.id)!==String(expected.currentRun)&&Date.parse(r.created_at)>Date.parse(run.created_at))) {
+    // Extended/scheduled Full regression is separate from a narrow release's
+    // selected acceptance. Never use it to certify or replace that acceptance.
+    if (expected.selection && !expected.selection.full && later.path === '.github/workflows/full-regression.yml') continue;
     // A publish-only failure is not a new functional failure. Actual skipped
     // validation jobs plus the explicit reuse job distinguish that path.
     if(later.jobs?.some(j=>j.name==='reuse-candidate') && Object.keys(REQUIRED_JOBS).every(name=>later.jobs.some(j=>j.name===name&&j.conclusion==='skipped')))continue;
@@ -234,7 +244,7 @@ async function main(command) {
   if(command==='source') {
     assert(/^\d+$/.test(e.run||'')&&/^\d+$/.test(e.attempt||''),'Explicit source run/attempt required');
     const [run,jobs,artifacts,laterRuns,ref]=await Promise.all([api(`actions/runs/${e.run}`),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),collection(`actions/runs/${e.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${e.sha}`,'workflow_runs'),api('git/ref/heads/main')]);
-    const relevant=laterRuns.filter(r=>['.github/workflows/static.yml','.github/workflows/full-regression.yml','.github/workflows/ui-fast-deploy.yml'].includes(r.path));
+    const relevant=laterRuns.filter(r=>isRequiredValidationRun(r,e.selection));
     for(const later of relevant.filter(r=>String(r.id)!==String(e.currentRun)&&Date.parse(r.created_at)>Date.parse(run.created_at)&&r.conclusion!=='success'))later.jobs=await collection(`actions/runs/${later.id}/attempts/${later.run_attempt}/jobs`,'jobs');
     const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e);
     if(process.env.CANDIDATE_ARTIFACT_IDS)assert.equal(selected.map(a=>a.id).join(','),process.env.CANDIDATE_ARTIFACT_IDS,'Candidate artifacts changed after selection');

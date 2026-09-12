@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
-import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, requiredJobs, proofJobs, validatePublishedDeployment, verifyAdminReport, tree, validateSource, verifyManifest, verifyProofs, MEDIA_POLICY } from './pages-candidate.mjs';
+import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, requiredJobs, proofJobs, isRequiredValidationRun, validatePublishedDeployment, verifyAdminReport, tree, validateSource, verifyManifest, verifyProofs, MEDIA_POLICY } from './pages-candidate.mjs';
 const sha='a'.repeat(40),expected={repository:REPOSITORY,sha,base:Q4_BASE,run:'123',attempt:'1',currentRun:'456'};
 const run={repository:{full_name:REPOSITORY},head_repository:{full_name:REPOSITORY},head_sha:sha,head_branch:'main',id:123,run_attempt:1,path:'.github/workflows/static.yml',event:'push',status:'completed',conclusion:'success',created_at:'2026-09-09T00:00:00Z'};
 const jobs=Object.entries(REQUIRED_JOBS).map(([name,steps])=>({name,head_sha:sha,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
@@ -174,7 +174,7 @@ const context={github:{ref:'refs/heads/main',event_name:'workflow_dispatch',even
 assert.equal(permits('release-compatibility',context),false);assert.equal(permits('reuse-candidate',context),true);assert.equal(permits('deploy',context),true);
 for(const result of ['failure','skipped','cancelled'])assert.equal(permits('deploy',{...context,needs:{...context.needs,'reuse-candidate':{result}}}),false);
 assert.equal(permits('deploy',{...context,cancelled:()=>true}),false);
-const normal={...context,github:{ref:'refs/heads/main',event_name:'push',event:{inputs:{}}},needs:Object.fromEntries([...Object.keys(REQUIRED_JOBS),'reuse-candidate'].map(name=>[name,{result:name==='reuse-candidate'?'skipped':'success',outputs:{pages_allowed:'true',pages_required:'true'}}]))};
+const normal={...context,github:{ref:'refs/heads/main',event_name:'push',event:{inputs:{}}},needs:Object.fromEntries([...Object.keys(REQUIRED_JOBS),'reuse-candidate'].map(name=>[name,{result:name==='reuse-candidate'?'skipped':'success',outputs:{pages_allowed:'true',pages_required:'true',workers:'true',homepage:'true',carousel:'true',assets:'true',auth:'true'}}]))};
 const validationOnly={...normal,needs:{...normal.needs,'release-compatibility':{result:'success',outputs:{pages_allowed:'false',pages_required:'true'}}}};
 assert.equal(permits('deploy',{...normal,needs:{...normal.needs,'release-compatibility':{result:'success',outputs:{}}}}),false);
 assert.equal(permits('deploy',validationOnly),false,'Validation-only run must not acquire the production write lock');
@@ -188,7 +188,6 @@ assert(block('deploy').includes('digest-mismatch: error'));assert(block('deploy'
 console.log('Exact candidate/run/attempt/suite/artifact, later-failure, full-scope, immutable bytes and no-second-suite controls passed.');
 
 for (const [file,jobName,required] of [
- ['static.yml','browser-validation',['release-compatibility','homepage-validation','homepage-webkit-media','worker-validation']],
  ['full-regression.yml','browser-tests',['release-security','homepage-validation','homepage-webkit-media','worker-tests']],
 ]) {
  const source=fs.readFileSync(new URL(`../.github/workflows/${file}`,import.meta.url),'utf8');
@@ -203,6 +202,57 @@ for (const [file,jobName,required] of [
  // Worker job deliberately reporting unselected work is successful. That is
  // different from a required failed/skipped job; existing selection owns it.
  assert(starts({...passed,[required.at(-1)]:'success'}));
+}
+
+// Execute the actual job conditions: unrelated jobs are skipped, while every
+// selected result and every selection flag must be present and successful.
+const narrow=structuredClone({github:normal.github,needs:normal.needs});narrow.cancelled=()=>false;
+Object.assign(narrow.needs['release-compatibility'].outputs,{workers:'false',homepage:'false',carousel:'false',assets:'false',auth:'false'});
+for(const name of ['worker-validation','homepage-validation','homepage-webkit-media','browser-validation']) {
+ narrow.needs[name].result='skipped';assert(!permits(name,narrow),name+' must not allocate a runner');
+}
+assert(permits('deploy',narrow),'Native frontend/release-only candidate publishes without browser/backend jobs');
+for(const key of ['workers','homepage','carousel','assets','auth']) {
+ const missing={...narrow,needs:structuredClone(narrow.needs)};delete missing.needs['release-compatibility'].outputs[key];
+ assert(!permits('deploy',missing),'Missing selection '+key);
+ const selected={...narrow,needs:structuredClone(narrow.needs)};selected.needs['release-compatibility'].outputs[key]='true';
+ assert(!permits('deploy',selected),'Skipped selected '+key);
+}
+const adminOnly={...narrow,needs:structuredClone(narrow.needs)};adminOnly.needs['release-compatibility'].outputs.auth='true';
+assert(permits('browser-validation',adminOnly),'Admin starts despite unrelated skipped upstream jobs');
+adminOnly.needs['browser-validation'].result='success';assert(permits('deploy',adminOnly));
+for(const result of ['failure','cancelled','skipped',undefined]) {
+ const bad={...normal,needs:structuredClone(normal.needs)};
+ for(const name of ['worker-validation','homepage-validation','homepage-webkit-media']) {
+  const c={...bad,needs:structuredClone(bad.needs)};c.needs[name].result=result;
+  assert(!permits('browser-validation',c),name+'/'+result);assert(!permits('deploy',c));
+ }
+ const c={...adminOnly,needs:structuredClone(adminOnly.needs)};c.needs['browser-validation'].result=result;assert(!permits('deploy',c));
+}
+assert(!permits('deploy',{...narrow,cancelled:()=>true}));
+
+const loggingSelection=selectCiTests(['frontend/index.mjs','frontend/wrangler.jsonc','scripts/lib/ci-test-selection.mjs']);
+const loggingExpected={...ordinary,selection:loggingSelection};
+const loggingJobs=Object.entries(requiredJobs(loggingSelection)).map(([name,steps])=>({name,head_sha:sha,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
+assert.deepEqual(Object.keys(requiredJobs(loggingSelection)),['release-compatibility']);assert.deepEqual(proofJobs(loggingSelection),[]);
+const loggingEvidence={...valid,jobs:loggingJobs,artifacts:[artifacts[0]]};
+assert.equal(validateSource(loggingEvidence,loggingExpected).length,1);
+for(const step of loggingJobs[0].steps)for(const state of ['failure','skipped',undefined]) {
+ const bad=structuredClone(loggingJobs);bad[0].steps.find(s=>s.name===step.name).conclusion=state;
+ assert.throws(()=>validateSource({...loggingEvidence,jobs:bad},loggingExpected));
+}
+const loggingManifest={selection:loggingSelection,hosting:{},sha};
+const loggingProof={job:'frontend-runtime',manifestHash:crypto.createHash('sha256').update(JSON.stringify(loggingManifest)).digest('hex'),status:'passed',tests:28,reportHash:'synthetic-runtime'};
+verifyProofs(loggingManifest,[loggingProof]);
+for(const patch of [{tests:0},{status:'failed'},{manifestHash:'wrong'}])assert.throws(()=>verifyProofs(loggingManifest,[{...loggingProof,...patch}]));
+assert.throws(()=>verifyProofs(loggingManifest,[]));
+for(const status of ['in_progress','completed']) {
+ assert.equal(isRequiredValidationRun({path:'.github/workflows/full-regression.yml'},loggingSelection),false);
+ assert.equal(isRequiredValidationRun({path:'.github/workflows/full-regression.yml'},{full:true}),true);
+ const extended={...run,path:'.github/workflows/full-regression.yml',id:200,created_at:'2026-09-09T01:00:00Z',status,conclusion:'failure'};
+ assert.equal(validateSource({...loggingEvidence,laterRuns:[extended]},loggingExpected).length,1);
+ assert.throws(()=>validateSource({...valid,laterRuns:[extended]},expected),'Full selection still requires its later full acceptance');
+ assert.throws(()=>validateSource({...loggingEvidence,laterRuns:[{...extended,path:'.github/workflows/static.yml'}]},loggingExpected));
 }
 
 // Real Playwright discovery guards this config against lost News coverage or an

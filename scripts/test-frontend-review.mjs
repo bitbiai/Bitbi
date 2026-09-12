@@ -21,9 +21,13 @@ try {
  fs.writeFileSync(path.join(fixture,'.gitignore'),'candidate/\n.local/\n');
  const git=args=>execFileSync('git',args,{cwd:fixture,env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'},stdio:'pipe'}).toString().trim();
  git(['init','-q']);git(['add','--all']);git(['-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic CLI fixture only']);
+ const base=git(['rev-parse','HEAD']);
+ fs.appendFileSync(path.join(fixture,'frontend/index.mjs'),'\n// Synthetic frontend-only revision.\n');
+ git(['add','frontend/index.mjs']);git(['-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic narrow frontend revision']);
  const sha=git(['rev-parse','HEAD']);process.chdir(fixture);
  fs.mkdirSync('candidate/site',{recursive:true});fs.writeFileSync('candidate/site/index.html','<h1>Synthetic static bytes</h1>');
- const selection=gitSelection(sha,sha),manifest={schema:2,repository:'bitbiai/Bitbi',sha,base:sha,run:'101',attempt:'1',selection,full:selection.full,mediaPolicy:MEDIA_POLICY,files:tree('candidate/site')};
+ const selection=gitSelection(base,sha),manifest={schema:2,repository:'bitbiai/Bitbi',sha,base,run:'101',attempt:'1',selection,full:selection.full,mediaPolicy:MEDIA_POLICY,files:tree('candidate/site')};
+ assert.equal(selection.full,false);assert.deepEqual(proofJobs(selection),[],'Narrow frontend uses its native runtime proof, no unrelated browser proofs');
  prepareFrontend(manifest,tree);
  const observability=JSON.parse(fs.readFileSync('frontend/wrangler.jsonc')).observability;
  for(const preview of [false,true]) {
@@ -53,7 +57,7 @@ try {
  }
  const responses={run,jobs,artifacts,sha};const dataFile=path.join(temp,'responses.json');
  const loader=path.join(temp,'http.mjs');fs.writeFileSync(loader,`import fs from 'node:fs';\nconst d=JSON.parse(fs.readFileSync(${JSON.stringify(dataFile)}));\nglobalThis.fetch=async (input,options={})=>{\n if(options.method&&options.method!=='GET')throw Error('Test forbids external writes');\n const u=new URL(input);if(u.hostname!=='api.github.com')throw Error('Unexpected network');\n const p=u.pathname.replace('/repos/bitbiai/Bitbi/','');\n if(p.match(/^actions\\/artifacts\\/\\d+\\/zip$/))return new Response(fs.readFileSync(${JSON.stringify(temp)}+'/'+p.split('/')[2]+'.zip'));\n let r;if(p==='actions/runs/101')r=d.run;else if(p==='actions/runs/101/attempts/1/jobs')r={jobs:d.jobs,total_count:d.jobs.length};else if(p==='actions/runs/101/artifacts')r={artifacts:d.artifacts,total_count:d.artifacts.length};else if(p==='actions/runs')r={workflow_runs:[d.run],total_count:1};else if(p.startsWith('git/ref/heads/'))r={object:{sha:d.sha}};else throw Error('Unmapped HTTP '+p);\n return Response.json(r);};\n`);
- const env={PATH:process.env.PATH,HOME:temp,TMPDIR:temp,NODE_OPTIONS:`--import=${loader}`,GH_TOKEN:'synthetic-read-only',GITHUB_REPOSITORY:'bitbiai/Bitbi',GITHUB_SHA:sha,CANDIDATE_BASE:sha,CANDIDATE_RUN:'101',CANDIDATE_ATTEMPT:'1',CANDIDATE_BRANCH:'prep/workers-static-assets'};
+ const env={PATH:process.env.PATH,HOME:temp,TMPDIR:temp,NODE_OPTIONS:`--import=${loader}`,GH_TOKEN:'synthetic-read-only',GITHUB_REPOSITORY:'bitbiai/Bitbi',GITHUB_SHA:sha,CANDIDATE_BASE:base,CANDIDATE_RUN:'101',CANDIDATE_ATTEMPT:'1',CANDIDATE_BRANCH:'prep/workers-static-assets'};
  const cli=(name,command,mutate=()=>{},overrides={},pass=false)=>{
   fs.rmSync('candidate',{recursive:true,force:true});fs.cpSync(candidateBackup,'candidate',{recursive:true});
   const d=structuredClone(responses);mutate(d);fs.writeFileSync(dataFile,JSON.stringify(d));

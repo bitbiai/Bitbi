@@ -155,6 +155,16 @@ Run the smallest set that truly covers changed surfaces. Routine UI, documentati
 
 Carousel laboratory timing thresholds (including 50 ms tasks, 100 ms first motion and the historical transition-duration range) are diagnostics, not release vetoes. Preserve visible warnings and valid native measurement/countercontrols; missing or broken measurements are not performance passes. Functional completion, geometry, media/audio behavior, finite liveness timeouts, security and data-integrity gates remain mandatory. Do not relabel historical failures.
 
+The static frontend Worker (`frontend/index.mjs`, `frontend/wrangler.jsonc`)
+and explicitly mapped release-only tooling use the existing release/build and
+native frontend HTTP/routing/privacy checks, not automatic whole-platform tests.
+Select browser/media/backend suites for their actual changed inputs; unknown
+inputs and hosting-authority changes remain broad. Unselected jobs must not
+allocate runners or become implicit deployment dependencies. Missing/failed
+selected execution and wrong artifacts remain fatal. Scheduled/extended Full
+regression remains available and blocks reuse when the candidate selects full
+acceptance; it is not an unrelated narrow-release prerequisite.
+
 Reuse valid evidence for unchanged inputs; repeat checks only for a concrete reason. Do not duplicate all CI locally by default. State what was not run and why, and preserve failures and skipped coverage.
 
 ---

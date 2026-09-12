@@ -147,10 +147,15 @@ const WORKER_TEST_PREFIXES = [
   "tests/admin-ai-save-operations.spec.js",
 ];
 
-const FULL_REGRESSION_PATHS = new Set([
-  "scripts/lib/ci-test-selection.mjs",
-  "scripts/select-ci-tests.mjs",
-  "scripts/test-ci-test-selection.mjs",
+// These exact release-only inputs are exercised by the always-required release
+// contract tests and native static-host runtime check. Unknown automation is broad.
+const RELEASE_TOOLING_FILES = new Set([
+  '.github/workflows/static.yml',
+  'scripts/lib/ci-test-selection.mjs', 'scripts/select-ci-tests.mjs',
+  'scripts/test-ci-test-selection.mjs', 'scripts/pages-candidate.mjs',
+  'scripts/test-pages-candidate.mjs', 'scripts/test-pages-workflow.mjs',
+  'scripts/lib/frontend-hosting.mjs', 'scripts/lib/frontend-source.mjs', 'scripts/test-frontend-hosting.mjs',
+  'scripts/test-frontend-review.mjs',
 ]);
 
 // Reviewed Admin-reader production surface and its release-only follow-up.
@@ -267,7 +272,11 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 
   let documentationCount = 0;
   for (const file of changedFiles) {
-    if (['frontend/index.mjs','frontend/wrangler.jsonc','config/static-hosting.json'].includes(file)) {
+    if (['frontend/index.mjs','frontend/wrangler.jsonc'].includes(file) || RELEASE_TOOLING_FILES.has(file)) {
+      addReason(selection,'static',file,'covered by release contracts, build and native frontend HTTP/routing/privacy checks');
+      continue;
+    }
+    if (file === 'config/static-hosting.json') {
       addReason(selection,'static',file,'changes frontend hosting runtime or authority');
       selectFullRegression(selection,file,'changes frontend hosting and requires native routing plus full candidate acceptance');
       continue;
@@ -304,7 +313,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       continue;
     }
 
-    if (file.startsWith(".github/workflows/") || FULL_REGRESSION_PATHS.has(file)) {
+    if (file.startsWith(".github/workflows/")) {
       selectFullRegression(selection, file, "changes CI orchestration or its fail-closed selector");
       continue;
     }

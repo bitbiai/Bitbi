@@ -325,10 +325,10 @@ for (const file of [
 
 {
   const result = selection([".github/workflows/static.yml"]);
-  assert.equal(result.full, true);
-  assert.equal(result.runtime, true);
-  assert.equal(result.carousel, true);
-  assert.equal(result.assets, true);
+  assert.equal(result.full, false);
+  assert.equal(result.static, true);
+  assert.equal(result.carousel, false);
+  assert.equal(result.assets, false);
 }
 
 {
@@ -440,8 +440,15 @@ for(const input of ['js/shared/auth.js','workers/auth/src/index.js','workers/aut
 assert.equal(selection(adminDelivery,{forceFull:true}).full,true);
 assert.equal(selection(adminDelivery,{forceFull:true}).adminRelease,false);
 
-for(const file of ['frontend/index.mjs','frontend/wrangler.jsonc','config/static-hosting.json']) {
- const selected=selectCiTests([file]);assert(selected.full && selected.static && selected.workers && selected.homepage && selected.auth);
- assert(selected.reasons.full.some(reason=>reason.includes('native routing')));
- assert(!isFastDeploySafePath(file));
+const loggingFiles=['frontend/index.mjs','frontend/wrangler.jsonc','scripts/lib/frontend-hosting.mjs',
+ 'scripts/test-frontend-hosting.mjs','scripts/test-frontend-review.mjs','docs/runbooks/STATIC_HOSTING_MIGRATION.md',
+ 'docs/runbooks/REGRESSION_REGISTER.md','.github/workflows/static.yml','scripts/lib/ci-test-selection.mjs',
+ 'scripts/pages-candidate.mjs','scripts/test-ci-test-selection.mjs','scripts/test-pages-candidate.mjs'];
+for(const files of [loggingFiles,['frontend/index.mjs'],['frontend/wrangler.jsonc']]) {
+ const selected=selection(files);assert(selected.static);
+ for(const key of ['full','workers','auth','homepage','carousel','assets','dependencies'])assert.equal(selected[key],false,key);
 }
+assert(selection(loggingFiles,{forceFull:true}).full);
+for(const file of ['config/static-hosting.json','scripts/unknown.mjs','.github/workflows/unknown.yml','unknown.config'])assert(selection([...loggingFiles,file]).full,file);
+for(const [file,impact] of [['workers/auth/src/index.js','workers'],['js/shared/auth.js','auth'],['js/pages/index/latest-models-video-module.js','homepage'],['js/pages/index/category-carousel.js','carousel'],['workers/contact/package-lock.json','workerDependencies']])assert(selection([...loggingFiles,file])[impact],file);
+for(const file of ['frontend/index.mjs','frontend/wrangler.jsonc','config/static-hosting.json'])assert(!isFastDeploySafePath(file));

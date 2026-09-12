@@ -54,8 +54,12 @@ for different workers/configurations are not assumed equal.
 
 `static.yml` remains the normal build-once owner. Native local Wrangler dry-run
 and routing checks run before artifact upload. Existing selected Linux Worker,
-Chromium and native macOS WebKit jobs consume the same candidate. The hosting
-migration selects full acceptance; this is not a Fast UI change. Full regression
+Chromium and native macOS WebKit jobs consume the same candidate. Hosting-authority migration (`config/static-hosting.json`) selects full
+acceptance; this is not a Fast UI change. Ordinary static frontend entry/config
+and mapped release-tooling edits require the existing release/build/privacy and
+native HTTP/routing package checks. Browser, native media and backend jobs run
+only for their selected inputs. Full regression stays explicitly/scheduled
+available, without becoming a second narrow-release dependency. Full regression
 also runs the native frontend check via `--standalone`, which is test-only.
 
 The legacy Fast UI workflow is manual-only while Pages is active. It resolves
