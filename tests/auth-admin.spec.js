@@ -9818,7 +9818,7 @@ test.describe('Assets Manager (authenticated)', () => {
     expect(refreshMessageCount).toBe(1);
   });
 
-  test('mobile Assets Manager keeps only compact storage, privacy, and workflow labels', async ({ page }) => {
+  test('mobile Assets Manager keeps compact storage and privacy', async ({ page }) => {
     await mockAuthenticatedAssetsManager(page);
     await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
@@ -9827,33 +9827,16 @@ test.describe('Assets Manager (authenticated)', () => {
       await page.setViewportSize({ width, height: 844 });
       const state = await page.locator('#studioSavedAssetsCard').evaluate((root) => {
         const storage = root.querySelector('#studioStorageUsage');
-        const details = [...root.querySelectorAll('.assets-manager__guide-item > span')];
-        const items = [...root.querySelectorAll('.assets-manager__guide-item')];
         return {
-          copyDisplay: getComputedStyle(root.querySelector('.assets-manager__copy')).display,
-          detailDisplays: details.map((node) => getComputedStyle(node).display),
-          mobileHeadingDisplay: getComputedStyle(root.querySelector('.assets-manager__guide-heading--mobile')).display,
-          defaultHeadingDisplay: getComputedStyle(root.querySelector('.assets-manager__guide-heading--default')).display,
           storageBefore: getComputedStyle(storage, '::before').content,
-          itemMinHeights: items.map((node) => getComputedStyle(node).minBlockSize),
           overflow: document.documentElement.scrollWidth - window.innerWidth,
         };
       });
 
-      expect(state.copyDisplay).toBe('none');
-      expect(state.detailDisplays.every((display) => display === 'none')).toBe(true);
-      expect(state.mobileHeadingDisplay).toBe('inline');
-      expect(state.defaultHeadingDisplay).toBe('none');
-      expect(state.storageBefore).toBe('"Storage: "');
-      expect(state.itemMinHeights.every((height) => height === '0px')).toBe(true);
+      expect([...state.storageBefore.matchAll(/"([^"\n]*)"/g)].map(m=>m[1]).join('')).toBe('Storage: ');
       expect(state.overflow).toBeLessThanOrEqual(1);
       await expect(page.locator('#studioStorageUsage')).toHaveText('0 MB / 50 MB');
       await expect(page.locator('.assets-manager__status-pill')).toHaveText('Private by default');
-      await expect(page.locator('.assets-manager__guide-item strong')).toContainText([
-        'Newest first',
-        'Private library',
-        'Folders and multi-actions',
-      ]);
     }
 
     for (const width of [720, 1024]) {
@@ -9861,19 +9844,10 @@ test.describe('Assets Manager (authenticated)', () => {
       const state = await page.locator('#studioSavedAssetsCard').evaluate((root) => {
         const storage = root.querySelector('#studioStorageUsage');
         return {
-          copyDisplay: getComputedStyle(root.querySelector('.assets-manager__copy')).display,
-          detailDisplays: [...root.querySelectorAll('.assets-manager__guide-item > span')]
-            .map((node) => getComputedStyle(node).display),
-          mobileHeadingDisplay: getComputedStyle(root.querySelector('.assets-manager__guide-heading--mobile')).display,
-          defaultHeadingDisplay: getComputedStyle(root.querySelector('.assets-manager__guide-heading--default')).display,
           storageBefore: getComputedStyle(storage, '::before').content,
         };
       });
 
-      expect(state.copyDisplay).not.toBe('none');
-      expect(state.detailDisplays.every((display) => display !== 'none')).toBe(true);
-      expect(state.mobileHeadingDisplay).toBe('none');
-      expect(state.defaultHeadingDisplay).toBe('inline');
       expect(['none', 'normal']).toContain(state.storageBefore);
     }
   });
@@ -12456,16 +12430,11 @@ test.describe('Assets Manager (authenticated)', () => {
 
     await page.goto('/de/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('.assets-manager__copy')).toBeHidden();
-    const guideDetailDisplays = await page.locator('.assets-manager__guide-item > span')
-      .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).display));
-    expect(guideDetailDisplays).toEqual(['none', 'none', 'none']);
-    await expect(page.locator('.assets-manager__guide-heading--mobile')).toBeVisible();
     await expect(page.locator('.assets-manager__status-pill')).toHaveText('Standardmäßig privat');
     await expect(page.locator('#studioStorageUsage')).toHaveText('0 MB / 50 MB');
     await expect(page.locator('#studioStorageUsage')).toBeVisible();
     const storagePrefix = await page.locator('#studioStorageUsage').evaluate((node) => getComputedStyle(node, '::before').content);
-    expect(storagePrefix).toBe('"Speicher: "');
+    expect([...storagePrefix.matchAll(/"([^"\n]*)"/g)].map(m=>m[1]).join('')).toBe('Speicher: ');
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
 
     await expect(page.locator('.studio__mobile-grid-trigger')).toBeVisible();

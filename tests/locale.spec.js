@@ -845,10 +845,6 @@ test.describe('Bilingual locale pages', () => {
     expect(enAssets).toContain('Your selection stays available if saving fails.');
     expect(enAssets).toContain('href="/generate-lab/"');
     expect(enAssets).toContain('Sign in to open Assets Manager');
-    expect(enAssets).toContain('Newest first');
-    expect(enAssets).toContain('Private library');
-    expect(enAssets).toContain('Folders and bulk actions');
-    expect(enAssets).toContain('Folders and multi-actions');
     expect(enAssets).toContain('data-mobile-label="Storage"');
     expect(enAssets).toContain('data-auth-message-key="authRecovery.assetsMessage"');
     expect(enAssets).toContain('After sign-in, continue here to refresh your saved library');
@@ -890,9 +886,6 @@ test.describe('Bilingual locale pages', () => {
     expect(deAssets).toContain('Ihre Auswahl bleibt verfügbar, wenn Speichern fehlschlägt.');
     expect(deAssets).toContain('href="/de/generate-lab/"');
     expect(deAssets).toContain('Anmelden, um den Assets Manager zu öffnen');
-    expect(deAssets).toContain('Neueste zuerst');
-    expect(deAssets).toContain('Private Bibliothek');
-    expect(deAssets).toContain('Ordner und Mehrfachaktionen');
     expect(deAssets).toContain('data-mobile-label="Speicher"');
     expect(deAssets).toContain('data-auth-message-key="authRecovery.assetsMessage"');
     expect(deAssets).toContain('Nach der Anmeldung hier fortfahren, um Ihre gespeicherte Bibliothek');

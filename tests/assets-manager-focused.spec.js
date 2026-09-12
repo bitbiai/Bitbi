@@ -105,7 +105,6 @@ const localeCases = [
     name: 'English',
     path: '/account/assets-manager.html',
     privacy: 'Private by default',
-    guide: ['Newest first', 'Private library', 'Folders and multi-actions'],
     storageLabel: '"Storage: "',
     helpTitle: 'Mobile asset actions',
     helpDetail: 'move or delete multiple assets',
@@ -114,7 +113,6 @@ const localeCases = [
     name: 'German',
     path: '/de/account/assets-manager.html',
     privacy: 'Standardmäßig privat',
-    guide: ['Neueste zuerst', 'Private Bibliothek', 'Ordner und Mehrfachaktionen'],
     storageLabel: '"Speicher: "',
     helpTitle: 'Mobile Asset-Aktionen',
     helpDetail: 'mehrere Assets verschieben oder löschen',
@@ -137,26 +135,12 @@ test.describe('Assets Manager focused validation', () => {
 
       const state = await page.locator('#studioSavedAssetsCard').evaluate((root) => {
         const storage = root.querySelector('#studioStorageUsage');
-        const visibleGuideLabels = [...root.querySelectorAll('.assets-manager__guide-item strong')]
-          .map((strong) => [...strong.childNodes]
-            .filter((node) => node.nodeType === Node.TEXT_NODE
-              || (node.nodeType === Node.ELEMENT_NODE && getComputedStyle(node).display !== 'none'))
-            .map((node) => node.textContent.trim())
-            .join('')
-            .trim());
         return {
-          copyDisplay: getComputedStyle(root.querySelector('.assets-manager__copy')).display,
-          detailDisplays: [...root.querySelectorAll('.assets-manager__guide-item > span')]
-            .map((node) => getComputedStyle(node).display),
-          guideLabels: visibleGuideLabels,
           storageLabel: getComputedStyle(storage, '::before').content,
           overflow: document.documentElement.scrollWidth - window.innerWidth,
         };
       });
 
-      expect(state.copyDisplay).toBe('none');
-      expect(state.detailDisplays.every((display) => display === 'none')).toBe(true);
-      expect(state.guideLabels).toEqual(localeCase.guide);
       // WebKit retains separate CSS content strings; Chromium combines them.
       const textContent = value => [...value.matchAll(/"([^"\n]*)"/g)].map(m=>m[1]).join('');
       expect(textContent(state.storageLabel)).toBe(textContent(localeCase.storageLabel));

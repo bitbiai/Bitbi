@@ -1990,7 +1990,7 @@ export function createSavedAssetsBrowser({
         assetDeck?.setVisible(false);
         $folderBack?.classList.remove('visible');
         updateAssetPaginationUi();
-        setListStatus(localeText('assets.folderOverviewStatus'), 'folders');
+        setListStatus('', 'folders');
         updateViewContext();
 
         const total = unfolderedCount + folders.reduce((sum, folder) => sum + (folderCounts[folder.id] || 0), 0);

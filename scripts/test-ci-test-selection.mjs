@@ -515,7 +515,7 @@ for(const extra of ['unknown-root.js','workers/auth/src/lib/session.js','workers
 }
 assert.equal(selection(memberFiles,{forceFull:true}).full,true);
 
-const musicCards = selection(['js/shared/saved-assets-browser.js','css/account/assets-manager.css','js/shared/mobile-media-grid-overlay.js','tests/assets-manager-focused.spec.js','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs']);
+const musicCards = selection(['tests/auth-admin.spec.js','tests/locale.spec.js','playwright.assets.config.js','account/assets-manager.html','de/account/assets-manager.html','js/shared/saved-assets-browser.js','css/account/assets-manager.css','js/shared/mobile-media-grid-overlay.js','tests/assets-manager-focused.spec.js','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs']);
 assert.equal(musicCards.assets,true);assert.equal(musicCards.workers,false);assert.equal(musicCards.full,false);
 const sharedOverlay = selection(['js/shared/mobile-media-grid-overlay.js']);
 assert.equal(sharedOverlay.policy,'impact-v1');assert.equal(sharedOverlay.homepage,true);assert.equal(sharedOverlay.auth,true,'Standalone shared overlay changes retain their ordinary impact');

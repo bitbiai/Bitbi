@@ -192,6 +192,7 @@ const ADMIN_READER_VALIDATION = new Set([
 // Member storage/card domain: real route security + durable queue tests and the
 // shared card/picker browser path. Unknown inputs still use ordinary impact.
 const MEMBER_ASSET_PRODUCTION = new Set([
+  'account/assets-manager.html', 'de/account/assets-manager.html',
   'css/account/assets-manager.css', 'js/shared/saved-assets-browser.js',
   'workers/auth/src/lib/asset-names.js', 'workers/auth/src/lib/ai-text-assets.js',
   'workers/auth/src/lib/member-generation-jobs.js',
@@ -202,6 +203,7 @@ const MEMBER_ASSET_VALIDATION = new Set([
   'js/shared/mobile-media-grid-overlay.js', // existing detail export consumed by shared audio cards
 
   'playwright.assets.config.js', 'tests/assets-manager-focused.spec.js',
+  'tests/auth-admin.spec.js', 'tests/locale.spec.js', // existing targeted Assets neighbors in this domain
   'tests/member-generation.cases.js', 'tests/member-generation-runtime.mjs',
   'tests/helpers/member-generation-control.mjs', 'tests/helpers/auth-worker-harness.js', 'scripts/lib/release-plan.mjs',
   'scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs',
