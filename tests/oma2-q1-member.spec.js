@@ -62,6 +62,8 @@ async function fixture(page, { loggedIn = true } = {}) {
       const result = state.onMemberDashboard ? await state.onMemberDashboard(state.memberDashboardRequests) : null;
       return json(route, result?.body || { dashboard: memberDashboard() }, result?.status || 200);
     }
+    // The P03/P08 controls below intentionally exercise the still-supported HTTP-200
+    // explicit-save fallback. Durable 202/job completion is covered separately below.
     if (path === '/api/ai/generate-image') {
       const body = route.request().postDataJSON();
       state.generates.push(body);
@@ -591,28 +593,67 @@ for (const language of ['en', 'de']) {
   });
 }
 
-test('durable generation: a lost acceptance response survives reload with only an opaque intent',async({page})=>{
-  await fixture(page);
-  const keys=[];let complete=false;
-  const id='c'.repeat(32);
-  await page.route('**/api/ai/generate-video',async route=>{
-    keys.push(route.request().headers()['idempotency-key']);
-    if(!complete)return route.abort('connectionreset');
-    return json(route,{ok:true,data:{job:{id,status:'queued'}}},202);
+for (const kind of ['image', 'music', 'video']) {
+  test(`durable generation ${kind}: a lost acceptance response survives reload with only an opaque intent`, async ({ page }) => {
+    const state = await fixture(page);
+    const requests = [];
+    let complete = false;
+    const id = 'c'.repeat(32);
+    const laterId = 'b'.repeat(32);
+    const status = kind === 'video' ? 'preview_pending' : 'succeeded';
+    await page.route(`**/api/ai/generate-${kind}`, async route => {
+      requests.push({
+        key: route.request().headers()['idempotency-key'],
+        prefer: route.request().headers().prefer,
+        body: route.request().postDataJSON(),
+      });
+      if (!complete) return route.abort('connectionreset');
+      return json(route, { ok: true, data: { job: { id: requests.length === 3 ? laterId : id, status: 'queued' } } }, 202);
+    });
+    for (const jobId of [id, laterId]) {
+      const file = '/api/ai/text-assets/' + jobId + '/file';
+      const media = kind === 'image'
+        ? { imageBase64: state.images[0].split(',')[1], mimeType: 'image/png' }
+        : kind === 'music' ? { audioUrl: file } : { videoUrl: file };
+      await page.route(`**/api/ai/generation-jobs/${jobId}`, route => json(route, {
+        ok: true, data: { job: { id: jobId, status }, result: { ok: true, data: { ...media, asset: { id: jobId } } } },
+      }));
+    }
+    await page.goto('/');
+    const invoke = () => page.evaluate(async (kind) => {
+      const api = await import('/js/shared/auth-api.js');
+      const generate = { image: api.apiAiGenerateImage, music: api.apiAiGenerateMusic, video: api.apiAiGenerateVideo }[kind];
+      return generate({ prompt: 'Private synthetic prompt' }, {
+        durable: true, headers: { 'Idempotency-Key': 'legacy-caller-key' },
+      });
+    }, kind);
+    expect((await invoke()).ok).toBe(false);
+    const stored = await page.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([key]) => key.startsWith('bitbi-generation:'))));
+    expect(Object.keys(stored)).toHaveLength(1);
+    expect(Object.keys(stored)[0]).toMatch(/^bitbi-generation:[0-9a-f]{64}$/);
+    expect(JSON.stringify(stored)).not.toContain('Private synthetic prompt');
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ prefer: 'respond-async', body: { prompt: 'Private synthetic prompt' } });
+    expect(requests[0].key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(Object.values(stored)).toEqual([requests[0].key]);
+    complete = true;
+    await page.reload();
+    const result = await invoke();
+    expect(result.ok).toBe(true);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toEqual(requests[0]);
+    expect(result.data.data.generationJob).toMatchObject({ id, status });
+    expect(result.data.data.asset.id).toBe(id);
+    expect(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('bitbi-generation:')))).toEqual([]);
+    // Completion retires the intent; a later intentional generation is a new job.
+    const later = await invoke();
+    expect(later.ok).toBe(true);
+    expect(later.data.data.generationJob.id).toBe(laterId);
+    expect(requests).toHaveLength(3);
+    expect(requests[2].key).not.toBe(requests[0].key);
+    expect(requests[2].body).toEqual(requests[0].body);
   });
-  await page.route(`**/api/ai/generation-jobs/${id}`,route=>json(route,{ok:true,data:{job:{id,status:'preview_pending'},result:{ok:true,data:{videoUrl:'/api/ai/text-assets/'+id+'/file',asset:{id}}}}}));
-  await page.goto('/');
-  const invoke=()=>page.evaluate(async()=>{
-    const {apiAiGenerateVideo}=await import('/js/shared/auth-api.js');
-    return apiAiGenerateVideo({prompt:'Private synthetic prompt'},{durable:true});
-  });
-  expect((await invoke()).ok).toBe(false);
-  const stored=await page.evaluate(()=>Object.fromEntries(Object.entries(localStorage).filter(([key])=>key.startsWith('bitbi-generation:'))));
-  expect(Object.keys(stored)).toHaveLength(1);expect(JSON.stringify(stored)).not.toContain('Private synthetic prompt');
-  complete=true;await page.reload();
-  const result=await invoke();expect(result.ok).toBe(true);expect(keys).toHaveLength(2);expect(keys[1]).toBe(keys[0]);
-  expect(result.data.data.generationJob.status).toBe('preview_pending');
-});
+}
 
 test('durable generation: explicit preview retry never submits new generation',async({page})=>{
   await fixture(page);let retried=false;const writes=[];

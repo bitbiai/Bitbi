@@ -11239,6 +11239,15 @@ test.describe('Assets Manager (authenticated)', () => {
     page,
   }) => {
     const musicRequests = [];
+    const jobId = 'e'.repeat(32);
+    let completedResult;
+    let jobReads = 0;
+    const browserAssetWrites = [];
+    page.on('request', (request) => {
+      if (request.method() !== 'GET' && /\/api\/ai\/(text-assets|images\/save)/.test(request.url())) {
+        browserAssetWrites.push(new URL(request.url()).pathname);
+      }
+    });
     const assetStore = createSavedAssetsStore({ folders: [], counts: {}, unfolderedCount: 0 }, {
       all: [],
       unfoldered: [],
@@ -11250,9 +11259,10 @@ test.describe('Assets Manager (authenticated)', () => {
       musicRequests.push({
         body,
         idempotencyKey: route.request().headers()['idempotency-key'],
+        prefer: route.request().headers().prefer,
       });
       const savedAsset = {
-        id: 'soundlab-track-1',
+        id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
         asset_type: 'sound',
         folder_id: null,
         title: 'Homepage Sound Lab Track',
@@ -11262,43 +11272,58 @@ test.describe('Assets Manager (authenticated)', () => {
         size_bytes: 4096,
         preview_text: body.prompt,
         created_at: '2026-04-10T12:09:00.000Z',
-        file_url: '/api/ai/text-assets/soundlab-track-1/file',
+        file_url: '/api/ai/text-assets/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/file',
       };
       assetStore.addAsset(savedAsset);
+      // Deliberately lag the list projection of the cover: this UI compatibility
+      // control is not evidence for server-side cover processing.
       setTimeout(() => {
         assetStore.addAsset({
           ...savedAsset,
-          poster_url: '/api/ai/text-assets/soundlab-track-1/poster',
+          poster_url: '/api/ai/text-assets/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/poster',
           poster_width: 320,
           poster_height: 320,
         });
       }, 250);
+      completedResult = {
+        ok: true,
+        data: {
+          prompt: body.prompt,
+          mode: body.instrumental ? 'instrumental' : 'vocals',
+          lyricsMode: body.generateLyrics ? 'custom' : 'auto',
+          model: { id: 'minimax/music-2.6', label: 'Music 2.6', vendor: 'MiniMax' },
+          mimeType: 'audio/mpeg',
+          audioUrl: '/api/ai/text-assets/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/file',
+          lyricsPreview: body.generateLyrics ? '[Verse]\nGenerated lyrics' : null,
+          asset: {
+            id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+            title: 'Homepage Sound Lab Track',
+            source_module: 'music',
+            mime_type: 'audio/mpeg',
+            file_url: '/api/ai/text-assets/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/file',
+          },
+        },
+        billing: {
+          credits_charged: body.generateLyrics ? 160 : 150,
+          balance_after: body.generateLyrics ? 840 : 850,
+        },
+      };
+      await route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { job: { id: jobId, status: 'queued' } } }),
+      });
+    });
+    await page.route(`**/api/ai/generation-jobs/${jobId}`, async (route) => {
+      expect(route.request().method()).toBe('GET');
+      expect(completedResult).toBeDefined();
+      jobReads += 1;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          ok: true,
-          data: {
-            prompt: body.prompt,
-            mode: body.instrumental ? 'instrumental' : 'vocals',
-            lyricsMode: body.generateLyrics ? 'custom' : 'auto',
-            model: { id: 'minimax/music-2.6', label: 'Music 2.6', vendor: 'MiniMax' },
-            mimeType: 'audio/mpeg',
-            audioUrl: '/api/ai/text-assets/soundlab-track-1/file',
-            lyricsPreview: body.generateLyrics ? '[Verse]\nGenerated lyrics' : null,
-            asset: {
-              id: 'soundlab-track-1',
-              title: 'Homepage Sound Lab Track',
-              source_module: 'music',
-              mime_type: 'audio/mpeg',
-              file_url: '/api/ai/text-assets/soundlab-track-1/file',
-            },
-          },
-          billing: {
-            credits_charged: body.generateLyrics ? 160 : 150,
-            balance_after: body.generateLyrics ? 840 : 850,
-          },
-        }),
+        body: JSON.stringify({ ok: true, data: {
+          job: { id: jobId, status: 'succeeded' }, result: completedResult,
+        } }),
       });
     });
 
@@ -11355,15 +11380,18 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#soundMusicPreview .sound-create__cover img')).toHaveCount(0);
     await expect(page.locator('#soundMusicPreview .sound-create__cover-play')).toBeVisible();
     await expect(page.locator('#soundMusicPreview .sound-create__cover img'))
-      .toHaveAttribute('src', '/api/ai/text-assets/soundlab-track-1/poster');
+      .toHaveAttribute('src', '/api/ai/text-assets/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/poster');
     await expect(page.locator('#soundMusicPreview .sound-create__cover'))
       .toHaveAttribute('data-cover-state', 'ready');
     await expect(page.locator('#soundMusicPreview .sound-create__cover-play')).toBeVisible();
     await expect(page.locator('#soundMusicMsg')).toContainText('Music generated and saved.');
     await expect(page.locator('#soundLabCreate .studio__quota')).toContainText('850 credits available');
 
+    expect(jobReads).toBe(1);
+    expect(browserAssetWrites).toEqual([]);
     expect(musicRequests).toHaveLength(1);
-    expect(musicRequests[0].idempotencyKey).toMatch(/^soundlab-music-/);
+    expect(musicRequests[0].prefer).toBe('respond-async');
+    expect(musicRequests[0].idempotencyKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(musicRequests[0].body).toEqual(expect.objectContaining({
       prompt: 'A glossy synth pop track for late night coding.',
       instrumental: false,
@@ -11413,43 +11441,66 @@ test.describe('Assets Manager (authenticated)', () => {
 
   test('homepage Video Create exposes PixVerse V6 with dynamic credit estimates', async ({ page }) => {
     const videoRequests = [];
+    const jobId = 'f'.repeat(32);
+    let completedResult;
+    let jobReads = 0;
+    const browserAssetWrites = [];
+    page.on('request', (request) => {
+      if (request.method() !== 'GET' && /\/api\/ai\/(text-assets|images\/save)/.test(request.url())) {
+        browserAssetWrites.push(new URL(request.url()).pathname);
+      }
+    });
     await mockAuthenticatedAssetsManager(page, [], { creditBalance: 1200 });
     await page.route('**/api/ai/generate-video', async (route) => {
       const body = route.request().postDataJSON();
       videoRequests.push({
         body,
         idempotencyKey: route.request().headers()['idempotency-key'],
+        prefer: route.request().headers().prefer,
       });
+      completedResult = {
+        ok: true,
+        data: {
+          prompt: body.prompt,
+          model: { id: 'pixverse/v6', label: 'PixVerse V6', vendor: 'PixVerse' },
+          duration: body.duration,
+          aspect_ratio: body.aspect_ratio,
+          quality: body.quality,
+          generate_audio: body.generate_audio,
+          mimeType: 'video/mp4',
+          videoUrl: '/api/ai/text-assets/ffffffffffffffffffffffffffffffff/file',
+          asset: {
+            id: 'ffffffffffffffffffffffffffffffff',
+            title: 'Homepage PixVerse Video',
+            source_module: 'video',
+            mime_type: 'video/mp4',
+            file_url: '/api/ai/text-assets/ffffffffffffffffffffffffffffffff/file',
+          },
+        },
+        billing: {
+          credits_charged: body.generate_audio ? 708 : 555,
+          balance_after: 292,
+        },
+      };
+      await route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { job: { id: jobId, status: 'queued' } } }),
+      });
+    });
+    await page.route(`**/api/ai/generation-jobs/${jobId}`, async (route) => {
+      expect(route.request().method()).toBe('GET');
+      expect(completedResult).toBeDefined();
+      jobReads += 1;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          ok: true,
-          data: {
-            prompt: body.prompt,
-            model: { id: 'pixverse/v6', label: 'PixVerse V6', vendor: 'PixVerse' },
-            duration: body.duration,
-            aspect_ratio: body.aspect_ratio,
-            quality: body.quality,
-            generate_audio: body.generate_audio,
-            mimeType: 'video/mp4',
-            videoUrl: '/api/ai/text-assets/abc12001/file',
-            asset: {
-              id: 'abc12001',
-              title: 'Homepage PixVerse Video',
-              source_module: 'video',
-              mime_type: 'video/mp4',
-              file_url: '/api/ai/text-assets/abc12001/file',
-            },
-          },
-          billing: {
-            credits_charged: body.generate_audio ? 708 : 555,
-            balance_after: 292,
-          },
-        }),
+        body: JSON.stringify({ ok: true, data: {
+          job: { id: jobId, status: 'preview_pending' }, result: completedResult,
+        } }),
       });
     });
-    await page.route('**/api/ai/text-assets/abc12001/file', async (route) => {
+    await page.route('**/api/ai/text-assets/ffffffffffffffffffffffffffffffff/file', async (route) => {
       await fulfillTestMp4(route);
     });
 
@@ -11532,10 +11583,11 @@ test.describe('Assets Manager (authenticated)', () => {
     const videoPreview = page.locator('#videoPreview');
     const generatedVideo = page.locator('#videoPreview video.video-create__player');
     await expect(generatedVideo).toBeVisible();
-    await expect(generatedVideo).toHaveAttribute('src', '/api/ai/text-assets/abc12001/file');
+    await expect(generatedVideo).toHaveAttribute('src', '/api/ai/text-assets/ffffffffffffffffffffffffffffffff/file');
     await expect(videoPreview).toBeInViewport();
     await expect(videoPreview).toBeFocused();
     await expect(page.locator('#videoMsg')).toContainText('Video generated and saved.');
+    await expect(page.locator('#videoCreditBalance')).toContainText('292 credits available');
     const mobilePlayerLayout = await generatedVideo.evaluate((node) => {
       const rect = node.getBoundingClientRect();
       const style = window.getComputedStyle(node);
@@ -11558,8 +11610,11 @@ test.describe('Assets Manager (authenticated)', () => {
     expect(mobilePlayerLayout.playsInline).toBe(true);
     expect(mobilePlayerLayout.playsInlineAttr).not.toBeNull();
 
+    expect(jobReads).toBe(1);
+    expect(browserAssetWrites).toEqual([]);
     expect(videoRequests).toHaveLength(1);
-    expect(videoRequests[0].idempotencyKey).toMatch(/^video-pixverse-/);
+    expect(videoRequests[0].prefer).toBe('respond-async');
+    expect(videoRequests[0].idempotencyKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(videoRequests[0].body).toEqual(expect.objectContaining({
       prompt: 'A dramatic product reveal in a luminous glass studio.',
       duration: 10,

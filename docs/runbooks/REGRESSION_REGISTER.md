@@ -60,6 +60,20 @@ real callers required without making unchanged decorative decoder suites gates.
 Local native evidence is not a Linux-CI or paid-provider/live acceptance. Unknown
 provider outcomes without a retained receipt remain review cases, not retry permission.
 
+Run34703893895 passed Worker/native Linux acceptance but two member UI cases
+still required legacy caller prefixes. Member opt-in deliberately uses a stored
+UUID plus `Prefer: respond-async`. The Sound Lab/PixVerse cases now exercise
+202 acceptance -> job result, retain payload/credit/asset checks and reject
+browser asset/poster writes. The existing lost-response control covers image,
+music and video: unchanged opaque UUID/body after reload, overriding caller
+headers, then a fresh intent after completed delivery. Caller: `test:auth`
+(`auth-admin.spec.js` and `oma2-q1-member.spec.js`); a focused `--grep 'durable
+generation|homepage Sound Lab Create opens|homepage Video Create exposes'`
+selects these cases. Earlier HTTP-200/explicit-save fixtures remain deliberate
+compatibility tests, not durable completion proofs. Shared API calls without
+opt-in, profile/avatar and Admin generation were not converted and retain their
+original contracts. UI mocks do not replace the accepted native backend proof.
+
 Run34700787400 exposed a stale Fable latest-checkpoint assertion and a MockD1
 anti-join/parser gap (including shifted folder bindings in mixed asset lists).
 Fable now checks its required migration remains included; the actual asset-read
