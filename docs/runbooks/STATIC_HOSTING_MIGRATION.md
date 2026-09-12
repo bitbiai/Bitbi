@@ -1,8 +1,10 @@
 # Static hosting migration — authorized cutover candidate, 12 September 2026
 
-**Not yet activated in production.** This reviewed cutover candidate selects
-`cloudflare`; production continues serving the verified Pages origin until the
-protected cutover and active-version checks actually complete.
+**Cloudflare cutover completed:** protected publication run `34687037546`
+published `0ad3d6e3f1c93f060ade021ec019aab858461454`; deployment
+`7253fa70-ae35-40b1-b6ce-f407c44d1d15`, version
+`4d9a9a2d-b67b-4414-a624-62aeeef5dd0e` at 100%. The durable receipt and
+Cloudflare readback establish the baseline; Pages remains a fenced recovery origin.
 Read-only deployment resolution identified main and the published Pages SHA
 `d6b53c85f433c94b3c41a641a92e4dd859d2cde4`, deployment `6364415557`.
 This is the bootstrap receipt, not a permanent baseline. Refresh it against the
@@ -328,3 +330,29 @@ and computed CANDIDATE_FULL, then `npm run test:frontend-hosting` before artifac
 upload. Full regression invokes `npm run test:frontend-hosting -- --standalone`.
 Existing selected native Worker isolation and Linux/macOS browser jobs remain
 separate required evidence. This local macOS review does not attest that Linux run.
+
+## Frontend stored logs
+
+`frontend/wrangler.jsonc` versions persisted Cloudflare Workers Logs with 10%
+head sampling (`0.1`), no traces and no external destination. Invocation logs
+stay disabled: password reset links use `/account/reset-password.html?token=…`
+(`workers/auth/src/routes/password.js`), and arbitrary URL parameters cannot be
+assumed safe. `redact_query_string: true` also protects platform URL metadata;
+no custom log includes a URL, cookies, authorization, body or exception text.
+The frontend emits only `frontend_not_found` (warning),
+`frontend_asset_response_error` or `frontend_asset_fetch_failed` (error).
+Successful requests are silent; asset-first resources do not always invoke this
+entry. Caught asset failures return a generic non-cacheable 500. Sampling can
+omit any individual error; these logs are not a complete request/access audit.
+
+The candidate generator preserves and validates this exact configuration.
+`npm run test:frontend-hosting` exercises fixed-payload/privacy countercases,
+preview/production materialization, real local emission and the upload dry-run.
+After the protected publication, read active script settings and query stored
+logs for this worker/version. Use a bounded set of harmless missing-document
+GETs (no real tokens or credentials) if no natural errors exist; verify persisted
+rows and absence of invocation/request secrets rather than claiming success
+from `wrangler tail`. No forced production 500 or new diagnostic endpoint.
+A sampled test with no stored rows is missing evidence, not a logging pass.
+See [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)
+and the pinned Wrangler observability schema for storage/sampling semantics.

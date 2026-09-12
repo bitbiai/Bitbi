@@ -36,7 +36,10 @@ export function prepareFrontend(manifest, tree) {
   assertPublicAssets(manifest.files, 'candidate/site');
   const config = readJson('frontend/wrangler.jsonc');
   assert.equal(config.name, policy.worker); assert.equal(config.no_bundle, true);
-  assert.deepEqual(Object.keys(config).sort(), ['$schema','name','main','compatibility_date','no_bundle','workers_dev','preview_urls','assets'].sort(), 'Unexpected binding/route/config');
+  assert.deepEqual(Object.keys(config).sort(), ['$schema','name','main','compatibility_date','no_bundle','workers_dev','preview_urls','assets','observability'].sort(), 'Unexpected binding/route/config');
+  assert.deepEqual(config.observability, {enabled:true,head_sampling_rate:0.1,redact_query_string:true,
+    logs:{enabled:true,head_sampling_rate:0.1,invocation_logs:false,persist:true},
+    traces:{enabled:false,persist:false}}, 'Frontend logging privacy/sampling contract changed');
   assert.equal(config.workers_dev,false); assert.equal(config.preview_urls,false);
   assert.equal(config.assets.html_handling,'none'); assert.equal(config.assets.not_found_handling,'none');
   assert.deepEqual(config.assets.run_worker_first,['/*','!/assets/*','!/css/*','!/js/*','!/fonts/*']);

@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {tree,gitSelection,requiredJobs,proofJobs,MEDIA_POLICY} from './pages-candidate.mjs';
-import {prepareFrontend,hash,hostingPolicy} from './lib/frontend-hosting.mjs';
+import {prepareFrontend,hash,hostingPolicy,materializeFrontendConfig} from './lib/frontend-hosting.mjs';
 import {durableBaseline,loadDurableReceipt,activateRecovery,persistDurableReceipt,RECEIPT_TASK} from './lib/frontend-receipts.mjs';
 import {yaml} from '../node_modules/playwright-core/lib/utilsBundle.js';
 import vm from 'node:vm';
@@ -24,7 +24,19 @@ try {
  const sha=git(['rev-parse','HEAD']);process.chdir(fixture);
  fs.mkdirSync('candidate/site',{recursive:true});fs.writeFileSync('candidate/site/index.html','<h1>Synthetic static bytes</h1>');
  const selection=gitSelection(sha,sha),manifest={schema:2,repository:'bitbiai/Bitbi',sha,base:sha,run:'101',attempt:'1',selection,full:selection.full,mediaPolicy:MEDIA_POLICY,files:tree('candidate/site')};
- prepareFrontend(manifest,tree);fs.writeFileSync('candidate/manifest.json',JSON.stringify(manifest));
+ prepareFrontend(manifest,tree);
+ const observability=JSON.parse(fs.readFileSync('frontend/wrangler.jsonc')).observability;
+ for(const preview of [false,true]) {
+  const config=JSON.parse(fs.readFileSync(materializeFrontendConfig('.local/logging-config',{preview})));
+  assert.deepEqual(config.observability,observability,'Materialized logging policy changed');
+ }
+ const configPath='frontend/wrangler.jsonc',originalConfig=fs.readFileSync(configPath);
+ for(const change of [c=>delete c.observability,c=>c.observability.logs.invocation_logs=true,c=>c.observability.logs.persist=false,c=>c.observability.logs.head_sampling_rate=1,c=>c.observability.redact_query_string=false,c=>c.observability.traces.enabled=true,c=>c.observability.logs.destinations=['external']]) {
+  const c=JSON.parse(originalConfig);change(c);fs.writeFileSync(configPath,JSON.stringify(c));
+  try {assert.throws(()=>prepareFrontend(structuredClone(manifest),tree),/logging privacy|Unexpected binding\/route\/config/);}finally{fs.writeFileSync(configPath,originalConfig);}
+ }
+ record('logging config preserved for preview/production; unsafe sampling/privacy changes rejected');
+ fs.writeFileSync('candidate/manifest.json',JSON.stringify(manifest));
  for(const job of [...proofJobs(selection),'frontend-runtime'])fs.writeFileSync(`candidate/proof-${job}.json`,JSON.stringify({job,status:'passed',manifestHash:hash(JSON.stringify(manifest)),tests:1,reportHash:'synthetic-not-native'}));
  const candidateBackup=path.join(temp,'original');fs.cpSync('candidate',candidateBackup,{recursive:true});
  const jobs=Object.entries(requiredJobs(selection)).map(([name,steps])=>({name,head_sha:sha,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));

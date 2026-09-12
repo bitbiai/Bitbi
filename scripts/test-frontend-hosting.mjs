@@ -10,6 +10,32 @@ import { tree } from './pages-candidate.mjs';
 import worker from '../frontend/index.mjs';
 import { publishFrontend } from './frontend-release.mjs';
 
+// Log payloads have a closed vocabulary, even for malicious URLs/headers/errors.
+const loggingResults=[], originals={warn:console.warn,error:console.error};
+const captured=[]; console.warn=(...args)=>captured.push(['warn',...args]);console.error=(...args)=>captured.push(['error',...args]);
+try {
+ const request=new Request('https://bitbi.ai/account/reset-password.html?token=SYNTHETIC_SECRET', {
+   headers:{Cookie:'session=SYNTHETIC_COOKIE',Authorization:'Bearer SYNTHETIC_AUTH'}});
+ for(const [name,fetch,status,expectedLogs] of [
+  ['successful request',async()=>new Response('ok'),200,[]],
+  ['missing document',async()=>new Response(null,{status:404}),404,[['warn','frontend_not_found']]],
+  ['asset error response',async()=>new Response('SYNTHETIC_BODY',{status:503}),503,[['error','frontend_asset_response_error']]],
+  ['asset exception',async()=>{throw Error('SYNTHETIC_SECRET '+request.url);},500,[['error','frontend_asset_fetch_failed']]],
+ ]) {
+  captured.length=0;const response=await worker.fetch(request,{ASSETS:{fetch}});
+  assert.equal(response.status,status);assert.deepEqual(captured,expectedLogs,name);
+  if(status===500)assert.equal(await response.text(),'Internal server error');
+  loggingResults.push({name,passed:true,logs:structuredClone(captured)});
+ }
+ captured.length=0;
+ const head=await worker.fetch(new Request(request,{method:'HEAD'}),{ASSETS:{fetch:async()=>{throw 'SYNTHETIC_SECRET';}}});
+ assert.equal(head.status,500);assert.equal(await head.text(),'');assert.deepEqual(captured,[['error','frontend_asset_fetch_failed']]);
+ captured.length=0;
+ await worker.fetch(new Request('https://bitbi.ai/private/SYNTHETIC_PATH?code=SYNTHETIC_CODE',{method:'POST',body:'SYNTHETIC_BODY'}),{});
+ assert.deepEqual(captured,[],'Rejected method must not read or log request body');
+} finally {Object.assign(console,originals);}
+fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/frontend-logging.json',JSON.stringify({scope:'local emitted payloads, not Cloudflare persisted metadata',passed:true,checks:loggingResults},null,2));
+
 const expected={sha:'a'.repeat(40),run:'123',attempt:'1',packageDigest:'b'.repeat(64),worker:'bitbi-frontend',account:'c'.repeat(32)};
 const receipt={...expected,provider:'cloudflare',target:'production',deploymentId:'deployment-1',versionId:'version-1'};
 const deployment={id:'deployment-1',versions:[{version_id:'version-1',percentage:100}]};
@@ -92,6 +118,7 @@ try {
  for(const url of ['/','/pricing.html?q=1','/api/me']) {
    const r=await get(url);assert.equal(r.status,301,'www canonical '+url);assert.equal(r.headers.get('location'),'https://bitbi.ai'+url);
  }
+ assert(log.includes('frontend_not_found'),'Real local Worker did not emit the safe missing-document code');
  verifyFrontend(manifest,tree);assert.deepEqual(tree('candidate/site'),manifest.files);
  fs.writeFileSync('candidate/proof-frontend-runtime.json',JSON.stringify({job:'frontend-runtime',status:'passed',manifestHash:hash(JSON.stringify(manifest)),reportHash:hash(JSON.stringify({tests,log})),tests}));
  console.log(`Local Wrangler Static Assets: ${tests} routing/byte/header checks passed; dry-run passed; no upload.`);

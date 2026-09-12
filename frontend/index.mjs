@@ -2,6 +2,23 @@
 // explicit URLs and the existing browser preference logic retain ownership.
 export default {
   async fetch(request, env) {
+    try {
+      const response = await serve(request, env);
+      // Fixed codes only: never include URLs, headers, bodies or error objects.
+      // Cloudflare performs the configured 10% sampling, not another random gate.
+      if (response.status >= 500) console.error('frontend_asset_response_error');
+      else if (response.status === 404) console.warn('frontend_not_found');
+      return response;
+    } catch {
+      console.error('frontend_asset_fetch_failed');
+      return new Response(request.method === 'HEAD' ? null : 'Internal server error', {
+        status: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
+    }
+  },
+};
+
+async function serve(request, env) {
     const url = new URL(request.url);
     if (url.hostname === 'www.bitbi.ai') {
       url.hostname = 'bitbi.ai'; url.protocol = 'https:'; url.port = '';
@@ -33,5 +50,4 @@ export default {
     return new Response(request.method === 'HEAD' ? null : 'Not found', {
       status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
     });
-  },
-};
+}
