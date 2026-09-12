@@ -1175,6 +1175,7 @@ class MockD1 {
       aiTextAssets: [],
       userAssetStorageUsage: [],
       aiVideoJobs: [],
+      memberGenerationJobs: [],
       aiVideoJobPoisonMessages: [],
       aiGenerationLog: [],
       aiDailyQuotaUsage: [],
@@ -11799,6 +11800,16 @@ class MockD1 {
         expires_at,
       }));
       return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === 'SELECT id,media_type,status,input_r2_key,result_r2_key,provider_receipts_json,created_at,error_code FROM member_generation_jobs WHERE user_id=? ORDER BY created_at DESC') {
+      return {results:this.state.memberGenerationJobs.filter(row=>row.user_id===bindings[0])
+        .slice().sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).map(row=>({...row}))};
+    }
+    if (query === 'SELECT id FROM member_generation_unready_assets WHERE id=?') {
+      const job=this.state.memberGenerationJobs.find(row=>row.id===bindings[0]);
+      const attempt=job && this.state.memberAiUsageAttempts.find(row=>row.id===job.usage_attempt_id);
+      return attempt && attempt.billing_status!=='finalized' ? {id:job.id} : null;
     }
 
     if (query === 'SELECT id, scope, status, provider, model, prompt, output_r2_key, poster_r2_key, created_at, completed_at, error_code FROM ai_video_jobs WHERE user_id = ? ORDER BY created_at DESC') {

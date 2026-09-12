@@ -148,7 +148,7 @@ function captureVideoPosterBase64(video) {
 
 function attachVideoPosterAfterFrame(data, video) {
     const assetId = data?.asset?.id;
-    if (!assetId || data?.posterUrl || data?.asset?.poster_url || !video) return;
+    if (!assetId || data?.generationJob || data?.posterUrl || data?.asset?.poster_url || !video) return;
 
     let attempted = false;
     const attemptAttach = async () => {
@@ -489,6 +489,8 @@ async function handleGenerate() {
     let res;
     try {
         res = await apiAiGenerateVideo(payload, {
+            durable: true,
+            onAccepted:()=>showMsg($msg,localeText('generation.accepted'),'info'),
             headers: { 'Idempotency-Key': createIdempotencyKey() },
         });
     } catch (error) {
@@ -505,7 +507,7 @@ async function handleGenerate() {
     if (!res.ok) {
         renderPreviewEmpty(localeText('studio.videoGenerationFailed'));
         scrollPreviewIntoViewOnMobile({ focus: true });
-        showMsg($msg, res.error || localeText('studio.generationFailed'), 'error');
+        showMsg($msg, res.error || localeText('studio.generationFailed'), res.pending ? 'info' : 'error');
         if (res.code === 'insufficient_member_credits' && creditBalance !== null) {
             renderQuota();
         }

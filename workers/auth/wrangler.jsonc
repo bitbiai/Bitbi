@@ -50,7 +50,7 @@
 		]
 	},
 	"triggers": {
-		"crons": ["0 3 * * *", "*/30 * * * *"]
+		"crons": ["0 3 * * *", "*/30 * * * *", "*/5 * * * *"]
 	},
 	"observability": {
 		"logs": {
@@ -91,7 +91,7 @@
 			},
 			{
 				"queue": "bitbi-ai-video-jobs",
-				"max_batch_size": 3,
+				"max_batch_size": 1,
 				"max_batch_timeout": 5,
 				"max_retries": 4
 			}

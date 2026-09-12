@@ -2,6 +2,7 @@
    BITBI — Auth API: pure fetch wrappers for auth endpoints
    ============================================================ */
 
+import { runMemberGeneration } from './member-generation-client.js?v=__ASSET_VERSION__';
 import { BITBI_GENERATION_TIMEOUT_MS } from './generation-timeout.mjs?v=__ASSET_VERSION__';
 
 const BASE = '/api';
@@ -1868,7 +1869,7 @@ export function apiAiGenerateImage(promptOrPayload, steps, seed, model, options 
         const requestOptions = steps && typeof steps === 'object' && !Array.isArray(steps)
             ? steps
             : options;
-        return request('POST', '/ai/generate-image', promptOrPayload, withGenerationRequestTimeout(withImageGenerationIdempotency(requestOptions)));
+        return runMemberGeneration(request,'image',promptOrPayload,withGenerationRequestTimeout(withImageGenerationIdempotency(requestOptions)));
     }
 
     const prompt = promptOrPayload;
@@ -1876,22 +1877,24 @@ export function apiAiGenerateImage(promptOrPayload, steps, seed, model, options 
     if (steps != null) body.steps = steps;
     if (seed != null) body.seed = seed;
     if (model) body.model = model;
-    return request('POST', '/ai/generate-image', body, withGenerationRequestTimeout(withImageGenerationIdempotency(options)));
+    return runMemberGeneration(request,'image',body,withGenerationRequestTimeout(withImageGenerationIdempotency(options)));
 }
 
 export function apiAiGenerateMusic(payload, options = {}) {
-    return request('POST', '/ai/generate-music', payload, withGenerationRequestTimeout(options)).then((res) => {
+    return runMemberGeneration(request,'music',payload,withGenerationRequestTimeout(options)).then((res) => {
         if (res.ok) notifyAssetStorageChanged();
         return res;
     });
 }
 
 export function apiAiGenerateVideo(payload, options = {}) {
-    return request('POST', '/ai/generate-video', payload, withGenerationRequestTimeout(options)).then((res) => {
+    return runMemberGeneration(request,'video',payload,withGenerationRequestTimeout(options)).then((res) => {
         if (res.ok) notifyAssetStorageChanged();
         return res;
     });
 }
+
+export function apiAiGetGenerationJobs(options = {}) { return request('GET','/ai/generation-jobs',undefined,options); }
 
 export async function apiAiGetFolders() {
     const res = await request('GET', '/ai/folders');
@@ -2154,3 +2157,5 @@ export function apiValidateResetToken(token) {
 export function apiResetPassword(token, password) {
     return request('POST', '/reset-password', { token, password });
 }
+
+export function apiAiRetryGenerationPreview(id,options={}) {return request("POST",`/ai/generation-jobs/${encodeURIComponent(id)}/retry-preview`,{},options);}

@@ -1,3 +1,6 @@
+import { retryMemberVideoPoster } from '../lib/member-generation-posters.js';
+import { json } from '../lib/response.js';
+import { readMemberGenerationJobs } from "../lib/member-generation-jobs.js";
 import { handleQuota } from "./ai/quota.js";
 import { handleGetFolders } from "./ai/folders-read.js";
 import { handleGetAssets, handleGetImages } from "./ai/assets-read.js";
@@ -33,6 +36,16 @@ import { handleBulkDelete, handleBulkMove } from "./ai/bulk-images.js";
 // ── Main dispatcher ──
 export async function handleAI(ctx) {
   const { pathname, method } = ctx;
+  const assetTarget = pathname.match(/^\/api\/ai\/(?:images|text-assets)\/([a-f0-9]{32})(?:\/(?:file|thumb|medium|poster|publication))?$/);
+  if (assetTarget && method !== 'DELETE' && await ctx.env.DB.prepare('SELECT id FROM member_generation_unready_assets WHERE id=?').bind(assetTarget[1]).first()) {
+    return json({ok:false,code:'not_found'},{status:404,headers:{'Cache-Control':'no-store'}});
+  }
+  const previewRetry=pathname.match(/^\/api\/ai\/generation-jobs\/([a-f0-9]{32})\/retry-preview$/);
+  // route-policy: ai.generation-preview.retry
+  if(method==='POST' && previewRetry)return retryMemberVideoPoster(ctx,previewRetry[1]);
+  if (method === 'GET' && pathname === '/api/ai/generation-jobs') return readMemberGenerationJobs(ctx);
+  const generationJob = pathname.match(/^\/api\/ai\/generation-jobs\/([a-f0-9]{32})$/);
+  if (method === 'GET' && generationJob) return readMemberGenerationJobs(ctx, generationJob[1]);
 
   if (pathname === "/api/ai/quota" && method === "GET") {
     return handleQuota(ctx);

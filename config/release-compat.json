@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0086_add_fable_memory_source_revision.sql",
+        "latest": "0087_add_member_generation_jobs.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -46,7 +46,7 @@
           "ENABLE_GROK_4_6": "true"
         },
         "triggers": {
-          "crons": ["0 3 * * *"]
+          "crons": ["0 3 * * *", "*/30 * * * *", "*/5 * * * *"]
         },
         "routes": [
           {
@@ -111,7 +111,7 @@
               },
               {
                 "queue": "bitbi-ai-video-jobs",
-                "max_batch_size": 3,
+                "max_batch_size": 1,
                 "max_batch_timeout": 5,
                 "max_retries": 4
               }

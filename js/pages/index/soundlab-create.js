@@ -304,6 +304,8 @@ async function handleGenerate() {
     let res;
     try {
         res = await apiAiGenerateMusic(payload, {
+            durable: true,
+            onAccepted:()=>showMsg($msg,localeText('generation.accepted'),'info'),
             headers: { 'Idempotency-Key': createIdempotencyKey() },
         });
     } catch (error) {
@@ -318,7 +320,7 @@ async function handleGenerate() {
 
     if (!res.ok) {
         renderPreviewEmpty(localeText('studio.musicGenerationFailed'));
-        showMsg($msg, res.error || localeText('studio.generationFailed'), 'error');
+        showMsg($msg, res.error || localeText('studio.generationFailed'), res.pending ? 'info' : 'error');
         if (res.code === 'insufficient_member_credits' && creditBalance !== null) {
             renderQuota();
         }

@@ -197,3 +197,68 @@ The Admin Homepage Hero Videos module shows Stream preview status counts, ready/
 - Manual hero uploads without source posters can be retried from Admin; the retry marks durable pending state for the external ffmpeg source-poster processor instead of requiring browser frame extraction.
 - Memvid Stream preview one-click processing should create or update `memvid_stream_previews` rows idempotently by asset/source fingerprint, upload only short preview clips to Stream, prepare the Cloudflare MP4 download, and store the real ready download URL before public hover autoplay relies on the row.
 - Do not upload full original Memvids to Stream unless a future approved operator decision accepts the storage/delivered-minute impact.
+
+
+## Durable private member generation
+
+Migration `0087_add_member_generation_jobs.sql` adds an owned job/outbox and fenced
+storage checkpoints. Deploy it before the matching Auth consumer and frontend.
+No new Worker, queue, Stream variant, provider or Workflow is introduced. Member
+video/audio remain private R2 assets; Stream continues to serve published Memvid
+previews only. Generate Lab and homepage creation use `Prefer: respond-async` and
+an owner-scoped persistent opaque idempotency intent. `/api/ai/generation-jobs`
+returns the signed-in owner's latest 50 jobs; My Assets reloads them from Auth.
+The legacy synchronous API remains for callers not opting into durable acceptance.
+Admin AI Lab retains its separate queued-video/recovery and explicit-save contract;
+this change does not turn its comparison output into automatically published media.
+
+The existing video queue runs member generation, original-byte ingestion, owned
+asset insertion and the existing credit operation. A five-minute cron repairs
+missed deliveries. The queue consumes one request per batch to keep sequential
+long provider calls within the [15-minute consumer lifetime](https://developers.cloudflare.com/queues/platform/limits/).
+HTTP admission limits apply to browser submission, not trusted continuation;
+owner, credit and storage checks still run on continuation. Provider calls have durable intents and private R2 receipts;
+replays use receipts, cached downloads and the same asset/ledger identity. An
+ambiguous provider acceptance without a receipt is **outcome_unknown**, never
+permission for another paid call. The current member models use synchronous
+provider responses; no universal provider lookup/idempotency guarantee is claimed.
+The existing 30-minute credit reservation policy remains: an undispatched expired
+request fails visibly without generation; late unknown outcomes require the
+existing accounting review. Known successful ingestion/debit checkpoints can be
+resumed without regenerating. Historical requests without a saved provider ID or
+receipt cannot be reconstructed safely; no historical replay is automatic.
+
+A saved video without a poster is `preview_pending`, not fully completed. The
+existing GitHub FFmpeg source-poster processor accepts `member_generation_posters`
+with `member_only=true`. That mode processes no Hero/Stream jobs. It uses the
+existing `MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET` and dispatch settings; it needs
+neither a new secret nor Stream write access. Claims are sent in a header, never
+in logged URLs. Failed posters keep the video and retry only poster processing.
+Generation has eight bounded deliveries; poster claims stop after sixteen total
+attempts and show a reviewable error. The owner can explicitly retry only an exhausted
+preview in My Assets (same-origin, three requests/hour); this cannot resubmit the video or charge credits. A stopped queue, missing processor secret,
+disabled automatic dispatch, or unavailable GitHub runner can delay the preview;
+verify these existing prerequisites before rollout. Do not start a normal Memvid
+processor invocation as a deployment smoke test.
+
+Music's existing bundled cover uses a separate receipt within the same parent
+operation (no second media debit). Images are saved automatically and keep the
+existing derivative queue. Staged assets are unavailable until billing is finalized;
+owner, claim, retirement and ledger fences remain enforced. Job input/result/provider
+receipts are private, retained for recovery and included in the existing data-lifecycle
+inventory. Explicit asset removal stops its associated job rather than recreating it.
+There is no new bulk cleanup or alteration of historical billing records.
+
+Validation entry points: `npm run test:workers` includes `member-generation.cases.js`
+through `workers.spec.js` and the normal isolated native runner; targeted local entry:
+`npx --no-install playwright test -c playwright.workers.config.js tests/workers.spec.js --grep 'durable member generation' --retries=0`.
+`npm run test:auth` includes the EN/DE member UI/client checks; these synthetic browser
+fixtures supplement, and do not replace, real local workerd/D1/R2 completion tests.
+`npm run test:homepage-ffmpeg-processor` covers the existing conversion contract.
+
+Release order: selected CI → compatible processor ref → exact 0087 migration →
+matching Auth bundle/queue and cron verification → tested frontend artifact through
+the existing protected Cloudflare release. The frontend workflow does not deploy
+Auth. Keep the accepted-job consumer available during rollback; reverting to a
+pre-0087 consumer while new jobs exist is not a compatible recovery. No live paid
+generation or migration has been performed as part of local regression tests.

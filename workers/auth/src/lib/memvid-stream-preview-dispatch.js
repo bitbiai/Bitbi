@@ -153,6 +153,7 @@ async function dispatchGitHubActionsWorkflow(env, {
   jobLimit = DEFAULT_JOB_LIMIT,
   repairDownloads = true,
   dryRun = false,
+  memberGenerationPosters = false,
   dispatchReason = "Memvid Stream preview processor dispatch.",
 } = {}) {
   const status = getMemvidStreamPreviewProcessorDispatchStatus(env);
@@ -198,6 +199,7 @@ async function dispatchGitHubActionsWorkflow(env, {
         inputs: {
           job_limit: String(clampInteger(jobLimit, { fallback: status.job_limit, min: 1, max: 8 })),
           max_runs: "1",
+          ...(memberGenerationPosters ? { member_generation_posters: "true" } : {}),
           repair_downloads: repairDownloads ? "true" : "false",
           dry_run: dryRun ? "true" : "false",
           dispatch_reason: normalizeDispatchReason(dispatchReason),
@@ -301,6 +303,7 @@ export async function maybeDispatchMemvidStreamPreviewProcessor(env, options = {
 
   const dispatch = await dispatchGitHubActionsWorkflow(env, {
     jobLimit: options.jobLimit || status.job_limit,
+    memberGenerationPosters: options.memberGenerationPosters === true,
     repairDownloads: options.repairDownloads !== false,
     dryRun: options.dryRun === true,
     dispatchReason: normalizeDispatchReason(options.dispatchReason || reason),

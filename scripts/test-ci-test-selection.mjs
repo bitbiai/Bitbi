@@ -100,7 +100,9 @@ function selection(files, options) {
     "config/release-compat.json",
   ]);
   assert.equal(result.memberModels, true);
-  assert.equal(result.full, true);
+  assert.equal(result.workers, true);
+  assert.equal(result.auth, true);
+  assert.equal(result.full, false);
 }
 
 {
@@ -452,3 +454,33 @@ assert(selection(loggingFiles,{forceFull:true}).full);
 for(const file of ['config/static-hosting.json','scripts/unknown.mjs','.github/workflows/unknown.yml','unknown.config'])assert(selection([...loggingFiles,file]).full,file);
 for(const [file,impact] of [['workers/auth/src/index.js','workers'],['js/shared/auth.js','auth'],['js/pages/index/latest-models-video-module.js','homepage'],['js/pages/index/category-carousel.js','carousel'],['workers/contact/package-lock.json','workerDependencies']])assert(selection([...loggingFiles,file])[impact],file);
 for(const file of ['frontend/index.mjs','frontend/wrangler.jsonc','config/static-hosting.json'])assert(!isFastDeploySafePath(file));
+
+// Generation/Auth clients are covered by the existing account/assets/browser
+// commands, not decorative decoder/performance tests. Unknown input stays broad.
+const generationChange=['workers/auth/src/lib/member-generation-jobs.js',
+ 'workers/auth/migrations/0087_add_member_generation_jobs.sql','config/release-compat.json',
+ '.github/workflows/memvid-stream-preview-processor.yml','services/homepage-ffmpeg-processor/processor.mjs',
+ 'js/shared/auth-api.js','js/shared/locale.js','js/shared/member-generation-client.js',
+ 'js/shared/member-generation-status.js','js/pages/index/video-create.js','js/pages/generate-lab/main.js',
+ 'tests/helpers/q2-runtime/environment.mjs','tests/helpers/q2-runtime/linux-hosted.mjs','tests/helpers/q2-runtime/runner.mjs',
+ 'tests/member-generation.cases.js','tests/member-generation-runtime.mjs','tests/fixtures/media/member-image.png',
+ 'tests/fixtures/media/member-video-poster.webp','tests/oma2-q1-member.spec.js'];
+const generation=selection(generationChange);
+for(const key of ['workers','auth','assets','static'])assert.equal(generation[key],true,key);
+for(const key of ['homepage','carousel','full'])assert.equal(generation[key],false,key);
+assert.equal(selection([...generationChange,'unknown-runtime.js']).full,true);
+assert.equal(selection([...generationChange,'js/pages/index/latest-models-video-module.js']).homepage,true);
+assert.equal(selection([...generationChange,'js/pages/index/category-carousel.js']).carousel,true);
+assert.equal(selection(generationChange,{forceFull:true}).full,true);
+const memberCommands=JSON.parse(fs.readFileSync(path.join(repoRoot,'package.json'))).scripts;
+assert.match(memberCommands['test:auth'],/tests\/oma2-q1-member.spec.js/);
+assert.match(memberCommands['test:auth'],/tests\/locale.spec.js/);
+assert.match(fs.readFileSync(path.join(repoRoot,'tests/workers.spec.js'),'utf8'),/require\("\.\/member-generation.cases.js"\)/);
+
+// Release contract fixture edits execute in the required release job, not the decorative matrix.
+{
+  const selected = selectCiTests(["scripts/test-release-compat.mjs", "workers/auth/wrangler.jsonc"]);
+  assert.equal(selected.workers, true);
+  assert.equal(selected.full, false);
+  assert.equal(selected.homepage, false);
+}

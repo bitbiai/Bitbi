@@ -1,3 +1,5 @@
+import { existingGenerationAsset, cacheGenerationDownload } from '../../lib/member-generation-storage.js';
+import { acceptMemberGeneration, generationUser, generationExecution } from "../../lib/member-generation-jobs.js";
 import {
   HAPPYHORSE_T2V_DEFAULT_DURATION,
   HAPPYHORSE_T2V_DEFAULT_RATIO,
@@ -978,6 +980,8 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
 }
 
 async function persistVideoResult({ env, userId, input, providerResult, elapsedMs, correlationId }) {
+  const existing = await existingGenerationAsset(env,userId,'video');
+  if(existing) return existing;
   const videoUrl = extractProviderVideoUrl(providerResult);
   if (!videoUrl) {
     const error = new Error("Video provider returned no savable video.");
@@ -986,11 +990,11 @@ async function persistVideoResult({ env, userId, input, providerResult, elapsedM
     throw error;
   }
 
-  const videoAsset = await fetchRemoteAsset(env, videoUrl, {
+  const videoAsset = await cacheGenerationDownload(env,'video',videoUrl,()=>fetchRemoteAsset(env, videoUrl, {
     maxBytes: VIDEO_OUTPUT_MAX_BYTES,
     allowedContentTypes: VIDEO_OUTPUT_CONTENT_TYPES,
     label: "video",
-  });
+  }));
 
   let posterBytes = null;
   let posterMimeType = null;
@@ -1074,11 +1078,11 @@ export async function handleGenerateVideo(ctx) {
   const correlationId = ctx.correlationId || null;
   const requestInfo = { request, pathname: ROUTE_PATH, method: request.method };
   const respond = (body, init) => respondWith(correlationId, body, init);
-  const session = await requireUser(request, env);
+  const session = generationUser(ctx) ? { user: generationUser(ctx) } : await requireUser(request, env);
   if (session instanceof Response) return session;
 
   const userId = session.user.id;
-  const limit = await evaluateSharedRateLimit(
+  const limit = generationExecution(env) ? {} : await evaluateSharedRateLimit(
     env,
     "ai-generate-video-user",
     userId,
@@ -1135,6 +1139,8 @@ export async function handleGenerateVideo(ctx) {
     return respond(policyError.body, { status: policyError.status });
   }
   ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
+  const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: parsed.body, mediaType: 'video' });
+  if (accepted) return accepted;
 
   if (usagePolicy.mode === "organization") {
     return respond({
@@ -1240,6 +1246,7 @@ export async function handleGenerateVideo(ctx) {
       correlationId,
     });
   } catch (error) {
+    if (generationExecution(env)) throw error;
     await markVideoBillingFailed(usagePolicy, {
       code: error?.code || "video_storage_failed",
       message: "Video generation succeeded, but required video persistence failed before billing.",
@@ -1282,6 +1289,7 @@ export async function handleGenerateVideo(ctx) {
       source_module: "video",
     });
   } catch (error) {
+    if (generationExecution(env)) throw error;
     await cleanupSavedAsset(env, userId, savedAsset?.id || null);
     await markVideoBillingFailed(usagePolicy, {
       code: error?.code || "billing_failed",

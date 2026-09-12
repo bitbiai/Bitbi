@@ -271,7 +271,7 @@ export async function ensureUserAssetStorageUsage(env, userId) {
   return await getStoredUsageBytes(env, userId) ?? usedBytes;
 }
 
-export async function reserveUserAssetStorage(env, { userId, uploadBytes }) {
+export async function reserveUserAssetStorage(env, { userId, uploadBytes, generationReservation = null }) {
   const attemptedUploadBytes = normalizeByteCount(uploadBytes);
   if (attemptedUploadBytes === null) throw invalidUploadSizeError();
 
@@ -293,7 +293,26 @@ export async function reserveUserAssetStorage(env, { userId, uploadBytes }) {
 
   let result;
   try {
-    if (isUnlimited) {
+    if (generationReservation) {
+      const { id, token } = generationReservation;
+      const column = generationReservation.kind === 'poster' ? 'poster_reserved_bytes' : 'storage_reserved_bytes';
+      const job = await env.DB.prepare(`SELECT ${column} AS reserved_bytes FROM member_generation_jobs WHERE id=? AND user_id=? AND processing_token=? AND locked_until>?`)
+        .bind(id,userId,token,nowIso()).first();
+      if (!job) throw new Error('generation_claim_lost');
+      if (job.reserved_bytes) {
+        if (job.reserved_bytes !== attemptedUploadBytes) throw new Error('generation_storage_size_mismatch');
+        return { attemptedUploadBytes, usedBytes:usedBefore, limitBytes:isUnlimited?null:limitBytes, isUnlimited };
+      }
+      const results = await env.DB.batch([
+        env.DB.prepare(`UPDATE user_asset_storage_usage SET used_bytes=used_bytes+?,updated_at=? WHERE user_id=?
+          AND (?=1 OR used_bytes+?<=?) AND EXISTS(SELECT 1 FROM member_generation_jobs
+          WHERE id=? AND user_id=? AND processing_token=? AND locked_until>? AND ${column}=0)`)
+          .bind(attemptedUploadBytes,nowIso(),userId,isUnlimited?1:0,attemptedUploadBytes,limitBytes,id,userId,token,nowIso()),
+        env.DB.prepare(`UPDATE member_generation_jobs SET ${column}=? WHERE id=? AND changes()=1`)
+          .bind(attemptedUploadBytes,id),
+      ]);
+      result=results[0];
+    } else if (isUnlimited) {
       result = await env.DB.prepare(
         `UPDATE user_asset_storage_usage
          SET used_bytes = used_bytes + ?, updated_at = ?
@@ -344,9 +363,20 @@ export async function reserveUserAssetStorage(env, { userId, uploadBytes }) {
   });
 }
 
-export async function releaseUserAssetStorage(env, { userId, bytes }) {
+export async function releaseUserAssetStorage(env, { userId, bytes, generationReservation = null }) {
   const releaseBytes = normalizeByteCount(bytes);
   if (!releaseBytes) return;
+  if (generationReservation) {
+    const {id,token}=generationReservation;
+    const column = generationReservation.kind === 'poster' ? 'poster_reserved_bytes' : 'storage_reserved_bytes';
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE user_asset_storage_usage SET used_bytes=MAX(0,used_bytes-?),updated_at=? WHERE user_id=?
+        AND EXISTS(SELECT 1 FROM member_generation_jobs WHERE id=? AND user_id=? AND processing_token=? AND ${column}=?)`)
+        .bind(releaseBytes,nowIso(),userId,id,userId,token,releaseBytes),
+      env.DB.prepare(`UPDATE member_generation_jobs SET ${column}=0 WHERE id=? AND processing_token=? AND changes()=1`).bind(id,token),
+    ]);
+    return;
+  }
   try {
     await env.DB.prepare(
       `UPDATE user_asset_storage_usage

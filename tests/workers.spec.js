@@ -51894,6 +51894,10 @@ test.describe('Worker routes', () => {
         created_at: '2026-04-20T13:10:00.000Z',
       }],
     });
+    env.DB.state.memberGenerationJobs.push({id:'generation-subject',user_id:subject.id,media_type:'video',status:'preview_pending',
+      input_r2_key:'users/lifecycle-subject/generation-jobs/job/input.json',result_r2_key:null,
+      provider_receipts_json:JSON.stringify({provider:{key:'users/lifecycle-subject/generation-jobs/job/provider.json'}}),created_at:'2026-09-12T00:00:00Z'},
+      {id:'generation-other',user_id:other.id,media_type:'image',status:'queued',provider_receipts_json:'{}',created_at:'2026-09-12T00:00:00Z'});
     const token = await seedSession(env, admin.id);
     const headers = {
       Origin: 'https://bitbi.ai',
@@ -51969,6 +51973,10 @@ test.describe('Worker routes', () => {
     expect(planRes.status).toBe(200);
     const planBody = await planRes.json();
     expect(planBody.request.status).toBe('planned');
+    expect(planBody.items.some(entry=>entry.resourceId==='generation-subject' && entry.resourceType==='member_generation_job')).toBe(true);
+    expect(planBody.items.some(entry=>entry.resourceId==='generation-other')).toBe(false);
+    expect(JSON.stringify(planBody)).not.toContain('users/lifecycle-subject/generation-jobs/');
+
     expect(planBody.items.some((entry) => entry.resourceType === 'ai_image' && entry.resourceId === 'img-subject')).toBe(true);
     const imageStorageReference = planBody.items.find((entry) => (
       entry.resourceType === 'r2_object' &&
@@ -54340,3 +54348,6 @@ test.describe('Worker routes', () => {
 require('./helpers/admin-cap-replay-contract.js').registerAdminCapReplayContractTests({
   createAdminAiContractHarness, authJsonRequest, createExecutionContext,
 });
+
+// Durable member jobs use this existing Worker entry (including focused --grep runs).
+require("./member-generation.cases.js");

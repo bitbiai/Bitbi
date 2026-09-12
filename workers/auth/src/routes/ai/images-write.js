@@ -1,3 +1,5 @@
+import { existingGenerationAsset, generationStorageReservation } from "../../lib/member-generation-storage.js";
+import { acceptMemberGeneration, generationUser, generationExecution } from "../../lib/member-generation-jobs.js";
 import { putNewManagedR2Object } from "../../lib/r2-cleanup.js";
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
@@ -105,6 +107,7 @@ async function enforceAiImageWriteRateLimit(ctx, userId, {
   component = "ai-image-write",
 } = {}) {
   const { request, env, correlationId } = ctx;
+  if (generationExecution(env)) return null; // Accepted job; browser writes remain throttled.
   const limit = await evaluateSharedRateLimit(
     env,
     scope,
@@ -772,13 +775,13 @@ export async function handleGenerateImage(ctx) {
   const { request, env } = ctx;
   const correlationId = ctx.correlationId || null;
   const respond = (body, init) => withCorrelationId(json(body, init), correlationId);
-  const session = await requireUser(request, env);
+  const session = generationUser(ctx) ? { user: generationUser(ctx) } : await requireUser(request, env);
   if (session instanceof Response) return session;
 
   const userId = session.user.id;
   const isAdmin = session.user.role === "admin";
 
-  const limit = await evaluateSharedRateLimit(env, "ai-generate-user", userId, GENERATION_LIMIT, GENERATION_WINDOW_MS, sensitiveRateLimitOptions({
+  const limit = generationExecution(env) ? {} : await evaluateSharedRateLimit(env, "ai-generate-user", userId, GENERATION_LIMIT, GENERATION_WINDOW_MS, sensitiveRateLimitOptions({
     component: "ai-generate",
     correlationId,
     requestInfo: { request, pathname: "/api/ai/generate-image", method: request.method },
@@ -904,6 +907,8 @@ export async function handleGenerateImage(ctx) {
     return respond(policyError.body, { status: policyError.status });
   }
   ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
+  const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: body, mediaType: 'image' });
+  if (accepted) return accepted;
 
   if (usagePolicy.mode === "organization") {
     if (usagePolicy.attemptKind === "completed" || usagePolicy.attemptKind === "completed_expired") {
@@ -1442,8 +1447,12 @@ export async function handleSaveImage(ctx) {
   const { request, env } = ctx;
   const correlationId = ctx.correlationId || null;
   const respond = (body, init) => withCorrelationId(json(body, init), correlationId);
-  const session = await requireUser(request, env);
+  const session = generationUser(ctx) ? {user:generationUser(ctx)} : await requireUser(request,env);
   if (session instanceof Response) return session;
+  const prior = await existingGenerationAsset(env, session.user.id, 'image');
+  if (prior) return respond({ok:true,data:prior});
+  const generationReservation = generationStorageReservation(env);
+  const generationToken = generationExecution(env)?.job.processing_token || null;
 
   const limited = await enforceAiImageWriteRateLimit(ctx, session.user.id, {
     scope: "ai-save-image-user",
@@ -1544,6 +1553,7 @@ export async function handleSaveImage(ctx) {
     storageReservation = await reserveUserAssetStorage(env, {
       userId: session.user.id,
       uploadBytes: imageBytes.byteLength,
+      generationReservation,
     });
   } catch (error) {
     if (isAssetStorageQuotaError(error)) {
@@ -1552,7 +1562,7 @@ export async function handleSaveImage(ctx) {
     throw error;
   }
 
-  const imageId = randomTokenHex(16);
+  const imageId = generationExecution(env)?.job.id || randomTokenHex(16);
   const timestamp = Date.now();
   const random = randomTokenHex(4);
   const r2Key = `users/${session.user.id}/folders/${folderSlug}/${timestamp}-${random}.png`;
@@ -1567,6 +1577,7 @@ export async function handleSaveImage(ctx) {
     await releaseUserAssetStorage(env, {
       userId: session.user.id,
       bytes: storageReservation?.attemptedUploadBytes || imageBytes.byteLength,
+      generationReservation,
     });
     logDiagnostic({
       service: "bitbi-auth",
@@ -1623,9 +1634,9 @@ export async function handleSaveImage(ctx) {
            id, user_id, folder_id, r2_key, prompt, model, steps, seed, size_bytes, created_at,
            asset_owner_type, owning_user_id, owning_organization_id, created_by_user_id,
            ownership_status, ownership_source, ownership_confidence,
-           ownership_metadata_json, ownership_assigned_at
+           ownership_metadata_json, ownership_assigned_at${generationToken ? ', generation_token' : ''}
          )
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${generationToken ? ', ?' : ''}
          WHERE EXISTS (SELECT 1 FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active')`
       ).bind(
         imageId,
@@ -1647,6 +1658,7 @@ export async function handleSaveImage(ctx) {
         ownership.ownershipConfidence,
         ownership.ownershipMetadataJson,
         ownership.ownershipAssignedAt,
+        ...(generationToken ? [generationToken] : []),
         folderId,
         session.user.id
       ).run();
@@ -1656,9 +1668,9 @@ export async function handleSaveImage(ctx) {
            id, user_id, folder_id, r2_key, prompt, model, steps, seed, size_bytes, created_at,
            asset_owner_type, owning_user_id, owning_organization_id, created_by_user_id,
            ownership_status, ownership_source, ownership_confidence,
-           ownership_metadata_json, ownership_assigned_at
+           ownership_metadata_json, ownership_assigned_at${generationToken ? ', generation_token' : ''}
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${generationToken ? ', ?' : ''})`
       ).bind(
         imageId,
         session.user.id,
@@ -1678,14 +1690,20 @@ export async function handleSaveImage(ctx) {
         ownership.ownershipSource,
         ownership.ownershipConfidence,
         ownership.ownershipMetadataJson,
-        ownership.ownershipAssignedAt
+        ownership.ownershipAssignedAt,
+        ...(generationToken ? [generationToken] : [])
       ).run();
     }
   } catch (e) {
+    if (generationExecution(env)) {
+      const committed = await existingGenerationAsset(env, session.user.id, 'image');
+      if (committed) return respond({ok:true,data:committed});
+    }
     try { await env.USER_IMAGES.delete(r2Key); } catch {}
     await releaseUserAssetStorage(env, {
       userId: session.user.id,
       bytes: storageReservation?.attemptedUploadBytes || imageBytes.byteLength,
+      generationReservation,
     });
     logDiagnostic({
       service: "bitbi-auth",
@@ -1707,6 +1725,7 @@ export async function handleSaveImage(ctx) {
     await releaseUserAssetStorage(env, {
       userId: session.user.id,
       bytes: storageReservation?.attemptedUploadBytes || imageBytes.byteLength,
+      generationReservation,
     });
     logDiagnostic({
       service: "bitbi-auth",

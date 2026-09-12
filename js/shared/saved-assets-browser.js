@@ -1,3 +1,4 @@
+import { createMemberGenerationStatus } from './member-generation-status.js?v=__ASSET_VERSION__';
 import {
     apiAiBulkDeleteAssets,
     apiAiBulkMoveAssets,
@@ -419,6 +420,7 @@ export function createSavedAssetsBrowser({
     onUploadVideo = null,
 } = {}) {
     const root = refs.root;
+    const generationStatus = createMemberGenerationStatus(root);
     const $galleryFilter = refs.galleryFilter;
     const $storageUsage = refs.storageUsage;
     const $storageInsight = refs.storageInsight;
@@ -3136,6 +3138,7 @@ export function createSavedAssetsBrowser({
     }
 
     async function refresh({ preserveView = true } = {}) {
+        await generationStatus.refresh();
         const previousFilter = $galleryFilter.value;
         const previousFolderView = folderViewActive;
         const foldersOk = await loadFolders({ preserveFilter: preserveView });
@@ -3182,6 +3185,7 @@ export function createSavedAssetsBrowser({
         });
         folderDeck = initStudioFolderDeck($folderGrid);
         localizeWorkspaceLinks();
+        await generationStatus.refresh();
 
         $galleryFilter.addEventListener('change', () => {
             const value = $galleryFilter.value;
@@ -3296,7 +3300,9 @@ export function createSavedAssetsBrowser({
     }
 
     async function show() {
+        const wasInitialized = initialized;
         await init();
+        if (wasInitialized) await generationStatus.refresh();
         if (folderViewActive) {
             folderDeck?.setVisible(true);
             assetDeck?.setVisible(false);

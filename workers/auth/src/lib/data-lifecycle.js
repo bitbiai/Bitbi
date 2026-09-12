@@ -759,6 +759,19 @@ async function buildPlanItems(env, request) {
     }
   }
 
+  const generationJobs = await all(env,
+    'SELECT id,media_type,status,input_r2_key,result_r2_key,provider_receipts_json,created_at,error_code FROM member_generation_jobs WHERE user_id=? ORDER BY created_at DESC', userId);
+  for (const job of generationJobs) {
+    items.push(item({requestId,index:index++,resourceType:'member_generation_job',resourceId:job.id,
+      tableName:'member_generation_jobs',action:dataAction(type,'delete'),
+      summary:{mediaType:job.media_type,status:job.status,createdAt:job.created_at,errorCode:job.error_code},createdAt}));
+    const receipts=JSON.parse(job.provider_receipts_json || '{}');
+    for (const key of [job.input_r2_key,job.result_r2_key,...Object.values(receipts).map(receipt=>receipt.key)]) {
+      index=addR2Reference(items,requestId,index,{bucket:'USER_IMAGES',key,action:r2Action(type),
+        resourceId:job.id,createdAt,ownerTable:'member_generation_jobs'});
+    }
+  }
+
   const activityRows = await all(
     env,
     "SELECT id, action, created_at FROM user_activity_log WHERE user_id = ? ORDER BY created_at DESC LIMIT 100",
@@ -1049,7 +1062,7 @@ function categoryForItem(entry) {
     return "auth_session_token_profile";
   }
   if (tableName === "users" || resourceType === "user") return "operational_user_account";
-  if (["ai_folders", "ai_images", "ai_text_assets", "ai_video_jobs"].includes(tableName)) {
+  if (["ai_folders", "ai_images", "ai_text_assets", "ai_video_jobs", "member_generation_jobs"].includes(tableName)) {
     return "ai_asset_metadata_folders";
   }
   if (resourceType === "r2_object" || tableName === "profiles") return "avatar_reference_media";

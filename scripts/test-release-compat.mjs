@@ -96,7 +96,7 @@ const baseManifest = {
               },
               {
                 queue: "bitbi-ai-video-jobs",
-                max_batch_size: 3,
+                max_batch_size: 1,
                 max_batch_timeout: 5,
                 max_retries: 4,
               },
@@ -827,7 +827,7 @@ function createValidContext() {
               },
               {
                 queue: "bitbi-ai-video-jobs",
-                max_batch_size: 3,
+                max_batch_size: 1,
                 max_batch_timeout: 5,
                 max_retries: 4,
               },

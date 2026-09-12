@@ -1,3 +1,5 @@
+import { generationExecution } from "./member-generation-jobs.js";
+import { existingGenerationAsset, generationStorageReservation } from "./member-generation-storage.js";
 import { putNewManagedR2Object } from "./r2-cleanup.js";
 import { nowIso, randomTokenHex } from "./tokens.js";
 import { sanitizeAssetMetadata } from "./ai-asset-metadata.js";
@@ -808,6 +810,10 @@ async function buildVideoAssetFields(env, payload, now) {
 }
 
 export async function saveAdminAiTextAsset(env, { userId, folderId = null, title, sourceModule, payload }) {
+  const existing = await existingGenerationAsset(env, userId, sourceModule);
+  if (existing) return existing;
+  const generationReservation = generationStorageReservation(env);
+  const generationToken = generationExecution(env)?.job.processing_token || null;
   const safeTitle = cleanInlineText(title).slice(0, 120) || "AI Lab Asset";
   const now = nowIso();
 
@@ -876,7 +882,7 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
 
   const fileStem = slugifyFileName(safeTitle, sourceModule);
   const fileName = `${fileStem}.${fileExt}`;
-  const assetId = randomTokenHex(16);
+  const assetId = generationExecution(env)?.job.id || randomTokenHex(16);
   const timestamp = Date.now();
   const subDir = sourceModule === "music" ? "audio" : sourceModule === "video" ? "video" : "text";
   const r2Key = `users/${userId}/folders/${folderSlug}/${subDir}/${timestamp}-${randomTokenHex(4)}-${fileName}`;
@@ -891,6 +897,7 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
   storageReservation = await reserveUserAssetStorage(env, {
     userId,
     uploadBytes: bytes.byteLength,
+    generationReservation,
   });
 
   try {
@@ -904,6 +911,7 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     await releaseUserAssetStorage(env, {
       userId,
       bytes: storageReservation?.attemptedUploadBytes || bytes.byteLength,
+      generationReservation,
     });
     const error = new Error(
       sourceModule === "video" ? "Failed to store video asset." : "Failed to store saved asset."
@@ -917,8 +925,8 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
   try {
     if (resolvedFolderId) {
       insertResult = await env.DB.prepare(
-        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at${generationToken ? ', generation_token' : ''})
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${generationToken ? ', ?' : ''}
          WHERE EXISTS (SELECT 1 FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active')`
       ).bind(
         assetId,
@@ -933,13 +941,14 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
         previewText,
         metadataJson,
         now,
+        ...(generationToken ? [generationToken] : []),
         resolvedFolderId,
         userId
       ).run();
     } else {
       insertResult = await env.DB.prepare(
-        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at${generationToken ? ', generation_token' : ''})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${generationToken ? ', ?' : ''})`
       ).bind(
         assetId,
         userId,
@@ -952,10 +961,15 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
         bytes.byteLength,
         previewText,
         metadataJson,
-        now
+        now,
+        ...(generationToken ? [generationToken] : [])
       ).run();
     }
   } catch (error) {
+    if (generationExecution(env)) {
+      const committed = await existingGenerationAsset(env, userId, sourceModule);
+      if (committed) return committed;
+    }
     try {
       await env.USER_IMAGES.delete(r2Key);
     } catch {
@@ -964,6 +978,7 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     await releaseUserAssetStorage(env, {
       userId,
       bytes: storageReservation?.attemptedUploadBytes || bytes.byteLength,
+      generationReservation,
     });
     const next = new Error("Failed to save text asset. The folder may have been deleted.");
     next.status = 409;
@@ -980,6 +995,7 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     await releaseUserAssetStorage(env, {
       userId,
       bytes: storageReservation?.attemptedUploadBytes || bytes.byteLength,
+      generationReservation,
     });
     const error = new Error("Folder was deleted. Text asset not saved.");
     error.status = 404;
@@ -1030,6 +1046,10 @@ export async function saveGeneratedVideoAsset(env, {
   posterBytes = null,
   posterMimeType = null,
 }) {
+  const existing = await existingGenerationAsset(env, userId, 'video');
+  if (existing) return existing;
+  const generationReservation = generationStorageReservation(env);
+  const generationToken = generationExecution(env)?.job.processing_token || null;
   const safeTitle = cleanInlineText(title).slice(0, 120) || "Generated Video";
   const now = nowIso();
   const bytes = videoBytes instanceof Uint8Array ? videoBytes : new Uint8Array(videoBytes || []);
@@ -1076,7 +1096,7 @@ export async function saveGeneratedVideoAsset(env, {
   const fileExt = extensionForVideoMimeType(normalizedMimeType);
   const fileStem = slugifyFileName(safeTitle, sourceModule);
   const fileName = `${fileStem}.${fileExt}`;
-  const assetId = randomTokenHex(16);
+  const assetId = generationExecution(env)?.job.id || randomTokenHex(16);
   const timestamp = Date.now();
   const r2Key = `users/${userId}/folders/${folderSlug}/video/${timestamp}-${randomTokenHex(4)}-${fileName}`;
   const previewText = truncatePreview(payload.prompt || "Video generation");
@@ -1094,6 +1114,7 @@ export async function saveGeneratedVideoAsset(env, {
   storageReservation = await reserveUserAssetStorage(env, {
     userId,
     uploadBytes: bytes.byteLength,
+    generationReservation,
   });
 
   try {
@@ -1107,6 +1128,7 @@ export async function saveGeneratedVideoAsset(env, {
     await releaseUserAssetStorage(env, {
       userId,
       bytes: storageReservation?.attemptedUploadBytes || bytes.byteLength,
+      generationReservation,
     });
     const error = new Error("Failed to store video asset.");
     error.status = 500;
@@ -1118,8 +1140,8 @@ export async function saveGeneratedVideoAsset(env, {
   try {
     if (resolvedFolderId) {
       insertResult = await env.DB.prepare(
-        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at${generationToken ? ', generation_token' : ''})
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${generationToken ? ', ?' : ''}
          WHERE EXISTS (SELECT 1 FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active')`
       ).bind(
         assetId,
@@ -1134,13 +1156,14 @@ export async function saveGeneratedVideoAsset(env, {
         previewText,
         metadataJson,
         now,
+        ...(generationToken ? [generationToken] : []),
         resolvedFolderId,
         userId
       ).run();
     } else {
       insertResult = await env.DB.prepare(
-        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at${generationToken ? ', generation_token' : ''})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${generationToken ? ', ?' : ''})`
       ).bind(
         assetId,
         userId,
@@ -1153,16 +1176,22 @@ export async function saveGeneratedVideoAsset(env, {
         bytes.byteLength,
         previewText,
         metadataJson,
-        now
+        now,
+        ...(generationToken ? [generationToken] : [])
       ).run();
     }
   } catch (error) {
+    if (generationExecution(env)) {
+      const committed = await existingGenerationAsset(env, userId, 'video');
+      if (committed) return committed;
+    }
     try {
       await env.USER_IMAGES.delete(r2Key);
     } catch {}
     await releaseUserAssetStorage(env, {
       userId,
       bytes: storageReservation?.attemptedUploadBytes || bytes.byteLength,
+      generationReservation,
     });
     const next = new Error("Failed to save video asset. The folder may have been deleted.");
     next.status = 409;
@@ -1177,6 +1206,7 @@ export async function saveGeneratedVideoAsset(env, {
     await releaseUserAssetStorage(env, {
       userId,
       bytes: storageReservation?.attemptedUploadBytes || bytes.byteLength,
+      generationReservation,
     });
     const error = new Error("Folder was deleted. Video asset not saved.");
     error.status = 404;
@@ -1271,6 +1301,7 @@ export async function attachVideoPosterBytesToAiTextAsset(env, {
   successEvent = "video_poster_saved",
   failureEvent = "video_poster_save_failed",
   propagateQuotaErrors = true,
+  posterClaim = null,
 } = {}) {
   const bytes = posterBytes instanceof Uint8Array ? posterBytes : new Uint8Array(posterBytes || []);
   const posterResult = await processAiTextAssetPosterBytes(env, {
@@ -1280,6 +1311,7 @@ export async function attachVideoPosterBytesToAiTextAsset(env, {
     successEvent,
     failureEvent,
     propagateQuotaErrors,
+    posterClaim,
   });
 
   if (!posterResult?.r2Key) {
@@ -1359,9 +1391,18 @@ async function storeAiTextAssetPosterObject(env, {
   successEvent,
   failureEvent,
   propagateQuotaErrors = false,
+  posterClaim = null,
 }) {
   const existing = await loadAiTextAssetPosterStorage(env, { userId, assetId });
   if (!existing) return null;
+  const generationReservation = posterClaim ? {...posterClaim,kind:'poster'} : null;
+  if (posterClaim) {
+    const live = await env.DB.prepare(`SELECT id FROM member_generation_jobs WHERE id=? AND user_id=?
+      AND processing_token=? AND locked_until>? AND status='preview_pending'`).bind(posterClaim.id,userId,posterClaim.token,nowIso()).first();
+    if (!live) throw Object.assign(new Error('generation_claim_lost'),{code:'generation_claim_lost'});
+    if (existing.poster_r2_key) return {r2Key:existing.poster_r2_key,width:existing.poster_width,height:existing.poster_height,sizeBytes:existing.poster_size_bytes};
+    r2Key = r2Key.replace(/\.([a-z]+)$/, `-${posterClaim.token}.$1`);
+  }
 
   const previousSizeBytes = await getExistingPosterSizeBytes(env, existing);
   const outputSizeBytes = posterBytes.byteLength;
@@ -1372,6 +1413,7 @@ async function storeAiTextAssetPosterObject(env, {
     storageReservation = await reserveUserAssetStorage(env, {
       userId,
       uploadBytes: additionalBytes,
+      generationReservation,
     });
   } catch (error) {
     if (isAssetStorageQuotaError(error)) {
@@ -1397,8 +1439,9 @@ async function storeAiTextAssetPosterObject(env, {
     });
 
     const updateResult = await env.DB.prepare(
-      "UPDATE ai_text_assets SET poster_r2_key = ?, poster_width = ?, poster_height = ?, poster_size_bytes = ? WHERE id = ? AND user_id = ?"
-    ).bind(r2Key, width, height, outputSizeBytes, assetId, userId).run();
+      `UPDATE ai_text_assets SET poster_r2_key = ?, poster_width = ?, poster_height = ?, poster_size_bytes = ? WHERE id = ? AND user_id = ?
+       ${posterClaim ? "AND poster_r2_key IS NULL AND EXISTS(SELECT 1 FROM member_generation_jobs WHERE id=? AND processing_token=? AND locked_until>? AND status='preview_pending')" : ''}`
+    ).bind(r2Key, width, height, outputSizeBytes, assetId, userId,...(posterClaim?[posterClaim.id,posterClaim.token,nowIso()]:[])).run();
 
     if (!updateResult?.meta?.changes) {
       if (!existing.poster_r2_key || existing.poster_r2_key !== r2Key) {
@@ -1409,6 +1452,7 @@ async function storeAiTextAssetPosterObject(env, {
       await releaseUserAssetStorage(env, {
         userId,
         bytes: storageReservation?.attemptedUploadBytes || additionalBytes,
+        generationReservation,
       });
       return null;
     }
@@ -1441,11 +1485,16 @@ async function storeAiTextAssetPosterObject(env, {
 
     return { r2Key, width, height, sizeBytes: outputSizeBytes };
   } catch (error) {
+    if (posterClaim) {
+      const current = await loadAiTextAssetPosterStorage(env,{userId,assetId});
+      if (current?.poster_r2_key === r2Key) return {r2Key,width,height,sizeBytes:outputSizeBytes};
+    }
     await releaseUserAssetStorage(env, {
       userId,
       bytes: storageReservation?.attemptedUploadBytes || additionalBytes,
+        generationReservation,
     });
-    if (isAssetStorageQuotaError(error) && propagateQuotaErrors) throw error;
+    if (posterClaim || (isAssetStorageQuotaError(error) && propagateQuotaErrors)) throw error;
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-text-assets",
@@ -1467,6 +1516,7 @@ async function processAiTextAssetPosterBytes(env, {
   successEvent,
   failureEvent,
   propagateQuotaErrors = false,
+  posterClaim = null,
   maxInputBytes = POSTER_MAX_BYTES,
 }) {
   const normalizedFallbackMimeType = normalizePosterMimeType(fallbackMimeType);
@@ -1522,9 +1572,10 @@ async function processAiTextAssetPosterBytes(env, {
         successEvent: buildPosterRawFallbackSuccessEvent(successEvent),
         failureEvent,
         propagateQuotaErrors,
+        posterClaim,
       });
     } catch (fallbackError) {
-      if (isAssetStorageQuotaError(fallbackError) && propagateQuotaErrors) throw fallbackError;
+      if (posterClaim || (isAssetStorageQuotaError(fallbackError) && propagateQuotaErrors)) throw fallbackError;
       logDiagnostic({
         service: "bitbi-auth",
         component: "ai-text-assets",
@@ -1658,9 +1709,10 @@ async function processAiTextAssetPosterBytes(env, {
       successEvent,
       failureEvent,
       propagateQuotaErrors,
+      posterClaim,
     });
   } catch (error) {
-    if (isAssetStorageQuotaError(error) && propagateQuotaErrors) throw error;
+    if (posterClaim || (isAssetStorageQuotaError(error) && propagateQuotaErrors)) throw error;
     const fallback = await storeRawFallback("poster_processing_unexpected_error", error);
     if (fallback) return fallback;
     logDiagnostic({

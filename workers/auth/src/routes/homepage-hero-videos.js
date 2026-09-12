@@ -1,3 +1,4 @@
+import { claimMemberVideoPosters, memberVideoPosterSource, finishMemberVideoPoster } from "../lib/member-generation-posters.js";
 import { publicVideoResponse } from "../lib/public-video-response.mjs";
 import { STREAM_RECEIPT_PROTOCOL, StreamReceiptError, claimStreamPreviewJobs, beginStreamUpload, recordStreamUpload, getStreamUploadReceipt, completeStreamUpload, failStreamUpload } from '../lib/memvid-stream-upload-receipts.js';
 import { json } from "../lib/response.js";
@@ -214,6 +215,19 @@ async function processorAuthResponse(ctx) {
   if (bearer !== expected && explicit !== expected) {
     return json({ ok: false, error: "Forbidden", code: "processor_auth_failed" }, { status: 403 });
   }
+  return null;
+}
+
+// Private member posters use the existing processor credential, independently
+// of the unrelated public homepage Hero enable switch. The member claim token
+// and owner join further restrict every source/completion to its leased job.
+async function sourcePosterAuthResponse(ctx) {
+  const query=new URL(ctx.request.url).searchParams;
+  if(query.get('member_only')!=='true' && !ctx.request.headers.has('X-BITBI-Generation-Claim')) return processorAuthResponse(ctx);
+  const expected=getMemvidStreamPreviewProcessorSecret(ctx.env);
+  if(!expected) return json({ok:false,code:'processor_not_configured'},{status:503});
+  const bearer=String(ctx.request.headers.get('Authorization')||'').replace(/^Bearer /i,'');
+  if(bearer!==expected) return json({ok:false,code:'processor_auth_failed'},{status:403});
   return null;
 }
 
@@ -551,8 +565,10 @@ function serializeProcessorJob(row) {
 
 function serializeSourcePosterProcessorJob(row, preset = TARGET_PRESET) {
   const posterWidth = clampInteger(preset?.posterWidth, { fallback: TARGET_PRESET.posterWidth || 640, min: 320, max: 1080 });
+
   return {
     id: row.id,
+    ...(row.poster_processing_token ? {generation_claim:row.poster_processing_token} : {}),
     upload_id: row.upload_id || null,
     type: "homepage_hero_source_poster",
     source_asset_id: row.id,
@@ -819,7 +835,8 @@ function isSourcePosterProcessorClaimable(row) {
   return status !== "failed";
 }
 
-async function listQueuedSourcePosterJobs(env, limit) {
+async function listQueuedSourcePosterJobs(env, limit, memberOnly = false) {
+  if (memberOnly) return claimMemberVideoPosters(env, limit);
   const scanLimit = Math.max(SOURCE_POSTER_PROCESSOR_SCAN_LIMIT, limit * 6);
   const rows = await env.DB.prepare(
     `SELECT uploads.id AS upload_id,
@@ -858,7 +875,8 @@ async function listQueuedSourcePosterJobs(env, limit) {
   return jobs;
 }
 
-async function getSourcePosterJobAsset(env, assetId) {
+async function getSourcePosterJobAsset(env, assetId, memberToken = null) {
+  if (memberToken !== null) return memberVideoPosterSource(env,assetId,memberToken);
   return env.DB.prepare(
     `SELECT uploads.id AS upload_id,
             uploads.created_at AS upload_created_at,
@@ -1045,6 +1063,14 @@ async function insertHeroUploadRecord(env, {
     adminUserId,
     asset.created_at || nowIso()
   ).run();
+}
+
+async function updateSourcePosterState(env,row,options) {
+  if (row.generation_job_id) {
+    if(options.status==='pending') return null;
+    return finishMemberVideoPoster(env,row,options);
+  }
+  return updateHeroSourcePosterState(env,options);
 }
 
 async function updateHeroSourcePosterState(env, {
@@ -2920,7 +2946,7 @@ async function handleProcessorSource(ctx, derivativeIdFromPath) {
 }
 
 async function handleSourcePosterClaimJobs(ctx) {
-  const authResponse = await processorAuthResponse(ctx);
+  const authResponse = await sourcePosterAuthResponse(ctx);
   if (authResponse) return authResponse;
 
   const parsed = await readJsonBodyOrResponse(ctx.request, {
@@ -2930,10 +2956,12 @@ async function handleSourcePosterClaimJobs(ctx) {
   if (parsed.response) return parsed.response;
   const limit = clampInteger(parsed.body?.limit, { fallback: 1, min: 1, max: SOURCE_POSTER_PROCESSOR_JOB_LIMIT });
 
-  const rows = await listQueuedSourcePosterJobs(ctx.env, limit);
+  const memberOnly=new URL(ctx.request.url).searchParams.get('member_only')==='true';
+  if(memberOnly !== (parsed.body?.member_only === true)) return json({ok:false,code:'processor_scope_mismatch'},{status:400});
+  const rows = await listQueuedSourcePosterJobs(ctx.env, limit, memberOnly);
   const now = nowIso();
   for (const row of rows) {
-    const state = await updateHeroSourcePosterState(ctx.env, {
+    const state = await updateSourcePosterState(ctx.env, row, {
       assetId: row.id,
       userId: row.user_id,
       status: "pending",
@@ -2970,12 +2998,12 @@ async function handleSourcePosterClaimJobs(ctx) {
 }
 
 async function handleSourcePosterSource(ctx, assetIdFromPath) {
-  const authResponse = await processorAuthResponse(ctx);
+  const authResponse = await sourcePosterAuthResponse(ctx);
   if (authResponse) return authResponse;
 
   const assetId = normalizeAssetId(assetIdFromPath);
   if (!assetId) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
-  const source = await getSourcePosterJobAsset(ctx.env, assetId);
+  const source = await getSourcePosterJobAsset(ctx.env, assetId, ctx.request.headers.get('X-BITBI-Generation-Claim'));
   if (!source?.r2_key) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
 
   const object = await ctx.env.USER_IMAGES.get(source.r2_key);
@@ -2992,15 +3020,15 @@ async function handleSourcePosterSource(ctx, assetIdFromPath) {
 }
 
 async function handleSourcePosterComplete(ctx, assetIdFromPath) {
-  const authResponse = await processorAuthResponse(ctx);
+  const authResponse = await sourcePosterAuthResponse(ctx);
   if (authResponse) return authResponse;
 
   const assetId = normalizeAssetId(assetIdFromPath);
   if (!assetId) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
-  const source = await getSourcePosterJobAsset(ctx.env, assetId);
+  const source = await getSourcePosterJobAsset(ctx.env, assetId, ctx.request.headers.get('X-BITBI-Generation-Claim'));
   if (!source) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
   if (source.poster_r2_key) {
-    await updateHeroSourcePosterState(ctx.env, {
+    await updateSourcePosterState(ctx.env, source, {
       assetId,
       userId: source.user_id,
       status: "ready",
@@ -3043,10 +3071,11 @@ async function handleSourcePosterComplete(ctx, assetIdFromPath) {
       userId: source.user_id,
       assetId,
       posterBytes: new Uint8Array(await poster.arrayBuffer()),
+      posterClaim: source.generation_job_id ? {id:source.generation_job_id,token:source.poster_processing_token} : null,
       successEvent: "homepage_hero_source_poster_saved",
       failureEvent: "homepage_hero_source_poster_save_failed",
     });
-    await updateHeroSourcePosterState(ctx.env, {
+    await updateSourcePosterState(ctx.env, source, {
       assetId,
       userId: source.user_id,
       status: "ready",
@@ -3064,7 +3093,7 @@ async function handleSourcePosterComplete(ctx, assetIdFromPath) {
       },
     });
   } catch (error) {
-    await updateHeroSourcePosterState(ctx.env, {
+    await updateSourcePosterState(ctx.env, source, {
       assetId,
       userId: source.user_id,
       status: "failed",
@@ -3085,12 +3114,12 @@ async function handleSourcePosterComplete(ctx, assetIdFromPath) {
 }
 
 async function handleSourcePosterFail(ctx, assetIdFromPath) {
-  const authResponse = await processorAuthResponse(ctx);
+  const authResponse = await sourcePosterAuthResponse(ctx);
   if (authResponse) return authResponse;
 
   const assetId = normalizeAssetId(assetIdFromPath);
   if (!assetId) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
-  const source = await getSourcePosterJobAsset(ctx.env, assetId);
+  const source = await getSourcePosterJobAsset(ctx.env, assetId, ctx.request.headers.get('X-BITBI-Generation-Claim'));
   if (!source) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
 
   const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.homepageHeroProcessorJson });
@@ -3098,7 +3127,7 @@ async function handleSourcePosterFail(ctx, assetIdFromPath) {
   const body = parsed.body || {};
   const errorCode = sanitizeErrorCode(body.error_code || body.code || "source_poster_external_ffmpeg_failed");
   const errorMessage = sanitizeErrorMessage(body.error_message || body.message || "Source poster processor failed.");
-  await updateHeroSourcePosterState(ctx.env, {
+  await updateSourcePosterState(ctx.env, source, {
     assetId,
     userId: source.user_id,
     status: "failed",

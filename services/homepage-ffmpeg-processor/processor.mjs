@@ -172,10 +172,10 @@ async function claimJobs() {
 }
 
 async function claimSourcePosterJobs() {
-  const body = await requestJson("/api/internal/homepage/hero-videos/source-posters/jobs/claim", {
+  const body = await requestJson("/api/internal/homepage/hero-videos/source-posters/jobs/claim" + (process.env.MEMBER_GENERATION_POSTERS_ONLY === "1" ? "?member_only=true" : ""), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ limit: JOB_LIMIT }),
+    body: JSON.stringify({ limit: JOB_LIMIT, member_only: process.env.MEMBER_GENERATION_POSTERS_ONLY === "1" }),
   });
   return Array.isArray(body?.data?.jobs) ? body.data.jobs : [];
 }
@@ -194,9 +194,13 @@ async function claimMemvidPreviewJobs() {
   return Array.isArray(body?.data?.jobs) ? body.data.jobs : [];
 }
 
+export function generationClaimHeaders(job) {
+  return job.generation_claim ? {'X-BITBI-Generation-Claim':job.generation_claim} : {};
+}
+
 async function downloadSource(job, sourcePath) {
   const res = await fetch(`${BASE_URL}${job.source.url}`, {
-    headers: authHeaders(),
+    headers: {...authHeaders(),...generationClaimHeaders(job)},
   });
   if (!res.ok) throw new Error(`Source download failed with HTTP ${res.status}`);
   const bytes = new Uint8Array(await res.arrayBuffer());
@@ -799,7 +803,7 @@ async function completeSourcePosterJob(job, result) {
   if (job.source?.fingerprint) form.append("source_fingerprint", job.source.fingerprint);
   const res = await fetch(`${BASE_URL}${job.completion.url}`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: {...authHeaders(),...generationClaimHeaders(job)},
     body: form,
   });
   const body = await res.json().catch(() => null);
@@ -810,13 +814,13 @@ async function completeSourcePosterJob(job, result) {
 async function failSourcePosterJob(job, error) {
   await requestJson(job.completion.failure_url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json",...generationClaimHeaders(job) },
     body: JSON.stringify({
       error_code: sanitizeProcessorErrorCode(error?.code, "source_poster_external_ffmpeg_failed"),
-      error_message: String(error?.message || error || "source poster ffmpeg failed").slice(0, 240),
+      error_message: job.generation_claim ? "Member poster processing failed." : String(error?.message || error || "source poster ffmpeg failed").slice(0, 240),
     }),
   }).catch((callbackError) => {
-    console.error(`Failed to report source-poster job failure for ${job.id}:`, callbackError.message);
+    console.error(JSON.stringify({job_id:job.id,phase:"poster_failure_receipt",code:sanitizeProcessorErrorCode(callbackError.code)}));
   });
 }
 
@@ -888,7 +892,7 @@ async function processJob(job) {
 async function processSourcePosterJob(job) {
   console.log(`Processing homepage hero source-poster job ${job.id}`);
   if (DRY_RUN) {
-    console.log(JSON.stringify({ dryRun: true, sourcePosterJob: job }, null, 2));
+    console.log(JSON.stringify({ dryRun:true, job_id:job.id, kind:"source-poster", leased_member:Boolean(job.generation_claim) }));
     return;
   }
   await mkdir(WORK_DIR, { recursive: true });
@@ -898,7 +902,7 @@ async function processSourcePosterJob(job) {
     await completeSourcePosterJob(job, result);
     console.log(`Completed homepage hero source-poster job ${job.id}`);
   } catch (error) {
-    console.error(`Failed homepage hero source-poster job ${job.id}:`, error.message);
+    console.error(JSON.stringify({job_id:job.id,phase:"poster",code:sanitizeProcessorErrorCode(error.code)}));
     await failSourcePosterJob(job, error);
     process.exitCode = 1;
   } finally {

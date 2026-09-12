@@ -209,7 +209,7 @@ async function handleGenerate() {
 
     let res;
     try {
-        res = await apiAiGenerateImage(prompt, steps, seed, model);
+        res = await apiAiGenerateImage(prompt, steps, seed, model,{durable:true,onAccepted:()=>showMsg($genMsg,localeText('generation.accepted'),'info')});
     } catch (error) {
         console.warn('Gallery studio generate failed:', error);
         $preview.innerHTML = `<div class="studio__preview-empty">${escapeHtml(localeText('studio.generationFailedTitle'))}</div>`;
@@ -222,7 +222,7 @@ async function handleGenerate() {
 
     if (!res.ok) {
         $preview.innerHTML = `<div class="studio__preview-empty">${escapeHtml(localeText('studio.generationFailedTitle'))}</div>`;
-        showMsg($genMsg, res.error, 'error');
+        showMsg($genMsg, res.error, res.pending ? 'info' : 'error');
         if (res.data?.code === 'insufficient_member_credits' && creditBalance !== null) {
             creditBalance = 0;
             renderQuota();
@@ -254,7 +254,7 @@ async function handleGenerate() {
     img.alt = prompt;
     $preview.appendChild(img);
 
-    $saveBar.classList.add('visible');
+    $saveBar.classList.toggle('visible', !d.asset?.id);
     syncImageSaves();
     showMsg($genMsg, localeText('studio.imageGenerated'), 'success');
 

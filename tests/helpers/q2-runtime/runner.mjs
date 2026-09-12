@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { prepareBuild, createRuntime } from './environment.mjs';
 import { safeError } from './assertions.mjs';
+import { runMemberGenerationTests } from '../../member-generation-runtime.mjs';
 import { runNativeTests } from '../../q2-runtime-native.mjs';
 import { runReferenceTests } from '../../q2-runtime-references.mjs';
 import { runRecoveryTests } from '../../q2-runtime-recovery.mjs';
@@ -13,6 +14,7 @@ import { runSubscriptionTests } from '../../q4-runtime-subscription.mjs';
 import { runPublicVideoTests } from '../../q4-runtime-public-video.mjs';
 
 export const runtimeSuites = Object.freeze([
+  ['member-generation', runMemberGenerationTests, {q4Control:'member-generation-control.mjs'}],
   ['native', runNativeTests, {}], ['references', runReferenceTests, { referenceOnly: true }], ['recovery', runRecoveryTests, { restricted: true }],
   ['q4-public-video', runPublicVideoTests, {}],
   ['q4-stream', runStreamTests, { restricted: true }],

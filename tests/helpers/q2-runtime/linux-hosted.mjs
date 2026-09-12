@@ -78,6 +78,8 @@ export function stageInputPlan() {
     'tests/q2-runtime-references.mjs', 'tests/q2-runtime-recovery.mjs',
     'tests/q4-runtime-public-video.mjs', 'tests/q4-runtime-stream.mjs', 'tests/q4-runtime-memory.mjs', 'tests/q4-runtime-video.mjs', 'tests/q4-runtime-subscription.mjs',
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-control.mjs', 'tests/helpers/q4-memory-fixture.mjs',
+    'tests/fixtures/media/member-image.png', 'tests/fixtures/media/test-video-changing.mp4', 'tests/fixtures/media/member-video-poster.webp',
+    'tests/member-generation-runtime.mjs', 'tests/helpers/member-generation-control.mjs',
     'tests/helpers/q4-video-control.mjs', 'tests/helpers/q4-subscription-payloads.cjs',
   ];
 }

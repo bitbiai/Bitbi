@@ -3,6 +3,11 @@ name: Memvid Stream Preview Processor
 on:
   workflow_dispatch:
     inputs:
+      member_generation_posters:
+        description: Process only pending private member video posters
+        type: boolean
+        required: false
+        default: false
       job_limit:
         description: Jobs to claim per processor pass
         required: false
@@ -55,9 +60,14 @@ jobs:
           MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: ${{ secrets.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID || vars.STREAM_ACCOUNT_ID || secrets.STREAM_ACCOUNT_ID }}
           CLOUDFLARE_STREAM_API_TOKEN: ${{ secrets.CLOUDFLARE_STREAM_API_TOKEN || secrets.STREAM_API_TOKEN }}
+          MEMBER_GENERATION_POSTERS_ONLY: ${{ inputs.member_generation_posters == true && '1' || '0' }}
         run: |
           missing=0
-          for name in AUTH_WORKER_BASE_URL MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_STREAM_API_TOKEN; do
+          required="AUTH_WORKER_BASE_URL MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET"
+          if [ "$MEMBER_GENERATION_POSTERS_ONLY" != "1" ]; then
+            required="$required CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_STREAM_API_TOKEN"
+          fi
+          for name in $required; do
             if [ -z "${!name}" ]; then
               echo "::error::$name is not configured for the Memvid Stream preview processor workflow."
               missing=1
@@ -77,8 +87,9 @@ jobs:
           CLOUDFLARE_STREAM_API_TOKEN: ${{ secrets.CLOUDFLARE_STREAM_API_TOKEN || secrets.STREAM_API_TOKEN }}
           STREAM_API_TOKEN: ${{ secrets.STREAM_API_TOKEN }}
           PROCESS_HOMEPAGE_HERO: "0"
-          PROCESS_HOMEPAGE_SOURCE_POSTERS: "0"
-          PROCESS_MEMVID_STREAM_PREVIEWS: "1"
+          PROCESS_HOMEPAGE_SOURCE_POSTERS: ${{ inputs.member_generation_posters == true && '1' || '0' }}
+          MEMBER_GENERATION_POSTERS_ONLY: ${{ inputs.member_generation_posters == true && '1' || '0' }}
+          PROCESS_MEMVID_STREAM_PREVIEWS: ${{ inputs.member_generation_posters == true && '0' || '1' }}
           REPAIR_MEMVID_STREAM_DOWNLOADS: ${{ inputs.repair_downloads }}
           JOB_LIMIT: ${{ inputs.job_limit }}
           DRY_RUN: ${{ inputs.dry_run }}

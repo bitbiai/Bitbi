@@ -1,3 +1,4 @@
+import { MEMBER_GENERATION_MESSAGE, processMemberGeneration, requeueMemberGenerations } from "./lib/member-generation-jobs.js";
 import { json } from "./lib/response.js";
 import { nowIso } from "./lib/tokens.js";
 import {
@@ -508,6 +509,10 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
+    if (event?.cron === '*/5 * * * *') {
+      await requeueMemberGenerations(env);
+      return;
+    }
     if (event?.cron === MEMVID_STREAM_PREVIEW_CATCHUP_CRON) {
       try {
         const catchup = await runMemvidStreamPreviewScheduledCatchup(env, { reason: "scheduled_catchup" });
@@ -966,7 +971,7 @@ export default {
       messages.every((message) => message?.body?.type === "ai_image_derivative.generate");
     const isAiVideoBatch =
       queueName === AI_VIDEO_JOBS_QUEUE_NAME ||
-      messages.every((message) => message?.body?.type === "ai_video_job.process");
+      messages.every((message) => ["ai_video_job.process", MEMBER_GENERATION_MESSAGE].includes(message?.body?.type));
     if (isAiVideoBatch) {
       for (const message of batch.messages) {
         const startedAt = Date.now();
@@ -976,7 +981,9 @@ export default {
         const correlationId = rawBody.correlation_id || null;
 
         try {
-          const result = await processAiVideoJobMessage(env, message.body, { messageAttempts: attempts });
+          const result = message.body?.type === MEMBER_GENERATION_MESSAGE
+            ? await processMemberGeneration(env, message.body, handleAI)
+            : await processAiVideoJobMessage(env, message.body, { messageAttempts: attempts });
           if (result.status === "retry") {
             message.retry({ delaySeconds: result.delaySeconds || getAiVideoJobRetryDelaySeconds(attempts) });
           } else {

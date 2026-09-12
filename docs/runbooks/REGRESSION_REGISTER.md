@@ -38,3 +38,24 @@ Required callers below apply to their selected impact scope; the bounded `admin-
 - Frontend stored-log privacy: reset links carry URL tokens; enabling default invocation logs would record request metadata. Version 10% persisted custom logs with invocation logs/traces disabled and query redaction enabled; emit fixed failure codes only. `npm run test:frontend-hosting` (normal static validation/Full caller) checks synthetic secret-bearing requests/errors, generic 500/HEAD, unchanged successful responses, generated preview/production config and rejects unsafe policy changes; native local workerd confirms emission. `test-results/frontend-logging.json` is local payload evidence, not proof of dashboard persistence. Post-deployment active-settings/stored-log verification remains required.
 
 - Logging release34691096299: frontend entry/config and known release-tooling paths forced the full platform matrix; unchanged native media failed and deployment was skipped. Map those exact paths to existing release/build/native frontend acceptance; unknown scripts, authority changes and real media/backend changes retain appropriate wider selection. Unselected jobs now skip without runners; actual workflow conditions accept only successful selected jobs. `test:ci-selection`, `test:static-deploy-safety` and `test:frontend-hosting` cover the cumulative logging delta, mixed/unknown inputs, failed/missing selected steps, zero/wrong package proof and Full-vs-narrow source policy. Contact install is reused after the dependency audit's actual `--install`. Historical media failure remains unresolved in its own scope; neither retries nor timing changes recertify it.
+
+
+### Browser-bound member generation and missing video posters
+
+Member generation previously completed within the browser HTTP request; image
+saving and missing video posters additionally depended on browser callbacks.
+Durable acceptance now uses the existing queue/cron, private provider/download
+receipts, an immutable owner/job identity, idempotent billing and the existing
+FFmpeg poster path. `workers.spec.js` loads `member-generation.cases.js`; the same
+control executes under the normal isolated native runtime. Counterchecks cover
+browser departure/outbox repair, duplicate delivery, stale poster claims, poster
+retry/expired final leases, bounded interrupted executions, committed-but-lost DB/debit replies, private uncharged assets, expired
+provider download URLs, unknown paid outcomes, image persistence and bundled music
+cover retry, confirmed service rejection without debit, and preserved browser
+throttling without re-throttling accepted continuations. `test:auth` includes `oma2-q1-member.spec.js` for EN/DE automatic saving,
+opaque intent reuse after reload and read-only backend status. Processor headers
+and the actual workflow configuration gate (member/legacy modes, missing secrets)
+are checked in `test:homepage-ffmpeg-processor`. Selector regression keeps these
+real callers required without making unchanged decorative decoder suites gates.
+Local native evidence is not a Linux-CI or paid-provider/live acceptance. Unknown
+provider outcomes without a retained receipt remain review cases, not retry permission.

@@ -65,6 +65,9 @@ const AUTH_FRONTEND_PREFIXES = [
 ];
 
 const AUTH_FRONTEND_FILES = new Set([
+  "js/pages/generate-lab/main.js", "js/pages/index/video-create.js", "js/pages/index/soundlab-create.js", "js/pages/index/studio.js",
+  "js/shared/member-generation-client.js", "js/shared/member-generation-status.js",
+
   "css/pages/pricing.css",
   "de/pricing.html",
   "pricing.html",
@@ -118,12 +121,16 @@ const ASSETS_MANAGER_PAGE_FILES = new Set([
 ]);
 
 const ASSETS_MANAGER_SHARED_FILES = new Set([
+  "js/shared/auth-api.js", "js/shared/locale.js",
+  "js/shared/member-generation-client.js", "js/shared/member-generation-status.js",
+
   "js/shared/help-menu.js",
   "js/shared/saved-assets-browser.js",
   "js/shared/storage-format.js",
 ]);
 
 const AUTH_TEST_FILES = new Set([
+  "tests/oma2-q1-member.spec.js",
   "tests/oma2-q3-newsfeed.spec.js",
   "tests/auth-admin.spec.js",
   "tests/wallet-nav.spec.js",
@@ -138,6 +145,12 @@ const AUTH_TEST_FILES = new Set([
 ]);
 
 const WORKER_TEST_PREFIXES = [
+  "tests/helpers/q2-runtime/",
+  "tests/member-generation.cases.js",
+  "tests/member-generation-runtime.mjs",
+  "tests/fixtures/media/member-video-poster.webp",
+  "tests/fixtures/media/member-image.png",
+  "tests/helpers/member-generation-control.mjs",
   "tests/q4-",
   "tests/helpers/q4-",
   "tests/fable-chat-",
@@ -152,7 +165,7 @@ const WORKER_TEST_PREFIXES = [
 const RELEASE_TOOLING_FILES = new Set([
   '.github/workflows/static.yml',
   'scripts/lib/ci-test-selection.mjs', 'scripts/select-ci-tests.mjs',
-  'scripts/test-ci-test-selection.mjs', 'scripts/pages-candidate.mjs',
+  'scripts/test-ci-test-selection.mjs', 'scripts/test-release-compat.mjs', 'scripts/pages-candidate.mjs',
   'scripts/test-pages-candidate.mjs', 'scripts/test-pages-workflow.mjs',
   'scripts/lib/frontend-hosting.mjs', 'scripts/lib/frontend-source.mjs', 'scripts/test-frontend-hosting.mjs',
   'scripts/test-frontend-review.mjs',
@@ -313,6 +326,11 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       continue;
     }
 
+    if (['.github/workflows/memvid-stream-preview-processor.yml','services/homepage-ffmpeg-processor/processor.mjs','scripts/test-homepage-ffmpeg-processor.mjs','config/release-compat.json'].includes(file)) {
+      addReason(selection,'workers',file,'changes Auth/processor runtime or its required deployment contract');
+      addReason(selection,'auth',file,'requires affected media/auth integration; release and processor checks are mandatory');
+      continue;
+    }
     if (file.startsWith(".github/workflows/")) {
       selectFullRegression(selection, file, "changes CI orchestration or its fail-closed selector");
       continue;
@@ -364,6 +382,11 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       addReason(selection, "homepage", file, "changes homepage/frontend core regression coverage");
       continue;
     }
+    if (isWorkerTest(file)) {
+      addReason(selection,'workers',file,'changes Worker regression coverage or its isolated harness');
+      if(file.includes('auth') || file==='tests/workers.spec.js') addReason(selection,'auth',file,'covers authenticated Worker behavior');
+      continue;
+    }
     if (file.startsWith("tests/fixtures/media/")) {
       addReason(selection, "homepage", file, "changes homepage media fixtures");
       addReason(selection, "carousel", file, "changes media fixtures used by the carousel matrix");
@@ -373,14 +396,6 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       addReason(selection, "auth", file, "changes auth/admin regression coverage");
       continue;
     }
-    if (isWorkerTest(file)) {
-      addReason(selection, "workers", file, "changes Worker regression coverage or its harness");
-      if (file.includes("auth") || file === "tests/workers.spec.js") {
-        addReason(selection, "auth", file, "covers auth/admin Worker behavior");
-      }
-      continue;
-    }
-
     if (file.startsWith("workers/")) {
       addReason(selection, "workers", file, "changes Worker runtime, configuration, migration, or shared code");
       if (file.startsWith("workers/auth/")) {
@@ -423,7 +438,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
         addReason(selection, "homepage", file, "changes a homepage or shared frontend surface");
       }
 
-      if (AUTH_FRONTEND_FILES.has(file) || file.startsWith("js/pages/pricing/")) {
+      if (["css/pages/pricing.css", "de/pricing.html", "pricing.html"].includes(file) || file.startsWith("js/pages/pricing/")) {
         addReason(selection, "homepage", file, "changes public Pricing behavior or locale parity");
       }
 

@@ -81,7 +81,7 @@ export function prepareBuild(artifactParent = os.tmpdir()) {
   const migrations = readMigrations(repoRoot);
   const latest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'config/release-compat.json'), 'utf8')).release.schemaCheckpoints.auth.latest;
   assert.equal(migrations.at(-1).path, latest, 'Native build and declared release schema must match');
-  assert.deepEqual(migrations.filter(row => Number(row.path.slice(0, 4)) > 83).map(row => row.path.slice(0, 4)), ['0084', '0085', '0086'], 'Q4 target-runtime matrix covers precisely the approved additive migrations');
+  assert.deepEqual(migrations.filter(row => Number(row.path.slice(0, 4)) > 83).map(row => row.path.slice(0, 4)), ['0084', '0085', '0086', '0087'], 'Native matrix includes the additive member-generation migration');
   const provenance = { versions, compatibilityDate: config.compatibility_date, bundleSha256: sha256(bundle), sourceLedger,
     workerdBinarySha256: sha256(fs.readFileSync(workerd.default)), migrations: migrations.map(({ path: name, sha256: hash }) => ({ path: name, sha256: hash })) };
   fs.writeFileSync(path.join(workDir, 'build-provenance.json'), JSON.stringify(provenance, null, 2), { flag: 'wx' });
@@ -102,7 +102,7 @@ export async function createRuntime(build, name, { restricted = false, reference
   for (const key of ['SESSION_HASH_SECRET', 'PAGINATION_SIGNING_SECRET', 'ADMIN_MFA_ENCRYPTION_KEY', 'ADMIN_MFA_PROOF_SECRET', 'ADMIN_MFA_RECOVERY_HASH_SECRET', 'AI_SAVE_REFERENCE_SIGNING_SECRET']) bindings[key] = `q2-synthetic-${key}-not-live-0000000000000000`;
   const deny = async () => { counters.outboundDenied += 1; throw new Error('Native test outbound denied'); };
   const denyService = async () => { counters.serviceDenied += 1; throw new Error('Native test provider service denied'); };
-  const shared = { modules: true, compatibilityDate: build.config.compatibility_date, bindings, d1Databases: { DB: `q2-${name}-db` },
+  const shared = { modules: true, ...(name === 'member-generation' ? {images:{binding:'IMAGES'}} : {}), compatibilityDate: build.config.compatibility_date, bindings, d1Databases: { DB: `q2-${name}-db` },
     r2Buckets: { USER_IMAGES: `q2-${name}-images`, PRIVATE_MEDIA: `q2-${name}-private`, AUDIT_ARCHIVE: `q2-${name}-archive` },
     outboundService: deny, serviceBindings: { AI_LAB: denyService }, unsafeRegisterWorker: false };
   const limiterOwner = restricted ? 'q2-restricted' : 'q2-candidate';

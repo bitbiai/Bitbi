@@ -1456,7 +1456,7 @@ function captureVideoPosterBase64(video) {
 
 function attachVideoPosterAfterFrame(data, video) {
     const assetId = data?.asset?.id;
-    if (!assetId || data?.posterUrl || data?.asset?.poster_url || !video) return;
+    if (!assetId || data?.generationJob || data?.posterUrl || data?.asset?.poster_url || !video) return;
     let attempted = false;
     const attemptAttach = async () => {
         if (attempted) return;
@@ -1918,7 +1918,7 @@ async function generateImage(prompt) {
             outputFormat: refs.imageOutputFormat?.value || currentModel.defaults?.outputFormat || 'png',
             background: refs.imageBackground?.value || currentModel.defaults?.background || 'auto',
             referenceImages: selectedImageReferences(),
-        });
+        }, {durable:true,onAccepted:()=>setMessage(localeText('generation.accepted'),'info')});
     } else if (isDimensionedProvider) {
         const dimensions = currentModel.options?.dimensions || {};
         const payload = {
@@ -1940,9 +1940,9 @@ async function generateImage(prompt) {
         if (currentModel.controls?.supportsReferenceImages && referenceImages.length > 0) {
             payload.referenceImages = referenceImages;
         }
-        res = await apiAiGenerateImage(payload);
+        res = await apiAiGenerateImage(payload,{durable:true,onAccepted:()=>setMessage(localeText('generation.accepted'),'info')});
     } else {
-        res = await apiAiGenerateImage(prompt, steps, seed, model);
+        res = await apiAiGenerateImage(prompt, steps, seed, model,{durable:true,onAccepted:()=>setMessage(localeText('generation.accepted'),'info')});
     }
     if (!res.ok) return res;
     const data = res.data?.data || res.data || {};
@@ -1969,6 +1969,7 @@ async function generateImage(prompt) {
         saveReference: typeof data.saveReference === 'string' ? data.saveReference : null,
     });
     renderImageResult({ imageData, prompt, meta: state.currentImageMeta });
+    if(data.asset?.id) renderImageSavedActions();
     return res;
 }
 
@@ -2007,6 +2008,8 @@ async function generateVideo(prompt) {
     if (folderId) payload.folder_id = folderId;
 
     const res = await apiAiGenerateVideo(payload, {
+        durable: true,
+        onAccepted:()=>setMessage(localeText('generation.accepted'),'info'),
         headers: { 'Idempotency-Key': createIdempotencyKey('generate-lab-video') },
     });
     if (res.ok) {
@@ -2027,6 +2030,8 @@ async function generateMusic(prompt) {
     if (folderId) payload.folder_id = folderId;
 
     const res = await apiAiGenerateMusic(payload, {
+        durable: true,
+        onAccepted:()=>setMessage(localeText('generation.accepted'),'info'),
         headers: { 'Idempotency-Key': createIdempotencyKey('generate-lab-music') },
     });
     if (res.ok) {
@@ -2083,7 +2088,7 @@ async function handleGenerate() {
 
     if (!res?.ok) {
         renderEmptyResult();
-        setMessage(localeText('generateLab.generationFailedRetry', { error: res?.error || localeText('studio.generationFailed') }), 'error');
+        setMessage(res?.pending ? res.error : localeText('generateLab.generationFailedRetry', { error: res?.error || localeText('studio.generationFailed') }), res?.pending ? 'info' : 'error');
         setWorkflowStatus('attention');
         setCurrentResultSummary('attention');
         return;
@@ -2095,14 +2100,15 @@ async function handleGenerate() {
         updateAccountPanel();
         updateActionState();
     }
-    const success = state.mediaType === 'image'
+    const saved = Boolean(res.data?.data?.asset?.id);
+    const success = saved && state.mediaType === 'image' ? localeText('generateLab.imageSaved') : state.mediaType === 'image'
         ? localeText('generateLab.imageGeneratedSave')
         : state.mediaType === 'video'
             ? localeText('generateLab.videoGeneratedSaved')
             : localeText('generateLab.musicGeneratedSaved');
     setMessage(success, 'success');
-    setWorkflowStatus(state.mediaType === 'image' ? 'readyToSave' : 'saved');
-    setCurrentResultSummary(state.mediaType === 'image' ? 'unsaved' : 'saved');
+    setWorkflowStatus(state.mediaType === 'image' && !saved ? 'readyToSave' : 'saved');
+    setCurrentResultSummary(state.mediaType === 'image' && !saved ? 'unsaved' : 'saved');
     await loadRecentAssets();
 }
 

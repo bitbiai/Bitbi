@@ -1,3 +1,4 @@
+import { generationExecution } from './member-generation-jobs.js';
 import {
   BillingError,
   MEMBER_DAILY_CREDIT_ALLOWANCE,
@@ -297,8 +298,28 @@ async function prepareMemberGatewayPolicy({
     }),
   });
 
-  rejectUnresolvedAttempt(attemptState);
-  let dispatchToken = null;
+  const execution = generationExecution(env);
+  if (execution) {
+    await execution.assertClaim();
+    if (execution.job.usage_attempt_id !== attemptState.attempt.id || execution.user.id !== user.id) {
+      throw new BillingError('Generation ownership mismatch.', { status: 403, code: 'generation_owner_mismatch' });
+    }
+    // Only the claimed server consumer can resume an existing paid identity.
+    // Provider intents/receipts independently prevent a second dispatch.
+    const owned = attemptState.attempt;
+    if ((attemptState.kind === 'in_progress' && owned.billingStatus === 'reserved')
+      || (['completed', 'completed_expired'].includes(attemptState.kind) && owned.billingStatus === 'finalized')
+      || (attemptState.kind === 'key_expired' && owned.providerOutcome === 'succeeded' && owned.billingStatus === 'reserved')) {
+      attemptState.kind = 'reserved';
+    }
+  }
+  const existingJob = !execution && request.headers.get('Prefer')?.split(',').some(value => value.trim() === 'respond-async')
+    ? await env.DB.prepare('SELECT id FROM member_generation_jobs WHERE usage_attempt_id=? AND user_id=?')
+      .bind(attemptState.attempt.id, user.id).first() : null;
+  // An exact already accepted request returns its job even when the provider
+  // outcome needs review. This does not authorize another provider dispatch.
+  if (!existingJob) rejectUnresolvedAttempt(attemptState);
+  let dispatchToken = execution ? attemptState.attempt.dispatchToken : null;
   return {
     mode: "member",
     gatewayMode: "ai-cost-pilot",
@@ -319,6 +340,7 @@ async function prepareMemberGatewayPolicy({
       };
     },
     async markProviderRunning() {
+      if (execution && dispatchToken) { await execution.assertClaim(); return dispatchToken; }
       dispatchToken = await markMemberAiUsageAttemptProviderRunning(env, attemptState.attempt.id, { signal: request.signal });
       return dispatchToken;
     },
@@ -330,12 +352,21 @@ async function prepareMemberGatewayPolicy({
       return markMemberAiUsageAttemptLateOutcome(env, attemptState.attempt.id, { dispatchToken, outcome, code });
     },
     async markFinalizing() {
+      if (execution && attemptState.attempt.providerOutcome === 'succeeded') { await execution.assertClaim(); return; }
       return markMemberAiUsageAttemptFinalizing(env, attemptState.attempt.id, { dispatchToken });
     },
     async markBillingFailed({ code = "billing_failed", message = null } = {}) {
       return markMemberAiUsageAttemptBillingFailed(env, attemptState.attempt.id, { code, message, dispatchToken });
     },
     async markSucceeded(result = {}) {
+      if (execution) {
+        await execution.assertClaim();
+        const finalized = await env.DB.prepare(`SELECT id FROM member_ai_usage_attempts_v2
+          WHERE id=? AND user_id=? AND dispatch_token=? AND provider_outcome='succeeded'
+          AND status='succeeded' AND billing_status='finalized' AND reservation_released_at IS NULL`)
+          .bind(attemptState.attempt.id, user.id, dispatchToken).first();
+        if (finalized) return; // The job's private result checkpoint supplies replay after a committed debit.
+      }
       return markMemberAiUsageAttemptSucceeded(env, attemptState.attempt.id, { ...result, dispatchToken });
     },
     async markReplayUnavailable(result = {}) {

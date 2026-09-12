@@ -1,5 +1,9 @@
+import {readFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import vm from 'node:vm';
 import assert from "node:assert/strict";
 import {
+  generationClaimHeaders,
   convertJob,
   convertSourcePosterJob,
   createWebpPoster,
@@ -362,3 +366,28 @@ await testHeroAndSourcePosterJobsUseSharedPosterFallback();
 await testPosterProcessErrorsIncludeStderrDiagnostics();
 
 console.log("homepage ffmpeg processor tests passed");
+
+assert.deepEqual(generationClaimHeaders({generation_claim:'synthetic-claim'}),{'X-BITBI-Generation-Claim':'synthetic-claim'});
+assert.deepEqual(generationClaimHeaders({source:{url:'/legacy-source'}}),{});
+console.log('Member poster claim headers preserve the existing legacy processor contract.');
+
+// Run the actual configuration gate with synthetic credentials only. Private
+// member mode must not require or enable unrelated Stream/Hero processing.
+{
+  const workflow=readFileSync(new URL('../.github/workflows/memvid-stream-preview-processor.yml',import.meta.url),'utf8');
+  const block=workflow.split('      - name: Verify processor configuration')[1].split('      - name: Run Memvid Stream preview processor')[0];
+  const script=block.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n');
+  const expressions=[...workflow.matchAll(/^          (PROCESS_HOMEPAGE_SOURCE_POSTERS|MEMBER_GENERATION_POSTERS_ONLY|PROCESS_MEMVID_STREAM_PREVIEWS): \$\{\{ (.+) \}\}$/gm)];
+  assert(expressions.length>=4,'Actual mode expressions present');
+  for(const enabled of [true,false]) {
+    const resolved=Object.fromEntries(expressions.map(([,name,expression])=>[name,vm.runInNewContext(expression,{inputs:{member_generation_posters:enabled}},{timeout:100})]));
+    assert.equal(resolved.PROCESS_HOMEPAGE_SOURCE_POSTERS,enabled?'1':'0');
+    assert.equal(resolved.PROCESS_MEMVID_STREAM_PREVIEWS,enabled?'0':'1');
+    const env={PATH:process.env.PATH,AUTH_WORKER_BASE_URL:'https://fixture.invalid',MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:'synthetic-not-live',...resolved};
+    const execute=values=>spawnSync('/bin/bash',['-c',script],{env:values,encoding:'utf8',timeout:5000});
+    assert.equal(execute(env).status,enabled?0:1,'Only member mode works without Stream credentials');
+    assert.equal(execute({...env,MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:''}).status,1,'Missing processor credential fails closed');
+    assert.equal(execute({...env,CLOUDFLARE_ACCOUNT_ID:'synthetic',CLOUDFLARE_STREAM_API_TOKEN:'synthetic-not-live'}).status,0);
+  }
+}
+console.log('Actual processor mode/configuration gate passed with synthetic inputs.');

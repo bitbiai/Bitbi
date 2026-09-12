@@ -1,3 +1,5 @@
+import { existingGenerationAsset, cacheGenerationDownload } from '../../lib/member-generation-storage.js';
+import { acceptMemberGeneration, generationUser, generationExecution } from "../../lib/member-generation-jobs.js";
 import { AdminAiValidationError, validateAdminAiMusicBody } from "../../../../../js/shared/admin-ai-contract.mjs";
 import {
   MINIMAX_MUSIC_2_6_BASE_CREDITS,
@@ -449,15 +451,20 @@ async function generateMusic({ env, input, lyrics, user, correlationId, requestI
 }
 
 async function persistMusicResult({ env, userId, input, result, generatedLyrics, traceId, elapsedMs, correlationId }) {
+  const existing = await existingGenerationAsset(env,userId,'music');
+  if(existing) return existing;
   let audioBase64 = result.audioBase64 || null;
   let audioBytes = null;
   let mimeType = String(result.mimeType || "audio/mpeg").trim();
   let sizeBytes = result.sizeBytes ?? null;
 
   if (!audioBase64 && result.audioUrl) {
-    const fetched = await fetchGeneratedAudioForSave(result.audioUrl);
-    audioBytes = fetched.bytes;
-    mimeType = fetched.mimeType;
+    const fetched = await cacheGenerationDownload(env,'audio',result.audioUrl,async()=>{
+      const value=await fetchGeneratedAudioForSave(result.audioUrl);
+      return {body:value.bytes,contentType:value.mimeType,sizeBytes:value.sizeBytes};
+    });
+    audioBytes = fetched.body;
+    mimeType = fetched.contentType;
     sizeBytes = fetched.sizeBytes;
   }
   if (!audioBase64 && !audioBytes) {
@@ -699,11 +706,11 @@ export async function handleGenerateMusic(ctx) {
   const correlationId = ctx.correlationId || null;
   const requestInfo = { request, pathname: ROUTE_PATH, method: request.method };
   const respond = (body, init) => respondWith(correlationId, body, init);
-  const session = await requireUser(request, env);
+  const session = generationUser(ctx) ? { user: generationUser(ctx) } : await requireUser(request, env);
   if (session instanceof Response) return session;
 
   const userId = session.user.id;
-  const limit = await evaluateSharedRateLimit(
+  const limit = generationExecution(env) ? {} : await evaluateSharedRateLimit(
     env,
     "ai-generate-music-user",
     userId,
@@ -760,6 +767,8 @@ export async function handleGenerateMusic(ctx) {
     return respond(policyError.body, { status: policyError.status });
   }
   ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
+  const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: parsed.body, mediaType: 'music' });
+  if (accepted) return accepted;
 
   if (usagePolicy.mode === "organization") {
     return respond({
@@ -949,6 +958,7 @@ export async function handleGenerateMusic(ctx) {
       correlationId,
     });
   } catch (error) {
+    if (generationExecution(env)) throw error;
     await markMusicBillingFailed(usagePolicy, {
       code: error?.code || "music_storage_failed",
       message: "Music generation succeeded, but required audio persistence failed before billing.",
@@ -987,6 +997,7 @@ export async function handleGenerateMusic(ctx) {
       source_module: "music",
     });
   } catch (error) {
+    if (generationExecution(env)) throw error;
     await cleanupSavedAsset(env, userId, savedAsset?.id || null);
     await markMusicBillingFailed(usagePolicy, {
       code: error?.code || "billing_failed",
@@ -1053,7 +1064,7 @@ export async function handleGenerateMusic(ctx) {
     }
   }
 
-  scheduleMemberMusicCoverGeneration(ctx, {
+  if (!generationExecution(env)) scheduleMemberMusicCoverGeneration(ctx, {
     env,
     userId,
     assetId: savedAsset.id,

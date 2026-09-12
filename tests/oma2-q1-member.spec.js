@@ -543,3 +543,86 @@ for (const locale of ['en', 'de']) {
     });
   }
 }
+
+// Native queue/D1/R2 completion is exercised by member-generation.cases.js through workers.spec.js and
+// the normal isolated runtime entry. These cases verify the connected UI only.
+for (const language of ['en', 'de']) {
+  test(`durable generation ${language}: accepted image is already saved without a browser save request`, async ({page}) => {
+    await page.setViewportSize({width:1440,height:980});
+    const state=await fixture(page);
+    const id='1234567890abcdef1234567890abcdef';
+    let accepted=0, reads=0;
+    await page.route('**/api/ai/generate-image',async route=>{
+      expect(route.request().headers().prefer).toBe('respond-async');accepted++;
+      await json(route,{ok:true,data:{job:{id,status:'queued'}}},202);
+    });
+    await page.route(`**/api/ai/generation-jobs/${id}`,async route=>{
+      reads++;
+      await json(route,{ok:true,data:{job:{id,status:'succeeded'},result:{ok:true,data:{
+        imageBase64:state.images[0].split(',')[1],mimeType:'image/png',prompt:'Alpha red forest',model:MODELS[0],
+        asset:{id,title:'Alpha red forest',file_url:state.images[0]},
+      }}}});
+    });
+    await openSurface(page,'lab',language);
+    const ui=controls(page,'lab');await ui.prompt.fill('Alpha red forest');await ui.generate.click();
+    await expect(ui.image).toHaveAttribute('src',state.images[0]);
+    await expect(ui.message).toContainText(language==='de'?'gespeichert':'saved');
+    expect(accepted).toBe(1);expect(reads).toBe(1);expect(state.saves).toHaveLength(0);
+    expect(await page.evaluate(()=>Object.keys(localStorage).filter(key=>key.startsWith('bitbi-generation:')))).toEqual([]);
+    await noHorizontalOverflow(page);
+  });
+
+  test(`durable generation ${language}: restored jobs, preview pending and failed status stay read-only`,async({page})=>{
+    await fixture(page);
+    const jobs=[{id:'a'.repeat(32),status:'preview_pending',created_at:'2026-09-12T00:00:00Z'},
+      {id:'b'.repeat(32),status:'outcome_unknown',created_at:'2026-09-12T00:00:00Z',error_code:'generation_provider_outcome_unknown'}];
+    const mutations=[];
+    page.on('request',request=>{if(request.url().includes('/api/')&&request.method()!=='GET')mutations.push(request.method());});
+    await page.route('**/api/ai/generation-jobs',route=>json(route,{ok:true,data:{jobs,limit:50}}));
+    await page.goto(language==='de'?'/de/account/assets-manager.html':'/account/assets-manager.html');
+    const panel=page.locator('#studioSavedAssetsCard [data-generation-jobs]');
+    await panel.locator('summary').focus();await page.keyboard.press('Enter');
+    await expect(panel).toHaveAttribute('open','');
+    await expect(panel).toContainText(language==='de'?'Vorschau':'preview');
+    await expect(panel).toContainText('generation_provider_outcome_unknown');
+    await page.setViewportSize({width:390,height:844});await noHorizontalOverflow(page);
+    await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));await expect(panel).toHaveCount(0);
+    expect(mutations).toEqual([]);
+  });
+}
+
+test('durable generation: a lost acceptance response survives reload with only an opaque intent',async({page})=>{
+  await fixture(page);
+  const keys=[];let complete=false;
+  const id='c'.repeat(32);
+  await page.route('**/api/ai/generate-video',async route=>{
+    keys.push(route.request().headers()['idempotency-key']);
+    if(!complete)return route.abort('connectionreset');
+    return json(route,{ok:true,data:{job:{id,status:'queued'}}},202);
+  });
+  await page.route(`**/api/ai/generation-jobs/${id}`,route=>json(route,{ok:true,data:{job:{id,status:'preview_pending'},result:{ok:true,data:{videoUrl:'/api/ai/text-assets/'+id+'/file',asset:{id}}}}}));
+  await page.goto('/');
+  const invoke=()=>page.evaluate(async()=>{
+    const {apiAiGenerateVideo}=await import('/js/shared/auth-api.js');
+    return apiAiGenerateVideo({prompt:'Private synthetic prompt'},{durable:true});
+  });
+  expect((await invoke()).ok).toBe(false);
+  const stored=await page.evaluate(()=>Object.fromEntries(Object.entries(localStorage).filter(([key])=>key.startsWith('bitbi-generation:'))));
+  expect(Object.keys(stored)).toHaveLength(1);expect(JSON.stringify(stored)).not.toContain('Private synthetic prompt');
+  complete=true;await page.reload();
+  const result=await invoke();expect(result.ok).toBe(true);expect(keys).toHaveLength(2);expect(keys[1]).toBe(keys[0]);
+  expect(result.data.data.generationJob.status).toBe('preview_pending');
+});
+
+test('durable generation: explicit preview retry never submits new generation',async({page})=>{
+  await fixture(page);let retried=false;const writes=[];
+  const id='d'.repeat(32);
+  page.on('request',request=>{if(request.url().includes('/api/')&&request.method()!=='GET')writes.push(new URL(request.url()).pathname);});
+  await page.route('**/api/ai/generation-jobs',route=>json(route,{ok:true,data:{jobs:[{id,status:'preview_pending',error_code:retried?null:'preview_retry_exhausted',created_at:'2026-09-12T00:00:00Z'}]}}));
+  await page.route(`**/api/ai/generation-jobs/${id}/retry-preview`,route=>{retried=true;return json(route,{ok:true},202);});
+  await page.goto('/account/assets-manager.html');
+  const root=page.locator('#studioSavedAssetsCard [data-generation-jobs]');await root.locator('summary').click();
+  await root.getByRole('button',{name:'Retry preview only'}).click();
+  await expect(root.getByRole('button')).toHaveCount(0);await expect(root.locator('summary')).toBeFocused();
+  expect(writes).toEqual([`/api/ai/generation-jobs/${id}/retry-preview`]);
+});

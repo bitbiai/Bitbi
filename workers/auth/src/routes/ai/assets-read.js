@@ -43,17 +43,17 @@ export async function handleGetImages(ctx) {
   let params;
   if (onlyUnfoldered) {
     query = `SELECT ${AI_IMAGE_LIST_COLUMNS}
-             FROM ai_images WHERE user_id = ? AND folder_id IS NULL
+             FROM ai_images WHERE NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_images.id) AND user_id = ? AND folder_id IS NULL
              ORDER BY created_at DESC LIMIT 200`;
     params = [session.user.id];
   } else if (folderId) {
     query = `SELECT ${AI_IMAGE_LIST_COLUMNS}
-             FROM ai_images WHERE user_id = ? AND folder_id = ?
+             FROM ai_images WHERE NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_images.id) AND user_id = ? AND folder_id = ?
              ORDER BY created_at DESC LIMIT 200`;
     params = [session.user.id, folderId];
   } else {
     query = `SELECT ${AI_IMAGE_LIST_COLUMNS}
-             FROM ai_images WHERE user_id = ?
+             FROM ai_images WHERE NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_images.id) AND user_id = ?
              ORDER BY created_at DESC LIMIT 200`;
     params = [session.user.id];
   }
@@ -101,9 +101,9 @@ export async function handleGetAssets(ctx) {
     return paginationErrorResponse("Invalid cursor.");
   }
 
-  const imageConditions = ["user_id = ?"];
+  const imageConditions = ["user_id = ?", "NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_images.id)"];
   const imageBindings = [session.user.id];
-  const textConditions = ["user_id = ?"];
+  const textConditions = ["user_id = ?", "NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_text_assets.id)"];
   const textBindings = [session.user.id];
 
   if (onlyUnfoldered) {
