@@ -519,3 +519,21 @@ const musicCards = selection(['tests/auth-admin.spec.js','tests/locale.spec.js',
 assert.equal(musicCards.assets,true);assert.equal(musicCards.workers,false);assert.equal(musicCards.full,false);
 const sharedOverlay = selection(['js/shared/mobile-media-grid-overlay.js']);
 assert.equal(sharedOverlay.policy,'impact-v1');assert.equal(sharedOverlay.homepage,true);assert.equal(sharedOverlay.auth,true,'Standalone shared overlay changes retain their ordinary impact');
+
+// Shared public dialog: targeted browsers plus the real file route, not hero stress.
+const publicDetailFiles = ['js/pages/index/public-media-detail-panel.js','js/pages/index/video-gallery.js',
+ 'css/pages/index.css','js/shared/locale.js','tests/public-media-dialog.spec.js',
+ 'tests/fixtures/media/detail-original.mp4','tests/workers.spec.js','playwright.public-media.config.js',
+ 'scripts/lib/release-plan.mjs','.github/workflows/static.yml','scripts/pages-candidate.mjs'];
+const publicDetail=selection(publicDetailFiles);
+assert.equal(publicDetail.publicMedia,true);
+assert.equal(publicDetail.auth,true);
+assert.equal(publicDetail.static,true);
+for(const key of ['workers','homepage','carousel','full'])assert.equal(publicDetail[key],false,key);
+for(const file of ['js/pages/index/category-carousel.js','workers/auth/src/routes/video-gallery.js','js/shared/auth-api.js','unknown-input.mjs']) {
+ const impact=selection([...publicDetailFiles,file]);
+ assert.notEqual(impact.publicMedia,true,file);
+ assert(impact.workers || impact.homepage || impact.full,file);
+}
+assert.equal(selection(['css/pages/index.css']).homepage,true);
+assert.equal(selection(['js/pages/index/video-gallery.js']).carousel,true);

@@ -77,6 +77,7 @@ function writeGithubOutput(selection) {
     docs_only: selection.docsOnly,
     admin_release: selection.adminRelease,
     member_assets: selection.memberAssets === true,
+    public_media: selection.publicMedia === true,
     homepage: selection.homepage,
     member_models: selection.memberModels,
     carousel: selection.carousel,

@@ -116,6 +116,13 @@
         color: #00F0FF;
     }
 
+    /* Keep public-dialog scroll ownership even if another late initializer
+       restores the body's inline overflow during a viewport/category change. */
+    html:has(#galleryModal.active, #videoModal.active, #memtrackModal.active, .mobile-media-detail-overlay .public-media-detail-panel),
+    body:has(#galleryModal.active, #videoModal.active, #memtrackModal.active, .mobile-media-detail-overlay .public-media-detail-panel) {
+        overflow: hidden !important;
+    }
+
     .modal-content--public-detail {
         box-sizing: border-box;
         inline-size: 80vw;
@@ -140,10 +147,15 @@
         inline-size: 100%;
         max-inline-size: 100%;
         min-inline-size: 0;
-        block-size: min(92vh, 52rem);
-        max-block-size: min(92vh, 52rem);
+        block-size: auto;
+        max-block-size: 92dvh;
         overflow-x: hidden;
         overflow: hidden;
+    }
+
+    .modal-card--public-detail > .modal-action {
+        inline-size: 44px;
+        block-size: 44px;
     }
 
     .modal-card--public-detail .modal-action--detail-close {
@@ -154,7 +166,7 @@
 
     .modal-card--public-detail .modal-action--detail-full {
         inset-block-start: 0.75rem;
-        inset-inline-start: 3.35rem;
+        inset-inline-start: calc(0.75rem + 44px + 0.5rem);
         inset-inline-end: auto;
     }
 
@@ -165,9 +177,15 @@
         min-inline-size: 0;
         max-inline-size: 100%;
         min-block-size: 0;
-        block-size: min(78vh, 52rem);
+        block-size: auto;
+        align-self: center;
         background: #000;
         overflow: hidden;
+    }
+
+    .modal-card--public-detail .video-modal__player {
+        padding-block-start: 60px;
+        align-self: start;
     }
 
     .modal-card--public-detail .modal-image {
@@ -179,8 +197,13 @@
     .modal-card--public-detail .memtrack-modal__media img,
     .modal-card--public-detail .memtrack-modal__cover {
         max-inline-size: 100%;
-        max-block-size: 100%;
+        block-size: auto;
+        max-block-size: 88dvh;
         object-fit: contain;
+    }
+
+    .modal-card--public-detail .video-modal__player video {
+        max-block-size: calc(92dvh - 60px);
     }
 
     .modal-card--public-detail .modal-body {
@@ -200,12 +223,17 @@
         display: flex;
         flex-direction: column;
         gap: 0.85rem;
-        block-size: 100%;
+        block-size: auto;
+        max-block-size: 92dvh;
         min-inline-size: 0;
         min-block-size: 0;
         padding: clamp(1rem, 2vw, 1.35rem);
         color: rgba(255, 255, 255, 0.88);
-        overflow: hidden;
+        overflow-y: auto;
+    }
+
+    .public-media-detail-panel > * {
+        flex-shrink: 0;
     }
 
     .public-media-detail__creator {
@@ -305,7 +333,13 @@
         display: none;
     }
 
+    .public-media-detail__menu-button {
+        min-inline-size: 44px;
+        min-block-size: 44px;
+    }
+
     .public-media-detail__menu-item {
+        min-block-size: 44px;
         inline-size: 100%;
         padding: 0.55rem 0.65rem;
         text-align: start;
@@ -343,6 +377,10 @@
         color: rgba(255, 255, 255, 0.62);
     }
 
+    .public-media-detail__interaction-status:empty {
+        display: none;
+    }
+
     .public-media-detail__tabs {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -357,7 +395,7 @@
 
     .public-media-detail__tab-panel {
         min-block-size: 0;
-        overflow: auto;
+        overflow: visible;
     }
 
     .public-media-detail__tab-panel[hidden] {
@@ -389,7 +427,7 @@
         flex: 1 1 auto;
         gap: 0.75rem;
         min-block-size: 0;
-        overflow: hidden;
+        overflow: visible;
     }
 
     .public-media-comments__status {
@@ -419,7 +457,7 @@
         gap: 0.75rem;
         flex: 1 1 auto;
         min-block-size: 0;
-        overflow-y: auto;
+        overflow: visible;
         padding-inline-end: 0.2rem;
     }
 
@@ -635,8 +673,13 @@
         .modal-card--public-detail .video-modal__player,
         .modal-card--public-detail .memtrack-modal__media {
             block-size: auto;
-            min-block-size: 18rem;
-            max-block-size: 52vh;
+            min-block-size: 0;
+            max-block-size: none;
+        }
+
+        .modal-card--public-detail .modal-image img,
+        .modal-card--public-detail .video-modal__player video {
+            max-block-size: 52dvh;
         }
 
         .public-media-detail-slot {
@@ -1049,9 +1092,8 @@
     }
 
     .mobile-media-detail-overlay--media-first .mobile-media-detail-overlay__media {
-        block-size: min(62svh, 38rem);
-        block-size: min(62dvh, 38rem);
-        min-block-size: 18rem;
+        block-size: auto;
+        min-block-size: 0;
         background: #03070d;
     }
 
@@ -1068,10 +1110,15 @@
     .mobile-media-detail-overlay--media-first .mobile-media-detail-overlay__media img,
     .mobile-media-detail-overlay--media-first .mobile-media-detail-overlay__media video {
         inline-size: 100%;
-        block-size: 100%;
+        block-size: auto;
         max-inline-size: 100%;
-        max-block-size: 100%;
+        max-block-size: 62dvh;
         object-fit: contain;
+    }
+
+    .mobile-media-detail-overlay--media-first .mobile-media-detail-overlay__close {
+        min-inline-size: 44px;
+        min-block-size: 44px;
     }
 
     .mobile-media-detail-overlay__details {

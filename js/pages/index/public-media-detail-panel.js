@@ -8,6 +8,24 @@ import {
 import { getAuthState } from '../../shared/auth-state.js';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 
+const ORIGINAL_EXTENSIONS = {
+    'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
+    'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/flac': 'flac',
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/avif': 'avif', 'image/gif': 'gif',
+};
+function originalFileUrl(item, collection) {
+    const supplied = collection === 'mempics' ? item?.full?.url : item?.file?.url;
+    if (!supplied || !['mempics', 'memvids', 'memtracks'].includes(collection)) return null;
+    try {
+        const url = new URL(supplied, location.origin);
+        const parts = url.pathname.split('/');
+        if (url.origin !== location.origin || url.search || url.hash || url.username || url.password
+            || ![6, 7].includes(parts.length) || parts[1] !== 'api' || parts[2] !== 'gallery'
+            || parts[3] !== collection || parts[4] !== String(item?.id) || parts.at(-1) !== 'file') return null;
+        return url.href;
+    } catch { return null; }
+}
+
 const COMMENT_BODY_MAX_LENGTH = 1000;
 const PUBLIC_DETAIL_TITLE_MAX_LENGTH = 21;
 let commentAuthStatePromise = null;
@@ -57,12 +75,9 @@ function getMediaDetails(item, collection) {
     ];
     if (item?.mime_type) details.push([localeText('browse.mimeType'), item.mime_type]);
     if (item?.duration_seconds) details.push([localeText('browse.duration'), formatTime(Number(item.duration_seconds) || 0)]);
-    const width = Number(item?.width || item?.video_width || item?.preview?.w || item?.poster?.w);
-    const height = Number(item?.height || item?.video_height || item?.preview?.h || item?.poster?.h);
-    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-        details.push([localeText('browse.resolution'), `${Math.round(width)} × ${Math.round(height)}`]);
-    }
-    if (item?.aspect_ratio) details.push([localeText('browse.aspect'), item.aspect_ratio]);
+    // Public list dimensions may describe a poster, derivative or requested aspect.
+    // Only the already-open original video can establish its decoded dimensions.
+    if (collection === 'memvids') details.push([localeText('browse.resolution'), localeText('browse.originalResolutionUnknown')]);
     const size = formatBytes(item?.size_bytes);
     if (size) details.push([localeText('browse.fileSize'), size]);
     return details;
@@ -160,6 +175,7 @@ export function createPublicMediaDetailPanel({
     item,
     collection,
     onCommentCountChange = null,
+    originalVideo = null,
 } = {}) {
     const mediaId = String(item?.id || '').trim();
     const root = document.createElement('aside');
@@ -205,9 +221,46 @@ export function createPublicMediaDetailPanel({
     const menu = document.createElement('div');
     menu.className = 'public-media-detail__menu';
     menu.hidden = true;
-    [localeText('browse.share'), localeText('browse.download'), localeText('browse.report')].forEach((label) => {
-        menu.appendChild(createPlaceholderButton(label, 'public-media-detail__menu-item'));
+    const download = createButton(localeText('browse.download'), 'public-media-detail__menu-item');
+    const downloadController = new AbortController();
+    const downloadUrls = new Set();
+    download.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        closeMenu();
+        download.disabled = true;
+        interactionStatus.textContent = localeText('browse.downloadPreparing');
+        try {
+            const url = originalFileUrl(item, collection);
+            if (!url) throw new Error('original_unavailable');
+            const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: downloadController.signal });
+            const type = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+            const extension = ORIGINAL_EXTENSIONS[type];
+            const family = { mempics: 'image/', memvids: 'video/', memtracks: 'audio/' }[collection];
+            if (response.status !== 200 || !extension || !type.startsWith(family)) throw new Error('original_unavailable');
+            const blob = await response.blob();
+            if (!blob.size || destroyed) throw new Error('original_unavailable');
+            const disposition = response.headers.get('content-disposition') || '';
+            const suppliedName = disposition.match(/filename="([^"\r\n]+)"/i)?.[1];
+            const name = String(suppliedName || item?.title || collection).replace(/[\/\\<>:"|?*\u0000-\u001f]/g, '-').trim();
+            const stem = name.replace(/\.(mp4|webm|mov|mp3|m4a|ogg|wav|flac|png|jpe?g|webp|avif|gif)$/i, '') || collection;
+            const href = URL.createObjectURL(blob);
+            downloadUrls.add(href);
+            const link = document.createElement('a');
+            link.href = href;
+            link.download = `${stem}.${extension}`;
+            root.appendChild(link);
+            link.click();
+            link.remove();
+            interactionStatus.textContent = '';
+        } catch {
+            if (!destroyed) interactionStatus.textContent = localeText('browse.originalDownloadFailed');
+        } finally {
+            download.disabled = false;
+        }
     });
+    menu.append(createPlaceholderButton(localeText('browse.share'), 'public-media-detail__menu-item'), download,
+        createPlaceholderButton(localeText('browse.report'), 'public-media-detail__menu-item'));
     menuWrap.append(menuButton, menu);
     actions.append(like, menuWrap);
     root.appendChild(actions);
@@ -252,6 +305,17 @@ export function createPublicMediaDetailPanel({
         detail.textContent = value || '—';
         detailsList.append(term, detail);
     });
+    const resolutionTerm = [...detailsList.querySelectorAll('dt')].find(term => term.textContent === localeText('browse.resolution'));
+    const resolutionValue = resolutionTerm?.nextElementSibling;
+    const updateResolution = () => {
+        if (!resolutionValue) return;
+        const expected = originalFileUrl(item, collection);
+        const matches = expected && originalVideo?.currentSrc === expected && originalVideo.readyState >= 1;
+        resolutionValue.textContent = matches && originalVideo.videoWidth > 0 && originalVideo.videoHeight > 0
+            ? `${originalVideo.videoWidth} × ${originalVideo.videoHeight}` : localeText('browse.originalResolutionUnknown');
+    };
+    ['loadedmetadata', 'resize', 'emptied', 'error'].forEach(event => originalVideo?.addEventListener(event, updateResolution));
+    updateResolution();
     detailsPanel.appendChild(detailsList);
 
     const commentsPanel = document.createElement('section');
@@ -553,6 +617,14 @@ export function createPublicMediaDetailPanel({
         const nextHidden = !menu.hidden;
         menu.hidden = nextHidden;
         menuButton.setAttribute('aria-expanded', nextHidden ? 'false' : 'true');
+        if (!nextHidden) menu.querySelector('button:not(:disabled)')?.focus();
+    });
+    menuWrap.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !menu.hidden) {
+            event.stopPropagation();
+            closeMenu();
+            menuButton.focus();
+        }
     });
     document.addEventListener('click', handleDocumentClick);
     document.addEventListener('bitbi:auth-change', handleAuthChange);
@@ -569,6 +641,9 @@ export function createPublicMediaDetailPanel({
         root,
         destroy() {
             destroyed = true;
+            downloadController.abort();
+            downloadUrls.forEach(url => URL.revokeObjectURL(url));
+            ['loadedmetadata', 'resize', 'emptied', 'error'].forEach(event => originalVideo?.removeEventListener(event, updateResolution));
             document.removeEventListener('click', handleDocumentClick);
             document.removeEventListener('bitbi:auth-change', handleAuthChange);
             root.remove();

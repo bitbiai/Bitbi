@@ -46602,7 +46602,7 @@ test.describe('Worker routes', () => {
     const { buildPublicMemvidUrl, buildPublicMemvidVersion } = await loadPublicMediaContractModule();
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv({
-      users: [createContractUser({ id: 'video-owner', role: 'user' })],
+      users: [createContractUser({ id: 'video-owner', role: 'user' }), createContractUser({ id: 'video-other-user', role: 'user' })],
       profiles: [
         {
           user_id: 'video-owner',
@@ -46709,6 +46709,8 @@ test.describe('Worker routes', () => {
       createExecutionContext().execCtx
     );
     expect(fileRes.status).toBe(200);
+    expect(await fileRes.text()).toBe('video-v1');
+    expect(fileRes.headers.get('content-type')).toBe('video/mp4');
     expect(fileRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
 
     const posterRes = await authWorker.fetch(
@@ -46726,6 +46728,26 @@ test.describe('Worker routes', () => {
     );
     expect(avatarRes.status).toBe(200);
     expect(avatarRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    // A stale public URL must not read the original after publication is withdrawn.
+    env.DB.state.aiTextAssets[0].visibility = 'private';
+    const privateRes = await authWorker.fetch(
+      new Request(`https://bitbi.ai${buildPublicMemvidUrl('bada55e1', version, 'file')}`), env, createExecutionContext().execCtx
+    );
+    expect(privateRes.status).toBe(404);
+    expect(await privateRes.text()).not.toContain('video-v1');
+    const ownerToken = await seedSession(env, 'video-owner');
+    const ownerRes = await authWorker.fetch(new Request('https://bitbi.ai/api/ai/text-assets/bada55e1/file', {
+      headers: { Cookie: `bitbi_session=${ownerToken}` },
+    }), env, createExecutionContext().execCtx);
+    expect(ownerRes.status).toBe(200);
+    expect(await ownerRes.text()).toBe('video-v1');
+    const guestRes = await authWorker.fetch(new Request('https://bitbi.ai/api/ai/text-assets/bada55e1/file'), env, createExecutionContext().execCtx);
+    expect(guestRes.status).toBe(401);
+    const otherToken = await seedSession(env, 'video-other-user');
+    const otherRes = await authWorker.fetch(new Request('https://bitbi.ai/api/ai/text-assets/bada55e1/file', {
+      headers: { Cookie: `bitbi_session=${otherToken}` },
+    }), env, createExecutionContext().execCtx);
+    expect(otherRes.status).toBe(404);
   });
 
   test('public Memvid list uses manual hero upload display aspect ratio only when poster dimensions are missing', async () => {

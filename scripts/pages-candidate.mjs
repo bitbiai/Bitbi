@@ -207,6 +207,19 @@ export function verifyAdminReport(report, discovery, scopes = [
   }
 }
 
+export function verifyPublicMediaReport(report, discovery) {
+  verifyAdminReport(report, discovery, [['dialog',['public-media-dialog.spec.js']],['neighbors',['smoke.spec.js','auth-admin.spec.js']]]);
+  let contract = false;
+  const visit = suite => {
+    for (const spec of suite.specs || []) if (path.basename(spec.file) === 'workers.spec.js'
+      && spec.title.startsWith('public Memvid file and poster routes')
+      && spec.tests.some(test => test.projectName === 'file-contract')) contract = true;
+    (suite.suites || []).forEach(visit);
+  };
+  (discovery.suites || []).forEach(visit);
+  assert(contract, 'Missing original-file authorization contract');
+}
+
 export function verifyAssetReport(report, discovery) {
   verifyAdminReport(report, discovery, [['cards',['assets-manager-focused.spec.js']],['jobs',['oma2-q1-member.spec.js']],['actions',['auth-admin.spec.js']]]);
 }
@@ -288,6 +301,7 @@ async function main(command) {
     }
     const report=reports[0];
     if (manifest.selection?.assets && !manifest.selection.full && process.env.GITHUB_JOB === 'browser-validation') verifyAssetReport(reports[names.indexOf('test-results/candidate-assets.json')], JSON.parse(fs.readFileSync('test-results/assets-discovery.json')));
+    if (manifest.selection?.publicMedia) verifyPublicMediaReport(report, JSON.parse(fs.readFileSync('test-results/public-media-discovery.json')));
     if (manifest.selection?.adminRelease) verifyAdminReport(report, JSON.parse(fs.readFileSync('test-results/admin-discovery.json')));
     if(['homepage-webkit-media','homepage-validation'].includes(process.env.GITHUB_JOB)) {
       const engine=process.env.GITHUB_JOB==='homepage-webkit-media'?'webkit':'chromium';

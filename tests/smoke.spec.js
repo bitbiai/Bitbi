@@ -7089,16 +7089,16 @@ test.describe('Homepage', () => {
       const formRect = document.querySelector('.public-media-comments__form')?.getBoundingClientRect();
       const listRect = document.querySelector('.public-media-comments__list')?.getBoundingClientRect();
       const card = document.querySelector('#galleryModal .modal-card--public-detail');
-      const list = document.querySelector('.public-media-comments__list');
+      const list = document.querySelector('#galleryModal .public-media-detail-panel');
       return {
         formTop: formRect?.top || 0,
         listTop: listRect?.top || 0,
         cardHeight: card?.getBoundingClientRect().height || 0,
-        listScrollsInternally: Boolean(list && list.scrollHeight > list.clientHeight),
+        detailScrollsWhenNeeded: Boolean(list && list.scrollHeight > list.clientHeight),
       };
     });
     expect(verticalOrder.formTop).toBeLessThan(verticalOrder.listTop);
-    expect(verticalOrder.listScrollsInternally).toBe(true);
+    expect(verticalOrder.detailScrollsWhenNeeded).toBe(true);
 
     await input.fill('Fresh posted comment');
     await submit.click();
@@ -7114,14 +7114,14 @@ test.describe('Homepage', () => {
     await expect(detail.locator('.public-media-comments__item').first().locator('time')).toBeVisible();
     const afterPostLayout = await detail.evaluate(() => {
       const card = document.querySelector('#galleryModal .modal-card--public-detail');
-      const list = document.querySelector('.public-media-comments__list');
+      const list = document.querySelector('#galleryModal .public-media-detail-panel');
       return {
         cardHeight: card?.getBoundingClientRect().height || 0,
-        listScrollsInternally: Boolean(list && list.scrollHeight > list.clientHeight),
+        detailScrollsWhenNeeded: Boolean(list && list.scrollHeight > list.clientHeight),
       };
     });
     expect(Math.abs(afterPostLayout.cardHeight - verticalOrder.cardHeight)).toBeLessThanOrEqual(1);
-    expect(afterPostLayout.listScrollsInternally).toBe(true);
+    expect(afterPostLayout.detailScrollsWhenNeeded).toBe(true);
   });
 
   test('Gallery and Sound Lab cleanup remove stale Exclusive admin references', () => {

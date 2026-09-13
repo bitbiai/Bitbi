@@ -211,6 +211,16 @@ const MEMBER_ASSET_VALIDATION = new Set([
   'tests/helpers/q2-runtime/linux-bootstrap.py', 'tests/helpers/q2-runtime/linux-runtime-child.mjs',
 ]);
 
+// The shared public detail window has its own bounded browser/HTTP contract.
+// This does not classify homepage controllers or arbitrary shared files as narrow.
+const PUBLIC_MEDIA_DETAIL_FILES = new Set([
+  'js/pages/index/public-media-detail-panel.js', 'js/pages/index/video-gallery.js',
+  'css/pages/index.css', 'js/shared/locale.js',
+  'tests/public-media-dialog.spec.js', 'playwright.public-media.config.js',
+  'tests/fixtures/media/detail-original.mp4', 'tests/workers.spec.js', 'tests/smoke.spec.js',
+  'scripts/lib/release-plan.mjs',
+]);
+
 function normalizeFile(value) {
   return String(value || "")
     .trim()
@@ -315,6 +325,15 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selection.workers = changedFiles.some(file => file.startsWith('workers/') || file.includes('member-generation') || file.includes('q2-runtime') || file === 'tests/helpers/auth-worker-harness.js');
     selection.reasons.assets.push('Shared cards, owner actions/picker and durable client in Chromium/WebKit; same candidate build');
     if (selection.workers) selection.reasons.workers.push('Affected image/video/music/storage routes including access/credit failures, durable jobs and native member-generation suite; no unrelated Auth/Admin or Q4 suite');
+    return selection;
+  }
+
+  if (!forceFull && changedFiles.includes('js/pages/index/public-media-detail-panel.js')
+      && changedFiles.every(file => isDocumentation(file) || PUBLIC_MEDIA_DETAIL_FILES.has(file) || RELEASE_TOOLING_FILES.has(file))) {
+    selection.policy = 'public-media-detail-v1';
+    selection.publicMedia = true;
+    selection.auth = selection.static = selection.runtime = true;
+    selection.reasons.auth.push('Public detail window: Chromium/WebKit original download, metadata, controls/comments and targeted file authorization; no generation or decorative hero changes');
     return selection;
   }
 

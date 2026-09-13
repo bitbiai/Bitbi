@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
-import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, requiredJobs, proofJobs, isRequiredValidationRun, validatePublishedDeployment, verifyAdminReport, verifyAssetReport, tree, validateSource, verifyManifest, verifyProofs, MEDIA_POLICY } from './pages-candidate.mjs';
+import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, requiredJobs, proofJobs, isRequiredValidationRun, validatePublishedDeployment, verifyAdminReport, verifyAssetReport, verifyPublicMediaReport, tree, validateSource, verifyManifest, verifyProofs, MEDIA_POLICY } from './pages-candidate.mjs';
 const sha='a'.repeat(40),expected={repository:REPOSITORY,sha,base:Q4_BASE,run:'123',attempt:'1',currentRun:'456'};
 const run={repository:{full_name:REPOSITORY},head_repository:{full_name:REPOSITORY},head_sha:sha,head_branch:'main',id:123,run_attempt:1,path:'.github/workflows/static.yml',event:'push',status:'completed',conclusion:'success',created_at:'2026-09-09T00:00:00Z'};
 const jobs=Object.entries(REQUIRED_JOBS).map(([name,steps])=>({name,head_sha:sha,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
@@ -141,7 +141,7 @@ assert(!block('release-compatibility').includes('CI_FORCE_FULL:'));
 assert(block('release-compatibility').includes('CI_BASE_REF: ${{ env.CANDIDATE_BASE }}'));
 assert(!block('release-compatibility').includes('github.event.before'));
 // Evaluate the real selected-step conditions, not only job names/counts.
-for(const files of [['js/shared/saved-assets-browser.js','workers/auth/src/lib/asset-names.js'],['admin/index.html','tests/oma2-q3-newsfeed.spec.js'],['README.md'],['workers/auth/src/index.js'],['index.html'],['.github/workflows/static.yml']]) {
+for(const files of [['js/pages/index/public-media-detail-panel.js'],['js/shared/saved-assets-browser.js','workers/auth/src/lib/asset-names.js'],['admin/index.html','tests/oma2-q3-newsfeed.spec.js'],['README.md'],['workers/auth/src/index.js'],['index.html'],['.github/workflows/static.yml']]) {
  const selection=selectCiTests(files);
  const outputs=Object.fromEntries(Object.entries(selection).map(([k,v])=>[k.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()),String(v)]));
  const ctx={needs:{'release-compatibility':{outputs}},steps:{selection:{outputs},homepage_discovery:{outcome:selection.homepage||selection.carousel?'success':'skipped'}},success:()=>true};
@@ -376,7 +376,7 @@ try {
    const nextOutput=path.join(cwd,oldLayout?'test-results':'test-results/browser-artifacts');
    fs.mkdirSync(nextOutput,{recursive:true});
    fs.writeFileSync(path.join(nextOutput,'stale.txt'),'previous invocation');
-   execute(stepRun('Run selected auth and admin tests'));
+   execute(stepRun('Run selected auth and admin tests').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false'));
    assert(!fs.existsSync(path.join(nextOutput,'stale.txt')),'Second invocation must still clean disposable output');
    assert.equal(fs.existsSync(reports[0]),!oldLayout);
    execute(stepRun('Confirm tested browser candidate bytes'),!oldLayout);
@@ -415,3 +415,30 @@ for(const fault of ['missing','failed','skipped','empty','foreign']) {
  assert.throws(()=>verifyAssetReport(bad,assetReport),fault);
 }
 assert.throws(()=>verifyAssetReport({suites:[]},{suites:[]}));
+
+const detailReport={suites:[{specs:['chromium','webkit'].map(engine=>({
+ id:engine+'-dialog',file:'public-media-dialog.spec.js',tests:[{projectName:engine+'-dialog',results:[{status:'passed'}]}]
+}))}]};
+detailReport.suites[0].specs.push({id:'route',file:'workers.spec.js',title:'public Memvid file and poster routes original contract',tests:[{projectName:'file-contract',results:[{status:'passed'}]}]});
+for(const engine of ['chromium','webkit'])for(const file of ['smoke.spec.js','auth-admin.spec.js'])detailReport.suites[0].specs.push({id:engine+file,file,tests:[{projectName:engine+'-neighbors',results:[{status:'passed'}]}]});
+verifyPublicMediaReport(detailReport,detailReport);
+for(const status of ['failed','skipped','timedOut']) {
+ const bad=structuredClone(detailReport);bad.suites[0].specs[0].tests[0].results[0].status=status;
+ assert.throws(()=>verifyPublicMediaReport(bad,detailReport));
+}
+const missingRoute=structuredClone(detailReport);missingRoute.suites[0].specs=missingRoute.suites[0].specs.filter(spec=>spec.file!=='workers.spec.js');
+assert.throws(()=>verifyPublicMediaReport(missingRoute,missingRoute));
+const missingBrowser=structuredClone(detailReport);missingBrowser.suites[0].specs.shift();
+assert.throws(()=>verifyPublicMediaReport(missingBrowser,detailReport));
+const detailSelection=selectCiTests(['js/pages/index/public-media-detail-panel.js']);
+assert.deepEqual(Object.keys(requiredJobs(detailSelection)),['release-compatibility','browser-validation']);
+assert(requiredJobs(detailSelection)['browser-validation'].includes('Run selected auth and admin tests'));
+
+const dialogContext=structuredClone(normal.needs);
+dialogContext['release-compatibility'].outputs={pages_allowed:'true',pages_required:'true',workers:'false',homepage:'false',carousel:'false',assets:'false',auth:'true',public_media:'true'};
+for(const job of ['worker-validation','homepage-validation','homepage-webkit-media'])dialogContext[job].result='skipped';
+const publicContext={...normal,needs:dialogContext};
+assert(permits('browser-validation',publicContext));assert(permits('deploy',publicContext));
+for(const result of ['failure','skipped','cancelled',undefined]) {
+ assert(!permits('deploy',{...publicContext,needs:{...dialogContext,'browser-validation':{result}}}));
+}
