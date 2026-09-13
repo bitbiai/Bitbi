@@ -1,8 +1,49 @@
 const { test, expect } = require('@playwright/test');
-const { installHeroNativeProbe, createProgressWindow } = require('./helpers/homepage-hero-native-probe');
+const { installHeroNativeProbe, createProgressWindow, recordNativeOutput } = require('./helpers/homepage-hero-native-probe');
 
 const SLOTS = '#hero [data-latest-models-slot]';
 const VIDEOS = `${SLOTS} video`;
+
+test('raw rVFC replay: delayed callback preserves resume output but cannot certify the following seek', async ({}, testInfo) => {
+  // Original34776760807 left_top, relative to actionAt28724. These are raw
+  // compositor timestamps/PTS, not a replay of the already-filtered counter.
+  const frames = [
+    { now:1639, presentationTime:1405, mediaTime:0, presentedFrames:76, seeking:false },
+    { now:4838, presentationTime:3953, mediaTime:0.26666666666666666, presentedFrames:78, seeking:true },
+  ];
+  const make = () => ({epoch:3,src:'/original',loop:true,outputAdvances:23,completedLoops:0,lastOutput:null});
+  const state=make();
+  const accept=(frame, context={})=>recordNativeOutput(state,frame,{now:frame.now,epoch:3,source:'/original',since:0,paused:false,...context});
+  const snapshots=['left_top','left_bottom','right_top','right_bottom'].map((slot,id)=>({
+    slot,id,src:'/original',epoch:3,active:true,connected:true,paused:false,readyState:4,error:null,
+    seeking:false,outputAdvances:23,completedLoops:0,sampledAt:0,
+  }));
+  const resume=createProgressWindow({resume:true}); expect(resume(snapshots)).toBe(false);
+  expect(accept({...frames[0],presentationTime:-1})).toBe(false); // before action
+  expect(accept(frames[0],{epoch:2})).toBe(false);
+  expect(accept(frames[0],{source:'/foreign'})).toBe(false);
+  expect(accept(frames[0],{paused:true})).toBe(false);
+  expect(accept(frames[0])).toBe(true);expect(state.outputAdvances).toBe(23);
+  expect(accept(frames[1])).toBe(true);expect(state.outputAdvances).toBe(24);
+  expect(state.outputPair).toEqual({from:1405,to:3953});
+  expect(accept({...frames[1],now:4840,presentationTime:4839,presentedFrames:99})).toBe(true);
+  expect(state.outputAdvances).toBe(24); // callbacks/counts without changed PTS
+  const current=snapshots.map(v=>({...v,outputAdvances:24,outputPair:{...state.outputPair},seeking:true,sampledAt:4838}));
+  expect(resume(current)).toBe(true); // current seek cannot undo earlier output
+  const seek=createProgressWindow();expect(seek(current)).toBe(false);
+  const seeked=current.map(v=>({...v,seeking:false,sampledAt:4900}));
+  expect(seek(seeked)).toBe(false); // seeked alone and old pair are not output
+  const delayed=seeked.map(v=>({...v,outputAdvances:25,outputPair:{from:3953,to:4700}}));
+  expect(seek(delayed)).toBe(false); // late delivery of pre-seek frames
+  const fresh=seeked.map(v=>({...v,outputAdvances:26,outputPair:{from:4910,to:4940}}));
+  expect(seek(fresh)).toBe(true);
+  expect(createProgressWindow({resume:true})(fresh)).toBe(false); // fresh phase is frozen
+  for(const fault of [{epoch:4},{src:'/foreign'},{id:99},{paused:true},{error:3}]) {
+    expect(resume([{...current[0],...fault},...current.slice(1)])).toBe(false);
+  }
+  await testInfo.attach('raw-frame-classification',{body:JSON.stringify({frames,state,
+    scope:'Synthetic lower-classifier replay, not native acceptance; absolute deadline tested by browser progress action countercontrol.'}),contentType:'application/json'});
+});
 
 test('probe replay: recorded stalled fourth slot stays red; seek needs fresh output in every identity', () => {
   const recorded = require('./fixtures/media/hero-stalled-slot.json');
@@ -182,8 +223,8 @@ test('browser progress action captures resume before delayed collection and pins
     await new Promise(resolve=>setTimeout(resolve,200)); // Delayed caller, not delayed observation.
     const joined=await pending;
     // Actual existing callback wiring, with explicitly synthetic metadata.
-    // A delayed timer sees only the next seek; the native callback sees output
-    // in its own phase. Neither can pass a subsequent interval with no output.
+    // Both collection paths retain the resumed phase despite a later seek.
+    // Neither can pass a new seek interval without its own output.
     const signal = document.createElement('video'); document.body.append(signal);
     let frame;
     signal.requestVideoFrameCallback = cb => { frame=cb; return 1; };
@@ -194,7 +235,7 @@ test('browser progress action captures resume before delayed collection and pins
       current.forEach(v=>{v.seeking=true;});
     };
     reset();
-    const timerMiss=await window.__heroNativeProbe.waitForProgress({timeout:100,action:betweenTasks(false)});
+    const timerCollected=await window.__heroNativeProbe.waitForProgress({timeout:100,action:betweenTasks(false)});
     reset();
     const callbackSeen=await window.__heroNativeProbe.waitForProgress({timeout:100,action:betweenTasks(true)});
     const laterStuck=await window.__heroNativeProbe.waitForProgress({timeout:100});
@@ -208,7 +249,7 @@ test('browser progress action captures resume before delayed collection and pins
     }});
     signal.remove();
     const negatives=[];
-    for(const fault of ['frozen','source','epoch','id','missing','paused','seek-only','old-output']) {
+    for(const fault of ['frozen','source','epoch','id','missing','paused','seek-only','old-output','pre-action-frame','future-frame']) {
       reset();
       if(fault==='old-output')current.forEach(v=>{v.paused=false;v.outputAdvances++;});
       let timer;
@@ -223,16 +264,18 @@ test('browser progress action captures resume before delayed collection and pins
         timer=setTimeout(()=>{
           current.forEach((v,i)=>{if(fault!=='old-output' && (i>0||!['frozen','seek-only'].includes(fault)))v.outputAdvances++;});
           if(fault==='seek-only')current[0].seeking=false;
+          if(fault==='pre-action-frame')current[0].outputPair={from:0,to:1};
+          if(fault==='future-frame')current[0].outputPair={from:performance.now(),to:performance.now()+10000};
         },25);
       }});
       clearTimeout(timer);
       const readsAtFinish=reads;await new Promise(resolve=>setTimeout(resolve,25));
       negatives.push({fault,proof,stopped:reads===readsAtFinish});
     }
-    return {late,joined,timerMiss,callbackSeen,laterStuck,unsubscribed,afterDeadline,negatives};
+    return {late,joined,timerCollected,callbackSeen,laterStuck,unsubscribed,afterDeadline,negatives};
   });
   await test.info().attach('lifecycle-observation-order',{body:JSON.stringify(result),contentType:'application/json'});
-  expect(result.timerMiss.passed).toBe(false);
+  expect(result.timerCollected.passed).toBe(true);
   expect(result.callbackSeen.passed).toBe(true);
   expect(result.laterStuck.passed).toBe(false);
   expect(result.unsubscribed).toBe(true);
@@ -484,7 +527,7 @@ test('probe only: cached decode counts do not hide output; frozen frames and sta
   // native playback pass. The independent HTTP native control stays separate.
   await installHeroNativeProbe(page);
   await page.goto('/plain-video');
-  const result = await page.evaluate(() => {
+  const result = await page.evaluate(async () => {
     const video = document.createElement('video');
     document.body.append(video);
     let next, time = 0, paused = false;
@@ -498,26 +541,33 @@ test('probe only: cached decode counts do not hide output; frozen frames and sta
     video.getBoundingClientRect = () => { throw new Error('unexpected hot-path layout flush'); };
     video.requestVideoFrameCallback = callback => { next = callback; return 1; };
     const read = () => window.__heroNativeProbe.observe(video);
-    const emit = value => { time = value; next(performance.now(), { mediaTime: value, presentedFrames: 15 }); return read().outputAdvances; };
-    read(); emit(0.1);
+    const emit = async value => { await new Promise(resolve=>setTimeout(resolve,1)); time = value; next(performance.now(), { mediaTime: value, presentationTime:performance.now(), presentedFrames: 15 }); return read().outputAdvances; };
+    read(); await emit(0.1);
     const baseline = read().outputAdvances;
-    const frozen = emit(0.1);
-    const progress = emit(0.2);
+    const frozen = await emit(0.1);
+    const progress = await emit(0.2);
+    const retiredPauseCallback=next;
     paused = true; video.dispatchEvent(new Event('pause'));
     const pauseEpoch = read().epoch;
-    emit(0.3); // pending callback from the retired epoch is discarded
-    paused = false;
-    const resumeBaseline = emit(0.4);
-    const resumeProgress = emit(0.5);
+    retiredPauseCallback(performance.now(),{mediaTime:0.3,presentationTime:performance.now(),presentedFrames:16});
+    const retiredPauseOutput=read().outputAdvances;
+    paused = false; video.dispatchEvent(new Event('play'));
+    const resumeBaseline = await emit(0.4);
+    const resumeProgress = await emit(0.5);
+    const retiredSourceCallback=next;
     video.setAttribute('src', '/synthetic-other-source.mp4');
     const sourceEpoch = read().epoch;
-    const sourceBaseline = emit(0.6); // callback registered for previous source
-    const sourceFirst = emit(0.1);
-    const sourceProgress = emit(0.2);
-    return { baseline, frozen, progress, pauseEpoch, resumeBaseline, resumeProgress, sourceEpoch, sourceBaseline, sourceFirst, sourceProgress };
+    retiredSourceCallback(performance.now(),{mediaTime:0.6,presentationTime:performance.now(),presentedFrames:17});
+    const retiredSourceOutput=read().outputAdvances;
+    const sourceBaseline = await emit(0.6); // first frame of the new registration is its baseline
+    const sourceFirst = await emit(0.1);
+    const sourceProgress = await emit(0.2);
+    return { baseline, frozen, progress, retiredPauseOutput, retiredSourceOutput, pauseEpoch, resumeBaseline, resumeProgress, sourceEpoch, sourceBaseline, sourceFirst, sourceProgress };
   });
   expect(result.frozen).toBe(result.baseline);
   expect(result.progress).toBe(result.baseline + 1);
+  expect(result.retiredPauseOutput).toBe(result.progress);
+  expect(result.retiredSourceOutput).toBe(result.resumeProgress);
   expect(result.resumeBaseline).toBe(result.progress);
   expect(result.resumeProgress).toBe(result.progress + 1);
   expect(result.pauseEpoch).toBeGreaterThan(0);
@@ -570,13 +620,13 @@ test('probe only: paused transition proof rejects foreign targets and survives l
         Object.defineProperties(t.video, { paused:{get:()=>paused}, seeking:{get:()=>false}, readyState:{get:()=>4} });
         t.video.requestVideoFrameCallback = next => { callback=next; return 1; };
         resume = () => { paused=false; };
-        emit = time => { paused=false; callback(performance.now(), {mediaTime:time,presentedFrames:1}); };
+        emit = time => { paused=false; callback(performance.now(), {mediaTime:time,presentationTime:performance.now(),presentedFrames:1}); };
       }
       const proof = window.__heroNativeProbe.observePausedTransitions({ timeout: 120, requireOutput });
       if(requireOutput) {
         t.settle(); resume();
         if(mode==='resume-old-epoch') t.video.dispatchEvent(new Event('pause'));
-        if(mode!=='resume-no-output') { emit(0.1);emit(0.2); }
+        if(mode!=='resume-no-output') { emit(0.1); await new Promise(resolve=>setTimeout(resolve,1)); emit(0.2); }
       }
       if (mode === 'wrong') t.settle(t.face.cloneNode(true));
       if (mode === 'removed') t.face.remove();

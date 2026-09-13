@@ -431,6 +431,11 @@ for (const locale of ['en', 'de']) {
     await page.evaluate(() => window.__setHeroDocumentHidden(true));
     await expectFrozen(page, testInfo, 'hidden-after-bfcache', 200);
     await expectPlaying(page, 'visible');
+    // Resume evidence must not hide a subsequent stuck loop/seek, including
+    // this final visibility cycle. New window, same existing functional bound.
+    const visibleContinuation = await page.evaluate(() => window.__heroNativeProbe.waitForProgress({ loops: 1 }));
+    await testInfo.attach('post-visibility-loop-output', { body: JSON.stringify(visibleContinuation), contentType: 'application/json' });
+    expect(visibleContinuation.passed, JSON.stringify(visibleContinuation.issues)).toBe(true);
     await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false })));
     await expect(page.locator(HERO_VIDEOS)).toHaveCount(0);
     expect(await page.evaluate(() => window.__heroContinuityProbe.videos.every(video => video.paused && !video.hasAttribute('src')))).toBe(true);

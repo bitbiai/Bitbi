@@ -1,6 +1,25 @@
 // Observational native-media probe. It never replaces a player, clock, source,
 // currentTime, pause result or play promise; every play call goes to the engine.
-function installBrowserProbe(createProgressWindow, observeProgress) {
+// rVFC presentationTime is compositor submission time; mediaTime is frame PTS.
+// The element's seeking flag at callback delivery describes a later instant.
+// This records delivered frame progression, NOT completion of a subsequent seek.
+function recordNativeOutput(state, output, { now, epoch, source, since, paused }) {
+  const valid = output && epoch === state.epoch && source === state.src && !paused
+    && Number.isFinite(output.presentationTime) && Number.isFinite(output.mediaTime)
+    && output.presentationTime >= since && output.presentationTime <= now;
+  if (!valid) return false;
+  const previous = state.lastOutput;
+  if (previous && output.presentationTime <= previous.presentationTime) return false;
+  if (previous && output.mediaTime < previous.mediaTime && state.loop) state.outputLoopPending = true;
+  else if (previous && output.mediaTime > previous.mediaTime) {
+    state.outputAdvances++;
+    state.outputPair = { from: previous.presentationTime, to: output.presentationTime };
+    if (state.outputLoopPending) { state.completedLoops++; state.outputLoopPending = false; }
+  }
+  state.lastOutput = { mediaTime: output.mediaTime, presentationTime: output.presentationTime };
+  return true;
+}
+function installBrowserProbe(createProgressWindow, observeProgress, recordNativeOutput) {
     const ids = new WeakMap();
     const observations = new WeakMap();
     let sequence = 0, eventSequence = 0;
@@ -12,11 +31,20 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
       let state=observations.get(video);
       if(!state) {
         state={epoch:0, src:video.getAttribute('src'), lastTime:video.currentTime, lastFrames:0, maxTime:0, nativeOutput:[],
-          outputAdvances:0, completedLoops:0, loopPending:false, callbackPending:false, frameCallbacks:0, nativePresentedFrames:null, lastOutputTime:null, outputLoopPending:false};
+          outputAdvances:0, completedLoops:0, loopPending:false, callbackPending:false, frameCallbacks:0, nativePresentedFrames:null, lastOutput:null, outputPair:null, outputSince:performance.now(), outputLoopPending:false};
         observations.set(video,state);ids.set(video,++sequence);
-        const reset=()=>{state.epoch++;state.loopPending=false;state.outputLoopPending=false;state.lastOutputTime=null;state.maxTime=0;state.lastTime=video.currentTime;
+        const reset=()=>{state.epoch++;state.loopPending=false;state.outputLoopPending=false;state.lastOutput=null;state.outputPair=null;state.outputSince=performance.now();state.maxTime=0;state.lastTime=video.currentTime;
           state.lastFrames=video.requestVideoFrameCallback ? 0 : video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? 0;};
         video.addEventListener('pause',reset);video.addEventListener('emptied',reset);
+        // Retire the pending registration immediately. Otherwise the first
+        // resumed frame can be consumed by a callback from the paused epoch.
+        const retire = () => {
+          if (state.callbackPending) video.cancelVideoFrameCallback?.(state.callbackHandle);
+          state.callbackPending=false; state.callbackHandle=null; state.registration=null;
+        };
+        video.addEventListener('pause',retire);video.addEventListener('emptied',retire);
+        state.retire=retire;
+        video.addEventListener('play',()=>{retire();observation(video);});
         video.addEventListener('seeking',()=>{
           state.loopPending=video.loop && !video.paused && video.currentTime < video.duration*0.2 && state.maxTime>video.duration*0.5;
           state.lastTime=video.currentTime;state.maxTime=0;
@@ -25,21 +53,17 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
         video.addEventListener('timeupdate',()=>observation(video));
       }
       const source=video.getAttribute('src');
-      if(source!==state.src){state.epoch++;state.src=source;state.loopPending=false;state.outputLoopPending=false;state.lastOutputTime=null;state.maxTime=0;state.lastTime=video.currentTime;state.lastFrames=0;}
+      if(source!==state.src){state.retire();state.epoch++;state.src=source;state.loopPending=false;state.outputLoopPending=false;state.lastOutput=null;state.outputPair=null;state.outputSince=performance.now();state.maxTime=0;state.lastTime=video.currentTime;state.lastFrames=0;}
       // Native frame callbacks already provide output. Do not synchronously
       // query decoder statistics on every callback/timeupdate as well.
       const frames=video.requestVideoFrameCallback ? null : video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? null;
       // Decoded counters can stay cached while already-decoded frames are
       // presented again after resume. Native frame mediaTime proves output;
       // callback frequency and cached decode counts are not progress quotas.
-      if(output && !video.paused && !video.seeking) {
-        const previous=state.lastOutputTime;
-        if(previous!==null && output.mediaTime<previous && video.loop) state.outputLoopPending=true;
-        else if(previous!==null && output.mediaTime>previous) {
-          state.outputAdvances++;
-          if(state.outputLoopPending){state.completedLoops++;state.outputLoopPending=false;}
-        }
-        state.lastOutputTime=output.mediaTime;
+      if(output) {
+        state.loop=video.loop;
+        recordNativeOutput(state,output,{now:performance.now(),epoch:state.epoch,
+          source:source,since:state.outputSince,paused:video.paused});
       }
       if(output) {
         state.nativeOutput.push({observedAt:performance.now(),mediaTime:output.mediaTime,presentationTime:output.presentationTime,
@@ -56,8 +80,10 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
       // A disconnected pre-insertion video is registered on its next sample.
       if(video.isConnected && video.requestVideoFrameCallback && !state.callbackPending) {
         state.callbackPending=true;
+        const registration = {}; state.registration=registration;
         const registeredEpoch=state.epoch, registeredSource=state.src;
-        video.requestVideoFrameCallback((_now,metadata)=>{
+        state.callbackHandle=video.requestVideoFrameCallback((_now,metadata)=>{
+          if(state.registration!==registration) return;
           state.callbackPending=false;state.frameCallbacks++;state.nativePresentedFrames=metadata.presentedFrames;
           const current=registeredEpoch===state.epoch && registeredSource===video.getAttribute('src');
           observation(video,current ? metadata : null);
@@ -97,9 +123,10 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
           animationPlayState: slot?.querySelector('.latest-models-video-module__cube')?.style.animationPlayState || '',
           // Geometry/style observations are not a proof of visual occlusion.
         } : undefined,
-        connected: video.isConnected, src: video.getAttribute('src'),
+        sampledAt: performance.now(), connected: video.isConnected, src: video.getAttribute('src'),
         time: video.currentTime, duration: Number.isFinite(video.duration) ? video.duration : null,
         epoch: observationState.epoch, outputAdvances: observationState.outputAdvances, completedLoops: observationState.completedLoops,
+        outputPair: observationState.outputPair,
         frameCallbacks: observationState.frameCallbacks, nativePresentedFrames: observationState.nativePresentedFrames,
         // Different engine statistics, never an interchangeable pause budget.
         frames: details ? video.getVideoPlaybackQuality?.().totalVideoFrames ?? video.webkitDecodedFrameCount ?? null : null,
@@ -255,13 +282,13 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
 async function installHeroNativeProbe(page) {
   // Install the exact exported functions together, without an additional loader
   // or a second copy of the identity contract in the browser.
-  await page.addInitScript({ content: `(${installBrowserProbe})(${createProgressWindow}, ${observeProgress});` });
+  await page.addInitScript({ content: `(${installBrowserProbe})(${createProgressWindow}, ${observeProgress}, ${recordNativeOutput});` });
 }
 
 // Observe inside one browser call. Transport delays must not discard output
 // already seen before a normal source transition. Each invocation starts fresh.
 function observeProgress(sample, { loops = 0, timeout = 5000, action = null } = {}, factory = createProgressWindow, subscribe = null) {
-  const progress = factory({ loops });
+  const progress = factory({ loops, resume: action !== null });
   return new Promise((resolve, reject) => {
     const start = performance.now();
     const samples = [], decisions = [];
@@ -284,6 +311,11 @@ function observeProgress(sample, { loops = 0, timeout = 5000, action = null } = 
         const current = sample(); sampleCount++;
         const sampledAt = performance.now() - start;
         const passed = progress(current, { index: sampleCount, at: sampledAt });
+        // A delayed callback must not import a pair submitted before this
+        // observation/action. Undefined belongs only to synthetic/fallback rows;
+        // native browser samples always carry outputPair (null until proved).
+        const hasOwnOutput = current.filter(v=>v.active).every(v =>
+          v.outputPair === undefined || (v.outputPair && v.outputPair.from >= (actionAt ?? start) && v.outputPair.to <= start + timeout));
         if (actionBaseline) {
           const active = current.filter(video => video.active);
           actionIssues = actionBaseline.flatMap(before => {
@@ -303,7 +335,7 @@ function observeProgress(sample, { loops = 0, timeout = 5000, action = null } = 
           actionIssues = [{ condition: 'observation-deadline', observedAt: sampledAt }];
           return finish(false);
         }
-        if (passed) return finish(true);
+        if (passed && hasOwnOutput) return finish(true);
         if (performance.now() - start >= timeout) return finish(false);
         timer = setTimeout(tick, 16);
       } catch (error) { finish(false, error); }
@@ -325,7 +357,7 @@ function observeProgress(sample, { loops = 0, timeout = 5000, action = null } = 
 
 // One invocation is one observation interval. Retain each slot's evidence,
 // never evidence from a retired identity, paused epoch or another source.
-function createProgressWindow({ loops=0 }={}) {
+function createProgressWindow({ loops=0, resume=false }={}) {
   const states=new Map();
   let issues=[], sequence=0;
   const observe=(current, { index=++sequence, at=null }={})=>{
@@ -342,23 +374,27 @@ function createProgressWindow({ loops=0 }={}) {
           lastInvalidation:{index,at,reason:!state?'initial':state.key!==key?'identity-or-epoch':video.paused?'paused':video.error?'media-error':'detached'}};
         states.set(video.slot,state);
       }
-      // Seek completion alone is not output. A captured seek needs subsequent
-      // output in this identity, even if it progressed before that seek.
-      if(video.seeking) {
-        state.seekBaseline=video.outputAdvances;state.progress=false;
+      // Resume proves its own submitted-frame pair, retained across later seeks.
+      // A separate current/loop window instead needs a pair after the observed
+      // seek; neither an old delayed callback nor seeked alone can certify it.
+      if(video.seeking && !resume) {
+        if(!state.wasSeeking) state.seekBaseline=video.outputAdvances;
+        state.seekPresentationFloor=video.sampledAt;state.progress=false;
         state.lastInvalidation={index,at,reason:'seeking'};
       }
-      if(!video.paused && video.readyState>=2 && video.error===null && video.connected) {
-        if(!video.seeking && video.outputAdvances>Math.max(state.before.outputAdvances,state.seekBaseline ?? -1))state.progress=true;
+      if(!video.paused && (resume || video.readyState>=2) && video.error===null && video.connected) {
+        if((resume || (!video.seeking && (video.outputPair === undefined || state.seekPresentationFloor === undefined
+            || video.outputPair?.from >= state.seekPresentationFloor))) && video.outputAdvances>Math.max(state.before.outputAdvances,state.seekBaseline ?? -1))state.progress=true;
         if((video.completedLoops ?? 0)-(state.before.completedLoops ?? 0)>=loops)state.loops=true;
       }
+      state.wasSeeking=video.seeking;
       state.everProgress ||= state.progress;
       state.current=video;
     }
     issues=active.flatMap(video=>{
       const s=states.get(video.slot);
-      const condition=!video.connected?'detached':video.error?'media-error':video.paused?'paused':video.seeking?'seek-in-progress':
-        video.readyState<2?'not-ready':!s.progress?'no-new-output':!s.loops?'loops-incomplete':null;
+      const condition=!video.connected?'detached':video.error?'media-error':video.paused?'paused':video.seeking&&(!resume||!s.progress)?'seek-in-progress':
+        video.readyState<2&&(!resume||!s.progress)?'not-ready':!s.progress?'no-new-output':!s.loops?'loops-incomplete':null;
       return condition?[{slot:video.slot,id:video.id,src:video.src,epoch:video.epoch ?? 0,condition,
         beforeOutput:s.before.outputAdvances,seekBaseline:s.seekBaseline ?? null,
         effectiveOutputBaseline:Math.max(s.before.outputAdvances,s.seekBaseline ?? -1),
@@ -377,4 +413,4 @@ function createProgressWindow({ loops=0 }={}) {
     output:s.current.outputAdvances,seeking:s.current.seeking,time:s.current.time}));
   return observe;
 }
-module.exports = { installHeroNativeProbe, createProgressWindow, observeProgress };
+module.exports = { installHeroNativeProbe, createProgressWindow, observeProgress, recordNativeOutput };

@@ -202,3 +202,18 @@ Run34764931638 passed native lifecycle acceptance (11/11) and Linux homepage (70
 Run34767139699 passed native macOS11/11 but Linux EN/WebKit geometry reached its final request count before the mobile matchMedia request had been observed (69 pass/1 fail/5 skips). The existing geometry case now awaits that requested surface before resizing back/cancelling it; the exact final two-request/cache assertion and every safety/visibility assertion remain. Same existing EN/DE Chromium/WebKit caller above; no product change.
 
 Run34767708882 passed macOS11/11 and Linux70/5 skips; browser161/1 exposed an overfixed smoke expectation added during alignment:1920×1080 hides locally but fits on Linux. The scale smoke now evaluates actual neighbour/viewport safety and inert zero-area hiding at that boundary, while requiring visibility at its large viewports. Platform-specific font/layout metrics are not a fixed News breakpoint. Existing `test:homepage-core` caller; per-viewport raw geometry attached before assertions.
+
+- Run34776760807: final EN visibility resume contained two own rVFC frames
+  within the deadline, but delayed delivery during a later seek discarded the
+  second frame; repeated seek invalidation erased the prior resume evidence.
+  `homepage-hero-native-probe.js` classifies compositor presentationTime and PTS,
+  retires pause/source callback registrations, and pins frame pairs to the action.
+  Resume proof is retained; separate current/loop proof requires new output after
+  an observed seek. Both bfcache and final visibility resume retain a subsequent
+  loop window with the unchanged absolute bound. `homepage-hero-state.spec.js`
+  feeds original raw A/B metadata through the actual lower classifier, rejects
+  stale source/epoch/presentation, frozen PTS, seek-only and expired callbacks.
+  Existing `test:homepage-functional` / Carousel callers execute these controls;
+  `test:homepage-webkit` executes native EN/DE lifecycle and pause controls.
+  rVFC timing semantics: https://wicg.github.io/video-rvfc/. Local/replay success
+  does not explain historical multi-second CI output gaps or replace native CI.
