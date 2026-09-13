@@ -21,7 +21,7 @@ const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 test('launcher inputs retain Worker coverage while static release tooling keeps its bounded selection', () => {
   for (const name of [
     'scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs',
-    'tests/helpers/q2-runtime/linux-hosted.mjs',
+    'tests/helpers/q2-runtime/linux-hosted.mjs', 'tests/helpers/q2-runtime/linux-runtime-child.mjs',
     'tests/helpers/q2-runtime/linux-bootstrap.py',
     'tests/helpers/q2-runtime/test_linux_bootstrap.py',
     'tests/helpers/q2-runtime/linux-child-probe.mjs',
@@ -316,6 +316,8 @@ test('default native runtime plan stages every actual Q4 import and control inpu
     const actual = await import(pathToFileURL(path.join(root, filename)).href);
     assert.equal(runtimeSuites.find(([suite]) => suite === name)[1], actual[exportName], 'Run the actual exported suite function');
   }
+  assert.equal(runtimeSuites.find(([name])=>name==='model-status')[1],
+    (await import('../tests/admin-model-status-runtime.mjs')).runModelStatusTests);
   const controls = runtimeSuites.map(([, , options]) => options.q4Control)
     .filter(Boolean).map(name => `tests/helpers/${name}`);
   const entryPoints = ['tests/helpers/q2-runtime/runner.mjs', 'tests/helpers/q2-runtime/linux-isolated.mjs',
@@ -334,7 +336,7 @@ test('default native runtime plan stages every actual Q4 import and control inpu
   };
   checkClosure(plan);
   for (const filename of [
-    ...expected.map(([, filename]) => filename), ...controls,
+    ...expected.map(([, filename]) => filename), ...controls, 'tests/admin-model-status-runtime.mjs',
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-fixture.mjs',
     'tests/helpers/q4-subscription-payloads.cjs',
   ]) {
@@ -414,7 +416,7 @@ test('child final boundary rejects privilege, routes, mounts, credentials and na
 });
 
 // A scoped suite changes coverage, never the namespace/credential boundary.
-test('member runtime scope is explicit and leaves the default full runtime intact', async () => {
+test('member and model-status scopes dispatch through the actual child and preserve boundaries', async () => {
   const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
   assert.deepEqual(parseRuntimeArgs(['--suite','member-generation'],{}),{preflight:false,artifacts:null,suite:'member-generation'});
   assert.throws(()=>parseRuntimeArgs(['--suite','unknown'],{}));
@@ -426,7 +428,37 @@ test('member runtime scope is explicit and leaves the default full runtime intac
   assert.throws(()=>selectedRuntimeSuites('unknown'));
   const bootstrap=read('tests/helpers/q2-runtime/linux-bootstrap.py');
   assert.match(bootstrap,/choices=\["member-generation", "model-status"\]/);
-  assert.match(read('tests/helpers/q2-runtime/linux-runtime-child.mjs'),/boundary.json/);
+  // Execute the unchanged child module with synthetic process/import boundaries.
+  // This checks dispatch ordering, not Linux kernel isolation (required in CI).
+  const child = spawnSync(process.execPath, ['--experimental-vm-modules', '--input-type=module', '-e', `
+    import assert from 'node:assert/strict';
+    import {readFileSync} from 'node:fs';
+    import {SourceTextModule,SyntheticModule,createContext} from 'node:vm';
+    const source=readFileSync('tests/helpers/q2-runtime/linux-runtime-child.mjs','utf8');
+    for(const suite of [undefined,'member-generation','model-status','unknown','',null,false]) {
+      for(const fault of [null,'platform','uid','gid']) {
+        const calls=[], context=createContext({process:{platform:fault==='platform'?'darwin':'linux',
+          getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
+        const modules={
+          'node:assert/strict':{default:assert},
+          'node:fs':{readFileSync:file=>{assert.equal(file,'/runtime/boundary.json');calls.push('boundary');return JSON.stringify({suite});}},
+          './runner.mjs':{runQ2Runtime:async(args,selected)=>{assert.deepEqual(Array.from(args),['--artifacts','/artifacts']);assert.equal(selected,suite);calls.push('run');}},
+        };
+        const load=async name=>{assert.ok(modules[name],name);calls.push(name);
+          const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [k,v]of Object.entries(modules[name]))this.setExport(k,v);},{context});
+          await m.link(()=>{});await m.evaluate();return m;};
+        const m=new SourceTextModule(source,{context,importModuleDynamically:load});await m.link(load);
+        if(!fault && [undefined,null,'member-generation','model-status'].includes(suite)) {
+          await m.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);
+        } else {
+          await assert.rejects(m.evaluate());assert.ok(!calls.includes('./runner.mjs'));
+          if(fault)assert.ok(!calls.includes('boundary'));
+        }
+      }
+    }
+  `], {cwd:root,encoding:'utf8',timeout:15000});
+  assert.equal(child.status,0,child.stderr);
+
 });
 
 test('actual selected Worker shell stops before downstream work on every failure', t => {

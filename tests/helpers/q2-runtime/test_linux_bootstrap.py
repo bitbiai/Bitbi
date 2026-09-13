@@ -107,6 +107,51 @@ class SnapshotTests(unittest.TestCase):
         self.assertFalse(self.target.exists())
 
 
+class ReportTests(unittest.TestCase):
+    def test_scoped_report_survives_copy_with_aggregate_and_path_guards(self):
+        with tempfile.TemporaryDirectory(prefix="q2-report-unit-") as temp:
+            root = Path(temp)
+            output = root / "output"
+            output.mkdir()
+            run = output / "run"
+            run.mkdir()
+            report = b'{"suite":"model-status","passed":2,"failed":0}'
+            (run / "model-status-result.json").write_bytes(report)
+            (run / "result.json").write_bytes(b'{"passed":2,"failed":0}')
+            (run / "private.json").write_text("not an allowed report")
+            (output / "model-status-result.json").symlink_to(run / "model-status-result.json")
+            (output / "linked-directory").symlink_to(run, target_is_directory=True)
+            session = root / "session"
+            session.mkdir()
+            fd = os.open(session, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                bootstrap.copy_reports(output, fd, os.getuid(), os.getgid(), {"exit": 0})
+            finally:
+                os.close(fd)
+            copied = session / "reports"
+            self.assertEqual({p.name for p in copied.iterdir()}, {
+                "bootstrap-result.json", "run__result.json", "run__model-status-result.json"})
+            self.assertEqual((copied / "run__model-status-result.json").read_bytes(), report)
+            self.assertEqual((copied / "run__result.json").read_bytes(), (run / "result.json").read_bytes())
+            self.assertEqual(stat.S_IMODE((copied / "run__model-status-result.json").stat().st_mode), 0o600)
+
+    def test_oversized_scoped_report_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="q2-report-limit-") as temp:
+            root = Path(temp)
+            output = root / "output"
+            output.mkdir()
+            with (output / "model-status-result.json").open("wb") as report:
+                report.truncate(8 * 1024 * 1024 + 1)
+            session = root / "session"
+            session.mkdir()
+            fd = os.open(session, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "retained artifact limit"):
+                    bootstrap.copy_reports(output, fd, os.getuid(), os.getgid(), {})
+            finally:
+                os.close(fd)
+
+
 class NamespaceCommandTests(unittest.TestCase):
     def test_no_privileged_command_before_private_namespace_proof(self):
         parent = {n: 'host-' + n for n in ['net', 'mnt', 'pid', 'ipc']}

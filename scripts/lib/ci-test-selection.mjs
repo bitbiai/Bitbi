@@ -290,6 +290,7 @@ const ADMIN_STATUS_FILES = new Set([
   'scripts/lib/release-plan.mjs', 'config/release-compat.json',
   'tests/helpers/q2-runtime/runner.mjs','tests/helpers/q2-runtime/linux-hosted.mjs',
   'tests/helpers/q2-runtime/linux-bootstrap.py','scripts/test-q2-runtime-launcher.mjs',
+  'tests/helpers/q2-runtime/linux-runtime-child.mjs','tests/helpers/q2-runtime/test_linux_bootstrap.py',
 ]);
 
 export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression" } = {}) {

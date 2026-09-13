@@ -17,7 +17,7 @@ import tempfile
 
 SAFE_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
 REPORT_NAMES = {"isolation-result.json", "isolation-final.json", "linux-child-probe.json", "linux-child-probe-final.json", "result.json",
-                "native-result.json", "references-result.json", "recovery-result.json",
+                "native-result.json", "references-result.json", "recovery-result.json", "model-status-result.json",
                 "build-provenance.json", "wrangler-build.log"}
 
 

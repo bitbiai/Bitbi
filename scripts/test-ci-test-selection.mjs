@@ -554,7 +554,8 @@ assert.notEqual(selectCiTests(workspaceFiles,{forceFull:true}).workspaceHelp,tru
 const statusFiles=['workers/auth/src/lib/admin-model-status.js','workers/auth/src/routes/admin-ai.js','workers/auth/src/app/route-policy.js',
  'admin/index.html','js/pages/admin/model-status.js','js/shared/auth-api.js','css/admin/model-status.css',
  'tests/oma2-q3-model-status.spec.js','tests/admin-model-status.spec.js','tests/admin-model-status-runtime.mjs','playwright.model-status.config.js',
- 'scripts/lib/ci-test-selection.mjs','scripts/lib/release-plan.mjs','.github/workflows/static.yml','tests/helpers/q2-runtime/linux-bootstrap.py'];
+ 'scripts/lib/ci-test-selection.mjs','scripts/lib/release-plan.mjs','.github/workflows/static.yml','tests/helpers/q2-runtime/linux-bootstrap.py',
+ 'tests/helpers/q2-runtime/linux-runtime-child.mjs','tests/helpers/q2-runtime/test_linux_bootstrap.py','scripts/test-q2-runtime-launcher.mjs'];
 const statusSelection=selection(statusFiles);
 assert.equal(statusSelection.modelStatus,true);assert.equal(statusSelection.auth,true);assert.equal(statusSelection.workers,true);
 for(const key of ['full','homepage','carousel','assets'])assert.equal(statusSelection[key],false,key);
