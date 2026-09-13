@@ -112,8 +112,8 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                     de: 'Die Oberfläche kann Kosten schätzen, die endgültige Credit-Entscheidung trifft aber das Backend.',
                 }),
                 detail: Object.freeze({
-                    en: 'If the balance looks stale or unknown, open Credits, refresh, then retry generation.',
-                    de: 'Wenn der Kontostand veraltet oder unbekannt wirkt, öffnen Sie Credits, aktualisieren Sie und starten Sie danach erneut.',
+                    en: 'The estimate beside Generate uses the selected model and settings. Size, duration, quality, references or generated lyrics can affect it where supported. Auto image settings use the existing upper-bound estimate; requested settings are not a guarantee of output dimensions or duration. The server checks access and balance before accepting a job.',
+                    de: 'Die Schätzung neben Generieren verwendet das gewählte Modell und seine Einstellungen. Größe, Dauer, Qualität, Referenzen oder generierte Lyrics können sie je nach Modell beeinflussen. Automatische Bildeinstellungen verwenden die bestehende obere Kostenschätzung; angeforderte Einstellungen garantieren keine Ausgabegröße oder Dauer. Der Server prüft Zugang und Guthaben vor der Auftragsannahme.',
                 }),
                 links: Object.freeze([
                     Object.freeze({ label: Object.freeze({ en: 'Review Credits', de: 'Credits prüfen' }), path: '/account/credits.html', suffix: '?source=help-generate' }),
@@ -123,12 +123,12 @@ export const HELP_MENU_SECTIONS = Object.freeze([
                 id: 'generate-first-run',
                 title: Object.freeze({ en: 'First Generate Lab run', de: 'Erster Generate-Lab-Lauf' }),
                 summary: Object.freeze({
-                    en: 'Choose a model, write the prompt, review the estimate, then generate a preview.',
-                    de: 'Modell wählen, Prompt schreiben, Schätzung prüfen und dann eine Vorschau generieren.',
+                    en: 'Choose a mode and model, write a prompt, review the estimate beside Generate, then submit.',
+                    de: 'Modus und Modell wählen, Prompt schreiben, Schätzung neben Generieren prüfen und absenden.',
                 }),
                 detail: Object.freeze({
-                    en: 'Sign in before generation or saving. Save only outputs you want to keep; if saving fails, leave the result visible and retry before leaving the page.',
-                    de: 'Vor Generierung oder Speichern anmelden. Speichern Sie nur Ergebnisse, die bleiben sollen; wenn Speichern fehlschlägt, Ergebnis sichtbar lassen und vor dem Verlassen erneut versuchen.',
+                    en: 'Sign in before generating. Once the server confirms durable acceptance, image, video and music jobs continue without the browser and save privately to your Assets Manager. Reopen it after signing in to see progress or errors. Video previews and available music covers may finish later; a pending preview does not mean the stored media is lost.',
+                    de: 'Vor dem Generieren anmelden. Sobald der Server die dauerhafte Annahme bestätigt, laufen Bild-, Video- und Musikaufträge ohne Browser weiter und werden privat im Assets Manager gespeichert. Nach erneuter Anmeldung sehen Sie dort Fortschritt oder Fehler. Videovorschauen und verfügbare Musikcover können später fertig werden; eine ausstehende Vorschau bedeutet nicht, dass gespeicherte Medien verloren sind.',
                 }),
             }),
             Object.freeze({
@@ -458,6 +458,27 @@ function renderSections(body, routeKey, locale) {
             stack.append(details);
         });
 
+        if (section.id === 'generate') {
+            let loading = false;
+            sectionElement.addEventListener('toggle', async () => {
+                if (!sectionElement.open || loading || stack.querySelector('[data-help-models]')) return;
+                stack.querySelector('[data-model-help-error]')?.remove();
+                loading = true;
+                const notice = createElement('p', 'help-menu__item-detail', locale === 'de' ? 'Modellinformationen werden geladen…' : 'Loading model information…');
+                notice.setAttribute('role', 'status');
+                stack.append(notice);
+                try {
+                    const { renderWorkspaceModelHelp } = await import('../pages/generate-lab/model-help.js?v=__ASSET_VERSION__');
+                    if (stack.isConnected) stack.append(renderWorkspaceModelHelp());
+                    notice.remove();
+                } catch {
+                    notice.textContent = locale === 'de' ? 'Modellinformationen konnten nicht geladen werden. Hilfeabschnitt zum erneuten Laden schließen und öffnen.' : 'Model information could not be loaded. Close and reopen this help section to retry.';
+                    notice.dataset.modelHelpError = '';
+                } finally {
+                    loading = false;
+                }
+            });
+        }
         sectionElement.append(stack);
         sectionElement.addEventListener('toggle', () => {
             if (!sectionElement.open) return;
@@ -526,7 +547,7 @@ export function initHelpMenu() {
 
     function open() {
         if (isOpen()) return;
-        lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        lastFocused = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : trigger;
         panel.hidden = false;
         root.classList.add('is-open');
         trigger.setAttribute('aria-expanded', 'true');

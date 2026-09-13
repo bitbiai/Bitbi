@@ -207,6 +207,10 @@ export function verifyAdminReport(report, discovery, scopes = [
   }
 }
 
+export function verifyWorkspaceHelpReport(report, discovery) {
+  verifyAdminReport(report, discovery, [['workspace',['smoke.spec.js']],['guidance',['locale.spec.js']]]);
+}
+
 export function verifyPublicMediaReport(report, discovery) {
   verifyAdminReport(report, discovery, [['dialog',['public-media-dialog.spec.js']],['neighbors',['smoke.spec.js','auth-admin.spec.js']]]);
   let contract = false;
@@ -301,6 +305,7 @@ async function main(command) {
     }
     const report=reports[0];
     if (manifest.selection?.assets && !manifest.selection.full && process.env.GITHUB_JOB === 'browser-validation') verifyAssetReport(reports[names.indexOf('test-results/candidate-assets.json')], JSON.parse(fs.readFileSync('test-results/assets-discovery.json')));
+    if (manifest.selection?.workspaceHelp) verifyWorkspaceHelpReport(report, JSON.parse(fs.readFileSync('test-results/workspace-discovery.json')));
     if (manifest.selection?.publicMedia) verifyPublicMediaReport(report, JSON.parse(fs.readFileSync('test-results/public-media-discovery.json')));
     if (manifest.selection?.adminRelease) verifyAdminReport(report, JSON.parse(fs.readFileSync('test-results/admin-discovery.json')));
     if(['homepage-webkit-media','homepage-validation'].includes(process.env.GITHUB_JOB)) {

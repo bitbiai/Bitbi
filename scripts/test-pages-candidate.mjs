@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
-import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, requiredJobs, proofJobs, isRequiredValidationRun, validatePublishedDeployment, verifyAdminReport, verifyAssetReport, verifyPublicMediaReport, tree, validateSource, verifyManifest, verifyProofs, MEDIA_POLICY } from './pages-candidate.mjs';
+import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, requiredJobs, proofJobs, isRequiredValidationRun, validatePublishedDeployment, verifyAdminReport, verifyAssetReport, verifyPublicMediaReport, verifyWorkspaceHelpReport, tree, validateSource, verifyManifest, verifyProofs, MEDIA_POLICY } from './pages-candidate.mjs';
 const sha='a'.repeat(40),expected={repository:REPOSITORY,sha,base:Q4_BASE,run:'123',attempt:'1',currentRun:'456'};
 const run={repository:{full_name:REPOSITORY},head_repository:{full_name:REPOSITORY},head_sha:sha,head_branch:'main',id:123,run_attempt:1,path:'.github/workflows/static.yml',event:'push',status:'completed',conclusion:'success',created_at:'2026-09-09T00:00:00Z'};
 const jobs=Object.entries(REQUIRED_JOBS).map(([name,steps])=>({name,head_sha:sha,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
@@ -376,7 +376,7 @@ try {
    const nextOutput=path.join(cwd,oldLayout?'test-results':'test-results/browser-artifacts');
    fs.mkdirSync(nextOutput,{recursive:true});
    fs.writeFileSync(path.join(nextOutput,'stale.txt'),'previous invocation');
-   execute(stepRun('Run selected auth and admin tests').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false'));
+   execute(stepRun('Run selected auth and admin tests').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false'));
    assert(!fs.existsSync(path.join(nextOutput,'stale.txt')),'Second invocation must still clean disposable output');
    assert.equal(fs.existsSync(reports[0]),!oldLayout);
    execute(stepRun('Confirm tested browser candidate bytes'),!oldLayout);
@@ -442,3 +442,46 @@ assert(permits('browser-validation',publicContext));assert(permits('deploy',publ
 for(const result of ['failure','skipped','cancelled',undefined]) {
  assert(!permits('deploy',{...publicContext,needs:{...dialogContext,'browser-validation':{result}}}));
 }
+
+const workspaceDiscovery={suites:[{specs:['chromium','webkit'].flatMap(engine=>[
+ {id:engine+'-form',file:'smoke.spec.js',tests:[{projectName:engine+'-workspace',results:[]}]},
+ {id:engine+'-copy',file:'locale.spec.js',tests:[{projectName:engine+'-guidance',results:[]}]},
+])}]};
+const workspaceReport=structuredClone(workspaceDiscovery);
+for(const spec of workspaceReport.suites[0].specs)spec.tests[0].results=[{status:'passed'}];
+verifyWorkspaceHelpReport(workspaceReport,workspaceDiscovery);
+for(const status of ['failed','skipped','timedOut']) {
+ const invalid=structuredClone(workspaceReport);invalid.suites[0].specs[0].tests[0].results=[{status}];
+ assert.throws(()=>verifyWorkspaceHelpReport(invalid,workspaceDiscovery));
+}
+const missingWorkspace=structuredClone(workspaceReport);missingWorkspace.suites[0].specs.pop();
+assert.throws(()=>verifyWorkspaceHelpReport(missingWorkspace,workspaceDiscovery));
+assert.throws(()=>verifyWorkspaceHelpReport({suites:[]},{suites:[]}));
+const workspaceSelection=selectCiTests(['js/pages/generate-lab/model-help.js']);
+assert.deepEqual(Object.keys(requiredJobs(workspaceSelection)),['release-compatibility','browser-validation']);
+const workspaceNeeds=structuredClone(dialogContext);
+workspaceNeeds['release-compatibility'].outputs.public_media='false';
+workspaceNeeds['release-compatibility'].outputs.workspace_help='true';
+assert(permits('browser-validation',{...normal,needs:workspaceNeeds}));
+assert(permits('deploy',{...normal,needs:workspaceNeeds}));
+for(const result of ['failure','skipped','cancelled',undefined])assert(!permits('deploy',{...normal,needs:{...workspaceNeeds,'browser-validation':{result}}}));
+// Execute the actual selected shell branch. Browser results above and in the
+// dedicated config are separate from this command-routing/fail-fast control.
+const workspaceShell=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-workspace-shell-'));
+try {
+ const text=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8');
+ const block=text.split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0];
+ const command=block.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n')
+   .replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','true')
+   .replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
+ fs.writeFileSync(path.join(workspaceShell,'npm'),'#!/bin/sh\nprintf "%s\\n" "$*" >> calls\nexit "${FAIL_NPM:-0}"\n',{mode:0o755});
+ for(const fail of ['0','1']) {
+   fs.rmSync(path.join(workspaceShell,'calls'),{force:true});
+   const result=spawnSync('bash',['-e','-c',command],{cwd:workspaceShell,env:{...process.env,PATH:workspaceShell+':'+process.env.PATH,FAIL_NPM:fail},encoding:'utf8'});
+   assert.equal(result.status,Number(fail));
+   const calls=fs.readFileSync(path.join(workspaceShell,'calls'),'utf8').trim().split('\n');
+   assert.equal(calls.length,fail==='0'?2:1);
+   assert(calls[0].includes('--config playwright.workspace.config.js --list --reporter=json'));
+   if(fail==='0')assert(calls[1].includes('--config playwright.workspace.config.js --reporter=list,json'));
+ }
+} finally {fs.rmSync(workspaceShell,{recursive:true,force:true});}

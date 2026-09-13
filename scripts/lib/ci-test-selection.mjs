@@ -221,6 +221,15 @@ const PUBLIC_MEDIA_DETAIL_FILES = new Set([
   'scripts/lib/release-plan.mjs',
 ]);
 
+// Informational workspace/help changes have a bounded, build-bound browser check.
+// Model contracts, pricing, shared runtime and unknown files remain outside it.
+const WORKSPACE_HELP_FILES = new Set([
+  'generate-lab/index.html', 'de/generate-lab/index.html', 'css/pages/generate-lab.css',
+  'js/pages/generate-lab/main.js', 'js/pages/generate-lab/model-help.js',
+  'js/shared/help-menu.js', 'js/shared/locale.js', 'tests/smoke.spec.js', 'tests/locale.spec.js',
+  'playwright.workspace.config.js', 'scripts/lib/release-plan.mjs',
+]);
+
 function normalizeFile(value) {
   return String(value || "")
     .trim()
@@ -334,6 +343,15 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selection.publicMedia = true;
     selection.auth = selection.static = selection.runtime = true;
     selection.reasons.auth.push('Public detail window: Chromium/WebKit original download, metadata, controls/comments and targeted file authorization; no generation or decorative hero changes');
+    return selection;
+  }
+
+  if (!forceFull && changedFiles.includes('js/pages/generate-lab/model-help.js')
+      && changedFiles.every(file => isDocumentation(file) || WORKSPACE_HELP_FILES.has(file) || RELEASE_TOOLING_FILES.has(file))) {
+    selection.policy = 'workspace-help-v1';
+    selection.workspaceHelp = true;
+    selection.auth = selection.static = selection.runtime = true;
+    selection.reasons.auth.push('Workspace model/form/credit guidance, session recovery, Help keyboard/touch and EN/DE registry parity in Chromium/WebKit; no provider or pricing changes');
     return selection;
   }
 

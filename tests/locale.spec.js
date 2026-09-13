@@ -934,8 +934,8 @@ test.describe('Bilingual locale pages', () => {
     expect(enGenerate).toContain('Open BITBI homepage');
     expect(enGenerate).toContain('Open Assets Manager');
     expect(enGenerate).toContain('Review Credits');
-    expect(enGenerate).toContain('id="labWorkflowGuide"');
-    expect(enGenerate).toContain('Generation checklist');
+    expect(enGenerate).not.toContain('id="labWorkflowGuide"');
+    expect(enGenerate).not.toContain('Generation checklist');
     expect(enGenerate).not.toContain('Mobile creation flow');
     expect(enGenerate).not.toContain('The full Generate Lab workspace is available below');
     expect(enGenerate).not.toContain('Start prompt');
@@ -983,8 +983,8 @@ test.describe('Bilingual locale pages', () => {
     expect(deGenerate).toContain('BITBI-Startseite öffnen');
     expect(deGenerate).toContain('Assets Manager öffnen');
     expect(deGenerate).toContain('Guthaben ansehen');
-    expect(deGenerate).toContain('id="labWorkflowGuide"');
-    expect(deGenerate).toContain('Generierungs-Checkliste');
+    expect(deGenerate).not.toContain('id="labWorkflowGuide"');
+    expect(deGenerate).not.toContain('Generierungs-Checkliste');
     expect(deGenerate).not.toContain('Mobiler Erstellungsfluss');
     expect(deGenerate).not.toContain('Der vollständige Generate-Lab-Arbeitsbereich ist unten verfügbar');
     expect(deGenerate).not.toContain('Prompt starten');
@@ -1018,8 +1018,8 @@ test.describe('Bilingual locale pages', () => {
     expect(helpMenu).toContain("id: 'generate-first-run'");
     expect(helpMenu).toContain('First Generate Lab run');
     expect(helpMenu).toContain('Erster Generate-Lab-Lauf');
-    expect(helpMenu).toContain('Sign in before generation or saving.');
-    expect(helpMenu).toContain('Vor Generierung oder Speichern anmelden.');
+    expect(helpMenu).toContain('Once the server confirms durable acceptance');
+    expect(helpMenu).toContain('Sobald der Server die dauerhafte Annahme bestätigt');
     expect((helpMenu.match(/id: 'generate-first-run'/g) || [])).toHaveLength(1);
     expect(localeJs).toContain("sessionExpiredTitle: 'Session expired. Sign in again.'");
     expect(localeJs).toContain("sessionExpiredTitle: 'Sitzung abgelaufen. Melden Sie sich erneut an.'");

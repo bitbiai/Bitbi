@@ -537,3 +537,16 @@ for(const file of ['js/pages/index/category-carousel.js','workers/auth/src/route
 }
 assert.equal(selection(['css/pages/index.css']).homepage,true);
 assert.equal(selection(['js/pages/index/video-gallery.js']).carousel,true);
+
+const workspaceFiles = ['generate-lab/index.html','de/generate-lab/index.html','css/pages/generate-lab.css',
+ 'js/pages/generate-lab/main.js','js/pages/generate-lab/model-help.js','js/shared/help-menu.js','js/shared/locale.js',
+ 'tests/smoke.spec.js','tests/locale.spec.js','playwright.workspace.config.js',
+ 'scripts/lib/release-plan.mjs','.github/workflows/static.yml','scripts/pages-candidate.mjs'];
+const workspaceHelp = selection(workspaceFiles);
+assert.equal(workspaceHelp.workspaceHelp,true);
+assert.equal(workspaceHelp.auth,true);
+for(const key of ['workers','homepage','carousel','full','assets'])assert.equal(workspaceHelp[key],false,key);
+for(const file of ['js/shared/auth-api.js','js/shared/ai-image-models.mjs','js/pages/generate-lab/model-registry.js','workers/auth/src/index.js','unknown.mjs']) {
+ assert.notEqual(selection([...workspaceFiles,file]).workspaceHelp,true,file);
+}
+assert.notEqual(selectCiTests(workspaceFiles,{forceFull:true}).workspaceHelp,true);
