@@ -12970,17 +12970,22 @@ test.describe('Assets Manager (authenticated)', () => {
     const card = page.locator('#studioImageGrid [data-asset-id="img-publish-1"]');
     await expect(card.locator('.studio__image-visibility')).toHaveText('Private');
 
-    await card.hover();
+    await card.locator('.studio__card-menu').click();
+    await expect(card.locator('.studio__card-menu')).toHaveAttribute('aria-expanded', 'true');
+    await expectCardActionsInside(card);
     await card.getByRole('button', { name: 'Publish' }).click();
     await expect(card.locator('.studio__image-visibility')).toHaveText('Public');
     await expect(card.locator('.studio__image-publish')).toHaveText('Unpublish');
     await expect(page.locator('#studioGalleryMsg')).toContainText('Image published to Mempics.');
 
-    await card.hover();
+    await expect(card).toHaveCSS('transform', 'none');
+    await card.getByRole('button', { name: 'Unpublish' }).focus();
+    await expectCardActionsInside(card);
     await card.getByRole('button', { name: 'Unpublish' }).click();
     await expect(card.locator('.studio__image-visibility')).toHaveText('Private');
     await expect(card.locator('.studio__image-publish')).toHaveText('Publish');
     await expect(page.locator('#studioGalleryMsg')).toContainText('Image removed from Mempics.');
+    await expect(page.locator('.studio-modal.active, .mobile-media-detail-overlay')).toHaveCount(0);
   });
 
   test('Saved Assets lets the owner publish and unpublish a saved music track into Memtracks', async ({

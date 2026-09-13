@@ -150,6 +150,11 @@ Caller: `npm run test:auth` (selected browser job), locally `npm run test:static
 with the ten named cases and zero retries against `_site`; existing Assets music/
 image-publication neighbors additionally exercise the shared fix in both engines.
 Synthetic media proves connected UI playback/cleanup, not provider generation.
+Run34772729581 also exposed the old image-owner neighbor relying on hover alone:
+Linux WebKit clicks hit the poster rather than the hidden action. That existing
+case now opens the explicit media disclosure and uses keyboard focus after refresh;
+publication state, contained hit targets and no unintended preview remain asserted.
+Separate existing desktop hover cases remain executable and passed in that run.
 
 `asset-names.js` shares first-three-word naming and the existing filename sanitizer.
 Image/video/music storage uses it without changing provider input, storage keys,
