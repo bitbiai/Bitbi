@@ -149,6 +149,50 @@ async function expectStudioModalClosed(page) {
     .toBe(false);
 }
 
+async function expectNamedMediaCard(card, title) {
+  await expect(card).toHaveAttribute('title', title);
+  await expect(card).toHaveAccessibleName(`Open ${title}`);
+  await expect(card.locator('.studio__asset-video-trigger')).toBeEnabled();
+  const box = await card.boundingBox();
+  expect(box).not.toBeNull();
+  expect(Math.abs(box.width - box.height)).toBeLessThanOrEqual(2);
+}
+
+async function expectCardActionsInside(card) {
+  await expect(card.locator('.studio__card-actions')).toHaveCSS('opacity', '1');
+  const buttons = await card.locator('.studio__card-actions button,.studio__card-menu').all();
+  expect(buttons.length).toBeGreaterThanOrEqual(3);
+  for (const button of buttons) {
+    // The existing mobile deck animates: use Playwright actionability, no forced click.
+    await button.click({ trial: true });
+    const bounds = await card.boundingBox();
+    const box = await button.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box.x).toBeGreaterThanOrEqual(bounds.x - 1);
+    expect(box.y).toBeGreaterThanOrEqual(bounds.y - 1);
+    expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
+    expect(box.y + box.height).toBeLessThanOrEqual(bounds.y + bounds.height + 1);
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    await expect(button).toHaveAttribute('aria-label', /\S/);
+  }
+}
+
+async function mockCardMedia(page, { audioIds = [], videoIds = [], posterIds = [] }) {
+  // Real safe PCM bytes, as in the existing focused Assets fixture. No fake play events.
+  const wav = Buffer.alloc(44 + 8000 * 2 * 4);
+  wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36);
+  wav.writeUInt32LE(wav.length - 44, 40);
+  for (const id of audioIds) await page.route(`**/api/ai/text-assets/${id}/file`, route =>
+    route.fulfill({ contentType: 'audio/wav', body: wav }));
+  for (const id of videoIds) await page.route(`**/api/ai/text-assets/${id}/file`, route => fulfillTestMp4(route));
+  for (const id of posterIds) await page.route(`**/api/ai/text-assets/${id}/poster`, route =>
+    route.fulfill({ contentType: 'image/png', body: Buffer.from(ONE_PX_PNG_BASE64, 'base64') }));
+}
+
 async function readSavedAssetBadgeMetrics(cardLocator) {
   return cardLocator.evaluate((card) => {
     const badge = card.querySelector('.studio__asset-badge');
@@ -10326,6 +10370,7 @@ test.describe('Assets Manager (authenticated)', () => {
       }, 201);
     });
 
+    await mockCardMedia(page, { posterIds: ['admin-uploaded-assets-manager-video'] });
     const response = await page.goto('/account/assets-manager.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
@@ -10416,7 +10461,9 @@ test.describe('Assets Manager (authenticated)', () => {
     expect(uploadRequests[0].multipart).toContain('Operator-approved assets manager upload');
     await expect(dialog).toBeHidden({ timeout: 10_000 });
     await expect(uploadButton).toBeFocused();
-    await expect(page.locator('#studioImageGrid')).toContainText('Assets Manager Manual Upload');
+    const savedCard = page.locator('#studioImageGrid [data-asset-id="admin-uploaded-assets-manager-video"]');
+    await expectNamedMediaCard(savedCard, 'Assets Manager Manual Upload');
+    await expect(savedCard.locator('.studio__asset-poster')).toHaveAttribute('src', '/api/ai/text-assets/admin-uploaded-assets-manager-video/poster');
     await expect(page.locator('#studioListStatus')).toContainText('Showing 1 asset');
   });
 
@@ -10436,6 +10483,7 @@ test.describe('Assets Manager (authenticated)', () => {
       saveAudioRequests,
     });
 
+    await mockCardMedia(page, { posterIds: ['audio-1'] });
     const response = await page.goto('/account/assets-manager.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
@@ -10561,7 +10609,9 @@ test.describe('Assets Manager (authenticated)', () => {
     expect(saveAudioRequests[0].audioBase64).toEqual(expect.any(String));
     await expect(dialog).toBeHidden({ timeout: 10_000 });
     await expect(uploadButton).toBeFocused();
-    await expect(page.locator('#studioImageGrid')).toContainText('Sunrise Loop');
+    const savedCard = page.locator('#studioImageGrid [data-asset-id="audio-1"]');
+    await expectNamedMediaCard(savedCard, 'Sunrise Loop');
+    await expect(savedCard.locator('.studio__asset-poster')).toHaveAttribute('src', '/api/ai/text-assets/audio-1/poster');
     await expect(page.locator('#studioListStatus')).toContainText('Showing 1 asset');
   });
 
@@ -10589,6 +10639,7 @@ test.describe('Assets Manager (authenticated)', () => {
       },
     });
 
+    await mockCardMedia(page, { posterIds: ['audio-1'] });
     const response = await page.goto('/account/assets-manager.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
@@ -10640,7 +10691,9 @@ test.describe('Assets Manager (authenticated)', () => {
       source: 'admin_assets_manager_upload',
     }));
     await expect(dialog).toBeHidden({ timeout: 10_000 });
-    await expect(page.locator('#studioImageGrid')).toContainText('Charged Cover');
+    const savedCard = page.locator('#studioImageGrid [data-asset-id="audio-1"]');
+    await expectNamedMediaCard(savedCard, 'Charged Cover');
+    await expect(savedCard.locator('.studio__asset-poster')).toHaveAttribute('src', '/api/ai/text-assets/audio-1/poster');
   });
 
   test('admin account Assets Manager sends large generated music covers through the audio save flow', async ({
@@ -10657,6 +10710,7 @@ test.describe('Assets Manager (authenticated)', () => {
       imageTestResultMimeType: 'image/png',
     });
 
+    await mockCardMedia(page, { posterIds: ['audio-1'] });
     const response = await page.goto('/account/assets-manager.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
@@ -10693,7 +10747,9 @@ test.describe('Assets Manager (authenticated)', () => {
     }));
     expect(saveAudioRequests[0].coverImageBase64.length).toBeGreaterThan(3_000_000);
     await expect(dialog).toBeHidden({ timeout: 10_000 });
-    await expect(page.locator('#studioImageGrid')).toContainText('Large Cover Track');
+    const savedCard = page.locator('#studioImageGrid [data-asset-id="audio-1"]');
+    await expectNamedMediaCard(savedCard, 'Large Cover Track');
+    await expect(savedCard.locator('.studio__asset-poster')).toHaveAttribute('src', '/api/ai/text-assets/audio-1/poster');
   });
 
   test('admin account Assets Manager marks generated music covers stale when cover settings change', async ({
@@ -12180,6 +12236,7 @@ test.describe('Assets Manager (authenticated)', () => {
       },
     });
 
+    await mockCardMedia(page, { audioIds: ['snd-1'], videoIds: ['vid-1'], posterIds: ['snd-1'] });
     await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: 'Saved Assets' })).toBeVisible();
@@ -12189,38 +12246,35 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('.studio__image-item--text')).toContainText('COMPARE');
     await expect(page.locator('.studio__image-item--text')).toContainText('AI Lab Compare Notes');
     await expect(page.locator('.studio__image-item--text')).toContainText('Model A leaned cinematic');
-    await expect(page.locator('.studio__image-item--sound')).toContainText('Launch Atmosphere');
-    await expect(page.locator('.studio__asset-audio')).toHaveCount(1);
-    await expect(page.locator('#studioImageGrid [data-asset-id="snd-1"] .studio__asset-cover-bg')).toHaveCount(1);
+    const sound = page.locator('#studioImageGrid [data-asset-id="snd-1"]');
+    await expectNamedMediaCard(sound, 'Launch Atmosphere');
+    await expect(page.locator('#studioImageGrid audio')).toHaveCount(0);
+    await expect(sound.locator('.studio__asset-poster')).toHaveAttribute('src', '/api/ai/text-assets/snd-1/poster');
     await expect(page.locator('#studioImageGrid [data-asset-id="snd-1"] .studio__asset-preview')).toHaveCount(0);
     await expect(page.locator('#studioImageGrid [data-asset-id="snd-1"]')).not.toContainText('A short ambient loop saved');
-    await expect(page.locator('.studio__image-item--video')).toContainText('Launch Walkthrough');
+    await expectNamedMediaCard(page.locator('#studioImageGrid [data-asset-id="vid-1"]'), 'Launch Walkthrough');
     await expect(page.locator('#studioImageGrid .studio__asset-open')).toHaveCount(0);
     await expect(page.locator('#studioImageGrid [data-asset-id="vid-1"] .studio__asset-preview')).toHaveCount(0);
     await expect(page.locator('#studioImageGrid [data-asset-id="vid-1"] .studio__asset-video-trigger')).toHaveCount(1);
     await expect(page.locator('#studioImageGrid [data-asset-id="vid-1"]')).toContainText('Poster preview pending');
     await expect(page.locator('#studioImageGrid [data-asset-id="vid-1"]')).toContainText('Poster preview is being prepared.');
 
-    const desktopVideoLayout = await page.locator('#studioImageGrid [data-asset-id="vid-1"]').evaluate((card) => {
-      const title = card.querySelector('.studio__asset-title')?.getBoundingClientRect();
-      const trigger = card.querySelector('.studio__asset-video-trigger')?.getBoundingClientRect();
-      return {
-        titleBottom: title?.bottom ?? 0,
-        triggerTop: trigger?.top ?? 0,
-      };
-    });
-    expect(desktopVideoLayout.titleBottom).toBeLessThanOrEqual(desktopVideoLayout.triggerTop + 1);
-
     await page.locator('#studioImageGrid [data-asset-id="txt-1"]').click();
     await expect.poll(() => page.evaluate(() => window.__studioOpenCalls.length)).toBe(1);
     await expect.poll(() => page.evaluate(() => window.__studioOpenCalls[0]?.[0] || '')).toMatch(/\/api\/ai\/text-assets\/txt-1\/file$/);
 
-    await page.locator('#studioImageGrid [data-asset-id="snd-1"] .studio__asset-title').click();
+    await sound.locator('.studio__asset-video-trigger').click();
+    const detail = page.locator('.mobile-media-detail-overlay--assets');
+    await expect(detail).toBeVisible();
+    await expect(detail).toContainText('Launch Atmosphere');
+    const audio = detail.locator('audio');
+    await expect(audio).toHaveAttribute('src', '/api/ai/text-assets/snd-1/file');
+    await expect.poll(() => audio.evaluate(a => !a.paused && a.currentTime > 0)).toBe(true);
+    const oldAudio = await audio.elementHandle();
+    await page.keyboard.press('Escape');
+    await expect(detail).toHaveCount(0);
+    expect(await oldAudio.evaluate(a => a.paused && !a.hasAttribute('src'))).toBe(true);
     await expect.poll(() => page.evaluate(() => window.__studioOpenCalls.length)).toBe(1);
-    await expectStudioModalClosed(page);
-
-    await page.locator('#studioImageGrid [data-asset-id="vid-1"] .studio__asset-title').click();
-    await expectStudioModalClosed(page);
 
     await page.locator('#studioImageGrid [data-asset-id="vid-1"] .studio__asset-video-trigger').click();
     await expect(page.locator('#studioImageModal')).toHaveClass(/active/);
@@ -12228,7 +12282,10 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('Video asset');
     await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('Launches');
     await expect(page.locator('#studioImageModal .studio-modal__metadata')).toContainText('launch-walkthrough.mp4');
+    const oldVideo = await page.locator('#studioImageModal .studio-modal__video').elementHandle();
     await page.locator('#studioImageModal .modal-close').click();
+    await expectStudioModalClosed(page);
+    expect(await oldVideo.evaluate(v => v.paused && !v.hasAttribute('src'))).toBe(true);
   });
 
   test('account Assets Manager exposes load more for saved assets and appends the next page', async ({
@@ -12623,37 +12680,36 @@ test.describe('Assets Manager (authenticated)', () => {
       'compare-badge-1',
       'live-badge-1',
       'text-badge-1',
-      'sound-badge-1',
-      'video-badge-1',
     ];
 
-    for (const assetId of assetIds) {
-      const metrics = await readSavedAssetBadgeMetrics(
-        page.locator(`#studioImageGrid [data-asset-id="${assetId}"]`),
-      );
-      expect(['flex', 'inline-flex']).toContain(metrics.badgeDisplay);
-      expect(metrics.badgeAlignSelf).toBe('flex-start');
-      expect(metrics.badgeWhiteSpace).toBe('nowrap');
-      expect(metrics.badgeWidth).toBeGreaterThan(0);
-      expect(metrics.badgeWidth).toBeLessThan(metrics.cardWidth - 24);
-    }
-
-    await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(5);
-
-    for (const assetId of assetIds) {
-      const metrics = await readSavedAssetBadgeMetrics(
-        page.locator(`#studioImageGrid [data-asset-id="${assetId}"]`),
-      );
-      expect(['flex', 'inline-flex']).toContain(metrics.badgeDisplay);
-      expect(metrics.badgeAlignSelf).toBe('flex-start');
-      expect(metrics.badgeWhiteSpace).toBe('nowrap');
-      expect(metrics.badgeWidth).toBeGreaterThan(0);
-      expect(metrics.badgeWidth).toBeLessThan(metrics.cardWidth - 24);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const assetId of assetIds) {
+        const metrics = await readSavedAssetBadgeMetrics(page.locator(`#studioImageGrid [data-asset-id="${assetId}"]`));
+        expect(['flex', 'inline-flex']).toContain(metrics.badgeDisplay);
+        expect(metrics.badgeAlignSelf).toBe('flex-start');
+        expect(metrics.badgeWhiteSpace).toBe('nowrap');
+        expect(metrics.badgeWidth).toBeGreaterThan(0);
+        expect(metrics.badgeWidth).toBeLessThan(metrics.cardWidth - 24);
+      }
+      for (const [id, title, type] of [['sound-badge-1', 'Badge Loop', 'sound'], ['video-badge-1', 'Badge Walkthrough', 'video']]) {
+        const card = page.locator(`#studioImageGrid [data-asset-id="${id}"]`);
+        if (width === 390) await page.locator('#studioImageGrid + .studio-deck-dots .studio-deck-dot').nth(id === 'sound-badge-1' ? 1 : 0).click();
+        await expectNamedMediaCard(card, title);
+        const menu = card.locator('.studio__card-menu');
+        await expect(menu).toHaveAttribute('data-card-media', type);
+        await expect(menu).toHaveAccessibleName(/More actions/);
+        await expect(card.locator('.studio__asset-badge')).toHaveCount(0);
+        await menu.focus(); await page.keyboard.press('Enter');
+        await expectCardActionsInside(card);
+        await page.keyboard.press('Escape');
+        await expect(menu).toBeFocused();
+        await expect(page.locator('audio, .studio-modal.active, .mobile-media-detail-overlay')).toHaveCount(0);
+      }
     }
   });
 
-  test('account Assets Manager keeps mobile file cards solid and limits sound playback animation to the active card', async ({
+  test('account Assets Manager keeps mobile file cards solid and limits sound playback to the active detail', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -12789,6 +12845,7 @@ test.describe('Assets Manager (authenticated)', () => {
       },
     });
 
+    await mockCardMedia(page, { audioIds: ['snd-mobile-1', 'snd-mobile-2'], videoIds: ['vid-mobile-1'] });
     await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
@@ -12814,32 +12871,11 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"] .studio__asset-preview')).toHaveCount(0);
     await expect(page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"]')).not.toContainText('A slow gold-tinted synth loop');
 
-    const soundCardStructure = await page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"]').evaluate((card) => {
-      const indicator = card.querySelector('.studio__asset-play-indicator');
-      return {
-        indicatorNextClass: indicator?.nextElementSibling?.className || '',
-      };
-    });
-    expect(soundCardStructure.indicatorNextClass).toContain('studio__asset-audio');
-
-    const mobileVideoLayout = await page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"]').evaluate((card) => {
-      const title = card.querySelector('.studio__asset-title')?.getBoundingClientRect();
-      const trigger = card.querySelector('.studio__asset-video-trigger')?.getBoundingClientRect();
-      return {
-        titleBottom: title?.bottom ?? 0,
-        triggerTop: trigger?.top ?? 0,
-      };
-    });
-    expect(mobileVideoLayout.titleBottom).toBeLessThanOrEqual(mobileVideoLayout.triggerTop + 1);
-
+    for (const [id, title] of [['snd-mobile-1', 'Signal Drift'], ['snd-mobile-2', 'Orbit Pulse'], ['vid-mobile-1', 'Orbit Walkthrough']]) {
+      await expectNamedMediaCard(page.locator(`#studioImageGrid [data-asset-id="${id}"]`), title);
+    }
+    await expect(page.locator('#studioImageGrid audio')).toHaveCount(0);
     const originalUrl = page.url();
-    await page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"] .studio__asset-title').click();
-    await expect(page.locator('.mobile-media-detail-overlay--assets')).toBeVisible();
-    await page.locator('.mobile-media-detail-overlay__close').click();
-    await expect(page.locator('.mobile-media-detail-overlay')).toHaveCount(0);
-    await expectStudioModalClosed(page);
-    await expect.poll(() => page.url()).toBe(originalUrl);
-
     await page.locator('#studioImageGrid [data-asset-id="vid-mobile-1"] .studio__asset-video-trigger').click();
     await expect(page.locator('.mobile-media-detail-overlay--assets')).toBeVisible();
     await expect(page.locator('.mobile-media-detail-overlay--assets video')).toHaveAttribute(
@@ -12859,36 +12895,34 @@ test.describe('Assets Manager (authenticated)', () => {
       /\/api\/ai\/text-assets\/txt-mobile-1\/file$/,
     );
 
-    await page.locator('#studioImageGrid [data-asset-id="snd-mobile-2"] .studio__asset-title').evaluate((node) => node.click());
-    await expect.poll(() => page.evaluate(() => window.__studioOpenCalls.length)).toBe(1);
-
-    const firstIndicator = page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"] .studio__asset-play-indicator');
-    const secondIndicator = page.locator('#studioImageGrid [data-asset-id="snd-mobile-2"] .studio__asset-play-indicator');
-    const firstAudio = page.locator('#studioImageGrid [data-asset-id="snd-mobile-1"] .studio__asset-audio');
-    const secondAudio = page.locator('#studioImageGrid [data-asset-id="snd-mobile-2"] .studio__asset-audio');
-
-    await expect(firstIndicator).toHaveAttribute('data-playing', 'false');
-    await expect(secondIndicator).toHaveAttribute('data-playing', 'false');
-
-    await firstAudio.evaluate((audio) => audio.dispatchEvent(new Event('play')));
-    await expect(firstIndicator).toHaveAttribute('data-playing', 'true');
-    await expect(secondIndicator).toHaveAttribute('data-playing', 'false');
-
-    await secondAudio.evaluate((audio) => audio.dispatchEvent(new Event('play')));
-    await expect(firstIndicator).toHaveAttribute('data-playing', 'false');
-    await expect(secondIndicator).toHaveAttribute('data-playing', 'true');
-
-    await secondAudio.evaluate((audio) => audio.dispatchEvent(new Event('pause')));
-    await expect(firstIndicator).toHaveAttribute('data-playing', 'false');
-    await expect(secondIndicator).toHaveAttribute('data-playing', 'false');
-
-    await firstAudio.evaluate((audio) => audio.dispatchEvent(new Event('play')));
-    await expect(firstIndicator).toHaveAttribute('data-playing', 'true');
-    await expect(secondIndicator).toHaveAttribute('data-playing', 'false');
-
-    await firstAudio.evaluate((audio) => audio.dispatchEvent(new Event('ended')));
-    await expect(firstIndicator).toHaveAttribute('data-playing', 'false');
-    await expect(secondIndicator).toHaveAttribute('data-playing', 'false');
+    let previousAudio;
+    for (const [id, title, index] of [['snd-mobile-1', 'Signal Drift', 2], ['snd-mobile-2', 'Orbit Pulse', 1]]) {
+      await page.locator('#studioImageGrid + .studio-deck-dots .studio-deck-dot').nth(index).click();
+      const card = page.locator(`#studioImageGrid [data-asset-id="${id}"]`);
+      await expect(card.locator('.studio__asset-sound-fallback')).toBeVisible();
+      await card.locator('.studio__asset-video-trigger').click();
+      const detail = page.locator('.mobile-media-detail-overlay--assets');
+      await expect(detail).toBeVisible();
+      await expect(detail).toContainText(title);
+      const audio = detail.locator('audio');
+      await expect(page.locator('audio')).toHaveCount(1);
+      await expect(audio).toHaveAttribute('src', `/api/ai/text-assets/${id}/file`);
+      await expect(audio).toHaveAttribute('controls', '');
+      await expect.poll(() => audio.evaluate(a => !a.paused && a.currentTime > 0)).toBe(true);
+      if (previousAudio) expect(await previousAudio.evaluate(a => a.paused && !a.hasAttribute('src'))).toBe(true);
+      await audio.evaluate(a => a.pause());
+      expect(await audio.evaluate(a => a.paused)).toBe(true);
+      await audio.evaluate(a => a.play());
+      await expect.poll(() => audio.evaluate(a => !a.paused)).toBe(true);
+      previousAudio = await audio.elementHandle();
+      await page.locator('.mobile-media-detail-overlay__close').click();
+      await expect(detail).toHaveCount(0);
+      expect(await previousAudio.evaluate(a => a.paused && !a.hasAttribute('src'))).toBe(true);
+      await expect(card.locator('.studio__asset-video-trigger')).toBeFocused();
+    }
+    expect(page.url()).toBe(originalUrl);
+    expect(await page.evaluate(() => window.__studioOpenCalls.length)).toBe(1);
+    await expect(page.locator('audio, video')).toHaveCount(0);
   });
 
   test('account Assets Manager lets the owner publish and unpublish a saved image into Mempics', async ({
@@ -12983,29 +13017,25 @@ test.describe('Assets Manager (authenticated)', () => {
       },
     });
 
+    await mockCardMedia(page, { posterIds: ['snd-publish-1'] });
     await page.goto('/account/assets-manager.html');
     await expect(page.locator('#studioContent')).toBeVisible({ timeout: 10_000 });
 
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
     const card = page.locator('#studioImageGrid [data-asset-id="snd-publish-1"]');
-    await expect(card.locator('.studio__asset-cover-bg')).toHaveCount(1);
+    await expectNamedMediaCard(card, 'Member beat');
+    await expect(card.locator('.studio__asset-poster')).toHaveAttribute('src', '/api/ai/text-assets/snd-publish-1/poster');
     await expect(card.locator('.studio__asset-preview')).toHaveCount(0);
     await expect(card.locator('.studio__asset-meta')).toHaveCount(0);
     await expect(card).not.toContainText('This prompt text should not be rendered');
     await expect(card).not.toContainText('member-beat.mp3');
     await expect(card).not.toContainText('320000');
     await expect(card).not.toContainText('10.04.2026');
-    await expect(card.locator('.studio__asset-audio')).toBeVisible();
-    await expect(card.locator('.studio__asset-badge--sound')).toHaveText('SOUND');
-    await expect(card.locator('.studio__asset-badge--sound')).toHaveCSS('position', 'absolute');
+    await expect(card.locator('audio')).toHaveCount(0);
+    await expect(card.locator('.studio__card-menu')).toHaveAttribute('data-card-media', 'sound');
     await expect(card.locator('.studio__image-visibility')).toHaveText('Private');
-    await expect(card.locator('.studio__image-visibility')).toHaveCSS('position', 'absolute');
-    const soundBadgeBox = await card.locator('.studio__asset-badge--sound').boundingBox();
-    const visibilityBox = await card.locator('.studio__image-visibility').boundingBox();
-    const cardBox = await card.boundingBox();
-    expect(soundBadgeBox?.x).toBeLessThan(visibilityBox?.x || 0);
-    expect(visibilityBox?.width || 0).toBeLessThan((cardBox?.width || 0) / 2);
-
+    await card.locator('.studio__card-menu').click();
+    await expectCardActionsInside(card);
     await card.getByRole('button', { name: 'Publish' }).click();
     await expect(card.locator('.studio__image-visibility')).toHaveText('Public');
     await expect(card.locator('.studio__image-visibility')).toHaveCSS('position', 'absolute');
@@ -13018,10 +13048,15 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(card.locator('.studio__image-publish')).toHaveText('Unpublish');
     await expect(page.locator('#studioGalleryMsg')).toContainText('Track published to Memtracks.');
 
-    await card.getByRole('button', { name: 'Unpublish' }).click();
+    await expect(card).toHaveCSS('transform', 'none');
+    await card.getByRole('button', { name: 'Unpublish' }).focus();
+    await expectCardActionsInside(card);
+    await page.keyboard.press('Enter');
     await expect(card.locator('.studio__image-visibility')).toHaveText('Private');
     await expect(card.locator('.studio__image-publish')).toHaveText('Publish');
     await expect(page.locator('#studioGalleryMsg')).toContainText('Track removed from Memtracks.');
+    await expect(page.locator('audio, .studio-modal.active, .mobile-media-detail-overlay')).toHaveCount(0);
+    await expect(card).not.toHaveAttribute('aria-pressed', 'true');
   });
 
   test('account Assets Manager moves and deletes mixed saved assets with one shared selection flow', async ({
@@ -18230,6 +18265,7 @@ test.describe('Admin AI Lab', () => {
   test('loads the admin AI Lab section and runs all task panels', async ({
     page,
   }) => {
+    await mockCardMedia(page, { audioIds: ['snd-asset-1'] });
     const response = await page.goto('/admin/index.html#ai-lab');
     expect(response.status()).toBe(200);
 
@@ -18288,8 +18324,19 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiLabSavedAssets .studio__folder-card').first().click();
     await expect(page.locator('#aiLabAssetsGrid .studio__image-item')).toHaveCount(3);
     await expect(page.locator('#aiLabAssetsGrid')).toContainText('Embeddings Summary');
-    await expect(page.locator('#aiLabAssetsGrid')).toContainText('Sound Concept Loop');
-    await expect(page.locator('#aiLabAssetsGrid .studio__asset-audio')).toHaveCount(1);
+    const sound = page.locator('#aiLabAssetsGrid [data-asset-id="snd-asset-1"]');
+    await expectNamedMediaCard(sound, 'Sound Concept Loop');
+    await expect(sound.locator('.studio__asset-sound-fallback')).toBeVisible();
+    await expect(page.locator('#aiLabAssetsGrid audio')).toHaveCount(0);
+    await sound.locator('.studio__asset-video-trigger').click();
+    const detail = page.locator('.mobile-media-detail-overlay--assets');
+    await expect(detail).toContainText('Sound Concept Loop');
+    await expect(detail.locator('audio')).toHaveAttribute('src', '/api/ai/text-assets/snd-asset-1/file');
+    await expect.poll(() => detail.locator('audio').evaluate(a => !a.paused && a.currentTime > 0)).toBe(true);
+    const oldAudio = await detail.locator('audio').elementHandle();
+    await page.keyboard.press('Escape');
+    await expect(detail).toHaveCount(0);
+    expect(await oldAudio.evaluate(a => a.paused && !a.hasAttribute('src'))).toBe(true);
     const imageDownload = page.waitForEvent('download');
     await page.locator('#aiImageDownload').click();
     await expect((await imageDownload).suggestedFilename()).toContain('ai-lab-image');

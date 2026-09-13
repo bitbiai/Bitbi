@@ -136,6 +136,21 @@ selectors, and the existing reference-order badge must render. No provider/stora
 The shared detail export is narrow only with this classified card delta; alone it
 retains ordinary homepage/auth selection.
 
+Run34768791107 exposed nine stale broad Admin card scenarios: inline media titles,
+SOUND badges and card audio no longer describe the shared reader. The complete
+cases in `auth-admin.spec.js` now check asset ID/title/accessibility, poster identity,
+real fixture playback in the detail, close/switch cleanup, contained actions and
+owner publication while preserving upload/cover/credit and text-panel assertions.
+Their new publication countercheck also caught desktop menu restoration invoking
+mobile deck layout: only an active deck now receives `setActive`, so desktop cards
+and their neighbors retain normal geometry. Actionability precedes geometry reads
+through mobile transitions. The broad caller's German model-status tap case sets
+`hasTouch` only in its own describe; desktop mouse/keyboard context stays unchanged.
+Caller: `npm run test:auth` (selected browser job), locally `npm run test:static`
+with the ten named cases and zero retries against `_site`; existing Assets music/
+image-publication neighbors additionally exercise the shared fix in both engines.
+Synthetic media proves connected UI playback/cleanup, not provider generation.
+
 `asset-names.js` shares first-three-word naming and the existing filename sanitizer.
 Image/video/music storage uses it without changing provider input, storage keys,
 credits or jobs. Explicit names and later renames win; durable image saving forwards

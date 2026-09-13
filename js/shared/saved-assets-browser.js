@@ -2128,7 +2128,9 @@ export function createSavedAssetsBrowser({
         if (selectMode || pickerMode) return;
         const card = [...$assetGrid.children].find(item => item.dataset.assetId === asset.id);
         if (!card?.getClientRects().length) return;
-        assetDeck?.setActive([...$assetGrid.children].indexOf(card));
+        if ($assetGrid.classList.contains('studio-deck')) {
+            assetDeck?.setActive([...$assetGrid.children].indexOf(card));
+        }
         const toggle = card.querySelector('.studio__card-menu');
         if (!toggle) return;
         // Refresh replaces the activated button. Preserve this interaction's

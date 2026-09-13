@@ -22,7 +22,9 @@ async function setup(page,baseURL,{gate=0,handler}={}){
 }
 const section=page=>page.locator('#sectionModelStatus');
 const open=async page=>{await page.goto('/admin/index.html#model-status');await expect(section(page).locator('.model-status__model').first()).toBeVisible();};
-for(const [locale,width]of [['en',1280],['de',390]])test(`${locale} model status reader desktop/mobile, filtering, keyboard/touch and safe details`,async({page,baseURL},info)=>{
+for(const [locale,width]of [['en',1280],['de',390]])test.describe(`${locale} model status input context`,()=>{
+ test.use({hasTouch:width<500});
+ test(`${locale} model status reader desktop/mobile, filtering, keyboard/touch and safe details`,async({page,baseURL},info)=>{
  await page.setViewportSize({width,height:900});const e=await setup(page,baseURL);await open(page);
  if(locale==='de')await section(page).getByRole('button',{name:'DE',exact:true}).click();
  await expect(page.getByRole('heading',{name:locale==='de'?'Modellstatus':'Model status',exact:true,level:1})).toBeVisible();
@@ -39,6 +41,7 @@ for(const [locale,width]of [['en',1280],['de',390]])test(`${locale} model status
  await page.evaluate(()=>location.hash='dashboard');await expect(section(page).locator('.model-status__model')).toHaveCount(0);
  expect(e.calls.every(c=>c.method==='GET')).toBe(true);expect(e.errors).toEqual([]);
  expect(await page.evaluate(()=>JSON.stringify([localStorage,sessionStorage]).includes('model-a'))).toBe(false);
+});
 });
 for(const gate of [401,403,428])test(`model status ${gate} admin/session/MFA denial never loads observations`,async({page,baseURL})=>{
  const e=await setup(page,baseURL,{gate});await page.goto('/admin/index.html#model-status');await expect(page.locator('#adminDenied')).toBeVisible();expect(e.calls.some(c=>c.path==='/api/admin/ai/model-status')).toBe(false);expect(e.errors).toEqual([]);
