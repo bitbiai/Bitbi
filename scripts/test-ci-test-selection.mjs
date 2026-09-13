@@ -550,3 +550,15 @@ for(const file of ['js/shared/auth-api.js','js/shared/ai-image-models.mjs','js/p
  assert.notEqual(selection([...workspaceFiles,file]).workspaceHelp,true,file);
 }
 assert.notEqual(selectCiTests(workspaceFiles,{forceFull:true}).workspaceHelp,true);
+
+const statusFiles=['workers/auth/src/lib/admin-model-status.js','workers/auth/src/routes/admin-ai.js','workers/auth/src/app/route-policy.js',
+ 'admin/index.html','js/pages/admin/model-status.js','js/shared/auth-api.js','css/admin/model-status.css',
+ 'tests/oma2-q3-model-status.spec.js','tests/admin-model-status.spec.js','tests/admin-model-status-runtime.mjs','playwright.model-status.config.js',
+ 'scripts/lib/ci-test-selection.mjs','scripts/lib/release-plan.mjs','.github/workflows/static.yml','tests/helpers/q2-runtime/linux-bootstrap.py'];
+const statusSelection=selection(statusFiles);
+assert.equal(statusSelection.modelStatus,true);assert.equal(statusSelection.auth,true);assert.equal(statusSelection.workers,true);
+for(const key of ['full','homepage','carousel','assets'])assert.equal(statusSelection[key],false,key);
+for(const file of ['workers/auth/src/lib/ai-usage-policy.js','workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','js/shared/admin-ai-contract.mjs','unknown-root.js','workers/auth/src/lib/member-generation-jobs.js'])assert.notEqual(selection([...statusFiles,file]).modelStatus,true,file);
+assert.equal(selection(['tests/admin-model-status.spec.js']).workers,true);
+assert.equal(selection(['tests/oma2-q3-model-status.spec.js']).auth,true);
+assert.notEqual(selectCiTests(statusFiles,{forceFull:true}).modelStatus,true);

@@ -243,7 +243,7 @@ def main():
     parser.add_argument("--node-sha256", required=True)
     parser.add_argument("--uid", required=True, type=int)
     parser.add_argument("--gid", required=True, type=int)
-    parser.add_argument("--suite", choices=["member-generation"])
+    parser.add_argument("--suite", choices=["member-generation", "model-status"])
     parser.add_argument("--mode", required=True, choices=["preflight", "runtime"])
     args = parser.parse_args()
     session = Path(args.session)

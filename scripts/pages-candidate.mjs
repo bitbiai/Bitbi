@@ -207,6 +207,10 @@ export function verifyAdminReport(report, discovery, scopes = [
   }
 }
 
+export function verifyModelStatusReport(report, discovery) {
+  verifyAdminReport(report, discovery, [['status',['oma2-q3-model-status.spec.js']]]);
+}
+
 export function verifyWorkspaceHelpReport(report, discovery) {
   verifyAdminReport(report, discovery, [['workspace',['smoke.spec.js']],['guidance',['locale.spec.js']]]);
 }
@@ -305,6 +309,7 @@ async function main(command) {
     }
     const report=reports[0];
     if (manifest.selection?.assets && !manifest.selection.full && process.env.GITHUB_JOB === 'browser-validation') verifyAssetReport(reports[names.indexOf('test-results/candidate-assets.json')], JSON.parse(fs.readFileSync('test-results/assets-discovery.json')));
+    if (manifest.selection?.modelStatus) verifyModelStatusReport(report, JSON.parse(fs.readFileSync('test-results/model-status-discovery.json')));
     if (manifest.selection?.workspaceHelp) verifyWorkspaceHelpReport(report, JSON.parse(fs.readFileSync('test-results/workspace-discovery.json')));
     if (manifest.selection?.publicMedia) verifyPublicMediaReport(report, JSON.parse(fs.readFileSync('test-results/public-media-discovery.json')));
     if (manifest.selection?.adminRelease) verifyAdminReport(report, JSON.parse(fs.readFileSync('test-results/admin-discovery.json')));

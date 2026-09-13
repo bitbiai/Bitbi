@@ -2159,3 +2159,7 @@ export function apiResetPassword(token, password) {
 }
 
 export function apiAiRetryGenerationPreview(id,options={}) {return request("POST",`/ai/generation-jobs/${encodeURIComponent(id)}/retry-preview`,{},options);}
+
+export function apiAdminModelStatus(options = {}) {
+    return request('GET', '/admin/ai/model-status', undefined, options);
+}

@@ -1333,6 +1333,11 @@ export const ROUTE_POLICIES = Object.freeze([
     notes: "Requires prior soft deletion, exact typed conversation id, reason, Idempotency-Key, optimistic revision, and no active turn. External audit and budget evidence remain retained.",
   }),
 
+  adminRead("admin.ai.model-status", "/api/admin/ai/model-status", "admin-ai", {
+    config: ["DB", "PUBLIC_RATE_LIMITER"],
+    rateLimit: { id: "admin-ai-model-status-ip", failClosed: true },
+    notes: "Admin/MFA-only bounded read-only model outcomes and public component status. No prompts, identities, private media, inference or job mutation; private no-store responses.",
+  }),
   adminRead("admin.ai.models", "/api/admin/ai/models", "admin-ai", {
     config: REQUIRED_CONFIG.adminAi,
     rateLimit: { id: "admin-ai-models-ip", failClosed: true },

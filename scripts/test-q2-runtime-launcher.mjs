@@ -421,9 +421,11 @@ test('member runtime scope is explicit and leaves the default full runtime intac
   assert.throws(()=>parseRuntimeArgs(['--suite','member-generation','--suite','member-generation'],{}));
   assert.deepEqual(selectedRuntimeSuites('member-generation').map(([name])=>name),['member-generation']);
   assert.deepEqual(selectedRuntimeSuites(),runtimeSuites);
+  assert.deepEqual(selectedRuntimeSuites('model-status').map(([name])=>name),['model-status']);
+  assert.equal(parseRuntimeArgs(['--suite','model-status'],{}).suite,'model-status');
   assert.throws(()=>selectedRuntimeSuites('unknown'));
   const bootstrap=read('tests/helpers/q2-runtime/linux-bootstrap.py');
-  assert.match(bootstrap,/choices=\["member-generation"\]/);
+  assert.match(bootstrap,/choices=\["member-generation", "model-status"\]/);
   assert.match(read('tests/helpers/q2-runtime/linux-runtime-child.mjs'),/boundary.json/);
 });
 
@@ -432,11 +434,12 @@ test('actual selected Worker shell stops before downstream work on every failure
   for(const name of ['node','npx','npm'])fs.writeFileSync(path.join(bin,name),'#!/bin/sh\ncommand="${0##*/} $*"\nprintf "%s\\n" "$command" >> "$TRACE"\n[ "$command" != "$FAIL_COMMAND" ] || exit 37\n',{mode:0o700});
   const block=read('.github/workflows/static.yml').split('      - name: Run worker route tests\n')[1].split('      - name:')[0];
   const script=block.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n');
-  for(const selected of ['true','false']) {
-    const command=script.replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
+  for(const [status,selected] of [['false','true'],['false','false'],['true','false']]) {
+    const command=script.replaceAll('${{ needs.release-compatibility.outputs.model_status }}',status).replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
     const run=fail=>{fs.writeFileSync(trace,'');const result=spawnSync('/bin/sh',['-c',command],{cwd:f.base,env:{PATH:bin,TRACE:trace,FAIL_COMMAND:fail||''},encoding:'utf8'});return {status:result.status,commands:fs.readFileSync(trace,'utf8').trim().split('\n')};};
-    const passed=run();assert.equal(passed.status,0);assert.equal(passed.commands.length,selected==='true'?3:1);
-    if(selected==='true')assert.match(passed.commands[2],/--suite member-generation$/);
+    const passed=run();assert.equal(passed.status,0);assert.equal(passed.commands.length,status==='true'||selected==='true'?3:1);
+    if(status==='true')assert.match(passed.commands[2],/--suite model-status$/);
+    else if(selected==='true')assert.match(passed.commands[2],/--suite member-generation$/);
     else assert.deepEqual(passed.commands,['npm run test:workers']);
     for(const [i,failed] of passed.commands.entries()) {const result=run(failed);assert.equal(result.status,37);assert.deepEqual(result.commands,passed.commands.slice(0,i+1));}
   }

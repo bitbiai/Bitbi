@@ -1,3 +1,4 @@
+import { getAdminModelStatus } from '../lib/admin-model-status.js';
 import {
   BODY_LIMITS,
   readJsonBodyOrResponse,
@@ -1946,6 +1947,15 @@ export async function handleAdminAI(ctx) {
   const result = await requireAdmin(request, env, { isSecure, correlationId });
   if (result instanceof Response) {
     return withAdminAiCode(result);
+  }
+
+  // route-policy: admin.ai.model-status
+  if (pathname === "/api/admin/ai/model-status" && method === "GET") {
+    const limited = await rateLimitAdminAi(request, env, "admin-ai-model-status-ip", 30, 600_000, correlationId);
+    if (limited) return limited;
+    return withCorrelationId(json({ ok: true, data: await getAdminModelStatus(env) }, {
+      headers: { 'Cache-Control': 'private, no-store' },
+    }), correlationId);
   }
 
   if (pathname === "/api/admin/ai/budget-evidence" && method === "GET") {

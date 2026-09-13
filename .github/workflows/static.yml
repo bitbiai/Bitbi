@@ -65,6 +65,7 @@ jobs:
       admin_release: ${{ steps.selection.outputs.admin_release }}
       member_assets: ${{ steps.selection.outputs.member_assets }}
       public_media: ${{ steps.selection.outputs.public_media }}
+      model_status: ${{ steps.selection.outputs.model_status }}
       workspace_help: ${{ steps.selection.outputs.workspace_help }}
       dependencies: ${{ steps.selection.outputs.dependencies }}
       worker_dependencies: ${{ steps.selection.outputs.worker_dependencies }}
@@ -240,7 +241,11 @@ jobs:
         env:
           Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
         run: |
-          if [ "${{ needs.release-compatibility.outputs.member_assets }}" = 'true' ]; then
+          if [ "${{ needs.release-compatibility.outputs.model_status }}" = 'true' ]; then
+            node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
+            npx playwright test -c playwright.workers.config.js tests/admin-model-status.spec.js --retries=0 &&
+            node scripts/test-q2-runtime.mjs --suite model-status
+          elif [ "${{ needs.release-compatibility.outputs.member_assets }}" = 'true' ]; then
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
             npx playwright test -c playwright.workers.config.js tests/workers.spec.js tests/admin-ai-save-operations.spec.js --grep 'image|video|music|text asset|text-asset|durable member|asset naming' --retries=0 &&
             node scripts/test-q2-runtime.mjs --suite member-generation
@@ -457,10 +462,10 @@ jobs:
         if: needs.release-compatibility.outputs.carousel == 'true'
         run: npx playwright install --with-deps chromium firefox webkit
       - name: Install Chromium for selected frontend tests
-        if: needs.release-compatibility.outputs.workspace_help != 'true' && needs.release-compatibility.outputs.public_media != 'true' && needs.release-compatibility.outputs.assets != 'true' && needs.release-compatibility.outputs.admin_release != 'true' && needs.release-compatibility.outputs.carousel != 'true' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true')
+        if: needs.release-compatibility.outputs.model_status != 'true' && needs.release-compatibility.outputs.workspace_help != 'true' && needs.release-compatibility.outputs.public_media != 'true' && needs.release-compatibility.outputs.assets != 'true' && needs.release-compatibility.outputs.admin_release != 'true' && needs.release-compatibility.outputs.carousel != 'true' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true')
         run: npx playwright install --with-deps chromium
       - name: Install Admin acceptance browsers
-        if: needs.release-compatibility.outputs.admin_release == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.public_media == 'true' || needs.release-compatibility.outputs.workspace_help == 'true'
+        if: needs.release-compatibility.outputs.model_status == 'true' || needs.release-compatibility.outputs.admin_release == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.public_media == 'true' || needs.release-compatibility.outputs.workspace_help == 'true'
         run: npx playwright install --with-deps chromium webkit
       - name: Download candidate build
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
@@ -500,7 +505,11 @@ jobs:
       - name: Run selected auth and admin tests
         if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.full != 'true' && needs.release-compatibility.outputs.admin_release != 'true'
         run: |
-          if [ "${{ needs.release-compatibility.outputs.workspace_help }}" = 'true' ]; then
+          if [ "${{ needs.release-compatibility.outputs.model_status }}" = 'true' ]; then
+            rm -f test-results/model-status-discovery.json test-results/candidate-auth.json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/model-status-discovery.json npm run test:static -- --config playwright.model-status.config.js --list --reporter=json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- --config playwright.model-status.config.js --reporter=list,json
+          elif [ "${{ needs.release-compatibility.outputs.workspace_help }}" = 'true' ]; then
             rm -f test-results/workspace-discovery.json test-results/candidate-auth.json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/workspace-discovery.json npm run test:static -- --config playwright.workspace.config.js --list --reporter=json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- --config playwright.workspace.config.js --reporter=list,json

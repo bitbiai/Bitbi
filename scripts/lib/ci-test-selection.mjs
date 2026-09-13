@@ -132,6 +132,7 @@ const ASSETS_MANAGER_SHARED_FILES = new Set([
 const AUTH_TEST_FILES = new Set([
   "tests/oma2-q1-member.spec.js",
   "tests/oma2-q3-newsfeed.spec.js",
+  "tests/oma2-q3-model-status.spec.js",
   "tests/auth-admin.spec.js",
   "tests/wallet-nav.spec.js",
   "tests/oma2-q3-shell.spec.js",
@@ -158,6 +159,7 @@ const WORKER_TEST_PREFIXES = [
   "tests/helpers/sqlite-d1.js",
   "tests/workers.spec.js",
   "tests/admin-ai-save-operations.spec.js",
+  "tests/admin-model-status.spec.js", "tests/admin-model-status-runtime.mjs",
 ];
 
 // These exact release-only inputs are exercised by the always-required release
@@ -218,7 +220,7 @@ const PUBLIC_MEDIA_DETAIL_FILES = new Set([
   'css/pages/index.css', 'js/shared/locale.js',
   'tests/public-media-dialog.spec.js', 'playwright.public-media.config.js',
   'tests/fixtures/media/detail-original.mp4', 'tests/workers.spec.js', 'tests/smoke.spec.js',
-  'scripts/lib/release-plan.mjs',
+  'scripts/lib/release-plan.mjs', 'config/release-compat.json',
 ]);
 
 // Informational workspace/help changes have a bounded, build-bound browser check.
@@ -275,6 +277,20 @@ function selectFullRegression(selection, file, reason) {
   selection.full = true;
   selection.reasons.full.push(`${file || "<no changed files>"}: ${reason}`);
 }
+
+// Read-only Admin observations: real guarded route/native SQL plus both UI engines.
+// Unknown/shared generation, billing, identity or registry inputs cannot use this scope.
+const ADMIN_STATUS_FILES = new Set([
+  'admin/index.html','css/admin/model-status.css','js/pages/admin/model-status.js',
+  'js/pages/admin/main.js','js/pages/admin/router.js','js/shared/auth-api.js',
+  'workers/auth/src/lib/admin-model-status.js','workers/auth/src/routes/admin-ai.js',
+  'workers/auth/src/app/route-policy.js','tests/admin-model-status.spec.js',
+  'tests/oma2-q3-model-status.spec.js','tests/admin-model-status-runtime.mjs',
+  'playwright.model-status.config.js','playwright.config.js','playwright.workers.config.js',
+  'scripts/lib/release-plan.mjs', 'config/release-compat.json',
+  'tests/helpers/q2-runtime/runner.mjs','tests/helpers/q2-runtime/linux-hosted.mjs',
+  'tests/helpers/q2-runtime/linux-bootstrap.py','scripts/test-q2-runtime-launcher.mjs',
+]);
 
 export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression" } = {}) {
   const changedFiles = normalizeFiles(files);
@@ -352,6 +368,17 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selection.workspaceHelp = true;
     selection.auth = selection.static = selection.runtime = true;
     selection.reasons.auth.push('Workspace model/form/credit guidance, session recovery, Help keyboard/touch and EN/DE registry parity in Chromium/WebKit; no provider or pricing changes');
+    return selection;
+  }
+
+  if (!forceFull && changedFiles.some(file=>['workers/auth/src/lib/admin-model-status.js','js/pages/admin/model-status.js','css/admin/model-status.css','tests/oma2-q3-model-status.spec.js','tests/admin-model-status.spec.js'].includes(file))
+      && changedFiles.every(file => isDocumentation(file) || ADMIN_STATUS_FILES.has(file) || RELEASE_TOOLING_FILES.has(file))) {
+    selection.policy = 'admin-model-status-v1';
+    selection.modelStatus = true;
+    selection.auth = selection.static = selection.runtime = true;
+    selection.workers = changedFiles.some(file=>file.startsWith('workers/') || file.includes('q2-runtime') || file==='tests/admin-model-status.spec.js' || file==='tests/admin-model-status-runtime.mjs' || file==='playwright.workers.config.js');
+    selection.reasons.auth.push('Read-only Admin model status: Chromium/WebKit, EN/DE, navigation/session denial, stale data, cleanup and build identity');
+    if(selection.workers) selection.reasons.workers.push('Model status catalog/evidence/query tests and native guarded Admin/MFA/D1 route; no inference, generation or accounting changes');
     return selection;
   }
 

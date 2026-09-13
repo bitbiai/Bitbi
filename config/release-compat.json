@@ -838,6 +838,7 @@
   },
   "adminAi": {
     "staticAuthApiPaths": [
+      "/admin/ai/model-status",
       "/admin/ai/models",
       "/admin/ai/test-text",
       "/admin/ai/test-image",
@@ -887,6 +888,7 @@
       "/internal/ai/video-task/poll"
     ],
     "authOnlyRoutes": [
+      "/api/admin/ai/model-status",
       "/api/admin/ai/budget-evidence",
       "/api/admin/ai/budget-switches",
       "/api/admin/ai/platform-budget-caps",

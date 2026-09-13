@@ -53,9 +53,9 @@ export function parseRuntimeArgs(args, env = {}) {
     if (args[i] === '--preflight' && !result.preflight) result.preflight = true;
     else if (args[i] === '--artifacts' && !explicitArtifacts && args[i + 1] && !args[i + 1].startsWith('--')) {
       result.artifacts = args[++i]; explicitArtifacts = true;
-    } else if (args[i] === '--suite' && !result.suite && args[i+1] === 'member-generation') {
+    } else if (args[i] === '--suite' && !result.suite && ['member-generation','model-status'].includes(args[i+1])) {
       result.suite = args[++i];
-    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation] [--artifacts <outside-repository-directory>]');
+    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation|model-status] [--artifacts <outside-repository-directory>]');
   }
   return result;
 }
@@ -81,7 +81,7 @@ export function stageInputPlan() {
     'tests/q4-runtime-public-video.mjs', 'tests/q4-runtime-stream.mjs', 'tests/q4-runtime-memory.mjs', 'tests/q4-runtime-video.mjs', 'tests/q4-runtime-subscription.mjs',
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-control.mjs', 'tests/helpers/q4-memory-fixture.mjs',
     'tests/fixtures/media/member-image.png', 'tests/fixtures/media/test-video-changing.mp4', 'tests/fixtures/media/member-video-poster.webp',
-    'tests/member-generation-runtime.mjs', 'tests/helpers/member-generation-control.mjs',
+    'tests/admin-model-status-runtime.mjs', 'tests/member-generation-runtime.mjs', 'tests/helpers/member-generation-control.mjs',
     'tests/helpers/q4-video-control.mjs', 'tests/helpers/q4-subscription-payloads.cjs',
   ];
 }
