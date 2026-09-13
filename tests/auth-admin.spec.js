@@ -10906,7 +10906,8 @@ test.describe('Assets Manager (authenticated)', () => {
 
     await page.locator('#studioGalleryFilter').selectOption('__all__');
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(1);
-    await page.locator('#studioImageGrid .studio__image-item').hover();
+    await page.locator('#studioImageGrid .studio__card-menu').click();
+    await expectCardActionsInside(page.locator('#studioImageGrid .studio__image-item'));
     page.once('dialog', async (dialog) => {
       await dialog.accept();
     });
@@ -12417,12 +12418,15 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#studioActionResult')).toBeHidden();
     await expect(page.locator('#studioActionResultTitle')).toBeEmpty();
     await expect(page.locator('#studioGalleryMsg')).toBeEmpty();
+    await firstCard.locator('.studio__card-menu').click();
+    await expect(firstCard.locator('.studio__card-menu')).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: /Preview Mobile Asset \d+/ })).toBeVisible();
     await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: 'Publish' })).toBeVisible();
     await expect(page.locator('#studioImageGrid .studio__image-item').first().getByRole('button', { name: 'Delete' })).toBeVisible();
-    await expect
-      .poll(() => page.locator('#studioImageGrid .studio__image-overlay').first().evaluate((node) => getComputedStyle(node).opacity))
-      .toBe('1');
+    await expectCardActionsInside(firstCard);
+    await expect(page.locator('.studio-modal.active, .mobile-media-detail-overlay')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(firstCard.locator('.studio__card-menu')).toHaveAttribute('aria-expanded', 'false');
 
     const visibleDots = page.locator('.studio-deck-dots:visible .studio-deck-dot');
     await expect(visibleDots).toHaveCount(5);

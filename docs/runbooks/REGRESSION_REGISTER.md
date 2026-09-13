@@ -155,6 +155,11 @@ Linux WebKit clicks hit the poster rather than the hidden action. That existing
 case now opens the explicit media disclosure and uses keyboard focus after refresh;
 publication state, contained hit targets and no unintended preview remain asserted.
 Separate existing desktop hover cases remain executable and passed in that run.
+The complete mobile grouped-grid neighbor in34774257994 still expected the action
+overlay to remain visible after bulk-mode exit. It now explicitly opens/closes the
+media disclosure, preserving all selection/move/notice/grid/detail/dot assertions.
+The same owner-action entry is used by the directly related save/delete storage
+case; separate focused hover coverage remains unchanged. No visibility is forced.
 
 `asset-names.js` shares first-three-word naming and the existing filename sanitizer.
 Image/video/music storage uses it without changing provider input, storage keys,
