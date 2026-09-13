@@ -5,6 +5,7 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
     const observations = new WeakMap();
     let sequence = 0, eventSequence = 0;
     const events = [];
+    const outputObservers = new Set();
     const isHeroVideo = video => video instanceof HTMLVideoElement
       && video.classList.contains('latest-models-video-module__video');
     function observation(video, output = null) {
@@ -60,6 +61,9 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
           state.callbackPending=false;state.frameCallbacks++;state.nativePresentedFrames=metadata.presentedFrames;
           const current=registeredEpoch===state.epoch && registeredSource===video.getAttribute('src');
           observation(video,current ? metadata : null);
+          // Inspect the same progress contract while native output is current,
+          // before a subsequent loop seek can outrun a delayed timer task.
+          if (current) for (const notify of outputObservers) notify();
         });
       }
       return state;
@@ -242,7 +246,9 @@ function installBrowserProbe(createProgressWindow, observeProgress) {
       sample: () => Array.from(document.querySelectorAll('#hero [data-latest-models-video-module] video'), sample),
       events, observe: sample, observeFrozen, observePausedTransitions,
       diagnostics: () => Array.from(document.querySelectorAll('#hero [data-latest-models-video-module] video'), video => sample(video,true)),
-      waitForProgress: options => observeProgress(window.__heroNativeProbe.sample, options, createProgressWindow),
+      waitForProgress: options => observeProgress(window.__heroNativeProbe.sample, options, createProgressWindow, notify => {
+        outputObservers.add(notify); return () => outputObservers.delete(notify);
+      }),
     };
 }
 
@@ -254,16 +260,16 @@ async function installHeroNativeProbe(page) {
 
 // Observe inside one browser call. Transport delays must not discard output
 // already seen before a normal source transition. Each invocation starts fresh.
-function observeProgress(sample, { loops = 0, timeout = 5000, action = null } = {}, factory = createProgressWindow) {
+function observeProgress(sample, { loops = 0, timeout = 5000, action = null } = {}, factory = createProgressWindow, subscribe = null) {
   const progress = factory({ loops });
   return new Promise((resolve, reject) => {
     const start = performance.now();
     const samples = [], decisions = [];
-    let timer, deadline, sampleCount = 0, settled = false;
+    let timer, deadline, unsubscribe, sampleCount = 0, settled = false;
     let actionAt = null, actionBaseline = null, actionIssues = [];
     const finish = (passed, error) => {
       if (settled) return;
-      settled = true; clearTimeout(timer); clearTimeout(deadline);
+      settled = true; clearTimeout(timer); clearTimeout(deadline); unsubscribe?.();
       if (error) reject(error);
       else resolve({ passed, phase: loops ? 'loop' : 'play-or-resume',
         issues: actionIssues.length ? actionIssues : progress.issues?.() || [],
@@ -271,6 +277,8 @@ function observeProgress(sample, { loops = 0, timeout = 5000, action = null } = 
         startedAt: start, deadlineAt: start + timeout });
     };
     const tick = () => {
+      if (settled) return;
+      clearTimeout(timer); // Native notifications and fallback share one timer.
       try {
         const at = performance.now() - start;
         const current = sample(); sampleCount++;
@@ -290,11 +298,17 @@ function observeProgress(sample, { loops = 0, timeout = 5000, action = null } = 
         if (decisions.length > 60) decisions.shift();
         samples.push(current); if (samples.length > 60) samples.shift();
         if (actionIssues.length) return finish(false);
+        // A native callback must not beat a queued deadline after its real bound.
+        if (sampledAt > timeout) {
+          actionIssues = [{ condition: 'observation-deadline', observedAt: sampledAt }];
+          return finish(false);
+        }
         if (passed) return finish(true);
         if (performance.now() - start >= timeout) return finish(false);
         timer = setTimeout(tick, 16);
       } catch (error) { finish(false, error); }
     };
+    unsubscribe = subscribe?.(tick);
     deadline = setTimeout(() => finish(false), timeout);
     tick(); // Capture paused/current identities before the synchronous action.
     if (action !== null && !settled) {

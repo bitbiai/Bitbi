@@ -181,6 +181,32 @@ test('browser progress action captures resume before delayed collection and pins
     const pending = window.__heroNativeProbe.waitForProgress({timeout:150,action:resume});
     await new Promise(resolve=>setTimeout(resolve,200)); // Delayed caller, not delayed observation.
     const joined=await pending;
+    // Actual existing callback wiring, with explicitly synthetic metadata.
+    // A delayed timer sees only the next seek; the native callback sees output
+    // in its own phase. Neither can pass a subsequent interval with no output.
+    const signal = document.createElement('video'); document.body.append(signal);
+    let frame;
+    signal.requestVideoFrameCallback = cb => { frame=cb; return 1; };
+    window.__heroNativeProbe.observe(signal);
+    const betweenTasks = notify => () => {
+      resume();
+      if (notify) frame(performance.now(), { mediaTime:0.2, presentedFrames:2 });
+      current.forEach(v=>{v.seeking=true;});
+    };
+    reset();
+    const timerMiss=await window.__heroNativeProbe.waitForProgress({timeout:100,action:betweenTasks(false)});
+    reset();
+    const callbackSeen=await window.__heroNativeProbe.waitForProgress({timeout:100,action:betweenTasks(true)});
+    const laterStuck=await window.__heroNativeProbe.waitForProgress({timeout:100});
+    const settledReads=reads;
+    frame(performance.now(), {mediaTime:0.3,presentedFrames:3});
+    const unsubscribed=reads===settledReads;
+    reset();
+    const afterDeadline=await window.__heroNativeProbe.waitForProgress({timeout:10,action:()=>{
+      const start=performance.now(); while(performance.now()-start<30) { /* bounded delayed browser task */ }
+      betweenTasks(true)();
+    }});
+    signal.remove();
     const negatives=[];
     for(const fault of ['frozen','source','epoch','id','missing','paused','seek-only','old-output']) {
       reset();
@@ -203,9 +229,15 @@ test('browser progress action captures resume before delayed collection and pins
       const readsAtFinish=reads;await new Promise(resolve=>setTimeout(resolve,25));
       negatives.push({fault,proof,stopped:reads===readsAtFinish});
     }
-    return {late,joined,negatives};
+    return {late,joined,timerMiss,callbackSeen,laterStuck,unsubscribed,afterDeadline,negatives};
   });
   await test.info().attach('lifecycle-observation-order',{body:JSON.stringify(result),contentType:'application/json'});
+  expect(result.timerMiss.passed).toBe(false);
+  expect(result.callbackSeen.passed).toBe(true);
+  expect(result.laterStuck.passed).toBe(false);
+  expect(result.unsubscribed).toBe(true);
+  expect(result.afterDeadline.passed).toBe(false);
+  expect(result.afterDeadline.issues[0].condition).toBe("observation-deadline");
   expect(result.late.passed).toBe(false);
   expect(result.joined.passed).toBe(true);
   expect(result.joined.actionBaseline.every(v=>v.paused&&v.outputAdvances===9&&v.epoch===7)).toBe(true);
