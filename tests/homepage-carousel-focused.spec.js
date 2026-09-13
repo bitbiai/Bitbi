@@ -1868,3 +1868,112 @@ test.describe('Populated homepage carousel', () => {
     await expectSingleInteractivePanel(page, 'sound');
   });
 });
+
+test.describe('homepage news layout', () => {
+  test.use({ hasTouch: true });
+for (const locale of ['en', 'de']) test(`homepage news free-space geometry and retained navigation (${locale})`, async ({ page }, info) => {
+  await page.setViewportSize({ width: 1728, height: 1117 });
+  await page.addInitScript(() => localStorage.setItem('bitbi_cookie_consent', JSON.stringify({v:'1',ts:Date.now(),necessary:true,analytics:false,marketing:false})));
+  await routePopulatedHomepage(page);
+  await page.route('**/api/me', r => r.fulfill({contentType:'application/json',body:JSON.stringify({loggedIn:true,user:{id:'news-fixture',email:'news@example.invalid',role:'user'}})}));
+  let requests = 0, releaseImage;
+  const imageReady = new Promise(resolve => { releaseImage = resolve; });
+  await page.route('**/api/public/news-pulse/thumbs/**', async r => { await imageReady; await r.fulfill({contentType:'image/png',body:fs.readFileSync(path.join(__dirname,'../assets/images/1.png'))}); });
+  await page.route('**/api/public/news-pulse?**', r => {
+    requests++;
+    return r.fulfill({contentType:'application/json',body:JSON.stringify({enabled:true,items:[
+      {id:'with-image',title:locale==='de'?'Neue Perspektiven für kreative Werkzeuge':'A new perspective on creative tools',summary:locale==='de'?'Offene Forschung eröffnet neue Möglichkeiten für Bilder, Musik und bewegte Geschichten.':'Open research brings fresh possibilities for images, music and moving stories.',source:'Research notes',category:'Research',url:'https://example.com/article',visual_type:'generated',visual_thumb_url:'/api/public/news-pulse/thumbs/with-image'},
+      {id:'no-image',title:('A thoughtful approach to creative intelligence and visual storytelling ').repeat(4),url:'https://example.com/long'},
+    ]})});
+  });
+  const errors=[];page.on('pageerror', e=>errors.push(e.message));
+  const samples=[];
+  try {
+  await page.goto(locale==='de'?'/de/':'/', { waitUntil: 'domcontentloaded' });
+  const feed=page.locator('#newsPulse');
+  const geometry=()=>page.evaluate(()=>{
+    const feed=document.querySelector('#newsPulse'),r=feed.getBoundingClientRect(),gap=Number(feed.dataset.newsPulseGap);
+    const neighbours=[...document.querySelectorAll('.hero__models-cta-wrap,.hero__content,.latest-models-video-module__label')]
+      .filter(e=>e.getBoundingClientRect().width>0).map(e=>({name:e.className,...e.getBoundingClientRect().toJSON()}));
+    const active=feed.querySelector('.is-active .news-pulse__link');
+    return{fits:feed.dataset.newsPulseFits,inert:feed.inert,rect:r.toJSON(),gap,neighbours,
+      safe:neighbours.every(n=>r.right+gap<=n.left+1||r.left-gap>=n.right-1||r.top-gap>=n.bottom-1||r.bottom+gap<=n.top+1),
+      contentsFit:!active||[...active.children].every(e=>e.getBoundingClientRect().bottom<=active.getBoundingClientRect().bottom+1),
+      viewport:{width:innerWidth,height:innerHeight,scrollWidth:document.documentElement.scrollWidth},
+      overflow:document.documentElement.scrollWidth>innerWidth};
+  });
+  await expect(feed).toHaveAttribute('data-news-pulse-fits','true');
+  await expect(feed.locator('.news-pulse__link').first()).toBeVisible();
+  const before=await geometry();expect(before.safe,JSON.stringify(before)).toBe(true);
+  releaseImage();await expect(feed.locator('img')).toHaveJSProperty('complete',true);
+  expect((await geometry()).rect).toEqual(before.rect);
+  await page.screenshot({path:info.outputPath(`news-${locale}-desktop.png`)});
+  await page.setViewportSize({width:1300,height:1117});
+  await expect.poll(async()=> (await geometry()).rect.width).toBeLessThan(before.rect.width);
+  await expect(feed).toBeVisible();const medium=await geometry();expect(medium.safe).toBe(true);expect(medium.contentsFit).toBe(true);
+  samples.push({phase:'medium',...medium});
+  await page.screenshot({path:info.outputPath(`news-${locale}-medium.png`)});
+  await page.setViewportSize({width:1728,height:1117});
+  await expect.poll(async()=> (await geometry()).rect.width).toBe(before.rect.width);
+  await feed.locator('button').nth(1).tap();
+  await expect(feed.locator('.is-active .news-pulse__link')).toHaveAttribute('href','https://example.com/long');
+  await feed.locator('button').first().tap();
+  await feed.locator('button').nth(1).focus();await page.keyboard.press('Enter');
+  await expect(feed.locator('.is-active .news-pulse__link')).toHaveAttribute('href','https://example.com/long');
+  await expect(feed.locator('.is-active img')).toHaveCount(0);
+  await expect(feed.locator('.is-active .news-pulse__source')).toHaveCount(0);
+  await page.screenshot({path:info.outputPath(`news-${locale}-text-only.png`)});
+  await feed.locator('button').first().click();
+  await page.context().route('https://example.com/**',r=>r.fulfill({contentType:'text/html',body:'<title>Source fixture</title><p>Original source</p>'}));
+  const [source]=await Promise.all([page.waitForEvent('popup'),feed.locator('.is-active a').click()]);
+  await expect(source).toHaveURL('https://example.com/article');
+  await expect(source.locator('p')).toHaveText('Original source');await source.close();
+  for(const height of [1200,1117,1060,1020,980,940,900,700,500,900,980,1020,1060,1117]){
+    await page.setViewportSize({width:1728,height});
+    // Wait for the existing hero scale notification and bounded feed placement.
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const s=await geometry();samples.push({height,...s});
+    if(s.fits==='true'){expect(s.safe,JSON.stringify(s)).toBe(true);expect(s.contentsFit).toBe(true);expect(s.rect.bottom).toBeLessThan(height);}
+    else expect(s.inert).toBe(true);
+    if(height===980 && s.fits==='true')await page.screenshot({path:info.outputPath(`news-${locale}-boundary.png`)});
+  }
+  expect(samples.some(s=>s.fits==='false')).toBe(true);expect(samples.at(-1).fits).toBe('true');
+  expect(requests).toBe(1);
+  // Actual neighbouring element resize must reserve its whole bottom edge.
+  await page.locator('.hero__models-cta-wrap--left').evaluate(e=>e.style.height='1000px');
+  await expect(feed).toHaveAttribute('data-news-pulse-fits','false');
+  await page.locator('.hero__models-cta-wrap--left').evaluate(e=>e.style.removeProperty('height'));
+  await expect(feed).toHaveAttribute('data-news-pulse-fits','true');
+  await page.evaluate(()=>document.documentElement.style.fontSize='20px');
+  await expect.poll(async()=> (await geometry()).gap).toBe(30);
+  const zoomed=await geometry();if(zoomed.fits==='true')expect(zoomed.safe).toBe(true);
+  await page.evaluate(()=>document.documentElement.style.removeProperty('font-size'));
+  if(info.project.name==='chromium'){
+    const cdp=await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setPageScaleFactor',{pageScaleFactor:2});
+    await expect(feed).not.toBeVisible();
+    samples.push({phase:'visual-viewport-zoom',...await geometry()});
+    await cdp.send('Emulation.setPageScaleFactor',{pageScaleFactor:1});await cdp.detach();
+  }
+  for(const size of [{width:390,height:844},{width:844,height:390},{width:1728,height:500}]){
+    await page.setViewportSize(size);await expect(feed).toHaveAttribute('data-news-pulse-fits','false');
+    await expect(feed).toHaveAttribute('inert','');
+    await expect(feed).not.toBeVisible();
+    // The hidden feed must contribute no overflow, independently of animated
+    // neighbours elsewhere on the homepage. Compare the actual tree without it.
+    const widths=await feed.evaluate(el=>{const before=document.documentElement.scrollWidth,parent=el.parentNode,next=el.nextSibling;el.remove();const without=document.documentElement.scrollWidth;parent.insertBefore(el,next);return{before,without};});
+    expect(widths.before).toBe(widths.without);
+    const s=await geometry();expect(s.rect.width).toBe(0);expect(s.rect.height).toBe(0);
+    samples.push({size,...s,widths});
+    if(size.width===390)await page.screenshot({path:info.outputPath(`news-${locale}-mobile.png`)});
+  }
+  await page.setViewportSize({width:1728,height:1117});await expect(feed).toHaveAttribute('data-news-pulse-fits','true');expect(requests).toBe(2);
+  expect(errors).toEqual([]);
+  } finally {
+    releaseImage();
+    await info.attach('news-space-samples',{body:JSON.stringify(samples,null,2),contentType:'application/json'});
+    await info.attach('news-final-geometry',{body:JSON.stringify(await page.evaluate(()=>({width:innerWidth,height:innerHeight,scrollWidth:document.documentElement.scrollWidth,feed:document.querySelector('#newsPulse')?.outerHTML}))),contentType:'application/json'});
+  }
+});
+
+});

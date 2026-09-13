@@ -367,12 +367,8 @@ test.describe('Bilingual locale pages', () => {
     expect(css).toContain('position: absolute');
     expect(css).toContain('news-pulse__shell--hero');
     expect(css).toContain('news-pulse__indicator-button');
-    expect(css).toContain('news-pulse--mobile');
-    expect(css).toContain('news-pulse-mobile-cube-turn');
-    expect(css).toContain('@media (max-width: 1023px)');
     expect(css).toContain('visibility: hidden');
-    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
-    expect(css).toContain('animation: none');
+    expect(css).toContain('data-news-pulse-fits');
 
     const indexCss = repoFile('css/pages/index.css');
     expect(indexCss).toContain('@keyframes heroLabCtaGlow');
