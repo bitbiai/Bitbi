@@ -1956,7 +1956,12 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
     await cdp.send('Emulation.setPageScaleFactor',{pageScaleFactor:1});await cdp.detach();
   }
   for(const size of [{width:390,height:844},{width:844,height:390},{width:1728,height:500}]){
-    await page.setViewportSize(size);await expect(feed).toHaveAttribute('data-news-pulse-fits','false');
+    await page.setViewportSize(size);
+    // Layout hiding is synchronous with placement; the surface change loads
+    // asynchronously. Observe the mobile request before resizing back and
+    // cancelling it. Final exact count still rejects a resize fetch flood.
+    if(size.width===390)await expect.poll(()=>requests).toBe(2);
+    await expect(feed).toHaveAttribute('data-news-pulse-fits','false');
     await expect(feed).toHaveAttribute('inert','');
     await expect(feed).not.toBeVisible();
     // The hidden feed must contribute no overflow, independently of animated
