@@ -3738,14 +3738,11 @@ test.describe('Homepage', () => {
       await expect
         .poll(() => page.locator('#hero').evaluate((node) => node.dataset.homepageHeroLargeScale || ''), { timeout: 10_000 })
         .toBe(expectScaled ? 'true' : '');
-      await expect(page.locator('#newsPulse')).toHaveAttribute('data-news-pulse-fits', String(newsFits));
-      if (!newsFits) {
-        await expect(page.locator('#newsPulse')).not.toBeVisible();
-        await expect(page.locator('#newsPulse')).toHaveAttribute('inert', '');
-      }
+      await expect(page.locator('#newsPulse')).toHaveAttribute('data-news-pulse-fits', newsFits === null ? /^(true|false)$/ : String(newsFits));
+      await expect(page.locator('#newsPulse .news-pulse__slide')).toHaveCount(3);
       await waitForStableHeroLayout();
 
-      return page.evaluate(() => {
+      const layout = await page.evaluate(() => {
         const hero = document.querySelector('#hero');
         const heroRect = hero.getBoundingClientRect();
         const heroStyle = window.getComputedStyle(hero);
@@ -3754,7 +3751,12 @@ test.describe('Homepage', () => {
         const right = document.querySelector('#hero .hero__models-cta--right').getBoundingClientRect();
         const teaser = document.querySelector('#hero .hero__lab-teaser');
         const teaserRect = teaser.getBoundingClientRect();
-        const pulse = document.querySelector('#newsPulse').getBoundingClientRect();
+        const feed = document.querySelector('#newsPulse');
+        const pulse = feed.getBoundingClientRect();
+        const gap = Number(feed.dataset.newsPulseGap);
+        const neighbours = [...document.querySelectorAll('#hero .hero__models-cta-wrap, #hero .hero__content, #hero .hero__scroll-hint, #cookieBanner .cookie-banner__card')]
+          .filter(n => getComputedStyle(n).display !== 'none' && getComputedStyle(n).visibility !== 'hidden')
+          .map(n => n.getBoundingClientRect()).filter(r => r.width && r.height);
         const scroll = document.querySelector('#hero .hero__scroll-hint').getBoundingClientRect();
         return {
           active: hero.dataset.homepageHeroLargeScale === 'true',
@@ -3775,14 +3777,30 @@ test.describe('Homepage', () => {
           ctaTarget: teaser.getAttribute('target'),
           newsWidth: pulse.width,
           newsHeight: pulse.height,
+          newsInert: feed.inert,
+          newsSafe: neighbours.every(n => pulse.right + gap <= n.left + 1 || pulse.left >= n.right + gap - 1
+            || pulse.bottom + gap <= n.top + 1 || pulse.top >= n.bottom + gap - 1),
+          newsInViewport: pulse.left >= 0 && pulse.right <= innerWidth && pulse.top >= 0 && pulse.bottom <= innerHeight,
           scrollBottomGap: heroRect.bottom - scroll.bottom,
           anchoredStreams: document.querySelectorAll('#hero .hero__creation-stream[data-creation-stream-anchored="true"]').length,
         };
       });
+      await test.info().attach(`hero-news-geometry-${width}x${height}`, { body:JSON.stringify(layout), contentType:'application/json' });
+      if (layout.newsWidth > 0) {
+        expect(layout.newsSafe, JSON.stringify(layout)).toBe(true);
+        expect(layout.newsInViewport).toBe(true);
+        expect(layout.newsInert).toBe(false);
+        expect(layout.newsWidth).toBeGreaterThanOrEqual(400);
+        expect(layout.newsHeight).toBeGreaterThanOrEqual(200);
+      } else {
+        expect(layout.newsHeight).toBe(0);
+        expect(layout.newsInert).toBe(true);
+      }
+      return layout;
     };
 
     const baseline = await measureHero(1728, 1117, false);
-    const shortDesktop = await measureHero(1920, 1080, true, false);
+    const shortDesktop = await measureHero(1920, 1080, true, null);
     const large = await measureHero(2560, 1440, true);
     const fourK = await measureHero(3840, 2160, true);
     const expectedShortScale = shortDesktop.viewportWidth / 1728;
