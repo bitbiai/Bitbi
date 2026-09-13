@@ -109,6 +109,7 @@ const CAROUSEL_FILES = new Set([
   "tests/homepage-hero-playback.spec.js",
   "tests/homepage-native-control.spec.js",
   "tests/homepage-hero-state.spec.js",
+  "tests/helpers/homepage-hero-native-probe.js",
   "tests/homepage-media-loading.spec.js",
   "tests/homepage-performance-contract.spec.js",
 ]);

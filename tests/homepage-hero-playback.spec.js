@@ -102,12 +102,26 @@ async function openHome(page, locale, options) {
   return state;
 }
 
-async function expectPlaying(page) {
-  const result = await page.evaluate(() => window.__heroNativeProbe.waitForProgress());
+async function expectPlaying(page, resume = null) {
+  const result = await page.evaluate(resume => window.__heroNativeProbe.waitForProgress({
+    action: resume === null ? null : () => {
+      if (resume === 'visible') window.__setHeroDocumentHidden(false);
+      else if (resume === 'onscreen') window.scrollTo(0, 0);
+      else if (resume === 'pageshow') window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+      else throw new Error('Unknown native resume action');
+    },
+  }), resume);
   await test.info().attach('native-active-slot-progress', {
     body: JSON.stringify(result), contentType: 'application/json',
   });
   expect(result.passed, `${result.phase}: ${JSON.stringify(result.issues)}`).toBe(true);
+  if (resume) {
+    expect(result.actionBaseline).toHaveLength(4);
+    for (const video of result.samples.at(-1).filter(v => v.active)) {
+      expect(video.lastNativeOutput?.observedAt, `${resume}: own post-action output for ${video.slot}`).toBeGreaterThan(result.actionAt);
+      expect(video.lastNativeOutput?.epoch).toBe(video.epoch);
+    }
+  }
 }
 
 async function startContinuityProbe(page) {
@@ -273,8 +287,7 @@ for (const locale of ['en', 'de']) {
     expect(result.passed, `${result.phase}: ${JSON.stringify(result.issues)}`).toBe(true);
     await page.evaluate(() => window.__setHeroDocumentHidden(true));
     await expectFrozen(page, testInfo, 'native-loop-suspended', 200);
-    await page.evaluate(() => window.__setHeroDocumentHidden(false));
-    await expectPlaying(page);
+    await expectPlaying(page, 'visible');
   });
 
   test(`${locale}: configured hero pauses offscreen and hidden, resumes existing media and respects an existing pause`, async ({ page }, testInfo) => {
@@ -285,8 +298,7 @@ for (const locale of ['en', 'de']) {
     // external currentTime snapshots can match after a legitimate loop.
     await scrollHeroOffscreen(page);
     await expectFrozen(page, testInfo, 'offscreen-native-playback');
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await expectPlaying(page);
+    await expectPlaying(page, 'onscreen');
     await expectContinuity(page);
 
     // A separate controlled player stays outside the decorative hero lifecycle.
@@ -305,8 +317,7 @@ for (const locale of ['en', 'de']) {
     await page.evaluate(() => window.__setHeroDocumentHidden(true));
     await expectFrozen(page, testInfo, 'synthetic-hidden-native-playback');
     expect(await page.locator('#independent-controlled-video').evaluate(video => video.paused)).toBe(false);
-    await page.evaluate(() => window.__setHeroDocumentHidden(false));
-    await expectPlaying(page);
+    await expectPlaying(page, 'visible');
     await expectContinuity(page);
 
     await page.locator(HERO_VIDEOS).first().evaluate(video => video.pause());
@@ -331,8 +342,7 @@ for (const locale of ['en', 'de']) {
     await expectFrozen(page, testInfo, 'fallback-offscreen-native-playback', 2400);
     expect(await page.locator(HERO_SLOTS).evaluateAll(slots => slots.map(slot => slot.dataset.transitionCount))).toEqual(cyclesBefore);
     await expectContinuity(page);
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await expectPlaying(page);
+    await expectPlaying(page, 'onscreen');
     await expectNativeResumeContinuity(page, testInfo, 'fallback-native-resume');
 
     // Suspension during an actual cube turn retains both faces and resumes it.
@@ -390,8 +400,7 @@ for (const locale of ['en', 'de']) {
         await expectFrozen(page, testInfo, 'decorative-loading-suspended', 200);
         // Suspension cancels speculation; late responses cannot win after resume.
         release();
-        await page.evaluate(() => window.__setHeroDocumentHidden(false));
-        await expectPlaying(page);
+        await expectPlaying(page, 'visible');
         expect(await bottoms.evaluateAll(slots => slots.map(s => ({ id: s.dataset.activeVideoId, src: s.querySelector('video').getAttribute('src') })))).toEqual(kept);
       }
       await page.locator('#hero [data-models-link]').first().click();
@@ -403,22 +412,25 @@ for (const locale of ['en', 'de']) {
     const state = await openHome(page, locale, { initiallyHidden: true });
     await startContinuityProbe(page);
     await expectFrozen(page, testInfo, 'initial-hidden-native-playback', 200);
-    await page.evaluate(() => window.__setHeroDocumentHidden(false));
-    await expectPlaying(page);
+    await expectPlaying(page, 'visible');
     await expectContinuity(page);
 
     for (let cycle = 0; cycle < 2; cycle += 1) {
       await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
       await expectFrozen(page, testInfo, `bfcache-hidden-${cycle}`, 200);
-      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
-      await expectPlaying(page);
+      await expectPlaying(page, 'pageshow');
       await expectContinuity(page);
     }
+    // A first resumed frame does not certify subsequent looping. Keep the
+    // post-bfcache seek/output phase separate, with the existing finite bound.
+    const continuation = await page.evaluate(() => window.__heroNativeProbe.waitForProgress({ loops: 1 }));
+    await testInfo.attach('post-bfcache-loop-output', { body: JSON.stringify(continuation), contentType: 'application/json' });
+    expect(continuation.passed, JSON.stringify(continuation.issues)).toBe(true);
+    await expectContinuity(page);
     // Listener reattachment is observable after the bfcache round trips.
     await page.evaluate(() => window.__setHeroDocumentHidden(true));
     await expectFrozen(page, testInfo, 'hidden-after-bfcache', 200);
-    await page.evaluate(() => window.__setHeroDocumentHidden(false));
-    await expectPlaying(page);
+    await expectPlaying(page, 'visible');
     await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false })));
     await expect(page.locator(HERO_VIDEOS)).toHaveCount(0);
     expect(await page.evaluate(() => window.__heroContinuityProbe.videos.every(video => video.paused && !video.hasAttribute('src')))).toBe(true);
@@ -446,8 +458,7 @@ for (const locale of ['en', 'de']) {
     await expect.poll(() => page.locator(HERO_VIDEOS).evaluateAll(videos => videos.every(video => video.paused))).toBe(true);
     await startContinuityProbe(page);
     await expectFrozen(page, testInfo, 'tablet-reduced-motion-offscreen');
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await expectPlaying(page);
+    await expectPlaying(page, 'onscreen');
     await expectNativeResumeContinuity(page, testInfo, 'reduced-motion-native-resume');
     await page.setViewportSize({ width: 820, height: 650 });
     await expect(page.locator(HERO_VIDEOS)).toHaveCount(0);
@@ -477,6 +488,5 @@ test('native pause contract rejects ignored pause, transient source changes and 
   // Prior successful playing evidence cannot pass a fresh paused interval.
   const stale = await page.evaluate(() => window.__heroNativeProbe.waitForProgress({ timeout: 200 }));
   expect(stale.passed).toBe(false);
-  await page.evaluate(() => window.__setHeroDocumentHidden(false));
-  await expectPlaying(page); // Real native output after the invalidated source.
+  await expectPlaying(page, 'visible'); // Real native output after the invalidated source.
 });

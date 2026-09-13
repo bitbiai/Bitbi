@@ -160,6 +160,61 @@ test('browser progress window survives delayed transport but never reuses a chan
   }
 });
 
+test('browser progress action captures resume before delayed collection and pins its four identities', async ({ page }) => {
+  // Ordering/identity regression only. These samples never claim native playback.
+  await installHeroNativeProbe(page);
+  await page.goto('/plain-video');
+  const result = await page.evaluate(async () => {
+    const initial = ['left_top','left_bottom','right_top','right_bottom'].map((slot,id) => ({
+      id, slot, src:`/${id}`, epoch:7, active:true, connected:true, paused:true,
+      readyState:4, error:null, seeking:false, outputAdvances:9, completedLoops:0,
+    }));
+    let current, reads;
+    const reset = () => {
+      current=structuredClone(initial); reads=0;
+      window.__heroNativeProbe.sample=()=>{reads++;return structuredClone(current);};
+    };
+    const resume = () => current.forEach(v=>{v.paused=false;v.outputAdvances++;});
+    reset();resume();
+    const late = await window.__heroNativeProbe.waitForProgress({timeout:100});
+    reset();
+    const pending = window.__heroNativeProbe.waitForProgress({timeout:150,action:resume});
+    await new Promise(resolve=>setTimeout(resolve,200)); // Delayed caller, not delayed observation.
+    const joined=await pending;
+    const negatives=[];
+    for(const fault of ['frozen','source','epoch','id','missing','paused','seek-only','old-output']) {
+      reset();
+      if(fault==='old-output')current.forEach(v=>{v.paused=false;v.outputAdvances++;});
+      let timer;
+      const proof=await window.__heroNativeProbe.waitForProgress({timeout:100,action:()=>{
+        current.forEach(v=>{v.paused=false;});
+        if(fault==='source')current[0].src='/replacement';
+        if(fault==='epoch')current[0].epoch++;
+        if(fault==='id')current[0].id=99;
+        if(fault==='missing')current.shift();
+        if(fault==='paused')current[0].paused=true;
+        if(fault==='seek-only')current[0].seeking=true;
+        timer=setTimeout(()=>{
+          current.forEach((v,i)=>{if(fault!=='old-output' && (i>0||!['frozen','seek-only'].includes(fault)))v.outputAdvances++;});
+          if(fault==='seek-only')current[0].seeking=false;
+        },25);
+      }});
+      clearTimeout(timer);
+      const readsAtFinish=reads;await new Promise(resolve=>setTimeout(resolve,25));
+      negatives.push({fault,proof,stopped:reads===readsAtFinish});
+    }
+    return {late,joined,negatives};
+  });
+  await test.info().attach('lifecycle-observation-order',{body:JSON.stringify(result),contentType:'application/json'});
+  expect(result.late.passed).toBe(false);
+  expect(result.joined.passed).toBe(true);
+  expect(result.joined.actionBaseline.every(v=>v.paused&&v.outputAdvances===9&&v.epoch===7)).toBe(true);
+  expect(result.joined.actionAt).toBeGreaterThanOrEqual(result.joined.startedAt);
+  for(const {fault,proof,stopped} of result.negatives) {
+    expect(proof.passed,fault).toBe(false);expect(stopped,fault).toBe(true);
+  }
+});
+
 test('probe only: the appended target is distinguished from the outgoing face in both transition shapes', async ({ page }) => {
   await installHeroNativeProbe(page);
   await controlledHero(page);

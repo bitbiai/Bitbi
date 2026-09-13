@@ -7,6 +7,7 @@ import {
   isFastDeploySafePath,
 } from "./lib/fast-deploy-paths.mjs";
 import { selectCiTests } from "./lib/ci-test-selection.mjs";
+import { requiredJobs } from "./pages-candidate.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -284,6 +285,7 @@ for (const file of [
   "tests/homepage-creation-stream-anchor.spec.js",
   "tests/homepage-hero-playback.spec.js",
   "tests/homepage-hero-state.spec.js",
+  "tests/helpers/homepage-hero-native-probe.js",
   "tests/homepage-media-loading.spec.js",
   "tests/homepage-performance-contract.spec.js",
 ]) {
@@ -291,6 +293,20 @@ for (const file of [
   assert.equal(result.homepage, true, `${file} must select early homepage acceptance`);
   assert.equal(result.carousel, true);
   assert.equal(result.full, false);
+}
+
+{
+  const files = ['css/components/news-pulse.css', 'js/shared/news-pulse.js',
+    'tests/homepage-carousel-focused.spec.js', 'tests/locale.spec.js',
+    'tests/homepage-hero-playback.spec.js', 'tests/homepage-hero-state.spec.js',
+    'tests/helpers/homepage-hero-native-probe.js', 'docs/runbooks/REGRESSION_REGISTER.md',
+    'scripts/lib/ci-test-selection.mjs', 'scripts/test-ci-test-selection.mjs'];
+  const result = selection(files), jobs = requiredJobs(result);
+  assert.equal(result.full, false); assert.equal(result.workers, false);
+  assert(jobs['homepage-webkit-media'].includes('Run required native WebKit media with private HOME and loopback only'));
+  assert(jobs['homepage-validation']); assert(jobs['browser-validation']);
+  assert.equal(selection([...files,'tests/helpers/homepage-unknown-probe.js']).full, true);
+  assert.equal(selection([...files,'workers/auth/src/routes/auth.js']).workers, true);
 }
 
 {

@@ -254,18 +254,20 @@ async function installHeroNativeProbe(page) {
 
 // Observe inside one browser call. Transport delays must not discard output
 // already seen before a normal source transition. Each invocation starts fresh.
-function observeProgress(sample, { loops = 0, timeout = 5000 } = {}, factory = createProgressWindow) {
+function observeProgress(sample, { loops = 0, timeout = 5000, action = null } = {}, factory = createProgressWindow) {
   const progress = factory({ loops });
   return new Promise((resolve, reject) => {
     const start = performance.now();
     const samples = [], decisions = [];
     let timer, deadline, sampleCount = 0, settled = false;
+    let actionAt = null, actionBaseline = null, actionIssues = [];
     const finish = (passed, error) => {
       if (settled) return;
       settled = true; clearTimeout(timer); clearTimeout(deadline);
       if (error) reject(error);
       else resolve({ passed, phase: loops ? 'loop' : 'play-or-resume',
-        issues: progress.issues?.() || [], elapsed: performance.now() - start, sampleCount, samples, decisions, timeout,
+        issues: actionIssues.length ? actionIssues : progress.issues?.() || [],
+        actionAt, actionBaseline, elapsed: performance.now() - start, sampleCount, samples, decisions, timeout,
         startedAt: start, deadlineAt: start + timeout });
     };
     const tick = () => {
@@ -274,17 +276,36 @@ function observeProgress(sample, { loops = 0, timeout = 5000 } = {}, factory = c
         const current = sample(); sampleCount++;
         const sampledAt = performance.now() - start;
         const passed = progress(current, { index: sampleCount, at: sampledAt });
+        if (actionBaseline) {
+          const active = current.filter(video => video.active);
+          actionIssues = actionBaseline.flatMap(before => {
+            const video = active.find(video => video.slot === before.slot);
+            return video && video.connected && video.id === before.id && video.src === before.src
+              && (video.epoch ?? 0) === (before.epoch ?? 0) ? []
+              : [{ slot: before.slot, condition: 'resume-identity-source-or-epoch-changed', before, current: video ?? null }];
+          });
+        }
         decisions.push({ index: sampleCount, at, sampledAt, evaluatedAt: performance.now() - start,
           slots: progress.diagnostics?.() || [] });
         if (decisions.length > 60) decisions.shift();
         samples.push(current); if (samples.length > 60) samples.shift();
+        if (actionIssues.length) return finish(false);
         if (passed) return finish(true);
         if (performance.now() - start >= timeout) return finish(false);
         timer = setTimeout(tick, 16);
       } catch (error) { finish(false, error); }
     };
     deadline = setTimeout(() => finish(false), timeout);
-    tick();
+    tick(); // Capture paused/current identities before the synchronous action.
+    if (action !== null && !settled) {
+      try {
+        if (typeof action !== 'function') throw new TypeError('Progress action must be a browser callback');
+        if (progress.issues().some(issue => issue.condition === 'four-distinct-active-slots-required')) return finish(false);
+        actionBaseline = samples[0].filter(video => video.active);
+        actionAt = performance.now();
+        action(); // No Playwright roundtrip or awaited transport between capture and resume.
+      } catch (error) { finish(false, error); }
+    }
   });
 }
 
