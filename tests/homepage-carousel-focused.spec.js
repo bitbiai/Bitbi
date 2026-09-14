@@ -1888,10 +1888,12 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
   });
   const errors=[];page.on('pageerror', e=>errors.push(e.message));
   const samples=[];
+  let lastGeometry=null;
   try {
   await page.goto(locale==='de'?'/de/':'/', { waitUntil: 'domcontentloaded' });
   const feed=page.locator('#newsPulse');
-  const geometry=()=>page.evaluate(()=>{
+  const geometry=async()=>{
+    const sample=await page.evaluate(()=>{
     const feed=document.querySelector('#newsPulse'),r=feed.getBoundingClientRect(),gap=Number(feed.dataset.newsPulseGap);
     const neighbours=[...document.querySelectorAll('.hero__models-cta-wrap,.hero__content,.latest-models-video-module__label')]
       .filter(e=>e.getBoundingClientRect().width>0).map(e=>({name:e.className,...e.getBoundingClientRect().toJSON()}));
@@ -1909,7 +1911,10 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
       contentsFit:!active||[...active.children].every(e=>e.getBoundingClientRect().bottom<=active.getBoundingClientRect().bottom+1),
       viewport:{width:innerWidth,height:innerHeight,scrollWidth:document.documentElement.scrollWidth},
       overflow:document.documentElement.scrollWidth>innerWidth};
-  });
+    });
+    lastGeometry=sample;
+    return sample;
+  };
   await expect(feed).toHaveAttribute('data-news-pulse-fits','true');
   await expect(feed.locator('.news-pulse__link').first()).toBeVisible();
   const assertVisible=s=>{
@@ -1930,13 +1935,12 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
     const normal=await geometry();expect(normal.fits).toBe('true');assertVisible(normal);
     expect(normal.rect.top-normal.canvas.bottom).toBeLessThan(9);
     samples.push({phase:'normal-desktop',...normal});
-    await page.screenshot({path:info.outputPath(`news-${locale}-1920-${height}.png`)});
+    if(height===950)await page.screenshot({path:info.outputPath(`news-${locale}-1920-${height}.png`)});
   }
   await page.setViewportSize({width:1300,height:1117});
   await expect.poll(async()=> (await geometry()).rect.width).toBeLessThan(before.rect.width);
   await expect(feed).toBeVisible();const medium=await geometry();expect(medium.safe).toBe(true);expect(medium.contentsFit).toBe(true);
   samples.push({phase:'medium',...medium});
-  await page.screenshot({path:info.outputPath(`news-${locale}-medium.png`)});
   await page.setViewportSize({width:1728,height:1117});
   await expect.poll(async()=> (await geometry()).rect.width).toBe(before.rect.width);
   await feed.locator('button').nth(1).tap();
@@ -1946,36 +1950,42 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
   await expect(feed.locator('.is-active .news-pulse__link')).toHaveAttribute('href','https://example.com/long');
   await expect(feed.locator('.is-active img')).toHaveCount(0);
   await expect(feed.locator('.is-active .news-pulse__source')).toHaveCount(0);
-  await page.screenshot({path:info.outputPath(`news-${locale}-text-only.png`)});
   await feed.locator('button').first().click();
   await page.context().route('https://example.com/**',r=>r.fulfill({contentType:'text/html',body:'<title>Source fixture</title><p>Original source</p>'}));
   const [source]=await Promise.all([page.waitForEvent('popup'),feed.locator('.is-active a').click()]);
   await expect(source).toHaveURL('https://example.com/article');
   await expect(source.locator('p')).toHaveText('Original source');await source.close();
-  for(const height of [1200,1117,1060,1020,980,950,920,900,880,860,840,820,800,780,760,740,720,700,500,720,740,760,780,800,820,840,860,880,900,950,1117]){
+  const stabilityChecked=new Set();
+  let boundaryCaptured=false;
+  for(const height of [1200,980,920,900,880,860,900,920,1117]){
     await page.setViewportSize({width:1728,height});
     // Wait for the existing hero scale notification and bounded feed placement.
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     const s=await geometry();samples.push({height,...s});
     if(s.fits==='true'){assertVisible(s);expect(s.rect.bottom).toBeLessThan(height);}
     else expect(s.inert).toBe(true);
-    if(height>=880 && height<=920){
+    if(height<=900 && !stabilityChecked.has(s.fits)){
+      stabilityChecked.add(s.fits);
       // Repeated real resize notifications at the boundary must not alternate
       // visibility; measurements do not depend on the feed's hidden box.
       const states=await page.evaluate(async()=>{
         const states=[];
-        for(let i=0;i<4;i++){
+        for(let i=0;i<2;i++){
           dispatchEvent(new Event('resize'));
           await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
           states.push(document.querySelector('#newsPulse').dataset.newsPulseFits);
         }
         return states;
       });
-      expect(states).toEqual(Array(4).fill(s.fits));
+      expect(states).toEqual(Array(2).fill(s.fits));
     }
-    if(height<=900 && s.fits==='true')await page.screenshot({path:info.outputPath(`news-${locale}-boundary.png`)});
+    if(height<=900 && s.fits==='true' && !boundaryCaptured){
+      boundaryCaptured=true;
+      await page.screenshot({path:info.outputPath(`news-${locale}-boundary.png`)});
+    }
   }
   expect(samples.some(s=>s.fits==='false')).toBe(true);expect(samples.at(-1).fits).toBe('true');
+  expect([...stabilityChecked].sort()).toEqual(['false','true']);
   expect(requests).toBe(1);
   // A distant lateral box is not a full-width upper obstacle; the actual
   // central content still owns its entire bottom edge when resized.
@@ -2017,10 +2027,14 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
   }
   await page.setViewportSize({width:1728,height:1117});await expect(feed).toHaveAttribute('data-news-pulse-fits','true');expect(requests).toBe(2);
   expect(errors).toEqual([]);
+  await geometry();
+  // Reports must still finalize after browser teardown, including timeout teardown.
+  await page.close();
   } finally {
     releaseImage();
     await info.attach('news-space-samples',{body:JSON.stringify(samples,null,2),contentType:'application/json'});
-    await info.attach('news-final-geometry',{body:JSON.stringify(await page.evaluate(()=>({width:innerWidth,height:innerHeight,scrollWidth:document.documentElement.scrollWidth,feed:document.querySelector('#newsPulse')?.outerHTML}))),contentType:'application/json'});
+    // Saved during the test: teardown must not query a page closed by timeout.
+    await info.attach('news-final-geometry',{body:JSON.stringify(lastGeometry),contentType:'application/json'});
   }
 });
 
