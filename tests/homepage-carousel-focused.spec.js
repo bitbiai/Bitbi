@@ -1869,9 +1869,7 @@ test.describe('Populated homepage carousel', () => {
   });
 });
 
-test.describe('homepage news layout', () => {
-  test.use({ hasTouch: true });
-for (const locale of ['en', 'de']) test(`homepage news free-space geometry and retained navigation (${locale})`, async ({ page }, info) => {
+async function withNewsLayout(page,info,locale,scenario) {
   await page.setViewportSize({ width: 1728, height: 1117 });
   await page.addInitScript(() => localStorage.setItem('bitbi_cookie_consent', JSON.stringify({v:'1',ts:Date.now(),necessary:true,analytics:false,marketing:false})));
   await routePopulatedHomepage(page);
@@ -1889,7 +1887,6 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
   const errors=[];page.on('pageerror', e=>errors.push(e.message));
   const samples=[];
   let lastGeometry=null;
-  try {
   await page.goto(locale==='de'?'/de/':'/', { waitUntil: 'domcontentloaded' });
   const feed=page.locator('#newsPulse');
   const geometry=async()=>{
@@ -1923,19 +1920,48 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
     expect(Math.abs(s.rect.bottom-s.previousBottom),JSON.stringify(s)).toBeLessThan(0.04);
     expect(s.rect.top-s.canvas.bottom).toBeGreaterThanOrEqual(s.gap-0.1);
   };
+  const settled=async()=>{
+    await expect.poll(async()=>{
+      const s=await geometry();
+      // Wait for placement at the newly measured bounds, not an arbitrary
+      // frame count or a previous ready bit. The 176..180px band is hysteresis.
+      const space=s.previousBottom-s.canvas.bottom-s.gap;
+      return s.fits==='true' ? s.safe && s.contentsFit && Math.abs(s.rect.bottom-s.previousBottom)<0.04
+        : space<180;
+    }).toBe(true);
+    return geometry();
+  };
+  const resize=async size=>{
+    await page.setViewportSize(size);
+    const s=await settled(); samples.push({phase:'resize',...s}); return s;
+  };
+  try {
+    await scenario({feed,geometry,assertVisible,resize,settled,samples,releaseImage,requests:()=>requests});
+    expect(errors).toEqual([]);
+    await geometry();
+    await page.close();
+  } finally {
+    releaseImage();
+    await info.attach('news-space-samples',{body:JSON.stringify(samples,null,2),contentType:'application/json'});
+    await info.attach('news-final-geometry',{body:JSON.stringify(lastGeometry),contentType:'application/json'});
+  }
+}
+
+test.describe('homepage news layout', () => {
+  test.use({ hasTouch: true });
+  for (const locale of ['en','de']) {
+    test(`homepage news free-space geometry and boundary (${locale})`, async ({page},info)=>withNewsLayout(page,info,locale,async ({feed,geometry,assertVisible,resize,settled,samples,releaseImage,requests})=>{
   const before=await geometry();assertVisible(before);
   expect(before.rect.top-before.canvas.bottom).toBeLessThan(9);
-  releaseImage();await expect(feed.locator('img')).toHaveJSProperty('complete',true);
-  expect((await geometry()).rect).toEqual(before.rect);
+  releaseImage();
   samples.push({phase:'desktop',...await geometry()});
   await page.screenshot({path:info.outputPath(`news-${locale}-desktop.png`)});
   for(const height of [950,1080]) {
-    await page.setViewportSize({width:1920,height});
-    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    await resize({width:1920,height});
     const normal=await geometry();expect(normal.fits).toBe('true');assertVisible(normal);
     expect(normal.rect.top-normal.canvas.bottom).toBeLessThan(9);
     samples.push({phase:'normal-desktop',...normal});
-    if(height===950)await page.screenshot({path:info.outputPath(`news-${locale}-1920-${height}.png`)});
+    expect(normal.rect.bottom).toBeCloseTo(height===950?868.21875:990.15625,1);
   }
   await page.setViewportSize({width:1300,height:1117});
   await expect.poll(async()=> (await geometry()).rect.width).toBeLessThan(before.rect.width);
@@ -1943,6 +1969,34 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
   samples.push({phase:'medium',...medium});
   await page.setViewportSize({width:1728,height:1117});
   await expect.poll(async()=> (await geometry()).rect.width).toBe(before.rect.width);
+  const stabilityChecked=new Set();
+  let boundaryCaptured=false;
+  for(const height of [1200,980,920,900,880,860,900,920,1117]){
+    await resize({width:1728,height});
+    const s=await geometry();samples.push({height,...s});
+    if(s.fits==='true'){assertVisible(s);expect(s.rect.bottom).toBeLessThan(height);}
+    else expect(s.inert).toBe(true);
+    if(height<=900 && !stabilityChecked.has(s.fits)){
+      stabilityChecked.add(s.fits);
+      // Repeated real resize notifications at the boundary must not alternate
+      // visibility; measurements do not depend on the feed's hidden box.
+      await page.evaluate(()=>new Promise(resolve=>{dispatchEvent(new Event('resize'));requestAnimationFrame(resolve);}));
+      await expect(feed).toHaveAttribute('data-news-pulse-fits',s.fits);
+
+    }
+    if(height<=900 && s.fits==='true' && !boundaryCaptured){
+      boundaryCaptured=true;
+      await page.screenshot({path:info.outputPath(`news-${locale}-boundary.png`)});
+    }
+  }
+  expect(samples.some(s=>s.fits==='false')).toBe(true);expect(samples.at(-1).fits).toBe('true');
+  expect([...stabilityChecked].sort()).toEqual(['false','true']);
+  expect(requests()).toBe(1);
+    }));
+    test(`homepage news content navigation and resized obstacles (${locale})`, async ({page},info)=>withNewsLayout(page,info,locale,async ({feed,geometry,assertVisible,resize,settled,samples,releaseImage,requests})=>{
+  const before=await geometry();
+  releaseImage();await expect(feed.locator('img')).toHaveJSProperty('complete',true);
+  expect((await geometry()).rect).toEqual(before.rect);
   await feed.locator('button').nth(1).tap();
   await expect(feed.locator('.is-active .news-pulse__link')).toHaveAttribute('href','https://example.com/long');
   await feed.locator('button').first().tap();
@@ -1955,44 +2009,10 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
   const [source]=await Promise.all([page.waitForEvent('popup'),feed.locator('.is-active a').click()]);
   await expect(source).toHaveURL('https://example.com/article');
   await expect(source.locator('p')).toHaveText('Original source');await source.close();
-  const stabilityChecked=new Set();
-  let boundaryCaptured=false;
-  for(const height of [1200,980,920,900,880,860,900,920,1117]){
-    await page.setViewportSize({width:1728,height});
-    // Wait for the existing hero scale notification and bounded feed placement.
-    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
-    const s=await geometry();samples.push({height,...s});
-    if(s.fits==='true'){assertVisible(s);expect(s.rect.bottom).toBeLessThan(height);}
-    else expect(s.inert).toBe(true);
-    if(height<=900 && !stabilityChecked.has(s.fits)){
-      stabilityChecked.add(s.fits);
-      // Repeated real resize notifications at the boundary must not alternate
-      // visibility; measurements do not depend on the feed's hidden box.
-      const states=await page.evaluate(async()=>{
-        const states=[];
-        for(let i=0;i<2;i++){
-          dispatchEvent(new Event('resize'));
-          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-          states.push(document.querySelector('#newsPulse').dataset.newsPulseFits);
-        }
-        return states;
-      });
-      expect(states).toEqual(Array(2).fill(s.fits));
-    }
-    if(height<=900 && s.fits==='true' && !boundaryCaptured){
-      boundaryCaptured=true;
-      await page.screenshot({path:info.outputPath(`news-${locale}-boundary.png`)});
-    }
-  }
-  expect(samples.some(s=>s.fits==='false')).toBe(true);expect(samples.at(-1).fits).toBe('true');
-  expect([...stabilityChecked].sort()).toEqual(['false','true']);
-  expect(requests).toBe(1);
   // A distant lateral box is not a full-width upper obstacle; the actual
   // central content still owns its entire bottom edge when resized.
   await page.locator('.hero__models-cta-wrap--left').evaluate(e=>e.style.height='1000px');
-  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
-  await expect(feed).toHaveAttribute('data-news-pulse-fits','true');assertVisible(await geometry());
-  await page.locator('.hero__models-cta-wrap--left').evaluate(e=>e.style.removeProperty('height'));
+  await expect(feed).toHaveAttribute('data-news-pulse-fits','true');assertVisible(await settled());
   await page.locator('.hero__content').evaluate(e=>e.style.height='1000px');
   await expect(feed).toHaveAttribute('data-news-pulse-fits','false');
   await page.locator('.hero__content').evaluate(e=>e.style.removeProperty('height'));
@@ -2001,6 +2021,10 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
   await expect.poll(async()=> (await geometry()).gap).toBe(10);
   const zoomed=await geometry();if(zoomed.fits==='true')expect(zoomed.safe).toBe(true);
   await page.evaluate(()=>document.documentElement.style.removeProperty('font-size'));
+  await page.locator('.hero__models-cta-wrap--left').evaluate(e=>e.style.removeProperty('height'));
+    }));
+    test(`homepage news surface policy and zoom without refetch flood (${locale})`, async ({page},info)=>withNewsLayout(page,info,locale,async ({feed,geometry,assertVisible,resize,settled,samples,releaseImage,requests})=>{
+  releaseImage();
   if(info.project.name==='chromium'){
     const cdp=await page.context().newCDPSession(page);
     await cdp.send('Emulation.setPageScaleFactor',{pageScaleFactor:2});
@@ -2013,7 +2037,7 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
     // Layout hiding is synchronous with placement; the surface change loads
     // asynchronously. Observe the mobile request before resizing back and
     // cancelling it. Final exact count still rejects a resize fetch flood.
-    if(size.width===390)await expect.poll(()=>requests).toBe(2);
+    if(size.width===390)await expect.poll(()=>requests()).toBe(2);
     await expect(feed).toHaveAttribute('data-news-pulse-fits','false');
     await expect(feed).toHaveAttribute('inert','');
     await expect(feed).not.toBeVisible();
@@ -2025,17 +2049,7 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
     samples.push({size,...s,widths});
     if(size.width===390)await page.screenshot({path:info.outputPath(`news-${locale}-mobile.png`)});
   }
-  await page.setViewportSize({width:1728,height:1117});await expect(feed).toHaveAttribute('data-news-pulse-fits','true');expect(requests).toBe(2);
-  expect(errors).toEqual([]);
-  await geometry();
-  // Reports must still finalize after browser teardown, including timeout teardown.
-  await page.close();
-  } finally {
-    releaseImage();
-    await info.attach('news-space-samples',{body:JSON.stringify(samples,null,2),contentType:'application/json'});
-    // Saved during the test: teardown must not query a page closed by timeout.
-    await info.attach('news-final-geometry',{body:JSON.stringify(lastGeometry),contentType:'application/json'});
+  await page.setViewportSize({width:1728,height:1117});await expect(feed).toHaveAttribute('data-news-pulse-fits','true');expect(requests()).toBe(2);
+    }));
   }
-});
-
 });

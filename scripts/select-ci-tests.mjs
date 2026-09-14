@@ -81,6 +81,7 @@ function writeGithubOutput(selection) {
     model_status: selection.modelStatus === true,
     workspace_help: selection.workspaceHelp === true,
     homepage: selection.homepage,
+    homepage_media: selection.homepageMedia,
     member_models: selection.memberModels,
     carousel: selection.carousel,
     assets: selection.assets,

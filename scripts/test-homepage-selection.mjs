@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_NATIVE_CONTROLS_REQUIRED, HOMEPAGE_EXTENDED_REQUIRED, verifyHomepageDiscovery } from './lib/homepage-test-selection.mjs';
+import { flattenHomepageDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_NATIVE_CONTROLS_REQUIRED, HOMEPAGE_EXTENDED_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
 import { validateHomepageMacRuntime, validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
@@ -190,3 +190,21 @@ for (const workflow of ['static.yml', 'full-regression.yml', 'ui-fast-deploy.yml
   } else assert.ok(!text.includes('actions/deploy-pages'));
 }
 console.log('Homepage selection, no-zero, preserved commands and mandatory early workflow gates passed.');
+
+const report={suites:[{specs:[{file:'homepage-carousel-focused.spec.js',title:'homepage news geometry',tests:[{projectName:'webkit',results:[{status:'passed'}]}]},{file:'homepage-hero-playback.spec.js',title:'native media',tests:[{projectName:'chromium',results:[{status:'passed'}]}]}]}]};
+const discovery={status:'passed',collections:{functional:flattenHomepageDiscovery(report)}};
+verifyHomepageReport(report,discovery,true);
+const layoutReport=structuredClone(report);layoutReport.suites[0].specs.pop();
+verifyHomepageReport(layoutReport,discovery,false);
+assert.throws(()=>verifyHomepageReport(layoutReport,discovery,true),/Missing/);
+assert.throws(()=>verifyHomepageReport(report,discovery,false),/foreign/);
+for(const status of ['skipped','failed',undefined]) {
+ const broken=structuredClone(layoutReport);broken.suites[0].specs[0].tests[0].results=[{status}];
+ assert.throws(()=>verifyHomepageReport(broken,discovery,false));
+}
+const layoutConfigPath=require.resolve('../playwright.homepage.config.js');
+process.env.HOMEPAGE_MEDIA='false';delete require.cache[layoutConfigPath];
+assert(!require(layoutConfigPath).testMatch.includes('homepage-hero-playback.spec.js'));
+assert(require(layoutConfigPath).testMatch.includes('homepage-carousel-focused.spec.js'));
+delete process.env.HOMEPAGE_MEDIA;delete require.cache[layoutConfigPath];
+assert(require(layoutConfigPath).testMatch.includes('homepage-hero-playback.spec.js'));

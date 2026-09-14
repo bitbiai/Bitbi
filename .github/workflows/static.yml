@@ -58,6 +58,7 @@ jobs:
       pages_required: ${{ steps.release_preflight.outputs.static_deploy_required }}
       docs_only: ${{ steps.selection.outputs.docs_only }}
       homepage: ${{ steps.selection.outputs.homepage }}
+      homepage_media: ${{ steps.selection.outputs.homepage_media }}
       carousel: ${{ steps.selection.outputs.carousel }}
       assets: ${{ steps.selection.outputs.assets }}
       workers: ${{ steps.selection.outputs.workers }}
@@ -265,7 +266,7 @@ jobs:
   # Only native WebKit video moves to macOS; all other Linux gates remain.
   homepage-webkit-media:
     needs: release-compatibility
-    if: ${{ needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' }}
+    if: ${{ needs.release-compatibility.outputs.homepage_media == 'true' }}
     runs-on: macos-15
     permissions:
       contents: read
@@ -274,47 +275,47 @@ jobs:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
       - name: Checkout
-        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        if: needs.release-compatibility.outputs.homepage_media == 'true'
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Setup Node.js
-        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        if: needs.release-compatibility.outputs.homepage_media == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 22.23.2
           cache: npm
       - name: Install locked test dependencies and WebKit
-        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        if: needs.release-compatibility.outputs.homepage_media == 'true'
         run: |
           npm ci
           PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/homepage-browsers" npx playwright install webkit
       - name: Download candidate build
-        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        if: needs.release-compatibility.outputs.homepage_media == 'true'
         uses: actions/download-artifact@v8
         with:
           name: pages-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: candidate
           digest-mismatch: error
       - name: Restore exact candidate static site
-        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        if: needs.release-compatibility.outputs.homepage_media == 'true'
         run: node scripts/pages-candidate.mjs restore
       - name: Run required native WebKit media with private HOME and loopback only
-        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        if: needs.release-compatibility.outputs.homepage_media == 'true'
         run: |
           set -eu
           test "$(id -u)" -gt 0
           mkdir -p "$RUNNER_TEMP/homepage-home" "$RUNNER_TEMP/homepage-tmp"
           env -i PATH="$PATH" HOME="$RUNNER_TEMP/homepage-home" TMPDIR="$RUNNER_TEMP/homepage-tmp" CI=true GITHUB_SHA="$GITHUB_SHA" PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/homepage-browsers" /usr/bin/sandbox-exec -f tests/helpers/homepage-macos.sb /bin/sh -c 'node scripts/check-homepage-runtime.mjs --macos && npm run test:homepage-webkit'
       - name: Confirm tested candidate bytes
-        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        if: needs.release-compatibility.outputs.homepage_media == 'true'
         env:
           CANDIDATE_REPORT: test-results/homepage-webkit.json
         run: node scripts/pages-candidate.mjs proof
       - name: Upload tested candidate identity
-        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
+        if: needs.release-compatibility.outputs.homepage_media == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: pages-proof-homepage-webkit-media-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -322,7 +323,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Upload mandatory macOS media evidence
-        if: always() && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true')
+        if: always() && (needs.release-compatibility.outputs.homepage_media == 'true')
         uses: actions/upload-artifact@v6
         with:
           name: homepage-macos-media-${{ github.sha }}
@@ -395,12 +396,14 @@ jobs:
         run: npm run check:homepage-selection
       - name: Run Linux homepage functional acceptance
         if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
+        env:
+          HOMEPAGE_MEDIA: ${{ needs.release-compatibility.outputs.homepage_media }}
         run: npm run test:homepage-functional
       - name: Record controlled homepage performance diagnostics
-        if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
+        if: ${{ success() && needs.release-compatibility.outputs.carousel == 'true' && steps.homepage_discovery.outcome == 'success' }}
         run: npm run test:homepage-performance
       - name: Record bounded Linux WebKit media divergence (not acceptance)
-        if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
+        if: ${{ success() && needs.release-compatibility.outputs.homepage_media == 'true' && steps.homepage_discovery.outcome == 'success' }}
         run: npm run diagnose:homepage-linux-media
       - name: Confirm tested candidate bytes
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true'
@@ -436,7 +439,7 @@ jobs:
 
   browser-validation:
     needs: [release-compatibility, homepage-validation, homepage-webkit-media, worker-validation]
-    if: ${{ !cancelled() && needs.release-compatibility.result == 'success' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true') && (needs.release-compatibility.outputs.workers == 'false' || (needs.release-compatibility.outputs.workers == 'true' && needs.worker-validation.result == 'success')) && ((needs.release-compatibility.outputs.homepage == 'false' && needs.release-compatibility.outputs.carousel == 'false') || ((needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true') && needs.homepage-validation.result == 'success' && needs.homepage-webkit-media.result == 'success')) }}
+    if: ${{ !cancelled() && needs.release-compatibility.result == 'success' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true') && (needs.release-compatibility.outputs.workers == 'false' || (needs.release-compatibility.outputs.workers == 'true' && needs.worker-validation.result == 'success')) && ((needs.release-compatibility.outputs.homepage == 'false' && needs.release-compatibility.outputs.carousel == 'false') || ((needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true') && needs.homepage-validation.result == 'success')) && (needs.release-compatibility.outputs.homepage_media == 'false' || (needs.release-compatibility.outputs.homepage_media == 'true' && needs.homepage-webkit-media.result == 'success')) }}
     runs-on: ubuntu-latest
     env:
       CANDIDATE_BASE: ${{ needs.release-compatibility.outputs.candidate_base }}
@@ -595,7 +598,7 @@ jobs:
       pages: write
       id-token: write
     needs: [release-compatibility, worker-validation, browser-validation, homepage-validation, homepage-webkit-media, reuse-candidate]
-    if: ${{ !cancelled() && !github.event.inputs.frontend_recovery_receipt && github.ref == 'refs/heads/main' && github.event.inputs.validation_only != 'true' && ((needs.reuse-candidate.result == 'success' && github.event.inputs.candidate_run_id != '') || (!github.event.inputs.candidate_run_id && (github.event_name == 'workflow_dispatch' || (needs.release-compatibility.outputs.pages_allowed == 'true' && needs.release-compatibility.outputs.pages_required == 'true')) && needs.release-compatibility.result == 'success' && (needs.release-compatibility.outputs.workers == 'false' || (needs.release-compatibility.outputs.workers == 'true' && needs.worker-validation.result == 'success')) && ((needs.release-compatibility.outputs.homepage == 'false' && needs.release-compatibility.outputs.carousel == 'false') || ((needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true') && needs.homepage-validation.result == 'success' && needs.homepage-webkit-media.result == 'success')) && ((needs.release-compatibility.outputs.homepage == 'false' && needs.release-compatibility.outputs.carousel == 'false' && needs.release-compatibility.outputs.assets == 'false' && needs.release-compatibility.outputs.auth == 'false') || ((needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true') && needs.browser-validation.result == 'success')))) }}
+    if: ${{ !cancelled() && !github.event.inputs.frontend_recovery_receipt && github.ref == 'refs/heads/main' && github.event.inputs.validation_only != 'true' && ((needs.reuse-candidate.result == 'success' && github.event.inputs.candidate_run_id != '') || (!github.event.inputs.candidate_run_id && (github.event_name == 'workflow_dispatch' || (needs.release-compatibility.outputs.pages_allowed == 'true' && needs.release-compatibility.outputs.pages_required == 'true')) && needs.release-compatibility.result == 'success' && (needs.release-compatibility.outputs.workers == 'false' || (needs.release-compatibility.outputs.workers == 'true' && needs.worker-validation.result == 'success')) && ((needs.release-compatibility.outputs.homepage == 'false' && needs.release-compatibility.outputs.carousel == 'false') || ((needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true') && needs.homepage-validation.result == 'success')) && (needs.release-compatibility.outputs.homepage_media == 'false' || (needs.release-compatibility.outputs.homepage_media == 'true' && needs.homepage-webkit-media.result == 'success')) && ((needs.release-compatibility.outputs.homepage == 'false' && needs.release-compatibility.outputs.carousel == 'false' && needs.release-compatibility.outputs.assets == 'false' && needs.release-compatibility.outputs.auth == 'false') || ((needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true') && needs.browser-validation.result == 'success')))) }}
     concurrency:
       group: "pages"
       cancel-in-progress: false

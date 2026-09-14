@@ -2,7 +2,7 @@ import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
-import { HOMEPAGE_WEBKIT_REQUIRED } from './lib/homepage-test-selection.mjs';
+import { HOMEPAGE_WEBKIT_REQUIRED, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
 export const MEDIA_POLICY = 'decorative-core-v1';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,9 +32,9 @@ export function requiredJobs(selection) {
   if (selection.workerDependencies) jobs['release-compatibility'].push('Validate worker package dependencies');
   if (selection.workers) jobs['worker-validation'] = REQUIRED_JOBS['worker-validation'];
   if (selection.homepage || selection.carousel) {
-    jobs['homepage-validation'] = REQUIRED_JOBS['homepage-validation'];
-    jobs['homepage-webkit-media'] = REQUIRED_JOBS['homepage-webkit-media'];
+    jobs['homepage-validation'] = REQUIRED_JOBS['homepage-validation'].filter(step => selection.carousel || step !== 'Record controlled homepage performance diagnostics');
   }
+  if (selection.homepageMedia ?? (selection.homepage || selection.carousel)) jobs['homepage-webkit-media'] = REQUIRED_JOBS['homepage-webkit-media'];
   const browser = [];
   if (selection.adminRelease) browser.push('Run selected Admin release acceptance');
   else if (selection.full) browser.push('Run full static browser regression');
@@ -308,12 +308,14 @@ async function main(command) {
       assert(executed>0,'No executed cases');
     }
     const report=reports[0];
+    if(process.env.GITHUB_JOB==='homepage-validation' && manifest.selection && 'homepageMedia' in manifest.selection)
+      verifyHomepageReport(report, JSON.parse(fs.readFileSync('test-results/homepage-discovery.json')), manifest.selection.homepageMedia);
     if (manifest.selection?.assets && !manifest.selection.full && process.env.GITHUB_JOB === 'browser-validation') verifyAssetReport(reports[names.indexOf('test-results/candidate-assets.json')], JSON.parse(fs.readFileSync('test-results/assets-discovery.json')));
     if (manifest.selection?.modelStatus) verifyModelStatusReport(report, JSON.parse(fs.readFileSync('test-results/model-status-discovery.json')));
     if (manifest.selection?.workspaceHelp) verifyWorkspaceHelpReport(report, JSON.parse(fs.readFileSync('test-results/workspace-discovery.json')));
     if (manifest.selection?.publicMedia) verifyPublicMediaReport(report, JSON.parse(fs.readFileSync('test-results/public-media-discovery.json')));
     if (manifest.selection?.adminRelease) verifyAdminReport(report, JSON.parse(fs.readFileSync('test-results/admin-discovery.json')));
-    if(['homepage-webkit-media','homepage-validation'].includes(process.env.GITHUB_JOB)) {
+    if(['homepage-webkit-media','homepage-validation'].includes(process.env.GITHUB_JOB) && (manifest.selection?.homepageMedia ?? true)) {
       const engine=process.env.GITHUB_JOB==='homepage-webkit-media'?'webkit':'chromium';
       if(engine==='webkit') assert.equal(report.stats.skipped,0,'Native core cases skipped');
       const passed=new Set();

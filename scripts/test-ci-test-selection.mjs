@@ -79,7 +79,7 @@ assert.equal(selection(['scripts/test-q2-runtime-launcher-unknown.mjs']).full, t
   const result = selection(["js/shared/member-model-exposure.mjs"]);
   assert.equal(result.memberModels, true);
   assert.equal(result.static, true);
-  assert.equal(result.homepage, false);
+  assert.equal(result.homepage, true);
   assert.equal(result.workers, false);
   assert.equal(result.auth, false);
   assert.equal(result.full, false);
@@ -89,7 +89,7 @@ assert.equal(selection(['scripts/test-q2-runtime-launcher-unknown.mjs']).full, t
   const result = selection(["js/shared/models-overlay.js"]);
   assert.equal(result.memberModels, true);
   assert.equal(result.static, true);
-  assert.equal(result.homepage, false);
+  assert.equal(result.homepage, true);
   assert.equal(result.full, false);
 }
 
@@ -265,7 +265,7 @@ assert.equal(selection(['scripts/test-q2-runtime-launcher-unknown.mjs']).full, t
 {
   const result = selection(["tests/homepage-carousel-focused.spec.js"]);
   assert.equal(result.homepage, true);
-  assert.equal(result.carousel, true);
+  assert.equal(result.carousel, false);
   assert.equal(result.assets, false);
   assert.equal(result.static, false);
 }
@@ -291,7 +291,7 @@ for (const file of [
 ]) {
   const result = selection([file]);
   assert.equal(result.homepage, true, `${file} must select early homepage acceptance`);
-  assert.equal(result.carousel, true);
+  assert.equal(result.carousel, ["playwright.homepage-performance.config.js","tests/homepage-performance-contract.spec.js"].includes(file));
   assert.equal(result.full, false);
 }
 
@@ -579,3 +579,13 @@ for(const file of ['workers/auth/src/lib/ai-usage-policy.js','workers/auth/src/l
 assert.equal(selection(['tests/admin-model-status.spec.js']).workers,true);
 assert.equal(selection(['tests/oma2-q3-model-status.spec.js']).auth,true);
 assert.notEqual(selectCiTests(statusFiles,{forceFull:true}).modelStatus,true);
+
+// Exact consumer ownership, not a general shared-code exemption or release profile.
+const layoutFiles=['css/components/news-pulse.css','js/shared/news-pulse.js','tests/homepage-carousel-focused.spec.js','tests/smoke.spec.js'];
+const layoutSelection=selection(layoutFiles);
+assert.equal(layoutSelection.policy,'impact-v1'); assert(layoutSelection.homepage);
+for(const key of ['auth','memberModels','carousel','homepageMedia','workers','full'])assert.equal(layoutSelection[key],false,key);
+assert(!requiredJobs(layoutSelection)['homepage-webkit-media']);
+const mediaSelection=selection([...layoutFiles,'tests/homepage-hero-playback.spec.js','tests/homepage-hero-state.spec.js']);
+assert(mediaSelection.homepageMedia);assert(requiredJobs(mediaSelection)['homepage-webkit-media']);
+for(const [file,key] of [['js/pages/index/latest-models-video-module.js','homepageMedia'],['js/shared/auth.js','auth'],['js/shared/member-model-exposure.mjs','memberModels'],['js/pages/index/category-carousel.js','carousel'],['workers/auth/src/index.js','workers'],['tests/unknown-news.spec.js','full'],['.github/workflows/unknown.yml','full']])assert(selection([...layoutFiles,file])[key],file);

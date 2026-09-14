@@ -9,8 +9,6 @@
 export const MEMBER_MODEL_FAST_DEPLOY_PATHS = Object.freeze([
   "js/shared/member-model-exposure.mjs",
   "js/shared/models-overlay.js",
-  "tests/locale.spec.js",
-  "tests/smoke.spec.js",
 ]);
 
 export const FAST_DEPLOY_WORKFLOW_PATHS = Object.freeze([
@@ -23,6 +21,8 @@ export const FAST_DEPLOY_WORKFLOW_PATHS = Object.freeze([
   "assets/images/**",
   "assets/favicons/**",
   "fonts/**",
+  "tests/locale.spec.js",
+  "tests/smoke.spec.js",
   ...MEMBER_MODEL_FAST_DEPLOY_PATHS,
 ]);
 

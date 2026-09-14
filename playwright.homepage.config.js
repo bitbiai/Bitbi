@@ -11,7 +11,7 @@ module.exports = defineConfig({
     'homepage-native-control.spec.js',
     'homepage-hero-state.spec.js',
     'homepage-media-loading.spec.js',
-  ],
+  ].filter(file => process.env.HOMEPAGE_MEDIA !== 'false' || !['homepage-hero-playback.spec.js','homepage-native-control.spec.js'].includes(file)),
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,

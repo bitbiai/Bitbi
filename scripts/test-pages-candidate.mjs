@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
-import { HOMEPAGE_WEBKIT_REQUIRED } from './lib/homepage-test-selection.mjs';
+import { HOMEPAGE_WEBKIT_REQUIRED, flattenHomepageDiscovery } from './lib/homepage-test-selection.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -91,9 +91,10 @@ try {
  assert.throws(()=>verifyManifest({...manifest,full:false},candidateExpected,path.join(dir,'_site'),{allowPartial:true}));
  assert.throws(()=>verifyManifest({...manifest,mediaPolicy:'retired'},candidateExpected,path.join(dir,'_site')));
  fs.writeFileSync(path.join(dir,'report.json'),JSON.stringify({stats:{expected:2*HOMEPAGE_WEBKIT_REQUIRED.length,unexpected:0,flaky:0,skipped:0},suites:[{specs:HOMEPAGE_WEBKIT_REQUIRED.map(title=>({file:'homepage-hero-playback.spec.js',title,tests:['webkit','chromium'].map(projectName=>({projectName,expectedStatus:'passed',results:[{status:'passed'}]}))}))}]}));
+ fs.mkdirSync(path.join(dir,'test-results'));
+ fs.writeFileSync(path.join(dir,'test-results/homepage-discovery.json'),JSON.stringify({status:'passed',collections:{functional:flattenHomepageDiscovery(JSON.parse(fs.readFileSync(path.join(dir,'report.json'))))}}));
  for(const job of ['homepage-validation','homepage-webkit-media'])invoke('proof',{GITHUB_JOB:job,CANDIDATE_REPORT:'report.json'});
  const goodReport=JSON.parse(fs.readFileSync(path.join(dir,'report.json')));
- fs.mkdirSync(path.join(dir,'test-results'));
  for(const name of ['static','carousel'])fs.copyFileSync(path.join(dir,'report.json'),path.join(dir,`test-results/candidate-${name}.json`));
  invoke('proof',{GITHUB_JOB:'browser-validation'});
  for(const fault of ['missing','unexecuted','failed','empty']) {
@@ -141,7 +142,7 @@ assert(!block('release-compatibility').includes('CI_FORCE_FULL:'));
 assert(block('release-compatibility').includes('CI_BASE_REF: ${{ env.CANDIDATE_BASE }}'));
 assert(!block('release-compatibility').includes('github.event.before'));
 // Evaluate the real selected-step conditions, not only job names/counts.
-for(const files of [['js/pages/index/public-media-detail-panel.js'],['js/shared/saved-assets-browser.js','workers/auth/src/lib/asset-names.js'],['admin/index.html','tests/oma2-q3-newsfeed.spec.js'],['README.md'],['workers/auth/src/index.js'],['index.html'],['.github/workflows/static.yml']]) {
+for(const files of [['js/pages/index/public-media-detail-panel.js'],['js/shared/saved-assets-browser.js','workers/auth/src/lib/asset-names.js'],['admin/index.html','tests/oma2-q3-newsfeed.spec.js'],['README.md'],['workers/auth/src/index.js'],['index.html'],['.github/workflows/static.yml'],['css/components/news-pulse.css'],['tests/homepage-hero-playback.spec.js']]) {
  const selection=selectCiTests(files);
  const outputs=Object.fromEntries(Object.entries(selection).map(([k,v])=>[k.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()),String(v)]));
  const ctx={needs:{'release-compatibility':{outputs}},steps:{selection:{outputs},homepage_discovery:{outcome:selection.homepage||selection.carousel?'success':'skipped'}},success:()=>true};
@@ -153,12 +154,12 @@ for(const files of [['js/pages/index/public-media-detail-panel.js'],['js/shared/
      assert(active(step[2].match(/^        if: (.+)$/m)?.[1]),`${files}: required step would be skipped: ${title}`);
    }
  }
- if(!selection.homepage&&!selection.carousel)for(const job of ['homepage-validation','homepage-webkit-media']) {
-   for(const title of REQUIRED_JOBS[job]) {
-     const body=block(job).split(`      - name: ${title}\n`)[1].split('      - name:')[0];
-     assert(!active(body.match(/^        if: (.+)$/m)?.[1]),`Unselected ${title} still runs`);
-   }
+ for(const job of ['homepage-validation','homepage-webkit-media']) if(!requiredJobs(selection)[job]) {
+   const title=job==='homepage-validation'?'Run Linux homepage functional acceptance':REQUIRED_JOBS[job][0];
+   const body=block(job).split(`      - name: ${title}\n`)[1].split('      - name:')[0];
+   assert(!active(body.match(/^        if: (.+)$/m)?.[1]),`Unselected ${title} still runs`);
  }
+
 }
 assert(workflow.includes('deployments: read'),'Verified baseline needs read-only deployment metadata permission');
 for(const job of ['release-compatibility','homepage-validation','homepage-webkit-media','browser-validation','reuse-candidate','deploy']) {
@@ -174,7 +175,7 @@ const context={github:{ref:'refs/heads/main',event_name:'workflow_dispatch',even
 assert.equal(permits('release-compatibility',context),false);assert.equal(permits('reuse-candidate',context),true);assert.equal(permits('deploy',context),true);
 for(const result of ['failure','skipped','cancelled'])assert.equal(permits('deploy',{...context,needs:{...context.needs,'reuse-candidate':{result}}}),false);
 assert.equal(permits('deploy',{...context,cancelled:()=>true}),false);
-const normal={...context,github:{ref:'refs/heads/main',event_name:'push',event:{inputs:{}}},needs:Object.fromEntries([...Object.keys(REQUIRED_JOBS),'reuse-candidate'].map(name=>[name,{result:name==='reuse-candidate'?'skipped':'success',outputs:{pages_allowed:'true',pages_required:'true',workers:'true',homepage:'true',carousel:'true',assets:'true',auth:'true'}}]))};
+const normal={...context,github:{ref:'refs/heads/main',event_name:'push',event:{inputs:{}}},needs:Object.fromEntries([...Object.keys(REQUIRED_JOBS),'reuse-candidate'].map(name=>[name,{result:name==='reuse-candidate'?'skipped':'success',outputs:{pages_allowed:'true',pages_required:'true',workers:'true',homepage:'true',homepage_media:'true',carousel:'true',assets:'true',auth:'true'}}]))};
 const validationOnly={...normal,needs:{...normal.needs,'release-compatibility':{result:'success',outputs:{pages_allowed:'false',pages_required:'true'}}}};
 assert.equal(permits('deploy',{...normal,needs:{...normal.needs,'release-compatibility':{result:'success',outputs:{}}}}),false);
 assert.equal(permits('deploy',validationOnly),false,'Validation-only run must not acquire the production write lock');
@@ -207,12 +208,12 @@ for (const [file,jobName,required] of [
 // Execute the actual job conditions: unrelated jobs are skipped, while every
 // selected result and every selection flag must be present and successful.
 const narrow=structuredClone({github:normal.github,needs:normal.needs});narrow.cancelled=()=>false;
-Object.assign(narrow.needs['release-compatibility'].outputs,{workers:'false',homepage:'false',carousel:'false',assets:'false',auth:'false'});
+Object.assign(narrow.needs['release-compatibility'].outputs,{workers:'false',homepage:'false',homepage_media:'false',carousel:'false',assets:'false',auth:'false'});
 for(const name of ['worker-validation','homepage-validation','homepage-webkit-media','browser-validation']) {
  narrow.needs[name].result='skipped';assert(!permits(name,narrow),name+' must not allocate a runner');
 }
 assert(permits('deploy',narrow),'Native frontend/release-only candidate publishes without browser/backend jobs');
-for(const key of ['workers','homepage','carousel','assets','auth']) {
+for(const key of ['workers','homepage','homepage_media','carousel','assets','auth']) {
  const missing={...narrow,needs:structuredClone(narrow.needs)};delete missing.needs['release-compatibility'].outputs[key];
  assert(!permits('deploy',missing),'Missing selection '+key);
  const selected={...narrow,needs:structuredClone(narrow.needs)};selected.needs['release-compatibility'].outputs[key]='true';
@@ -435,7 +436,7 @@ assert.deepEqual(Object.keys(requiredJobs(detailSelection)),['release-compatibil
 assert(requiredJobs(detailSelection)['browser-validation'].includes('Run selected auth and admin tests'));
 
 const dialogContext=structuredClone(normal.needs);
-dialogContext['release-compatibility'].outputs={pages_allowed:'true',pages_required:'true',workers:'false',homepage:'false',carousel:'false',assets:'false',auth:'true',public_media:'true'};
+dialogContext['release-compatibility'].outputs={pages_allowed:'true',pages_required:'true',workers:'false',homepage:'false',homepage_media:'false',carousel:'false',assets:'false',auth:'true',public_media:'true'};
 for(const job of ['worker-validation','homepage-validation','homepage-webkit-media'])dialogContext[job].result='skipped';
 const publicContext={...normal,needs:dialogContext};
 assert(permits('browser-validation',publicContext));assert(permits('deploy',publicContext));
@@ -500,3 +501,28 @@ try{
  fs.mkdirSync(path.join(statusTmp,'test-results'));fs.writeFileSync(path.join(statusTmp,'npm'),'#!/bin/sh\nprintf "%s\\n" "$*" >> calls\nexit "${FAIL_NPM:-0}"\n',{mode:0o755});
  for(const fail of ['0','37']){fs.rmSync(path.join(statusTmp,'calls'),{force:true});const r=spawnSync('bash',['-e','-c',statusShell],{cwd:statusTmp,env:{...process.env,PATH:statusTmp+':'+process.env.PATH,FAIL_NPM:fail},encoding:'utf8'});assert.equal(r.status,Number(fail));const calls=fs.readFileSync(path.join(statusTmp,'calls'),'utf8').trim().split('\n');assert.equal(calls.length,fail==='0'?2:1);assert(calls[0].includes('playwright.model-status.config.js --list'));if(fail==='0')assert(calls[1].includes('playwright.model-status.config.js --reporter=list,json'));}
 }finally{fs.rmSync(statusTmp,{recursive:true,force:true});}
+
+const layoutContext={...normal,needs:structuredClone(normal.needs)};
+Object.assign(layoutContext.needs['release-compatibility'].outputs,{workers:'false',homepage_media:'false',carousel:'false',assets:'false',auth:'false'});
+layoutContext.needs['worker-validation'].result='skipped';layoutContext.needs['homepage-webkit-media'].result='skipped';
+assert(permits('browser-validation',layoutContext)); assert(permits('deploy',layoutContext));
+assert(!permits('homepage-webkit-media',layoutContext));
+for(const result of ['failure','skipped',undefined]) {
+ const bad={...layoutContext,needs:structuredClone(layoutContext.needs)};
+ bad.needs['homepage-validation'].result=result;assert(!permits('browser-validation',bad));assert(!permits('deploy',bad));
+}
+layoutContext.needs['release-compatibility'].outputs.homepage_media='true';
+assert(!permits('browser-validation',layoutContext));assert(!permits('deploy',layoutContext));
+layoutContext.needs['homepage-webkit-media'].result='success';assert(permits('deploy',layoutContext));
+
+// Registry parity must reach the ordinary production caller, not only a fast-path flag.
+const models=selectCiTests(['js/shared/member-model-exposure.mjs']);
+assert(requiredJobs(models)['browser-validation'].includes('Run selected homepage core tests'));
+const fastWorkflow=fs.readFileSync(new URL('../.github/workflows/ui-fast-deploy.yml',import.meta.url),'utf8');
+const fastCondition=fastWorkflow.match(/    if: \$\{\{ (!cancelled\(\).*ui_only.*) \}\}/)[1].replace(/needs\.([\w-]+)/g,(_,k)=>`needs[${JSON.stringify(k)}]`);
+const fastContext={cancelled:()=>false,needs:{guard:{result:'success',outputs:{ui_only:'true',homepage_media:'false'}},'homepage-validation':{result:'success'},'homepage-webkit-media':{result:'skipped'}}};
+const fastPermits=()=>Boolean(vm.runInNewContext(fastCondition,fastContext));
+assert(fastPermits());fastContext.needs.guard.outputs.homepage_media='true';assert(!fastPermits());
+for(const result of ['failure','cancelled',undefined]) {fastContext.needs['homepage-webkit-media'].result=result;assert(!fastPermits());}
+fastContext.needs['homepage-webkit-media'].result='success';assert(fastPermits());
+fastContext.needs['homepage-validation'].result='failure';assert(!fastPermits());

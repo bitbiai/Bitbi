@@ -54,6 +54,7 @@ export function flattenHomepageDiscovery(report) {
         title: [...titles, spec.title].join(' > '),
         project: test.projectName,
         expectedStatus: test.expectedStatus,
+        ...(test.results ? {resultStatus: test.results.at(-1)?.status} : {}),
         tags: spec.tags || [],
       });
     }
@@ -65,6 +66,26 @@ export function flattenHomepageDiscovery(report) {
 
 function key(test) {
   return [test.file, test.title, test.project].join('\0');
+}
+
+// Match the executed Linux report to this run's existing discovery, filtered
+// only by the same native-media selection used by the Playwright config.
+export function verifyHomepageReport(report, discovery, media) {
+  assert.equal(discovery.status, 'passed', 'Homepage discovery did not pass');
+  const native = t => ['homepage-hero-playback.spec.js','homepage-native-control.spec.js'].includes(t.file);
+  const expected = discovery.collections.functional.filter(t => media || !native(t));
+  const actual = flattenHomepageDiscovery(report);
+  assert(expected.length > 0, 'No selected homepage cases');
+  assert.deepEqual(actual.map(key).sort(), expected.map(key).sort(), 'Missing or foreign selected homepage cases');
+  const groups = new Map();
+  for (const test of actual) {
+    assert(['passed','skipped'].includes(test.resultStatus), 'Unexecuted/failed homepage case: '+key(test));
+    // Existing engine-specific runtime skips remain explicit, never a suite pass.
+    if (test.title.includes('homepage news ')) assert.equal(test.resultStatus,'passed','News scenario skipped');
+    const group = test.file+'\0'+test.project;
+    groups.set(group, (groups.get(group)||0) + Number(test.resultStatus==='passed'));
+  }
+  for (const [group, count] of groups) assert(count > 0, 'No executed homepage cases: '+group);
 }
 
 export function verifyHomepageDiscovery({ standard, carousel, functional, webkit, extended, performance, diagnostic }) {
