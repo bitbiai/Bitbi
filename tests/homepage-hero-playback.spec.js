@@ -400,7 +400,22 @@ for (const locale of ['en', 'de']) {
         await expectFrozen(page, testInfo, 'decorative-loading-suspended', 200);
         // Suspension cancels speculation; late responses cannot win after resume.
         release();
-        await expectPlaying(page, 'visible');
+        const resumed = await page.evaluate(() => {
+          const retained = window.__heroNativeProbe.sample().filter(v => v.active && v.slot.endsWith('_bottom'));
+          window.__setHeroDocumentHidden(false);
+          // Observe current output in the same browser task. Upper slots may
+          // legally advance; only the two cancelled preparations must retain
+          // their original identities. The native probe still requires fresh
+          // submitted-frame pairs for all four current slots within its deadline.
+          return window.__heroNativeProbe.waitForProgress().then(result => ({ ...result, retained }));
+        });
+        await testInfo.attach('cancelled-preparation-output', { body: JSON.stringify(resumed), contentType: 'application/json' });
+        expect(resumed.retained.map(v => v.slot).sort()).toEqual(['left_bottom','right_bottom']);
+        expect(resumed.passed, JSON.stringify(resumed.issues)).toBe(true);
+        for (const sample of resumed.samples) for (const before of resumed.retained) {
+          const current = sample.find(v => v.active && v.slot === before.slot);
+          expect(current, `Cancelled preparation retained ${before.slot}`).toMatchObject({ id: before.id, src: before.src, epoch: before.epoch, connected: true });
+        }
         expect(await bottoms.evaluateAll(slots => slots.map(s => ({ id: s.dataset.activeVideoId, src: s.querySelector('video').getAttribute('src') })))).toEqual(kept);
       }
       await page.locator('#hero [data-models-link]').first().click();

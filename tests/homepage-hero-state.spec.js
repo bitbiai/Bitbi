@@ -422,8 +422,24 @@ test('preview readiness: slow, failed and retired next sources retain the curren
   });
   expect(await continuity(page)).toEqual(unchanged);
   expect(await page.locator(VIDEOS).evaluateAll(v => v.every(v => v.paused))).toBe(true);
-  await page.evaluate(() => window.__heroHidden(false));
+  await page.evaluate(() => { window.__readyNewMedia = true; window.__heroHidden(false); });
   expect(await continuity(page)).toEqual(unchanged);
+  // A later, legal upper-slot turn is independent of the cancelled lower
+  // preparations. The former all-four identity lock would reject this state.
+  await page.clock.runFor(3000);
+  expect(await cycles(page)).toEqual([1,0,1,0]);
+  const retainedBottoms = await page.evaluate(selector => {
+    const slots = [...document.querySelectorAll(selector)];
+    return slots.map((slot, i) => ({
+      same: slot.querySelector('video') === window.__heroStateMedia[i],
+      src: slot.querySelector('video').getAttribute('src'),
+      before: window.__heroStateSources[i],
+    }));
+  }, SLOTS);
+  expect(retainedBottoms.map(v => v.same)).toEqual([false,true,false,true]);
+  for (const i of [1,3]) expect(retainedBottoms[i].src).toBe(retainedBottoms[i].before);
+  await page.evaluate(() => window.__pendingBeforeHide.forEach(v => v.dispatchEvent(new Event('loadeddata'))));
+  expect(await cycles(page)).toEqual([1,0,1,0]);
 });
 
 test('preview readiness respects a manual pause made while the next source is preparing', async ({ page }) => {
