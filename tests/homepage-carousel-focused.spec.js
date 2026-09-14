@@ -1881,7 +1881,7 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
   await page.route('**/api/public/news-pulse/thumbs/**', async r => { await imageReady; await r.fulfill({contentType:'image/png',body:fs.readFileSync(path.join(__dirname,'../assets/images/1.png'))}); });
   await page.route('**/api/public/news-pulse?**', r => {
     requests++;
-    return r.fulfill({contentType:'application/json',body:JSON.stringify({enabled:true,items:[
+    return r.fulfill({contentType:'application/json',body:JSON.stringify({enabled:!r.request().url().includes('surface=mobile'),items:[
       {id:'with-image',title:locale==='de'?'Neue Perspektiven für kreative Werkzeuge':'A new perspective on creative tools',summary:locale==='de'?'Offene Forschung eröffnet neue Möglichkeiten für Bilder, Musik und bewegte Geschichten.':'Open research brings fresh possibilities for images, music and moving stories.',source:'Research notes',category:'Research',url:'https://example.com/article',visual_type:'generated',visual_thumb_url:'/api/public/news-pulse/thumbs/with-image'},
       {id:'no-image',title:('A thoughtful approach to creative intelligence and visual storytelling ').repeat(4),url:'https://example.com/long'},
     ]})});
@@ -1896,7 +1896,15 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
     const neighbours=[...document.querySelectorAll('.hero__models-cta-wrap,.hero__content,.latest-models-video-module__label')]
       .filter(e=>e.getBoundingClientRect().width>0).map(e=>({name:e.className,...e.getBoundingClientRect().toJSON()}));
     const active=feed.querySelector('.is-active .news-pulse__link');
-    return{fits:feed.dataset.newsPulseFits,inert:feed.inert,rect:r.toJSON(),gap,neighbours,
+    // Published layout's lower edge: preserve it while relaxing only the top.
+    const hero=feed.closest('.hero--homepage').getBoundingClientRect();
+    const hint=document.querySelector('.hero__scroll-hint');
+    const rem=parseFloat(getComputedStyle(document.documentElement).fontSize);
+    const lower=hero.bottom-parseFloat(getComputedStyle(hint).bottom)-hint.getBoundingClientRect().height-8-1.5*rem;
+    const oldTop=Math.max(hero.top,...neighbours.map(n=>n.bottom))+1.5*rem;
+    const previousBottom=lower-Math.max(0,(lower-oldTop-17*rem)/2);
+    return{fits:feed.dataset.newsPulseFits,inert:feed.inert,rect:r.toJSON(),gap,neighbours,previousBottom,
+      canvas:document.querySelector('.hero__canvas-teaser').getBoundingClientRect().toJSON(),
       safe:neighbours.every(n=>r.right+gap<=n.left+1||r.left-gap>=n.right-1||r.top-gap>=n.bottom-1||r.bottom+gap<=n.top+1),
       contentsFit:!active||[...active.children].every(e=>e.getBoundingClientRect().bottom<=active.getBoundingClientRect().bottom+1),
       viewport:{width:innerWidth,height:innerHeight,scrollWidth:document.documentElement.scrollWidth},
@@ -1904,10 +1912,26 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
   });
   await expect(feed).toHaveAttribute('data-news-pulse-fits','true');
   await expect(feed.locator('.news-pulse__link').first()).toBeVisible();
-  const before=await geometry();expect(before.safe,JSON.stringify(before)).toBe(true);
+  const assertVisible=s=>{
+    expect(s.safe,JSON.stringify(s)).toBe(true);
+    expect(s.contentsFit,JSON.stringify(s)).toBe(true);
+    expect(Math.abs(s.rect.bottom-s.previousBottom),JSON.stringify(s)).toBeLessThan(0.04);
+    expect(s.rect.top-s.canvas.bottom).toBeGreaterThanOrEqual(s.gap-0.1);
+  };
+  const before=await geometry();assertVisible(before);
+  expect(before.rect.top-before.canvas.bottom).toBeLessThan(9);
   releaseImage();await expect(feed.locator('img')).toHaveJSProperty('complete',true);
   expect((await geometry()).rect).toEqual(before.rect);
+  samples.push({phase:'desktop',...await geometry()});
   await page.screenshot({path:info.outputPath(`news-${locale}-desktop.png`)});
+  for(const height of [950,1080]) {
+    await page.setViewportSize({width:1920,height});
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const normal=await geometry();expect(normal.fits).toBe('true');assertVisible(normal);
+    expect(normal.rect.top-normal.canvas.bottom).toBeLessThan(9);
+    samples.push({phase:'normal-desktop',...normal});
+    await page.screenshot({path:info.outputPath(`news-${locale}-1920-${height}.png`)});
+  }
   await page.setViewportSize({width:1300,height:1117});
   await expect.poll(async()=> (await geometry()).rect.width).toBeLessThan(before.rect.width);
   await expect(feed).toBeVisible();const medium=await geometry();expect(medium.safe).toBe(true);expect(medium.contentsFit).toBe(true);
@@ -1928,24 +1952,43 @@ for (const locale of ['en', 'de']) test(`homepage news free-space geometry and r
   const [source]=await Promise.all([page.waitForEvent('popup'),feed.locator('.is-active a').click()]);
   await expect(source).toHaveURL('https://example.com/article');
   await expect(source.locator('p')).toHaveText('Original source');await source.close();
-  for(const height of [1200,1117,1060,1020,980,940,900,700,500,900,980,1020,1060,1117]){
+  for(const height of [1200,1117,1060,1020,980,950,920,900,880,860,840,820,800,780,760,740,720,700,500,720,740,760,780,800,820,840,860,880,900,950,1117]){
     await page.setViewportSize({width:1728,height});
     // Wait for the existing hero scale notification and bounded feed placement.
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     const s=await geometry();samples.push({height,...s});
-    if(s.fits==='true'){expect(s.safe,JSON.stringify(s)).toBe(true);expect(s.contentsFit).toBe(true);expect(s.rect.bottom).toBeLessThan(height);}
+    if(s.fits==='true'){assertVisible(s);expect(s.rect.bottom).toBeLessThan(height);}
     else expect(s.inert).toBe(true);
-    if(height===980 && s.fits==='true')await page.screenshot({path:info.outputPath(`news-${locale}-boundary.png`)});
+    if(height>=880 && height<=920){
+      // Repeated real resize notifications at the boundary must not alternate
+      // visibility; measurements do not depend on the feed's hidden box.
+      const states=await page.evaluate(async()=>{
+        const states=[];
+        for(let i=0;i<4;i++){
+          dispatchEvent(new Event('resize'));
+          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+          states.push(document.querySelector('#newsPulse').dataset.newsPulseFits);
+        }
+        return states;
+      });
+      expect(states).toEqual(Array(4).fill(s.fits));
+    }
+    if(height<=900 && s.fits==='true')await page.screenshot({path:info.outputPath(`news-${locale}-boundary.png`)});
   }
   expect(samples.some(s=>s.fits==='false')).toBe(true);expect(samples.at(-1).fits).toBe('true');
   expect(requests).toBe(1);
-  // Actual neighbouring element resize must reserve its whole bottom edge.
+  // A distant lateral box is not a full-width upper obstacle; the actual
+  // central content still owns its entire bottom edge when resized.
   await page.locator('.hero__models-cta-wrap--left').evaluate(e=>e.style.height='1000px');
-  await expect(feed).toHaveAttribute('data-news-pulse-fits','false');
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  await expect(feed).toHaveAttribute('data-news-pulse-fits','true');assertVisible(await geometry());
   await page.locator('.hero__models-cta-wrap--left').evaluate(e=>e.style.removeProperty('height'));
+  await page.locator('.hero__content').evaluate(e=>e.style.height='1000px');
+  await expect(feed).toHaveAttribute('data-news-pulse-fits','false');
+  await page.locator('.hero__content').evaluate(e=>e.style.removeProperty('height'));
   await expect(feed).toHaveAttribute('data-news-pulse-fits','true');
   await page.evaluate(()=>document.documentElement.style.fontSize='20px');
-  await expect.poll(async()=> (await geometry()).gap).toBe(30);
+  await expect.poll(async()=> (await geometry()).gap).toBe(10);
   const zoomed=await geometry();if(zoomed.fits==='true')expect(zoomed.safe).toBe(true);
   await page.evaluate(()=>document.documentElement.style.removeProperty('font-size'));
   if(info.project.name==='chromium'){

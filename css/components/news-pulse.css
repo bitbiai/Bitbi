@@ -88,6 +88,7 @@
   .news-pulse__indicator-button.is-active::after { background: #70e5ef; }
   .news-pulse__link:hover .news-pulse__title { color: #b9f4f8; }
   .news-pulse :is(a, button):focus-visible { outline: 2px solid #70e5ef; outline-offset: 3px; }
+  .news-pulse--compact .news-pulse__shell--hero { padding-top: 0.5rem; }
   .news-pulse--compact .news-pulse__title { font-size: 1.12rem; }
   .news-pulse--compact .news-pulse__body { gap: 0.3rem; }
   .news-pulse--compact .news-pulse__summary { -webkit-line-clamp: 1; }

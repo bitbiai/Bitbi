@@ -299,40 +299,49 @@ function canRenderForAuthenticatedUser(getAuthState) {
     return authState.ready && authState.loggedIn;
 }
 
-// Measure neighbouring content, never the hidden feed. A 1.5rem safety gutter
-// remains on every side; 0.5rem extra is required when re-entering the layout.
+// Keep the established lower edge; grow upward only into the actual free column.
+// Measure neighbours, never the hidden feed. Re-entry has a small hysteresis.
 function placeNewsPulse(root) {
     const hero = root.closest('.hero--homepage');
     const rect = element => isVisibleElement(element) ? element.getBoundingClientRect() : null;
     const area = hero?.getBoundingClientRect();
     if (!area) return;
     const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    const gap = 1.5 * rem;
+    const gutter = 1.5 * rem;
+    const gap = 0.5 * rem;
     const left = rect(hero.querySelector('.hero__models-cta-wrap--left'));
     const right = rect(hero.querySelector('.hero__models-cta-wrap--right'));
     const content = rect(hero.querySelector('.hero__content'));
     const labels = [...hero.querySelectorAll('.latest-models-video-module__label')].map(rect).filter(Boolean);
     const cookie = rect(document.querySelector('#cookieBanner .cookie-banner__card'));
     const viewport = window.visualViewport;
-    const x0 = Math.max(area.left, left?.right || area.left) + gap;
-    const x1 = Math.min(area.right, right?.left || area.right, viewport?.width || innerWidth) - gap;
-    const y0 = Math.max(area.top, left?.bottom || 0, right?.bottom || 0, content?.bottom || 0, ...labels.map(r => r.bottom)) + gap;
+    const x0 = Math.max(area.left, left?.right || area.left) + gutter;
+    const x1 = Math.min(area.right, right?.left || area.right, viewport?.width || innerWidth) - gutter;
+    const previousTop = Math.max(area.top, left?.bottom || 0, right?.bottom || 0, content?.bottom || 0, ...labels.map(r => r.bottom)) + gutter;
     // Reserve additional space for the existing floating scroll-hint animation.
     const y1 = Math.min(area.bottom, getStableScrollBoundary(hero, area) - 8,
-        (viewport?.height || innerHeight) + (viewport?.offsetTop || 0), cookie?.top || Infinity) - gap;
+        (viewport?.height || innerHeight) + (viewport?.offsetTop || 0), cookie?.top || Infinity) - gutter;
     const width = Math.min(60 * rem, x1 - x0);
-    const height = Math.min(17 * rem, y1 - y0);
-    const extra = root.dataset.newsPulseFits === 'true' ? 0 : 0.5 * rem;
-    const fits = width >= 25 * rem + extra && height >= 12.5 * rem + extra;
+    const columnLeft = x0 + (x1 - x0 - width) / 2;
+    const neighbours = [left, right, content, ...labels].filter(Boolean);
+    const y0 = Math.max(area.top, ...neighbours
+        .filter(r => r.right + gap > columnLeft && r.left - gap < columnLeft + width)
+        .map(r => r.bottom)) + gap;
+    // This is the former centred 17rem panel's bottom, including its scroll/cookie
+    // clearance. It is an anchor only, not a second upper obstacle or fit gate.
+    const bottom = y1 - Math.max(0, (y1 - previousTop - 17 * rem) / 2);
+    const height = Math.min(24 * rem, bottom - y0);
+    const extra = root.dataset.newsPulseFits === 'true' ? 0 : 0.25 * rem;
+    const fits = width >= 25 * rem + extra && height >= 11 * rem + extra;
     root.classList.toggle('news-pulse--compact', height < 15 * rem);
     root.dataset.newsPulseFits = String(fits);
     root.dataset.newsPulseGap = String(gap);
     root.inert = !fits || !root.classList.contains('is-ready');
     root.setAttribute('aria-hidden', String(root.inert));
     if (!fits) return;
-    const properties = {left: x0 + (x1 - x0 - width) / 2 - area.left,
-        top: y0 + (y1 - y0 - height) / 2 - area.top, width, height};
-    for (const [key, value] of Object.entries(properties)) root.style.setProperty(`--news-${key}`, `${value.toFixed(2)}px`);
+    const properties = {left: columnLeft - area.left,
+        top: bottom - height - area.top, width, height};
+    for (const [key, value] of Object.entries(properties)) root.style.setProperty(`--news-${key}`, `${value}px`);
 }
 
 export async function initNewsPulse(container = document, { getAuthState } = {}) {

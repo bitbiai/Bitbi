@@ -3823,7 +3823,7 @@ test.describe('Homepage', () => {
     // News dimensions cap independently of the unchanged hero scale.
     expect(large.newsWidth).toBeGreaterThanOrEqual(baseline.newsWidth);
     expect(large.newsWidth).toBeLessThanOrEqual(960);
-    expect(large.newsHeight).toBeLessThanOrEqual(272);
+    expect(large.newsHeight).toBeLessThanOrEqual(384);
     expectWithinPx(large.stageInlineMargin, 0, 'large stage inline margin', 0.5);
     // A native scrollbar can reduce WebKit's visual viewport (2555 vs 2560).
     // Keep the exact fill contract against the available viewport, not its
