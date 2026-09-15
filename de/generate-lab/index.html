@@ -94,8 +94,6 @@
 </div>
 
 <main id="main-content" class="generate-lab" data-generate-lab>
-    <canvas id="heroCanvas" class="generate-lab__canvas" aria-hidden="true"></canvas>
-    <div class="generate-lab__binary-rain" id="binaryRain" aria-hidden="true"></div>
 
     <section class="generate-lab__mobile-fallback" aria-labelledby="generateLabMobileTitle">
         <div class="generate-lab__mobile-card">
@@ -110,68 +108,36 @@
     </section>
 
     <section class="generate-lab__desktop" data-generate-lab-workspace aria-label="Erstellungsbereich">
-        <div class="generate-lab__workspace reveal">
-            <aside class="generate-lab__panel generate-lab__panel--left" aria-label="Generate Lab Modellauswahl">
-                <div class="generate-lab__panel-head">
-                    <p class="generate-lab__panel-kicker">Modus</p>
-                    <h2 class="generate-lab__panel-title">Ausgabe wählen</h2>
-                </div>
+        <div class="generate-lab__heading">
+            <h1>Generate Lab</h1>
                 <div class="generate-lab__media-tabs" role="tablist" aria-label="Medientyp">
                     <button type="button" class="generate-lab__media-tab is-active" data-media-type="image" role="tab" aria-selected="true">Bilder</button>
                     <button type="button" class="generate-lab__media-tab" data-media-type="video" role="tab" aria-selected="false">Video</button>
                     <button type="button" class="generate-lab__media-tab" data-media-type="music" role="tab" aria-selected="false">Musik</button>
                 </div>
-                <div id="labModelList" class="generate-lab__model-list" aria-label="Modelle"></div>
-                <div class="generate-lab__model-details" id="labModelDetails" aria-live="polite"></div>
-            </aside>
-
-            <section class="generate-lab__panel generate-lab__panel--stage" aria-labelledby="labComposerTitle">
-                <div class="generate-lab__panel-head generate-lab__panel-head--stage">
-                    <div>
-                        <p class="generate-lab__panel-kicker" id="labComposerEyebrow">Bild-Composer</p>
-                        <h2 class="generate-lab__panel-title" id="labComposerTitle">Prompt-Bereich</h2>
-                    </div>
-                    <span id="labModelBadge" class="generate-lab__badge">FLUX.1 Schnell</span>
-                </div>
-
-                <div class="generate-lab__prompt-shell">
-                    <label id="labPromptLabel" for="labPrompt" class="generate-lab__label">Beschreiben Sie Ihr Bild</label>
-                    <textarea id="labPrompt" class="generate-lab__textarea generate-lab__textarea--prompt" maxlength="2048" rows="7" placeholder="Eine leuchtende Glasskulptur in einer regennassen Cyberpunk-Galerie..."></textarea>
-                    <p id="labPromptHelp" class="generate-lab__help">Beschreiben Sie Motiv, Umgebung, Stil, Stimmung und Licht.</p>
-                </div>
-
-                <div id="labWorkflowStatus" class="generate-lab__workflow-status" role="status" aria-live="polite" hidden></div>
-
-                <div id="labResultStage" class="generate-lab__result-stage" aria-live="polite"></div>
-
-                <div class="generate-lab__recent">
-                    <div class="generate-lab__recent-head">
-                        <div>
-                            <h3>Aktuelle Assets</h3>
-                            <p class="generate-lab__recent-copy">Vom Backend geladene gespeicherte Assets. Filter und Ordner werden im Assets Manager verwaltet.</p>
-                        </div>
-                        <div class="generate-lab__recent-actions" aria-label="Aktionen für aktuelle Assets">
-                            <button type="button" id="labRecentAssetsOpen" class="generate-lab__inline-action">Alle verwalten</button>
-                        </div>
-                    </div>
-                    <div id="labRecentAssets" class="generate-lab__recent-grid">
-                        <div class="generate-lab__recent-empty">Melden Sie sich an, um aktuelle Assets zu laden.</div>
-                    </div>
-                </div>
-            </section>
-
-            <aside class="generate-lab__panel generate-lab__panel--settings" aria-labelledby="labSettingsTitle">
-                <div class="generate-lab__panel-head">
-                    <p class="generate-lab__panel-kicker">Steuerung</p>
-                    <h2 id="labSettingsTitle" class="generate-lab__panel-title">Parameter</h2>
-                </div>
-
-                <div class="generate-lab__settings-stack">
-                    <section class="generate-lab__settings-group" data-settings-for="image" aria-label="Bildeinstellungen">
-                        <label class="generate-lab__field" for="labImageModel">
+        </div>
+        <div class="generate-lab__workspace">
+            <section class="generate-lab__composer generate-lab__panel" aria-label="Medien erstellen">
+                <div class="generate-lab__panel--left">
+                    <h2 class="generate-lab__section-title">Modell</h2>
+                        <label class="generate-lab__field" data-settings-for="image" for="labImageModel">
                             <span class="generate-lab__label">Modell</span>
                             <select id="labImageModel" class="generate-lab__select"></select>
                         </label>
+                    <div id="labModelList" class="generate-lab__model-list" aria-label="Modelle"></div>
+                    <div class="generate-lab__model-details" id="labModelDetails" aria-live="polite"></div>
+                </div>
+                <div class="generate-lab__panel--stage">
+                <div class="generate-lab__prompt-shell">
+                    <label id="labPromptLabel" for="labPrompt" class="generate-lab__label">Beschreiben Sie Ihr Bild</label>
+                    <textarea id="labPrompt" class="generate-lab__textarea generate-lab__textarea--prompt" maxlength="2048" rows="5" placeholder="Eine leuchtende Glasskulptur in einer regennassen Cyberpunk-Galerie..."></textarea>
+                    <p id="labPromptHelp" class="generate-lab__help">Beschreiben Sie Motiv, Umgebung, Stil, Stimmung und Licht.</p>
+                </div>
+                </div>
+                <section class="generate-lab__panel--settings" aria-labelledby="labSettingsTitle">
+                    <h2 id="labSettingsTitle" class="generate-lab__section-title">Einstellungen</h2>
+                <div class="generate-lab__settings-stack">
+                    <section class="generate-lab__settings-group" data-settings-for="image" aria-label="Bildeinstellungen">
                         <div id="labImageFluxControls" class="generate-lab__field-grid">
                             <label class="generate-lab__field" for="labImageSteps">
                                 <span class="generate-lab__label">Steps</span>
@@ -249,7 +215,7 @@
                                 <div class="generate-lab-ref-images__head">
                                     <div>
                                         <h3 id="labImageReferenceTitle">Referenzbilder</h3>
-                                        <p>Laden Sie bis zu 16 PNG-, JPEG- oder WebP-Referenzbilder hoch. Die ersten 3 werden direkt angezeigt; weitere sind optional.</p>
+                                        <p id="labImageReferenceHelp">PNG, JPEG, WebP.</p>
                                     </div>
                                     <span id="labImageReferenceCount">0 / 16</span>
                                 </div>
@@ -394,7 +360,28 @@
                     </div>
                     <div id="labMessage" class="generate-lab__message" role="status" aria-live="polite"></div>
                 </div>
-            </aside>
+                </section>
+            </section>
+            <section class="generate-lab__panel generate-lab__panel--output" aria-labelledby="labOutputTitle">
+                <h2 id="labOutputTitle" class="generate-lab__section-title">Ihr Ergebnis</h2>
+                <div id="labWorkflowStatus" class="generate-lab__workflow-status" role="status" aria-live="polite" hidden></div>
+
+                <div id="labResultStage" class="generate-lab__result-stage" aria-live="polite"></div>
+
+                <div class="generate-lab__recent">
+                    <div class="generate-lab__recent-head">
+                        <div>
+                            <h3>Aktuelle Assets</h3>
+                        </div>
+                        <div class="generate-lab__recent-actions" aria-label="Aktionen für aktuelle Assets">
+                            <button type="button" id="labRecentAssetsOpen" class="generate-lab__inline-action">Alle verwalten</button>
+                        </div>
+                    </div>
+                    <div id="labRecentAssets" class="generate-lab__recent-grid">
+                        <div class="generate-lab__recent-empty">Melden Sie sich an, um aktuelle Assets zu laden.</div>
+                    </div>
+                </div>
+            </section>
         </div>
     </section>
 </main>
@@ -404,9 +391,8 @@
     <div class="generate-lab-assets-overlay__shell" tabindex="-1">
         <div class="generate-lab-assets-overlay__head">
             <div>
-                <p class="assets-manager__eyebrow">Medienbibliothek</p>
                 <h2 id="labAssetsOverlayTitle" class="generate-lab-assets-overlay__title">Assets Manager</h2>
-                <p class="generate-lab-assets-overlay__copy">Verwalten Sie Ordner, prüfen Sie gespeicherte Medien und veröffentlichen Sie Ihre besten Ergebnisse, ohne Generate Lab zu verlassen.</p>
+                <p class="generate-lab-assets-overlay__copy"></p>
             </div>
             <div class="generate-lab-assets-overlay__actions">
                 <div id="labAssetsPickerActions" class="generate-lab-assets-overlay__picker-actions" hidden>

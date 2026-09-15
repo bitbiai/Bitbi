@@ -955,7 +955,8 @@ test.describe('Bilingual locale pages', () => {
     expect(enGenerate).not.toContain('id="labCurrentResult"');
     expect(enGenerate).not.toContain('No preview yet');
     expect(enGenerate).not.toContain('Jump to preview');
-    expect(enGenerate).toContain('Backend-loaded saved assets');
+    expect(enGenerate).toContain('id="labRecentAssets"');
+    expect(enGenerate).not.toContain('Backend-loaded saved assets');
     expect(enGenerate).not.toContain('Show all saved');
     expect(enGenerate).not.toContain('data-auth-message-key="authRecovery.generateMessage"');
     expect(enGenerate).not.toContain('Sign in before generation or saving');
@@ -1004,7 +1005,8 @@ test.describe('Bilingual locale pages', () => {
     expect(deGenerate).not.toContain('id="labCurrentResult"');
     expect(deGenerate).not.toContain('Noch keine Vorschau');
     expect(deGenerate).not.toContain('Zur Vorschau');
-    expect(deGenerate).toContain('Vom Backend geladene gespeicherte Assets');
+    expect(deGenerate).toContain('id="labRecentAssets"');
+    expect(deGenerate).not.toContain('Vom Backend geladene gespeicherte Assets');
     expect(deGenerate).not.toContain('Alle gespeicherten anzeigen');
     expect(deGenerate).not.toContain('data-auth-message-key="authRecovery.generateMessage"');
     expect(deGenerate).not.toContain('Vor Generierung oder Speichern anmelden');

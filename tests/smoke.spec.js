@@ -4269,7 +4269,7 @@ test.describe('Homepage', () => {
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.locator('header .site-nav__context-label')).toHaveText('Creation Workspace');
-    await expect(page.locator('header .site-nav__mood')).toBeVisible();
+    await expect(page.locator('header .site-nav__mood')).toBeHidden();
     await expect(page.locator('header .locale-switcher__link[hreflang="de"]')).toHaveAttribute('href', '/de/generate-lab/');
     await expect(page.locator('#labAssetsOpen')).toBeVisible();
     await expect(page.locator('header .auth-nav__logout')).toHaveText('Sign Out');
@@ -4304,7 +4304,7 @@ test.describe('Homepage', () => {
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'de');
     await expect(page.locator('header .site-nav__context-label')).toHaveText('Erstellungsbereich');
-    await expect(page.locator('header .site-nav__mood')).toBeVisible();
+    await expect(page.locator('header .site-nav__mood')).toBeHidden();
     await expect(page.locator('header .locale-switcher__link[hreflang="en"]')).toHaveAttribute('href', '/generate-lab/');
     await expect(page.locator('#labAssetsOpen')).toBeVisible();
     await expect(page.locator('header .auth-nav__logout')).toHaveText('Abmelden');
@@ -4442,7 +4442,7 @@ test.describe('Homepage', () => {
 
     const workspace = page.locator('.generate-lab__desktop');
     await expect(workspace).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Generate Lab' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Generate Lab', exact: true })).toBeVisible();
     await expect(page.locator('.generate-lab__topbar')).toHaveCount(0);
     await expect(page.locator('.generate-lab__subtitle')).toHaveCount(0);
     await expect(page.locator('.generate-lab__composer-flow')).toHaveCount(0);
@@ -4499,10 +4499,9 @@ test.describe('Homepage', () => {
       });
       expect(values).toEqual({ primary, alt });
     };
-    await expect(page.locator('#labModelList').getByText('FLUX.1 Schnell')).toBeVisible();
-    await expect(page.locator('#labModelList').getByText('FLUX.2 Klein 9B')).toBeVisible();
-    await expect(page.locator('#labModelList').getByText('FLUX.2 Max')).toBeVisible();
-    await expect(page.locator('#labModelList').getByText('GPT Image 2')).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeVisible();
+    await expect(page.locator('#labImageModel')).toHaveValue('@cf/black-forest-labs/flux-1-schnell');
+    await expect(page.locator('#labModelList')).toBeHidden();
     await expect(page.locator('#labImageModel option')).toHaveText([
       'FLUX.1 Schnell',
       'FLUX.2 Klein 9B',
@@ -4731,6 +4730,10 @@ test.describe('Homepage', () => {
     await expect(overlay).toBeHidden();
     await expect(page.locator('#labImageReferenceCount')).toHaveText('2 / 16');
     await expect(page.locator('#labImageRefPrimary')).toContainText('Asset Reference 2');
+    await page.locator('#labAssetsOpen').click();
+    await expect(page.locator('#labAssetsOverlayTitle')).toHaveText('Assets Manager');
+    await expect(page.locator('.generate-lab-assets-overlay__copy')).toBeEmpty();
+    await page.locator('#labAssetsOverlayClose').click();
 
     await page.selectOption('#labImageModel', 'black-forest-labs/flux-2-max');
     await page.locator('#labImageRefPrimary .generate-lab-ref-images__slot-label').first().click();
@@ -4742,6 +4745,12 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labAssetsPickerCount')).toHaveText('8 / 8 selected');
     await page.locator('#labAssetsGrid [data-asset-id="asset-ref-9"]').click();
     await expect(page.locator('#labAssetsMsg')).toContainText('You can select up to 8 reference images.');
+    await expect(page.locator('#labImageReferenceHelp')).toContainText('8');
+    await page.locator('#labAssetsPickerCancel').click();
+    await page.locator('#labAssetsOpen').click();
+    await expect(page.locator('#labAssetsOverlayTitle')).toHaveText('Assets Manager');
+    await expect(page.locator('.generate-lab-assets-overlay__copy')).toBeEmpty();
+    await page.locator('#labAssetsOverlayClose').click();
   });
 
   test('Generate Lab video image-input picker applies an image asset data URL payload', async ({ page }) => {
@@ -4793,7 +4802,7 @@ test.describe('Homepage', () => {
     });
   });
 
-  test('Generate Lab shows generation status, save retry guidance, and Assets Manager handoff', async ({ page }) => {
+  test('Generate Lab shows generation status, save retry guidance, and Assets Manager handoff', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 980 });
     let saveAttempts = 0;
     let assetListRequests = 0;
@@ -4882,6 +4891,7 @@ test.describe('Homepage', () => {
     await generateRequestStarted;
     await expect(page.locator('#labWorkflowStatus')).toContainText('Generation in progress');
     await expect(page.locator('#labGenerate')).toBeDisabled();
+    await page.screenshot({ path: testInfo.outputPath('lab-running.png'), fullPage: true });
     releaseGenerateResponse();
 
     await expect(page.locator('#labResultStage .generate-lab__image-output')).toBeVisible();
@@ -4894,6 +4904,7 @@ test.describe('Homepage', () => {
     await page.getByRole('button', { name: 'Save to Assets Manager' }).click();
     await expect(page.locator('#labWorkflowStatus')).toContainText('Needs attention');
     await expect(page.locator('#labMessage')).toContainText('preview is still available');
+    await page.screenshot({ path: testInfo.outputPath('lab-save-recovery.png'), fullPage: true });
     await expect(page.getByRole('button', { name: 'Save to Assets Manager' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Save to Assets Manager' }).click();
@@ -5104,6 +5115,72 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labVideoQuality option[value="1080p"]')).toHaveCount(0);
     await expect(page.locator('#labVideoAspect option')).toHaveText(['16:9', '9:16', '1:1', '4:3', '3:4']);
   });
+
+  for (const locale of ['en', 'de']) {
+    test(`Generate Lab ${locale} keeps music inputs and keyboard access through workspace reflow`, async ({ page }) => {
+      const errors = [];
+      const writes = [];
+      page.on('pageerror', error => errors.push(error.message));
+      page.on('request', request => {
+        if (new URL(request.url()).pathname.startsWith('/api/') && request.method() !== 'GET') writes.push(request.method());
+      });
+      await mockGenerateLabMemberSession(page, { credits: 1200 });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.goto(locale === 'de' ? '/de/generate-lab/' : '/generate-lab/');
+      await expect(page.locator('#labCreditStatus')).toContainText('1200');
+      const musicTab = page.locator('[data-media-type="music"]');
+      await musicTab.focus();
+      await page.keyboard.press('Enter');
+      await expect(musicTab).toHaveAttribute('aria-selected', 'true');
+      await page.locator('#labPrompt').fill('Quiet piano with an intimate acoustic atmosphere');
+      await page.locator('#labMusicLyrics').fill('A line that must survive a resize');
+      await expect(page.locator('#labMusicGenerateLyrics')).toBeDisabled();
+      const instrumental = page.locator('label').filter({ has: page.locator('#labMusicInstrumental') });
+      await instrumental.click();
+      await expect(page.locator('#labMusicInstrumental')).toBeChecked();
+      await expect(page.locator('#labMusicLyrics')).toBeDisabled();
+      await instrumental.click();
+      await expect(page.locator('#labMusicLyrics')).toBeEnabled();
+      await expect(page.locator('#labMusicLyrics')).toHaveValue('A line that must survive a resize');
+      await page.locator('#labMusicLyrics').fill('');
+      const automatic = page.locator('label').filter({ has: page.locator('#labMusicGenerateLyrics') });
+      await automatic.click();
+      await expect(page.locator('#labMusicGenerateLyrics')).toBeChecked();
+      await expect(page.locator('#labMusicLyrics')).toBeDisabled();
+      await expect(page.locator('#labCost')).toContainText('160');
+      await automatic.click();
+      await expect(page.locator('#labCost')).toContainText('150');
+      await page.locator('#labMusicLyrics').fill('Keep these manual lyrics');
+      for (const width of [1440, 1024, 900, 800, 390, 1440]) {
+        await page.setViewportSize({ width, height: 800 });
+        // WebKit's scrollbars can reduce the CSS viewport below the requested
+        // window width. Assert the existing breakpoint, not screen pixels.
+        const narrow = await page.evaluate(() => matchMedia('(max-width: 899px)').matches);
+        if (narrow) {
+          await expect(page.locator('.generate-lab__desktop')).toBeHidden();
+          await expect(page.locator('.generate-lab__mobile-fallback')).toBeVisible();
+          await expect(page.locator('.generate-lab__mobile-actions a')).toHaveCount(3);
+        } else {
+          await expect(page.locator('.generate-lab__desktop')).toBeVisible();
+          await expect(page.locator('#labMusicLyrics')).toHaveValue('Keep these manual lyrics');
+          await page.locator('#labGenerate').focus();
+          await expect(page.locator('#labGenerate')).toBeFocused();
+          const bounds = await page.locator('#labGenerate').boundingBox();
+          expect(bounds.x).toBeGreaterThanOrEqual(0);
+          expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width + 1);
+        const header = await page.evaluate(() => ['.site-nav__logo', '#generateLabHeaderStatus', '.site-nav__actions']
+          .map(selector => document.querySelector(selector)).filter(node => node && node.getBoundingClientRect().width > 0)
+          .map(node => { const r = node.getBoundingClientRect(); return { left: r.left, right: r.right }; }));
+        for (let index = 1; index < header.length; index++) expect(header[index].left).toBeGreaterThanOrEqual(header[index - 1].right);
+      }
+      await expect(page.locator('#labPrompt')).toHaveValue('Quiet piano with an intimate acoustic atmosphere');
+      await expect(page.locator('#labMusicGenerateLyrics')).toBeDisabled();
+      expect(writes).toEqual([]);
+      expect(errors).toEqual([]);
+    });
+  }
 
   test('Generate Lab opens Assets Manager as an in-page overlay', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 980 });
@@ -5429,7 +5506,8 @@ test.describe('Homepage', () => {
     });
 
     await page.goto('/generate-lab/');
-    await expect(page.locator('.generate-lab__recent-copy')).toContainText('Backend-loaded saved assets');
+    await expect(page.locator('.generate-lab__recent').getByRole('heading', { name: 'Recent assets' })).toBeVisible();
+    await expect(page.locator('#labRecentAssetsOpen')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Show all saved' })).toHaveCount(0);
     await expect(page.locator('#labRecentAssetsOpen')).toBeVisible();
 

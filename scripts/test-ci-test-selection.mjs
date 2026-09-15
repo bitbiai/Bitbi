@@ -493,8 +493,8 @@ const generationChange=['workers/auth/src/lib/member-generation-storage.js',
  'tests/member-generation.cases.js','tests/member-generation-runtime.mjs','tests/fixtures/media/member-image.png',
  'tests/fixtures/media/member-video-poster.webp','tests/oma2-q1-member.spec.js'];
 const generation=selection(generationChange);
-for(const key of ['workers','auth','assets','static'])assert.equal(generation[key],true,key);
-for(const key of ['homepage','carousel','full'])assert.equal(generation[key],false,key);
+for(const key of ['workers','auth','assets','static','homepage'])assert.equal(generation[key],true,key);
+for(const key of ['homepageMedia','carousel','full'])assert.equal(generation[key],false,key);
 assert.equal(selection([...generationChange,'unknown-runtime.js']).full,true);
 assert.equal(selection([...generationChange,'js/pages/index/latest-models-video-module.js']).homepage,true);
 assert.equal(selection([...generationChange,'js/pages/index/category-carousel.js']).carousel,true);
@@ -553,6 +553,33 @@ for(const file of ['js/pages/index/category-carousel.js','workers/auth/src/route
 }
 assert.equal(selection(['css/pages/index.css']).homepage,true);
 assert.equal(selection(['js/pages/index/video-gallery.js']).carousel,true);
+
+// Generate Lab layout/controllers need its existing smoke/locale and authenticated
+// save/Assets tests. They do not own decorative homepage playback or Worker code.
+const generateLabUiFiles = ['generate-lab/index.html', 'de/generate-lab/index.html',
+ 'css/pages/generate-lab.css', 'js/pages/generate-lab/main.js'];
+for (const files of [...generateLabUiFiles.map(file => [file]), [...generateLabUiFiles,
+ 'tests/smoke.spec.js', 'tests/locale.spec.js', 'scripts/lib/ci-test-selection.mjs',
+ 'scripts/test-ci-test-selection.mjs', 'docs/runbooks/REGRESSION_REGISTER.md']]) {
+ const result = selection(files);
+ assert.equal(result.policy, 'impact-v1');
+ for (const key of ['homepage', 'auth', 'static', 'runtime']) assert.equal(result[key], true, `${files}: ${key}`);
+ for (const key of ['homepageMedia', 'carousel', 'workers', 'assets', 'full', 'dependencies']) assert.equal(result[key], false, `${files}: ${key}`);
+ assert.notEqual(result.workspaceHelp, true);
+ const jobs = requiredJobs(result);
+ assert(jobs['homepage-validation']);
+ assert(jobs['browser-validation'].includes('Run selected homepage core tests'));
+ assert(jobs['browser-validation'].includes('Run selected auth and admin tests'));
+ assert.equal(jobs['homepage-webkit-media'], undefined);
+ assert.equal(jobs['worker-validation'], undefined);
+}
+for (const [file, impact] of [
+ ['js/pages/generate-lab/model-registry.js', 'homepageMedia'],
+ ['js/shared/auth-api.js', 'assets'], ['js/shared/admin-ai-contract.mjs', 'workers'],
+ ['js/pages/index/category-carousel.js', 'carousel'],
+ ['workers/auth/src/index.js', 'workers'], ['unknown-runtime.mjs', 'full'],
+]) assert(selection([...generateLabUiFiles, file])[impact], file);
+assert.equal(selection(generateLabUiFiles, {forceFull: true}).full, true);
 
 const workspaceFiles = ['generate-lab/index.html','de/generate-lab/index.html','css/pages/generate-lab.css',
  'js/pages/generate-lab/main.js','js/pages/generate-lab/model-help.js','js/shared/help-menu.js','js/shared/locale.js',

@@ -255,3 +255,22 @@ pointer click (old code loses it), then verifies usable controls and navigation;
 existing cancellation and late-transcript cases retain output/context protection.
 Caller: the regular `npm run test:auth` selection through `playwright.config.js`,
 including the complete selected collection, not only a private focused harness.
+
+## Generate Lab presentation and retained input context
+
+The Lab uses one composing surface and a separate result/library surface, with
+the existing Magenta/Cyan/Gold mode variables. Native image selection replaces
+duplicate image cards; registry-backed Help retains model details. Original
+field wrappers, busy scope, save identities and private job handling remain.
+An intentionally empty Assets dialog description must be remembered by attribute
+presence, not truthiness, or picker guidance leaks into normal browsing. Reference
+copy follows the selected registry limit; narrow headers must not overlap actions.
+Existing `smoke.spec.js` journeys cover picker Apply/Cancel → ordinary library,
+EN/DE keyboard/reflow and lyrics/instrumental states; `oma2-q1-member.spec.js`
+retains immutable saves, retry and durable acceptance. Pricing and locale checks
+remain in their existing specs. Real CI callers are `test:homepage-core` and
+`test:auth`; the four exact Lab UI inputs select those via `impact-v1`, not native
+homepage media or the narrower `workspace-help-v1`. Shared/unknown changes keep
+their own coverage. `test:ci-selection` checks this distinction and required jobs.
+Local focused Chromium/WebKit execution and synthetic visual evidence do not
+claim hosted CI, live private access or provider/decoder acceptance.

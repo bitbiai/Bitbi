@@ -65,12 +65,20 @@ const AUTH_FRONTEND_PREFIXES = [
 ];
 
 const AUTH_FRONTEND_FILES = new Set([
-  "js/pages/generate-lab/main.js", "js/pages/index/video-create.js", "js/pages/index/soundlab-create.js", "js/pages/index/studio.js",
+  "js/pages/index/video-create.js", "js/pages/index/soundlab-create.js", "js/pages/index/studio.js",
   "js/shared/member-generation-client.js", "js/shared/member-generation-status.js",
 
   "css/pages/pricing.css",
   "de/pricing.html",
   "pricing.html",
+]);
+
+// These exact member-workspace files own smoke/locale and authenticated save
+// behavior, not the decorative homepage media or its native decoder matrix.
+// Registry, shared runtime and unknown neighboring files retain ordinary impact.
+const GENERATE_LAB_UI_FILES = new Set([
+  "generate-lab/index.html", "de/generate-lab/index.html",
+  "css/pages/generate-lab.css", "js/pages/generate-lab/main.js",
 ]);
 
 const AUTH_SHARED_PATTERNS = [
@@ -540,6 +548,13 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       if (file === "js/shared/help-menu.js") {
         addReason(selection, "homepage", file, "changes shared Help Menu and locale-facing guidance");
       }
+      continue;
+    }
+
+    if (GENERATE_LAB_UI_FILES.has(file)) {
+      addReason(selection, "homepage", file, "executes Generate Lab model, reference, layout and locale coverage in the existing homepage core command");
+      addReason(selection, "auth", file, "executes Generate Lab pricing, save identity and Assets handoff coverage in the existing auth command");
+      addReason(selection, "static", file, "changes a Generate Lab frontend source");
       continue;
     }
 

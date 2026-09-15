@@ -6,10 +6,7 @@
    ============================================================ */
 
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
-import { initParticles } from '../../shared/particles.js';
-import { initBinaryRain } from '../../shared/binary-rain.js';
 import { initBinaryFooter } from '../../shared/binary-footer.js';
-import { initScrollReveal } from '../../shared/scroll-reveal.js';
 import { initCookieConsent } from '../../shared/cookie-consent.js';
 import { activateGenerateLabContext } from '../../shared/generate-lab-context.js?v=__ASSET_VERSION__';
 import {
@@ -450,10 +447,10 @@ async function ensureAssetsBrowser() {
 }
 
 function rememberAssetsOverlayDefaults() {
-    if (refs.assetsOverlayTitle && !refs.assetsOverlayTitle.dataset.defaultText) {
+    if (refs.assetsOverlayTitle && !refs.assetsOverlayTitle.hasAttribute('data-default-text')) {
         refs.assetsOverlayTitle.dataset.defaultText = refs.assetsOverlayTitle.textContent || '';
     }
-    if (refs.assetsOverlayCopy && !refs.assetsOverlayCopy.dataset.defaultText) {
+    if (refs.assetsOverlayCopy && !refs.assetsOverlayCopy.hasAttribute('data-default-text')) {
         refs.assetsOverlayCopy.dataset.defaultText = refs.assetsOverlayCopy.textContent || '';
     }
 }
@@ -585,7 +582,9 @@ function renderImageModelOptions() {
 
 function renderModelList() {
     if (!refs.modelList) return;
-    const models = getGenerateLabModelsByMediaType(state.mediaType);
+    // Images already use the native model select. Avoid a second model picker.
+    refs.modelList.hidden = state.mediaType === 'image';
+    const models = state.mediaType === 'image' ? [] : getGenerateLabModelsByMediaType(state.mediaType);
     const cards = models.map((model) => {
         const isSelected = model.id === state.modelId;
         const button = el('button', {
@@ -598,11 +597,9 @@ function renderModelList() {
         });
         const top = el('span', { className: 'generate-lab__model-card-top' },
             el('strong', { text: model.displayName }),
-            el('span', { className: 'generate-lab__model-status', text: model.status }),
         );
-        const summary = el('span', { className: 'generate-lab__model-summary', text: model.summary });
         const meta = el('span', { className: 'generate-lab__model-route', text: model.provider });
-        button.append(top, summary, meta);
+        button.append(top, meta);
         button.addEventListener('click', () => {
             state.modelId = model.id;
             if (state.mediaType === 'image' && refs.imageModel) refs.imageModel.value = model.id;
@@ -616,13 +613,8 @@ function renderModelList() {
 function renderModelDetails() {
     const model = selectedModel();
     if (!refs.modelDetails) return;
-    const title = el('strong', { text: model.displayName });
-    const copy = el('p', { text: model.summary });
-    const list = el('ul', { className: 'generate-lab__capability-list' },
-        ...model.capabilities.map((capability) => el('li', { text: capability })),
-    );
-    refs.modelDetails.replaceChildren(title, copy, list);
-    if (refs.modelBadge) refs.modelBadge.textContent = model.displayName;
+    // Full capabilities stay in the existing registry-backed Help menu.
+    refs.modelDetails.replaceChildren(el('p', { text: model.summary }));
 }
 
 function renderPromptCopy() {
@@ -633,8 +625,6 @@ function renderPromptCopy() {
         refs.prompt.setAttribute('aria-describedby', 'labPromptHelp');
     }
     if (refs.promptHelp) refs.promptHelp.textContent = media.promptHelp;
-    if (refs.composerEyebrow) refs.composerEyebrow.textContent = localeText('generateLab.composer', { label: media.label });
-    if (refs.composerTitle) refs.composerTitle.textContent = localeText('generateLab.promptStage', { label: media.label });
 }
 
 function renderSettingsGroups() {
@@ -1282,6 +1272,11 @@ function renderImageReferenceSlots() {
         .filter(Boolean).length;
 
     refs.imageReferenceCount && (refs.imageReferenceCount.textContent = `${selectedCount} / ${maxSlots || 0}`);
+    if (refs.imageReferenceHelp) {
+        refs.imageReferenceHelp.textContent = getCurrentLocale() === 'de'
+            ? `Bis zu ${maxSlots} optionale Referenzbilder (PNG, JPEG, WebP).`
+            : `Up to ${maxSlots} optional reference images (PNG, JPEG, WebP).`;
+    }
     if (refs.imageRefPrimary) {
         refs.imageRefPrimary.replaceChildren(
             ...Array.from({ length: visibleSlots }, (_, index) => createImageReferenceSlot(index, disabled)),
@@ -2226,9 +2221,6 @@ function cacheRefs() {
         mediaTabs: Array.from(document.querySelectorAll('.generate-lab__media-tab')),
         modelList: byId('labModelList'),
         modelDetails: byId('labModelDetails'),
-        modelBadge: byId('labModelBadge'),
-        composerEyebrow: byId('labComposerEyebrow'),
-        composerTitle: byId('labComposerTitle'),
         prompt: byId('labPrompt'),
         promptLabel: byId('labPromptLabel'),
         promptHelp: byId('labPromptHelp'),
@@ -2258,6 +2250,7 @@ function cacheRefs() {
         imageRefExtra: byId('labImageRefExtra'),
         imageRefExtraGrid: byId('labImageRefExtraGrid'),
         imageReferenceCount: byId('labImageReferenceCount'),
+        imageReferenceHelp: byId('labImageReferenceHelp'),
         imageReferenceCostHint: byId('labImageReferenceCostHint'),
         videoNegative: byId('labVideoNegative'),
         videoReference: byId('labVideoReference'),
@@ -2303,10 +2296,7 @@ async function init() {
             isGenerateLabPage: true,
         });
     } catch (error) { console.warn(error); }
-    try { initParticles('heroCanvas'); } catch (error) { console.warn(error); }
-    try { initBinaryRain('binaryRain'); } catch (error) { console.warn(error); }
     try { initBinaryFooter('binaryFooter'); } catch (error) { console.warn(error); }
-    try { initScrollReveal(); } catch (error) { console.warn(error); }
     try { initCookieConsent(); } catch (error) { console.warn(error); }
 
     cacheRefs();
