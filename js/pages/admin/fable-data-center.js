@@ -962,6 +962,7 @@ export function createAdminFableDataCenter({ showToast, formatDate, onOpen, onCl
         if (bound || !refs.card) return;
         bound = true;
         refs.open.addEventListener('click', openWorkspace);
+        refs.open.disabled = false;
         refs.close.addEventListener('click', closeWorkspace);
         refs.refresh.addEventListener('click', () => Promise.all([loadOverview(), loadConversations(), selected ? selectConversation(selected) : null]));
         refs.filters.addEventListener('submit', (event) => { event.preventDefault(); offset = 0; loadConversations(); });

@@ -174,6 +174,7 @@ async function setupFable(page, baseURL, handler) {
 async function openFable(page) {
   await open(page, 'ai-lab');
   await page.locator('#fableDataOpen').click();
+  await expect(page.locator('#fableDataWorkspace')).toBeVisible();
   await expect(page.locator('#fableDataConversationList')).toContainText('Conversation A');
 }
 

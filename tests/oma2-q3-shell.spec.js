@@ -285,3 +285,37 @@ test.describe('Admin navigation drawer dismissal',()=>{
     expect(page.url()).toBe(originalURL);await expect(page.locator('#sectionDashboard')).toBeVisible();expect(state.unexpected).toEqual([]);
   });
 });
+
+
+for (const moduleName of ['ai-lab', 'fable-data-center']) test(`cold ${moduleName} controls become usable only after their own module binds`, async ({ page, baseURL }, testInfo) => {
+  const state = await fixture(page, baseURL);
+  const held = deferred(), started = deferred();
+  await page.route(`**/${moduleName}.js*`, async route => { started.resolve(); await held.promise; await route.continue(); });
+  await page.goto('/admin/index.html#ai-lab', { waitUntil: 'domcontentloaded' });
+  await started.promise;
+  const control = moduleName === 'ai-lab' ? page.locator('#sectionAiLab [data-ai-mode="text"]') : page.locator('#fableDataOpen');
+  await expect(control).toBeVisible();
+  const disabledBeforeBinding = await control.isDisabled();
+  if (moduleName === 'fable-data-center') {
+    // An unrelated Fable import must not prevent the already bound AI modes.
+    await page.locator('#sectionAiLab [data-ai-mode="text"]').click();
+    await expect(page.locator('#aiTextPrompt')).toBeVisible();
+  }
+  await control.scrollIntoViewIfNeeded();
+  const box = await control.boundingBox();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  held.resolve();
+  await ready(page, 'sectionAiLab');
+  const activeMode = await page.locator('#sectionAiLab [data-ai-mode][aria-selected="true"]').getAttribute('data-ai-mode');
+  const workspaceOpened = await page.locator('#fableDataWorkspace').isVisible();
+  await testInfo.attach('cold-module-interaction', { body: JSON.stringify({ moduleName, disabledBeforeBinding, activeMode, workspaceOpened }), contentType: 'application/json' });
+  // Before the fix this records an enabled control whose real click was lost.
+  expect(disabledBeforeBinding).toBe(true);
+  if (moduleName === 'ai-lab') expect(activeMode).toBe('models');
+  else expect(workspaceOpened).toBe(false);
+  await expect(control).toBeEnabled();
+  await control.click();
+  if (moduleName === 'ai-lab') await expect(page.locator('#aiTextPrompt')).toBeVisible();
+  else await expect(page.locator('#fableDataWorkspace')).toBeVisible();
+  expect(state.unexpected).toEqual([]);
+});

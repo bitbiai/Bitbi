@@ -214,7 +214,9 @@ function aiLabModeButton(page, mode, rootSelector = '#sectionAiLab') {
 }
 
 async function clickAiLabMode(page, mode, rootSelector = '#sectionAiLab') {
-  await aiLabModeButton(page, mode, rootSelector).click();
+  const button = aiLabModeButton(page, mode, rootSelector);
+  await button.click();
+  await expect(button).toHaveAttribute('aria-selected', 'true');
 }
 
 async function clickAdminNavSection(page, sectionName) {
@@ -16521,7 +16523,14 @@ test.describe('Admin Control Plane', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#adminHeroTitle')).toHaveText('News Feed Agent');
     await expect(page.locator('#newsFeedAgentAdmin')).toContainText('Public visibility');
-    await expect(page.locator('#newsFeedAgentAdmin')).toContainText('OpenClaw ingest, scheduled refresh, D1 storage, and thumbnail generation continue.');
+    await expect(page.locator('#newsPulseVisibilityDisclosure > summary')).toContainText('Control desktop and mobile News Pulse surfaces; ingestion continues.');
+    await page.getByRole('button', { name: 'Open help menu', exact: true }).click();
+    await page.locator('#bitbiHelpPanel [data-help-section="admin"] > summary').click();
+    const publishingHelp = page.locator('[data-admin-help-topic="creative"]');
+    await publishingHelp.locator('summary').click();
+    await expect(publishingHelp).toContainText('News management edits content and per-surface visibility.');
+    await expect(publishingHelp.getByRole('link', { name: 'News management', exact: true })).toHaveAttribute('href', '#news-feed-agent');
+    await page.locator('#bitbiHelpMenu .help-menu__close').click();
     await expect(page.locator('#newsFeedAgentAdmin')).toContainText('Admin-managed AI news');
     await expect(page.locator('#newsFeedAgentAdmin')).toContainText('Active rows');
     await expect(page.locator('#newsFeedAgentAdmin')).toContainText('Generated images');
@@ -18072,7 +18081,7 @@ test.describe('Admin nav accordion behavior', () => {
     await page.goto('/admin/index.html#dashboard');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('header .auth-nav__logout')).toBeVisible();
-    await expect(page.locator('header .site-nav__mood')).toBeVisible();
+    await expect(page.locator('header .site-nav__mood')).toBeHidden();
 
     const navItems = await page.locator('#navbar .site-nav__links > a').evaluateAll((links) => (
       links.map((link) => ({
@@ -18128,7 +18137,7 @@ test.describe('Admin nav accordion behavior', () => {
     expect(Math.abs((metrics.links.left + metrics.links.width / 2) - metrics.viewportWidth / 2)).toBeLessThanOrEqual(3);
     expect(metrics.links.left).toBeGreaterThan(metrics.logo.right);
     expect(metrics.links.right).toBeLessThan(metrics.actions.left);
-    expect(metrics.moodDisplay).not.toBe('none');
+    expect(metrics.moodDisplay).toBe('none');
     expect(metrics.documentScrollWidth).toBeLessThanOrEqual(metrics.viewportWidth + 1);
   });
 
@@ -18136,13 +18145,31 @@ test.describe('Admin nav accordion behavior', () => {
     await page.goto('/admin/index.html');
     await expect(page.locator('#sectionDashboard')).toBeVisible();
     const toggles = page.locator('.admin-nav__group-toggle');
-    await expect(toggles).toHaveCount(4);
-    for (const toggle of await toggles.all()) await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await toggles.nth(1).click();
-    await expect(toggles.nth(1)).toHaveAttribute('aria-expanded','false');
-    await expect(toggles.nth(0)).toHaveAttribute('aria-expanded','true');
-    await toggles.nth(1).click();
-    await expect(toggles.nth(1)).toHaveAttribute('aria-expanded','true');
+    const groups = [
+      ['People & payments', ['dashboard', 'users', 'orgs', 'billing', 'billing-events']],
+      ['AI & models', ['model-status', 'ai-lab', 'fable-data-center']],
+      ['Content', ['newsfeed', 'news-feed-agent', 'homepage-hero-videos']],
+      ['Operations', ['ai-usage', 'ai-budget-switches', 'object-storage', 'lifecycle', 'activity']],
+      ['Security & diagnostics', ['operations', 'tenant-assets', 'security', 'live-billing']],
+    ];
+    await expect(toggles).toHaveText(groups.map(([label]) => label));
+    for (const [index, [, targets]] of groups.entries()) {
+      const toggle = toggles.nth(index);
+      const group = page.locator('.admin-nav__group').nth(index);
+      expect(await group.locator('a[data-section]').evaluateAll(links => links.map(link => [link.dataset.section, link.getAttribute('href')]))).toEqual(targets.map(target => [target, '#' + target]));
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      for (const other of await toggles.all()) {
+        if (await other.getAttribute('aria-controls') !== await toggle.getAttribute('aria-controls')) await expect(other).toHaveAttribute('aria-expanded', 'true');
+      }
+      await toggle.press('ArrowDown');
+      await expect(group.locator('a').first()).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(toggle).toBeFocused();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await toggle.press('Enter');
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    }
   });
 
   test('grouped navigation retains keyboard expansion, child focus and Escape collapse', async ({ page }) => {

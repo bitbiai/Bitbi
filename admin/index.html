@@ -1129,8 +1129,8 @@
                 <div class="glass glass-card reveal visible admin-ai">
                     <div class="admin-ai__header">
                         <div class="admin-ai__header-actions">
-                            <button type="button" id="aiLabRefreshModels" class="btn-action">Refresh Models</button>
-                            <button type="button" id="aiLabResetForm" class="btn-action">Reset Current Form</button>
+                            <button type="button" id="aiLabRefreshModels" class="btn-action" disabled>Refresh Models</button>
+                            <button type="button" id="aiLabResetForm" class="btn-action" disabled>Reset Current Form</button>
                         </div>
                     </div>
 
@@ -1141,14 +1141,14 @@
                     </div>
 
                     <div class="admin-ai__modes" role="tablist" aria-label="AI Lab modes">
-                        <button type="button" class="admin-ai__mode admin-ai__mode--active" data-ai-mode="models" aria-selected="true">Models</button>
-                        <button type="button" class="admin-ai__mode" data-ai-mode="text" aria-selected="false">Text</button>
-                        <button type="button" class="admin-ai__mode" data-ai-mode="image" aria-selected="false">Image</button>
-                        <button type="button" class="admin-ai__mode" data-ai-mode="embeddings" aria-selected="false">Embeddings</button>
-                        <button type="button" class="admin-ai__mode" data-ai-mode="compare" aria-selected="false">Compare</button>
-                        <button type="button" class="admin-ai__mode" data-ai-mode="live-agent" aria-selected="false">Live Agent</button>
-                        <button type="button" class="admin-ai__mode" data-ai-mode="music" aria-selected="false">Music AI</button>
-                        <button type="button" class="admin-ai__mode" data-ai-mode="video" aria-selected="false">Video AI</button>
+                        <button type="button" disabled class="admin-ai__mode admin-ai__mode--active" data-ai-mode="models" aria-selected="true">Models</button>
+                        <button type="button" disabled class="admin-ai__mode" data-ai-mode="text" aria-selected="false">Text</button>
+                        <button type="button" disabled class="admin-ai__mode" data-ai-mode="image" aria-selected="false">Image</button>
+                        <button type="button" disabled class="admin-ai__mode" data-ai-mode="embeddings" aria-selected="false">Embeddings</button>
+                        <button type="button" disabled class="admin-ai__mode" data-ai-mode="compare" aria-selected="false">Compare</button>
+                        <button type="button" disabled class="admin-ai__mode" data-ai-mode="live-agent" aria-selected="false">Live Agent</button>
+                        <button type="button" disabled class="admin-ai__mode" data-ai-mode="music" aria-selected="false">Music AI</button>
+                        <button type="button" disabled class="admin-ai__mode" data-ai-mode="video" aria-selected="false">Video AI</button>
                     </div>
                 </div>
 
@@ -1163,7 +1163,7 @@
                             <span>Loading live statistics...</span>
                         </div>
                     </details>
-                    <button type="button" id="fableDataOpen" class="btn-action">Open data center</button>
+                    <button type="button" id="fableDataOpen" class="btn-action" disabled>Open data center</button>
                 </section>
 
                 <section id="fableDataWorkspace" class="admin-fable-data" hidden aria-labelledby="fableDataWorkspaceTitle">

@@ -242,3 +242,16 @@ its route now explicitly forwards only `route`. It checks two real poster captur
 at 0.2/0.4s and multipart output. The unchanged helper's detached zero-time
 metadata-only WebKit decode limit is separately reproduced; this presentation
 change does not claim to repair it or change production media processing.
+
+
+The subsequent Admin release exposed three remaining legacy presentation assertions
+and cold AI/Fable controls accepting clicks before lazy event binding. The existing
+Auth spec now checks compact News guidance plus its real Help disclosure, the
+intentionally hidden decorative mood, and all five groups with exact destinations
+and independent keyboard operation. Static AI/Fable controls start disabled and
+are enabled by their own module after binding, independently of the other module.
+`oma2-q3-shell.spec.js` holds each actual module response and records a real early
+pointer click (old code loses it), then verifies usable controls and navigation;
+existing cancellation and late-transcript cases retain output/context protection.
+Caller: the regular `npm run test:auth` selection through `playwright.config.js`,
+including the complete selected collection, not only a private focused harness.

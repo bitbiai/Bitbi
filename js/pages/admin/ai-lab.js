@@ -7743,6 +7743,8 @@ export function createAdminAiLab({ showToast } = {}) {
             liveAgentUpdateSystemCount();
             syncLiveAgentSaveButton();
             renderAll();
+            // Static controls must not accept clicks before their lazy module binds.
+            for (const button of [...refs.modeButtons, refs.refreshBtn, refs.resetBtn]) button.disabled = false;
         },
 
         setActive(active) {
