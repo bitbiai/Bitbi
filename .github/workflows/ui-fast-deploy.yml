@@ -405,9 +405,14 @@ jobs:
         if: needs.guard.outputs.carousel == 'true'
         run: npx playwright install --with-deps chromium firefox webkit
 
-      - name: Install Chromium for selected focused tests
+      - name: Install browsers for selected focused tests
         if: needs.guard.outputs.carousel != 'true' && (needs.guard.outputs.homepage == 'true' || needs.guard.outputs.member_models == 'true')
-        run: npx playwright install --with-deps chromium
+        run: |
+          if [ "${{ needs.guard.outputs.homepage }}" = 'true' ]; then
+            npx playwright install --with-deps chromium webkit
+          else
+            npx playwright install --with-deps chromium
+          fi
 
       - name: Run homepage core tests
         if: needs.guard.outputs.homepage == 'true'

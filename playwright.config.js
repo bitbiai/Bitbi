@@ -23,6 +23,11 @@ module.exports = defineConfig({
       name: 'chromium',
       use: { browserName: 'chromium' },
     },
+    {
+      name: 'webkit-canvas',
+      testMatch: ['**/canvas.spec.js', '**/oma2-q1-canvas.spec.js'],
+      use: { browserName: 'webkit' },
+    },
   ],
   webServer: {
     command: `node tests/helpers/homepage-media-server.mjs ${process.env.STATIC_TEST_ROOT || '.'}`,

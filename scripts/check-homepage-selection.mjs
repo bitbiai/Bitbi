@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, verifyHomepageDiscovery } from './lib/homepage-test-selection.mjs';
+import { flattenHomepageDiscovery, homepageCoreArguments, verifyHomepageCoreDiscovery, verifyHomepageDiscovery } from './lib/homepage-test-selection.mjs';
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -21,20 +21,23 @@ const report = {
   summary: null,
 };
 try {
-  for (const [name, config] of Object.entries({
-    standard: 'playwright.config.js',
-    carousel: 'playwright.carousel.config.js',
-    functional: 'playwright.homepage.config.js',
-    webkit: 'playwright.homepage-webkit.config.js',
-    extended: 'playwright.homepage-webkit.config.js',
-    performance: 'playwright.homepage-performance.config.js',
-    diagnostic: 'playwright.homepage-linux-diagnostic.config.js',
+  for (const [name, args] of Object.entries({
+    core: homepageCoreArguments(JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).scripts),
+    ...Object.fromEntries(Object.entries({
+      standard: 'playwright.config.js',
+      carousel: 'playwright.carousel.config.js',
+      functional: 'playwright.homepage.config.js',
+      webkit: 'playwright.homepage-webkit.config.js',
+      extended: 'playwright.homepage-webkit.config.js',
+      performance: 'playwright.homepage-performance.config.js',
+      diagnostic: 'playwright.homepage-linux-diagnostic.config.js',
+    }).map(([name, config]) => [name, ['test', '-c', config]])),
   })) {
     // Discovery does not start browsers, the web server or Playwright bodies.
     // The existing node:test mock import also writes TAP diagnostics to stdout;
     // keep that output separate from the actual JSON reporter artifact.
     const rawOutput = path.join(rawDirectory, `${name}.json`);
-    const result = spawnSync(process.execPath, [cli, 'test', '-c', config, '--list', '--reporter=json'], {
+    const result = spawnSync(process.execPath, [cli, ...args, '--list', '--reporter=json'], {
       cwd: root,
       env: { ...process.env, HOMEPAGE_EXTENDED: name === 'extended' ? 'true' : 'false', PLAYWRIGHT_JSON_OUTPUT_FILE: rawOutput },
       encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
@@ -44,6 +47,7 @@ try {
     report.collections[name] = flattenHomepageDiscovery(JSON.parse(fs.readFileSync(rawOutput, 'utf8')));
   }
   report.summary = verifyHomepageDiscovery(report.collections);
+  report.summary.homepageCore = verifyHomepageCoreDiscovery(report.collections.core, report.collections.standard);
   report.status = 'passed';
   console.log('Homepage collection and preserved regression union:', JSON.stringify(report.summary));
 } catch (error) {

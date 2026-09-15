@@ -1,6 +1,36 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
+export const HOMEPAGE_CORE_FILES = Object.freeze([
+  'audio-player.spec.js', 'canvas.spec.js', 'oma2-q1-canvas.spec.js',
+  'locale.spec.js', 'smoke.spec.js',
+]);
+export const CANVAS_WEBKIT_FILES = Object.freeze(['canvas.spec.js', 'oma2-q1-canvas.spec.js']);
+
+// Read the real existing npm caller without evaluating a shell command.
+export function homepageCoreArguments(scripts) {
+  const args = String(scripts?.['test:homepage-core'] || '').trim().split(/\s+/);
+  assert(args[0] === 'playwright' && args[1] === 'test'
+    && args.every(arg => /^[\w./=-]+$/.test(arg)), 'Expected the direct homepage-core Playwright caller');
+  return args.slice(1);
+}
+
+export function verifyHomepageCoreDiscovery(core, standard) {
+  assert(Array.isArray(core) && core.length > 0, 'homepage-core: no tests discovered');
+  const projects = {chromium: HOMEPAGE_CORE_FILES, 'webkit-canvas': CANVAS_WEBKIT_FILES};
+  const expected = standard.filter(test => projects[test.project]?.includes(test.file));
+  for (const [project, files] of Object.entries(projects)) {
+    for (const file of files) {
+      assert(expected.some(test => test.file === file && test.project === project), `Standard discovery lost ${project}/${file}`);
+      assert(core.some(test => test.file === file && test.project === project), `homepage-core does not execute ${project}/${file}`);
+    }
+  }
+  assert.deepEqual(core.map(key).sort(), expected.map(key).sort(), 'homepage-core lost or added cases compared with its standard specs');
+  for (const test of core) assert.equal(test.expectedStatus, 'passed', `homepage-core statically skips ${key(test)}`);
+  return Object.fromEntries(Object.entries(projects).flatMap(([project, files]) => files.map(file =>
+    [`${project}/${file}`, core.filter(test => test.file === file && test.project === project).length])));
+}
+
 export const HOMEPAGE_FUNCTIONAL_MINIMUMS = Object.freeze({
   'homepage-carousel-focused.spec.js': 5,
   'homepage-creation-stream-anchor.spec.js': 4,

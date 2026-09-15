@@ -3,13 +3,33 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_NATIVE_CONTROLS_REQUIRED, HOMEPAGE_EXTENDED_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
+import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_NATIVE_CONTROLS_REQUIRED, HOMEPAGE_EXTENDED_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
 import { validateHomepageMacRuntime, validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 const fixture = (file, project, index) => ({ file, project, title: `case ${index}`, expectedStatus: 'passed', tags: [] });
+const coreFixtures = [...HOMEPAGE_CORE_FILES.map(file => fixture(file, 'chromium', 0)),
+  ...CANVAS_WEBKIT_FILES.map(file => fixture(file, 'webkit-canvas', 0))];
+assert.equal(verifyHomepageCoreDiscovery(coreFixtures, coreFixtures)['chromium/oma2-q1-canvas.spec.js'], 1);
+for (const removed of coreFixtures) {
+  assert.throws(() => verifyHomepageCoreDiscovery(coreFixtures.filter(test => test !== removed), coreFixtures), /does not execute/);
+}
+assert.throws(() => verifyHomepageCoreDiscovery([], coreFixtures), /no tests/);
+assert.throws(() => verifyHomepageCoreDiscovery([...coreFixtures, coreFixtures[0]], coreFixtures), /lost or added/);
+assert.throws(() => verifyHomepageCoreDiscovery(coreFixtures.map(test => ({...test, project: 'webkit'})), coreFixtures), /does not execute/);
+assert.throws(() => verifyHomepageCoreDiscovery(coreFixtures.map(test => ({...test, expectedStatus: 'skipped'})), coreFixtures), /statically skips/);
+assert.throws(() => verifyHomepageCoreDiscovery(coreFixtures.map(test => ({...test, title: 'replacement'})), coreFixtures), /lost or added/);
+const coreScript = JSON.parse(read('package.json')).scripts['test:homepage-core'];
+assert.deepEqual(homepageCoreArguments({'test:homepage-core': coreScript}), coreScript.split(/\s+/).slice(1));
+for (const script of ['', 'npm run test:static', coreScript + ' && echo hidden', coreScript + ' $(echo hidden)']) {
+  assert.throws(() => homepageCoreArguments({'test:homepage-core': script}), /direct homepage-core/);
+}
+const standardConfig = require(path.join(root, 'playwright.config.js'));
+const canvasProject = standardConfig.projects.find(project => project.name === 'webkit-canvas');
+assert.equal(canvasProject?.use.browserName, 'webkit');
+assert.deepEqual(canvasProject.testMatch, CANVAS_WEBKIT_FILES.map(file => '**/' + file));
 const allFunctional = ['chromium', 'webkit'].flatMap((project) => Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)
   .flatMap(([file, count]) => Array.from({ length: count }, (_, index) => fixture(file, project, index))));
 const functional = [...allFunctional, ...HOMEPAGE_WEBKIT_REQUIRED.map(title => ({ ...fixture('homepage-hero-playback.spec.js', 'chromium', 0), title }))];
@@ -141,6 +161,14 @@ function job(source, name) {
 }
 for (const workflow of ['static.yml', 'full-regression.yml', 'ui-fast-deploy.yml']) {
   const text = read(`.github/workflows/${workflow}`);
+  if (workflow !== 'full-regression.yml') {
+    const caller = job(text, workflow === 'static.yml' ? 'browser-validation' : 'deploy');
+    const install = caller.split('      - name: Install browsers for selected ')[1]?.split('      - name:')[0];
+    assert(install, 'Missing selected frontend browser setup');
+    const owner = workflow === 'static.yml' ? 'release-compatibility' : 'guard';
+    assert(install.includes(`if [ "\${{ needs.${owner}.outputs.homepage }}" = 'true' ]; then`));
+    assert.match(install, /then\s+npx playwright install --with-deps chromium webkit\s+else\s+npx playwright install --with-deps chromium\s+fi/);
+  }
   const mac = job(text, 'homepage-webkit-media');
   assert.ok(mac.includes('runs-on: macos-15'));
   assert.ok(mac.includes('node-version: 22.23.2'));

@@ -28,7 +28,7 @@ async function fixture(page, baseURL) {
     content: { text: 'Initial text' }, output: null, asset_id: null,
   });
   const nodes = [node(NODE_A, 'Node A', 50), node(NODE_B, 'Node B', 320), node(GENERATOR, 'Generator', 590, 'text_generation')];
-  const state = { projects, nodes, edges: [], creates: [], patches: [], requests: [], runs: [], failNodes: new Set(), active: new Map(), maxActive: new Map(), unexpected: [] };
+  const state = { projects, nodes, edges: [], history: [], creates: [], patches: [], requests: [], runs: [], failNodes: new Set(), active: new Map(), maxActive: new Map(), unexpected: [] };
   const holds = [];
   const postHolds = [];
   state.holdNext = (id, options = {}) => {
@@ -73,7 +73,7 @@ async function fixture(page, baseURL) {
     const createMatch = pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/(nodes|edges)$/);
     if (projectMatch && method === 'GET') return fulfill(route, {
       project: projects.find((item) => item.id === projectMatch[1]),
-      nodes: nodes.filter((item) => item.project_id === projectMatch[1]), edges: state.edges.filter((item) => item.project_id === projectMatch[1]), runs: [],
+      nodes: nodes.filter((item) => item.project_id === projectMatch[1]), edges: state.edges.filter((item) => item.project_id === projectMatch[1]), runs: state.history.filter((item) => item.project_id === projectMatch[1]),
     });
     if (createMatch && method === 'POST') {
       const kind = createMatch[2];
@@ -254,17 +254,75 @@ for (const locale of ['en', 'de']) {
     });
   }
 
-  test(`P13 ${locale}: existing narrow viewport guidance and desktop layout remain available`, async ({ page, baseURL }) => {
-    await fixture(page, baseURL);
+  test(`P13 ${locale}: mobile panels and resize retain the same inflight editor without extra writes`, async ({ page, baseURL }) => {
+    const state = await fixture(page, baseURL);
     await open(page, locale);
-    await expect(page.locator('.canvas-mobile-note')).toBeHidden();
+    await card(page, NODE_A).click();
+    const held = state.holdNext(NODE_A);
+    const editor = inspector(page).getByLabel(labels.title, { exact: true });
+    const element = await editor.elementHandle();
+    await editor.fill('Retain through panels');
+    await held.reached;
+    const requestsBefore = state.requests.length;
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.locator('.canvas-mobile-note')).toBeVisible();
-    await expect(page.locator('.canvas-mobile-note')).toContainText(locale === 'de' ? 'Desktop oder Tablet' : 'desktop or tablet');
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    await expect(page.locator('#canvasViewport')).toBeVisible();
+    await expect(page.locator('#canvasInspectorPanel')).toBeHidden();
+    for (const name of ['Projects', 'Inspector', 'History']) {
+      const toggle = page.locator(`#canvas${name}Toggle`);
+      await toggle.focus();
+      await toggle.press('Enter');
+      await expect(page.locator(`#canvas${name}Panel`)).toBeVisible();
+      await expect(page.locator('#canvasViewport')).toBeHidden();
+      for (const other of ['Projects', 'Inspector', 'History'].filter((item) => item !== name)) await expect(page.locator(`#canvas${other}Panel`)).toBeHidden();
+      if (name === 'Inspector') await expect(editor).toHaveValue('Retain through panels');
+      await toggle.press('Enter');
+      await expect(page.locator(`#canvas${name}Panel`)).toBeHidden();
+      await expect(page.locator('#canvasViewport')).toBeVisible();
+      await expect(toggle).toBeFocused();
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1 && document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
+    expect(await element.evaluate((input) => input.isConnected)).toBe(true);
+    expect(state.requests.length).toBe(requestsBefore);
+    expect(state.patches).toHaveLength(1);
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await expect(page.locator('.canvas-mobile-note')).toBeHidden();
+    await expect(page.locator('#canvasInspectorPanel')).toBeVisible();
+    await expect(editor).toHaveValue('Retain through panels');
+    expect(await editor.evaluate((input, original) => input === original, element)).toBe(true);
     await expect(card(page, NODE_A)).toBeVisible();
+    held.release();
+    await saved(page);
+    expect(state.patches).toHaveLength(1);
+    await page.reload();
+    await expect(card(page, NODE_A)).toContainText('Retain through panels');
+    expect(state.unexpected).toEqual([]);
+  });
+
+  test(`P13 ${locale}: long inspector and history scroll internally and preserve selection`, async ({ page, baseURL }) => {
+    const state = await fixture(page, baseURL);
+    state.history = Array.from({ length: 40 }, (_, index) => ({ id: `synthetic-history-${index}`, project_id: PROJECT_A, node_id: GENERATOR, model_id: 'synthetic-text', status: index === 39 ? 'failed' : 'succeeded', output: index === 39 ? null : { kind: 'text', text: `Stored result ${index}` }, updated_at: '2026-09-15T10:00:00.000Z' }));
+    await page.setViewportSize({ width: 1280, height: 600 });
+    await open(page, locale);
+    await card(page, GENERATOR).press('Enter');
+    const title = inspector(page).getByLabel(labels.title, { exact: true });
+    const original = await title.elementHandle();
+    await expect(inspector(page).getByLabel(labels.tokens, { exact: true })).toHaveValue('500');
+    const run = inspector(page).getByRole('button', { name: labels.run, exact: true });
+    await run.scrollIntoViewIfNeeded();
+    await expect(run).toBeInViewport();
+    const requestsBefore = state.requests.length;
+    await page.locator('#canvasHistoryToggle').click();
+    await expect(page.locator('.canvas-run-item')).toHaveCount(40);
+    const last = page.locator('.canvas-run-item').last();
+    await last.scrollIntoViewIfNeeded();
+    await expect(last).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
+    await page.locator('#canvasInspectorToggle').click();
+    await expect(title).toHaveValue('Generator');
+    expect(await title.evaluate((input, previous) => input === previous, original)).toBe(true);
+    expect(state.requests.length).toBe(requestsBefore);
+    expect(state.patches).toEqual([]);
+    expect(state.runs).toEqual([]);
+    await expect(card(page, GENERATOR)).toHaveClass(/is-selected/);
   });
 
   test(`P13 ${locale}: edits during slow save serialize, switch waits for both replies`, async ({ page, baseURL }) => {

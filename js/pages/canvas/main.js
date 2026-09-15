@@ -64,6 +64,49 @@ let toastTimer = 0;
 const pendingRunKeys = new Map();
 let workflowAnalysis = { byNode: new Map(), edgeStates: new Map() };
 
+// Panel state is presentation-only: retain mounted inputs, media and graph scroll.
+const compactWorkspace = window.matchMedia('(max-width: 900px)');
+const panelState = { projects: true, detail: 'inspector', mobile: 'graph' };
+const panels = Object.fromEntries(['projects', 'graph', 'inspector', 'history'].map((name) => {
+    const key = name[0].toUpperCase() + name.slice(1);
+    return [name, { panel: document.getElementById(`canvas${key}Panel`), button: document.getElementById(`canvas${key}Toggle`) }];
+}));
+
+function syncPanels() {
+    const compact = compactWorkspace.matches;
+    const active = document.activeElement;
+    dom.app.dataset.projects = panelState.projects ? 'open' : 'closed';
+    dom.app.dataset.detail = panelState.detail || 'closed';
+    for (const [name, { panel, button }] of Object.entries(panels)) {
+        const visible = compact ? panelState.mobile === name : name === 'graph' || (name === 'projects' ? panelState.projects : panelState.detail === name);
+        panel.hidden = !visible;
+        button.setAttribute(name === 'graph' ? 'aria-pressed' : 'aria-expanded', String(visible));
+        if (!visible && panel.contains(active)) (compact ? panels.graph.button : button).focus({ preventScroll: true });
+    }
+    if (!compact && active === panels.graph.button) dom.viewport.focus({ preventScroll: true });
+}
+
+function showPanel(name, toggle = false) {
+    if (compactWorkspace.matches) panelState.mobile = toggle && panelState.mobile === name ? 'graph' : name;
+    else if (name === 'projects') panelState.projects = toggle ? !panelState.projects : true;
+    else if (name !== 'graph') panelState.detail = toggle && panelState.detail === name ? null : name;
+    syncPanels();
+}
+
+function bindPanels() {
+    for (const [name, { panel, button }] of Object.entries(panels)) {
+        button.addEventListener('click', () => showPanel(name, true));
+        panel.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape' || name === 'graph' || event.defaultPrevented) return;
+            event.stopPropagation();
+            showPanel(name, true);
+            button.focus({ preventScroll: true });
+        });
+    }
+    compactWorkspace.addEventListener('change', syncPanels);
+    syncPanels();
+}
+
 function el(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -196,13 +239,20 @@ function renderProjects() {
         open.append(el('strong', '', project.title), el('small', '', new Date(project.updated_at).toLocaleString(isGerman ? 'de-DE' : 'en-US', { dateStyle: 'medium' })));
         open.addEventListener('click', () => void openProject(project.id));
         const actions = el('span', 'canvas-project-item__actions');
-        const rename = el('button', 'canvas-project-item__menu', 'R');
+        const rename = el('button', 'canvas-project-item__menu');
+        const pencil = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        for (const [name, value] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'aria-hidden': 'true', focusable: 'false' })) pencil.setAttribute(name, value);
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'm16 3 5 5-12 12-6 1 1-6z M14 5l5 5');
+        pencil.append(path); rename.append(pencil);
         rename.type = 'button';
         rename.setAttribute('aria-label', `${copy.renamePrompt}: ${project.title}`);
+        rename.title = copy.renamePrompt;
         rename.addEventListener('click', () => void renameProject(project));
         const remove = el('button', 'canvas-project-item__menu canvas-project-item__menu--danger', '×');
         remove.type = 'button';
         remove.setAttribute('aria-label', `${isGerman ? 'Canvas löschen' : 'Delete Canvas'}: ${project.title}`);
+        remove.title = isGerman ? 'Canvas löschen' : 'Delete Canvas';
         remove.addEventListener('click', () => void deleteProject(project));
         actions.append(rename, remove);
         item.append(open, actions);
@@ -236,6 +286,8 @@ function renderHistory() {
             node.output = run.output || node.output;
             store.state.selected = { kind: 'node', id: node.id };
             renderGraph(); renderInspector();
+            showPanel('inspector');
+            dom.inspectorTitle.focus({ preventScroll: true });
         });
         dom.history.append(item);
     }
@@ -703,6 +755,8 @@ async function loadCredits() {
 }
 
 function bindEvents() {
+    bindPanels();
+    document.getElementById('canvasReload').addEventListener('click', () => window.location.reload());
     dom.newProject.addEventListener('click', () => void createProject());
     dom.addNode.addEventListener('click', () => void addNode());
     dom.quickTextImageVideo.addEventListener('click', () => void createQuickTextImageVideo());
@@ -738,7 +792,9 @@ async function init() {
     const projectsResult = await canvasApi.listProjects();
     dom.loading.hidden = true;
     if (!projectsResult.ok) {
-        dom.denied.hidden = false;
+        const denied = [401, 403].includes(projectsResult.status);
+        dom.denied.hidden = !denied;
+        document.getElementById('canvasUnavailable').hidden = denied;
         dom.app.hidden = true;
         return;
     }

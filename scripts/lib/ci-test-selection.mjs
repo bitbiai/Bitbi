@@ -81,6 +81,11 @@ const GENERATE_LAB_UI_FILES = new Set([
   "css/pages/generate-lab.css", "js/pages/generate-lab/main.js",
 ]);
 
+const CANVAS_UI_FILES = new Set([
+  "canvas/index.html", "de/canvas/index.html",
+  "css/pages/canvas.css", "js/pages/canvas/main.js",
+]);
+
 const AUTH_SHARED_PATTERNS = [
   /(?:^|\/)auth(?:-|\/|\.)/,
   /(?:^|\/)session(?:-|\/|\.)/,
@@ -90,6 +95,7 @@ const AUTH_SHARED_PATTERNS = [
 const HOMEPAGE_CORE_TEST_FILES = new Set([
   "tests/audio-player.spec.js",
   "tests/canvas.spec.js",
+  "tests/oma2-q1-canvas.spec.js",
   "tests/locale.spec.js",
   "tests/smoke.spec.js",
 ]);
@@ -548,6 +554,12 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       if (file === "js/shared/help-menu.js") {
         addReason(selection, "homepage", file, "changes shared Help Menu and locale-facing guidance");
       }
+      continue;
+    }
+
+    if (CANVAS_UI_FILES.has(file)) {
+      addReason(selection, "homepage", file, "executes Canvas workspace and save coordination coverage in the existing homepage core command");
+      addReason(selection, "static", file, "changes a Canvas frontend source");
       continue;
     }
 

@@ -18,7 +18,7 @@ async function mockSharedAuth(page, loggedIn = true) {
 
 function createCanvasApiMock(page, { authenticated = true } = {}) {
   const projectId = '11111111111111111111111111111111';
-  const state = { projects: [], nodes: [], edges: [], runs: [], modelRequests: 0 };
+  const state = { projects: [], nodes: [], edges: [], runs: [], modelRequests: 0, requests: [] };
   const imageModel = {
     id: '@cf/black-forest-labs/flux-1-schnell', label: 'FLUX.1 Schnell', vendor: 'Cloudflare', capability: 'image',
     description: 'Fast image model.', outputType: 'image', canvasEnabled: true, runnable: true, disabledReason: null,
@@ -32,6 +32,7 @@ function createCanvasApiMock(page, { authenticated = true } = {}) {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
     const method = request.method();
+    state.requests.push({ method, pathname });
     if (!authenticated) return fulfill(route, { ok: false, error: 'Authentication required.', code: 'unauthorized' }, 401);
     if (pathname.endsWith('/models')) { state.modelRequests += 1; return fulfill(route, { models: [textModel, imageModel, videoModel], organizations: [], selected_organization_id: null, access: { role: 'user', is_admin: false } }); }
     if (pathname === '/api/account/canvas/projects' && method === 'GET') return fulfill(route, { projects: state.projects, applied_limit: 50 });
@@ -47,6 +48,13 @@ function createCanvasApiMock(page, { authenticated = true } = {}) {
       Object.assign(state.projects[0], request.postDataJSON(), { updated_at: new Date().toISOString() });
       return fulfill(route, { project: state.projects[0] });
     }
+    if (pathname === `/api/account/canvas/projects/${projectId}` && method === 'DELETE' && state.projects.some((project) => project.id === projectId)) {
+      state.projects = state.projects.filter((project) => project.id !== projectId);
+      state.nodes = state.nodes.filter((node) => node.project_id !== projectId);
+      state.edges = state.edges.filter((edge) => edge.project_id !== projectId);
+      state.runs = state.runs.filter((run) => run.project_id !== projectId);
+      return fulfill(route, { id: projectId, deleted: true, assets_deleted: false });
+    }
     if (pathname === `/api/account/canvas/projects/${projectId}/nodes` && method === 'POST') {
       const body = request.postDataJSON();
       const node = { id: String(state.nodes.length + 2).repeat(32).slice(0, 32), project_id: projectId, ...body, width: null, height: null, output: null, asset_id: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
@@ -59,11 +67,21 @@ function createCanvasApiMock(page, { authenticated = true } = {}) {
       Object.assign(node, request.postDataJSON(), { updated_at: new Date().toISOString() });
       return fulfill(route, { node });
     }
+    if (nodeMatch && method === 'DELETE' && pathname === `/api/account/canvas/projects/${projectId}/nodes/${nodeMatch[1]}` && state.nodes.some((node) => node.id === nodeMatch[1] && node.project_id === projectId)) {
+      state.nodes = state.nodes.filter((node) => node.id !== nodeMatch[1]);
+      state.edges = state.edges.filter((edge) => edge.source_node_id !== nodeMatch[1] && edge.target_node_id !== nodeMatch[1]);
+      return fulfill(route, { id: nodeMatch[1], deleted: true, asset_deleted: false });
+    }
     if (pathname === `/api/account/canvas/projects/${projectId}/edges` && method === 'POST') {
       const body = request.postDataJSON();
       const edge = { id: String.fromCharCode(101 + state.edges.length).repeat(32), project_id: projectId, ...body, label: null, config: {}, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
       state.edges.push(edge);
       return fulfill(route, { edge }, 201);
+    }
+    const edgeMatch = pathname.match(/\/edges\/([a-f0-9]{32})$/);
+    if (edgeMatch && method === 'DELETE' && pathname === `/api/account/canvas/projects/${projectId}/edges/${edgeMatch[1]}` && state.edges.some((edge) => edge.id === edgeMatch[1] && edge.project_id === projectId)) {
+      state.edges = state.edges.filter((edge) => edge.id !== edgeMatch[1]);
+      return fulfill(route, { id: edgeMatch[1], deleted: true });
     }
     return fulfill(route, { ok: false, error: 'Not mocked', code: 'not_mocked' }, 404);
   });
@@ -144,18 +162,193 @@ test.describe('BITBI Canvas static and protected workspace', () => {
     await expect(page.locator('.canvas-node')).toHaveCount(2);
     await expect(page.locator('.canvas-edge')).toHaveCount(1);
     await expect(page.locator(`[data-node-id="${sourceId}"]`)).toHaveCSS('transform', `matrix(1, 0, 0, 1, ${persisted.x}, ${persisted.y})`);
+
+    page.once('dialog', (dialog) => dialog.accept('Renamed campaign'));
+    await page.getByRole('button', { name: 'Rename Canvas: Campaign workflow', exact: true }).click();
+    await expect(page.locator('#canvasProjectTitle')).toHaveValue('Renamed campaign');
+    await expect.poll(() => state.projects[0].title).toBe('Renamed campaign');
+    await expect(page.getByRole('button', { name: 'Rename Canvas: Renamed campaign', exact: true })).toBeVisible();
+
+    await page.locator(`[data-node-id="${sourceId}"]`).press('Enter');
+    const nodeTitle = page.getByLabel('Title', { exact: true });
+    const originalTitle = await nodeTitle.inputValue();
+    let unexpectedConfirmations = 0;
+    const dismissUnexpected = (dialog) => { unexpectedConfirmations += 1; return dialog.dismiss(); };
+    page.on('dialog', dismissUnexpected);
+    await nodeTitle.focus();
+    await nodeTitle.press('Home');
+    await nodeTitle.press('Delete');
+    await nodeTitle.press('End');
+    await nodeTitle.press('Backspace');
+    page.off('dialog', dismissUnexpected);
+    expect(unexpectedConfirmations).toBe(0);
+    expect(state.requests.filter((request) => request.method === 'DELETE')).toEqual([]);
+    await expect(page.locator('.canvas-node')).toHaveCount(2);
+    await expect(page.locator('.canvas-edge')).toHaveCount(1);
+    await nodeTitle.fill(originalTitle);
+    await nodeTitle.blur();
+    await expect(page.locator('#canvasSaveState')).toHaveAttribute('data-state', 'saved');
+
+    const edgeId = state.edges[0].id;
+    await page.locator('.canvas-edge-hit').press('Enter');
+    page.once('dialog', (dialog) => dialog.dismiss());
+    await page.locator('#canvasDeleteSelection').click();
+    await expect(page.locator('.canvas-edge')).toHaveCount(1);
+    expect(state.requests.filter((request) => request.method === 'DELETE')).toEqual([]);
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.locator('#canvasDeleteSelection').click();
+    await expect(page.locator('.canvas-edge')).toHaveCount(0);
+    expect(state.edges).toEqual([]);
+
+    await page.locator(`[data-node-id="${sourceId}"]`).press('Enter');
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.locator('#canvasDeleteSelection').click();
+    await expect(page.locator('.canvas-node')).toHaveCount(1);
+    expect(state.nodes.some((node) => node.id === sourceId)).toBe(false);
+
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: 'Delete Canvas: Renamed campaign', exact: true }).click();
+    await expect(page.locator('.canvas-project-item')).toHaveCount(0);
+    await expect(page.locator('.canvas-node')).toHaveCount(0);
+    expect(state.projects).toEqual([]);
+    expect(state.nodes).toEqual([]);
+    expect(state.requests.filter((request) => request.method === 'DELETE').map((request) => request.pathname)).toEqual([
+      `/api/account/canvas/projects/11111111111111111111111111111111/edges/${edgeId}`,
+      `/api/account/canvas/projects/11111111111111111111111111111111/nodes/${sourceId}`,
+      '/api/account/canvas/projects/11111111111111111111111111111111',
+    ]);
   });
 
-  test('mobile Canvas uses a stacked, reachable editor without document overflow', async ({ page }) => {
+  test('mobile Canvas opens the actual project controls and returns to the graph without overflow', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockSharedAuth(page, true);
-    createCanvasApiMock(page);
+    const state = createCanvasApiMock(page);
     await page.goto('/de/canvas/');
-    await expect(page.locator('.canvas-mobile-note')).toBeVisible();
-    const metrics = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, viewport: window.innerWidth, appVisible: !document.getElementById('canvasApp').hidden }));
+    await expect(page.locator('#canvasApp')).toBeVisible();
+    await expect(page.locator('#canvasProjectsPanel')).toBeHidden();
+    await expect(page.locator('#canvasViewport')).toBeVisible();
+    await page.locator('#canvasProjectsToggle').focus();
+    await page.locator('#canvasProjectsToggle').press('Enter');
+    await expect(page.locator('#canvasProjectsPanel')).toBeVisible();
+    await expect(page.locator('#canvasNewProject')).toBeVisible();
+    await expect(page.locator('#canvasViewport')).toBeHidden();
+    await page.locator('#canvasGraphToggle').focus();
+    await page.locator('#canvasGraphToggle').press('Enter');
+    await expect(page.locator('#canvasProjectsPanel')).toBeHidden();
+    await expect(page.locator('#canvasViewport')).toBeVisible();
+    await expect(page.locator('#canvasGraphToggle')).toBeFocused();
+    const metrics = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight, viewport: window.innerWidth, viewportHeight: innerHeight, appVisible: !document.getElementById('canvasApp').hidden }));
     expect(metrics.appVisible).toBe(true);
     expect(metrics.width).toBeLessThanOrEqual(metrics.viewport + 1);
+    expect(metrics.height).toBeLessThanOrEqual(metrics.viewportHeight + 1);
+    expect(state.requests.filter((request) => request.method !== 'GET')).toEqual([]);
   });
+
+  for (const locale of ['en', 'de']) {
+    test(`Canvas ${locale}: viewport filling, centered empty graph and reversible desktop panels`, async ({ page }) => {
+      await mockSharedAuth(page, true);
+      const state = createCanvasApiMock(page);
+      await page.goto(locale === 'de' ? '/de/canvas/' : '/canvas/');
+      await expect(page.locator('#canvasCredits')).toContainText('500');
+      const initialRequests = state.requests.length;
+      for (const viewport of [{ width: 1440, height: 900 }, { width: 2560, height: 1440 }, { width: 1280, height: 600 }]) {
+        await page.setViewportSize(viewport);
+        await expect(page.locator('#canvasProjectsPanel')).toBeVisible();
+        await expect(page.locator('#canvasInspectorPanel')).toBeVisible();
+        const geometry = await page.evaluate(() => {
+          const bounds = (selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
+          return { docWidth: document.documentElement.scrollWidth, docHeight: document.documentElement.scrollHeight, width: innerWidth, height: innerHeight,
+            header: bounds('header'), app: bounds('#canvasApp'), graph: bounds('#canvasViewport'), empty: bounds('#canvasEmpty') };
+        });
+        expect(geometry.docWidth).toBeLessThanOrEqual(geometry.width + 1);
+        expect(geometry.docHeight).toBeLessThanOrEqual(geometry.height + 1);
+        expect(Math.abs(geometry.app.y - geometry.header.bottom)).toBeLessThanOrEqual(1);
+        expect(Math.abs(geometry.app.x)).toBeLessThanOrEqual(1);
+        expect(Math.abs(geometry.app.right - geometry.width)).toBeLessThanOrEqual(1);
+        expect(Math.abs(geometry.app.bottom - geometry.height)).toBeLessThanOrEqual(1);
+        expect(geometry.graph.bottom).toBeLessThanOrEqual(geometry.height + 1);
+        expect(geometry.graph.height).toBeGreaterThan(geometry.height * .55);
+        expect(Math.abs(geometry.empty.x + geometry.empty.width / 2 - geometry.graph.x - geometry.graph.width / 2)).toBeLessThanOrEqual(2);
+        expect(Math.abs(geometry.empty.y + geometry.empty.height / 2 - geometry.graph.y - geometry.graph.height / 2)).toBeLessThanOrEqual(2);
+      }
+      await page.locator('#canvasHistoryToggle').click();
+      await expect(page.locator('#canvasHistoryPanel')).toBeVisible();
+      await expect(page.locator('#canvasInspectorPanel')).toBeHidden();
+      await expect(page.locator('#canvasRunHistory')).toContainText(locale === 'de' ? 'Verlauf' : 'history');
+      await page.locator('#canvasInspectorToggle').click();
+      await expect(page.locator('#canvasInspectorPanel')).toBeVisible();
+      await expect(page.locator('#canvasHistoryPanel')).toBeHidden();
+      await page.locator('#canvasProjectsToggle').click();
+      await expect(page.locator('#canvasProjectsPanel')).toBeHidden();
+      await page.locator('#canvasProjectsToggle').press('Enter');
+      await expect(page.locator('#canvasProjectsPanel')).toBeVisible();
+      expect(state.requests.length).toBe(initialRequests);
+      expect(state.requests.filter((request) => request.method !== 'GET')).toEqual([]);
+    });
+  }
+
+  test('Canvas connection endpoints match the visible node ports in graph coordinates', async ({ page }) => {
+    await mockSharedAuth(page, true);
+    const state = createCanvasApiMock(page);
+    const projectId = '1'.repeat(32), sourceId = '2'.repeat(32), targetId = '3'.repeat(32);
+    state.projects.push({ id: projectId, title: 'Port geometry', locale: 'en', created_at: '2026-09-15T10:00:00.000Z', updated_at: '2026-09-15T10:00:00.000Z' });
+    state.nodes.push(...[[sourceId, 40, 50], [targetId, 350, 240]].map(([id, x, y]) => ({ id, project_id: projectId, type: 'text_prompt', title: 'Prompt', x, y, model_id: null, config: {}, content: { prompt: 'Synthetic prompt' }, output: null, asset_id: null })));
+    state.edges.push({ id: 'e'.repeat(32), project_id: projectId, source_node_id: sourceId, target_node_id: targetId, config: {} });
+    await page.goto('/canvas/');
+    await expect(page.locator('.canvas-edge')).toHaveCount(1);
+    const assertPorts = async () => {
+      const geometry = await page.evaluate(({ sourceId, targetId }) => {
+        const card = (id) => document.querySelector(`.canvas-node[data-node-id="${id}"]`);
+        const center = (e) => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; };
+        const edge = document.querySelector('.canvas-edge');
+        const point = (distance) => { const p = edge.getPointAtLength(distance).matrixTransform(edge.getScreenCTM()); return { x: p.x, y: p.y }; };
+        return { sourceWidth: card(sourceId).getBoundingClientRect().width, sourceY: card(sourceId).getBoundingClientRect().y,
+          start: point(0), end: point(edge.getTotalLength()), out: center(card(sourceId).querySelector('[data-port="out"]')), in: center(card(targetId).querySelector('[data-port="in"]')) };
+      }, { sourceId, targetId });
+      expect(geometry.sourceWidth).toBe(230);
+      expect(Math.abs(geometry.out.y - geometry.sourceY - 59)).toBeLessThanOrEqual(1);
+      for (const axis of ['x', 'y']) {
+        expect(Math.abs(geometry.start[axis] - geometry.out[axis])).toBeLessThanOrEqual(2);
+        expect(Math.abs(geometry.end[axis] - geometry.in[axis])).toBeLessThanOrEqual(2);
+      }
+    };
+    const positions = state.nodes.map(({ id, x, y }) => ({ id, x, y }));
+    await assertPorts();
+    await page.locator('#canvasViewport').evaluate((viewport) => viewport.scrollTo({ left: 120, top: 90, behavior: 'instant' }));
+    await expect(page.locator('#canvasViewport')).toHaveJSProperty('scrollLeft', 120);
+    await expect(page.locator('#canvasViewport')).toHaveJSProperty('scrollTop', 90);
+    await assertPorts();
+    await page.setViewportSize({ width: 2560, height: 1440 });
+    await page.locator('#canvasProjectsToggle').click();
+    await page.locator('#canvasInspectorToggle').click();
+    await expect(page.locator('#canvasProjectsPanel')).toBeHidden();
+    await expect(page.locator('#canvasInspectorPanel')).toBeHidden();
+    await assertPorts();
+    expect(state.nodes.map(({ id, x, y }) => ({ id, x, y }))).toEqual(positions);
+    expect(state.requests.filter((request) => request.method !== 'GET')).toEqual([]);
+    await page.locator(`.canvas-node[data-node-id="${sourceId}"]`).press('ArrowRight');
+    await expect.poll(() => state.nodes.find((node) => node.id === sourceId).x).toBe(50);
+    await expect(page.locator('#canvasSaveState')).toHaveAttribute('data-state', 'saved');
+    await assertPorts();
+    expect(state.nodes.find((node) => node.id === sourceId).y).toBe(50);
+    expect(state.requests.filter((request) => request.method !== 'GET')).toEqual([{ method: 'PATCH', pathname: `/api/account/canvas/projects/${projectId}/nodes/${sourceId}` }]);
+  });
+
+  for (const locale of ['en', 'de']) {
+    test(`Canvas ${locale}: unavailable reads stay distinct from confirmed access denial`, async ({ page }) => {
+      await mockSharedAuth(page, true);
+      const state = createCanvasApiMock(page);
+      for (const status of [401, 403, 503, 'network']) {
+        await page.route('**/api/account/canvas/projects', (route) => status === 'network' ? route.abort('failed') : route.fulfill({ status, json: { ok: false, code: status === 503 ? 'unavailable' : 'unauthorized', error: 'Synthetic read failure' } }));
+        await page.goto(locale === 'de' ? '/de/canvas/' : '/canvas/');
+        await expect(page.locator(status === 401 || status === 403 ? '#canvasDenied' : '#canvasUnavailable')).toBeVisible();
+        await expect(page.locator(status === 401 || status === 403 ? '#canvasUnavailable' : '#canvasDenied')).toBeHidden();
+        await expect(page.locator('#canvasApp')).toBeHidden();
+        expect(state.modelRequests).toBe(0);
+        await page.unroute('**/api/account/canvas/projects');
+      }
+    });
+  }
 
   test('quick workflow creates a connected Text to Image to Video graph with typed readiness', async ({ page }) => {
     await mockSharedAuth(page, true);

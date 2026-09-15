@@ -49,26 +49,47 @@
         <p class="canvas-eyebrow">Member workspace</p><h1 id="canvasDeniedTitle">Sign in to use Canvas</h1><p>Create an account to build AI workflows. Project data, models, prompts, and outputs stay hidden until your account session is verified.</p>
         <div class="canvas-gate__actions"><button type="button" class="canvas-button canvas-button--primary" data-auth-entry="login" data-auth-source="canvas" data-auth-message-key="authRecovery.canvasMessage" data-auth-message-target="login">Sign in</button><button type="button" class="canvas-button" data-auth-entry="register" data-auth-source="canvas" data-auth-message-key="authRecovery.canvasMessage" data-auth-message-target="register">Create account</button></div>
     </section>
+    <section id="canvasUnavailable" class="canvas-gate" hidden aria-labelledby="canvasUnavailableTitle">
+        <h1 id="canvasUnavailableTitle">Canvas is unavailable</h1><p>Your workspace could not be loaded. Please try again.</p>
+        <button id="canvasReload" class="canvas-button canvas-button--primary" type="button">Try again</button>
+    </section>
     <section id="canvasApp" class="canvas-app" hidden aria-label="BITBI Canvas workflow editor">
         <div class="canvas-topbar">
-            <div><p class="canvas-eyebrow">BITBI Canvas</p><input id="canvasProjectTitle" class="canvas-project-title" maxlength="120" aria-label="Project title" value="Untitled Canvas"></div>
+            <div class="canvas-topbar__project"><input id="canvasProjectTitle" class="canvas-project-title" maxlength="120" aria-label="Project title" value="Untitled Canvas"><span class="canvas-project-context">Canvas</span></div>
             <div class="canvas-topbar__status"><label id="canvasOrganizationField" class="canvas-organization" hidden><span>Organization</span><select id="canvasOrganization" class="canvas-select" aria-label="Canvas organization"></select></label><span id="canvasSaveState" class="canvas-save-state" role="status">Saved</span><a href="/account/credits.html?scope=member" class="canvas-status-link" id="canvasCredits">Credits</a><a href="/account/assets-manager.html?source=canvas" class="canvas-status-link">Assets</a></div>
+            <nav class="canvas-panel-controls" aria-label="Workspace panels">
+                <button id="canvasProjectsToggle" class="canvas-button canvas-panel-toggle" type="button" aria-controls="canvasProjectsPanel" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6h6l2 3h10v11H3z M3 6V4h6l2 2h10v3"/></svg>Projects</button>
+                <button id="canvasGraphToggle" class="canvas-button canvas-panel-toggle" type="button" aria-controls="canvasGraphPanel" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 3h6v6H3z M15 15h6v6h-6z M9 6h9v9"/></svg>Graph</button>
+                <button id="canvasInspectorToggle" class="canvas-button canvas-panel-toggle" type="button" aria-controls="canvasInspectorPanel" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 4h18v16H3z M14 4v16 M17 8h1 M17 12h1"/></svg>Inspector</button>
+                <button id="canvasHistoryToggle" class="canvas-button canvas-panel-toggle" type="button" aria-controls="canvasHistoryPanel" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 9a8 8 0 1 1 0 7 M4 3v6h6 M12 7v5l3 2"/></svg>History</button>
+            </nav>
         </div>
-        <div class="canvas-mobile-note" role="note">Canvas works on mobile with a simplified layout. A desktop or tablet is recommended for precise graph editing.</div>
         <div class="canvas-layout">
-            <aside class="canvas-panel canvas-projects" aria-labelledby="canvasProjectsTitle">
-                <div class="canvas-panel__head"><div><p class="canvas-eyebrow">Projects</p><h2 id="canvasProjectsTitle">Your Canvas</h2></div><button id="canvasNewProject" class="canvas-icon-button" type="button" aria-label="New Canvas">+</button></div>
+            <aside id="canvasProjectsPanel" class="canvas-panel canvas-projects" aria-labelledby="canvasProjectsTitle">
+                <div class="canvas-panel__head"><h2 id="canvasProjectsTitle">Projects</h2><button id="canvasNewProject" class="canvas-button canvas-button--compact" type="button" aria-label="New Canvas">+ New</button></div>
                 <div id="canvasProjectList" class="canvas-project-list" aria-live="polite"></div>
-                <div class="canvas-quick-workflow"><span>Quick workflow</span><button id="canvasQuickTextImageVideo" class="canvas-button" type="button">Text → Image → Video</button></div>
-                <div class="canvas-add-node"><label for="canvasNodeType">Add node</label><select id="canvasNodeType" class="canvas-select"><option value="text_prompt">Text prompt</option><option value="text_generation">Text generation</option><option value="image_generation">Image generation</option><option value="video_generation">Video generation</option><option value="music_generation">Music generation</option><option value="asset_reference">Asset reference</option><option value="output_result">Output</option><option value="note">Note</option></select><button id="canvasAddNode" class="canvas-button canvas-button--primary" type="button">Add node</button></div>
+                <div class="canvas-quick-workflow"><span>Start with a workflow</span><button id="canvasQuickTextImageVideo" class="canvas-button" type="button">Text → Image → Video</button></div>
             </aside>
-            <section class="canvas-workspace" aria-label="Workflow">
-                <div class="canvas-workspace__toolbar"><div><strong>Workflow</strong><span id="canvasSelectionHint">Select a node to edit it</span></div><div><button id="canvasConnect" class="canvas-button canvas-button--compact" type="button" aria-pressed="false">Connect nodes</button><button id="canvasDeleteSelection" class="canvas-button canvas-button--compact canvas-button--danger" type="button" disabled>Delete</button></div></div>
-                <div id="canvasViewport" class="canvas-viewport" tabindex="0" aria-label="Workflow graph. Use Tab to reach nodes and Delete to remove the selected item."><div id="canvasSurface" class="canvas-surface"><svg id="canvasEdges" class="canvas-edges" width="2400" height="1600" aria-label="Workflow connections"></svg><div id="canvasNodes" class="canvas-nodes"></div><div id="canvasEmpty" class="canvas-empty"><h2>Build your first workflow</h2><p>Add a prompt, choose a generation node, then connect them. Your positions and settings save automatically.</p></div></div></div>
+            <section id="canvasGraphPanel" class="canvas-workspace" aria-label="Workflow">
+                <div class="canvas-workspace__toolbar">
+                    <div class="canvas-add-node"><label class="canvas-sr-only" for="canvasNodeType">Node type</label><select id="canvasNodeType" class="canvas-select"><option value="text_prompt">Text prompt</option><option value="text_generation">Text generation</option><option value="image_generation">Image generation</option><option value="video_generation">Video generation</option><option value="music_generation">Music generation</option><option value="asset_reference">Asset reference</option><option value="output_result">Output</option><option value="note">Note</option></select><button id="canvasAddNode" class="canvas-button canvas-button--primary" type="button">+ Add node</button></div>
+                    <div class="canvas-graph-actions"><button id="canvasConnect" class="canvas-button canvas-button--compact" type="button" aria-pressed="false">Connect nodes</button><button id="canvasDeleteSelection" class="canvas-button canvas-button--compact canvas-button--danger" type="button" disabled>Delete</button></div>
+                </div>
+                <div class="canvas-graph-stage">
+                    <div id="canvasViewport" class="canvas-viewport" tabindex="0" aria-label="Workflow graph. Use Tab to reach nodes and Delete to remove the selected item."><div id="canvasSurface" class="canvas-surface"><svg id="canvasEdges" class="canvas-edges" width="2400" height="1600" aria-label="Workflow connections"></svg><div id="canvasNodes" class="canvas-nodes"></div></div></div>
+                    <div id="canvasEmpty" class="canvas-empty"><h2>Build your first workflow</h2><p>Add a prompt, choose a generation node, then connect them. Your positions and settings save automatically.</p></div>
+                </div>
+                <div class="canvas-workspace__status"><span id="canvasSelectionHint" role="status">Select a node to edit it</span></div>
             </section>
-            <aside class="canvas-panel canvas-inspector" aria-labelledby="canvasInspectorTitle"><div class="canvas-panel__head"><div><p class="canvas-eyebrow">Inspector</p><h2 id="canvasInspectorTitle">No node selected</h2></div></div><div id="canvasInspectorBody" class="canvas-inspector__body"><p class="canvas-muted">Select a node to edit its prompt, model, settings, and output.</p></div></aside>
+            <aside id="canvasInspectorPanel" class="canvas-panel canvas-inspector" aria-labelledby="canvasInspectorTitle">
+                <div class="canvas-panel__head"><h2 id="canvasInspectorTitle" tabindex="-1">No node selected</h2></div>
+                <div id="canvasInspectorBody" class="canvas-inspector__body"><p class="canvas-muted">Select a node to edit its prompt, model, settings, and output.</p></div>
+            </aside>
+            <section id="canvasHistoryPanel" class="canvas-panel canvas-history" hidden aria-labelledby="canvasHistoryTitle">
+                <div class="canvas-panel__head"><h2 id="canvasHistoryTitle">Recent runs</h2><span class="canvas-history-limit">Latest 40</span></div>
+                <div id="canvasRunHistory" class="canvas-run-list"><p class="canvas-muted">Your run history will appear here.</p></div>
+            </section>
         </div>
-        <section class="canvas-history" aria-labelledby="canvasHistoryTitle"><div class="canvas-history__head"><h2 id="canvasHistoryTitle">Recent runs</h2><span>Latest 40 for this project</span></div><div id="canvasRunHistory" class="canvas-run-list"><p class="canvas-muted">Your run history will appear here.</p></div></section>
     </section>
 </main>
 <div id="canvasToast" class="canvas-toast" role="status" aria-live="polite" hidden></div>

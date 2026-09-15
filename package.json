@@ -9,7 +9,7 @@
     "dev": "npx serve -l 3000",
     "test": "playwright test -c playwright.config.js && npm run test:workers",
     "test:static": "playwright test -c playwright.config.js",
-    "test:homepage-core": "playwright test -c playwright.config.js tests/audio-player.spec.js tests/canvas.spec.js tests/locale.spec.js tests/smoke.spec.js --project=chromium",
+    "test:homepage-core": "playwright test -c playwright.config.js tests/audio-player.spec.js tests/canvas.spec.js tests/oma2-q1-canvas.spec.js tests/locale.spec.js tests/smoke.spec.js --project=chromium --project=webkit-canvas",
     "test:homepage-carousel": "playwright test -c playwright.carousel.config.js",
     "check:homepage-selection": "node scripts/check-homepage-selection.mjs",
     "test:homepage-selection": "node scripts/test-homepage-selection.mjs",

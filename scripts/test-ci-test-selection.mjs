@@ -556,6 +556,22 @@ assert.equal(selection(['js/pages/index/video-gallery.js']).carousel,true);
 
 // Generate Lab layout/controllers need its existing smoke/locale and authenticated
 // save/Assets tests. They do not own decorative homepage playback or Worker code.
+const canvasUiFiles = ['canvas/index.html', 'de/canvas/index.html',
+ 'css/pages/canvas.css', 'js/pages/canvas/main.js'];
+for (const files of [...canvasUiFiles.map(file => [file]), ['tests/canvas.spec.js'], ['tests/oma2-q1-canvas.spec.js'], canvasUiFiles]) {
+ const result = selection(files);
+ assert.equal(result.policy, 'impact-v1');
+ assert.equal(result.homepage, true, `${files}: real Canvas browser caller`);
+ for (const key of ['homepageMedia', 'carousel', 'workers', 'assets', 'auth', 'full']) assert.equal(result[key], false, `${files}: ${key}`);
+ assert(requiredJobs(result)['browser-validation'].includes('Run selected homepage core tests'));
+}
+for (const [file, impact] of [['js/pages/canvas/state.js', 'homepageMedia'], ['js/pages/canvas/api.js', 'homepageMedia'],
+ ['js/shared/auth-api.js', 'assets'], ['workers/auth/src/routes/canvas.js', 'workers'],
+ ['js/shared/member-model-exposure.mjs', 'memberModels'], ['unknown-canvas-runtime.mjs', 'full']]) {
+ assert(selection([...canvasUiFiles, file])[impact], file);
+}
+assert(selection(canvasUiFiles, {forceFull: true}).full);
+
 const generateLabUiFiles = ['generate-lab/index.html', 'de/generate-lab/index.html',
  'css/pages/generate-lab.css', 'js/pages/generate-lab/main.js'];
 for (const files of [...generateLabUiFiles.map(file => [file]), [...generateLabUiFiles,

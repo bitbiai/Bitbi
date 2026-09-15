@@ -464,9 +464,14 @@ jobs:
       - name: Install carousel browser matrix
         if: needs.release-compatibility.outputs.carousel == 'true'
         run: npx playwright install --with-deps chromium firefox webkit
-      - name: Install Chromium for selected frontend tests
+      - name: Install browsers for selected frontend tests
         if: needs.release-compatibility.outputs.model_status != 'true' && needs.release-compatibility.outputs.workspace_help != 'true' && needs.release-compatibility.outputs.public_media != 'true' && needs.release-compatibility.outputs.assets != 'true' && needs.release-compatibility.outputs.admin_release != 'true' && needs.release-compatibility.outputs.carousel != 'true' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true')
-        run: npx playwright install --with-deps chromium
+        run: |
+          if [ "${{ needs.release-compatibility.outputs.homepage }}" = 'true' ]; then
+            npx playwright install --with-deps chromium webkit
+          else
+            npx playwright install --with-deps chromium
+          fi
       - name: Install Admin acceptance browsers
         if: needs.release-compatibility.outputs.model_status == 'true' || needs.release-compatibility.outputs.admin_release == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.public_media == 'true' || needs.release-compatibility.outputs.workspace_help == 'true'
         run: npx playwright install --with-deps chromium webkit
