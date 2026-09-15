@@ -310,6 +310,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
           return ok({ settings });
         }
       });
+      await page.locator('#newsPulseVisibilityDisclosure > summary').click();
       await page.locator('#newsPulseDesktopEnabled').uncheck(); await page.locator('#newsPulseVisibilityReason').fill('Synthetic visibility edit');
       await page.getByRole('button', { name: 'Save visibility', exact: true }).click(); await expect.poll(() => saving).toBe(true);
       await page.evaluate(() => window.domain.setActive(false)); const before = reads;
@@ -318,6 +319,39 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       expect(reads).toBe(before);
       await page.evaluate(async () => { window.domain.setActive(true); await window.domain.load(); });
       await expect(page.locator('#newsPulseDesktopEnabled')).not.toBeChecked(); expect(reads).toBe(before + 3); expect(unexpected).toEqual([]);
+    });
+
+    test('News content precedes settings and cleanup; disclosure and dirty editor survive refresh without writes', async ({ page, baseURL }) => {
+      const writes = [];
+      const item = { id: 'design-news', title: 'Stored story', summary: 'Original summary', status: 'active', locale: 'en', published_at: '2026-06-17T10:12:34.567Z' };
+      const unexpected = await mount(page, baseURL, 'news', (request, url) => {
+        if (request.method() !== 'GET') { writes.push(request.method()); return { status: 503, body: { error: 'Unexpected design mutation' } }; }
+        if (url.pathname.endsWith('/overview')) return ok({ counts: { active: 1 } });
+        if (url.pathname.endsWith('/visibility')) return ok({ settings: { desktop: { enabled: true }, mobile: { enabled: true } } });
+        if (url.pathname.endsWith('/items')) return ok({ items: [item] });
+        if (url.pathname.endsWith('/items/design-news')) return ok({ item });
+      });
+      const visibility = page.locator('#newsPulseVisibilityDisclosure');
+      const cleanup = page.locator('#newsPulseCleanupDisclosure');
+      await expect(visibility).not.toHaveAttribute('open'); await expect(cleanup).not.toHaveAttribute('open');
+      expect(await page.locator('.admin-news-feed__items').evaluate(table => {
+        const follows = selector => !!(table.compareDocumentPosition(document.querySelector(selector)) & Node.DOCUMENT_POSITION_FOLLOWING);
+        return follows('#newsPulseVisibilityDisclosure') && follows('#newsPulseCleanupDisclosure');
+      })).toBe(true);
+      await visibility.locator('summary').focus(); await visibility.locator('summary').press('Enter');
+      await page.locator('#newsPulseVisibilityReason').fill('Unsaved visibility reason');
+      await page.getByRole('button', { name: 'Edit', exact: true }).click();
+      await page.locator('#newsPulseEditTitle').fill('Unsaved story title'); await page.locator('#newsPulseEditTitle').focus();
+      await page.evaluate(() => window.domain.load());
+      await expect(visibility).toHaveAttribute('open');
+      await expect(page.locator('#newsPulseEditTitle')).toHaveValue('Unsaved story title');
+      await expect(page.locator('#newsPulseEditTitle')).toBeFocused();
+      await expect(page.locator('#newsPulseVisibilityReason')).toHaveValue('Unsaved visibility reason');
+      await cleanup.locator('summary').focus(); await cleanup.locator('summary').press('Enter');
+      await expect(page.locator('#newsPulseDeleteConfirmation')).toBeVisible();
+      await cleanup.locator('summary').press('Enter');
+      await expect(cleanup).not.toHaveAttribute('open');
+      expect(writes).toEqual([]); expect(unexpected).toEqual([]);
     });
 
     test('R2 bucket discovery completing after leave starts no object scan', async ({ page, baseURL }) => {
@@ -368,11 +402,17 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         if (url.pathname.endsWith('/derivatives')) return ok({ derivatives: [derivative] });
         if (url.pathname.endsWith('/derivatives/job-a')) { polls++; return ok({ derivative }); }
       });
+      const operations = page.locator('#homepageHeroOperationsDisclosure');
+      await expect(operations).not.toHaveAttribute('open');
+      expect(await page.locator('.admin-hero-videos__workbench').evaluate(workbench =>
+        !!(workbench.compareDocumentPosition(document.querySelector('#homepageHeroOperationsDisclosure')) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+      await operations.locator('summary').focus(); await operations.locator('summary').press('Enter');
       await page.locator('[data-preset-field="maxWidth"]').fill('720');
       await page.locator('[data-preset-field="maxWidth"]').focus();
       await page.evaluate(() => window.domain.load());
       await expect(page.locator('[data-preset-field="maxWidth"]')).toHaveValue('720');
       await expect(page.locator('[data-preset-field="maxWidth"]')).toBeFocused();
+      await expect(operations).toHaveAttribute('open');
       await page.clock.install();
       await page.getByRole('button', { name: 'Select derivative', exact: true }).click();
       await expect.poll(() => polls).toBe(1);

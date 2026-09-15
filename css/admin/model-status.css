@@ -1,3 +1,5 @@
+/* Match the admin presentation layer; status semantics stay in the existing model. */
+@layer pages {
 .model-status { --status-line:rgba(148,163,184,.16); padding-block:1rem; }
 .model-status__header,.model-status__tools,.model-status__filters { display:flex; align-items:center; gap:.6rem; }
 .model-status__header { justify-content:space-between; margin-block-end:1.5rem; flex-wrap:wrap; }
@@ -47,4 +49,6 @@
  background-image:linear-gradient(45deg,transparent 50%,#a6b3c2 50%),linear-gradient(135deg,#a6b3c2 50%,transparent 50%);
  background-position:calc(100% - 15px) 19px,calc(100% - 10px) 19px;
  background-size:5px 5px; background-repeat:no-repeat;
+}
+
 }

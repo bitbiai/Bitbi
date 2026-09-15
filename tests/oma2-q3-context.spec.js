@@ -128,6 +128,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       });
       page.on('dialog', dialog => dialog.accept());
       await open(page, 'billing');
+      await page.locator('#orgCreditGrantDisclosure > summary').click();
       await page.locator('#creditGrantOrgSearch').fill(orgs[0].name);
       await page.locator('#creditGrantAmount').fill('50');
       await page.locator('#creditGrantReason').fill('Original A adjustment');
@@ -451,6 +452,7 @@ test('U03 member grant retries the same purchase-independent adjustment without 
   });
   page.on('dialog', dialog => dialog.accept());
   await open(page, 'billing');
+  await page.locator('#userCreditGrantDisclosure > summary').click();
   await page.locator('#creditGrantUserSearch').fill(users[0].email);
   await page.locator('#userCreditGrantAmount').fill('25');
   await page.locator('#userCreditGrantReason').fill('Original member adjustment');

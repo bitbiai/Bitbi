@@ -453,8 +453,10 @@ export function createHomepageHeroVideosAdmin({
 
     function renderShell() {
         if (!refs.container) return;
+        const operationsOpen = refs.container.querySelector('#homepageHeroOperationsDisclosure')?.open === true;
         const focused = refs.container.contains(document.activeElement) ? document.activeElement : null;
-        const focusSelector = focused?.dataset.presetField ? `[data-preset-field="${focused.dataset.presetField}"]`
+        const focusSelector = focused?.matches('#homepageHeroOperationsDisclosure > summary') ? '#homepageHeroOperationsDisclosure > summary'
+            : focused?.dataset.presetField ? `[data-preset-field="${focused.dataset.presetField}"]`
             : focused?.dataset.field ? `[data-field="${focused.dataset.field}"]`
                 : focused?.dataset.action ? ['action', 'source', 'slot', 'assetId', 'derivativeId', 'feature'].filter(key => focused.dataset[key]).map(key => `[data-${key.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}="${CSS.escape(focused.dataset[key])}"]`).join('') : null;
         const selection = focused && ['text', 'search', 'textarea'].includes(focused.type)
@@ -482,8 +484,6 @@ export function createHomepageHeroVideosAdmin({
         status.dataset.state = state.statusState;
         shell.append(status);
 
-        shell.append(renderOperationsSummary());
-
         const grid = el('div', 'admin-hero-videos__slot-grid');
         const slotsByName = new Map(state.slots.map((slot) => [slot.slot, slot]));
         SLOT_ORDER.forEach((slotName) => {
@@ -498,6 +498,17 @@ export function createHomepageHeroVideosAdmin({
         workbench.append(workbenchMain);
         workbench.append(renderAssignmentPanel());
         shell.append(workbench);
+
+        const operations = el('details', 'admin-settings-disclosure');
+        operations.id = 'homepageHeroOperationsDisclosure';
+        operations.open = operationsOpen;
+        const summary = el('summary');
+        summary.append(el('strong', '', 'Delivery controls & processing'),
+            el('span', '', 'Runtime switches, conversion presets and Stream diagnostics'));
+        const operationsBody = el('div', 'admin-settings-disclosure__body');
+        operationsBody.append(renderOperationsSummary());
+        operations.append(summary, operationsBody);
+        shell.append(operations);
 
         refs.container.append(shell);
         if (focusSelector) {
@@ -821,6 +832,9 @@ export function createHomepageHeroVideosAdmin({
         });
         providerLabel.append(provider);
         panel.append(providerLabel);
+        if (state.provider === 'external_ffmpeg' && !state.externalFfmpegEnabled) {
+            panel.append(el('p', 'admin-hero-videos__feature-warning', 'External FFmpeg is not enabled. Review Delivery controls & processing below before converting.'));
+        }
 
         const reasonLabel = el('label', 'admin-hero-videos__field');
         reasonLabel.append(el('span', null, 'Operator reason'));

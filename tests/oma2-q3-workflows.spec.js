@@ -235,6 +235,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect.poll(() => seen.writes.length).toBe(1);
     expect(seen.writes[0].body.published_at).toBe('2026-06-17T10:12:34.567Z');
     await nav(page, 'homepage-hero-videos');
+    await page.locator('#homepageHeroOperationsDisclosure > summary').click();
     await page.locator('[data-preset-field="maxWidth"]').fill('720');
     await page.locator('[data-field="reason"]').fill('Synthetic Hero preset correction');
     await page.locator('#homepageHeroVideosAdmin').getByRole('button', { name: 'Refresh', exact: true }).click();
@@ -357,7 +358,7 @@ for (const condition of [{ width: 320, scale: 1 }, { width: 390, scale: 1 }, { w
       if (route === 'users') {
         const search = page.locator('#searchInput'), settings = page.locator('#registrationAvailabilityPanel');
         expect((await search.boundingBox()).y).toBeLessThan((await settings.boundingBox()).y);
-        await page.locator('a[href="#registration-settings"]').click();
+        await page.locator('#sectionUsers .admin-user-tools').getByRole('link', { name: 'Registration settings', exact: true }).click();
         await expect(settings).toBeFocused();
         await page.reload(); await expect(settings).toBeFocused();
       }

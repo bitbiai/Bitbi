@@ -50,6 +50,9 @@ for (const viewport of [{width:1440,height:900},{width:390,height:844}]) test.de
     const state=await fixture(page,baseURL,()=>null,403);
     await page.goto('/admin/index.html#ai-lab'); await expect(page.locator('#adminDenied')).toBeVisible();
     await expect(page.locator('#adminPanel')).not.toBeVisible();
+    await expect(page.locator('#adminNavSearch')).not.toBeVisible();
+    await expect(page.locator('#adminNavToggle')).not.toBeVisible();
+    await expect(page.locator('[data-admin-help-topic]')).toHaveCount(0);
     expect(state.requests.some(p=>p.endsWith('/ai-lab.js'))).toBe(false);
     expect(state.unexpected).toEqual([]);
   });
@@ -188,4 +191,97 @@ for (const nextUser of [null, {id:'different-admin',role:'admin'}]) test(`auth l
   await page.evaluate(user=>document.dispatchEvent(new CustomEvent('bitbi:auth-change',{detail:{ready:true,loggedIn:!!user,user}})),nextUser);
   await expect(dialog).toHaveCount(0);await expect(page.locator('#adminDenied')).toBeVisible();
   await expect(page.locator('#adminPanel')).toBeEmpty();expect(state.unexpected).toEqual([]);
+});
+
+
+for (const viewport of [{width:1440,height:900},{width:390,height:844}]) test.describe(`Admin navigation redesign ${viewport.width}px`,()=>{
+  test.use({viewport});
+  test('section search filters groups without navigating and keyboard activation clears the filter',async({page,baseURL})=>{
+    const state=await fixture(page,baseURL);await page.goto('/admin/index.html');await ready(page,'sectionDashboard');
+    const originalURL=page.url(),nav=page.locator('#adminNav'),search=page.getByRole('searchbox',{name:'Find a section'});
+    if(viewport.width<900)await page.locator('#adminNavToggle').press('Enter');
+    const people=nav.getByRole('button',{name:'People & payments',exact:true});
+    await people.click();await expect(people).toHaveAttribute('aria-expanded','false');
+    await search.focus();await search.press('ArrowDown');
+    await expect(people).toHaveAttribute('aria-expanded','true');await expect(nav.locator('a[data-section="dashboard"]')).toBeFocused();
+    await people.click();await expect(people).toHaveAttribute('aria-expanded','false');
+    await search.fill('Users');await expect(people).toHaveAttribute('aria-expanded','true');
+    await expect(nav.locator('a[data-section="users"]')).toBeVisible();
+    await expect(nav.locator('a[data-section="dashboard"]')).toBeHidden();
+    await expect(nav.getByRole('group',{name:'AI & models',exact:true})).toBeHidden();
+    expect(page.url()).toBe(originalURL);
+    await search.fill('no-such-admin-section');
+    await expect(page.locator('#adminNavSearchEmpty')).toBeVisible();
+    await expect(nav.locator('.admin-nav__group:not([hidden])')).toHaveCount(0);
+    expect(page.url()).toBe(originalURL);
+    await search.press('Escape');await expect(search).toHaveValue('');await expect(search).toBeFocused();
+    await expect(page.locator('#adminNavSearchEmpty')).toBeHidden();
+    await expect(nav.locator('.admin-nav__group:not([hidden])')).toHaveCount(5);
+    await expect(nav.locator('.admin-nav__group a[hidden]')).toHaveCount(0);
+    await search.fill('Users');
+    await people.focus();await people.press('End');await expect(people).toBeFocused();
+    await people.press('Home');await expect(people).toBeFocused();
+    await people.press('ArrowDown');await expect(nav.locator('a[data-section="users"]')).toBeFocused();
+    await page.keyboard.press('Enter');await ready(page,'sectionUsers');
+    await expect(page).toHaveURL(/#users$/);
+    await expect(nav.locator('a[data-section="users"]')).toHaveAttribute('aria-current','page');
+    await expect(page.locator('#adminHeroTitle')).toBeFocused();
+    if(viewport.width<900){
+      await expect(page.locator('#adminNavToggle')).toHaveAttribute('aria-expanded','false');
+      await page.locator('#adminNavToggle').press('Enter');
+    }
+    await expect(search).toBeVisible();await expect(search).toHaveValue('');
+    if(viewport.width<900){
+      await search.press('Escape');await expect(page.locator('#adminNavToggle')).toHaveAttribute('aria-expanded','false');
+      await expect(page.locator('#adminNavToggle')).toBeFocused();
+    }
+    expect(state.unexpected).toEqual([]);
+  });
+  test('Admin guide links keep existing section aliases and restore keyboard focus',async({page,baseURL})=>{
+    const state=await fixture(page,baseURL);await page.goto('/admin/index.html');await ready(page,'sectionDashboard');
+    const trigger=page.locator('#bitbiHelpTrigger'),panel=page.locator('#bitbiHelpPanel');
+    await trigger.press('Enter');await expect(panel).toBeVisible();await expect(page.locator('#bitbiHelpTitle')).toBeFocused();
+    await expect(panel).toHaveAttribute('aria-modal','false');
+    const guide=panel.locator('[data-help-section="admin"]');
+    await guide.locator(':scope > summary').click();
+    await expect(guide.locator('.help-menu__section-title')).toHaveText('Admin guide');
+    for(const topic of ['people','billing','events','creative','budget','lifecycle','operations'])await expect(guide.locator(`[data-admin-help-topic="${topic}"]`)).toHaveCount(1);
+    const destinations=await guide.locator('[data-admin-help-topic] a').evaluateAll(links=>links.map(link=>link.getAttribute('href')));
+    expect(destinations).toEqual(['#users','#orgs','#registration-settings','#billing','#live-billing','#billing-events','#ai-lab','#model-status','#fable-data-center','#newsfeed','#news-feed-agent','#homepage-hero-videos','#ai-usage','#ai-budget-switches','#platform-budget-caps','#budget-reconciliation','#repair-evidence-report','#evidence-archives','#lifecycle','#operations','#object-storage','#tenant-assets','#security','#activity']);
+    const people=guide.locator('[data-admin-help-topic="people"]');await people.locator(':scope > summary').click();
+    await people.getByRole('link',{name:'Registration settings',exact:true}).press('Enter');
+    await ready(page,'sectionUsers');await expect(page).toHaveURL(/#registration-settings$/);
+    await expect(page.locator('#registrationAvailabilityPanel')).toBeVisible();await expect(panel).toBeHidden();
+    await trigger.press('Enter');await expect(panel).toBeVisible();await expect(page.locator('#bitbiHelpTitle')).toBeFocused();
+    const budget=guide.locator('[data-admin-help-topic="budget"]');await budget.locator(':scope > summary').click();
+    await budget.getByRole('link',{name:'Platform caps',exact:true}).press('Enter');
+    await ready(page,'sectionAiBudgetSwitches');await expect(page).toHaveURL(/#platform-budget-caps$/);
+    await expect(page.locator('#platformBudgetCapsPanel')).toBeVisible();await expect(panel).toBeHidden();
+    await trigger.press('Enter');await budget.getByRole('link',{name:'Reconciliation',exact:true}).press('Enter');
+    await ready(page,'sectionAiBudgetSwitches');await expect(page).toHaveURL(/#budget-reconciliation$/);
+    const reconciliation=page.locator('#platformBudgetReconciliationPanel');await expect(reconciliation).toHaveAttribute('open','');
+    await reconciliation.locator(':scope > summary').click();await expect(reconciliation).not.toHaveAttribute('open','');
+    await trigger.press('Enter');await budget.getByRole('link',{name:'Reconciliation',exact:true}).press('Enter');
+    await expect(page).toHaveURL(/#budget-reconciliation$/);await expect(reconciliation).toHaveAttribute('open','');
+    await expect(reconciliation).toBeFocused();await expect(panel).toBeHidden();
+    await trigger.press('Enter');await expect(panel).toBeVisible();await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();await expect(trigger).toBeFocused();
+    await expect(trigger).toHaveAttribute('aria-expanded','false');expect(state.unexpected).toEqual([]);
+  });
+});
+
+test.describe('Admin navigation drawer dismissal',()=>{
+  test.use({viewport:{width:390,height:844}});
+  test('search Escape clears first, drawer Escape restores focus, and outside click leaves the route unchanged',async({page,baseURL})=>{
+    const state=await fixture(page,baseURL);await page.goto('/admin/index.html');await ready(page,'sectionDashboard');
+    const toggle=page.locator('#adminNavToggle'),search=page.locator('#adminNavSearch'),originalURL=page.url();
+    await toggle.press('Enter');await expect(toggle).toHaveAttribute('aria-expanded','true');
+    await search.fill('Users');await search.press('Escape');
+    await expect(search).toHaveValue('');await expect(search).toBeFocused();await expect(toggle).toHaveAttribute('aria-expanded','true');
+    await search.press('Escape');await expect(toggle).toHaveAttribute('aria-expanded','false');await expect(toggle).toBeFocused();
+    await toggle.press('Enter');await expect(toggle).toHaveAttribute('aria-expanded','true');
+    const drawer=await page.locator('#adminNav').boundingBox();expect(drawer.x+drawer.width).toBeLessThan(388);
+    await page.mouse.click(388,drawer.y+12);await expect(toggle).toHaveAttribute('aria-expanded','false');
+    expect(page.url()).toBe(originalURL);await expect(page.locator('#sectionDashboard')).toBeVisible();expect(state.unexpected).toEqual([]);
+  });
 });

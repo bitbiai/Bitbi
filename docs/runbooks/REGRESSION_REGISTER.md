@@ -223,3 +223,22 @@ Run34767708882 passed macOS11/11 and Linux70/5 skips; browser161/1 exposed an ov
   `test:homepage-webkit` executes native EN/DE lifecycle and pause controls.
   rVFC timing semantics: https://wicg.github.io/video-rvfc/. Local/replay success
   does not explain historical multi-second CI output gaps or replace native CI.
+
+### Admin workspace presentation (2026-09-15)
+
+The existing twenty destinations retain their hashes and guarded modules. Section
+search must reveal a collapsed matching group before keyboard focus; a repeated
+Help alias must reopen its real disclosure target. Existing shell/workflow tests
+exercise both, mobile close/focus, drafts across navigation, and real form/dialog
+bindings. General guidance uses the existing Help panel; focused News/Hero tests
+open native disclosures before their unchanged guarded actions. Callers:
+`test:auth` (including `oma2-q3-*`) and the existing static Playwright runner in
+Chromium/WebKit. The complete redesign selects `impact-v1` Auth + static, not
+`admin-reader-v1` or Fast UI. Local synthetic browser evidence is not live access
+or hosted CI acceptance.
+
+The Hero upload UI fixture also passed Playwright's Request argument as MP4 bytes;
+its route now explicitly forwards only `route`. It checks two real poster captures
+at 0.2/0.4s and multipart output. The unchanged helper's detached zero-time
+metadata-only WebKit decode limit is separately reproduced; this presentation
+change does not claim to repair it or change production media processing.

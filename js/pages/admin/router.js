@@ -138,6 +138,11 @@ export function createAdminRouter({ heroTitle, heroDesc, nav, loadSection, leave
                 if (document.activeElement !== focusedAtStart && document.activeElement !== document.body) return;
                 const panel = panelTarget ? document.getElementById(panelTarget) : heroTitle;
                 if (!panel || (panelTarget && !sections[name].contains(panel))) return;
+                // A deep link must reveal its real target, including less frequent
+                // controls grouped in native disclosures. Keep their form nodes intact.
+                for (let ancestor = panel; ancestor && ancestor !== sections[name]; ancestor = ancestor.parentElement) {
+                    if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+                }
                 panel.tabIndex = -1;
                 panel.focus({ preventScroll: true });
                 (panelTarget ? panel : panel.closest('header') || panel).scrollIntoView({ block: 'start', behavior: 'auto' });

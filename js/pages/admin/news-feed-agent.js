@@ -157,8 +157,7 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
         const header = el('div', 'admin-news-feed__header');
         const text = el('div');
         text.append(
-            el('h2', 'admin-section-title', 'News Feed Agent'),
-            el('p', 'admin-shell__desc', 'Control public News Pulse visibility, edit current rows, and irreversibly delete selected rows plus generated thumbnails. Background ingestion and visual generation remain independent.'),
+            el('h2', 'admin-section-title', 'Current news'),
         );
         const actions = el('div', 'admin-control-toolbar');
         const refresh = el('button', 'btn-action', 'Refresh');
@@ -175,10 +174,7 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
         const visibility = overview.visibility?.settings || state.visibility?.settings || {};
         const card = el('section', 'admin-control-card admin-news-feed__overview');
         const statusTone = counts.expired || counts.hidden ? 'warn' : 'neutral';
-        card.append(
-            el('h3', 'admin-control-card__title', 'Status'),
-            el('p', 'admin-shell__desc', 'Visibility switches only affect public rendering/loading. OpenClaw ingest, scheduled refresh, D1 storage, and thumbnail generation continue.'),
-        );
+        card.setAttribute('aria-label', 'News status');
         const grid = el('div', 'admin-news-feed__metrics');
         grid.append(
             metric('Desktop visibility', visibility.desktop?.enabled === false ? 'Off' : 'On', visibility.desktop?.enabled === false ? 'warn' : 'ok'),
@@ -443,10 +439,13 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
 
     function render() {
         if (!refs.container) return;
+        const visibilityOpen = refs.container.querySelector('#newsPulseVisibilityDisclosure')?.open === true;
+        const cleanupOpen = refs.container.querySelector('#newsPulseCleanupDisclosure')?.open === true;
         // Keep the live draft node on unrelated list/overview updates: no lost input or focus.
         const oldEdit = refs.container.querySelector('#newsPulseEditPanel');
         const keepEdit = oldEdit && oldEdit.dataset.itemId === state.editItem?.id;
         const focus = refs.container.contains(document.activeElement) ? document.activeElement : null;
+        const focusedDisclosure = focus?.matches('.admin-settings-disclosure > summary') ? focus.parentElement.id : null;
         const visibility = refs.container.querySelector('.admin-news-feed__visibility');
         const keepVisibility = visibility?.dataset.dirty === 'true';
         clear(refs.container);
@@ -454,12 +453,27 @@ export function createAdminNewsFeedAgent({ showToast, formatDate, formatApiError
         status.dataset.newsPulseStatus = '1';
         status.dataset.state = state.messageTone;
         status.setAttribute('role', 'status');
+        function disclosure(id, title, description, content, open, danger = false) {
+            const details = el('details', `admin-settings-disclosure${danger ? ' admin-danger-zone' : ''}`);
+            details.id = id;
+            details.open = open;
+            const summary = el('summary');
+            summary.append(el('strong', '', title), el('span', '', description));
+            const body = el('div', 'admin-settings-disclosure__body');
+            body.append(content);
+            details.append(summary, body);
+            return details;
+        }
         refs.container.append(
-            renderHeader(), status, renderOverview(), keepVisibility ? visibility : renderVisibility(),
-            renderFilters(), renderBulkDelete(), renderItemsTable(), keepEdit ? oldEdit : renderEditPanel(),
+            renderHeader(), status, renderOverview(), renderFilters(), renderItemsTable(), keepEdit ? oldEdit : renderEditPanel(),
+            disclosure('newsPulseVisibilityDisclosure', 'Public visibility settings', 'Control desktop and mobile News Pulse surfaces; ingestion continues.',
+                keepVisibility ? visibility : renderVisibility(), visibilityOpen),
+            disclosure('newsPulseCleanupDisclosure', 'Irreversible cleanup', `${state.selected.size} selected · Deletes selected records and validated generated thumbnails.`,
+                renderBulkDelete(), cleanupOpen, true),
         );
         updateMutationControls();
         if (focus?.isConnected) focus.focus({ preventScroll: true });
+        else if (focusedDisclosure) refs.container.querySelector(`#${focusedDisclosure} > summary`)?.focus({ preventScroll: true });
     }
 
     function collectFilters() {

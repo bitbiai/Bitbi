@@ -15550,7 +15550,8 @@ test.describe('Admin Control Plane', () => {
         },
       }, 201);
     });
-    await page.route(/\/api\/homepage\/hero-videos\/[^/]+\/[^/]+\/file$/, fulfillTestMp4);
+    // Route handlers receive (route, request); keep Request out of the byte argument.
+    await page.route(/\/api\/homepage\/hero-videos\/[^/]+\/[^/]+\/file$/, route => fulfillTestMp4(route));
     await page.route(/\/api\/homepage\/hero-videos\/[^/]+\/[^/]+\/poster$/, async (route) => {
       await route.fulfill({
         status: 200,
@@ -15577,6 +15578,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Queued previews');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Total processor backlog');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Last dispatch status');
+    await page.locator('#homepageHeroOperationsDisclosure > summary').click();
     const topPanelLayout = await page.locator('#homepageHeroVideosAdmin .admin-hero-videos__ops').evaluate((ops) => {
       const cardForTitle = (title) => {
         const heading = [...ops.querySelectorAll('.admin-hero-videos__section-title')]
@@ -15616,13 +15618,13 @@ test.describe('Admin Control Plane', () => {
       const candidate = root.querySelector('.admin-hero-videos__browser')?.getBoundingClientRect();
       const assignment = root.querySelector('.admin-hero-videos__assign')?.getBoundingClientRect();
       return {
-        opsBottom: ops?.bottom ?? 0,
-        candidateTop: candidate?.top ?? 0,
-        assignmentTop: assignment?.top ?? 0,
+        opsTop: ops?.top ?? 0,
+        candidateBottom: candidate?.bottom ?? 0,
+        assignmentBottom: assignment?.bottom ?? 0,
       };
     });
-    expect(lowerLayout.candidateTop).toBeGreaterThan(lowerLayout.opsBottom);
-    expect(lowerLayout.assignmentTop).toBeGreaterThan(lowerLayout.opsBottom);
+    expect(lowerLayout.candidateBottom).toBeLessThan(lowerLayout.opsTop);
+    expect(lowerLayout.assignmentBottom).toBeLessThan(lowerLayout.opsTop);
     await expect(page.locator('.admin-hero-videos__slot-card')).toHaveCount(4);
     await expect(page.getByRole('tab', { name: 'Published Videos' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('#homepageHeroVideosAdmin')).toContainText('Published Hero Candidate');
@@ -15717,7 +15719,9 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('.admin-hero-videos__slot-card[data-slot="right_top"]')).toContainText('Enabled');
 
     await displayFormat.selectOption('9:16');
-    await thumbTimestamp.fill('0');
+    // Exercise two real seeks inside the one-second MP4. A zero-time detached
+    // metadata-only video need not decode a frame before this upload fixture runs.
+    await thumbTimestamp.fill('0.2');
     await page.locator('#homepageHeroVideosAdmin [data-field="upload-title"]').fill('Manual Portrait Source');
     await page.evaluate(() => {
       if (window.__bitbiHeroVideoSeekSpyInstalled) return;
@@ -15752,7 +15756,9 @@ test.describe('Admin Control Plane', () => {
     await page.getByRole('button', { name: 'Upload source' }).click();
     await expect.poll(() => uploadRequests.length).toBe(1);
     const seekTimes = await page.evaluate(() => window.__bitbiHeroVideoSeekTimes || []);
+    expect(seekTimes.some((value) => Math.abs(value - 0.2) < 0.05)).toBe(true);
     expect(seekTimes.some((value) => Math.abs(value - 0.4) < 0.05)).toBe(true);
+    expect(uploadRequests[0]).toContain('name="poster"; filename="hero-source-poster.webp"');
     expect(uploadRequests[0]).toContain('aspect_ratio');
     expect(uploadRequests[0]).toContain('9:16');
     expect(uploadRequests[0]).toContain('poster_time_seconds');
@@ -15912,7 +15918,7 @@ test.describe('Admin Control Plane', () => {
     const response = await page.goto('/admin/index.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#dashboardOwnerActionTitle')).toHaveText('What would you like to work on?');
+    await expect(page.locator('#dashboardOwnerActionTitle')).toHaveText('Start here');
     await expect(page.locator('#adminOwnerActionSummary a')).toHaveCount(6);
     await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: /Find a user/ })).toHaveAttribute('href', '#users');
     await expect(page.locator('#adminOwnerActionSummary').getByRole('link', { name: /Trace a payment/ })).toHaveAttribute('href', '#billing-events');
@@ -15944,7 +15950,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('a.admin-nav__link[data-section="orgs"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="billing"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="billing-events"]')).toBeAttached();
-    await expect(page.locator('a.admin-nav__link[data-section="news-feed-agent"]')).toHaveText('News Feed Agent');
+    await expect(page.locator('a.admin-nav__link[data-section="news-feed-agent"]')).toHaveText('News management');
     await expect(page.locator('a.admin-nav__link[data-section="ai-usage"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="ai-budget-switches"]')).toBeAttached();
     await expect(page.locator('a.admin-nav__link[data-section="lifecycle"]')).toBeAttached();
@@ -15958,9 +15964,11 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('a.admin-nav__link[data-section="access"]')).toHaveCount(0);
     await expect(page.locator('.admin-nav__group-label')).toContainText([
       'People & payments',
-      'Creative work',
+      'AI & models',
+      'Content',
       'Operations',
-      'Advanced evidence',
+      'Security & diagnostics',
+      'Your account',
     ]);
     await expect(page.locator('.admin-nav__group-label').filter({ hasText: 'Help & Archive' })).toHaveCount(0);
     const missingInternalNavTargets = await page.locator('a.admin-nav__link[data-section]').evaluateAll((links) => links
@@ -16027,8 +16035,8 @@ test.describe('Admin Control Plane', () => {
     await expect(failingAccessSwitch).not.toBeChecked();
 
     await clickAdminNavSection(page, 'billing');
-    await expect(page.locator('#sectionBilling')).toContainText('Billing operator flow');
-    await expect(page.locator('#sectionBilling')).toContainText('Manual grants are guarded');
+    await expect(page.locator('#orgBillingLookupForm')).toBeVisible();
+    await expect(page.locator('#orgCreditGrantDisclosure')).toContainText('Requires reason, confirmation, same-origin browser context, and a generated idempotency key');
     await expect(page.locator('#sectionBilling')).toContainText('generated Idempotency-Key');
     await expect(page.locator('#sectionBilling')).toContainText('Free');
     await expect(page.locator('#sectionBilling')).toContainText('ai.text.generate');
@@ -16045,6 +16053,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#userBillingDetail')).toContainText('9');
     await expect(page.locator('#userBillingDetail')).not.toContainText('user_member');
 
+    await page.locator('#orgCreditGrantDisclosure > summary').click();
     await page.locator('#creditGrantOrgSearch').fill('Control Plane Org');
     await page.locator('#creditGrantAmount').fill('50');
     await page.locator('#creditGrantForm').getByRole('button', { name: 'Grant Credits' }).click();
@@ -16061,6 +16070,7 @@ test.describe('Admin Control Plane', () => {
       reason: 'Support adjustment for control-plane test',
     });
 
+    await page.locator('#userCreditGrantDisclosure > summary').click();
     await page.locator('#creditGrantUserSearch').fill('member@example.com');
     await page.locator('#userCreditGrantAmount').fill('25');
     await page.locator('#userCreditGrantForm').getByRole('button', { name: 'Grant User Credits' }).click();
@@ -16102,6 +16112,8 @@ test.describe('Admin Control Plane', () => {
     await page.locator('#aiAttemptsList').getByRole('button', { name: 'Inspect' }).click();
     await expect(page.locator('#aiAttemptDetail')).toContainText('/api/ai/generate-text');
     await expect(page.locator('#aiAttemptDetail')).not.toContainText('should-not-render');
+    await page.locator('#aiAttemptCleanupDisclosure > summary').click();
+    await expect(page.locator('#aiAttemptCleanupDisclosure')).toContainText('Dry-run is the default. Execute mode is mutating');
     await page.locator('#aiCleanupForm').getByRole('button', { name: 'Run Cleanup' }).click();
     await expect(page.locator('#aiCleanupResult')).toContainText('scanned 3');
     expect(captures.aiCleanupRequests).toHaveLength(1);
@@ -16110,10 +16122,10 @@ test.describe('Admin Control Plane', () => {
 
     await clickAdminNavSection(page, 'ai-budget-switches');
     const switchSection = page.locator('#sectionAiBudgetSwitches');
-    await expect(switchSection).toContainText('AI Budget Switches');
-    await expect(switchSection).toContainText('AI Budget Switches & Controls');
-    await expect(switchSection).toContainText('Operator Control Map');
-    await expect(switchSection).toContainText('Needs evidence');
+    await expect(switchSection.getByRole('button', { name: 'AI Budget Switches help' })).toBeVisible();
+    await expect(switchSection).toContainText('Platform AI controls');
+    await expect(page.locator('#aiBudgetOperatorMapTitle')).toHaveText('Budget panels');
+    await expect(switchSection).toContainText('Cloudflare master flags are managed separately');
     await expect(page.locator('.admin-control-panel-nav')).toContainText('Evidence Archives');
     await expect(switchSection).toContainText('Cloudflare master flag');
     await expect(switchSection).toContainText('Platform Budget Caps');
@@ -16129,6 +16141,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#platformBudgetCapsSummary')).toContainText('platform_admin_lab_budget');
     await expect(page.locator('#platformBudgetCapsList')).toContainText('daily');
     await expect(page.locator('#platformBudgetCapsList')).toContainText('admin.text.test');
+    await page.locator('#platformBudgetReconciliationPanel > summary').click();
     await expect(switchSection).toContainText('Budget Reconciliation');
     await expect(page.locator('#platformBudgetReconciliationSummary')).toContainText('needs_operator_review');
     await expect(page.locator('#platformBudgetReconciliationList')).toContainText('missing_admin_usage_event');
@@ -16139,6 +16152,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#platformBudgetReconciliationList').getByRole('button', { name: 'Apply Repair' })).toHaveCount(1);
     await expect(page.locator('#platformBudgetReconciliationList').getByRole('button', { name: 'Record Review' })).toHaveCount(1);
     await expect(page.locator('#platformBudgetReconciliationList').getByRole('button', { name: /delete|credit|stripe|provider|bulk/i })).toHaveCount(0);
+    await page.locator('#platformBudgetRepairReportPanel > summary').click();
     await expect(switchSection).toContainText('Repair Evidence Report');
     await expect(page.locator('#platformBudgetRepairReportSummary')).toContainText('Total repair actions');
     await expect(page.locator('#platformBudgetRepairReportSummary')).toContainText('3');
@@ -16157,6 +16171,7 @@ test.describe('Admin Control Plane', () => {
     if (downloadedReport) {
       await downloadedReport.cancel();
     }
+    await page.locator('#platformBudgetEvidenceArchivesPanel > summary').click();
     await expect(switchSection).toContainText('Evidence Archives');
     await expect(page.locator('#platformBudgetEvidenceArchivesSummary')).toContainText('AUDIT_ARCHIVE / platform-budget-evidence/');
     await expect(page.locator('#platformBudgetEvidenceArchivesList')).toContainText('pbea');
@@ -16265,17 +16280,17 @@ test.describe('Admin Control Plane', () => {
     });
 
     await clickAdminNavSection(page, 'lifecycle');
-    await expect(page.locator('#sectionLifecycle')).toContainText('Privacy operations');
-    await expect(page.locator('#sectionLifecycle')).toContainText('Next Safe Action');
-    await expect(page.locator('#sectionLifecycle')).toContainText('No blanket completion');
+    await expect(page.locator('#lifecycleRequests')).toBeVisible();
+    await expect(page.locator('#sectionLifecycle')).toContainText('Irreversible deletion remains disabled by backend policy');
+    await expect(page.locator('#sectionLifecycle')).toContainText('No legal compliance claim');
     await expect(page.locator('#sectionLifecycle')).toContainText('archive_generated');
     await expect(page.locator('#sectionLifecycle')).toContainText('execute-only rather than dry-run');
     await expect(page.locator('#sectionLifecycle').getByRole('button', { name: /delete|execute/i })).toHaveCount(0);
 
     await clickAdminNavSection(page, 'operations');
-    await expect(page.locator('#sectionOperations')).toContainText('Operator triage');
-    await expect(page.locator('#sectionOperations')).toContainText('Next Safe Action');
-    await expect(page.locator('#sectionOperations')).toContainText('Manual review is not backfill');
+    await expect(page.locator('#operatorTimelineFilter')).toBeVisible();
+    await expect(page.locator('#sectionOperations')).toContainText('Dangerous operations remain unavailable');
+    await expect(page.locator('#sectionOperations')).toContainText('Status changes update review-state rows only; ownership backfill and access-switching remain blocked');
     await expect(page.locator('#sectionOperations')).toContainText('Operator Timeline / Triage');
     await expect(page.locator('#operatorTimelineState')).toContainText('Read-only redacted operator timeline');
     await expect(page.locator('#operatorTimelineSummary')).toContainText('metadata only no r2 listing');
@@ -16299,9 +16314,10 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#tenantReviewSummary')).toContainText('Access switch blocked');
     await expect(page.locator('#tenantReviewSummary')).toContainText('Backfill blocked');
     await expect(page.locator('#tenantReviewSummary')).toContainText('Review-state only');
-    await expect(page.locator('#sectionOperations')).toContainText('Tenant review workflow');
-    await expect(page.locator('#sectionOperations')).toContainText('Dry-run first');
-    await expect(page.locator('#sectionOperations')).toContainText('No asset deletion');
+    await expect(page.locator('#tenantReviewDryRunPostCleanup')).toBeVisible();
+    await expect(page.locator('#tenantReviewSupersedeState')).toContainText('Dry-run complete');
+    await expect(page.locator('#tenantReviewSupersedeState')).toContainText('No D1 or R2 mutation occurred');
+    await expect(page.locator('#tenantReviewSupersedeWarning')).toHaveAttribute('title', /This does not delete assets/);
     await expect(page.locator('#tenantReviewPostCleanupBanner')).toContainText('Post-cleanup evidence collected');
     await expect(page.locator('#tenantReviewPostCleanupBanner')).toContainText('Review queue still contains pre-cleanup rows');
     await expect(page.locator('#tenantReviewPostCleanupSummary')).toContainText('Active current');
@@ -16510,6 +16526,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#newsFeedAgentAdmin')).toContainText('Active rows');
     await expect(page.locator('#newsFeedAgentAdmin')).toContainText('Generated images');
 
+    await page.locator('#newsPulseVisibilityDisclosure > summary').click();
     await page.locator('#newsPulseMobileEnabled').setChecked(false);
     await page.locator('#newsPulseVisibilityReason').fill('Testing mobile visibility switch');
     await page.getByRole('button', { name: 'Save visibility' }).click();
@@ -16539,6 +16556,7 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#newsFeedAgentAdmin')).toContainText('Edited admin News Pulse row');
 
     await page.locator('[data-news-pulse-select="admin-news-pulse-1"]').setChecked(true);
+    await page.locator('#newsPulseCleanupDisclosure > summary').click();
     await page.locator('#newsPulseDeleteReason').fill('Delete old News Pulse row');
     await page.locator('#newsPulseDeleteConfirmation').fill('delete_news_pulse_items');
     await page.getByRole('button', { name: /Delete selected/ }).click();
@@ -16785,8 +16803,19 @@ test.describe('Admin Control Plane', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#sectionLifecycle')).toBeVisible();
-    await expect(page.locator('#sectionLifecycle')).toContainText('Operational delete is not legal erasure');
-    await expect(page.locator('#sectionLifecycle')).toContainText('Billing, audit, provider, security, lifecycle, and legal records may remain retained or anonymized under policy.');
+    await page.locator('#bitbiHelpTrigger').click();
+    const helpPanel = page.locator('#bitbiHelpPanel');
+    await expect(helpPanel).toBeVisible();
+    const adminGuide = helpPanel.locator('[data-help-section="admin"]');
+    await adminGuide.locator(':scope > summary').click();
+    const lifecycleGuide = adminGuide.locator('[data-admin-help-topic="lifecycle"]');
+    await lifecycleGuide.locator(':scope > summary').click();
+    await expect(lifecycleGuide.locator('.help-menu__item-detail')).toBeVisible();
+    await expect(lifecycleGuide).toContainText('Operational deletion is not blanket legal erasure');
+    await expect(lifecycleGuide).toContainText('billing, audit, provider, security and legal records may remain');
+    await helpPanel.locator('.help-menu__close').click();
+    await expect(helpPanel).toBeHidden();
+    await expect(page).toHaveURL(/#lifecycle$/);
 
     const deleteRow = page.locator('#lifecycleRequests tr', { hasText: 'delete' }).first();
     await expect(deleteRow).toContainText('submitted');
@@ -16895,9 +16924,9 @@ test.describe('Admin Control Plane', () => {
     await expect(aiGroup).toHaveClass(/admin-nav__group--active/);
     await expect(aiGroup).toHaveClass(/admin-nav__group--expanded/);
     await expect(page.locator('#sectionAiBudgetSwitches')).toBeVisible();
-    await expect(page.locator('#sectionAiBudgetSwitches')).toContainText('AI cost controls');
-    await expect(page.locator('#sectionAiBudgetSwitches')).toContainText('Next Safe Action');
-    await expect(page.locator('#sectionAiBudgetSwitches')).toContainText('Switch and archive writes are guarded');
+    await expect(page.locator('#sectionAiBudgetSwitches')).toContainText('Platform AI controls');
+    await expect(page.locator('#aiBudgetOperatorMapTitle')).toHaveText('Budget panels');
+    await expect(page.locator('#sectionAiBudgetSwitches')).toContainText('Updates require a reason and an Idempotency-Key');
     await expect(page.locator('#platformBudgetCapsPanel')).toBeVisible();
     await expect(page.locator('#platformBudgetCapsPanel')).toContainText('not customer billing');
     await expect(page.locator('#platformBudgetCapsPanel')).toContainText('Cap required');
@@ -16910,11 +16939,17 @@ test.describe('Admin Control Plane', () => {
     await expect(page).toHaveURL(/#repair-evidence-report$/);
     await expect(aiBudgetLink).toHaveClass(/admin-nav__link--active/);
     await expect(page.locator('#platformBudgetRepairReportPanel')).toBeVisible();
+    await expect(page.locator('#platformBudgetRepairReportPanel')).toHaveAttribute('open', '');
+    await expect(page.locator('#platformBudgetRepairReportExportJson')).toBeVisible();
     await expect(page.locator('#platformBudgetRepairReportPanel')).toContainText('Read-only');
     await expect(page.locator('#platformBudgetRepairReportPanel')).toContainText('No automatic repair');
 
     await page.setViewportSize({ width: 390, height: 820 });
     await expect(page.locator('.admin-control-panel-nav__link[href="#evidence-archives"]')).toBeVisible();
+    await page.locator('.admin-control-panel-nav__link[href="#evidence-archives"]').click();
+    await expect(page).toHaveURL(/#evidence-archives$/);
+    await expect(page.locator('#platformBudgetEvidenceArchivesPanel')).toHaveAttribute('open', '');
+    await expect(page.locator('#platformBudgetEvidenceArchiveReason')).toBeVisible();
     await expect(page.locator('#platformBudgetEvidenceArchivesPanel')).toContainText('No provider call');
   });
 
@@ -16981,9 +17016,9 @@ test.describe('Admin Control Plane', () => {
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
     const center = page.locator('#billingEvidencePanel');
-    await expect(page.locator('#sectionBillingEvents')).toContainText('Billing evidence');
-    await expect(page.locator('#sectionBillingEvents')).toContainText('Next Safe Action');
-    await expect(page.locator('#sectionBillingEvents')).toContainText('This page never calls Stripe or adjusts credits');
+    await expect(center).toBeVisible();
+    await expect(page.locator('#sectionBillingEvents')).toContainText('Billing Evidence Center');
+    await expect(page.locator('#sectionBillingEvents')).toContainText('It never reveals secrets, calls Stripe, creates checkout sessions, issues refunds, mutates subscriptions, or changes credits');
     await expect(page.locator('#billingEvidenceState')).toContainText('Production readiness and live billing readiness remain BLOCKED');
     await expect(center).toContainText('Live Billing Readiness');
     await expect(center).toContainText('Credit Packs');
@@ -17027,7 +17062,7 @@ test.describe('Admin Control Plane', () => {
 
     const section = page.locator('#sectionLiveBilling');
 	    await expect(section).toBeVisible();
-	    await expect(section).toContainText('Live Billing Command Center');
+	    await expect(page.locator('#adminHeroTitle')).toHaveText('Live Billing');
 	    await expect(section).toContainText('Live billing is enabled by operator approval');
 	    await expect(page.locator('#liveBillingState')).toContainText('Live billing readiness is OPERATOR_APPROVED_LIVE');
 	    await expect(section).toContainText('Repository support');
@@ -18190,6 +18225,8 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#fableDataCard')).toBeVisible();
     await expect(page.locator('#fableDataCardTitle')).toHaveText('Van Ark Chat Data');
+    await page.locator('#fableDataCard .admin-fable-statistics > summary').click();
+    await expect(page.locator('#fableDataCardStats')).toBeVisible();
     await expect(page.locator('#fableDataCardStats')).toContainText('Active');
 
     await page.locator('#fableDataOpen').click();

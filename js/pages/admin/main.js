@@ -5,6 +5,7 @@ import { initCookieConsent } from '../../shared/cookie-consent.js?v=__ASSET_VERS
 import { apiAdminMe } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 // Use the same module identity initialized by site-header/auth-nav/wallet.
 import { getAuthState } from '../../shared/auth-state.js';
+import { initAdminHelp } from './help.js?v=__ASSET_VERSION__';
 import { createAdminNav } from './nav.js?v=__ASSET_VERSION__';
 import { createAdminRouter } from './router.js?v=__ASSET_VERSION__';
 import { ADMIN_MFA_GATE_CODES, createAdminMfaGate } from './security.js?v=__ASSET_VERSION__';
@@ -207,7 +208,7 @@ async function init() {
     currentAdminUser = candidate;
     $denied.style.display = 'none'; $panel.style.display = ''; $adminNav.style.display = '';
     document.getElementById('adminNavToggle')?.removeAttribute('hidden');
-    nav.bind(); router.bind();
+    nav.bind(); initAdminHelp(); router.bind();
 }
 // WebKit does not consistently scroll a focused region on arrow keys.
 // Handle only the region itself; inputs and table action buttons keep native keys.

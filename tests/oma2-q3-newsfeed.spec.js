@@ -41,7 +41,7 @@ test('lazy admin entry, direct reload, back/forward and existing management view
   await page.reload();await expect(cards(page)).toHaveCount(1);
   await page.evaluate(()=>location.hash='dashboard');await expect(cards(page)).toHaveCount(0);
   await page.goBack();await expect(cards(page)).toHaveCount(1);
-  await expect(page.getByRole('link',{name:'News Feed Agent',exact:true})).toHaveAttribute('href','#news-feed-agent');
+  await expect(page.locator('#adminNav').getByRole('link',{name:'News management',exact:true})).toHaveAttribute('href','#news-feed-agent');
   expect(await page.evaluate(()=>Object.values(localStorage).some(v=>v.includes('creative tools')))).toBe(false);
   readOnly(e);
 });
