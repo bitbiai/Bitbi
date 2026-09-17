@@ -633,6 +633,7 @@ async function splitMemberBuckets(f) {
 
 for (const scenario of [
   { label: 'conflicting distinct settlements roll back the entire second debit', credits: 40, sameKey: false, expectedDebits: 1, eventBalances: [10] },
+  { label: 'conflicting distinct settlements also roll back when the second caller commits first', credits: 40, sameKey: false, expectedDebits: 1, eventBalances: [10], secondCallerFirst: true },
   { label: 'successful distinct settlements record actual serialized bucket balances', credits: 20, sameKey: false, expectedDebits: 2, eventBalances: [30, 10] },
   { label: 'same-key concurrent settlements keep one ledger and bucket debit', credits: 40, sameKey: true, expectedDebits: 1, eventBalances: [10] },
 ]) {
@@ -651,13 +652,21 @@ for (const scenario of [
     // Serialize the local shim's batches to avoid an artificial nested transaction.
     const originalBatch = f.DB.batch.bind(f.DB);
     const plansReady = deferred();
+    const firstCallerQueued = deferred();
+    const firstKey = keys[scenario.secondCallerFirst ? 1 : 0];
     let arrived = 0;
     let queue = Promise.resolve();
     f.DB.batch = async (statements) => {
+      const ledger = statements.find((statement) => /INSERT INTO member_credit_ledger\b/.test(statement.sql));
+      // Bucket reconciliation precedes planning; coordinate the debit itself.
+      if (!ledger) return originalBatch(statements);
       if (++arrived === 2) plansReady.resolve();
       await plansReady.promise;
+      const key = ledger.bindings[7];
+      if (key !== firstKey) await firstCallerQueued.promise;
       const run = queue.then(() => originalBatch(statements));
       queue = run.catch(() => {});
+      if (key === firstKey) firstCallerQueued.resolve();
       return run;
     };
     const outcomes = await Promise.allSettled(keys.map((idempotencyKey) => f.charge({ credits: scenario.credits, idempotencyKey })));
@@ -675,13 +684,23 @@ for (const scenario of [
     assert.equal(events.results.length, scenario.expectedDebits);
     assert.equal(outcomes.filter((outcome) => outcome.status === 'fulfilled').length, scenario.expectedDebits);
     if (!scenario.sameKey && scenario.credits === 40) {
-      const failure = outcomes.find((outcome) => outcome.status === 'rejected');
+      // Promise.allSettled retains submission order, not commit order.
+      const failedIndex = outcomes.findIndex((outcome) => outcome.status === 'rejected');
+      assert.equal(failedIndex, scenario.secondCallerFirst ? 0 : 1);
+      const failure = outcomes[failedIndex];
       assert.equal(failure.reason.code, 'insufficient_member_credits');
-      await f.call('BillingFailed', attempts[1].id, { dispatchToken: attempts[1].token });
-      const receipt = await f.row(attempts[1].id);
+      assert.equal(debits.some((row) => row.idempotency_key === keys[failedIndex]), false);
+      await f.call('BillingFailed', attempts[failedIndex].id, { dispatchToken: attempts[failedIndex].token });
+      const receipt = await f.row(attempts[failedIndex].id);
       assert.equal(receipt.status, 'billing_failed', 'A rolled-back debit must not be reconciled as charged.');
       assert.equal(receipt.billing_status, 'failed');
       assert.equal(receipt.provider_outcome, 'succeeded');
+      const winner = attempts[1 - failedIndex];
+      assert.equal(debits[0].idempotency_key, keys[1 - failedIndex]);
+      await f.call('BillingFailed', winner.id, { dispatchToken: winner.token });
+      const committed = await f.row(winner.id);
+      assert.equal(committed.status, 'succeeded', 'Only the committed debit may reconcile as charged.');
+      assert.equal(committed.billing_status, 'finalized');
       assert.equal((await f.ledgerRows()).filter((row) => row.amount < 0).length, 1);
     }
     assert.equal(f.providerCalls(), 0, 'Only bookkeeping claims are exercised; no provider function is called.');

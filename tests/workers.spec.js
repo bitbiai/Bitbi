@@ -15900,7 +15900,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(lyricsRes.status).toBe(502);
     await expect(lyricsRes.json()).resolves.toMatchObject({
       ok: false,
-      code: 'upstream_error',
+      code: 'text_output_empty',
     });
     expect(lyricsFailure.calls).toHaveLength(1);
     expect(lyricsFailure.env.DB.state.memberCreditLedger.filter((row) =>
