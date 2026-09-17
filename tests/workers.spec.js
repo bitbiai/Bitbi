@@ -6203,7 +6203,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     expect(models.every((model) => typeof model.memberCanvasEnabled === 'boolean' && typeof model.adminCanvasEnabled === 'boolean')).toBe(true);
     expect(CANVAS_FABLE_MAX_OUTPUT_TOKENS).toBe(16384);
     expect(getCanvasModel('anthropic/claude-fable-5').controls.maxTokens.default).toBeLessThan(CANVAS_FABLE_MAX_OUTPUT_TOKENS);
-    expect(getCanvasModel('@cf/qwen/qwen3-30b-a3b-fp8')).toBeNull();
+    expect(getCanvasModel('@cf/qwen/qwen3-30b-a3b-fp8')).toMatchObject({ runnable: false, memberCanvasEnabled: false, adminCanvasEnabled: true });
   });
 
   test('Canvas APIs reject logged-out reads before returning projects or model metadata', async () => {
@@ -12752,7 +12752,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(harness.env.DB.state.memberCreditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
   });
 
-  test('admin Canvas resolves active organization membership but bills the trusted Canvas run through personal credits', async () => {
+  test('admin Canvas resolves active organization membership and uses platform budget without personal credits', async () => {
     const admin = createContractUser({ id: 'canvas-admin-member', email: 'canvas-admin@example.com', role: 'admin' });
     const harness = await createMemberTextHarness({
       user: admin,
@@ -12763,10 +12763,6 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     const projectId = '12121212121212121212121212121212';
     const nodeId = '13131313131313131313131313131313';
     const createdAt = nowIso();
-    harness.env.DB.state.memberCreditLedger.push({
-      id: 'cl_canvas_admin_seed', user_id: admin.id, amount: 100, balance_after: 100, entry_type: 'grant', feature_key: null,
-      source: 'test_grant', idempotency_key: 'canvas-admin-seed', request_hash: 'seed', created_by_user_id: admin.id, created_at: createdAt, metadata_json: '{}',
-    });
     harness.env.DB.state.canvasProjects.push({ id: projectId, user_id: admin.id, title: 'Admin Canvas', locale: 'en', thumbnail_asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null });
     harness.env.DB.state.canvasNodes.push({ id: nodeId, project_id: projectId, user_id: admin.id, type: 'text_generation', title: 'Admin text', x: 0, y: 0, width: null, height: null, model_id: 'anthropic/claude-fable-5', config_json: '{"prompt":"Write a concise scene","maxTokens":100}', content_json: '{}', output_json: null, asset_id: null, created_at: createdAt, updated_at: createdAt, deleted_at: null });
     const baseHeaders = { Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${harness.token}`, 'CF-Connecting-IP': '203.0.113.248' };
@@ -12776,15 +12772,14 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(models.status).toBe(200);
     expect(modelsBody.data).toMatchObject({ access: { role: 'admin', is_admin: true }, selected_organization_id: harness.orgId });
     expect(modelsBody.data.organizations).toEqual([expect.objectContaining({ id: harness.orgId, role: 'admin' })]);
-    expect(modelsBody.data.models.find((model) => model.id === 'anthropic/claude-fable-5')).toMatchObject({ runnable: true, requiresPersonalCredits: true, requiresOrganization: false });
-    expect(JSON.stringify(modelsBody)).not.toContain('/api/admin/');
+    expect(modelsBody.data.models.find((model) => model.id === 'anthropic/claude-fable-5')).toMatchObject({ runnable: true, requiresPersonalCredits: false, requiresPlatformBudget: true, requiresOrganization: false });
 
     const run = await harness.authWorker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${nodeId}/run`, 'POST', {}, { ...baseHeaders, 'Idempotency-Key': 'canvas-admin-personal-run' }), harness.env, createExecutionContext().execCtx);
     const runBody = await run.json();
     expect(run.status).toBe(200);
     expect(runBody.data.run.output).toMatchObject({ kind: 'text', text: 'Admin Canvas output.' });
     expect(runBody.code).not.toBe('admin_ai_legacy_unmetered_blocked');
-    expect(harness.env.DB.state.memberCreditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(1);
+    expect(harness.env.DB.state.memberCreditLedger.filter((row) => row.entry_type === 'consume')).toHaveLength(0);
     expect(harness.providerCallCount()).toBe(1);
   });
 
@@ -12806,6 +12801,143 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     expect(response.status).toBe(404);
     expect((await response.json()).code).toBe('organization_not_found');
     expect(harness.providerCallCount()).toBe(0);
+  });
+
+  async function canvasAdminFixture({ model = '@cf/black-forest-labs/flux-1-schnell', capability = 'image', balance = 100, user = createAdminUser(), aiRun, authEnv = {} } = {}) {
+    let calls = 0;
+    const imageBytes = fs.readFileSync(path.join(__dirname, 'fixtures/media/favorite-thumb.jpg'));
+    const h = await createAdminAiContractHarness({ user, authEnv,
+      aiRun: async (...args) => { calls++; return aiRun ? aiRun(...args) : capability === 'image' ? { image: imageBytes.toString('base64') } : { response: 'Canvas answer' }; } });
+    const org = seedAdminImageChargeOrg(h.env, { creditBalance: balance, createdByUserId: user.id });
+    const now = nowIso(), project = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', node = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    h.env.DB.state.organizationMemberships.push({ id: 'om_canvas_admin', organization_id: org, user_id: user.id, role: 'owner', status: 'active', created_at: now, updated_at: now });
+    h.env.DB.state.canvasProjects.push({ id: project, user_id: user.id, title: 'Synthetic Canvas', locale: 'en', created_at: now, updated_at: now, deleted_at: null });
+    h.env.DB.state.canvasNodes.push({ id: node, project_id: project, user_id: user.id, type: capability + '_generation', model_id: model, config_json: JSON.stringify({ prompt: 'Synthetic stored result', maxTokens: 300 }), content_json: '{}', created_at: now, updated_at: now, deleted_at: null });
+    const request = (path, method = 'GET', body, key = 'canvas-admin-contract-key') => h.authWorker.fetch(authJsonRequest('/api/account/canvas/' + path, method, body, { ...h.authHeaders, 'Idempotency-Key': key }), h.env, createExecutionContext().execCtx);
+    return { ...h, user, org, project, node, imageBytes, calls: () => calls, request,
+      run: (body = { organization_id: org }, key) => request(`projects/${project}/nodes/${node}/run`, 'POST', body, key) };
+  }
+
+  test('Canvas admin image uses selected org once, retains owner asset after reload and replays without provider or personal debit', async () => {
+    const h = await canvasAdminFixture();
+    const response = await h.run(); const body = await response.json();
+    expect(body).toMatchObject({ ok: true, data: { run: { status: 'completed', input: { organization_id: h.org, execution_mode: 'admin_org_image' } } } });
+    expect(response.status).toBe(200); expect(h.calls()).toBe(1);
+    expect(h.env.DB.state.memberCreditLedger).toHaveLength(0);
+    expect(h.env.DB.state.creditLedger.filter(r => r.entry_type === 'consume')).toEqual([expect.objectContaining({ organization_id: h.org, amount: -1 })]);
+    const image = h.env.DB.state.aiImages[0]; expectPersonalOwnership(image, h.user.id);
+    expect(body.data.run.asset_id).toBe(image.id);
+    const reloaded = await (await h.request(`projects/${h.project}`)).json();
+    expect(reloaded.data.nodes[0].output.assetId).toBe(image.id);
+    const again = await (await h.run()).json(); expect(again.data.idempotent_replay).toBe(true); expect(h.calls()).toBe(1);
+    expect(h.env.DB.state.aiImages).toHaveLength(1);
+    const changed = await h.run({}, 'another-key'); expect(changed.status).toBe(409); expect((await changed.json()).code).toBe('organization_required');
+    h.env.DB.state.canvasNodes[0].config_json = JSON.stringify({ prompt: 'Changed prompt' });
+    expect((await h.run()).status).toBe(409); expect(h.calls()).toBe(1);
+  });
+
+  test('Canvas admin image save retry preserves paid result and refuses a second generation', async () => {
+    const h = await canvasAdminFixture();
+    const info = h.env.IMAGES.info.bind(h.env.IMAGES); let inspectCalls = 0;
+    h.env.IMAGES.info = async (...args) => { if (++inspectCalls === 1) throw new Error('synthetic inspection failure'); return info(...args); };
+    const failed = await (await h.run()).json(); expect(failed.code).toBe('canvas_image_save_pending');
+    expect(h.calls()).toBe(1); expect(h.env.DB.state.aiImages).toHaveLength(0);
+    const runs = await (await h.request(`projects/${h.project}/runs`)).json();
+    expect(JSON.stringify(runs)).not.toContain('saveReference');
+    expect(runs.data.runs[0].retry_key).toBe('canvas-admin-contract-key');
+    const saved = await (await h.run()).json(); expect(saved, JSON.stringify(saved)).toMatchObject({ ok: true });
+    expect(h.calls()).toBe(1); expect(h.env.DB.state.aiImages).toHaveLength(1);
+    expect(h.env.DB.state.creditLedger.filter(r => r.entry_type === 'consume')).toHaveLength(1);
+    expect(h.env.DB.state.memberCreditLedger).toHaveLength(0);
+  });
+
+  test('Canvas image insert response loss preserves the committed original and completes derivative handoff', async () => {
+    const h = await canvasAdminFixture(); const prepare = h.env.DB.prepare.bind(h.env.DB); let lost = false;
+    h.env.DB.prepare = sql => {
+      const statement = prepare(sql);
+      if (!sql.includes('INSERT INTO ai_images')) return statement;
+      return { bind: (...args) => {
+        const bound = statement.bind(...args);
+        return { run: async () => { const result = await bound.run(); if (!lost) { lost = true; throw new Error('synthetic response loss after commit'); } return result; } };
+      } };
+    };
+    expect((await (await h.run()).json()).ok).toBe(true);
+    const image = h.env.DB.state.aiImages[0];
+    expect(await h.env.USER_IMAGES.get(image.r2_key)).not.toBeNull();
+    expect(h.env.AI_IMAGE_DERIVATIVES_QUEUE.messages).toHaveLength(1);
+    expect(h.calls()).toBe(1);
+    expect(h.env.DB.state.creditLedger.filter(r => r.entry_type === 'consume')).toHaveLength(1);
+  });
+
+  test('Canvas paid image missing checkpoint and unavailable temporary result never trigger regeneration', async () => {
+    const h = await canvasAdminFixture();
+    h.env.IMAGES.info = async () => { throw new Error('synthetic temporary failure'); };
+    expect((await (await h.run()).json()).code).toBe('canvas_image_save_pending');
+    h.env.DB.state.canvasRuns[0].output_json = null;
+    const missing = await (await h.run()).json();
+    expect(missing.code).toBe('image_save_reference_missing');
+    expect((await h.run()).status).toBe(409); expect(h.calls()).toBe(1);
+    const listing = await (await h.request(`projects/${h.project}/runs`)).json();
+    expect(listing.data.runs[0].retry_key).toBe('canvas-admin-contract-key');
+    expect(h.env.DB.state.creditLedger.filter(r => r.entry_type === 'consume')).toHaveLength(1);
+    const checkpoint = await canvasAdminFixture();
+    const prepare = checkpoint.env.DB.prepare.bind(checkpoint.env.DB);
+    checkpoint.env.DB.prepare = sql => {
+      if (sql.startsWith('UPDATE canvas_runs SET output_json = ?')) return { bind: () => ({ run: async () => { throw new Error('synthetic checkpoint DB interruption'); } }) };
+      return prepare(sql);
+    };
+    expect((await (await checkpoint.run()).json()).code).toBe('image_save_checkpoint_failed');
+    expect((await checkpoint.run()).status).toBe(409); expect(checkpoint.calls()).toBe(1);
+    expect((await (await checkpoint.request(`projects/${checkpoint.project}/runs`)).json()).data.runs[0].retry_key).toBe('canvas-admin-contract-key');
+    const unavailable = await canvasAdminFixture();
+    unavailable.env.IMAGES.info = async () => { throw new Error('synthetic temporary failure'); };
+    expect((await (await unavailable.run()).json()).code).toBe('canvas_image_save_pending');
+    unavailable.env.USER_IMAGES.get = async () => null;
+    expect((await (await unavailable.run()).json()).code).toBe('canvas_image_save_unavailable');
+    expect((await unavailable.run()).status).toBe(409); expect(unavailable.calls()).toBe(1);
+  });
+
+  test('Canvas admin billing denies missing foreign org, empty org and budget switch before inference', async () => {
+    for (const [mode, options, expected] of [
+      ['missing', {}, 'organization_required'], ['foreign', {}, 'organization_not_found'],
+      ['empty', { balance: 0 }, 'insufficient_credits'],
+      ['text-switch', { capability: 'text', model: '@cf/meta/llama-3.1-8b-instruct-fast', authEnv: { ENABLE_ADMIN_AI_TEXT_BUDGET: 'false' } }, 'ai_budget_disabled'],
+    ]) {
+      const h = await canvasAdminFixture(options);
+      const response = await h.run(mode === 'missing' ? {} : mode === 'foreign' ? { organization_id: 'org_ffffffffffffffffffffffffffffffff' } : undefined);
+      const result = await response.json(); expect(result.ok, mode).toBe(false); expect(response.status, mode).toBeGreaterThanOrEqual(400);
+      if (mode !== 'text-switch') expect(result.code, mode).toBe(expected);
+      expect(h.calls(), mode).toBe(0); expect(h.env.DB.state.memberCreditLedger).toHaveLength(0);
+    }
+    const member = await canvasAdminFixture({ model: 'black-forest-labs/flux-2-max', user: createContractUser({ id: 'canvas-fake-admin', role: 'user' }) });
+    const response = await member.run({ organization_id: member.org, executionMode: 'admin_org_image' });
+    expect(response.status).toBe(400); expect(member.calls()).toBe(0);
+    const ordinary = await member.run(); expect(ordinary.status).toBe(402); expect((await ordinary.json()).code).toBe('insufficient_member_credits'); expect(member.calls()).toBe(0);
+  });
+
+  test('Canvas admin text schema fixtures distinguish visible answer, token exhaustion, reasoning-only and provider failure', async () => {
+    const scenarios = [
+      ['@cf/meta/llama-3.1-8b-instruct-fast', { response: 'Visible Llama' }, null],
+      ['@cf/meta/llama-3.3-70b-instruct-fp8-fast', { response: 'Visible Llama large' }, null],
+      ['anthropic/claude-fable-5', { content: [{ type: 'thinking', thinking: 'PRIVATE' }, { type: 'text', text: 'Visible Fable' }], usage: { input_tokens: 1, output_tokens: 3 } }, null],
+      ['@cf/google/gemma-4-26b-a4b-it', { choices: [{ message: { content: 'Visible Gemma', reasoning_content: 'PRIVATE' }, finish_reason: 'stop' }], usage: { completion_tokens: 3 } }, null],
+      ['@cf/openai/gpt-oss-20b', { response: 'Visible OSS' }, null],
+      ['@cf/openai/gpt-oss-120b', { output: [{ type: 'reasoning', content: [{ type: 'text', text: 'PRIVATE' }] }, { type: 'message', content: [{ type: 'output_text', text: 'Visible OSS large' }] }] }, null],
+      ['@cf/qwen/qwen3-30b-a3b-fp8', { choices: [{ message: { content: 'Visible Qwen' }, finish_reason: 'stop' }] }, null],
+      ['@cf/google/gemma-4-26b-a4b-it', { choices: [{ message: { content: '', reasoning_content: 'PRIVATE' }, finish_reason: 'length' }] }, 'text_output_token_limit'],
+      ['@cf/openai/gpt-oss-20b', { output: [{ type: 'reasoning', content: [{ type: 'text', text: 'PRIVATE' }] }] }, 'text_output_reasoning_only'],
+      ['@cf/openai/gpt-oss-120b', { response: '' }, 'text_output_empty'],
+    ];
+    for (const [model, raw, code] of scenarios) {
+      const h = await canvasAdminFixture({ model, capability: 'text', aiRun: async (_id, input) => { expect(input.max_tokens).toBe(300); expect(input.messages).toEqual([{ role: 'user', content: 'Synthetic stored result' }]); return raw; } });
+      const result = await (await h.run({})).json();
+      if (code) expect(result).toMatchObject({ ok: false, code });
+      else expect(result.data.run.output.text).toMatch(/^Visible /);
+      expect(JSON.stringify(result)).not.toContain('PRIVATE'); expect(h.calls()).toBe(1); expect(h.env.DB.state.memberCreditLedger).toHaveLength(0);
+    }
+    const failed = await canvasAdminFixture({ capability: 'text', model: '@cf/google/gemma-4-26b-a4b-it', aiRun: async () => { throw Object.assign(new Error('synthetic provider failure'), { code: 5006 }); } });
+    const failure = await (await failed.run({})).json(); expect(failure.code).toBe('upstream_error'); expect(failed.calls()).toBe(1);
+    expect((await failed.run({})).status).toBe(409); expect(failed.calls()).toBe(1);
   });
 
   async function createMemberMusicHarness({

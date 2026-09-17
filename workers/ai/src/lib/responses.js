@@ -64,6 +64,10 @@ export function fromError(error, fallbackMessage) {
     });
   }
 
+  if (["text_output_token_limit", "text_output_reasoning_only", "text_output_empty"].includes(error?.code)) {
+    return errorResponse("The provider returned no visible answer text.", { status: 502, code: error.code });
+  }
+
   if (error?.code === "generation_timeout") {
     return errorResponse(error.message || fallbackMessage, {
       status: error.status || 504,

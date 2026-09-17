@@ -425,9 +425,11 @@ test('member and model-status scopes dispatch through the actual child and prese
   assert.deepEqual(selectedRuntimeSuites(),runtimeSuites);
   assert.deepEqual(selectedRuntimeSuites('model-status').map(([name])=>name),['model-status']);
   assert.equal(parseRuntimeArgs(['--suite','model-status'],{}).suite,'model-status');
+  assert.deepEqual(selectedRuntimeSuites('canvas').map(([name])=>name),['canvas']);
+  assert.equal(parseRuntimeArgs(['--suite','canvas'],{}).suite,'canvas');
   assert.throws(()=>selectedRuntimeSuites('unknown'));
   const bootstrap=read('tests/helpers/q2-runtime/linux-bootstrap.py');
-  assert.match(bootstrap,/choices=\["member-generation", "model-status"\]/);
+  assert.match(bootstrap,/choices=\["member-generation", "model-status", "canvas"\]/);
   // Execute the unchanged child module with synthetic process/import boundaries.
   // This checks dispatch ordering, not Linux kernel isolation (required in CI).
   const child = spawnSync(process.execPath, ['--experimental-vm-modules', '--input-type=module', '-e', `
@@ -435,7 +437,7 @@ test('member and model-status scopes dispatch through the actual child and prese
     import {readFileSync} from 'node:fs';
     import {SourceTextModule,SyntheticModule,createContext} from 'node:vm';
     const source=readFileSync('tests/helpers/q2-runtime/linux-runtime-child.mjs','utf8');
-    for(const suite of [undefined,'member-generation','model-status','unknown','',null,false]) {
+    for(const suite of [undefined,'member-generation','model-status','canvas','unknown','',null,false]) {
       for(const fault of [null,'platform','uid','gid']) {
         const calls=[], context=createContext({process:{platform:fault==='platform'?'darwin':'linux',
           getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
@@ -448,7 +450,7 @@ test('member and model-status scopes dispatch through the actual child and prese
           const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [k,v]of Object.entries(modules[name]))this.setExport(k,v);},{context});
           await m.link(()=>{});await m.evaluate();return m;};
         const m=new SourceTextModule(source,{context,importModuleDynamically:load});await m.link(load);
-        if(!fault && [undefined,null,'member-generation','model-status'].includes(suite)) {
+        if(!fault && [undefined,null,'member-generation','model-status','canvas'].includes(suite)) {
           await m.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);
         } else {
           await assert.rejects(m.evaluate());assert.ok(!calls.includes('./runner.mjs'));

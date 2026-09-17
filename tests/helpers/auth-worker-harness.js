@@ -13687,10 +13687,17 @@ class MockD1 {
       return row ? { id: row.id } : null;
     }
 
+    if (query.startsWith('UPDATE canvas_runs SET output_json = ?')) {
+      const [outputJson, updatedAt, id, userId] = bindings;
+      const row = this.state.canvasRuns.find(item => item.id === id && item.user_id === userId && item.status === 'running' && !item.deleted_at);
+      if (row) Object.assign(row, { output_json: outputJson, updated_at: updatedAt });
+      return { success: true, meta: { changes: row ? 1 : 0 } };
+    }
+
     if (query.startsWith("UPDATE canvas_runs SET status = 'running'")) {
       const [updatedAt, id, userId] = bindings;
-      const row = this.state.canvasRuns.find((item) => item.id === id && item.user_id === userId && !item.deleted_at);
-      if (row && ['queued', 'running'].includes(row.status)) Object.assign(row, { status: 'running', updated_at: updatedAt });
+      const row = this.state.canvasRuns.find((item) => item.id === id && item.user_id === userId && !item.deleted_at && (item.status === 'queued' || (item.status === 'failed' && item.error_code === 'canvas_image_save_pending')));
+      if (row) Object.assign(row, { status: 'running', updated_at: updatedAt });
       return { success: true, meta: { changes: row ? 1 : 0 } };
     }
 

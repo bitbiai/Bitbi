@@ -117,6 +117,7 @@ class ReportTests(unittest.TestCase):
             run.mkdir()
             report = b'{"suite":"model-status","passed":2,"failed":0}'
             (run / "model-status-result.json").write_bytes(report)
+            (run / "canvas-result.json").write_bytes(b'{"suite":"canvas","passed":6,"failed":0}')
             (run / "result.json").write_bytes(b'{"passed":2,"failed":0}')
             (run / "private.json").write_text("not an allowed report")
             (output / "model-status-result.json").symlink_to(run / "model-status-result.json")
@@ -130,8 +131,9 @@ class ReportTests(unittest.TestCase):
                 os.close(fd)
             copied = session / "reports"
             self.assertEqual({p.name for p in copied.iterdir()}, {
-                "bootstrap-result.json", "run__result.json", "run__model-status-result.json"})
+                "bootstrap-result.json", "run__result.json", "run__model-status-result.json", "run__canvas-result.json"})
             self.assertEqual((copied / "run__model-status-result.json").read_bytes(), report)
+            self.assertEqual((copied / "run__canvas-result.json").read_bytes(), (run / "canvas-result.json").read_bytes())
             self.assertEqual((copied / "run__result.json").read_bytes(), (run / "result.json").read_bytes())
             self.assertEqual(stat.S_IMODE((copied / "run__model-status-result.json").stat().st_mode), 0o600)
 

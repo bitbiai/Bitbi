@@ -6,17 +6,17 @@ function source(relativePath) {
   return fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
 }
 
-async function mockSharedAuth(page, loggedIn = true) {
+async function mockSharedAuth(page, loggedIn = true, role = 'user') {
   await page.route('**/api/me', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify(loggedIn
-      ? { loggedIn: true, user: { id: 'canvas-member', email: 'canvas@example.com', role: 'user' } }
+      ? { loggedIn: true, user: { id: 'canvas-member', email: 'canvas@example.com', role } }
       : { loggedIn: false, user: null }),
   }));
 }
 
-function createCanvasApiMock(page, { authenticated = true } = {}) {
+function createCanvasApiMock(page, { authenticated = true, modelPayload = null } = {}) {
   const projectId = '11111111111111111111111111111111';
   const state = { projects: [], nodes: [], edges: [], runs: [], modelRequests: 0, requests: [] };
   const imageModel = {
@@ -34,7 +34,7 @@ function createCanvasApiMock(page, { authenticated = true } = {}) {
     const method = request.method();
     state.requests.push({ method, pathname });
     if (!authenticated) return fulfill(route, { ok: false, error: 'Authentication required.', code: 'unauthorized' }, 401);
-    if (pathname.endsWith('/models')) { state.modelRequests += 1; return fulfill(route, { models: [textModel, imageModel, videoModel], organizations: [], selected_organization_id: null, access: { role: 'user', is_admin: false } }); }
+    if (pathname.endsWith('/models')) { state.modelRequests += 1; return fulfill(route, modelPayload || { models: [textModel, imageModel, videoModel], organizations: [], selected_organization_id: null, access: { role: 'user', is_admin: false } }); }
     if (pathname === '/api/account/canvas/projects' && method === 'GET') return fulfill(route, { projects: state.projects, applied_limit: 50 });
     if (pathname === '/api/account/canvas/projects' && method === 'POST') {
       const body = request.postDataJSON();
@@ -395,4 +395,52 @@ test.describe('BITBI Canvas static and protected workspace', () => {
     await page.locator(`[data-node-id="${outputId}"]`).click();
     await expect(page.locator('.canvas-output pre')).toHaveText('A cinematic glass city at blue hour.');
   });
+});
+
+for (const locale of ['en', 'de']) test(`${locale}: admin Canvas uses registry options and budget labels; token defaults preserve explicit edits and save retries keep identity`, async ({ page }, testInfo) => {
+  const { listCanvasModelsForRole } = await import('../js/shared/canvas-model-contract.mjs');
+  const models = listCanvasModelsForRole('admin');
+  const org = 'org_'+'a'.repeat(32);
+  await mockSharedAuth(page, true, 'admin');
+  const state = createCanvasApiMock(page, { modelPayload: { models, organizations: [{ id: org, name: 'Synthetic organization', role: 'owner' }], selected_organization_id: org, access: { role: 'admin', is_admin: true } } });
+  const now = new Date().toISOString(), project = { id: '1'.repeat(32), title: 'Admin contract fixture', locale, created_at: now, updated_at: now };
+  state.projects.push(project);
+  const text = models.find(m => m.capability === 'text');
+  state.nodes.push({ id: '2'.repeat(32), project_id: project.id, type: 'text_generation', title: 'Text', x: 30, y: 30, model_id: text.id, config: { prompt: 'Synthetic prompt', maxTokens: text.controls.maxTokens.default }, content: {}, output: null });
+  await page.goto(locale === 'de' ? '/de/canvas/' : '/canvas/');
+  await page.locator('[data-node-id="'+state.nodes[0].id+'"]').click();
+  const inspector = page.locator('#canvasInspectorBody');
+  const modelSelect = inspector.getByRole('combobox', { name: locale === 'de' ? 'Modell' : 'Model', exact: true });
+  const tokens = inspector.getByLabel(locale === 'de' ? 'Max. Tokens' : 'Max tokens', { exact: true });
+  await expect(inspector.locator('.canvas-cost-note')).toHaveText(locale === 'de' ? 'Plattformbudget' : 'Platform budget');
+  await expect(modelSelect.locator('option')).toHaveCount(models.filter(m => m.capability === 'text').length);
+  await modelSelect.selectOption('@cf/openai/gpt-oss-120b');
+  await expect(tokens).toHaveValue('500');
+  await tokens.fill('777'); await tokens.press('Tab');
+  await modelSelect.selectOption('@cf/google/gemma-4-26b-a4b-it');
+  await expect(tokens).toHaveValue('777');
+  await page.locator('#canvasNodeType').selectOption('image_generation');
+  await page.locator('#canvasAddNode').click();
+  const imageNode = state.nodes.at(-1);
+  await expect(inspector.locator('.canvas-cost-note')).toContainText(locale === 'de' ? 'Credits der ausgewählten Organisation' : 'Selected organization credits');
+  await expect(inspector.getByLabel(locale === 'de' ? 'Schritte' : 'Steps', { exact: true })).toBeVisible();
+  await expect(inspector.getByLabel(locale === 'de' ? 'Breite' : 'Width', { exact: true })).toHaveCount(0);
+  await modelSelect.selectOption('openai/gpt-image-2');
+  await expect(inspector.getByRole('combobox', { name: locale === 'de' ? 'Qualität' : 'Quality', exact: true })).toBeVisible();
+  await expect(inspector.getByLabel(locale === 'de' ? 'Schritte' : 'Steps', { exact: true })).toHaveCount(0);
+  await inspector.getByLabel('Prompt', { exact: true }).fill('Synthetic image prompt');
+  const calls = [];
+  await page.route('**/nodes/*/run', async route => {
+    calls.push({ key: route.request().headers()['idempotency-key'], body: route.request().postDataJSON() });
+    const run = { id: '3'.repeat(32), node_id: imageNode.id, status: 'failed', error_code: 'canvas_image_save_pending', retry_key: calls[0].key, created_at: now };
+    state.runs = [run];
+    await route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ ok: false, code: run.error_code, data: { run } }) });
+  });
+  const runButton = inspector.getByRole('button', { name: locale === 'de' ? 'Ausführen' : 'Run', exact: true });
+  await runButton.click();
+  await expect(page.locator('#canvasToast')).toContainText(locale === 'de' ? 'Speichern ausstehend' : 'saving is pending');
+  await page.reload(); await page.locator('[data-node-id="'+imageNode.id+'"]').click();
+  await runButton.click(); await expect.poll(() => calls.length).toBe(2);
+  expect(calls[1]).toEqual(calls[0]); expect(calls[0].body.organization_id).toBe(org);
+  await page.screenshot({ path: testInfo.outputPath(`admin-canvas-${locale}.png`) });
 });

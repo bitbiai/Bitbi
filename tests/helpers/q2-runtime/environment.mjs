@@ -100,11 +100,20 @@ export async function createRuntime(build, name, { restricted = false, reference
     ENABLE_NEWS_PULSE_VISUAL_BUDGET: 'false', Q2_CONTROL_TOKEN: controlToken };
   if (name.startsWith('q4-')) Object.assign(bindings, { MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'q4-stream-processor-synthetic-not-a-production-secret', ENABLE_MEMVID_STREAM_PREVIEWS: 'true', STREAM_ACCOUNT_ID: 'synthetic-q4-account', STREAM_API_TOKEN: 'test-q4-provider-no-credentials', STRIPE_LIVE_SUBSCRIPTION_PRICE_ID: 'price_q4_subscription_monthly' });
   for (const key of ['SESSION_HASH_SECRET', 'PAGINATION_SIGNING_SECRET', 'ADMIN_MFA_ENCRYPTION_KEY', 'ADMIN_MFA_PROOF_SECRET', 'ADMIN_MFA_RECOVERY_HASH_SECRET', 'AI_SAVE_REFERENCE_SIGNING_SECRET']) bindings[key] = `q2-synthetic-${key}-not-live-0000000000000000`;
+  if (name === 'canvas') Object.assign(bindings, { ENABLE_ADMIN_AI_TEXT_BUDGET: 'true', ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET: 'true', AI_SERVICE_AUTH_SECRET: 'q2-canvas-service-synthetic-not-live' });
   const deny = async () => { counters.outboundDenied += 1; throw new Error('Native test outbound denied'); };
   const denyService = async () => { counters.serviceDenied += 1; throw new Error('Native test provider service denied'); };
-  const shared = { modules: true, ...(name === 'member-generation' ? {images:{binding:'IMAGES'}} : {}), compatibilityDate: build.config.compatibility_date, bindings, d1Databases: { DB: `q2-${name}-db` },
+  const canvasProvider = { requests: [], fail: false };
+  const canvasService = async request => {
+    const body = await request.json(); canvasProvider.requests.push({ path: new URL(request.url).pathname, body });
+    if (canvasProvider.fail) return Response.json({ ok: false, error: 'Synthetic provider failure', code: 'upstream_error' }, { status: 502 });
+    return Response.json({ ok: true, result: body.model.includes('flux')
+      ? { imageBase64: fs.readFileSync(path.join(repoRoot, 'tests/fixtures/media/member-image.png')).toString('base64'), mimeType: 'image/png', model: body.model, steps: 4 }
+      : { text: 'Native Canvas answer', model: body.model } });
+  };
+  const shared = { modules: true, ...(['member-generation','canvas'].includes(name) ? {images:{binding:'IMAGES'}} : {}), compatibilityDate: build.config.compatibility_date, bindings, d1Databases: { DB: `q2-${name}-db` },
     r2Buckets: { USER_IMAGES: `q2-${name}-images`, PRIVATE_MEDIA: `q2-${name}-private`, AUDIT_ARCHIVE: `q2-${name}-archive` },
-    outboundService: deny, serviceBindings: { AI_LAB: denyService }, unsafeRegisterWorker: false };
+    outboundService: deny, serviceBindings: { AI_LAB: name === 'canvas' ? canvasService : denyService }, unsafeRegisterWorker: false };
   const limiterOwner = restricted ? 'q2-restricted' : 'q2-candidate';
   const limiter = owner => ({ PUBLIC_RATE_LIMITER: { className: 'AuthPublicRateLimiterDurableObject', useSQLite: true, ...(owner ? { scriptName: owner } : {}) } });
   const queues = { ACTIVITY_INGEST_QUEUE: `q2-${name}-activity`, AI_IMAGE_DERIVATIVES_QUEUE: `q2-${name}-derivatives`, AI_VIDEO_JOBS_QUEUE: `q2-${name}-videos` };
@@ -150,6 +159,6 @@ export async function createRuntime(build, name, { restricted = false, reference
     const scalar = async (query, ...args) => sql(query, ...args).first('value');
     const controlWorker = referenceOnly ? null : await mf.getWorker('q2-control');
     const control = (route, body) => controlWorker.fetch(`https://q2-control.invalid${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-q2-control': controlToken }, body: JSON.stringify(body) });
-    return { mf, db, bucket, sql, rows, scalar, control, counters, webhookSecret, migrations: build.migrations, config: build.config, executionDir, close: () => mf.dispose() };
+    return { mf, db, bucket, sql, rows, scalar, control, counters, canvasProvider, webhookSecret, migrations: build.migrations, config: build.config, executionDir, close: () => mf.dispose() };
   } catch (error) { await mf.dispose(); throw error; }
 }

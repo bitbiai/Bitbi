@@ -632,3 +632,18 @@ assert(!requiredJobs(layoutSelection)['homepage-webkit-media']);
 const mediaSelection=selection([...layoutFiles,'tests/homepage-hero-playback.spec.js','tests/homepage-hero-state.spec.js']);
 assert(mediaSelection.homepageMedia);assert(requiredJobs(mediaSelection)['homepage-webkit-media']);
 for(const [file,key] of [['js/pages/index/latest-models-video-module.js','homepageMedia'],['js/shared/auth.js','auth'],['js/shared/member-model-exposure.mjs','memberModels'],['js/pages/index/category-carousel.js','carousel'],['workers/auth/src/index.js','workers'],['tests/unknown-news.spec.js','full'],['.github/workflows/unknown.yml','full']])assert(selection([...layoutFiles,file])[key],file);
+
+// This specific contract is consumed by Canvas + Auth, not decorative media.
+for (const files of [['js/shared/canvas-model-contract.mjs'], ['js/shared/canvas-model-contract.mjs', 'js/pages/canvas/main.js', 'workers/auth/src/routes/canvas.js', 'workers/ai/src/lib/invoke-ai.js', 'scripts/lib/ci-test-selection.mjs', 'scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs']]) {
+ const result = selection(files);
+ for (const key of ['homepage', 'auth', 'workers', 'static']) assert.equal(result[key], true, key);
+ for (const key of ['homepageMedia', 'carousel', 'full']) assert.equal(result[key], false, key);
+ assert(requiredJobs(result)['browser-validation'].includes('Run selected homepage core tests'));
+}
+assert(selection(['js/shared/canvas-model-contract.mjs', 'js/pages/index/latest-models-video-module.js']).homepageMedia);
+assert(selection(['js/shared/canvas-model-contract.mjs', 'unknown-runtime.mjs']).full);
+
+for (const file of ['scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs']) {
+ const result = selection([file]); assert(result.static); assert.equal(result.full, false);
+}
+assert(selection(['scripts/lib/unknown-release-policy.mjs']).full);

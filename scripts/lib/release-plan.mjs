@@ -50,6 +50,7 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "workers/shared/fable-chat-memory-contract.mjs": ["auth", "ai"],
   "workers/shared/grok-chat-contract.mjs": ["auth", "ai"],
   "js/shared/admin-ai-contract.mjs": ["auth", "ai"],
+  "js/shared/canvas-model-contract.mjs": ["auth"],
   "js/shared/ai-image-models.mjs": ["auth"],
   "js/shared/durable-rate-limit-do.mjs": ["auth", "contact"],
   "js/shared/generation-timeout.mjs": ["auth", "ai"],

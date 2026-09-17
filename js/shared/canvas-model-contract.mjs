@@ -67,7 +67,7 @@ function textCredits(model, { prompt = "", systemPrompt = "", maxTokens } = {}) 
 function buildTextModel(model) {
   const maxTokens = model.id === CLAUDE_FABLE_5_MODEL_ID
     ? CANVAS_FABLE_MAX_OUTPUT_TOKENS
-    : Math.max(1, Number(model.maxOutputTokens || CANVAS_TEXT_DEFAULT_MAX_TOKENS));
+    : Math.max(1, Number(model.maxOutputTokens || model.maxTokens || CANVAS_TEXT_DEFAULT_MAX_TOKENS));
   return {
     id: model.id,
     label: model.label,
@@ -76,18 +76,18 @@ function buildTextModel(model) {
     description: safeDescription(model.description, "Text generation model for member workflows."),
     outputType: "text",
     canvasEnabled: true,
-    memberCanvasEnabled: true,
+    memberCanvasEnabled: model.canvasEnabled !== false,
     adminCanvasEnabled: true,
     requiresOrganization: false,
     requiresPersonalCredits: true,
     requiresPlatformBudget: false,
-    runnable: true,
+    runnable: model.canvasEnabled !== false,
     route: "/api/ai/generate-text",
     pricingStatus: model.id === CLAUDE_FABLE_5_MODEL_ID ? "estimated_upper_bound" : "fixed_member_credit",
     estimatedCredits: textCredits(model, { maxTokens: model.defaultMaxTokens }),
     controls: {
       systemPrompt: true,
-      messages: true,
+      messages: false,
       temperature: { min: 0, max: 1.5, step: 0.1, default: 0.7 },
       maxTokens: {
         min: 1,
@@ -124,6 +124,10 @@ function buildImageModel(model) {
   const capabilities = model.capabilities || {};
   const runnable = RUNNABLE_IMAGE_MODELS.has(model.id);
   const controls = {
+    supportsSafetyTolerance: capabilities.supportsSafetyTolerance === true,
+    minSafetyTolerance: capabilities.minSafetyTolerance,
+    maxSafetyTolerance: capabilities.maxSafetyTolerance,
+    defaultSafetyTolerance: capabilities.defaultSafetyTolerance,
     supportsSeed: capabilities.supportsSeed === true,
     supportsSteps: capabilities.supportsSteps === true,
     supportsDimensions: capabilities.supportsDimensions === true,
@@ -134,6 +138,9 @@ function buildImageModel(model) {
     outputFormatOptions: safeOptions(capabilities.outputFormatOptions),
     backgroundOptions: safeOptions(capabilities.backgroundOptions),
     defaultSteps: Number(capabilities.defaultSteps || 4),
+    maxSteps: Number(capabilities.maxSteps || 8),
+    minDimension: Number(capabilities.minDimension || 256),
+    maxDimension: Number(capabilities.maxDimension || 2048),
     defaultSize: capabilities.defaultSize || { width: 1024, height: 1024 },
     defaultQuality: capabilities.defaultQuality || null,
     defaultOutputFormat: capabilities.defaultOutputFormat || null,
@@ -266,7 +273,7 @@ function buildEmbeddingModel(model) {
 function buildCatalog() {
   const catalog = listAdminAiCatalog().models;
   return [
-    ...catalog.text.filter((model) => model.canvasEnabled !== false).map(buildTextModel),
+    ...catalog.text.map(buildTextModel),
     ...catalog.image.map(buildImageModel),
     ...catalog.video.map(buildVideoModel),
     ...catalog.music.filter((model) => model.canvasEnabled !== false).map(buildMusicModel),
@@ -278,15 +285,32 @@ const CANVAS_MODELS = Object.freeze(buildCatalog());
 const CANVAS_MODELS_BY_ID = new Map(CANVAS_MODELS.map((model) => [model.id, model]));
 
 export function listCanvasModels() {
-  return CANVAS_MODELS;
+  return CANVAS_MODELS.filter((model) => model.memberCanvasEnabled || model.capability !== "text");
 }
 
 export function listCanvasModelsForRole(role) {
   const isAdmin = String(role || "").trim().toLowerCase() === "admin";
-  return CANVAS_MODELS.map((model) => deepFreeze({
-    ...model,
-    runnable: isAdmin ? model.adminCanvasEnabled === true : model.memberCanvasEnabled === true,
-  }));
+  return CANVAS_MODELS.filter((model) => isAdmin || model.memberCanvasEnabled || model.capability !== "text").map((model) => {
+    const adminText = isAdmin && model.capability === "text";
+    const adminImage = isAdmin && model.capability === "image" && RUNNABLE_IMAGE_MODELS.has(model.id);
+    return deepFreeze({
+      ...model,
+      runnable: isAdmin ? model.adminCanvasEnabled === true : model.memberCanvasEnabled === true,
+      requiresPersonalCredits: adminText || adminImage ? false : model.requiresPersonalCredits,
+      requiresPlatformBudget: adminText || model.requiresPlatformBudget,
+      requiresOrganization: adminImage,
+      route: adminText ? "/api/admin/ai/test-text" : adminImage ? "/api/admin/ai/test-image" : model.route,
+      executionMode: adminText ? "admin_platform_text" : adminImage ? "admin_org_image" : "member",
+      pricingStatus: adminText ? "platform_budget" : adminImage ? "organization_credit_estimate" : model.pricingStatus,
+      estimatedCredits: adminText ? null : model.estimatedCredits,
+      ...(isAdmin && model.id === "@cf/black-forest-labs/flux-2-dev" ? {
+        disabledReason: "The Admin Lab exception has no durable replay contract for Canvas image persistence.",
+      } : {}),
+      ...(isAdmin && model.id === "xai/grok-imagine-image" ? {
+        disabledReason: "Canvas does not yet adapt this model's source, mask and multi-image result contract. Use Admin AI Lab.",
+      } : {}),
+    });
+  });
 }
 
 export function getCanvasModel(modelId) {

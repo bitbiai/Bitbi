@@ -187,6 +187,7 @@ const RELEASE_TOOLING_FILES = new Set([
   '.github/workflows/static.yml', '.github/workflows/ui-fast-deploy.yml',
   'scripts/lib/ci-test-selection.mjs', 'scripts/select-ci-tests.mjs',
   'scripts/test-ci-test-selection.mjs', 'scripts/test-release-compat.mjs', 'scripts/pages-candidate.mjs',
+  'scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs',
   'scripts/test-pages-candidate.mjs', 'scripts/test-pages-workflow.mjs',
   'scripts/lib/frontend-hosting.mjs', 'scripts/lib/frontend-source.mjs', 'scripts/test-frontend-hosting.mjs',
   'scripts/test-frontend-review.mjs', 'scripts/lib/fast-deploy-paths.mjs',
@@ -554,6 +555,14 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       if (file === "js/shared/help-menu.js") {
         addReason(selection, "homepage", file, "changes shared Help Menu and locale-facing guidance");
       }
+      continue;
+    }
+
+    if (file === "js/shared/canvas-model-contract.mjs") {
+      addReason(selection, "homepage", file, "executes Canvas model/inspector coverage through homepage core");
+      addReason(selection, "auth", file, "changes authenticated model and credit contracts");
+      addReason(selection, "workers", file, "is imported by Auth Canvas and member text generation");
+      addReason(selection, "static", file, "changes the Canvas frontend model contract");
       continue;
     }
 

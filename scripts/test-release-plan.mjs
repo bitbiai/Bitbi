@@ -532,3 +532,11 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
 }
 
 console.log("Release planner tests passed.");
+
+{
+ const plan = createReleasePlanFromRepo(repoRoot, { files: ["js/shared/canvas-model-contract.mjs"] });
+ assert.deepEqual(plan.workerDeploys.map(step => step.worker), ["auth"]);
+ assert.equal(plan.impacts.static.required, true);
+ assert.deepEqual(plan.schemaApplies, []);
+ assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+}

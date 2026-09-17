@@ -1450,7 +1450,10 @@ export async function handleSaveImage(ctx) {
   const respond = (body, init) => withCorrelationId(json(body, init), correlationId);
   const session = generationUser(ctx) ? {user:generationUser(ctx)} : await requireUser(request,env);
   if (session instanceof Response) return session;
-  const prior = await existingGenerationAsset(env, session.user.id, 'image');
+  // Trusted Canvas route context only; request JSON cannot choose an image ID.
+  const canvasImageId = /^[a-f0-9]{32}$/.test(ctx.canvasImageId || "") ? ctx.canvasImageId : null;
+  const canvasExisting = async () => canvasImageId ? env.DB.prepare("SELECT id, 'image' AS asset_type FROM ai_images WHERE id = ? AND user_id = ? LIMIT 1").bind(canvasImageId, session.user.id).first() : null;
+  const prior = await canvasExisting() || await existingGenerationAsset(env, session.user.id, 'image');
   if (prior) return respond({ok:true,data:prior});
   const generationReservation = generationStorageReservation(env);
   const generationToken = generationExecution(env)?.job.processing_token || null;
@@ -1563,7 +1566,7 @@ export async function handleSaveImage(ctx) {
     throw error;
   }
 
-  const imageId = generationExecution(env)?.job.id || randomTokenHex(16);
+  const imageId = canvasImageId || generationExecution(env)?.job.id || randomTokenHex(16);
   const timestamp = Date.now();
   const random = randomTokenHex(4);
   const r2Key = `users/${session.user.id}/folders/${folderSlug}/${timestamp}-${random}.png`;
@@ -1699,29 +1702,43 @@ export async function handleSaveImage(ctx) {
       ).run();
     }
   } catch (e) {
-    if (generationExecution(env)) {
-      const committed = await existingGenerationAsset(env, session.user.id, 'image');
-      if (committed) return respond({ok:true,data:committed});
+    const savedCanvas = await canvasExisting();
+    const savedKey = savedCanvas ? await env.DB.prepare("SELECT r2_key FROM ai_images WHERE id = ? AND user_id = ?").bind(imageId, session.user.id).first() : null;
+    if (savedCanvas && savedKey?.r2_key === r2Key) {
+      // The insert committed but its response was lost: retain this original
+      // and its storage accounting, then perform the normal derivative handoff.
+      insertResult = { meta: { changes: 1 } };
+    } else if (savedCanvas && savedKey?.r2_key) {
+      // A different save won. Only our unreferenced object/reservation is ours
+      // to remove; never delete the committed row's original.
+      try { await env.USER_IMAGES.delete(r2Key); } catch {}
+      await releaseUserAssetStorage(env, { userId: session.user.id, bytes: storageReservation?.attemptedUploadBytes || imageBytes.byteLength, generationReservation });
+      return respond({ ok: true, data: savedCanvas });
+    } else {
+      if (generationExecution(env)) {
+        const committed = await existingGenerationAsset(env, session.user.id, 'image');
+        if (committed) return respond({ok:true,data:committed});
+      }
+      try { await env.USER_IMAGES.delete(r2Key); } catch {}
+      await releaseUserAssetStorage(env, {
+        userId: session.user.id,
+        bytes: storageReservation?.attemptedUploadBytes || imageBytes.byteLength,
+        generationReservation,
+      });
+      logDiagnostic({
+        service: "bitbi-auth",
+        component: "ai-save-image",
+        event: "ai_image_metadata_insert_failed",
+        level: "error",
+        correlationId,
+        user_id: session.user.id,
+        image_id: imageId,
+        folder_id: folderId,
+        ...r2KeyLogFields,
+        ...getErrorFields(e),
+      });
+      return respond({ ok: false, error: "Failed to save image. The folder may have been deleted." }, { status: 409 });
     }
-    try { await env.USER_IMAGES.delete(r2Key); } catch {}
-    await releaseUserAssetStorage(env, {
-      userId: session.user.id,
-      bytes: storageReservation?.attemptedUploadBytes || imageBytes.byteLength,
-      generationReservation,
-    });
-    logDiagnostic({
-      service: "bitbi-auth",
-      component: "ai-save-image",
-      event: "ai_image_metadata_insert_failed",
-      level: "error",
-      correlationId,
-      user_id: session.user.id,
-      image_id: imageId,
-      folder_id: folderId,
-      ...r2KeyLogFields,
-      ...getErrorFields(e),
-    });
-    return respond({ ok: false, error: "Failed to save image. The folder may have been deleted." }, { status: 409 });
   }
 
   if (!insertResult.meta.changes) {

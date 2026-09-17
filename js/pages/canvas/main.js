@@ -1,3 +1,5 @@
+import { calculateAiImageCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
+import { estimateCanvasTextCredits } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initAuthEntryActions } from '../../shared/auth-entry-actions.js?v=__ASSET_VERSION__';
 import { canvasApi } from './api.js?v=__ASSET_VERSION__';
@@ -123,7 +125,15 @@ function showToast(message) {
 
 function errorMessage(result) {
     if (result?.code === 'canvas_run_in_progress') return copy.runInProgress;
-    return result?.error || copy.networkError;
+    const messages = {
+      text_output_token_limit: isGerman ? 'Das Tokenlimit wurde ohne sichtbare Antwort erreicht. Prüfe Max. Tokens; es wird nicht automatisch erneut generiert.' : 'The token limit was reached without a visible answer. Review Max tokens; generation is not retried automatically.',
+      text_output_empty: isGerman ? 'Der Anbieter hat keinen sichtbaren Antworttext geliefert.' : 'The provider returned no visible answer text.',
+      text_output_reasoning_only: isGerman ? 'Der Anbieter lieferte nur interne Verarbeitung, keinen sichtbaren Antworttext.' : 'The provider returned reasoning only, without a visible answer.',
+      canvas_image_save_unavailable: isGerman ? 'Das generierte Bild ist über den temporären Speicherverweis nicht mehr verfügbar. Keine automatische Neugenerierung; bitte den Betreiber kontaktieren.' : 'The generated image is no longer available through its temporary storage reference. No automatic regeneration; contact the operator.',
+      canvas_image_save_pending: isGerman ? 'Bild generiert, Speichern ausstehend. Erneut ausführen wiederholt nur das Speichern, nicht die Generierung.' : 'Image generated; saving is pending. Run again to retry only saving, not generation.',
+      insufficient_credits: isGerman ? 'Die ausgewählte Organisation hat nicht genügend Credits.' : 'The selected organization has insufficient credits.',
+    };
+    return messages[result?.code] || result?.error || copy.networkError;
 }
 
 function renderSaveState() {
@@ -420,7 +430,9 @@ function renderInputContext(node, analysis) {
     return { section, validation };
 }
 
+let inspectorAbort = new AbortController();
 function renderInspector() {
+    inspectorAbort.abort(); inspectorAbort = new AbortController();
     dom.inspector.replaceChildren();
     const node = selectedNode();
     if (!node) {
@@ -455,12 +467,30 @@ function renderInspector() {
         const models = store.state.models.filter((model) => model.capability === capability);
         const model = models.find((item) => item.id === node.model_id) || models.find((item) => item.runnable) || null;
         const modelSelect = selectControl(models.map((item) => ({ value: item.id, label: `${item.label}${item.runnable ? '' : ` — ${copy.disabled}`}` })), model?.id);
-        modelSelect.addEventListener('change', () => { scheduleNode(node, { model_id: modelSelect.value }); window.setTimeout(renderInspector); });
+        modelSelect.addEventListener('change', () => {
+            // Only replace an unchanged model default. Explicit values survive
+            // a switch and the selected model's validator checks their limits.
+            const next = models.find(item => item.id === modelSelect.value);
+            const config = { ...(node.config || {}) };
+            if (capability === 'text' && !config.maxTokensEdited && (config.maxTokens == null || config.maxTokens === model?.controls?.maxTokens?.default)) config.maxTokens = next?.controls?.maxTokens?.default;
+            scheduleNode(node, { model_id: modelSelect.value, config }); window.setTimeout(renderInspector);
+        });
         dom.inspector.append(field(copy.model, modelSelect));
         if (model) {
             dom.inspector.append(el('p', 'canvas-model-note', model.runnable ? model.description : model.disabledReason));
             const cost = el('p', 'canvas-cost-note');
-            cost.append(el('strong', '', `${copy.estimated}: ${model.estimatedCredits ?? '—'}`), document.createTextNode(` · ${model.pricingStatus}`));
+            const updateCost = () => {
+                const budget = model.requiresPlatformBudget && model.runnable ? (isGerman ? 'Plattformbudget' : 'Platform budget') : model.requiresOrganization ? (isGerman ? 'Credits der ausgewählten Organisation' : 'Selected organization credits') : (isGerman ? 'Persönliche Credits' : 'Personal credits');
+                let estimate = model.estimatedCredits;
+                try {
+                    if (capability === 'image' && model.runnable) estimate = calculateAiImageCreditCost(model.id, { ...node.config, referenceImageCount: workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0 })?.credits;
+                    if (capability === 'text' && model.requiresPersonalCredits) estimate = estimateCanvasTextCredits(model.id, node.config || {});
+                } catch { estimate = null; }
+                cost.textContent = model.requiresPlatformBudget && model.runnable ? budget : `${budget} · ${copy.estimated}: ${estimate ?? '—'}`;
+                if (model.controls?.supportsReferenceImages) cost.append(document.createTextNode(isGerman ? ' · Endgültige Kosten werden serverseitig einschließlich Referenzen geprüft.' : ' · Final cost is checked server-side including references.'));
+            };
+            updateCost();
+            dom.inspector.addEventListener('input', updateCost, { signal: inspectorAbort.signal });
             dom.inspector.append(cost);
         }
         const prompt = textareaControl(node.config?.prompt || '');
@@ -474,9 +504,35 @@ function renderInspector() {
         if (capability === 'text') {
             const system = textareaControl(node.config?.systemPrompt || ''); system.maxLength = 4000; bindConfig(node, system, 'systemPrompt'); dom.inspector.append(field(copy.systemPrompt, system));
             const grid = el('div', 'canvas-field-grid');
-            const maxTokens = inputControl(node.config?.maxTokens ?? model?.controls?.maxTokens?.default ?? 500, 'number'); maxTokens.min = '1'; maxTokens.max = String(model?.controls?.maxTokens?.max || 4096); bindConfig(node, maxTokens, 'maxTokens', (value) => Number(value));
+            const maxTokens = inputControl(node.config?.maxTokens ?? model?.controls?.maxTokens?.default ?? 500, 'number'); maxTokens.min = '1'; maxTokens.max = String(model?.controls?.maxTokens?.max || 4096); maxTokens.addEventListener('input', () => scheduleNode(node, { config: { ...node.config, maxTokens: Number(maxTokens.value), maxTokensEdited: true } }));
             const temperature = inputControl(node.config?.temperature ?? .7, 'number'); temperature.min = '0'; temperature.max = '1.5'; temperature.step = '.1'; bindConfig(node, temperature, 'temperature', (value) => Number(value));
             grid.append(field(copy.maxTokens, maxTokens), field(copy.temperature, temperature)); dom.inspector.append(grid);
+        }
+        if (capability === 'image' && model) {
+            const c = model.controls || {}, grid = el('div', 'canvas-field-grid');
+            const numberOption = (key, label, fallback, min, max, step = 1) => {
+                const control = inputControl(node.config?.[key] ?? fallback ?? '', 'number');
+                control.min = String(min); control.max = String(max); control.step = String(step);
+                bindConfig(node, control, key, value => value === '' ? '' : Number(value)); grid.append(field(label, control));
+            };
+            if (c.supportsSafetyTolerance) numberOption('safetyTolerance', isGerman ? 'Sicherheitstoleranz' : 'Safety tolerance', c.defaultSafetyTolerance, c.minSafetyTolerance, c.maxSafetyTolerance);
+            if (c.supportsSteps) numberOption('steps', isGerman ? 'Schritte' : 'Steps', c.defaultSteps, 1, c.maxSteps);
+            if (c.supportsSeed) numberOption('seed', 'Seed', '', 0, 2147483647);
+            if (c.supportsDimensions) {
+                numberOption('width', isGerman ? 'Breite' : 'Width', c.defaultSize?.width, c.minDimension, c.maxDimension, 64);
+                numberOption('height', isGerman ? 'Höhe' : 'Height', c.defaultSize?.height, c.minDimension, c.maxDimension, 64);
+            }
+            for (const [key, options, value, label] of [
+                ['quality', c.qualityOptions, c.defaultQuality, isGerman ? 'Qualität' : 'Quality'],
+                ['size', c.sizeOptions, typeof c.defaultSize === 'string' ? c.defaultSize : null, isGerman ? 'Größe' : 'Size'],
+                ['outputFormat', c.outputFormatOptions, c.defaultOutputFormat, isGerman ? 'Dateiformat' : 'File format'],
+                ['background', c.backgroundOptions, c.defaultBackground, isGerman ? 'Hintergrund' : 'Background'],
+            ]) {
+                if (!options?.length) continue;
+                const control = selectControl(options.map(value => ({ value, label: value })), node.config?.[key] || value);
+                bindConfig(node, control, key); grid.append(field(label, control));
+            }
+            dom.inspector.append(grid);
         }
         if (capability === 'video') {
             const grid = el('div', 'canvas-field-grid');
@@ -705,12 +761,13 @@ async function runSelectedNode(node) {
     runningNodeId = node.id; renderInspector();
     const status = document.getElementById('canvasNodeRunStatus');
     if (status) status.textContent = copy.running;
-    const idempotencyKey = pendingRunKeys.get(node.id) || `canvas-${crypto.randomUUID()}`;
+    const pendingSave = store.state.runs.find(run => run.node_id === node.id && run.retry_key);
+    const idempotencyKey = pendingRunKeys.get(node.id) || pendingSave?.retry_key || `canvas-${crypto.randomUUID()}`;
     pendingRunKeys.set(node.id, idempotencyKey);
     const result = await canvasApi.runNode(store.state.project.id, node.id, idempotencyKey, organizationId);
     runningNodeId = null;
     if (!result.ok) {
-        if (result.status !== 0 && result.code !== 'canvas_run_in_progress') pendingRunKeys.delete(node.id);
+        if (result.status !== 0 && !['canvas_run_in_progress', 'canvas_image_save_pending', 'canvas_image_save_unavailable', 'image_save_reference_missing', 'image_save_checkpoint_failed'].includes(result.code)) pendingRunKeys.delete(node.id);
         if (status) { status.textContent = errorMessage(result); status.dataset.kind = 'error'; }
         if (result.data?.run) store.state.runs = [result.data.run, ...store.state.runs.filter((run) => run.id !== result.data.run.id)].slice(0, 40);
         renderInspector(); renderHistory(); showToast(errorMessage(result)); return;
@@ -750,7 +807,7 @@ async function loadCredits() {
         const result = await canvasApi.getCredits();
         const payload = result.data?.dashboard || result.data;
         const credits = result.ok ? resolveCredits(payload) : null;
-        dom.credits.textContent = credits === null ? copy.credits : `${credits} ${copy.credits}`;
+        dom.credits.textContent = credits === null ? copy.credits : `${credits} ${isGerman ? 'persönliche Credits' : 'personal credits'}`;
     } catch { dom.credits.textContent = copy.credits; }
 }
 

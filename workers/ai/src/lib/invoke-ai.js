@@ -359,6 +359,7 @@ function collectTextContent(value) {
       .map((entry) => {
         if (typeof entry === "string") return entry;
         if (entry && typeof entry === "object") {
+          if (entry.type && !["text", "output_text"].includes(entry.type)) return "";
           if (typeof entry.text === "string") return entry.text;
           if (typeof entry.content === "string") return entry.content;
         }
@@ -394,6 +395,7 @@ function extractTextResponse(result) {
   if (Array.isArray(result?.output)) {
     const chunks = [];
     for (const item of result.output) {
+      if (item?.type && item.type !== "message") continue;
       const text = collectTextContent(item?.content);
       if (text) chunks.push(text);
     }
@@ -1560,7 +1562,17 @@ export async function invokeText(env, model, input) {
     : extractTextResponse(raw);
 
   if (!text) {
-    throw new Error("Model returned no text output.");
+    const finish = raw?.choices?.[0]?.finish_reason || raw?.stop_reason || raw?.incomplete_details?.reason;
+    const limited = ["length", "max_tokens", "max_output_tokens"].includes(finish);
+    const reasoningOnly = Boolean(raw?.choices?.[0]?.message?.reasoning_content || raw?.choices?.[0]?.message?.reasoning || (Array.isArray(raw?.output) && raw.output.some(item => item?.type === "reasoning")));
+    const code = limited ? "text_output_token_limit" : reasoningOnly ? "text_output_reasoning_only" : "text_output_empty";
+    const usage = raw?.usage || raw?.result?.usage || {};
+    logDiagnostic({ service: "bitbi-ai", component: "invoke-text", event: "text_output_rejected", level: "warn",
+      correlationId: input.correlationId || null, model: model.id, error_code: code,
+      finish_reason: ["length", "max_tokens", "max_output_tokens", "stop", "end_turn", "content_filter"].includes(finish) ? finish : "unknown",
+      completion_count: Number.isSafeInteger(usage.output_tokens ?? usage.completion_tokens) ? (usage.output_tokens ?? usage.completion_tokens) : null,
+      reasoning_only: reasoningOnly });
+    throw Object.assign(new Error("The provider returned no visible answer text."), { code, status: 502 });
   }
 
   const preservedResult = isAnthropic && input.preserveAnthropicContent === true
