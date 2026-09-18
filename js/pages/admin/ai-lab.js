@@ -1538,11 +1538,16 @@ export function createAdminAiLab({ showToast } = {}) {
         }
     }
 
+    function isPixverseExtension() {
+        return state.forms.video.model === ADMIN_AI_VIDEO_MODEL_ID && state.forms.video.operation === 'extend';
+    }
+
     function getPreviewMediaTypeForOperation(operation = state.forms.video.operation) {
         return String(operation || 'generate') === 'generate' ? 'image' : 'video';
     }
 
     function normalizePreviewMediaSourceScope(scope, media = getPreviewMediaTypeForOperation()) {
+        if (isPixverseExtension()) return 'saved_assets';
         const value = String(scope || '').trim();
         if (value === 'saved_assets') return 'saved_assets';
         if (value === 'public' || value === 'memvids' || value === 'mempics') return 'public';
@@ -1731,7 +1736,7 @@ export function createAdminAiLab({ showToast } = {}) {
             published: 'Memvids',
             loading: 'Loading internal video sources...',
             unavailable: 'Internal video sources are unavailable.',
-            selected: 'Selected video will be resolved server-side into a temporary provider URL.',
+            selected: isPixverseExtension() ? 'The exact owned original will be uploaded privately to PixVerse. MP4/MOV, at most 30 seconds, 50 MB and 1920 pixels.' : 'Selected video will be resolved server-side into a temporary provider URL.',
             emptySaved: 'No saved video assets are available.',
             emptyPublic: 'No published Memvids are available.',
             choose: operation === 'edit'
@@ -1764,8 +1769,13 @@ export function createAdminAiLab({ showToast } = {}) {
         const activeScope = state.videoSources.scope || 'saved_assets';
         const label = refs.video.sourcePickerField.querySelector('.admin-ai__label');
         if (label) label.textContent = copy.label;
+        const hint = refs.video.sourcePickerField.querySelector('p.admin-ai__hint');
+        if (hint) hint.textContent = isPixverseExtension() ? 'Choose one of your saved original videos. Public media and external URLs are not accepted for direct extension.' : 'Choose an internal saved asset or published media source. External URLs are not accepted.';
         if (refs.video.sourceScopeSaved) refs.video.sourceScopeSaved.textContent = copy.saved;
-        if (refs.video.sourceScopeMemvids) refs.video.sourceScopeMemvids.textContent = copy.published;
+        if (refs.video.sourceScopeMemvids) {
+            refs.video.sourceScopeMemvids.textContent = copy.published;
+            refs.video.sourceScopeMemvids.hidden = isPixverseExtension();
+        }
 
         [
             [refs.video.sourceScopeSaved, 'saved_assets'],
@@ -1806,7 +1816,7 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.video.sourceList.replaceChildren();
         const candidates = state.videoSources.candidates
             .map((candidate) => normalizeMediaSourceCandidate(candidate, state.videoSources.media))
-            .filter(Boolean);
+            .filter(candidate => candidate && (!isPixverseExtension() || candidate.source_type === 'saved_asset'));
         if (!candidates.length) {
             const empty = document.createElement('p');
             empty.className = 'admin-ai__video-source-empty';
@@ -2161,6 +2171,11 @@ export function createAdminAiLab({ showToast } = {}) {
 
     function getVideoRunLabel() {
         const credits = getSelectedVideoCreditCost();
+        if (isPixverseExtension()) {
+            let estimate = null;
+            try { estimate = calculateAiVideoCreditCost(ADMIN_AI_VIDEO_MODEL_ID, { duration: Number(state.forms.video.duration), quality: state.forms.video.quality, generate_audio: state.forms.video.generateAudio }); } catch {}
+            return `Extend · ${estimate?.credits || '—'} platform budget units (estimate)`;
+        }
         if (!credits) return TASK_UI.video.idleText;
         return `Run video test · ${credits} credit${credits === 1 ? '' : 's'}`;
     }
@@ -2240,6 +2255,9 @@ export function createAdminAiLab({ showToast } = {}) {
             } else {
                 state.forms.video.sourceImage = null;
             }
+        } else if (spec.id === ADMIN_AI_VIDEO_MODEL_ID) {
+            if (previousModel !== spec.id || !['generate', 'extend'].includes(state.forms.video.operation)) state.forms.video.operation = 'generate';
+            state.forms.video.sourceVideo = normalizeVideoSourceCandidate(state.forms.video.sourceVideo);
         } else {
             state.forms.video.operation = 'generate';
             state.forms.video.size = '';
@@ -2888,7 +2906,7 @@ export function createAdminAiLab({ showToast } = {}) {
             || spec.pricingRequired === true;
         const usesViduFrameWorkflow = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
             && (!!state.forms.video.startImageInput || !!state.forms.video.endImageInput);
-        const previewOperation = isGrokImagine15Preview
+        const previewOperation = isGrokImagine15Preview || isPixverse
             ? (state.forms.video.operation || 'generate')
             : 'generate';
 
@@ -2924,15 +2942,22 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.video.negativePromptField.hidden = !spec.supportsNegativePrompt;
         refs.video.negativePrompt.disabled = isBusy || !spec.supportsNegativePrompt;
 
-        if (refs.video.grokPreviewControls) refs.video.grokPreviewControls.hidden = !isGrokImagine15Preview;
-        if (refs.video.operationField) refs.video.operationField.hidden = !isGrokImagine15Preview;
+        if (refs.video.grokPreviewControls) refs.video.grokPreviewControls.hidden = !isGrokImagine15Preview && !isPixverse;
+        if (refs.video.operationField) refs.video.operationField.hidden = !isGrokImagine15Preview && !isPixverse;
         if (refs.video.operation) {
             setAllowedSelectOptions(
                 refs.video.operation,
-                spec.supportedOperations || ['generate'],
+                isPixverse ? ['generate', 'extend'] : spec.supportedOperations || ['generate'],
                 'generate'
             );
-            refs.video.operation.disabled = isBusy || !isGrokImagine15Preview;
+            refs.video.operation.disabled = isBusy || (!isGrokImagine15Preview && !isPixverse);
+            for (const option of refs.video.operation.options) {
+                option.textContent = isPixverse ? (option.value === 'extend' ? 'Extend — direct PixVerse API' : 'Generate — Cloudflare') : option.value[0].toUpperCase() + option.value.slice(1);
+            }
+            const hint = refs.video.operationField?.querySelector('.admin-ai__hint');
+            if (hint) hint.textContent = isPixverse
+                ? `${state.catalog.data?.pixverseDirect?.configured === true ? 'Direct access configured (live availability unverified).' : 'Direct access not configured; extension is unavailable.'} Separate PixVerse provider billing; existing Admin platform budget applies, no member credits. Generation uses Cloudflare.`
+                : 'Generate from an image, edit or extend a source video.';
             refs.video.operation.value = previewOperation;
         }
         if (refs.video.sizeField) refs.video.sizeField.hidden = !isGrokImagine15Preview;
@@ -2960,7 +2985,7 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         const showPreviewImageUrl = false;
         const showPreviewVideoUrl = false;
-        const showPreviewSourcePicker = isGrokImagine15Preview;
+        const showPreviewSourcePicker = isGrokImagine15Preview || isPixverseExtension();
         const showPreviewReferenceUrls = false;
         if (refs.video.imageUrlField) refs.video.imageUrlField.hidden = !showPreviewImageUrl;
         if (refs.video.imageUrl) refs.video.imageUrl.disabled = isBusy || !showPreviewImageUrl;
@@ -2984,7 +3009,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (refs.video.userField) refs.video.userField.hidden = !isGrokImagine15Preview;
         if (refs.video.user) refs.video.user.disabled = isBusy || !isGrokImagine15Preview;
 
-        refs.video.imageField.hidden = !isPixverse;
+        refs.video.imageField.hidden = !isPixverse || isPixverseExtension();
         refs.video.imageFile.disabled = isBusy || !isPixverse;
 
         refs.video.startImageField.hidden = !isVidu;
@@ -3007,9 +3032,9 @@ export function createAdminAiLab({ showToast } = {}) {
         setFieldDisabled(
             refs.video.aspectRatioField,
             refs.video.aspectRatio,
-            isBusy || (spec.aspectRatioMode === 'text_only' && usesViduFrameWorkflow),
+            isBusy || isPixverseExtension() || (spec.aspectRatioMode === 'text_only' && usesViduFrameWorkflow),
             refs.video.aspectRatioHint,
-            usesViduFrameWorkflow
+            isPixverseExtension() ? 'Extension keeps the original source aspect ratio.' : usesViduFrameWorkflow
                 ? 'Available only for text-to-video when no start or end frame is selected.'
                 : 'Not supported by this model.'
         );
@@ -3052,7 +3077,7 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         if (refs.video.minimalModeHint && !isVidu) refs.video.minimalModeHint.hidden = true;
         if (refs.video.run) {
-            refs.video.run.disabled = isBusy || isGenerationBlocked || !hasCatalog();
+            refs.video.run.disabled = isBusy || isGenerationBlocked || !hasCatalog() || (isPixverseExtension() && state.catalog.data?.pixverseDirect?.configured !== true);
             if (!isBusy) refs.video.run.textContent = getVideoRunLabel();
             refs.video.run.title = isGenerationBlocked
                 ? (spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE)
@@ -5551,6 +5576,10 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function validateVideoForm() {
+        if (isPixverseExtension()) {
+            if (state.catalog.data?.pixverseDirect?.configured !== true) return 'Direct PixVerse access is not configured.';
+            if (getSelectedSourceVideo()?.source_type !== 'saved_asset') return 'Choose one of your saved original videos before extending.';
+        }
         const spec = getSelectedVideoModelSpec();
         const prompt = (state.forms.video.prompt || '').trim();
         if (spec.generationEnabled === false || spec.pricingRequired === true) {
@@ -6620,8 +6649,15 @@ export function createAdminAiLab({ showToast } = {}) {
             delete payload.minimal_mode;
         }
 
+        if (isPixverseExtension()) {
+            payload.operation = 'extend';
+            payload.source_asset_id = getSelectedSourceVideo().asset_id;
+            delete payload.image_input;
+            delete payload.aspect_ratio;
+        }
+
         try {
-            const useSyncDebugPath = window.__BITBI_ADMIN_AI_SYNC_VIDEO_DEBUG === true;
+            const useSyncDebugPath = !isPixverseExtension() && window.__BITBI_ADMIN_AI_SYNC_VIDEO_DEBUG === true;
             if (useSyncDebugPath) {
                 const syncRes = await apiAdminAiTestVideo(payload, {
                     signal: controller.signal,

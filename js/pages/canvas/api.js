@@ -1,6 +1,6 @@
 const BASE = '/api/account/canvas';
 
-async function requestUrl(url, { method = 'GET', body, idempotencyKey } = {}) {
+async function requestUrl(url, { method = 'GET', body, idempotencyKey, signal } = {}) {
     const headers = { Accept: 'application/json' };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
@@ -8,6 +8,7 @@ async function requestUrl(url, { method = 'GET', body, idempotencyKey } = {}) {
         const response = await fetch(url, {
             method,
             credentials: 'include',
+            ...(signal ? { signal } : {}),
             headers,
             body: body === undefined ? undefined : JSON.stringify(body),
         });
@@ -59,5 +60,6 @@ export const canvasApi = Object.freeze({
             storageUsage: result.data?.storageUsage || null,
         };
     },
+    getGenerationJob: (jobId, signal) => requestUrl(`/api/ai/generation-jobs/${id(jobId)}`, { signal }),
     getCredits: () => requestUrl('/api/account/credits-dashboard?limit=1'),
 });

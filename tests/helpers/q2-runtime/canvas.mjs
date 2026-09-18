@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 
 // Real Auth bundle, native D1/R2/Images; only the AI service response is synthetic.
@@ -89,6 +90,24 @@ export async function runCanvasTests(f) {
     assert.equal(failed.status, 502); assert.equal((await request(route, { organization_id: org }, 'provider-failure')).status, 409);
     assert.equal(f.canvasProvider.requests.length, 4);
     assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM credit_ledger WHERE entry_type='consume'"), before);
+  });
+  for (const name of ['success','last-frame','foreign','changed','blocked','blocked-admin']) await f.test(`canvas_native_video_${name}`, async () => {
+    const response = await f.control('/canvas-video', { name,
+      videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
+      imageBase64: fs.readFileSync(new URL('../../fixtures/media/member-image.png', import.meta.url)).toString('base64'),
+    });
+    assert.equal(response.status, 200, `Native Canvas video ${name}: ${await response.clone().text()}`);
+    f.metrics.push(await response.json());
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'), []);
+  });
+  for (const name of ['success','failure','unknown']) await f.test(`admin_native_pixverse_${name}`, async () => {
+    const response = await f.control('/admin-pixverse', { name,
+      videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
+      imageBase64: fs.readFileSync(new URL('../../fixtures/media/member-image.png', import.meta.url)).toString('base64'),
+    });
+    assert.equal(response.status, 200, `Native Canvas video ${name}: ${await response.clone().text()}`);
+    f.metrics.push(await response.json());
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'), []);
   });
   assert.equal(f.counters.outboundDenied, 0, 'No external provider or network call');
 }

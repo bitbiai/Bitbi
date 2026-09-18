@@ -21576,3 +21576,63 @@ test.describe('Sound Lab public browsing', () => {
     await expect(page.locator('#soundLabTracks .snd-card--memtrack').first()).toBeVisible();
   });
 });
+
+for (const browserName of ['chromium', 'webkit']) {
+  const engineTest = test.extend({ browserName: [browserName, { scope: 'worker' }] });
+  engineTest.describe(`Admin PixVerse direct ${browserName}`, () => {
+  for (const configured of [false, true]) engineTest(`existing video job path; access ${configured ? 'configured' : 'not configured'}`, async ({ page }, testInfo) => {
+    await seedCookieConsent(page);
+    await mockAdminAiLab(page);
+    await page.route('**/api/admin/ai/models', route => route.fulfill({json:{...createMockAiCatalog(),pixverseDirect:{configured}}}));
+    await page.route('**/api/admin/ai/media-source-candidates**', route => {
+      const url=new URL(route.request().url());
+      if (url.searchParams.get('media') !== 'video') return route.fallback();
+      expect(url.searchParams.get('scope')).toBe('saved_assets');
+      return route.fulfill({json:{ok:true,data:{candidates:[{media_type:'video',source_type:'saved_asset',asset_id:'owned-original',title:'Owned original',mime_type:'video/mp4',size_bytes:1024,duration_seconds:1}],has_more:false,next_cursor:null}}});
+    });
+    const submissions=[];
+    await page.route('**/api/admin/ai/video-jobs', route=>{
+      submissions.push(route.request().postDataJSON());
+      expect(route.request().headers()['idempotency-key']).toBeTruthy();
+      return route.fulfill({status:202,json:{ok:true,job:{jobId:'vidjob_direct',status:'queued',provider:'pixverse-direct',model:'pixverse/v6',statusUrl:'/api/admin/ai/video-jobs/vidjob_direct'}}});
+    });
+    await page.route('**/api/admin/ai/video-jobs/vidjob_direct',route=>route.fulfill({json:{ok:true,job:{jobId:'vidjob_direct',status:'succeeded',provider:'pixverse-direct',model:'pixverse/v6',outputUrl:'/api/admin/ai/video-jobs/vidjob_direct/output'}}}));
+    await page.route('**/api/admin/ai/video-jobs/vidjob_direct/output',fulfillTestMp4);
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible();
+    await clickAiLabMode(page,'video');
+    await page.locator('#aiVideoCardPixverse').click();
+    await expect(page.locator('#aiVideoOperationField')).toContainText(configured?'Direct access configured':'Direct access not configured');
+    await page.locator('#aiVideoOperation').selectOption('extend');
+    await expect(page.locator('#aiVideoSourceScopeMemvids')).toBeHidden();
+    await expect(page.locator('#aiVideoAspectRatio')).toBeDisabled();
+    await expect(page.locator('#aiVideoImageField')).toBeHidden();
+    await page.locator('#aiVideoSourceList').getByRole('button',{name:/Owned original/}).click();
+    await page.locator('#aiVideoPrompt').fill('Continue the synthetic original');
+    await page.locator('#aiVideoDuration').fill('');
+    await expect(page.locator('#aiVideoRun')).toContainText('— platform budget units');
+    await page.locator('#aiVideoDuration').fill('2');
+    await page.locator('#aiVideoGenerateAudio').uncheck();
+    const run=page.locator('#aiVideoRun');
+    await expect(run).toContainText('56 platform budget units');
+    await expect(page.locator('#aiVideoSourcePickerField')).toContainText('Public media and external URLs are not accepted for direct extension.');
+    if(configured) {
+      await expect(run).toBeEnabled();
+      await run.focus();await page.keyboard.press('Enter');
+      await expect.poll(()=>submissions.length).toBe(1);
+      expect(submissions[0]).toMatchObject({model:'pixverse/v6',operation:'extend',source_asset_id:'owned-original',duration:2,generate_audio:false});
+      expect(submissions[0]).not.toHaveProperty('image_input');expect(submissions[0]).not.toHaveProperty('aspect_ratio');
+      await expect(page.locator('#aiVideoState')).toContainText(/completed|ready/i);
+    } else {
+      await expect(run).toBeDisabled();expect(submissions).toEqual([]);
+    }
+    await page.screenshot({path:testInfo.outputPath(`admin-pixverse-${configured}.png`),fullPage:true});
+    await page.locator('#aiVideoOperation').selectOption('generate');
+    await expect(page.locator('#aiVideoImageField')).toBeVisible();
+    await expect(page.locator('#aiVideoAspectRatio')).toBeEnabled();
+    await expect(page.locator('#aiVideoSourcePickerField')).toBeHidden();
+    await expect(run).toBeEnabled();
+  });
+});
+
+}

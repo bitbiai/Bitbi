@@ -664,6 +664,15 @@
         "summary": "Required for async Vidu Q3 Pro direct provider task create/poll support. Pixverse async jobs can run without it, but Vidu jobs fail safely if it is missing."
       },
       {
+        "id": "auth-pixverse-extension-api-key",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "PIXVERSE_API_KEY",
+        "requiredForRelease": false,
+        "documentation": "docs/runbooks/CANVAS_VIDEO_INPUT.md",
+        "summary": "Optional for the Admin-only PixVerse V6 direct extension in the existing protected video-job and platform-budget path. Missing access blocks the paid Admin action; Canvas only uses the independent Workers AI last-frame image-input path. No automatic account or paid plan setup."
+      },
+      {
         "id": "contact-resend-secret",
         "kind": "secret",
         "worker": "contact",

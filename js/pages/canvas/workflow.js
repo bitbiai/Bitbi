@@ -1,3 +1,4 @@
+import { canvasVideoMethods, resolveCanvasVideoInput } from '../../shared/canvas-video-input.mjs?v=__ASSET_VERSION__';
 const GENERATION_CAPABILITY = Object.freeze({
     text_generation: 'text',
     image_generation: 'image',
@@ -67,7 +68,7 @@ function compatibility(target, model, kind, copy) {
         return { compatible: false, inputKind: 'image_reference', reason: copy.imageInputUnsupported.replace('{model}', model?.label || copy.selectedModel) };
     }
     if (kind === 'video_asset' || kind === 'video_reference') {
-        if (target.type === 'video_generation' && model?.controls?.supportsVideoInput) return { compatible: true, inputKind: 'video_reference' };
+        if (target.type === 'video_generation' && canvasVideoMethods(model, { kind: 'video_asset', assetId: 'pending' }).length) return { compatible: true, inputKind: 'video_reference' };
         return { compatible: false, inputKind: 'video_reference', reason: copy.videoInputUnsupported.replace('{model}', model?.label || copy.selectedModel) };
     }
     if (kind === 'audio_asset') return { compatible: false, inputKind: 'audio_asset', reason: copy.audioInputUnsupported };
@@ -88,7 +89,8 @@ export function analyzeNodeInputs(target, nodes, edges, models, copy) {
         const kind = value.kind === 'none' ? value.expectedKind : value.kind;
         const accepted = compatibility(target, model, kind, copy);
         const status = value.kind === 'none' ? (accepted.compatible ? 'unresolved' : 'incompatible') : (accepted.compatible ? 'compatible' : 'incompatible');
-        return { ...value, edgeId: edge.id, inputKind: accepted.inputKind, status, reason: status === 'unresolved' ? copy.runUpstream : accepted.reason || '' };
+        const videoInput = kind === 'video_asset' ? resolveCanvasVideoInput(model, value, edge.config) : null;
+        return { ...value, videoInput, edgeId: edge.id, inputKind: accepted.inputKind, status, reason: status === 'unresolved' ? copy.runUpstream : accepted.reason || '' };
     });
     const compatible = sources.filter((item) => item.status === 'compatible');
     const connectedPrompt = compatible.filter((item) => item.inputKind === 'prompt' && item.text).map((item) => item.text).join('\n\n').trim();
@@ -121,6 +123,10 @@ export function validationForNode(node, analysis, copy) {
     if (!GENERATION_CAPABILITY[node?.type]) return null;
     if (analysis?.incompatible.length) return analysis.incompatible[0].reason;
     if (analysis?.unresolved.length) return `${analysis.unresolved[0].sourceTitle}: ${copy.runUpstream}`;
+    const videos = analysis?.sources.filter(source => source.videoInput?.methods.length) || [];
+    if (videos.length > 1 || (videos.length && analysis.compatible.some(source => source.inputKind === 'image_reference'))) return copy.videoAmbiguous;
+    if (videos.some(source => !source.videoInput.method)) return copy.videoMethodRequired;
+    if (videos.some(source => source.videoInput.method === 'last_frame' && !source.videoInput.frame)) return copy.videoPreparing;
     if (!analysis?.effectivePrompt) return copy.promptRequired;
     return null;
 }

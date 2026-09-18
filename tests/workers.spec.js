@@ -6434,7 +6434,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
 
     const videoToVideo = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${nextVideoNodeId}/run`, 'POST', {}, { ...headers, 'Idempotency-Key': 'canvas-video-to-video-flow' }), env, createExecutionContext().execCtx);
     expect(videoToVideo.status).toBe(409);
-    expect((await videoToVideo.json())).toMatchObject({ code: 'canvas_input_incompatible', error: expect.stringContaining('does not support video input') });
+    expect((await videoToVideo.json())).toMatchObject({ code: 'video_frame_required', error: expect.stringContaining('last decoded frame') });
     expect(env.DB.state.canvasRuns).toHaveLength(1);
     expect(env.AI.runCalls || []).toHaveLength(0);
   });
@@ -54548,3 +54548,35 @@ require('./helpers/admin-cap-replay-contract.js').registerAdminCapReplayContract
 
 // Durable member jobs use this existing Worker entry (including focused --grep runs).
 require("./member-generation.cases.js");
+
+for (const name of ['success', 'last-frame', 'foreign', 'changed', 'blocked', 'blocked-admin']) {
+  test(`Canvas video continuation: ${name}`, async () => {
+    const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');
+    const db=new SqliteD1Database(); applyAuthMigrations(db);
+    try {
+      const {canvasVideoCase}=await import('./helpers/canvas-video-control.mjs');
+      const result=await canvasVideoCase({...createAuthTestEnv(),DB:db},name,{
+        videoBase64:fs.readFileSync(path.join(__dirname,'fixtures/media/test-video-changing.mp4')).toString('base64'),
+        imageBase64:fs.readFileSync(path.join(__dirname,'fixtures/media/member-image.png')).toString('base64'),
+      });
+      await test.info().attach('canvas-video-result',{body:JSON.stringify(result),contentType:'application/json'});
+      expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+    } finally { db.close(); }
+  });
+}
+
+for (const name of ['success', 'failure', 'unknown']) {
+  test(`Admin PixVerse extension: ${name}`, async () => {
+    const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');
+    const db=new SqliteD1Database(); applyAuthMigrations(db);
+    try {
+      const {adminPixverseCase}=await import('./helpers/canvas-video-control.mjs');
+      const result=await adminPixverseCase({...createAuthTestEnv(),DB:db},name,{
+        videoBase64:fs.readFileSync(path.join(__dirname,'fixtures/media/test-video-changing.mp4')).toString('base64'),
+        imageBase64:fs.readFileSync(path.join(__dirname,'fixtures/media/member-image.png')).toString('base64'),
+      });
+      await test.info().attach('canvas-video-result',{body:JSON.stringify(result),contentType:'application/json'});
+      expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+    } finally { db.close(); }
+  });
+}

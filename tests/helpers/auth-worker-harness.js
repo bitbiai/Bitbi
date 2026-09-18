@@ -13495,7 +13495,7 @@ class MockD1 {
         .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)));
       const rows = matchingEdges.map((edge) => {
         const node = this.state.canvasNodes.find((candidate) => candidate.id === edge.source_node_id && !candidate.deleted_at);
-        return node ? { ...node, edge_id: edge.id, edge_created_at: edge.created_at } : null;
+        return node ? { ...node, edge_id: edge.id, edge_created_at: edge.created_at, edge_config_json: edge.config_json } : null;
       }).filter(Boolean);
       return { results: deepClone(rows) };
     }
@@ -13696,7 +13696,7 @@ class MockD1 {
 
     if (query.startsWith("UPDATE canvas_runs SET status = 'running'")) {
       const [updatedAt, id, userId] = bindings;
-      const row = this.state.canvasRuns.find((item) => item.id === id && item.user_id === userId && !item.deleted_at && (item.status === 'queued' || (item.status === 'failed' && item.error_code === 'canvas_image_save_pending')));
+      const row = this.state.canvasRuns.find((item) => item.id === id && item.user_id === userId && !item.deleted_at && (item.status === 'queued' || (item.status === 'failed' && ['canvas_image_save_pending', 'canvas_video_pending'].includes(item.error_code))));
       if (row) Object.assign(row, { status: 'running', updated_at: updatedAt });
       return { success: true, meta: { changes: row ? 1 : 0 } };
     }

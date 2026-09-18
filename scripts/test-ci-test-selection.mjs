@@ -565,7 +565,7 @@ for (const files of [...canvasUiFiles.map(file => [file]), ['tests/canvas.spec.j
  for (const key of ['homepageMedia', 'carousel', 'workers', 'assets', 'auth', 'full']) assert.equal(result[key], false, `${files}: ${key}`);
  assert(requiredJobs(result)['browser-validation'].includes('Run selected homepage core tests'));
 }
-for (const [file, impact] of [['js/pages/canvas/state.js', 'homepageMedia'], ['js/pages/canvas/api.js', 'homepageMedia'],
+for (const [file, impact] of [['js/pages/canvas/state.js', 'homepageMedia'], ['js/pages/canvas/api.js', 'auth'],
  ['js/shared/auth-api.js', 'assets'], ['workers/auth/src/routes/canvas.js', 'workers'],
  ['js/shared/member-model-exposure.mjs', 'memberModels'], ['unknown-canvas-runtime.mjs', 'full']]) {
  assert(selection([...canvasUiFiles, file])[impact], file);
@@ -647,3 +647,12 @@ for (const file of ['scripts/lib/release-plan.mjs', 'scripts/test-release-plan.m
  const result = selection([file]); assert(result.static); assert.equal(result.full, false);
 }
 assert(selection(['scripts/lib/unknown-release-policy.mjs']).full);
+
+for (const file of ['js/pages/canvas/api.js', 'js/pages/canvas/video-frame.js', 'js/pages/canvas/video-input.js', 'js/pages/canvas/workflow.js', 'js/shared/canvas-video-input.mjs', 'tests/fixtures/media/canvas-end-frame.mp4', 'tests/helpers/canvas-video-control.mjs']) {
+ const result = selection([file]);
+ assert.equal(result.full, false, file); assert.equal(result.homepageMedia, false, file); assert.equal(result.carousel, false, file);
+ if (!file.includes('/helpers/')) assert(result.homepage, file);
+ if (file.includes('/helpers/') || file.includes('/shared/') || file.endsWith('.mp4')) assert(result.workers, file);
+}
+assert(selection(['js/shared/canvas-video-input.mjs', 'unknown-video-adapter.mjs']).full);
+assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-models-video-module.js']).homepageMedia);

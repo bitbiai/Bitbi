@@ -1,3 +1,4 @@
+import { invokePixverseExtension } from './pixverse-extend.js';
 import {
   ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
   ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,
@@ -285,7 +286,7 @@ function adminVideoJobBudgetOperation({ modelId, payload, operationOverride = nu
     budgetScope: registryEntry?.budgetPolicy?.targetBudgetScope
       || ADMIN_PLATFORM_BUDGET_SCOPES.PLATFORM_ADMIN_LAB_BUDGET,
     ownerDomain: "admin-video-jobs",
-    providerFamily: adminVideoBudgetProviderFamily(modelId),
+    providerFamily: payload.operation === "extend" && modelId === "pixverse/v6" ? "pixverse_direct" : adminVideoBudgetProviderFamily(modelId),
     modelId,
     modelResolverKey: registryConfig.modelResolverKey || "admin.video.model_registry",
     providerCost: true,
@@ -1014,7 +1015,7 @@ export async function createAdminAiVideoJob({
     user_id: adminUser.id,
     scope: AI_VIDEO_JOB_SCOPE_ADMIN,
     status: "queued",
-    provider: resolveProvider(modelId),
+    provider: payload.operation === "extend" && modelId === "pixverse/v6" ? "pixverse-direct" : resolveProvider(modelId),
     model: modelId,
     prompt: typeof payload.prompt === "string" ? payload.prompt : null,
     input_json: inputJson,
@@ -2038,6 +2039,10 @@ async function ingestProviderVideoOutput(env, job, providerResult) {
 }
 
 async function callVideoProviderTask(env, path, job, parsedInput, correlationId, budgetPolicy = null) {
+  if (job.provider === "pixverse-direct" && job.scope === AI_VIDEO_JOB_SCOPE_ADMIN && job.model === "pixverse/v6" && parsedInput.operation === "extend") {
+    const result = await invokePixverseExtension(env, parsedInput, job.user_id, job.id, job.provider_task_id);
+    return Response.json({ ok: true, result });
+  }
   const body = {
     ...stripStoredInputMetadata(parsedInput),
   };

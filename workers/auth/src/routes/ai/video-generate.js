@@ -1121,7 +1121,7 @@ export async function handleGenerateVideo(ctx) {
         source: "member_video_generation",
       },
       route: ROUTE_PATH,
-      allowAdminMemberCredits: ctx.canvasMemberContext === true,
+      allowAdminMemberCredits: ctx.canvasMemberContext === true || Boolean(generationExecution(env)),
     });
   } catch (error) {
     const policyError = aiUsagePolicyErrorResponse(error);

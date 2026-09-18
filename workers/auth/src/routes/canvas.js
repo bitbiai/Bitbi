@@ -1,3 +1,6 @@
+import { pendingCanvasVideo, readCanvasVideoResult, restoreCanvasVideoJobs } from '../lib/canvas-video-jobs.js';
+import { resolveCanvasVideoInput, canvasVideoMethods } from '../../../../js/shared/canvas-video-input.mjs';
+import { prepareCanvasVideoEdge, applyCanvasVideoInput } from '../lib/canvas-video-input.js';
 import { json } from "../lib/response.js";
 import { requireUser, requireAdmin } from "../lib/session.js";
 import { BODY_LIMITS, readJsonBodyOrResponse } from "../lib/request.js";
@@ -213,10 +216,11 @@ function runRecord(row) {
     node_id: row.node_id,
     model_id: row.model_id,
     operation_type: row.operation_type,
-    status: row.status,
+    status: row.error_code === "canvas_video_pending" ? "running" : row.status,
     input: safeJsonParse(row.input_json, {}),
     output: row.status === "completed" ? safeJsonParse(row.output_json, null) : null,
-    retry_key: ["canvas_image_save_pending", "canvas_image_save_unavailable", "image_save_reference_missing", "image_save_checkpoint_failed"].includes(row.error_code) ? row.idempotency_key : null,
+    video_job_id: row.error_code === "canvas_video_pending" ? safeJsonParse(row.output_json, {}).videoJobId || null : null,
+    retry_key: ["canvas_video_pending", "canvas_video_review_required", "canvas_image_save_pending", "canvas_image_save_unavailable", "image_save_reference_missing", "image_save_checkpoint_failed"].includes(row.error_code) ? row.idempotency_key : null,
     asset_id: row.asset_id || null,
     error_code: row.error_code || null,
     error_message: row.error_message || null,
@@ -340,6 +344,7 @@ async function loadOwnedImageDataUri(env, userId, assetId) {
 }
 
 async function applyConnectedMediaInputs(env, userId, model, resolution, body) {
+  await applyCanvasVideoInput(env, userId, resolution, body, loadOwnedImageDataUri);
   const imageAssetIds = [...new Set(resolution.imageReferences.map((input) => input.assetId).filter(Boolean))];
   if (!imageAssetIds.length) return body;
   if (model.capability === "video" && model.controls?.supportsImageInput) {
@@ -433,7 +438,7 @@ async function getProject(ctx, userId, projectId) {
       project: projectRecord(project),
       nodes: (nodes.results || []).map(nodeRecord),
       edges: (edges.results || []).map(edgeRecord),
-      runs: (runs.results || []).map(runRecord),
+      runs: (await restoreCanvasVideoJobs(ctx.env, userId, runs.results || [])).map(runRecord),
     },
   });
 }
@@ -575,7 +580,9 @@ async function createEdge(ctx, userId, projectId) {
   ]);
   if (!source || !target) return respond(ctx, { ok: false, error: "Edge nodes must belong to this Canvas project.", code: "node_not_found" }, { status: 404 });
   const label = normalizeText(parsed.body.label || "", { field: "Edge label", max: MAX_EDGE_LABEL });
-  const config = normalizeJsonObject(parsed.body.config, { field: "config" });
+  const proposed = safeJsonParse(normalizeJsonObject(parsed.body.config, { field: "config" }).encoded, {});
+  if (proposed.videoInput) { proposed.videoInput = { ...proposed.videoInput }; delete proposed.videoInput.frame; }
+  const config = normalizeJsonObject(proposed, { field: "config" });
   const id = randomTokenHex(16);
   const now = nowIso();
   try {
@@ -599,10 +606,12 @@ async function updateEdge(ctx, userId, projectId, edgeId) {
      FROM canvas_edges WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL LIMIT 1`
   ).bind(edgeId, projectId, userId).first();
   if (!edge) return respond(ctx, { ok: false, error: "Canvas edge not found.", code: "edge_not_found" }, { status: 404 });
-  const parsed = await readBody(ctx);
+  const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.aiSaveImageJson });
   if (parsed.response) return parsed.response;
   const label = Object.prototype.hasOwnProperty.call(parsed.body, "label") ? normalizeText(parsed.body.label, { field: "Edge label", max: MAX_EDGE_LABEL }) : edge.label;
-  const config = Object.prototype.hasOwnProperty.call(parsed.body, "config") ? normalizeJsonObject(parsed.body.config, { field: "config" }) : { encoded: edge.config_json };
+  const proposed = Object.prototype.hasOwnProperty.call(parsed.body, "config")
+    ? safeJsonParse(normalizeJsonObject(parsed.body.config, { field: "config" }).encoded, {}) : safeJsonParse(edge.config_json, {});
+  const config = normalizeJsonObject(await prepareCanvasVideoEdge(ctx, ctx.canvasUser, edge, proposed, parsed.body.frame_image), { field: "config" });
   const now = nowIso();
   await ctx.env.DB.prepare("UPDATE canvas_edges SET label = ?, config_json = ?, updated_at = ? WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL").bind(label || null, config.encoded, now, edgeId, projectId, userId).run();
   return respond(ctx, { ok: true, data: { edge: edgeRecord({ ...edge, label, config_json: config.encoded, updated_at: now }) } });
@@ -637,7 +646,7 @@ async function canvasOrganizationContext(env, user) {
 
 async function connectedInputs(env, userId, projectId, nodeId) {
   const rows = await env.DB.prepare(
-    `SELECT edges.id AS edge_id, edges.created_at AS edge_created_at,
+    `SELECT edges.id AS edge_id, edges.created_at AS edge_created_at, edges.config_json AS edge_config_json,
             nodes.id, nodes.type, nodes.title, nodes.model_id,
             nodes.content_json, nodes.output_json, nodes.asset_id
      FROM canvas_edges edges
@@ -681,7 +690,7 @@ function compatibilityForInput(targetNode, model, kind) {
     return { compatible: false, inputKind: CANVAS_DATA_KINDS.IMAGE_REFERENCE, reason: `${model.label} does not support image input in Canvas.` };
   }
   if (kind === CANVAS_DATA_KINDS.VIDEO_ASSET || kind === CANVAS_DATA_KINDS.VIDEO_REFERENCE) {
-    if (targetNode.type === "video_generation" && model.controls?.supportsVideoInput) {
+    if (targetNode.type === "video_generation" && canvasVideoMethods(model, { kind: "video_asset", assetId: "pending" }).length) {
       return { compatible: true, inputKind: CANVAS_DATA_KINDS.VIDEO_REFERENCE, reason: null };
     }
     return { compatible: false, inputKind: CANVAS_DATA_KINDS.VIDEO_REFERENCE, reason: `${model.label} does not support video input, continuation, or extension in Canvas.` };
@@ -746,7 +755,9 @@ async function resolveCanvasNodeInputs(env, userId, projectId, node, model) {
     const status = value.kind === CANVAS_DATA_KINDS.NONE
       ? (compatibility.compatible ? "unresolved" : "incompatible")
       : (compatibility.compatible ? "compatible" : "incompatible");
-    sources.push({ ...value, inputKind: compatibility.inputKind, status, reason: status === "unresolved" ? "Run the upstream node first." : compatibility.reason });
+    const videoInput = kindForCompatibility === CANVAS_DATA_KINDS.VIDEO_ASSET ? resolveCanvasVideoInput(model, value, safeJsonParse(row.edge_config_json, {})) : null;
+    if (videoInput && safeJsonParse(row.edge_config_json, {}).videoInput?.method === "extend") throw Object.assign(new Error("Canvas supports last-frame input only. Prepare the source frame again."), { status: 409, code: "video_method_invalid" });
+    sources.push({ ...value, videoInput, inputKind: compatibility.inputKind, status, reason: status === "unresolved" ? "Run the upstream node first." : compatibility.reason });
   }
   const compatible = sources.filter((source) => source.status === "compatible");
   const connectedPrompt = compatible
@@ -837,7 +848,7 @@ function delegatedRequest(ctx, path, body, idempotencyKey) {
   return new Request(new URL(path, ctx.request.url), { method: "POST", headers, body: JSON.stringify(body) });
 }
 
-async function callGenerationHandler(ctx, model, body, idempotencyKey) {
+async function callGenerationHandler(ctx, model, body, idempotencyKey, durableVideo = false) {
   const handlers = {
     text: ["/api/ai/generate-text", handleGenerateText],
     image: ["/api/ai/generate-image", handleGenerateImage],
@@ -852,6 +863,7 @@ async function callGenerationHandler(ctx, model, body, idempotencyKey) {
   }
   if (!target) throw Object.assign(new Error("Canvas node is not runnable."), { status: 400, code: "node_not_runnable" });
   const request = delegatedRequest(ctx, target[0], body, idempotencyKey);
+  if (durableVideo) request.headers.set("Prefer", "respond-async");
   let usageAttemptId = null;
   const response = await target[1]({
     ...ctx,
@@ -987,6 +999,7 @@ async function runNode(ctx, session, projectId, nodeId) {
     connected_node_ids: resolution.sources.map((input) => input.sourceNodeId),
     connected_asset_ids: resolution.sources.map((input) => input.assetId).filter(Boolean),
     connected_input_kinds: resolution.sources.map((input) => input.inputKind),
+    ...(resolution.videoReferences.length ? { connected_video_inputs: resolution.videoReferences.map(source => ({ edgeId: source.edgeId, ...source.videoInput.context, method: source.videoInput.method, frame: source.videoInput.frame })) } : {}),
   };
   const inputJson = stableJson(requestInput);
   if (new TextEncoder().encode(inputJson).byteLength > MAX_NODE_JSON_BYTES) {
@@ -998,8 +1011,16 @@ async function runNode(ctx, session, projectId, nodeId) {
      FROM canvas_runs WHERE user_id = ? AND idempotency_key = ? AND deleted_at IS NULL LIMIT 1`
   ).bind(userId, idempotencyKey).first();
   if (existing && existing.input_json !== inputJson) return respond(ctx, { ok: false, error: "Idempotency-Key conflicts with another Canvas run.", code: "idempotency_conflict" }, { status: 409 });
+  if (existing && resolution.videoReferences.length && existing.status !== "completed") {
+    const [recovered] = await restoreCanvasVideoJobs(ctx.env, userId, [existing]);
+    if (recovered.error_code === "canvas_video_pending") {
+      await ctx.env.DB.prepare("UPDATE canvas_runs SET status = 'failed', output_json = ?, error_code = 'canvas_video_pending' WHERE id = ? AND user_id = ? AND status != 'completed' AND deleted_at IS NULL")
+        .bind(recovered.output_json, existing.id, userId).run();
+      existing = recovered;
+    }
+  }
   if (existing?.status === "completed") return respond(ctx, { ok: true, data: { run: runRecord(existing), idempotent_replay: true } });
-  if (existing?.status === "failed" && existing.error_code !== "canvas_image_save_pending") return respond(ctx, { ok: false, error: existing.error_message || "Canvas run failed.", code: existing.error_code || "canvas_run_failed", data: { run: runRecord(existing), idempotent_replay: true } }, { status: 409 });
+  if (existing?.status === "failed" && !["canvas_image_save_pending", "canvas_video_pending"].includes(existing.error_code)) return respond(ctx, { ok: false, error: existing.error_message || "Canvas run failed.", code: existing.error_code || "canvas_run_failed", data: { run: runRecord(existing), idempotent_replay: true } }, { status: 409 });
   if (existing?.status === "queued" || existing?.status === "running") {
     return respond(ctx, {
       ok: false,
@@ -1037,18 +1058,24 @@ async function runNode(ctx, session, projectId, nodeId) {
       }, { status: 409 });
     }
   }
-  const claimed = await ctx.env.DB.prepare("UPDATE canvas_runs SET status = 'running', updated_at = ? WHERE id = ? AND user_id = ? AND (status = 'queued' OR (status = 'failed' AND error_code = 'canvas_image_save_pending'))").bind(nowIso(), runId, userId).run();
+  const claimed = await ctx.env.DB.prepare("UPDATE canvas_runs SET status = 'running', updated_at = ? WHERE id = ? AND user_id = ? AND (status = 'queued' OR (status = 'failed' AND error_code IN ('canvas_image_save_pending', 'canvas_video_pending')))").bind(nowIso(), runId, userId).run();
   if (claimed.meta?.changes !== 1) return respond(ctx, { ok: false, code: "canvas_run_in_progress", error: "This Canvas run is already in progress." }, { status: 409 });
 
-  let capturedUsageAttemptId = null;
+  let capturedUsageAttemptId = safeJsonParse(existing?.output_json, {}).usageAttemptId || null;
+  let videoJobId = existing?.error_code === "canvas_video_pending" ? safeJsonParse(existing.output_json, {}).videoJobId : null;
   let savedResult = existing?.error_code === "canvas_image_save_pending" ? safeJsonParse(existing.output_json, null) : null;
   let checkpointStored = Boolean(savedResult?.ok && savedResult.data?.saveReference);
   try {
     if (existing?.error_code === "canvas_image_save_pending" && !checkpointStored) throw Object.assign(new Error("Saved generation reference is unavailable; automatic regeneration is prohibited."), { code: "image_save_reference_missing", status: 409 });
-    const delegated = savedResult
+    const delegated = videoJobId ? await readCanvasVideoResult(ctx, videoJobId) : savedResult
       ? { response: { ok: true }, payload: savedResult, usageAttemptId: savedResult.usageAttemptId }
-      : await callGenerationHandler(ctx, model, generationBody, idempotencyKey);
-    capturedUsageAttemptId = delegated.usageAttemptId;
+      : await callGenerationHandler(ctx, model, generationBody, resolution.videoReferences.length ? `canvas-video-${runId}` : idempotencyKey, resolution.videoReferences.length > 0);
+    capturedUsageAttemptId = delegated.usageAttemptId || capturedUsageAttemptId;
+    if (delegated.payload?.data?.job?.id) {
+      videoJobId = delegated.payload.data.job.id;
+      await ctx.env.DB.prepare("UPDATE canvas_runs SET output_json = ?, updated_at = ? WHERE id = ? AND user_id = ? AND status = 'running' AND deleted_at IS NULL").bind(JSON.stringify({ videoJobId, usageAttemptId: capturedUsageAttemptId }), nowIso(), runId, userId).run();
+      throw pendingCanvasVideo(videoJobId);
+    }
     if (!delegated.response.ok || !delegated.payload?.ok) {
       if (["idempotency_in_progress", "request_in_progress"].includes(delegated.payload?.code)) {
         return respond(ctx, {
@@ -1109,13 +1136,13 @@ async function runNode(ctx, session, projectId, nodeId) {
   } catch (error) {
     const failedAt = nowIso();
     const saveUnavailable = checkpointStored && ["INVALID_SAVE_REFERENCE", "SAVE_REFERENCE_EXPIRED", "SAVE_REFERENCE_UNAVAILABLE"].includes(error.code);
-    const code = saveUnavailable ? "canvas_image_save_unavailable" : checkpointStored ? "canvas_image_save_pending" : String(error.code || "canvas_run_failed").slice(0, 80);
-    const message = saveUnavailable ? "Generated image reference is no longer available. Automatic regeneration is prohibited; operator recovery is required." : checkpointStored ? "Image generation completed; saving is pending. Retry saving without another generation." : error.code ? String(error.message || "Canvas run failed.").slice(0, 300) : "Canvas run failed.";
+    const code = error.code === "canvas_video_pending" ? error.code : saveUnavailable ? "canvas_image_save_unavailable" : checkpointStored ? "canvas_image_save_pending" : String(error.code || "canvas_run_failed").slice(0, 80);
+    const message = error.code === "canvas_video_pending" ? error.message : saveUnavailable ? "Generated image reference is no longer available. Automatic regeneration is prohibited; operator recovery is required." : checkpointStored ? "Image generation completed; saving is pending. Retry saving without another generation." : error.code ? String(error.message || "Canvas run failed.").slice(0, 300) : "Canvas run failed.";
     await ctx.env.DB.prepare(
       `UPDATE canvas_runs SET status = 'failed', usage_attempt_id = ?, error_code = ?, error_message = ?, updated_at = ?, completed_at = ?
-       WHERE id = ? AND project_id = ? AND node_id = ? AND user_id = ? AND deleted_at IS NULL`
+       WHERE id = ? AND project_id = ? AND node_id = ? AND user_id = ? AND status = 'running' AND deleted_at IS NULL`
     ).bind(capturedUsageAttemptId, code, message, failedAt, failedAt, runId, projectId, nodeId, userId).run();
-    return respond(ctx, { ok: false, error: message, code, data: { run_id: runId } }, { status: error.status || 500 });
+    return respond(ctx, { ok: false, error: message, code, data: { run_id: runId, ...(videoJobId ? { video_job_id: videoJobId } : {}) } }, { status: error.status || 500 });
   }
 }
 
@@ -1133,7 +1160,7 @@ async function listRuns(ctx, userId, projectId, nodeId = null) {
   const rows = nodeId
     ? await ctx.env.DB.prepare(query).bind(projectId, nodeId, userId, RUN_LIMIT).all()
     : await ctx.env.DB.prepare(query).bind(projectId, userId, RUN_LIMIT).all();
-  return respond(ctx, { ok: true, data: { runs: (rows.results || []).map(runRecord), applied_limit: RUN_LIMIT } });
+  return respond(ctx, { ok: true, data: { runs: (await restoreCanvasVideoJobs(ctx.env, userId, rows.results || [])).map(runRecord), applied_limit: RUN_LIMIT } });
 }
 
 async function setAssetReference(ctx, userId, projectId, nodeId) {
@@ -1158,6 +1185,7 @@ export async function handleCanvas(ctx) {
   const session = await requireUser(ctx.request, ctx.env);
   if (session instanceof Response) return session;
   const userId = session.user.id;
+  ctx = { ...ctx, canvasUser: session.user };
   const { pathname, method } = ctx;
   try {
     if (pathname === "/api/account/canvas/models" && method === "GET") {

@@ -83,7 +83,8 @@ const GENERATE_LAB_UI_FILES = new Set([
 
 const CANVAS_UI_FILES = new Set([
   "canvas/index.html", "de/canvas/index.html",
-  "css/pages/canvas.css", "js/pages/canvas/main.js",
+  "css/pages/canvas.css", "js/pages/canvas/main.js", "js/pages/canvas/api.js",
+  "js/pages/canvas/workflow.js", "js/pages/canvas/video-frame.js", "js/pages/canvas/video-input.js",
 ]);
 
 const AUTH_SHARED_PATTERNS = [
@@ -171,6 +172,7 @@ const WORKER_TEST_PREFIXES = [
   "tests/fixtures/media/member-video-poster.webp",
   "tests/fixtures/media/member-image.png",
   "tests/helpers/member-generation-control.mjs",
+  "tests/helpers/canvas-video-control.mjs",
   "tests/q4-",
   "tests/helpers/q4-",
   "tests/fable-chat-",
@@ -517,6 +519,11 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       if(file.includes('auth') || file==='tests/workers.spec.js') addReason(selection,'auth',file,'covers authenticated Worker behavior');
       continue;
     }
+    if (file === "tests/fixtures/media/canvas-end-frame.mp4") {
+      addReason(selection, "homepage", file, "executes Canvas native frame export in the existing core browser caller");
+      addReason(selection, "workers", file, "executes Canvas owned-video and native runtime integration");
+      continue;
+    }
     if (file.startsWith("tests/fixtures/media/")) {
       addReason(selection, "homepage", file, "changes homepage media fixtures");
       addReason(selection, "carousel", file, "changes media fixtures used by the carousel matrix");
@@ -558,7 +565,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       continue;
     }
 
-    if (file === "js/shared/canvas-model-contract.mjs") {
+    if (["js/shared/canvas-model-contract.mjs", "js/shared/canvas-video-input.mjs"].includes(file)) {
       addReason(selection, "homepage", file, "executes Canvas model/inspector coverage through homepage core");
       addReason(selection, "auth", file, "changes authenticated model and credit contracts");
       addReason(selection, "workers", file, "is imported by Auth Canvas and member text generation");
@@ -567,6 +574,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     }
 
     if (CANVAS_UI_FILES.has(file)) {
+      if (file === "js/pages/canvas/api.js") addReason(selection, "auth", file, "changes the authenticated Canvas API client; Canvas core exercises its effects");
       addReason(selection, "homepage", file, "executes Canvas workspace and save coordination coverage in the existing homepage core command");
       addReason(selection, "static", file, "changes a Canvas frontend source");
       continue;

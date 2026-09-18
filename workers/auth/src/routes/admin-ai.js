@@ -1,3 +1,4 @@
+import { validateAdminPixverseExtension } from '../lib/pixverse-extend.js';
 import { getAdminModelStatus } from '../lib/admin-model-status.js';
 import {
   BODY_LIMITS,
@@ -2647,7 +2648,13 @@ export async function handleAdminAI(ctx) {
   if (pathname === "/api/admin/ai/models" && method === "GET") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-models-ip", 60, 600_000, correlationId);
     if (limited) return limited;
-    return proxyToAiLab(env, "/internal/ai/models", { method: "GET" }, result.user, correlationId, requestInfo);
+    const response = await proxyToAiLab(env, "/internal/ai/models", { method: "GET" }, result.user, correlationId, requestInfo);
+    if (!response.ok) return response;
+    const data = await response.json();
+    const headers = new Headers(response.headers); headers.delete("Content-Length"); headers.set("Cache-Control", "private, no-store");
+    return Response.json({ ...data, pixverseDirect: { configured: Boolean(env.PIXVERSE_API_KEY) } }, {
+      status: response.status, headers,
+    });
   }
 
   // route-policy: admin.ai.media-source-candidates
@@ -3914,7 +3921,7 @@ export async function handleAdminAI(ctx) {
     try {
       const minimalMode = body.minimal_mode === true;
       const { minimal_mode: _strip, ...validationBody } = body;
-      const validated = validateVideoPayload(validationBody);
+      const validated = await validateAdminPixverseExtension(env, result.user, validationBody);
       if (minimalMode) validated.minimal_mode = true;
       const idempotencyKey = normalizeAiVideoIdempotencyKey(request.headers.get("Idempotency-Key"));
       const { job, existing } = await createAdminAiVideoJob({

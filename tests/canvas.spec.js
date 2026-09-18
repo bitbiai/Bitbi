@@ -444,3 +444,104 @@ for (const locale of ['en', 'de']) test(`${locale}: admin Canvas uses registry o
   expect(calls[1]).toEqual(calls[0]); expect(calls[0].body.organization_id).toBe(org);
   await page.screenshot({ path: testInfo.outputPath(`admin-canvas-${locale}.png`) });
 });
+
+test('Canvas video continuation methods: only last frame, role and changed source identity', async () => {
+  const {resolveCanvasVideoInput}=await import('../js/shared/canvas-video-input.mjs');
+  const source={kind:'video_asset',assetId:'owned-video',runId:'run-1'};
+  const model={id:'pixverse/v6',capability:'video',runnable:true,controls:{supportsImageInput:true}};
+  expect(resolveCanvasVideoInput(model,source)).toMatchObject({methods:['last_frame'],method:'last_frame'});
+  const saved={videoInput:{modelId:model.id,assetId:source.assetId,runId:source.runId,method:'extend'}};
+  expect(resolveCanvasVideoInput(model,source,{videoInput:{...saved.videoInput,frame:{imageId:'old-frame'}}})).toMatchObject({method:'last_frame',frame:null});
+  expect(resolveCanvasVideoInput(model,{...source,runId:'run-2'},saved)).toMatchObject({method:'last_frame',frame:null});
+  expect(resolveCanvasVideoInput({...model,runnable:false},source).methods).toEqual([]);
+  expect(resolveCanvasVideoInput({...model,id:'image-capable-adapter'},source)).toMatchObject({methods:['last_frame'],method:'last_frame'});
+  expect(resolveCanvasVideoInput({...model,id:'text-only',controls:{}},source).methods).toEqual([]);
+});
+
+test('Canvas video continuation decodes the actual short last frame; rejects errors, timeout and foreign URL', async ({page},testInfo) => {
+  await mockSharedAuth(page,false);
+  createCanvasApiMock(page,{authenticated:false});
+  const video=fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'));
+  await page.route('**/api/ai/text-assets/fixture/file',route=>route.fulfill({status:200,contentType:'video/mp4',body:video}));
+  await page.route('**/api/ai/text-assets/broken/file',route=>route.fulfill({status:200,contentType:'video/mp4',body:'not a video'}));
+  await page.goto('/canvas/');
+  const result=await page.evaluate(async()=>{
+    const {extractCanvasLastFrame}=await import('/js/pages/canvas/video-frame.js');
+    const frame=await extractCanvasLastFrame('/api/ai/text-assets/fixture/file');
+    const image=new Image();image.src=frame.imageData;await image.decode();
+    const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+    canvas.getContext('2d').drawImage(image,0,0);
+    const pixel=Array.from(canvas.getContext('2d').getImageData(32,24,1,1).data);
+    const failures=[];
+    for(const [url,options] of [['/api/ai/text-assets/broken/file',{}],['https://foreign.invalid/private.mp4',{}],['/api/ai/text-assets/fixture/file',{timeoutMs:1}]]) {
+      try{await extractCanvasLastFrame(url,options);failures.push('unexpected-success');}catch(e){failures.push(e.message);}
+    }
+    return {pixel,width:frame.width,height:frame.height,duration:frame.duration,failures,remaining:document.querySelectorAll('video[aria-hidden="true"]').length};
+  });
+  expect(result.width).toBe(64);expect(result.height).toBe(48);expect(result.duration).toBeCloseTo(.4,2);
+  expect(result.pixel[2]).toBeGreaterThan(230);expect(result.pixel[2] - result.pixel[0]).toBeGreaterThan(180);
+  expect(result.failures).toEqual(['video_frame_decode_failed','video_source_unavailable','video_frame_cancelled_or_timeout']);
+  expect(result.remaining).toBe(0);
+  await testInfo.attach('decoded-last-frame',{body:JSON.stringify(result),contentType:'application/json'});
+});
+
+for(const locale of ['en','de']) test(`Canvas video continuation ${locale}: automatic last frame, real decoded frame, reload and one run`,async({page},testInfo)=>{
+  await mockSharedAuth(page,true);
+  const { listCanvasModelsForRole } = await import('../js/shared/canvas-model-contract.mjs');
+  const state=createCanvasApiMock(page,{modelPayload:{models:listCanvasModelsForRole(locale==='de'?'admin':'user').map(m=>({...m,controls:{...m.controls,extensionAvailable:true}})),organizations:[],access:{role:locale==='de'?'admin':'user'}}}),projectId='1'.repeat(32),src='a'.repeat(32),dest='b'.repeat(32),edgeId='c'.repeat(32),now=new Date().toISOString();
+  state.projects.push({id:projectId,title:'Video continuation',locale,created_at:now,updated_at:now});
+  state.nodes.push({id:src,project_id:projectId,type:'video_generation',title:'Source clip',x:30,y:30,model_id:'pixverse/v6',config:{},content:{},asset_id:'fixture',output:{kind:'video',runId:'source-run',asset:{id:'fixture',asset_type:'video',mime_type:'video/mp4',file_url:'/api/ai/text-assets/fixture/file'}}},
+    {id:dest,project_id:projectId,type:'video_generation',title:'Next clip',x:350,y:30,model_id:'pixverse/v6',config:{prompt:'Continue the scene',duration:2,quality:'720p',generateAudio:false},content:{}});
+  state.edges.push({id:edgeId,project_id:projectId,source_node_id:src,target_node_id:dest,config:{videoInput:{modelId:'pixverse/v6',assetId:'fixture',runId:'source-run',method:'extend'}}});
+  await page.route('**/api/ai/text-assets/fixture/file',route=>route.fulfill({status:200,contentType:'video/mp4',body:fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'))}));
+  let uploads=0,generated=0,attachments=0,reads=0,lastImage;
+  await page.route(`**/api/account/canvas/projects/${projectId}/edges/${edgeId}`,async route=>{
+    const body=route.request().postDataJSON();state.edges[0].config=body.config;
+    if(body.frame_image){uploads++;lastImage=body.frame_image;state.edges[0].config.videoInput.frame={imageId:'frame',version:'synthetic-version',previewUrl:'/api/ai/images/frame/file'};}
+    await route.fulfill({json:{ok:true,data:{edge:state.edges[0]}}});
+  });
+  await page.route('**/api/ai/images/frame/file',route=>route.fulfill({status:200,contentType:'image/png',body:Buffer.from(lastImage.split(',')[1],'base64')}));
+  await page.route(`**/api/account/canvas/projects/${projectId}/nodes/${dest}/run`,async route=>{
+    expect(state.edges[0].config.videoInput.method).toBe('last_frame');
+    if (!generated) {
+      generated++;
+      state.runs.push({id:'d'.repeat(32),project_id:projectId,node_id:dest,status:'running',error_code:'canvas_video_pending',retry_key:route.request().headers()['idempotency-key'],video_job_id:'fixture-job',model_id:'pixverse/v6',created_at:now,updated_at:now});
+      return route.fulfill({status:202,json:{ok:false,code:'canvas_video_pending',data:{video_job_id:'fixture-job'}}});
+    }
+    attachments++;
+    expect(reads).toBe(1);
+    await route.fulfill({json:{ok:true,data:{run:{id:'d'.repeat(32),node_id:dest,status:'completed',asset_id:'new-video',output:{kind:'video',assetId:'new-video'},created_at:now}}}});
+  });
+  await page.route('**/api/ai/generation-jobs/fixture-job', async route => {
+    expect(route.request().method()).toBe('GET'); reads++;
+    await route.fulfill({json:{ok:true,data:{job:{id:'fixture-job',status:'preview_pending'}}}});
+  });
+  await page.goto(locale==='de'?'/de/canvas/':'/canvas/');
+  await page.locator(`[data-node-id="${dest}"]`).first().click();
+  const inspector=page.locator('#canvasInspectorBody');
+  const method=inspector.locator('strong').filter({hasText:locale==='de'?'Letztes Frame als Startbild':'Last frame as start image'});
+  const run=inspector.getByRole('button',{name:locale==='de'?'Ausführen':'Run',exact:true});
+  await expect(method).toBeVisible();
+  await expect(inspector.locator('select[data-video-method]')).toHaveCount(0);
+  await expect(inspector.locator('.canvas-cost-note')).toContainText('56');
+  await expect(inspector.locator('img[alt]')).toHaveAttribute('src','/api/ai/images/frame/file');
+  await expect(run).toBeEnabled();expect(uploads).toBe(1);
+  const pixel=await page.evaluate(async data=>{const i=new Image();i.src=data;await i.decode();const c=document.createElement('canvas');c.width=i.width;c.height=i.height;c.getContext('2d').drawImage(i,0,0);return Array.from(c.getContext('2d').getImageData(32,24,1,1).data);},lastImage);
+  expect(pixel[2]).toBeGreaterThan(230);
+  await page.reload();await page.locator(`[data-node-id="${dest}"]`).first().click();await expect(method).toBeVisible();expect(uploads).toBe(1);
+  await run.click();await expect.poll(()=>generated).toBe(1);
+  await page.reload();
+  await expect.poll(()=>attachments,{timeout:10000}).toBe(1);
+  expect(generated).toBe(1);expect(reads).toBe(1);expect(uploads).toBe(1);
+  await page.locator(`[data-node-id="${dest}"]`).first().click();
+  await expect(method).toBeVisible();
+  await run.focus();await expect(run).toBeFocused();
+  await inspector.getByRole('img',{name:locale==='de'?'Letztes Frame als Startbild':'Last frame as start image'}).scrollIntoViewIfNeeded();
+  await page.screenshot({path:testInfo.outputPath(`video-continuation-${locale}.png`)});
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('#canvasInspectorToggle').click();
+  await expect(method).toBeVisible();
+  await inspector.getByRole('img',{name:locale==='de'?'Letztes Frame als Startbild':'Last frame as start image'}).scrollIntoViewIfNeeded();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath(`video-continuation-${locale}-mobile.png`)});
+});

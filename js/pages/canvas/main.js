@@ -1,4 +1,5 @@
-import { calculateAiImageCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
+import { videoInputCopy, renderVideoInput, awaitCanvasVideo } from './video-input.js?v=__ASSET_VERSION__';
+import { calculateAiImageCreditCost, calculateAiVideoCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { estimateCanvasTextCredits } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initAuthEntryActions } from '../../shared/auth-entry-actions.js?v=__ASSET_VERSION__';
@@ -45,6 +46,11 @@ const copy = isGerman ? {
     promptRequired: 'Add a direct prompt or connect a text node.', selectedModel: 'The selected model', imageInputUnsupported: '{model} does not support image input in Canvas.', videoInputUnsupported: '{model} does not support video input, continuation, or extension in Canvas.', audioInputUnsupported: 'The selected model does not accept an audio asset input.', jsonInputUnsupported: 'The selected model does not accept JSON workflow input.', noUsableOutput: 'The connected source has no usable output yet.',
     quickCreated: 'Text → Image → Video was created. Run the nodes from left to right.', quickFailed: 'The quick workflow could not be fully created.', organizationSelect: 'Select organization', organizationRequired: 'Select an active organization for this model.',
 };
+
+const videoCopy = videoInputCopy(isGerman);
+Object.assign(copy, { videoAmbiguous: videoCopy.ambiguous, videoMethodRequired: videoCopy.required, videoPreparing: videoCopy.preparing });
+let videoObservation = new AbortController();
+window.addEventListener('pagehide', () => videoObservation.abort());
 
 const dom = Object.freeze({
     loading: document.getElementById('canvasLoading'), denied: document.getElementById('canvasDenied'), app: document.getElementById('canvasApp'),
@@ -126,6 +132,9 @@ function showToast(message) {
 function errorMessage(result) {
     if (result?.code === 'canvas_run_in_progress') return copy.runInProgress;
     const messages = {
+      canvas_video_review_required: videoCopy.review,
+      canvas_video_pending: videoCopy.pending,
+      pixverse_extension_unavailable: videoCopy.unavailable,
       text_output_token_limit: isGerman ? 'Das Tokenlimit wurde ohne sichtbare Antwort erreicht. Prüfe Max. Tokens; es wird nicht automatisch erneut generiert.' : 'The token limit was reached without a visible answer. Review Max tokens; generation is not retried automatically.',
       text_output_empty: isGerman ? 'Der Anbieter hat keinen sichtbaren Antworttext geliefert.' : 'The provider returned no visible answer text.',
       text_output_reasoning_only: isGerman ? 'Der Anbieter lieferte nur interne Verarbeitung, keinen sichtbaren Antworttext.' : 'The provider returned reasoning only, without a visible answer.',
@@ -415,6 +424,9 @@ function renderInputContext(node, analysis) {
                 ? `${source.sourceTitle}: ${source.inputKind}`
                 : `${source.sourceTitle}: ${source.reason}`;
             section.append(el('p', '', message));
+            if (source.videoInput) renderVideoInput({ source, model: analysis.model, section, projectId: store.state.project.id,
+                edge: store.state.edges.find(edge => edge.id === source.edgeId), beforePrepare: flushSaves, signal: inspectorAbort.signal, copy: videoCopy,
+                update(edge, focus) { store.upsertEdge(edge); renderGraph(); renderInspector(); if (focus) dom.inspector.querySelector(`[data-video-method="${edge.id}"]`)?.focus({ preventScroll: true }); }, report: showToast });
             if (source.previewUrl && source.kind === 'image_asset') {
                 const image = el('img'); image.src = source.previewUrl; image.alt = source.sourceTitle; image.loading = 'lazy'; section.append(image);
             }
@@ -483,6 +495,7 @@ function renderInspector() {
                 const budget = model.requiresPlatformBudget && model.runnable ? (isGerman ? 'Plattformbudget' : 'Platform budget') : model.requiresOrganization ? (isGerman ? 'Credits der ausgewählten Organisation' : 'Selected organization credits') : (isGerman ? 'Persönliche Credits' : 'Personal credits');
                 let estimate = model.estimatedCredits;
                 try {
+                    if (capability === 'video' && model.id === 'pixverse/v6' && model.runnable) estimate = calculateAiVideoCreditCost(model.id, { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, generateAudio: node.config?.generateAudio !== false })?.credits;
                     if (capability === 'image' && model.runnable) estimate = calculateAiImageCreditCost(model.id, { ...node.config, referenceImageCount: workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0 })?.credits;
                     if (capability === 'text' && model.requiresPersonalCredits) estimate = estimateCanvasTextCredits(model.id, node.config || {});
                 } catch { estimate = null; }
@@ -632,6 +645,7 @@ function openProject(projectId) {
 }
 
 async function loadProject(projectId) {
+    videoObservation.abort(); videoObservation = new AbortController();
     const result = await canvasApi.getProject(projectId);
     if (!result.ok) return showToast(errorMessage(result));
     store.state.project = result.data.project;
@@ -642,6 +656,10 @@ async function loadProject(projectId) {
     dom.title.value = result.data.project.title;
     renderAll();
     dom.viewport.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+    for (const run of store.state.runs.filter(run => run.error_code === 'canvas_video_pending' && run.retry_key)) {
+        const node = store.state.nodes.find(node => node.id === run.node_id);
+        if (node) void observeVideo(node, projectId, run.retry_key, run.video_job_id, null);
+    }
     return true;
 }
 
@@ -765,6 +783,11 @@ async function runSelectedNode(node) {
     const idempotencyKey = pendingRunKeys.get(node.id) || pendingSave?.retry_key || `canvas-${crypto.randomUUID()}`;
     pendingRunKeys.set(node.id, idempotencyKey);
     const result = await canvasApi.runNode(store.state.project.id, node.id, idempotencyKey, organizationId);
+    if (result.code === 'canvas_video_pending') {
+        runningNodeId = null; showToast(videoCopy.pending);
+        void observeVideo(node, store.state.project.id, idempotencyKey, result.data?.video_job_id, organizationId);
+        return;
+    }
     runningNodeId = null;
     if (!result.ok) {
         if (result.status !== 0 && !['canvas_run_in_progress', 'canvas_image_save_pending', 'canvas_image_save_unavailable', 'image_save_reference_missing', 'image_save_checkpoint_failed'].includes(result.code)) pendingRunKeys.delete(node.id);
@@ -776,6 +799,21 @@ async function runSelectedNode(node) {
     const run = result.data.run;
     node.output = run.output; node.asset_id = run.asset_id || node.asset_id;
     store.state.runs = [run, ...store.state.runs.filter((item) => item.id !== run.id)].slice(0, 40);
+    renderAll(); showToast(copy.runComplete);
+}
+
+const observedVideos = new Set();
+async function observeVideo(node, projectId, key, jobId, organizationId) {
+    if (observedVideos.has(key)) return;
+    observedVideos.add(key);
+    const signal = videoObservation.signal;
+    const result = await awaitCanvasVideo({ projectId, nodeId: node.id, key, jobId, organizationId, signal });
+    observedVideos.delete(key);
+    if (signal.aborted || store.state.project?.id !== projectId || !store.state.nodes.includes(node)) return;
+    if (!result.ok) { showToast(result.code === 'canvas_video_pending' ? videoCopy.pending : result.code === 'canvas_video_review_required' ? videoCopy.review : errorMessage(result)); return; }
+    const run = result.data.run;
+    node.output = run.output; node.asset_id = run.asset_id; pendingRunKeys.delete(node.id);
+    store.state.runs = [run, ...store.state.runs.filter(item => item.id !== run.id)].slice(0, 40);
     renderAll(); showToast(copy.runComplete);
 }
 
