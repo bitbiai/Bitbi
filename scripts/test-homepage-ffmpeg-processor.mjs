@@ -391,3 +391,5 @@ console.log('Member poster claim headers preserve the existing legacy processor 
   }
 }
 console.log('Actual processor mode/configuration gate passed with synthetic inputs.');
+
+await (await import('../services/homepage-ffmpeg-processor/canvas-full-video.test.mjs')).testCanvasConcatenation();

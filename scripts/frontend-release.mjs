@@ -65,7 +65,9 @@ async function main() {
  fs.rmSync('hosting-receipt.json',{force:true});
  const current=async()=>execFileSync(process.execPath,['scripts/pages-candidate.mjs','current'],{stdio:'inherit'});
  const receipt=await publishFrontend({manifest,proofs,account:process.env.CLOUDFLARE_ACCOUNT_ID,current,read:cloudflareRead,upload:async message=>{
-   await verifyUploadSource();assert(process.env.CLOUDFLARE_API_TOKEN,'Explicit frontend deployment credential required');
+   await verifyUploadSource();
+   if(process.env.BACKEND_RELEASE_RECEIPT)await (await import('./lib/backend-publication.mjs')).verifyBackendReceipt();
+   assert(process.env.CLOUDFLARE_API_TOKEN,'Explicit frontend deployment credential required');
    // No --routes, custom domains or backend bindings. Cutover owns domains.
    console.log(wrangler(['deploy','--config',materializeFrontendConfig('.local/frontend-deploy'),'--message',message],{...process.env,WRANGLER_OUTPUT_FILE_PATH:path.resolve(output)}));
    const records=fs.readFileSync(output,'utf8').trim().split('\n').map(JSON.parse).filter(r=>r.type==='deploy');

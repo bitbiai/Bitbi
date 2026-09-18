@@ -1,3 +1,4 @@
+import { processCanvasExports } from './canvas-full-video.mjs';
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -951,6 +952,9 @@ async function main() {
     for (const job of jobs) {
       await processJob(job);
     }
+  }
+  if (process.env.MEMBER_GENERATION_POSTERS_ONLY === '1') {
+    await processCanvasExports({ requestJson, authHeaders, baseUrl: BASE_URL, limit: JOB_LIMIT, dryRun: DRY_RUN, ffmpeg: FFMPEG_BIN, ffprobe: FFPROBE_BIN });
   }
   if (PROCESS_HOMEPAGE_SOURCE_POSTERS) {
     const sourcePosterJobs = await claimSourcePosterJobs();

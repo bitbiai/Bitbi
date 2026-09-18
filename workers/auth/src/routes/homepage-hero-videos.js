@@ -1,3 +1,4 @@
+import { handleCanvasExportProcessor } from './canvas-video-processing.js';
 import { claimMemberVideoPosters, memberVideoPosterSource, finishMemberVideoPoster } from "../lib/member-generation-posters.js";
 import { publicVideoResponse } from "../lib/public-video-response.mjs";
 import { STREAM_RECEIPT_PROTOCOL, StreamReceiptError, claimStreamPreviewJobs, beginStreamUpload, recordStreamUpload, getStreamUploadReceipt, completeStreamUpload, failStreamUpload } from '../lib/memvid-stream-upload-receipts.js';
@@ -3071,7 +3072,7 @@ async function handleSourcePosterComplete(ctx, assetIdFromPath) {
       userId: source.user_id,
       assetId,
       posterBytes: new Uint8Array(await poster.arrayBuffer()),
-      posterClaim: source.generation_job_id ? {id:source.generation_job_id,token:source.poster_processing_token} : null,
+      posterClaim: source.generation_job_id ? {id:source.generation_job_id,token:source.poster_processing_token,table:source.poster_processing_table} : null,
       successEvent: "homepage_hero_source_poster_saved",
       failureEvent: "homepage_hero_source_poster_save_failed",
     });
@@ -3707,6 +3708,11 @@ export async function handleAdminHomepageHeroVideos(ctx) {
 }
 
 export async function handleHomepageHeroVideos(ctx) {
+  // route-policy: internal.canvas-export.claim
+  // route-policy: internal.canvas-export.complete
+  // route-policy: internal.canvas-export.fail
+  const canvasExport = await handleCanvasExportProcessor(ctx);
+  if (canvasExport) return canvasExport;
   const { pathname, method } = ctx;
 
   // route-policy: internal.memvid-stream-previews.protocol

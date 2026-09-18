@@ -54549,7 +54549,7 @@ require('./helpers/admin-cap-replay-contract.js').registerAdminCapReplayContract
 // Durable member jobs use this existing Worker entry (including focused --grep runs).
 require("./member-generation.cases.js");
 
-for (const name of ['success', 'last-frame', 'foreign', 'changed', 'blocked', 'blocked-admin', 'provider-interrupted', 'receipt-write']) {
+for (const name of ['first', 'success', 'last-frame', 'foreign', 'changed', 'blocked', 'blocked-admin', 'provider-interrupted', 'receipt-write']) {
   test(`Canvas video continuation: ${name}`, async () => {
     const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');
     const db=new SqliteD1Database(); applyAuthMigrations(db);
@@ -54580,3 +54580,17 @@ for (const name of ['success', 'failure', 'unknown']) {
     } finally { db.close(); }
   });
 }
+
+ test('Canvas private full video: chain, ownership, poster retry and backfill', async () => {
+  const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');
+  const db=new SqliteD1Database();applyAuthMigrations(db);
+  try {
+    const {canvasProcessingCase}=await import('./helpers/canvas-processing-control.mjs');
+    const result=await canvasProcessingCase({...createAuthTestEnv(),DB:db},{
+      videoBase64:fs.readFileSync(path.join(__dirname,'fixtures/media/test-video-changing.mp4')).toString('base64'),
+      imageBase64:fs.readFileSync(path.join(__dirname,'fixtures/media/member-image.png')).toString('base64'),
+    });
+    await test.info().attach('canvas-processing',{body:JSON.stringify(result),contentType:'application/json'});
+    expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+  } finally {db.close();}
+ });

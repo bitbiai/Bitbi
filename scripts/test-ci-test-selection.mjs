@@ -656,3 +656,12 @@ for (const file of ['js/pages/canvas/api.js', 'js/pages/canvas/video-frame.js', 
 }
 assert(selection(['js/shared/canvas-video-input.mjs', 'unknown-video-adapter.mjs']).full);
 assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-models-video-module.js']).homepageMedia);
+
+{
+ const selection=selectCiTests(['js/pages/canvas/full-video.js','workers/auth/src/routes/canvas-video-processing.js',
+ 'services/homepage-ffmpeg-processor/canvas-full-video.mjs','services/homepage-ffmpeg-processor/canvas-full-video.test.mjs',
+ 'scripts/lib/backend-publication.mjs','scripts/lib/backend-continuation.mjs','scripts/release-apply.mjs','scripts/check-static-deploy-safety.mjs','scripts/check-route-policies.mjs','tests/helpers/canvas-processing-control.mjs']);
+ assert.equal(selection.workers,true);assert.equal(selection.auth,true);assert.equal(selection.homepage,true);
+ assert.equal(selection.static,true);assert.equal(selection.full,false);assert.equal(selection.homepageMedia,false);
+ assert.equal(selectCiTests(['services/homepage-ffmpeg-processor/unknown.mjs']).full,true);
+}

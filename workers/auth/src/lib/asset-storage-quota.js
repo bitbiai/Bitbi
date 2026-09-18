@@ -295,8 +295,9 @@ export async function reserveUserAssetStorage(env, { userId, uploadBytes, genera
   try {
     if (generationReservation) {
       const { id, token } = generationReservation;
+      const table = generationReservation.table === 'canvas_video_processing' ? 'canvas_video_processing' : 'member_generation_jobs';
       const column = generationReservation.kind === 'poster' ? 'poster_reserved_bytes' : 'storage_reserved_bytes';
-      const job = await env.DB.prepare(`SELECT ${column} AS reserved_bytes FROM member_generation_jobs WHERE id=? AND user_id=? AND processing_token=? AND locked_until>?`)
+      const job = await env.DB.prepare(`SELECT ${column} AS reserved_bytes FROM ${table} WHERE id=? AND user_id=? AND processing_token=? AND locked_until>?`)
         .bind(id,userId,token,nowIso()).first();
       if (!job) throw new Error('generation_claim_lost');
       if (job.reserved_bytes) {
@@ -305,10 +306,10 @@ export async function reserveUserAssetStorage(env, { userId, uploadBytes, genera
       }
       const results = await env.DB.batch([
         env.DB.prepare(`UPDATE user_asset_storage_usage SET used_bytes=used_bytes+?,updated_at=? WHERE user_id=?
-          AND (?=1 OR used_bytes+?<=?) AND EXISTS(SELECT 1 FROM member_generation_jobs
+          AND (?=1 OR used_bytes+?<=?) AND EXISTS(SELECT 1 FROM ${table}
           WHERE id=? AND user_id=? AND processing_token=? AND locked_until>? AND ${column}=0)`)
           .bind(attemptedUploadBytes,nowIso(),userId,isUnlimited?1:0,attemptedUploadBytes,limitBytes,id,userId,token,nowIso()),
-        env.DB.prepare(`UPDATE member_generation_jobs SET ${column}=? WHERE id=? AND changes()=1`)
+        env.DB.prepare(`UPDATE ${table} SET ${column}=? WHERE id=? AND changes()=1`)
           .bind(attemptedUploadBytes,id),
       ]);
       result=results[0];
@@ -368,12 +369,13 @@ export async function releaseUserAssetStorage(env, { userId, bytes, generationRe
   if (!releaseBytes) return;
   if (generationReservation) {
     const {id,token}=generationReservation;
+    const table = generationReservation.table === 'canvas_video_processing' ? 'canvas_video_processing' : 'member_generation_jobs';
     const column = generationReservation.kind === 'poster' ? 'poster_reserved_bytes' : 'storage_reserved_bytes';
     await env.DB.batch([
       env.DB.prepare(`UPDATE user_asset_storage_usage SET used_bytes=MAX(0,used_bytes-?),updated_at=? WHERE user_id=?
-        AND EXISTS(SELECT 1 FROM member_generation_jobs WHERE id=? AND user_id=? AND processing_token=? AND ${column}=?)`)
+        AND EXISTS(SELECT 1 FROM ${table} WHERE id=? AND user_id=? AND processing_token=? AND ${column}=?)`)
         .bind(releaseBytes,nowIso(),userId,id,userId,token,releaseBytes),
-      env.DB.prepare(`UPDATE member_generation_jobs SET ${column}=0 WHERE id=? AND processing_token=? AND changes()=1`).bind(id,token),
+      env.DB.prepare(`UPDATE ${table} SET ${column}=0 WHERE id=? AND processing_token=? AND changes()=1`).bind(id,token),
     ]);
     return;
   }

@@ -91,7 +91,7 @@ export async function runCanvasTests(f) {
     assert.equal(f.canvasProvider.requests.length, 4);
     assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM credit_ledger WHERE entry_type='consume'"), before);
   });
-  for (const name of ['success','last-frame','foreign','changed','blocked','blocked-admin','provider-interrupted','receipt-write']) await f.test(`canvas_native_video_${name}`, async () => {
+  for (const name of ['first','success','last-frame','foreign','changed','blocked','blocked-admin','provider-interrupted','receipt-write']) await f.test(`canvas_native_video_${name}`, async () => {
     const response = await f.control('/canvas-video', { name,
       videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
       imageBase64: fs.readFileSync(new URL('../../fixtures/media/member-image.png', import.meta.url)).toString('base64'),
@@ -108,6 +108,14 @@ export async function runCanvasTests(f) {
     assert.equal(response.status, 200, `Native Canvas video ${name}: ${await response.clone().text()}`);
     f.metrics.push(await response.json());
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'), []);
+  });
+  await f.test('canvas_native_private_full_video_and_posters', async () => {
+    const response=await f.control('/canvas-processing',{
+      videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
+      imageBase64:fs.readFileSync(new URL('../../fixtures/media/member-image.png',import.meta.url)).toString('base64'),
+    });
+    assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
   assert.equal(f.counters.outboundDenied, 0, 'No external provider or network call');
 }

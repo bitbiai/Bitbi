@@ -224,3 +224,13 @@ For substantial changes, also identify relevant schema/config/binding impact, de
 ## Q4 native media acceptance
 
 For the authorized Q4 release, native WebKit core acceptance runs on standard macOS CI; Linux keeps Worker/runtime/security, Chromium media and non-decoder WebKit homepage checks. Required core scenarios cover available playback, visible poster/retained content on failed or delayed decorative loading, navigation, suspension/manual pause, EN/DE and existing responsive policy. Decorative exact-cycle/multi-loop stress belongs to the explicit extended commands in Full regression; scenario discovery verifies both scopes. Do not promote historical failures to passes. Missing/failed core evidence or wrong build bytes blocks release. Narrow Carousel timing budgets remain diagnostic; safety, accounting, authorization and primary media functionality remain binding.
+
+## Explicit production-release continuation
+
+When the current task explicitly includes publication, complete its supported
+backend prerequisites and automatic frontend continuation in the existing
+protected release job before handing off. This does not authorize deployment
+for other tasks. Keep exact candidate evidence, owner environment review and
+publication lock. Do not actively wait/poll for CI; report the automatic path
+and any evidenced external rights/review blocker. A mixed push skipped without
+continuation is not a completed publication assignment.

@@ -10,7 +10,7 @@ export async function canvasVideoCase(base, name, fixture) {
   const db = base.DB, messages = [], requests = [], waits = [];
   const bytes = Uint8Array.from(atob(fixture.videoBase64), char => char.charCodeAt(0));
   const env = { ...base, BITBI_ENV: 'production', PIXVERSE_API_KEY: '',
-    ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG: 'false', ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH: 'false',
+    MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:'synthetic-poster', ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG: 'false', ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH: 'false',
     AI_VIDEO_JOBS_QUEUE: { async send(body) { messages.push(body); } }, AI_IMAGE_DERIVATIVES_QUEUE: { async send() {} },
     AI: { async run(model, body) { requests.push({ model, body }); if (name === 'provider-interrupted') throw new Error('Synthetic lost provider response'); return { video: 'https://fixture.invalid/result.mp4' }; } },
     __TEST_FETCH: async (url, init) => {
@@ -46,7 +46,10 @@ export async function canvasVideoCase(base, name, fixture) {
   };
   const projectPath = `/api/account/canvas/projects/${pid}`, runPath = `${projectPath}/nodes/${dest}/run`, edgePath = `${projectPath}/edges/${eid}`;
   check((await request(projectPath,'GET',null,other)).status===404,'Foreign project denied');
-  let result=await request(runPath,'POST',{});
+  let result,method;
+  if(name==='first') await db.prepare('DELETE FROM canvas_edges WHERE id=?').bind(eid).run();
+  else {
+  result=await request(runPath,'POST',{});
   check(result.status===409 || (name==='foreign' && result.status===404),'Unselected video must not generate');
   check(requests.length===0,'No provider on missing method');
   if (name === 'blocked' || name === 'blocked-admin') {
@@ -69,7 +72,7 @@ export async function canvasVideoCase(base, name, fixture) {
     check(!requests.length && !messages.length,'No provider, upload or queue');
     return {name,status:'denied'};
   }
-  const method='last_frame';
+  method='last_frame';
   const config={videoInput:{modelId:'pixverse/v6',assetId:original.id,runId:'source-run',method}};
   if (method==='last_frame') {
     const invalid=await request(edgePath,'PATCH',{config,frame_image:'data:image/png;base64,bm90IGEgcG5n'});
@@ -92,6 +95,7 @@ export async function canvasVideoCase(base, name, fixture) {
     check(requests.length===0,'No stale-source generation');
     await db.prepare('UPDATE canvas_nodes SET asset_id=NULL,output_json=NULL WHERE id=?').bind(src).run();
     check((await request(runPath,'POST',{})).status===409 && requests.length===0, 'Missing output blocks before inference');return {name,requests,status:'denied'};
+  }
   }
   result=await request(runPath,'POST',{});
   check(result.status===202 && result.body.code==='canvas_video_pending',`Durable accepted: ${JSON.stringify(result)}`);
@@ -138,6 +142,8 @@ export async function canvasVideoCase(base, name, fixture) {
     check(['succeeded','preview_pending'].includes(finalJob.status),`Background completion ${finalJob.status}/${finalJob.error_code}`);
     check(debits.n===1,'Exactly one credit debit');
     check((await db.prepare("SELECT amount FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'").bind(owner).first()).amount===-56,'Existing 2s/720p/no-audio price unchanged');
+    const detached=await db.prepare('SELECT status,asset_id FROM canvas_runs WHERE user_id=?').bind(owner).first();
+    check(detached.status==='completed' && detached.asset_id===job.id,'Queue completes Canvas without a browser attach');
     result=await request(runPath,'POST',{});check(result.status===200,`Attach completed job: ${JSON.stringify(result)}`);
     const asset=result.body.data.run.asset_id;check(asset===job.id && asset!==original.id,'Owned new asset, original preserved');
     check((await request(runPath,'POST',{})).body.data.idempotent_replay===true,'Canvas replay');
@@ -145,6 +151,18 @@ export async function canvasVideoCase(base, name, fixture) {
     const project=await request(projectPath);check(project.body.data.nodes.find(n=>n.id===dest).output.assetId===asset,'Reload restores output');
     await deliver();check((await db.prepare("SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'").bind(owner).first()).n===1,'Duplicate queue does not recharge');
     check((await request(`/api/ai/generation-jobs/${job.id}`,'GET',null,other)).status===404,'Foreign job denied');
+  }
+  if(name==='first'||name==='success') {
+    const posterBase='/api/internal/homepage/hero-videos/source-posters/jobs';
+    const processor=(url,body,token)=>worker.fetch(new Request('https://bitbi.ai'+url,{method:'POST',headers:{Authorization:'Bearer synthetic-poster',...(token?{'X-BITBI-Generation-Claim':token}:{}),...(body instanceof FormData?{}:{'Content-Type':'application/json'})},body:body instanceof FormData?body:JSON.stringify(body)}),env,{waitUntil(){}});
+    const claim=await processor(posterBase+'/claim?member_only=true',{member_only:true,limit:8});
+    const item=(await claim.json()).data.jobs.find(j=>j.id===job.id);check(item,'First/continuation private poster claim');
+    const form=new FormData();form.set('poster',new Blob([Uint8Array.from(atob(fixture.imageBase64),c=>c.charCodeAt(0))],{type:'image/png'}),'poster.png');
+    check((await processor(item.completion.url,form,item.generation_claim)).ok,'Poster completes on existing endpoint');
+    const project=(await request(projectPath)).body.data;
+    check(project.nodes.find(n=>n.id===dest).output.previewUrl===`/api/ai/text-assets/${job.id}/poster`,'Reload refreshes frozen Canvas poster');
+    check(requests.filter(r=>r.model).length===1,'Poster never generates again');
+    check((await db.prepare("SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'").bind(owner).first()).n===1,'Poster never debits again');
   }
   await Promise.allSettled(waits);
   return {name,requests:requests.map(({body,...item})=>({...item,operation:body?.model||null})),status:finalJob.status,debits:debits.n};

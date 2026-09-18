@@ -36,7 +36,7 @@ function id(value) { return encodeURIComponent(String(value || '')); }
 export const canvasApi = Object.freeze({
     listProjects: () => request('/projects'),
     createProject: (body) => request('/projects', { method: 'POST', body }),
-    getProject: (projectId) => request(`/projects/${id(projectId)}`),
+    getProject: (projectId, signal) => request(`/projects/${id(projectId)}`, { signal }),
     updateProject: (projectId, body) => request(`/projects/${id(projectId)}`, { method: 'PATCH', body }),
     deleteProject: (projectId) => request(`/projects/${id(projectId)}`, { method: 'DELETE' }),
     listModels: () => request('/models'),
@@ -60,6 +60,8 @@ export const canvasApi = Object.freeze({
             storageUsage: result.data?.storageUsage || null,
         };
     },
+    fullVideo: (projectId, runId, create, signal) => request(`/projects/${id(projectId)}/runs/${id(runId)}/full-video`, { method: create ? 'POST' : 'GET', ...(create ? {body:{}} : {}), signal }),
+    retryPoster: (assetId, signal) => requestUrl(`/api/ai/generation-jobs/${id(assetId)}/retry-preview`, {method:'POST',body:{},signal}),
     getGenerationJob: (jobId, signal) => requestUrl(`/api/ai/generation-jobs/${id(jobId)}`, { signal }),
     getCredits: () => requestUrl('/api/account/credits-dashboard?limit=1'),
 });

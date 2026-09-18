@@ -57,3 +57,13 @@ These rules apply specifically to `workers/auth` and override broader repo guida
 ## Required report for worker changes
 
 Use the root Git workflow and “Commit/push completion: no CI waiting”, including local checks, confirmed push and a run or Actions link. Completed failed jobs may be diagnosed and repaired within scope even while the workflow runs; otherwise queued/running or absent decisive jobs require handoff without waiting. CI/deployment may remain unverified; Stefan performs subsequent verification. Identify migrations, Wrangler/config/binding impact, deploy order, manual setup, and limitations when relevant; no separate audit report is required.
+
+## Explicit production-release continuation
+
+When the current task explicitly includes publication, complete its supported
+backend prerequisites and automatic frontend continuation in the existing
+protected release job before handing off. This does not authorize deployment
+for other tasks. Keep exact candidate evidence, owner environment review and
+publication lock. Do not actively wait/poll for CI; report the automatic path
+and any evidenced external rights/review blocker. A mixed push skipped without
+continuation is not a completed publication assignment.

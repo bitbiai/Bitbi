@@ -530,6 +530,7 @@ function buildVideoMetadata(payload, _savedAt, { mimeType, sizeBytes } = {}) {
     size_bytes: sizeBytes ?? null,
   };
 
+  if (payload.canvas_export) { metadata.canvas_export=payload.canvas_export; metadata.canvas_poster_status='pending'; metadata.original_width=payload.width; metadata.original_height=payload.height; }
   if (payload.model) metadata.model = payload.model;
   if (payload.provider) metadata.provider = payload.provider;
   if (payload.prompt || payload.prompt === null) metadata.prompt = payload.prompt;
@@ -1038,10 +1039,17 @@ export async function saveGeneratedVideoAsset(env, {
   payload = {},
   posterBytes = null,
   posterMimeType = null,
+  processingClaim = null,
 }) {
+  if (processingClaim) {
+    const row = await env.DB.prepare("SELECT id FROM canvas_video_processing WHERE id=? AND user_id=? AND processing_token=? AND status='processing' AND locked_until>?").bind(processingClaim.id,userId,processingClaim.token,nowIso()).first();
+    if (!row) throw new Error('canvas_processing_claim_lost');
+    const saved = await env.DB.prepare('SELECT * FROM ai_text_assets WHERE id=? AND user_id=?').bind(processingClaim.id,userId).first();
+    if (saved) return { ...saved, file_url: `/api/ai/text-assets/${saved.id}/file`, poster_url: saved.poster_r2_key ? `/api/ai/text-assets/${saved.id}/poster` : null };
+  }
   const existing = await existingGenerationAsset(env, userId, 'video');
   if (existing) return existing;
-  const generationReservation = generationStorageReservation(env);
+  const generationReservation = processingClaim ? {...processingClaim,table:'canvas_video_processing'} : generationStorageReservation(env);
   const generationToken = generationExecution(env)?.job.processing_token || null;
   const safeTitle = cleanInlineText(title).slice(0, 120) || "Generated Video";
   const now = nowIso();
@@ -1089,7 +1097,7 @@ export async function saveGeneratedVideoAsset(env, {
   const fileExt = extensionForVideoMimeType(normalizedMimeType);
   const fileStem = slugifyFileName(safeTitle, sourceModule);
   const fileName = `${fileStem}.${fileExt}`;
-  const assetId = generationExecution(env)?.job.id || randomTokenHex(16);
+  const assetId = processingClaim?.id || generationExecution(env)?.job.id || randomTokenHex(16);
   const timestamp = Date.now();
   const r2Key = `users/${userId}/folders/${folderSlug}/video/${timestamp}-${randomTokenHex(4)}-${fileName}`;
   const previewText = truncatePreview(payload.prompt || "Video generation");
@@ -1133,8 +1141,8 @@ export async function saveGeneratedVideoAsset(env, {
   try {
     if (resolvedFolderId) {
       insertResult = await env.DB.prepare(
-        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at${generationToken ? ', generation_token' : ''})
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${generationToken ? ', ?' : ''}
+        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at${generationToken ? ', generation_token' : processingClaim ? ', canvas_processing_token' : ''})
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${generationToken || processingClaim ? ', ?' : ''}
          WHERE EXISTS (SELECT 1 FROM ai_folders WHERE id = ? AND user_id = ? AND status = 'active')`
       ).bind(
         assetId,
@@ -1149,14 +1157,14 @@ export async function saveGeneratedVideoAsset(env, {
         previewText,
         metadataJson,
         now,
-        ...(generationToken ? [generationToken] : []),
+        ...(generationToken ? [generationToken] : processingClaim ? [processingClaim.token] : []),
         resolvedFolderId,
         userId
       ).run();
     } else {
       insertResult = await env.DB.prepare(
-        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at${generationToken ? ', generation_token' : ''})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${generationToken ? ', ?' : ''})`
+        `INSERT INTO ai_text_assets (id, user_id, folder_id, r2_key, title, file_name, source_module, mime_type, size_bytes, preview_text, metadata_json, created_at${generationToken ? ', generation_token' : processingClaim ? ', canvas_processing_token' : ''})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${generationToken || processingClaim ? ', ?' : ''})`
       ).bind(
         assetId,
         userId,
@@ -1170,10 +1178,17 @@ export async function saveGeneratedVideoAsset(env, {
         previewText,
         metadataJson,
         now,
-        ...(generationToken ? [generationToken] : [])
+        ...(generationToken ? [generationToken] : processingClaim ? [processingClaim.token] : [])
       ).run();
     }
   } catch (error) {
+    if (processingClaim) {
+      const saved = await env.DB.prepare('SELECT * FROM ai_text_assets WHERE id=? AND user_id=?').bind(processingClaim.id,userId).first();
+      if (saved) {
+        if(saved.r2_key!==r2Key)await env.USER_IMAGES.delete(r2Key);
+        return { ...saved, file_url: `/api/ai/text-assets/${saved.id}/file` };
+      }
+    }
     if (generationExecution(env)) {
       const committed = await existingGenerationAsset(env, userId, 'video');
       if (committed) return committed;
@@ -1389,8 +1404,9 @@ async function storeAiTextAssetPosterObject(env, {
   const existing = await loadAiTextAssetPosterStorage(env, { userId, assetId });
   if (!existing) return null;
   const generationReservation = posterClaim ? {...posterClaim,kind:'poster'} : null;
+  const claimTable = posterClaim?.table === 'canvas_video_processing' ? 'canvas_video_processing' : 'member_generation_jobs';
   if (posterClaim) {
-    const live = await env.DB.prepare(`SELECT id FROM member_generation_jobs WHERE id=? AND user_id=?
+    const live = await env.DB.prepare(`SELECT id FROM ${claimTable} WHERE id=? AND user_id=?
       AND processing_token=? AND locked_until>? AND status='preview_pending'`).bind(posterClaim.id,userId,posterClaim.token,nowIso()).first();
     if (!live) throw Object.assign(new Error('generation_claim_lost'),{code:'generation_claim_lost'});
     if (existing.poster_r2_key) return {r2Key:existing.poster_r2_key,width:existing.poster_width,height:existing.poster_height,sizeBytes:existing.poster_size_bytes};
@@ -1433,7 +1449,7 @@ async function storeAiTextAssetPosterObject(env, {
 
     const updateResult = await env.DB.prepare(
       `UPDATE ai_text_assets SET poster_r2_key = ?, poster_width = ?, poster_height = ?, poster_size_bytes = ? WHERE id = ? AND user_id = ?
-       ${posterClaim ? "AND poster_r2_key IS NULL AND EXISTS(SELECT 1 FROM member_generation_jobs WHERE id=? AND processing_token=? AND locked_until>? AND status='preview_pending')" : ''}`
+       ${posterClaim ? `AND poster_r2_key IS NULL AND EXISTS(SELECT 1 FROM ${claimTable} WHERE id=? AND processing_token=? AND locked_until>? AND status='preview_pending')` : ''}`
     ).bind(r2Key, width, height, outputSizeBytes, assetId, userId,...(posterClaim?[posterClaim.id,posterClaim.token,nowIso()]:[])).run();
 
     if (!updateResult?.meta?.changes) {

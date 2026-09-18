@@ -1,3 +1,4 @@
+import {backendContinuationSupported} from './lib/backend-continuation.mjs';
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -321,13 +322,21 @@ try {
     process.exit(0);
   }
   const plan = loadPlan(options);
+  let dependenciesVerified=false;
+  if(process.env.BACKEND_RELEASE_RECEIPT) {
+    const receipt=await (await import('./lib/backend-publication.mjs')).verifyBackendReceipt();
+    if(receipt.sha!==options.releaseOptions.head || receipt.base!==options.releaseOptions.base || options.planJson) throw new Error('Backend receipt range mismatch');
+    dependenciesVerified=true;
+  }
   const result = evaluateStaticDeploySafety(plan, {
+    dependenciesVerified,
     eventName: options.eventName,
     acknowledgement: options.acknowledgement,
   });
   printResult(plan, result, options);
   if (options.githubOutput) {
     writeGithubOutput(result);
+    if(process.env.GITHUB_OUTPUT)appendLine(process.env.GITHUB_OUTPUT,`backend_continuation=${backendContinuationSupported(plan)}`);
     writeGithubSummary(plan, result);
   }
   process.exit(result.ok || result.skipped ? 0 : 1);

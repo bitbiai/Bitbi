@@ -1,3 +1,4 @@
+import {backendContinuationSupported} from './backend-continuation.mjs';
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -951,6 +952,7 @@ export function validateReleasePlan(plan, context) {
 export function evaluateStaticDeploySafety(plan, {
   eventName = "",
   acknowledgement = "",
+  dependenciesVerified = false,
 } = {}) {
   const reasons = [];
   const warnings = [];
@@ -1079,6 +1081,9 @@ export function evaluateStaticDeploySafety(plan, {
     allowed = true;
   } else if (staticOnly) {
     mode = "static_only";
+    allowed = true;
+  } else if (dependenciesVerified === true && backendContinuationSupported(plan)) {
+    mode = 'verified_backend_dependencies';
     allowed = true;
   } else if (acknowledgementEligible) {
     mode = "workflow_dispatch_acknowledged";

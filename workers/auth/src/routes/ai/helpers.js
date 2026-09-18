@@ -165,6 +165,8 @@ export function toAiFileAssetRecord(row) {
       record.poster_status = "ready";
       record.poster_retryable = false;
     }
+  } else if (inferAiFileAssetType(row.mime_type) === "video" && metadata?.canvas_poster_status) {
+    record.poster_status=metadata.canvas_poster_status;
   } else if (inferAiFileAssetType(row.mime_type) === "video" && (heroSource?.poster_status || metadata?.source === "admin_homepage_hero_videos")) {
     record.poster_status = String(heroSource?.poster_status || "pending");
     record.poster_retryable = heroSource?.poster_retryable !== false;

@@ -22,8 +22,7 @@ export async function readCanvasVideoResult(ctx, jobId) {
 // request key. It is server-derived from the private run ID, not a browser ID.
 export async function restoreCanvasVideoJobs(env, userId, rows) {
   return Promise.all(rows.map(async row => {
-    let input; try { input = JSON.parse(row.input_json || '{}'); } catch { return row; }
-    if (!['queued', 'running'].includes(row.status) && !['canvas_video_pending', 'canvas_video_review_required', 'canvas_run_failed'].includes(row.error_code) || !input.connected_video_inputs?.length) return row;
+    if (!['queued', 'running'].includes(row.status) && !['canvas_video_pending', 'canvas_video_review_required', 'canvas_run_failed'].includes(row.error_code) || row.operation_type !== 'canvas.video.generate') return row;
     const job = await env.DB.prepare("SELECT id, usage_attempt_id, status FROM member_generation_jobs WHERE user_id = ? AND media_type = 'video' AND request_key = ?")
       .bind(userId, `canvas-video-${row.id}`).first();
     if (!job) return row;

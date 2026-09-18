@@ -615,3 +615,40 @@ for (const locale of ['en', 'de']) test(`Canvas durable video status ${locale}: 
   await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'Videoverarbeitung fehlgeschlagen' : 'Video processing failed');
   await expect(button).toBeDisabled(); expect(attachments).toBe(1);
 });
+
+for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable export, private poster and reload`, async ({page},testInfo) => {
+  await page.setViewportSize(locale==='de'?{width:390,height:844}:{width:1440,height:900});
+  await mockSharedAuth(page);
+  const state=createCanvasApiMock(page), projectId='1'.repeat(32),nodeId='2'.repeat(32),runId='3'.repeat(32),now=new Date().toISOString();
+  const output={kind:'video',runId,assetId:'original',asset:{id:'original',file_url:'/api/ai/text-assets/original/file'},posterStatus:'pending'};
+  state.projects=[{id:projectId,title:'Private synthetic chain',locale,created_at:now,updated_at:now}];
+  state.nodes=[{id:nodeId,project_id:projectId,type:'video_generation',model_id:'pixverse/v6',title:'Clip 2',x:100,y:100,config:{prompt:'Synthetic clip'},content:{},output,asset_id:'original',created_at:now,updated_at:now}];
+  state.runs=[{id:runId,node_id:nodeId,project_id:projectId,status:'completed',output,asset_id:'original',created_at:now,updated_at:now}];
+  let posts=0, task=null;
+  await page.route('**/api/account/canvas/**/full-video',route=>{
+    if(route.request().method()==='POST'){posts++;expect(route.request().postDataJSON()).toEqual({});task={id:'export',status:'queued'};}
+    return route.fulfill({json:{ok:true,data:{eligible:true,export:task}}});
+  });
+  await page.route('**/api/ai/text-assets/*/file',route=>route.fulfill({contentType:'video/mp4',body:fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'))}));
+  await page.route('**/api/ai/text-assets/*/poster',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#314760"/></svg>'}));
+  const open=async()=>{await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${nodeId}"]`).first().click();if(locale==='de')await page.locator('#canvasInspectorToggle').click();};
+  await open();const inspector=page.locator('#canvasInspectorBody');
+  const create=inspector.getByRole('button',{name:locale==='de'?'Gesamtes Video erstellen':'Create full video',exact:true});
+  await expect(create).toBeVisible();await create.focus();await page.keyboard.press('Enter');
+  await expect(inspector.locator('.canvas-full-video').getByRole('status')).toContainText(locale==='de'?'wartet':'queued');expect(posts).toBe(1);
+  task={id:'export',status:'preview_pending',asset:{id:'full',file_url:'/api/ai/text-assets/full/file',poster_url:null}};
+  output.previewUrl='/api/ai/text-assets/original/poster';output.posterStatus='ready';
+  await inspector.getByRole('button',{name:locale==='de'?'Status aktualisieren':'Refresh status',exact:true}).click();
+  await expect(inspector.locator('video')).toHaveCount(2);await expect(inspector.locator('video').first()).toHaveAttribute('poster',output.previewUrl);
+  const full=inspector.locator('video').nth(1);await expect(full).toHaveAttribute('src',task.asset.file_url);
+  const identity=await full.evaluate(el=>{el.dataset.identity='retained';return el.dataset.identity;});
+  await inspector.getByRole('button',{name:locale==='de'?'Status aktualisieren':'Refresh status',exact:true}).click();
+  await expect(full).toHaveAttribute('data-identity',identity);
+  task.status='ready';task.asset.poster_url='/api/ai/text-assets/full/poster';
+  await open();await expect(inspector.locator('video').nth(1)).toHaveAttribute('poster',task.asset.poster_url);
+  await expect(inspector.getByRole('link',{name:locale==='de'?'Gesamtvideo herunterladen':'Download full video'})).toHaveAttribute('href',task.asset.file_url+'?download=1');
+  expect(posts).toBe(1);expect(state.requests.filter(r=>r.method!=='GET')).toEqual([]);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await inspector.locator('.canvas-full-video').scrollIntoViewIfNeeded();
+  await page.screenshot({path:testInfo.outputPath(`canvas-full-video-${locale}.png`)});
+});

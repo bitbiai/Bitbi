@@ -1,3 +1,5 @@
+import { canvasExport } from './canvas-video-processing.js';
+import { refreshCanvasVideoOutputs } from '../lib/canvas-video-output.js';
 import { pendingCanvasVideo, readCanvasVideoResult, restoreCanvasVideoJobs } from '../lib/canvas-video-jobs.js';
 import { resolveCanvasVideoInput, canvasVideoMethods } from '../../../../js/shared/canvas-video-input.mjs';
 import { prepareCanvasVideoEdge, applyCanvasVideoInput } from '../lib/canvas-video-input.js';
@@ -437,9 +439,9 @@ async function getProject(ctx, userId, projectId) {
     ok: true,
     data: {
       project: projectRecord(project),
-      nodes: (nodes.results || []).map(nodeRecord),
+      nodes: (await refreshCanvasVideoOutputs(ctx.env,userId,nodes.results || [])).map(nodeRecord),
       edges: (edges.results || []).map(edgeRecord),
-      runs: (await restoreCanvasVideoJobs(ctx.env, userId, runs.results || [])).map(runRecord),
+      runs: (await refreshCanvasVideoOutputs(ctx.env,userId,await restoreCanvasVideoJobs(ctx.env, userId, runs.results || []))).map(runRecord),
     },
   });
 }
@@ -1070,7 +1072,7 @@ async function runNode(ctx, session, projectId, nodeId) {
     if (existing?.error_code === "canvas_image_save_pending" && !checkpointStored) throw Object.assign(new Error("Saved generation reference is unavailable; automatic regeneration is prohibited."), { code: "image_save_reference_missing", status: 409 });
     const delegated = videoJobId ? await readCanvasVideoResult(ctx, videoJobId) : savedResult
       ? { response: { ok: true }, payload: savedResult, usageAttemptId: savedResult.usageAttemptId }
-      : await callGenerationHandler(ctx, model, generationBody, resolution.videoReferences.length ? `canvas-video-${runId}` : idempotencyKey, resolution.videoReferences.length > 0);
+      : await callGenerationHandler(ctx, model, generationBody, model.capability === 'video' ? `canvas-video-${runId}` : idempotencyKey, model.capability === 'video');
     capturedUsageAttemptId = delegated.usageAttemptId || capturedUsageAttemptId;
     if (delegated.payload?.data?.job?.id) {
       videoJobId = delegated.payload.data.job.id;
@@ -1166,7 +1168,7 @@ async function listRuns(ctx, userId, projectId, nodeId = null) {
   const rows = nodeId
     ? await ctx.env.DB.prepare(query).bind(projectId, nodeId, userId, RUN_LIMIT).all()
     : await ctx.env.DB.prepare(query).bind(projectId, userId, RUN_LIMIT).all();
-  return respond(ctx, { ok: true, data: { runs: (await restoreCanvasVideoJobs(ctx.env, userId, rows.results || [])).map(runRecord), applied_limit: RUN_LIMIT } });
+  return respond(ctx, { ok: true, data: { runs: (await refreshCanvasVideoOutputs(ctx.env,userId,await restoreCanvasVideoJobs(ctx.env, userId, rows.results || []))).map(runRecord), applied_limit: RUN_LIMIT } });
 }
 
 async function setAssetReference(ctx, userId, projectId, nodeId) {
@@ -1238,6 +1240,12 @@ export async function handleCanvas(ctx) {
     // route-policy: account.canvas.edge.delete
     if (edgeMatch && method === "DELETE") return await deleteEdge(ctx, userId, edgeMatch[1], edgeMatch[2]);
 
+    const exportMatch = pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/runs\/([a-f0-9]{32})\/full-video$/);
+    // route-policy: account.canvas.full-video.create
+    if (exportMatch && ['GET','POST'].includes(method)) {
+      if (method === 'POST') { const limited = await enforceWriteLimit(ctx,userId); if (limited) return limited; }
+      return await canvasExport(ctx,userId,exportMatch[1],exportMatch[2]);
+    }
     const runMatch = pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/nodes\/([a-f0-9]{32})\/run$/);
     // route-policy: account.canvas.node.run
     if (runMatch && method === "POST") return await runNode(ctx, session, runMatch[1], runMatch[2]);

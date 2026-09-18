@@ -1,3 +1,5 @@
+import { claimCanvasProcessing, failCanvasProcessing } from './canvas-video-processing.js';
+import { ownedCanvasVideo } from './canvas-video-input.js';
 import { nowIso, randomTokenHex } from './tokens.js';
 
 export async function claimMemberVideoPosters(env, limit) {
@@ -12,27 +14,57 @@ export async function claimMemberVideoPosters(env, limit) {
       .bind(token,new Date(Date.now()+15*60_000).toISOString(),item.id,now).run();
     if(claim.meta?.changes) {
       const row=await memberVideoPosterSource(env,item.id,token);
-      if(row) rows.push(row);
+      if(row?.poster_r2_key && await env.USER_IMAGES.head(row.poster_r2_key)) await finishMemberVideoPoster(env,row,{status:'ready'});
+      else if(row) rows.push(row);
     }
+  }
+  if(rows.length<limit) for(const task of await claimCanvasProcessing(env,'poster',limit-rows.length)) {
+    try {
+      const source=JSON.parse(task.sources_json)[0];
+      if(task.kind==='poster') await ownedCanvasVideo(env,task.user_id,source.assetId,source.version,80_000_000);
+      const row=await memberVideoPosterSource(env,task.asset_id,task.processing_token);
+      if(row?.poster_r2_key && await env.USER_IMAGES.head(row.poster_r2_key)) await finishMemberVideoPoster(env,row,{status:'ready'});
+      else if(row) rows.push(row);
+      else await failCanvasProcessing(env,task,'canvas_source_unavailable');
+    } catch { await failCanvasProcessing(env,task,'canvas_source_unavailable'); }
   }
   return rows;
 }
 
 export async function memberVideoPosterSource(env,id,token) {
   if(!/^[a-f0-9]{32}$/.test(token||'')) return null;
-  return env.DB.prepare(`SELECT assets.*,jobs.id AS generation_job_id,jobs.processing_token AS poster_processing_token
+  const member=await env.DB.prepare(`SELECT assets.*,jobs.id AS generation_job_id,jobs.processing_token AS poster_processing_token
     FROM member_generation_jobs jobs JOIN ai_text_assets assets ON assets.id=jobs.asset_id AND assets.user_id=jobs.user_id
     WHERE jobs.id=? AND jobs.processing_token=? AND jobs.status='preview_pending' AND jobs.locked_until>?
+    AND assets.source_module='video'`).bind(id,token,nowIso()).first();
+  if(member) return member;
+  return env.DB.prepare(`SELECT assets.*,jobs.id AS generation_job_id,jobs.processing_token AS poster_processing_token,
+    'canvas_video_processing' AS poster_processing_table FROM canvas_video_processing jobs
+    JOIN ai_text_assets assets ON assets.id=jobs.asset_id AND assets.user_id=jobs.user_id
+    WHERE assets.id=? AND jobs.processing_token=? AND jobs.status='preview_pending' AND jobs.locked_until>?
     AND assets.source_module='video'`).bind(id,token,nowIso()).first();
 }
 
 export async function finishMemberVideoPoster(env,row,{status}) {
   const ready=Boolean((await env.DB.prepare('SELECT poster_r2_key FROM ai_text_assets WHERE id=? AND user_id=?').bind(row.id,row.user_id).first())?.poster_r2_key);
+  if(row.poster_processing_table==='canvas_video_processing') {
+    const task=await env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=?').bind(row.generation_job_id).first();
+    if(ready) await env.DB.prepare("UPDATE canvas_video_processing SET status='ready',error_code=NULL,locked_until=NULL,updated_at=? WHERE id=? AND processing_token=? AND status='preview_pending'")
+      .bind(nowIso(),task.id,row.poster_processing_token).run();
+    else await failCanvasProcessing(env,{...task,processing_token:row.poster_processing_token},'canvas_poster_failed');
+    const current=await env.DB.prepare('SELECT status FROM canvas_video_processing WHERE id=?').bind(task.id).first();
+    const posterStatus=ready?'ready':current?.status==='failed'?'failed':'pending';
+    await env.DB.prepare("UPDATE ai_text_assets SET metadata_json=json_set(COALESCE(metadata_json,'{}'),'$.canvas_poster_status',?) WHERE id=? AND user_id=?")
+      .bind(posterStatus,row.id,row.user_id).run();
+    return {poster_status:posterStatus};
+  }
   const exhausted=Number((await env.DB.prepare('SELECT attempt_count FROM member_generation_jobs WHERE id=?').bind(row.generation_job_id).first())?.attempt_count)>=16;
   await env.DB.prepare(`UPDATE member_generation_jobs SET status=?,error_code=?,locked_until=NULL,next_attempt_at=?,updated_at=?,completed_at=?
     WHERE id=? AND processing_token=? AND status='preview_pending'`)
     .bind(ready?'succeeded':'preview_pending',ready?null:exhausted?'preview_retry_exhausted':status==='failed'?'preview_processing_failed':null,
       new Date(Date.now()+5*60_000).toISOString(),nowIso(),ready?nowIso():null,row.generation_job_id,row.poster_processing_token).run();
+  await env.DB.prepare("UPDATE ai_text_assets SET metadata_json=json_set(COALESCE(metadata_json,'{}'),'$.canvas_poster_status',?) WHERE id=? AND user_id=? AND json_extract(metadata_json,'$.canvas_run_id') IS NOT NULL")
+    .bind(ready?'ready':exhausted?'failed':'pending',row.id,row.user_id).run();
   return {poster_status:ready?'ready':exhausted?'failed':'pending'};
 }
 
@@ -59,6 +91,14 @@ export async function retryMemberVideoPoster(ctx,id) {
       WHERE a.id=member_generation_jobs.asset_id AND a.user_id=member_generation_jobs.user_id
       AND a.poster_r2_key IS NULL AND u.billing_status='finalized')`)
     .bind(nowIso(),nowIso(),id,session.user.id,nowIso()).run();
+  if(!result.meta?.changes) {
+    const task=await ctx.env.DB.prepare("SELECT * FROM canvas_video_processing WHERE asset_id=? AND user_id=? AND status='failed'").bind(id,session.user.id).first();
+    if(task && task.error_code!=='canvas_source_unavailable') {
+      await ownedCanvasVideo(ctx.env,session.user.id,id,null,80_000_000);
+      const retry=await ctx.env.DB.prepare("UPDATE canvas_video_processing SET status='preview_pending',attempt_count=0,error_code=NULL,next_attempt_at=?,updated_at=? WHERE id=? AND user_id=? AND status='failed'").bind(nowIso(),nowIso(),task.id,session.user.id).run();
+      if(retry.meta?.changes)return json({ok:true},{status:202,headers:{'Cache-Control':'no-store'}});
+    }
+  }
   return json(result.meta?.changes?{ok:true}:{ok:false,code:'preview_retry_not_available'},
     {status:result.meta?.changes?202:404,headers:{'Cache-Control':'no-store'}});
 }

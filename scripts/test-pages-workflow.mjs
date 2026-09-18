@@ -18,7 +18,7 @@ const permits = (step, context) => {
   const expression = step.condition || 'success()';
   assert(!/always\(|failure\(|cancelled\(/.test(expression), 'no post-failure deployment/reconciliation');
   // These production conditions explicitly use success(), or GitHub supplies it.
-  return context.success() && Boolean(vm.runInNewContext(expression, context, {timeout: 100}));
+  return context.success() && Boolean(vm.runInNewContext(expression.replaceAll('needs.release-compatibility', "needs['release-compatibility']"), context, {timeout: 100}));
 };
 
 const early = steps(job(standard, 'release-compatibility'));
@@ -26,7 +26,7 @@ const late = steps(job(standard, 'deploy'));
 const preflight = early.find(s => s.name === 'Preflight complete static release plan');
 const guard = late.find(s => s.name === 'Check static deploy release-plan safety');
 assert(preflight && guard);
-const guardInputs = s => s.source.slice(s.source.indexOf('        env:'));
+const guardInputs = s => s.source.slice(s.source.indexOf('        env:')).split('\n').filter(line=>!/GH_TOKEN:|CLOUDFLARE_API_TOKEN:|CLOUDFLARE_ACCOUNT_ID:/.test(line)).join('\n');
 assert.equal(guardInputs(preflight), guardInputs(guard), 'early and last guard use identical command and GitHub inputs');
 assert(early.indexOf(preflight) < early.findIndex(s => s.name === 'Select tests from changed files'));
 assert(guardInputs(preflight).includes('STATIC_DEPLOY_HEAD_REF: ${{ github.sha }}'));
@@ -119,3 +119,15 @@ assert(diagnostic.source.includes('path: test-results/frontend-upload.ndjson'));
 for(const failed of [true,false])for(const cancelled of [true,false])for(const provider of ['github-pages','cloudflare']) {
  assert.equal(Boolean(vm.runInNewContext(diagnostic.condition,{failure:()=>failed,cancelled:()=>cancelled,env:{HOSTING_PROVIDER:provider}})),failed&&!cancelled&&provider==='cloudflare');
 }
+
+// Automatic backend continuation stays under the same protected lock and all
+// selected job gates. No backend failure may begin frontend publication.
+const backend=cfSteps.find(s=>s.name==='Apply verified candidate backend prerequisites');
+assert(cfSteps.indexOf(backend)>cfSteps.findIndex(s=>s.name==="Download this run's tested candidate"));
+assert(cfSteps.indexOf(backend)<cfSteps.findIndex(s=>s.name==='Check static deploy release-plan safety'));
+for(const result of ['true','false',undefined])for(const success of [true,false]) {
+ const context={success:()=>success,env:{HOSTING_PROVIDER:'cloudflare'},needs:{'release-compatibility':{outputs:{backend_continuation:result}}}};
+ assert.equal(permits(backend,context),success&&result==='true');
+}
+assert(!permits(cfDeploy,{...cfContext,success:()=>false}),'failed schema/backend blocks frontend');
+assert(job(standard,'deploy').includes('group: "pages"'));

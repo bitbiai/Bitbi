@@ -295,3 +295,21 @@ Linux run 35361147923 passed 1,297 route cases but seven native suites failed at
 
 
 Canvas accepted-video status / missing provider receipt (2026-09-18): clearing the request spinner discarded the accepted run, and the inspector ignored durable jobs; poll errors were transient toasts. Acceptance now returns the existing run/key/job identity, reload joins its actual job phase, and the shared inspector/node/history preserve processing and review-required states. Read observation expiry is not cancellation or permission to regenerate. Phase updates retain focused draft inputs. The provider intent still fences duplicate inference; content-free invocation/return/receipt checkpoints and specific video errors distinguish an interrupted call from receipt persistence failure. No missing historical receipt is reconstructed or treated as provider acceptance. Existing `tests/canvas.spec.js` (Chromium/`webkit-canvas`, `test:homepage-core`) covers EN/DE acceptance, selection/reload, simulated 120-read exhaustion, terminal errors and the original key. `tests/helpers/canvas-video-control.mjs` runs through `tests/workers.spec.js` and the native `--suite canvas` caller: lost response and failed receipt write keep one provider invocation, one job, no debit/refund, and unknown review state; successful private ingestion/replay remains covered. Local SQLite and macOS workerd evidence do not certify Linux CI or paid provider behavior. First-attempt live interruption remains unproven without its invocation/return/receipt telemetry.
+
+### Canvas private video completion and historical export (2026-09-18)
+
+First clips previously bypassed durable poster handling; Canvas retained frozen
+preview snapshots. All video starts now use the existing queue; backend completion
+attaches the owned run and readers refresh poster state. New private postprocessing
+uses historical Last-Frame provenance and the existing FFmpeg transport, with
+claim fencing, stable identity and saved-video recovery before reprocessing.
+Countercontrols: foreign/missing/version-changed/cyclic sources, duplicate requests
+and claims, lost completion, poster failure/retry, no second inference/debit.
+Callers: focused `tests/workers.spec.js`; native `test-q2-runtime.mjs --suite canvas`
+(including staged helpers); `test:homepage-ffmpeg-processor` real 2/5-clip media;
+`test:homepage-core` → Canvas EN/DE Chromium/webkit-canvas export/reload cases.
+The existing protected release job verifies candidate archives before schema/Auth
+and active-version receipt before frontend. `test:release-plan` and
+`test:static-deploy-safety` exercise scope, identity and failure-stop controls.
+Local native results are not Linux CI or live processor acceptance; those remain
+separate release evidence. No paid generation is used for these checks.

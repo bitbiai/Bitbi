@@ -28,4 +28,38 @@ The existing job persists `video_id` and polls `/video/result/{id}` within its e
 - `node scripts/test-q2-runtime.mjs --suite canvas`: same controls in the existing isolated native workerd/D1/R2/Images runner, including original Canvas cases. No remote bindings or real provider. macOS is not Linux CI/live acceptance.
 - Existing selection/release tests map helper/fixture inputs, require Auth for the shared Canvas contract and retain unknown-path/full coverage. No new acceptance pipeline.
 
-Deploy accepted Auth code before the matching frontend through existing protected paths. No migration or AI Worker deployment is needed. Branch push is authorized; main integration/production activation of this new feature remains separate from the old 42af release.
+Deploy accepted Auth code before the matching frontend through existing protected paths. The private-poster/full-video extension below requires additive migration 0088 before Auth; it does not require an AI Worker deployment. Publication remains bound to the current candidate and protected production review.
+
+## Private posters and complete-chain export
+
+Schema `0088_add_canvas_video_processing.sql` adds private postprocessing only.
+All Canvas video starts use the existing durable member queue, including the
+first clip. Queue completion attaches the owned result to its historical run;
+a newer node run is never replaced. Readers refresh posters from the asset.
+The existing scheduled catch-up queues at most 25 clearly associated historical
+Canvas originals per pass. Existing posters and unknown provider jobs are kept.
+
+Create full video follows immutable completed run inputs, not current edges.
+Each predecessor's owned original/version is checked. Identical ordered sources
+reuse one job and asset. Existing FFmpeg private mode handles concat then poster;
+no inference or generation charge is made. Originals remain private and intact.
+Compatible H.264/AAC clips use stream copy; other supported clips are letterboxed
+and normalized with original audio or silence. Limits: 80 MB per original,
+400 MB sources, 10 minutes, 80 MB output, 120 historical clips, one concat per
+processor pass. Size/format failures are explicit; no shortened export is passed.
+
+Migration precedes Auth, then the existing main processor and protected static
+candidate. `release:apply -- --ci-verified-candidate` is restricted to the existing
+protected deploy job and authentic candidate archives. It verifies current main,
+existing bindings/secret names, the applied schema and sole active Auth version.
+The existing CI credential must already support Auth publication and D1; missing
+rights block before frontend publication, without widening any token. The
+processor secret must match the existing repository secret; presence alone does
+not prove a successful live processor pass. Environment owner review remains.
+No arbitrary old Auth rollback is compatible with these durable jobs.
+
+Checks: focused Canvas Worker cases and `test-q2-runtime.mjs --suite canvas`
+share the actual fetch/queue/poster control. `test:homepage-ffmpeg-processor`
+executes real 2/5-clip FFmpeg tests (order, sound/silence, duration, normalization).
+`tests/canvas.spec.js` covers export/reload/poster in Chromium and webkit-canvas.
+Live inference is not part of automated acceptance.

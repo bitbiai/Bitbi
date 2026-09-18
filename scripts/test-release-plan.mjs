@@ -540,3 +540,36 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  assert.deepEqual(plan.schemaApplies, []);
  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
 }
+
+{
+ const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');
+ const {evaluateStaticDeploySafety}=await import('./lib/release-plan.mjs');
+ const {verifyBackendActivation}=await import('./lib/backend-publication.mjs');
+ const plan=createReleasePlanFromRepo(repoRoot,{files:['workers/auth/src/routes/canvas.js','workers/auth/migrations/0088_add_canvas_video_processing.sql','services/homepage-ffmpeg-processor/canvas-full-video.mjs','js/pages/canvas/main.js']});
+ assert(backendContinuationSupported(plan));
+ assert.equal(evaluateStaticDeploySafety(plan,{eventName:'push'}).allowed,false);
+ assert.equal(evaluateStaticDeploySafety(plan,{eventName:'push',dependenciesVerified:true}).mode,'verified_backend_dependencies');
+ for(const extra of ['workers/ai/src/index.js','workers/auth/wrangler.jsonc','unknown-backend-entry.js']) {
+   const invalid=createReleasePlanFromRepo(repoRoot,{files:[...plan.changedFiles,extra]});assert(!backendContinuationSupported(invalid));assert(!evaluateStaticDeploySafety(invalid,{eventName:'push',dependenciesVerified:true}).allowed);
+ }
+ const receipt={sha:'a'.repeat(40),base:'b'.repeat(40),run:'123',attempt:'1',worker:'bitbi-auth',migration:'0088_add_canvas_video_processing.sql',version:'version-1',deployment:'deployment-1'};
+ const state={sha:receipt.sha,base:receipt.base,runId:'123',attempt:'1',migration:receipt.migration,processorSha:receipt.sha,version:{id:receipt.version,annotations:{'workers/message':`bitbi-auth:${receipt.sha}`}},deployment:{id:receipt.deployment,versions:[{version_id:receipt.version,percentage:100}]}};
+ verifyBackendActivation(receipt,state);
+ for(const key of ['sha','base','runId','attempt','migration','processorSha'])assert.throws(()=>verifyBackendActivation(receipt,{...state,[key]:'wrong'}));
+ assert.throws(()=>verifyBackendActivation(receipt,{...state,deployment:{...state.deployment,versions:[{version_id:'old',percentage:100}]}}));
+ assert.throws(()=>verifyBackendActivation(receipt,{...state,version:{id:receipt.version}}));
+ console.log('Protected backend continuation: scope, exact source/attempt/schema/processor, and sole active Auth version controls passed.');
+}
+
+{
+ const {advanceBackend}=await import('./lib/backend-publication.mjs');
+ const actions=[],sha='a'.repeat(40);
+ const steps={sha,pending:['0088'],activeVersion:{},assertCurrent:async()=>actions.push('current'),applyMigration:async()=>actions.push('schema'),assertSchema:async()=>actions.push('schema-read'),deploy:async()=>actions.push('auth'),readActive:async()=>{actions.push('active-read');return {version:'new'};}};
+ assert.deepEqual(await advanceBackend(steps),{version:'new'});assert.deepEqual(actions,['current','schema','schema-read','current','auth','active-read']);
+ for(const failure of ['assertCurrent','applyMigration','assertSchema','deploy']) {
+   actions.length=0;await assert.rejects(advanceBackend({...steps,[failure]:async()=>{throw Error(failure);}}));
+   assert(!actions.includes('active-read'));if(failure!=='deploy')assert(!actions.includes('auth'));
+ }
+ actions.length=0;await advanceBackend({...steps,pending:[],activeVersion:{annotations:{'workers/message':`bitbi-auth:${sha}`}}});
+ assert.deepEqual(actions,['current','schema-read','current','active-read'],'Repeated same candidate verifies without another migration/Auth deploy');
+}

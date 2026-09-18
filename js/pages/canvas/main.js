@@ -1,3 +1,4 @@
+import { renderCanvasFullVideo } from './full-video.js?v=__ASSET_VERSION__';
 import { videoInputCopy, renderVideoInput, awaitCanvasVideo, canvasVideoRunState } from './video-input.js?v=__ASSET_VERSION__';
 import { calculateAiImageCreditCost, calculateAiVideoCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { estimateCanvasTextCredits } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
@@ -50,7 +51,7 @@ const copy = isGerman ? {
 const videoCopy = videoInputCopy(isGerman);
 Object.assign(copy, { videoAmbiguous: videoCopy.ambiguous, videoMethodRequired: videoCopy.required, videoPreparing: videoCopy.preparing });
 let videoObservation = new AbortController();
-window.addEventListener('pagehide', () => videoObservation.abort());
+window.addEventListener('pagehide', () => { videoObservation.abort(); inspectorAbort.abort(); });
 
 const dom = Object.freeze({
     loading: document.getElementById('canvasLoading'), denied: document.getElementById('canvasDenied'), app: document.getElementById('canvasApp'),
@@ -374,6 +375,8 @@ function renderOutput(node) {
         const image = el('img'); image.src = output.asset.preview_url; image.alt = node.title || copy.output; image.loading = 'lazy'; section.append(image);
     } else if (output.kind === 'video' && output.asset?.file_url) {
         const video = el('video'); video.src = output.asset.file_url; video.controls = true; video.preload = 'metadata'; section.append(video);
+        if (output.previewUrl || output.asset.preview_url) video.poster = output.previewUrl || output.asset.preview_url;
+        renderCanvasFullVideo({ section, output, projectId: store.state.project.id, german: isGerman, signal: inspectorAbort.signal, video });
     } else if (output.kind === 'audio' && output.asset?.file_url) {
         const audio = el('audio'); audio.src = output.asset.file_url; audio.controls = true; audio.preload = 'metadata'; section.append(audio);
     } else section.append(el('p', 'canvas-muted', copy.outputEmpty));

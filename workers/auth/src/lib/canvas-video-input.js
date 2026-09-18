@@ -6,12 +6,12 @@ import { handleSaveImage } from '../routes/ai/images-write.js';
 const fail = (code, message, status = 409) => { throw Object.assign(new Error(message), { code, status }); };
 const parse = value => { try { return JSON.parse(value || '{}'); } catch { return {}; } };
 
-export async function ownedCanvasVideo(env, userId, assetId, expectedVersion = null) {
+export async function ownedCanvasVideo(env, userId, assetId, expectedVersion = null, maxBytes = 50_000_000) {
   const row = await env.DB.prepare("SELECT id, r2_key, mime_type, size_bytes FROM ai_text_assets WHERE id = ? AND user_id = ? AND source_module = 'video' LIMIT 1").bind(assetId, userId).first();
   if (!row?.r2_key) fail('video_source_unavailable', 'The connected video is not available to this account.', 404);
   const head = await env.USER_IMAGES.head(row.r2_key);
   if (!head || !['video/mp4', 'video/quicktime', 'video/mov'].includes(row.mime_type)) fail('video_source_unavailable', 'The connected original must be an available MP4 or MOV.');
-  if (!head.size || head.size > 50_000_000) fail('video_source_too_large', 'Connected video must be at most 50 MB.');
+  if (!head.size || head.size > maxBytes) fail('video_source_too_large', `Original video exceeds the ${maxBytes} byte processing limit.`);
   const version = await sha256Hex(`${row.id}:${row.r2_key}:${head.etag}:${head.size}`);
   if (expectedVersion && expectedVersion !== version) fail('video_source_changed', 'The connected original changed; prepare its input again.');
   return { ...row, version, etag: head.etag, size: head.size };

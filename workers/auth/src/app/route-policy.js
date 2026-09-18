@@ -431,6 +431,8 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB", "PUBLIC_RATE_LIMITER"],
     audit: { noneReason: "The edge soft-delete timestamp is the durable deletion record." },
   }),
+  safeRead("account.canvas.full-video.read", "GET", "/api/account/canvas/projects/:projectId/runs/:runId/full-video", "canvas", {auth: "user", sensitivity: "high"}),
+  userJsonWrite("account.canvas.full-video.create", "POST", "/api/account/canvas/projects/:projectId/runs/:runId/full-video", "canvas", "smallJson", "canvas-write-user", {notes: "Owner-only immutable original chain; postprocessing without inference or debit."}),
   userJsonWrite("account.canvas.node.run", "POST", "/api/account/canvas/projects/:projectId/nodes/:nodeId/run", "canvas", "smallJson", "canvas-run-user", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "USER_IMAGES"],
     audit: { noneReason: "The Canvas run row and existing member AI usage-attempt and credit ledgers provide durable run and billing evidence." },
@@ -1954,6 +1956,22 @@ export const ROUTE_POLICIES = Object.freeze([
     providerSignature: "processor-bearer-secret",
     notes: "Machine-to-machine external_ffmpeg job claim route. It returns no R2 keys or private source URLs, only signed internal source/completion endpoints.",
   }),
+  ...[
+    ["capabilities", "GET", "claim", null],
+    ["claim", "POST", "claim", "homepageHeroProcessorJson"],
+    ["source", "GET", ":id/source/:index", null],
+    ["complete", "POST", ":id/complete", "homepageHeroVideoUpload"],
+    ["fail", "POST", ":id/fail", "homepageHeroProcessorJson"],
+  ].map(([suffix,method,route,bodyLimit]) => policy({
+    id: `internal.canvas-export.${suffix}`, method,
+    path: `/api/internal/homepage/hero-videos/canvas-exports/jobs/${route}`,
+    auth: "anonymous", csrf: "not-browser-facing", owner: "homepage", sensitivity: "high",
+    body: bodyLimit ? {kind:suffix==='complete'?'multipart':'json',maxBytesName:bodyLimit,contentType:suffix==='complete'?'multipart/form-data':'application/json'} : {kind:'none',noneReason:'Read-only processor capabilities or leased private source.'},
+    rateLimit: {noneReason:"Existing private processor secret; bounded claims and per-job expiring lease."},
+    config: ["DB","USER_IMAGES","MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET"],
+    audit: {noneReason:"Durable private Canvas postprocessing state; no model invocation or billing."},
+    providerSignature:"processor-bearer-secret",
+  })),
   policy({
     id: "internal.homepage.hero-videos.source-posters.jobs.claim",
     method: "POST",

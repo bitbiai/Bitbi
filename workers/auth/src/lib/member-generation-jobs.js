@@ -1,3 +1,5 @@
+import { finishCanvasGeneration } from './canvas-video-output.js';
+import { catchUpCanvasPosters } from './canvas-video-processing.js';
 import { logDiagnostic } from '../../../../js/shared/worker-observability.mjs';
 import { enqueueAiImageDerivativeJob, AI_IMAGE_DERIVATIVE_VERSION } from './ai-image-derivatives.js';
 import { nowIso, randomTokenHex, sha256Hex } from './tokens.js';
@@ -246,6 +248,7 @@ export async function processMemberGeneration(env, body, execute) {
     await writeResult(env,job,resultKey,result);
     const asset = result.data?.asset;
     const needsPoster = job.media_type==='video' && !asset?.poster_url;
+    await finishCanvasGeneration(env,job,result);
     await env.DB.prepare(`UPDATE member_generation_jobs SET status=?,result_r2_key=?,asset_id=?,locked_until=NULL,error_code=NULL,updated_at=?,completed_at=? WHERE id=? AND processing_token=? AND locked_until>?`)
       .bind(needsPoster?'preview_pending':'succeeded',resultKey,asset?.id||null,nowIso(),needsPoster?null:nowIso(),job.id,token,nowIso()).run();
     return {status:'succeeded'};
@@ -287,8 +290,9 @@ export async function requeueMemberGenerations(env) {
   for (const row of rows.results || []) await env.AI_VIDEO_JOBS_QUEUE.send({type:MEMBER_GENERATION_MESSAGE,job_id:row.id});
   const backlog = await env.DB.prepare(`SELECT COUNT(*) AS count FROM member_generation_jobs WHERE media_type='video'
     AND status='preview_pending' AND attempt_count<16 AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?)`).bind(nowIso(),nowIso()).first();
-  if (backlog?.count) await maybeDispatchMemvidStreamPreviewProcessor(env, {
-    reason:'member_video_posters',dispatchReason:'Member video poster catch-up.',queuedNewCount:backlog.count,memberGenerationPosters:true,
+  const canvasBacklog = await catchUpCanvasPosters(env);
+  if (backlog?.count || canvasBacklog) await maybeDispatchMemvidStreamPreviewProcessor(env, {
+    reason:'member_video_posters',dispatchReason:'Member video poster catch-up.',queuedNewCount:Number(backlog?.count||0)+canvasBacklog,memberGenerationPosters:true,
   });
   return rows.results?.length || 0;
 }

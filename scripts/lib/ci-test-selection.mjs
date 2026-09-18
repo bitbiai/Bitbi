@@ -84,7 +84,7 @@ const GENERATE_LAB_UI_FILES = new Set([
 const CANVAS_UI_FILES = new Set([
   "canvas/index.html", "de/canvas/index.html",
   "css/pages/canvas.css", "js/pages/canvas/main.js", "js/pages/canvas/api.js",
-  "js/pages/canvas/workflow.js", "js/pages/canvas/video-frame.js", "js/pages/canvas/video-input.js",
+  "js/pages/canvas/full-video.js", "js/pages/canvas/workflow.js", "js/pages/canvas/video-frame.js", "js/pages/canvas/video-input.js",
 ]);
 
 const AUTH_SHARED_PATTERNS = [
@@ -172,7 +172,7 @@ const WORKER_TEST_PREFIXES = [
   "tests/fixtures/media/member-video-poster.webp",
   "tests/fixtures/media/member-image.png",
   "tests/helpers/member-generation-control.mjs",
-  "tests/helpers/canvas-video-control.mjs",
+  "tests/helpers/canvas-video-control.mjs", "tests/helpers/canvas-processing-control.mjs",
   "tests/q4-",
   "tests/helpers/q4-",
   "tests/fable-chat-",
@@ -190,6 +190,8 @@ const RELEASE_TOOLING_FILES = new Set([
   'scripts/lib/ci-test-selection.mjs', 'scripts/select-ci-tests.mjs',
   'scripts/test-ci-test-selection.mjs', 'scripts/test-release-compat.mjs', 'scripts/pages-candidate.mjs',
   'scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs',
+  'scripts/check-static-deploy-safety.mjs', 'scripts/release-apply.mjs', 'scripts/frontend-release.mjs',
+  'scripts/lib/backend-continuation.mjs', 'scripts/lib/backend-publication.mjs',
   'scripts/test-pages-candidate.mjs', 'scripts/test-pages-workflow.mjs',
   'scripts/lib/frontend-hosting.mjs', 'scripts/lib/frontend-source.mjs', 'scripts/test-frontend-hosting.mjs',
   'scripts/test-frontend-review.mjs', 'scripts/lib/fast-deploy-paths.mjs',
@@ -451,7 +453,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       continue;
     }
 
-    if (['.github/workflows/memvid-stream-preview-processor.yml','services/homepage-ffmpeg-processor/processor.mjs','scripts/test-homepage-ffmpeg-processor.mjs','config/release-compat.json'].includes(file)) {
+    if (['scripts/check-route-policies.mjs','services/homepage-ffmpeg-processor/canvas-full-video.mjs','services/homepage-ffmpeg-processor/canvas-full-video.test.mjs','.github/workflows/memvid-stream-preview-processor.yml','services/homepage-ffmpeg-processor/processor.mjs','scripts/test-homepage-ffmpeg-processor.mjs','config/release-compat.json'].includes(file)) {
       addReason(selection,'workers',file,'changes Auth/processor runtime or its required deployment contract');
       addReason(selection,'auth',file,'requires affected media/auth integration; release and processor checks are mandatory');
       continue;
