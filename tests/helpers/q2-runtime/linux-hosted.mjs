@@ -76,11 +76,11 @@ export function stageInputPlan() {
     'workers/auth/package.json', 'workers/auth/package-lock.json', 'workers/auth/wrangler.jsonc',
     'workers/auth/node_modules', 'workers/auth/src', 'workers/auth/migrations', 'workers/auth/recovery',
     'workers/shared', 'js/shared', 'config', 'scripts/lib/release-compat.mjs', 'scripts/lib/worker-sharp.mjs',
-    'tests/helpers/q2-runtime', 'tests/q2-runtime-native.mjs',
+    'tests/helpers/q2-runtime', 'tests/helpers/canvas-video-control.mjs', 'tests/q2-runtime-native.mjs',
     'tests/q2-runtime-references.mjs', 'tests/q2-runtime-recovery.mjs',
     'tests/q4-runtime-public-video.mjs', 'tests/q4-runtime-stream.mjs', 'tests/q4-runtime-memory.mjs', 'tests/q4-runtime-video.mjs', 'tests/q4-runtime-subscription.mjs',
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-control.mjs', 'tests/helpers/q4-memory-fixture.mjs',
-    'tests/fixtures/media/member-image.png', 'tests/fixtures/media/test-video-changing.mp4', 'tests/fixtures/media/member-video-poster.webp',
+    'tests/fixtures/media/member-image.png', 'tests/fixtures/media/test-video-changing.mp4', 'tests/fixtures/media/member-video-poster.webp', 'tests/fixtures/media/canvas-end-frame.mp4',
     'tests/admin-model-status-runtime.mjs', 'tests/member-generation-runtime.mjs', 'tests/helpers/member-generation-control.mjs',
     'tests/helpers/q4-video-control.mjs', 'tests/helpers/q4-subscription-payloads.cjs',
   ];

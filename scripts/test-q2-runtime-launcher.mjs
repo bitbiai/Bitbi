@@ -302,7 +302,7 @@ test('native artifact paths use runner context only after runner assignment', ()
 
 // Resolve the actual repository module graph. This validates staging closure,
 // not kernel isolation or native product acceptance; no suite executes here.
-test('default native runtime plan stages every actual Q4 import and control input', async t => {
+test('default native runtime plan stages every actual suite and control input', async t => {
   const { runtimeSuites } = await import('../tests/helpers/q2-runtime/runner.mjs');
   const expected = [
     ['q4-public-video', 'tests/q4-runtime-public-video.mjs', 'runPublicVideoTests'],
@@ -318,8 +318,9 @@ test('default native runtime plan stages every actual Q4 import and control inpu
   }
   assert.equal(runtimeSuites.find(([name])=>name==='model-status')[1],
     (await import('../tests/admin-model-status-runtime.mjs')).runModelStatusTests);
-  const controls = runtimeSuites.map(([, , options]) => options.q4Control)
-    .filter(Boolean).map(name => `tests/helpers/${name}`);
+  const controls = [...new Set(runtimeSuites.filter(([, , options]) => !options.referenceOnly)
+    .map(([, , options]) => options.q4Control
+      ? `tests/helpers/${options.q4Control}` : 'tests/helpers/q2-runtime/control.mjs'))];
   const entryPoints = ['tests/helpers/q2-runtime/runner.mjs', 'tests/helpers/q2-runtime/linux-isolated.mjs',
     'tests/helpers/q2-runtime/linux-runtime-child.mjs', ...controls];
   const requireAuth = createRequire(path.join(root, 'workers/auth/package.json'));
@@ -338,17 +339,28 @@ test('default native runtime plan stages every actual Q4 import and control inpu
   for (const filename of [
     ...expected.map(([, filename]) => filename), ...controls, 'tests/admin-model-status-runtime.mjs',
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-fixture.mjs',
-    'tests/helpers/q4-subscription-payloads.cjs',
+    'tests/helpers/q4-subscription-payloads.cjs', 'tests/helpers/canvas-video-control.mjs',
   ]) {
     assert.ok(imports.includes(filename), `Actual resolved graph includes ${filename}`);
-    assert.throws(() => checkClosure(plan.filter(item => item !== filename)), /Every resolved repository import/,
+    assert.throws(() => checkClosure(plan.filter(item => !coveredBy(filename, [item]))), /Every resolved repository import/,
       `Removing ${filename} must fail before a hosted run`);
   }
   const f = fixture(t);
-  const staged = stageRuntimeInputs(root, f.staged, imports);
-  assert.equal(staged.files, imports.length);
+  const staged = stageRuntimeInputs(root, f.staged, plan);
+  assert.ok(staged.files >= imports.length);
   for (const filename of imports) assert.deepEqual(fs.readFileSync(path.join(f.staged, filename)), fs.readFileSync(path.join(root, filename)), filename);
-  t.diagnostic(`Resolved and staged ${imports.length} actual source modules; ${expected.length} Q4 suites plus ${controls.length} native controls. Packages retain the existing locked dependency staging.`);
+  const videoFixture = 'tests/fixtures/media/canvas-end-frame.mp4';
+  assert.deepEqual(fs.readFileSync(path.join(f.staged, videoFixture)), fs.readFileSync(path.join(root, videoFixture)),
+    'Canvas runtime reads the real video fixture from the isolated input tree');
+  const buildControl = () => esbuild.buildSync({ absWorkingDir: f.staged,
+    entryPoints: ['tests/helpers/q2-runtime/control.mjs'], bundle: true, write: false,
+    format: 'esm', platform: 'browser', target: 'es2022', metafile: true, logLevel: 'silent', legalComments: 'none' });
+  const control = buildControl();
+  assert.equal(control.outputFiles.length, 1);
+  assert.ok(Object.values(control.metafile.outputs).every(output => output.imports.length === 0));
+  fs.unlinkSync(path.join(f.staged, 'tests/helpers/canvas-video-control.mjs'));
+  assert.throws(buildControl, /Could not resolve.*canvas-video-control/, 'The old staged tree must fail the real Control build');
+  t.diagnostic(`Resolved ${imports.length} source modules and built the standard control from ${staged.files} actual staged files; ${expected.length} Q4 suites plus ${controls.length} native controls.`);
 });
 
 
