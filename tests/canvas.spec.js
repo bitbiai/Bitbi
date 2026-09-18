@@ -506,7 +506,7 @@ for(const locale of ['en','de']) test(`Canvas video continuation ${locale}: auto
     if (!generated) {
       generated++;
       state.runs.push({id:'d'.repeat(32),project_id:projectId,node_id:dest,status:'running',error_code:'canvas_video_pending',retry_key:route.request().headers()['idempotency-key'],video_job_id:'fixture-job',model_id:'pixverse/v6',created_at:now,updated_at:now});
-      return route.fulfill({status:202,json:{ok:false,code:'canvas_video_pending',data:{video_job_id:'fixture-job'}}});
+      return route.fulfill({status:202,json:{ok:false,code:'canvas_video_pending',data:{video_job_id:'fixture-job',run:state.runs[0]}}});
     }
     attachments++;
     expect(reads).toBe(1);
@@ -530,7 +530,14 @@ for(const locale of ['en','de']) test(`Canvas video continuation ${locale}: auto
   expect(pixel[2]).toBeGreaterThan(230);
   await page.reload();await page.locator(`[data-node-id="${dest}"]`).first().click();await expect(method).toBeVisible();expect(uploads).toBe(1);
   await run.click();await expect.poll(()=>generated).toBe(1);
+  await expect(run).toBeDisabled();
+  await page.locator(`[data-node-id="${src}"]`).first().click();
+  await page.locator(`[data-node-id="${dest}"]`).first().click();
+  await expect(run).toBeDisabled();
+  await expect(page.locator('#canvasNodeRunStatus')).not.toBeEmpty();
   await page.reload();
+  await page.locator(`[data-node-id="${dest}"]`).first().click();
+  await expect(run).toBeDisabled();
   await expect.poll(()=>attachments,{timeout:10000}).toBe(1);
   expect(generated).toBe(1);expect(reads).toBe(1);expect(uploads).toBe(1);
   await page.locator(`[data-node-id="${dest}"]`).first().click();
@@ -544,4 +551,67 @@ for(const locale of ['en','de']) test(`Canvas video continuation ${locale}: auto
   await inspector.getByRole('img',{name:locale==='de'?'Letztes Frame als Startbild':'Last frame as start image'}).scrollIntoViewIfNeeded();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:testInfo.outputPath(`video-continuation-${locale}-mobile.png`)});
+});
+
+for (const locale of ['en', 'de']) test(`Canvas durable video status ${locale}: pending observation, unknown and failure survive selection and reload`, async ({ page }, testInfo) => {
+  await mockSharedAuth(page);
+  const state = createCanvasApiMock(page), projectId = '1'.repeat(32), nodeId = 'b'.repeat(32), now = new Date().toISOString();
+  state.projects.push({ id: projectId, title: 'Durable video', locale, created_at: now, updated_at: now });
+  state.nodes.push({ id: nodeId, project_id: projectId, type: 'video_generation', title: 'Accepted clip', x: 30, y: 30, model_id: 'pixverse/v6', config: { prompt: 'Synthetic clip' }, content: {} });
+  const run = { id: 'd'.repeat(32), project_id: projectId, node_id: nodeId, status: 'running', error_code: 'canvas_video_pending', video_job_status: 'processing', video_job_id: 'status-job', retry_key: 'accepted-identity', model_id: 'pixverse/v6', created_at: now, updated_at: now };
+  state.runs.push(run);
+  let jobStatus = 'processing', reads = 0, attachments = 0;
+  await page.route('**/api/ai/generation-jobs/status-job', async route => {
+    reads++;
+    await route.fulfill({ json: { ok: true, data: { job: { id: 'status-job', status: jobStatus } } } });
+  });
+  await page.route(`**/nodes/${nodeId}/run`, async route => {
+    attachments++;
+    expect(route.request().headers()['idempotency-key']).toBe('accepted-identity');
+    expect(['outcome_unknown', 'failed']).toContain(jobStatus);
+    Object.assign(run, { status: 'failed', error_code: 'canvas_video_review_required', video_job_status: jobStatus });
+    await route.fulfill({ status: 409, json: { ok: false, code: run.error_code, data: { run } } });
+  });
+  await page.clock.install();
+  await page.goto(locale === 'de' ? '/de/canvas/' : '/canvas/');
+  const card = page.locator(`[data-node-id="${nodeId}"]`).first();
+  await card.click();
+  const button = page.locator('#canvasInspectorBody').getByRole('button', { name: locale === 'de' ? 'Ausführen' : 'Run', exact: true });
+  await expect(button).toBeDisabled();
+  await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'erzeugt' : 'Generating');
+  const prompt = page.locator('#canvasInspectorBody textarea').first();
+  await prompt.fill('Retained draft');
+  // Advance only the test clock; no real ten-minute wait or new provider call.
+  for (let i = 0; i < 120; i++) {
+    jobStatus = i % 2 ? 'ingesting' : 'processing';
+    await page.clock.runFor(5000);
+    await expect.poll(() => reads).toBe(i + 1);
+    await expect(prompt).toHaveValue('Retained draft');
+    await expect(prompt).toBeFocused();
+  }
+  await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'Statusabruf beendet' : 'observation ended');
+  await expect(button).toBeDisabled(); expect(attachments).toBe(0);
+  await page.reload(); await card.click();
+  await expect(button).toBeDisabled();
+  jobStatus = 'outcome_unknown';
+  await page.clock.runFor(5000);
+  await expect.poll(() => attachments).toBe(1);
+  await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'ungeklärt' : 'unresolved');
+  await expect(button).toBeDisabled();
+  await page.reload(); await card.click();
+  await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'ungeklärt' : 'unresolved');
+  await expect(button).toBeDisabled(); expect(attachments).toBe(1);
+  await expect(card.locator('.canvas-node__status')).toHaveText(locale === 'de' ? 'Prüfung erforderlich' : 'Review required');
+  await page.locator('#canvasNodeRunStatus').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath(`durable-${locale}-desktop.png`) });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('#canvasInspectorToggle').click();
+  await expect(button).toBeDisabled();
+  await page.locator('#canvasNodeRunStatus').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath(`durable-${locale}-mobile.png`) });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  Object.assign(run, { video_job_status: 'failed', error_message: 'Synthetic terminal provider failure' });
+  await page.reload(); await card.click();
+  await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'Videoverarbeitung fehlgeschlagen' : 'Video processing failed');
+  await expect(button).toBeDisabled(); expect(attachments).toBe(1);
 });

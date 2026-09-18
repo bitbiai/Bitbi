@@ -1,3 +1,4 @@
+import { logDiagnostic } from '../../../../js/shared/worker-observability.mjs';
 import { enqueueAiImageDerivativeJob, AI_IMAGE_DERIVATIVE_VERSION } from './ai-image-derivatives.js';
 import { nowIso, randomTokenHex, sha256Hex } from './tokens.js';
 import { json } from './response.js';
@@ -103,7 +104,10 @@ async function providerCall(env, job, name, fingerprint, call) {
   if (receipt) {
     if (receipt.fingerprint !== fingerprint) throw jobError('generation_provider_identity_mismatch');
     const object = await env.USER_IMAGES.get(receipt.key);
-    if (!object) throw jobError('generation_provider_outcome_unknown');
+    if (!object) {
+      logDiagnostic({ service: 'bitbi-auth', component: 'member-generation', event: 'provider_receipt_missing', level: 'error', media_type: job.media_type });
+      throw jobError('generation_provider_outcome_unknown');
+    }
     const stored = await new Response(object.body).json();
     return decodeProviderResult(stored);
   }
@@ -113,14 +117,24 @@ async function providerCall(env, job, name, fingerprint, call) {
     WHERE id = ? AND processing_token = ? AND locked_until > ? AND provider_receipts_json = ?`)
     .bind(JSON.stringify(receipts), job.id, job.processing_token, nowIso(), row.provider_receipts_json).run();
   if (!intent.meta?.changes) throw jobError('generation_claim_lost');
-  const result = await call();
-  const stored = await encodeProviderResult(result);
+  // Content-free checkpoints distinguish invocation, return and receipt durability.
+  // Dispatch intent is not proof of provider acceptance. No job/user/input IDs.
+  const checkpoint = event => logDiagnostic({ service: 'bitbi-auth', component: 'member-generation', event, media_type: job.media_type });
+  checkpoint('provider_call_started');
+  let result, stored;
+  try { result = await call(); }
+  catch (error) { checkpoint('provider_call_interrupted'); throw job.media_type === 'video' ? jobError('generation_provider_call_outcome_unknown') : error; }
+  checkpoint('provider_call_returned');
+  try { stored = await encodeProviderResult(result); }
+  catch (error) { checkpoint('provider_receipt_encoding_failed'); throw job.media_type === 'video' ? jobError('generation_receipt_encoding_failed') : error; }
   // The intent owns this immutable receipt even if the execution's lease ends
   // while receiving the result. A later consumer may read it, never re-dispatch.
-  const written = await putNewManagedR2Object(env, receipt.key, JSON.stringify(stored), {
+  let written;
+  try { written = await putNewManagedR2Object(env, receipt.key, JSON.stringify(stored), {
     onlyIf: new Headers({ 'If-None-Match': '*' }), httpMetadata: { contentType: 'application/json' },
-  });
+  }); } catch (error) { checkpoint('provider_receipt_write_failed'); throw job.media_type === 'video' ? jobError('generation_receipt_write_failed') : error; }
   if (!written) throw jobError('generation_receipt_conflict');
+  checkpoint('provider_receipt_stored');
   await assertClaim(env, job);
   return decodeProviderResult(stored);
 }

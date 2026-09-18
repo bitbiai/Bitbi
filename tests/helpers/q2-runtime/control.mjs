@@ -15,7 +15,7 @@ export default {
     const path=new URL(request.url).pathname;
     const body=await request.json();
     if (path==='/admin-pixverse' && ['success','failure','unknown'].includes(body.name)) return Response.json(await adminPixverseCase(env, body.name, body));
-    if (path==='/canvas-video' && ['success','last-frame','foreign','changed','blocked','blocked-admin'].includes(body.name)) return Response.json(await canvasVideoCase(env, body.name, body));
+    if (path==='/canvas-video' && ['success','last-frame','foreign','changed','blocked','blocked-admin','provider-interrupted','receipt-write'].includes(body.name)) return Response.json(await canvasVideoCase(env, body.name, body));
     if (path==='/session' && [ADMIN,MEMBER].includes(body.userId)) {
       const session=await createSession(env,body.userId);
       return Response.json({cookie:`${SECURE_SESSION_COOKIE_NAME}=${session.sessionToken}`});

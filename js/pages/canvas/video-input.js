@@ -2,6 +2,9 @@ import { canvasApi } from './api.js?v=__ASSET_VERSION__';
 import { extractCanvasLastFrame } from './video-frame.js?v=__ASSET_VERSION__';
 
 export const videoInputCopy = de => de ? {
+    statuses: { queued: 'Angenommen', running: 'In Verarbeitung', processing: 'Generierung', ingesting: 'Speicherung', outcome_unknown: 'Prüfung erforderlich', failed: 'Fehlgeschlagen', completed: 'Gespeichert', succeeded: 'Gespeichert', preview_pending: 'Vorschau ausstehend' },
+    queued: 'Video angenommen – wartet auf Verarbeitung.', processing: 'Video wird erzeugt.', ingesting: 'Video wird gespeichert und zugeordnet.', succeeded: 'Video gespeichert.', jobFailed: 'Videoverarbeitung fehlgeschlagen. Keine automatische Neugenerierung; Betreiberprüfung erforderlich.',
+    observation: 'Statusabruf beendet. Der angenommene Auftrag bleibt erhalten; Projekt erneut öffnen, um den Status abzurufen.',
     method: 'Video weiterverwenden', last_frame: 'Letztes Frame als Startbild',
     required: 'Bereite das Schlussbild des verbundenen Videos vor.', ambiguous: 'Verbinde genau eine Videoquelle ohne konkurrierendes Bild.',
     review: 'Das Anbieterergebnis ist ungeklärt. Keine weitere Generierung starten; Betreiberprüfung erforderlich.',
@@ -9,6 +12,9 @@ export const videoInputCopy = de => de ? {
     failed: 'Videoeingabe konnte nicht vorbereitet werden. Keine Generierung gestartet.', pending: 'Video wird im Hintergrund verarbeitet. Das Ergebnis bleibt nach erneutem Öffnen verfügbar.',
     note: 'Das Schlussbild startet einen neuen Clip; eine nahtlose Bewegungs- oder Tonfortsetzung ist nicht garantiert.',
 } : {
+    statuses: { queued: 'Accepted', running: 'Processing', processing: 'Generating', ingesting: 'Saving', outcome_unknown: 'Review required', failed: 'Failed', completed: 'Saved', succeeded: 'Saved', preview_pending: 'Preview pending' },
+    queued: 'Video accepted – waiting for processing.', processing: 'Generating video.', ingesting: 'Saving and attaching video.', succeeded: 'Video saved.', jobFailed: 'Video processing failed. No automatic regeneration; operator review is required.',
+    observation: 'Status observation ended. The accepted job is retained; reopen this project to check its status.',
     method: 'Reuse video', last_frame: 'Last frame as start image',
     required: 'Prepare the connected video’s last frame first.', ambiguous: 'Connect exactly one video source without a competing image.',
     review: 'The provider outcome is unresolved. Do not generate again; operator review is required.',
@@ -57,20 +63,35 @@ export function renderVideoInput({ source, section, projectId, edge, beforePrepa
     if (selected.method === 'last_frame' && !selected.frame) void prepare('last_frame');
 }
 
-export async function awaitCanvasVideo({ projectId, nodeId, key, jobId, organizationId, signal }) {
+// Durable run identity, not a transient HTTP spinner, controls the Run button.
+export function canvasVideoRunState(runs, nodeId, copy) {
+    const own = runs.filter(run => run.node_id === nodeId);
+    const blocked = run => run.error_code === 'canvas_video_review_required' || Boolean(run.video_job_id && ['queued', 'running'].includes(run.status));
+    const run = own.find(blocked) || own[0];
+    if (!run) return { blocked: false, message: '' };
+    const state = run.video_job_status || (run.error_code === 'canvas_video_review_required' ? 'outcome_unknown' : run.status);
+    const message = state === 'outcome_unknown' ? copy.review : run.error_code === 'canvas_video_review_required' ? (state === 'failed' ? copy.jobFailed : copy.review) : run.error_code === 'canvas_video_pending' ? (copy[state] || copy.pending)
+        : run.status === 'failed' ? (run.error_message || copy.jobFailed) : run.video_job_id ? copy.succeeded : '';
+    return { blocked: blocked(run), message: run.observation_error ? `${message} ${copy.observation}` : message, run };
+}
+
+export async function awaitCanvasVideo({ projectId, nodeId, key, jobId, organizationId, signal, onJob = () => {} }) {
     if (!jobId) return { ok: false, status: 409, code: 'canvas_video_unavailable' };
-    // Read-only job polling; one Canvas attachment after durable completion.
-    // Bounded observation only. Queue processing and charging never depend on it.
-    for (let read = 0; read < 120 && !signal.aborted; read++) {
-        await new Promise(resolve => {
-            const done = () => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve(); };
-            const timer = setTimeout(done, 5000); signal.addEventListener('abort', done, { once: true });
-        });
-        if (signal.aborted) break;
-        const job = await canvasApi.getGenerationJob(jobId, AbortSignal.any([signal, AbortSignal.timeout(30000)]));
-        if (!job.ok) return job;
-        if (['queued', 'processing', 'ingesting'].includes(job.data.job.status)) continue;
-        return canvasApi.runNode(projectId, nodeId, key, organizationId);
-    }
-    return { ok: false, status: 202, code: 'canvas_video_pending' };
+    // Bounded read-only observation is NOT a deadline for the durable job.
+    try {
+        for (let read = 0; read < 120 && !signal.aborted; read++) {
+            await new Promise(resolve => {
+                const done = () => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve(); };
+                const timer = setTimeout(done, 5000); signal.addEventListener('abort', done, { once: true });
+            });
+            if (signal.aborted) break;
+            const job = await canvasApi.getGenerationJob(jobId, AbortSignal.any([signal, AbortSignal.timeout(30000)]));
+            if (!job.ok) return job;
+            if (signal.aborted) break;
+            onJob(job.data.job);
+            if (['queued', 'processing', 'ingesting'].includes(job.data.job.status)) continue;
+            return await canvasApi.runNode(projectId, nodeId, key, organizationId);
+        }
+        return { ok: false, status: 202, code: 'canvas_video_pending' };
+    } catch { return { ok: false, status: 0, code: 'canvas_video_unavailable' }; }
 }

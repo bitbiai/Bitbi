@@ -54549,7 +54549,7 @@ require('./helpers/admin-cap-replay-contract.js').registerAdminCapReplayContract
 // Durable member jobs use this existing Worker entry (including focused --grep runs).
 require("./member-generation.cases.js");
 
-for (const name of ['success', 'last-frame', 'foreign', 'changed', 'blocked', 'blocked-admin']) {
+for (const name of ['success', 'last-frame', 'foreign', 'changed', 'blocked', 'blocked-admin', 'provider-interrupted', 'receipt-write']) {
   test(`Canvas video continuation: ${name}`, async () => {
     const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');
     const db=new SqliteD1Database(); applyAuthMigrations(db);

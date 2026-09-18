@@ -1,4 +1,4 @@
-import { videoInputCopy, renderVideoInput, awaitCanvasVideo } from './video-input.js?v=__ASSET_VERSION__';
+import { videoInputCopy, renderVideoInput, awaitCanvasVideo, canvasVideoRunState } from './video-input.js?v=__ASSET_VERSION__';
 import { calculateAiImageCreditCost, calculateAiVideoCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { estimateCanvasTextCredits } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
@@ -282,6 +282,7 @@ function renderProjects() {
 function renderGraph() {
     workflowAnalysis = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy);
     graph.render({ ...store.state, copy, nodeAnalysis: workflowAnalysis.byNode, edgeStates: workflowAnalysis.edgeStates });
+    store.state.nodes.forEach(renderVideoStatus);
     dom.deleteSelection.disabled = !store.state.selected;
     dom.hint.textContent = store.state.selected?.kind === 'node' ? copy.selectedNode : store.state.selected?.kind === 'edge' ? copy.selectedEdge : copy.selectNode;
     dom.connect.classList.toggle('is-active', store.state.connecting);
@@ -297,7 +298,7 @@ function renderHistory() {
         item.type = 'button';
         item.dataset.status = run.status;
         const top = el('div', 'canvas-run-item__top');
-        top.append(el('span', '', node?.title || run.model_id), el('strong', '', run.status));
+        top.append(el('span', '', node?.title || run.model_id), el('strong', '', run.video_job_id ? videoCopy.statuses[run.video_job_status || run.status] || run.status : run.status));
         const kind = run.output?.kind ? ` · ${run.output.kind}` : '';
         item.append(top, el('small', '', `${run.model_id}${kind} · ${new Date(run.updated_at).toLocaleString(isGerman ? 'de-DE' : 'en-US')}`));
         item.addEventListener('click', () => {
@@ -560,12 +561,13 @@ function renderInspector() {
                 const checkbox = inputControl('', 'checkbox'); checkbox.checked = node.config?.[key] === true; bindConfig(node, checkbox, key, Boolean); dom.inspector.append(field(label, checkbox));
             }
         }
-        const status = el('div', 'canvas-run-status', runningNodeId === node.id ? copy.running : ''); status.id = 'canvasNodeRunStatus'; dom.inspector.append(status);
+        const videoState = canvasVideoRunState(store.state.runs, node.id, videoCopy);
+        const status = el('div', 'canvas-run-status', runningNodeId === node.id ? copy.running : videoState.message); status.id = 'canvasNodeRunStatus'; status.setAttribute('role', 'status'); dom.inspector.append(status);
         const run = el('button', 'canvas-button canvas-button--primary', runningNodeId === node.id ? copy.running : copy.run);
-        run.type = 'button'; run.disabled = runningNodeId === node.id || !model?.runnable || Boolean(inputContext.validation); run.addEventListener('click', () => void runSelectedNode(node)); dom.inspector.append(run);
+        run.type = 'button'; run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || Boolean(inputContext.validation); run.addEventListener('click', () => void runSelectedNode(node)); dom.inspector.append(run);
         prompt.addEventListener('input', () => {
             const current = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id);
-            run.disabled = runningNodeId === node.id || !model?.runnable || Boolean(validationForNode(node, current, copy));
+            run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || Boolean(validationForNode(node, current, copy));
         });
     }
 
@@ -761,7 +763,7 @@ async function assignAsset(node, assetId) {
 }
 
 async function runSelectedNode(node) {
-    if (runningNodeId || projectTransition) return;
+    if (runningNodeId || projectTransition || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked) return;
     // Freeze editing only while the exact graph for this run is being saved.
     // The API request itself is not treated as cancelled by a browser close.
     let saved = false;
@@ -782,10 +784,13 @@ async function runSelectedNode(node) {
     const pendingSave = store.state.runs.find(run => run.node_id === node.id && run.retry_key);
     const idempotencyKey = pendingRunKeys.get(node.id) || pendingSave?.retry_key || `canvas-${crypto.randomUUID()}`;
     pendingRunKeys.set(node.id, idempotencyKey);
-    const result = await canvasApi.runNode(store.state.project.id, node.id, idempotencyKey, organizationId);
+    const projectId = store.state.project.id;
+    const result = await canvasApi.runNode(projectId, node.id, idempotencyKey, organizationId);
+    if (store.state.project?.id !== projectId || !store.state.nodes.includes(node)) { runningNodeId = null; return; }
     if (result.code === 'canvas_video_pending') {
-        runningNodeId = null; showToast(videoCopy.pending);
-        void observeVideo(node, store.state.project.id, idempotencyKey, result.data?.video_job_id, organizationId);
+        runningNodeId = null;
+        store.addRun(result.data.run); renderAll(); showToast(videoCopy.pending);
+        void observeVideo(node, projectId, idempotencyKey, result.data?.video_job_id, organizationId);
         return;
     }
     runningNodeId = null;
@@ -802,15 +807,40 @@ async function runSelectedNode(node) {
     renderAll(); showToast(copy.runComplete);
 }
 
-const observedVideos = new Set();
+// Update status text without rebuilding focused inputs or interrupting media.
+function renderVideoStatus(node) {
+    const state = canvasVideoRunState(store.state.runs, node.id, videoCopy);
+    if (!state.run?.video_job_id) return;
+    const status = store.state.selected?.id === node.id && document.getElementById('canvasNodeRunStatus');
+    if (status) status.textContent = state.message;
+    const badge = dom.nodes.querySelector(`[data-node-id="${node.id}"] .canvas-node__status`);
+    if (badge) {
+        badge.textContent = videoCopy.statuses[state.run.video_job_status || state.run.status] || videoCopy.statuses.running;
+        badge.dataset.status = state.run.status;
+    }
+}
+
+const observedVideos = new Map();
 async function observeVideo(node, projectId, key, jobId, organizationId) {
-    if (observedVideos.has(key)) return;
-    observedVideos.add(key);
     const signal = videoObservation.signal;
-    const result = await awaitCanvasVideo({ projectId, nodeId: node.id, key, jobId, organizationId, signal });
-    observedVideos.delete(key);
+    if (observedVideos.get(key) === signal) return;
+    observedVideos.set(key, signal);
+    const result = await awaitCanvasVideo({ projectId, nodeId: node.id, key, jobId, organizationId, signal, onJob(job) {
+        if (signal.aborted || store.state.project?.id !== projectId || !store.state.nodes.includes(node)) return;
+        const run = store.state.runs.find(item => item.video_job_id === jobId);
+        if (run) {
+            run.video_job_status = job.status; run.observation_error = false;
+            renderVideoStatus(node);
+            renderHistory();
+        }
+    } });
+    if (observedVideos.get(key) === signal) observedVideos.delete(key);
     if (signal.aborted || store.state.project?.id !== projectId || !store.state.nodes.includes(node)) return;
-    if (!result.ok) { showToast(result.code === 'canvas_video_pending' ? videoCopy.pending : result.code === 'canvas_video_review_required' ? videoCopy.review : errorMessage(result)); return; }
+    if (!result.ok) {
+        if (result.data?.run) store.addRun(result.data.run);
+        else { const run = store.state.runs.find(item => item.video_job_id === jobId); if (run) run.observation_error = true; }
+        renderVideoStatus(node); renderHistory(); showToast(canvasVideoRunState(store.state.runs, node.id, videoCopy).message); return;
+    }
     const run = result.data.run;
     node.output = run.output; node.asset_id = run.asset_id; pendingRunKeys.delete(node.id);
     store.state.runs = [run, ...store.state.runs.filter(item => item.id !== run.id)].slice(0, 40);

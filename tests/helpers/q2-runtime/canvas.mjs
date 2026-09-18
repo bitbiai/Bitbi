@@ -91,7 +91,7 @@ export async function runCanvasTests(f) {
     assert.equal(f.canvasProvider.requests.length, 4);
     assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM credit_ledger WHERE entry_type='consume'"), before);
   });
-  for (const name of ['success','last-frame','foreign','changed','blocked','blocked-admin']) await f.test(`canvas_native_video_${name}`, async () => {
+  for (const name of ['success','last-frame','foreign','changed','blocked','blocked-admin','provider-interrupted','receipt-write']) await f.test(`canvas_native_video_${name}`, async () => {
     const response = await f.control('/canvas-video', { name,
       videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
       imageBase64: fs.readFileSync(new URL('../../fixtures/media/member-image.png', import.meta.url)).toString('base64'),

@@ -12,12 +12,19 @@ export async function canvasVideoCase(base, name, fixture) {
   const env = { ...base, BITBI_ENV: 'production', PIXVERSE_API_KEY: '',
     ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG: 'false', ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH: 'false',
     AI_VIDEO_JOBS_QUEUE: { async send(body) { messages.push(body); } }, AI_IMAGE_DERIVATIVES_QUEUE: { async send() {} },
-    AI: { async run(model, body) { requests.push({ model, body }); return { video: 'https://fixture.invalid/result.mp4' }; } },
+    AI: { async run(model, body) { requests.push({ model, body }); if (name === 'provider-interrupted') throw new Error('Synthetic lost provider response'); return { video: 'https://fixture.invalid/result.mp4' }; } },
     __TEST_FETCH: async (url, init) => {
       if (url === 'https://fixture.invalid/result.mp4') return new Response(bytes, { headers: { 'Content-Type': 'video/mp4' } });
       throw new Error('Canvas must not contact the direct provider');
     },
   };
+  if (name === 'receipt-write') env.USER_IMAGES = new Proxy(base.USER_IMAGES, { get(target, prop) {
+    if (prop === 'put') return (key, ...args) => {
+      if (key.endsWith('/provider-ai-0.json')) throw new Error('Synthetic receipt storage failure');
+      return target.put(key, ...args);
+    };
+    const value = target[prop]; return typeof value === 'function' ? value.bind(target) : value;
+  } });
   for (const id of [owner, other]) {
     await db.prepare("INSERT INTO users(id,email,password_hash,created_at,role,email_verified_at) VALUES(?,?,?,?,'user',?)").bind(id, `${id}@example.invalid`, 'synthetic', now, now).run();
     await db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?)')
@@ -91,6 +98,9 @@ export async function canvasVideoCase(base, name, fixture) {
   const job=await db.prepare('SELECT * FROM member_generation_jobs WHERE user_id=?').bind(owner).first();
   check(job && messages.length===1,'Existing durable queue accepted once');
   check(job.request_key.startsWith('canvas-video-'), 'Server-derived request identity');
+  check(result.body.data.run.video_job_id === job.id && result.body.data.run.status === 'running' && result.body.data.run.retry_key, 'Acceptance returns durable UI run identity immediately');
+  const pending = (await request(projectPath)).body.data.runs[0];
+  check(pending.video_job_status === 'queued' && pending.video_job_id === job.id, 'Reload restores actual job phase');
   if (name === 'success') {
     // Simulate process death after durable acceptance, before the Canvas write.
     await db.prepare("UPDATE canvas_runs SET status='running',output_json=NULL,error_code=NULL WHERE user_id=?").bind(owner).run();
@@ -99,6 +109,25 @@ export async function canvasVideoCase(base, name, fixture) {
   }
   const deliver=()=>worker.queue({messages:[{body:{type:'member_generation.process',job_id:job.id},ack(){},retry(){}}]},env,{waitUntil(p){waits.push(p);}});
   await deliver();
+  if (['provider-interrupted', 'receipt-write'].includes(name)) {
+    const failed = await db.prepare('SELECT * FROM member_generation_jobs WHERE id=?').bind(job.id).first();
+    const expected = name === 'receipt-write' ? 'generation_receipt_write_failed' : 'generation_provider_call_outcome_unknown';
+    check(failed.status === 'outcome_unknown' && failed.error_code === expected, `Specific failure ${failed.status}/${failed.error_code}`);
+    check(JSON.parse(failed.provider_receipts_json)['ai-0'], 'Intent retained for reconciliation');
+    await deliver();
+    const attached = await request(runPath, 'POST', {});
+    check(attached.status === 409 && attached.body.data.run.error_code === 'canvas_video_review_required', 'Unknown attachment stays review-required');
+    const restored = (await request(projectPath)).body.data.runs[0];
+    check(restored.video_job_id === job.id && restored.video_job_status === 'outcome_unknown' && restored.retry_key === pending.retry_key, 'Reload retains unknown job identity');
+    check((await request(runPath, 'POST', {})).status === 409, 'Original request remains blocked');
+    check(requests.filter(r => r.model).length === 1, 'No second provider call');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_generation_jobs WHERE user_id=?').bind(owner).first()).n === 1, 'One job');
+    const usage = await db.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=?').bind(job.usage_attempt_id).first();
+    check(usage.provider_outcome === 'unknown' && usage.billing_status === 'reserved', 'Unknown reservation is not consumed or refunded');
+    check((await db.prepare("SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'").bind(owner).first()).n === 0, 'No false debit');
+    await Promise.allSettled(waits);
+    return { name, status: failed.status, code: failed.error_code, providerCalls: requests.length };
+  }
   if(method==='last_frame') {
     check(requests.filter(r=>r.model).length===1,'One image-to-video call');
     check(requests.find(r=>r.model).body.image_input===`data:image/png;base64,${fixture.imageBase64}`,'Actual saved frame passed as start image');

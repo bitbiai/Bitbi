@@ -972,7 +972,7 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
     return {
       ok: false,
       status: 502,
-      code: "upstream_error",
+      code: ["generation_provider_outcome_unknown", "generation_provider_call_outcome_unknown", "generation_provider_identity_mismatch", "generation_receipt_encoding_failed", "generation_receipt_write_failed", "generation_receipt_conflict", "generation_claim_lost"].includes(error?.code) ? error.code : "upstream_error",
       error: "Video generation failed.",
     };
   }

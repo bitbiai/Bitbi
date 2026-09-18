@@ -219,7 +219,8 @@ function runRecord(row) {
     status: row.error_code === "canvas_video_pending" ? "running" : row.status,
     input: safeJsonParse(row.input_json, {}),
     output: row.status === "completed" ? safeJsonParse(row.output_json, null) : null,
-    video_job_id: row.error_code === "canvas_video_pending" ? safeJsonParse(row.output_json, {}).videoJobId || null : null,
+    video_job_id: ["canvas_video_pending", "canvas_video_review_required"].includes(row.error_code) ? safeJsonParse(row.output_json, {}).videoJobId || null : null,
+    video_job_status: safeJsonParse(row.output_json, {}).videoJobStatus || null,
     retry_key: ["canvas_video_pending", "canvas_video_review_required", "canvas_image_save_pending", "canvas_image_save_unavailable", "image_save_reference_missing", "image_save_checkpoint_failed"].includes(row.error_code) ? row.idempotency_key : null,
     asset_id: row.asset_id || null,
     error_code: row.error_code || null,
@@ -1142,7 +1143,12 @@ async function runNode(ctx, session, projectId, nodeId) {
       `UPDATE canvas_runs SET status = 'failed', usage_attempt_id = ?, error_code = ?, error_message = ?, updated_at = ?, completed_at = ?
        WHERE id = ? AND project_id = ? AND node_id = ? AND user_id = ? AND status = 'running' AND deleted_at IS NULL`
     ).bind(capturedUsageAttemptId, code, message, failedAt, failedAt, runId, projectId, nodeId, userId).run();
-    return respond(ctx, { ok: false, error: message, code, data: { run_id: runId, ...(videoJobId ? { video_job_id: videoJobId } : {}) } }, { status: error.status || 500 });
+    return respond(ctx, { ok: false, error: message, code, data: { run_id: runId, ...(videoJobId ? { video_job_id: videoJobId } : {}), run: runRecord({
+      id: runId, project_id: projectId, node_id: nodeId, model_id: model.id, operation_type: `canvas.${capability}.generate`,
+      status: 'failed', idempotency_key: idempotencyKey, input_json: inputJson,
+      output_json: JSON.stringify({ videoJobId, videoJobStatus: error.videoJobStatus || (code === 'canvas_video_pending' ? 'queued' : null) }),
+      error_code: code, error_message: message, created_at: existing?.created_at || now, updated_at: failedAt, completed_at: failedAt,
+    }) } }, { status: error.status || 500 });
   }
 }
 
