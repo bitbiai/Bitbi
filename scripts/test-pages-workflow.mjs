@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {spawnSync} from 'node:child_process';
 
 // Execute the actual, deliberately simple workflow conditions with synthetic
 // GitHub step states. This is orchestration acceptance, not a live Pages test.
@@ -20,6 +21,27 @@ const permits = (step, context) => {
   // These production conditions explicitly use success(), or GitHub supplies it.
   return context.success() && Boolean(vm.runInNewContext(expression.replaceAll('needs.release-compatibility', "needs['release-compatibility']"), context, {timeout: 100}));
 };
+
+// The full Worker caller includes real FFmpeg/ffprobe integration. Narrow
+// status/asset branches do not; neither should install unrelated tools.
+const workerSteps=steps(job(standard,'worker-validation'));
+const mediaTools=workerSteps.find(s=>s.name==='Install Worker media test tools');
+assert(mediaTools,'Full Worker tests require explicit media tools');
+assert(workerSteps.indexOf(mediaTools)<workerSteps.findIndex(s=>s.name==='Run worker route tests'));
+for(const workers of ['true','false',undefined])for(const model_status of ['true','false',undefined])for(const member_assets of ['true','false',undefined])for(const success of [true,false]) {
+  const context={success:()=>success,needs:{'release-compatibility':{outputs:{workers,model_status,member_assets}}}};
+  assert.equal(permits(mediaTools,context),success&&workers==='true'&&model_status!=='true'&&member_assets!=='true');
+}
+const setupScript=mediaTools.source.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n');
+assert.equal(spawnSync('/bin/bash',['-n'],{input:setupScript,encoding:'utf8'}).status,0);
+// Execute the actual shell with harmless tool functions: order and fail-fast,
+// not an Ubuntu install or a substitute for the required native Linux job.
+for(const installFails of [false,true]) {
+  const functions=`sudo() { printf '%s\\n' "$*"; if [ "$2" = install ]; then return ${installFails?9:0}; fi; }; ffmpeg() { printf 'ffmpeg %s\\n' "$*"; }; ffprobe() { printf 'ffprobe %s\\n' "$*"; };`;
+  const result=spawnSync('/bin/bash',['--noprofile','--norc','-e','-c',functions+'\n'+setupScript],{env:{PATH:process.env.PATH},encoding:'utf8',timeout:5000});
+  assert.equal(result.status,installFails?9:0);
+  assert.deepEqual(result.stdout.trim().split('\n'),installFails?['apt-get update','apt-get install -y ffmpeg']:['apt-get update','apt-get install -y ffmpeg','ffmpeg','ffprobe','ffmpeg -version','ffprobe -version']);
+}
 
 const early = steps(job(standard, 'release-compatibility'));
 const late = steps(job(standard, 'deploy'));

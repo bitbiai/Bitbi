@@ -233,6 +233,15 @@ jobs:
       - name: Install pinned Auth target-runtime test dependencies
         if: needs.release-compatibility.outputs.workers == 'true'
         run: npm --prefix workers/auth ci
+      - name: Install Worker media test tools
+        if: needs.release-compatibility.outputs.workers == 'true' && needs.release-compatibility.outputs.model_status != 'true' && needs.release-compatibility.outputs.member_assets != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          command -v ffmpeg
+          command -v ffprobe
+          ffmpeg -version
+          ffprobe -version
       - name: Verify native Linux isolation before Worker tests
         if: needs.release-compatibility.outputs.workers == 'true'
         env:

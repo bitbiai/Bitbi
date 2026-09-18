@@ -313,3 +313,11 @@ and active-version receipt before frontend. `test:release-plan` and
 `test:static-deploy-safety` exercise scope, identity and failure-stop controls.
 Local native results are not Linux CI or live processor acceptance; those remain
 separate release evidence. No paid generation is used for these checks.
+
+Linux run35389905932 passed 1,301 Worker routes, then could not start FFmpeg;
+the full `test:workers` caller had no media-tool installation. Its existing
+Worker job now installs Ubuntu ffmpeg and verifies both ffmpeg/ffprobe before
+execution. `test:static-deploy-safety` → `test-pages-workflow.mjs` rejects missing
+setup and exercises the real selection expression and shell order/fail-fast.
+Narrow status/assets jobs remain unchanged. Shell controls are not Linux media
+acceptance: the real 2/5-clip test and subsequent native runtime remain CI gates.
