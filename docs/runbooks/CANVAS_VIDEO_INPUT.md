@@ -107,6 +107,20 @@ Do not broaden the frontend token or copy local OAuth into CI. Preserve owner
 review. Missing rights fail closed; provision the credential directly through
 GitHub's protected secret UI, never in chat or source.
 
+For first provisioning, current [Workers roles](https://developers.cloudflare.com/workers/authorization/workers/)
+require **Workers product Admin** in the intended account to create the new
+`bitbi-private-media` Worker; an Editor limited to existing Workers cannot do it.
+After creation, Workers Editor can be scoped to `bitbi-auth` and
+`bitbi-private-media`. The planned D1 migration/query and container registry/app
+operations additionally need **D1 Edit/Write** and **Containers Edit/Write** in
+that account, with readback; these are separate from Workers roles. See the
+[API permission groups](https://developers.cloudflare.com/fundamentals/api/reference/permissions/).
+Legacy Workers Scripts permissions are account-wide; do not infer a per-Worker
+restriction from a name. Keep zone/Workers Routes reads limited to bitbi.ai.
+Existing unchanged routes need no additional route-write grant. Actual access
+must still be verified by the protected job; these requirements are not a claim
+that the missing CI credential or paid Containers access has been provisioned.
+
 The existing private GitHub processor secret derives a domain-separated
 Cloudflare processor credential inside the protected job. Wrangler applies it
 additively through a temporary mode-0600 secrets file, removed in finally.

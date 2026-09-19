@@ -336,6 +336,15 @@ Both native Linux staging lists include the new helper/imports.
 `private-media-image.mjs` run shared FFmpeg tests; the latter kills/restarts the
 real Container HTTP/child process in the immutable Linux image. `test:auth` runs
 Admin service tests in Chromium/WebKit with synthetic responses (not live E2E).
+Run35428306333 stopped before those tests: the homepage-selection self-test still
+required Chromium-only installation for generic Auth. The private-media cases
+explicitly launch WebKit even under `test:auth --project=chromium`; keep both
+engines installed. `test:homepage-selection` now executes the actual normal/Fast
+workflow installation branches with a harmless `npx` recorder, checks exact
+browser sets and install-failure propagation, and rejects the old normal branch.
+Fast UI remains Chromium-only without homepage; its scope excludes Admin.
+Real `test:auth --list` discovery binds the four service cases to that caller;
+discovery and shell countercontrols do not replace selected Linux/browser CI.
 `test:release-plan`/`test:static-deploy-safety` exercise schema/image/Auth/smoke
 order, missing evidence, source attempts, image identity and failure stops.
 Deploy-only retry cannot skip backend work or synthesize dependency completion.

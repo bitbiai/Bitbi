@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -159,6 +160,23 @@ function job(source, name) {
   assert.ok(match, `Missing job ${name}`);
   return match[1];
 }
+function verifyBrowserInstall(install, owner, authBrowsers) {
+  const script = install.split('        run: |\n')[1];
+  assert(script, 'Missing executable browser installation');
+  for (const homepage of ['true', 'false']) for (const fails of [false, true]) {
+    const command = script.replaceAll(`\${{ needs.${owner}.outputs.homepage }}`, homepage);
+    assert(!command.includes('${{'), 'Unresolved workflow input');
+    // Execute the workflow shell, but record installation instead of downloading.
+    const result = spawnSync('/bin/bash', ['--noprofile', '--norc', '-e', '-c',
+      `npx() { printf '%s\\n' "$*"; return ${fails ? 19 : 0}; };\n${command}\nprintf 'finished\\n'`],
+    { env: { PATH: '/usr/bin:/bin' }, encoding: 'utf8', timeout: 5000 });
+    assert.equal(result.status, fails ? 19 : 0, 'Browser installation must fail closed');
+    const browsers = homepage === 'true' ? 'chromium webkit' : authBrowsers;
+    assert.deepEqual(result.stdout.trim().split('\n'), [
+      `playwright install --with-deps ${browsers}`, ...(!fails ? ['finished'] : []),
+    ]);
+  }
+}
 for (const workflow of ['static.yml', 'full-regression.yml', 'ui-fast-deploy.yml']) {
   const text = read(`.github/workflows/${workflow}`);
   if (workflow !== 'full-regression.yml') {
@@ -167,7 +185,14 @@ for (const workflow of ['static.yml', 'full-regression.yml', 'ui-fast-deploy.yml
     assert(install, 'Missing selected frontend browser setup');
     const owner = workflow === 'static.yml' ? 'release-compatibility' : 'guard';
     assert(install.includes(`if [ "\${{ needs.${owner}.outputs.homepage }}" = 'true' ]; then`));
-    assert.match(install, /then\s+npx playwright install --with-deps chromium webkit\s+else\s+npx playwright install --with-deps chromium\s+fi/);
+    // test:auth selects the Chromium project, but its private-media cases
+    // explicitly launch both engines. Fast UI excludes these Admin tests.
+    const browsers = workflow === 'static.yml' ? 'chromium webkit' : 'chromium';
+    verifyBrowserInstall(install, owner, browsers);
+    const wrong = install.replace(/(else\s+npx playwright install --with-deps )chromium(?: webkit)?/,
+      `$1${workflow === 'static.yml' ? 'chromium' : 'chromium webkit'}`);
+    assert.notEqual(wrong, install);
+    assert.throws(() => verifyBrowserInstall(wrong, owner, browsers), /deep-equal/);
   }
   const mac = job(text, 'homepage-webkit-media');
   assert.ok(mac.includes('runs-on: macos-15'));
