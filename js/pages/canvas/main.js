@@ -2,6 +2,7 @@ import { renderCanvasFullVideo } from './full-video.js?v=__ASSET_VERSION__';
 import { videoInputCopy, renderVideoInput, awaitCanvasVideo, canvasVideoRunState } from './video-input.js?v=__ASSET_VERSION__';
 import { calculateAiImageCreditCost, calculateAiVideoCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { estimateCanvasTextCredits } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
+import { GROK_4_6_MODEL_ID } from '../../shared/grok-text-contract.mjs?v=__ASSET_VERSION__';
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initAuthEntryActions } from '../../shared/auth-entry-actions.js?v=__ASSET_VERSION__';
 import { canvasApi } from './api.js?v=__ASSET_VERSION__';
@@ -488,12 +489,14 @@ function renderInspector() {
             // a switch and the selected model's validator checks their limits.
             const next = models.find(item => item.id === modelSelect.value);
             const config = { ...(node.config || {}) };
+            if (next?.controls?.reasoningEffort && !config.reasoningEffort) config.reasoningEffort = next.controls.reasoningEffort.default;
             if (capability === 'text' && !config.maxTokensEdited && (config.maxTokens == null || config.maxTokens === model?.controls?.maxTokens?.default)) config.maxTokens = next?.controls?.maxTokens?.default;
             scheduleNode(node, { model_id: modelSelect.value, config }); window.setTimeout(renderInspector);
         });
         dom.inspector.append(field(copy.model, modelSelect));
         if (model) {
-            dom.inspector.append(el('p', 'canvas-model-note', model.runnable ? model.description : model.disabledReason));
+            const description = model.id === GROK_4_6_MODEL_ID && isGerman ? 'Einmalige Textgenerierung mit einstellbarem Denkaufwand; ohne Chatverlauf oder Tools.' : model.description;
+            dom.inspector.append(el('p', 'canvas-model-note', model.runnable ? description : model.disabledReason));
             const cost = el('p', 'canvas-cost-note');
             const updateCost = () => {
                 const budget = model.requiresPlatformBudget && model.runnable ? (isGerman ? 'Plattformbudget' : 'Platform budget') : model.requiresOrganization ? (isGerman ? 'Credits der ausgewählten Organisation' : 'Selected organization credits') : (isGerman ? 'Persönliche Credits' : 'Personal credits');
@@ -501,7 +504,7 @@ function renderInspector() {
                 try {
                     if (capability === 'video' && model.id === 'pixverse/v6' && model.runnable) estimate = calculateAiVideoCreditCost(model.id, { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, generateAudio: node.config?.generateAudio !== false })?.credits;
                     if (capability === 'image' && model.runnable) estimate = calculateAiImageCreditCost(model.id, { ...node.config, referenceImageCount: workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0 })?.credits;
-                    if (capability === 'text' && model.requiresPersonalCredits) estimate = estimateCanvasTextCredits(model.id, node.config || {});
+                    if (capability === 'text' && model.requiresPersonalCredits) estimate = estimateCanvasTextCredits(model.id, { ...node.config, prompt: analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id)?.effectivePrompt || "" });
                 } catch { estimate = null; }
                 cost.textContent = model.requiresPlatformBudget && model.runnable ? budget : `${budget} · ${copy.estimated}: ${estimate ?? '—'}`;
                 if (model.controls?.supportsReferenceImages) cost.append(document.createTextNode(isGerman ? ' · Endgültige Kosten werden serverseitig einschließlich Referenzen geprüft.' : ' · Final cost is checked server-side including references.'));
@@ -523,7 +526,12 @@ function renderInspector() {
             const grid = el('div', 'canvas-field-grid');
             const maxTokens = inputControl(node.config?.maxTokens ?? model?.controls?.maxTokens?.default ?? 500, 'number'); maxTokens.min = '1'; maxTokens.max = String(model?.controls?.maxTokens?.max || 4096); maxTokens.addEventListener('input', () => scheduleNode(node, { config: { ...node.config, maxTokens: Number(maxTokens.value), maxTokensEdited: true } }));
             const temperature = inputControl(node.config?.temperature ?? .7, 'number'); temperature.min = '0'; temperature.max = '1.5'; temperature.step = '.1'; bindConfig(node, temperature, 'temperature', (value) => Number(value));
-            grid.append(field(copy.maxTokens, maxTokens), field(copy.temperature, temperature)); dom.inspector.append(grid);
+            if (model?.controls?.reasoningEffort) {
+                const reasoning = selectControl(model.controls.reasoningEffort.options.map(value => ({ value, label: ({ low: isGerman ? 'Niedrig' : 'Low', medium: isGerman ? 'Mittel' : 'Medium', high: isGerman ? 'Hoch' : 'High' })[value] })), node.config?.reasoningEffort || model.controls.reasoningEffort.default);
+                bindConfig(node, reasoning, 'reasoningEffort');
+                grid.append(field(isGerman ? 'Denkaufwand' : 'Reasoning effort', reasoning));
+            } else grid.append(field(copy.maxTokens, maxTokens));
+            grid.append(field(copy.temperature, temperature)); dom.inspector.append(grid);
         }
         if (capability === 'image' && model) {
             const c = model.controls || {}, grid = el('div', 'canvas-field-grid');

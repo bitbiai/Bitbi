@@ -6177,7 +6177,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     const modulePath = pathToFileURL(path.join(process.cwd(), 'js/shared/canvas-model-contract.mjs')).href;
     const { listCanvasModels, getCanvasModel, CANVAS_FABLE_MAX_OUTPUT_TOKENS } = await import(modulePath);
     const models = listCanvasModels();
-    expect(models.length).toBe(22);
+    expect(models.length).toBe(23);
     for (const model of models) {
       expect(model).toEqual(expect.objectContaining({ id: expect.any(String), label: expect.any(String), capability: expect.any(String), canvasEnabled: true, runnable: expect.any(Boolean) }));
       expect(JSON.stringify(model).replace('requiresPlatformBudget', '')).not.toMatch(/secret|budget|evidence|adminOnly/i);
@@ -12675,6 +12675,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     });
     env.AI_LAB = createAiLabServiceBinding(aiWorker, {
       AI_SERVICE_AUTH_SECRET: env.AI_SERVICE_AUTH_SECRET,
+      ENABLE_GROK_4_6: "true",
       SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(),
       AI: {
         async run(...args) {
@@ -12694,6 +12695,74 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       aiLabRequests,
       providerCallCount: () => providerCalls,
     };
+  }
+
+  for (const role of ['user', 'admin']) for (const reasoningEffort of ['low', 'medium', 'high']) {
+    test(`Canvas Grok one-shot ${role} ${reasoningEffort} saves, connects and replays with role-correct billing`, async () => {
+      const { getGrokMaxCompletionTokens } = await import('../js/shared/grok-text-contract.mjs');
+      const { estimateCanvasTextCredits } = await import('../js/shared/canvas-model-contract.mjs');
+      const calls = []; let fail = false;
+      const h = await createMemberTextHarness({ user: createContractUser({ id: 'canvas-grok-'+role, role }), role: role === 'admin' ? 'admin' : 'member', aiRun: async (model, body, options) => {
+        calls.push({ model, body, options });
+        if (fail) throw new Error("Synthetic lost provider reply");
+        const events = [{ model, choices: [{ index: 0, delta: { content: 'Stored Grok answer' }, finish_reason: 'stop' }] },
+          { choices: [], usage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 58, completion_tokens_details: { reasoning_tokens: 30 } } }];
+        return new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(events.map(e => 'data: '+JSON.stringify(e)+'\n\n').join('')+'data: [DONE]\n\n')); c.close(); } });
+      } });
+      h.env.ENABLE_GROK_4_6 = 'true';
+      const now = nowIso(), project = 'a'.repeat(32), node = 'b'.repeat(32), source = 'c'.repeat(32);
+      h.env.DB.state.memberCreditLedger.push({ id: 'seed-grok', user_id: h.user.id, amount: 1000, balance_after: 1000, entry_type: 'grant', source: 'test', idempotency_key: 'seed', request_hash: 'seed', created_at: now, metadata_json: '{}' });
+      h.env.DB.state.canvasProjects.push({ id: project, user_id: h.user.id, title: 'Synthetic Grok', locale: 'en', created_at: now, updated_at: now, deleted_at: null });
+      const config = { systemPrompt: 'Answer concisely.', reasoningEffort };
+      h.env.DB.state.canvasNodes.push({ id: source, project_id: project, user_id: h.user.id, type: 'text_prompt', title: 'Input', x: 0, y: 0, config_json: '{}', content_json: '{"prompt":"Connected text input"}', created_at: now, updated_at: now, deleted_at: null },
+        { id: node, project_id: project, user_id: h.user.id, type: 'text_generation', title: 'Grok', x: 300, y: 0, model_id: 'xai/grok-4.6', config_json: JSON.stringify(config), content_json: '{}', created_at: now, updated_at: now, deleted_at: null });
+      h.env.DB.state.canvasEdges.push({ id: 'd'.repeat(32), project_id: project, user_id: h.user.id, source_node_id: source, target_node_id: node, created_at: now, updated_at: now });
+      const request = (route, body, key = 'grok-key') => h.authWorker.fetch(authJsonRequest('/api/account/canvas/'+route, body ? 'POST' : 'GET', body, { Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${h.token}`, 'CF-Connecting-IP': '203.0.113.244', 'Idempotency-Key': key }), h.env, createExecutionContext().execCtx);
+      const route = `projects/${project}/nodes/${node}/run`;
+      expect((await (await request('models')).json()).data.models.some(m => m.id === 'xai/grok-4.6')).toBe(true);
+      if (reasoningEffort === 'low') {
+        h.env.ENABLE_GROK_4_6 = 'false';
+        expect((await (await request('models')).json()).data.models.some(m => m.id === 'xai/grok-4.6')).toBe(false);
+        expect((await request(route, {}, 'disabled')).status).toBe(503);
+        expect(calls).toHaveLength(0);
+        h.env.ENABLE_GROK_4_6 = 'true';
+      }
+      const first = await request(route, {}); const data = await first.json();
+      expect(data, JSON.stringify(data)).toMatchObject({ ok: true, data: { run: { status: 'completed', output: { kind: 'text', text: 'Stored Grok answer' } } } });
+      expect(calls).toHaveLength(1);
+      expect(calls[0].body).toMatchObject({ reasoning_effort: reasoningEffort, max_completion_tokens: getGrokMaxCompletionTokens(reasoningEffort), messages: [{ role: 'system', content: config.systemPrompt }, { role: 'user', content: 'Connected text input' }] });
+      for (const field of ['tools', 'search_parameters', 'prompt_cache_key', 'user']) expect(calls[0].body[field]).toBeUndefined();
+      expect(calls[0].options.gateway).toMatchObject({ collectLog: false, skipCache: true, metadata: { surface: 'canvas-text' } });
+      const charge = h.env.DB.state.memberCreditLedger.filter(row => row.entry_type === 'consume');
+      if (role === 'user') { expect(charge).toHaveLength(1); expect(charge[0].amount).toBe(-estimateCanvasTextCredits('xai/grok-4.6', { ...config, prompt: 'Connected text input' })); }
+      else { expect(charge).toHaveLength(0); expect(h.env.DB.state.adminAiUsageAttempts.filter(row => row.status === 'succeeded')).toHaveLength(1); expect(h.env.DB.state.platformBudgetUsageEvents).toHaveLength(1); expect(h.env.DB.state.platformBudgetUsageEvents[0].units).toBe(estimateCanvasTextCredits('xai/grok-4.6', { ...config, prompt: 'Connected text input' })); }
+      expect((await (await request(route, {})).json()).data.idempotent_replay).toBe(true);
+      expect(calls).toHaveLength(1);
+      const reload = await (await request(`projects/${project}`)).json();
+      expect(reload.data.nodes.find(n => n.id === node)).toMatchObject({ config: { reasoningEffort }, output: { text: 'Stored Grok answer' } });
+      h.env.DB.state.canvasNodes.find(n => n.id === node).config_json = JSON.stringify({ ...config, reasoningEffort: reasoningEffort === 'high' ? 'low' : 'high' });
+      expect((await request(route, {})).status).toBe(409);
+      expect(calls).toHaveLength(1);
+      if (reasoningEffort === 'low') {
+        const row = h.env.DB.state.canvasNodes.find(n => n.id === node);
+        row.config_json = JSON.stringify({ ...config, reasoningEffort: 'xhigh' });
+        expect((await request(route, {}, 'invalid-effort')).status).toBe(400);
+        expect(calls).toHaveLength(1);
+        row.config_json = JSON.stringify(config);
+        fail = true;
+        expect((await request(route, {}, 'lost-reply')).status).toBeGreaterThanOrEqual(400);
+        expect(calls).toHaveLength(2);
+        expect((role === 'user' ? h.env.DB.state.memberAiUsageAttempts : h.env.DB.state.adminAiUsageAttempts).some(a => a.provider_outcome === 'unknown')).toBe(true);
+        expect((await request(route, {}, 'lost-reply')).status).toBe(409);
+        expect(calls).toHaveLength(2);
+        expect(h.env.DB.state.memberCreditLedger.filter(row => row.entry_type === 'consume')).toHaveLength(role === 'user' ? 1 : 0);
+        if (role === 'user') {
+          h.env.DB.state.memberCreditLedger.push({ id: 'zero-grok', user_id: h.user.id, amount: -1000, balance_after: 0, entry_type: 'adjustment', source: 'test', idempotency_key: 'zero', request_hash: 'zero', created_at: new Date(Date.now()+1000).toISOString(), metadata_json: '{}' });
+          expect((await request(route, {}, 'insufficient')).status).toBe(402);
+          expect(calls).toHaveLength(2);
+        }
+      }
+    });
   }
 
   test('Canvas Fable 5 run charges personal member credits once and replays without another provider call', async () => {

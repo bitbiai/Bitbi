@@ -1,3 +1,4 @@
+import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens } from "../../../../js/shared/grok-text-contract.mjs";
 import { canvasExport } from './canvas-video-processing.js';
 import { refreshCanvasVideoOutputs } from '../lib/canvas-video-output.js';
 import { pendingCanvasVideo, readCanvasVideoResult, restoreCanvasVideoJobs } from '../lib/canvas-video-jobs.js';
@@ -815,7 +816,10 @@ function buildGenerationBody(node, model, resolution) {
   if (model.capability === "text") {
     if (config.systemPrompt) body.system_prompt = config.systemPrompt;
     if (Array.isArray(config.messages) && config.messages.length) throw Object.assign(new Error("Canvas text nodes accept a prompt and system prompt, not a native message history."), { status: 400, code: "unsupported_option" });
-    if (config.maxTokens !== undefined) body.max_tokens = config.maxTokens;
+    if (model.id === GROK_4_6_MODEL_ID) {
+      body.reasoningEffort = config.reasoningEffort ?? GROK_DEFAULT_REASONING_EFFORT;
+      body.max_tokens = getGrokMaxCompletionTokens(body.reasoningEffort);
+    } else if (config.maxTokens !== undefined) body.max_tokens = config.maxTokens;
     if (config.temperature !== undefined) body.temperature = config.temperature;
   } else if (model.capability === "image") {
     const c = model.controls || {};
@@ -862,7 +866,7 @@ async function callGenerationHandler(ctx, model, body, idempotencyKey, durableVi
   const target = adminExecution ? [`/api/admin/ai/test-${model.capability}`, handleAdminAI] : handlers[model.capability];
   if (model.executionMode === "admin_platform_text") {
     body = { model: body.model, prompt: body.prompt, system: body.system_prompt,
-      maxTokens: body.max_tokens ?? model.controls.maxTokens.default, temperature: body.temperature };
+      maxTokens: body.max_tokens ?? model.controls.maxTokens.default, temperature: body.temperature, ...(body.reasoningEffort ? { reasoningEffort: body.reasoningEffort } : {}) };
   }
   if (!target) throw Object.assign(new Error("Canvas node is not runnable."), { status: 400, code: "node_not_runnable" });
   const request = delegatedRequest(ctx, target[0], body, idempotencyKey);
@@ -1201,7 +1205,7 @@ export async function handleCanvas(ctx) {
       return respond(ctx, {
         ok: true,
         data: {
-          models: listCanvasModelsForRole(session.user.role),
+          models: listCanvasModelsForRole(session.user.role).filter(m => m.id !== GROK_4_6_MODEL_ID || String(ctx.env.ENABLE_GROK_4_6) === "true"),
           access: {
             role: session.user.role,
             is_admin: session.user.role === "admin",

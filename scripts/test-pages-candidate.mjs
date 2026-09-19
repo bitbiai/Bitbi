@@ -377,7 +377,7 @@ try {
    const nextOutput=path.join(cwd,oldLayout?'test-results':'test-results/browser-artifacts');
    fs.mkdirSync(nextOutput,{recursive:true});
    fs.writeFileSync(path.join(nextOutput,'stale.txt'),'previous invocation');
-   execute(stepRun('Run selected auth and admin tests').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false'));
+   execute(stepRun('Run selected auth and admin tests').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false'));
    assert(!fs.existsSync(path.join(nextOutput,'stale.txt')),'Second invocation must still clean disposable output');
    assert.equal(fs.existsSync(reports[0]),!oldLayout);
    execute(stepRun('Confirm tested browser candidate bytes'),!oldLayout);
@@ -473,7 +473,7 @@ try {
  const text=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8');
  const block=text.split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0];
  const command=block.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n')
-   .replaceAll('${{ needs.release-compatibility.outputs.model_status }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','true')
+   .replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','true')
    .replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
  fs.writeFileSync(path.join(workspaceShell,'npm'),'#!/bin/sh\nprintf "%s\\n" "$*" >> calls\nexit "${FAIL_NPM:-0}"\n',{mode:0o755});
  for(const fail of ['0','1']) {
@@ -495,7 +495,7 @@ for(const status of ['failed','skipped','timedOut']){const wrong=structuredClone
 assert.throws(()=>verifyModelStatusReport({suites:[]},statusDiscovery));
 const statusSelection=selectCiTests(['workers/auth/src/lib/admin-model-status.js','js/pages/admin/model-status.js']);
 assert.deepEqual(Object.keys(requiredJobs(statusSelection)),['release-compatibility','worker-validation','browser-validation']);
-const statusShell=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','true').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
+const statusShell=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','true').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
 const statusTmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-status-shell-'));
 try{
  fs.mkdirSync(path.join(statusTmp,'test-results'));fs.writeFileSync(path.join(statusTmp,'npm'),'#!/bin/sh\nprintf "%s\\n" "$*" >> calls\nexit "${FAIL_NPM:-0}"\n',{mode:0o755});
@@ -542,4 +542,13 @@ assert.throws(()=>verifyLaterAttempt({...run,conclusion:'failure'},[{name:'deplo
  for(const step of worker.steps)assert.throws(()=>validateSource({...evidence,jobs:selectedJobs.map(j=>j===worker?{...j,steps:j.steps.filter(s=>s!==step)}:j)},scope));
  assert.throws(()=>validateSource({...evidence,mainSha:'b'.repeat(40)},scope));
  console.log('Media lifecycle selection: real required steps, missing/failed execution and supersession remain blocking.');
+}
+
+{
+  const {verifyCanvasTextReport,requiredJobs}=await import('./pages-candidate.mjs');
+  const suite=(result=true)=>({suites:[{specs:['canvas.spec.js','oma2-q1-canvas.spec.js'].map((file,i)=>({id:String(i),file,tests:['chromium','webkit-canvas'].map(projectName=>({projectName,results:result?[{status:'passed'}]:[]}))}))}]});
+  const report=suite(),discovery=suite(false);verifyCanvasTextReport(report,discovery);
+  for(const status of ['skipped','failed','timedOut']){const bad=structuredClone(report);bad.suites[0].specs[0].tests[0].results=[{status}];assert.throws(()=>verifyCanvasTextReport(bad,discovery));}
+  const missing=structuredClone(report);missing.suites[0].specs.pop();assert.throws(()=>verifyCanvasTextReport(missing,discovery));
+  const jobs=requiredJobs({canvasText:true,workers:true,auth:true,static:true});assert(jobs['worker-validation']);assert(jobs['browser-validation']);assert(!jobs['homepage-webkit-media']);
 }

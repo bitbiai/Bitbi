@@ -504,11 +504,12 @@ test('actual selected Worker shell stops before downstream work on every failure
   for(const name of ['node','npx','npm'])fs.writeFileSync(path.join(bin,name),'#!/bin/sh\ncommand="${0##*/} $*"\nprintf "%s\\n" "$command" >> "$TRACE"\n[ "$command" != "$FAIL_COMMAND" ] || exit 37\n',{mode:0o700});
   const block=read('.github/workflows/static.yml').split('      - name: Run worker route tests\n')[1].split('      - name:')[0];
   const script=block.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n');
-  for(const [status,selected] of [['false','true'],['false','false'],['true','false']]) {
-    const command=script.replaceAll('${{ needs.release-compatibility.outputs.model_status }}',status).replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
+  for(const [status,selected,canvas='false'] of [['false','true'],['false','false'],['true','false'],['false','false','true']]) {
+    const command=script.replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}',canvas).replaceAll('${{ needs.release-compatibility.outputs.model_status }}',status).replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
     const run=fail=>{fs.writeFileSync(trace,'');const result=spawnSync('/bin/sh',['-c',command],{cwd:f.base,env:{PATH:bin,TRACE:trace,FAIL_COMMAND:fail||''},encoding:'utf8'});return {status:result.status,commands:fs.readFileSync(trace,'utf8').trim().split('\n')};};
-    const passed=run();assert.equal(passed.status,0);assert.equal(passed.commands.length,status==='true'||selected==='true'?3:1);
-    if(status==='true')assert.match(passed.commands[2],/--suite model-status$/);
+    const passed=run();assert.equal(passed.status,0);assert.equal(passed.commands.length,canvas==='true'?5:status==='true'||selected==='true'?3:1);
+    if(canvas==='true'){assert.match(passed.commands[2],/grok-chat-workers/);assert.match(passed.commands[3],/fable-chat-workers/);assert.match(passed.commands[4],/--suite canvas$/);}
+    else if(status==='true')assert.match(passed.commands[2],/--suite model-status$/);
     else if(selected==='true')assert.match(passed.commands[2],/--suite member-generation$/);
     else assert.deepEqual(passed.commands,['npm run test:workers']);
     for(const [i,failed] of passed.commands.entries()) {const result=run(failed);assert.equal(result.status,37);assert.deepEqual(result.commands,passed.commands.slice(0,i+1));}

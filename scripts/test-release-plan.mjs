@@ -702,3 +702,24 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  await assert.rejects(activateMedia(expected,{currentVersion:version,deploy:async()=>{},verify:async()=>{throw Error('not converged');}}),/not converged/);
  console.log('Container rollout: delayed image convergence, permanent mismatch, identity/traffic/limits and partial-deploy resume controls passed.');
 }
+
+{
+ const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');
+ const {advanceBackend,verifyAiActivation,activateAuthVersion}=await import('./lib/backend-publication.mjs');
+ const plan=createReleasePlanFromRepo(repoRoot,{files:['js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js','workers/ai/src/lib/grok-chat.js','workers/auth/src/routes/canvas.js','js/pages/canvas/main.js']});
+ assert(backendContinuationSupported(plan));assert(plan.workerDeploys.some(w=>w.worker==='ai'));assert(plan.workerDeploys.some(w=>w.worker==='auth'));
+ const sha='a'.repeat(40),previousMedia='b'.repeat(40),id='12345678-1234-1234-1234-123456789abc';
+ const receipt={sha,version:id,deployment:'deployment-ai'};
+ const version={annotations:{'workers/message':`bitbi-ai:${sha}`},resources:{bindings:[{name:'AI',type:'ai'},{name:'SERVICE_AUTH_REPLAY',type:'durable_object_namespace'},{name:'AI_SERVICE_AUTH_SECRET',type:'secret_text'},{name:'ENABLE_GROK_4_6',text:'true'}]}};
+ const deployment={id:receipt.deployment,versions:[{version_id:id,percentage:100}]};
+ const read=async endpoint=>endpoint.endsWith('/deployments')?{deployments:[deployment]}:version;
+ await verifyAiActivation(receipt,sha,read);
+ for(const invalid of [{...receipt,sha:previousMedia},{...receipt,version:'wrong'},{...receipt,deployment:'stale'}])await assert.rejects(verifyAiActivation(invalid,sha,read));
+ for(const failure of [null,'ai']) {
+   const order=[];
+   const operation=advanceBackend({sha,pending:[],activeVersion:{},assertCurrent:async()=>{},assertSchema:async()=>order.push('schema'),prepareAi:async()=>{order.push('ai');if(failure)throw Error('AI activation failed');},deploy:async()=>order.push('auth'),readActive:async()=>order.push('verify-auth')});
+   if(failure){await assert.rejects(operation);assert.deepEqual(order,['schema','ai']);}else{await operation;assert.deepEqual(order,['schema','ai','auth','verify-auth']);}
+ }
+ const commands=[];await activateAuthVersion({sha,mediaSourceSha:previousMedia,secretFile:'/private/fixture.json',assertCurrent:async()=>{},command:args=>{commands.push(args);return `Worker Version ID: ${id}`;}});
+ assert(commands[0].includes(`PRIVATE_MEDIA_SOURCE_SHA:${previousMedia}`));assert(!commands[0].includes(`PRIVATE_MEDIA_SOURCE_SHA:${sha}`));
+}

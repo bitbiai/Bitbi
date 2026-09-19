@@ -1,3 +1,5 @@
+import { GROK_4_6_MODEL_ID, estimateGrokTextCostUsd } from "../../../../js/shared/grok-text-contract.mjs";
+import { creditsForProviderCostUsd } from "../../../../js/shared/model-credit-pricing.mjs";
 import { validateAdminPixverseExtension } from '../lib/pixverse-extend.js';
 import { getAdminModelStatus } from '../lib/admin-model-status.js';
 import {
@@ -782,6 +784,10 @@ async function buildAdminLabBudgetPolicyContext({
     routePath,
     killSwitchTarget,
   });
+  if (operationId === ADMIN_TEXT_OPERATION_ID && modelId === GROK_4_6_MODEL_ID) {
+    operation.estimatedCostUnits = creditsForProviderCostUsd(estimateGrokTextCostUsd({ prompt: payload.prompt, systemPrompt: payload.system, reasoningEffort: payload.reasoningEffort }));
+    operation.estimatedCredits = operation.estimatedCostUnits;
+  }
   const plan = classifyAdminPlatformBudgetPlan({
     operation,
     actorUserId: user?.id || null,
@@ -2828,6 +2834,7 @@ export async function handleAdminAI(ctx) {
     try {
       const idempotencyKey = normalizeAdminLabIdempotencyKey(request.headers.get("Idempotency-Key"));
       const validated = validateTextPayload(body);
+      if (validated.model === GROK_4_6_MODEL_ID && String(env.ENABLE_GROK_4_6) !== "true") throw new InputError("Grok is unavailable.", 503, "model_disabled");
       const selection = resolveAdminAiModelSelection("text", validated);
       const modelId = selection.model.id;
       const budgetPolicy = await buildAdminLabBudgetPolicyContext({

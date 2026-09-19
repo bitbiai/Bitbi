@@ -309,7 +309,7 @@ function gatewayOptions(env, correlationId, modelId = GROK_4_6_MODEL_ID, surface
       skipCache: true,
       collectLog: false,
       metadata: {
-        surface: `van-ark-chat-${surface}`,
+        surface: surface === "canvas-text" ? surface : `van-ark-chat-${surface}`,
         model_id: modelId,
         provider: "xai",
         ...(correlationId ? { request_id: correlationId } : {}),
@@ -459,14 +459,14 @@ async function runSearchProviderRound(env, input, correlationId, signal) {
   }
 }
 
-async function runProviderRound(env, input, messages, correlationId, signal, toolChoice) {
+async function runProviderRound(env, input, messages, correlationId, signal, toolChoice, surface) {
   if (!env?.AI || typeof env.AI.run !== "function") {
     throw new GrokChatValidationError("Workers AI is unavailable.", "ai_binding_missing", 503);
   }
   const output = await env.AI.run(
     GROK_4_6_MODEL_ID,
     buildGrokProviderPayload(input, messages, { toolChoice }),
-    { ...gatewayOptions(env, correlationId), signal }
+    { ...gatewayOptions(env, correlationId, GROK_4_6_MODEL_ID, surface), signal }
   );
   if (!output || typeof output.getReader !== "function") {
     throw new OpenAiChatStreamError("Workers AI did not return a stream.", {
@@ -749,4 +749,21 @@ export function mapGrokChatError(error) {
     );
   }
   return new GrokChatValidationError("Grok chat is unavailable.", "provider_unavailable", 503);
+}
+
+// Same provider adapter and strict terminal parser, without chat persona, state or tools.
+export async function invokeGrokText(env, input, signal) {
+  if (String(env.ENABLE_GROK_4_6) !== "true") throw new GrokChatValidationError("Grok is unavailable.", "model_disabled", 503);
+  const settings = normalizeGrokProviderSettings({ reasoningEffort: input.reasoningEffort, maxCompletionTokens: input.maxTokens, temperature: input.temperature });
+  const messages = [...(input.system ? [{ role: "system", content: input.system }] : []), { role: "user", content: input.prompt }];
+  const stream = await runProviderRound(env, { settings }, messages, input.correlationId, signal, "none", "canvas-text");
+  try {
+    const result = await consumeOpenAiChatCompletionStream(stream);
+    if (result.finishReason !== "stop" || result.toolCalls.length || result.citations.length || result.outputFiles.length) {
+      throw new OpenAiChatStreamError("The provider did not complete a plain text result.", { code: "provider_incomplete_result", definitive: true });
+    }
+    return { text: result.text, usage: result.usage, stopReason: result.finishReason, responseModel: result.responseModel };
+  } finally {
+    if (!stream.locked) await stream.cancel().catch(() => {});
+  }
 }

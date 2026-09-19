@@ -1,3 +1,4 @@
+import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens, normalizeGrokReasoningEffort, GROK_TEXT_PRICING } from "./grok-text-contract.mjs";
 import {
   REMOTE_MEDIA_URL_POLICY_CODE,
   attachRemoteMediaPolicyContext,
@@ -482,6 +483,12 @@ export function isAdminAiVideoGrokImagine15PreviewModelId(modelId) {
 }
 
 const TEXT_MODELS = {
+  [GROK_4_6_MODEL_ID]: {
+    id: GROK_4_6_MODEL_ID, task: "text", label: "Grok 4.6", vendor: "xAI", inputFormat: "messages",
+    canvasOnly: true, defaultMaxTokens: 16384, maxOutputTokens: 32768,
+    pricingPerMillionTokens: GROK_TEXT_PRICING,
+    description: "One-shot text generation with adjustable reasoning; no chat history or tools.",
+  },
   "@cf/meta/llama-3.1-8b-instruct-fast": {
     id: "@cf/meta/llama-3.1-8b-instruct-fast",
     task: "text",
@@ -614,7 +621,7 @@ const TEXT_MODELS = {
 
 export function getAdminAiTextMaxTokensForModel(modelId) {
   const normalizedModelId = String(modelId || "").trim();
-  if (![CLAUDE_FABLE_5_MODEL_ID, QWEN3_30B_A3B_MODEL_ID].includes(normalizedModelId)) {
+  if (![CLAUDE_FABLE_5_MODEL_ID, QWEN3_30B_A3B_MODEL_ID, GROK_4_6_MODEL_ID].includes(normalizedModelId)) {
     return ADMIN_AI_LIMITS.text.maxTokens;
   }
 
@@ -1962,11 +1969,11 @@ function toPublicPreset(preset) {
   };
 }
 
-export function listAdminAiCatalog() {
+export function listAdminAiCatalog({ includeCanvas = false } = {}) {
   return {
     presets: Object.values(PRESETS).map(toPublicPreset),
     models: {
-      text: Object.values(TEXT_MODELS).map(toPublicModel),
+      text: Object.values(TEXT_MODELS).filter(model => includeCanvas || !model.canvasOnly).map(toPublicModel),
       image: Object.values(IMAGE_MODELS).map(toPublicModel),
       embeddings: Object.values(EMBEDDING_MODELS).map(toPublicModel),
       music: Object.values(MUSIC_MODELS).map(toPublicModel),
@@ -2046,6 +2053,17 @@ export function validateAdminAiTextBody(body) {
   const input = ensureObject(body);
   const preset = optionalString(input.preset, "preset", 64);
   const model = optionalString(input.model, "model", 120);
+  if (model === GROK_4_6_MODEL_ID) {
+    assertOnlyAllowedFields(input, ["model", "prompt", "system", "maxTokens", "temperature", "reasoningEffort"]);
+    const reasoningEffort = normalizeGrokReasoningEffort(input.reasoningEffort ?? GROK_DEFAULT_REASONING_EFFORT);
+    const maxTokens = getGrokMaxCompletionTokens(reasoningEffort);
+    if (input.maxTokens != null && Number(input.maxTokens) !== maxTokens) throw new AdminAiValidationError("maxTokens must match reasoningEffort.");
+    return { model, reasoningEffort, maxTokens,
+      prompt: requiredString(input.prompt, "prompt", 12000),
+      system: optionalString(input.system, "system", 4000),
+      temperature: optionalNumber(input.temperature, "temperature", 0, 1.5, .7) };
+  }
+  if (input.reasoningEffort !== undefined) throw new AdminAiValidationError("reasoningEffort is not supported for this text model.");
   return {
     preset,
     model,

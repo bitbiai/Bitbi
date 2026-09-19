@@ -100,7 +100,7 @@ export async function createRuntime(build, name, { restricted = false, reference
     ENABLE_NEWS_PULSE_VISUAL_BUDGET: 'false', Q2_CONTROL_TOKEN: controlToken };
   if (name.startsWith('q4-')) Object.assign(bindings, { MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'q4-stream-processor-synthetic-not-a-production-secret', ENABLE_MEMVID_STREAM_PREVIEWS: 'true', STREAM_ACCOUNT_ID: 'synthetic-q4-account', STREAM_API_TOKEN: 'test-q4-provider-no-credentials', STRIPE_LIVE_SUBSCRIPTION_PRICE_ID: 'price_q4_subscription_monthly' });
   for (const key of ['SESSION_HASH_SECRET', 'PAGINATION_SIGNING_SECRET', 'ADMIN_MFA_ENCRYPTION_KEY', 'ADMIN_MFA_PROOF_SECRET', 'ADMIN_MFA_RECOVERY_HASH_SECRET', 'AI_SAVE_REFERENCE_SIGNING_SECRET']) bindings[key] = `q2-synthetic-${key}-not-live-0000000000000000`;
-  if (name === 'canvas') Object.assign(bindings, { ENABLE_ADMIN_AI_TEXT_BUDGET: 'true', ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET: 'true', AI_SERVICE_AUTH_SECRET: 'q2-canvas-service-synthetic-not-live' });
+  if (name === 'canvas') Object.assign(bindings, { ENABLE_GROK_4_6: 'true', ENABLE_ADMIN_AI_TEXT_BUDGET: 'true', ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET: 'true', AI_SERVICE_AUTH_SECRET: 'q2-canvas-service-synthetic-not-live' });
   const deny = async () => { counters.outboundDenied += 1; throw new Error('Native test outbound denied'); };
   const denyService = async () => { counters.serviceDenied += 1; throw new Error('Native test provider service denied'); };
   const canvasProvider = { requests: [], fail: false };

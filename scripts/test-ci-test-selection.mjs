@@ -684,3 +684,11 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  for(const file of ['workers/auth/src/index.js','workers/media/wrangler.jsonc','workers/media/package-lock.json','services/homepage-ffmpeg-processor/container-server.mjs','unknown-input.mjs'])assert.notEqual(selection([...files,file]).mediaLifecycle,true,file);
  assert.notEqual(selection(files,{forceFull:true}).mediaLifecycle,true);
 }
+
+{
+  const files=['js/shared/grok-text-contract.mjs','js/shared/admin-ai-contract.mjs','workers/shared/grok-chat-contract.mjs','workers/shared/chat-model-contract.mjs','workers/ai/src/routes/text.js','workers/ai/src/lib/grok-chat.js','workers/auth/src/routes/canvas.js','workers/auth/src/routes/ai/text-generate.js','workers/auth/src/routes/admin-ai.js','js/pages/canvas/main.js','js/shared/canvas-model-contract.mjs','tests/workers.spec.js','tests/grok-chat-workers.spec.js','tests/canvas.spec.js','tests/helpers/q2-runtime/canvas.mjs','tests/helpers/q2-runtime/environment.mjs','.github/workflows/static.yml','scripts/lib/backend-publication.mjs'];
+  const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);
+  for(const key of ['full','homepage','homepageMedia','carousel','assets'])assert.equal(result[key],false);
+  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/member-credit-ledger.js','workers/ai/src/lib/invoke-ai.js','js/shared/auth.js','unknown-runtime.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
+  assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
+}

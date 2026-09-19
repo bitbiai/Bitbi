@@ -87,6 +87,19 @@ const CANVAS_UI_FILES = new Set([
   "js/pages/canvas/full-video.js", "js/pages/canvas/workflow.js", "js/pages/canvas/video-frame.js", "js/pages/canvas/video-input.js",
 ]);
 
+// Closed Canvas text/provider integration scope. Unknown runtime/billing inputs
+// continue through ordinary impact selection; chat and native D1 are exercised.
+const CANVAS_TEXT_FILES = new Set([
+  'js/pages/canvas/main.js', 'js/shared/canvas-model-contract.mjs',
+  'js/shared/grok-text-contract.mjs', 'js/shared/admin-ai-contract.mjs',
+  'workers/shared/grok-chat-contract.mjs', 'workers/shared/chat-model-contract.mjs',
+  'workers/ai/src/lib/grok-chat.js', 'workers/ai/src/routes/text.js',
+  'workers/auth/src/routes/canvas.js', 'workers/auth/src/routes/ai/text-generate.js',
+  'workers/auth/src/routes/admin-ai.js', 'tests/workers.spec.js',
+  'tests/grok-chat-workers.spec.js', 'tests/canvas.spec.js', 'tests/oma2-q1-canvas.spec.js',
+  'tests/helpers/q2-runtime/canvas.mjs', 'tests/helpers/q2-runtime/environment.mjs', 'scripts/test-q2-runtime-launcher.mjs',
+]);
+
 const AUTH_SHARED_PATTERNS = [
   /(?:^|\/)auth(?:-|\/|\.)/,
   /(?:^|\/)session(?:-|\/|\.)/,
@@ -419,6 +432,16 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selection.workers = selection.static = selection.runtime = true;
     selection.reasons.workers.push('Pinned container SDK lifecycle, busy/queued work protection and tested Linux processor image; no changed Auth or browser inputs');
     selection.reasons.static.push('Release/build contracts and native frontend routing; exact candidate identity remains required');
+    return selection;
+  }
+
+  if (!forceFull && changedFiles.some(f=>['js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js'].includes(f))
+      && changedFiles.every(f=>isDocumentation(f)||CANVAS_TEXT_FILES.has(f)||RELEASE_TOOLING_FILES.has(f))) {
+    selection.canvasText = true;
+    selection.workers = selection.auth = selection.static = selection.runtime = true;
+    selection.reasons.workers.push('Canvas text/provider routes, Grok/chat compatibility, billing and replay; native Canvas D1/ownership execution');
+    selection.reasons.auth.push('Both Canvas suites on tested build in Chromium/WebKit; persisted reasoning, inputs, output and save coordination');
+    selection.reasons.static.push('Exact candidate, release contracts, native frontend routing and security checks');
     return selection;
   }
 

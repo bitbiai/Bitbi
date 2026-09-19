@@ -1,3 +1,4 @@
+import { GROK_4_6_MODEL_ID, GROK_REASONING_EFFORTS, GROK_DEFAULT_REASONING_EFFORT, estimateGrokTextCostUsd } from "./grok-text-contract.mjs";
 import {
   CLAUDE_FABLE_5_MODEL_ID,
   listAdminAiCatalog,
@@ -51,7 +52,8 @@ function safeDescription(value, fallback) {
   return description;
 }
 
-function textCredits(model, { prompt = "", systemPrompt = "", maxTokens } = {}) {
+function textCredits(model, { prompt = "", systemPrompt = "", maxTokens, reasoningEffort } = {}) {
+  if (model.id === GROK_4_6_MODEL_ID) return creditsForProviderCostUsd(estimateGrokTextCostUsd({ prompt, systemPrompt, reasoningEffort }));
   if (model.id !== CLAUDE_FABLE_5_MODEL_ID) return 1;
   const inputTokens = Math.max(1, Math.ceil((String(prompt).length + String(systemPrompt).length) / 4));
   const outputTokens = Math.max(1, Math.min(
@@ -83,9 +85,10 @@ function buildTextModel(model) {
     requiresPlatformBudget: false,
     runnable: model.canvasEnabled !== false,
     route: "/api/ai/generate-text",
-    pricingStatus: model.id === CLAUDE_FABLE_5_MODEL_ID ? "estimated_upper_bound" : "fixed_member_credit",
+    pricingStatus: [CLAUDE_FABLE_5_MODEL_ID, GROK_4_6_MODEL_ID].includes(model.id) ? "estimated_upper_bound" : "fixed_member_credit",
     estimatedCredits: textCredits(model, { maxTokens: model.defaultMaxTokens }),
     controls: {
+      ...(model.id === GROK_4_6_MODEL_ID ? { reasoningEffort: { options: GROK_REASONING_EFFORTS, default: GROK_DEFAULT_REASONING_EFFORT } } : {}),
       systemPrompt: true,
       messages: false,
       temperature: { min: 0, max: 1.5, step: 0.1, default: 0.7 },
@@ -271,7 +274,7 @@ function buildEmbeddingModel(model) {
 }
 
 function buildCatalog() {
-  const catalog = listAdminAiCatalog().models;
+  const catalog = listAdminAiCatalog({ includeCanvas: true }).models;
   return [
     ...catalog.text.map(buildTextModel),
     ...catalog.image.map(buildImageModel),
@@ -324,6 +327,6 @@ export function getCanvasModelForRole(modelId, role) {
 export function estimateCanvasTextCredits(modelId, input = {}) {
   const model = getCanvasModel(modelId);
   if (!model || model.capability !== "text" || !model.runnable) return null;
-  const adminModel = listAdminAiCatalog().models.text.find((entry) => entry.id === model.id);
+  const adminModel = listAdminAiCatalog({ includeCanvas: true }).models.text.find((entry) => entry.id === model.id);
   return textCredits(adminModel || model, input);
 }

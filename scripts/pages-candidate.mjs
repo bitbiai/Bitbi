@@ -211,7 +211,7 @@ export function verifyProofs(manifest,proofs) {
 export function verifyAdminReport(report, discovery, scopes = [
     ['reader',['oma2-q3-newsfeed.spec.js','oma2-q3-shell.spec.js','oma2-q3-auth-lifecycle.spec.js']],
     ['mfa',['auth-admin.spec.js']],['smoke',['smoke.spec.js']],
-  ]) {
+  ], projectName = (engine,scope)=>`${engine}-${scope}`) {
   const collect = report => {
     const rows=[];
     const visit=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests||[])
@@ -219,7 +219,7 @@ export function verifyAdminReport(report, discovery, scopes = [
       (suite.suites||[]).forEach(visit);}; (report.suites||[]).forEach(visit); return rows;
   };
   const expected=collect(discovery), actual=collect(report);
-  for(const engine of ['chromium','webkit'])for(const [scope,files] of scopes)for(const file of files)assert(expected.some(r=>r.project===`${engine}-${scope}`&&r.file===file),`Missing required Admin discovery ${engine}/${file}`);
+  for(const engine of ['chromium','webkit'])for(const [scope,files] of scopes)for(const file of files)assert(expected.some(r=>r.project===projectName(engine,scope)&&r.file===file),`Missing required Admin discovery ${engine}/${file}`);
   assert.equal(new Set(expected.map(r=>r.key)).size,expected.length,'Duplicate Admin discovery');
   assert.equal(actual.length,expected.length,'Admin case set changed after discovery');
   for(const e of expected) {
@@ -227,6 +227,10 @@ export function verifyAdminReport(report, discovery, scopes = [
     assert.equal(found.length,1,`Missing executed Admin case ${e.key}/${e.file}`);
     assert.deepEqual(found[0].results.map(r=>r.status),['passed'],`Admin case did not pass without retry: ${e.key}/${e.file}`);
   }
+}
+
+export function verifyCanvasTextReport(report,discovery) {
+  verifyAdminReport(report,discovery,[['canvas',['canvas.spec.js','oma2-q1-canvas.spec.js']]],engine=>engine==='chromium'?'chromium':'webkit-canvas');
 }
 
 export function verifyModelStatusReport(report, discovery) {
@@ -333,6 +337,7 @@ async function main(command) {
     if(process.env.GITHUB_JOB==='homepage-validation' && manifest.selection && 'homepageMedia' in manifest.selection)
       verifyHomepageReport(report, JSON.parse(fs.readFileSync('test-results/homepage-discovery.json')), manifest.selection.homepageMedia);
     if (manifest.selection?.assets && !manifest.selection.full && process.env.GITHUB_JOB === 'browser-validation') verifyAssetReport(reports[names.indexOf('test-results/candidate-assets.json')], JSON.parse(fs.readFileSync('test-results/assets-discovery.json')));
+    if (manifest.selection?.canvasText) verifyCanvasTextReport(report, JSON.parse(fs.readFileSync('test-results/canvas-discovery.json')));
     if (manifest.selection?.modelStatus) verifyModelStatusReport(report, JSON.parse(fs.readFileSync('test-results/model-status-discovery.json')));
     if (manifest.selection?.workspaceHelp) verifyWorkspaceHelpReport(report, JSON.parse(fs.readFileSync('test-results/workspace-discovery.json')));
     if (manifest.selection?.publicMedia) verifyPublicMediaReport(report, JSON.parse(fs.readFileSync('test-results/public-media-discovery.json')));

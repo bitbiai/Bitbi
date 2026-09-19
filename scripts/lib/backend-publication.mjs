@@ -29,8 +29,8 @@ export function backendDiagnostic(error,args) {
 export function backendCommand(args,execute=execFileSync,record=d=>{
   fs.mkdirSync('test-results',{recursive:true});fs.appendFileSync('test-results/backend-diagnostics.jsonl',JSON.stringify(d)+'\n');
   console.error(JSON.stringify({backendCommandFailure:d}));
-}) {
-  try{return execute(process.execPath,['node_modules/wrangler/bin/wrangler.js',...args],{cwd:'workers/auth',env:{...process.env,WRANGLER_SEND_METRICS:'false'},encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:240000});}
+},workingDirectory='workers/auth') {
+  try{return execute(process.execPath,['node_modules/wrangler/bin/wrangler.js',...args],{cwd:workingDirectory,env:{...process.env,WRANGLER_SEND_METRICS:'false'},encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:240000});}
   catch(error){record(backendDiagnostic(error,args));throw Error(`Backend command failed (${error.status??'unavailable'}); ${args[0]}. See redacted backend diagnostics. No frontend continuation.`);}
 }
 const run=backendCommand;
@@ -53,14 +53,14 @@ export async function verifyAuthTriggers(config,read=readBackend) {
     assert.equal(consumer.settings.max_concurrency,expected.max_concurrency);assert.equal(consumer.dead_letter_queue,expected.dead_letter_queue);
   }
 }
-export async function activateAuthVersion({sha,secretFile,assertCurrent,command=run}) {
+export async function activateAuthVersion({sha,mediaSourceSha=sha,secretFile,assertCurrent,command=run}) {
   // Routes, crons and consumers are unchanged and independently checked. A
   // version publication must not rewrite them or require new zone-write rights.
-  const output=command(['versions','upload','--keep-vars','--secrets-file',secretFile,'--var',`PRIVATE_MEDIA_SOURCE_SHA:${sha}`,'--message',`bitbi-auth:${sha}`]);
+  const output=command(['versions','upload','--keep-vars','--secrets-file',secretFile,'--var',`PRIVATE_MEDIA_SOURCE_SHA:${mediaSourceSha}`,'--message',`bitbi-auth:${sha}`]);
   const id=output.match(/Worker Version ID:\s*([a-f0-9-]{36})\b/)?.[1];assert(id,'Missing uploaded Auth version identity');
   await assertCurrent();command(['versions','deploy',`${id}@100%`,'--yes','--message',`bitbi-auth:${sha}`]);return id;
 }
-export async function verifyAuthBundle(digest,read=()=>fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${worker}/content/v2`,{headers:{Authorization:`Bearer ${backendEnv().CLOUDFLARE_API_TOKEN}`},signal:AbortSignal.timeout(20000)})) {
+export async function verifyAuthBundle(digest,read=()=>fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${script}/content/v2`,{headers:{Authorization:`Bearer ${backendEnv().CLOUDFLARE_API_TOKEN}`},signal:AbortSignal.timeout(20000)}),script=worker) {
   assert(/^[a-f0-9]{64}$/.test(digest||''),'Missing Auth bundle identity');
   const response=await read();assert(response.ok,`Auth bundle read failed (${response.status})`);
   const modules=await response.formData();assert.deepEqual([...modules.keys()],['index.js'],'Unexpected Auth modules');
@@ -95,9 +95,43 @@ async function active() {
 }
 function prerequisites(plan,version,config,settings=true) {
   const bindings=version.resources?.bindings||[];
-  for(const p of plan.manualPrerequisites.required) assert(bindings.some(b=>b.name===(p.name||p.binding)),`Missing active prerequisite ${p.id}`);
+  for(const p of plan.manualPrerequisites.required.filter(p=>p.worker==='auth')) assert(bindings.some(b=>b.name===(p.name||p.binding)),`Missing active prerequisite ${p.id}`);
   for(const name of ['MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET','GITHUB_ACTIONS_DISPATCH_TOKEN'])assert(bindings.some(b=>b.name===name&&b.type==='secret_text'),`Missing processor credential ${name}`);
   if(settings)for(const [key,value] of Object.entries(config.vars).filter(([k])=>k.startsWith('GITHUB_ACTIONS_DISPATCH_')||k==='ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH'))assert(bindings.some(b=>b.name===key&&b.text===value),`Processor setting mismatch ${key}`);
+}
+export async function verifyAiActivation(receipt,sha,read=readBackend) {
+  assert.equal(receipt.sha,sha,'Wrong AI source');
+  const deployment=(await read('workers/scripts/bitbi-ai/deployments')).deployments[0];
+  assert.equal(deployment.id,receipt.deployment,'AI activation changed');
+  assert.deepEqual(deployment.versions,[{version_id:receipt.version,percentage:100}],'AI not fully active');
+  const version=await read(`workers/scripts/bitbi-ai/versions/${receipt.version}`);
+  assert.equal(version.annotations?.['workers/message'],`bitbi-ai:${sha}`,'Wrong AI version');
+  for(const [name,type] of [['AI','ai'],['SERVICE_AUTH_REPLAY','durable_object_namespace'],['AI_SERVICE_AUTH_SECRET','secret_text']])assert(version.resources.bindings.some(b=>b.name===name&&b.type===type),`Missing AI binding ${name}`);
+  assert(version.resources.bindings.some(b=>b.name==='ENABLE_GROK_4_6'&&b.text==='true'),'Grok is disabled');
+}
+async function publishAi(c,directory) {
+  // Existing service, bindings and triggers only; no AI inference during upload.
+  assert.equal(execFileSync('git',['show',`${c.base}:workers/ai/wrangler.jsonc`],{encoding:'utf8'}),fs.readFileSync('workers/ai/wrangler.jsonc','utf8'),'AI configuration changes need a separate release review');
+  const command=args=>backendCommand(args,execFileSync,undefined,'workers/ai');
+  command(['versions','upload','--dry-run','--keep-vars','--outdir',directory]);
+  const digest=createHash('sha256').update(fs.readFileSync(path.join(directory,'index.js'))).digest('hex');
+  let deployment=(await readBackend('workers/scripts/bitbi-ai/deployments')).deployments[0];
+  assert(deployment.versions.length===1&&deployment.versions[0].percentage===100,'Ambiguous AI traffic');
+  const before=await readBackend(`workers/scripts/bitbi-ai/versions/${deployment.versions[0].version_id}`);
+  const probe={sha:c.sha,version:before.id,deployment:deployment.id};
+  // Verify current required bindings before any mutation (annotation is checked after activation).
+  for(const name of ['AI','SERVICE_AUTH_REPLAY','AI_SERVICE_AUTH_SECRET'])assert(before.resources.bindings.some(b=>b.name===name),`Missing AI prerequisite ${name}`);
+  assert(before.resources.bindings.some(b=>b.name==='ENABLE_GROK_4_6'&&b.text==='true'),'Existing Grok activation required');
+  if(before.annotations?.['workers/message']!==`bitbi-ai:${c.sha}`) {
+    await current(c.sha);
+    const output=command(['versions','upload','--keep-vars','--message',`bitbi-ai:${c.sha}`]);
+    const id=output.match(/Worker Version ID:\s*([a-f0-9-]{36})\b/)?.[1];assert(id,'Missing uploaded AI version');
+    await current(c.sha);command(['versions','deploy',`${id}@100%`,'--yes','--message',`bitbi-ai:${c.sha}`]);
+    deployment=(await readBackend('workers/scripts/bitbi-ai/deployments')).deployments[0];
+    probe.version=id;probe.deployment=deployment.id;
+  }
+  const receipt={...probe,bundleDigest:digest};
+  await verifyAiActivation(receipt,c.sha);await verifyAuthBundle(digest,undefined,'bitbi-ai');return receipt;
 }
 export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECEIPT) {
   const c=context();await current(c.sha);
@@ -107,21 +141,23 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   prerequisites(c.plan,state.version,c.config);
   await verifyAuthTriggers(c.config);
   await verifyAuthBundle(receipt.authBundleDigest);
+  if(c.plan.workerDeploys.some(s=>s.worker==='ai')) {assert(receipt.ai,'Missing AI prerequisite receipt');await verifyAiActivation(receipt.ai,c.sha);await verifyAuthBundle(receipt.ai.bundleDigest,undefined,'bitbi-ai');}
   if(requiresPrivateMediaImage(c.plan.changedFiles)) {
     verifyMediaEvidence(receipt,{sha:c.sha,run:process.env.CANDIDATE_RUN,attempt:process.env.CANDIDATE_ATTEMPT,lifecycle:selectCiTests(c.plan.changedFiles).mediaLifecycle===true});
     await mediaActive(receipt.media,backendEnv());
   }
-  for(const [name,value] of [['PRIVATE_MEDIA_SOURCE_SHA',c.sha]])assert(state.version.resources.bindings.some(b=>b.name===name&&b.text===value),'Wrong active media source');
+  for(const [name,value] of [['PRIVATE_MEDIA_SOURCE_SHA',receipt.mediaSourceSha||c.sha]])assert(state.version.resources.bindings.some(b=>b.name===name&&b.text===value),'Wrong active media source');
   assert(state.version.resources.bindings.some(b=>b.name==='PRIVATE_MEDIA_PROCESSOR'&&b.service==='bitbi-private-media'),'Missing media service binding');
   assert(state.version.resources.bindings.some(b=>b.name==='PRIVATE_MEDIA_PROCESSOR_SECRET'&&b.type==='secret_text'),'Missing private processor credential');
   const processor=await api(`contents/services/homepage-ffmpeg-processor/processor.mjs?ref=${c.sha}`);assert.equal(processor.sha,execFileSync('git',['rev-parse',`${c.sha}:services/homepage-ffmpeg-processor/processor.mjs`],{encoding:'utf8'}).trim());
   verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});return receipt;
 }
-export async function advanceBackend({sha,pending,activeVersion,assertCurrent,applyMigration,assertSchema,deploy,readActive,prepareMedia,verifyMedia,verifyConfiguration}) {
+export async function advanceBackend({sha,pending,activeVersion,assertCurrent,applyMigration,assertSchema,deploy,readActive,prepareMedia,prepareAi,verifyMedia,verifyConfiguration}) {
   await assertCurrent();
   if(verifyConfiguration)await verifyConfiguration();
   if(pending.length)await applyMigration();
   await assertSchema();await assertCurrent();
+  if(prepareAi){await prepareAi();await assertCurrent();}
   if(prepareMedia){await prepareMedia();await assertCurrent();}
   if(activeVersion.annotations?.['workers/message']!==`bitbi-auth:${sha}`)await deploy();
   const state=await readActive();if(verifyConfiguration)await verifyConfiguration();if(verifyMedia)await verifyMedia();return state;
@@ -145,7 +181,9 @@ export async function publishBackend() {
   // schema changes need their own reviewed release support.
   assert(pending.every(f=>['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql'].includes(f)),'Unexpected pending migrations');
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-backend-secret-'));
-  let state,media,smoke;
+  const mediaSourceSha=mediaRequired?c.sha:before.version.resources.bindings.find(b=>b.name==='PRIVATE_MEDIA_SOURCE_SHA')?.text;
+  assert(/^[a-f0-9]{40}$/.test(mediaSourceSha||''),'Missing existing media source identity');
+  let state,media,smoke,ai;
   try {
     const secret=createHash('sha256').update(`bitbi-private-media-v1:${process.env.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET}`).digest('hex');
     const secretFile=path.join(temporary,'secrets.json');fs.writeFileSync(secretFile,JSON.stringify({PRIVATE_MEDIA_PROCESSOR_SECRET:secret}),{mode:0o600});
@@ -157,15 +195,16 @@ export async function publishBackend() {
       verifyConfiguration:async()=>{await verifyAuthTriggers(c.config);if(before.version.annotations?.['workers/message']===`bitbi-auth:${c.sha}`)await verifyAuthBundle(c.authBundleDigest);},
       applyMigration:()=>run(['d1','migrations','apply','bitbi-auth-db','--remote']),
       assertSchema:async()=>assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Migration did not apply'),
+      prepareAi:c.plan.workerDeploys.some(s=>s.worker==='ai')?async()=>{ai=await publishAi(c,path.join(temporary,'ai-bundle'));}:undefined,
       prepareMedia:mediaRequired?async()=>{media=await publishMedia(c,secretFile);}:undefined,
-      deploy:()=>activateAuthVersion({sha:c.sha,secretFile,assertCurrent:()=>current(c.sha)}),
+      deploy:()=>activateAuthVersion({sha:c.sha,mediaSourceSha,secretFile,assertCurrent:()=>current(c.sha)}),
       readActive:async()=>{const result=await active();await verifyAuthBundle(c.authBundleDigest);return result;},
       verifyMedia:mediaRequired?async()=>{smoke=await mediaSmoke(c,secret,media);}:undefined,
     });
   }finally{fs.rmSync(temporary,{recursive:true,force:true});}
   prerequisites(c.plan,state.version,c.config);
   const receipt={sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,migration,version:state.version.id,deployment:state.deployment.id,
-    ...(media?{media,smoke}:{}),authBundleDigest:c.authBundleDigest,processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
+    ...(media?{media,smoke}:{}),...(ai?{ai}:{}),mediaSourceSha,authBundleDigest:c.authBundleDigest,processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
   verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});
   fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/backend-release.json',JSON.stringify(receipt,null,2)+'\n');
   await verifyBackendReceipt('test-results/backend-release.json');

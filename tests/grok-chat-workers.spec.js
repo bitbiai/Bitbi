@@ -1285,3 +1285,25 @@ test.describe('Provider-neutral Grok chat', () => {
     })).not.toBe(first);
   });
 });
+
+test('Canvas Grok pricing includes reasoning, funding fee and central margin without changing chat defaults', async () => {
+  const c = await moduleAt('js/shared/grok-text-contract.mjs');
+  const chat = await moduleAt('workers/shared/grok-chat-contract.mjs');
+  const { estimateCanvasTextCredits, listCanvasModelsForRole } = await moduleAt('js/shared/canvas-model-contract.mjs');
+  const { creditsForProviderCostUsd, effectiveProfitMarginForCredits } = await moduleAt('js/shared/model-credit-pricing.mjs');
+  const { validateAdminAiTextBody, listAdminAiCatalog } = await moduleAt('js/shared/admin-ai-contract.mjs');
+  expect(chat.GROK_REASONING_OUTPUT_TOKENS).toBe(c.GROK_REASONING_OUTPUT_TOKENS);
+  for (const [reasoningEffort, tokens] of [['low',8192],['medium',16384],['high',32768]]) {
+    const cost = ((4096+5)*2+tokens*6)/1e6*1.05;
+    expect(c.estimateGrokTextCostUsd({prompt:'Hello',reasoningEffort})).toBe(cost);
+    const credits = estimateCanvasTextCredits(c.GROK_4_6_MODEL_ID,{prompt:'Hello',reasoningEffort});
+    expect(credits).toBe(creditsForProviderCostUsd(cost)); expect(credits).toBeGreaterThan(1);
+    expect(effectiveProfitMarginForCredits(cost,credits)).toBeGreaterThanOrEqual(.2);
+    expect(validateAdminAiTextBody({model:c.GROK_4_6_MODEL_ID,prompt:'Hello',reasoningEffort})).toMatchObject({reasoningEffort,maxTokens:tokens});
+  }
+  expect(validateAdminAiTextBody({model:c.GROK_4_6_MODEL_ID,prompt:'Hello'}).reasoningEffort).toBe('medium');
+  expect(() => validateAdminAiTextBody({model:c.GROK_4_6_MODEL_ID,prompt:'Hello',reasoningEffort:'high',maxTokens:500})).toThrow();
+  for (const extra of [{tools:[]},{messages:[]},{reasoningEffort:'xhigh'},{webSearch:true}]) expect(() => validateAdminAiTextBody({model:c.GROK_4_6_MODEL_ID,prompt:'Hello',...extra})).toThrow();
+  expect(listAdminAiCatalog().models.text.some(m=>m.id===c.GROK_4_6_MODEL_ID)).toBe(false);
+  expect(listCanvasModelsForRole('admin').find(m=>m.id===c.GROK_4_6_MODEL_ID)).toMatchObject({requiresPersonalCredits:false,requiresPlatformBudget:true});
+});

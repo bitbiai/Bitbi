@@ -652,3 +652,36 @@ for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable exp
   await inspector.locator('.canvas-full-video').scrollIntoViewIfNeeded();
   await page.screenshot({path:testInfo.outputPath(`canvas-full-video-${locale}.png`)});
 });
+
+for (const locale of ['en', 'de']) for (const mobile of [false, true]) {
+  test(`Canvas Grok ${locale} ${mobile ? 'mobile' : 'desktop'} persists reasoning and shows matching credit estimate`, async ({ page }, testInfo) => {
+    const { listCanvasModelsForRole, estimateCanvasTextCredits } = await import('../js/shared/canvas-model-contract.mjs');
+    await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 });
+    await mockSharedAuth(page);
+    const state = createCanvasApiMock(page, { modelPayload: { models: listCanvasModelsForRole('user'), organizations: [], access: { role: 'user' } } });
+    const project = '11111111111111111111111111111111', node = '33333333333333333333333333333333';
+    state.projects.push({ id: project, title: 'Grok fixture', locale, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    state.nodes.push({ id: node, project_id: project, type: 'text_generation', title: 'Grok text', x: 40, y: 40, model_id: 'xai/grok-4.6', config: { prompt: 'Synthetic prompt', systemPrompt: 'Concise.' }, content: {} });
+    await page.goto(locale === 'de' ? '/de/canvas/' : '/canvas/');
+    await expect(page.locator('#canvasProjectTitle')).toHaveValue('Grok fixture');
+    await expect(page.locator('#canvasApp')).not.toHaveAttribute('inert', '');
+    if (mobile) await page.locator('#canvasGraphToggle').click();
+    await page.locator(`[data-node-id="${node}"]`).press('Enter');
+    if (mobile) await page.locator('#canvasInspectorToggle').click();
+    const effort = page.getByRole('combobox', { name: locale === 'de' ? 'Denkaufwand' : 'Reasoning effort', exact: true });
+    await expect(effort).toHaveValue('medium');
+    await expect(page.locator('.canvas-model-note')).toContainText(locale === 'de' ? 'Einmalige Textgenerierung' : 'One-shot text generation');
+    await effort.selectOption('high');
+    await expect.poll(() => state.nodes[0].config.reasoningEffort).toBe('high');
+    await expect(page.locator('.canvas-cost-note')).toContainText(String(estimateCanvasTextCredits('xai/grok-4.6', state.nodes[0].config)));
+    await page.reload();
+    await expect(page.locator('#canvasProjectTitle')).toHaveValue('Grok fixture');
+    await expect(page.locator('#canvasApp')).not.toHaveAttribute('inert', '');
+    if (mobile) await page.locator('#canvasGraphToggle').click();
+    await page.locator(`[data-node-id="${node}"]`).press('Enter');
+    if (mobile) await page.locator('#canvasInspectorToggle').click();
+    await expect(effort).toHaveValue('high');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await testInfo.attach('canvas-grok', { body: await page.screenshot(), contentType: 'image/png' });
+  });
+}

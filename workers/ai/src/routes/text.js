@@ -1,3 +1,6 @@
+import { invokeGrokText } from "../lib/grok-chat.js";
+import { runWithGenerationTimeout } from "../lib/generation-timeout.js";
+import { GROK_4_6_MODEL_ID } from "../../../../js/shared/grok-text-contract.mjs";
 import { invokeText } from "../lib/invoke-ai.js";
 import { getModelSummary, resolveModelSelection } from "../lib/model-registry.js";
 import { errorResponse, fromError, ok } from "../lib/responses.js";
@@ -19,7 +22,9 @@ export async function handleText({ request, env, correlationId, pathname, method
 
     const input = validateTextBody(body);
     const selection = resolveModelSelection("text", input);
-    const output = await invokeText(env, selection.model, { ...input, correlationId });
+    const output = selection.model.id === GROK_4_6_MODEL_ID
+      ? await runWithGenerationTimeout(signal => invokeGrokText(env, { ...input, correlationId }, signal))
+      : await invokeText(env, selection.model, { ...input, correlationId });
     const warnings = [...selection.warnings];
 
     return ok({
@@ -40,7 +45,7 @@ export async function handleText({ request, env, correlationId, pathname, method
           ? { providerCostUsd: output.providerCostUsd }
           : {}),
       },
-      elapsedMs: output.elapsedMs,
+      elapsedMs: output.elapsedMs ?? Date.now() - startedAt,
       ...(warnings.length > 0 ? { warnings } : {}),
     });
   } catch (error) {

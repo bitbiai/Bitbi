@@ -12,13 +12,8 @@ export {
   GROK_PROVIDER_STATE_FORMAT_VERSION,
 };
 
-export const GROK_REASONING_EFFORTS = Object.freeze(["low", "medium", "high"]);
-export const GROK_DEFAULT_REASONING_EFFORT = "medium";
-export const GROK_REASONING_OUTPUT_TOKENS = Object.freeze({
-  low: 8_192,
-  medium: 16_384,
-  high: 32_768,
-});
+import { GROK_REASONING_EFFORTS, GROK_DEFAULT_REASONING_EFFORT, GROK_REASONING_OUTPUT_TOKENS, normalizeGrokReasoningEffort, getGrokMaxCompletionTokens } from "../../js/shared/grok-text-contract.mjs";
+export { GROK_REASONING_EFFORTS, GROK_DEFAULT_REASONING_EFFORT, GROK_REASONING_OUTPUT_TOKENS, normalizeGrokReasoningEffort, getGrokMaxCompletionTokens };
 export const GROK_MAX_COMPLETION_TOKENS = 32_768;
 export const GROK_CONTEXT_INPUT_TOKEN_CAP = 96_000;
 export const GROK_TOTAL_TOKEN_ENVELOPE = 131_072;
@@ -114,18 +109,6 @@ function normalizeDate(value, field) {
     throw new TypeError(`${field} must use YYYY-MM-DD.`);
   }
   return normalized;
-}
-
-export function normalizeGrokReasoningEffort(value) {
-  const normalized = String(value || "").trim();
-  if (!GROK_REASONING_EFFORTS.includes(normalized)) {
-    throw new TypeError("reasoningEffort must be low, medium, or high.");
-  }
-  return normalized;
-}
-
-export function getGrokMaxCompletionTokens(reasoningEffort) {
-  return GROK_REASONING_OUTPUT_TOKENS[normalizeGrokReasoningEffort(reasoningEffort)];
 }
 
 export function normalizeGrokSearchSettings(value = {}) {

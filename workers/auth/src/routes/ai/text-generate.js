@@ -1,3 +1,4 @@
+import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, normalizeGrokReasoningEffort, getGrokMaxCompletionTokens } from "../../../../../js/shared/grok-text-contract.mjs";
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
 import { BODY_LIMITS, readJsonBodyOrResponse } from "../../lib/request.js";
@@ -75,7 +76,7 @@ const ALLOWED_BODY_FIELDS = new Set([
   "messages",
   "max_tokens",
   "maxTokens",
-  "temperature",
+  "temperature", "reasoningEffort",
 ]);
 
 function buildMemberTextCallerPolicy({ correlationId, budgetFingerprint = null, modelId, mode } = {}) {
@@ -254,14 +255,19 @@ function normalizeTextGenerationBody(body, { canvasMemberContext = false } = {})
       code: "invalid_system_prompt",
     });
   }
+  const reasoningEffort = modelId === GROK_4_6_MODEL_ID
+    ? normalizeGrokReasoningEffort(body.reasoningEffort ?? GROK_DEFAULT_REASONING_EFFORT) : undefined;
+  if (body.reasoningEffort !== undefined && reasoningEffort === undefined) throw Object.assign(new Error("Unsupported reasoning option."), { status: 400, code: "unsupported_option" });
+  if (reasoningEffort && messages.length) throw Object.assign(new Error("Canvas Grok is one-shot only."), { status: 400, code: "unsupported_option" });
   const maxTokenLimit = canvasMemberContext ? Number(model.controls?.maxTokens?.max || DEFAULT_MAX_TOKENS) : 600;
   const maxTokens = optionalInteger(body, "max_tokens", "maxTokens", {
-    defaultValue: canvasMemberContext ? Number(model.controls?.maxTokens?.default || DEFAULT_MAX_TOKENS) : 300,
+    defaultValue: reasoningEffort ? getGrokMaxCompletionTokens(reasoningEffort) : canvasMemberContext ? Number(model.controls?.maxTokens?.default || DEFAULT_MAX_TOKENS) : 300,
     min: 1,
     max: maxTokenLimit,
   });
+  if (reasoningEffort && maxTokens !== getGrokMaxCompletionTokens(reasoningEffort)) throw Object.assign(new Error("maxTokens must match reasoningEffort."), { status: 400, code: "validation_error" });
   const temperature = normalizeTemperature(body);
-  const credits = canvasMemberContext ? estimateCanvasTextCredits(modelId, { prompt, systemPrompt: system, maxTokens }) : 1;
+  const credits = canvasMemberContext ? estimateCanvasTextCredits(modelId, { prompt, systemPrompt: system, maxTokens, reasoningEffort }) : 1;
   if (!Number.isSafeInteger(credits) || credits < 1) {
     throw Object.assign(new Error("Text model pricing is unavailable."), {
       status: 503,
@@ -277,6 +283,7 @@ function normalizeTextGenerationBody(body, { canvasMemberContext = false } = {})
     system,
     messages,
     maxTokens,
+    reasoningEffort,
     temperature,
     credits,
     policyBody: {
@@ -286,6 +293,7 @@ function normalizeTextGenerationBody(body, { canvasMemberContext = false } = {})
       system,
       messageCount: messages.length,
       maxTokens,
+      ...(reasoningEffort ? { reasoningEffort } : {}),
       temperature,
     },
     providerPayload: {
@@ -293,6 +301,7 @@ function normalizeTextGenerationBody(body, { canvasMemberContext = false } = {})
       prompt,
       ...(system ? { system } : {}),
       maxTokens,
+      ...(reasoningEffort ? { reasoningEffort } : {}),
       temperature,
     },
   };
@@ -517,6 +526,7 @@ export async function handleGenerateText(ctx) {
   let input;
   try {
     input = normalizeTextGenerationBody(parsed.body, { canvasMemberContext: ctx.canvasMemberContext === true });
+    if (input.modelId === GROK_4_6_MODEL_ID && String(env.ENABLE_GROK_4_6) !== "true") throw Object.assign(new Error("Grok is unavailable."), { status: 503, code: "model_disabled" });
   } catch (error) {
     return respond(validationError(error.message || "Invalid text generation request.", error.code), {
       status: error.status || 400,
@@ -664,7 +674,7 @@ export async function handleGenerateText(ctx) {
       model: provider.model?.id || null,
       preset: null,
       request_mode: "service-binding",
-      pricing_mode: input.modelId === "anthropic/claude-fable-5" ? "estimated_upper_bound" : "fixed_member_credit",
+      pricing_mode: ["anthropic/claude-fable-5", GROK_4_6_MODEL_ID].includes(input.modelId) ? "estimated_upper_bound" : "fixed_member_credit",
       requested_max_tokens: input.maxTokens,
       provider_usage_available: Boolean(provider.usage),
     });

@@ -68,6 +68,7 @@ jobs:
       member_assets: ${{ steps.selection.outputs.member_assets }}
       public_media: ${{ steps.selection.outputs.public_media }}
       model_status: ${{ steps.selection.outputs.model_status }}
+      canvas_text: ${{ steps.selection.outputs.canvas_text }}
       media_lifecycle: ${{ steps.selection.outputs.media_lifecycle }}
       workspace_help: ${{ steps.selection.outputs.workspace_help }}
       dependencies: ${{ steps.selection.outputs.dependencies }}
@@ -235,7 +236,7 @@ jobs:
         if: needs.release-compatibility.outputs.workers == 'true'
         run: npm --prefix workers/auth ci
       - name: Install Worker media test tools
-        if: needs.release-compatibility.outputs.workers == 'true' && needs.release-compatibility.outputs.model_status != 'true' && needs.release-compatibility.outputs.member_assets != 'true'
+        if: needs.release-compatibility.outputs.workers == 'true' && needs.release-compatibility.outputs.model_status != 'true' && needs.release-compatibility.outputs.member_assets != 'true' && needs.release-compatibility.outputs.canvas_text != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
@@ -253,7 +254,13 @@ jobs:
         env:
           Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
         run: |
-          if [ "${{ needs.release-compatibility.outputs.model_status }}" = 'true' ]; then
+          if [ "${{ needs.release-compatibility.outputs.canvas_text }}" = 'true' ]; then
+            node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
+            npx playwright test -c playwright.workers.config.js tests/workers.spec.js --grep 'Canvas|member text|text generation|text schema|AI Lab text' --retries=0 &&
+            npx playwright test -c playwright.workers.config.js tests/grok-chat-workers.spec.js --retries=0 &&
+            npx playwright test -c playwright.workers.config.js tests/fable-chat-workers.spec.js --grep 'registry|model|reasoning|budget|idempot|replay' --retries=0 &&
+            node scripts/test-q2-runtime.mjs --suite canvas
+          elif [ "${{ needs.release-compatibility.outputs.model_status }}" = 'true' ]; then
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
             npx playwright test -c playwright.workers.config.js tests/admin-model-status.spec.js --retries=0 &&
             node scripts/test-q2-runtime.mjs --suite model-status
@@ -543,7 +550,11 @@ jobs:
       - name: Run selected auth and admin tests
         if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.full != 'true' && needs.release-compatibility.outputs.admin_release != 'true'
         run: |
-          if [ "${{ needs.release-compatibility.outputs.model_status }}" = 'true' ]; then
+          if [ "${{ needs.release-compatibility.outputs.canvas_text }}" = 'true' ]; then
+            rm -f test-results/canvas-discovery.json test-results/candidate-auth.json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static -- tests/canvas.spec.js tests/oma2-q1-canvas.spec.js --list --reporter=json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- tests/canvas.spec.js tests/oma2-q1-canvas.spec.js --output=test-results/canvas-artifacts --retries=0 --reporter=list,json
+          elif [ "${{ needs.release-compatibility.outputs.model_status }}" = 'true' ]; then
             rm -f test-results/model-status-discovery.json test-results/candidate-auth.json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/model-status-discovery.json npm run test:static -- --config playwright.model-status.config.js --list --reporter=json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- --config playwright.model-status.config.js --reporter=list,json
@@ -693,6 +704,7 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Protected CF_BACKEND_DEPLOY_TOKEN is missing"; exit 1; }
           npm --prefix workers/auth ci
           npm --prefix workers/media ci
+          npm --prefix workers/ai ci
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           node scripts/release-apply.mjs --ci-verified-candidate

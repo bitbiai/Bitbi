@@ -135,5 +135,27 @@ export async function runCanvasTests(f) {
     const response=await f.control('/private-media',{cookie:admin});assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
+  await f.test('canvas_native_grok_reasoning_reservation_saved_output_and_replay', async () => {
+    const { estimateCanvasTextCredits } = await import('../../../js/shared/canvas-model-contract.mjs');
+    const p='7a'.repeat(16), n='7b'.repeat(16), config={prompt:'Native Grok fixture',reasoningEffort:'high'};
+    f.canvasProvider.fail=false;
+    await f.sql('INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,?,?,?,?)',p,memberId,'Grok','en',now,now).run();
+    await f.sql('INSERT INTO canvas_nodes(id,project_id,user_id,type,model_id,x,y,config_json,content_json,created_at,updated_at) VALUES(?,?,?,?,?,0,0,?,?,?,?)',n,p,memberId,'text_generation','xai/grok-4.6',JSON.stringify(config),'{}',now,now).run();
+    const endpoint=`/api/account/canvas/projects/${p}/nodes/${n}/run`, before=f.canvasProvider.requests.length;
+    assert.equal((await request(endpoint,{},'empty-grok',member)).status,402);
+    assert.equal(f.canvasProvider.requests.length,before);
+    await f.sql("INSERT INTO member_credit_ledger(id,user_id,amount,balance_after,entry_type,source,created_by_user_id,created_at) VALUES(?,?,1000,1000,'grant','synthetic',?,?)",'grok-grant',memberId,adminId,new Date().toISOString()).run();
+    const result=await ok(await request(endpoint,{},'grok-run',member));
+    assert.equal(result.run.output.text,'Native Canvas answer');
+    assert.equal(f.canvasProvider.requests.at(-1).body.reasoningEffort,'high');
+    assert.equal(f.canvasProvider.requests.at(-1).body.maxTokens,32768);
+    assert.equal(await f.scalar("SELECT -SUM(amount) AS value FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'",memberId),estimateCanvasTextCredits('xai/grok-4.6',config));
+    assert.equal((await ok(await request(endpoint,{},'grok-run',member))).idempotent_replay,true);
+    assert.equal(f.canvasProvider.requests.length,before+1);
+    const reload=await ok(await request(`/api/account/canvas/projects/${p}`,undefined,'reload-grok',member));
+    assert.equal(reload.nodes[0].output.text,'Native Canvas answer');
+    assert.equal(reload.nodes[0].config.reasoningEffort,'high');
+    assert.equal((await request(endpoint,{},'foreign-grok',admin)).status,404);
+  });
   assert.equal(f.counters.outboundDenied, 0, 'No external provider or network call');
 }

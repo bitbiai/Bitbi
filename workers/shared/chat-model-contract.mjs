@@ -1,6 +1,7 @@
 import { FABLE_CHAT_MODEL_ID } from "./fable-chat-contract.mjs";
 
-export const GROK_4_6_MODEL_ID = "xai/grok-4.6";
+import { GROK_4_6_MODEL_ID } from "../../js/shared/grok-text-contract.mjs";
+export { GROK_4_6_MODEL_ID };
 export const CHAT_MODEL_CONTRACT_VERSION = 1;
 export const CHAT_PROVIDER_STATE_VERSION = 1;
 export const GROK_CONTEXT_FORMAT_VERSION = "openai-chat-completions-v1";
