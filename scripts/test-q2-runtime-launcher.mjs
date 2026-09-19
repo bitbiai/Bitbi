@@ -255,7 +255,7 @@ test('existing Worker gates retain native suite, fail early and upload only afte
     const authInstall = block.indexOf('run: npm --prefix workers/auth ci');
     const preflight = block.indexOf('run: node scripts/test-q2-runtime.mjs --preflight');
     const main = block.indexOf(`name: ${runName}`);
-    const upload = block.indexOf('uses: actions/upload-artifact@v6');
+    const upload = block.indexOf(nativeArtifactUpload(block.split(/^      - /m).slice(1)));
     assert.ok(authInstall > 0 && authInstall < preflight && preflight < main && main < upload, file);
     assert.match(block.slice(main, upload), /npm run test:workers/);
     assert.match(block, /if: always\(\)/);
@@ -266,6 +266,16 @@ test('existing Worker gates retain native suite, fail early and upload only afte
 // GitHub resolves job.env before assigning a runner. YAML syntax alone cannot
 // reject runner.temp there. Keep this focused on the two real Q2 callers:
 // https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability
+function nativeArtifactUpload(steps) {
+  const matches = steps.filter(step => /^name: Upload native Linux acceptance evidence$/m.test(step)
+    || /^          name: q2-linux-runtime-\$\{\{ github\.sha \}\}$/m.test(step));
+  assert.equal(matches.length, 1, 'Native evidence upload must exist exactly once');
+  const upload = matches[0];
+  assert.match(upload, /^name: Upload native Linux acceptance evidence$/m);
+  assert.match(upload, /^        uses: actions\/upload-artifact@v6$/m);
+  assert.match(upload, /^          name: q2-linux-runtime-\$\{\{ github\.sha \}\}$/m);
+  return upload;
+}
 function assertArtifactContext(content, job) {
   const block = content.split(`  ${job}:\n`)[1]?.split(/^  [a-z][a-z-]+:\n/m)[0];
   assert.ok(block, 'Worker job must exist');
@@ -278,8 +288,7 @@ function assertArtifactContext(content, job) {
     assert.match(matches[0], /^        env:\n          Q2_RUNTIME_ARTIFACTS: \$\{\{ runner\.temp \}\}\/q2-runtime-evidence$/m,
       'Artifact environment must be available on each actual execution step');
   }
-  const upload = steps.find(step => step.includes('uses: actions/upload-artifact@v6'));
-  assert.ok(upload, 'Outer artifact upload must remain');
+  const upload = nativeArtifactUpload(steps);
   assert.match(upload, /^          path: \$\{\{ runner\.temp \}\}\/q2-runtime-evidence\/$/m);
 }
 
@@ -287,6 +296,21 @@ test('native artifact paths use runner context only after runner assignment', ()
   for (const [file, job] of [['.github/workflows/static.yml', 'worker-validation'], ['.github/workflows/full-regression.yml', 'worker-tests']]) {
     const content = read(file);
     assertArtifactContext(content, job);
+    const block = content.split(`  ${job}:\n`)[1].split(/^  [a-z][a-z-]+:\n/m)[0];
+    const upload = '      - ' + nativeArtifactUpload(block.split(/^      - /m).slice(1));
+    assert.ok(content.includes(upload));
+    const unrelated = '      - name: Preserve other tested artifact\n        uses: actions/upload-artifact@v6\n        with:\n          name: other-tested-artifact\n          path: test-results/private-media-image/\n';
+    assertArtifactContext(content.replace(upload, unrelated + upload), job);
+    for (const replacement of ['', upload + upload,
+      upload + upload.replace('name: Upload native Linux acceptance evidence', 'name: Duplicate artifact identity')]) {
+      assert.throws(() => assertArtifactContext(content.replace(upload, replacement), job), /must exist exactly once/);
+    }
+    for (const wrongPath of ['test-results/private-media-image/', '${{ github.workspace }}/q2-runtime-evidence/']) {
+      const wrong = upload.replace('${{ runner.temp }}/q2-runtime-evidence/', wrongPath);
+      assert.throws(() => assertArtifactContext(content.replace(upload, wrong), job), /regular expression/);
+    }
+    const wrongIdentity = upload.replace('name: q2-linux-runtime-', 'name: different-runtime-');
+    assert.throws(() => assertArtifactContext(content.replace(upload, wrongIdentity), job), /regular expression/);
     // Reintroduce exactly the rejected job-level assignment from f316019d.
     const broken = content.replace("      Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1'\n",
       "      Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1'\n      Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence\n");

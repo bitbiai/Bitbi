@@ -332,6 +332,13 @@ source and poster routes enforce it. Native `test:q2-runtime -- --suite canvas`
 executes the actual queue/fetch/D1 path, including Admin/MFA denials, persistent
 switching, cross-backend denial, stale token, poster retry and saved-result reuse.
 Both native Linux staging lists include the new helper/imports.
+Run35431293437 passed 1301 route cases and FFmpeg but stopped at the launcher
+self-test: it mistook the preceding media-image upload for native evidence.
+The existing launcher/staging test now uniquely identifies the native step and
+artifact in both normal and Full callers, then checks its path and runner context.
+An unrelated preceding upload passes; missing/duplicate native identity, wrong
+path and pre-runner context fail. Caller: `node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs`
+inside `test:q2-runtime`; neither upload ordering nor native acceptance is bypassed.
 `test:homepage-ffmpeg-processor` and the selected existing Worker job's
 `private-media-image.mjs` run shared FFmpeg tests; the latter kills/restarts the
 real Container HTTP/child process in the immutable Linux image. `test:auth` runs
