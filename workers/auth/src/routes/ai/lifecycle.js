@@ -632,7 +632,12 @@ function buildTextAssetDeleteStatementForIds(env, userId, assetIds) {
   ).bind(...assetIds, userId, userId);
 }
 
-export async function deleteUserAiImage({ env, userId, imageId }) {
+function canvasCleanupGuard(env,runId,userId,assetId) {
+  return runId !== undefined ? [env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_media_reclaimable
+    WHERE run_id IS ? AND user_id=? AND asset_id=?) THEN 1 ELSE json_extract('[]','$[') END`).bind(runId,userId,assetId)] : [];
+}
+
+export async function deleteUserAiImage({ env, userId, imageId, canvasRunId=undefined }) {
   let row;
   try {
     row = await env.DB.prepare(
@@ -659,6 +664,7 @@ export async function deleteUserAiImage({ env, userId, imageId }) {
     sourceRows: { userId, images: [row] },
     cleanupKeys: collectCleanupKeys([row], []),
     mutationStatements: [
+      ...canvasCleanupGuard(env,canvasRunId,userId,imageId),
       ...buildPublicMediaCommentCleanupStatementsForImages(env, [row]),
       ...buildPublicMediaLikeCleanupStatementsForImages(env, [row]),
       buildAiImageDeleteStatement(env, userId, imageId),
@@ -668,7 +674,10 @@ export async function deleteUserAiImage({ env, userId, imageId }) {
   });
 
   const deleted = mutationResults[mutationResults.length - 1]?.meta?.changes || 0;
-  if (deleted !== 1) {
+  // Native D1 includes trigger writes in meta.changes (Canvas tombstone).
+  // The transaction already fenced the exact source; confirm its absence just
+  // as the text-asset path does, rather than interpreting two writes as failure.
+  if (deleted !== 1 && await env.DB.prepare("SELECT id FROM ai_images WHERE id=? AND user_id=?").bind(imageId,userId).first()) {
     throw new AiAssetLifecycleError("Delete failed. Image may have already been removed.", 409, {
       branch: "delete_conflict",
     });
@@ -678,7 +687,7 @@ export async function deleteUserAiImage({ env, userId, imageId }) {
   await releaseDeletedAssetStorage(env, userId, [row], []);
 }
 
-export async function deleteUserAiTextAsset({ env, userId, assetId }) {
+export async function deleteUserAiTextAsset({ env, userId, assetId, canvasRunId=undefined }) {
   let row;
   try {
     row = await env.DB.prepare(
@@ -728,6 +737,7 @@ export async function deleteUserAiTextAsset({ env, userId, assetId }) {
   }
 
   const mutationStatements = [
+    ...canvasCleanupGuard(env,canvasRunId,userId,assetId),
     ...buildHomepageHeroTextAssetCleanupStatements(env, { userId, assetId, links: heroLinks }),
     ...buildMemvidStreamPreviewCleanupStatements(env, { userId, assetId }),
     ...buildPublicMediaCommentCleanupStatementsForTextAssets(env, [row]),
@@ -755,6 +765,7 @@ export async function deleteUserAiTextAsset({ env, userId, assetId }) {
       sourceRows: { userId, text: [row] },
       cleanupKeys: collectCleanupKeys([], [row]),
       mutationStatements: [
+        ...canvasCleanupGuard(env,canvasRunId,userId,assetId),
         ...buildHomepageHeroTextAssetCleanupStatements(env, { userId, assetId, links: heroLinks }),
         ...buildPublicMediaCommentCleanupStatementsForTextAssets(env, [row]),
         ...buildPublicMediaLikeCleanupStatementsForTextAssets(env, [row]),

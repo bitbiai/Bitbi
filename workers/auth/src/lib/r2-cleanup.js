@@ -57,6 +57,13 @@ async function claimCleanup(env, row, now) {
 }
 
 export async function processR2CleanupQueue(env, { keys = null, limit = 50, now = nowIso() } = {}) {
+  // q2_held has a committed source-deletion receipt. Retry only after its last
+  // live reference clears; legacy_held and unmanaged keys remain untouched.
+  await env.DB.prepare(`UPDATE r2_cleanup_queue SET status='q2_pending' WHERE id IN (
+    SELECT q.id FROM r2_cleanup_queue q WHERE q.status='q2_held' AND q.attempts<5
+    AND (q.r2_key LIKE 'users/%' OR q.r2_key LIKE 'van-ark-chat/%')
+    AND NOT EXISTS(SELECT 1 FROM r2_cleanup_live_references r WHERE r.r2_key=q.r2_key)
+    ORDER BY q.created_at,q.id LIMIT 50)`).run();
   const requestedKeys = Array.isArray(keys) ? [...new Set(keys.filter(Boolean))] : null;
   if (requestedKeys?.length === 0) return { deleted: 0, failed: 0, held: 0, dead: 0 };
   const summary = { deleted: 0, failed: 0, held: 0, dead: 0 };

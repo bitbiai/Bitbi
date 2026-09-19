@@ -1,3 +1,4 @@
+import { GROK_IMAGE_2 } from '../../../../js/shared/grok-imagine-image-2-pricing.mjs';
 import {
   BITBI_MODEL_PRICING_USD_TO_EUR,
   BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
@@ -63,6 +64,7 @@ function chargedBranch(modelId) {
 }
 
 const CHARGED_MODEL_IDS = Object.freeze([
+  GROK_IMAGE_2.id,
   FLUX_1_SCHNELL_IMAGE_MODEL_ID,
   ...FLUX_2_KLEIN_IMAGE_MODEL_IDS,
   FLUX_2_MAX_IMAGE_MODEL_ID,

@@ -1,3 +1,4 @@
+import { reclaimCanvasMedia, canvasMediaRun } from './canvas-media-storage.js';
 import { MEDIA_BACKEND_SQL, notifyPrivateMedia, recoverPrivateMedia } from './private-media-service.js';
 import { finishCanvasGeneration } from './canvas-video-output.js';
 import { catchUpCanvasPosters } from './canvas-video-processing.js';
@@ -46,8 +47,8 @@ export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType
   // otherwise disappear with the page. No session cookie/header is persisted.
   await putNewManagedR2Object(env, inputKey, JSON.stringify(body), { httpMetadata: { contentType: 'application/json' } });
   await env.DB.prepare(`INSERT OR IGNORE INTO member_generation_jobs
-    (id,user_id,usage_attempt_id,media_type,request_key,input_r2_key,next_attempt_at,created_at,updated_at,processing_backend)
-    VALUES(?,?,?,?,?,?,?,?,?,${MEDIA_BACKEND_SQL})`).bind(id, attempt.userId, attempt.id, mediaType, key, inputKey, now, now, now).run();
+    (id,user_id,usage_attempt_id,media_type,request_key,input_r2_key,next_attempt_at,created_at,updated_at,canvas_run_id,processing_backend)
+    VALUES(?,?,?,?,?,?,?,?,?,?,${MEDIA_BACKEND_SQL})`).bind(id, attempt.userId, attempt.id, mediaType, key, inputKey, now, now, now, canvasMediaRun(env)).run();
   const row = await env.DB.prepare('SELECT * FROM member_generation_jobs WHERE usage_attempt_id = ? AND user_id = ?')
     .bind(attempt.id, attempt.userId).first();
   if (!row) throw jobError('generation_acceptance_not_confirmed');
@@ -290,6 +291,7 @@ export async function requeueMemberGenerations(env) {
     AND next_attempt_at <= ? AND (locked_until IS NULL OR locked_until <= ?) ORDER BY next_attempt_at LIMIT 25`).bind(nowIso(),nowIso()).all();
   for (const row of rows.results || []) await env.AI_VIDEO_JOBS_QUEUE.send({type:MEMBER_GENERATION_MESSAGE,job_id:row.id});
   await catchUpCanvasPosters(env);
+  await reclaimCanvasMedia(env);
   await recoverPrivateMedia(env);
   return rows.results?.length || 0;
 }

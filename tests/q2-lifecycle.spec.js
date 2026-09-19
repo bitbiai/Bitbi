@@ -331,8 +331,8 @@ test('Q2 L01 retained cross-domain reference holds cleanup; deleting that last r
     expect(f.objects.has(KEY)).toBe(false);
     expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM ai_text_assets WHERE id = ?').get(id).n).toBe(0);
     expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM r2_object_tombstones WHERE r2_key = ?').get(KEY).n).toBe(1);
-    // The earlier held record remains evidence; it is not silently upgraded.
-    expect(f.db.database.prepare('SELECT status FROM r2_cleanup_queue WHERE r2_key = ?').get(KEY).status).toBe('q2_held');
+    // Committed held receipts finish after the last live reference clears; the retirement tombstone remains.
+    expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM r2_cleanup_queue WHERE r2_key = ?').get(KEY).n).toBe(0);
   } finally { f.db.close(); }
 });
 

@@ -256,10 +256,12 @@ jobs:
         run: |
           if [ "${{ needs.release-compatibility.outputs.canvas_text }}" = 'true' ]; then
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
-            npx playwright test -c playwright.workers.config.js tests/workers.spec.js --grep 'Canvas|member text|text generation|text schema|AI Lab text' --retries=0 &&
+            npx playwright test -c playwright.workers.config.js tests/workers.spec.js --grep 'Canvas|member text|text generation|text schema|AI Lab text|Grok Imagine Image|AI image pricing|AI generate: member|AI generate-music|AI assets|AI folders|readiness/status' --retries=0 &&
             npx playwright test -c playwright.workers.config.js tests/grok-chat-workers.spec.js --retries=0 &&
             npx playwright test -c playwright.workers.config.js tests/fable-chat-workers.spec.js --grep 'registry|model|reasoning|budget|idempot|replay' --retries=0 &&
-            node scripts/test-q2-runtime.mjs --suite canvas
+            npx playwright test -c playwright.workers.config.js tests/q2-lifecycle.spec.js --retries=0 &&
+            node scripts/test-q2-runtime.mjs --suite canvas &&
+            Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/member-generation" node scripts/test-q2-runtime.mjs --suite member-generation
           elif [ "${{ needs.release-compatibility.outputs.model_status }}" = 'true' ]; then
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
             npx playwright test -c playwright.workers.config.js tests/admin-model-status.spec.js --retries=0 &&
@@ -552,8 +554,8 @@ jobs:
         run: |
           if [ "${{ needs.release-compatibility.outputs.canvas_text }}" = 'true' ]; then
             rm -f test-results/canvas-discovery.json test-results/candidate-auth.json
-            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static -- tests/canvas.spec.js tests/oma2-q1-canvas.spec.js --list --reporter=json
-            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- tests/canvas.spec.js tests/oma2-q1-canvas.spec.js --output=test-results/canvas-artifacts --retries=0 --reporter=list,json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static -- tests/canvas.spec.js tests/oma2-q1-canvas.spec.js tests/auth-admin.spec.js tests/smoke.spec.js --grep 'Canvas|P13|@canvas-model-ui' --list --reporter=json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- tests/canvas.spec.js tests/oma2-q1-canvas.spec.js tests/auth-admin.spec.js tests/smoke.spec.js --grep 'Canvas|P13|@canvas-model-ui' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json
           elif [ "${{ needs.release-compatibility.outputs.model_status }}" = 'true' ]; then
             rm -f test-results/model-status-discovery.json test-results/candidate-auth.json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/model-status-discovery.json npm run test:static -- --config playwright.model-status.config.js --list --reporter=json

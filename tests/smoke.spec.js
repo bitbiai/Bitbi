@@ -170,7 +170,7 @@ async function getExpectedModelCatalog({ homepage = false } = {}) {
   return expectedCatalog;
 }
 
-test('member model exposure is the sole Models overlay membership contract', async ({ page }) => {
+test('@canvas-model-ui member model exposure is the sole Models overlay membership contract', async ({ page }) => {
   await page.goto('/');
   const { exposedIds, generateLabIds } = await page.evaluate(async () => {
     const [memberExposureModule, generateLabRegistry] = await Promise.all([
@@ -189,6 +189,7 @@ test('member model exposure is the sole Models overlay membership contract', asy
 
   expect(generateLabIds).toEqual(exposedIds);
   expect(exposedIds).toContain('xai/grok-imagine-video');
+  expect(exposedIds).toContain('xai/grok-imagine-image-2.0');
   for (const unavailableId of [
     'bytedance/seedance-2.0',
     'xai/grok-imagine-video-1.5-preview',
@@ -10521,4 +10522,19 @@ test.describe('Static assets', () => {
     const failed = assetResponses.filter((a) => a.status >= 400);
     expect(failed).toEqual([]);
   });
+});
+
+for(const locale of ['en','de']) test(`@canvas-model-ui Grok Imagine Image 2.0 Generate Lab ${locale} registry controls and responsive price`,async({page})=>{
+  await page.setViewportSize({width:1440,height:900});
+  await page.route('**/api/**',route=>route.fulfill({json:{ok:true,loggedIn:true,user:{id:'synthetic-image2',role:'user',email:'fixture@example.invalid'},data:{folders:[],assets:[],creditBalance:1000,has_more:false,dashboard:{balance:{totalCredits:1000}}}}}));
+  await page.goto(locale==='de'?'/de/generate-lab/':'/generate-lab/');
+  await page.locator('#labImageModel').selectOption('xai/grok-imagine-image-2.0');
+  await expect(page.locator('#labImageQuality option')).toHaveCount(2);
+  expect(await page.locator('#labImageQuality option').evaluateAll(options=>options.map(o=>o.value))).toEqual(['low','medium']);
+  await expect(page.locator('#labImageSize option')).toHaveText(['1k','2k']);
+  await expect(page.locator('#labImageReferenceCount')).toHaveText('0 / 5');
+  const before=await page.locator('#labCost').textContent();
+  await page.locator('#labImageQuality').selectOption('medium');await page.locator('#labImageSize').selectOption('2k');
+  await expect(page.locator('#labCost')).not.toHaveText(before);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });

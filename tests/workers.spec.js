@@ -6177,7 +6177,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     const modulePath = pathToFileURL(path.join(process.cwd(), 'js/shared/canvas-model-contract.mjs')).href;
     const { listCanvasModels, getCanvasModel, CANVAS_FABLE_MAX_OUTPUT_TOKENS } = await import(modulePath);
     const models = listCanvasModels();
-    expect(models.length).toBe(23);
+    expect(models.length).toBe(24);
     for (const model of models) {
       expect(model).toEqual(expect.objectContaining({ id: expect.any(String), label: expect.any(String), capability: expect.any(String), canvasEnabled: true, runnable: expect.any(Boolean) }));
       expect(JSON.stringify(model).replace('requiresPlatformBudget', '')).not.toMatch(/secret|budget|evidence|adminOnly/i);
@@ -6384,6 +6384,11 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     expect(stored.prompt_source).toBe('connected');
     expect(stored.connected_input_kinds).toEqual(['prompt']);
     expect(providerInput).toMatchObject({ modelId: '@cf/black-forest-labs/flux-1-schnell', input: { prompt: generatedPrompt } });
+    env.DB.state.canvasNodes.find(n=>n.id===targetId).config_json=JSON.stringify({prompt:'Additional lighting'});
+    await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${targetId}/run`,'POST',{}, {Origin:'https://bitbi.ai',Cookie:`bitbi_session=${token}`,'Idempotency-Key':'canvas-additional'}),env,createExecutionContext().execCtx);
+    expect(providerInput.input.prompt).toBe(generatedPrompt+'\n\nAdditional lighting');
+    expect(JSON.parse(env.DB.state.canvasRuns.at(-1).input_json).prompt_source).toBe('combined');
+
   });
 
   test('owned image output becomes PixVerse video input while incompatible image and video edges fail before provider execution', async () => {
@@ -12919,15 +12924,17 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       run: (body = { organization_id: org }, key) => request(`projects/${project}/nodes/${node}/run`, 'POST', body, key) };
   }
 
-  test('Canvas admin image uses selected org once, retains owner asset after reload and replays without provider or personal debit', async () => {
-    const h = await canvasAdminFixture();
+  for (const model of ['@cf/black-forest-labs/flux-1-schnell','xai/grok-imagine-image-2.0']) test(`Canvas admin image ${model} uses selected org once, retains owner asset after reload and replays without provider or personal debit`, async () => {
+    const h = await canvasAdminFixture({model,...(model.startsWith('xai/')?{aiRun:async()=>({result:{image:ONE_PIXEL_PNG_DATA_URI}})}:{})});
     const response = await h.run(); const body = await response.json();
     expect(body).toMatchObject({ ok: true, data: { run: { status: 'completed', input: { organization_id: h.org, execution_mode: 'admin_org_image' } } } });
     expect(response.status).toBe(200); expect(h.calls()).toBe(1);
     expect(h.env.DB.state.memberCreditLedger).toHaveLength(0);
-    expect(h.env.DB.state.creditLedger.filter(r => r.entry_type === 'consume')).toEqual([expect.objectContaining({ organization_id: h.org, amount: -1 })]);
+    const {calculateAiImageCreditCost}=await import('../js/shared/ai-model-pricing.mjs');
+    expect(h.env.DB.state.creditLedger.filter(r => r.entry_type === 'consume')).toEqual([expect.objectContaining({ organization_id: h.org, amount: -calculateAiImageCreditCost(model).credits })]);
     const image = h.env.DB.state.aiImages[0]; expectPersonalOwnership(image, h.user.id);
     expect(body.data.run.asset_id).toBe(image.id);
+    expect(body.data.run.output.storage).toBe('canvas');
     const reloaded = await (await h.request(`projects/${h.project}`)).json();
     expect(reloaded.data.nodes[0].output.assetId).toBe(image.id);
     const again = await (await h.run()).json(); expect(again.data.idempotent_replay).toBe(true); expect(h.calls()).toBe(1);
@@ -41175,6 +41182,61 @@ test.describe('Worker routes', () => {
     }));
   });
 
+  test('Grok Imagine Image 2.0 contract and Cloudflare pricing use exact single-image options and central credits', async () => {
+    const {normalizeGrokImage2,calculateGrokImage2CreditCost}=await import('../js/shared/grok-imagine-image-2-pricing.mjs');
+    const {creditsForProviderCostUsd}=await import('../js/shared/model-credit-pricing.mjs');
+    const contract=await loadAdminAiContractModule();
+    for(const [quality,resolution,cost] of [['low','1k',.04],['low','2k',.06],['medium','1k',.06],['medium','2k',.08]]) {
+      const price=calculateGrokImage2CreditCost({quality,resolution,referenceImageCount:5});
+      expect(price.providerCostUsd).toBeCloseTo((cost+.05)*1.05,10);
+      expect(price.credits).toBe(creditsForProviderCostUsd((cost+.05)*1.05));
+      const input=contract.validateAdminAiImageBody({model:'xai/grok-imagine-image-2.0',prompt:'Synthetic',quality,resolution});
+      const {model}=contract.resolveAdminAiModelSelection('image',input);
+      const built=contract.buildAdminAiGrokImagineImageRequest(model,input);
+      expect(built.payload).toMatchObject({prompt:'Synthetic',quality,resolution});
+      expect(built.payload).not.toHaveProperty('n');
+    }
+    for(const settings of [{n:1},{quality:'high'},{resolution:'1.5k'},{referenceImageCount:6},{images:Array(6).fill({url:'https://fixture.invalid/a.png'})}])expect(()=>normalizeGrokImage2(settings)).toThrow();
+    expect((await loadAiImageModelsModule()).getGenerateLabAiImageModelOptions().some(m=>m.id==='xai/grok-imagine-image-2.0')).toBe(true);
+  });
+
+  test('Grok Imagine Image 2.0 member generation validates references, charges once and preserves save replay', async () => {
+    const worker=await loadWorker('workers/auth/src/index.js'), calls=[];
+    const user=createContractUser({id:'grok-image-2-member',role:'user'});
+    const env=createAuthTestEnv({users:[user],memberCreditLedger:[{id:'grok2-grant',user_id:user.id,amount:1000,balance_after:1000,entry_type:'grant',source:'test',idempotency_key:'grant',request_hash:'grant',created_by_user_id:user.id,created_at:nowIso(),metadata_json:'{}'}],
+      aiRun:async(model,payload,options)=>{calls.push({model,payload,options});return {state:'Completed',result:{image:ONE_PIXEL_PNG_DATA_URI},gatewayMetadata:{keySource:'Unified'}};}});
+    const token=await seedSession(env,user.id),headers={Origin:'https://bitbi.ai',Cookie:`bitbi_session=${token}`};
+    const body={model:'xai/grok-imagine-image-2.0',prompt:'Synthetic image',quality:'medium',resolution:'2k',referenceImages:[ONE_PIXEL_PNG_DATA_URI],referenceImageCount:0};
+    const invoke=(input,key)=>worker.fetch(authJsonRequest('/api/ai/generate-image','POST',input,{...headers,'Idempotency-Key':key}),env,createExecutionContext().execCtx);
+    for(const invalid of [{n:1},{quality:'high'},{resolution:'4k'},{referenceImages:Array(6).fill(ONE_PIXEL_PNG_DATA_URI)},{referenceImages:['https://private.invalid/a']}])expect((await invoke({...body,...invalid},'invalid-'+Object.keys(invalid)[0])).status).toBe(400);
+    expect(calls).toHaveLength(0);
+    const first=await invoke(body,'grok2-run'), result=await first.json();expect(result,JSON.stringify(result)).toMatchObject({ok:true,data:{model:body.model,saveReference:expect.any(String)}});
+    expect(calls).toHaveLength(1);expect(calls[0]).toMatchObject({model:body.model,payload:{prompt:body.prompt,quality:'medium',resolution:'2k',images:[{url:ONE_PIXEL_PNG_DATA_URI}]},options:{gateway:{id:'default'}}});
+    expect(calls[0].payload).not.toHaveProperty('n');
+    const {calculateGrokImage2CreditCost}=await import('../js/shared/grok-imagine-image-2-pricing.mjs');
+    expect(result.billing.credits_charged).toBe(calculateGrokImage2CreditCost({...body,referenceImageCount:1}).credits);
+    expect((await (await invoke(body,'grok2-run')).json()).ok).toBe(true);expect(calls).toHaveLength(1);
+    expect((await invoke({...body,quality:'low'},'grok2-run')).status).toBe(409);
+    expect(env.DB.state.memberCreditLedger.filter(r=>r.entry_type==='consume')).toHaveLength(1);
+    expect(env.DB.state.canvasMediaOutputs).toHaveLength(0); // Generate Lab retains permanent storage semantics.
+  });
+
+  test('Grok Imagine Image 2.0 Admin uses existing AI service single-image decoder and organization credits',async()=>{
+    const calls=[];let invalidOutput=false;const h=await createAdminAiContractHarness({aiRun:async(model,payload)=>{calls.push({model,payload});return {state:'Completed',result:invalidOutput?{images:[ONE_PIXEL_PNG_DATA_URI]}:{image:ONE_PIXEL_PNG_DATA_URI},gatewayMetadata:{keySource:'Unified'}};}});
+    seedAdminImageChargeOrg(h.env);
+    const response=await h.authWorker.fetch(authJsonRequest('/api/admin/ai/test-image','POST',{organization_id:ADMIN_AI_CHARGE_ORG_ID,model:'xai/grok-imagine-image-2.0',prompt:'Synthetic',quality:'low',resolution:'1k'},{...h.authHeaders,'Idempotency-Key':'admin-grok2'}),h.env,createExecutionContext().execCtx);
+    const body=await response.json();expect(body,JSON.stringify(body)).toMatchObject({ok:true});expect(response.status).toBe(200);
+    expect(calls).toHaveLength(1);expect(calls[0].payload).toMatchObject({prompt:'Synthetic',quality:'low',resolution:'1k'});expect(calls[0].payload).not.toHaveProperty('n');
+    const {calculateGrokImage2CreditCost}=await import('../js/shared/grok-imagine-image-2-pricing.mjs');
+    expect(h.env.DB.state.creditLedger.filter(r=>r.entry_type==='consume')).toEqual([expect.objectContaining({amount:-calculateGrokImage2CreditCost().credits})]);
+    expect(h.env.DB.state.memberCreditLedger).toHaveLength(0);
+    invalidOutput=true;
+    const invalid=await h.authWorker.fetch(authJsonRequest('/api/admin/ai/test-image','POST',{organization_id:ADMIN_AI_CHARGE_ORG_ID,model:'xai/grok-imagine-image-2.0',prompt:'Invalid legacy array fixture',quality:'low',resolution:'1k'},{...h.authHeaders,'Idempotency-Key':'admin-grok2-invalid'}),h.env,createExecutionContext().execCtx);
+    expect(invalid.ok).toBe(false);expect((await invalid.json()).ok).toBe(false);
+    expect(calls).toHaveLength(2);
+    expect(h.env.DB.state.creditLedger.filter(r=>r.entry_type==='consume')).toHaveLength(1);
+  });
+
   test('AI image pricing: member GPT Image 2 uses the shared fixed credit schedule', async () => {
     const { calculateAiImageCreditCost, isPricedAiImageModel } = await loadAiImageCreditPricingModule();
     expect(isPricedAiImageModel('openai/gpt-image-2')).toBe(true);
@@ -45064,7 +45126,7 @@ test.describe('Worker routes', () => {
     env.DB.state.memberGenerationJobs.push({id:'1ab100ce',usage_attempt_id:'pending-image'}, {id:'abe100ac',usage_attempt_id:'pending-video'}, {id:'abe100ab',usage_attempt_id:'ready-video'});
     env.DB.state.memberAiUsageAttempts.push({id:'pending-image',billing_status:'reserved'}, {id:'pending-video',billing_status:'released'}, {id:'ready-video',billing_status:'finalized'});
     try {
-      for (const [table,key] of [['ai_images','aiImages'],['ai_text_assets','aiTextAssets'],['member_generation_jobs','memberGenerationJobs'],['member_ai_usage_attempts_v2','memberAiUsageAttempts']]) {
+      for (const [table,key] of [['ai_images','aiImages'],['ai_text_assets','aiTextAssets'],['member_generation_jobs','memberGenerationJobs'],['member_ai_usage_attempts_v2','memberAiUsageAttempts'],['canvas_media_outputs','canvasMediaOutputs']]) {
         const columns=(await schema.prepare(`PRAGMA table_info(${table})`).all()).results.map(row=>row.name);
         // Read-query parity fixture, not a claim to test insertion constraints.
         mirror.exec(`CREATE TABLE ${table} (${columns.map(name=>`"${name}"`).join(',')})`);

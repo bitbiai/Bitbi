@@ -53,6 +53,7 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "js/shared/admin-ai-contract.mjs": ["auth", "ai"],
   "js/shared/canvas-model-contract.mjs": ["auth"],
   "js/shared/grok-text-contract.mjs": ["auth", "ai"],
+  "js/shared/grok-imagine-image-2-pricing.mjs": ["auth", "ai"],
   "js/shared/canvas-video-input.mjs": ["auth"],
   "js/shared/ai-image-models.mjs": ["auth"],
   "js/shared/durable-rate-limit-do.mjs": ["auth", "contact"],

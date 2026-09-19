@@ -12,8 +12,8 @@ import { analyzeWorkflow, validationForNode, upstreamDisplayNode } from './workf
 const isGerman = document.documentElement.lang === 'de';
 const copy = isGerman ? {
     saved: 'Gespeichert', saving: 'Wird gespeichert', unsaved: 'Ungespeicherte Änderungen', saveFailed: 'Speichern fehlgeschlagen', retrySave: 'Speichern wiederholen',
-    newProject: 'Neue Canvas', projectPrompt: 'Name der Canvas', renamePrompt: 'Canvas umbenennen', deleteProject: 'Diese Canvas löschen? Assets bleiben im Assets Manager erhalten.',
-    deleteNode: 'Diesen Node löschen? Das zugrunde liegende Asset bleibt erhalten.', deleteEdge: 'Diese Verbindung löschen?',
+    newProject: 'Neue Canvas', projectPrompt: 'Name der Canvas', renamePrompt: 'Canvas umbenennen', deleteProject: 'Diese Canvas löschen? Gespeicherte Assets bleiben erhalten. Ungespeicherte Canvas-Medien werden entfernt, sobald sie nicht mehr benötigt werden.',
+    deleteNode: 'Diesen Node löschen? Gespeicherte Assets bleiben erhalten. Ungespeicherte Ausgaben werden entfernt, sobald sie nicht mehr benötigt werden.', deleteEdge: 'Diese Verbindung löschen?',
     selectedNode: 'Node ausgewählt', selectedEdge: 'Verbindung ausgewählt', selectNode: 'Wähle einen Node zum Bearbeiten',
     nodeTypes: { text_prompt: 'Text-Prompt', text_generation: 'Textgenerierung', image_generation: 'Bildgenerierung', video_generation: 'Videogenerierung', music_generation: 'Musikgenerierung', asset_reference: 'Asset-Referenz', output_result: 'Ausgabe', note: 'Notiz' },
     emptyNode: 'Öffne den Inspector und konfiguriere diesen Schritt.', noModel: 'Kein Modell', untitled: 'Ohne Titel', ready: 'Bereit', completed: 'Abgeschlossen',
@@ -30,8 +30,8 @@ const copy = isGerman ? {
     quickCreated: 'Text → Bild → Video wurde erstellt. Führe die Nodes von links nach rechts aus.', quickFailed: 'Der schnelle Workflow konnte nicht vollständig erstellt werden.', organizationSelect: 'Organisation auswählen', organizationRequired: 'Wähle eine aktive Organisation für dieses Modell.',
 } : {
     saved: 'Saved', saving: 'Saving', unsaved: 'Unsaved changes', saveFailed: 'Save failed', retrySave: 'Retry saving',
-    newProject: 'New Canvas', projectPrompt: 'Canvas name', renamePrompt: 'Rename Canvas', deleteProject: 'Delete this Canvas? Assets will remain in Assets Manager.',
-    deleteNode: 'Delete this node? Its underlying asset will remain available.', deleteEdge: 'Delete this connection?',
+    newProject: 'New Canvas', projectPrompt: 'Canvas name', renamePrompt: 'Rename Canvas', deleteProject: 'Delete this Canvas? Saved Assets are kept. Unsaved Canvas media will be removed when no longer in use.',
+    deleteNode: 'Delete this node? Saved Assets are kept. Unsaved output will be removed when no longer in use.', deleteEdge: 'Delete this connection?',
     selectedNode: 'Node selected', selectedEdge: 'Connection selected', selectNode: 'Select a node to edit it',
     nodeTypes: { text_prompt: 'Text prompt', text_generation: 'Text generation', image_generation: 'Image generation', video_generation: 'Video generation', music_generation: 'Music generation', asset_reference: 'Asset reference', output_result: 'Output', note: 'Note' },
     emptyNode: 'Open the inspector to configure this step.', noModel: 'No model', untitled: 'Untitled', ready: 'Ready', completed: 'Completed',
@@ -380,6 +380,17 @@ function renderOutput(node) {
     } else if (output.kind === 'audio' && output.asset?.file_url) {
         const audio = el('audio'); audio.src = output.asset.file_url; audio.controls = true; audio.preload = 'metadata'; section.append(audio);
     } else section.append(el('p', 'canvas-muted', copy.outputEmpty));
+    if (output.storage === 'canvas' && output.runId) {
+        const projectId=store.state.project.id, signal=inspectorAbort.signal;
+        const save = el('button','canvas-button',isGerman ? 'In Assets speichern' : 'Save to Assets'); save.type='button';
+        save.addEventListener('click',async()=>{
+            save.disabled=true;
+            const result=await canvasApi.saveOutput(projectId,output.runId);
+            if(signal.aborted)return;
+            if (!result.ok) {showToast(result.error);save.disabled=false;return;}
+            output.storage='assets';assetsCache=null;save.textContent=isGerman?'In Assets gespeichert':'Saved to Assets';
+        }); section.append(save);
+    }
     return section;
 }
 
@@ -497,11 +508,9 @@ function renderInspector() {
             const updateCost = () => {
                 let estimate = model.estimatedCredits;
                 try {
-                    if (capability === 'video' && model.id === 'pixverse/v6' && model.runnable) estimate = calculateAiVideoCreditCost(model.id, { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, generateAudio: node.config?.generateAudio !== false })?.credits;
+                    if (capability === 'video' && model.runnable) estimate = calculateAiVideoCreditCost(model.id, { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, resolution: node.config?.resolution || model.controls.defaultResolution, aspect_ratio: node.config?.aspectRatio || model.controls.defaultAspectRatio, generateAudio: node.config?.generateAudio !== false })?.credits;
                     if (capability === 'image' && model.runnable) estimate = calculateAiImageCreditCost(model.id, { ...node.config, referenceImageCount: workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0 })?.credits;
-                    if (capability === 'text' && model.requiresPersonalCredits) estimate = estimateCanvasTextCredits(model.id, { ...node.config, systemPrompt: getCanvasTextInstructions(node.config), prompt: analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id)?.effectivePrompt || "" });
-                    // Platform-budget runs do not debit user/organization credits.
-                    if (model.requiresPlatformBudget && model.runnable) estimate = 0;
+                    if (capability === 'text' && model.runnable) estimate = estimateCanvasTextCredits(model.id, { ...node.config, systemPrompt: getCanvasTextInstructions(node.config), prompt: analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id)?.effectivePrompt || "" });
                 } catch { estimate = null; }
                 cost.textContent = `${copy.estimated}: ${estimate ?? '—'}`;
             };
@@ -512,7 +521,12 @@ function renderInspector() {
         const prompt = textareaControl(node.config?.prompt || '');
         prompt.maxLength = Number(model?.controls?.maxPromptLength || 12000);
         bindConfig(node, prompt, 'prompt');
-        dom.inspector.append(field(copy.prompt, prompt));
+        if (capability === 'image') {
+            const editor = el('details', 'canvas-additional-prompt');
+            const label = isGerman ? 'Zusätzlicher Prompt' : 'Additional prompt';
+            editor.append(el('summary', '', label), field(label, prompt));
+            dom.inspector.append(editor);
+        } else dom.inspector.append(field(copy.prompt, prompt));
 
         const inputContext = renderInputContext(node, workflowAnalysis.byNode.get(node.id));
         dom.inspector.append(inputContext.section);
@@ -546,6 +560,8 @@ function renderInspector() {
                 numberOption('height', isGerman ? 'Höhe' : 'Height', c.defaultSize?.height, c.minDimension, c.maxDimension, 64);
             }
             for (const [key, options, value, label] of [
+                ['resolution', c.resolutionOptions, c.defaultResolution, isGerman ? 'Auflösung' : 'Resolution'],
+                ['aspectRatio', c.aspectRatioOptions, c.defaultAspectRatio, copy.aspectRatio],
                 ['quality', c.qualityOptions, c.defaultQuality, isGerman ? 'Qualität' : 'Quality'],
                 ['size', c.sizeOptions, typeof c.defaultSize === 'string' ? c.defaultSize : null, isGerman ? 'Größe' : 'Size'],
                 ['outputFormat', c.outputFormatOptions, c.defaultOutputFormat, isGerman ? 'Dateiformat' : 'File format'],
@@ -562,7 +578,15 @@ function renderInspector() {
             const duration = inputControl(node.config?.duration ?? model?.controls?.duration?.default ?? 5, 'number'); duration.min = String(model?.controls?.duration?.min || 1); duration.max = String(model?.controls?.duration?.max || 15); bindConfig(node, duration, 'duration', Number);
             const ratios = model?.controls?.aspectRatioOptions?.length ? model.controls.aspectRatioOptions : ['16:9', '9:16', '1:1'];
             const ratio = selectControl(ratios.map((value) => ({ value, label: value })), node.config?.aspectRatio || model?.controls?.defaultAspectRatio || '16:9'); bindConfig(node, ratio, 'aspectRatio');
-            grid.append(field(copy.duration, duration), field(copy.aspectRatio, ratio)); dom.inspector.append(grid);
+            grid.append(field(copy.duration, duration), field(copy.aspectRatio, ratio));
+            const c = model?.controls || {}, key = c.resolutionField === 'quality' ? 'quality' : 'resolution';
+            const options = key === 'quality' ? c.qualityOptions : c.resolutionOptions;
+            const fallback = key === 'quality' ? c.defaultQuality : c.defaultResolution;
+            if (options?.length) {
+                const resolution = selectControl(options.map(value => ({ value, label: value })), node.config?.[key] || fallback);
+                bindConfig(node, resolution, key); grid.append(field(isGerman ? 'Auflösung' : 'Resolution', resolution));
+            } else if (fallback) grid.append(field(isGerman ? 'Auflösung' : 'Resolution', el('output', '', fallback)));
+            dom.inspector.append(grid);
         }
         if (capability === 'music') {
             const lyrics = textareaControl(node.config?.lyrics || ''); lyrics.maxLength = 3500; bindConfig(node, lyrics, 'lyrics'); dom.inspector.append(field(copy.lyrics, lyrics));

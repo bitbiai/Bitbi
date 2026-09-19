@@ -1,3 +1,4 @@
+import { GROK_IMAGE_2, calculateGrokImage2CreditCost } from './grok-imagine-image-2-pricing.mjs';
 import {
   BITBI_MODEL_PRICING_USD_TO_EUR,
   BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
@@ -236,10 +237,11 @@ export function isPricedAiImageModel(modelId) {
     || FLUX_2_KLEIN_IMAGE_MODEL_IDS.includes(id)
     || id === FLUX_2_MAX_IMAGE_MODEL_ID
     || id === GPT_IMAGE_2_MODEL_ID
-    || id === GROK_IMAGINE_IMAGE_MODEL_ID;
+    || id === GROK_IMAGINE_IMAGE_MODEL_ID || id === GROK_IMAGE_2.id;
 }
 
 export function calculateAiImageCreditCost(modelId, params = {}) {
+  if (modelId === GROK_IMAGE_2.id) return calculateGrokImage2CreditCost(params);
   const id = String(modelId || "").trim();
   if (id === GPT_IMAGE_2_MODEL_ID) {
     return calculateGptImage2CreditCost(params);

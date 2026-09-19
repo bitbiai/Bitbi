@@ -546,7 +546,7 @@ assert.throws(()=>verifyLaterAttempt({...run,conclusion:'failure'},[{name:'deplo
 
 {
   const {verifyCanvasTextReport,requiredJobs}=await import('./pages-candidate.mjs');
-  const suite=(result=true)=>({suites:[{specs:['canvas.spec.js','oma2-q1-canvas.spec.js'].map((file,i)=>({id:String(i),file,tests:['chromium','webkit-canvas'].map(projectName=>({projectName,results:result?[{status:'passed'}]:[]}))}))}]});
+  const suite=(result=true)=>({suites:[{specs:['canvas.spec.js','oma2-q1-canvas.spec.js','auth-admin.spec.js','smoke.spec.js'].map((file,i)=>({id:String(i),file,tests:['chromium','webkit-canvas'].map(projectName=>({projectName,results:result?[{status:'passed'}]:[]}))}))}]});
   const report=suite(),discovery=suite(false);verifyCanvasTextReport(report,discovery);
   for(const status of ['skipped','failed','timedOut']){const bad=structuredClone(report);bad.suites[0].specs[0].tests[0].results=[{status}];assert.throws(()=>verifyCanvasTextReport(bad,discovery));}
   const missing=structuredClone(report);missing.suites[0].specs.pop();assert.throws(()=>verifyCanvasTextReport(missing,discovery));

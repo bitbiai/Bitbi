@@ -1,3 +1,4 @@
+import { canvasMediaRun } from './canvas-media-storage.js';
 import { nowIso, sha256Hex } from './tokens.js';
 import { putNewManagedR2Object } from './r2-cleanup.js';
 import { generationExecution } from './member-generation-jobs.js';
@@ -6,11 +7,12 @@ import { generationExecution } from './member-generation-jobs.js';
 // whose response was lost. Different attempts retain different R2 staging keys.
 export async function existingGenerationAsset(env, userId, mediaType) {
   const execution = generationExecution(env);
-  if (!execution) return null;
-  await execution.assertClaim();
-  if (execution.user.id !== userId || execution.job.media_type !== mediaType) throw new Error('generation_asset_owner_mismatch');
+  const canvasRunId=canvasMediaRun(env);
+  if (!execution && !canvasRunId) return null;
+  if(execution) await execution.assertClaim();
+  if (execution && (execution.user.id !== userId || execution.job.media_type !== mediaType)) throw new Error('generation_asset_owner_mismatch');
   const table = mediaType === 'image' ? 'ai_images' : 'ai_text_assets';
-  const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ? AND user_id = ?`).bind(execution.job.id,userId).first();
+  const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ? AND user_id = ?`).bind(execution?.job.id || canvasRunId,userId).first();
   if (!row) return null;
   return { id: row.id, title: row.title || null, folder_id: row.folder_id || null,
     prompt: row.prompt || null, model: row.model || null, steps: row.steps ?? null, seed: row.seed ?? null,

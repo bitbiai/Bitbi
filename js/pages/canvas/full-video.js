@@ -6,8 +6,8 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         create:'Gesamtes Video erstellen',retry:'Verarbeitung wiederholen',queued:'Gesamtvideo wartet auf Verarbeitung.',processing:'Gesamtvideo wird zusammengefügt.',
         preview_pending:'Video gespeichert. Vorschau wird erstellt.',ready:'Gesamtvideo bereit.',failed:'Verarbeitung fehlgeschlagen.',
         unavailable:'Gesamtvideo nicht verfügbar. Quellen oder Herkunft prüfen.',download:'Gesamtvideo herunterladen',poster:'Vorschau wird erstellt.',posterFailed:'Video verfügbar. Vorschau konnte nicht erstellt werden.',
-        limits:'Vorhandene Clips, keine KI-Generierung. Max. 400 MB Quellen, 10 Minuten und 80 MB Ergebnis.', refresh:'Status aktualisieren',
-    }:{create:'Create full video',retry:'Retry processing',queued:'Full video is queued.',processing:'Joining full video.',preview_pending:'Video saved. Preparing preview.',ready:'Full video ready.',failed:'Processing failed.',unavailable:'Full video unavailable. Check sources and provenance.',download:'Download full video',poster:'Preparing preview.',posterFailed:'Video available. Preview could not be created.',limits:'Existing clips, no AI generation. Up to 400 MB sources, 10 minutes and an 80 MB result.',refresh:'Refresh status'};
+        refresh:'Status aktualisieren',
+    }:{create:'Create full video',retry:'Retry processing',queued:'Full video is queued.',processing:'Joining full video.',preview_pending:'Video saved. Preparing preview.',ready:'Full video ready.',failed:'Processing failed.',unavailable:'Full video unavailable. Check sources and provenance.',download:'Download full video',poster:'Preparing preview.',posterFailed:'Video available. Preview could not be created.',refresh:'Refresh status'};
     const block=document.createElement('div');block.className='canvas-full-video';section.append(block);
     const posterStatus=document.createElement('p');posterStatus.className='canvas-muted';section.append(posterStatus);
     let timer,reads=0,busy=false,resultVideo=null,previous=null,posterRetry=null;
@@ -26,9 +26,9 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         if(!result.ok) {
             const message=document.createElement('p');message.textContent=`${copy.unavailable} (${result.code})`;fragment.append(message);
         } else if(result.data.eligible) {
-            const label=document.createElement('p');label.setAttribute('role','status');label.textContent=status?copy[status.status]||copy.failed:copy.limits;fragment.append(label);
+            if(status) {const label=document.createElement('p');label.setAttribute('role','status');label.textContent=copy[status.status]||copy.failed;fragment.append(label);}
             if(!status || status.status==='failed') {
-                const button=document.createElement('button');button.type='button';button.className='canvas-btn';button.textContent=status?copy.retry:copy.create;
+                const button=document.createElement('button');button.type='button';button.className='canvas-button canvas-button--primary';button.textContent=status?copy.retry:copy.create;
                 button.addEventListener('click',()=>{button.disabled=true;void update(true);},{signal});fragment.append(button);
             }
             if(status?.asset) {

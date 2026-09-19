@@ -1,3 +1,4 @@
+import { GROK_IMAGE_2, normalizeGrokImage2 } from '../../../../../js/shared/grok-imagine-image-2-pricing.mjs';
 import { promptAssetTitle } from '../../lib/asset-names.js';
 import { existingGenerationAsset, generationStorageReservation } from "../../lib/member-generation-storage.js";
 import { acceptMemberGeneration, generationUser, generationExecution } from "../../lib/member-generation-jobs.js";
@@ -828,11 +829,19 @@ export async function handleGenerateImage(ctx) {
   }
   const gptImage2 = isGptImage2Model(modelConfig);
   const flux2Max = isFlux2MaxModel(modelConfig);
+  const grokImage2 = modelConfig.id === GROK_IMAGE_2.id;
+  let grokRequest = null;
   let aiRequest = null;
   let gptRequest = null;
   let flux2MaxRequest = null;
   try {
-    if (gptImage2) {
+    if (grokImage2) {
+      const referenceImages=validateGptImage2ReferenceImages(body.referenceImages);
+      grokRequest=normalizeGrokImage2({quality:body.quality,resolution:body.resolution??body.size,
+        aspectRatio:body.aspectRatio??body.aspect_ratio,responseFormat:body.responseFormat??body.response_format,n:body.n,referenceImages});
+      const {inputImageCount,...options}=grokRequest;
+      aiRequest={payload:{prompt,...options,...(referenceImages.length?{images:referenceImages.map(url=>({url}))}:{})},steps:null,seed:null};
+    } else if (gptImage2) {
       gptRequest = normalizeGptImage2Request(body, prompt, modelConfig);
       aiRequest = {
         payload: gptRequest.payload,
@@ -852,7 +861,7 @@ export async function handleGenerateImage(ctx) {
   } catch (error) {
     return respond({ ok: false, error: error.message || "Invalid image request." }, { status: error.status || 400 });
   }
-  const imagePricing = calculateAiImageCreditCost(modelConfig.id, gptImage2
+  const imagePricing = calculateAiImageCreditCost(modelConfig.id, grokImage2 ? {...grokRequest,referenceImageCount:grokRequest.inputImageCount} : gptImage2
     ? {
         quality: gptRequest.quality,
         size: gptRequest.size,
@@ -1030,7 +1039,7 @@ export async function handleGenerateImage(ctx) {
   }
 
   try {
-    const runOptions = (gptImage2 || flux2Max)
+    const runOptions = (gptImage2 || flux2Max || grokImage2)
       ? { gateway: { id: env.AI_GATEWAY_ID || "default" } }
       : undefined;
     if (gptImage2) {
@@ -1073,12 +1082,17 @@ export async function handleGenerateImage(ctx) {
     }
     const extracted = await runWithGenerationTimeout(async (signal) => {
       const result = await env.AI.run(modelConfig.id, aiRequest.payload,
-        { ...((gptImage2 || flux2Max) ? runOptions : {}), signal });
+        { ...((gptImage2 || flux2Max || grokImage2) ? runOptions : {}), signal });
       if (signal.aborted) {
         const body = result instanceof Response ? result.body : result instanceof ReadableStream ? result : null;
         if (body && !body.locked) Promise.resolve(body.cancel()).catch(() => {});
         await usagePolicy.recordLateOutcome?.("succeeded");
         throw signal.reason;
+      }
+      if(grokImage2) {
+        const image=result?.result?.image ?? result?.image;
+        if(typeof image!=='string' || !/^(https:\/\/|data:image\/)/.test(image))throw new Error('image_result_invalid');
+        return extractGeneratedImage(env,{image},{allowProviderUrl:true,signal});
       }
       return extractGeneratedImage(env, result, { allowProviderUrl: gptImage2 || flux2Max, signal });
     }, {

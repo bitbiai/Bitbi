@@ -1,3 +1,4 @@
+import { canvasMediaRun } from './canvas-media-storage.js';
 import { slugifyFileName } from './asset-names.js';
 import { generationExecution } from "./member-generation-jobs.js";
 import { existingGenerationAsset, generationStorageReservation } from "./member-generation-storage.js";
@@ -876,7 +877,7 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
 
   const fileStem = slugifyFileName(safeTitle, sourceModule);
   const fileName = `${fileStem}.${fileExt}`;
-  const assetId = generationExecution(env)?.job.id || randomTokenHex(16);
+  const assetId = generationExecution(env)?.job.id || canvasMediaRun(env) || randomTokenHex(16);
   const timestamp = Date.now();
   const subDir = sourceModule === "music" ? "audio" : sourceModule === "video" ? "video" : "text";
   const r2Key = `users/${userId}/folders/${folderSlug}/${subDir}/${timestamp}-${randomTokenHex(4)}-${fileName}`;
@@ -1097,7 +1098,7 @@ export async function saveGeneratedVideoAsset(env, {
   const fileExt = extensionForVideoMimeType(normalizedMimeType);
   const fileStem = slugifyFileName(safeTitle, sourceModule);
   const fileName = `${fileStem}.${fileExt}`;
-  const assetId = processingClaim?.id || generationExecution(env)?.job.id || randomTokenHex(16);
+  const assetId = processingClaim?.id || generationExecution(env)?.job.id || canvasMediaRun(env) || randomTokenHex(16);
   const timestamp = Date.now();
   const r2Key = `users/${userId}/folders/${folderSlug}/video/${timestamp}-${randomTokenHex(4)}-${fileName}`;
   const previewText = truncatePreview(payload.prompt || "Video generation");

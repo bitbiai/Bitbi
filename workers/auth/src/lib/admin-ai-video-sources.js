@@ -1,3 +1,4 @@
+import { GROK_IMAGE_2 } from '../../../../js/shared/grok-imagine-image-2-pricing.mjs';
 import {
   ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
   ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,
@@ -571,7 +572,7 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
   const operation = String(payload.operation || "").trim();
   const modelId = String(payload.model || "").trim();
   const isGrokVideoModel = modelId === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID;
-  const isGrokImageModel = modelId === ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID;
+  const isGrokImageModel = [ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,GROK_IMAGE_2.id].includes(modelId);
   const isGrokImageOperation = operation === "image_generate" || operation === "generate";
   if (
     payload.v !== ADMIN_AI_VIDEO_SOURCE_TOKEN_VERSION ||
@@ -683,10 +684,11 @@ async function resolveImageSourceForProvider(env, adminUser, sourceRef, {
   jobId = null,
   origin = null,
   sourceRole = "image",
+  modelId = ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,
 } = {}) {
   const source = await getSourceRow(env, sourceRef, adminUser?.id || null);
   const token = await createMediaSourceToken(env, sourceRef, {
-    model: ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,
+    model: modelId,
     operation: "image_generate",
     sourceRole,
     userId: sourceRef.source_type === "saved_asset" ? adminUser?.id || null : null,
@@ -701,7 +703,7 @@ async function resolveImageSourceForProvider(env, adminUser, sourceRef, {
     level: "info",
     correlationId,
     job_id: jobId || null,
-    model: ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,
+    model: modelId,
     source_role: sourceRole,
     source_media_type: sourceRef.media_type,
     source_type: sourceRef.source_type,
@@ -761,7 +763,7 @@ export async function resolveAdminAiGrokImagineImageSourcesForProvider(env, admi
   jobId = null,
   origin = null,
 } = {}) {
-  if (payload?.model !== ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID) {
+  if (![ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,GROK_IMAGE_2.id].includes(payload?.model)) {
     return payload;
   }
   const { sourceImage, sourceImages, sourceMask } = sourceRefsForGrokImage(payload);
@@ -769,6 +771,7 @@ export async function resolveAdminAiGrokImagineImageSourcesForProvider(env, admi
   const resolved = { ...rest };
   if (sourceImage) {
     resolved.image = await resolveImageSourceForProvider(env, adminUser, sourceImage, {
+      modelId:payload.model,
       correlationId,
       jobId,
       origin,
@@ -779,6 +782,7 @@ export async function resolveAdminAiGrokImagineImageSourcesForProvider(env, admi
     resolved.images = [];
     for (const [index, sourceRef] of sourceImages.entries()) {
       resolved.images.push(await resolveImageSourceForProvider(env, adminUser, sourceRef, {
+        modelId: payload.model,
         correlationId,
         jobId,
         origin,
@@ -788,6 +792,7 @@ export async function resolveAdminAiGrokImagineImageSourcesForProvider(env, admi
   }
   if (sourceMask) {
     resolved.mask = await resolveImageSourceForProvider(env, adminUser, sourceMask, {
+      modelId:payload.model,
       correlationId,
       jobId,
       origin,

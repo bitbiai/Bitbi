@@ -17,13 +17,13 @@ export async function handleGetFolders(ctx) {
   ).bind(session.user.id).all();
 
   const imageCountRows = await env.DB.prepare(
-    `SELECT folder_id, COUNT(*) AS cnt FROM ai_images WHERE user_id = ? GROUP BY folder_id`
+    `SELECT folder_id, COUNT(*) AS cnt FROM ai_images WHERE user_id = ? AND NOT EXISTS(SELECT 1 FROM canvas_media_outputs canvas WHERE canvas.asset_id=ai_images.id AND canvas.state<>'saved') GROUP BY folder_id`
   ).bind(session.user.id).all();
 
   let textCountRows = { results: [] };
   try {
     textCountRows = await env.DB.prepare(
-      `SELECT folder_id, COUNT(*) AS cnt FROM ai_text_assets WHERE user_id = ? GROUP BY folder_id`
+      `SELECT folder_id, COUNT(*) AS cnt FROM ai_text_assets WHERE user_id = ? AND NOT EXISTS(SELECT 1 FROM canvas_media_outputs canvas WHERE canvas.asset_id=ai_text_assets.id AND canvas.state<>'saved') GROUP BY folder_id`
     ).bind(session.user.id).all();
   } catch (error) {
     if (!isMissingTextAssetTableError(error)) {

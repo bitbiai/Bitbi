@@ -110,6 +110,15 @@ function estimateModelCredits(mediaType, modelId, values = {}) {
 
 const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
     const config = getAiImageModelConfig(model.id);
+    if (config?.requestMode === 'grok-imagine-image-2') return Object.freeze({
+        id:model.id,displayName:model.label,mediaType:'image',provider:config.vendor,route:'/api/ai/generate-image',outputType:'image',status:'',
+        summary:DE?'Bildgenerierung und Bearbeitung mit Referenzbildern.':'Image generation and editing with reference images.',
+        capabilities:[DE?'Text zu Bild':'Text to image',DE?'Bis zu fünf Referenzbilder':'Up to five reference images','1k / 2k'],
+        controls:{supportsQuality:true,supportsSize:true,supportsReferenceImages:true,maxReferenceImages:config.maxReferenceImages},
+        defaults:{model:model.id,quality:config.defaultQuality,size:config.defaultResolution,referenceImages:[]},
+        options:{quality:config.qualityOptions,size:config.resolutionOptions},
+        estimateCredits:(values={})=>estimateModelCredits('image',model.id,values),
+    });
     if (config?.requestMode === 'gpt-image-2' || model.id === GPT_IMAGE_2_MODEL_ID) {
         return Object.freeze({
             id: model.id,

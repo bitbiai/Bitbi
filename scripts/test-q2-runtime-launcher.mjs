@@ -507,8 +507,8 @@ test('actual selected Worker shell stops before downstream work on every failure
   for(const [status,selected,canvas='false'] of [['false','true'],['false','false'],['true','false'],['false','false','true']]) {
     const command=script.replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}',canvas).replaceAll('${{ needs.release-compatibility.outputs.model_status }}',status).replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
     const run=fail=>{fs.writeFileSync(trace,'');const result=spawnSync('/bin/sh',['-c',command],{cwd:f.base,env:{PATH:bin,TRACE:trace,FAIL_COMMAND:fail||''},encoding:'utf8'});return {status:result.status,commands:fs.readFileSync(trace,'utf8').trim().split('\n')};};
-    const passed=run();assert.equal(passed.status,0);assert.equal(passed.commands.length,canvas==='true'?5:status==='true'||selected==='true'?3:1);
-    if(canvas==='true'){assert.match(passed.commands[2],/grok-chat-workers/);assert.match(passed.commands[3],/fable-chat-workers/);assert.match(passed.commands[4],/--suite canvas$/);}
+    const passed=run();assert.equal(passed.status,0);assert.equal(passed.commands.length,canvas==='true'?7:status==='true'||selected==='true'?3:1);
+    if(canvas==='true'){assert.match(passed.commands[2],/grok-chat-workers/);assert.match(passed.commands[3],/fable-chat-workers/);assert.match(passed.commands[4],/q2-lifecycle/);assert.match(passed.commands[5],/--suite canvas$/);assert.match(passed.commands[6],/--suite member-generation$/);}
     else if(status==='true')assert.match(passed.commands[2],/--suite model-status$/);
     else if(selected==='true')assert.match(passed.commands[2],/--suite member-generation$/);
     else assert.deepEqual(passed.commands,['npm run test:workers']);

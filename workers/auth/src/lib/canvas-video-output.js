@@ -26,7 +26,7 @@ export async function refreshCanvasVideoOutputs(env,userId,rows) {
 export async function finishCanvasGeneration(env,job,result) {
   if(job.media_type!=='video' || !job.request_key?.startsWith('canvas-video-') || !result.data?.asset?.id) return;
   const runId=job.request_key.slice('canvas-video-'.length);
-  const row=await env.DB.prepare("SELECT * FROM canvas_runs WHERE id=? AND user_id=? AND operation_type='canvas.video.generate' AND deleted_at IS NULL").bind(runId,job.user_id).first();
+  const row=await env.DB.prepare("SELECT * FROM canvas_runs WHERE id=? AND user_id=? AND operation_type='canvas.video.generate'").bind(runId,job.user_id).first();
   if(!row) return;
   const asset=result.data.asset;
   const original=await ownedCanvasVideo(env,job.user_id,asset.id,null,80_000_000);
@@ -36,7 +36,7 @@ export async function finishCanvasGeneration(env,job,result) {
   const encoded=JSON.stringify(output),now=nowIso();
   await env.DB.batch([
     env.DB.prepare("UPDATE ai_text_assets SET metadata_json=json_set(COALESCE(metadata_json,'{}'),'$.canvas_run_id',?,'$.canvas_poster_status',?) WHERE id=? AND user_id=?").bind(runId,asset.poster_url?'ready':'pending',asset.id,job.user_id),
-    env.DB.prepare(`UPDATE canvas_runs SET status='completed',asset_id=?,output_json=?,usage_attempt_id=?,error_code=NULL,error_message=NULL,completed_at=?,updated_at=? WHERE id=? AND user_id=? AND deleted_at IS NULL`)
+    env.DB.prepare(`UPDATE canvas_runs SET status='completed',asset_id=?,output_json=?,usage_attempt_id=?,error_code=NULL,error_message=NULL,completed_at=?,updated_at=? WHERE id=? AND user_id=?`)
       .bind(asset.id,encoded,job.usage_attempt_id,now,now,runId,job.user_id),
     env.DB.prepare(`UPDATE canvas_nodes SET asset_id=?,output_json=?,updated_at=? WHERE id=? AND user_id=? AND deleted_at IS NULL
       AND NOT EXISTS(SELECT 1 FROM canvas_runs r WHERE r.node_id=canvas_nodes.id AND r.user_id=canvas_nodes.user_id AND r.deleted_at IS NULL AND (r.created_at>? OR (r.created_at=? AND r.rowid>?)))`)

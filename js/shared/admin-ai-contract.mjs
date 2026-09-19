@@ -1,3 +1,4 @@
+import { GROK_IMAGE_2, calculateGrokImage2CreditCost } from './grok-imagine-image-2-pricing.mjs';
 import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens, normalizeGrokReasoningEffort, GROK_TEXT_PRICING } from "./grok-text-contract.mjs";
 import {
   REMOTE_MEDIA_URL_POLICY_CODE,
@@ -731,6 +732,14 @@ const IMAGE_MODELS = {
     defaultBackground: "auto",
     defaultMimeType: "image/png",
     description: "OpenAI image generation and editing via Cloudflare AI Gateway.",
+  },
+  [GROK_IMAGE_2.id]: {
+    ...GROK_IMAGE_2,task:'image',providerLabel:'Cloudflare AI Gateway',inputFormat:'grok-imagine-image-2',
+    proxied:true,adminOnly:false,pricingRequired:false,generationEnabled:true,
+    supportsSeed:false,supportsSteps:false,supportsDimensions:false,supportsGuidance:false,supportsStructuredPrompt:false,
+    supportsReferenceImages:true,supportsPrimaryImageInput:true,supportsMaskImage:true,supportsOutputCount:false,
+    supportsQuality:true,supportsResolution:true,supportsAspectRatio:true,supportsResponseFormat:true,supportsUserTag:true,
+    defaultMimeType:'image/png',description:'Image generation and editing with up to five reference images.',
   },
   [ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID]: {
     id: ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,
@@ -2094,7 +2103,8 @@ export function validateAdminAiImageBody(body, options = {}) {
   const selection = resolveAdminAiModelSelection("image", { preset, model });
   const selectedModel = selection.model;
 
-  if (selectedModel.id === ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID) {
+  if ([ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,GROK_IMAGE_2.id].includes(selectedModel.id)) {
+    const image2 = selectedModel.id === GROK_IMAGE_2.id;
     const commonFields = [
       "preset",
       "model",
@@ -2105,7 +2115,7 @@ export function validateAdminAiImageBody(body, options = {}) {
       "resolution",
       "response_format",
       "responseFormat",
-      "n",
+      ...(image2 ? [] : ["n"]),
       "user",
     ];
     assertOnlyAllowedFields(
@@ -2135,14 +2145,14 @@ export function validateAdminAiImageBody(body, options = {}) {
     const quality = optionalEnum(
       input.quality,
       "quality",
-      GROK_IMAGINE_IMAGE_QUALITIES,
-      GROK_IMAGINE_IMAGE_DEFAULT_QUALITY
+      selectedModel.qualityOptions,
+      selectedModel.defaultQuality
     );
     const resolution = optionalEnum(
       input.resolution,
       "resolution",
-      GROK_IMAGINE_IMAGE_RESOLUTIONS,
-      GROK_IMAGINE_IMAGE_DEFAULT_RESOLUTION
+      selectedModel.resolutionOptions,
+      selectedModel.defaultResolution
     );
     const response_format = optionalEnum(
       input.response_format ?? input.responseFormat,
@@ -2150,7 +2160,7 @@ export function validateAdminAiImageBody(body, options = {}) {
       GROK_IMAGINE_IMAGE_RESPONSE_FORMATS,
       GROK_IMAGINE_IMAGE_DEFAULT_RESPONSE_FORMAT
     );
-    const n = optionalInteger(
+    const n = image2 ? undefined : optionalInteger(
       input.n,
       "n",
       GROK_IMAGINE_IMAGE_MIN_OUTPUT_IMAGES,
@@ -2163,7 +2173,7 @@ export function validateAdminAiImageBody(body, options = {}) {
       ? normalizeGrokImageUrlObject(input.image, "image")
       : null;
     const images = allowResolvedGrokImageMediaUrls
-      ? normalizeGrokImageUrlObjectArray(input.images, "images", GROK_IMAGINE_IMAGE_MAX_INPUT_IMAGES)
+      ? normalizeGrokImageUrlObjectArray(input.images, "images", selectedModel.maxReferenceImages)
       : [];
     const mask = allowResolvedGrokImageMediaUrls
       ? normalizeGrokImageUrlObject(input.mask, "mask")
@@ -2178,7 +2188,7 @@ export function validateAdminAiImageBody(body, options = {}) {
       ? normalizeGrokPreviewSourceImageArray(
           firstNonEmptyValue(input.source_images, input.sourceImages),
           "source_images",
-          GROK_IMAGINE_IMAGE_MAX_INPUT_IMAGES
+          selectedModel.maxReferenceImages
         )
       : [];
     const source_mask = !allowResolvedGrokImageMediaUrls
@@ -2189,8 +2199,8 @@ export function validateAdminAiImageBody(body, options = {}) {
       : null;
 
     try {
-      calculateGrokImagineImageCreditPricing({
-        n,
+      (image2 ? calculateGrokImage2CreditCost : calculateGrokImagineImageCreditPricing)({
+        ...(image2 ? {} : {n}),
         aspect_ratio,
         quality,
         resolution,
@@ -2215,7 +2225,7 @@ export function validateAdminAiImageBody(body, options = {}) {
       quality,
       resolution,
       response_format,
-      n,
+      ...(image2 ? {} : {n}),
     };
     if (user) validated.user = user;
     if (allowResolvedGrokImageMediaUrls) {
@@ -3738,7 +3748,7 @@ export function buildAdminAiGrokImagineImageRequest(model, input) {
     resolution: input.resolution || model.defaultResolution || GROK_IMAGINE_IMAGE_DEFAULT_RESOLUTION,
     response_format:
       input.response_format || model.defaultResponseFormat || GROK_IMAGINE_IMAGE_DEFAULT_RESPONSE_FORMAT,
-    n: input.n || model.defaultOutputCount || GROK_IMAGINE_IMAGE_DEFAULT_OUTPUT_IMAGES,
+    ...(model.id === GROK_IMAGE_2.id ? {} : {n: input.n || model.defaultOutputCount || GROK_IMAGINE_IMAGE_DEFAULT_OUTPUT_IMAGES}),
   };
   if (input.user) payload.user = String(input.user).trim();
   if (input.image) payload.image = input.image;
@@ -3751,7 +3761,7 @@ export function buildAdminAiGrokImagineImageRequest(model, input) {
     appliedResolution: payload.resolution,
     appliedAspectRatio: payload.aspect_ratio,
     appliedResponseFormat: payload.response_format,
-    appliedOutputCount: payload.n,
+    appliedOutputCount: payload.n || 1,
     referenceImageCount: payload.images?.length || 0,
     inputImageCount: (payload.image ? 1 : 0) + (payload.images?.length || 0) + (payload.mask ? 1 : 0),
     hasPrimaryImage: !!payload.image,

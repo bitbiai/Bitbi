@@ -398,7 +398,7 @@ test.describe('BITBI Canvas static and protected workspace', () => {
 });
 
 for (const locale of ['en', 'de']) test(`${locale}: admin Canvas uses registry options and clean estimates; token defaults preserve explicit edits and save retries keep identity`, async ({ page }, testInfo) => {
-  const { listCanvasModelsForRole } = await import('../js/shared/canvas-model-contract.mjs');
+  const { listCanvasModelsForRole,estimateCanvasTextCredits,getCanvasTextInstructions } = await import('../js/shared/canvas-model-contract.mjs');
   const models = listCanvasModelsForRole('admin');
   const org = 'org_'+'a'.repeat(32);
   await mockSharedAuth(page, true, 'admin');
@@ -412,7 +412,7 @@ for (const locale of ['en', 'de']) test(`${locale}: admin Canvas uses registry o
   const inspector = page.locator('#canvasInspectorBody');
   const modelSelect = inspector.getByRole('combobox', { name: locale === 'de' ? 'Modell' : 'Model', exact: true });
   const tokens = inspector.getByLabel(locale === 'de' ? 'Max. Tokens' : 'Max tokens', { exact: true });
-  await expect(inspector.locator('.canvas-cost-note')).toHaveText(`${locale === 'de' ? 'Geschätzte Credits' : 'Estimated credits'}: 0`);
+  await expect(inspector.locator('.canvas-cost-note')).toHaveText(`${locale === 'de' ? 'Geschätzte Credits' : 'Estimated credits'}: ${estimateCanvasTextCredits(text.id,{...state.nodes[0].config,systemPrompt:getCanvasTextInstructions(state.nodes[0].config)})}`);
   await expect(modelSelect.locator('option')).toHaveCount(models.filter(m => m.capability === 'text').length);
   await modelSelect.selectOption('@cf/openai/gpt-oss-120b');
   await expect(tokens).toHaveValue('500');
@@ -428,7 +428,8 @@ for (const locale of ['en', 'de']) test(`${locale}: admin Canvas uses registry o
   await modelSelect.selectOption('openai/gpt-image-2');
   await expect(inspector.getByRole('combobox', { name: locale === 'de' ? 'Qualität' : 'Quality', exact: true })).toBeVisible();
   await expect(inspector.getByLabel(locale === 'de' ? 'Schritte' : 'Steps', { exact: true })).toHaveCount(0);
-  await inspector.getByLabel('Prompt', { exact: true }).fill('Synthetic image prompt');
+  await inspector.locator('.canvas-additional-prompt > summary').click();
+  await inspector.getByLabel(locale==='de'?'Zusätzlicher Prompt':'Additional prompt', { exact: true }).fill('Synthetic image prompt');
   const calls = [];
   await page.route('**/nodes/*/run', async route => {
     calls.push({ key: route.request().headers()['idempotency-key'], body: route.request().postDataJSON() });
@@ -653,12 +654,12 @@ for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable exp
   await page.screenshot({path:testInfo.outputPath(`canvas-full-video-${locale}.png`)});
 });
 
-for (const locale of ['en', 'de']) for (const mobile of [false, true]) {
-  test(`Canvas Grok ${locale} ${mobile ? 'mobile' : 'desktop'} persists reasoning and shows matching credit estimate`, async ({ page }, testInfo) => {
+for (const locale of ['en', 'de']) for (const mobile of [false, true]) for(const role of ['user','admin']) {
+  test(`Canvas Grok ${role} ${locale} ${mobile ? 'mobile' : 'desktop'} persists reasoning and shows matching credit estimate`, async ({ page }, testInfo) => {
     const { listCanvasModelsForRole, estimateCanvasTextCredits, getCanvasTextInstructions } = await import('../js/shared/canvas-model-contract.mjs');
     await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 });
-    await mockSharedAuth(page);
-    const state = createCanvasApiMock(page, { modelPayload: { models: listCanvasModelsForRole('user'), organizations: [], access: { role: 'user' } } });
+    await mockSharedAuth(page,true,role);
+    const state = createCanvasApiMock(page, { modelPayload: { models: listCanvasModelsForRole(role), organizations: [], access: { role, is_admin:role==='admin' } } });
     const project = '11111111111111111111111111111111', node = '33333333333333333333333333333333';
     state.projects.push({ id: project, title: 'Grok fixture', locale, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
     state.nodes.push({ id: node, project_id: project, type: 'text_generation', title: 'Grok text', x: 40, y: 40, model_id: 'xai/grok-4.6', config: { prompt: 'Synthetic prompt', systemPrompt: 'Concise.' }, content: {} });
@@ -708,3 +709,55 @@ for (const locale of ['en', 'de']) for (const mobile of [false, true]) {
     await expect(page.locator('[data-help-section="credits"]')).toBeVisible();
   });
 }
+
+test.describe('Canvas private media controls',()=>{
+  test.use({hasTouch:true});
+  for(const locale of ['en','de']) test(`${locale}: additional prompt, image controls, video resolution and explicit saves survive reload`,async({page},testInfo)=>{
+    const {listCanvasModelsForRole}=await import('../js/shared/canvas-model-contract.mjs');
+    const {calculateAiImageCreditCost}=await import('../js/shared/ai-model-pricing.mjs');
+    const mobile=locale==='de';await page.setViewportSize(mobile?{width:390,height:844}:{width:1440,height:900});
+    await mockSharedAuth(page);
+    const state=createCanvasApiMock(page,{modelPayload:{models:listCanvasModelsForRole('user'),organizations:[],access:{role:'user'}}});
+    const project='1'.repeat(32),ids=['2','3','4'].map(x=>x.repeat(32));
+    state.projects.push({id:project,title:'Private Canvas outputs',locale});
+    for(const [i,kind] of ['image','video','audio'].entries())state.nodes.push({id:ids[i],project_id:project,type:['image_generation','video_generation','music_generation'][i],title:['Image','Video','Music'][i],x:20+i*280,y:30,model_id:['xai/grok-imagine-image-2.0','pixverse/v6','minimax/music-2.6'][i],config:{prompt:'Soft morning light',duration:2,quality:i===0?'low':'720p',generateAudio:false},content:{},asset_id:ids[i],output:{kind,storage:'canvas',runId:ids[i],asset:{id:ids[i],preview_url:kind==='image'?'/tests/fixtures/media/member-image.png':null,file_url:`/api/ai/text-assets/${ids[i]}/file`}}});
+    await page.route('**/tests/fixtures/media/member-image.png',route=>route.fulfill({contentType:'image/png',body:fs.readFileSync(path.join(__dirname,'fixtures/media/member-image.png'))}));
+    const saved=[];
+    await page.route('**/runs/*/save-asset',async route=>{
+      const runId=new URL(route.request().url()).pathname.split('/').at(-2);saved.push(runId);
+      state.nodes.find(n=>n.output.runId===runId).output.storage='assets';
+      await route.fulfill({json:{ok:true,data:{asset_id:runId,storage:'assets'}}});
+    });
+    await page.route('**/runs/*/full-video',route=>route.fulfill({json:{ok:true,data:{eligible:false}}}));
+    await page.route('**/api/ai/text-assets/*/file',route=>route.fulfill({contentType:'video/mp4',body:fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'))}));
+    const select=async id=>{
+      if(mobile && !await page.locator('#canvasGraph').isVisible())await page.locator('#canvasGraphToggle').click();
+      await page.locator(`[data-node-id="${id}"]`).first().press('Enter');
+      if(mobile)await page.locator('#canvasInspectorToggle').click();
+    };
+    await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await expect(page.locator('#canvasProjectTitle')).toHaveValue('Private Canvas outputs');
+    await select(ids[0]);const inspector=page.locator('#canvasInspectorBody'),label=locale==='de'?'Zusätzlicher Prompt':'Additional prompt';
+    await expect(inspector.getByLabel(label,{exact:true})).toBeHidden();
+    await inspector.locator('.canvas-additional-prompt summary').focus();await page.keyboard.press('Enter');
+    await inspector.getByLabel(label,{exact:true}).fill('Preserved extra light');
+    const quality=inspector.getByRole('combobox',{name:locale==='de'?'Qualität':'Quality',exact:true});
+    await expect(quality.locator('option')).toHaveText(['low','medium']);await quality.selectOption('medium');
+    await inspector.getByRole('combobox',{name:locale==='de'?'Auflösung':'Resolution',exact:true}).selectOption('2k');
+    await expect(inspector.locator('.canvas-cost-note')).toHaveText(`${locale==='de'?'Geschätzte Credits':'Estimated credits'}: ${calculateAiImageCreditCost('xai/grok-imagine-image-2.0',{quality:'medium',resolution:'2k'}).credits}`);
+    const save=()=>inspector.getByRole('button',{name:locale==='de'?'In Assets speichern':'Save to Assets',exact:true});
+    await save().tap();await expect(inspector.getByRole('button',{name:locale==='de'?'In Assets gespeichert':'Saved to Assets',exact:true})).toBeDisabled();
+    await select(ids[1]);const resolution=inspector.getByRole('combobox',{name:locale==='de'?'Auflösung':'Resolution',exact:true});
+    await expect(resolution.locator('option')).toHaveText(['360p','540p','720p','1080p']);
+    const cost=await inspector.locator('.canvas-cost-note').textContent();await resolution.selectOption('1080p');await expect(inspector.locator('.canvas-cost-note')).not.toHaveText(cost);
+    await save().focus();await page.keyboard.press('Enter');await expect.poll(()=>saved.length).toBe(2);
+    await select(ids[2]);await save().tap();await expect.poll(()=>saved.length).toBe(3);
+    await expect.poll(()=>state.nodes[0].config.prompt).toBe('Preserved extra light');
+    await expect.poll(()=>state.nodes[1].config.quality).toBe('1080p');
+    await page.reload();await expect(page.locator('#canvasProjectTitle')).toHaveValue('Private Canvas outputs');await select(ids[0]);
+    await expect(save()).toHaveCount(0);await inspector.locator('.canvas-additional-prompt summary').tap();await expect(inspector.getByLabel(label,{exact:true})).toHaveValue('Preserved extra light');
+    expect(state.nodes[1].config.quality).toBe('1080p');expect(saved).toEqual(ids);
+    expect(state.requests.filter(r=>r.pathname.endsWith('/run'))).toHaveLength(0);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:testInfo.outputPath(`canvas-private-${locale}.png`)});
+  });
+});

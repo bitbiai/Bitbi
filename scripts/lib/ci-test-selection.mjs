@@ -87,9 +87,42 @@ const CANVAS_UI_FILES = new Set([
   "js/pages/canvas/full-video.js", "js/pages/canvas/workflow.js", "js/pages/canvas/video-frame.js", "js/pages/canvas/video-input.js",
 ]);
 
-// Closed Canvas text/provider integration scope. Unknown runtime/billing inputs
+// Closed Canvas generation/provider/storage integration scope. Unknown runtime/billing inputs
 // continue through ordinary impact selection; chat and native D1 are exercised.
 const CANVAS_TEXT_FILES = new Set([
+  'js/pages/canvas/api.js',
+  'js/pages/canvas/full-video.js',
+  'js/pages/canvas/workflow.js',
+  'js/pages/admin/ai-lab.js',
+  'js/pages/generate-lab/main.js',
+  'js/pages/generate-lab/model-registry.js',
+  'js/shared/ai-image-models.mjs',
+  'js/shared/ai-model-pricing.mjs',
+  'js/shared/grok-imagine-image-2-pricing.mjs',
+  'workers/ai/src/lib/invoke-ai.js',
+  'workers/auth/src/lib/admin-ai-image-credit-pricing.js',
+  'workers/auth/src/lib/admin-ai-video-sources.js',
+  'workers/auth/src/lib/ai-text-assets.js',
+  'workers/auth/src/lib/canvas-media-storage.js',
+  'workers/auth/src/lib/canvas-video-input.js',
+  'workers/auth/src/lib/canvas-video-output.js',
+  'workers/auth/src/lib/member-generation-jobs.js',
+  'workers/auth/src/lib/member-generation-storage.js',
+  'workers/auth/src/lib/r2-cleanup.js',
+  'workers/auth/src/routes/ai/assets-read.js',
+  'workers/auth/src/routes/ai/folders-read.js',
+  'workers/auth/src/routes/ai/images-write.js',
+  'workers/auth/src/routes/ai/lifecycle.js',
+  'workers/auth/migrations/0090_add_canvas_private_outputs.sql',
+  'workers/auth/src/app/route-policy.js',
+  'config/release-compat.json',
+  'workers/auth/src/routes/admin.js',
+  'tests/helpers/auth-worker-harness.js',
+  'tests/helpers/canvas-processing-control.mjs', 'tests/helpers/canvas-video-control.mjs',
+  'tests/q2-lifecycle.spec.js',
+  'tests/auth-admin.spec.js', 'tests/helpers/grok-image-controls.cjs',
+  'tests/smoke.spec.js',
+  'playwright.config.js',
   'js/pages/canvas/main.js', 'js/shared/canvas-model-contract.mjs', 'js/shared/help-menu.js',
   'js/shared/grok-text-contract.mjs', 'js/shared/admin-ai-contract.mjs',
   'workers/shared/grok-chat-contract.mjs', 'workers/shared/chat-model-contract.mjs',
@@ -440,8 +473,8 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       && changedFiles.every(f=>isDocumentation(f)||CANVAS_TEXT_FILES.has(f)||RELEASE_TOOLING_FILES.has(f))) {
     selection.canvasText = true;
     selection.workers = selection.auth = selection.static = selection.runtime = true;
-    selection.reasons.workers.push('Canvas text/provider routes, Grok/chat compatibility, billing and replay; native Canvas D1/ownership execution');
-    selection.reasons.auth.push('Both Canvas suites on tested build in Chromium/WebKit; persisted reasoning, inputs, output and save coordination');
+    selection.reasons.workers.push('Canvas and image provider routes, Grok/chat compatibility, billing and replay; storage lifecycle, native Canvas plus member-generation D1/R2 execution');
+    selection.reasons.auth.push('Both Canvas suites and tagged Admin/Generate Lab model controls on tested build in Chromium/WebKit; persisted inputs, estimates, output and explicit saving');
     selection.reasons.static.push('Exact candidate, release contracts, native frontend routing and security checks');
     return selection;
   }

@@ -79,6 +79,7 @@ const USER_DEPENDENCY_TABLE_STATE = {
   canvas_nodes: 'canvasNodes',
   canvas_edges: 'canvasEdges',
   canvas_runs: 'canvasRuns',
+  canvas_media_outputs: 'canvasMediaOutputs',
 };
 
 function countUserDependencyRows(state, query, bindings) {
@@ -1383,17 +1384,20 @@ class MockD1 {
     let query = originalQuery;
     // These correlated anti-joins consume no parameters. Keep the existing
     // folder/cursor parser, but apply the view's SQL semantics before LIMIT.
-    const unreadyTables = new Set();
+    const unreadyTables = new Set(), canvasTables = new Set();
+    this.state.canvasMediaOutputs ||= [];
     for (const table of ['ai_images', 'ai_text_assets']) {
+      const canvasPredicate = `NOT EXISTS(SELECT 1 FROM canvas_media_outputs canvas WHERE canvas.asset_id=${table}.id AND canvas.state<>'saved')`;
+      if(query.includes(canvasPredicate)) {canvasTables.add(table);query=query.replace(`WHERE ${canvasPredicate} AND `,'WHERE ').replace(` AND ${canvasPredicate}`,'');}
       const predicate = `NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=${table}.id)`;
       if (query.includes(predicate)) {
         unreadyTables.add(table);
         query = query.replace(`WHERE ${predicate} AND `, 'WHERE ').replace(` AND ${predicate}`, '');
       }
     }
-    const visibleGeneration = (row, table) => !unreadyTables.has(table) || !this.state.memberGenerationJobs.some(job =>
+    const visibleGeneration = (row, table) => (!canvasTables.has(table) || !this.state.canvasMediaOutputs.some(c=>c.asset_id===row.id&&c.state!=='saved')) && (!unreadyTables.has(table) || !this.state.memberGenerationJobs.some(job =>
       job.id === row.id && this.state.memberAiUsageAttempts.some(attempt => attempt.id === job.usage_attempt_id
-        && attempt.billing_status != null && attempt.billing_status !== 'finalized'));
+        && attempt.billing_status != null && attempt.billing_status !== 'finalized')));
 
     if (mode === 'run') {
       this.runCalls.push({
@@ -6147,7 +6151,7 @@ class MockD1 {
       const [userId] = bindings;
       const counts = new Map();
       for (const row of this.state.aiImages) {
-        if (row.user_id !== userId) continue;
+        if (row.user_id !== userId || !visibleGeneration(row, 'ai_images')) continue;
         const key = row.folder_id ?? null;
         counts.set(key, (counts.get(key) || 0) + 1);
       }
@@ -6235,7 +6239,7 @@ class MockD1 {
       const [userId] = bindings;
       const counts = new Map();
       for (const row of this.state.aiTextAssets) {
-        if (row.user_id !== userId) continue;
+        if (row.user_id !== userId || !visibleGeneration(row, 'ai_text_assets')) continue;
         const key = row.folder_id ?? null;
         counts.set(key, (counts.get(key) || 0) + 1);
       }
@@ -13660,6 +13664,39 @@ class MockD1 {
       return { success: true, meta: { changes: rows.length } };
     }
 
+    if(['SELECT * FROM ai_images WHERE id = ? AND user_id = ?', 'SELECT * FROM ai_text_assets WHERE id = ? AND user_id = ?'].includes(query)) {
+      const rows=query.includes('FROM ai_images')?this.state.aiImages:this.state.aiTextAssets;
+      return deepClone(rows.find(r=>r.id===bindings[0]&&r.user_id===bindings[1])||null);
+    }
+    if(query.startsWith('SELECT j.id,j.user_id,j.provider_receipts_json FROM member_generation_jobs')) {
+      const rows=this.state.memberGenerationJobs.filter(j=>j.status==='failed' && j.error_code==='generation_asset_removed'
+        && this.state.canvasMediaOutputs.some(c=>c.asset_id===j.id&&c.state==='deleted'&&c.role==='original')
+        && Object.values(JSON.parse(j.provider_receipts_json||'{}')).some(r=>r.kind==='download'));
+      return {results:deepClone(rows.slice(0,20))};
+    }
+    if(query.startsWith('INSERT OR IGNORE INTO canvas_media_outputs')) {
+      const [run_id,user_id,project_id,node_id,asset_id,kind,created_at]=bindings;
+      const exists=this.state.canvasMediaOutputs.some(row=>row.run_id===run_id);
+      if(!exists)this.state.canvasMediaOutputs.push({run_id,user_id,project_id,node_id,asset_id,kind,role:'original',created_at,state:'canvas',saved_at:null});
+      return {success:true,meta:{changes:exists?0:1}};
+    }
+    if(query.startsWith('SELECT') && query.includes('FROM canvas_media_reclaimable')) {
+      const rows=this.state.canvasMediaOutputs.filter(c=>c.state==='canvas' && (!query.includes('user_id=? AND') || c.user_id===bindings[0])
+        && (this.state.aiImages.some(a=>a.id===c.asset_id)||this.state.aiTextAssets.some(a=>a.id===c.asset_id))
+        && (this.state.canvasNodes.some(n=>n.id===c.node_id&&n.deleted_at) || this.state.canvasProjects.some(p=>p.id===c.project_id&&p.deleted_at))
+        && !this.state.canvasNodes.some(n=>n.asset_id===c.asset_id&&!n.deleted_at&&this.state.canvasProjects.some(p=>p.id===n.project_id&&!p.deleted_at))
+        && !this.state.canvasRuns.some(r=>r.id===c.run_id&&['queued','running'].includes(r.status))
+        && !this.state.aiImages.some(a=>a.id===c.asset_id&&['pending','processing'].includes(a.derivatives_status))
+        && !this.state.memberGenerationJobs.some(j=>j.id===c.asset_id&&['queued','processing','ingesting','preview_pending'].includes(j.status) && !(j.status==='preview_pending'&&j.error_code==='preview_retry_exhausted'&&j.locked_until==null))
+        && !this.state.canvasRuns.some(r=>r.id!==c.run_id&&JSON.parse(r.input_json||'{}').connected_asset_ids?.includes(c.asset_id)
+          && (['queued','running'].includes(r.status)||this.state.canvasNodes.some(n=>n.id===r.node_id&&!n.deleted_at&&this.state.canvasProjects.some(p=>p.id===n.project_id&&!p.deleted_at)))));
+      return {results:deepClone(rows.slice(0,20))};
+    }
+    if(query.startsWith('SELECT') && query.includes('FROM canvas_media_outputs')) {
+      const rows=this.state.canvasMediaOutputs.filter(row=>query.includes('WHERE run_id=?') ? row.run_id===bindings[0]&&row.user_id===bindings[1]
+        : row.user_id===bindings[0]&&bindings.slice(1).includes(row.asset_id)&&row.state!=='deleted');
+      return mode==='first' ? deepClone(rows[0]||null) : {results:deepClone(rows)};
+    }
     if (query.includes('FROM canvas_runs')) {
       let rows = this.state.canvasRuns.filter((row) => !row.deleted_at);
       if (query.includes('WHERE user_id = ? AND idempotency_key = ?')) {

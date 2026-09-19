@@ -1,3 +1,4 @@
+import { composeCanvasPrompt } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
 import { canvasVideoMethods, resolveCanvasVideoInput } from '../../shared/canvas-video-input.mjs?v=__ASSET_VERSION__';
 const GENERATION_CAPABILITY = Object.freeze({
     text_generation: 'text',
@@ -103,8 +104,8 @@ export function analyzeNodeInputs(target, nodes, edges, models, copy) {
         unresolved: sources.filter((item) => item.status === 'unresolved'),
         connectedPrompt,
         directPrompt,
-        effectivePrompt: directPrompt || connectedPrompt,
-        promptSource: directPrompt ? 'direct' : connectedPrompt ? 'connected' : 'none',
+        effectivePrompt: composeCanvasPrompt(target.type, directPrompt, connectedPrompt),
+        promptSource: target.type === 'image_generation' && directPrompt && connectedPrompt ? 'combined' : directPrompt ? 'direct' : connectedPrompt ? 'connected' : 'none',
     };
 }
 

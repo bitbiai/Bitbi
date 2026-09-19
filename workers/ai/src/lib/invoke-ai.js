@@ -504,6 +504,13 @@ async function toArrayBuffer(value) {
 }
 
 async function extractImageResponse(result, model) {
+  if (model.id === 'xai/grok-imagine-image-2.0') {
+    const value=result?.result?.image ?? result?.image;
+    if(typeof value!=='string')return null;
+    if(/^https:\/\//.test(value))return fetchRemoteImageCandidate(value);
+    const parsed=parseBase64Image(value);
+    return /^data:image\//.test(value) && parsed ? {imageBase64:parsed.base64,mimeType:parsed.mimeType} : null;
+  }
   const candidates = [];
   if (result && typeof result === "object" && !ArrayBuffer.isView(result) && !(result instanceof ArrayBuffer)) {
     if (result.result?.image != null) candidates.push(result.result.image);
@@ -2085,7 +2092,7 @@ export async function invokeImage(env, model, input) {
       reference_image_count: referenceImageCount,
       prompt_length: payload.prompt.length,
     });
-  } else if (model.inputFormat === "grok-imagine-image") {
+  } else if (["grok-imagine-image", "grok-imagine-image-2"].includes(model.inputFormat)) {
     const grokRequest = buildAdminAiGrokImagineImageRequest(model, input);
     payload = grokRequest.payload;
     appliedQuality = grokRequest.appliedQuality;

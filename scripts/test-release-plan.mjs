@@ -723,3 +723,16 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const commands=[];await activateAuthVersion({sha,mediaSourceSha:previousMedia,secretFile:'/private/fixture.json',assertCurrent:async()=>{},command:args=>{commands.push(args);return `Worker Version ID: ${id}`;}});
  assert(commands[0].includes(`PRIVATE_MEDIA_SOURCE_SHA:${previousMedia}`));assert(!commands[0].includes(`PRIVATE_MEDIA_SOURCE_SHA:${sha}`));
 }
+
+// The additive Canvas lifecycle uses the existing ordered backend continuation.
+{
+ const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');
+ const files=['workers/auth/migrations/0090_add_canvas_private_outputs.sql','config/release-compat.json','workers/auth/src/lib/canvas-media-storage.js','workers/auth/src/routes/canvas.js','workers/ai/src/lib/invoke-ai.js','js/shared/grok-imagine-image-2-pricing.mjs','js/pages/canvas/main.js'];
+ const plan=createReleasePlanFromRepo(repoRoot,{files});
+ assert(backendContinuationSupported(plan));
+ assert.deepEqual(plan.workerDeploys.map(w=>w.worker),['ai','auth']);
+ assert.equal(plan.schemaApplies[0].latestMigration,'0090_add_canvas_private_outputs.sql');
+ assert(!plan.workerDeploys.some(w=>w.worker==='media'));
+ assert(!backendContinuationSupported(createReleasePlanFromRepo(repoRoot,{files:[...files,'workers/ai/wrangler.jsonc']})));
+ console.log('Canvas private outputs: additive schema, existing AI → Auth continuation, unchanged media and unreviewed config denial passed.');
+}

@@ -764,6 +764,13 @@ function syncImageOptionState() {
         if (supported && control === refs.imageOutputFormat && Array.isArray(model.options?.outputFormat)) {
             setSelectOptions(control, model.options.outputFormat, control.value || model.defaults?.outputFormat, (value) => String(value).toUpperCase());
         }
+        if (supported && control === refs.imageQuality && Array.isArray(model.options?.quality)) {
+            const labels = document.documentElement.lang === 'de' ? {low:'Niedrig',medium:'Mittel',high:'Hoch',auto:'Auto'} : {low:'Low',medium:'Medium',high:'High',auto:'Auto'};
+            setSelectOptions(control, model.options.quality, modelChanged ? model.defaults.quality : control.value, value => labels[value] || value);
+        }
+        if (supported && control === refs.imageSize && Array.isArray(model.options?.size)) {
+            setSelectOptions(control, model.options.size, modelChanged ? model.defaults.size : control.value);
+        }
         control.disabled = state.busy || !supported;
         control.setAttribute('aria-disabled', control.disabled ? 'true' : 'false');
     }
@@ -1833,8 +1840,8 @@ async function generateImage(prompt) {
             prompt,
             quality: refs.imageQuality?.value || currentModel.defaults?.quality || 'medium',
             size: refs.imageSize?.value || currentModel.defaults?.size || '1024x1024',
-            outputFormat: refs.imageOutputFormat?.value || currentModel.defaults?.outputFormat || 'png',
-            background: refs.imageBackground?.value || currentModel.defaults?.background || 'auto',
+            ...(currentModel.controls?.supportsOutputFormat ? {outputFormat: refs.imageOutputFormat?.value || currentModel.defaults?.outputFormat || 'png'} : {}),
+            ...(currentModel.controls?.supportsBackground ? {background: refs.imageBackground?.value || currentModel.defaults?.background || 'auto'} : {}),
             referenceImages: selectedImageReferences(),
         }, {durable:true,onAccepted:()=>setMessage(localeText('generation.accepted'),'info')});
     } else if (isDimensionedProvider) {

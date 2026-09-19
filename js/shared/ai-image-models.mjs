@@ -1,3 +1,4 @@
+import { GROK_IMAGE_2 } from './grok-imagine-image-2-pricing.mjs';
 import {
     GPT_IMAGE_2_BACKGROUND_OPTIONS,
     GPT_IMAGE_2_MODEL_ID,
@@ -23,6 +24,10 @@ export const AI_IMAGE_MODELS = Object.freeze([
 ]);
 
 const GENERATE_LAB_ONLY_AI_IMAGE_MODELS = Object.freeze([
+    Object.freeze({...GROK_IMAGE_2,requestMode:'grok-imagine-image-2',proxied:true,
+        supportsSteps:false,supportsSeed:false,supportsDimensions:false,supportsReferenceImages:true,
+        supportsQuality:true,supportsSize:true,sizeOptions:GROK_IMAGE_2.resolutionOptions,defaultSize:GROK_IMAGE_2.defaultResolution,
+        defaultMimeType:'image/png'}),
     Object.freeze({
         id: '@cf/black-forest-labs/flux-2-klein-9b',
         label: 'FLUX.2 Klein 9B',

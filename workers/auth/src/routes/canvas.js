@@ -1,3 +1,5 @@
+import { canvasMediaStatements, canvasMediaEnvironment, saveCanvasMedia, annotateCanvasMedia, reclaimCanvasMedia } from '../lib/canvas-media-storage.js';
+import { composeCanvasPrompt } from '../../../../js/shared/canvas-model-contract.mjs';
 import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens } from "../../../../js/shared/grok-text-contract.mjs";
 import { canvasExport } from './canvas-video-processing.js';
 import { refreshCanvasVideoOutputs } from '../lib/canvas-video-output.js';
@@ -357,7 +359,11 @@ async function applyConnectedMediaInputs(env, userId, model, resolution, body) {
     if (image) body.image_input = image;
   }
   if (model.capability === "image" && model.controls?.supportsReferenceImages) {
-    const maxReferences = Math.max(1, Math.min(Number(model.controls.maxReferenceImages || 1), 4));
+    const maxReferences = Math.max(1, Math.min(Number(model.controls.maxReferenceImages || 1), model.id==='xai/grok-imagine-image-2.0'?5:4));
+    if(imageAssetIds.length>maxReferences)throw Object.assign(new Error(`At most ${maxReferences} reference images are supported.`),{status:400,code:'too_many_references'});
+    if(model.id==='xai/grok-imagine-image-2.0' && model.executionMode==='admin_org_image') {
+      body.source_images=imageAssetIds.map(asset_id=>({source_type:'saved_asset',asset_id}));return body;
+    }
     const references = [];
     for (const assetId of imageAssetIds.slice(0, maxReferences)) {
       const image = await loadOwnedImageDataUri(env, userId, assetId);
@@ -441,9 +447,9 @@ async function getProject(ctx, userId, projectId) {
     ok: true,
     data: {
       project: projectRecord(project),
-      nodes: (await refreshCanvasVideoOutputs(ctx.env,userId,nodes.results || [])).map(nodeRecord),
+      nodes: (await annotateCanvasMedia(ctx.env,userId,await refreshCanvasVideoOutputs(ctx.env,userId,nodes.results || []))).map(nodeRecord),
       edges: (edges.results || []).map(edgeRecord),
-      runs: (await refreshCanvasVideoOutputs(ctx.env,userId,await restoreCanvasVideoJobs(ctx.env, userId, runs.results || []))).map(runRecord),
+      runs: (await annotateCanvasMedia(ctx.env,userId,await refreshCanvasVideoOutputs(ctx.env,userId,await restoreCanvasVideoJobs(ctx.env, userId, runs.results || [])))).map(runRecord),
     },
   });
 }
@@ -482,6 +488,7 @@ async function deleteProject(ctx, userId, projectId) {
     ctx.env.DB.prepare("UPDATE canvas_edges SET deleted_at = ?, updated_at = ? WHERE project_id = ? AND user_id = ? AND deleted_at IS NULL").bind(now, now, projectId, userId),
     ctx.env.DB.prepare("UPDATE canvas_runs SET deleted_at = ?, updated_at = ? WHERE project_id = ? AND user_id = ? AND deleted_at IS NULL").bind(now, now, projectId, userId),
   ]);
+  await reclaimCanvasMedia(ctx.env,userId);
   return respond(ctx, { ok: true, data: { id: projectId, deleted: true, assets_deleted: false } });
 }
 
@@ -565,6 +572,7 @@ async function deleteNode(ctx, userId, projectId, nodeId) {
     ctx.env.DB.prepare("UPDATE canvas_edges SET deleted_at = ?, updated_at = ? WHERE project_id = ? AND user_id = ? AND deleted_at IS NULL AND (source_node_id = ? OR target_node_id = ?)").bind(now, now, projectId, userId, nodeId, nodeId),
     ctx.env.DB.prepare("UPDATE canvas_projects SET updated_at = ? WHERE id = ? AND user_id = ?").bind(now, projectId, userId),
   ]);
+  await reclaimCanvasMedia(ctx.env,userId);
   return respond(ctx, { ok: true, data: { id: nodeId, deleted: true, asset_deleted: false } });
 }
 
@@ -776,8 +784,8 @@ async function resolveCanvasNodeInputs(env, userId, projectId, node, model) {
     unresolved: sources.filter((source) => source.status === "unresolved"),
     directPrompt,
     connectedPrompt,
-    effectivePrompt: directPrompt || connectedPrompt,
-    promptSource: directPrompt ? "direct" : (connectedPrompt ? "connected" : "none"),
+    effectivePrompt: composeCanvasPrompt(node.type, directPrompt, connectedPrompt),
+    promptSource: node.type === 'image_generation' && directPrompt && connectedPrompt ? 'combined' : directPrompt ? "direct" : (connectedPrompt ? "connected" : "none"),
     imageReferences: compatible.filter((source) => source.inputKind === CANVAS_DATA_KINDS.IMAGE_REFERENCE),
     videoReferences: compatible.filter((source) => source.inputKind === CANVAS_DATA_KINDS.VIDEO_REFERENCE),
   };
@@ -825,7 +833,7 @@ function buildGenerationBody(node, model, resolution) {
   } else if (model.capability === "image") {
     const c = model.controls || {};
     const fields = { steps: c.supportsSteps, seed: c.supportsSeed, width: c.supportsDimensions, height: c.supportsDimensions,
-      quality: c.qualityOptions?.length, size: c.sizeOptions?.length, outputFormat: c.outputFormatOptions?.length,
+      quality: c.qualityOptions?.length, resolution:c.resolutionOptions?.length, aspectRatio:c.aspectRatioOptions?.length, size: c.sizeOptions?.length, outputFormat: c.outputFormatOptions?.length,
       background: c.backgroundOptions?.length, safetyTolerance: c.supportsSafetyTolerance };
     for (const [field, supported] of Object.entries(fields)) {
       if (supported && config[field] !== undefined && config[field] !== "") body[field] = config[field];
@@ -1027,7 +1035,7 @@ async function runNode(ctx, session, projectId, nodeId) {
       existing = recovered;
     }
   }
-  if (existing?.status === "completed") return respond(ctx, { ok: true, data: { run: runRecord(existing), idempotent_replay: true } });
+  if (existing?.status === "completed") return respond(ctx, { ok: true, data: { run: runRecord((await annotateCanvasMedia(ctx.env,userId,[existing]))[0]), idempotent_replay: true } });
   if (existing?.status === "failed" && !["canvas_image_save_pending", "canvas_video_pending"].includes(existing.error_code)) return respond(ctx, { ok: false, error: existing.error_message || "Canvas run failed.", code: existing.error_code || "canvas_run_failed", data: { run: runRecord(existing), idempotent_replay: true } }, { status: 409 });
   if (existing?.status === "queued" || existing?.status === "running") {
     return respond(ctx, {
@@ -1041,11 +1049,11 @@ async function runNode(ctx, session, projectId, nodeId) {
   const now = nowIso();
   if (!existing) {
     try {
-      await ctx.env.DB.prepare(
+      await ctx.env.DB.batch([ctx.env.DB.prepare(
         `INSERT INTO canvas_runs (id, project_id, node_id, user_id, model_id, operation_type, idempotency_key, status,
           input_json, output_json, asset_id, usage_attempt_id, error_code, error_message, created_at, updated_at, completed_at, deleted_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL, NULL)`
-      ).bind(runId, projectId, nodeId, userId, model.id, `canvas.${capability}.generate`, idempotencyKey, inputJson, now, now).run();
+      ).bind(runId, projectId, nodeId, userId, model.id, `canvas.${capability}.generate`, idempotencyKey, inputJson, now, now), ...canvasMediaStatements(ctx.env,{runId,userId,projectId,nodeId,kind:capability})]);
     } catch (error) {
       if (!String(error).includes("UNIQUE")) throw error;
       existing = await ctx.env.DB.prepare(
@@ -1056,7 +1064,7 @@ async function runNode(ctx, session, projectId, nodeId) {
       if (!existing || existing.input_json !== inputJson) {
         return respond(ctx, { ok: false, error: "Idempotency-Key conflicts with another Canvas run.", code: "idempotency_conflict" }, { status: 409 });
       }
-      if (existing.status === "completed") return respond(ctx, { ok: true, data: { run: runRecord(existing), idempotent_replay: true } });
+      if (existing.status === "completed") return respond(ctx, { ok: true, data: { run: runRecord((await annotateCanvasMedia(ctx.env,userId,[existing]))[0]), idempotent_replay: true } });
       runId = existing.id;
       return respond(ctx, {
         ok: false,
@@ -1066,6 +1074,7 @@ async function runNode(ctx, session, projectId, nodeId) {
       }, { status: 409 });
     }
   }
+  ctx = {...ctx, env:canvasMediaEnvironment(ctx.env,runId)};
   const claimed = await ctx.env.DB.prepare("UPDATE canvas_runs SET status = 'running', updated_at = ? WHERE id = ? AND user_id = ? AND (status = 'queued' OR (status = 'failed' AND error_code IN ('canvas_image_save_pending', 'canvas_video_pending')))").bind(nowIso(), runId, userId).run();
   if (claimed.meta?.changes !== 1) return respond(ctx, { ok: false, code: "canvas_run_in_progress", error: "This Canvas run is already in progress." }, { status: 409 });
 
@@ -1102,7 +1111,7 @@ async function runNode(ctx, session, projectId, nodeId) {
       if (!delegated.payload.data?.saveReference) throw Object.assign(new Error("Generated image has no storage reference. Do not generate again to retry saving."), { code: "image_save_reference_missing", status: 502 });
       savedResult = { ok: true, data: { saveReference: delegated.payload.data.saveReference, steps: delegated.payload.data.steps ?? null, seed: delegated.payload.data.seed ?? null }, billing: delegated.payload.billing || null, usageAttemptId: capturedUsageAttemptId };
       try {
-        const checkpoint = await ctx.env.DB.prepare("UPDATE canvas_runs SET output_json = ?, updated_at = ? WHERE id = ? AND user_id = ? AND status = 'running' AND deleted_at IS NULL").bind(JSON.stringify(savedResult), nowIso(), runId, userId).run();
+        const checkpoint = await ctx.env.DB.prepare("UPDATE canvas_runs SET output_json = ?, updated_at = ? WHERE id = ? AND user_id = ? AND status = 'running'").bind(JSON.stringify(savedResult), nowIso(), runId, userId).run();
         if (checkpoint.meta?.changes !== 1) throw new Error("Unconfirmed checkpoint");
         checkpointStored = true;
       } catch {
@@ -1126,13 +1135,15 @@ async function runNode(ctx, session, projectId, nodeId) {
       output.previewUrl = output.asset.preview_url || null;
       output.fileUrl = output.asset.file_url || null;
     }
+    const disposition=await ctx.env.DB.prepare("SELECT state FROM canvas_media_outputs WHERE run_id=? AND user_id=? AND role='original'").bind(runId,userId).first();
+    if(disposition) {output.storage=disposition.state==='saved'?'assets':'canvas';output.runId=runId;}
     const outputState = normalizeJsonObject(output, { field: "output", maxBytes: MAX_OUTPUT_JSON_BYTES });
     const assetId = imageAsset?.id || output.asset?.id || null;
     await ctx.env.DB.batch([
       ctx.env.DB.prepare(
         `UPDATE canvas_runs SET status = 'completed', output_json = ?, asset_id = ?, usage_attempt_id = ?, error_code = NULL,
                 error_message = NULL, updated_at = ?, completed_at = ?
-         WHERE id = ? AND project_id = ? AND node_id = ? AND user_id = ? AND deleted_at IS NULL`
+         WHERE id = ? AND project_id = ? AND node_id = ? AND user_id = ?`
       ).bind(outputState.encoded, assetId, capturedUsageAttemptId, completedAt, completedAt, runId, projectId, nodeId, userId),
       ctx.env.DB.prepare(
         `UPDATE canvas_nodes SET output_json = ?, asset_id = ?, updated_at = ?
@@ -1140,6 +1151,7 @@ async function runNode(ctx, session, projectId, nodeId) {
       ).bind(outputState.encoded, assetId, completedAt, nodeId, projectId, userId),
       ctx.env.DB.prepare("UPDATE canvas_projects SET thumbnail_asset_id = COALESCE(thumbnail_asset_id, ?), updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL").bind(assetId, completedAt, projectId, userId),
     ]);
+    await reclaimCanvasMedia(ctx.env,userId);
     return respond(ctx, { ok: true, data: { run: runRecord({ id: runId, project_id: projectId, node_id: nodeId, model_id: model.id, operation_type: `canvas.${capability}.generate`, status: "completed", input_json: inputJson, output_json: outputState.encoded, asset_id: assetId, error_code: null, error_message: null, created_at: existing?.created_at || now, updated_at: completedAt, completed_at: completedAt }), idempotent_replay: false } });
   } catch (error) {
     const failedAt = nowIso();
@@ -1148,7 +1160,7 @@ async function runNode(ctx, session, projectId, nodeId) {
     const message = error.code === "canvas_video_pending" ? error.message : saveUnavailable ? "Generated image reference is no longer available. Automatic regeneration is prohibited; operator recovery is required." : checkpointStored ? "Image generation completed; saving is pending. Retry saving without another generation." : error.code ? String(error.message || "Canvas run failed.").slice(0, 300) : "Canvas run failed.";
     await ctx.env.DB.prepare(
       `UPDATE canvas_runs SET status = 'failed', usage_attempt_id = ?, error_code = ?, error_message = ?, updated_at = ?, completed_at = ?
-       WHERE id = ? AND project_id = ? AND node_id = ? AND user_id = ? AND status = 'running' AND deleted_at IS NULL`
+       WHERE id = ? AND project_id = ? AND node_id = ? AND user_id = ? AND status = 'running'`
     ).bind(capturedUsageAttemptId, code, message, failedAt, failedAt, runId, projectId, nodeId, userId).run();
     return respond(ctx, { ok: false, error: message, code, data: { run_id: runId, ...(videoJobId ? { video_job_id: videoJobId } : {}), run: runRecord({
       id: runId, project_id: projectId, node_id: nodeId, model_id: model.id, operation_type: `canvas.${capability}.generate`,
@@ -1173,7 +1185,7 @@ async function listRuns(ctx, userId, projectId, nodeId = null) {
   const rows = nodeId
     ? await ctx.env.DB.prepare(query).bind(projectId, nodeId, userId, RUN_LIMIT).all()
     : await ctx.env.DB.prepare(query).bind(projectId, userId, RUN_LIMIT).all();
-  return respond(ctx, { ok: true, data: { runs: (await refreshCanvasVideoOutputs(ctx.env,userId,await restoreCanvasVideoJobs(ctx.env, userId, rows.results || []))).map(runRecord), applied_limit: RUN_LIMIT } });
+  return respond(ctx, { ok: true, data: { runs: (await annotateCanvasMedia(ctx.env,userId,await refreshCanvasVideoOutputs(ctx.env,userId,await restoreCanvasVideoJobs(ctx.env, userId, rows.results || [])))).map(runRecord), applied_limit: RUN_LIMIT } });
 }
 
 async function setAssetReference(ctx, userId, projectId, nodeId) {
@@ -1224,6 +1236,12 @@ export async function handleCanvas(ctx) {
     if (projectMatch && method === "GET") return await getProject(ctx, userId, projectMatch[1]);
     // route-policy: account.canvas.project.update
     if (projectMatch && method === "PATCH") return await updateProject(ctx, userId, projectMatch[1]);
+    const saveMatch=pathname.match(/^\/api\/account\/canvas\/projects\/([^/]+)\/runs\/([^/]+)\/save-asset$/);
+    // route-policy: account.canvas.output.save
+    if(saveMatch && method==='POST') {
+      const limited=await enforceWriteLimit(ctx,userId); if(limited)return limited;
+      return respond(ctx,{ok:true,data:await saveCanvasMedia(ctx.env,userId,saveMatch[1],saveMatch[2])});
+    }
     // route-policy: account.canvas.project.delete
     if (projectMatch && method === "DELETE") return await deleteProject(ctx, userId, projectMatch[1]);
 

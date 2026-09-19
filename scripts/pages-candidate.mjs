@@ -230,7 +230,7 @@ export function verifyAdminReport(report, discovery, scopes = [
 }
 
 export function verifyCanvasTextReport(report,discovery) {
-  verifyAdminReport(report,discovery,[['canvas',['canvas.spec.js','oma2-q1-canvas.spec.js']]],engine=>engine==='chromium'?'chromium':'webkit-canvas');
+  verifyAdminReport(report,discovery,[['canvas',['canvas.spec.js','oma2-q1-canvas.spec.js','auth-admin.spec.js','smoke.spec.js']]],engine=>engine==='chromium'?'chromium':'webkit-canvas');
 }
 
 export function verifyModelStatusReport(report, discovery) {

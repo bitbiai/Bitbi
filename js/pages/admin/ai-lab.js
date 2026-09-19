@@ -1,3 +1,4 @@
+import { GROK_IMAGE_2 } from '../../shared/grok-imagine-image-2-pricing.mjs?v=__ASSET_VERSION__';
 import {
     apiAiGetFolders,
     apiAiSaveAudio,
@@ -1876,7 +1877,7 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function isGrokImagineImageSelected() {
-        return getSelectedImageModelIdForBilling() === ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID;
+        return [ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,GROK_IMAGE_2.id].includes(getSelectedImageModelIdForBilling());
     }
 
     function normalizeImageSourceRole(value) {
@@ -1914,7 +1915,7 @@ export function createAdminAiLab({ showToast } = {}) {
         } else {
             const existing = getAdditionalImageSources();
             if (!existing.some((source) => source.source_type === normalized.source_type && source.asset_id === normalized.asset_id)) {
-                state.forms.image.sourceImages = existing.concat(normalized).slice(0, 10);
+                state.forms.image.sourceImages = existing.concat(normalized).slice(0, getSelectedImageModelCapabilities().maxReferenceImages || 10);
             } else {
                 state.forms.image.sourceImages = existing;
             }
@@ -3366,9 +3367,9 @@ export function createAdminAiLab({ showToast } = {}) {
         const modelId = getSelectedImageModelIdForBilling();
         const caps = getSelectedImageModelCapabilities();
         try {
-            const params = modelId === ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID
+            const params = [ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,GROK_IMAGE_2.id].includes(modelId)
                 ? {
-                    n: Number(state.forms.image.outputCount) || 1,
+                    ...(modelId === GROK_IMAGE_2.id ? {} : {n: Number(state.forms.image.outputCount) || 1}),
                     aspect_ratio: state.forms.image.aspectRatio,
                     quality: state.forms.image.quality,
                     resolution: state.forms.image.resolution,
@@ -6217,7 +6218,7 @@ export function createAdminAiLab({ showToast } = {}) {
                 quality: state.forms.image.quality || caps.defaultQuality || 'medium',
                 resolution: state.forms.image.resolution || caps.defaultResolution || '1k',
                 response_format: state.forms.image.responseFormat || caps.defaultResponseFormat || 'b64_json',
-                n: Number(state.forms.image.outputCount) || caps.defaultOutputCount || 1,
+                ...(caps.supportsOutputCount ? {n: Number(state.forms.image.outputCount) || caps.defaultOutputCount || 1} : {}),
             };
             if (state.forms.image.user) payload.user = state.forms.image.user;
             const primary = normalizeImageSourceCandidate(state.forms.image.sourceImage);

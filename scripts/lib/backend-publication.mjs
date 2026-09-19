@@ -179,7 +179,7 @@ export async function publishBackend() {
   const pending=fs.readdirSync('workers/auth/migrations').filter(f=>f.endsWith('.sql')&&!applied.has(f));
   // This authority covers the reviewed additive Canvas migration only. Future
   // schema changes need their own reviewed release support.
-  assert(pending.every(f=>['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql'].includes(f)),'Unexpected pending migrations');
+  assert(pending.every(f=>['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql'].includes(f)),'Unexpected pending migrations');
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-backend-secret-'));
   const mediaSourceSha=mediaRequired?c.sha:before.version.resources.bindings.find(b=>b.name==='PRIVATE_MEDIA_SOURCE_SHA')?.text;
   assert(/^[a-f0-9]{40}$/.test(mediaSourceSha||''),'Missing existing media source identity');

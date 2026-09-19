@@ -60,6 +60,7 @@ export const canvasApi = Object.freeze({
             storageUsage: result.data?.storageUsage || null,
         };
     },
+    saveOutput: (projectId,runId) => request(`/projects/${id(projectId)}/runs/${id(runId)}/save-asset`, {method:'POST',body:{}}),
     fullVideo: (projectId, runId, create, signal) => request(`/projects/${id(projectId)}/runs/${id(runId)}/full-video`, { method: create ? 'POST' : 'GET', ...(create ? {body:{}} : {}), signal }),
     retryPoster: (assetId, signal) => requestUrl(`/api/ai/generation-jobs/${id(assetId)}/retry-preview`, {method:'POST',body:{},signal}),
     getGenerationJob: (jobId, signal) => requestUrl(`/api/ai/generation-jobs/${id(jobId)}`, { signal }),

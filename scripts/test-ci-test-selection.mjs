@@ -636,9 +636,10 @@ for(const [file,key] of [['js/pages/index/latest-models-video-module.js','homepa
 // This specific contract is consumed by Canvas + Auth, not decorative media.
 for (const files of [['js/shared/canvas-model-contract.mjs'], ['js/shared/canvas-model-contract.mjs', 'js/pages/canvas/main.js', 'workers/auth/src/routes/canvas.js', 'workers/ai/src/lib/invoke-ai.js', 'scripts/lib/ci-test-selection.mjs', 'scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs']]) {
  const result = selection(files);
- for (const key of ['homepage', 'auth', 'workers', 'static']) assert.equal(result[key], true, key);
+ for (const key of ['auth', 'workers', 'static']) assert.equal(result[key], true, key);
+ assert.equal(result.homepage, files.length===1);
  for (const key of ['homepageMedia', 'carousel', 'full']) assert.equal(result[key], false, key);
- assert(requiredJobs(result)['browser-validation'].includes('Run selected homepage core tests'));
+ assert(requiredJobs(result)['browser-validation'].includes(files.length===1?'Run selected homepage core tests':'Run selected auth and admin tests'));
 }
 assert(selection(['js/shared/canvas-model-contract.mjs', 'js/pages/index/latest-models-video-module.js']).homepageMedia);
 assert(selection(['js/shared/canvas-model-contract.mjs', 'unknown-runtime.mjs']).full);
@@ -689,11 +690,17 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
   const files=['js/shared/grok-text-contract.mjs','js/shared/admin-ai-contract.mjs','workers/shared/grok-chat-contract.mjs','workers/shared/chat-model-contract.mjs','workers/ai/src/routes/text.js','workers/ai/src/lib/grok-chat.js','workers/auth/src/routes/canvas.js','workers/auth/src/routes/ai/text-generate.js','workers/auth/src/routes/admin-ai.js','js/pages/canvas/main.js','js/shared/canvas-model-contract.mjs','tests/workers.spec.js','tests/grok-chat-workers.spec.js','tests/canvas.spec.js','tests/helpers/q2-runtime/canvas.mjs','tests/helpers/q2-runtime/environment.mjs','.github/workflows/static.yml','scripts/lib/backend-publication.mjs'];
   const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);
   for(const key of ['full','homepage','homepageMedia','carousel','assets'])assert.equal(result[key],false);
-  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/member-credit-ledger.js','workers/ai/src/lib/invoke-ai.js','js/shared/auth.js','unknown-runtime.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
+  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/member-credit-ledger.js','workers/ai/src/index.js','js/shared/auth.js','unknown-runtime.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
   assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
   const purposes=['js/pages/canvas/main.js','js/shared/canvas-model-contract.mjs','js/shared/help-menu.js','workers/auth/src/routes/canvas.js','tests/canvas.spec.js','tests/workers.spec.js','tests/helpers/q2-runtime/canvas.mjs','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs'];
   assert.equal(selection(purposes).canvasText,true);
   assert.equal(selection(purposes).homepageMedia,false);
   assert.notEqual(selection(['js/shared/help-menu.js']).canvasText,true);
   assert.notEqual(selection([...purposes,'js/shared/auth.js']).canvasText,true);
+}
+
+{
+ const files=['js/pages/canvas/main.js','js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','js/shared/grok-imagine-image-2-pricing.mjs','workers/ai/src/lib/invoke-ai.js','workers/auth/src/lib/canvas-media-storage.js','workers/auth/migrations/0090_add_canvas_private_outputs.sql','tests/helpers/canvas-processing-control.mjs','tests/q2-lifecycle.spec.js','tests/auth-admin.spec.js','tests/smoke.spec.js','playwright.config.js'];
+ const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);assert.equal(result.homepageMedia,false);assert.equal(result.full,false);
+ for(const extra of ['workers/auth/src/lib/session.js','workers/auth/migrations/0091_unknown.sql','workers/auth/src/lib/billing.js','unknown.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
 }

@@ -1,6 +1,6 @@
 import { resolveCanvasVideoInput } from '../../../../js/shared/canvas-video-input.mjs';
 import { getCanvasModelForRole } from '../../../../js/shared/canvas-model-contract.mjs';
-import { sha256Hex } from './tokens.js';
+import { sha256Hex, nowIso } from './tokens.js';
 import { handleSaveImage } from '../routes/ai/images-write.js';
 
 const fail = (code, message, status = 409) => { throw Object.assign(new Error(message), { code, status }); };
@@ -43,6 +43,12 @@ export async function prepareCanvasVideoEdge(ctx, user, edge, proposed, imageDat
   if (imageData !== undefined) {
     if (selected.method !== 'last_frame') fail('video_method_invalid', 'A frame belongs only to the start-image method.');
     const imageId = (await sha256Hex(`canvas-frame:${user.id}:${edge.project_id}:${edge.id}:${owned.version}:${value.runId}`)).slice(0, 32);
+    // Register only a newly created derivative; existing historical frames keep
+    // their original asset lifetime. Registration precedes the private save.
+    await ctx.env.DB.prepare(`INSERT OR IGNORE INTO canvas_media_outputs
+      (run_id,user_id,project_id,node_id,asset_id,kind,role,created_at)
+      SELECT (SELECT id FROM canvas_runs WHERE id=? AND user_id=?),?,?,?,?,'image','frame',? WHERE NOT EXISTS(SELECT 1 FROM ai_images WHERE id=?)`)
+      .bind(value.runId,user.id,user.id,edge.project_id,source.id,imageId,nowIso(),imageId).run();
     const request = new Request(new URL('/api/ai/images/save', ctx.request.url), {
       method: 'POST', headers: ctx.request.headers,
       body: JSON.stringify({ imageData, prompt: 'Canvas video last frame', title: 'Canvas video last frame' }),

@@ -164,6 +164,20 @@ export async function canvasVideoCase(base, name, fixture) {
     check(requests.filter(r=>r.model).length===1,'Poster never generates again');
     check((await db.prepare("SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'").bind(owner).first()).n===1,'Poster never debits again');
   }
+  if(name==='first') {
+    const before=await db.prepare('SELECT r2_key,poster_r2_key FROM ai_text_assets WHERE id=?').bind(job.id).first();
+    const receipts=JSON.parse((await db.prepare('SELECT provider_receipts_json FROM member_generation_jobs WHERE id=?').bind(job.id).first()).provider_receipts_json);
+    const downloads=Object.values(receipts).filter(r=>r.kind==='download');check(downloads.length>0,'Actual ingestion cache exists');
+    await db.prepare("UPDATE member_generation_jobs SET status='preview_pending',error_code='preview_retry_exhausted',locked_until=? WHERE id=?").bind(new Date(Date.now()+60000).toISOString(),job.id).run();
+    check((await request(projectPath,'DELETE')).status===200,'Delete completed unsaved Canvas video');
+    check(await env.USER_IMAGES.head(before.r2_key),'A live preview lease fences deletion even with an exhausted error');
+    await db.prepare('UPDATE member_generation_jobs SET locked_until=NULL WHERE id=?').bind(job.id).run();
+    const {reclaimCanvasMedia}=await import('../../workers/auth/src/lib/canvas-media-storage.js');await reclaimCanvasMedia(env,owner);
+    check(!await env.USER_IMAGES.head(before.r2_key) && !await env.USER_IMAGES.head(before.poster_r2_key),'Original and thumbnail reclaimed');
+    for(const receipt of downloads)check(!await env.USER_IMAGES.head(receipt.key),'Ingestion duplicate bytes reclaimed');
+    await deliver();check(!await db.prepare('SELECT id FROM ai_text_assets WHERE id=?').bind(job.id).first(),'Late queue never resurrects deleted output');
+    check((await db.prepare("SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'").bind(owner).first()).n===1,'Cleanup never charges again');
+  }
   await Promise.allSettled(waits);
   return {name,requests:requests.map(({body,...item})=>({...item,operation:body?.model||null})),status:finalJob.status,debits:debits.n};
 }

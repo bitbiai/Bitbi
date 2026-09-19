@@ -1193,7 +1193,7 @@ async function readClipboardValue(page) {
 }
 
 async function mockAdminAiLab(page, captures = {}) {
-  const catalog = createMockAiCatalog();
+  const catalog = captures.catalog || createMockAiCatalog();
   const textTestRequests = captures.textTestRequests || [];
   const saveTextAssetRequests = captures.saveTextAssetRequests || [];
   const saveImageRequests = captures.saveImageRequests || [];
@@ -21323,6 +21323,8 @@ test.describe('AI Lab Image capability controls', () => {
     await expect(page.locator('#aiImageGptCostHint')).toContainText('Estimated credits: 200');
     await expect(page.locator('#aiImageGptCostHint')).toContainText('Auto settings are charged at the safe upper-bound credit price.');
   });
+
+  test('@canvas-model-ui Grok Imagine Image 2.0 controls and private references', ({page}) => require('./helpers/grok-image-controls.cjs').image2Controls({page,expect,mockAdminAiLab,clickAiLabMode}));
 
   test('shows Grok Imagine Image controls and submits internal image source references', async ({ page }) => {
     const imageTestRequests = [];

@@ -432,6 +432,7 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { noneReason: "The edge soft-delete timestamp is the durable deletion record." },
   }),
   safeRead("account.canvas.full-video.read", "GET", "/api/account/canvas/projects/:projectId/runs/:runId/full-video", "canvas", {auth: "user", sensitivity: "high"}),
+  userJsonWrite("account.canvas.output.save", "POST", "/api/account/canvas/projects/:projectId/runs/:runId/save-asset", "canvas", "smallJson", "canvas-write-user", {notes:"Owner-only promotion of existing private Canvas output; no inference or debit."}),
   userJsonWrite("account.canvas.full-video.create", "POST", "/api/account/canvas/projects/:projectId/runs/:runId/full-video", "canvas", "smallJson", "canvas-write-user", {notes: "Owner-only immutable original chain; postprocessing without inference or debit."}),
   userJsonWrite("account.canvas.node.run", "POST", "/api/account/canvas/projects/:projectId/nodes/:nodeId/run", "canvas", "smallJson", "canvas-run-user", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "USER_IMAGES"],
