@@ -99,8 +99,13 @@ static upload. Final guards require independent active-version/D1 readback.
 The environment `cloudflare-static-production` needs a separate backend token
 (`CF_BACKEND_DEPLOY_TOKEN`) for account Workers Scripts, D1 and Containers writes
 and matching reads (including registry/application/version readback). Existing
-Auth route verification also needs read access to the bitbi.ai zone/routes; no
-new route or DNS authority is requested. Wrangler refuses conflicting routes. These
+Auth route verification also needs read access to the existing script routes; no
+new route or DNS authority is requested. Unchanged routes, cron schedules, queue
+consumers and disabled preview/subdomain exposure are read back before and after
+publication. Auth uses pinned Wrangler `versions upload --keep-vars` (with the
+existing additive secrets file), then `versions deploy <id>@100% --yes`. Unlike
+`wrangler deploy`, this does not rewrite unchanged triggers. Any trigger mismatch
+blocks; it is not repaired by granting wider credentials. These
 account permissions are **not** restricted to a single Worker by its name.
 No DNS, AI inference, R2/KV management, billing-plan or zone write is requested.
 Do not broaden the frontend token or copy local OAuth into CI. Preserve owner
@@ -120,6 +125,12 @@ restriction from a name. Keep zone/Workers Routes reads limited to bitbi.ai.
 Existing unchanged routes need no additional route-write grant. Actual access
 must still be verified by the protected job; these requirements are not a claim
 that the missing CI credential or paid Containers access has been provisioned.
+
+A partial attempt skips an already active source only after independent trigger
+and bundle-byte checks. Media also verifies the exact CI archive, sole active
+Worker and eventual application image before continuing. Redacted command failure
+classification/API codes are retained as `backend-diagnostics-…`, including failed
+attempts; raw Wrangler logs/binding tables and secrets are never uploaded.
 
 The existing private GitHub processor secret derives a domain-separated
 Cloudflare processor credential inside the protected job. Wrangler applies it

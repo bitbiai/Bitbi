@@ -14,7 +14,59 @@ import {api} from '../pages-candidate.mjs';
 const worker='bitbi-auth';
 const backendEnv=()=>({...process.env,CLOUDFLARE_API_TOKEN:process.env.CF_BACKEND_DEPLOY_TOKEN||process.env.CLOUDFLARE_API_TOKEN});
 const readBackend=endpoint=>cloudflareRead(endpoint,backendEnv());
-const run=(args)=>{try{return execFileSync(process.execPath,['node_modules/wrangler/bin/wrangler.js',...args],{cwd:'workers/auth',env:{...process.env,WRANGLER_SEND_METRICS:'false'},encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:240000});}catch(error){throw new Error(`Backend command failed (${error.status??'unavailable'}); ${args[0]}. No frontend continuation.`);}};
+// Do not emit Wrangler's binding table or arbitrary API response bodies.
+// Preserve actionable, allowlisted diagnostics even when the command fails.
+export function backendDiagnostic(error,args) {
+  const text=[error.stdout,error.stderr].map(v=>String(v||'')).join('\n').replace(/\u001b\[[0-9;]*m/g,'');
+  return {command:args.slice(0,args[0]==='versions'?2:1),exit:Number.isInteger(error.status)?error.status:null,
+    signal:error.signal||null,code:/^[A-Z_]+$/.test(error.code||'')?error.code:null,
+    apiCodes:[...new Set([...text.matchAll(/\[code:\s*(\d+)\]/g)].map(m=>Number(m[1])))],
+    categories:['Routes','Custom domains','Cron schedules','Queue consumers','Other triggers'].filter(s=>text.includes(`${s}:`)),
+    authenticationFailure:/Authentication error|Unable to authenticate|not authorized|permission denied/i.test(text),
+    zoneNotFound:/Could not find zone/.test(text),partialTriggers:/only partially updated/.test(text),
+    networkFailure:/fetch failed|ECONNRESET|ETIMEDOUT/.test(text)};
+}
+export function backendCommand(args,execute=execFileSync,record=d=>{
+  fs.mkdirSync('test-results',{recursive:true});fs.appendFileSync('test-results/backend-diagnostics.jsonl',JSON.stringify(d)+'\n');
+  console.error(JSON.stringify({backendCommandFailure:d}));
+}) {
+  try{return execute(process.execPath,['node_modules/wrangler/bin/wrangler.js',...args],{cwd:'workers/auth',env:{...process.env,WRANGLER_SEND_METRICS:'false'},encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:240000});}
+  catch(error){record(backendDiagnostic(error,args));throw Error(`Backend command failed (${error.status??'unavailable'}); ${args[0]}. See redacted backend diagnostics. No frontend continuation.`);}
+}
+const run=backendCommand;
+export async function verifyAuthTriggers(config,read=readBackend) {
+  const prefix=`workers/scripts/${worker}`;
+  const routes=await read(`${prefix}/routes`);
+  assert.deepEqual(routes.map(r=>r.pattern).sort(),config.routes.map(r=>r.pattern).sort(),'Auth routes differ from reviewed config');
+  assert(routes.every(r=>r.script===worker),'Auth route targets another Worker');
+  const schedules=await read(`${prefix}/schedules`);
+  assert.deepEqual(schedules.schedules.map(s=>s.cron).sort(),[...config.triggers.crons].sort(),'Auth cron configuration incomplete');
+  const subdomain=await read(`${prefix}/subdomain`);
+  assert.equal(subdomain.enabled,false,'Unexpected Auth workers.dev exposure');assert.equal(subdomain.previews_enabled,false,'Unexpected Auth preview exposure');
+  for(const expected of config.queues.consumers) {
+    const matches=(await read(`queues?name=${encodeURIComponent(expected.queue)}`)).filter(q=>q.queue_name===expected.queue);
+    assert.equal(matches.length,1,'Missing/ambiguous Auth queue');const queue=matches[0];
+    assert.equal(queue.settings.delivery_paused,false,`Paused queue: ${expected.queue}`);
+    assert.equal(queue.consumers.length,1,`Unexpected consumers: ${expected.queue}`);
+    const consumer=queue.consumers[0];assert.equal(consumer.type,'worker');assert.equal(consumer.script,worker);
+    for(const [key,value] of Object.entries({batch_size:expected.max_batch_size,max_retries:expected.max_retries,max_wait_time_ms:expected.max_batch_timeout*1000,retry_delay:expected.retry_delay??0}))assert.equal(consumer.settings[key],value,`Queue setting mismatch: ${expected.queue}/${key}`);
+    assert.equal(consumer.settings.max_concurrency,expected.max_concurrency);assert.equal(consumer.dead_letter_queue,expected.dead_letter_queue);
+  }
+}
+export async function activateAuthVersion({sha,secretFile,assertCurrent,command=run}) {
+  // Routes, crons and consumers are unchanged and independently checked. A
+  // version publication must not rewrite them or require new zone-write rights.
+  const output=command(['versions','upload','--keep-vars','--secrets-file',secretFile,'--var',`PRIVATE_MEDIA_SOURCE_SHA:${sha}`,'--message',`bitbi-auth:${sha}`]);
+  const id=output.match(/Worker Version ID:\s*([a-f0-9-]{36})\b/)?.[1];assert(id,'Missing uploaded Auth version identity');
+  await assertCurrent();command(['versions','deploy',`${id}@100%`,'--yes','--message',`bitbi-auth:${sha}`]);return id;
+}
+export async function verifyAuthBundle(digest,read=()=>fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${worker}/content/v2`,{headers:{Authorization:`Bearer ${backendEnv().CLOUDFLARE_API_TOKEN}`},signal:AbortSignal.timeout(20000)})) {
+  assert(/^[a-f0-9]{64}$/.test(digest||''),'Missing Auth bundle identity');
+  const response=await read();assert(response.ok,`Auth bundle read failed (${response.status})`);
+  const modules=await response.formData();assert.deepEqual([...modules.keys()],['index.js'],'Unexpected Auth modules');
+  const module=modules.get('index.js');assert(module&&typeof module!=='string'&&module.size<=10*1024*1024,'Invalid Auth module');
+  assert.equal(createHash('sha256').update(Buffer.from(await module.arrayBuffer())).digest('hex'),digest,'Active Auth bytes differ from candidate build');
+}
 export function verifyBackendActivation(receipt,{sha,base,runId,attempt,version,deployment,migration,processorSha}) {
   assert.equal(receipt.sha,sha);assert.equal(receipt.base,base);assert.equal(receipt.run,runId);assert.equal(receipt.attempt,attempt);
   assert.equal(receipt.worker,worker);assert.equal(receipt.migration,migration);assert.equal(processorSha,sha);
@@ -53,6 +105,8 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
   assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Required schema not active');
   prerequisites(c.plan,state.version,c.config);
+  await verifyAuthTriggers(c.config);
+  await verifyAuthBundle(receipt.authBundleDigest);
   if(requiresPrivateMediaImage(c.plan.changedFiles)) {
     verifyMediaEvidence(receipt,{sha:c.sha,run:process.env.CANDIDATE_RUN,attempt:process.env.CANDIDATE_ATTEMPT,lifecycle:selectCiTests(c.plan.changedFiles).mediaLifecycle===true});
     await mediaActive(receipt.media,backendEnv());
@@ -63,16 +117,18 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   const processor=await api(`contents/services/homepage-ffmpeg-processor/processor.mjs?ref=${c.sha}`);assert.equal(processor.sha,execFileSync('git',['rev-parse',`${c.sha}:services/homepage-ffmpeg-processor/processor.mjs`],{encoding:'utf8'}).trim());
   verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});return receipt;
 }
-export async function advanceBackend({sha,pending,activeVersion,assertCurrent,applyMigration,assertSchema,deploy,readActive,prepareMedia,verifyMedia}) {
+export async function advanceBackend({sha,pending,activeVersion,assertCurrent,applyMigration,assertSchema,deploy,readActive,prepareMedia,verifyMedia,verifyConfiguration}) {
   await assertCurrent();
+  if(verifyConfiguration)await verifyConfiguration();
   if(pending.length)await applyMigration();
   await assertSchema();await assertCurrent();
   if(prepareMedia){await prepareMedia();await assertCurrent();}
   if(activeVersion.annotations?.['workers/message']!==`bitbi-auth:${sha}`)await deploy();
-  const state=await readActive();if(verifyMedia)await verifyMedia();return state;
+  const state=await readActive();if(verifyConfiguration)await verifyConfiguration();if(verifyMedia)await verifyMedia();return state;
 }
 
 export async function publishBackend() {
+  fs.mkdirSync('test-results',{recursive:true});fs.rmSync('test-results/backend-diagnostics.jsonl',{force:true});
   const c=context();await verifyUploadSource();await current(c.sha);
   const mediaRequired=requiresPrivateMediaImage(c.plan.changedFiles);
   const beforeConfig=JSON.parse(execFileSync('git',['show',`${c.base}:workers/auth/wrangler.jsonc`],{encoding:'utf8'}));
@@ -93,19 +149,23 @@ export async function publishBackend() {
   try {
     const secret=createHash('sha256').update(`bitbi-private-media-v1:${process.env.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET}`).digest('hex');
     const secretFile=path.join(temporary,'secrets.json');fs.writeFileSync(secretFile,JSON.stringify({PRIVATE_MEDIA_PROCESSOR_SECRET:secret}),{mode:0o600});
+    const bundleDirectory=path.join(temporary,'auth-bundle');
+    run(['versions','upload','--dry-run','--keep-vars','--outdir',bundleDirectory]);
+    c.authBundleDigest=createHash('sha256').update(fs.readFileSync(path.join(bundleDirectory,'index.js'))).digest('hex');
     state=await advanceBackend({sha:c.sha,pending,activeVersion:before.version,
       assertCurrent:()=>current(c.sha),
+      verifyConfiguration:async()=>{await verifyAuthTriggers(c.config);if(before.version.annotations?.['workers/message']===`bitbi-auth:${c.sha}`)await verifyAuthBundle(c.authBundleDigest);},
       applyMigration:()=>run(['d1','migrations','apply','bitbi-auth-db','--remote']),
       assertSchema:async()=>assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Migration did not apply'),
       prepareMedia:mediaRequired?async()=>{media=await publishMedia(c,secretFile);}:undefined,
-      deploy:()=>run(['deploy','--secrets-file',secretFile,'--var',`PRIVATE_MEDIA_SOURCE_SHA:${c.sha}`,'--message',`bitbi-auth:${c.sha}`]),
-      readActive:active,
+      deploy:()=>activateAuthVersion({sha:c.sha,secretFile,assertCurrent:()=>current(c.sha)}),
+      readActive:async()=>{const result=await active();await verifyAuthBundle(c.authBundleDigest);return result;},
       verifyMedia:mediaRequired?async()=>{smoke=await mediaSmoke(c,secret,media);}:undefined,
     });
   }finally{fs.rmSync(temporary,{recursive:true,force:true});}
   prerequisites(c.plan,state.version,c.config);
   const receipt={sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,migration,version:state.version.id,deployment:state.deployment.id,
-    ...(media?{media,smoke}:{}),processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
+    ...(media?{media,smoke}:{}),authBundleDigest:c.authBundleDigest,processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
   verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});
   fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/backend-release.json',JSON.stringify(receipt,null,2)+'\n');
   await verifyBackendReceipt('test-results/backend-release.json');

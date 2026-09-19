@@ -696,6 +696,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           node scripts/release-apply.mjs --ci-verified-candidate
+      - name: Preserve redacted backend failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: backend-diagnostics-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/backend-diagnostics.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Preserve backend activation evidence
         if: success() && env.BACKEND_RELEASE_RECEIPT != ''
         uses: actions/upload-artifact@v6

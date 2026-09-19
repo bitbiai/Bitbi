@@ -601,6 +601,39 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
 }
 
 {
+ const {backendCommand,verifyAuthTriggers,activateAuthVersion,advanceBackend,verifyAuthBundle}=await import('./lib/backend-publication.mjs');
+ const {hash}=await import('./lib/frontend-hosting.mjs');
+ const response=(body,name='index.js')=>{const data=new FormData();data.set(name,new Blob([body]),name);return new Response(data);};
+ await verifyAuthBundle(hash('candidate bytes'),async()=>response('candidate bytes'));
+ for(const bad of [()=>response('changed'),()=>response('candidate bytes','wrong.js'),()=>new Response('',{status:403})])await assert.rejects(verifyAuthBundle(hash('candidate bytes'),async()=>bad()));
+ const reports=[];const failure=Object.assign(Error('private error'),{status:1,stdout:'binding SECRET: PRIVATE_VALUE',stderr:'Trigger configuration was only partially updated:\n  Routes:\n Authentication error [code: 10000]\nhttps://example.test/?token=PRIVATE_VALUE'});
+ assert.throws(()=>backendCommand(['deploy','--secrets-file','/private/SECRET'],()=>{throw failure;},r=>reports.push(r)),/redacted backend diagnostics/);
+ assert.deepEqual(reports[0].apiCodes,[10000]);assert.deepEqual(reports[0].categories,['Routes']);assert(reports[0].partialTriggers&&reports[0].authenticationFailure);
+ assert(!JSON.stringify(reports).includes('PRIVATE_VALUE'));assert(!JSON.stringify(reports).includes('SECRET'));
+ const config=JSON.parse(fs.readFileSync(path.join(repoRoot,'workers/auth/wrangler.jsonc'))),prefix='workers/scripts/bitbi-auth';
+ const fixture={ [`${prefix}/routes`]:config.routes.map(r=>({...r,script:'bitbi-auth'})),[`${prefix}/schedules`]:{schedules:config.triggers.crons.map(cron=>({cron}))},[`${prefix}/subdomain`]:{enabled:false,previews_enabled:false}};
+ for(const q of config.queues.consumers)fixture[`queues?name=${q.queue}`]=[{queue_name:q.queue,settings:{delivery_paused:false},consumers:[{type:'worker',script:'bitbi-auth',settings:{batch_size:q.max_batch_size,max_retries:q.max_retries,max_wait_time_ms:q.max_batch_timeout*1000,retry_delay:0}}]}];
+ const reader=data=>async key=>{assert(Object.hasOwn(data,key),`unexpected API ${key}`);return structuredClone(data[key]);};
+ await verifyAuthTriggers(config,reader(fixture));
+ const firstQueue=`queues?name=${config.queues.consumers[0].queue}`;
+ for(const mutate of [f=>f[`${prefix}/routes`].pop(),f=>f[`${prefix}/routes`][0].script='other',f=>f[`${prefix}/schedules`].schedules.pop(),f=>f[`${prefix}/subdomain`].previews_enabled=true,f=>f[firstQueue][0].settings.delivery_paused=true,f=>f[firstQueue][0].consumers[0].settings.max_retries=0,f=>f[firstQueue][0].consumers.push({})]) {
+   const bad=structuredClone(fixture);mutate(bad);await assert.rejects(verifyAuthTriggers(config,reader(bad)));
+ }
+ await assert.rejects(verifyAuthTriggers(config,async()=>{throw Error('read denied');}));
+ const calls=[],sha='a'.repeat(40),id='12345678-1234-1234-1234-123456789abc';
+ await activateAuthVersion({sha,secretFile:'/private/secrets.json',assertCurrent:async()=>calls.push('current'),command:args=>{calls.push(args);return `Worker Version ID: ${id}`;}});
+ assert.deepEqual(calls,[['versions','upload','--keep-vars','--secrets-file','/private/secrets.json','--var',`PRIVATE_MEDIA_SOURCE_SHA:${sha}`,'--message',`bitbi-auth:${sha}`],'current',['versions','deploy',`${id}@100%`,'--yes','--message',`bitbi-auth:${sha}`]]);
+ for(const kind of ['upload','identity','superseded','activation']) {
+   const seen=[];await assert.rejects(activateAuthVersion({sha,secretFile:'private',assertCurrent:async()=>{if(kind==='superseded')throw Error(kind);},command:args=>{seen.push(args[1]);if(args[1]===(kind==='activation'?'deploy':'upload')&&kind!=='superseded'&&kind!=='identity')throw Error(kind);return kind==='identity'?'missing':`Worker Version ID: ${id}`;}}));
+   assert.deepEqual(seen,kind==='activation'?['upload','deploy']:['upload']);
+ }
+ const actions=[],steps={sha,pending:[],activeVersion:{annotations:{'workers/message':`bitbi-auth:${sha}`}},assertCurrent:async()=>{},assertSchema:async()=>{},prepareMedia:async()=>actions.push('media'),deploy:async()=>actions.push('auth'),readActive:async()=>actions.push('read'),verifyMedia:async()=>actions.push('smoke')};
+ await assert.rejects(advanceBackend({...steps,verifyConfiguration:async()=>{throw Error('unfinished trigger');}}));assert.deepEqual(actions,[]);
+ let checked=0;await assert.rejects(advanceBackend({...steps,verifyConfiguration:async()=>{if(++checked===2)throw Error('changed trigger');}}));assert.deepEqual(actions,['media','read']);
+ console.log('Auth publication: safe failure diagnostics, exact unchanged trigger readback, version-only activation and partial/superseded failure controls passed.');
+}
+
+{
  const {verifyMediaImage,mediaImageInputs}=await import('./private-media-image.mjs');
  const {hash}=await import('./lib/frontend-hosting.mjs');const os=await import('node:os');
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'media-identity-')),archive=path.join(dir,'image.tar');fs.writeFileSync(archive,'synthetic archive bytes');
@@ -633,4 +666,39 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
   const bad=structuredClone(receipt);Object.assign(bad.smoke[1],patch);assert.throws(()=>verifyMediaEvidence(bad,scope));
  }
  console.log('Media stop/wake/stop: independent platform states, missing/stuck/failed instance and wrong cycle rejected.');
+}
+
+{
+ const {mediaActive,activateMedia,currentMediaVersion}=await import('./lib/media-publication.mjs');
+ const expected={sha:'a'.repeat(40),imageDigest:'registry/synthetic@sha256:'+'b'.repeat(64)};
+ const version={id:'version',annotations:{'workers/message':`bitbi-media:${expected.sha}:${expected.imageDigest}`},resources:{bindings:[{name:'MEDIA_CONTAINER',namespace_id:'namespace'}]}};
+ let image='old-image',now=0,reads=0,pauses=0;
+ const read=async endpoint=>{
+  reads++;
+  if(endpoint.endsWith('/deployments'))return {deployments:[{id:'deployment',versions:[{version_id:'version',percentage:100}]}]};
+  if(endpoint.includes('/versions/'))return version;
+  assert.equal(endpoint,'containers/applications');return [{id:'application',max_instances:1,configuration:{image},durable_objects:{namespace_id:'namespace'}}];
+ };
+ const options={read,now:()=>now,pause:async ms=>{now+=ms;pauses++;image=expected.imageDigest;}};
+ const active=await mediaActive(expected,{},options);assert.equal(active.application,'application');assert.equal(pauses,1);assert.equal(reads,6);
+ image='old-image';await assert.rejects(mediaActive(expected,{}, {...options,timeout:10000,pause:async ms=>{now+=ms;}}),/did not converge/);
+ for(const fault of ['wrong-version','ambiguous-traffic','wrong-namespace','changed-limit']) {
+  const unsafe=async endpoint=>{const r=structuredClone(await read(endpoint));
+   if(fault==='wrong-version'&&endpoint.includes('/versions/'))r.annotations['workers/message']='wrong';
+   if(fault==='ambiguous-traffic'&&endpoint.endsWith('/deployments'))r.deployments[0].versions[0].percentage=50;
+   if(fault==='wrong-namespace'&&Array.isArray(r))r[0].durable_objects.namespace_id='other';
+   if(fault==='changed-limit'&&Array.isArray(r))r[0].max_instances=2;
+   return r;
+  };
+  await assert.rejects(mediaActive(expected,{}, {...options,read:unsafe,pause:async()=>{throw Error('Must fail without polling');}}));
+ }
+ assert.deepEqual(await currentMediaVersion(async()=>{throw Error('Cloudflare read failed (404)');}),{});
+ assert.deepEqual(await currentMediaVersion(async()=>({deployments:[]})),{});
+ for(const code of [401,403,429,500])await assert.rejects(currentMediaVersion(async()=>{throw Error(`Cloudflare read failed (${code})`);}));
+ assert.equal((await currentMediaVersion(read)).id,'version');
+ await assert.rejects(currentMediaVersion(async endpoint=>{if(endpoint.endsWith('/deployments'))return {deployments:[{versions:[{version_id:'missing',percentage:100}]}]};throw Error('Cloudflare read failed (404)');}));
+ const actions=[];await activateMedia(expected,{currentVersion:version,deploy:async()=>actions.push('deploy'),verify:async()=>actions.push('verify')});assert.deepEqual(actions,['verify']);
+ actions.length=0;await activateMedia(expected,{currentVersion:{},deploy:async()=>actions.push('deploy'),verify:async()=>actions.push('verify')});assert.deepEqual(actions,['deploy','verify']);
+ await assert.rejects(activateMedia(expected,{currentVersion:version,deploy:async()=>{},verify:async()=>{throw Error('not converged');}}),/not converged/);
+ console.log('Container rollout: delayed image convergence, permanent mismatch, identity/traffic/limits and partial-deploy resume controls passed.');
 }

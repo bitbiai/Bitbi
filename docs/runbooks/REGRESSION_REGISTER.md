@@ -376,3 +376,30 @@ SDK control is not Cloudflare acceptance: the protected publisher records actual
 platform stop → wake → durable synthetic videos/posters → stop, failing on unknown,
 abnormal or stuck state. No AI request, user setting, concurrency limit or schema
 change is involved. Production timestamps belong to the activation receipt.
+
+The first idle-fix release (35449579589/1) activated the exact Media Worker,
+but checked the application image before Cloudflare's asynchronous rollout
+converged. Auth/frontend had not advanced. The publisher now bounds its image
+convergence check while rechecking exact Worker identity, traffic, namespace
+and limits; a stuck or wrong deployment still fails. A partially completed
+same-source/image activation skips another Worker deployment after artifact
+verification. Existing `test:release-plan` exercises delayed/permanent mismatch,
+identity/traffic/binding/limit failures and the resumed activation order. A failed
+write may resume only its deploy job with the original accepted candidate;
+completed functional suites and immutable image archives are not rebuilt.
+
+Attempt 2 then exited from Auth `wrangler deploy` after version activation.
+The wrapper discarded stdout/stderr; the original API error cannot be recovered
+from that job. Independent readback confirms the expected bundle bytes, API route,
+all three consumers, cron and disabled subdomain. Do not infer denied permissions
+from a partial audit window. The old command rewrote unchanged routes despite the
+documented read-only route contract. Auth now uses version upload/activation and
+checks unchanged triggers before/after, including when resuming an active SHA;
+independent downloaded module bytes must match the local pinned build. Unknown
+or mismatched state blocks before synthetic work/frontend publication.
+`test:release-plan` covers changed/missing triggers and bundle, denied reads,
+upload/identity/activation/supersession failures and safe command diagnostics.
+`test:static-deploy-safety` calls the workflow regression proving failed-job
+diagnostics are retained while failed backend gates still prohibit publication.
+The exact underlying discarded API error remains unconfirmed; this repair does
+not assert a token-rights change or a new production lifecycle pass.

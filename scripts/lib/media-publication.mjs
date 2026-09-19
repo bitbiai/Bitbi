@@ -34,17 +34,37 @@ export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false}) {
     for(const out of smoke.outputs)assert(/^[a-f0-9]{64}$/.test(out.videoDigest)&&/^[a-f0-9]{64}$/.test(out.posterDigest),'Missing durable output');
   }
 }
-export async function mediaActive(expected,env=process.env) {
-  const read=endpoint=>cloudflareRead(endpoint,env);
-  const deployment=(await read('workers/scripts/bitbi-private-media/deployments')).deployments[0];
-  assert(deployment?.versions?.length===1&&deployment.versions[0].percentage===100,'Ambiguous media traffic');
-  const version=await read(`workers/scripts/bitbi-private-media/versions/${deployment.versions[0].version_id}`);
-  assert.equal(version.annotations?.['workers/message'],`bitbi-media:${expected.sha}:${expected.imageDigest}`);
-  const ns=version.resources.bindings.find(b=>b.name==='MEDIA_CONTAINER')?.namespace_id;assert(ns,'Missing container namespace');
-  const apps=await read('containers/applications');
-  const matches=apps.filter(a=>a.durable_objects?.namespace_id===ns);assert.equal(matches.length,1,'Missing/ambiguous container');
-  const app=matches[0];assert.equal(app.configuration.image,expected.imageDigest);assert.equal(app.max_instances,1);
-  return {...expected,workerVersion:version.id,deployment:deployment.id,application:app.id,namespace:ns};
+export async function mediaActive(expected,env=process.env,{read=endpoint=>cloudflareRead(endpoint,env),now=Date.now,pause=ms=>new Promise(r=>setTimeout(r,ms)),timeout=120000}={}) {
+  const started=now();
+  do {
+    const deployment=(await read('workers/scripts/bitbi-private-media/deployments')).deployments[0];
+    assert(deployment?.versions?.length===1&&deployment.versions[0].percentage===100,'Ambiguous media traffic');
+    const version=await read(`workers/scripts/bitbi-private-media/versions/${deployment.versions[0].version_id}`);
+    assert.equal(version.annotations?.['workers/message'],`bitbi-media:${expected.sha}:${expected.imageDigest}`);
+    const ns=version.resources.bindings.find(b=>b.name==='MEDIA_CONTAINER')?.namespace_id;assert(ns,'Missing container namespace');
+    const apps=await read('containers/applications');
+    const matches=apps.filter(a=>a.durable_objects?.namespace_id===ns);assert.equal(matches.length,1,'Missing/ambiguous container');
+    const app=matches[0];assert.equal(app.max_instances,1);
+    if(app.configuration.image===expected.imageDigest)return {...expected,workerVersion:version.id,deployment:deployment.id,application:app.id,namespace:ns};
+    // Wrangler activates the Worker before the asynchronous container rollout.
+    // Wait only for image convergence; wrong Worker/namespace/limits fail above.
+    await pause(5000);
+  }while(now()-started<timeout);
+  throw Error('Media rollout did not converge to the tested image within bounded verification');
+}
+export async function currentMediaVersion(read=cloudflareRead) {
+  let deployment;
+  try {deployment=(await read('workers/scripts/bitbi-private-media/deployments')).deployments[0];}
+  catch(error){if(error.message==='Cloudflare read failed (404)')return {};throw error;}
+  if(!deployment)return {}; // Preserve the existing first-publication path.
+  assert(deployment.versions?.length===1&&deployment.versions[0].percentage===100,'Ambiguous current media traffic');
+  return read(`workers/scripts/bitbi-private-media/versions/${deployment.versions[0].version_id}`);
+}
+export async function activateMedia(expected,{currentVersion,deploy,verify}) {
+  if(currentVersion.annotations?.['workers/message']!==`bitbi-media:${expected.sha}:${expected.imageDigest}`)await deploy();
+  // A previous attempt may already have activated this exact source/image.
+  // Still independently verify traffic, binding, limits and completed rollout.
+  return verify();
 }
 export async function publishMedia(c,secretFile) {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-release-'));
@@ -76,8 +96,12 @@ with zipfile.ZipFile(p/'image.zip') as z:
     config.main=path.resolve('workers/media/src/index.js');config.vars.SOURCE_SHA=c.sha;
     config.containers[0].image=imageDigest;delete config.containers[0].image_build_context;
     const file=path.join(dir,'wrangler.json');fs.writeFileSync(file,JSON.stringify(config));
-    wrangler(['deploy','--config',file,'--secrets-file',secretFile,'--message',`bitbi-media:${c.sha}:${imageDigest}`]);
-    return await mediaActive({sha:c.sha,imageDigest,image:record.image,artifact:{id:a.id,digest:a.digest},sourceRun:record.run,sourceAttempt:record.attempt});
+    const expected={sha:c.sha,imageDigest,image:record.image,artifact:{id:a.id,digest:a.digest},sourceRun:record.run,sourceAttempt:record.attempt};
+    const currentVersion=await currentMediaVersion();
+    return await activateMedia(expected,{currentVersion,
+      deploy:()=>wrangler(['deploy','--config',file,'--secrets-file',secretFile,'--message',`bitbi-media:${c.sha}:${imageDigest}`]),
+      verify:()=>mediaActive(expected),
+    });
   }finally{fs.rmSync(dir,{recursive:true,force:true});}
 }
 // Independent platform state, never an HTTP request to the sleeping container.

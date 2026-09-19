@@ -166,3 +166,8 @@ assert(!permits(cfDeploy,{...cfContext,success:()=>false}),'failed schema/backen
 assert(job(standard,'deploy').includes('group: "pages"'));
 
 assert(!job(standard,'release-compatibility').includes('secrets.CF_BACKEND_DEPLOY_TOKEN'),'No backend credential in validation');
+const diagnostics=cfSteps.find(s=>s.name==='Preserve redacted backend failure diagnostics');
+assert(diagnostics&&cfSteps.indexOf(diagnostics)>cfSteps.indexOf(backend));
+assert.equal(diagnostics.source.match(/path: (.+)/)[1],'test-results/backend-diagnostics.jsonl','Never upload raw Wrangler bindings or credential files');
+for(const failed of [true,false])assert.equal(vm.runInNewContext(diagnostics.condition,{failure:()=>failed}),failed);
+assert(!permits(cfDeploy,{...cfContext,success:()=>false}),'Retaining diagnostics must not allow failed publication');
