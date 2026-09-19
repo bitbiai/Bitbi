@@ -79,6 +79,7 @@ function writeGithubOutput(selection) {
     member_assets: selection.memberAssets === true,
     public_media: selection.publicMedia === true,
     model_status: selection.modelStatus === true,
+    media_lifecycle: selection.mediaLifecycle === true,
     workspace_help: selection.workspaceHelp === true,
     homepage: selection.homepage,
     homepage_media: selection.homepageMedia,

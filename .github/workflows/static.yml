@@ -68,6 +68,7 @@ jobs:
       member_assets: ${{ steps.selection.outputs.member_assets }}
       public_media: ${{ steps.selection.outputs.public_media }}
       model_status: ${{ steps.selection.outputs.model_status }}
+      media_lifecycle: ${{ steps.selection.outputs.media_lifecycle }}
       workspace_help: ${{ steps.selection.outputs.workspace_help }}
       dependencies: ${{ steps.selection.outputs.dependencies }}
       worker_dependencies: ${{ steps.selection.outputs.worker_dependencies }}
@@ -243,12 +244,12 @@ jobs:
           ffmpeg -version
           ffprobe -version
       - name: Verify native Linux isolation before Worker tests
-        if: needs.release-compatibility.outputs.workers == 'true'
+        if: needs.release-compatibility.outputs.workers == 'true' && needs.release-compatibility.outputs.media_lifecycle != 'true'
         env:
           Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
         run: node scripts/test-q2-runtime.mjs --preflight
       - name: Run worker route tests
-        if: needs.release-compatibility.outputs.workers == 'true'
+        if: needs.release-compatibility.outputs.workers == 'true' && needs.release-compatibility.outputs.media_lifecycle != 'true'
         env:
           Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
         run: |
@@ -263,6 +264,11 @@ jobs:
           else
             npm run test:workers
           fi
+      - name: Run private media lifecycle tests
+        if: needs.release-compatibility.outputs.media_lifecycle == 'true'
+        run: |
+          npm --prefix workers/media ci
+          node scripts/test-private-media-lifecycle.mjs
       - name: Build and test private media Linux image
         id: media_image
         env:
@@ -278,7 +284,7 @@ jobs:
           compression-level: 0
           retention-days: 7
       - name: Upload native Linux acceptance evidence
-        if: always() && needs.release-compatibility.outputs.workers == 'true'
+        if: always() && needs.release-compatibility.outputs.workers == 'true' && needs.release-compatibility.outputs.media_lifecycle != 'true'
         uses: actions/upload-artifact@v6
         with:
           name: q2-linux-runtime-${{ github.sha }}

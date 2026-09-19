@@ -142,10 +142,10 @@ assert(!block('release-compatibility').includes('CI_FORCE_FULL:'));
 assert(block('release-compatibility').includes('CI_BASE_REF: ${{ env.CANDIDATE_BASE }}'));
 assert(!block('release-compatibility').includes('github.event.before'));
 // Evaluate the real selected-step conditions, not only job names/counts.
-for(const files of [['js/pages/index/public-media-detail-panel.js'],['js/shared/saved-assets-browser.js','workers/auth/src/lib/asset-names.js'],['admin/index.html','tests/oma2-q3-newsfeed.spec.js'],['README.md'],['workers/auth/src/index.js'],['index.html'],['.github/workflows/static.yml'],['css/components/news-pulse.css'],['tests/homepage-hero-playback.spec.js']]) {
+for(const files of [['workers/media/src/index.js','scripts/test-private-media-lifecycle.mjs'],['js/pages/index/public-media-detail-panel.js'],['js/shared/saved-assets-browser.js','workers/auth/src/lib/asset-names.js'],['admin/index.html','tests/oma2-q3-newsfeed.spec.js'],['README.md'],['workers/auth/src/index.js'],['index.html'],['.github/workflows/static.yml'],['css/components/news-pulse.css'],['tests/homepage-hero-playback.spec.js']]) {
  const selection=selectCiTests(files);
  const outputs=Object.fromEntries(Object.entries(selection).map(([k,v])=>[k.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()),String(v)]));
- const ctx={needs:{'release-compatibility':{outputs}},steps:{selection:{outputs},homepage_discovery:{outcome:selection.homepage||selection.carousel?'success':'skipped'}},success:()=>true};
+ const ctx={needs:{'release-compatibility':{outputs}},steps:{selection:{outputs},media_image:{outputs:{required:String(files.some(f=>f.startsWith('workers/media/')))}},homepage_discovery:{outcome:selection.homepage||selection.carousel?'success':'skipped'}},success:()=>true};
  const active=(condition)=>condition ? Boolean(vm.runInNewContext(condition.replace(/^\$\{\{ (.*) \}\}$/,'$1').replace(/needs\.([\w-]+)/g,(_,key)=>`needs[${JSON.stringify(key)}]`),ctx)) : true;
  for(const [job,required] of Object.entries(requiredJobs(selection))) {
    const steps=[...block(job).matchAll(/^      - name: (.+)\n([\s\S]*?)(?=^      - name:|$(?![\s\S]))/gm)];
@@ -530,3 +530,16 @@ fastContext.needs['homepage-validation'].result='failure';assert(!fastPermits())
 verifyLaterAttempt({...run,run_attempt:2,conclusion:'failure'},[{name:'deploy',conclusion:'failure'}],newsSelection);
 assert.throws(()=>verifyLaterAttempt({...run,status:'in_progress'},[{name:'deploy',conclusion:null}],newsSelection));
 assert.throws(()=>verifyLaterAttempt({...run,conclusion:'failure'},[{name:'deploy',conclusion:'skipped'},{name:'browser-validation',conclusion:'failure'}],newsSelection));
+
+{
+ const selection=selectCiTests(['workers/media/src/index.js','scripts/test-private-media-lifecycle.mjs']);
+ const required=requiredJobs(selection);
+ const selectedJobs=Object.entries(required).map(([name,steps])=>({name,head_sha:sha,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
+ const scope={...ordinary,selection},evidence={...valid,jobs:selectedJobs,artifacts:[artifacts[0]]};
+ assert.equal(validateSource(evidence,scope).length,1);
+ const worker=selectedJobs.find(j=>j.name==='worker-validation');
+ for(const result of ['failure','skipped','cancelled'])assert.throws(()=>validateSource({...evidence,jobs:selectedJobs.map(j=>j===worker?{...j,conclusion:result}:j)},scope));
+ for(const step of worker.steps)assert.throws(()=>validateSource({...evidence,jobs:selectedJobs.map(j=>j===worker?{...j,steps:j.steps.filter(s=>s!==step)}:j)},scope));
+ assert.throws(()=>validateSource({...evidence,mainSha:'b'.repeat(40)},scope));
+ console.log('Media lifecycle selection: real required steps, missing/failed execution and supersession remain blocking.');
+}

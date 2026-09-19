@@ -14,12 +14,21 @@ export function assertMediaAuthConfig(before,after) {
   assert.deepEqual(normalize(after),normalize(before),'Unreviewed Auth configuration change');
   assert.deepEqual(after.services.filter(s=>s.binding==='PRIVATE_MEDIA_PROCESSOR'),[{binding:'PRIVATE_MEDIA_PROCESSOR',service:'bitbi-private-media'}]);
 }
-export function verifyMediaEvidence(receipt,{sha,run,attempt}) {
+export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false}) {
   assert(receipt.media,'Missing media activation evidence');
   assert.equal(receipt.media.sha,sha);assert.equal(receipt.media.sourceRun,run);assert.equal(receipt.media.sourceAttempt,attempt);
   assert(/^registry\.cloudflare\.com\/[a-f0-9]{32}\/bitbi-private-media@sha256:[a-f0-9]{64}$/.test(receipt.media.imageDigest),'Wrong image identity');
   assert(receipt.media.artifact?.id&&/^sha256:[a-f0-9]{64}$/.test(receipt.media.artifact.digest),'Missing CI image artifact');
   assert.deepEqual(receipt.smoke?.map(s=>s.backend).sort(),['cloudflare','github']);
+  if(lifecycle) {
+    const cycle=receipt.smoke.find(s=>s.backend==='cloudflare')?.lifecycle;
+    assert(cycle,'Missing production idle/wake evidence');
+    const events=['stoppedBefore','running','completed','stoppedAfter'].map(key=>Date.parse(cycle[key]?.observedAt));
+    assert(events.every(Number.isFinite)&&events.every((n,i)=>!i||n>=events[i-1]),'Invalid lifecycle chronology');
+    for(const key of ['stoppedBefore','stoppedAfter'])assert(['stopped','inactive'].includes(cycle[key].state),'Container did not stop');
+    assert.equal(cycle.running.state,'running');
+    assert.equal(cycle.running.instance,cycle.stoppedAfter.instance,'Different container in stop/wake evidence');
+  }
   for(const smoke of receipt.smoke) {
     assert.equal(smoke.sha,sha);assert(smoke.completedMs>=0);assert.equal(smoke.outputs.length,3);
     for(const out of smoke.outputs)assert(/^[a-f0-9]{64}$/.test(out.videoDigest)&&/^[a-f0-9]{64}$/.test(out.posterDigest),'Missing durable output');
@@ -71,13 +80,30 @@ with zipfile.ZipFile(p/'image.zip') as z:
     return await mediaActive({sha:c.sha,imageDigest,image:record.image,artifact:{id:a.id,digest:a.digest},sourceRun:record.run,sourceAttempt:record.attempt});
   }finally{fs.rmSync(dir,{recursive:true,force:true});}
 }
-export async function mediaSmoke(c,secret) {
+// Independent platform state, never an HTTP request to the sleeping container.
+// A failed/unknown/absent instance is not a successful idle shutdown.
+export async function waitMediaState(application,state,{read=cloudflareRead,now=Date.now,pause=ms=>new Promise(r=>setTimeout(r,ms)),timeout=120000}={}) {
+  const started=now();
+  do {
+    const result=await read(`containers/applications/${application}/instances`);
+    assert(Array.isArray(result.instances)&&result.instances.length===1,'Missing/ambiguous media instance');
+    const instance=result.instances[0],actual=instance.status?.state;
+    assert(!['failed','unhealthy','unknown'].includes(actual),'Media instance failed or state unknown');
+    if(['stopped','inactive'].includes(actual))assert(instance.status.exit_code===undefined||instance.status.exit_code===0,'Media container exited abnormally');
+    if(actual===state||(state==='stopped'&&actual==='inactive'))return {state:actual,instance:instance.id,observedAt:new Date(now()).toISOString(),platformAt:instance.status.updated_at};
+    await pause(5000);
+  }while(now()-started<timeout);
+  throw Error(`Media container did not become ${state} within bounded production verification`);
+}
+export async function mediaSmoke(c,secret,media) {
   const fixture=fs.readFileSync('tests/fixtures/media/canvas-end-frame.mp4').toString('base64'),results=[];
   const request=async body=>{
     const r=await fetch('https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke',{method:'POST',headers:{Authorization:`Bearer ${secret}`,'Content-Type':'application/json'},body:JSON.stringify({...body,sha:c.sha}),redirect:'error',signal:AbortSignal.timeout(30000)});
     assert(r.ok,`Private smoke HTTP ${r.status}`);const b=await r.json();assert(b.ok);return b.data;
   };
+  const lifecycle={stoppedBefore:await waitMediaState(media.application,'stopped')};
   for(const backend of ['github','cloudflare'])await request({action:'start',backend,fixture});
+  lifecycle.running=await waitMediaState(media.application,'running');
   // This is the protected deployment's own finite job completion check, not
   // agent monitoring. A deadline is a failed acceptance, never synthetic green.
   const started=Date.now(),pending=new Set(['github','cloudflare']);
@@ -94,9 +120,15 @@ export async function mediaSmoke(c,secret) {
           }
         }
       }finally{fs.rmSync(dir,{recursive:true,force:true});}
+      if(backend==='cloudflare') {
+        lifecycle.completed={observedAt:new Date().toISOString()};
+        lifecycle.stoppedAfter=await waitMediaState(media.application,'stopped');
+      }
       results.push({backend,sha:c.sha,completedMs:Date.now()-started,outputs:result.outputs.map(o=>({videoDigest:o.videoDigest,posterDigest:o.posterDigest}))});pending.delete(backend);
     }
     if(pending.size)await new Promise(resolve=>setTimeout(resolve,5000));
   }
-  assert.equal(pending.size,0,'Private media smoke did not complete within release acceptance window');return results;
+  assert.equal(pending.size,0,'Private media smoke did not complete within release acceptance window');
+  results.find(r=>r.backend==='cloudflare').lifecycle=lifecycle;
+  console.log(JSON.stringify({privateMediaLifecycle:lifecycle}));return results;
 }

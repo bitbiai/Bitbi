@@ -410,6 +410,18 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     return selection;
   }
 
+  // Exact actor/SDK lifecycle inputs. Processor, Auth, bindings, dependencies
+  // and unknown Worker paths keep their existing broader integration coverage.
+  const mediaLifecycleFiles = new Set(['workers/media/src/index.js','scripts/test-private-media-lifecycle.mjs']);
+  if (!forceFull && changedFiles.some(file=>mediaLifecycleFiles.has(file))
+      && changedFiles.every(file=>isDocumentation(file)||mediaLifecycleFiles.has(file)||RELEASE_TOOLING_FILES.has(file))) {
+    selection.mediaLifecycle = true;
+    selection.workers = selection.static = selection.runtime = true;
+    selection.reasons.workers.push('Pinned container SDK lifecycle, busy/queued work protection and tested Linux processor image; no changed Auth or browser inputs');
+    selection.reasons.static.push('Release/build contracts and native frontend routing; exact candidate identity remains required');
+    return selection;
+  }
+
   let documentationCount = 0;
   for (const file of changedFiles) {
     if (['frontend/index.mjs','frontend/wrangler.jsonc'].includes(file) || RELEASE_TOOLING_FILES.has(file)) {

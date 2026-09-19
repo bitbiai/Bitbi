@@ -357,3 +357,22 @@ order, missing evidence, source attempts, image identity and failure stops.
 Deploy-only retry cannot skip backend work or synthesize dependency completion.
 Local green remains distinct from CI, account provisioning and live smoke;
 only the protected publication's durable MP4/poster checks establish the latter.
+
+### Private media container idle lifecycle (2026-09-19)
+The production actor remained running after all jobs/leases finished: SDK 0.3.7
+keeps `containerFetch` in-flight until the response body drains. `deliver` now
+consumes success/error acknowledgements. Idle health is consumed and validated;
+busy processing, queued activation or unknown health never permits termination.
+The health/stop/exit boundary excludes new wake events; a previous source SHA
+may retire safely after finishing, without interrupting its child.
+`node scripts/test-private-media-lifecycle.mjs` executes the pinned SDK's stream
+accounting/alarm and production subclass with simulated platform transport. Its
+old-path control remains non-idle after three simulated hours; corrected paths
+cover busy/queued work, errors, previous version and concurrent wake during exit.
+The existing Worker CI job calls it only for the exact actor/test + release-tooling
+scope; Auth/processor/config/dependency/unknown changes retain broader selection.
+The tested Linux image and release/candidate checks remain required. This local
+SDK control is not Cloudflare acceptance: the protected publisher records actual
+platform stop → wake → durable synthetic videos/posters → stop, failing on unknown,
+abnormal or stuck state. No AI request, user setting, concurrency limit or schema
+change is involved. Production timestamps belong to the activation receipt.

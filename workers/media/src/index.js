@@ -23,14 +23,35 @@ export class PrivateMediaContainer extends Container {
   }
   async deliver(body) {
     const response=await this.containerFetch('http://container/wake',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    // SDK 0.3.7 keeps a request in flight until the body finishes. The tiny
+    // acknowledgement must be consumed on success AND failure, or idle never fires.
+    await response.arrayBuffer();
     if(!response.ok)throw new Error('media_container_start_failed');
   }
   async onActivityExpired() {
-    if(!this.ctx.container.running)return;
-    const response=await this.containerFetch('http://container/health');
-    if((await response.json()).busy)this.renewActivityTimeout();
-    else await this.stop();
+    // Keep a newly accepted wake from racing the health-check/stop boundary.
+    // Existing SDK schedules remain durable; no second dispatcher or job lease.
+    await this.ctx.blockConcurrencyWhile(async()=>{
+      if(!this.ctx.container.running)return;
+      try {
+        const response=await this.containerFetch('http://container/health',{signal:AbortSignal.timeout(5000)});
+        const health=await response.json();
+        // A running instance may still have the previous deployment's SHA.
+        // Its local busy flag, not equality with the new actor SHA, protects work.
+        if(!response.ok||health.protocol!==1||!/^[a-f0-9]{40}$/.test(health.source||'')||typeof health.busy!=='boolean')throw new Error('media_container_health_unknown');
+        if(health.busy||(await this.listSchedules('deliver')).length){this.renewActivityTimeout();return;}
+        await this.stop();
+        // stop() signals SIGTERM; await exit before a later wake starts a child.
+        try{await this.ctx.container.monitor();}catch{if(this.ctx.container.running)throw new Error('media_container_stop_failed');}
+      } catch {
+        // Uncertain health must never kill active work or reset the actor.
+        this.renewActivityTimeout();
+        console.error(JSON.stringify({event:'private_media_container_idle_check_failed'}));
+      }
+    });
   }
+  onStart(){console.log(JSON.stringify({event:'private_media_container_started'}));}
+  onStop(){console.log(JSON.stringify({event:'private_media_container_stopped'}));}
   onError(){console.error(JSON.stringify({event:'private_media_container_error'}));}
 }
 export default {

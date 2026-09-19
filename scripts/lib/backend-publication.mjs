@@ -1,7 +1,7 @@
 import os from 'node:os';
 import {createHash} from 'node:crypto';
 import {publishMedia,mediaActive,mediaSmoke,assertMediaAuthConfig,verifyMediaEvidence} from './media-publication.mjs';
-import {requiresPrivateMediaImage} from './ci-test-selection.mjs';
+import {requiresPrivateMediaImage,selectCiTests} from './ci-test-selection.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -54,7 +54,7 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Required schema not active');
   prerequisites(c.plan,state.version,c.config);
   if(requiresPrivateMediaImage(c.plan.changedFiles)) {
-    verifyMediaEvidence(receipt,{sha:c.sha,run:process.env.CANDIDATE_RUN,attempt:process.env.CANDIDATE_ATTEMPT});
+    verifyMediaEvidence(receipt,{sha:c.sha,run:process.env.CANDIDATE_RUN,attempt:process.env.CANDIDATE_ATTEMPT,lifecycle:selectCiTests(c.plan.changedFiles).mediaLifecycle===true});
     await mediaActive(receipt.media,backendEnv());
   }
   for(const [name,value] of [['PRIVATE_MEDIA_SOURCE_SHA',c.sha]])assert(state.version.resources.bindings.some(b=>b.name===name&&b.text===value),'Wrong active media source');
@@ -100,7 +100,7 @@ export async function publishBackend() {
       prepareMedia:mediaRequired?async()=>{media=await publishMedia(c,secretFile);}:undefined,
       deploy:()=>run(['deploy','--secrets-file',secretFile,'--var',`PRIVATE_MEDIA_SOURCE_SHA:${c.sha}`,'--message',`bitbi-auth:${c.sha}`]),
       readActive:active,
-      verifyMedia:mediaRequired?async()=>{smoke=await mediaSmoke(c,secret);}:undefined,
+      verifyMedia:mediaRequired?async()=>{smoke=await mediaSmoke(c,secret,media);}:undefined,
     });
   }finally{fs.rmSync(temporary,{recursive:true,force:true});}
   prerequisites(c.plan,state.version,c.config);

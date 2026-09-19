@@ -32,6 +32,16 @@ for(const workers of ['true','false',undefined])for(const model_status of ['true
   const context={success:()=>success,needs:{'release-compatibility':{outputs:{workers,model_status,member_assets}}}};
   assert.equal(permits(mediaTools,context),success&&workers==='true'&&model_status!=='true'&&member_assets!=='true');
 }
+// Execute the real narrow/full step conditions: unselected native evidence is
+// absent, while missing/failed lifecycle execution still blocks its candidate.
+for(const media_lifecycle of ['true','false',undefined]) {
+ const context={success:()=>true,needs:{'release-compatibility':{outputs:{workers:'true',media_lifecycle}}}};
+ for(const name of ['Verify native Linux isolation before Worker tests','Run worker route tests'])
+   assert.equal(permits(workerSteps.find(s=>s.name===name),context),media_lifecycle!=='true');
+ const step=workerSteps.find(s=>s.name==='Run private media lifecycle tests');
+ assert.equal(permits(step,context),media_lifecycle==='true');
+ assert.equal(permits(step,{...context,success:()=>false}),false);
+}
 const setupScript=mediaTools.source.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n');
 assert.equal(spawnSync('/bin/bash',['-n'],{input:setupScript,encoding:'utf8'}).status,0);
 // Execute the actual shell with harmless tool functions: order and fail-fast,

@@ -673,3 +673,14 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  const jobs=requiredJobs({...selected,files});assert(jobs['worker-validation'].includes('Build and test private media Linux image'));assert(jobs['worker-validation'].includes('Preserve tested private media image'));
  assert(selectCiTests([...files,'scripts/unknown-media-authority.mjs']).full);
 }
+
+{
+ const files=['workers/media/src/index.js','scripts/test-private-media-lifecycle.mjs','.github/workflows/static.yml','scripts/lib/media-publication.mjs'];
+ const selected=selection(files);
+ assert.equal(selected.mediaLifecycle,true);
+ for(const key of ['full','auth','homepage','homepageMedia','assets'])assert.equal(selected[key],false,key);
+ assert.equal(selected.workers,true);
+ assert.deepEqual(requiredJobs(selected)['worker-validation'],['Run private media lifecycle tests','Build and test private media Linux image','Preserve tested private media image']);
+ for(const file of ['workers/auth/src/index.js','workers/media/wrangler.jsonc','workers/media/package-lock.json','services/homepage-ffmpeg-processor/container-server.mjs','unknown-input.mjs'])assert.notEqual(selection([...files,file]).mediaLifecycle,true,file);
+ assert.notEqual(selection(files,{forceFull:true}).mediaLifecycle,true);
+}

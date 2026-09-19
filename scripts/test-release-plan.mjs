@@ -612,3 +612,25 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
    fs.appendFileSync(archive,'changed');assert.throws(()=>verifyMediaImage(record,expected));
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 }
+
+{
+ const {waitMediaState,verifyMediaEvidence}=await import('./lib/media-publication.mjs');
+ const observations=[],states=['running','stopping','stopped','provisioning','running','stopped'];let now=1000;
+ const read=async endpoint=>{observations.push(endpoint);return {instances:[{id:'synthetic-instance',status:{state:states.shift(),updated_at:new Date(now).toISOString()}}]};};
+ const options={read,now:()=>now,pause:async ms=>{now+=ms;}};
+ const stoppedBefore=await waitMediaState('synthetic-app','stopped',options);
+ const running=await waitMediaState('synthetic-app','running',options);
+ const completed={observedAt:new Date(now).toISOString()};
+ const stoppedAfter=await waitMediaState('synthetic-app','stopped',options);
+ assert.equal(observations.length,6);assert(observations.every(p=>p==='containers/applications/synthetic-app/instances'));
+ for(const state of ['failed','unhealthy','unknown'])await assert.rejects(waitMediaState('app','stopped',{...options,read:async()=>({instances:[{status:{state}}]})}));
+ for(const instances of [[],[{},{}]])await assert.rejects(waitMediaState('app','stopped',{...options,read:async()=>({instances})}));
+ await assert.rejects(waitMediaState('app','stopped',{...options,timeout:10000,read:async()=>({instances:[{status:{state:'running'}}]})}),/bounded production/);
+ const sha='a'.repeat(40),digest='b'.repeat(64),scope={sha,run:'123',attempt:'1',lifecycle:true};
+ const receipt={media:{sha,sourceRun:'123',sourceAttempt:'1',imageDigest:`registry.cloudflare.com/${'c'.repeat(32)}/bitbi-private-media@sha256:${digest}`,artifact:{id:123,digest:`sha256:${digest}`}},smoke:['github','cloudflare'].map(backend=>({backend,sha,completedMs:100,outputs:Array.from({length:3},()=>({videoDigest:digest,posterDigest:digest})),...(backend==='cloudflare'?{lifecycle:{stoppedBefore,running,completed,stoppedAfter}}:{})}))};
+ verifyMediaEvidence(receipt,scope);
+ for(const patch of [{lifecycle:null},{lifecycle:{stoppedBefore,running,completed,stoppedAfter:{...stoppedAfter,state:'running'}}},{lifecycle:{stoppedBefore,running,completed,stoppedAfter:{...stoppedAfter,instance:'another'}}}]) {
+  const bad=structuredClone(receipt);Object.assign(bad.smoke[1],patch);assert.throws(()=>verifyMediaEvidence(bad,scope));
+ }
+ console.log('Media stop/wake/stop: independent platform states, missing/stuck/failed instance and wrong cycle rejected.');
+}
