@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
-const WORKERS = Object.freeze(["workers/auth", "workers/contact", "workers/ai"]);
+const WORKERS = Object.freeze(["workers/auth", "workers/contact", "workers/ai", "workers/media"]);
 
 const args = process.argv.slice(2);
 if (args.some(arg => arg !== "--install")) throw new Error("Only --install is supported");
@@ -191,7 +191,7 @@ function runDevToolingAudit(workerDir) {
 const failures = [];
 for (const workerDir of WORKERS) {
   try {
-    console.log(`${workerDir}: native tooling resolution ${JSON.stringify(validateInstalledSharp(path.join(repoRoot, workerDir)))}`);
+    if(workerDir!=="workers/media")console.log(`${workerDir}: native tooling resolution ${JSON.stringify(validateInstalledSharp(path.join(repoRoot, workerDir)))}`);
   } catch (error) {
     failures.push({ errors: [`${workerDir}: native tooling resolution failed: ${error.message}`] });
   }

@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0088_add_canvas_video_processing.sql",
+        "latest": "0089_add_private_media_services.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -77,7 +77,8 @@
             "AI_LAB": {
               "service": "bitbi-ai",
               "worker": "ai"
-            }
+            },
+            "PRIVATE_MEDIA_PROCESSOR": {"service": "bitbi-private-media", "worker": "media"}
           },
           "durableObjects": {
             "PUBLIC_RATE_LIMITER": {
@@ -152,6 +153,30 @@
             "newSqliteClasses": ["ContactPublicRateLimiterDurableObject"]
           }
         ]
+      },
+      "media": {
+        "name": "bitbi-private-media",
+        "wranglerPath": "workers/media/wrangler.jsonc",
+        "workersDev": false,
+        "previewUrls": false,
+        "vars": [
+          "SOURCE_SHA"
+        ],
+        "bindings": {
+          "durableObjects": {
+            "MEDIA_CONTAINER": {
+              "className": "PrivateMediaContainer"
+            }
+          }
+        },
+        "migrations": [
+          {
+            "tag": "v1-private-media",
+            "newSqliteClasses": [
+              "PrivateMediaContainer"
+            ]
+          }
+        ]
       }
     },
     "services": {
@@ -174,11 +199,12 @@
         "type": "worker",
         "worker": "ai"
       },
+      {"id":"media-worker", "type":"worker", "worker":"media", "dependsOn":["auth-migrations"]},
       {
         "id": "auth-worker",
         "type": "worker",
         "worker": "auth",
-        "dependsOn": ["auth-migrations", "ai-worker"]
+        "dependsOn": ["auth-migrations", "ai-worker", "media-worker"]
       },
       {
         "id": "contact-worker",

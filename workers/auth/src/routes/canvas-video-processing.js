@@ -1,7 +1,7 @@
+import { processorBackend, notifyPrivateMedia } from '../lib/private-media-service.js';
 import { canvasVideoChain, enqueueCanvasProcessing, publicCanvasProcessing, claimCanvasProcessing, canvasProcessingClaim, failCanvasProcessing, CANVAS_VIDEO_LIMITS, canvasProcessingError } from '../lib/canvas-video-processing.js';
 import { ownedCanvasVideo } from '../lib/canvas-video-input.js';
 import { saveGeneratedVideoAsset } from '../lib/ai-text-assets.js';
-import { getMemvidStreamPreviewProcessorSecret } from '../lib/video-delivery-settings.js';
 import { json } from '../lib/response.js';
 import { readJsonBodyOrResponse, readFormDataLimited, BODY_LIMITS } from '../lib/request.js';
 import { nowIso } from '../lib/tokens.js';
@@ -29,7 +29,8 @@ export async function canvasExport(ctx,userId,projectId,runId) {
         .bind(nowIso(),nowIso(),task.id,userId).run();
       task=await ctx.env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=?').bind(task.id).first();
     }
-    return reply({export:publicCanvasProcessing(task),eligible:true,limits:CANVAS_VIDEO_LIMITS},202);
+    if(['queued','preview_pending'].includes(task.status))await notifyPrivateMedia(ctx.env,task.processing_backend);
+  return reply({export:publicCanvasProcessing(task),eligible:true,limits:CANVAS_VIDEO_LIMITS},202);
   }
   const sources=await canvasVideoChain(ctx.env,userId,projectId,runId);
   if(sources.length<2) throw canvasProcessingError('canvas_chain_too_short','Connect and finish at least two last-frame clips.');
@@ -41,6 +42,7 @@ export async function canvasExport(ctx,userId,projectId,runId) {
       .bind(task.asset_id?'preview_pending':'queued',nowIso(),nowIso(),task.id,userId).run();
     task=await ctx.env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=?').bind(task.id).first();
   }
+  if(['queued','preview_pending'].includes(task.status))await notifyPrivateMedia(ctx.env,task.processing_backend);
   return reply({export:publicCanvasProcessing(task),eligible:true,limits:CANVAS_VIDEO_LIMITS},202);
 }
 
@@ -49,8 +51,8 @@ export async function canvasExport(ctx,userId,projectId,runId) {
 export async function handleCanvasExportProcessor(ctx) {
   const {method}=ctx;
   if(!ctx.pathname.startsWith(base)) return null;
-  const secret=getMemvidStreamPreviewProcessorSecret(ctx.env);
-  if(!secret || ctx.request.headers.get('Authorization')!==`Bearer ${secret}`) return json({ok:false,code:'processor_auth_failed'},{status:403});
+  const backend=await processorBackend(ctx.env,ctx.request);
+  if(!backend) return json({ok:false,code:'processor_auth_failed'},{status:403});
   try {
     if(ctx.pathname===base+'/claim') {
       if(ctx.method==='GET') return reply({protocol:1});
@@ -59,7 +61,7 @@ export async function handleCanvasExportProcessor(ctx) {
       const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.homepageHeroProcessorJson});
       if(parsed.response)return parsed.response;
       if(parsed.body?.protocol!==1) throw canvasProcessingError('canvas_processor_protocol');
-      const jobs=await claimCanvasProcessing(ctx.env,'concat',Math.max(1,Math.min(3,Math.floor(Number(parsed.body.limit)||1))));
+      const jobs=await claimCanvasProcessing(ctx.env,'concat',Math.max(1,Math.min(3,Math.floor(Number(parsed.body.limit)||1))),backend);
       return reply({protocol:1,jobs:jobs.map(row=>({id:row.id,claim:row.processing_token,limits:CANVAS_VIDEO_LIMITS,
         sources:JSON.parse(row.sources_json).map((s,i)=>({url:`${base}/${row.id}/source/${i}`,size:s.size})),
         completion:{url:`${base}/${row.id}/complete`,failure_url:`${base}/${row.id}/fail`}}))});
@@ -68,7 +70,7 @@ export async function handleCanvasExportProcessor(ctx) {
     if(!match)return null;
     const token=ctx.request.headers.get('X-BITBI-Canvas-Claim');
     const job=await canvasProcessingClaim(ctx.env,match[1],token);
-    if(!job) return json({ok:false,code:'canvas_processing_claim_lost'},{status:409});
+    if(!job || job.processing_backend!==backend) return json({ok:false,code:'canvas_processing_claim_lost'},{status:409});
     if(match[2].startsWith('source/') && ctx.method==='GET') {
       const source=JSON.parse(job.sources_json)[Number(match[2].split('/')[1])];
       if(!source) throw canvasProcessingError('source_not_found');

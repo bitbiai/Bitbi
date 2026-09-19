@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
-import {api,collection,gitSelection,isRequiredValidationRun,validateSource,verifyManifest,verifyProofs,tree,REPOSITORY} from '../pages-candidate.mjs';
+import {api,collection,sourceAttempt,gitSelection,isRequiredValidationRun,validateSource,verifyManifest,verifyProofs,tree,REPOSITORY} from '../pages-candidate.mjs';
 import {hash,readJson,verifyFrontend} from './frontend-hosting.mjs';
 
 export function sourceExpectation(preview, env=process.env) {
@@ -21,7 +21,7 @@ export function sourceExpectation(preview, env=process.env) {
 export async function sourceArchives(preview, env=process.env) {
   const e=sourceExpectation(preview,env);
   const [run,jobs,artifacts,laterRuns,ref]=await Promise.all([
-    api(`actions/runs/${e.run}`),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),
+    sourceAttempt(e.run,e.attempt,e.selection),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),
     collection(`actions/runs/${e.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${e.sha}`,'workflow_runs'),
     api(`git/ref/heads/${e.branch.split('/').map(encodeURIComponent).join('/')}`),
   ]);

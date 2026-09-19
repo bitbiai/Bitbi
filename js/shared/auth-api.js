@@ -472,6 +472,13 @@ export function apiAdminUsers(search, { limit, cursor } = {}) {
     return request('GET', `/admin/users${qs}`);
 }
 
+export function apiAdminPrivateMediaService(options) {
+    return request('GET', '/admin/private-media/service', undefined, options);
+}
+export function apiAdminSetPrivateMediaService(payload) {
+    return request('POST', '/admin/private-media/service', payload);
+}
+
 export function apiAdminRegistrationStatus(options) {
     return request('GET', '/admin/registration/status', undefined, options);
 }

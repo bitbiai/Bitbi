@@ -319,3 +319,36 @@ for (const moduleName of ['ai-lab', 'fable-data-center']) test(`cold ${moduleNam
   else await expect(page.locator('#fableDataWorkspace')).toBeVisible();
   expect(state.unexpected).toEqual([]);
 });
+
+for(const engine of ['chromium','webkit'])for(const locale of ['en','de'])test.describe(`Private media service ${engine} ${locale}`,()=>{
+  test('private media choice persists and readiness blocks unavailable backend',async({playwright,baseURL},info)=>{
+    const browser=await playwright[engine].launch();const context=await browser.newContext({baseURL,viewport:locale==='de'?{width:390,height:844}:{width:1440,height:900},hasTouch:locale==='de'});const page=await context.newPage();
+    try {
+    let backend='github',available=false;const mutations=[];
+    const state=await fixture(page,baseURL,request=>{
+      if(new URL(request.url()).pathname!=='/api/admin/private-media/service')return null;
+      if(request.method()==='POST'){const payload=request.postDataJSON();mutations.push(payload);backend=payload.backend;}
+      return {status:200,body:{ok:true,data:{backend,services:{github:{state:'ready'},cloudflare:{state:available?'ready':'not_configured'}},dispatch:[]}}};
+    });
+    await page.goto(`/admin?lang=${locale}#operations`);await ready(page,'sectionOperations');
+    const panel=page.locator('#privateMediaServicePanel'),select=page.locator('#privateMediaServiceSelect');
+    await expect(select).toHaveValue('github');await expect(select.locator('[value="cloudflare"]')).toHaveJSProperty('disabled',true);
+    await select.focus();await select.press('End');await expect(select).toHaveValue('github');
+    expect(mutations).toEqual([]);available=true;await page.locator('#operationsRefresh').click();await expect(select.locator('[value="cloudflare"]')).toHaveJSProperty('disabled',false);
+    await select.focus();await expect(select).toBeFocused();await select.selectOption('cloudflare');
+    await page.locator('#privateMediaServiceReason').fill('Synthetic operator service choice');
+    page.once('dialog',d=>d.accept());
+    if(locale==='de')await page.locator('#privateMediaServiceSave').tap();else await page.locator('#privateMediaServiceSave').press('Enter');
+    await expect(select).toHaveValue('cloudflare');await expect(page.locator('#privateMediaServiceReason')).toHaveValue('');
+    expect(mutations).toEqual([{backend:'cloudflare',reason:'Synthetic operator service choice'}]);
+    await page.reload();await ready(page,'sectionOperations');await expect(select).toHaveValue('cloudflare');
+    await info.attach('service-locale',{body:JSON.stringify({locale,url:page.url(),language:await page.locator('html').getAttribute('lang')}),contentType:'application/json'});
+    await expect(panel).toContainText(locale==='de'?'Bestehende Aufträge':'Existing jobs');
+    expect(await panel.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true);
+    await panel.screenshot({path:info.outputPath(`private-media-${engine}-${locale}.png`)});
+    expect(state.unexpected).toEqual([]);expect(state.requests.some(p=>/^\/api\/(?:ai\/.*generate|canvas\/.*\/run)(?:$|\/)/.test(p))).toBe(false);
+    await page.evaluate(()=>document.dispatchEvent(new CustomEvent('bitbi:auth-change',{detail:{ready:true,loggedIn:false,user:null}})));
+    await expect(page.locator('#adminPanel')).toBeHidden();
+    } finally {await browser.close();}
+  });
+});

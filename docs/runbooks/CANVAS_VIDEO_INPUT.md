@@ -28,7 +28,7 @@ The existing job persists `video_id` and polls `/video/result/{id}` within its e
 - `node scripts/test-q2-runtime.mjs --suite canvas`: same controls in the existing isolated native workerd/D1/R2/Images runner, including original Canvas cases. No remote bindings or real provider. macOS is not Linux CI/live acceptance.
 - Existing selection/release tests map helper/fixture inputs, require Auth for the shared Canvas contract and retain unknown-path/full coverage. No new acceptance pipeline.
 
-Deploy accepted Auth code before the matching frontend through existing protected paths. The private-poster/full-video extension below requires additive migration 0088 before Auth; it does not require an AI Worker deployment. Publication remains bound to the current candidate and protected production review.
+Deploy accepted Auth code before the matching frontend through existing protected paths. The current private-media service extension requires additive migration 0089 after 0088 before Auth; it does not require an AI Worker deployment. Publication remains bound to the current candidate and protected production review.
 
 ## Private posters and complete-chain export
 
@@ -63,3 +63,76 @@ share the actual fetch/queue/poster control. `test:homepage-ffmpeg-processor`
 executes real 2/5-clip FFmpeg tests (order, sound/silence, duration, normalization).
 `tests/canvas.spec.js` covers export/reload/poster in Chromium and webkit-canvas.
 Live inference is not part of automated acceptance.
+
+## Immediate private media services (0089)
+
+`0089_add_private_media_services.sql` assigns each existing job to GitHub and
+pins the chosen backend on new jobs. The existing video queue carries a wake
+only after durable acceptance; the existing cron recovers lost sends/starts.
+A fenced 20-minute start/runner lease deduplicates activation; job claims and
+retry limits remain separate. Finish rechecks work arriving after the last
+claim. Expired starts are recoverable, not proof of completion. Public Hero and
+Memvid dispatch retain their previous path/cooldown.
+
+Admin → Operations → Private media processing stores the choice with existing
+Admin/MFA/CSRF/rate-limit/audit protections. `?lang=de#operations` on the canonical
+`/admin` URL localizes this panel only. Old jobs and poster follow-ups stay with
+their original service. No silent fallback. A service setting alone is not
+readiness: Cloudflare requires the current version's private MP4/poster smoke.
+
+The shared processor runs in `bitbi-private-media`: pinned Node 22/FFmpeg 5.1.9
+Linux amd64 image, one standard-2 instance (1 vCPU, 6 GiB RAM, 12 GB disk), one
+job per pass, at most eight passes/15 minutes per drain, 20-minute child bound,
+30-second idle check/shutdown. Busy work renews activity; temporary files are
+removed. D1/R2 remain authoritative across termination. The 30-second setting
+is not a guaranteed wall-clock billing cutoff. Workers Paid/Containers access
+is required and is not established by local Docker success.
+
+Production uses only the existing protected `deploy` job and publication lock:
+verified source run/attempt/archives → missing additive migration → digest-bound
+CI image push/Container activation → Auth → private synthetic jobs on both
+backends → frontend. Reuse exposes the same backend preflight and follows the
+same order. Later attempts cannot relabel archive attempts or override failed
+validation. Preflight schedules supported prerequisites; it does not authorize
+static upload. Final guards require independent active-version/D1 readback.
+
+The environment `cloudflare-static-production` needs a separate backend token
+(`CF_BACKEND_DEPLOY_TOKEN`) for account Workers Scripts, D1 and Containers writes
+and matching reads (including registry/application/version readback). Existing
+Auth route verification also needs read access to the bitbi.ai zone/routes; no
+new route or DNS authority is requested. Wrangler refuses conflicting routes. These
+account permissions are **not** restricted to a single Worker by its name.
+No DNS, AI inference, R2/KV management, billing-plan or zone write is requested.
+Do not broaden the frontend token or copy local OAuth into CI. Preserve owner
+review. Missing rights fail closed; provision the credential directly through
+GitHub's protected secret UI, never in chat or source.
+
+The existing private GitHub processor secret derives a domain-separated
+Cloudflare processor credential inside the protected job. Wrangler applies it
+additively through a temporary mode-0600 secrets file, removed in finally.
+The new service has no workers.dev/preview/public route. Public interfaces are
+existing narrowly authenticated processor endpoints, never an open shell/URL
+fetcher. The release smoke accepts only a fixed small fixture, current source
+SHA and two backend names, with deterministic private jobs for a disabled
+synthetic owner. It creates no AI invocation or credit debit; small synthetic
+artifacts are retained as release evidence. The production setting is preserved.
+Native tests verify actual Admin setting changes and restoration independently.
+
+`node scripts/private-media-image.mjs` tests the exact image (two/five clips,
+copy/normalization/audio, poster and real HTTP child abort/restart). Local dirty
+images are explicitly marked and rejected for publication. CI archives are
+bound to source files, SHA/run/attempt, image ID and archive digest; no rebuild
+in the deployment job. `test:workers` also retains FFmpeg and isolated native
+D1 tests. Source/activation/smoke counterchecks live in `test:release-plan` and
+`test:static-deploy-safety`; Admin EN/DE Chromium/WebKit cases run via `test:auth`.
+
+At published list rates, a continuously busy standard-2 instance is roughly
+$0.129/hour before included allowances, network/DO/log charges; CPU use is
+measured while memory/disk are provisioned. This is an estimate, not a bill cap.
+Check current [Containers pricing](https://developers.cloudflare.com/containers/platform/pricing/)
+before activation. GitHub Actions remains a bounded compatibility adapter,
+subject to runner/minute limits and [GitHub's additional terms](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features#actions),
+not an unlimited commercial compute service. No subscription change is automatic.
+Rollback must retain 0089-compatible Auth, processor protocol and both job
+backends; switching the setting affects future jobs only. Do not deploy an old
+Worker that ignores immutable backend assignments.

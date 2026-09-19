@@ -36,6 +36,7 @@ function parseArgs(argv) {
       || process.env.STATIC_DEPLOY_ACK
       || "",
     githubOutput: false,
+    backendPreflight: false,
     help: false,
   };
 
@@ -56,6 +57,7 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (arg === "--backend-preflight") { options.backendPreflight=true;continue; }
     if (arg === "--github-output") {
       options.githubOutput = true;
       continue;
@@ -339,7 +341,13 @@ try {
     if(process.env.GITHUB_OUTPUT)appendLine(process.env.GITHUB_OUTPUT,`backend_continuation=${backendContinuationSupported(plan)}`);
     writeGithubSummary(plan, result);
   }
-  process.exit(result.ok || result.skipped ? 0 : 1);
+  // Structural preflight can schedule the protected backend continuation. It
+  // never authorizes static publication: outputs stay blocked until readback.
+  const pendingBackend=options.backendPreflight && !options.planJson && !hasExplicitFileList(options)
+    && options.releaseOptions.base && options.releaseOptions.head && !getTrustedRangeIssue(options)
+    && backendContinuationSupported(plan);
+  if(pendingBackend&&!result.ok)console.log('Supported backend prerequisites pending; static publication remains blocked until verified activation.');
+  process.exit(result.ok || result.skipped || pendingBackend ? 0 : 1);
 } catch (error) {
   console.error("Static deploy safety check failed closed.");
   console.error(error?.message || String(error));

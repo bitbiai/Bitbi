@@ -191,8 +191,8 @@ const RELEASE_TOOLING_FILES = new Set([
   'scripts/test-ci-test-selection.mjs', 'scripts/test-release-compat.mjs', 'scripts/pages-candidate.mjs',
   'scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs',
   'scripts/check-static-deploy-safety.mjs', 'scripts/release-apply.mjs', 'scripts/frontend-release.mjs',
-  'scripts/lib/backend-continuation.mjs', 'scripts/lib/backend-publication.mjs',
-  'scripts/test-pages-candidate.mjs', 'scripts/test-pages-workflow.mjs',
+  'scripts/lib/backend-continuation.mjs', 'scripts/lib/backend-publication.mjs', 'scripts/lib/media-publication.mjs',
+  'scripts/test-pages-candidate.mjs', 'scripts/test-pages-workflow.mjs', 'scripts/test-static-deploy-safety.mjs',
   'scripts/lib/frontend-hosting.mjs', 'scripts/lib/frontend-source.mjs', 'scripts/test-frontend-hosting.mjs',
   'scripts/test-frontend-review.mjs', 'scripts/lib/fast-deploy-paths.mjs',
   'scripts/lib/homepage-test-selection.mjs', 'scripts/check-homepage-selection.mjs', 'scripts/test-homepage-selection.mjs',
@@ -453,7 +453,12 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       continue;
     }
 
-    if (['scripts/check-route-policies.mjs','services/homepage-ffmpeg-processor/canvas-full-video.mjs','services/homepage-ffmpeg-processor/canvas-full-video.test.mjs','.github/workflows/memvid-stream-preview-processor.yml','services/homepage-ffmpeg-processor/processor.mjs','scripts/test-homepage-ffmpeg-processor.mjs','config/release-compat.json'].includes(file)) {
+    if(file==='scripts/check-worker-dependency-audits.mjs'||/^workers\/media\/package(?:-lock)?\.json$/.test(file)) {
+      addReason(selection,'workerDependencies',file,'changes isolated Worker package audit/installation');
+      addReason(selection,'workers',file,'requires Worker integration and installed dependency validation');
+      continue;
+    }
+    if (['scripts/private-media-image.mjs','services/homepage-ffmpeg-processor/Dockerfile','services/homepage-ffmpeg-processor/container-server.mjs','services/homepage-ffmpeg-processor/private-media-runner.mjs','services/homepage-ffmpeg-processor/private-media-runner.test.mjs','tests/helpers/private-media-control.mjs','scripts/check-route-policies.mjs','services/homepage-ffmpeg-processor/canvas-full-video.mjs','services/homepage-ffmpeg-processor/canvas-full-video.test.mjs','.github/workflows/memvid-stream-preview-processor.yml','services/homepage-ffmpeg-processor/processor.mjs','scripts/test-homepage-ffmpeg-processor.mjs','config/release-compat.json'].includes(file)) {
       addReason(selection,'workers',file,'changes Auth/processor runtime or its required deployment contract');
       addReason(selection,'auth',file,'requires affected media/auth integration; release and processor checks are mandatory');
       continue;
@@ -656,4 +661,10 @@ export function formatCiTestSelection(selection) {
     `Full regression: ${selection.full ? "yes" : "no"}`,
     `Acceptance policy: ${selection.policy}`,
   ].join("\n");
+}
+
+// Existing Worker job also tests the exact deployable Linux image when any of
+// its inputs change. Unrelated worker-only releases do not build a container.
+export function requiresPrivateMediaImage(files) {
+  return files.some(f=>f.startsWith('workers/media/')||f.startsWith('services/homepage-ffmpeg-processor/')||f==='scripts/private-media-image.mjs');
 }

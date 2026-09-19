@@ -17,6 +17,8 @@ export async function runCanvasTests(f) {
   await f.test('canvas_native_MFA_and_ownership_deny_before_provider', async () => {
     assert.equal((await request(route, {})).status, 403);
     assert.equal((await request(route, {}, 'member-key', member)).status, 404);
+    assert.equal((await request('/api/admin/private-media/service',undefined,'media-mfa')).status,403);
+    assert.equal((await request('/api/admin/private-media/service',{backend:'cloudflare',reason:'Unauthorized'},'media-denied',member)).status,403);
     assert.equal(f.canvasProvider.requests.length, 0);
   });
   const password = 'Synthetic native Canvas password 123!';
@@ -27,6 +29,11 @@ export async function runCanvasTests(f) {
   const code = (await (await f.control('/totp', { secret: setup.secret })).json()).code;
   const enabled = await request('/api/admin/mfa/enable', { code }); assert.equal(enabled.status, 200);
   admin += '; '+enabled.headers.getSetCookie().find(c => c.startsWith('__Host-bitbi_admin_mfa=')).split(';')[0];
+  await f.test('private_media_admin_read_no_inference_and_not_ready_switch_denied',async()=>{
+    const state=await ok(await request('/api/admin/private-media/service'));assert.equal(state.backend,'github');assert.equal(state.services.cloudflare.state,'not_configured');
+    assert.equal((await request('/api/admin/private-media/service',{backend:'cloudflare',reason:'Not configured'})).status,409);
+    assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM app_settings WHERE key='private_media_service'"),0);
+  });
   await f.test('canvas_native_budget_switch_and_missing_cap_deny_before_inference', async () => {
     assert.equal((await request(route, {}, 'switch-off')).status, 503);
     for (const key of ['ENABLE_ADMIN_AI_TEXT_BUDGET', 'ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET']) await f.sql('INSERT INTO admin_runtime_budget_switches(switch_key,enabled,created_at,updated_at) VALUES(?,1,?,?)', key, now, now).run();
@@ -115,6 +122,17 @@ export async function runCanvasTests(f) {
       imageBase64:fs.readFileSync(new URL('../../fixtures/media/member-image.png',import.meta.url)).toString('base64'),
     });
     assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+  await f.test('private_media_native_release_smoke_same_endpoints_both_backends',async()=>{
+    const response=await f.control('/private-media-smoke',{
+      videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
+      imageBase64:fs.readFileSync(new URL('../../fixtures/media/member-image.png',import.meta.url)).toString('base64'),
+    });assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+  await f.test('private_media_native_immediate_fenced_dispatch_and_backend_assignment',async()=>{
+    const response=await f.control('/private-media',{cookie:admin});assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
   assert.equal(f.counters.outboundDenied, 0, 'No external provider or network call');

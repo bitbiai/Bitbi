@@ -1,3 +1,4 @@
+import { MEDIA_BACKEND_SQL, notifyPrivateMedia } from './private-media-service.js';
 import { nowIso, sha256Hex, randomTokenHex } from './tokens.js';
 import { ownedCanvasVideo } from './canvas-video-input.js';
 
@@ -36,9 +37,11 @@ export async function canvasVideoChain(env,userId,projectId,runId) {
 export async function enqueueCanvasProcessing(env,{userId,projectId,runId,kind,sources,assetId=null}) {
   const id=(await sha256Hex(JSON.stringify(['canvas-processing-v1',userId,projectId,kind,assetId,sources]))).slice(0,32),now=nowIso();
   await env.DB.prepare(`INSERT OR IGNORE INTO canvas_video_processing
-    (id,user_id,project_id,run_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`)
+    (id,user_id,project_id,run_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at,processing_backend) VALUES(?,?,?,?,?,?,?,?,?,?,${MEDIA_BACKEND_SQL})`)
     .bind(id,userId,projectId,runId,kind,JSON.stringify(sources),assetId,now,now,now).run();
-  return env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=? AND user_id=?').bind(id,userId).first();
+  const row=await env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=? AND user_id=?').bind(id,userId).first();
+  if(row?.status==='queued')await notifyPrivateMedia(env,row.processing_backend);
+  return row;
 }
 
 export function publicCanvasProcessing(row) {
@@ -46,11 +49,11 @@ export function publicCanvasProcessing(row) {
     asset:row.asset_id?{id:row.asset_id,file_url:`/api/ai/text-assets/${row.asset_id}/file`,poster_url:row.status==='ready'?`/api/ai/text-assets/${row.asset_id}/poster`:null}:null};
 }
 
-export async function claimCanvasProcessing(env,kind,limit) {
+export async function claimCanvasProcessing(env,kind,limit,backend='github') {
   const now=nowIso();
   const rows=await env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE
     ${kind==='poster'?"((kind='poster' AND status IN ('queued','processing')) OR status='preview_pending')":"kind='concat' AND status IN ('queued','processing')"}
-    AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?) AND attempt_count<8 ORDER BY next_attempt_at LIMIT ?`).bind(now,now,limit).all();
+    AND processing_backend=? AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?) AND attempt_count<8 ORDER BY next_attempt_at LIMIT ?`).bind(backend,now,now,limit).all();
   const claimed=[];
   for(const row of rows.results||[]) {
     if(kind==='concat') {

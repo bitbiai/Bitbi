@@ -1,0 +1,13 @@
+{
+  "name": "bitbi-private-media",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-19",
+  "workers_dev": false,
+  "preview_urls": false,
+  "containers": [{"class_name":"PrivateMediaContainer","image":"../../services/homepage-ffmpeg-processor/Dockerfile","image_build_context":"../../services/homepage-ffmpeg-processor","instance_type":"standard-2","max_instances":1}],
+  "durable_objects": {"bindings":[{"name":"MEDIA_CONTAINER","class_name":"PrivateMediaContainer"}]},
+  "migrations": [{"tag":"v1-private-media","new_sqlite_classes":["PrivateMediaContainer"]}],
+  "observability": {"enabled":true,"logs":{"enabled":true,"invocation_logs":false},"traces":{"enabled":false}},
+  "vars": {"SOURCE_SHA":"UNRELEASED"},
+  "secrets": {"required":["PRIVATE_MEDIA_PROCESSOR_SECRET"]}
+}

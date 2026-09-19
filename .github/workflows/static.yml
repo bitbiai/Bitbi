@@ -107,7 +107,7 @@ jobs:
           STATIC_DEPLOY_HEAD_REF: ${{ github.sha }}
         run: |
           set -euo pipefail
-          npm run check:static-deploy-safety:github -- --base "${STATIC_DEPLOY_BASE_REF:-}" --head "${STATIC_DEPLOY_HEAD_REF:-}" --event-name "$STATIC_DEPLOY_EVENT" --acknowledgement "$STATIC_DEPLOY_ACK"
+          npm run check:static-deploy-safety:github -- --backend-preflight --base "${STATIC_DEPLOY_BASE_REF:-}" --head "${STATIC_DEPLOY_HEAD_REF:-}" --event-name "$STATIC_DEPLOY_EVENT" --acknowledgement "$STATIC_DEPLOY_ACK"
       - name: Select tests from changed files
         id: selection
         env:
@@ -263,6 +263,20 @@ jobs:
           else
             npm run test:workers
           fi
+      - name: Build and test private media Linux image
+        id: media_image
+        env:
+          CANDIDATE_BASE: ${{ needs.release-compatibility.outputs.candidate_base }}
+        run: node scripts/private-media-image.mjs --if-needed
+      - name: Preserve tested private media image
+        if: steps.media_image.outputs.required == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: private-media-image-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/private-media-image/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
       - name: Upload native Linux acceptance evidence
         if: always() && needs.release-compatibility.outputs.workers == 'true'
         uses: actions/upload-artifact@v6
@@ -480,7 +494,7 @@ jobs:
           if [ "${{ needs.release-compatibility.outputs.homepage }}" = 'true' ]; then
             npx playwright install --with-deps chromium webkit
           else
-            npx playwright install --with-deps chromium
+            npx playwright install --with-deps chromium webkit
           fi
       - name: Install Admin acceptance browsers
         if: needs.release-compatibility.outputs.model_status == 'true' || needs.release-compatibility.outputs.admin_release == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.public_media == 'true' || needs.release-compatibility.outputs.workspace_help == 'true'
@@ -568,6 +582,7 @@ jobs:
       deployments: read
     outputs:
       artifact_ids: ${{ steps.source.outputs.artifact_ids }}
+      backend_continuation: ${{ steps.release_preflight.outputs.backend_continuation }}
       hosting_provider: ${{ steps.hosting.outputs.provider }}
       candidate_base: ${{ steps.baseline.outputs.base }}
     steps:
@@ -593,9 +608,10 @@ jobs:
           RELEASE_BASE_INPUT: ${{ github.event.inputs.release_plan_base_ref }}
         run: node scripts/pages-candidate.mjs baseline
       - name: Preflight acknowledged full release
+        id: release_preflight
         env:
           STATIC_DEPLOY_ACK: ${{ github.event.inputs.release_plan_dependency_acknowledgement }}
-        run: node scripts/check-static-deploy-safety.mjs --base "$CANDIDATE_BASE" --head "$GITHUB_SHA" --event-name workflow_dispatch --acknowledgement "$STATIC_DEPLOY_ACK"
+        run: node scripts/check-static-deploy-safety.mjs --base "$CANDIDATE_BASE" --head "$GITHUB_SHA" --event-name workflow_dispatch --acknowledgement "$STATIC_DEPLOY_ACK" --github-output --backend-preflight
       - name: Verify exact completed source acceptance
         id: source
         env:
@@ -660,14 +676,19 @@ jobs:
           path: candidate
           digest-mismatch: error
       - name: Apply verified candidate backend prerequisites
-        if: success() && needs.release-compatibility.outputs.backend_continuation == 'true' && env.HOSTING_PROVIDER == 'cloudflare'
+        if: success() && (needs.release-compatibility.outputs.backend_continuation == 'true' || needs.reuse-candidate.outputs.backend_continuation == 'true') && env.HOSTING_PROVIDER == 'cloudflare'
         env:
           GH_TOKEN: ${{ github.token }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_FRONTEND_DEPLOY_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_BACKEND_DEPLOY_TOKEN }}
+          MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: ${{ secrets.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_FRONTEND_ACCOUNT_ID }}
         run: |
           set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "Protected CF_BACKEND_DEPLOY_TOKEN is missing"; exit 1; }
           npm --prefix workers/auth ci
+          npm --prefix workers/media ci
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
           node scripts/release-apply.mjs --ci-verified-candidate
       - name: Preserve backend activation evidence
         if: success() && env.BACKEND_RELEASE_RECEIPT != ''
@@ -680,6 +701,7 @@ jobs:
       - name: Check static deploy release-plan safety
         id: static_safety
         env:
+          CF_BACKEND_DEPLOY_TOKEN: ${{ secrets.CF_BACKEND_DEPLOY_TOKEN }}
           GH_TOKEN: ${{ github.token }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_FRONTEND_DEPLOY_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_FRONTEND_ACCOUNT_ID }}
@@ -820,6 +842,7 @@ jobs:
       - name: Refuse superseded or newly failed publication
         if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch') && steps.static_build.outcome == 'success' && (env.HOSTING_PROVIDER == 'cloudflare' || steps.pages_artifact.outcome == 'success')
         env:
+          CF_BACKEND_DEPLOY_TOKEN: ${{ secrets.CF_BACKEND_DEPLOY_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_FRONTEND_DEPLOY_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_FRONTEND_ACCOUNT_ID }}
           CANDIDATE_ARTIFACT_IDS: ${{ needs.reuse-candidate.outputs.artifact_ids }}
@@ -849,6 +872,7 @@ jobs:
       - name: Deploy and verify Cloudflare frontend
         if: success() && env.HOSTING_PROVIDER == 'cloudflare' && steps.static_build.outcome == 'success'
         env:
+          CF_BACKEND_DEPLOY_TOKEN: ${{ secrets.CF_BACKEND_DEPLOY_TOKEN }}
           GH_TOKEN: ${{ github.token }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_FRONTEND_DEPLOY_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_FRONTEND_ACCOUNT_ID }}

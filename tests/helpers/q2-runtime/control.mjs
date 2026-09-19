@@ -1,3 +1,4 @@
+import { privateMediaCase,privateMediaSmokeCase } from '../private-media-control.mjs';
 import { canvasProcessingCase } from '../canvas-processing-control.mjs';
 import { canvasVideoCase, adminPixverseCase } from '../canvas-video-control.mjs';
 // Native-runtime test control; never part of a deploy artifact.
@@ -16,6 +17,8 @@ export default {
     const path=new URL(request.url).pathname;
     const body=await request.json();
     if (path==='/admin-pixverse' && ['success','failure','unknown'].includes(body.name)) return Response.json(await adminPixverseCase(env, body.name, body));
+    if (path==='/private-media-smoke') return Response.json(await privateMediaSmokeCase(env,body));
+    if (path==='/private-media') return Response.json(await privateMediaCase(env,body));
     if (path==='/canvas-processing') return Response.json(await canvasProcessingCase(env,body));
     if (path==='/canvas-video' && ['first','success','last-frame','foreign','changed','blocked','blocked-admin','provider-interrupted','receipt-write'].includes(body.name)) return Response.json(await canvasVideoCase(env, body.name, body));
     if (path==='/session' && [ADMIN,MEMBER].includes(body.userId)) {

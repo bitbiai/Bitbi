@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,9 +80,9 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
   assert.equal(plan.impacts.static.required, false);
   assert.deepEqual(
     plan.deploySteps.map((step) => step.id),
-    ["homepage-ffmpeg-processor"]
+    ["media-worker", "auth-worker", "homepage-ffmpeg-processor"]
   );
-  assert.equal(plan.deploySteps[0].type, "service");
+  assert.equal(plan.deploySteps.at(-1).type, "service");
   assert(plan.remainingManualSteps.some((step) => step.includes("Deploy service: homepage-ffmpeg-processor")));
 }
 
@@ -95,13 +96,13 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
     ],
   });
   assert.deepEqual(Object.keys(plan.impacts.schemaCheckpoints), ["auth"]);
-  assert.deepEqual(Object.keys(plan.impacts.workers), ["auth"]);
+  assert.deepEqual(Object.keys(plan.impacts.workers).sort(), ["auth", "media"]);
   assert.deepEqual(Object.keys(plan.impacts.services), ["homepage-ffmpeg-processor"]);
   assert.equal(plan.impacts.static.required, true);
   assert.deepEqual(plan.impacts.uncategorizedFiles, []);
   assert.deepEqual(
     plan.deploySteps.map((step) => step.id),
-    ["auth-migrations", "auth-worker", "homepage-ffmpeg-processor", "static-site"]
+    ["auth-migrations", "media-worker", "auth-worker", "homepage-ffmpeg-processor", "static-site"]
   );
 }
 
@@ -549,7 +550,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  assert(backendContinuationSupported(plan));
  assert.equal(evaluateStaticDeploySafety(plan,{eventName:'push'}).allowed,false);
  assert.equal(evaluateStaticDeploySafety(plan,{eventName:'push',dependenciesVerified:true}).mode,'verified_backend_dependencies');
- for(const extra of ['workers/ai/src/index.js','workers/auth/wrangler.jsonc','unknown-backend-entry.js']) {
+ for(const extra of ['workers/ai/src/index.js','workers/ai/wrangler.jsonc','unknown-backend-entry.js']) {
    const invalid=createReleasePlanFromRepo(repoRoot,{files:[...plan.changedFiles,extra]});assert(!backendContinuationSupported(invalid));assert(!evaluateStaticDeploySafety(invalid,{eventName:'push',dependenciesVerified:true}).allowed);
  }
  const receipt={sha:'a'.repeat(40),base:'b'.repeat(40),run:'123',attempt:'1',worker:'bitbi-auth',migration:'0088_add_canvas_video_processing.sql',version:'version-1',deployment:'deployment-1'};
@@ -572,4 +573,42 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  }
  actions.length=0;await advanceBackend({...steps,pending:[],activeVersion:{annotations:{'workers/message':`bitbi-auth:${sha}`}}});
  assert.deepEqual(actions,['current','schema-read','current','active-read'],'Repeated same candidate verifies without another migration/Auth deploy');
+}
+
+{
+ const {assertMediaAuthConfig}=await import('./lib/media-publication.mjs');
+ const before=JSON.parse(fs.readFileSync(path.join(repoRoot,'workers/auth/wrangler.jsonc')));
+ const after=structuredClone(before);delete before.vars.PRIVATE_MEDIA_SOURCE_SHA;before.services=before.services.filter(s=>s.binding!=='PRIVATE_MEDIA_PROCESSOR');before.secrets.required=before.secrets.required.filter(s=>s!=='PRIVATE_MEDIA_PROCESSOR_SECRET');
+ assertMediaAuthConfig(before,after);
+ const invalid=structuredClone(after);invalid.routes=[];assert.throws(()=>assertMediaAuthConfig(before,invalid),/Unreviewed Auth/);
+ const media=createReleasePlanFromRepo(repoRoot,{files:['workers/media/src/index.js','workers/auth/wrangler.jsonc','workers/auth/migrations/0089_add_private_media_services.sql','admin/index.html']});
+ const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');assert(backendContinuationSupported(media));
+ assert.equal(media.schemaApplies[0].checkpoint,'auth');
+}
+
+{
+ const {verifyMediaEvidence}=await import('./lib/media-publication.mjs');
+ const sha='a'.repeat(40),digest='b'.repeat(64),scope={sha,run:'123',attempt:'1'};
+ const receipt={media:{sha,sourceRun:'123',sourceAttempt:'1',imageDigest:`registry.cloudflare.com/${'c'.repeat(32)}/bitbi-private-media@sha256:${digest}`,artifact:{id:123,digest:`sha256:${digest}`}},smoke:['github','cloudflare'].map(backend=>({backend,sha,completedMs:100,outputs:Array.from({length:3},()=>({videoDigest:digest,posterDigest:digest}))}))};
+ verifyMediaEvidence(receipt,scope);
+ for(const key of ['sha','run','attempt'])assert.throws(()=>verifyMediaEvidence(receipt,{...scope,[key]:'wrong'}));
+ for(const bad of [{},{...receipt,media:null},{...receipt,smoke:receipt.smoke.slice(0,1)},{...receipt,smoke:receipt.smoke.map(s=>({...s,outputs:[]}))}])assert.throws(()=>verifyMediaEvidence(bad,scope));
+ const {advanceBackend}=await import('./lib/backend-publication.mjs');
+ const seen=[],steps={sha,pending:['0089'],activeVersion:{},assertCurrent:async()=>{},applyMigration:async()=>seen.push('schema'),assertSchema:async()=>{},prepareMedia:async()=>seen.push('media'),deploy:async()=>seen.push('auth'),readActive:async()=>seen.push('read'),verifyMedia:async()=>seen.push('smoke')};
+ await advanceBackend(steps);assert.deepEqual(seen,['schema','media','auth','read','smoke']);
+ for(const fail of ['prepareMedia','deploy','verifyMedia']){seen.length=0;await assert.rejects(advanceBackend({...steps,[fail]:async()=>{throw Error('synthetic failure');}}));if(fail==='prepareMedia')assert(!seen.includes('auth'));}
+ console.log('Media release: schema/image/Auth/smoke order, failed upload, missing smoke and wrong artifact source remain blocking.');
+}
+
+{
+ const {verifyMediaImage,mediaImageInputs}=await import('./private-media-image.mjs');
+ const {hash}=await import('./lib/frontend-hosting.mjs');const os=await import('node:os');
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'media-identity-')),archive=path.join(dir,'image.tar');fs.writeFileSync(archive,'synthetic archive bytes');
+ try {
+   const sha='a'.repeat(40),expected={sha,run:'123',attempt:'1',archive};
+   const record={sha,run:'123',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',ffmpeg:'synthetic-version',ffprobe:'synthetic-version',image:`sha256:${'b'.repeat(64)}`,archiveDigest:hash(fs.readFileSync(archive)),tests:['two-five-clips','copy-normalize-audio','private-drain-poster','container-process-restart']};
+   verifyMediaImage(record,expected);
+   for(const patch of [{sha:'wrong'},{run:'124'},{attempt:'2'},{dirty:true},{sourceFiles:{}},{archiveDigest:'wrong'},{platform:'linux/arm64'},{tests:[]}])assert.throws(()=>verifyMediaImage({...record,...patch},expected));
+   fs.appendFileSync(archive,'changed');assert.throws(()=>verifyMediaImage(record,expected));
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
 }

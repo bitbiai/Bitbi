@@ -1,3 +1,5 @@
+import { handlePrivateMediaService } from './routes/private-media-service.js';
+import { PRIVATE_MEDIA_WAKE, dispatchPrivateMedia } from './lib/private-media-service.js';
 import { MEMBER_GENERATION_MESSAGE, processMemberGeneration, requeueMemberGenerations } from "./lib/member-generation-jobs.js";
 import { json } from "./lib/response.js";
 import { nowIso } from "./lib/tokens.js";
@@ -339,6 +341,10 @@ export default {
       }
     }
 
+    // route-policy: admin.private-media.service.update
+    // route-policy: internal.private-media.runner
+    const privateMedia=await handlePrivateMediaService(ctx);
+    if(privateMedia)return privateMedia;
     if (pathname === "/api/health" && method === "GET") return handleHealth();
     if (pathname.startsWith("/api/public/news-pulse/thumbs/") && method === "GET") return handlePublicNewsPulseThumb(ctx);
     if (pathname === "/api/public/news-pulse" && method === "GET") return handlePublicNewsPulse(ctx);
@@ -971,7 +977,7 @@ export default {
       messages.every((message) => message?.body?.type === "ai_image_derivative.generate");
     const isAiVideoBatch =
       queueName === AI_VIDEO_JOBS_QUEUE_NAME ||
-      messages.every((message) => ["ai_video_job.process", MEMBER_GENERATION_MESSAGE].includes(message?.body?.type));
+      messages.every((message) => ["ai_video_job.process", MEMBER_GENERATION_MESSAGE, PRIVATE_MEDIA_WAKE].includes(message?.body?.type));
     if (isAiVideoBatch) {
       for (const message of batch.messages) {
         const startedAt = Date.now();
@@ -981,7 +987,9 @@ export default {
         const correlationId = rawBody.correlation_id || null;
 
         try {
-          const result = message.body?.type === MEMBER_GENERATION_MESSAGE
+          const result = message.body?.type === PRIVATE_MEDIA_WAKE
+            ? await dispatchPrivateMedia(env,message.body.backend)
+            : message.body?.type === MEMBER_GENERATION_MESSAGE
             ? await processMemberGeneration(env, message.body, handleAI)
             : await processAiVideoJobMessage(env, message.body, { messageAttempts: attempts });
           if (result.status === "retry") {

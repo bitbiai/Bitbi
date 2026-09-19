@@ -5,6 +5,7 @@
 	"keep_vars": true,
 	"vars": {
 		"APP_NAME": "bitbi",
+		"PRIVATE_MEDIA_SOURCE_SHA": "UNRELEASED",
 		"APP_BASE_URL": "https://bitbi.ai",
 		"APP_ALLOWED_ORIGINS": "https://bitbi.ai,https://van-ark.com",
 		"RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>",
@@ -46,7 +47,8 @@
 		"required": [
 			"CLOUDFLARE_STREAM_API_TOKEN",
 			"MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET",
-			"GITHUB_ACTIONS_DISPATCH_TOKEN"
+			"GITHUB_ACTIONS_DISPATCH_TOKEN",
+			"PRIVATE_MEDIA_PROCESSOR_SECRET"
 		]
 	},
 	"triggers": {
@@ -114,6 +116,10 @@
 			"binding": "AI_LAB",
 			"service": "bitbi-ai",
 			"environment": "production"
+		},
+		{
+			"binding": "PRIVATE_MEDIA_PROCESSOR",
+			"service": "bitbi-private-media"
 		}
 	],
 	"durable_objects": {

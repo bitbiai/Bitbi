@@ -331,6 +331,7 @@ export function classifyChangedFiles(context, changedFiles) {
         isWorkerPackagePath(input, worker)
       ) {
         addImpact(impacts.workers, workerId, input, "changes the worker runtime/config");
+        if(workerId === "media") addImpact(impacts.workers, "auth", input, "binds private processor activation to the reviewed source");
         matched = true;
       }
     }
@@ -356,6 +357,10 @@ export function classifyChangedFiles(context, changedFiles) {
     for (const [serviceId, service] of Object.entries(units.services)) {
       if (service.path && (input === service.path || input.startsWith(`${service.path}/`))) {
         addImpact(impacts.services, serviceId, input, "changes a non-static processor/service deploy unit");
+        if(serviceId === "homepage-ffmpeg-processor") {
+          addImpact(impacts.workers, "media", input, "changes the shared Container image input");
+          addImpact(impacts.workers, "auth", input, "binds private processor activation to the reviewed source");
+        }
         matched = true;
       }
     }

@@ -1,3 +1,4 @@
+import { runPrivateMedia } from './private-media-runner.mjs';
 import { processCanvasExports } from './canvas-full-video.mjs';
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -45,6 +46,7 @@ function authHeaders(extra = {}) {
 async function requestJson(pathname, init = {}) {
   const res = await fetch(`${BASE_URL}${pathname}`, {
     ...init,
+    ...(process.env.MEMBER_GENERATION_POSTERS_ONLY === "1" ? {redirect:"error",signal:init.signal||AbortSignal.timeout(120000)} : {}),
     headers: {
       ...authHeaders(),
       ...(init.headers || {}),
@@ -74,7 +76,13 @@ function sanitizeProcessOutput(value, limit = PROCESS_OUTPUT_LOG_LIMIT) {
 
 function run(command, args, { cwd, logFailure = true } = {}) {
   return new Promise((resolve, reject) => {
+    if(process.env.MEMBER_GENERATION_POSTERS_ONLY === "1" && args.includes("-i")) {
+      args=[...args];args.splice(args.indexOf("-i"),0,"-protocol_whitelist","file,pipe");
+    }
     const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const timer=process.env.MEMBER_GENERATION_POSTERS_ONLY === "1" ? setTimeout(()=>child.kill("SIGKILL"),10*60_000) : null;
+    child.once("error",()=>clearTimeout(timer));
+    child.once("close",()=>clearTimeout(timer));
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
@@ -93,7 +101,7 @@ function run(command, args, { cwd, logFailure = true } = {}) {
       }
       const stderrExcerpt = sanitizeProcessOutput(stderr);
       const stdoutExcerpt = sanitizeProcessOutput(stdout);
-      if (logFailure) {
+      if (logFailure && process.env.MEMBER_GENERATION_POSTERS_ONLY !== "1") {
         if (stderrExcerpt) console.error(`${path.basename(command)} stderr: ${stderrExcerpt}`);
         if (stdoutExcerpt) console.error(`${path.basename(command)} stdout: ${stdoutExcerpt}`);
       }
@@ -202,6 +210,7 @@ export function generationClaimHeaders(job) {
 async function downloadSource(job, sourcePath) {
   const res = await fetch(`${BASE_URL}${job.source.url}`, {
     headers: {...authHeaders(),...generationClaimHeaders(job)},
+    ...(process.env.MEMBER_GENERATION_POSTERS_ONLY === "1" ? {redirect:"error",signal:AbortSignal.timeout(120000)} : {}),
   });
   if (!res.ok) throw new Error(`Source download failed with HTTP ${res.status}`);
   const bytes = new Uint8Array(await res.arrayBuffer());
@@ -944,6 +953,11 @@ async function processMemvidPreviewJob(job) {
 async function main() {
   assertConfig();
   await logPosterEncoderCapabilities();
+  if (process.env.MEMBER_GENERATION_POSTERS_ONLY==='1' && process.env.PRIVATE_MEDIA_DISPATCH) {
+    return runPrivateMedia({requestJson,token:process.env.PRIVATE_MEDIA_DISPATCH,runner:process.env.PRIVATE_MEDIA_RUNNER,
+      processExports:()=>processCanvasExports({requestJson,authHeaders,baseUrl:BASE_URL,limit:1,ffmpeg:FFMPEG_BIN,ffprobe:FFPROBE_BIN}),
+      processPosters:async()=>{const jobs=await claimSourcePosterJobs();for(const job of jobs)await processSourcePosterJob(job);return jobs.length;}});
+  }
   if (PROCESS_HOMEPAGE_HERO) {
     const jobs = await claimJobs();
     if (!jobs.length) {
@@ -975,7 +989,8 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
-    console.error(error);
+    if(process.env.MEMBER_GENERATION_POSTERS_ONLY === "1")console.error(JSON.stringify({phase:"processor",code:sanitizeProcessorErrorCode(error.code,"processor_failed")}));
+    else console.error(error);
     process.exit(1);
   });
 }

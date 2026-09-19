@@ -1,0 +1,7 @@
+{
+  "name": "bitbi-private-media",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22 <23", "npm": ">=10" },
+  "dependencies": { "@cloudflare/containers": "0.3.7" }
+}

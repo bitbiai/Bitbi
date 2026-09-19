@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
-import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, requiredJobs, proofJobs, isRequiredValidationRun, validatePublishedDeployment, verifyAdminReport, verifyAssetReport, verifyPublicMediaReport, verifyWorkspaceHelpReport, tree, validateSource, verifyManifest, verifyProofs, MEDIA_POLICY } from './pages-candidate.mjs';
+import { REPOSITORY, Q4_BASE, REQUIRED_JOBS, requiredJobs, proofJobs, isRequiredValidationRun, validatePublishedDeployment, verifyAdminReport, verifyAssetReport, verifyPublicMediaReport, verifyWorkspaceHelpReport, tree, verifyLaterAttempt, validateSource, verifyManifest, verifyProofs, MEDIA_POLICY } from './pages-candidate.mjs';
 const sha='a'.repeat(40),expected={repository:REPOSITORY,sha,base:Q4_BASE,run:'123',attempt:'1',currentRun:'456'};
 const run={repository:{full_name:REPOSITORY},head_repository:{full_name:REPOSITORY},head_sha:sha,head_branch:'main',id:123,run_attempt:1,path:'.github/workflows/static.yml',event:'push',status:'completed',conclusion:'success',created_at:'2026-09-09T00:00:00Z'};
 const jobs=Object.entries(REQUIRED_JOBS).map(([name,steps])=>({name,head_sha:sha,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
@@ -526,3 +526,7 @@ assert(fastPermits());fastContext.needs.guard.outputs.homepage_media='true';asse
 for(const result of ['failure','cancelled',undefined]) {fastContext.needs['homepage-webkit-media'].result=result;assert(!fastPermits());}
 fastContext.needs['homepage-webkit-media'].result='success';assert(fastPermits());
 fastContext.needs['homepage-validation'].result='failure';assert(!fastPermits());
+
+verifyLaterAttempt({...run,run_attempt:2,conclusion:'failure'},[{name:'deploy',conclusion:'failure'}],newsSelection);
+assert.throws(()=>verifyLaterAttempt({...run,status:'in_progress'},[{name:'deploy',conclusion:null}],newsSelection));
+assert.throws(()=>verifyLaterAttempt({...run,conclusion:'failure'},[{name:'deploy',conclusion:'skipped'},{name:'browser-validation',conclusion:'failure'}],newsSelection));

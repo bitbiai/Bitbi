@@ -665,3 +665,11 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  assert.equal(selection.static,true);assert.equal(selection.full,false);assert.equal(selection.homepageMedia,false);
  assert.equal(selectCiTests(['services/homepage-ffmpeg-processor/unknown.mjs']).full,true);
 }
+
+{
+ const files=['workers/media/src/index.js','workers/media/package-lock.json','scripts/private-media-image.mjs','tests/helpers/private-media-control.mjs','js/pages/admin/private-media-service.js'];
+ const selected=selectCiTests(files);assert.equal(selected.workers,true);assert.equal(selected.auth,true);assert.equal(selected.full,false);
+ assert.equal(selected.homepage,false);assert.equal(selected.carousel,false);
+ const jobs=requiredJobs({...selected,files});assert(jobs['worker-validation'].includes('Build and test private media Linux image'));assert(jobs['worker-validation'].includes('Preserve tested private media image'));
+ assert(selectCiTests([...files,'scripts/unknown-media-authority.mjs']).full);
+}

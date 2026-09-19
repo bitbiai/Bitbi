@@ -216,7 +216,7 @@ for (const unknownFile of [
   assert.deepEqual(plan.impacts.uncategorizedFiles, []);
   assert.deepEqual(
     plan.deploySteps.map((step) => step.id),
-    ["homepage-ffmpeg-processor", "static-site"]
+    ["media-worker", "auth-worker", "homepage-ffmpeg-processor", "static-site"]
   );
 }
 
@@ -541,4 +541,11 @@ console.log("Static deploy safety tests passed.");
   assert.equal(evaluateStaticDeploySafety(null, options).ok, false);
   assert.equal(evaluateStaticDeploySafety({...plan, consistencyIssues: ["invalid fixture plan"]}, options).ok, false);
   console.log("Full Q4 path/acknowledgement and exact diagnostic classification controls passed.");
+}
+
+// The preparation flag cannot grant static authority, accept an unknown path,
+// or turn a local explicit file list into authenticated backend prerequisites.
+for(const files of ['workers/auth/src/index.js,admin/index.html','unknown-release-input']) {
+ const result=guard(['--backend-preflight','--event-name','workflow_dispatch','--files',files]);
+ assert.notEqual(result.status,0);
 }

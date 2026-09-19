@@ -321,3 +321,23 @@ execution. `test:static-deploy-safety` → `test-pages-workflow.mjs` rejects mis
 setup and exercises the real selection expression and shell order/fail-fast.
 Narrow status/assets jobs remain unchanged. Shell controls are not Linux media
 acceptance: the real 2/5-clip test and subsequent native runtime remain CI gates.
+
+
+### Private media dispatch and backend assignment (2026-09-19)
+Private exports/posters previously depended on the public 600-second dispatcher
+cooldown and cron. Durable acceptance now wakes the existing video queue;
+atomic start fencing and finish/recheck cover duplicate delivery, lost response,
+crash and new work after a claim. Migration 0089 pins backend per job; completion,
+source and poster routes enforce it. Native `test:q2-runtime -- --suite canvas`
+executes the actual queue/fetch/D1 path, including Admin/MFA denials, persistent
+switching, cross-backend denial, stale token, poster retry and saved-result reuse.
+Both native Linux staging lists include the new helper/imports.
+`test:homepage-ffmpeg-processor` and the selected existing Worker job's
+`private-media-image.mjs` run shared FFmpeg tests; the latter kills/restarts the
+real Container HTTP/child process in the immutable Linux image. `test:auth` runs
+Admin service tests in Chromium/WebKit with synthetic responses (not live E2E).
+`test:release-plan`/`test:static-deploy-safety` exercise schema/image/Auth/smoke
+order, missing evidence, source attempts, image identity and failure stops.
+Deploy-only retry cannot skip backend work or synthesize dependency completion.
+Local green remains distinct from CI, account provisioning and live smoke;
+only the protected publication's durable MP4/poster checks establish the latter.

@@ -1,3 +1,4 @@
+import { processorBackend } from '../lib/private-media-service.js';
 import { handleCanvasExportProcessor } from './canvas-video-processing.js';
 import { claimMemberVideoPosters, memberVideoPosterSource, finishMemberVideoPoster } from "../lib/member-generation-posters.js";
 import { publicVideoResponse } from "../lib/public-video-response.mjs";
@@ -225,10 +226,8 @@ async function processorAuthResponse(ctx) {
 async function sourcePosterAuthResponse(ctx) {
   const query=new URL(ctx.request.url).searchParams;
   if(query.get('member_only')!=='true' && !ctx.request.headers.has('X-BITBI-Generation-Claim')) return processorAuthResponse(ctx);
-  const expected=getMemvidStreamPreviewProcessorSecret(ctx.env);
-  if(!expected) return json({ok:false,code:'processor_not_configured'},{status:503});
-  const bearer=String(ctx.request.headers.get('Authorization')||'').replace(/^Bearer /i,'');
-  if(bearer!==expected) return json({ok:false,code:'processor_auth_failed'},{status:403});
+  ctx.privateMediaBackend=await processorBackend(ctx.env,ctx.request);
+  if(!ctx.privateMediaBackend) return json({ok:false,code:'processor_auth_failed'},{status:403});
   return null;
 }
 
@@ -836,8 +835,8 @@ function isSourcePosterProcessorClaimable(row) {
   return status !== "failed";
 }
 
-async function listQueuedSourcePosterJobs(env, limit, memberOnly = false) {
-  if (memberOnly) return claimMemberVideoPosters(env, limit);
+async function listQueuedSourcePosterJobs(env, limit, memberOnly = false, backend='github') {
+  if (memberOnly) return claimMemberVideoPosters(env, limit, backend);
   const scanLimit = Math.max(SOURCE_POSTER_PROCESSOR_SCAN_LIMIT, limit * 6);
   const rows = await env.DB.prepare(
     `SELECT uploads.id AS upload_id,
@@ -876,8 +875,8 @@ async function listQueuedSourcePosterJobs(env, limit, memberOnly = false) {
   return jobs;
 }
 
-async function getSourcePosterJobAsset(env, assetId, memberToken = null) {
-  if (memberToken !== null) return memberVideoPosterSource(env,assetId,memberToken);
+async function getSourcePosterJobAsset(env, assetId, memberToken = null,backend='github') {
+  if (memberToken !== null) return memberVideoPosterSource(env,assetId,memberToken,backend);
   return env.DB.prepare(
     `SELECT uploads.id AS upload_id,
             uploads.created_at AS upload_created_at,
@@ -2959,7 +2958,7 @@ async function handleSourcePosterClaimJobs(ctx) {
 
   const memberOnly=new URL(ctx.request.url).searchParams.get('member_only')==='true';
   if(memberOnly !== (parsed.body?.member_only === true)) return json({ok:false,code:'processor_scope_mismatch'},{status:400});
-  const rows = await listQueuedSourcePosterJobs(ctx.env, limit, memberOnly);
+  const rows = await listQueuedSourcePosterJobs(ctx.env, limit, memberOnly,ctx.privateMediaBackend);
   const now = nowIso();
   for (const row of rows) {
     const state = await updateSourcePosterState(ctx.env, row, {
@@ -3004,7 +3003,7 @@ async function handleSourcePosterSource(ctx, assetIdFromPath) {
 
   const assetId = normalizeAssetId(assetIdFromPath);
   if (!assetId) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
-  const source = await getSourcePosterJobAsset(ctx.env, assetId, ctx.request.headers.get('X-BITBI-Generation-Claim'));
+  const source = await getSourcePosterJobAsset(ctx.env, assetId, ctx.request.headers.get('X-BITBI-Generation-Claim'),ctx.privateMediaBackend);
   if (!source?.r2_key) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
 
   const object = await ctx.env.USER_IMAGES.get(source.r2_key);
@@ -3026,7 +3025,7 @@ async function handleSourcePosterComplete(ctx, assetIdFromPath) {
 
   const assetId = normalizeAssetId(assetIdFromPath);
   if (!assetId) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
-  const source = await getSourcePosterJobAsset(ctx.env, assetId, ctx.request.headers.get('X-BITBI-Generation-Claim'));
+  const source = await getSourcePosterJobAsset(ctx.env, assetId, ctx.request.headers.get('X-BITBI-Generation-Claim'),ctx.privateMediaBackend);
   if (!source) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
   if (source.poster_r2_key) {
     await updateSourcePosterState(ctx.env, source, {
@@ -3120,7 +3119,7 @@ async function handleSourcePosterFail(ctx, assetIdFromPath) {
 
   const assetId = normalizeAssetId(assetIdFromPath);
   if (!assetId) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
-  const source = await getSourcePosterJobAsset(ctx.env, assetId, ctx.request.headers.get('X-BITBI-Generation-Claim'));
+  const source = await getSourcePosterJobAsset(ctx.env, assetId, ctx.request.headers.get('X-BITBI-Generation-Claim'),ctx.privateMediaBackend);
   if (!source) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
 
   const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.homepageHeroProcessorJson });

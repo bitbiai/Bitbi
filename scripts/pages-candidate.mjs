@@ -1,7 +1,7 @@
 import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase } from './lib/frontend-hosting.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { selectCiTests } from './lib/ci-test-selection.mjs';
+import { selectCiTests,requiresPrivateMediaImage } from './lib/ci-test-selection.mjs';
 import { HOMEPAGE_WEBKIT_REQUIRED, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
 export const MEDIA_POLICY = 'decorative-core-v1';
 import fs from 'node:fs';
@@ -30,7 +30,8 @@ export function requiredJobs(selection) {
   );
   if (selection.dependencies) jobs['release-compatibility'].push('Audit root dependencies');
   if (selection.workerDependencies) jobs['release-compatibility'].push('Validate worker package dependencies');
-  if (selection.workers) jobs['worker-validation'] = REQUIRED_JOBS['worker-validation'];
+  if (selection.workers) jobs['worker-validation'] = [...REQUIRED_JOBS['worker-validation']];
+  if (requiresPrivateMediaImage(selection.files||[])) jobs['worker-validation'].push('Build and test private media Linux image','Preserve tested private media image');
   if (selection.homepage || selection.carousel) {
     jobs['homepage-validation'] = REQUIRED_JOBS['homepage-validation'].filter(step => selection.carousel || step !== 'Record controlled homepage performance diagnostics');
   }
@@ -126,6 +127,27 @@ export function verifyManifest(manifest, expected, site, { allowPartial = false 
   }
   assert.deepEqual(tree(site),manifest.files,'Static bytes differ from tested candidate');
   return digest(JSON.stringify(manifest));
+}
+// Read the immutable source attempt, then reject unresolved/new failed validation
+// in later attempts. Re-running only a failed deploy does not relabel artifacts.
+export function verifyLaterAttempt(run,jobs,selection) {
+  assert.equal(run.status,'completed','Later attempt is unresolved');
+  assert(['success','failure'].includes(run.conclusion),'Later attempt cancelled or unverified');
+  assert(jobs.some(j=>j.name==='deploy'),'Later attempt is not a publication continuation');
+  for(const j of jobs) {
+    if(Object.hasOwn(requiredJobs(selection),j.name)&&j.conclusion!=='skipped')assert.equal(j.conclusion,'success','Later validation failed');
+    else if(!['deploy','reuse-candidate'].includes(j.name))assert(['success','skipped'].includes(j.conclusion),'Later job failed');
+  }
+}
+export async function sourceAttempt(runId,attempt,selection) {
+  const latest=await api(`actions/runs/${runId}`);
+  assert(Number.isInteger(Number(attempt))&&Number(attempt)>0&&Number(attempt)<=latest.run_attempt,'Invalid source attempt');
+  assert(latest.run_attempt-Number(attempt)<=10,'Too many intervening attempts');
+  for(let i=Number(attempt)+1;i<=latest.run_attempt;i++) {
+    const [run,jobs]=await Promise.all([api(`actions/runs/${runId}/attempts/${i}`),collection(`actions/runs/${runId}/attempts/${i}/jobs`,'jobs')]);
+    verifyLaterAttempt(run,jobs,selection);
+  }
+  return Number(attempt)===latest.run_attempt?latest:api(`actions/runs/${runId}/attempts/${attempt}`);
 }
 export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected, {previewBranch, currentPublication=false}={}) {
   assert.equal(expected.repository,REPOSITORY,'Foreign repository');
@@ -268,7 +290,7 @@ async function main(command) {
   }
   if(command==='source') {
     assert(/^\d+$/.test(e.run||'')&&/^\d+$/.test(e.attempt||''),'Explicit source run/attempt required');
-    const [run,jobs,artifacts,laterRuns,ref]=await Promise.all([api(`actions/runs/${e.run}`),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),collection(`actions/runs/${e.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${e.sha}`,'workflow_runs'),api('git/ref/heads/main')]);
+    const [run,jobs,artifacts,laterRuns,ref]=await Promise.all([sourceAttempt(e.run,e.attempt,e.selection),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),collection(`actions/runs/${e.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${e.sha}`,'workflow_runs'),api('git/ref/heads/main')]);
     const relevant=laterRuns.filter(r=>isRequiredValidationRun(r,e.selection));
     for(const later of relevant.filter(r=>String(r.id)!==String(e.currentRun)&&Date.parse(r.created_at)>Date.parse(run.created_at)&&r.conclusion!=='success'))later.jobs=await collection(`actions/runs/${later.id}/attempts/${later.run_attempt}/jobs`,'jobs');
     const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e);

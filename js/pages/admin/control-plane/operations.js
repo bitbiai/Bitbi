@@ -1,3 +1,4 @@
+import { createPrivateMediaServicePanel } from '../private-media-service.js?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI — Admin Control Plane / Operations Domain
    Frontend-only operator timeline, triage, and async diagnostics.
@@ -28,8 +29,9 @@ import {
 } from './readiness.js?v=__ASSET_VERSION__';
 
 export function createOperationsDomain({ notify, formatDate, loadTenantAssetManualReviewQueue }) {
+    const mediaService=createPrivateMediaServicePanel();
     async function loadOperations() {
-        await Promise.all([loadOperatorTimeline(), loadPoisonMessages(), loadFailedJobs(), loadTenantAssetManualReviewQueue()]);
+        await Promise.all([mediaService.load(),loadOperatorTimeline(), loadPoisonMessages(), loadFailedJobs(), loadTenantAssetManualReviewQueue()]);
     }
 
     function operatorTimelineFilters() {

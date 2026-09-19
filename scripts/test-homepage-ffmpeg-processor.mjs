@@ -1,3 +1,4 @@
+import {testPrivateMediaRunner} from '../services/homepage-ffmpeg-processor/private-media-runner.test.mjs';
 import {readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import vm from 'node:vm';
@@ -393,3 +394,5 @@ console.log('Member poster claim headers preserve the existing legacy processor 
 console.log('Actual processor mode/configuration gate passed with synthetic inputs.');
 
 await (await import('../services/homepage-ffmpeg-processor/canvas-full-video.test.mjs')).testCanvasConcatenation();
+
+await testPrivateMediaRunner();

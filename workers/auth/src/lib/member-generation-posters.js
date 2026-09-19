@@ -1,11 +1,12 @@
+import { notifyPrivateMedia } from './private-media-service.js';
 import { claimCanvasProcessing, failCanvasProcessing } from './canvas-video-processing.js';
 import { ownedCanvasVideo } from './canvas-video-input.js';
 import { nowIso, randomTokenHex } from './tokens.js';
 
-export async function claimMemberVideoPosters(env, limit) {
+export async function claimMemberVideoPosters(env, limit, backend='github') {
   const now=nowIso();
   const due=await env.DB.prepare(`SELECT id FROM member_generation_jobs WHERE media_type='video' AND status='preview_pending'
-    AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?) AND attempt_count<16 ORDER BY created_at LIMIT ?`).bind(now,now,limit).all();
+    AND processing_backend=? AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?) AND attempt_count<16 ORDER BY created_at LIMIT ?`).bind(backend,now,now,limit).all();
   const rows=[];
   for(const item of due.results||[]) {
     const token=randomTokenHex(16);
@@ -13,16 +14,16 @@ export async function claimMemberVideoPosters(env, limit) {
       WHERE id=? AND status='preview_pending' AND (locked_until IS NULL OR locked_until<=?)`)
       .bind(token,new Date(Date.now()+15*60_000).toISOString(),item.id,now).run();
     if(claim.meta?.changes) {
-      const row=await memberVideoPosterSource(env,item.id,token);
+      const row=await memberVideoPosterSource(env,item.id,token,backend);
       if(row?.poster_r2_key && await env.USER_IMAGES.head(row.poster_r2_key)) await finishMemberVideoPoster(env,row,{status:'ready'});
       else if(row) rows.push(row);
     }
   }
-  if(rows.length<limit) for(const task of await claimCanvasProcessing(env,'poster',limit-rows.length)) {
+  if(rows.length<limit) for(const task of await claimCanvasProcessing(env,'poster',limit-rows.length,backend)) {
     try {
       const source=JSON.parse(task.sources_json)[0];
       if(task.kind==='poster') await ownedCanvasVideo(env,task.user_id,source.assetId,source.version,80_000_000);
-      const row=await memberVideoPosterSource(env,task.asset_id,task.processing_token);
+      const row=await memberVideoPosterSource(env,task.asset_id,task.processing_token,backend);
       if(row?.poster_r2_key && await env.USER_IMAGES.head(row.poster_r2_key)) await finishMemberVideoPoster(env,row,{status:'ready'});
       else if(row) rows.push(row);
       else await failCanvasProcessing(env,task,'canvas_source_unavailable');
@@ -31,18 +32,18 @@ export async function claimMemberVideoPosters(env, limit) {
   return rows;
 }
 
-export async function memberVideoPosterSource(env,id,token) {
+export async function memberVideoPosterSource(env,id,token,backend='github') {
   if(!/^[a-f0-9]{32}$/.test(token||'')) return null;
   const member=await env.DB.prepare(`SELECT assets.*,jobs.id AS generation_job_id,jobs.processing_token AS poster_processing_token
     FROM member_generation_jobs jobs JOIN ai_text_assets assets ON assets.id=jobs.asset_id AND assets.user_id=jobs.user_id
     WHERE jobs.id=? AND jobs.processing_token=? AND jobs.status='preview_pending' AND jobs.locked_until>?
-    AND assets.source_module='video'`).bind(id,token,nowIso()).first();
+    AND jobs.processing_backend=? AND assets.source_module='video'`).bind(id,token,nowIso(),backend).first();
   if(member) return member;
   return env.DB.prepare(`SELECT assets.*,jobs.id AS generation_job_id,jobs.processing_token AS poster_processing_token,
     'canvas_video_processing' AS poster_processing_table FROM canvas_video_processing jobs
     JOIN ai_text_assets assets ON assets.id=jobs.asset_id AND assets.user_id=jobs.user_id
     WHERE assets.id=? AND jobs.processing_token=? AND jobs.status='preview_pending' AND jobs.locked_until>?
-    AND assets.source_module='video'`).bind(id,token,nowIso()).first();
+    AND jobs.processing_backend=? AND assets.source_module='video'`).bind(id,token,nowIso(),backend).first();
 }
 
 export async function finishMemberVideoPoster(env,row,{status}) {
@@ -96,9 +97,10 @@ export async function retryMemberVideoPoster(ctx,id) {
     if(task && task.error_code!=='canvas_source_unavailable') {
       await ownedCanvasVideo(ctx.env,session.user.id,id,null,80_000_000);
       const retry=await ctx.env.DB.prepare("UPDATE canvas_video_processing SET status='preview_pending',attempt_count=0,error_code=NULL,next_attempt_at=?,updated_at=? WHERE id=? AND user_id=? AND status='failed'").bind(nowIso(),nowIso(),task.id,session.user.id).run();
-      if(retry.meta?.changes)return json({ok:true},{status:202,headers:{'Cache-Control':'no-store'}});
+      if(retry.meta?.changes) {await notifyPrivateMedia(ctx.env,task.processing_backend);return json({ok:true},{status:202,headers:{'Cache-Control':'no-store'}});}
     }
   }
+  if(result.meta?.changes){const job=await ctx.env.DB.prepare('SELECT processing_backend FROM member_generation_jobs WHERE id=? AND user_id=?').bind(id,session.user.id).first();await notifyPrivateMedia(ctx.env,job.processing_backend);}
   return json(result.meta?.changes?{ok:true}:{ok:false,code:'preview_retry_not_available'},
     {status:result.meta?.changes?202:404,headers:{'Cache-Control':'no-store'}});
 }

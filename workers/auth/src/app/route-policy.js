@@ -604,6 +604,23 @@ export const ROUTE_POLICIES = Object.freeze([
     rateLimit: { noneReason: "Bootstrap identity route; admin auth and production MFA state are evaluated inside the handler." },
   }),
   adminRead("admin.users.list", "/api/admin/users", "admin"),
+  adminRead("admin.private-media.service.read", "/api/admin/private-media/service", "admin", {
+    config: ["DB"], rateLimit:{noneReason:"Bounded admin-only status and private service-binding readiness."},
+  }),
+  adminJsonWrite("admin.private-media.service.update", "POST", "/api/admin/private-media/service", "admin", "smallJson", "admin-action-ip", {
+    config:["DB"], audit:{event:"private_media_service_updated"},
+    notes:"Changes only backend assignment of future private video processing jobs; existing jobs are immutable.",
+  }),
+  policy({id:"internal.private-media.runner",method:"POST",path:"/api/internal/homepage/hero-videos/private-media/runner",
+    auth:"anonymous",csrf:"not-browser-facing",owner:"homepage",sensitivity:"high",
+    body:{kind:"json",maxBytesName:"smallJson",contentType:"application/json"},
+    rateLimit:{noneReason:"Backend-specific credential and atomic expiring runner lease."},config:["DB","MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET"],
+    audit:{noneReason:"Content-free durable runner status; no inference or credit mutation."},providerSignature:"processor-bearer-secret"}),
+  policy({id:"internal.private-media.smoke",method:"POST",path:"/api/internal/homepage/hero-videos/private-media/smoke",
+    auth:"anonymous",csrf:"not-browser-facing",owner:"homepage",sensitivity:"high",
+    body:{kind:"json",maxBytesName:"smallJson",contentType:"application/json"},
+    rateLimit:{noneReason:"Current-release SHA, backend credential, fixed fixture hash and deterministic two-backend job identities."},config:["DB","USER_IMAGES","PRIVATE_MEDIA_PROCESSOR_SECRET"],
+    audit:{noneReason:"Durable synthetic release records; disabled synthetic owner, no inference or credits."},providerSignature:"processor-bearer-secret"}),
   adminRead("admin.registration.status.read", "/api/admin/registration/status", "admin", {
     config: REQUIRED_CONFIG.authPublicLimiter,
     rateLimit: { id: "admin-action-ip", failClosed: true },

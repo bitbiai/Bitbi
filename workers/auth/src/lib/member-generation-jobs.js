@@ -1,3 +1,4 @@
+import { MEDIA_BACKEND_SQL, notifyPrivateMedia, recoverPrivateMedia } from './private-media-service.js';
 import { finishCanvasGeneration } from './canvas-video-output.js';
 import { catchUpCanvasPosters } from './canvas-video-processing.js';
 import { logDiagnostic } from '../../../../js/shared/worker-observability.mjs';
@@ -7,7 +8,6 @@ import { json } from './response.js';
 import { putNewManagedR2Object } from './r2-cleanup.js';
 import { requireUser } from './session.js';
 import { generateMemberMusicCover } from './member-music-cover.js';
-import { maybeDispatchMemvidStreamPreviewProcessor } from './memvid-stream-preview-dispatch.js';
 
 export const MEMBER_GENERATION_MESSAGE = 'member_generation.process';
 const LEASE_MS = 15 * 60_000;
@@ -46,8 +46,8 @@ export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType
   // otherwise disappear with the page. No session cookie/header is persisted.
   await putNewManagedR2Object(env, inputKey, JSON.stringify(body), { httpMetadata: { contentType: 'application/json' } });
   await env.DB.prepare(`INSERT OR IGNORE INTO member_generation_jobs
-    (id,user_id,usage_attempt_id,media_type,request_key,input_r2_key,next_attempt_at,created_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?)`).bind(id, attempt.userId, attempt.id, mediaType, key, inputKey, now, now, now).run();
+    (id,user_id,usage_attempt_id,media_type,request_key,input_r2_key,next_attempt_at,created_at,updated_at,processing_backend)
+    VALUES(?,?,?,?,?,?,?,?,?,${MEDIA_BACKEND_SQL})`).bind(id, attempt.userId, attempt.id, mediaType, key, inputKey, now, now, now).run();
   const row = await env.DB.prepare('SELECT * FROM member_generation_jobs WHERE usage_attempt_id = ? AND user_id = ?')
     .bind(attempt.id, attempt.userId).first();
   if (!row) throw jobError('generation_acceptance_not_confirmed');
@@ -251,6 +251,7 @@ export async function processMemberGeneration(env, body, execute) {
     await finishCanvasGeneration(env,job,result);
     await env.DB.prepare(`UPDATE member_generation_jobs SET status=?,result_r2_key=?,asset_id=?,locked_until=NULL,error_code=NULL,updated_at=?,completed_at=? WHERE id=? AND processing_token=? AND locked_until>?`)
       .bind(needsPoster?'preview_pending':'succeeded',resultKey,asset?.id||null,nowIso(),needsPoster?null:nowIso(),job.id,token,nowIso()).run();
+    if(needsPoster)await notifyPrivateMedia(env,job.processing_backend);
     return {status:'succeeded'};
   } catch (error) {
     if (error.code === 'generation_claim_lost') return {status:'ignored'};
@@ -288,11 +289,7 @@ export async function requeueMemberGenerations(env) {
   const rows = await env.DB.prepare(`SELECT id FROM member_generation_jobs WHERE status IN ('queued','processing','ingesting')
     AND next_attempt_at <= ? AND (locked_until IS NULL OR locked_until <= ?) ORDER BY next_attempt_at LIMIT 25`).bind(nowIso(),nowIso()).all();
   for (const row of rows.results || []) await env.AI_VIDEO_JOBS_QUEUE.send({type:MEMBER_GENERATION_MESSAGE,job_id:row.id});
-  const backlog = await env.DB.prepare(`SELECT COUNT(*) AS count FROM member_generation_jobs WHERE media_type='video'
-    AND status='preview_pending' AND attempt_count<16 AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?)`).bind(nowIso(),nowIso()).first();
-  const canvasBacklog = await catchUpCanvasPosters(env);
-  if (backlog?.count || canvasBacklog) await maybeDispatchMemvidStreamPreviewProcessor(env, {
-    reason:'member_video_posters',dispatchReason:'Member video poster catch-up.',queuedNewCount:Number(backlog?.count||0)+canvasBacklog,memberGenerationPosters:true,
-  });
+  await catchUpCanvasPosters(env);
+  await recoverPrivateMedia(env);
   return rows.results?.length || 0;
 }
