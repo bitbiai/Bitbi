@@ -136,8 +136,8 @@ export async function runCanvasTests(f) {
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
   await f.test('canvas_native_grok_reasoning_reservation_saved_output_and_replay', async () => {
-    const { estimateCanvasTextCredits } = await import('../../../js/shared/canvas-model-contract.mjs');
-    const p='7a'.repeat(16), n='7b'.repeat(16), config={prompt:'Native Grok fixture',reasoningEffort:'high'};
+    const { estimateCanvasTextCredits, getCanvasTextInstructions } = await import('../../../js/shared/canvas-model-contract.mjs');
+    const p='7a'.repeat(16), n='7b'.repeat(16), config={prompt:'Native Grok fixture',reasoningEffort:'high',textPurpose:'song_lyrics',systemPrompt:'Legacy saved value'};
     f.canvasProvider.fail=false;
     await f.sql('INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,?,?,?,?)',p,memberId,'Grok','en',now,now).run();
     await f.sql('INSERT INTO canvas_nodes(id,project_id,user_id,type,model_id,x,y,config_json,content_json,created_at,updated_at) VALUES(?,?,?,?,?,0,0,?,?,?,?)',n,p,memberId,'text_generation','xai/grok-4.6',JSON.stringify(config),'{}',now,now).run();
@@ -149,12 +149,18 @@ export async function runCanvasTests(f) {
     assert.equal(result.run.output.text,'Native Canvas answer');
     assert.equal(f.canvasProvider.requests.at(-1).body.reasoningEffort,'high');
     assert.equal(f.canvasProvider.requests.at(-1).body.maxTokens,32768);
-    assert.equal(await f.scalar("SELECT -SUM(amount) AS value FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'",memberId),estimateCanvasTextCredits('xai/grok-4.6',config));
+    assert.equal(f.canvasProvider.requests.at(-1).body.system,getCanvasTextInstructions(config));
+    assert.equal(await f.scalar("SELECT -SUM(amount) AS value FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'",memberId),estimateCanvasTextCredits('xai/grok-4.6',{...config,systemPrompt:getCanvasTextInstructions(config)}));
     assert.equal((await ok(await request(endpoint,{},'grok-run',member))).idempotent_replay,true);
     assert.equal(f.canvasProvider.requests.length,before+1);
     const reload=await ok(await request(`/api/account/canvas/projects/${p}`,undefined,'reload-grok',member));
     assert.equal(reload.nodes[0].output.text,'Native Canvas answer');
     assert.equal(reload.nodes[0].config.reasoningEffort,'high');
+    assert.equal(reload.nodes[0].config.textPurpose,'song_lyrics');
+    assert.equal(reload.nodes[0].config.systemPrompt,'Legacy saved value');
+    await f.sql('UPDATE canvas_nodes SET config_json=? WHERE id=?',JSON.stringify({...config,textPurpose:'video_prompt'}),n).run();
+    assert.equal((await request(endpoint,{},'grok-run',member)).status,409);
+    assert.equal(f.canvasProvider.requests.length,before+1);
     assert.equal((await request(endpoint,{},'foreign-grok',admin)).status,404);
   });
   assert.equal(f.counters.outboundDenied, 0, 'No external provider or network call');

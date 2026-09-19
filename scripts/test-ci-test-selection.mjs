@@ -691,4 +691,9 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
   for(const key of ['full','homepage','homepageMedia','carousel','assets'])assert.equal(result[key],false);
   for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/member-credit-ledger.js','workers/ai/src/lib/invoke-ai.js','js/shared/auth.js','unknown-runtime.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
   assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
+  const purposes=['js/pages/canvas/main.js','js/shared/canvas-model-contract.mjs','js/shared/help-menu.js','workers/auth/src/routes/canvas.js','tests/canvas.spec.js','tests/workers.spec.js','tests/helpers/q2-runtime/canvas.mjs','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs'];
+  assert.equal(selection(purposes).canvasText,true);
+  assert.equal(selection(purposes).homepageMedia,false);
+  assert.notEqual(selection(['js/shared/help-menu.js']).canvasText,true);
+  assert.notEqual(selection([...purposes,'js/shared/auth.js']).canvasText,true);
 }

@@ -90,7 +90,7 @@ const CANVAS_UI_FILES = new Set([
 // Closed Canvas text/provider integration scope. Unknown runtime/billing inputs
 // continue through ordinary impact selection; chat and native D1 are exercised.
 const CANVAS_TEXT_FILES = new Set([
-  'js/pages/canvas/main.js', 'js/shared/canvas-model-contract.mjs',
+  'js/pages/canvas/main.js', 'js/shared/canvas-model-contract.mjs', 'js/shared/help-menu.js',
   'js/shared/grok-text-contract.mjs', 'js/shared/admin-ai-contract.mjs',
   'workers/shared/grok-chat-contract.mjs', 'workers/shared/chat-model-contract.mjs',
   'workers/ai/src/lib/grok-chat.js', 'workers/ai/src/routes/text.js',
@@ -435,7 +435,8 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     return selection;
   }
 
-  if (!forceFull && changedFiles.some(f=>['js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js'].includes(f))
+  if (!forceFull && (changedFiles.some(f=>['js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js'].includes(f))
+      || ['js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','js/pages/canvas/main.js'].every(f=>changedFiles.includes(f)))
       && changedFiles.every(f=>isDocumentation(f)||CANVAS_TEXT_FILES.has(f)||RELEASE_TOOLING_FILES.has(f))) {
     selection.canvasText = true;
     selection.workers = selection.auth = selection.static = selection.runtime = true;

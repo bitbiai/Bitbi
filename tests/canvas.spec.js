@@ -389,7 +389,7 @@ test.describe('BITBI Canvas static and protected workspace', () => {
     );
     await page.goto('/canvas/');
     await page.locator(`[data-node-id="${imageId}"]`).click();
-    await expect(page.locator('.canvas-input-context')).toContainText('Input from: Prompt writer');
+    await expect(page.locator('.canvas-input-context')).toContainText('Connected input');
     await expect(page.locator('.canvas-input-context')).toContainText('A cinematic glass city at blue hour.');
     await expect(page.locator('#canvasInspectorBody').getByRole('button', { name: 'Run', exact: true })).toBeEnabled();
     await page.locator(`[data-node-id="${outputId}"]`).click();
@@ -397,7 +397,7 @@ test.describe('BITBI Canvas static and protected workspace', () => {
   });
 });
 
-for (const locale of ['en', 'de']) test(`${locale}: admin Canvas uses registry options and budget labels; token defaults preserve explicit edits and save retries keep identity`, async ({ page }, testInfo) => {
+for (const locale of ['en', 'de']) test(`${locale}: admin Canvas uses registry options and clean estimates; token defaults preserve explicit edits and save retries keep identity`, async ({ page }, testInfo) => {
   const { listCanvasModelsForRole } = await import('../js/shared/canvas-model-contract.mjs');
   const models = listCanvasModelsForRole('admin');
   const org = 'org_'+'a'.repeat(32);
@@ -412,7 +412,7 @@ for (const locale of ['en', 'de']) test(`${locale}: admin Canvas uses registry o
   const inspector = page.locator('#canvasInspectorBody');
   const modelSelect = inspector.getByRole('combobox', { name: locale === 'de' ? 'Modell' : 'Model', exact: true });
   const tokens = inspector.getByLabel(locale === 'de' ? 'Max. Tokens' : 'Max tokens', { exact: true });
-  await expect(inspector.locator('.canvas-cost-note')).toHaveText(locale === 'de' ? 'Plattformbudget' : 'Platform budget');
+  await expect(inspector.locator('.canvas-cost-note')).toHaveText(`${locale === 'de' ? 'Geschätzte Credits' : 'Estimated credits'}: 0`);
   await expect(modelSelect.locator('option')).toHaveCount(models.filter(m => m.capability === 'text').length);
   await modelSelect.selectOption('@cf/openai/gpt-oss-120b');
   await expect(tokens).toHaveValue('500');
@@ -422,7 +422,7 @@ for (const locale of ['en', 'de']) test(`${locale}: admin Canvas uses registry o
   await page.locator('#canvasNodeType').selectOption('image_generation');
   await page.locator('#canvasAddNode').click();
   const imageNode = state.nodes.at(-1);
-  await expect(inspector.locator('.canvas-cost-note')).toContainText(locale === 'de' ? 'Credits der ausgewählten Organisation' : 'Selected organization credits');
+  await expect(inspector.locator('.canvas-cost-note')).toHaveText(new RegExp(`^${locale === 'de' ? 'Geschätzte Credits' : 'Estimated credits'}: [0-9]+$`));
   await expect(inspector.getByLabel(locale === 'de' ? 'Schritte' : 'Steps', { exact: true })).toBeVisible();
   await expect(inspector.getByLabel(locale === 'de' ? 'Breite' : 'Width', { exact: true })).toHaveCount(0);
   await modelSelect.selectOption('openai/gpt-image-2');
@@ -655,7 +655,7 @@ for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable exp
 
 for (const locale of ['en', 'de']) for (const mobile of [false, true]) {
   test(`Canvas Grok ${locale} ${mobile ? 'mobile' : 'desktop'} persists reasoning and shows matching credit estimate`, async ({ page }, testInfo) => {
-    const { listCanvasModelsForRole, estimateCanvasTextCredits } = await import('../js/shared/canvas-model-contract.mjs');
+    const { listCanvasModelsForRole, estimateCanvasTextCredits, getCanvasTextInstructions } = await import('../js/shared/canvas-model-contract.mjs');
     await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 });
     await mockSharedAuth(page);
     const state = createCanvasApiMock(page, { modelPayload: { models: listCanvasModelsForRole('user'), organizations: [], access: { role: 'user' } } });
@@ -670,10 +670,20 @@ for (const locale of ['en', 'de']) for (const mobile of [false, true]) {
     if (mobile) await page.locator('#canvasInspectorToggle').click();
     const effort = page.getByRole('combobox', { name: locale === 'de' ? 'Denkaufwand' : 'Reasoning effort', exact: true });
     await expect(effort).toHaveValue('medium');
-    await expect(page.locator('.canvas-model-note')).toContainText(locale === 'de' ? 'Einmalige Textgenerierung' : 'One-shot text generation');
+    await expect(page.locator('.canvas-model-note')).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: locale === 'de' ? 'System-Prompt' : 'System prompt', exact: true })).toHaveCount(0);
+    await expect(page.locator('.canvas-input-context')).not.toContainText(/Effective prompt|Effektiver Prompt/);
+    const purpose = page.getByRole('combobox', { name: locale === 'de' ? 'Verwendungszweck' : 'Purpose', exact: true });
+    await expect(purpose).toHaveValue('image_prompt');
+    await expect(purpose.locator('option')).toHaveCount(3);
+    await purpose.focus(); await expect(purpose).toBeFocused(); await purpose.press('Tab');
+    await purpose.selectOption('video_prompt');
+    await expect.poll(() => state.nodes[0].config.textPurpose).toBe('video_prompt');
+    await purpose.selectOption('song_lyrics');
+    await expect.poll(() => state.nodes[0].config.textPurpose).toBe('song_lyrics');
     await effort.selectOption('high');
     await expect.poll(() => state.nodes[0].config.reasoningEffort).toBe('high');
-    await expect(page.locator('.canvas-cost-note')).toContainText(String(estimateCanvasTextCredits('xai/grok-4.6', state.nodes[0].config)));
+    await expect(page.locator('.canvas-cost-note')).toHaveText(`${locale === 'de' ? 'Geschätzte Credits' : 'Estimated credits'}: ${estimateCanvasTextCredits('xai/grok-4.6', { ...state.nodes[0].config, systemPrompt: getCanvasTextInstructions(state.nodes[0].config) })}`);
     await page.reload();
     await expect(page.locator('#canvasProjectTitle')).toHaveValue('Grok fixture');
     await expect(page.locator('#canvasApp')).not.toHaveAttribute('inert', '');
@@ -681,7 +691,20 @@ for (const locale of ['en', 'de']) for (const mobile of [false, true]) {
     await page.locator(`[data-node-id="${node}"]`).press('Enter');
     if (mobile) await page.locator('#canvasInspectorToggle').click();
     await expect(effort).toHaveValue('high');
+    await expect(purpose).toHaveValue('song_lyrics');
+    expect(state.nodes[0].config.systemPrompt).toBe('Concise.');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
-    await testInfo.attach('canvas-grok', { body: await page.screenshot(), contentType: 'image/png' });
+    await testInfo.attach('canvas-purpose', { body: await page.screenshot(), contentType: 'image/png' });
+    await page.locator('#bitbiHelpTrigger').click();
+    const help = page.locator('[data-help-section="canvas"]');
+    await expect(help).toBeVisible();
+    if (!(await help.evaluate(el => el.open))) await help.locator(':scope > summary').click();
+    await expect(help).toContainText(locale === 'de' ? 'Textzwecke' : 'Text purposes');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#bitbiHelpPanel')).not.toBeVisible();
+    await page.goto(locale === 'de' ? '/de/pricing.html' : '/pricing.html');
+    await page.locator('#bitbiHelpTrigger').click();
+    await expect(page.locator('[data-help-section="canvas"]')).toHaveCount(0);
+    await expect(page.locator('[data-help-section="credits"]')).toBeVisible();
   });
 }

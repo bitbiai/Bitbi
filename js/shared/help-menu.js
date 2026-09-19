@@ -23,6 +23,7 @@ const LABELS = Object.freeze({
 });
 
 const ROUTE_SECTION_ORDER = Object.freeze({
+    canvas: Object.freeze(['canvas', 'generate', 'credits', 'assets', 'recovery', 'start', 'profile']),
     home: Object.freeze(['start', 'generate', 'credits', 'assets', 'profile', 'recovery']),
     pricing: Object.freeze(['credits', 'start', 'generate', 'assets', 'profile', 'recovery']),
     'generate-lab': Object.freeze(['generate', 'credits', 'assets', 'start', 'profile', 'recovery']),
@@ -34,6 +35,19 @@ const ROUTE_SECTION_ORDER = Object.freeze({
 });
 
 export const HELP_MENU_SECTIONS = Object.freeze([
+    Object.freeze({
+        id: 'canvas', canvasOnly: true, routes: Object.freeze(['canvas']),
+        title: { en: 'Canvas generation', de: 'Generieren in Canvas' },
+        summary: { en: 'Text purposes, connected inputs and estimates.', de: 'Textzwecke, verbundene Eingaben und Schätzungen.' },
+        items: [
+            { id: 'canvas-purpose', title: { en: 'Choose the deliverable', de: 'Das gewünschte Ergebnis wählen' },
+                summary: { en: 'Image prompt, video prompt or song lyrics: describe your wish in Prompt.', de: 'Bildprompt, Videoprompt oder Songtext: Beschreiben Sie Ihren Wunsch unter Prompt.' },
+                detail: { en: 'Every text model receives the selected purpose automatically and is instructed to return only the result. Lyrics can keep verses, choruses and section labels. Older nodes default to Image prompt. Their saved custom system text is retained but replaced by the purpose instructions for new runs; existing outputs stay unchanged. Grok reasoning controls the available reasoning/output allowance.', de: 'Jedes Textmodell erhält den gewählten Zweck automatisch und die Vorgabe, nur das Ergebnis zurückzugeben. Songtexte dürfen Strophen, Refrains und Abschnittsmarkierungen enthalten. Ältere Nodes starten mit Bildprompt. Ihr gespeicherter Systemtext bleibt erhalten, wird für neue Ausführungen aber durch die Zweckvorgabe ersetzt; vorhandene Ergebnisse bleiben unverändert. Groks Denkaufwand steuert das verfügbare Denk- und Ausgabebudget.' } },
+            { id: 'canvas-input-cost', title: { en: 'Inputs and credits', de: 'Eingaben und Credits' },
+                summary: { en: 'Connected input stays visible; estimates follow the current settings.', de: 'Verbundener Input bleibt sichtbar; Schätzungen folgen den aktuellen Einstellungen.' },
+                detail: { en: 'A nonempty Prompt takes precedence over connected text; otherwise the connected text is used. Run missing upstream outputs first. Estimates include the effective purpose instructions where text pricing depends on them. Reference images and media settings can affect cost. The server checks the applicable personal or organization credits before execution. Admin platform-budget runs do not debit those credits, so their credit estimate is zero; their separate platform budget is still enforced. A dash means no reliable estimate is available. Outputs remain saved with the project for downstream nodes.', de: 'Ein ausgefüllter Prompt hat Vorrang vor verbundenem Text; andernfalls wird der verbundene Text verwendet. Fehlende vorgeschaltete Ergebnisse zuerst ausführen. Wenn die Textpreise davon abhängen, umfasst die Schätzung auch die wirksame Zweckvorgabe. Referenzbilder und Medieneinstellungen können die Kosten verändern. Der Server prüft vor der Ausführung die geltenden persönlichen oder Organisationscredits. Admin-Ausführungen über das Plattformbudget buchen diese Credits nicht ab, daher ist ihre Creditschätzung null; das separate Plattformbudget wird weiterhin geprüft. Ein Strich bedeutet, dass keine verlässliche Schätzung verfügbar ist. Ergebnisse bleiben im Projekt für nachfolgende Nodes gespeichert.' } },
+        ],
+    }),
     Object.freeze({
         id: 'start',
         routes: Object.freeze(['home', 'pricing']),
@@ -363,6 +377,7 @@ function getRouteKey(pathname = window.location.pathname) {
     const path = String(pathname || '/').replace(/\/{2,}/g, '/');
     if (path === '/admin' || path.startsWith('/admin/')) return 'admin';
     if (path.includes('/generate-lab')) return 'generate-lab';
+    if (/^\/(?:de\/)?canvas(?:\/|$)/.test(path)) return 'canvas';
     if (path.includes('/account/assets-manager')) return 'assets';
     if (path.includes('/account/credits')) return 'credits';
     if (path.includes('/account/profile')) return 'profile';
@@ -387,6 +402,7 @@ function getSections(routeKey, locale) {
     const isAdmin = routeKey === 'admin';
     return HELP_MENU_SECTIONS
         .filter((section) => !section.adminOnly || isAdmin)
+        .filter((section) => !section.canvasOnly || routeKey === 'canvas')
         .slice()
         .sort((a, b) => {
             const scoreDelta = sectionScore(a, routeKey) - sectionScore(b, routeKey);

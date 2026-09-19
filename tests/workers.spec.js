@@ -12700,12 +12700,13 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
   for (const role of ['user', 'admin']) for (const reasoningEffort of ['low', 'medium', 'high']) {
     test(`Canvas Grok one-shot ${role} ${reasoningEffort} saves, connects and replays with role-correct billing`, async () => {
       const { getGrokMaxCompletionTokens } = await import('../js/shared/grok-text-contract.mjs');
-      const { estimateCanvasTextCredits } = await import('../js/shared/canvas-model-contract.mjs');
+      const { estimateCanvasTextCredits, getCanvasTextInstructions } = await import('../js/shared/canvas-model-contract.mjs');
       const calls = []; let fail = false;
+      const resultText = reasoningEffort === 'high' ? '[Verse]\nA quiet road\n\n[Chorus]\nWe come home' : 'Stored Grok answer';
       const h = await createMemberTextHarness({ user: createContractUser({ id: 'canvas-grok-'+role, role }), role: role === 'admin' ? 'admin' : 'member', aiRun: async (model, body, options) => {
         calls.push({ model, body, options });
         if (fail) throw new Error("Synthetic lost provider reply");
-        const events = [{ model, choices: [{ index: 0, delta: { content: 'Stored Grok answer' }, finish_reason: 'stop' }] },
+        const events = [{ model, choices: [{ index: 0, delta: { content: resultText }, finish_reason: 'stop' }] },
           { choices: [], usage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 58, completion_tokens_details: { reasoning_tokens: 30 } } }];
         return new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(events.map(e => 'data: '+JSON.stringify(e)+'\n\n').join('')+'data: [DONE]\n\n')); c.close(); } });
       } });
@@ -12713,7 +12714,8 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       const now = nowIso(), project = 'a'.repeat(32), node = 'b'.repeat(32), source = 'c'.repeat(32);
       h.env.DB.state.memberCreditLedger.push({ id: 'seed-grok', user_id: h.user.id, amount: 1000, balance_after: 1000, entry_type: 'grant', source: 'test', idempotency_key: 'seed', request_hash: 'seed', created_at: now, metadata_json: '{}' });
       h.env.DB.state.canvasProjects.push({ id: project, user_id: h.user.id, title: 'Synthetic Grok', locale: 'en', created_at: now, updated_at: now, deleted_at: null });
-      const config = { systemPrompt: 'Answer concisely.', reasoningEffort };
+      const config = { systemPrompt: 'Legacy explanation must not override the purpose.', textPurpose: ({ low: 'image_prompt', medium: 'video_prompt', high: 'song_lyrics' })[reasoningEffort], reasoningEffort };
+      const system = getCanvasTextInstructions(config);
       h.env.DB.state.canvasNodes.push({ id: source, project_id: project, user_id: h.user.id, type: 'text_prompt', title: 'Input', x: 0, y: 0, config_json: '{}', content_json: '{"prompt":"Connected text input"}', created_at: now, updated_at: now, deleted_at: null },
         { id: node, project_id: project, user_id: h.user.id, type: 'text_generation', title: 'Grok', x: 300, y: 0, model_id: 'xai/grok-4.6', config_json: JSON.stringify(config), content_json: '{}', created_at: now, updated_at: now, deleted_at: null });
       h.env.DB.state.canvasEdges.push({ id: 'd'.repeat(32), project_id: project, user_id: h.user.id, source_node_id: source, target_node_id: node, created_at: now, updated_at: now });
@@ -12728,18 +12730,21 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
         h.env.ENABLE_GROK_4_6 = 'true';
       }
       const first = await request(route, {}); const data = await first.json();
-      expect(data, JSON.stringify(data)).toMatchObject({ ok: true, data: { run: { status: 'completed', output: { kind: 'text', text: 'Stored Grok answer' } } } });
+      expect(data, JSON.stringify(data)).toMatchObject({ ok: true, data: { run: { status: 'completed', output: { kind: 'text', text: resultText } } } });
       expect(calls).toHaveLength(1);
-      expect(calls[0].body).toMatchObject({ reasoning_effort: reasoningEffort, max_completion_tokens: getGrokMaxCompletionTokens(reasoningEffort), messages: [{ role: 'system', content: config.systemPrompt }, { role: 'user', content: 'Connected text input' }] });
+      expect(calls[0].body).toMatchObject({ reasoning_effort: reasoningEffort, max_completion_tokens: getGrokMaxCompletionTokens(reasoningEffort), messages: [{ role: 'system', content: system }, { role: 'user', content: 'Connected text input' }] });
       for (const field of ['tools', 'search_parameters', 'prompt_cache_key', 'user']) expect(calls[0].body[field]).toBeUndefined();
       expect(calls[0].options.gateway).toMatchObject({ collectLog: false, skipCache: true, metadata: { surface: 'canvas-text' } });
       const charge = h.env.DB.state.memberCreditLedger.filter(row => row.entry_type === 'consume');
-      if (role === 'user') { expect(charge).toHaveLength(1); expect(charge[0].amount).toBe(-estimateCanvasTextCredits('xai/grok-4.6', { ...config, prompt: 'Connected text input' })); }
-      else { expect(charge).toHaveLength(0); expect(h.env.DB.state.adminAiUsageAttempts.filter(row => row.status === 'succeeded')).toHaveLength(1); expect(h.env.DB.state.platformBudgetUsageEvents).toHaveLength(1); expect(h.env.DB.state.platformBudgetUsageEvents[0].units).toBe(estimateCanvasTextCredits('xai/grok-4.6', { ...config, prompt: 'Connected text input' })); }
+      if (role === 'user') { expect(charge).toHaveLength(1); expect(charge[0].amount).toBe(-estimateCanvasTextCredits('xai/grok-4.6', { ...config, systemPrompt: system, prompt: 'Connected text input' })); }
+      else { expect(charge).toHaveLength(0); expect(h.env.DB.state.adminAiUsageAttempts.filter(row => row.status === 'succeeded')).toHaveLength(1); expect(h.env.DB.state.platformBudgetUsageEvents).toHaveLength(1); expect(h.env.DB.state.platformBudgetUsageEvents[0].units).toBe(estimateCanvasTextCredits('xai/grok-4.6', { ...config, systemPrompt: system, prompt: 'Connected text input' })); }
       expect((await (await request(route, {})).json()).data.idempotent_replay).toBe(true);
       expect(calls).toHaveLength(1);
       const reload = await (await request(`projects/${project}`)).json();
-      expect(reload.data.nodes.find(n => n.id === node)).toMatchObject({ config: { reasoningEffort }, output: { text: 'Stored Grok answer' } });
+      expect(reload.data.nodes.find(n => n.id === node)).toMatchObject({ config: { reasoningEffort }, output: { text: resultText } });
+      h.env.DB.state.canvasNodes.find(n => n.id === node).config_json = JSON.stringify({ ...config, textPurpose: config.textPurpose === 'video_prompt' ? 'song_lyrics' : 'video_prompt' });
+      expect((await request(route, {})).status).toBe(409);
+      expect(calls).toHaveLength(1);
       h.env.DB.state.canvasNodes.find(n => n.id === node).config_json = JSON.stringify({ ...config, reasoningEffort: reasoningEffort === 'high' ? 'low' : 'high' });
       expect((await request(route, {})).status).toBe(409);
       expect(calls).toHaveLength(1);
@@ -12747,6 +12752,9 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
         const row = h.env.DB.state.canvasNodes.find(n => n.id === node);
         row.config_json = JSON.stringify({ ...config, reasoningEffort: 'xhigh' });
         expect((await request(route, {}, 'invalid-effort')).status).toBe(400);
+        expect(calls).toHaveLength(1);
+        row.config_json = JSON.stringify({ ...config, textPurpose: 'unknown' });
+        expect((await request(route, {}, 'invalid-purpose')).status).toBe(400);
         expect(calls).toHaveLength(1);
         row.config_json = JSON.stringify(config);
         fail = true;
@@ -12764,6 +12772,30 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       }
     });
   }
+
+  test('Canvas purposes reach every existing non-chat text adapter and preserve lyric output', async () => {
+    const { listCanvasModelsForRole, CANVAS_TEXT_PURPOSES, getCanvasTextInstructions } = await import('../js/shared/canvas-model-contract.mjs');
+    const models = listCanvasModelsForRole('user').filter(m => m.capability === 'text' && m.runnable && m.id !== 'xai/grok-4.6');
+    expect(models.length).toBeGreaterThan(0);
+    for (const model of models) for (const textPurpose of CANVAS_TEXT_PURPOSES) {
+      const output = textPurpose === 'song_lyrics' ? '[Verse]\nA small bright light\n\n[Chorus]\nCarry us home' : 'A single cinematic scene.';
+      const calls = [];
+      const h = await createMemberTextHarness({ aiRun: async (id, body) => { calls.push({ id, body }); return { response: output, content: [{ type: 'text', text: output }], usage: { input_tokens: 8, output_tokens: 20 } }; } });
+      const now = nowIso(), p = 'd'.repeat(32), n = 'e'.repeat(32), config = { prompt: 'A creative wish', textPurpose, systemPrompt: 'Old instruction: add three alternatives.', maxTokens: 300 };
+      h.env.DB.state.memberCreditLedger.push({ id: 'purpose-grant', user_id: h.user.id, amount: 1000, balance_after: 1000, entry_type: 'grant', source: 'test', created_at: now });
+      h.env.DB.state.canvasProjects.push({ id: p, user_id: h.user.id, title: 'Purpose fixture', locale: 'en', created_at: now, updated_at: now });
+      h.env.DB.state.canvasNodes.push({ id: n, project_id: p, user_id: h.user.id, type: 'text_generation', model_id: model.id, title: 'Purpose', x: 0, y: 0, config_json: JSON.stringify(config), content_json: '{}', created_at: now, updated_at: now });
+      const response = await h.authWorker.fetch(authJsonRequest(`/api/account/canvas/projects/${p}/nodes/${n}/run`, 'POST', {}, { Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${h.token}`, 'CF-Connecting-IP': '203.0.113.244', 'Idempotency-Key': 'purpose-test' }), h.env, createExecutionContext().execCtx);
+      const result = await response.json();
+      expect(response.status, JSON.stringify({ model: model.id, textPurpose, result })).toBe(200);
+      expect(result.data.run.output.text).toBe(output);
+      expect(calls).toHaveLength(1);
+      const system = calls[0].body.system ?? calls[0].body.messages?.find(m => m.role === 'system')?.content;
+      expect(system).toBe(getCanvasTextInstructions(config));
+      expect(system).not.toContain('Old instruction');
+      expect(h.env.DB.state.canvasNodes.find(row => row.id === n).output_json).toContain(JSON.stringify(output).slice(1,-1));
+    }
+  });
 
   test('Canvas Fable 5 run charges personal member credits once and replays without another provider call', async () => {
     const harness = await createMemberTextHarness({
@@ -12998,7 +13030,14 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       ['@cf/openai/gpt-oss-120b', { response: '' }, 'text_output_empty'],
     ];
     for (const [model, raw, code] of scenarios) {
-      const h = await canvasAdminFixture({ model, capability: 'text', aiRun: async (_id, input) => { expect(input.max_tokens).toBe(300); expect(input.messages).toEqual([{ role: 'user', content: 'Synthetic stored result' }]); return raw; } });
+      const { getCanvasTextInstructions } = await import('../js/shared/canvas-model-contract.mjs');
+      const h = await canvasAdminFixture({ model, capability: 'text', aiRun: async (_id, input) => {
+        expect(input.max_tokens).toBe(300);
+        const system = getCanvasTextInstructions();
+        if (model === 'anthropic/claude-fable-5') { expect(input.system).toBe(system); expect(input.messages).toEqual([{ role: 'user', content: 'Synthetic stored result' }]); }
+        else expect(input.messages).toEqual([{ role: 'system', content: system }, { role: 'user', content: 'Synthetic stored result' }]);
+        return raw;
+      } });
       const result = await (await h.run({})).json();
       if (code) expect(result).toMatchObject({ ok: false, code });
       else expect(result.data.run.output.text).toMatch(/^Visible /);

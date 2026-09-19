@@ -12,6 +12,7 @@ import { nowIso, randomTokenHex } from "../lib/tokens.js";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../js/shared/worker-observability.mjs";
 import {
   getCanvasModel,
+  getCanvasTextInstructions,
   getCanvasModelForRole,
   listCanvasModels,
   listCanvasModelsForRole,
@@ -814,7 +815,7 @@ function buildGenerationBody(node, model, resolution) {
   }
   const body = { model: model.id, prompt };
   if (model.capability === "text") {
-    if (config.systemPrompt) body.system_prompt = config.systemPrompt;
+    body.system_prompt = getCanvasTextInstructions(config);
     if (Array.isArray(config.messages) && config.messages.length) throw Object.assign(new Error("Canvas text nodes accept a prompt and system prompt, not a native message history."), { status: 400, code: "unsupported_option" });
     if (model.id === GROK_4_6_MODEL_ID) {
       body.reasoningEffort = config.reasoningEffort ?? GROK_DEFAULT_REASONING_EFFORT;

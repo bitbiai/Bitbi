@@ -1,8 +1,7 @@
 import { renderCanvasFullVideo } from './full-video.js?v=__ASSET_VERSION__';
 import { videoInputCopy, renderVideoInput, awaitCanvasVideo, canvasVideoRunState } from './video-input.js?v=__ASSET_VERSION__';
 import { calculateAiImageCreditCost, calculateAiVideoCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
-import { estimateCanvasTextCredits } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
-import { GROK_4_6_MODEL_ID } from '../../shared/grok-text-contract.mjs?v=__ASSET_VERSION__';
+import { estimateCanvasTextCredits, CANVAS_TEXT_PURPOSES, CANVAS_TEXT_DEFAULT_PURPOSE, getCanvasTextInstructions } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initAuthEntryActions } from '../../shared/auth-entry-actions.js?v=__ASSET_VERSION__';
 import { canvasApi } from './api.js?v=__ASSET_VERSION__';
@@ -421,8 +420,8 @@ async function loadAssetOptions(node, select) {
 
 function renderInputContext(node, analysis) {
     const section = el('section', 'canvas-input-context');
-    const sourceNames = analysis.sources.map((source) => source.sourceTitle).join(', ');
-    section.append(el('strong', '', sourceNames ? `${copy.inputFrom}: ${sourceNames}` : copy.noInput));
+    section.append(el('strong', '', copy.connectedInput));
+    if (!analysis.sources.length) section.append(el('p', 'canvas-muted', copy.noInput));
     if (analysis.sources.length) {
         for (const source of analysis.sources) {
             const message = source.status === 'compatible'
@@ -438,10 +437,8 @@ function renderInputContext(node, analysis) {
         }
     }
     if (analysis.connectedPrompt) {
-        section.append(el('strong', '', copy.connectedInput), el('pre', '', analysis.connectedPrompt));
-        if (analysis.directPrompt) section.append(el('p', '', copy.directOverride));
+        section.append(el('pre', '', analysis.connectedPrompt));
     }
-    if (analysis.effectivePrompt) section.append(el('strong', '', copy.effectivePrompt), el('pre', '', analysis.effectivePrompt));
     const validation = validationForNode(node, analysis, copy);
     if (validation) { section.dataset.state = 'error'; section.append(el('p', '', validation)); }
     return { section, validation };
@@ -495,19 +492,18 @@ function renderInspector() {
         });
         dom.inspector.append(field(copy.model, modelSelect));
         if (model) {
-            const description = model.id === GROK_4_6_MODEL_ID && isGerman ? 'Einmalige Textgenerierung mit einstellbarem Denkaufwand; ohne Chatverlauf oder Tools.' : model.description;
-            dom.inspector.append(el('p', 'canvas-model-note', model.runnable ? description : model.disabledReason));
+            if (!model.runnable) dom.inspector.append(el('p', 'canvas-muted', model.disabledReason));
             const cost = el('p', 'canvas-cost-note');
             const updateCost = () => {
-                const budget = model.requiresPlatformBudget && model.runnable ? (isGerman ? 'Plattformbudget' : 'Platform budget') : model.requiresOrganization ? (isGerman ? 'Credits der ausgewählten Organisation' : 'Selected organization credits') : (isGerman ? 'Persönliche Credits' : 'Personal credits');
                 let estimate = model.estimatedCredits;
                 try {
                     if (capability === 'video' && model.id === 'pixverse/v6' && model.runnable) estimate = calculateAiVideoCreditCost(model.id, { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, generateAudio: node.config?.generateAudio !== false })?.credits;
                     if (capability === 'image' && model.runnable) estimate = calculateAiImageCreditCost(model.id, { ...node.config, referenceImageCount: workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0 })?.credits;
-                    if (capability === 'text' && model.requiresPersonalCredits) estimate = estimateCanvasTextCredits(model.id, { ...node.config, prompt: analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id)?.effectivePrompt || "" });
+                    if (capability === 'text' && model.requiresPersonalCredits) estimate = estimateCanvasTextCredits(model.id, { ...node.config, systemPrompt: getCanvasTextInstructions(node.config), prompt: analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id)?.effectivePrompt || "" });
+                    // Platform-budget runs do not debit user/organization credits.
+                    if (model.requiresPlatformBudget && model.runnable) estimate = 0;
                 } catch { estimate = null; }
-                cost.textContent = model.requiresPlatformBudget && model.runnable ? budget : `${budget} · ${copy.estimated}: ${estimate ?? '—'}`;
-                if (model.controls?.supportsReferenceImages) cost.append(document.createTextNode(isGerman ? ' · Endgültige Kosten werden serverseitig einschließlich Referenzen geprüft.' : ' · Final cost is checked server-side including references.'));
+                cost.textContent = `${copy.estimated}: ${estimate ?? '—'}`;
             };
             updateCost();
             dom.inspector.addEventListener('input', updateCost, { signal: inspectorAbort.signal });
@@ -522,7 +518,9 @@ function renderInspector() {
         dom.inspector.append(inputContext.section);
 
         if (capability === 'text') {
-            const system = textareaControl(node.config?.systemPrompt || ''); system.maxLength = 4000; bindConfig(node, system, 'systemPrompt'); dom.inspector.append(field(copy.systemPrompt, system));
+            const purposeLabels = isGerman ? ['Bildprompt', 'Videoprompt', 'Songtext'] : ['Image prompt', 'Video prompt', 'Song lyrics'];
+            const purpose = selectControl(CANVAS_TEXT_PURPOSES.map((value, index) => ({ value, label: purposeLabels[index] })), node.config?.textPurpose ?? CANVAS_TEXT_DEFAULT_PURPOSE);
+            bindConfig(node, purpose, 'textPurpose'); dom.inspector.append(field(isGerman ? 'Verwendungszweck' : 'Purpose', purpose));
             const grid = el('div', 'canvas-field-grid');
             const maxTokens = inputControl(node.config?.maxTokens ?? model?.controls?.maxTokens?.default ?? 500, 'number'); maxTokens.min = '1'; maxTokens.max = String(model?.controls?.maxTokens?.max || 4096); maxTokens.addEventListener('input', () => scheduleNode(node, { config: { ...node.config, maxTokens: Number(maxTokens.value), maxTokensEdited: true } }));
             const temperature = inputControl(node.config?.temperature ?? .7, 'number'); temperature.min = '0'; temperature.max = '1.5'; temperature.step = '.1'; bindConfig(node, temperature, 'temperature', (value) => Number(value));
@@ -688,7 +686,7 @@ async function addNode() {
     const body = {
         type, title: copy.nodeTypes[type], x: visibleX, y: visibleY,
         model_id: model?.id || null,
-        config: capability ? { prompt: '', ...(capability === 'text' ? { maxTokens: model?.controls?.maxTokens?.default || 500, temperature: .7 } : {}) } : {},
+        config: capability ? { prompt: '', ...(capability === 'text' ? { textPurpose: CANVAS_TEXT_DEFAULT_PURPOSE, maxTokens: model?.controls?.maxTokens?.default || 500, temperature: .7 } : {}) } : {},
         content: {},
     };
     const result = await canvasApi.createNode(projectId, body);
