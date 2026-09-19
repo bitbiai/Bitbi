@@ -5,7 +5,13 @@ export const HOMEPAGE_CORE_FILES = Object.freeze([
   'audio-player.spec.js', 'canvas.spec.js', 'oma2-q1-canvas.spec.js',
   'locale.spec.js', 'smoke.spec.js',
 ]);
-export const CANVAS_WEBKIT_FILES = Object.freeze(['canvas.spec.js', 'oma2-q1-canvas.spec.js']);
+// Project capability is wider than the homepage-core caller: the Canvas/model
+// release also selects tagged Admin controls. Homepage-core keeps its own file
+// arguments, so it includes tagged smoke coverage, never the Admin spec.
+export const CANVAS_WEBKIT_FILES = Object.freeze([
+  'canvas.spec.js', 'oma2-q1-canvas.spec.js', 'auth-admin.spec.js', 'smoke.spec.js',
+]);
+export const HOMEPAGE_CORE_WEBKIT_FILES = Object.freeze(HOMEPAGE_CORE_FILES.filter(file => CANVAS_WEBKIT_FILES.includes(file)));
 
 // Read the real existing npm caller without evaluating a shell command.
 export function homepageCoreArguments(scripts) {
@@ -17,7 +23,7 @@ export function homepageCoreArguments(scripts) {
 
 export function verifyHomepageCoreDiscovery(core, standard) {
   assert(Array.isArray(core) && core.length > 0, 'homepage-core: no tests discovered');
-  const projects = {chromium: HOMEPAGE_CORE_FILES, 'webkit-canvas': CANVAS_WEBKIT_FILES};
+  const projects = {chromium: HOMEPAGE_CORE_FILES, 'webkit-canvas': HOMEPAGE_CORE_WEBKIT_FILES};
   const expected = standard.filter(test => projects[test.project]?.includes(test.file));
   for (const [project, files] of Object.entries(projects)) {
     for (const file of files) {

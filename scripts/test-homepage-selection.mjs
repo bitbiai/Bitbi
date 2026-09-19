@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_NATIVE_CONTROLS_REQUIRED, HOMEPAGE_EXTENDED_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
+import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_NATIVE_CONTROLS_REQUIRED, HOMEPAGE_EXTENDED_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
 import { validateHomepageMacRuntime, validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
@@ -12,7 +13,10 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 const fixture = (file, project, index) => ({ file, project, title: `case ${index}`, expectedStatus: 'passed', tags: [] });
 const coreFixtures = [...HOMEPAGE_CORE_FILES.map(file => fixture(file, 'chromium', 0)),
-  ...CANVAS_WEBKIT_FILES.map(file => fixture(file, 'webkit-canvas', 0))];
+  ...HOMEPAGE_CORE_WEBKIT_FILES.map(file => fixture(file, 'webkit-canvas', 0))];
+assert.deepEqual(HOMEPAGE_CORE_WEBKIT_FILES, ['canvas.spec.js', 'oma2-q1-canvas.spec.js', 'smoke.spec.js']);
+const adminFixture = fixture('auth-admin.spec.js', 'webkit-canvas', 0);
+assert.throws(() => verifyHomepageCoreDiscovery([...coreFixtures, adminFixture], [...coreFixtures, adminFixture]), /lost or added/);
 assert.equal(verifyHomepageCoreDiscovery(coreFixtures, coreFixtures)['chromium/oma2-q1-canvas.spec.js'], 1);
 for (const removed of coreFixtures) {
   assert.throws(() => verifyHomepageCoreDiscovery(coreFixtures.filter(test => test !== removed), coreFixtures), /does not execute/);
@@ -31,6 +35,56 @@ const standardConfig = require(path.join(root, 'playwright.config.js'));
 const canvasProject = standardConfig.projects.find(project => project.name === 'webkit-canvas');
 assert.equal(canvasProject?.use.browserName, 'webkit');
 assert.deepEqual(canvasProject.testMatch, CANVAS_WEBKIT_FILES.map(file => '**/' + file));
+assert.deepEqual(canvasProject.grep, /Canvas|P13|@canvas-model-ui/);
+
+// Exercise the actual npm caller and the exact discovery line used by CI. The
+// wider project file set must not silently expand homepage-core to Admin, nor
+// omit the tagged model cases from either engine in the Canvas release.
+const discoveryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'bitbi-canvas-selection-'));
+const cli = path.join(path.dirname(require.resolve('playwright/package.json')), 'cli.js');
+try {
+  const discover = (name, args) => {
+    const output = path.join(discoveryDirectory, name + '.json');
+    const result = spawnSync(process.execPath, [cli, ...args, '--list', '--reporter=json'], {
+      cwd: root, env: {...process.env, PLAYWRIGHT_JSON_OUTPUT_FILE: output}, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+    });
+    assert.equal(result.status, 0, `${name}: ${result.stderr || result.error?.message || result.stdout}`);
+    return flattenHomepageDiscovery(JSON.parse(fs.readFileSync(output, 'utf8')));
+  };
+  const standard = discover('standard', ['test', '-c', 'playwright.config.js']);
+  const core = discover('core', homepageCoreArguments({'test:homepage-core': coreScript}));
+  const counts = verifyHomepageCoreDiscovery(core, standard);
+  assert(counts['webkit-canvas/smoke.spec.js'] > 0);
+  assert(!core.some(test => test.file === 'auth-admin.spec.js'));
+  const workflow = read('.github/workflows/static.yml');
+  const lines = workflow.split('\n').map(line => line.trim());
+  const discoveryLines = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static'));
+  const executionLines = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static') && line.includes('tests/canvas.spec.js'));
+  assert.equal(discoveryLines.length, 1); assert.equal(executionLines.length, 1);
+  assert(discoveryLines[0].endsWith(' --list --reporter=json'));
+  assert(executionLines[0].endsWith(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json'));
+  assert.equal(discoveryLines[0].split(' npm ')[1].replace(' --list --reporter=json', ''),
+    executionLines[0].split(' npm ')[1].replace(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json', ''), 'CI discovery/execution scopes differ');
+  const output = path.join(discoveryDirectory, 'canvas-ci.json');
+  const result = spawnSync('/bin/bash', ['--noprofile', '--norc', '-e', '-c', discoveryLines[0]], {
+    cwd: root, env: {...process.env, PLAYWRIGHT_JSON_OUTPUT_FILE: output}, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+  });
+  assert.equal(result.status, 0, result.stderr || result.error?.message || result.stdout);
+  const canvas = flattenHomepageDiscovery(JSON.parse(fs.readFileSync(output, 'utf8')));
+  // Playwright's plain-string CLI --grep is case-insensitive; the project's
+  // RegExp above is not. Standard discovery already applied that project filter.
+  const expected = standard.filter(test => ['chromium','webkit-canvas'].includes(test.project)
+    && CANVAS_WEBKIT_FILES.includes(test.file) && /Canvas|P13|@canvas-model-ui/i.test(test.title + ' ' + test.tags.join(' ')));
+  const identity = test => [test.project,test.file,test.title].join('\0');
+  assert.deepEqual(canvas.map(identity).sort(), expected.map(identity).sort(), 'CI Canvas discovery lost or added cases');
+  for (const project of ['chromium','webkit-canvas']) for (const file of CANVAS_WEBKIT_FILES) {
+    assert(canvas.some(test => test.project === project && test.file === file), `Missing ${project}/${file}`);
+  }
+  for (const test of canvas) assert.equal(test.expectedStatus, 'passed', `Statically skipped Canvas case: ${identity(test)}`);
+  console.log(`Actual caller discovery: homepage-core ${core.length}; Canvas/model ${canvas.length} (Chromium + WebKit). No browser execution claimed.`);
+} finally {
+  fs.rmSync(discoveryDirectory, {recursive: true, force: true});
+}
 const allFunctional = ['chromium', 'webkit'].flatMap((project) => Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)
   .flatMap(([file, count]) => Array.from({ length: count }, (_, index) => fixture(file, project, index))));
 const functional = [...allFunctional, ...HOMEPAGE_WEBKIT_REQUIRED.map(title => ({ ...fixture('homepage-hero-playback.spec.js', 'chromium', 0), title }))];
