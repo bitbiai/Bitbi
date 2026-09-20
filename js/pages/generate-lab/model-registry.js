@@ -1,3 +1,4 @@
+import { getAdminAiVideoModelSpec } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI — Generate Lab model registry
    Frontend-only registry for member-facing generation tools.
@@ -390,47 +391,18 @@ const seedance2FastModel = Object.freeze({
     }),
 });
 
-const grokImagineVideoModel = Object.freeze({
-    id: GROK_IMAGINE_VIDEO_MODEL_ID,
-    displayName: 'Grok Imagine Video',
-    mediaType: 'video',
-    provider: 'xAI / Cloudflare AI Gateway',
-    route: '/api/ai/generate-video',
-    outputType: 'video',
-    status: DE ? 'NEU' : 'NEW',
-    summary: DE ? 'xAI Text-zu-Video über Cloudflare AI Gateway mit Dauer, Auflösung und Formatsteuerung.' : 'xAI text-to-video through Cloudflare AI Gateway with duration, resolution, and aspect controls.',
-    capabilities: Object.freeze([
-        DE ? 'Text zu Video' : 'Text-to-video',
-        DE ? `${GROK_IMAGINE_VIDEO_MIN_DURATION}-${GROK_IMAGINE_VIDEO_MAX_DURATION} Sekunden Dauer` : `${GROK_IMAGINE_VIDEO_MIN_DURATION}-${GROK_IMAGINE_VIDEO_MAX_DURATION} second duration`,
-        DE ? `${GROK_IMAGINE_VIDEO_RESOLUTIONS.join(', ')} Auflösung` : `${GROK_IMAGINE_VIDEO_RESOLUTIONS.join(', ')} resolution`,
-        DE ? `${GROK_IMAGINE_VIDEO_ASPECT_RATIOS.join(', ')} Formate` : `${GROK_IMAGINE_VIDEO_ASPECT_RATIOS.join(', ')} aspect ratios`,
-        DE ? 'Automatisch gespeichertes Video-Asset' : 'Auto-saved video asset',
-    ]),
-    defaults: Object.freeze({
-        duration: GROK_IMAGINE_VIDEO_DEFAULT_DURATION,
-        resolution: GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
-        aspectRatio: GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
-    }),
-    options: Object.freeze({
-        duration: Object.freeze({ min: GROK_IMAGINE_VIDEO_MIN_DURATION, max: GROK_IMAGINE_VIDEO_MAX_DURATION }),
-        resolution: Object.freeze([...GROK_IMAGINE_VIDEO_RESOLUTIONS]),
-        aspectRatio: Object.freeze([...GROK_IMAGINE_VIDEO_ASPECT_RATIOS]),
-    }),
-    controls: Object.freeze({
-        supportsImageInput: false,
-        supportsNegativePrompt: false,
-        supportsAudioToggle: false,
-        supportsSeed: false,
-        supportsWatermark: false,
-        resolutionField: 'resolution',
-        aspectField: 'aspectRatio',
-    }),
-    estimateCredits: ({ duration, resolution, aspectRatio }) => estimateModelCredits('video', GROK_IMAGINE_VIDEO_MODEL_ID, {
-        duration,
-        resolution,
-        aspect_ratio: aspectRatio,
-        rateUsdPerSecond: GROK_IMAGINE_VIDEO_PROVIDER_RATE_USD_PER_SECOND,
-    }),
+const grokVideoModels = [GROK_IMAGINE_VIDEO_MODEL_ID, 'xai/grok-imagine-video-1.5-preview'].map(id => {
+    const spec = getAdminAiVideoModelSpec(id);
+    return Object.freeze({
+        id, displayName:spec.label, mediaType:'video', provider:'xAI / Cloudflare AI Gateway',
+        route:'/api/ai/generate-video', outputType:'video', status:'LIVE',
+        summary: DE ? 'Videos aus Text und eigenen Bildreferenzen generieren.' : 'Generate videos from text and your image references.',
+        capabilities: Object.freeze([DE ? 'Text und gespeicherte Bildreferenzen' : 'Text and saved image references', DE ? 'Gespeichertes Originalvideo bearbeiten oder verlängern' : 'Edit or extend a saved original video']),
+        defaults:{duration:spec.defaultDuration,resolution:spec.defaultResolution,aspectRatio:spec.defaultAspectRatio,operation:'generate'},
+        options:{duration:{min:spec.minDuration,max:spec.maxDuration},resolution:spec.allowedResolutions,aspectRatio:spec.allowedAspectRatios,size:spec.allowedSizes,operation:spec.availableOperations || spec.supportedOperations},
+        controls:{supportsImageInput:true,supportsVideoInput:true,supportsReferenceImages:true,maxReferenceImages:spec.maxReferenceImages,resolutionField:'resolution',aspectField:'aspectRatio'},
+        estimateCredits: values => estimateModelCredits('video',id,{...values,aspect_ratio:values.aspectRatio}),
+    });
 });
 
 const music26Model = Object.freeze({
@@ -462,7 +434,7 @@ const modelDefinitions = Object.freeze([
     pixverseV6Model,
     happyHorseT2vModel,
     seedance2FastModel,
-    grokImagineVideoModel,
+    ...grokVideoModels,
     music26Model,
 ]);
 

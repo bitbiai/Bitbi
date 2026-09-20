@@ -1941,6 +1941,14 @@ export const ROUTE_POLICIES = Object.freeze([
     providerSignature: "hmac-token-path",
     notes: "HEAD only returns metadata for the exact token-scoped internal source. It does not expose R2 keys, signed provider URLs, cookies, or private storage paths.",
   }),
+  policy({
+    id:'internal.ai.video-output',method:'PUT',path:'/api/internal/ai/video-output/:token',owner:'admin-ai',
+    auth:'anonymous',csrf:'not-browser-facing',sensitivity:'high',config:REQUIRED_CONFIG.adminAiVideoSource,
+    body:{kind:'raw',maxBytesName:'homepageHeroVideoUpload',contentType:'video/mp4'},
+    rateLimit:{noneReason:'HMAC capability permits one immutable, bounded output for an active accepted job only.'},
+    providerSignature:'hmac-token-path',
+    notes:'Job-bound output upload only; no reads, caller-selected keys, overwrites or terminal-job writes. Identical response-loss replays are idempotent.',
+  }),
   safeRead("internal.admin-ai.media-source", "GET", "/api/internal/ai/media-source/:token", "admin-ai", {
     auth: "anonymous",
     csrf: "not-browser-facing",

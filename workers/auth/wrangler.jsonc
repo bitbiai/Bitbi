@@ -57,7 +57,7 @@
 	"observability": {
 		"logs": {
 			"enabled": true,
-			"invocation_logs": true
+			"invocation_logs": false
 		},
 		"traces": {
 			"enabled": false

@@ -1,4 +1,4 @@
-import { MEDIA_BACKEND_SQL, notifyPrivateMedia } from './private-media-service.js';
+import { MEDIA_BACKEND_SQL, THUMBNAIL_BACKEND_SQL, notifyPrivateMedia } from './private-media-service.js';
 import { nowIso, sha256Hex, randomTokenHex } from './tokens.js';
 import { ownedCanvasVideo } from './canvas-video-input.js';
 
@@ -9,7 +9,7 @@ export const canvasProcessingError = (code, message=code, status=409) => Object.
 // Immutable run input, never mutable graph edges/positions. Each parent must be
 // the same original/version that supplied the last frame used by this child.
 export async function canvasVideoChain(env,userId,projectId,runId) {
-  const sources=[],seen=new Set(); let expected=null,total=0;
+  const sources=[],seen=new Set(); let expected=null,total=0,omitIncluded=false;
   while(runId) {
     if(seen.has(runId)) throw canvasProcessingError('canvas_chain_cycle');
     if(seen.size>=120) throw canvasProcessingError('canvas_chain_limit','At most 120 historical clips per export (bounded provenance traversal).');
@@ -22,12 +22,17 @@ export async function canvasVideoChain(env,userId,projectId,runId) {
     const asset=await ownedCanvasVideo(env,userId,run.asset_id,expected?.version,80_000_000);
     const output=parseCanvasJson(run.output_json);
     if(output.sourceVersion && output.sourceVersion!==asset.version) throw canvasProcessingError('video_source_changed');
-    sources.unshift({runId:run.id,assetId:asset.id,version:asset.version,size:asset.size}); total+=asset.size;
+    if (!omitIncluded) { sources.unshift({runId:run.id,assetId:asset.id,version:asset.version,size:asset.size}); total+=asset.size; }
     if(total>CANVAS_VIDEO_LIMITS.sourceBytes) throw canvasProcessingError('canvas_chain_size','Combined source files exceed 400 MB.');
     const parents=parseCanvasJson(run.input_json).connected_video_inputs || [];
     if(!Array.isArray(parents) || parents.length>1) throw canvasProcessingError('canvas_chain_provenance');
     const parent=parents[0];
     if(!parent) break;
+    if (['edit','extend'].includes(parent.method)) {
+      if (!parent.runId || !parent.assetId || !parent.sourceVersion) throw canvasProcessingError('canvas_chain_provenance');
+      expected={assetId:parent.assetId,version:parent.sourceVersion};runId=parent.runId;omitIncluded=true;continue;
+    }
+    omitIncluded=false;
     if(parent.method!=='last_frame' || !parent.runId || !parent.assetId || !parent.frame?.version) throw canvasProcessingError('canvas_chain_provenance','Historical last-frame provenance is incomplete.');
     expected={assetId:parent.assetId,version:parent.frame.version};runId=parent.runId;
   }
@@ -37,7 +42,7 @@ export async function canvasVideoChain(env,userId,projectId,runId) {
 export async function enqueueCanvasProcessing(env,{userId,projectId,runId,kind,sources,assetId=null}) {
   const id=(await sha256Hex(JSON.stringify(['canvas-processing-v1',userId,projectId,kind,assetId,sources]))).slice(0,32),now=nowIso();
   await env.DB.prepare(`INSERT OR IGNORE INTO canvas_video_processing
-    (id,user_id,project_id,run_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at,processing_backend) VALUES(?,?,?,?,?,?,?,?,?,?,${MEDIA_BACKEND_SQL})`)
+    (id,user_id,project_id,run_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at,processing_backend,thumbnail_backend) VALUES(?,?,?,?,?,?,?,?,?,?,${kind==='concat'?MEDIA_BACKEND_SQL:THUMBNAIL_BACKEND_SQL},${THUMBNAIL_BACKEND_SQL})`)
     .bind(id,userId,projectId,runId,kind,JSON.stringify(sources),assetId,now,now,now).run();
   const row=await env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=? AND user_id=?').bind(id,userId).first();
   if(row?.status==='queued')await notifyPrivateMedia(env,row.processing_backend);
@@ -53,7 +58,7 @@ export async function claimCanvasProcessing(env,kind,limit,backend='github') {
   const now=nowIso();
   const rows=await env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE
     ${kind==='poster'?"((kind='poster' AND status IN ('queued','processing')) OR status='preview_pending')":"kind='concat' AND status IN ('queued','processing')"}
-    AND processing_backend=? AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?) AND attempt_count<8 ORDER BY next_attempt_at LIMIT ?`).bind(backend,now,now,limit).all();
+    AND ${kind==='poster'?"CASE WHEN status='preview_pending' THEN thumbnail_backend ELSE processing_backend END":'processing_backend'}=? AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?) AND attempt_count<8 ORDER BY next_attempt_at LIMIT ?`).bind(backend,now,now,limit).all();
   const claimed=[];
   for(const row of rows.results||[]) {
     if(kind==='concat') {
@@ -63,6 +68,7 @@ export async function claimCanvasProcessing(env,kind,limit,backend='github') {
       if(saved) {
         await env.DB.prepare("UPDATE canvas_video_processing SET asset_id=?,status=?,attempt_count=0,locked_until=NULL,error_code=NULL,updated_at=? WHERE id=? AND status=? AND (locked_until IS NULL OR locked_until<=?)")
           .bind(saved.id,saved.poster_r2_key?'ready':'preview_pending',now,row.id,row.status,now).run();
+        if(!saved.poster_r2_key)await notifyPrivateMedia(env,row.thumbnail_backend);
         continue;
       }
     }

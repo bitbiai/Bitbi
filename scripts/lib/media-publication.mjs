@@ -11,10 +11,15 @@ const cli=path.resolve('workers/auth/node_modules/wrangler/bin/wrangler.js');
 const wrangler=args=>run(process.execPath,[cli,...args],{env:{...process.env,WRANGLER_SEND_METRICS:'false'}});
 export function assertMediaAuthConfig(before,after) {
   const normalize=c=>{const copy=structuredClone(c);copy.services=copy.services.filter(s=>s.binding!=='PRIVATE_MEDIA_PROCESSOR');copy.secrets.required=copy.secrets.required.filter(s=>s!=='PRIVATE_MEDIA_PROCESSOR_SECRET');delete copy.vars.PRIVATE_MEDIA_SOURCE_SHA;return copy;};
-  assert.deepEqual(normalize(after),normalize(before),'Unreviewed Auth configuration change');
+  const previous=normalize(before),next=normalize(after);
+  // Private provider upload/source capabilities must not enter automatic URL logs.
+  // Only the reviewed privacy reduction is permitted; no other logging/config drift.
+  assert.equal(next.observability?.logs?.invocation_logs,false,'Private media requires invocation logs disabled');
+  previous.observability.logs.invocation_logs=false;
+  assert.deepEqual(next,previous,'Unreviewed Auth configuration change');
   assert.deepEqual(after.services.filter(s=>s.binding==='PRIVATE_MEDIA_PROCESSOR'),[{binding:'PRIVATE_MEDIA_PROCESSOR',service:'bitbi-private-media'}]);
 }
-export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false}) {
+export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false,publicPreviews=false}) {
   assert(receipt.media,'Missing media activation evidence');
   assert.equal(receipt.media.sha,sha);assert.equal(receipt.media.sourceRun,run);assert.equal(receipt.media.sourceAttempt,attempt);
   assert(/^registry\.cloudflare\.com\/[a-f0-9]{32}\/bitbi-private-media@sha256:[a-f0-9]{64}$/.test(receipt.media.imageDigest),'Wrong image identity');
@@ -32,6 +37,7 @@ export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false}) {
   for(const smoke of receipt.smoke) {
     assert.equal(smoke.sha,sha);assert(smoke.completedMs>=0);assert.equal(smoke.outputs.length,3);
     for(const out of smoke.outputs)assert(/^[a-f0-9]{64}$/.test(out.videoDigest)&&/^[a-f0-9]{64}$/.test(out.posterDigest),'Missing durable output');
+    if(publicPreviews){assert.equal(smoke.publicPreviews?.length,2,'Missing public preview/poster acceptance');for(const out of smoke.publicPreviews)assert(/^[a-f0-9]{64}$/.test(out.videoDigest)&&/^[a-f0-9]{64}$/.test(out.posterDigest),'Missing public preview bytes');}
   }
 }
 export async function mediaActive(expected,env=process.env,{read=endpoint=>cloudflareRead(endpoint,env),now=Date.now,pause=ms=>new Promise(r=>setTimeout(r,ms)),timeout=120000}={}) {
@@ -41,6 +47,8 @@ export async function mediaActive(expected,env=process.env,{read=endpoint=>cloud
     assert(deployment?.versions?.length===1&&deployment.versions[0].percentage===100,'Ambiguous media traffic');
     const version=await read(`workers/scripts/bitbi-private-media/versions/${deployment.versions[0].version_id}`);
     assert.equal(version.annotations?.['workers/message'],`bitbi-media:${expected.sha}:${expected.imageDigest}`);
+    assert(version.resources.bindings.some(b=>b.name==='CLOUDFLARE_STREAM_API_TOKEN'&&b.type==='secret_text'),'Missing preview processor credential');
+    assert(version.resources.bindings.some(b=>b.name==='CLOUDFLARE_ACCOUNT_ID'&&b.text===env.CLOUDFLARE_ACCOUNT_ID),'Wrong preview account');
     const ns=version.resources.bindings.find(b=>b.name==='MEDIA_CONTAINER')?.namespace_id;assert(ns,'Missing container namespace');
     const apps=await read('containers/applications');
     const matches=apps.filter(a=>a.durable_objects?.namespace_id===ns);assert.equal(matches.length,1,'Missing/ambiguous container');
@@ -93,7 +101,7 @@ with zipfile.ZipFile(p/'image.zip') as z:
     const digests=JSON.parse(run('docker',['image','inspect',tag]))[0].RepoDigests;
     const imageDigest=digests.find(d=>d.startsWith(tag.split(':')[0]+'@sha256:'));assert(imageDigest,'No immutable registry digest');
     const config=JSON.parse(fs.readFileSync('workers/media/wrangler.jsonc'));
-    config.main=path.resolve('workers/media/src/index.js');config.vars.SOURCE_SHA=c.sha;
+    config.main=path.resolve('workers/media/src/index.js');config.vars.SOURCE_SHA=c.sha;config.vars.CLOUDFLARE_ACCOUNT_ID=process.env.CLOUDFLARE_ACCOUNT_ID;
     config.containers[0].image=imageDigest;delete config.containers[0].image_build_context;
     const file=path.join(dir,'wrangler.json');fs.writeFileSync(file,JSON.stringify(config));
     const expected={sha:c.sha,imageDigest,image:record.image,artifact:{id:a.id,digest:a.digest},sourceRun:record.run,sourceAttempt:record.attempt};
@@ -134,9 +142,9 @@ export async function mediaSmoke(c,secret,media) {
   while(pending.size&&Date.now()-started<12*60_000) {
     for(const backend of pending) {
       const result=await request({action:'result',backend});if(!result.ready)continue;
-      assert.equal(result.outputs.length,3);const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-smoke-'));
+      assert.equal(result.outputs.length,3);assert.equal(result.publicPreviews?.length,2);const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-smoke-'));
       try {
-        for(const [i,out] of result.outputs.entries()) {
+        for(const [i,out] of [...result.outputs,...result.publicPreviews].entries()) {
           for(const kind of ['video','poster']) {
             const bytes=Buffer.from(out[kind],'base64');assert.equal(hash(bytes),out[`${kind}Digest`]);
             const file=path.join(dir,`${i}-${kind}`);fs.writeFileSync(file,bytes);
@@ -148,11 +156,17 @@ export async function mediaSmoke(c,secret,media) {
         lifecycle.completed={observedAt:new Date().toISOString()};
         lifecycle.stoppedAfter=await waitMediaState(media.application,'stopped');
       }
-      results.push({backend,sha:c.sha,completedMs:Date.now()-started,outputs:result.outputs.map(o=>({videoDigest:o.videoDigest,posterDigest:o.posterDigest}))});pending.delete(backend);
+      const digests=items=>items.map(o=>({videoDigest:o.videoDigest,posterDigest:o.posterDigest}));
+      results.push({backend,sha:c.sha,completedMs:Date.now()-started,outputs:digests(result.outputs),publicPreviews:digests(result.publicPreviews)});pending.delete(backend);
     }
     if(pending.size)await new Promise(resolve=>setTimeout(resolve,5000));
   }
   assert.equal(pending.size,0,'Private media smoke did not complete within release acceptance window');
-  results.find(r=>r.backend==='cloudflare').lifecycle=lifecycle;
+  const cloudflare=results.find(r=>r.backend==='cloudflare');cloudflare.lifecycle=lifecycle;
+  if(c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql')) {
+    const activation=await request({action:'activate-thumbnails',backend:'cloudflare'});
+    assert.equal(activation.sha,c.sha);assert.equal(activation.thumbnailBackend,'cloudflare');assert.equal(activation.verified,true);
+    cloudflare.thumbnailActivation=activation;
+  }
   console.log(JSON.stringify({privateMediaLifecycle:lifecycle}));return results;
 }

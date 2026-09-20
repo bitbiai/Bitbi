@@ -1,3 +1,4 @@
+import { THUMBNAIL_BACKEND_SQL, notifyPrivateMedia } from './private-media-service.js';
 import {
   getMemvidStreamPreviewConfig,
   hasReadyStreamDownloadMetadata,
@@ -154,8 +155,8 @@ async function insertPreviewJob(env, asset, {
     `INSERT INTO memvid_stream_previews (
        id, asset_id, user_id, source_r2_key, source_fingerprint, stream_uid,
        status, preview_duration_seconds, max_loop_count, created_at, updated_at,
-       completed_at, error_code, error_message, provider_metadata_json
-     ) VALUES (?, ?, ?, ?, ?, NULL, 'queued', ?, ?, ?, ?, NULL, NULL, NULL, ?)`
+       completed_at, error_code, error_message, provider_metadata_json, processing_backend
+     ) VALUES (?, ?, ?, ?, ?, NULL, 'queued', ?, ?, ?, ?, NULL, NULL, NULL, ?, ${THUMBNAIL_BACKEND_SQL})`
   ).bind(
     id,
     asset.id,
@@ -174,6 +175,8 @@ async function insertPreviewJob(env, asset, {
       queued_at: now,
     })
   ).run();
+  const accepted=await env.DB.prepare('SELECT processing_backend FROM memvid_stream_previews WHERE id=?').bind(id).first();
+  await notifyPrivateMedia(env,accepted.processing_backend);
   return { id, asset_id: asset.id, status: "queued" };
 }
 

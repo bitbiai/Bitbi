@@ -149,103 +149,20 @@ export function getMemvidStreamPreviewProcessorDispatchStatus(env) {
   };
 }
 
-async function dispatchGitHubActionsWorkflow(env, {
-  jobLimit = DEFAULT_JOB_LIMIT,
-  repairDownloads = true,
-  dryRun = false,
-  memberGenerationPosters = false,
-  dispatchReason = "Memvid Stream preview processor dispatch.",
-} = {}) {
-  const status = getMemvidStreamPreviewProcessorDispatchStatus(env);
-  if (!status.configured) {
-    return {
-      configured: false,
-      attempted: false,
-      succeeded: false,
-      started: false,
-      provider: status.provider,
-      missing: status.missing,
-      message: "Automatic processor dispatch is not configured. Configure GitHub Actions dispatch or run the processor manually.",
-      warning: "Automatic processor dispatch is not configured. Configure GitHub Actions dispatch or run the processor manually.",
-    };
-  }
-  const owner = String(env?.GITHUB_ACTIONS_DISPATCH_OWNER || String(env?.GITHUB_REPOSITORY || "").split("/")[0] || "").trim();
-  const repo = String(env?.GITHUB_ACTIONS_DISPATCH_REPO || String(env?.GITHUB_REPOSITORY || "").split("/")[1] || "").trim();
-  if (!owner || !repo) {
-    return {
-      configured: false,
-      attempted: false,
-      succeeded: false,
-      started: false,
-      provider: "github_actions",
-      missing: ["GITHUB_ACTIONS_DISPATCH_OWNER", "GITHUB_ACTIONS_DISPATCH_REPO"],
-      message: "GitHub Actions dispatch repository is invalid.",
-      warning: "Processor dispatch repository is invalid.",
-    };
-  }
-  let res;
-  try {
-    res = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/workflows/${encodeURIComponent(status.workflow_file)}/dispatches`, {
-      method: "POST",
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${String(env.GITHUB_ACTIONS_DISPATCH_TOKEN || "").trim()}`,
-        "Content-Type": "application/json",
-        "User-Agent": "bitbi-auth-worker",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      body: JSON.stringify({
-        ref: status.ref,
-        inputs: {
-          job_limit: String(clampInteger(jobLimit, { fallback: status.job_limit, min: 1, max: 8 })),
-          max_runs: "1",
-          ...(memberGenerationPosters ? { member_generation_posters: "true" } : {}),
-          repair_downloads: repairDownloads ? "true" : "false",
-          dry_run: dryRun ? "true" : "false",
-          dispatch_reason: normalizeDispatchReason(dispatchReason),
-        },
-      }),
-    });
-  } catch {
-    return {
-      configured: true,
-      attempted: true,
-      succeeded: false,
-      started: false,
-      provider: "github_actions",
-      message: "Processor dispatch request failed before GitHub accepted it.",
-      warning: "Processor dispatch request failed before GitHub accepted it.",
-    };
-  }
-  if (!res.ok) {
-    const statusMessages = {
-      401: "GitHub Actions dispatch was rejected. Check the dispatch token permissions.",
-      403: "GitHub Actions dispatch was forbidden. Check the dispatch token permissions.",
-      404: "GitHub Actions workflow or repository was not found.",
-      422: "GitHub Actions dispatch rejected the configured ref or workflow inputs.",
-    };
-    const message = statusMessages[res.status] || `GitHub Actions dispatch failed with HTTP ${res.status}.`;
-    return {
-      configured: true,
-      attempted: true,
-      succeeded: false,
-      started: false,
-      provider: "github_actions",
-      status: res.status,
-      message,
-      warning: message,
-    };
-  }
-  return {
-    configured: true,
-    attempted: true,
-    succeeded: true,
-    started: true,
-    provider: "github_actions",
-    message: "Processor dispatch started.",
-    workflow_file: status.workflow_file,
-    ref: status.ref,
-  };
+async function dispatchProcessorWork(env,{dryRun=false,repairDownloads=false,jobLimit,dispatchReason}={}) {
+  const {dispatchPrivateMedia,privateMediaStatus}=await import('./private-media-service.js');
+  const status=await privateMediaStatus(env);
+  const selected=status.thumbnailBackend;
+  if(dryRun)return {configured:status.services[selected].state==='ready',attempted:false,succeeded:false,started:false,provider:selected==='github'?'github_actions':'cloudflare',message:'Dry run: no work dispatched.'};
+  const results=[];
+  for(const backend of ['github','cloudflare'])results.push({backend,...await dispatchPrivateMedia(env,backend,{repairDownloads,jobLimit,dispatchReason})});
+  const pending=results.filter(r=>r.status!=='idle');
+  const provider=pending.length===1?pending[0].backend:selected;
+  const configured=pending.length?pending.every(r=>r.configured!==false):status.services[selected].state==='ready';
+  const attempted=pending.some(r=>r.attempted===true),started=pending.some(r=>r.status==='accepted');
+  const succeeded=pending.length>0&&pending.every(r=>['accepted','active'].includes(r.status));
+  const message=!configured?'Automatic processor dispatch is not configured.':pending.some(r=>r.errorCode==='media_dispatch_forbidden')?'Processor dispatch forbidden.':succeeded?'Assigned media processors accepted the work.':attempted?'Processor dispatch not confirmed.':'No assigned work pending.';
+  return {configured,attempted,succeeded,started,provider:pending.length>1?'assigned_media_backends':provider==='github'?'github_actions':'cloudflare',message,backends:results};
 }
 
 function buildSkipResult(status, skippedReason, stateInfo = {}) {
@@ -301,7 +218,7 @@ export async function maybeDispatchMemvidStreamPreviewProcessor(env, options = {
     return buildSkipResult(status, "dispatch_cooldown_active", { last_dispatch_at: lastDispatchAt, next_dispatch_after: nextDispatchAfter });
   }
 
-  const dispatch = await dispatchGitHubActionsWorkflow(env, {
+  const dispatch = await dispatchProcessorWork(env, {
     jobLimit: options.jobLimit || status.job_limit,
     memberGenerationPosters: options.memberGenerationPosters === true,
     repairDownloads: options.repairDownloads !== false,
@@ -355,11 +272,15 @@ export async function maybeDispatchMemvidStreamPreviewProcessor(env, options = {
 
 export async function getMemvidStreamPreviewDispatchState(env) {
   const status = getMemvidStreamPreviewProcessorDispatchStatus(env);
+  const {privateMediaStatus}=await import('./private-media-service.js');
+  const media=await privateMediaStatus(env);
   const stateInfo = await readDispatchState(env);
   const lastDispatchAt = stateInfo.state?.last_dispatch_at || null;
   const lastTime = Date.parse(lastDispatchAt || "");
   return {
     ...status,
+    provider: media.thumbnailBackend,
+    configured: media.services[media.thumbnailBackend]?.state==='ready',
     storage_available: stateInfo.storageAvailable,
     last_dispatch_at: lastDispatchAt,
     last_dispatch_reason: stateInfo.state?.last_dispatch_reason || null,

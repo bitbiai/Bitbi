@@ -38,7 +38,14 @@ export async function cacheGenerationDownload(env,label,url,download) {
   const row=await env.DB.prepare('SELECT provider_receipts_json FROM member_generation_jobs WHERE id=?').bind(job.id).first();
   const receipts=JSON.parse(row.provider_receipts_json);
   let receipt=receipts[name];
-  if(receipt && receipt.fingerprint!==fingerprint) throw new Error('generation_download_identity_mismatch');
+  if (receipt?.source === 'provider-upload') {
+    const input = await env.USER_IMAGES.get(job.input_r2_key);
+    const model = input && (await new Response(input.body).json()).model;
+    if (label !== 'video' || !['xai/grok-imagine-video','xai/grok-imagine-video-1.5-preview'].includes(model)
+      || receipt.key !== `users/${job.user_id}/generation-jobs/${job.id}/${name}`
+      || receipt.fingerprint !== `grok-private-output:${job.id}:${model}`) throw new Error('generation_download_identity_mismatch');
+  }
+  if(receipt && receipt.source!=='provider-upload' && receipt.fingerprint!==fingerprint) throw new Error('generation_download_identity_mismatch');
   if(!receipt) {
     receipt={key:`users/${job.user_id}/generation-jobs/${job.id}/${name}`,fingerprint,kind:'download'};
     receipts[name]=receipt;
@@ -51,6 +58,7 @@ export async function cacheGenerationDownload(env,label,url,download) {
     const body=new Uint8Array(await new Response(stored.body).arrayBuffer());
     return {body,contentType:stored.httpMetadata.contentType,sizeBytes:body.byteLength};
   }
+  if(receipt.source==='provider-upload') throw new Error('video_output_not_received');
   const result=await download();
   await execution.assertClaim();
   await putNewManagedR2Object(env,receipt.key,result.body,{httpMetadata:{contentType:result.contentType}});

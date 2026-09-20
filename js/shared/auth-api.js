@@ -1784,8 +1784,8 @@ export function apiRequestReverification() {
 
 /* ── Assets Manager ── */
 
-export async function apiAiGetQuota() {
-    const res = await request('GET', '/ai/quota');
+export async function apiAiGetQuota({workspace} = {}) {
+    const res = await request('GET', workspace === 'generate-lab' ? '/ai/quota?workspace=generate-lab' : '/ai/quota');
     return res.ok ? (res.data?.data || null) : null;
 }
 

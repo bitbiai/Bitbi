@@ -586,6 +586,10 @@ function renderInspector() {
                 const resolution = selectControl(options.map(value => ({ value, label: value })), node.config?.[key] || fallback);
                 bindConfig(node, resolution, key); grid.append(field(isGerman ? 'Auflösung' : 'Resolution', resolution));
             } else if (fallback) grid.append(field(isGerman ? 'Auflösung' : 'Resolution', el('output', '', fallback)));
+            if (c.sizeOptions?.length) {
+                const size=selectControl([{value:'',label:isGerman?'Automatisch':'Automatic'},...c.sizeOptions.map(value=>({value,label:value}))],node.config?.size || '');
+                bindConfig(node,size,'size');grid.append(field(isGerman?'Größe':'Size',size));
+            }
             dom.inspector.append(grid);
         }
         if (capability === 'music') {

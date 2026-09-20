@@ -35,9 +35,9 @@ export async function handlePrivateMediaService(ctx) {
     const limit=await evaluateSharedRateLimit(ctx.env,'admin-action-ip',getClientIp(ctx.request),30,900_000,sensitiveRateLimitOptions({component:'private-media-service',correlationId:ctx.correlationId,requestInfo:ctx}));
     if(limit.unavailable)return rateLimitUnavailableResponse(ctx.correlationId);
     if(limit.limited)return rateLimitResponse();
-    if(Object.keys(body).some(k=>!['backend','reason'].includes(k))||typeof body.reason!=='string'||!body.reason.trim()||body.reason.length>180)return reply({ok:false,code:'reason_required'},400);
-    const data=await setPrivateMediaService(ctx.env,{backend:body.backend,actor:actor.user.id,reason:body.reason.trim()});
-    await enqueueAdminAuditEvent(ctx.env,{adminUserId:actor.user.id,action:'private_media_service_updated',targetUserId:null,meta:{backend:body.backend,existingJobsUnchanged:true}},{correlationId:ctx.correlationId,requestInfo:ctx,allowDirectFallback:true});
+    if(Object.keys(body).some(k=>!['backend','thumbnailBackend','reason'].includes(k))||typeof body.reason!=='string'||!body.reason.trim()||body.reason.length>180)return reply({ok:false,code:'reason_required'},400);
+    const data=await setPrivateMediaService(ctx.env,{backend:body.backend,thumbnailBackend:body.thumbnailBackend,actor:actor.user.id,reason:body.reason.trim()});
+    await enqueueAdminAuditEvent(ctx.env,{adminUserId:actor.user.id,action:'private_media_service_updated',targetUserId:null,meta:{backend:data.backend,thumbnailBackend:data.thumbnailBackend,existingJobsUnchanged:true}},{correlationId:ctx.correlationId,requestInfo:ctx,allowDirectFallback:true});
     return reply({ok:true,data});
   } catch(error){return reply({ok:false,code:['media_backend_invalid','media_service_not_ready','media_runner_invalid','media_runner_claim_lost'].includes(error.code)?error.code:'media_service_unavailable'},error.status||503);}
 }

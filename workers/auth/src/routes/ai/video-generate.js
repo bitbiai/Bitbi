@@ -1,6 +1,9 @@
+import { validateAdminAiVideoBody } from '../../../../../js/shared/admin-ai-contract.mjs';
+import { GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID } from '../../../../../js/shared/grok-imagine-video-15-preview-pricing.mjs';
+import { isGrokVideo, snapshotGrokVideoSources, resolveAdminAiGrokPreviewMediaSourcesForProvider } from '../../lib/admin-ai-video-sources.js';
 import { promptAssetTitle } from '../../lib/asset-names.js';
 import { existingGenerationAsset, cacheGenerationDownload } from '../../lib/member-generation-storage.js';
-import { acceptMemberGeneration, generationUser, generationExecution } from "../../lib/member-generation-jobs.js";
+import { acceptMemberGeneration, generationUser, generationExecution, usesPersonalGenerationCredits } from "../../lib/member-generation-jobs.js";
 import {
   HAPPYHORSE_T2V_DEFAULT_DURATION,
   HAPPYHORSE_T2V_DEFAULT_RATIO,
@@ -156,16 +159,7 @@ const HAPPYHORSE_ALLOWED_BODY_FIELDS = new Set([
   "folderId",
   "title",
 ]);
-const GROK_IMAGINE_ALLOWED_BODY_FIELDS = new Set([
-  "model",
-  "prompt",
-  "duration",
-  "resolution",
-  "aspect_ratio",
-  "folder_id",
-  "folderId",
-  "title",
-]);
+
 
 function respondWith(correlationId, body, init) {
   return withCorrelationId(json(body, init), correlationId);
@@ -229,7 +223,7 @@ function normalizeModelId(value) {
     modelId === HAPPYHORSE_T2V_MODEL_ID ||
     modelId === SEEDANCE_2_FAST_MODEL_ID ||
     modelId === SEEDANCE_2_MODEL_ID ||
-    modelId === GROK_IMAGINE_VIDEO_MODEL_ID
+    isGrokVideo(modelId)
   ) {
     return modelId;
   }
@@ -511,67 +505,19 @@ function normalizeSeedanceBody(body, modelId) {
 }
 
 function normalizeGrokImagineBody(body) {
-  assertAllowedBodyFields(body, GROK_IMAGINE_ALLOWED_BODY_FIELDS);
-  const prompt = normalizeOptionalString(body.prompt, GROK_IMAGINE_VIDEO_MAX_PROMPT_LENGTH, "prompt", { allowNewlines: true });
-  if (!prompt) {
-    throw validationError(`prompt must be 1-${GROK_IMAGINE_VIDEO_MAX_PROMPT_LENGTH} safe characters.`, "invalid_prompt");
-  }
-  const duration = normalizeInteger(body.duration, {
-    fieldName: "duration",
-    min: GROK_IMAGINE_VIDEO_MIN_DURATION,
-    max: GROK_IMAGINE_VIDEO_MAX_DURATION,
-    fallback: GROK_IMAGINE_VIDEO_DEFAULT_DURATION,
-  });
-  const resolution = normalizeEnum(
-    body.resolution,
-    enumIncludes(GROK_IMAGINE_VIDEO_RESOLUTIONS),
-    GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
-    "resolution"
-  );
-  const aspectRatio = normalizeEnum(
-    body.aspect_ratio,
-    enumIncludes(GROK_IMAGINE_VIDEO_ASPECT_RATIOS),
-    GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
-    "aspect_ratio"
-  );
-  const title = normalizeOptionalString(body.title, MAX_TITLE_LENGTH, "title")
-    || titleFromPrompt(prompt, GROK_IMAGINE_VIDEO_DEFAULT_TITLE);
-  const folderId = normalizeFolderId(body);
-  const pricing = calculateAiVideoCreditCost(GROK_IMAGINE_VIDEO_MODEL_ID, {
-    duration,
-    resolution,
-    aspect_ratio: aspectRatio,
-  });
-  if (!pricing) {
-    throw validationError("Video model pricing is unavailable.", "pricing_unavailable", 503);
-  }
-  const price = pricing.credits;
-
+  const {folder_id, folderId, title, ...request} = body;
+  const validated = validateAdminAiVideoBody(request);
+  const pricing = calculateAiVideoCreditCost(body.model, validated);
+  if (!pricing?.credits) throw validationError('Video pricing is unavailable.', 'pricing_unavailable', 503);
   return {
-    modelId: GROK_IMAGINE_VIDEO_MODEL_ID,
-    modelLabel: GROK_IMAGINE_VIDEO_MODEL_LABEL,
-    vendor: GROK_IMAGINE_VIDEO_VENDOR,
-    provider: "ai_gateway_xai",
-    preset: "member_video_grok_imagine_video",
-    pricingSource: "grok-imagine-video-unified-billing-2026-05-31",
-    prompt,
-    duration,
-    aspectRatio,
-    resolution,
-    seed: null,
-    generateAudio: null,
-    watermark: null,
-    workflow: "text-to-video",
-    title,
-    folderId,
-    price,
-    policyBody: {
-      model: GROK_IMAGINE_VIDEO_MODEL_ID,
-      prompt,
-      duration,
-      aspect_ratio: aspectRatio,
-      resolution,
-    },
+    modelId: body.model, modelLabel: body.model === GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID ? 'Grok Imagine Video 1.5 Preview' : GROK_IMAGINE_VIDEO_MODEL_LABEL,
+    vendor: GROK_IMAGINE_VIDEO_VENDOR, provider:'ai_gateway_xai', preset:validated.preset || (body.model === GROK_IMAGINE_VIDEO_MODEL_ID ? 'member_video_grok_imagine_video' : 'member_video_grok_imagine_15_preview'),
+    pricingSource:pricing.formula.pricingSource, prompt:validated.prompt,
+    duration:validated.duration, resolution:validated.resolution, aspectRatio:validated.aspect_ratio,
+    operation:validated._operation, price:pricing.credits, seed:null, watermark:null, generateAudio:null,
+    workflow:validated._operation === 'generate' ? (validated.source_image ? 'image-to-video' : 'text-to-video') : `video-${validated._operation}`,
+    title:normalizeOptionalString(title, MAX_TITLE_LENGTH, 'title') || titleFromPrompt(validated.prompt, GROK_IMAGINE_VIDEO_DEFAULT_TITLE),
+    folderId:normalizeFolderId({folder_id,folderId}), policyBody:validated,
   };
 }
 
@@ -586,7 +532,7 @@ async function normalizeMemberVideoBody(body) {
   if (modelId === SEEDANCE_2_FAST_MODEL_ID || modelId === SEEDANCE_2_MODEL_ID) {
     return normalizeSeedanceBody(body, modelId);
   }
-  if (modelId === GROK_IMAGINE_VIDEO_MODEL_ID) {
+  if (isGrokVideo(modelId)) {
     return normalizeGrokImagineBody(body);
   }
   return normalizePixverseBody(body);
@@ -628,16 +574,12 @@ function buildSeedancePayload(input) {
 }
 
 function buildGrokImaginePayload(input) {
-  return {
-    prompt: input.prompt,
-    duration: input.duration,
-    aspect_ratio: input.aspectRatio,
-    resolution: input.resolution,
-  };
+  const {model, preset, ...payload} = input.policyBody;
+  return payload;
 }
 
 function buildProviderPayload(input) {
-  if (input.modelId === GROK_IMAGINE_VIDEO_MODEL_ID) return buildGrokImaginePayload(input);
+  if (isGrokVideo(input.modelId)) return buildGrokImaginePayload(input);
   if (input.modelId === SEEDANCE_2_FAST_MODEL_ID || input.modelId === SEEDANCE_2_MODEL_ID) return buildSeedancePayload(input);
   if (input.modelId === HAPPYHORSE_T2V_MODEL_ID) return buildHappyHorsePayload(input);
   return buildPixversePayload(input);
@@ -1046,6 +988,7 @@ async function persistVideoResult({ env, userId, input, providerResult, elapsedM
       watermark: input.watermark,
       hasImageInput: Boolean(input.imageInput),
       workflow: input.workflow || (input.imageInput ? "image-to-video" : "text-to-video"),
+      operation:input.operation || "generate",
       elapsedMs,
       receivedAt: new Date().toISOString(),
     },
@@ -1102,6 +1045,11 @@ export async function handleGenerateVideo(ctx) {
   let input;
   try {
     input = await normalizeMemberVideoBody(parsed.body);
+    if (isGrokVideo(input.modelId)) {
+      const existing = generationExecution(env)?.job || await env.DB.prepare("SELECT source_refs_json FROM member_generation_jobs WHERE user_id=? AND media_type='video' AND request_key=?")
+        .bind(userId,request.headers.get('Idempotency-Key') || '').first();
+      input.sourceRefs = existing ? JSON.parse(existing.source_refs_json || '[]') : await snapshotGrokVideoSources(env,session.user,input.policyBody);
+    }
   } catch (error) {
     return respond({ ok: false, error: error.message, code: error.code || "validation_error" }, {
       status: error.status || 400,
@@ -1121,7 +1069,7 @@ export async function handleGenerateVideo(ctx) {
         source: "member_video_generation",
       },
       route: ROUTE_PATH,
-      allowAdminMemberCredits: ctx.canvasMemberContext === true || Boolean(generationExecution(env)),
+      allowAdminMemberCredits: usesPersonalGenerationCredits(ctx, session.user),
     });
   } catch (error) {
     const policyError = aiUsagePolicyErrorResponse(error);
@@ -1138,7 +1086,7 @@ export async function handleGenerateVideo(ctx) {
     return respond(policyError.body, { status: policyError.status });
   }
   ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
-  const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: parsed.body, mediaType: 'video' });
+  const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: parsed.body, mediaType: 'video', sourceRefs: input.sourceRefs || [] });
   if (accepted) return accepted;
 
   if (usagePolicy.mode === "organization") {
@@ -1215,7 +1163,11 @@ export async function handleGenerateVideo(ctx) {
     }
   }
 
-  const providerPayload = buildProviderPayload(input);
+  let providerPayload = buildProviderPayload(input);
+  if (isGrokVideo(input.modelId)) {
+    const resolved = await resolveAdminAiGrokPreviewMediaSourcesForProvider(env,session.user,input.policyBody,{jobId:generationExecution(env)?.job.id,origin:new URL(request.url).origin,prepareOutput:Boolean(generationExecution(env))});
+    const {model, preset, ...parameters} = resolved; providerPayload = parameters;
+  }
   const providerResponse = await invokeMemberVideoModel(env, input.modelId, providerPayload, { correlationId, userId, signal: request.signal, usagePolicy });
   if (!providerResponse.ok) {
     await markVideoProviderFailed(usagePolicy, {

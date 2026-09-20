@@ -31,7 +31,10 @@ export function requiredJobs(selection) {
   if (selection.dependencies) jobs['release-compatibility'].push('Audit root dependencies');
   if (selection.workerDependencies) jobs['release-compatibility'].push('Validate worker package dependencies');
   if (selection.workers) jobs['worker-validation'] = selection.mediaLifecycle ? ['Run private media lifecycle tests'] : [...REQUIRED_JOBS['worker-validation']];
-  if (requiresPrivateMediaImage(selection.files||[])) jobs['worker-validation'].push('Build and test private media Linux image','Preserve tested private media image');
+  if (requiresPrivateMediaImage(selection.files||[])) {
+    if(!jobs['worker-validation'].includes('Run private media lifecycle tests'))jobs['worker-validation'].push('Run private media lifecycle tests');
+    jobs['worker-validation'].push('Build and test private media Linux image','Preserve tested private media image');
+  }
   if (selection.homepage || selection.carousel) {
     jobs['homepage-validation'] = REQUIRED_JOBS['homepage-validation'].filter(step => selection.carousel || step !== 'Record controlled homepage performance diagnostics');
   }

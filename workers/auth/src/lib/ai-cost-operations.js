@@ -646,7 +646,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       routePath: "/api/ai/generate-image",
       notes: "Phase 3.4 pilot config for no-organization member image generation. Phase 3.7 hardens replay-unavailable metadata and scheduled cleanup while keeping member_ai_usage_attempts as the reservation/replay foundation.",
     },
-    sourceFiles: ["workers/auth/src/routes/ai/images-write.js"],
+    sourceFiles: ["workers/auth/src/lib/member-generation-jobs.js", "workers/auth/src/routes/ai/images-write.js"],
     currentStatus: "implemented",
     currentEnforcement: {
       idempotency: "implemented",
@@ -800,7 +800,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     ]),
     billingRelationship: "parent_bundle",
     currentChargeModel: "fixed_member_credit_schedule_after_success",
-    sourceFiles: ["workers/auth/src/routes/ai/music-generate.js", "workers/ai/src/routes/music.js", "workers/ai/src/lib/invoke-ai.js"],
+    sourceFiles: ["workers/auth/src/lib/member-generation-jobs.js", "workers/auth/src/routes/ai/music-generate.js", "workers/ai/src/routes/music.js", "workers/ai/src/lib/invoke-ai.js"],
     currentStatus: "implemented",
     currentEnforcement: {
       idempotency: "implemented",
@@ -961,7 +961,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       routePath: "/api/ai/generate-video",
       notes: "Phase 3.8 member video gateway migration for PixVerse/HappyHorse generation. The route requires Idempotency-Key, reserves member credits in member_ai_usage_attempts before provider execution, suppresses same-key duplicate provider calls, and finalizes exactly once after durable video asset persistence.",
     },
-    sourceFiles: ["workers/auth/src/routes/ai/video-generate.js"],
+    sourceFiles: ["workers/auth/src/lib/member-generation-jobs.js", "workers/auth/src/routes/ai/video-generate.js"],
     currentStatus: "implemented",
     currentEnforcement: {
       idempotency: "implemented",
@@ -1534,7 +1534,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       routePath: "/internal/ai/test-text",
       notes: "Internal AI Worker route relies on auth-worker caller cost policy.",
     },
-    sourceFiles: ["workers/ai/src/routes/text.js", "workers/ai/src/lib/invoke-ai.js"],
+    sourceFiles: ["workers/ai/src/lib/grok-chat.js", "workers/ai/src/routes/text.js", "workers/ai/src/lib/invoke-ai.js"],
     currentStatus: "partial",
     currentEnforcement: {
       idempotency: "delegated",

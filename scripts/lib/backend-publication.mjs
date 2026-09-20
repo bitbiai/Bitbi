@@ -1,7 +1,7 @@
 import os from 'node:os';
 import {createHash} from 'node:crypto';
 import {publishMedia,mediaActive,mediaSmoke,assertMediaAuthConfig,verifyMediaEvidence} from './media-publication.mjs';
-import {requiresPrivateMediaImage,selectCiTests} from './ci-test-selection.mjs';
+import {requiresPrivateMediaImage} from './ci-test-selection.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -52,6 +52,24 @@ export async function verifyAuthTriggers(config,read=readBackend) {
     for(const [key,value] of Object.entries({batch_size:expected.max_batch_size,max_retries:expected.max_retries,max_wait_time_ms:expected.max_batch_timeout*1000,retry_delay:expected.retry_delay??0}))assert.equal(consumer.settings[key],value,`Queue setting mismatch: ${expected.queue}/${key}`);
     assert.equal(consumer.settings.max_concurrency,expected.max_concurrency);assert.equal(consumer.dead_letter_queue,expected.dead_letter_queue);
   }
+}
+// Script-level privacy must be active before a version can accept signed URLs.
+// Wrangler versions deploy also synchronizes this non-versioned configuration.
+export async function ensurePrivateVideoLogging({read=readBackend,patch=async body=>{
+  const response=await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/bitbi-auth/script-settings`,{method:'PATCH',headers:{Authorization:`Bearer ${backendEnv().CLOUDFLARE_API_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
+  assert(response.ok,'Auth privacy settings update failed');assert((await response.json()).success,'Auth privacy settings rejected');
+},verifyOnly=false}={}) {
+  const endpoint='workers/scripts/bitbi-auth/script-settings';
+  const settings=await read(endpoint);
+  if(settings.observability?.logs?.invocation_logs!==false) {
+    assert(!verifyOnly,'Private upload invocation logging remains enabled');
+    assert(settings.observability?.logs,'Missing existing Auth logging settings');
+    await patch({observability:{...settings.observability,logs:{...settings.observability.logs,invocation_logs:false}}});
+  }
+  const actual=await read(endpoint);
+  assert.equal(actual.observability?.logs?.invocation_logs,false,'Private upload invocation logging remains enabled');
+  const expected=structuredClone(settings);expected.observability.logs.invocation_logs=false;
+  assert.deepEqual(actual,expected,'Unrelated Auth script settings changed');
 }
 export async function activateAuthVersion({sha,mediaSourceSha=sha,secretFile,assertCurrent,command=run}) {
   // Routes, crons and consumers are unchanged and independently checked. A
@@ -140,11 +158,19 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Required schema not active');
   prerequisites(c.plan,state.version,c.config);
   await verifyAuthTriggers(c.config);
+  await ensurePrivateVideoLogging({verifyOnly:true});
   await verifyAuthBundle(receipt.authBundleDigest);
   if(c.plan.workerDeploys.some(s=>s.worker==='ai')) {assert(receipt.ai,'Missing AI prerequisite receipt');await verifyAiActivation(receipt.ai,c.sha);await verifyAuthBundle(receipt.ai.bundleDigest,undefined,'bitbi-ai');}
   if(requiresPrivateMediaImage(c.plan.changedFiles)) {
-    verifyMediaEvidence(receipt,{sha:c.sha,run:process.env.CANDIDATE_RUN,attempt:process.env.CANDIDATE_ATTEMPT,lifecycle:selectCiTests(c.plan.changedFiles).mediaLifecycle===true});
+    verifyMediaEvidence(receipt,{sha:c.sha,run:process.env.CANDIDATE_RUN,attempt:process.env.CANDIDATE_ATTEMPT,lifecycle:true,publicPreviews:c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql')});
     await mediaActive(receipt.media,backendEnv());
+    if(c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql')) {
+      const activation=receipt.smoke.find(s=>s.backend==='cloudflare')?.thumbnailActivation;
+      assert.equal(activation?.sha,c.sha,'Missing thumbnail rollout evidence');
+      assert.equal(activation?.thumbnailBackend,'cloudflare');assert.equal(activation?.verified,true);
+      const rows=await query(c.db,"SELECT value_json FROM app_settings WHERE key='private_media_service'",[]);
+      assert.equal(JSON.parse(rows[0]?.value_json||'{}').thumbnailBackend,'cloudflare','Thumbnail default is not active');
+    }
   }
   for(const [name,value] of [['PRIVATE_MEDIA_SOURCE_SHA',receipt.mediaSourceSha||c.sha]])assert(state.version.resources.bindings.some(b=>b.name===name&&b.text===value),'Wrong active media source');
   assert(state.version.resources.bindings.some(b=>b.name==='PRIVATE_MEDIA_PROCESSOR'&&b.service==='bitbi-private-media'),'Missing media service binding');
@@ -174,12 +200,13 @@ export async function publishBackend() {
   if(mediaRequired)await readBackend('containers/applications');
 
   const before=await active();prerequisites(c.plan,before.version,c.config,false);
+  await ensurePrivateVideoLogging();
   const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
   const applied=new Set((await query(c.db,'SELECT name FROM d1_migrations')).map(r=>r.name));
   const pending=fs.readdirSync('workers/auth/migrations').filter(f=>f.endsWith('.sql')&&!applied.has(f));
   // This authority covers the reviewed additive Canvas migration only. Future
   // schema changes need their own reviewed release support.
-  assert(pending.every(f=>['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql'].includes(f)),'Unexpected pending migrations');
+  assert(pending.every(f=>['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql'].includes(f)),'Unexpected pending migrations');
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-backend-secret-'));
   const mediaSourceSha=mediaRequired?c.sha:before.version.resources.bindings.find(b=>b.name==='PRIVATE_MEDIA_SOURCE_SHA')?.text;
   assert(/^[a-f0-9]{40}$/.test(mediaSourceSha||''),'Missing existing media source identity');
@@ -187,6 +214,11 @@ export async function publishBackend() {
   try {
     const secret=createHash('sha256').update(`bitbi-private-media-v1:${process.env.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET}`).digest('hex');
     const secretFile=path.join(temporary,'secrets.json');fs.writeFileSync(secretFile,JSON.stringify({PRIVATE_MEDIA_PROCESSOR_SECRET:secret}),{mode:0o600});
+    const mediaSecretFile=path.join(temporary,'media-secrets.json');
+    if(mediaRequired){
+      assert(process.env.CLOUDFLARE_STREAM_API_TOKEN,'Missing existing Stream processor credential');
+      fs.writeFileSync(mediaSecretFile,JSON.stringify({PRIVATE_MEDIA_PROCESSOR_SECRET:secret,CLOUDFLARE_STREAM_API_TOKEN:process.env.CLOUDFLARE_STREAM_API_TOKEN}),{mode:0o600});
+    }
     const bundleDirectory=path.join(temporary,'auth-bundle');
     run(['versions','upload','--dry-run','--keep-vars','--outdir',bundleDirectory]);
     c.authBundleDigest=createHash('sha256').update(fs.readFileSync(path.join(bundleDirectory,'index.js'))).digest('hex');
@@ -196,7 +228,7 @@ export async function publishBackend() {
       applyMigration:()=>run(['d1','migrations','apply','bitbi-auth-db','--remote']),
       assertSchema:async()=>assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Migration did not apply'),
       prepareAi:c.plan.workerDeploys.some(s=>s.worker==='ai')?async()=>{ai=await publishAi(c,path.join(temporary,'ai-bundle'));}:undefined,
-      prepareMedia:mediaRequired?async()=>{media=await publishMedia(c,secretFile);}:undefined,
+      prepareMedia:mediaRequired?async()=>{media=await publishMedia(c,mediaSecretFile);}:undefined,
       deploy:()=>activateAuthVersion({sha:c.sha,mediaSourceSha,secretFile,assertCurrent:()=>current(c.sha)}),
       readActive:async()=>{const result=await active();await verifyAuthBundle(c.authBundleDigest);return result;},
       verifyMedia:mediaRequired?async()=>{smoke=await mediaSmoke(c,secret,media);}:undefined,

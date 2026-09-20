@@ -22,7 +22,7 @@ export async function ownedCanvasVideo(env, userId, assetId, expectedVersion = n
 export async function prepareCanvasVideoEdge(ctx, user, edge, proposed, imageData) {
   const config = { ...proposed };
   if (!config.videoInput) return config;
-  if (config.videoInput.method !== 'last_frame') fail('video_method_invalid', 'Canvas only supports the last decoded frame as video input.');
+
   const rows = await ctx.env.DB.prepare(`SELECT id, type, model_id, asset_id, output_json FROM canvas_nodes
     WHERE project_id = ? AND user_id = ? AND deleted_at IS NULL AND id IN (?, ?)`)
     .bind(edge.project_id, user.id, edge.source_node_id, edge.target_node_id).all();
@@ -34,12 +34,14 @@ export async function prepareCanvasVideoEdge(ctx, user, edge, proposed, imageDat
   const model = getCanvasModelForRole(target.model_id, user.role);
   const selected = resolveCanvasVideoInput(model, value, config);
   if (!Object.keys(selected.context).every(key => config.videoInput[key] === selected.context[key])) fail('video_source_changed', 'The connected video or target model changed.');
+  if (config.videoInput.method && !selected.methods.includes(config.videoInput.method)) fail('video_method_invalid','Unsupported video method.');
   if (!selected.method) fail('video_method_required', 'Select a valid method for the current video and model.');
   const owned = await ownedCanvasVideo(ctx.env, user.id, value.assetId);
   const prior = parse(edge.config_json).videoInput;
   config.videoInput = { ...selected.context, method: selected.method };
   const same = prior && Object.keys(config.videoInput).every(key => prior[key] === config.videoInput[key]);
   if (same && prior.frame?.version === owned.version) config.videoInput.frame = prior.frame;
+  if (selected.method !== 'last_frame') config.videoInput.sourceVersion = owned.version;
   if (imageData !== undefined) {
     if (selected.method !== 'last_frame') fail('video_method_invalid', 'A frame belongs only to the start-image method.');
     const imageId = (await sha256Hex(`canvas-frame:${user.id}:${edge.project_id}:${edge.id}:${owned.version}:${value.runId}`)).slice(0, 32);
@@ -63,13 +65,24 @@ export async function prepareCanvasVideoEdge(ctx, user, edge, proposed, imageDat
 
 export async function applyCanvasVideoInput(env, userId, resolution, body, loadImage) {
   if (!resolution.videoReferences.length) return;
-  if (resolution.videoReferences.length !== 1 || resolution.imageReferences.length) fail('video_source_ambiguous', 'Connect exactly one video source without a competing image input.');
+  if (resolution.videoReferences.length !== 1) fail('video_source_ambiguous', 'Connect exactly one video source.');
   const source = resolution.videoReferences[0], selected = source.videoInput;
+  if (selected?.invalidMethod) fail('video_method_invalid','Unsupported video method.');
   if (!selected?.method) fail('video_method_required', 'Select how to use the connected video.');
-  if (selected.method !== 'last_frame') fail('video_method_invalid', 'Canvas only supports last-frame input.');
+  if (['edit','extend'].includes(selected.method)) {
+    if (!['xai/grok-imagine-video','xai/grok-imagine-video-1.5-preview'].includes(body.model)) fail('video_method_invalid', 'Unsupported native video input.');
+    if (!selected.sourceVersion) fail('video_source_changed', 'Prepare the current original before running.');
+    await ownedCanvasVideo(env,userId,source.assetId,selected.sourceVersion);
+    body._operation = selected.method;
+    body.source_video = {source_type:'saved_asset',asset_id:source.assetId};
+    return;
+  }
+  if (resolution.imageReferences.length) fail('video_source_ambiguous', 'A last-frame start image cannot be combined with a competing image input.');
+  if (selected.method !== 'last_frame') fail('video_method_invalid', 'Unsupported video input.');
   if (!selected.frame?.imageId) fail('video_frame_required', 'Prepare the last decoded frame before running.');
   await ownedCanvasVideo(env, userId, source.assetId, selected.frame.version);
   const image = await loadImage(env, userId, selected.frame.imageId);
   if (!image) fail('video_frame_unavailable', 'Prepare the source frame again; its saved image is unavailable.');
-  body.image_input = image;
+  if (body.model?.startsWith('xai/grok-imagine-video')) body.source_image={source_type:'saved_asset',asset_id:selected.frame.imageId};
+  else body.image_input = image;
 }

@@ -35,6 +35,19 @@ export async function canvasProcessingCase(base,fixture) {
   check((await request(`${api}/${runs[1]}/full-video`,'POST',{}, {user:other})).status===404,'Foreign project denied');
   check((await canvasVideoChain(env,owner,project,runs[1])).length===2,'Two chain');
   check((await canvasVideoChain(env,owner,project,runs[4])).length===5,'Five chain');
+  // Native edit/extension output already contains its immediate source. A prior
+  // last-frame segment still belongs in the ordered export exactly once.
+  const thirdInput=(await db.prepare('SELECT input_json FROM canvas_runs WHERE id=?').bind(runs[2]).first()).input_json;
+  for(const method of ['edit','extend']) {
+    const connected_video_inputs=[{method,runId:runs[1],assetId:sources[1].id,sourceVersion:sources[1].version}];
+    await db.prepare('UPDATE canvas_runs SET input_json=? WHERE id=?').bind(JSON.stringify({connected_video_inputs}),runs[2]).run();
+    const chain=await canvasVideoChain(env,owner,project,runs[2]);
+    check(JSON.stringify(chain.map(s=>s.assetId))===JSON.stringify([sources[0].id,sources[2].id]),'Native output does not duplicate included source segment');
+    connected_video_inputs[0].sourceVersion='stale';
+    await db.prepare('UPDATE canvas_runs SET input_json=? WHERE id=?').bind(JSON.stringify({connected_video_inputs}),runs[2]).run();
+    let rejected=false;try{await canvasVideoChain(env,owner,project,runs[2]);}catch(e){rejected=e.code==='video_source_changed';}check(rejected,'Native inclusion still validates exact source bytes');
+  }
+  await db.prepare('UPDATE canvas_runs SET input_json=? WHERE id=?').bind(thirdInput,runs[2]).run();
   // Mutable node output is irrelevant to an old chain, deleted/version-changed originals are not.
   await db.prepare('UPDATE canvas_nodes SET asset_id=? WHERE id=?').bind(sources[4].id,node).run();
   check((await canvasVideoChain(env,owner,project,runs[1]))[0].assetId===sources[0].id,'Historical parent not overwritten');

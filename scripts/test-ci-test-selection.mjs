@@ -704,3 +704,24 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);assert.equal(result.homepageMedia,false);assert.equal(result.full,false);
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/migrations/0091_unknown.sql','workers/auth/src/lib/billing.js','unknown.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
 }
+
+// Generate Lab role accounting + the existing shared media processor are one
+// bounded integration, never the SDK-only shortcut or a whole-platform waiver.
+{
+ const files=['js/pages/generate-lab/main.js','workers/auth/src/routes/ai/quota.js','workers/auth/src/lib/member-generation-jobs.js',
+ 'js/shared/auth-api.js','admin/index.html','js/pages/admin/private-media-service.js',
+ 'workers/auth/src/lib/ai-cost-operations.js','scripts/test-ai-cost-policy.mjs','js/shared/help-menu.js',
+ 'js/shared/member-model-exposure.mjs','js/shared/grok-imagine-video-pricing.mjs','js/shared/grok-imagine-video-15-preview-pricing.mjs','workers/ai/src/lib/invoke-ai-video.js','workers/auth/src/lib/admin-ai-video-sources.js','workers/auth/src/lib/ai-video-jobs.js','workers/auth/migrations/0092_pin_video_source_inputs.sql',
+ 'js/pages/generate-lab/grok-video-controls.js','js/pages/generate-lab/model-help.js','js/pages/canvas/video-input.js','tests/canvas.spec.js',
+ 'workers/auth/migrations/0091_separate_thumbnail_processing.sql','workers/auth/src/lib/media-preview-jobs.js',
+ 'workers/auth/src/index.js','workers/auth/wrangler.jsonc','workers/auth/src/lib/grok-video-output.js','tests/helpers/q2-runtime/control.mjs',
+ 'workers/auth/src/routes/homepage-hero-videos.js','workers/auth/src/lib/memvid-stream-upload-receipts.js',
+ 'workers/media/src/index.js','workers/media/wrangler.jsonc','services/homepage-ffmpeg-processor/processor.mjs',
+ 'tests/helpers/private-media-control.mjs','tests/helpers/member-generation-control.mjs','tests/member-generation-runtime.mjs','tests/smoke.spec.js'];
+ const selected=selection(files);assert.equal(selected.canvasText,true);assert.equal(selected.workers,true);assert.equal(selected.auth,true);
+ for(const flag of ['full','homepage','homepageMedia','carousel','mediaLifecycle'])assert(!selected[flag],flag);
+ const jobs=requiredJobs({...selected,files})['worker-validation'];
+ for(const name of ['Run worker route tests','Run private media lifecycle tests','Build and test private media Linux image','Preserve tested private media image'])assert(jobs.includes(name),name);
+ for(const unknown of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/ai/src/index.js','workers/auth/migrations/0092_unknown.sql','unknown.js'])assert.notEqual(selection([...files,unknown]).canvasText,true,unknown);
+ assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
+}

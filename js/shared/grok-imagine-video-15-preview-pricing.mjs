@@ -142,7 +142,10 @@ export function normalizeGrokImagineVideo15PreviewPricingInput(settings = {}) {
 
 export function calculateGrokImagineVideo15PreviewCreditPricing(settings = {}) {
   const normalized = normalizeGrokImagineVideo15PreviewPricingInput(settings);
-  const providerCostUsd = normalized.duration * normalized.rateUsdPerSecond;
+  // Unified Billing purchases carry a 5% acquisition fee (Cloudflare docs).
+  // Include it once in cost, then use the existing cost / 0.8 target margin.
+  const inferenceCostUsd = normalized.duration * normalized.rateUsdPerSecond;
+  const providerCostUsd = inferenceCostUsd * 1.05;
   const credits = creditsForProviderCostUsd(providerCostUsd);
   const minimumSellPriceUsd = requiredSellPriceUsdForProviderCost(providerCostUsd);
   const chargedValueUsd = creditValueUsd(credits);
@@ -152,20 +155,25 @@ export function calculateGrokImagineVideo15PreviewCreditPricing(settings = {}) {
     modelId: GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID,
     credits,
     providerCostUsd,
+    inferenceCostUsd,
     internalCostUsd: null,
     minimumSellPriceUsd,
     chargedValueUsd,
     effectiveProfitMargin,
     normalized,
     formula: {
-      pricingVersion: "grok-imagine-video-1-5-preview-v1",
+      pricingVersion: "grok-imagine-video-1-5-preview-v2",
+      fundingMultiplier: 1.05,
       billingMode: "cloudflare_ai_gateway_unified_billing_duration_seconds_resolution",
-      providerCostUsd: "durationSeconds * providerRateUsdPerSecondByResolution[resolution]",
+      providerCostUsd: "durationSeconds * providerRateUsdPerSecondByResolution[resolution] * fundingMultiplier",
       providerRateUsdPerSecondByResolution:
         GROK_IMAGINE_VIDEO_15_PREVIEW_PROVIDER_RATE_USD_PER_SECOND_BY_RESOLUTION,
       defaultRateUsdPerSecond:
         GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_PROVIDER_RATE_USD_PER_SECOND,
-      pricingSource: "operator_requested_grok_imagine_video_1_5_preview_pricing_2026_06_04",
+      // Exact Cloudflare alias: authenticated dashboard evidence supplied and
+      // approved by the owner on 2026-09-20. These are output-second tariffs;
+      // they are not evidence of the input quantities for edit/extend.
+      pricingSource: "cloudflare_dashboard_owner_verified_grok_imagine_video_1_5_preview_2026_09_20",
       usdToEur: BITBI_MODEL_PRICING_USD_TO_EUR,
       netEurPerCredit: BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
       targetProfitMargin: BITBI_TARGET_PROFIT_MARGIN,

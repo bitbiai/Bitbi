@@ -10,6 +10,12 @@ export async function testPrivateMediaRunner() {
   const args={token,runner,requestJson:async(url,{body})=>{assert.equal(url,'/api/internal/homepage/hero-videos/private-media/runner');const p=JSON.parse(body);actions.push(p.action);assert.equal(p.token,token);return {data:{pending:pass<2?1:0}};},processExports:async()=>{actions.push('export');},processPosters:async()=>{actions.push('poster');pass++;}};
   assert.equal((await runPrivateMedia(args)).passes,2);
   assert.deepEqual(actions,['acquire','heartbeat','export','poster','heartbeat','heartbeat','export','poster','heartbeat','finish']);
+  const previews=[];
+  await runPrivateMedia({...args,requestJson:async()=>({data:{pending:0,previews:{hero:true,stream:true}}}),processPreviews:async capabilities=>previews.push(capabilities)});
+  assert.deepEqual(previews,[{hero:true,stream:true}],'The same leased runner must drain public thumbnail/preview work');
+  const disabled=[];
+  await runPrivateMedia({...args,requestJson:async()=>({data:{pending:0,previews:{hero:false,stream:false}}}),processPreviews:async capabilities=>disabled.push(capabilities)});
+  assert.deepEqual(disabled,[{hero:false,stream:false}],'Feature readiness is preserved across both adapters');
   actions.length=0;await assert.rejects(runPrivateMedia({...args,processExports:async()=>{throw Error('synthetic crash');}}),/synthetic crash/);assert.equal(actions.at(-1),'finish');
   actions.length=0;await assert.rejects(runPrivateMedia({...args,requestJson:async()=>{throw Error('lost lease');}}),/lost lease/);assert.equal(actions.length,0);
   pass=0;assert.equal((await runPrivateMedia({...args,requestJson:async()=>({data:{pending:1}})})).passes,8,'Bounded drain, next activation handles remainder');

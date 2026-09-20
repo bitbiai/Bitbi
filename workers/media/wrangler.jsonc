@@ -9,5 +9,5 @@
   "migrations": [{"tag":"v1-private-media","new_sqlite_classes":["PrivateMediaContainer"]}],
   "observability": {"enabled":true,"logs":{"enabled":true,"invocation_logs":false},"traces":{"enabled":false}},
   "vars": {"SOURCE_SHA":"UNRELEASED"},
-  "secrets": {"required":["PRIVATE_MEDIA_PROCESSOR_SECRET"]}
+  "secrets": {"required":["PRIVATE_MEDIA_PROCESSOR_SECRET","CLOUDFLARE_STREAM_API_TOKEN"]}
 }

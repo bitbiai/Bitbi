@@ -95,7 +95,10 @@ export function normalizeGrokImagineVideoPricingInput(settings = {}) {
 
 export function calculateGrokImagineVideoCreditPricing(settings = {}) {
   const normalized = normalizeGrokImagineVideoPricingInput(settings);
-  const providerCostUsd = normalized.duration * normalized.rateUsdPerSecond;
+  // Unified Billing purchases carry a 5% acquisition fee (Cloudflare docs).
+  // Include it once in cost, then use the existing cost / 0.8 target margin.
+  const inferenceCostUsd = normalized.duration * normalized.rateUsdPerSecond;
+  const providerCostUsd = inferenceCostUsd * 1.05;
   const credits = creditsForProviderCostUsd(providerCostUsd);
   const minimumSellPriceUsd = requiredSellPriceUsdForProviderCost(providerCostUsd);
   const chargedValueUsd = creditValueUsd(credits);
@@ -105,15 +108,17 @@ export function calculateGrokImagineVideoCreditPricing(settings = {}) {
     modelId: GROK_IMAGINE_VIDEO_MODEL_ID,
     credits,
     providerCostUsd,
+    inferenceCostUsd,
     internalCostUsd: null,
     minimumSellPriceUsd,
     chargedValueUsd,
     effectiveProfitMargin,
     normalized,
     formula: {
-      pricingVersion: "grok-imagine-video-v1",
+      pricingVersion: "grok-imagine-video-v2",
+      fundingMultiplier: 1.05,
       billingMode: "cloudflare_ai_gateway_unified_billing_duration_seconds",
-      providerCostUsd: "durationSeconds * providerRateUsdPerSecond",
+      providerCostUsd: "durationSeconds * providerRateUsdPerSecond * fundingMultiplier",
       rateUsdPerSecond: GROK_IMAGINE_VIDEO_PROVIDER_RATE_USD_PER_SECOND,
       pricingSource: "operator_requested_grok_imagine_video_pricing_2026_05_31",
       usdToEur: BITBI_MODEL_PRICING_USD_TO_EUR,

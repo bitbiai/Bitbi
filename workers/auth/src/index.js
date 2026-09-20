@@ -1,4 +1,5 @@
 import { handlePrivateMediaService } from './routes/private-media-service.js';
+import { handleGrokVideoOutput } from './lib/grok-video-output.js';
 import { PRIVATE_MEDIA_WAKE, dispatchPrivateMedia } from './lib/private-media-service.js';
 import { MEMBER_GENERATION_MESSAGE, processMemberGeneration, requeueMemberGenerations } from "./lib/member-generation-jobs.js";
 import { json } from "./lib/response.js";
@@ -166,6 +167,9 @@ function requiresTrustedRequestContext(pathname, method) {
   ) {
     return false;
   }
+  // Only this exact machine-to-machine PUT uses a job-scoped HMAC instead of browser CSRF.
+  // route-policy: internal.ai.video-output
+  if (method === "PUT" && /^\/api\/internal\/ai\/video-output\/[^/]+$/.test(pathname)) return false;
   return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
 }
 
@@ -316,7 +320,7 @@ export default {
           env,
           error,
           correlationId: ctx.correlationId,
-          requestInfo: { request, pathname, method },
+          requestInfo: { request, pathname: ctx.routePolicy?.path || pathname, method },
           component: "auth-config",
         });
         return workerConfigUnavailableResponse(ctx.correlationId);
@@ -360,6 +364,9 @@ export default {
       const result = await handleHomepageHeroVideos(ctx);
       if (result) return result;
     }
+    const grokVideoOutputMatch = pathname.match(/^\/api\/internal\/ai\/video-output\/([^/]+)$/);
+    // route-policy: internal.ai.video-output
+    if (grokVideoOutputMatch && method === 'PUT') return handleGrokVideoOutput(ctx,grokVideoOutputMatch[1]);
     const adminAiMediaSourceMatch = pathname.match(/^\/api\/internal\/ai\/media-source\/([^/]+)$/);
     if (adminAiMediaSourceMatch && (method === "GET" || method === "HEAD")) {
       const result = await handleAdminAiMediaSourceTokenRequest(ctx, adminAiMediaSourceMatch[1]);

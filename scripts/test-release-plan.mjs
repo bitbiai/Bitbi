@@ -580,6 +580,12 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const before=JSON.parse(fs.readFileSync(path.join(repoRoot,'workers/auth/wrangler.jsonc')));
  const after=structuredClone(before);delete before.vars.PRIVATE_MEDIA_SOURCE_SHA;before.services=before.services.filter(s=>s.binding!=='PRIVATE_MEDIA_PROCESSOR');before.secrets.required=before.secrets.required.filter(s=>s!=='PRIVATE_MEDIA_PROCESSOR_SECRET');
  assertMediaAuthConfig(before,after);
+ const loggingBefore=structuredClone(before);loggingBefore.observability.logs.invocation_logs=true;
+ assertMediaAuthConfig(loggingBefore,after);
+ const unsafeLogs=structuredClone(after);unsafeLogs.observability.logs.invocation_logs=true;
+ assert.throws(()=>assertMediaAuthConfig(before,unsafeLogs),/invocation logs disabled/);
+ const alteredLogs=structuredClone(after);alteredLogs.observability.logs.enabled=false;
+ assert.throws(()=>assertMediaAuthConfig(before,alteredLogs),/Unreviewed Auth/);
  const invalid=structuredClone(after);invalid.routes=[];assert.throws(()=>assertMediaAuthConfig(before,invalid),/Unreviewed Auth/);
  const media=createReleasePlanFromRepo(repoRoot,{files:['workers/media/src/index.js','workers/auth/wrangler.jsonc','workers/auth/migrations/0089_add_private_media_services.sql','admin/index.html']});
  const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');assert(backendContinuationSupported(media));
@@ -591,6 +597,11 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const sha='a'.repeat(40),digest='b'.repeat(64),scope={sha,run:'123',attempt:'1'};
  const receipt={media:{sha,sourceRun:'123',sourceAttempt:'1',imageDigest:`registry.cloudflare.com/${'c'.repeat(32)}/bitbi-private-media@sha256:${digest}`,artifact:{id:123,digest:`sha256:${digest}`}},smoke:['github','cloudflare'].map(backend=>({backend,sha,completedMs:100,outputs:Array.from({length:3},()=>({videoDigest:digest,posterDigest:digest}))}))};
  verifyMediaEvidence(receipt,scope);
+ assert.throws(()=>verifyMediaEvidence(receipt,{...scope,publicPreviews:true}),/public preview/);
+ const previews={...receipt,smoke:receipt.smoke.map(s=>({...s,publicPreviews:Array.from({length:2},()=>({videoDigest:digest,posterDigest:digest}))}))};
+ verifyMediaEvidence(previews,{...scope,publicPreviews:true});
+ const wrongPreview=structuredClone(previews);wrongPreview.smoke[0].publicPreviews[1].posterDigest='wrong';
+ assert.throws(()=>verifyMediaEvidence(wrongPreview,{...scope,publicPreviews:true}),/public preview/);
  for(const key of ['sha','run','attempt'])assert.throws(()=>verifyMediaEvidence(receipt,{...scope,[key]:'wrong'}));
  for(const bad of [{},{...receipt,media:null},{...receipt,smoke:receipt.smoke.slice(0,1)},{...receipt,smoke:receipt.smoke.map(s=>({...s,outputs:[]}))}])assert.throws(()=>verifyMediaEvidence(bad,scope));
  const {advanceBackend}=await import('./lib/backend-publication.mjs');
@@ -671,7 +682,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
 {
  const {mediaActive,activateMedia,currentMediaVersion}=await import('./lib/media-publication.mjs');
  const expected={sha:'a'.repeat(40),imageDigest:'registry/synthetic@sha256:'+'b'.repeat(64)};
- const version={id:'version',annotations:{'workers/message':`bitbi-media:${expected.sha}:${expected.imageDigest}`},resources:{bindings:[{name:'MEDIA_CONTAINER',namespace_id:'namespace'}]}};
+ const version={id:'version',annotations:{'workers/message':`bitbi-media:${expected.sha}:${expected.imageDigest}`},resources:{bindings:[{name:'MEDIA_CONTAINER',namespace_id:'namespace'},{name:'CLOUDFLARE_STREAM_API_TOKEN',type:'secret_text'},{name:'CLOUDFLARE_ACCOUNT_ID',text:'synthetic-account'}]}};
  let image='old-image',now=0,reads=0,pauses=0;
  const read=async endpoint=>{
   reads++;
@@ -680,17 +691,19 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
   assert.equal(endpoint,'containers/applications');return [{id:'application',max_instances:1,configuration:{image},durable_objects:{namespace_id:'namespace'}}];
  };
  const options={read,now:()=>now,pause:async ms=>{now+=ms;pauses++;image=expected.imageDigest;}};
- const active=await mediaActive(expected,{},options);assert.equal(active.application,'application');assert.equal(pauses,1);assert.equal(reads,6);
- image='old-image';await assert.rejects(mediaActive(expected,{}, {...options,timeout:10000,pause:async ms=>{now+=ms;}}),/did not converge/);
- for(const fault of ['wrong-version','ambiguous-traffic','wrong-namespace','changed-limit']) {
+ const active=await mediaActive(expected,{CLOUDFLARE_ACCOUNT_ID:'synthetic-account'},options);assert.equal(active.application,'application');assert.equal(pauses,1);assert.equal(reads,6);
+ image='old-image';await assert.rejects(mediaActive(expected,{CLOUDFLARE_ACCOUNT_ID:'synthetic-account'}, {...options,timeout:10000,pause:async ms=>{now+=ms;}}),/did not converge/);
+ for(const fault of ['wrong-version','ambiguous-traffic','wrong-namespace','changed-limit','missing-preview-secret','wrong-preview-account']) {
   const unsafe=async endpoint=>{const r=structuredClone(await read(endpoint));
    if(fault==='wrong-version'&&endpoint.includes('/versions/'))r.annotations['workers/message']='wrong';
    if(fault==='ambiguous-traffic'&&endpoint.endsWith('/deployments'))r.deployments[0].versions[0].percentage=50;
    if(fault==='wrong-namespace'&&Array.isArray(r))r[0].durable_objects.namespace_id='other';
    if(fault==='changed-limit'&&Array.isArray(r))r[0].max_instances=2;
+   if(fault==='missing-preview-secret'&&endpoint.includes('/versions/'))r.resources.bindings=r.resources.bindings.filter(b=>b.name!=='CLOUDFLARE_STREAM_API_TOKEN');
+   if(fault==='wrong-preview-account'&&endpoint.includes('/versions/'))r.resources.bindings.find(b=>b.name==='CLOUDFLARE_ACCOUNT_ID').text='other-account';
    return r;
   };
-  await assert.rejects(mediaActive(expected,{}, {...options,read:unsafe,pause:async()=>{throw Error('Must fail without polling');}}));
+  await assert.rejects(mediaActive(expected,{CLOUDFLARE_ACCOUNT_ID:'synthetic-account'}, {...options,read:unsafe,pause:async()=>{throw Error('Must fail without polling');}}));
  }
  assert.deepEqual(await currentMediaVersion(async()=>{throw Error('Cloudflare read failed (404)');}),{});
  assert.deepEqual(await currentMediaVersion(async()=>({deployments:[]})),{});
@@ -731,8 +744,22 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const plan=createReleasePlanFromRepo(repoRoot,{files});
  assert(backendContinuationSupported(plan));
  assert.deepEqual(plan.workerDeploys.map(w=>w.worker),['ai','auth']);
- assert.equal(plan.schemaApplies[0].latestMigration,'0090_add_canvas_private_outputs.sql');
+ assert.equal(plan.schemaApplies[0].latestMigration,JSON.parse(fs.readFileSync(path.join(repoRoot,'config/release-compat.json'))).release.schemaCheckpoints.auth.latest);
  assert(!plan.workerDeploys.some(w=>w.worker==='media'));
  assert(!backendContinuationSupported(createReleasePlanFromRepo(repoRoot,{files:[...files,'workers/ai/wrangler.jsonc']})));
  console.log('Canvas private outputs: additive schema, existing AI → Auth continuation, unchanged media and unreviewed config denial passed.');
+}
+
+{
+ const {ensurePrivateVideoLogging}=await import('./lib/backend-publication.mjs');
+ const initial={logpush:false,tags:['retained'],observability:{enabled:true,logs:{enabled:true,invocation_logs:true,persist:true},traces:{enabled:false}}};
+ let state=structuredClone(initial),writes=0;
+ const read=async()=>structuredClone(state),patch=async body=>{writes++;assert.deepEqual(Object.keys(body),['observability']);state.observability=body.observability;};
+ await ensurePrivateVideoLogging({read,patch});assert.equal(writes,1);assert.equal(state.observability.logs.invocation_logs,false);
+ await ensurePrivateVideoLogging({read,patch});assert.equal(writes,1,'Already-safe settings are not rewritten');
+ await ensurePrivateVideoLogging({read,verifyOnly:true});
+ await assert.rejects(ensurePrivateVideoLogging({read:async()=>initial,verifyOnly:true}),/logging remains enabled/);
+ await assert.rejects(ensurePrivateVideoLogging({read:async()=>initial,patch:async()=>{throw Error('denied');}}),/denied/);
+ await assert.rejects(ensurePrivateVideoLogging({read:async()=>initial,patch:async()=>{}}),/logging remains enabled/);
+ console.log('Private video upload privacy: pre-activation readback, no-op reuse, denied/ineffective update and final receipt guard passed.');
 }

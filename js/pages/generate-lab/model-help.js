@@ -36,7 +36,9 @@ export function renderWorkspaceModelHelp() {
             const paragraph = (text) => body.append(element('p', 'help-menu__item-detail', text));
             paragraph(copy('Required: a prompt. ', 'Erforderlich: ein Prompt. ') + mode.promptHelp);
             const controls = model.controls || {};
-            if (controls.supportsReferenceImages) {
+            if (controls.supportsVideoInput) {
+                paragraph(copy('Generate accepts text and up to ten saved image references. Edit and Extend are temporarily unavailable pending billing verification for this Cloudflare route. Their saved inputs are retained. Private inputs remain authorized for the accepted job. Size is a requested shape, not a promise of 1080p output; the resolution selector is authoritative.', 'Generieren verwendet Text und bis zu zehn gespeicherte Bildreferenzen. Bearbeiten und Verlängern sind bis zur Abrechnungsprüfung dieser Cloudflare-Route vorübergehend nicht verfügbar. Gespeicherte Eingaben bleiben erhalten. Private Eingaben bleiben für den angenommenen Auftrag autorisiert. Größe bezeichnet die angeforderte Form und garantiert keine 1080p-Ausgabe; maßgeblich ist die Auflösungsauswahl.'));
+            } else if (controls.supportsReferenceImages) {
                 paragraph(copy(
                     `Up to ${controls.maxReferenceImages} optional saved or uploaded reference images (PNG, JPEG, WebP). Reference inputs affect the existing estimate.`,
                     `Bis zu ${controls.maxReferenceImages} optionale gespeicherte oder hochgeladene Referenzbilder (PNG, JPEG, WebP). Referenzen beeinflussen die bestehende Schätzung.`,

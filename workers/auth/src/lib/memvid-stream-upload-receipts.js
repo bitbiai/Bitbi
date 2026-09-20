@@ -28,8 +28,9 @@ export async function getStreamUploadReceipt(env, id) {
 
 const REPAIR_SCAN_KEY = 'memvid.stream_repair_scan.v2';
 const REPAIR_SCAN_LIMIT = 64;
-async function readRepairCursor(env) {
-  const row = await env.DB.prepare('SELECT value_json FROM app_settings WHERE key=? LIMIT 1').bind(REPAIR_SCAN_KEY).first();
+const repairKey=backend=>backend==='github'?REPAIR_SCAN_KEY:REPAIR_SCAN_KEY+'.'+backend;
+async function readRepairCursor(env,backend) {
+  const row = await env.DB.prepare('SELECT value_json FROM app_settings WHERE key=? LIMIT 1').bind(repairKey(backend)).first();
   if (!row) return null;
   let value;
   try { value = JSON.parse(row.value_json); } catch { throw new StreamReceiptError('stream_repair_cursor_invalid', 503); }
@@ -40,15 +41,15 @@ async function readRepairCursor(env) {
     throw new StreamReceiptError('stream_repair_cursor_invalid', 503);
   return value;
 }
-async function advanceRepairCursor(env, cursor, now) {
+async function advanceRepairCursor(env, cursor, now,backend) {
   const result = await env.DB.prepare(`INSERT INTO app_settings(key,value_json,updated_at,updated_by_user_id,reason)
     VALUES(?,?,?,NULL,'Bounded Stream repair scan position; not claim authority')
     ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at,
-      updated_by_user_id=NULL,reason=excluded.reason`).bind(REPAIR_SCAN_KEY, JSON.stringify(cursor || {}), now).run();
+      updated_by_user_id=NULL,reason=excluded.reason`).bind(repairKey(backend), JSON.stringify(cursor || {}), now).run();
   if (Number(result?.meta?.changes) !== 1) throw new StreamReceiptError('stream_repair_cursor_write_failed', 503);
 }
 
-export async function claimStreamPreviewJobs(env, { limit = 1, repairDownloads = false } = {}) {
+export async function claimStreamPreviewJobs(env, { limit = 1, repairDownloads = false, backend = 'github' } = {}) {
   limit = Math.max(1, Math.min(8, Math.floor(Number(limit) || 1)));
   const now = nowIso(), expires = new Date(Date.now() + LEASE_MS).toISOString();
   // New and already-receipted work is never hidden behind healthy historical
@@ -57,23 +58,23 @@ export async function claimStreamPreviewJobs(env, { limit = 1, repairDownloads =
   const urgent = await env.DB.prepare(`SELECT p.*, a.mime_type, a.size_bytes
     FROM memvid_stream_previews p JOIN ai_text_assets a ON a.id=p.asset_id
     LEFT JOIN memvid_stream_upload_receipts r ON r.job_id=p.id
-    WHERE a.visibility='public' AND a.source_module='video' AND a.user_id=p.user_id
+    WHERE p.processing_backend=? AND a.visibility='public' AND a.source_module='video' AND a.user_id=p.user_id
       AND a.r2_key=p.source_r2_key AND p.source_fingerprint IS NOT NULL
       AND ((r.job_id IS NULL AND p.status='queued')
         OR (r.retired_at IS NULL AND r.claim_expires_at<=? AND r.phase IN ('prepared','received')
           AND p.status IN ('processing','uploading','ready')))
-    ORDER BY p.created_at,p.id LIMIT ?`).bind(now, Math.min(32, limit * 4)).all();
+    ORDER BY p.created_at,p.id LIMIT ?`).bind(backend, now, Math.min(32, limit * 4)).all();
   let legacy = [], scan = { checked: 0, incomplete: false };
   if (repairDownloads) {
-    const cursor = await readRepairCursor(env);
+    const cursor = await readRepairCursor(env,backend);
     const page = await env.DB.prepare(`SELECT p.*, a.mime_type, a.size_bytes
       FROM memvid_stream_previews p JOIN ai_text_assets a ON a.id=p.asset_id
       LEFT JOIN memvid_stream_upload_receipts r ON r.job_id=p.id
-      WHERE p.status='ready' AND p.stream_uid IS NOT NULL AND r.job_id IS NULL
+      WHERE p.processing_backend=? AND p.status='ready' AND p.stream_uid IS NOT NULL AND r.job_id IS NULL
         AND a.visibility='public' AND a.source_module='video' AND a.user_id=p.user_id
         AND a.r2_key=p.source_r2_key AND p.source_fingerprint IS NOT NULL
         ${cursor ? 'AND (p.created_at,p.id)>(?,?)' : ''}
-      ORDER BY p.created_at,p.id LIMIT ?`).bind(...(cursor ? [cursor.created_at, cursor.id] : []), REPAIR_SCAN_LIMIT).all();
+      ORDER BY p.created_at,p.id LIMIT ?`).bind(backend, ...(cursor ? [cursor.created_at, cursor.id] : []), REPAIR_SCAN_LIMIT).all();
     const rows = page.results || [];
     scan = { checked: rows.length, incomplete: rows.length === REPAIR_SCAN_LIMIT };
     legacy = rows.filter(row => !hasReadyStreamDownloadMetadata(row.provider_metadata_json));
@@ -81,7 +82,7 @@ export async function claimStreamPreviewJobs(env, { limit = 1, repairDownloads =
     // revisit a page; per-job CAS remains authoritative. Reaching the end resets
     // the next pass, including rows inserted before a previous cursor.
     const last = rows.at(-1);
-    await advanceRepairCursor(env, scan.incomplete && last ? { created_at: last.created_at, id: last.id } : null, now);
+    await advanceRepairCursor(env, scan.incomplete && last ? { created_at: last.created_at, id: last.id } : null, now,backend);
   }
   const found = [...(urgent.results || []), ...legacy];
   const claimed = [];
@@ -92,9 +93,9 @@ export async function claimStreamPreviewJobs(env, { limit = 1, repairDownloads =
     // changes the preview. A zero-change claim grants no authority.
     const results = await env.DB.batch([
       env.DB.prepare(`INSERT INTO memvid_stream_upload_receipts
-        (job_id,asset_id,user_id,source_r2_key,source_fingerprint,phase,stream_uid,claim_token,claim_expires_at,created_at,updated_at)
+        (job_id,asset_id,user_id,source_r2_key,source_fingerprint,phase,stream_uid,claim_token,claim_expires_at,created_at,updated_at,processing_backend)
         SELECT p.id,p.asset_id,p.user_id,p.source_r2_key,p.source_fingerprint,
-          CASE WHEN p.stream_uid IS NULL THEN 'prepared' ELSE 'received' END,p.stream_uid,?,?,?,?
+          CASE WHEN p.stream_uid IS NULL THEN 'prepared' ELSE 'received' END,p.stream_uid,?,?,?,?,p.processing_backend
         FROM memvid_stream_previews p JOIN ai_text_assets a ON a.id=p.asset_id
         WHERE p.id=? AND p.status IN ('queued','ready') AND a.visibility='public'
           AND a.source_module='video' AND a.user_id=p.user_id AND a.r2_key=p.source_r2_key

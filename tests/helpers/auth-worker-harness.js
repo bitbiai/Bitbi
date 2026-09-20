@@ -775,6 +775,7 @@ class MockBucket {
     for (const [key, value] of Object.entries(initial)) {
       this.objects.set(key, {
         body: value.body,
+        etag: value.etag || 'synthetic-etag',
         httpMetadata: value.httpMetadata || {},
         size: value.size ?? (value.body?.byteLength ?? 0),
         uploaded: value.uploaded ? new Date(value.uploaded) : new Date(),
@@ -803,7 +804,9 @@ class MockBucket {
     }
     this.objects.set(key, {
       body,
+      etag: 'synthetic-etag',
       httpMetadata: options.httpMetadata || {},
+      customMetadata: options.customMetadata || {},
       size: body?.byteLength ?? (typeof body === 'string' ? body.length : 0),
       uploaded: new Date(),
     });
@@ -841,7 +844,9 @@ class MockBucket {
     if (!value) return null;
     return {
       key,
+      etag: value.etag,
       httpMetadata: value.httpMetadata || {},
+      customMetadata: value.customMetadata || {},
       size: value.size,
       uploaded: value.uploaded,
     };
@@ -1236,6 +1241,9 @@ class MockD1 {
       tenantAssetMediaResetActions: [],
       tenantAssetMediaResetActionEvents: [],
       appSettings: [],
+      privateMediaDispatch: ['github','cloudflare'].map(backend=>({backend,token:null,runner_id:null,lease_until:null})),
+      canvasVideoProcessing: [],
+      memvidStreamUploadReceipts: [],
       homepageHeroVideoSlots: [],
       homepageHeroVideoDerivatives: [],
       homepageHeroVideoUploads: [],
@@ -1257,6 +1265,9 @@ class MockD1 {
       canvasRuns: [],
       ...deepClone(seed),
     };
+    // Seeded records represent accepted pre-switch work, as migrated by 0091.
+    for(const key of ['homepageHeroVideoUploads','homepageHeroVideoDerivatives','memvidStreamPreviews'])
+      this.state[key]=this.state[key].map(row=>({processing_backend:'github',processing_token:null,locked_until:null,attempt_count:0,poster_processing_token:null,poster_locked_until:null,poster_attempt_count:0,...row}));
     this.state.profiles = (this.state.profiles || []).map((row) => ({
       has_avatar: row.has_avatar ?? null,
       avatar_updated_at: row.avatar_updated_at ?? null,
@@ -1735,6 +1746,56 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if(query.startsWith("UPDATE homepage_hero_video_derivatives SET status='failed',error_code='preview_attempts_exhausted'")){
+      const [now]=bindings, rows=this.state.homepageHeroVideoDerivatives.filter(r=>r.status==='processing'&&r.attempt_count>=8&&r.locked_until&&r.locked_until<=now);
+      rows.forEach(r=>Object.assign(r,{status:'failed',error_code:'preview_attempts_exhausted',error_message:'Preview processing needs an explicit retry.',locked_until:null,updated_at:now}));return {meta:{changes:rows.length}};
+    }
+    if(query.startsWith("UPDATE ai_text_assets SET metadata_json=json_set(COALESCE(metadata_json,'{}')")){
+      const rows=this.state.aiTextAssets.filter(a=>!a.poster_r2_key&&this.state.homepageHeroVideoUploads.some(u=>u.asset_id===a.id&&u.user_id===a.user_id&&u.poster_attempt_count>=8&&u.poster_locked_until&&u.poster_locked_until<=bindings[0]));
+      rows.forEach(a=>{const data=JSON.parse(a.metadata_json||'{}');data.homepage_hero_source={...data.homepage_hero_source,poster_status:'failed',poster_retryable:true,poster_error_code:'preview_attempts_exhausted'};a.metadata_json=JSON.stringify(data);});return {meta:{changes:rows.length}};
+    }
+    if(query==='UPDATE homepage_hero_video_uploads SET poster_locked_until=NULL WHERE poster_attempt_count>=8 AND poster_locked_until<=?'){
+      const rows=this.state.homepageHeroVideoUploads.filter(r=>r.poster_attempt_count>=8&&r.poster_locked_until&&r.poster_locked_until<=bindings[0]);rows.forEach(r=>r.poster_locked_until=null);return {meta:{changes:rows.length}};
+    }
+    const thumbnailBackend=()=>JSON.parse(this.state.appSettings.find(r=>r.key==='private_media_service')?.value_json||'{}').thumbnailBackend||'cloudflare';
+    const mediaTables={homepage_hero_video_uploads:this.state.homepageHeroVideoUploads,homepage_hero_video_derivatives:this.state.homepageHeroVideoDerivatives,memvid_stream_previews:this.state.memvidStreamPreviews};
+    const assignment=query.match(/^SELECT processing_backend FROM (homepage_hero_video_uploads|homepage_hero_video_derivatives|memvid_stream_previews) WHERE id=\?$/);
+    if(assignment)return mediaTables[assignment[1]].find(r=>r.id===bindings[0])||null;
+    if(query==='SELECT value_json FROM app_settings WHERE key=?')return this.state.appSettings.find(r=>r.key===bindings[0])||null;
+    if(query==='SELECT backend,error_code,updated_at FROM private_media_dispatch')return {results:this.state.privateMediaDispatch};
+    if(query.startsWith('SELECT (SELECT COUNT(*) FROM member_generation_jobs')){
+      const [backend,now]=bindings;
+      const due=(r,max)=>r.attempt_count<max&&r.next_attempt_at<=now&&(!r.locked_until||r.locked_until<=now);
+      return {count:this.state.memberGenerationJobs.filter(r=>r.processing_backend===backend&&r.media_type==='video'&&r.status==='preview_pending'&&due(r,16)).length+
+        this.state.canvasVideoProcessing.filter(r=>(r.status==='preview_pending'?r.thumbnail_backend:r.processing_backend)===backend&&['queued','processing','preview_pending'].includes(r.status)&&due(r,8)).length};
+    }
+    if(query.startsWith('SELECT (SELECT COUNT(*) FROM homepage_hero_video_derivatives')){
+      const [hero,backend,now,, , ,stream]=bindings;
+      const matches=r=>r.processing_backend===backend;
+      const derivatives=this.state.homepageHeroVideoDerivatives.filter(r=>hero&&matches(r)&&r.provider==='external_ffmpeg'&&r.source_r2_key&&r.attempt_count<8&&(r.status==='queued'||r.status==='processing'&&r.locked_until<=now));
+      const posters=this.state.homepageHeroVideoUploads.filter(r=>hero&&matches(r)&&r.poster_attempt_count<8&&(!r.poster_locked_until||r.poster_locked_until<=now)&&this.state.aiTextAssets.some(a=>a.id===r.asset_id&&a.user_id===r.user_id&&!a.poster_r2_key&&a.r2_key&&!['ready','failed'].includes(JSON.parse(a.metadata_json||'{}').homepage_hero_source?.poster_status)));
+      const previews=this.state.memvidStreamPreviews.filter(p=>stream&&matches(p)&&this.state.aiTextAssets.some(a=>a.id===p.asset_id&&a.user_id===p.user_id&&a.visibility==='public'&&a.r2_key===p.source_r2_key)&&
+        ((!this.state.memvidStreamUploadReceipts.some(r=>r.job_id===p.id)&&p.status==='queued')||this.state.memvidStreamUploadReceipts.some(r=>r.job_id===p.id&&!r.retired_at&&r.claim_expires_at<=now&&['prepared','received'].includes(r.phase)&&['processing','uploading','ready'].includes(p.status))));
+      return {count:derivatives.length+posters.length+previews.length};
+    }
+    if(query.startsWith('SELECT p.id FROM memvid_stream_previews p JOIN ai_text_assets'))return this.state.memvidStreamPreviews.find(p=>p.processing_backend===bindings[0]&&p.status==='ready'&&this.state.aiTextAssets.some(a=>a.id===p.asset_id&&a.user_id===p.user_id&&a.visibility==='public'&&a.r2_key===p.source_r2_key))||null;
+    if(query.startsWith('UPDATE private_media_dispatch SET token=?')){
+      const [token,until,now,backend]=bindings;const row=this.state.privateMediaDispatch.find(r=>r.backend===backend&&(!r.lease_until||r.lease_until<=now));
+      if(row)Object.assign(row,{token,runner_id:null,lease_until:until,error_code:null,updated_at:now});return {meta:{changes:row?1:0}};
+    }
+    if(query.startsWith('UPDATE private_media_dispatch SET error_code=?')){const [error,now,backend,token]=bindings;const row=this.state.privateMediaDispatch.find(r=>r.backend===backend&&r.token===token);if(row)Object.assign(row,{error_code:error,updated_at:now});return {meta:{changes:row?1:0}};}
+    if(query.startsWith("UPDATE homepage_hero_video_derivatives SET status='processing',processing_token=?")){
+      const [token,until,started,now,id,backend]=bindings;const row=this.state.homepageHeroVideoDerivatives.find(r=>r.id===id&&r.processing_backend===backend&&r.attempt_count<8&&(r.status==='queued'||r.status==='processing'&&r.locked_until<=now));
+      if(row)Object.assign(row,{status:'processing',processing_token:token,locked_until:until,processing_started_at:row.processing_started_at||started,updated_at:now,attempt_count:row.attempt_count+1});return {meta:{changes:row?1:0}};
+    }
+    if(query.startsWith('UPDATE homepage_hero_video_uploads SET poster_processing_token=?')){
+      const [token,until,id,backend,now]=bindings;const row=this.state.homepageHeroVideoUploads.find(r=>r.id===id&&r.processing_backend===backend&&r.poster_attempt_count<8&&(!r.poster_locked_until||r.poster_locked_until<=now)&&this.state.aiTextAssets.some(a=>a.id===r.asset_id&&a.user_id===r.user_id&&!a.poster_r2_key));
+      if(row)Object.assign(row,{poster_processing_token:token,poster_locked_until:until,poster_attempt_count:row.poster_attempt_count+1});return {meta:{changes:row?1:0}};
+    }
+    if(query.startsWith('UPDATE homepage_hero_video_uploads SET poster_locked_until=NULL')){const row=this.state.homepageHeroVideoUploads.find(r=>r.id===bindings[0]&&r.poster_processing_token===bindings[1]);if(row)row.poster_locked_until=null;return {meta:{changes:row?1:0}};}
+    if(query.startsWith('UPDATE homepage_hero_video_uploads SET poster_attempt_count=0')){const [id,now]=bindings,row=this.state.homepageHeroVideoUploads.find(r=>r.id===id&&(!r.poster_locked_until||r.poster_locked_until<=now));if(row)Object.assign(row,{poster_attempt_count:0,poster_processing_token:null,poster_locked_until:null});return {meta:{changes:row?1:0}};}
+    const ownedMedia=query.match(/^SELECT id FROM (homepage_hero_video_uploads|homepage_hero_video_derivatives) WHERE (asset_id|id)=\? AND (processing_backend|user_id)=\? AND (poster_)?processing_token IS \? AND (poster_)?locked_until>\?$/);
+    if(ownedMedia){const [,table,key,owner,prefix='']=ownedMedia,[id,scope,token,now]=bindings;return mediaTables[table].find(r=>r[key]===id&&r[owner]===scope&&r[prefix+'processing_token']===token&&r[prefix+'locked_until']>now)||null;}
     if (query === 'SELECT key, value_json, updated_at, updated_by_user_id, reason FROM app_settings WHERE key = ? LIMIT 1') {
       const [key] = bindings;
       const row = this.state.appSettings.find((entry) => entry.key === key);
@@ -6911,6 +6972,12 @@ class MockD1 {
       } : null;
     }
 
+    if(query.startsWith('UPDATE ai_text_assets SET ')&&query.includes('EXISTS(SELECT 1 FROM homepage_hero_video_uploads')){
+      const [id,token,now]=bindings.slice(-3),live=this.state.homepageHeroVideoUploads.find(r=>r.id===id&&r.poster_processing_token===token&&r.poster_locked_until>now);
+      if(!live)return {meta:{changes:0}};
+      if(query.includes('poster_r2_key IS NULL')&&this.state.aiTextAssets.find(a=>a.id===bindings[4]&&a.user_id===bindings[5])?.poster_r2_key)return {meta:{changes:0}};
+      query=query.replace(/ AND (?:poster_r2_key IS NULL AND )?EXISTS\(SELECT 1 FROM homepage_hero_video_uploads.*$/,'');bindings=bindings.slice(0,-3);
+    }
     if (query === 'UPDATE ai_text_assets SET metadata_json = ? WHERE id = ? AND user_id = ?') {
       const [metadataJson, assetId, userId] = bindings;
       let changes = 0;
@@ -11659,6 +11726,13 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
+    if(query==='SELECT * FROM ai_video_jobs WHERE id=?') return deepClone(this.state.aiVideoJobs.find(row=>row.id===bindings[0]) || null);
+    if(query.startsWith('UPDATE ai_video_jobs SET output_r2_key=? WHERE id=? AND user_id=? AND output_r2_key IS NULL')) {
+      const [key,id,user,now]=bindings;
+      const row=this.state.aiVideoJobs.find(row=>row.id===id && row.user_id===user && !row.output_r2_key && row.processing_token && row.locked_until>now && ['starting','provider_pending','polling','processing','ingesting'].includes(row.status));
+      if(!row)return {success:true,meta:{changes:0}};
+      row.output_r2_key=key;return {success:true,meta:{changes:1}};
+    }
     if (query === 'SELECT status, processing_token, provider_outcome, locked_until FROM ai_video_jobs WHERE id = ?') {
       return deepClone(this.state.aiVideoJobs.find((row) => row.id === bindings[0]) || null);
     }
@@ -11818,6 +11892,18 @@ class MockD1 {
         expires_at,
       }));
       return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query === "SELECT source_refs_json FROM member_generation_jobs WHERE user_id=? AND media_type='video' AND request_key=?") {
+      return this.state.memberGenerationJobs.find(j=>j.user_id===bindings[0]&&j.media_type==='video'&&j.request_key===bindings[1]) || null;
+    }
+    if (query.startsWith('SELECT source_refs_json AS sources FROM member_generation_jobs WHERE id=?')) {
+      const j=this.state.memberGenerationJobs.find(j=>j.id===bindings[0]&&j.user_id===bindings[1]&&['queued','processing','ingesting','outcome_unknown'].includes(j.status));
+      return j ? {sources:j.source_refs_json} : null;
+    }
+    if (query.startsWith("SELECT input_json,json_extract(input_json,'$._source_snapshots') AS sources FROM ai_video_jobs WHERE id=?")) {
+      const j=this.state.aiVideoJobs.find(j=>j.id===bindings[0]&&j.user_id===bindings[1]&&['queued','starting','provider_pending','polling','processing','ingesting'].includes(j.status));
+      return j ? {input_json:j.input_json,sources:JSON.parse(j.input_json)._source_snapshots===undefined?null:JSON.stringify(JSON.parse(j.input_json)._source_snapshots)} : null;
     }
 
     if (query === 'SELECT id,media_type,status,input_r2_key,result_r2_key,provider_receipts_json,created_at,error_code FROM member_generation_jobs WHERE user_id=? ORDER BY created_at DESC') {
@@ -12987,6 +13073,7 @@ class MockD1 {
         providerMetadataJson,
       ] = bindings;
       this.state.memvidStreamPreviews.push({
+        processing_backend:thumbnailBackend(),processing_token:null,locked_until:null,attempt_count:0,poster_processing_token:null,poster_locked_until:null,poster_attempt_count:0,
         id,
         asset_id: assetId,
         user_id: userId,
@@ -13042,8 +13129,9 @@ class MockD1 {
           ...asset,
         } : null;
       }
-      const [limit] = bindings;
+      const [backend,now,limit] = bindings;
       const rows = this.state.homepageHeroVideoUploads
+        .filter(r=>r.processing_backend===backend&&r.poster_attempt_count<8&&(!r.poster_locked_until||r.poster_locked_until<=now))
         .map((upload) => {
           const asset = this.state.aiTextAssets.find((row) => row.id === upload.asset_id && row.user_id === upload.user_id && row.source_module === 'video');
           if (!asset || asset.poster_r2_key || !asset.r2_key) return null;
@@ -13170,6 +13258,7 @@ class MockD1 {
         throw error;
       }
       this.state.homepageHeroVideoUploads.push({
+        processing_backend:thumbnailBackend(),processing_token:null,locked_until:null,attempt_count:0,poster_processing_token:null,poster_locked_until:null,poster_attempt_count:0,
         id,
         asset_id: assetId,
         user_id: userId,
@@ -13215,6 +13304,7 @@ class MockD1 {
         throw error;
       }
       this.state.homepageHeroVideoDerivatives.push({
+        processing_backend:thumbnailBackend(),processing_token:null,locked_until:null,attempt_count:0,poster_processing_token:null,poster_locked_until:null,poster_attempt_count:0,
         id,
         slot,
         source_type: sourceType,
@@ -13251,11 +13341,11 @@ class MockD1 {
       return { success: true, meta: { changes: 1 } };
     }
 
-    if (query.startsWith("SELECT id, slot, source_type, source_asset_id, source_user_id, source_title") && query.includes("WHERE provider = 'external_ffmpeg'") && query.includes("status = 'queued'")) {
-      const [limit] = bindings;
+    if (query.startsWith("SELECT id, slot, source_type, source_asset_id, source_user_id, source_title") && query.includes("WHERE provider = 'external_ffmpeg'") && /status\s*=\s*'queued'/.test(query)) {
+      const [backend,now,limit] = bindings;
       return {
         results: this.state.homepageHeroVideoDerivatives
-          .filter((row) => row.provider === 'external_ffmpeg' && row.status === 'queued' && row.source_r2_key)
+          .filter((row) => row.processing_backend===backend&&row.attempt_count<8&&(row.status==='queued'||row.status==='processing'&&row.locked_until<=now)&&row.provider === 'external_ffmpeg' && row.source_r2_key)
           .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')) || String(a.id).localeCompare(String(b.id)))
           .slice(0, limit),
       };
@@ -13281,7 +13371,7 @@ class MockD1 {
       const updatedAt = isProcessorCompletion ? bindings[12] : bindings[6];
       const completedAt = isProcessorCompletion ? bindings[13] : bindings[7];
       const derivativeId = isProcessorCompletion ? bindings[14] : bindings[8];
-      const row = this.state.homepageHeroVideoDerivatives.find((item) => item.id === derivativeId);
+      const row = this.state.homepageHeroVideoDerivatives.find((item) => item.id === derivativeId && (!isProcessorCompletion || item.processing_backend===bindings[15]&&item.processing_token===bindings[16]&&item.locked_until>bindings[17]&&item.status==='processing'));
       if (row) {
         Object.assign(row, {
           status: 'succeeded',

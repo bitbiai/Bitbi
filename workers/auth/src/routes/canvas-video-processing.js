@@ -29,7 +29,7 @@ export async function canvasExport(ctx,userId,projectId,runId) {
         .bind(nowIso(),nowIso(),task.id,userId).run();
       task=await ctx.env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=?').bind(task.id).first();
     }
-    if(['queued','preview_pending'].includes(task.status))await notifyPrivateMedia(ctx.env,task.processing_backend);
+    if(['queued','preview_pending'].includes(task.status))await notifyPrivateMedia(ctx.env,task.status==='preview_pending'?task.thumbnail_backend:task.processing_backend);
   return reply({export:publicCanvasProcessing(task),eligible:true,limits:CANVAS_VIDEO_LIMITS},202);
   }
   const sources=await canvasVideoChain(ctx.env,userId,projectId,runId);
@@ -42,7 +42,7 @@ export async function canvasExport(ctx,userId,projectId,runId) {
       .bind(task.asset_id?'preview_pending':'queued',nowIso(),nowIso(),task.id,userId).run();
     task=await ctx.env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=?').bind(task.id).first();
   }
-  if(['queued','preview_pending'].includes(task.status))await notifyPrivateMedia(ctx.env,task.processing_backend);
+  if(['queued','preview_pending'].includes(task.status))await notifyPrivateMedia(ctx.env,task.status==='preview_pending'?task.thumbnail_backend:task.processing_backend);
   return reply({export:publicCanvasProcessing(task),eligible:true,limits:CANVAS_VIDEO_LIMITS},202);
 }
 
@@ -100,6 +100,7 @@ export async function handleCanvasExportProcessor(ctx) {
       const written=await ctx.env.DB.prepare("UPDATE canvas_video_processing SET asset_id=?,status='preview_pending',attempt_count=0,locked_until=NULL,error_code=NULL,next_attempt_at=?,updated_at=? WHERE id=? AND processing_token=? AND status='processing' AND locked_until>?")
         .bind(asset.id,nowIso(),nowIso(),job.id,token,nowIso()).run();
       if(!written.meta?.changes) throw canvasProcessingError('canvas_processing_claim_lost');
+      await notifyPrivateMedia(ctx.env,job.thumbnail_backend);
       return reply({asset_id:asset.id,status:'preview_pending'});
     }
     return null;

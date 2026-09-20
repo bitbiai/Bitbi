@@ -43,7 +43,7 @@ export async function memberVideoPosterSource(env,id,token,backend='github') {
     'canvas_video_processing' AS poster_processing_table FROM canvas_video_processing jobs
     JOIN ai_text_assets assets ON assets.id=jobs.asset_id AND assets.user_id=jobs.user_id
     WHERE assets.id=? AND jobs.processing_token=? AND jobs.status='preview_pending' AND jobs.locked_until>?
-    AND jobs.processing_backend=? AND assets.source_module='video'`).bind(id,token,nowIso(),backend).first();
+    AND jobs.thumbnail_backend=? AND assets.source_module='video'`).bind(id,token,nowIso(),backend).first();
 }
 
 export async function finishMemberVideoPoster(env,row,{status}) {
@@ -97,7 +97,7 @@ export async function retryMemberVideoPoster(ctx,id) {
     if(task && task.error_code!=='canvas_source_unavailable') {
       await ownedCanvasVideo(ctx.env,session.user.id,id,null,80_000_000);
       const retry=await ctx.env.DB.prepare("UPDATE canvas_video_processing SET status='preview_pending',attempt_count=0,error_code=NULL,next_attempt_at=?,updated_at=? WHERE id=? AND user_id=? AND status='failed'").bind(nowIso(),nowIso(),task.id,session.user.id).run();
-      if(retry.meta?.changes) {await notifyPrivateMedia(ctx.env,task.processing_backend);return json({ok:true},{status:202,headers:{'Cache-Control':'no-store'}});}
+      if(retry.meta?.changes) {await notifyPrivateMedia(ctx.env,task.thumbnail_backend);return json({ok:true},{status:202,headers:{'Cache-Control':'no-store'}});}
     }
   }
   if(result.meta?.changes){const job=await ctx.env.DB.prepare('SELECT processing_backend FROM member_generation_jobs WHERE id=? AND user_id=?').bind(id,session.user.id).first();await notifyPrivateMedia(ctx.env,job.processing_backend);}

@@ -1,5 +1,5 @@
 import { reclaimCanvasMedia, canvasMediaRun } from './canvas-media-storage.js';
-import { MEDIA_BACKEND_SQL, notifyPrivateMedia, recoverPrivateMedia } from './private-media-service.js';
+import { THUMBNAIL_BACKEND_SQL, notifyPrivateMedia, recoverPrivateMedia } from './private-media-service.js';
 import { finishCanvasGeneration } from './canvas-video-output.js';
 import { catchUpCanvasPosters } from './canvas-video-processing.js';
 import { logDiagnostic } from '../../../../js/shared/worker-observability.mjs';
@@ -21,6 +21,14 @@ function jobError(code) { code=safeCode(code); return Object.assign(new Error(co
 export function generationExecution(env) { return executions.get(env) || null; }
 export function generationUser(ctx) { return generationExecution(ctx.env)?.user || null; }
 
+// Generate Lab uses the same personal-credit execution as Canvas media. The
+// workspace hint is not authority: callers have already resolved the real user
+// and validated the supported model; reservations and charging remain mandatory.
+export function usesPersonalGenerationCredits(ctx, user) {
+  return ctx.canvasMemberContext === true || Boolean(generationExecution(ctx.env))
+    || (user?.role === 'admin' && ctx.request.headers.get('X-BITBI-Workspace') === 'generate-lab');
+}
+
 function publicJob(row) {
   return { id: row.id, media_type: row.media_type, status: row.asset_id && row.status === 'ingesting' ? 'preview_pending' : row.status,
     asset_id: row.error_code === 'generation_asset_removed' ? null : row.asset_id || null, error_code: row.error_code || null,
@@ -29,7 +37,7 @@ function publicJob(row) {
 
 // Called only after the existing route has validated the input, role, price and
 // credit reservation. The browser never supplies an execution context or owner.
-export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType }) {
+export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType, sourceRefs = [] }) {
   if (generationExecution(ctx.env) || usagePolicy.mode !== 'member') return null;
   const { env, request } = ctx;
   if (!request.headers.get('Prefer')?.split(',').some(value => value.trim() === 'respond-async')) return null;
@@ -47,8 +55,8 @@ export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType
   // otherwise disappear with the page. No session cookie/header is persisted.
   await putNewManagedR2Object(env, inputKey, JSON.stringify(body), { httpMetadata: { contentType: 'application/json' } });
   await env.DB.prepare(`INSERT OR IGNORE INTO member_generation_jobs
-    (id,user_id,usage_attempt_id,media_type,request_key,input_r2_key,next_attempt_at,created_at,updated_at,canvas_run_id,processing_backend)
-    VALUES(?,?,?,?,?,?,?,?,?,?,${MEDIA_BACKEND_SQL})`).bind(id, attempt.userId, attempt.id, mediaType, key, inputKey, now, now, now, canvasMediaRun(env)).run();
+    (id,user_id,usage_attempt_id,media_type,request_key,input_r2_key,next_attempt_at,created_at,updated_at,canvas_run_id,source_refs_json,processing_backend)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,${THUMBNAIL_BACKEND_SQL})`).bind(id, attempt.userId, attempt.id, mediaType, key, inputKey, now, now, now, canvasMediaRun(env), JSON.stringify(sourceRefs)).run();
   const row = await env.DB.prepare('SELECT * FROM member_generation_jobs WHERE usage_attempt_id = ? AND user_id = ?')
     .bind(attempt.id, attempt.userId).first();
   if (!row) throw jobError('generation_acceptance_not_confirmed');

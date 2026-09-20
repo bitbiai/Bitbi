@@ -1,4 +1,5 @@
 import worker from '../../workers/auth/src/index.js';
+import {calculateAiVideoCreditCost} from '../../js/shared/ai-model-pricing.mjs';
 import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
 import { topUpMemberDailyCredits, grantMemberCredits } from '../../workers/auth/src/lib/billing.js';
 
@@ -27,7 +28,7 @@ export async function memberGenerationCase(nativeEnv,name,fixture={}) {
 }
 
 async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
-  const kind=(name==='image'||name.startsWith('asset-naming-image'))?'image':(name.startsWith('music')||name.startsWith('asset-naming-music'))?'music':'video';
+  const kind=fixture.kind || (name.startsWith('admin-lab-')?name.slice('admin-lab-'.length):(name==='image'||name.startsWith('asset-naming-image'))?'image':(name.startsWith('music')||name.startsWith('asset-naming-music'))?'music':'video');
   const videoBytes=fixture.videoBase64 ? bytes(fixture.videoBase64) : new Uint8Array([0,0,0,24,102,116,121,112]);
   const db=nativeEnv.DB, owner=`durable-${name}`, now=new Date().toISOString();
   const calls={provider:0,download:0,ack:0,retry:0,poster:0};
@@ -39,7 +40,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET:'synthetic-member-poster-secret-not-live',
     AI_VIDEO_JOBS_QUEUE:{async send(body){messages.push(body);}},
     AI_IMAGE_DERIVATIVES_QUEUE:{async send(){}},
-    AI:{async run(){calls.provider++;await duringProvider();if(kind==='image'||kind==='music')return {image:fixture.imageBase64||png};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');return {video_url:'https://fixture.invalid/member.mp4'};}},
+    AI:{async run(model,payload){calls.provider++;await duringProvider(model,payload);if(model.startsWith('xai/grok-imagine-video'))try{await verifyGrokOutputUpload(env,payload,videoBytes);}catch(error){calls.fixtureFailure=error.message;throw error;}if(kind==='image'||kind==='music')return {image:model==='xai/grok-imagine-image-2.0'?`data:image/png;base64,${fixture.imageBase64||png}`:fixture.imageBase64||png};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');return {video_url:'https://fixture.invalid/member.mp4'};}},
     AI_SERVICE_AUTH_SECRET:'synthetic-service-secret-not-live',
     AI_LAB:{async fetch(){calls.provider++;if(name==='music-failed')return Response.json({ok:false,code:'provider_rejected',error:'Synthetic confirmed rejection'},{status:422,headers:{'x-bitbi-provider-outcome':'failed'}});return Response.json({ok:true,result:{audioBase64:'SUQzBAAAAAAA',mimeType:'audio/mpeg',mode:'song',durationMs:1000},model:{id:'minimax/music-2.6'},preset:'music_studio'});}},
     __TEST_FETCH:async()=>{calls.download++;return new Response(videoBytes,{headers:{'Content-Type':'video/mp4'}});},
@@ -73,14 +74,43 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     await db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?)')
       .bind(id,id,await sha256Hex(`${id}:${env.SESSION_HASH_SECRET}`),now,new Date(Date.now()+3600000).toISOString(),now).run();
   }
+  if(name.startsWith('admin-lab-'))await db.prepare("UPDATE users SET role='admin' WHERE id=?").bind(owner).run();
   await topUpMemberDailyCredits({env,userId:owner});
+  if(name==='admin-lab-grok-preview-generate') {
+    const denied=await worker.fetch(new Request('https://bitbi.ai/api/ai/generate-video',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:`bitbi_session=${owner}`,'Idempotency-Key':'insufficient-admin-grok','X-BITBI-Workspace':'generate-lab',Prefer:'respond-async'},body:JSON.stringify({model:'xai/grok-imagine-video-1.5-preview',prompt:'Synthetic budget rejection',duration:15,resolution:'720p'})}),env,{});
+    check(denied.status===402,'Admin identity cannot bypass the selected personal credit balance');
+    check(calls.provider===0 && messages.length===0,'Insufficient balance dispatches no provider or durable queue work');
+  }
   await grantMemberCredits({env,userId:owner,amount:2000,createdByUserId:owner,idempotencyKey:`grant-${name}-synthetic`});
   const fetch = (path,options={})=>worker.fetch(new Request('https://bitbi.ai'+path,options),env,{waitUntil(){throw new Error('No detached HTTP work allowed');}});
   const headers={'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:`bitbi_session=${owner}`,'Idempotency-Key':`member-${name}-idempotency`,Prefer:'respond-async'};
+  if(name.startsWith('admin-lab-')){
+    const denied=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body:JSON.stringify({prompt:'Fixture'})});
+    check(denied.status===403,'The generic Admin no-context guard is retained');
+    headers['X-BITBI-Workspace']='generate-lab';
+    const quota=await (await fetch('/api/ai/quota?workspace=generate-lab',{headers})).json();
+    check(quota.data.isAdmin===true&&quota.data.billingScope==='personal_credits'&&quota.data.creditBalance===2010,'Admin sees actual payer credits, not platform units');
+  }
   const abort=new AbortController();
-  const input=kind==='video'?{prompt:'Synthetic backend-only fixture',duration:5,quality:'720p',generate_audio:true}:kind==='image'?{prompt:'Synthetic backend-only image'}:{prompt:'Synthetic instrumental track',instrumental:true};
+  const input=fixture.input || (kind==='video'?{prompt:'Synthetic backend-only fixture',duration:5,quality:'720p',generate_audio:true}:kind==='image'?{prompt:'Synthetic backend-only image'}:{prompt:'Synthetic instrumental track',instrumental:true});
   if(name.startsWith('asset-naming-')) input.prompt='a  little worm in a pile of leaves';
   if(name.startsWith('asset-naming-') && name.includes('manual')) input.title='My deliberately long manual video name';
+  let sourceUrl=null;
+  if(fixture.input?.model?.startsWith('xai/grok-imagine-video') && fixture.input._operation!=='generate') {
+    const sourceId=(await sha256Hex(`source-${name}`)).slice(0,32), key=`users/${owner}/video/source.mp4`;
+    await nativeEnv.USER_IMAGES.put(key,videoBytes,{httpMetadata:{contentType:'video/mp4'}});
+    await db.prepare("INSERT INTO ai_text_assets(id,user_id,title,file_name,mime_type,size_bytes,r2_key,source_module,created_at) VALUES(?,?,?,'source.mp4','video/mp4',?,?,'video',?)")
+      .bind(sourceId,owner,'Synthetic source',videoBytes.length,key,now).run();
+    input.source_video={source_type:'saved_asset',asset_id:sourceId};
+    duringProvider=async(model,payload)=>{
+      check(model===input.model && payload._operation===input._operation,'Exact provider alias/operation forwarded');
+      sourceUrl=payload.video.url;
+      const response=await fetch(new URL(sourceUrl).pathname);
+      check(response.ok && (await response.arrayBuffer()).byteLength===videoBytes.length,'Accepted source remains accessible to provider after owner deletion');
+      const held=await db.prepare('SELECT r2_key FROM r2_cleanup_live_references WHERE r2_key=?').bind(key).first();
+      check(Boolean(held),'Native managed cleanup retains the accepted source');
+    };
+  }
   const body=JSON.stringify(input);
   const checkName = async (asset, id) => {
     if(!name.startsWith('asset-naming-')) return;
@@ -100,11 +130,26 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   };
   const accepted=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body,signal:abort.signal});
   const acceptance=await accepted.json();
+  if (input.model?.startsWith('xai/grok-imagine-video') && ['edit','extend'].includes(input._operation)) {
+    check(accepted.status===409 && acceptance.code==='video_operation_billing_unverified','Unverified operation fails closed before reservation');
+    check(calls.provider===0 && messages.length===0,'Blocked operation invokes no provider or queue');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).n===0,'No debit for blocked operation');
+    return {name,calls,status:'billing_unverified'};
+  }
   check(accepted.status===202,`Durable acceptance: ${accepted.status} ${acceptance.code||''}`);
   const id=acceptance.data.job.id;
   const duplicateAcceptance=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body});
   check(duplicateAcceptance.status===202 && (await duplicateAcceptance.json()).data.job.id===id,'Same accepted intent has one durable job');
   check(calls.provider===0,'HTTP acceptance must not dispatch provider');
+  if(input.source_video) {
+    const other={...input,source_video:{source_type:'saved_asset',asset_id:'foreign-missing'}};
+    const denied=await fetch('/api/ai/generate-video',{method:'POST',headers:{...headers,'Idempotency-Key':`${name}-foreign`},body:JSON.stringify(other)});
+    check(denied.status===404,'Unowned/missing source denied before provider');
+    const removed=await fetch(`/api/ai/text-assets/${input.source_video.asset_id}`,{method:'DELETE',headers});
+    check(removed.ok,`Owner may remove source while accepted job retains a private reference: ${removed.status} ${await removed.text()}`);
+    const replay=await fetch('/api/ai/generate-video',{method:'POST',headers,body});
+    check(replay.status===202 && (await replay.json()).data.job.id===id,'Lost acceptance replay does not depend on deleted source row');
+  }
   const browserLimiter=env.PUBLIC_RATE_LIMITER;
   let internalLimitCalls=0;
   env.PUBLIC_RATE_LIMITER={idFromName(){internalLimitCalls++;throw new Error('Synthetic HTTP limiter unavailable');}};
@@ -218,7 +263,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     return {name,calls,status:(await row()).status};
   }
   if(name==='insert-response-lost') check(!fail,'Lost insert reply was actually injected');
-  check((await row()).status==='preview_pending',`Video awaits poster: ${(await row()).error_code}`);
+  check((await row()).status==='preview_pending',`Video awaits poster: ${(await row()).error_code} ${calls.fixtureFailure||""}`);
   check((await row()).asset_id===id,'Job must own stable asset identity');
   const asset=await db.prepare('SELECT * FROM ai_text_assets WHERE id=?').bind(id).first();
   check(asset?.user_id===owner && Boolean(await nativeEnv.USER_IMAGES.get(asset.r2_key)),'Owned video persisted');
@@ -291,8 +336,10 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   check(otherList.ok && !(await otherList.json()).data.assets.some(asset=>asset.id===id),'Other account cannot list completed video');
   const credits=await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
   check(credits.n===1 && calls.provider===1,'One successful generation debit, no poster debit');
+  if(input.model?.startsWith('xai/grok-imagine-video')){const debit=await db.prepare('SELECT amount FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();check(debit.amount===-calculateAiVideoCreditCost(input.model,input).credits,'Admin personal payer is charged the central model estimate once');}
   check((await db.prepare('SELECT COUNT(*) AS n FROM ai_text_assets WHERE user_id=?').bind(owner).first()).n===1,'Exactly one owner asset');
   await checkName(await db.prepare('SELECT * FROM ai_text_assets WHERE id=?').bind(id).first(),id);
+  if(sourceUrl)check((await fetch(new URL(sourceUrl).pathname)).status===410,'Completed input capability revoked');
   const completion={name,calls,status:(await row()).status,debits:credits.n,ownerDenied:denied.status};
   if(name==='closed-browser') {
     const removed=await fetch(`/api/ai/text-assets/${id}`,{method:'DELETE',headers});
@@ -308,6 +355,18 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
 export default {async fetch(request,env) {
   if(request.method!=='POST'||request.headers.get('x-q2-control')!==env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
   const {name,...fixture}=await request.json();
-  if(!['asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
+  if(!/^admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})$/.test(name) && !['admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
   return Response.json(await memberGenerationCase(env,name,fixture));
 }};
+
+// Exercise the real signed PUT route inside the native provider fixture.
+export async function verifyGrokOutputUpload(env,payload,videoBytes) {
+  const url=payload.output?.upload_url;check(typeof url==='string','Grok ZDR destination required');
+  const send=(target=url,body=videoBytes)=>worker.fetch(new Request(target,{method:'PUT',headers:{'Content-Type':'video/mp4'},body}),env,{});
+  const invalid=await send(url.slice(0,-1)+(url.endsWith('a')?'b':'a'));
+  check(invalid.status===403,'Forged output capability rejected');
+  const read=await worker.fetch(new Request(url),env,{});check(!read.ok,'Write capability cannot read private output');
+  const written=await send();check(written.status===200,`Private output PUT: ${written.status} ${await written.text()}`);
+  check((await send()).status===200,'Identical upload replay is idempotent');
+  const changed=videoBytes.slice();changed[changed.length-1]^=1;check((await send(url,changed)).status===409,'Output cannot be overwritten');
+}

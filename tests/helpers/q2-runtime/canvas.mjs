@@ -30,9 +30,9 @@ export async function runCanvasTests(f) {
   const enabled = await request('/api/admin/mfa/enable', { code }); assert.equal(enabled.status, 200);
   admin += '; '+enabled.headers.getSetCookie().find(c => c.startsWith('__Host-bitbi_admin_mfa=')).split(';')[0];
   await f.test('private_media_admin_read_no_inference_and_not_ready_switch_denied',async()=>{
-    const state=await ok(await request('/api/admin/private-media/service'));assert.equal(state.backend,'github');assert.equal(state.services.cloudflare.state,'not_configured');
+    const state=await ok(await request('/api/admin/private-media/service'));assert.equal(state.backend,'github');assert.equal(state.thumbnailBackend,'github');assert.equal(state.services.cloudflare.state,'not_configured');
     assert.equal((await request('/api/admin/private-media/service',{backend:'cloudflare',reason:'Not configured'})).status,409);
-    assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM app_settings WHERE key='private_media_service'"),0);
+    assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM app_settings WHERE key='private_media_service'"),1);
   });
   await f.test('canvas_native_budget_switch_and_missing_cap_deny_before_inference', async () => {
     assert.equal((await request(route, {}, 'switch-off')).status, 503);
@@ -107,7 +107,15 @@ export async function runCanvasTests(f) {
     f.metrics.push(await response.json());
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'), []);
   });
-  for (const name of ['success','failure','unknown']) await f.test(`admin_native_pixverse_${name}`, async () => {
+  for(const model of ['xai/grok-imagine-video','xai/grok-imagine-video-1.5-preview']) for(const operation of ['edit','extend']) await f.test(`canvas_native_${model.split('/')[1]}_${operation}_references`,async()=>{
+    const response=await f.control('/canvas-video',{name:'last-frame',model,operation,
+      videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
+      imageBase64:fs.readFileSync(new URL('../../fixtures/media/member-image.png',import.meta.url)).toString('base64'),
+    });
+    assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+  for (const name of ['success','failure','unknown','grok-base','grok-preview']) await f.test(`admin_native_pixverse_${name}`, async () => {
     const response = await f.control('/admin-pixverse', { name,
       videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
       imageBase64: fs.readFileSync(new URL('../../fixtures/media/member-image.png', import.meta.url)).toString('base64'),
@@ -132,7 +140,7 @@ export async function runCanvasTests(f) {
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
   await f.test('private_media_native_immediate_fenced_dispatch_and_backend_assignment',async()=>{
-    const response=await f.control('/private-media',{cookie:admin});assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+    const response=await f.control('/private-media',{cookie:admin,videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),imageBase64:fs.readFileSync(new URL('../../fixtures/media/member-video-poster.webp',import.meta.url)).toString('base64')});assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
   await f.test('canvas_native_grok_reasoning_reservation_saved_output_and_replay', async () => {

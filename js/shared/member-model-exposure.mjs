@@ -1,3 +1,4 @@
+import { GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID, GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_LABEL } from './grok-imagine-video-15-preview-pricing.mjs';
 /* ============================================================
    BITBI — Member model exposure contract
    The single membership source for member generation surfaces.
@@ -67,6 +68,7 @@ const MEMBER_NON_IMAGE_MODEL_EXPOSURE = Object.freeze([
         label: GROK_IMAGINE_VIDEO_MODEL_LABEL,
         vendor: GROK_IMAGINE_VIDEO_VENDOR,
     }),
+    Object.freeze({id:GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID,mediaType:"video",label:GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_LABEL,vendor:"xAI"}),
     Object.freeze({
         id: MINIMAX_MUSIC_2_6_MODEL_ID,
         mediaType: 'music',

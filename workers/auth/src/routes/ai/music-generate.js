@@ -1,6 +1,6 @@
 import { promptAssetTitle } from '../../lib/asset-names.js';
 import { existingGenerationAsset, cacheGenerationDownload } from '../../lib/member-generation-storage.js';
-import { acceptMemberGeneration, generationUser, generationExecution } from "../../lib/member-generation-jobs.js";
+import { acceptMemberGeneration, generationUser, generationExecution, usesPersonalGenerationCredits } from "../../lib/member-generation-jobs.js";
 import { AdminAiValidationError, validateAdminAiMusicBody } from "../../../../../js/shared/admin-ai-contract.mjs";
 import {
   MINIMAX_MUSIC_2_6_BASE_CREDITS,
@@ -749,7 +749,7 @@ export async function handleGenerateMusic(ctx) {
         modelId: MINIMAX_MUSIC_2_6_MODEL_ID,
       },
       route: ROUTE_PATH,
-      allowAdminMemberCredits: ctx.canvasMemberContext === true,
+      allowAdminMemberCredits: usesPersonalGenerationCredits(ctx, session.user),
     });
   } catch (error) {
     const policyError = aiUsagePolicyErrorResponse(error);

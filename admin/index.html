@@ -805,11 +805,13 @@
                     <button type="button" id="operationsRefresh" class="btn-action">Refresh</button>
                 </div>
                 <section class="admin-control-subsection" id="privateMediaServicePanel" aria-labelledby="privateMediaServiceTitle">
-                    <h3 class="admin-section-title" id="privateMediaServiceTitle">Private media processing</h3>
-                    <p class="admin-shell__desc" id="privateMediaServiceScope">Video thumbnails and complete Canvas exports. Existing jobs keep their assigned service; public Hero and Stream processing are unchanged.</p>
+                    <h3 class="admin-section-title" id="privateMediaServiceTitle">Media processing</h3>
+                    <p class="admin-shell__desc" id="privateMediaServiceScope">Choose thumbnail/preview processing independently from full-video assembly. Accepted jobs keep their assigned service.</p>
                     <form id="privateMediaServiceForm" class="admin-control-filter">
-                        <label for="privateMediaServiceSelect" class="admin-ai__field"><span class="admin-ai__label">Service</span>
+                        <label for="privateMediaServiceSelect" class="admin-ai__field"><span class="admin-ai__label">Full-video assembly</span>
                         <select id="privateMediaServiceSelect" class="admin-ai__input" disabled><option value="github">GitHub Actions</option><option value="cloudflare" disabled>Cloudflare Container</option></select></label>
+                        <label for="thumbnailMediaServiceSelect" class="admin-ai__field"><span class="admin-ai__label">Thumbnails and previews</span>
+                        <select id="thumbnailMediaServiceSelect" class="admin-ai__input" disabled><option value="cloudflare">Cloudflare Container</option><option value="github">GitHub Actions</option></select></label>
                         <label for="privateMediaServiceReason" class="admin-ai__field"><span class="admin-ai__label">Reason</span>
                         <input id="privateMediaServiceReason" class="admin-ai__input" type="text" maxlength="180" required autocomplete="off"></label>
                         <button type="submit" id="privateMediaServiceSave" class="btn-action" disabled>Save service</button>

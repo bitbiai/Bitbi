@@ -18,7 +18,7 @@ export async function handleQuota(ctx) {
   const session = await requireUser(request, env);
   if (session instanceof Response) return session;
 
-  if (session.user.role === "admin") {
+  if (session.user.role === "admin" && new URL(request.url).searchParams.get("workspace") !== "generate-lab") {
     return json({ ok: true, data: { isAdmin: true } });
   }
 
@@ -38,7 +38,8 @@ export async function handleQuota(ctx) {
   return json({
     ok: true,
     data: {
-      isAdmin: false,
+      isAdmin: session.user.role === "admin",
+      billingScope: "personal_credits",
       creditBalance,
       dailyCreditAllowance: MEMBER_DAILY_CREDIT_ALLOWANCE,
       dailyTopUp: {

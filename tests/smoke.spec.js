@@ -189,10 +189,10 @@ test('@canvas-model-ui member model exposure is the sole Models overlay membersh
 
   expect(generateLabIds).toEqual(exposedIds);
   expect(exposedIds).toContain('xai/grok-imagine-video');
+  expect(exposedIds).toContain('xai/grok-imagine-video-1.5-preview');
   expect(exposedIds).toContain('xai/grok-imagine-image-2.0');
   for (const unavailableId of [
     'bytedance/seedance-2.0',
-    'xai/grok-imagine-video-1.5-preview',
     'elevenlabs/music-v2',
     'xai/grok-imagine-image',
   ]) {
@@ -4586,7 +4586,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labModelList').getByText('PixVerse V6')).toBeVisible();
     await expect(page.locator('#labModelList').getByText('HappyHorse 1.0 T2V')).toBeVisible();
     await expect(page.locator('#labModelList').getByText('Seedance 2.0 Fast')).toBeVisible();
-    await expect(page.locator('#labModelList').getByText('Grok Imagine Video')).toBeVisible();
+    await expect(page.locator('#labModelList').getByText('Grok Imagine Video', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Describe your video')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('185 credits');
     await expect(page.getByText('Vidu Q3 Pro')).toHaveCount(0);
@@ -4638,8 +4638,8 @@ test.describe('Homepage', () => {
     await page.selectOption('#labVideoDuration', '12');
     await expect(page.locator('#labCost')).toHaveText('604 credits');
 
-    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'Grok Imagine Video' }).click();
-    await expect(page.locator('#labCost')).toHaveText('164 credits');
+    await page.locator('#labModelList .generate-lab__model-card').filter({ has: page.getByText('Grok Imagine Video', { exact: true }) }).click();
+    await expect(page.locator('#labCost')).toHaveText('172 credits');
     await expect(page.locator('#labVideoNegativeField')).toBeHidden();
     await expect(page.locator('#labVideoReferenceField')).toBeHidden();
     await expect(page.locator('#labVideoAudioField')).toBeHidden();
@@ -4652,7 +4652,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labVideoQuality option')).toHaveText(['480p', '720p']);
     await expect(page.locator('#labVideoAspect option')).toHaveText(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3']);
     await page.selectOption('#labVideoDuration', '10');
-    await expect(page.locator('#labCost')).toHaveText('328 credits');
+    await expect(page.locator('#labCost')).toHaveText('344 credits');
 
     await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'PixVerse V6' }).click();
     await expect(page.locator('#labCost')).toHaveText('185 credits');
@@ -5021,12 +5021,13 @@ test.describe('Homepage', () => {
     expect(imagePayloads[0]).not.toHaveProperty('guidance');
 
     await page.getByRole('tab', { name: 'Video' }).click();
-    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'Grok Imagine Video' }).click();
+    await page.locator('#labModelList .generate-lab__model-card').filter({ has: page.getByText('Grok Imagine Video', { exact: true }) }).click();
     await page.locator('#labPrompt').fill('Grok Imagine payload check');
     await page.locator('#labGenerate').click();
     await expect.poll(() => videoPayloads.length).toBe(1);
     expect(videoPayloads[0]).toEqual({
       model: 'xai/grok-imagine-video',
+      _operation: 'generate',
       prompt: 'Grok Imagine payload check',
       duration: 5,
       resolution: '720p',
@@ -6417,7 +6418,7 @@ test.describe('Homepage', () => {
     expect(ghostState.gallery.names).not.toContain('Music 2.6');
     expect(ghostState.video.hidden).toBe(false);
     expect(ghostState.video.source).toBe('category-config');
-    expect(ghostState.video.names).toEqual(['PixVerse V6', 'HappyHorse 1.0 T2V', 'Seedance 2.0 Fast', 'Grok Imagine Video']);
+    expect(ghostState.video.names).toEqual(['PixVerse V6', 'HappyHorse 1.0 T2V', 'Seedance 2.0 Fast', 'Grok Imagine Video', 'Grok Imagine Video 1.5 Preview']);
     expect(ghostState.video.names).not.toContain('FLUX.1 Schnell');
     expect(ghostState.video.names).not.toContain('GPT Image 2');
     expect(ghostState.video.names).not.toContain('Music 2.6');
@@ -10537,4 +10538,83 @@ for(const locale of ['en','de']) test(`@canvas-model-ui Grok Imagine Image 2.0 G
   await page.locator('#labImageQuality').selectOption('medium');await page.locator('#labImageSize').selectOption('2k');
   await expect(page.locator('#labCost')).not.toHaveText(before);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
+for(const locale of ['en','de']) test(`@canvas-model-ui Generate Lab Admin ${locale} actual payer balance and refreshed generation`,async({page})=>{
+  await page.setViewportSize({width:1440,height:900});let balance=900,quotaReads=0;const requests=[];
+  await page.route('**/api/**',async route=>{
+    const request=route.request(),url=new URL(request.url());
+    if(url.pathname==='/api/ai/quota'){
+      expect(url.searchParams.get('workspace')).toBe('generate-lab');quotaReads++;
+      return route.fulfill({json:{ok:true,data:{isAdmin:true,billingScope:'personal_credits',creditBalance:balance}}});
+    }
+    if(url.pathname==='/api/ai/generate-image'){
+      expect(request.headers()['x-bitbi-workspace']).toBe('generate-lab');requests.push(request.postDataJSON());balance=893;
+      return route.fulfill({json:{ok:true,data:{imageBase64:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uUAAAAASUVORK5CYII=',mimeType:'image/png',asset:{id:'admin-lab-synthetic'}},billing:{balance_after:899}}});
+    }
+    return route.fulfill({json:{ok:true,loggedIn:true,user:{id:'admin-lab-fixture',role:'admin',email:'fixture@example.invalid'},data:{folders:[],assets:[],has_more:false}}});
+  });
+  await page.goto(locale==='de'?'/de/generate-lab/':'/generate-lab/');
+  await expect(page.locator('#labBalance')).toContainText('900');
+  await page.locator('#labPrompt').fill('Synthetic Admin fixture');await page.locator('#labGenerate').click();
+  await expect(page.locator('#labBalance')).toContainText('893');expect(quotaReads).toBe(2);expect(requests).toHaveLength(1);
+  expect(requests[0].prompt).toBe('Synthetic Admin fixture');await expect(page.locator('#labGenerate')).toBeEnabled();
+});
+
+for (const locale of ['en', 'de']) test(`@canvas-model-ui Generate Lab Grok video ${locale} operations use owned inputs and responsive pricing`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockGenerateLabMemberSession(page, { credits: 3000 });
+  await mockGenerateLabSavedImageAssets(page, [...buildGenerateLabImageAssets(2), {
+    id: 'video-source', asset_type: 'video', source_module: 'video', title: 'Saved original',
+    file_url: '/api/ai/text-assets/video-source/file', poster_url: '/api/ai/text-assets/video-source/poster',
+    mime_type: 'video/mp4', size_bytes: TEST_MP4_BYTES.length, visibility: 'private',
+  }]);
+  await page.route('**/api/ai/quota?workspace=generate-lab', route => route.fulfill({ json: { data: { creditBalance: 3000 } } }));
+  await page.route('**/api/ai/text-assets/**', route => route.fulfill({ contentType: route.request().url().endsWith('/poster') ? 'image/png' : 'video/mp4', body: route.request().url().endsWith('/poster') ? TEST_PNG_BYTES : TEST_MP4_BYTES }));
+  const requests = [], errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('**/api/ai/generate-video', route => {
+    requests.push(route.request().postDataJSON());
+    return route.fulfill({ json: { ok: true, data: { videoUrl: '/api/ai/text-assets/result/file', asset: { id: 'result', source_module: 'video' } } } });
+  });
+  await page.goto(locale === 'de' ? '/de/generate-lab/' : '/generate-lab/');
+  await page.getByRole('tab', { name: 'Video', exact: true }).click();
+  for (const model of ['xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview']) {
+    await page.locator(`[data-model-id="${model}"]`).click();
+    await page.locator('#labPrompt').fill('Synthetic video request');
+    await expect(page.locator('#labVideoOperation option')).toHaveCount(3);
+    await page.locator('#labVideoDuration').selectOption('2');
+    await page.locator('#labVideoSize').selectOption('848x480');
+    await page.locator('#labVideoQuality').selectOption('480p');
+    const before = await page.locator('#labCost').textContent();
+    await page.locator('#labVideoDuration').selectOption('3');
+    await expect(page.locator('#labCost')).not.toHaveText(before);
+    await expect(page.locator('#labVideoOperation option[value=edit]')).toHaveJSProperty('disabled', true);
+    await expect(page.locator('#labVideoOperation option[value=extend]')).toHaveJSProperty('disabled', true);
+    await page.locator('#labVideoOperation').focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('#labVideoOperation')).toHaveValue('generate');
+    for (const operation of ['generate']) {
+      await page.locator('#labVideoOperation').selectOption(operation);
+      await page.locator('#labVideoSources').click();
+      await page.locator(`#labAssetsGrid [data-asset-id="${operation === 'generate' ? 'asset-ref-1' : 'video-source'}"]`).click();
+      await page.locator('#labAssetsPickerApply').click();
+      if (operation !== 'generate') {
+        await page.locator('#labVideoReferenceImages').click();
+        await page.locator('#labAssetsGrid [data-asset-id="asset-ref-2"]').click();
+        await page.locator('#labAssetsPickerApply').click();
+      }
+      const count = requests.length;
+      await page.locator('#labGenerate').click();
+      await expect.poll(() => requests.length).toBe(count + 1);
+      expect(requests[count]).toMatchObject({ model, _operation: operation, size: '848x480', duration: 3, resolution: '480p', prompt: 'Synthetic video request' });
+      expect(requests[count][operation === 'generate' ? 'source_image' : 'source_video']).toEqual({ source_type: 'saved_asset', asset_id: operation === 'generate' ? 'asset-ref-1' : 'video-source' });
+      if (operation !== 'generate') expect(requests[count].source_images).toEqual([{ source_type: 'saved_asset', asset_id: 'asset-ref-2' }]);
+      for (const field of ['video', 'image', 'reference_images', 'output', 'user']) expect(requests[count]).not.toHaveProperty(field);
+      await expect(page.locator('#labGenerate')).toBeEnabled();
+    }
+  }
+  expect(errors).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath(`grok-video-${locale}.png`), fullPage: true });
 });

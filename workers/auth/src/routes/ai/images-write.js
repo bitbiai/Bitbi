@@ -1,7 +1,7 @@
 import { GROK_IMAGE_2, normalizeGrokImage2 } from '../../../../../js/shared/grok-imagine-image-2-pricing.mjs';
 import { promptAssetTitle } from '../../lib/asset-names.js';
 import { existingGenerationAsset, generationStorageReservation } from "../../lib/member-generation-storage.js";
-import { acceptMemberGeneration, generationUser, generationExecution } from "../../lib/member-generation-jobs.js";
+import { acceptMemberGeneration, generationUser, generationExecution, usesPersonalGenerationCredits } from "../../lib/member-generation-jobs.js";
 import { putNewManagedR2Object } from "../../lib/r2-cleanup.js";
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
@@ -900,7 +900,7 @@ export async function handleGenerateImage(ctx) {
         modelId: modelConfig.id,
       },
       route: "/api/ai/generate-image",
-      allowAdminMemberCredits: ctx.canvasMemberContext === true,
+      allowAdminMemberCredits: usesPersonalGenerationCredits(ctx, session.user),
     });
   } catch (error) {
     const policyError = aiUsagePolicyErrorResponse(error);

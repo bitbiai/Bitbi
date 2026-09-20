@@ -446,7 +446,7 @@ for (const locale of ['en', 'de']) test(`${locale}: admin Canvas uses registry o
   await page.screenshot({ path: testInfo.outputPath(`admin-canvas-${locale}.png`) });
 });
 
-test('Canvas video continuation methods: only last frame, role and changed source identity', async () => {
+test('Canvas video continuation methods follow connected adapters, role and changed source identity', async () => {
   const {resolveCanvasVideoInput}=await import('../js/shared/canvas-video-input.mjs');
   const source={kind:'video_asset',assetId:'owned-video',runId:'run-1'};
   const model={id:'pixverse/v6',capability:'video',runnable:true,controls:{supportsImageInput:true}};
@@ -457,6 +457,13 @@ test('Canvas video continuation methods: only last frame, role and changed sourc
   expect(resolveCanvasVideoInput({...model,runnable:false},source).methods).toEqual([]);
   expect(resolveCanvasVideoInput({...model,id:'image-capable-adapter'},source)).toMatchObject({methods:['last_frame'],method:'last_frame'});
   expect(resolveCanvasVideoInput({...model,id:'text-only',controls:{}},source).methods).toEqual([]);
+  const {listCanvasModelsForRole}=await import('../js/shared/canvas-model-contract.mjs');
+  for(const grok of listCanvasModelsForRole('user').filter(m=>m.id.startsWith('xai/grok-imagine-video'))){
+    expect(resolveCanvasVideoInput(grok,source)).toMatchObject({methods:['last_frame','edit','extend'],method:null});
+    const configured={videoInput:{modelId:grok.id,assetId:source.assetId,runId:source.runId,method:'extend',sourceVersion:'original-version'}};
+    expect(resolveCanvasVideoInput(grok,source,configured)).toMatchObject({method:'extend',sourceVersion:'original-version',frame:null});
+    expect(resolveCanvasVideoInput(grok,{...source,runId:'new-result'},configured)).toMatchObject({method:null,sourceVersion:null});
+  }
 });
 
 test('Canvas video continuation decodes the actual short last frame; rejects errors, timeout and foreign URL', async ({page},testInfo) => {
@@ -712,6 +719,37 @@ for (const locale of ['en', 'de']) for (const mobile of [false, true]) for(const
 
 test.describe('Canvas private media controls',()=>{
   test.use({hasTouch:true});
+  for(const locale of ['en','de']) test(`${locale}: Grok size persists and unverified video methods remain unavailable`,async({page},testInfo)=>{
+    const {listCanvasModelsForRole}=await import('../js/shared/canvas-model-contract.mjs');
+    const mobile=locale==='de',model=mobile?'xai/grok-imagine-video-1.5-preview':'xai/grok-imagine-video';
+    await page.setViewportSize(mobile?{width:390,height:844}:{width:1440,height:900});await mockSharedAuth(page);
+    const state=createCanvasApiMock(page,{modelPayload:{models:listCanvasModelsForRole('user'),organizations:[],access:{role:'user'}}});
+    const project='1'.repeat(32),src='a'.repeat(32),dest='b'.repeat(32),edge='c'.repeat(32);
+    state.projects.push({id:project,title:'Native video inputs',locale});
+    state.nodes.push({id:src,project_id:project,type:'video_generation',title:'Original',x:20,y:20,model_id:'pixverse/v6',config:{},content:{},output:{kind:'video',runId:'source-run',asset:{id:'source',asset_type:'video',file_url:'/api/ai/text-assets/source/file'}}},
+      {id:dest,project_id:project,type:'video_generation',title:'Edit or extend',x:290,y:20,model_id:model,config:{prompt:'Continue motion',duration:3,resolution:'480p'},content:{}});
+    state.edges.push({id:edge,project_id:project,source_node_id:src,target_node_id:dest,config:{videoInput:{modelId:model,assetId:'source',runId:'source-run',method:'edit'}}});
+    const changes=[];
+    await page.route(`**/api/account/canvas/projects/${project}/edges/${edge}`,route=>{
+      const body=route.request().postDataJSON();expect(body).not.toHaveProperty('frame_image');changes.push(body);
+      state.edges[0].config={...body.config,videoInput:{...body.config.videoInput,sourceVersion:'verified-original'}};
+      return route.fulfill({json:{ok:true,data:{edge:state.edges[0]}}});
+    });
+    await page.route('**/api/ai/text-assets/source/file',route=>route.fulfill({contentType:'video/mp4',body:fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'))}));
+    const select=async()=>{await page.locator(`[data-node-id="${dest}"]`).first().press('Enter');if(mobile)await page.locator('#canvasInspectorToggle').tap();};
+    await page.goto(mobile?'/de/canvas/':'/canvas/');await select();
+    const inspector=page.locator('#canvasInspectorBody'),method=inspector.getByRole('combobox',{name:mobile?'Video weiterverwenden':'Reuse video'});
+    await expect(method).toHaveValue('');expect(changes).toHaveLength(0);
+    await expect(method.locator('option[value=edit]')).toHaveCount(0);
+    await expect(method.locator('option[value=extend]')).toHaveCount(0);
+    await inspector.getByRole('combobox',{name:mobile?'Größe':'Size',exact:true}).selectOption('848x480');
+    await expect.poll(()=>state.nodes[1].config.size).toBe('848x480');
+    await page.reload();await select();await expect(method).toHaveValue('');
+    await expect(inspector.getByRole('combobox',{name:mobile?'Größe':'Size',exact:true})).toHaveValue('848x480');
+    expect(state.edges[0].config.videoInput.method).toBe('edit');expect(changes).toHaveLength(0);expect(state.requests.filter(r=>r.pathname.endsWith('/run'))).toHaveLength(0);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await method.scrollIntoViewIfNeeded();await page.screenshot({path:testInfo.outputPath(`grok-canvas-${locale}.png`)});
+  });
   for(const locale of ['en','de']) test(`${locale}: additional prompt, image controls, video resolution and explicit saves survive reload`,async({page},testInfo)=>{
     const {listCanvasModelsForRole}=await import('../js/shared/canvas-model-contract.mjs');
     const {calculateAiImageCreditCost}=await import('../js/shared/ai-model-pricing.mjs');

@@ -354,6 +354,10 @@ async function applyConnectedMediaInputs(env, userId, model, resolution, body) {
   await applyCanvasVideoInput(env, userId, resolution, body, loadOwnedImageDataUri);
   const imageAssetIds = [...new Set(resolution.imageReferences.map((input) => input.assetId).filter(Boolean))];
   if (!imageAssetIds.length) return body;
+  if (model.capability === 'video' && model.id.startsWith('xai/grok-imagine-video')) {
+    if (imageAssetIds.length > model.controls.maxReferenceImages) throw Object.assign(new Error('Too many image references.'),{status:400,code:'too_many_references'});
+    body.source_images = imageAssetIds.map(asset_id=>({source_type:'saved_asset',asset_id})); return body;
+  }
   if (model.capability === "video" && model.controls?.supportsImageInput) {
     const image = await loadOwnedImageDataUri(env, userId, imageAssetIds[0]);
     if (image) body.image_input = image;
@@ -769,7 +773,6 @@ async function resolveCanvasNodeInputs(env, userId, projectId, node, model) {
       ? (compatibility.compatible ? "unresolved" : "incompatible")
       : (compatibility.compatible ? "compatible" : "incompatible");
     const videoInput = kindForCompatibility === CANVAS_DATA_KINDS.VIDEO_ASSET ? resolveCanvasVideoInput(model, value, safeJsonParse(row.edge_config_json, {})) : null;
-    if (videoInput && safeJsonParse(row.edge_config_json, {}).videoInput?.method === "extend") throw Object.assign(new Error("Canvas supports last-frame input only. Prepare the source frame again."), { status: 409, code: "video_method_invalid" });
     sources.push({ ...value, videoInput, inputKind: compatibility.inputKind, status, reason: status === "unresolved" ? "Run the upstream node first." : compatibility.reason });
   }
   const compatible = sources.filter((source) => source.status === "compatible");
@@ -840,6 +843,7 @@ function buildGenerationBody(node, model, resolution) {
     }
   } else if (model.capability === "video") {
     body.duration = config.duration || model.controls?.duration?.default || 5;
+    if (model.id.startsWith('xai/grok-imagine-video') && config.size) body.size=config.size;
     if (model.controls?.resolutionField === "quality") body.quality = config.quality || model.controls.defaultQuality || "720p";
     else body.resolution = config.resolution || model.controls.defaultResolution || "720p";
     if (model.id === "alibaba/hh1-t2v") body.ratio = config.aspectRatio || model.controls.defaultAspectRatio || "16:9";
@@ -1015,7 +1019,7 @@ async function runNode(ctx, session, projectId, nodeId) {
     connected_node_ids: resolution.sources.map((input) => input.sourceNodeId),
     connected_asset_ids: resolution.sources.map((input) => input.assetId).filter(Boolean),
     connected_input_kinds: resolution.sources.map((input) => input.inputKind),
-    ...(resolution.videoReferences.length ? { connected_video_inputs: resolution.videoReferences.map(source => ({ edgeId: source.edgeId, ...source.videoInput.context, method: source.videoInput.method, frame: source.videoInput.frame })) } : {}),
+    ...(resolution.videoReferences.length ? { connected_video_inputs: resolution.videoReferences.map(source => ({ edgeId: source.edgeId, ...source.videoInput.context, method: source.videoInput.method, sourceVersion:source.videoInput.sourceVersion, frame: source.videoInput.frame })) } : {}),
   };
   const inputJson = stableJson(requestInput);
   if (new TextEncoder().encode(inputJson).byteLength > MAX_NODE_JSON_BYTES) {

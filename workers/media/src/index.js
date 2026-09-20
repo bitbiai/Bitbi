@@ -3,12 +3,13 @@ export class PrivateMediaContainer extends Container {
   defaultPort=8080;
   entrypoint=['node','container-server.mjs'];
   sleepAfter='30s';
-  envVars={AUTH_WORKER_BASE_URL:'https://bitbi.ai',MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:this.env.PRIVATE_MEDIA_PROCESSOR_SECRET,SOURCE_SHA:this.env.SOURCE_SHA};
+  envVars={AUTH_WORKER_BASE_URL:'https://bitbi.ai',MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:this.env.PRIVATE_MEDIA_PROCESSOR_SECRET,SOURCE_SHA:this.env.SOURCE_SHA,
+    CLOUDFLARE_ACCOUNT_ID:this.env.CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_STREAM_API_TOKEN:this.env.CLOUDFLARE_STREAM_API_TOKEN};
   async fetch(request) {
     const pathname=new URL(request.url).pathname;
     if(pathname==='/status') {
       const proof=await this.ctx.storage.get('functional-proof');
-      return Response.json({protocol:1,version:this.env.SOURCE_SHA,functional_verified:proof?.sha===this.env.SOURCE_SHA});
+      return Response.json({protocol:1,version:this.env.SOURCE_SHA,functional_verified:proof?.sha===this.env.SOURCE_SHA,preview_configured:Boolean(this.env.CLOUDFLARE_ACCOUNT_ID&&this.env.CLOUDFLARE_STREAM_API_TOKEN)});
     }
     if(pathname==='/verified'&&request.method==='POST'){
       const proof=await request.json();

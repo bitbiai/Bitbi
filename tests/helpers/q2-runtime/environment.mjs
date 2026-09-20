@@ -81,7 +81,7 @@ export function prepareBuild(artifactParent = os.tmpdir()) {
   const migrations = readMigrations(repoRoot);
   const latest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'config/release-compat.json'), 'utf8')).release.schemaCheckpoints.auth.latest;
   assert.equal(migrations.at(-1).path, latest, 'Native build and declared release schema must match');
-  assert.deepEqual(migrations.filter(row => Number(row.path.slice(0, 4)) > 83).map(row => row.path.slice(0, 4)), ['0084', '0085', '0086', '0087', '0088', '0089', '0090'], 'Native matrix includes the additive member-generation and Canvas processing migrations');
+  assert.deepEqual(migrations.filter(row => Number(row.path.slice(0, 4)) > 83).map(row => row.path.slice(0, 4)), ['0084', '0085', '0086', '0087', '0088', '0089', '0090', '0091', '0092'], 'Native matrix includes the additive member-generation and Canvas processing migrations');
   const provenance = { versions, compatibilityDate: config.compatibility_date, bundleSha256: sha256(bundle), sourceLedger,
     workerdBinarySha256: sha256(fs.readFileSync(workerd.default)), migrations: migrations.map(({ path: name, sha256: hash }) => ({ path: name, sha256: hash })) };
   fs.writeFileSync(path.join(workDir, 'build-provenance.json'), JSON.stringify(provenance, null, 2), { flag: 'wx' });

@@ -189,7 +189,7 @@ async function claimSourcePosterJobs() {
   return Array.isArray(body?.data?.jobs) ? body.data.jobs : [];
 }
 
-async function claimMemvidPreviewJobs() {
+async function claimMemvidPreviewJobs(repairDownloads=REPAIR_MEMVID_STREAM_DOWNLOADS) {
   // An old Auth deployment must be detected before its legacy claim mutates
   // jobs. Conversely the new Auth rejects legacy processors before claiming.
   const protocol = await requestJson('/api/internal/memvid-stream-previews/jobs/claim');
@@ -197,14 +197,16 @@ async function claimMemvidPreviewJobs() {
   const body = await requestJson("/api/internal/memvid-stream-previews/jobs/claim", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ limit: JOB_LIMIT, repair_downloads: REPAIR_MEMVID_STREAM_DOWNLOADS, receipt_protocol: 2 }),
+    body: JSON.stringify({ limit: JOB_LIMIT, repair_downloads: repairDownloads, receipt_protocol: 2 }),
   });
   if (body?.data?.scan?.incomplete) console.log(JSON.stringify({ phase: "repair_scan", status: "partial", checked: body.data.scan.checked, next_action: "continue_bounded_scan" }));
   return Array.isArray(body?.data?.jobs) ? body.data.jobs : [];
 }
 
 export function generationClaimHeaders(job) {
-  return job.generation_claim ? {'X-BITBI-Generation-Claim':job.generation_claim} : {};
+  return {...(job.generation_claim ? {'X-BITBI-Generation-Claim':job.generation_claim} : {}),
+    ...(job.public_poster_claim ? {'X-BITBI-Poster-Claim':job.public_poster_claim} : {}),
+    ...(job.preview_claim ? {'X-BITBI-Preview-Claim':job.preview_claim} : {})};
 }
 
 async function downloadSource(job, sourcePath) {
@@ -785,7 +787,7 @@ async function completeJob(job, result) {
 
   const res = await fetch(`${BASE_URL}${job.completion.url}`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: authHeaders(generationClaimHeaders(job)),
     body: form,
   });
   const body = await res.json().catch(() => null);
@@ -796,7 +798,7 @@ async function completeJob(job, result) {
 async function failJob(job, error) {
   await requestJson(job.completion.failure_url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...generationClaimHeaders(job) },
     body: JSON.stringify({
       error_code: sanitizeProcessorErrorCode(error?.code, "external_ffmpeg_failed"),
       error_message: String(error?.message || error || "ffmpeg failed").slice(0, 240),
@@ -953,10 +955,18 @@ async function processMemvidPreviewJob(job) {
 async function main() {
   assertConfig();
   await logPosterEncoderCapabilities();
-  if (process.env.MEMBER_GENERATION_POSTERS_ONLY==='1' && process.env.PRIVATE_MEDIA_DISPATCH) {
+  if (process.env.PRIVATE_MEDIA_DISPATCH) {
     return runPrivateMedia({requestJson,token:process.env.PRIVATE_MEDIA_DISPATCH,runner:process.env.PRIVATE_MEDIA_RUNNER,
       processExports:()=>processCanvasExports({requestJson,authHeaders,baseUrl:BASE_URL,limit:1,ffmpeg:FFMPEG_BIN,ffprobe:FFPROBE_BIN}),
-      processPosters:async()=>{const jobs=await claimSourcePosterJobs();for(const job of jobs)await processSourcePosterJob(job);return jobs.length;}});
+      processPosters:async()=>{const jobs=await claimSourcePosterJobs();for(const job of jobs)await processSourcePosterJob(job);return jobs.length;},
+      processPreviews:async({hero=false,stream=false}={})=>{
+        if(hero){
+        const posters=await requestJson('/api/internal/homepage/hero-videos/source-posters/jobs/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({limit:1,member_only:false})});
+        for(const job of posters.data.jobs)await processSourcePosterJob(job);
+        for(const job of await claimJobs())await processJob(job);
+        }
+        if(stream)for(const job of await claimMemvidPreviewJobs(true))await processMemvidPreviewJob(job);
+      }});
   }
   if (PROCESS_HOMEPAGE_HERO) {
     const jobs = await claimJobs();

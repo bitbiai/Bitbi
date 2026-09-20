@@ -255,13 +255,15 @@ jobs:
           Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
         run: |
           if [ "${{ needs.release-compatibility.outputs.canvas_text }}" = 'true' ]; then
+            npm run check:ai-cost-policy && npm run test:ai-cost-policy && npm run test:ai-cost-operations &&
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
-            npx playwright test -c playwright.workers.config.js tests/workers.spec.js --grep 'Canvas|member text|text generation|text schema|AI Lab text|Grok Imagine Image|AI image pricing|AI generate: member|AI generate-music|AI assets|AI folders|readiness/status' --retries=0 &&
+            npx playwright test -c playwright.workers.config.js tests/workers.spec.js --grep 'Canvas|member text|text generation|text schema|AI Lab text|Grok Imagine Image|Grok Imagine Video|invoke-video payload builder serializes Grok|AI image pricing|AI generate: member|AI generate-music|AI assets|AI folders|readiness/status|homepage hero|homepage Hero|Memvid Stream|Memvid queues' --retries=0 &&
             npx playwright test -c playwright.workers.config.js tests/grok-chat-workers.spec.js --retries=0 &&
             npx playwright test -c playwright.workers.config.js tests/fable-chat-workers.spec.js --grep 'registry|model|reasoning|budget|idempot|replay' --retries=0 &&
             npx playwright test -c playwright.workers.config.js tests/q2-lifecycle.spec.js --retries=0 &&
             node scripts/test-q2-runtime.mjs --suite canvas &&
-            Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/member-generation" node scripts/test-q2-runtime.mjs --suite member-generation
+            Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/member-generation" node scripts/test-q2-runtime.mjs --suite member-generation &&
+            Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/q4-stream" node scripts/test-q2-runtime.mjs --suite q4-stream
           elif [ "${{ needs.release-compatibility.outputs.model_status }}" = 'true' ]; then
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
             npx playwright test -c playwright.workers.config.js tests/admin-model-status.spec.js --retries=0 &&
@@ -273,16 +275,16 @@ jobs:
           else
             npm run test:workers
           fi
-      - name: Run private media lifecycle tests
-        if: needs.release-compatibility.outputs.media_lifecycle == 'true'
-        run: |
-          npm --prefix workers/media ci
-          node scripts/test-private-media-lifecycle.mjs
       - name: Build and test private media Linux image
         id: media_image
         env:
           CANDIDATE_BASE: ${{ needs.release-compatibility.outputs.candidate_base }}
         run: node scripts/private-media-image.mjs --if-needed
+      - name: Run private media lifecycle tests
+        if: needs.release-compatibility.outputs.media_lifecycle == 'true' || steps.media_image.outputs.required == 'true'
+        run: |
+          npm --prefix workers/media ci
+          node scripts/test-private-media-lifecycle.mjs
       - name: Preserve tested private media image
         if: steps.media_image.outputs.required == 'true'
         uses: actions/upload-artifact@v6
@@ -700,6 +702,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_BACKEND_DEPLOY_TOKEN }}
           MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: ${{ secrets.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET }}
+          CLOUDFLARE_STREAM_API_TOKEN: ${{ secrets.CLOUDFLARE_STREAM_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_FRONTEND_ACCOUNT_ID }}
         run: |
           set -euo pipefail

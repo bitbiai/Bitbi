@@ -5,7 +5,8 @@ export const videoInputCopy = de => de ? {
     statuses: { queued: 'Angenommen', running: 'In Verarbeitung', processing: 'Generierung', ingesting: 'Speicherung', outcome_unknown: 'Prüfung erforderlich', failed: 'Fehlgeschlagen', completed: 'Gespeichert', succeeded: 'Gespeichert', preview_pending: 'Vorschau ausstehend' },
     queued: 'Video angenommen – wartet auf Verarbeitung.', processing: 'Video wird erzeugt.', ingesting: 'Video wird gespeichert und zugeordnet.', succeeded: 'Video gespeichert.', jobFailed: 'Videoverarbeitung fehlgeschlagen. Keine automatische Neugenerierung; Betreiberprüfung erforderlich.',
     observation: 'Statusabruf beendet. Der angenommene Auftrag bleibt erhalten; Projekt erneut öffnen, um den Status abzurufen.',
-    method: 'Video weiterverwenden', last_frame: 'Letztes Frame als Startbild',
+    edit:'Original bearbeiten', extend:'Original verlängern', method: 'Video weiterverwenden', last_frame: 'Letztes Frame als Startbild',
+    unavailable: 'Dieser gespeicherte Vorgang ist bis zur Abrechnungsprüfung nicht verfügbar. Wähle bei Bedarf das Schlussbild.',
     required: 'Bereite das Schlussbild des verbundenen Videos vor.', ambiguous: 'Verbinde genau eine Videoquelle ohne konkurrierendes Bild.',
     review: 'Das Anbieterergebnis ist ungeklärt. Keine weitere Generierung starten; Betreiberprüfung erforderlich.',
     preparing: 'Schlussbild wird dekodiert und gespeichert…',
@@ -15,7 +16,8 @@ export const videoInputCopy = de => de ? {
     statuses: { queued: 'Accepted', running: 'Processing', processing: 'Generating', ingesting: 'Saving', outcome_unknown: 'Review required', failed: 'Failed', completed: 'Saved', succeeded: 'Saved', preview_pending: 'Preview pending' },
     queued: 'Video accepted – waiting for processing.', processing: 'Generating video.', ingesting: 'Saving and attaching video.', succeeded: 'Video saved.', jobFailed: 'Video processing failed. No automatic regeneration; operator review is required.',
     observation: 'Status observation ended. The accepted job is retained; reopen this project to check its status.',
-    method: 'Reuse video', last_frame: 'Last frame as start image',
+    edit:'Edit original', extend:'Extend original', method: 'Reuse video', last_frame: 'Last frame as start image',
+    unavailable: 'This saved operation is unavailable pending billing verification. You can choose Last frame instead.',
     required: 'Prepare the connected video’s last frame first.', ambiguous: 'Connect exactly one video source without a competing image.',
     review: 'The provider outcome is unresolved. Do not generate again; operator review is required.',
     preparing: 'Decoding and saving the last frame…',
@@ -26,10 +28,17 @@ export const videoInputCopy = de => de ? {
 export function renderVideoInput({ source, section, projectId, edge, beforePrepare, signal, copy, update, report }) {
     const selected = source.videoInput;
     if (!selected?.methods.length) return;
-    const name = document.createElement('strong'); name.textContent = copy.last_frame; section.append(name);
+    if (selected.methods.length > 1 || selected.invalidMethod) {
+        const label=document.createElement('label'); label.textContent=copy.method;
+        const select=document.createElement('select'); select.className='canvas-select';
+        const empty=document.createElement('option');empty.value='';empty.textContent='—';select.append(empty);
+        for (const method of selected.methods) {const option=document.createElement('option');option.value=method;option.textContent=copy[method];select.append(option);}
+        select.value=selected.method || '';select.addEventListener('change',()=>void prepare(select.value,true),{signal});label.append(select);section.append(label);
+    } else {const name=document.createElement('strong');name.textContent=copy.last_frame;section.append(name);}
     const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'canvas-btn';
     retry.textContent = copy.last_frame; retry.dataset.videoMethod = edge.id; retry.hidden = true; section.append(retry);
     const status = document.createElement('p'); status.setAttribute('role', 'status'); section.append(status);
+    if (selected.invalidMethod) status.textContent = copy.unavailable;
     if (selected.method === 'last_frame') {
         const note = document.createElement('p'); note.textContent = copy.note; section.append(note);
         if (selected.frame?.previewUrl) {
@@ -60,7 +69,7 @@ export function renderVideoInput({ source, section, projectId, edge, beforePrepa
     retry.addEventListener('click', () => void prepare('last_frame', true), { signal });
     // The only permitted method is prepared automatically; reload reuses its
     // saved input. No paid operation is made here.
-    if (selected.method === 'last_frame' && !selected.frame) void prepare('last_frame');
+    if (selected.methods.length === 1 && selected.method === 'last_frame' && !selected.frame) void prepare('last_frame');
 }
 
 // Durable run identity, not a transient HTTP spinner, controls the Run button.

@@ -48,13 +48,13 @@ const RUNNABLE_VIDEO_MODELS = new Set([
   "bytedance/seedance-2.0-fast",
   "bytedance/seedance-2.0",
   "xai/grok-imagine-video",
+  "xai/grok-imagine-video-1.5-preview",
 ]);
 
 const DISABLED_REASONS = Object.freeze({
   "@cf/black-forest-labs/flux-2-dev": "Canvas member pricing is not configured for this model.",
   "xai/grok-imagine-image": "A member-safe image route is not implemented for this model.",
   "vidu/q3-pro": "Verified member credit pricing is not configured for this model.",
-  "xai/grok-imagine-video-1.5-preview": "Canvas cannot run this model yet because its video-input job path does not persist outputs as normal owned Assets Manager assets.",
   "@cf/baai/bge-m3": "Embeddings do not have a meaningful persisted Canvas node in this version.",
   "@cf/google/embeddinggemma-300m": "Embeddings do not have a meaningful persisted Canvas node in this version.",
 });
@@ -214,7 +214,11 @@ function buildVideoModel(model) {
     resolutionOptions: safeOptions(capabilities.resolutionOptions),
     supportsImageInput: capabilities.supportsImageInput === true,
     supportsVideoInput: capabilities.supportsVideoInput === true,
+    nativeVideoInput: ["xai/grok-imagine-video","xai/grok-imagine-video-1.5-preview"].includes(model.id),
     supportedOperations: safeOptions(capabilities.supportedOperations),
+    availableOperations: safeOptions(capabilities.availableOperations || capabilities.supportedOperations),
+    sizeOptions: safeOptions(capabilities.sizeOptions),
+    maxReferenceImages: Number(capabilities.maxReferenceImages || 1),
     supportsNegativePrompt: capabilities.supportsNegativePrompt === true,
     supportsSeed: capabilities.supportsSeed === true,
     supportsAudioToggle: capabilities.supportsAudioToggle === true,

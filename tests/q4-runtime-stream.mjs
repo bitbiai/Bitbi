@@ -20,8 +20,11 @@ export async function runStreamTests(f) {
     const before = await rows('SELECT * FROM memvid_stream_previews');
     for (const m of migrations.filter(m => Number(m.path.slice(0, 4)) > 83))
       await db.batch(m.statements.map(s => db.prepare(s)));
-    assert.deepEqual(await rows('SELECT * FROM memvid_stream_previews'), before);
+    const migrated=await rows('SELECT * FROM memvid_stream_previews');
+    assert.deepEqual(migrated.map(({processing_backend,...row})=>row),before);
+    assert(migrated.every(row=>row.processing_backend==='github'),'Existing accepted work retains its original processor');
     assert.equal(await scalar('SELECT COUNT(*) AS value FROM memvid_stream_upload_receipts'), 0);
+    assert.deepEqual(JSON.parse((await sql("SELECT value_json FROM app_settings WHERE key='private_media_service'").first()).value_json),{backend:'github',thumbnailBackend:'github'},'An installation without a setting cannot activate Cloudflare before readiness verification');
     assert.deepEqual(await rows('PRAGMA foreign_key_check'), []);
   });
   const worker = await mf.getWorker('q2-candidate');

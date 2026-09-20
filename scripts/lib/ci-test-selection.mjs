@@ -90,6 +90,49 @@ const CANVAS_UI_FILES = new Set([
 // Closed Canvas generation/provider/storage integration scope. Unknown runtime/billing inputs
 // continue through ordinary impact selection; chat and native D1 are exercised.
 const CANVAS_TEXT_FILES = new Set([
+  'workers/auth/src/lib/grok-video-output.js',
+  'workers/auth/wrangler.jsonc',
+  'tests/helpers/q2-runtime/control.mjs',
+  'workers/auth/src/index.js',
+  'workers/ai/src/lib/invoke-ai-video.js',
+  'workers/auth/src/lib/ai-video-jobs.js',
+  'workers/auth/migrations/0092_pin_video_source_inputs.sql',
+  'js/pages/generate-lab/grok-video-controls.js',
+  'js/pages/generate-lab/model-help.js',
+  'js/shared/grok-imagine-video-15-preview-pricing.mjs',
+  'js/shared/grok-imagine-video-pricing.mjs',
+  'js/shared/member-model-exposure.mjs',
+  'js/shared/canvas-video-input.mjs',
+  'js/pages/canvas/video-input.js',
+
+  // Generate Lab role accounting and existing thumbnail/preview consumers; native
+  // Canvas/member tests cover the shared D1/R2 leases and deletion boundaries.
+  'admin/index.html',
+  'js/pages/admin/private-media-service.js',
+  'js/shared/auth-api.js',
+  'workers/auth/src/routes/ai/quota.js',
+  'workers/auth/src/routes/ai/music-generate.js',
+  'workers/auth/src/routes/ai/video-generate.js',
+  'workers/auth/src/routes/private-media-service.js',
+  'workers/auth/src/routes/homepage-hero-videos.js',
+  'workers/auth/src/routes/canvas-video-processing.js',
+  'workers/auth/src/lib/media-preview-jobs.js',
+  'workers/auth/src/lib/memvid-stream-preview-dispatch.js',
+  'workers/auth/src/lib/memvid-stream-preview-jobs.js',
+  'workers/auth/src/lib/memvid-stream-upload-receipts.js',
+  'workers/auth/src/lib/member-generation-posters.js',
+  'workers/auth/src/lib/private-media-service.js',
+  'workers/auth/src/lib/private-media-smoke.js',
+  'workers/auth/src/lib/canvas-video-processing.js',
+  'workers/auth/migrations/0091_separate_thumbnail_processing.sql',
+  'workers/media/src/index.js',
+  'workers/media/wrangler.jsonc',
+  'services/homepage-ffmpeg-processor/processor.mjs',
+  'services/homepage-ffmpeg-processor/private-media-runner.mjs',
+  'services/homepage-ffmpeg-processor/private-media-runner.test.mjs',
+  'tests/helpers/private-media-control.mjs',
+  'tests/helpers/member-generation-control.mjs',
+  'tests/member-generation-runtime.mjs',
   'js/pages/canvas/api.js',
   'js/pages/canvas/full-video.js',
   'js/pages/canvas/workflow.js',
@@ -106,6 +149,7 @@ const CANVAS_TEXT_FILES = new Set([
   'workers/auth/src/lib/canvas-media-storage.js',
   'workers/auth/src/lib/canvas-video-input.js',
   'workers/auth/src/lib/canvas-video-output.js',
+  'workers/auth/src/lib/ai-cost-operations.js', 'scripts/test-ai-cost-policy.mjs',
   'workers/auth/src/lib/member-generation-jobs.js',
   'workers/auth/src/lib/member-generation-storage.js',
   'workers/auth/src/lib/r2-cleanup.js',
@@ -120,7 +164,8 @@ const CANVAS_TEXT_FILES = new Set([
   'tests/helpers/auth-worker-harness.js',
   'tests/helpers/canvas-processing-control.mjs', 'tests/helpers/canvas-video-control.mjs',
   'tests/q2-lifecycle.spec.js',
-  'tests/auth-admin.spec.js', 'tests/helpers/grok-image-controls.cjs',
+  'tests/auth-admin.spec.js',
+  'tests/helpers/private-media-ui.js', 'tests/helpers/grok-image-controls.cjs',
   'tests/smoke.spec.js',
   'playwright.config.js',
   'js/pages/canvas/main.js', 'js/shared/canvas-model-contract.mjs', 'js/shared/help-menu.js',
@@ -131,6 +176,12 @@ const CANVAS_TEXT_FILES = new Set([
   'workers/auth/src/routes/admin-ai.js', 'tests/workers.spec.js',
   'tests/grok-chat-workers.spec.js', 'tests/canvas.spec.js', 'tests/oma2-q1-canvas.spec.js',
   'tests/helpers/q2-runtime/canvas.mjs', 'tests/helpers/q2-runtime/environment.mjs', 'scripts/test-q2-runtime-launcher.mjs',
+
+  'tests/q4-runtime-stream.mjs',
+  'tests/helpers/q2-runtime/linux-hosted.mjs',
+  'tests/helpers/q2-runtime/linux-runtime-child.mjs',
+  'tests/helpers/q2-runtime/linux-bootstrap.py',
+  'tests/helpers/q2-runtime/runner.mjs',
 ]);
 
 const AUTH_SHARED_PATTERNS = [
@@ -469,11 +520,12 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
   }
 
   if (!forceFull && (changedFiles.some(f=>['js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js'].includes(f))
-      || ['js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','js/pages/canvas/main.js'].every(f=>changedFiles.includes(f)))
+      || ['js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','js/pages/canvas/main.js'].every(f=>changedFiles.includes(f))
+      || ['js/pages/generate-lab/main.js','workers/auth/src/routes/ai/quota.js','workers/auth/src/lib/member-generation-jobs.js'].every(f=>changedFiles.includes(f)))
       && changedFiles.every(f=>isDocumentation(f)||CANVAS_TEXT_FILES.has(f)||RELEASE_TOOLING_FILES.has(f))) {
     selection.canvasText = true;
     selection.workers = selection.auth = selection.static = selection.runtime = true;
-    selection.reasons.workers.push('Canvas and image provider routes, Grok/chat compatibility, billing and replay; storage lifecycle, native Canvas plus member-generation D1/R2 execution');
+    selection.reasons.workers.push('Canvas/Generate Lab provider and role accounting, Grok/chat compatibility, billing and replay; native D1/R2 storage, thumbnail/backend leases and Stream receipts, plus the tested Linux FFmpeg image');
     selection.reasons.auth.push('Both Canvas suites and tagged Admin/Generate Lab model controls on tested build in Chromium/WebKit; persisted inputs, estimates, output and explicit saving');
     selection.reasons.static.push('Exact candidate, release contracts, native frontend routing and security checks');
     return selection;

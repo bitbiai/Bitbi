@@ -259,10 +259,16 @@ ${inventoryExtra}
 
 {
   const repoRoot = makeRepo();
+  for(const file of ['workers/auth/src/lib/member-generation-jobs.js','workers/ai/src/lib/grok-chat.js']) {
+    fs.writeFileSync(path.join(repoRoot,file),"export async function f(env) { return env.AI.run('synthetic', {}); }\n");
+  }
   const result = analyzeAiCostPolicy(repoRoot);
   const sourceFiles = result.providerSourceFindings.map((finding) => finding.file);
   assert(sourceFiles.includes("workers/auth/src/routes/ai/images-write.js"));
   assert(sourceFiles.includes("workers/ai/src/routes/text.js"));
+  assert(sourceFiles.includes("workers/auth/src/lib/member-generation-jobs.js"));
+  assert(sourceFiles.includes("workers/ai/src/lib/grok-chat.js"));
+  assert.equal(result.ok,true,JSON.stringify(result.fatalIssues));
 }
 
 {

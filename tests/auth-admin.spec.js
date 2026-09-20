@@ -15242,6 +15242,8 @@ test.describe('Admin Control Plane', () => {
     await mockAdminAiLab(page);
   });
 
+  test('@canvas-model-ui thumbnail backend',({page})=>require('./helpers/private-media-ui.js')({page,expect,mockAdminControlPlane}));
+
   test('renders homepage hero video admin slots and sends guarded conversion assignments', async ({
     page,
   }) => {
@@ -20379,7 +20381,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('label:has(#aiVideoGenerateAudio)')).toBeVisible();
   });
 
-  test('Grok Imagine Video shows only supported controls and sends a sanitized async payload', async ({
+  test('@canvas-model-ui Grok Imagine Video shows only supported controls and sends a sanitized async payload', async ({
     page,
   }) => {
     const requests = [];
@@ -20525,7 +20527,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoMeta')).toContainText('Text-to-Video');
   });
 
-  test('Grok Imagine Video 1.5 Preview exposes operation controls and sends Cloudflare schema payloads', async ({
+  test('@canvas-model-ui Grok Imagine Video 1.5 Preview exposes operation controls and sends Cloudflare schema payloads', async ({
     page,
   }) => {
     const requests = [];
@@ -20689,7 +20691,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoVideoUrlField')).toBeHidden();
     await expect(page.locator('#aiVideoSourcePickerField')).toBeVisible();
     await expect(page.locator('#aiVideoReferenceUrlsField')).toBeHidden();
-    await expect(page.locator('#aiVideoOutputUploadUrlField')).toBeVisible();
+    await expect(page.locator('#aiVideoOutputUploadUrlField')).toBeHidden();
     await expect(page.locator('#aiVideoNegativePromptField')).toBeHidden();
     await expect(page.locator('#aiVideoImageField')).toBeHidden();
     await expect(page.locator('#aiVideoStartImageField')).toBeHidden();
@@ -20705,7 +20707,6 @@ test.describe('Admin AI Lab', () => {
     await page.locator('#aiVideoSourceList .admin-ai__video-source-card', { hasText: 'Saved image source' }).click();
     await expect(page.locator('#aiVideoSourceSelected')).toContainText('Saved asset selected: Saved image source');
     await page.locator('#aiVideoSize').selectOption('848x480');
-    await page.locator('#aiVideoUser').fill('admin-smoke');
     await page.locator('#aiVideoRun').click();
     await expect.poll(() => requests.length).toBe(1);
     expect(requests[0]).toEqual({
@@ -20721,7 +20722,6 @@ test.describe('Admin AI Lab', () => {
         source_type: 'saved_asset',
         asset_id: 'asset_saved_image_1',
       },
-      user: 'admin-smoke',
     });
     expect(requests[0].image).toBeUndefined();
     expect(requests[0].image_url).toBeUndefined();
@@ -20738,7 +20738,6 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoSourcePickerField')).toContainText('Internal source video');
     await expect(page.locator('#aiVideoSourceList')).toContainText('Saved video source');
     await page.locator('#aiVideoSourceList .admin-ai__video-source-card', { hasText: 'Saved video source' }).click();
-    await page.locator('#aiVideoOutputUploadUrl').fill('https://uploads.example.com/output');
     await page.locator('#aiVideoResolution').selectOption('720p');
     await page.locator('#aiVideoRun').click();
     await expect.poll(() => requests.length).toBe(2);
@@ -20752,7 +20751,6 @@ test.describe('Admin AI Lab', () => {
         source_type: 'saved_asset',
         asset_id: 'asset_saved_video_1',
       },
-      output: { upload_url: 'https://uploads.example.com/output' },
     });
     expect(requests[1].video).toBeUndefined();
     expect(requests[1].video_url).toBeUndefined();
@@ -20776,7 +20774,6 @@ test.describe('Admin AI Lab', () => {
         source_type: 'saved_asset',
         asset_id: 'asset_saved_video_1',
       },
-      output: { upload_url: 'https://uploads.example.com/output' },
     });
     expect(requests[2].video).toBeUndefined();
     expect(requests[2].video_url).toBeUndefined();

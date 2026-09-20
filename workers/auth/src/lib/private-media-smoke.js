@@ -1,17 +1,33 @@
 // Protected release smoke: one fixed, non-AI fixture per backend/source commit.
 // No arbitrary URL, prompt, owner, upload, job ID or production record accepted.
+import { enqueueAdminAuditEvent } from './activity.js';
 import { sha256Hex,nowIso } from './tokens.js';
 import { ownedCanvasVideo } from './canvas-video-input.js';
 import { putNewManagedR2Object } from './r2-cleanup.js';
-import { notifyPrivateMedia } from './private-media-service.js';
+import { notifyPrivateMedia,privateMediaStatus,setPrivateMediaService } from './private-media-service.js';
 const fixtureHash='5dec3abce278a6eb44db0506986d68da202fa3703c0ef8a0e07e423fc2b5095e';
 const owner='bitbi-private-media-release-smoke';
 const fail=()=>{throw Object.assign(new Error('media_smoke_invalid'),{code:'media_smoke_invalid',status:409});};
 const digest=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
 const id=async value=>(await sha256Hex(value)).slice(0,32);
 export async function privateMediaSmoke(env,body) {
-  if(!body||Object.keys(body).some(k=>!['sha','backend','action','fixture'].includes(k))||body.sha!==env.PRIVATE_MEDIA_SOURCE_SHA||!/^[a-f0-9]{40}$/.test(body.sha||'')||!['github','cloudflare'].includes(body.backend)||!['start','result'].includes(body.action))fail();
+  if(!body||Object.keys(body).some(k=>!['sha','backend','action','fixture'].includes(k))||body.sha!==env.PRIVATE_MEDIA_SOURCE_SHA||!/^[a-f0-9]{40}$/.test(body.sha||'')||!['github','cloudflare'].includes(body.backend)||!['start','result','activate-thumbnails'].includes(body.action))fail();
   const {sha,backend}=body,project=await id(`media-smoke:${sha}:${backend}`),node=await id(project+':node'),now=nowIso();
+  if(body.action==='activate-thumbnails'){
+    if(backend!=='cloudflare'||body.fixture!==undefined)fail();
+    const current=await privateMediaStatus(env);
+    if(current.services.cloudflare.state!=='ready')fail();
+    const row=await env.DB.prepare("SELECT value_json FROM app_settings WHERE key='private_media_service'").first();
+    const previous=JSON.parse(row?.value_json||'{}');
+    // A resumed release must never undo a later explicit owner selection.
+    if(previous.thumbnailRolloutSha){
+      if(current.thumbnailBackend!=='cloudflare')fail();
+      return {sha,backend:current.backend,thumbnailBackend:current.thumbnailBackend,verified:true,reused:true};
+    }
+    const result=await setPrivateMediaService(env,{backend:current.backend,thumbnailBackend:'cloudflare',thumbnailRolloutSha:sha,actor:null,reason:`Protected release ${sha}: verified thumbnail rollout`});
+    await enqueueAdminAuditEvent(env,{id:await id('thumbnail-rollout:'+sha),adminUserId:'system:protected-release',action:'thumbnail_service_activated',meta:{sha,thumbnailBackend:result.thumbnailBackend,assemblyBackend:result.backend}},{allowDirectFallback:true});
+    return {sha,backend:result.backend,thumbnailBackend:result.thumbnailBackend,verified:true};
+  }
   if(body.action==='start') {
     if(typeof body.fixture!=='string'||body.fixture.length>4096)fail();
     const bytes=Uint8Array.from(atob(body.fixture),c=>c.charCodeAt(0));if(await digest(bytes)!==fixtureHash)fail();
@@ -36,16 +52,35 @@ export async function privateMediaSmoke(env,body) {
     // Synthetic jobs alone select their test backend. The actual user setting
     // is never changed by a release smoke; native tests cover atomic switching.
     const insert=(kind,chain,assetId=null)=>env.DB.prepare(`INSERT OR IGNORE INTO canvas_video_processing
-      (id,user_id,project_id,run_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at,processing_backend)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(kind==='concat'?project:chain[0].assetId,owner,project,chain.at(-1).runId,kind,JSON.stringify(chain),assetId,now,now,now,backend);
+      (id,user_id,project_id,run_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at,processing_backend,thumbnail_backend)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).bind(kind==='concat'?project:chain[0].assetId,owner,project,chain.at(-1).runId,kind,JSON.stringify(chain),assetId,now,now,now,backend,backend);
     await env.DB.batch([insert('concat',sources),...sources.map(s=>insert('poster',[s],s.assetId))]);
+    // Exercise the public-preview producers without publishing a gallery asset
+    // or assigning a live Hero slot. Originals remain owned by the disabled
+    // synthetic account; the same fixed fixture and accepted backend apply.
+    const asset=await id(project+':preview-source'),key=`users/${owner}/release/${asset}.mp4`,derivative='hhvd_'+await id(project+':preview');
+    if(!await env.USER_IMAGES.head(key))await putNewManagedR2Object(env,key,bytes,{httpMetadata:{contentType:'video/mp4'}});
+    await env.DB.batch([
+      env.DB.prepare("INSERT OR IGNORE INTO ai_text_assets(id,user_id,r2_key,title,file_name,source_module,mime_type,size_bytes,metadata_json,created_at) VALUES(?,?,?,'Synthetic preview source','synthetic.mp4','video','video/mp4',?,?,?)")
+        .bind(asset,owner,key,bytes.length,JSON.stringify({private_media_release_smoke:sha}),now),
+      env.DB.prepare("INSERT OR IGNORE INTO homepage_hero_video_uploads(id,asset_id,user_id,mime_type,size_bytes,r2_key,idempotency_key_hash,request_hash,operator_reason,created_at,processing_backend) VALUES(?,?,?,'video/mp4',?,?,?,?,?,?,?)")
+        .bind(asset,asset,owner,bytes.length,key,asset,fixtureHash,'Protected release synthetic preview',now,backend),
+      env.DB.prepare("INSERT OR IGNORE INTO homepage_hero_video_derivatives(id,slot,source_type,source_asset_id,source_user_id,provider,status,source_r2_key,created_at,updated_at,processing_backend) VALUES(?,'left_top','admin_asset',?,?,'external_ffmpeg','queued',?,?,?,?)")
+        .bind(derivative,asset,owner,key,now,now,backend),
+    ]);
     await notifyPrivateMedia(env,backend);return {accepted:true,sha,backend};
   }
   if(body.fixture!==undefined)fail();
   const rows=(await env.DB.prepare('SELECT p.status,p.asset_id,a.r2_key,a.poster_r2_key,a.metadata_json FROM canvas_video_processing p LEFT JOIN ai_text_assets a ON a.id=p.asset_id AND a.user_id=p.user_id WHERE p.project_id=? AND p.user_id=? AND p.processing_backend=? ORDER BY p.kind').bind(project,owner,backend).all()).results||[];
   if(rows.length!==3||rows.some(r=>r.status!=='ready'||!r.r2_key||!r.poster_r2_key))return {ready:false,sha,backend,states:rows.map(r=>r.status)};
+  const preview=await env.DB.prepare('SELECT status,file_r2_key,poster_r2_key FROM homepage_hero_video_derivatives WHERE id=? AND source_user_id=? AND processing_backend=?')
+    .bind('hhvd_'+await id(project+':preview'),owner,backend).first();
+  const source=await env.DB.prepare("SELECT r2_key,poster_r2_key FROM ai_text_assets WHERE id=? AND user_id=? AND visibility='private'")
+    .bind(await id(project+':preview-source'),owner).first();
+  if(preview?.status!=='succeeded'||!preview.file_r2_key||!preview.poster_r2_key||!source?.poster_r2_key)return {ready:false,sha,backend,publicPreviewPending:true};
+  const publicRows=[{r2_key:preview.file_r2_key,poster_r2_key:preview.poster_r2_key},source];
   const outputs=[];
-  for(const row of rows) {
+  for(const row of [...rows,...publicRows]) {
     const [video,poster]=await Promise.all([env.USER_IMAGES.get(row.r2_key),env.USER_IMAGES.get(row.poster_r2_key)]);
     if(!video||!poster||video.size>1024*1024||poster.size>128*1024)fail();
     const v=new Uint8Array(await video.arrayBuffer()),p=new Uint8Array(await poster.arrayBuffer());
@@ -57,5 +92,5 @@ export async function privateMediaSmoke(env,body) {
     const verified=await env.PRIVATE_MEDIA_PROCESSOR.fetch('https://private-media/verified',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sha,job:project})});
     if(!verified.ok)fail();
   }
-  return {ready:true,sha,backend,outputs};
+  return {ready:true,sha,backend,outputs:outputs.slice(0,3),publicPreviews:outputs.slice(3)};
 }

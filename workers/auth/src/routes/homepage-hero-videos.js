@@ -1,4 +1,5 @@
-import { processorBackend } from '../lib/private-media-service.js';
+import { processorBackend, THUMBNAIL_BACKEND_SQL, notifyPrivateMedia } from '../lib/private-media-service.js';
+import { claimHeroPreview, claimHeroPoster, ownsPublicPreview } from '../lib/media-preview-jobs.js';
 import { handleCanvasExportProcessor } from './canvas-video-processing.js';
 import { claimMemberVideoPosters, memberVideoPosterSource, finishMemberVideoPoster } from "../lib/member-generation-posters.js";
 import { publicVideoResponse } from "../lib/public-video-response.mjs";
@@ -214,9 +215,11 @@ async function processorAuthResponse(ctx) {
   const auth = String(ctx.request.headers.get("Authorization") || "").trim();
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
   const explicit = String(ctx.request.headers.get("X-BITBI-Processor-Secret") || "").trim();
-  if (bearer !== expected && explicit !== expected) {
+  ctx.privateMediaBackend=await processorBackend(ctx.env,ctx.request);
+  if (!ctx.privateMediaBackend && bearer !== expected && explicit !== expected) {
     return json({ ok: false, error: "Forbidden", code: "processor_auth_failed" }, { status: 403 });
   }
+  ctx.privateMediaBackend ||= 'github';
   return null;
 }
 
@@ -247,9 +250,13 @@ async function memvidStreamProcessorAuthResponse(ctx) {
   const auth = String(ctx.request.headers.get("Authorization") || "").trim();
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
   const explicit = String(ctx.request.headers.get("X-BITBI-Processor-Secret") || "").trim();
-  if (bearer !== expected && explicit !== expected) {
+  ctx.privateMediaBackend=await processorBackend(ctx.env,ctx.request);
+  if (!ctx.privateMediaBackend && bearer !== expected && explicit !== expected) {
     return json({ ok: false, error: "Forbidden", code: "processor_auth_failed" }, { status: 403 });
   }
+  ctx.privateMediaBackend ||= 'github';
+  const match=ctx.pathname.match(/\/jobs\/(msp_[a-f0-9]+)\//i);
+  if(match){const row=await ctx.env.DB.prepare('SELECT processing_backend FROM memvid_stream_previews WHERE id=? UNION ALL SELECT processing_backend FROM memvid_stream_upload_receipts WHERE job_id=? LIMIT 1').bind(match[1],match[1]).first();if(row?.processing_backend!==ctx.privateMediaBackend)return json({ok:false,code:'processor_scope_mismatch'},{status:403});}
   return null;
 }
 
@@ -542,6 +549,7 @@ function sanitizeErrorMessage(value) {
 function serializeProcessorJob(row) {
   return {
     id: row.id,
+    preview_claim: row.processing_token,
     slot: row.slot,
     source_type: row.source_type,
     source_asset_id: row.source_asset_id,
@@ -569,6 +577,7 @@ function serializeSourcePosterProcessorJob(row, preset = TARGET_PRESET) {
   return {
     id: row.id,
     ...(row.poster_processing_token ? {generation_claim:row.poster_processing_token} : {}),
+    public_poster_claim: row.public_poster_token,
     upload_id: row.upload_id || null,
     type: "homepage_hero_source_poster",
     source_asset_id: row.id,
@@ -809,7 +818,7 @@ async function getProcessorDerivativeById(env, derivativeId) {
   ).bind(derivativeId).first();
 }
 
-async function listQueuedProcessorJobs(env, limit) {
+async function listQueuedProcessorJobs(env, limit, backend='github') {
   const rows = await env.DB.prepare(
     `SELECT id, slot, source_type, source_asset_id, source_user_id, source_title,
             provider, status, original_size_bytes, original_mime_type,
@@ -817,11 +826,12 @@ async function listQueuedProcessorJobs(env, limit) {
             provider_payload_json, created_at, updated_at
      FROM homepage_hero_video_derivatives
      WHERE provider = 'external_ffmpeg'
-       AND status = 'queued'
+       AND processing_backend=? AND attempt_count<8
+       AND (status='queued' OR (status='processing' AND locked_until<=?))
        AND source_r2_key IS NOT NULL
      ORDER BY created_at ASC, id ASC
      LIMIT ?`
-  ).bind(limit).all();
+  ).bind(backend,nowIso(),limit).all();
   return rows.results || [];
 }
 
@@ -854,12 +864,14 @@ async function listQueuedSourcePosterJobs(env, limit, memberOnly = false, backen
      FROM homepage_hero_video_uploads uploads
      JOIN ai_text_assets assets ON assets.id = uploads.asset_id
       AND assets.user_id = uploads.user_id
-     WHERE assets.source_module = 'video'
+     WHERE uploads.processing_backend=? AND uploads.poster_attempt_count<8
+       AND (uploads.poster_locked_until IS NULL OR uploads.poster_locked_until<=?)
+       AND assets.source_module = 'video'
        AND assets.poster_r2_key IS NULL
        AND assets.r2_key IS NOT NULL
      ORDER BY uploads.created_at ASC, uploads.id ASC
      LIMIT ?`
-  ).bind(scanLimit).all();
+  ).bind(backend,nowIso(),scanLimit).all();
   const jobs = [];
   for (const row of rows.results || []) {
     if (!isSourcePosterProcessorClaimable(row)) continue;
@@ -869,7 +881,8 @@ async function listQueuedSourcePosterJobs(env, limit, memberOnly = false, backen
       size_bytes: row.size_bytes ?? null,
       created_at: row.created_at || null,
     }));
-    jobs.push(row);
+    const claimed=await claimHeroPoster(env,row,backend);
+    if(claimed)jobs.push(claimed);
     if (jobs.length >= limit) break;
   }
   return jobs;
@@ -1046,8 +1059,8 @@ async function insertHeroUploadRecord(env, {
     `INSERT INTO homepage_hero_video_uploads (
        id, asset_id, user_id, title, original_file_name, mime_type, size_bytes,
        r2_key, idempotency_key_hash, request_hash, operator_reason,
-       created_by_user_id, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       created_by_user_id, created_at, processing_backend
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${THUMBNAIL_BACKEND_SQL})`
   ).bind(
     uploadId,
     asset.id,
@@ -1063,6 +1076,8 @@ async function insertHeroUploadRecord(env, {
     adminUserId,
     asset.created_at || nowIso()
   ).run();
+  const accepted=await env.DB.prepare('SELECT processing_backend FROM homepage_hero_video_uploads WHERE id=?').bind(uploadId).first();
+  await notifyPrivateMedia(env,accepted.processing_backend);
 }
 
 async function updateSourcePosterState(env,row,options) {
@@ -1070,7 +1085,7 @@ async function updateSourcePosterState(env,row,options) {
     if(options.status==='pending') return null;
     return finishMemberVideoPoster(env,row,options);
   }
-  return updateHeroSourcePosterState(env,options);
+  return updateHeroSourcePosterState(env,{...options,...(Object.hasOwn(row,'public_poster_token')?{posterClaim:{id:row.upload_id,token:row.public_poster_token}}:{})});
 }
 
 async function updateHeroSourcePosterState(env, {
@@ -1081,6 +1096,7 @@ async function updateHeroSourcePosterState(env, {
   errorCode = null,
   message = null,
   extra = {},
+  posterClaim = null,
 } = {}) {
   if (!assetId || !userId) return null;
   const existing = await env.DB.prepare(
@@ -1103,9 +1119,11 @@ async function updateHeroSourcePosterState(env, {
     ...metadata,
     homepage_hero_source: nextSource,
   };
-  await env.DB.prepare(
-    "UPDATE ai_text_assets SET metadata_json = ? WHERE id = ? AND user_id = ?"
-  ).bind(JSON.stringify(nextMetadata), assetId, userId).run();
+  const changed=await env.DB.prepare(
+    `UPDATE ai_text_assets SET metadata_json = ? WHERE id = ? AND user_id = ? ${posterClaim?"AND EXISTS(SELECT 1 FROM homepage_hero_video_uploads WHERE id=? AND poster_processing_token IS ? AND poster_locked_until>?)":''}`
+  ).bind(JSON.stringify(nextMetadata), assetId, userId,...(posterClaim?[posterClaim.id,posterClaim.token,nowIso()]:[])).run();
+  if(posterClaim&&!changed.meta?.changes)throw Object.assign(new Error('processor_claim_lost'),{code:'processor_claim_lost',status:409});
+  if(posterClaim&&status==='failed')await env.DB.prepare('UPDATE homepage_hero_video_uploads SET poster_locked_until=NULL WHERE id=? AND poster_processing_token IS ?').bind(posterClaim.id,posterClaim.token).run();
   return nextSource;
 }
 
@@ -1471,8 +1489,8 @@ async function insertDerivativeJob(env, {
        provider, status, source_r2_key, source_fingerprint,
        original_size_bytes, original_mime_type,
        target_preset_json, provider_payload_json, idempotency_key_hash,
-       request_hash, created_by_user_id, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       request_hash, created_by_user_id, created_at, updated_at, processing_backend
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${THUMBNAIL_BACKEND_SQL})`
   ).bind(
     derivativeId,
     slot,
@@ -1494,6 +1512,8 @@ async function insertDerivativeJob(env, {
     now,
     now
   ).run();
+  const accepted=await env.DB.prepare('SELECT processing_backend FROM homepage_hero_video_derivatives WHERE id=?').bind(derivativeId).first();
+  await notifyPrivateMedia(env,accepted.processing_backend);
 }
 
 async function markMockDerivativeSucceeded(env, derivativeId, slot, targetPreset = TARGET_PRESET) {
@@ -1965,6 +1985,9 @@ async function handleAdminRetryUploadPoster(ctx, assetIdFromPath) {
     );
   }
 
+  const reset=await env.DB.prepare('UPDATE homepage_hero_video_uploads SET poster_attempt_count=0,poster_processing_token=NULL,poster_locked_until=NULL WHERE id=? AND (poster_locked_until IS NULL OR poster_locked_until<=?)').bind(upload.upload_id,nowIso()).run();
+  if(!reset.meta?.changes)return json({ok:false,code:'poster_processing_active'},{status:409});
+  const accepted=await env.DB.prepare('SELECT processing_backend FROM homepage_hero_video_uploads WHERE id=?').bind(upload.upload_id).first();
   const state = await updateHeroSourcePosterState(env, {
     assetId,
     userId: result.user.id,
@@ -1977,6 +2000,7 @@ async function handleAdminRetryUploadPoster(ctx, assetIdFromPath) {
       poster_retry_requested_at: nowIso(),
     },
   });
+  await notifyPrivateMedia(env,accepted.processing_backend);
   if (state) {
     const metadata = parseJson(upload.metadata_json) || {};
     upload.metadata_json = JSON.stringify({
@@ -2849,7 +2873,7 @@ async function handleRetryDerivative(ctx, derivativeIdFromPath) {
   const now = nowIso();
   await env.DB.prepare(
     `UPDATE homepage_hero_video_derivatives
-     SET status = 'queued',
+     SET status = 'queued', attempt_count=0, processing_token=NULL, locked_until=NULL,
          error_code = NULL,
          error_message = NULL,
          target_preset_json = ?,
@@ -2858,13 +2882,16 @@ async function handleRetryDerivative(ctx, derivativeIdFromPath) {
          processing_completed_at = NULL,
          updated_at = ?
      WHERE id = ?
-       AND provider = 'external_ffmpeg'`
+       AND provider = 'external_ffmpeg' AND status IN ('failed','queued')`
   ).bind(
     JSON.stringify(targetPreset),
     JSON.stringify(conversionProviderPayload("external_ffmpeg", targetPreset)),
     now,
     derivativeId
   ).run();
+
+  const accepted=await env.DB.prepare('SELECT processing_backend FROM homepage_hero_video_derivatives WHERE id=?').bind(derivativeId).first();
+  await notifyPrivateMedia(env,accepted.processing_backend);
 
   await auditHomepageHeroVideoEvent(ctx, result.user, "homepage_hero_video_derivative_retry_requested", {
     derivative_id: derivativeId,
@@ -2892,21 +2919,9 @@ async function handleProcessorClaimJobs(ctx) {
   if (parsed.response) return parsed.response;
   const limit = clampInteger(parsed.body?.limit, { fallback: 1, min: 1, max: 4 });
 
-  const rows = await listQueuedProcessorJobs(ctx.env, limit);
-  const now = nowIso();
-  for (const row of rows) {
-    await ctx.env.DB.prepare(
-      `UPDATE homepage_hero_video_derivatives
-       SET status = 'processing',
-           processing_started_at = COALESCE(processing_started_at, ?),
-           updated_at = ?
-       WHERE id = ?
-         AND provider = 'external_ffmpeg'
-         AND status = 'queued'`
-    ).bind(now, now, row.id).run();
-    row.status = "processing";
-    row.updated_at = now;
-  }
+  const candidates = await listQueuedProcessorJobs(ctx.env, limit, ctx.privateMediaBackend);
+  const rows=[];
+  for(const row of candidates){const claimed=await claimHeroPreview(ctx.env,row,ctx.privateMediaBackend);if(claimed)rows.push(claimed);}
 
   return json(
     {
@@ -2927,6 +2942,7 @@ async function handleProcessorSource(ctx, derivativeIdFromPath) {
 
   const derivativeId = normalizeDerivativeJobId(derivativeIdFromPath);
   if (!derivativeId) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
+  if (!await ownsPublicPreview(ctx.env,{kind:'preview',id:derivativeId,backend:ctx.privateMediaBackend,token:ctx.request.headers.get('X-BITBI-Preview-Claim')})) return json({ok:false,code:'processor_claim_lost'},{status:409});
   const derivative = await getProcessorDerivativeById(ctx.env, derivativeId);
   if (!derivative?.source_r2_key || !["queued", "processing"].includes(derivative.status)) {
     return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
@@ -3003,6 +3019,7 @@ async function handleSourcePosterSource(ctx, assetIdFromPath) {
 
   const assetId = normalizeAssetId(assetIdFromPath);
   if (!assetId) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
+  if (!ctx.request.headers.has("X-BITBI-Generation-Claim") && !await ownsPublicPreview(ctx.env,{kind:'poster',id:assetId,backend:ctx.privateMediaBackend,token:ctx.request.headers.get('X-BITBI-Poster-Claim')})) return json({ok:false,code:'processor_claim_lost'},{status:409});
   const source = await getSourcePosterJobAsset(ctx.env, assetId, ctx.request.headers.get('X-BITBI-Generation-Claim'),ctx.privateMediaBackend);
   if (!source?.r2_key) return json({ ok: false, error: "Source not found.", code: "source_not_found" }, { status: 404 });
 
@@ -3025,8 +3042,10 @@ async function handleSourcePosterComplete(ctx, assetIdFromPath) {
 
   const assetId = normalizeAssetId(assetIdFromPath);
   if (!assetId) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+  if (!ctx.request.headers.has("X-BITBI-Generation-Claim") && !await ownsPublicPreview(ctx.env,{kind:'poster',id:assetId,backend:ctx.privateMediaBackend,token:ctx.request.headers.get('X-BITBI-Poster-Claim')})) return json({ok:false,code:'processor_claim_lost'},{status:409});
   const source = await getSourcePosterJobAsset(ctx.env, assetId, ctx.request.headers.get('X-BITBI-Generation-Claim'),ctx.privateMediaBackend);
   if (!source) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+  if(!source.generation_job_id)source.public_poster_token=ctx.request.headers.get('X-BITBI-Poster-Claim');
   if (source.poster_r2_key) {
     await updateSourcePosterState(ctx.env, source, {
       assetId,
@@ -3071,7 +3090,7 @@ async function handleSourcePosterComplete(ctx, assetIdFromPath) {
       userId: source.user_id,
       assetId,
       posterBytes: new Uint8Array(await poster.arrayBuffer()),
-      posterClaim: source.generation_job_id ? {id:source.generation_job_id,token:source.poster_processing_token,table:source.poster_processing_table} : null,
+      posterClaim: source.generation_job_id ? {id:source.generation_job_id,token:source.poster_processing_token,table:source.poster_processing_table} : {id:source.upload_id,token:ctx.request.headers.get('X-BITBI-Poster-Claim'),table:'homepage_hero_video_uploads'},
       successEvent: "homepage_hero_source_poster_saved",
       failureEvent: "homepage_hero_source_poster_save_failed",
     });
@@ -3119,9 +3138,11 @@ async function handleSourcePosterFail(ctx, assetIdFromPath) {
 
   const assetId = normalizeAssetId(assetIdFromPath);
   if (!assetId) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+  if (!ctx.request.headers.has("X-BITBI-Generation-Claim") && !await ownsPublicPreview(ctx.env,{kind:'poster',id:assetId,backend:ctx.privateMediaBackend,token:ctx.request.headers.get('X-BITBI-Poster-Claim')})) return json({ok:false,code:'processor_claim_lost'},{status:409});
   const source = await getSourcePosterJobAsset(ctx.env, assetId, ctx.request.headers.get('X-BITBI-Generation-Claim'),ctx.privateMediaBackend);
   if (!source) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
 
+  if(!source.generation_job_id)source.public_poster_token=ctx.request.headers.get('X-BITBI-Poster-Claim');
   const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.homepageHeroProcessorJson });
   if (parsed.response) return parsed.response;
   const body = parsed.body || {};
@@ -3148,6 +3169,7 @@ async function handleProcessorComplete(ctx, derivativeIdFromPath) {
 
   const derivativeId = normalizeDerivativeJobId(derivativeIdFromPath);
   if (!derivativeId) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+  if (!await ownsPublicPreview(ctx.env,{kind:'preview',id:derivativeId,backend:ctx.privateMediaBackend,token:ctx.request.headers.get('X-BITBI-Preview-Claim')})) return json({ok:false,code:'processor_claim_lost'},{status:409});
   const derivative = await getProcessorDerivativeById(ctx.env, derivativeId);
   if (!derivative) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
   if (derivative.status === "succeeded") {
@@ -3211,7 +3233,7 @@ async function handleProcessorComplete(ctx, derivativeIdFromPath) {
   const fps = clampNumber(formData.get("fps"), { fallback: targetPreset.fps || 24, min: 1, max: 60 });
   const now = nowIso();
 
-  await ctx.env.DB.prepare(
+  const completed = await ctx.env.DB.prepare(
     `UPDATE homepage_hero_video_derivatives
      SET status = 'succeeded',
          version = ?,
@@ -3233,7 +3255,8 @@ async function handleProcessorComplete(ctx, derivativeIdFromPath) {
          updated_at = ?,
          completed_at = ?
      WHERE id = ?
-       AND provider = 'external_ffmpeg'`
+       AND provider = 'external_ffmpeg' AND processing_backend=?
+       AND processing_token IS ? AND locked_until>? AND status='processing'`
   ).bind(
     version,
     fileKey,
@@ -3249,11 +3272,16 @@ async function handleProcessorComplete(ctx, derivativeIdFromPath) {
     now,
     now,
     now,
-    derivativeId
+    derivativeId,ctx.privateMediaBackend,ctx.request.headers.get('X-BITBI-Preview-Claim'),nowIso()
   ).run();
+  if(!completed.meta?.changes){
+    await Promise.all([fileKey,posterKey].map(key=>ctx.env.USER_IMAGES.delete(key)));
+    return json({ok:false,code:'processor_claim_lost'},{status:409});
+  }
 
   if (derivative.source_type === "admin_asset" && derivative.source_asset_id && derivative.source_user_id) {
-    const sourcePoster = await copyVideoPosterToAiTextAsset(ctx.env, {
+    const sourceAsset=await ctx.env.DB.prepare('SELECT poster_r2_key FROM ai_text_assets WHERE id=? AND user_id=?').bind(derivative.source_asset_id,derivative.source_user_id).first();
+    const sourcePoster = sourceAsset?.poster_r2_key ? {r2Key:sourceAsset.poster_r2_key} : await copyVideoPosterToAiTextAsset(ctx.env, {
       userId: derivative.source_user_id,
       assetId: derivative.source_asset_id,
       sourceKey: posterKey,
@@ -3286,6 +3314,7 @@ async function handleProcessorFail(ctx, derivativeIdFromPath) {
 
   const derivativeId = normalizeDerivativeJobId(derivativeIdFromPath);
   if (!derivativeId) return json({ ok: false, error: "Job not found.", code: "job_not_found" }, { status: 404 });
+  if (!await ownsPublicPreview(ctx.env,{kind:'preview',id:derivativeId,backend:ctx.privateMediaBackend,token:ctx.request.headers.get('X-BITBI-Preview-Claim')})) return json({ok:false,code:'processor_claim_lost'},{status:409});
   const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.homepageHeroProcessorJson });
   if (parsed.response) return parsed.response;
   const body = parsed.body || {};
@@ -3299,13 +3328,13 @@ async function handleProcessorFail(ctx, derivativeIdFromPath) {
          updated_at = ?
      WHERE id = ?
        AND provider = 'external_ffmpeg'
-       AND status IN ('queued', 'processing', 'failed')`
+       AND status='processing' AND processing_backend=? AND processing_token IS ? AND locked_until>?`
   ).bind(
     sanitizeErrorCode(body.error_code || body.code),
     sanitizeErrorMessage(body.error_message || body.message),
     now,
     now,
-    derivativeId
+    derivativeId,ctx.privateMediaBackend,ctx.request.headers.get('X-BITBI-Preview-Claim'),nowIso()
   ).run();
 
   return json({
@@ -3438,7 +3467,7 @@ async function handleMemvidStreamPreviewClaimJobs(ctx) {
     || String(parsed.body?.repair_downloads || "").toLowerCase() === "true";
   if (parsed.body?.receipt_protocol !== STREAM_RECEIPT_PROTOCOL)
     return json({ ok: false, code: 'stream_receipt_protocol_required', error: 'Processor receipt protocol 2 is required.' }, { status: 409 });
-  const result = await claimStreamPreviewJobs(ctx.env, { limit, repairDownloads });
+  const result = await claimStreamPreviewJobs(ctx.env, { limit, repairDownloads, backend:ctx.privateMediaBackend });
   return json({ ok: true, data: { receipt_protocol: STREAM_RECEIPT_PROTOCOL, jobs: result.jobs.map(serializeSharedMemvidStreamPreviewJob), scan: result.scan } }, {
     headers: { 'Cache-Control': 'no-store' },
   });

@@ -1,6 +1,8 @@
 import { GROK_IMAGE_2 } from '../../../../js/shared/grok-imagine-image-2-pricing.mjs';
 import {
+  AdminAiValidationError, getAdminAiVideoModelSpec,
   ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
+  ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,
   ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,
 } from "../../../../js/shared/admin-ai-contract.mjs";
 import {
@@ -18,6 +20,7 @@ import {
   getAiSaveReferenceSigningSecretCandidates,
 } from "./security-secrets.js";
 import { randomTokenHex, sha256Hex } from "./tokens.js";
+import { prepareGrokVideoOutput } from './grok-video-output.js';
 
 export const ADMIN_AI_MEDIA_SOURCE_TOKEN_PURPOSE = "admin_ai_grok_preview_media_source";
 export const ADMIN_AI_VIDEO_SOURCE_TOKEN_PURPOSE = "admin_ai_grok_preview_video_source";
@@ -30,9 +33,9 @@ const signingKeyCache = new Map();
 const SUPPORTED_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
-class AdminAiVideoSourceError extends Error {
+class AdminAiVideoSourceError extends AdminAiValidationError {
   constructor(message, { status = 400, code = "invalid_video_source" } = {}) {
-    super(message);
+    super(message,status,code);
     this.name = "AdminAiVideoSourceError";
     this.status = status;
     this.code = code;
@@ -534,7 +537,7 @@ async function createMediaSourceToken(env, sourceRef, {
     user_id: userId || null,
     job_id: jobId || null,
     exp: Math.floor(Number(expiresAt)),
-    nonce: randomTokenHex(12),
+    nonce: jobId ? null : randomTokenHex(12),
   };
   const unsigned = toBase64Url(bytesToBase64(textEncoder.encode(JSON.stringify(payload))));
   const sig = await signPayload(getAiSaveReferenceSigningSecret(env), payload);
@@ -571,7 +574,7 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
   const mediaType = isLegacyVideoToken ? "video" : String(payload.media || "").trim().toLowerCase();
   const operation = String(payload.operation || "").trim();
   const modelId = String(payload.model || "").trim();
-  const isGrokVideoModel = modelId === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID;
+  const isGrokVideoModel = [ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID, ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].includes(modelId);
   const isGrokImageModel = [ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,GROK_IMAGE_2.id].includes(modelId);
   const isGrokImageOperation = operation === "image_generate" || operation === "generate";
   if (
@@ -581,7 +584,7 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
     !["image", "video"].includes(mediaType) ||
     (isGrokVideoModel && !["generate", "edit", "extend"].includes(operation)) ||
     (isGrokVideoModel && operation === "generate" && mediaType !== "image") ||
-    (isGrokVideoModel && (operation === "edit" || operation === "extend") && mediaType !== "video") ||
+    (isGrokVideoModel && (operation === "edit" || operation === "extend") && mediaType !== "video" && !String(payload.source_role || "").startsWith("reference_images.")) ||
     (isGrokImageModel && (!isGrokImageOperation || mediaType !== "image")) ||
     !normalizeSourceType(payload.source_type, mediaType) ||
     !normalizeAssetId(payload.asset_id)
@@ -591,7 +594,7 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
   if (isLegacyVideoToken && operation !== "extend") {
     throw new AdminAiVideoSourceError("Invalid media source token.", { status: 403, code: "invalid_media_source_token" });
   }
-  if (!Number.isFinite(Number(payload.exp)) || Number(payload.exp) <= now) {
+  if (!(isGrokVideoModel && payload.job_id && payload.exp === 0) && (!Number.isFinite(Number(payload.exp)) || Number(payload.exp) <= now)) {
     throw new AdminAiVideoSourceError("Media source token expired.", { status: 410, code: "media_source_token_expired" });
   }
   return {
@@ -602,6 +605,7 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
     source_role: typeof payload.source_role === "string" && payload.source_role ? payload.source_role : null,
     model: modelId,
     user_id: typeof payload.user_id === "string" && payload.user_id ? payload.user_id : null,
+    pinned_job: isGrokVideoModel && payload.exp === 0,
     job_id: typeof payload.job_id === "string" && payload.job_id ? payload.job_id : null,
   };
 }
@@ -616,6 +620,8 @@ function getSourceRefForOperation(payload) {
 
 function stripPreviewMediaSourceFields(payload) {
   const {
+    _source_snapshots: _sourceSnapshots,
+    source_images: _sourceImages,
     source_image: _sourceImage,
     sourceImage: _sourceImageAlias,
     source_video: _sourceVideo,
@@ -714,44 +720,61 @@ async function resolveImageSourceForProvider(env, adminUser, sourceRef, {
   return imageObjectForProvider(providerUrl, source);
 }
 
-export async function resolveAdminAiGrokPreviewMediaSourcesForProvider(env, adminUser, payload, {
-  correlationId = null,
-  jobId = null,
-  origin = null,
-} = {}) {
-  if (payload?.model !== ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID) {
-    return payload;
+export function isGrokVideo(model) {
+  return [ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID, ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].includes(model);
+}
+
+function grokSourceReferences(payload) {
+  const refs = [];
+  if (payload.source_image) refs.push(['image', normalizeAdminAiMediaSourceReference(payload.source_image, 'image')]);
+  if (payload.source_video) refs.push(['video', normalizeAdminAiMediaSourceReference(payload.source_video, 'video')]);
+  for (const [i, ref] of (payload.source_images || []).entries()) refs.push([`reference_images.${i}`, normalizeAdminAiMediaSourceReference(ref, 'image')]);
+  return refs;
+}
+
+// Authorize before accepting/reserving; snapshots are server-owned and pin the
+// exact existing bytes while the accepted job needs them, even after deletion.
+export async function snapshotGrokVideoSources(env, user, payload) {
+  if (!isGrokVideo(payload.model)) return [];
+  if (!getAdminAiVideoModelSpec(payload.model).availableOperations.includes(payload._operation || 'generate')) {
+    throw new AdminAiVideoSourceError('Edit and Extend are temporarily unavailable pending exact-route billing verification.', {status:409,code:'video_operation_billing_unverified'});
   }
-  const operation = String(payload?._operation || "generate").trim() || "generate";
-  if (!["generate", "edit", "extend"].includes(operation)) return payload;
-  const sourceRef = getSourceRefForOperation(payload);
-  const source = await getSourceRow(env, sourceRef, adminUser?.id || null);
-  const token = await createMediaSourceToken(env, sourceRef, {
-    operation,
-    userId: sourceRef.source_type === "saved_asset" ? adminUser?.id || null : null,
-    jobId,
-  });
-  const providerUrl = `${getProviderOrigin(env, origin)}/api/internal/ai/media-source/${encodeURIComponent(token)}`;
-  const sourceIdHash = await sha256Hex(sourceRef.asset_id);
-  logDiagnostic({
-    service: "bitbi-auth",
-    component: "admin-ai-media-source",
-    event: "admin_ai_grok_preview_media_source_resolved",
-    level: "info",
-    correlationId,
-    job_id: jobId || null,
-    model: ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
-    operation,
-    source_media_type: sourceRef.media_type,
-    source_type: sourceRef.source_type,
-    source_asset_id_hash: sourceIdHash,
-    source_mime_type: source.mime_type || null,
-    source_size_bytes: source.size_bytes ?? null,
-  });
+  const snapshots = [];
+  for (const [role, ref] of grokSourceReferences(payload)) {
+    const row = await getSourceRow(env, ref, user.id);
+    const head = await env.USER_IMAGES.head(row.r2_key);
+    if (!head || !head.etag || head.size > (ref.media_type === 'video' ? 80_000_000 : 10_000_000)) {
+      throw new AdminAiVideoSourceError('Source media is unavailable or too large.', {code:'media_source_unavailable'});
+    }
+    const mime = head.httpMetadata?.contentType || row.mime_type || 'image/png';
+    assertSupportedObjectContentType(ref.media_type, mime);
+    snapshots.push({...ref, role, r2_key:row.r2_key, etag:head.etag, size_bytes:head.size, mime_type:mime});
+  }
+  return snapshots;
+}
+
+export async function resolveAdminAiGrokPreviewMediaSourcesForProvider(env, adminUser, payload, {
+  jobId = null, origin = null, prepareOutput = false,
+} = {}) {
+  if (!isGrokVideo(payload?.model)) return payload;
+  if (!jobId && !getAdminAiVideoModelSpec(payload.model).availableOperations.includes(payload._operation || 'generate')) {
+    throw new AdminAiVideoSourceError('Operation billing is not verified.', {status:409,code:'video_operation_billing_unverified'});
+  }
   const rest = stripPreviewMediaSourceFields(payload);
-  return operation === "generate"
-    ? { ...rest, image: { url: providerUrl } }
-    : { ...rest, video: { url: providerUrl } };
+  if (prepareOutput) rest.output = await prepareGrokVideoOutput(env,adminUser.id,jobId,payload.model);
+  const operation = payload._operation || 'generate';
+  for (const [role, ref] of grokSourceReferences(payload)) {
+    if (!jobId) await getSourceRow(env, ref, adminUser.id);
+    // Job-bound tokens are deterministic for provider-call replay identity.
+    const token = await createMediaSourceToken(env, ref, {
+      model:payload.model, operation, sourceRole:role, userId:adminUser.id, jobId,
+      ...(jobId ? {expiresAt:0} : {}),
+    });
+    const url = `${getProviderOrigin(env, origin)}/api/internal/ai/media-source/${encodeURIComponent(token)}`;
+    if (role.startsWith('reference_images.')) (rest.reference_images ||= []).push({url});
+    else rest[role] = {url};
+  }
+  return rest;
 }
 
 export async function resolveAdminAiGrokPreviewExtendSourceForProvider(env, adminUser, payload, options = {}) {
@@ -823,9 +846,27 @@ export async function handleAdminAiMediaSourceTokenRequest(ctx, token) {
   if (method !== "GET" && method !== "HEAD") return null;
   try {
     const ref = await parseMediaSourceToken(env, token);
-    const source = await getSourceRow(env, ref, ref.user_id);
+    let source;
+    if (ref.pinned_job && ref.job_id) {
+      const member = await env.DB.prepare("SELECT source_refs_json AS sources FROM member_generation_jobs WHERE id=? AND user_id=? AND status IN ('queued','processing','ingesting','outcome_unknown')")
+        .bind(ref.job_id,ref.user_id).first();
+      const admin = member ? null : await env.DB.prepare("SELECT input_json,json_extract(input_json,'$._source_snapshots') AS sources FROM ai_video_jobs_v2 WHERE id=? AND user_id=? AND status IN ('queued','starting','provider_pending','polling','processing','ingesting')")
+        .bind(ref.job_id,ref.user_id).first();
+      const entries = JSON.parse((member || admin)?.sources || '[]');
+      source = entries.find(row => row.asset_id===ref.asset_id && row.media_type===ref.media_type && row.source_type===ref.source_type && row.role===ref.source_role);
+      // Jobs accepted before source pinning keep their authorized original path.
+      // Only an active legacy job with this exact persisted input may use it;
+      // missing new snapshots and terminal jobs must never fall back.
+      if (!source && admin && admin.sources === null) {
+        const input=JSON.parse(admin.input_json);
+        const matches=input.model===ref.model && (input._operation||'generate')===ref.operation
+          && grokSourceReferences(input).some(([role,row])=>role===ref.source_role && row.asset_id===ref.asset_id && row.media_type===ref.media_type && row.source_type===ref.source_type);
+        if(matches)source=await getSourceRow(env,ref,ref.user_id);
+      }
+      if (!source) throw new AdminAiVideoSourceError('Source job is unavailable.', {status:410,code:'media_source_job_unavailable'});
+    } else source = await getSourceRow(env, ref, ref.user_id);
     const object = await env.USER_IMAGES.get(source.r2_key);
-    if (!object) {
+    if (!object || (source.etag && object.etag !== source.etag)) {
       throw new AdminAiVideoSourceError("Media source was not found.", { status: 404, code: "media_source_not_found" });
     }
     const contentType = ref.media_type === "image"

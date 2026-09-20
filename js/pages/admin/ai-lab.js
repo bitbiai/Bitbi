@@ -271,6 +271,7 @@ const DEFAULT_FORMS = {
         outputUploadUrl: '',
         sourceImage: null,
         sourceVideo: null,
+        sourceImages: [],
         user: '',
     },
     compare: {
@@ -1483,11 +1484,9 @@ export function createAdminAiLab({ showToast } = {}) {
                 duration: payload.duration,
                 size: payload.size,
                 watermark: payload.watermark,
-                hasImageInput: !!(payload.image || payload.image_url || payload.image_input || payload.start_image),
+                hasImageInput: !!(payload.source_image || payload.image || payload.image_url || payload.image_input || payload.start_image),
                 hasVideoInput: !!(payload.video || payload.video_url || payload.source_video),
-                referenceImageCount: Array.isArray(payload.reference_images)
-                    ? payload.reference_images.length
-                    : 0,
+                referenceImageCount: (payload.source_images || payload.reference_images || []).length,
                 outputUploadUrlPresent: !!(payload.output?.upload_url || payload.output_upload_url),
             });
             if (!pricing) return null;
@@ -1543,7 +1542,9 @@ export function createAdminAiLab({ showToast } = {}) {
         return state.forms.video.model === ADMIN_AI_VIDEO_MODEL_ID && state.forms.video.operation === 'extend';
     }
 
+    let videoReferenceMode = false;
     function getPreviewMediaTypeForOperation(operation = state.forms.video.operation) {
+        if (videoReferenceMode && [ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].includes(state.forms.video.model)) return 'image';
         return String(operation || 'generate') === 'generate' ? 'image' : 'video';
     }
 
@@ -1625,7 +1626,11 @@ export function createAdminAiLab({ showToast } = {}) {
     function setSelectedMediaSource(candidate) {
         const media = getPreviewMediaTypeForOperation();
         const normalized = normalizeMediaSourceCandidate(candidate, media);
-        if (media === 'image') {
+        if (media === 'image' && videoReferenceMode) {
+            const list = state.forms.video.sourceImages || [];
+            const found = list.some(c=>c.source_type===normalized.source_type && c.asset_id===normalized.asset_id);
+            state.forms.video.sourceImages = found ? list.filter(c=>c.source_type!==normalized.source_type || c.asset_id!==normalized.asset_id) : [...list,normalized].slice(0,10);
+        } else if (media === 'image') {
             state.forms.video.sourceImage = normalized;
         } else {
             state.forms.video.sourceVideo = normalized;
@@ -1645,7 +1650,8 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function clearSelectedMediaSource({ persist = true } = {}) {
-        if (getPreviewMediaTypeForOperation() === 'image') {
+        if (videoReferenceMode) state.forms.video.sourceImages = [];
+        else if (getPreviewMediaTypeForOperation() === 'image') {
             state.forms.video.sourceImage = null;
         } else {
             state.forms.video.sourceVideo = null;
@@ -1668,7 +1674,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'admin-ai__video-source-card';
-        if (selected?.source_type === candidate.source_type && selected?.asset_id === candidate.asset_id) {
+        if (videoReferenceMode ? (state.forms.video.sourceImages || []).some(c=>c.source_type===candidate.source_type && c.asset_id===candidate.asset_id) : selected?.source_type === candidate.source_type && selected?.asset_id === candidate.asset_id) {
             button.classList.add('admin-ai__video-source-card--selected');
             button.setAttribute('aria-pressed', 'true');
         } else {
@@ -1728,7 +1734,7 @@ export function createAdminAiLab({ showToast } = {}) {
                 selected: 'Selected image will be resolved server-side into a temporary provider URL.',
                 emptySaved: 'No saved image assets are available.',
                 emptyPublic: 'No published Mempics are available.',
-                choose: 'Generate uses an internal BITBI image. Text-only generation is not supported by the provider.',
+                choose: 'An image is optional for generation. Select existing media; reference images can be combined with an original video.',
             };
         }
         return {
@@ -1763,6 +1769,13 @@ export function createAdminAiLab({ showToast } = {}) {
     function renderVideoSourcePicker() {
         if (!refs.video.sourcePickerField || !refs.video.sourceList) return;
         ensureMediaSourcePickerState();
+        let referenceToggle=refs.video.sourcePickerField.querySelector('[data-video-references]');
+        if(!referenceToggle){referenceToggle=document.createElement('button');referenceToggle.type='button';referenceToggle.className='btn btn--secondary';referenceToggle.dataset.videoReferences='';refs.video.sourcePickerField.prepend(referenceToggle);
+          referenceToggle.addEventListener('click',()=>{videoReferenceMode=!videoReferenceMode;state.videoSources.status='idle';state.videoSources.candidates=[];renderVideoSourcePicker();void loadVideoSourceCandidates();});}
+        referenceToggle.hidden=![ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].includes(state.forms.video.model);
+        referenceToggle.disabled=state.results.video?.status==='loading';
+        referenceToggle.textContent=videoReferenceMode?'Choose primary source':`Reference images (${(state.forms.video.sourceImages || []).length}/10)`;
+        referenceToggle.setAttribute('aria-pressed',String(videoReferenceMode));
         const copy = getMediaPickerCopy();
         const selected = getSelectedPreviewMediaSource();
         const isBusy = state.results.video?.status === 'loading';
@@ -2165,7 +2178,7 @@ export function createAdminAiLab({ showToast } = {}) {
                     asset_id: sourceVideo.asset_id,
                 }
                 : null,
-            output: state.forms.video.outputUploadUrl ? { upload_url: state.forms.video.outputUploadUrl } : null,
+            source_images: state.forms.video.sourceImages || [],
         });
         return pricing?.credits || null;
     }
@@ -2225,7 +2238,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (!spec.supportsAudioToggle && !spec.supportsWatermark) {
             state.forms.video.generateAudio = false;
         }
-        if (spec.id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID) {
+        if ([ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].includes(spec.id)) {
             if (previousModel && previousModel !== spec.id) {
                 state.forms.video.duration = spec.defaultDuration || 5;
                 state.forms.video.aspectRatio = spec.defaultAspectRatio || '16:9';
@@ -2236,11 +2249,12 @@ export function createAdminAiLab({ showToast } = {}) {
                 state.forms.video.videoUrl = '';
                 state.forms.video.sourceImage = null;
                 state.forms.video.sourceVideo = null;
+                state.forms.video.sourceImages = []; videoReferenceMode=false;
                 state.forms.video.referenceImageUrls = '';
                 state.forms.video.outputUploadUrl = '';
                 state.forms.video.user = '';
             }
-            if (!Array.isArray(spec.supportedOperations) || !spec.supportedOperations.includes(state.forms.video.operation)) {
+            if (!Array.isArray(spec.supportedOperations) || !(spec.availableOperations || spec.supportedOperations).includes(state.forms.video.operation)) {
                 state.forms.video.operation = 'generate';
             }
             if (state.forms.video.size && (!Array.isArray(spec.allowedSizes) || !spec.allowedSizes.includes(state.forms.video.size))) {
@@ -2902,7 +2916,7 @@ export function createAdminAiLab({ showToast } = {}) {
         const isSeedance = spec.id === ADMIN_AI_VIDEO_SEEDANCE_2_FAST_MODEL_ID
             || spec.id === ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID;
         const isGrokImagine = spec.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID;
-        const isGrokImagine15Preview = spec.id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID;
+        const isGrokImagine15Preview = [ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].includes(spec.id);
         const isGenerationBlocked = spec.generationEnabled === false
             || spec.pricingRequired === true;
         const usesViduFrameWorkflow = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
@@ -2948,7 +2962,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (refs.video.operation) {
             setAllowedSelectOptions(
                 refs.video.operation,
-                isPixverse ? ['generate', 'extend'] : spec.supportedOperations || ['generate'],
+                isPixverse ? ['generate', 'extend'] : spec.availableOperations || spec.supportedOperations || ['generate'],
                 'generate'
             );
             refs.video.operation.disabled = isBusy || (!isGrokImagine15Preview && !isPixverse);
@@ -3005,10 +3019,10 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         if (refs.video.referenceImageUrlsField) refs.video.referenceImageUrlsField.hidden = !showPreviewReferenceUrls;
         if (refs.video.referenceImageUrls) refs.video.referenceImageUrls.disabled = isBusy || !showPreviewReferenceUrls;
-        if (refs.video.outputUploadUrlField) refs.video.outputUploadUrlField.hidden = !isGrokImagine15Preview;
-        if (refs.video.outputUploadUrl) refs.video.outputUploadUrl.disabled = isBusy || !isGrokImagine15Preview;
-        if (refs.video.userField) refs.video.userField.hidden = !isGrokImagine15Preview;
-        if (refs.video.user) refs.video.user.disabled = isBusy || !isGrokImagine15Preview;
+        if (refs.video.outputUploadUrlField) refs.video.outputUploadUrlField.hidden = true;
+        if (refs.video.outputUploadUrl) refs.video.outputUploadUrl.disabled = true;
+        if (refs.video.userField) refs.video.userField.hidden = true;
+        if (refs.video.user) refs.video.user.disabled = true;
 
         refs.video.imageField.hidden = !isPixverse || isPixverseExtension();
         refs.video.imageFile.disabled = isBusy || !isPixverse;
@@ -5617,9 +5631,9 @@ export function createAdminAiLab({ showToast } = {}) {
             }
             return '';
         }
-        if (spec.id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID) {
+        if ([ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].includes(spec.id)) {
             const operation = state.forms.video.operation || 'generate';
-            if (!Array.isArray(spec.supportedOperations) || !spec.supportedOperations.includes(operation)) {
+            if (!Array.isArray(spec.supportedOperations) || !(spec.availableOperations || spec.supportedOperations).includes(operation)) {
                 return 'Operation is not supported by the selected video model.';
             }
             if (!prompt) {
@@ -5636,9 +5650,7 @@ export function createAdminAiLab({ showToast } = {}) {
             const sourceImage = getSelectedSourceImage();
             const sourceVideo = getSelectedSourceVideo();
             const outputUploadUrl = String(state.forms.video.outputUploadUrl || '').trim();
-            if (operation === 'generate' && !sourceImage) {
-                return 'Grok Imagine Video 1.5 Preview requires an internal image source for generate. Text-only video generation is not supported by the provider.';
-            }
+
             if (operation === 'edit') {
                 if (!sourceVideo) {
                     return 'Choose an internal source video before running edit.';
@@ -5682,6 +5694,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (state.forms.video.size) {
             payload.size = state.forms.video.size;
         }
+        if (state.forms.video.sourceImages?.length) payload.source_images=state.forms.video.sourceImages.map(c=>({source_type:c.source_type,asset_id:c.asset_id}));
         if (operation === 'generate') {
             const sourceImage = getSelectedSourceImage();
             if (sourceImage) {
@@ -5698,14 +5711,6 @@ export function createAdminAiLab({ showToast } = {}) {
                     asset_id: sourceVideo.asset_id,
                 };
             }
-        }
-        const outputUploadUrl = normalizePreviewHttpsUrl(state.forms.video.outputUploadUrl);
-        if (outputUploadUrl) {
-            payload.output = { upload_url: outputUploadUrl };
-        }
-        const userTag = String(state.forms.video.user || '').trim();
-        if (userTag) {
-            payload.user = userTag;
         }
         return payload;
     }
@@ -6607,12 +6612,7 @@ export function createAdminAiLab({ showToast } = {}) {
             payload.prompt = prompt;
             payload.aspect_ratio = state.forms.video.aspectRatio;
             payload.resolution = state.forms.video.resolution;
-        } else if (videoSpec.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID) {
-            payload.prompt = prompt;
-            payload._operation = 'generate';
-            payload.aspect_ratio = state.forms.video.aspectRatio;
-            payload.resolution = state.forms.video.resolution;
-        } else if (videoSpec.id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID) {
+        } else if ([ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].includes(videoSpec.id)) {
             payload = buildGrokPreview15VideoPayload(videoSpec, prompt);
         } else {
             payload.prompt = prompt;

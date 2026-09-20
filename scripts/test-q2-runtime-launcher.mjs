@@ -452,7 +452,7 @@ test('child final boundary rejects privilege, routes, mounts, credentials and na
 });
 
 // A scoped suite changes coverage, never the namespace/credential boundary.
-test('member and model-status scopes dispatch through the actual child and preserve boundaries', async () => {
+test('focused native scopes dispatch through the actual child and preserve boundaries', async () => {
   const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
   assert.deepEqual(parseRuntimeArgs(['--suite','member-generation'],{}),{preflight:false,artifacts:null,suite:'member-generation'});
   assert.throws(()=>parseRuntimeArgs(['--suite','unknown'],{}));
@@ -463,9 +463,11 @@ test('member and model-status scopes dispatch through the actual child and prese
   assert.equal(parseRuntimeArgs(['--suite','model-status'],{}).suite,'model-status');
   assert.deepEqual(selectedRuntimeSuites('canvas').map(([name])=>name),['canvas']);
   assert.equal(parseRuntimeArgs(['--suite','canvas'],{}).suite,'canvas');
+  assert.deepEqual(selectedRuntimeSuites('q4-stream').map(([name])=>name),['q4-stream']);
+  assert.equal(parseRuntimeArgs(['--suite','q4-stream'],{}).suite,'q4-stream');
   assert.throws(()=>selectedRuntimeSuites('unknown'));
   const bootstrap=read('tests/helpers/q2-runtime/linux-bootstrap.py');
-  assert.match(bootstrap,/choices=\["member-generation", "model-status", "canvas"\]/);
+  assert.match(bootstrap,/choices=\["member-generation", "model-status", "canvas", "q4-stream"\]/);
   // Execute the unchanged child module with synthetic process/import boundaries.
   // This checks dispatch ordering, not Linux kernel isolation (required in CI).
   const child = spawnSync(process.execPath, ['--experimental-vm-modules', '--input-type=module', '-e', `
@@ -473,7 +475,7 @@ test('member and model-status scopes dispatch through the actual child and prese
     import {readFileSync} from 'node:fs';
     import {SourceTextModule,SyntheticModule,createContext} from 'node:vm';
     const source=readFileSync('tests/helpers/q2-runtime/linux-runtime-child.mjs','utf8');
-    for(const suite of [undefined,'member-generation','model-status','canvas','unknown','',null,false]) {
+    for(const suite of [undefined,'member-generation','model-status','canvas','q4-stream','unknown','',null,false]) {
       for(const fault of [null,'platform','uid','gid']) {
         const calls=[], context=createContext({process:{platform:fault==='platform'?'darwin':'linux',
           getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
@@ -486,7 +488,7 @@ test('member and model-status scopes dispatch through the actual child and prese
           const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [k,v]of Object.entries(modules[name]))this.setExport(k,v);},{context});
           await m.link(()=>{});await m.evaluate();return m;};
         const m=new SourceTextModule(source,{context,importModuleDynamically:load});await m.link(load);
-        if(!fault && [undefined,null,'member-generation','model-status','canvas'].includes(suite)) {
+        if(!fault && [undefined,null,'member-generation','model-status','canvas','q4-stream'].includes(suite)) {
           await m.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);
         } else {
           await assert.rejects(m.evaluate());assert.ok(!calls.includes('./runner.mjs'));
@@ -507,8 +509,8 @@ test('actual selected Worker shell stops before downstream work on every failure
   for(const [status,selected,canvas='false'] of [['false','true'],['false','false'],['true','false'],['false','false','true']]) {
     const command=script.replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}',canvas).replaceAll('${{ needs.release-compatibility.outputs.model_status }}',status).replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
     const run=fail=>{fs.writeFileSync(trace,'');const result=spawnSync('/bin/sh',['-c',command],{cwd:f.base,env:{PATH:bin,TRACE:trace,FAIL_COMMAND:fail||''},encoding:'utf8'});return {status:result.status,commands:fs.readFileSync(trace,'utf8').trim().split('\n')};};
-    const passed=run();assert.equal(passed.status,0);assert.equal(passed.commands.length,canvas==='true'?7:status==='true'||selected==='true'?3:1);
-    if(canvas==='true'){assert.match(passed.commands[2],/grok-chat-workers/);assert.match(passed.commands[3],/fable-chat-workers/);assert.match(passed.commands[4],/q2-lifecycle/);assert.match(passed.commands[5],/--suite canvas$/);assert.match(passed.commands[6],/--suite member-generation$/);}
+    const passed=run();assert.equal(passed.status,0);assert.equal(passed.commands.length,canvas==='true'?11:status==='true'||selected==='true'?3:1);
+    if(canvas==='true'){assert.deepEqual(passed.commands.slice(0,3),['npm run check:ai-cost-policy','npm run test:ai-cost-policy','npm run test:ai-cost-operations']);assert.match(passed.commands[3],/test-q2-runtime-launcher/);assert.match(passed.commands[4],/tests\/workers.spec.js/);assert.match(passed.commands[5],/grok-chat-workers/);assert.match(passed.commands[6],/fable-chat-workers/);assert.match(passed.commands[7],/q2-lifecycle/);assert.match(passed.commands[8],/--suite canvas$/);assert.match(passed.commands[9],/--suite member-generation$/);assert.match(passed.commands[10],/--suite q4-stream$/);}
     else if(status==='true')assert.match(passed.commands[2],/--suite model-status$/);
     else if(selected==='true')assert.match(passed.commands[2],/--suite member-generation$/);
     else assert.deepEqual(passed.commands,['npm run test:workers']);

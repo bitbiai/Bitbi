@@ -739,7 +739,8 @@ function buildVideoRunOptions(env, model) {
     model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID
     || model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID
   ) {
-    return { gateway: { id: getAiGatewayId(env) } };
+    // Private source/output capabilities must never enter Gateway request logs.
+    return { gateway: { id: getAiGatewayId(env), collectLog: false } };
   }
   return { gateway: { id: DEFAULT_AI_GATEWAY_ID } };
 }
@@ -934,71 +935,11 @@ function buildSeedancePayload(modelId, input) {
 }
 
 function buildGrokImagineVideoPayload(input) {
-  const prompt = typeof input.prompt === "string" ? input.prompt.trim() : "";
-  if (!prompt) {
-    throw videoValidationError("xai/grok-imagine-video: prompt is required.");
-  }
-
-  const operation = typeof input._operation === "string" && input._operation.trim()
-    ? input._operation.trim()
-    : "generate";
-  if (operation !== "generate") {
-    throw videoValidationError("xai/grok-imagine-video: only generate is enabled in Admin AI Lab.");
-  }
-
-  const durationValue = input.duration ?? GROK_IMAGINE_VIDEO_DEFAULT_DURATION;
-  const duration = typeof durationValue === "string" ? parseInt(durationValue, 10) : Number(durationValue);
-  if (
-    !Number.isInteger(duration)
-    || duration < GROK_IMAGINE_VIDEO_MIN_DURATION
-    || duration > GROK_IMAGINE_VIDEO_MAX_DURATION
-  ) {
-    throw videoValidationError(
-      `xai/grok-imagine-video: duration must be an integer between ${GROK_IMAGINE_VIDEO_MIN_DURATION} and ${GROK_IMAGINE_VIDEO_MAX_DURATION}.`
-    );
-  }
-
-  const aspectRatio = typeof input.aspect_ratio === "string" && input.aspect_ratio.trim()
-    ? input.aspect_ratio.trim()
-    : GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO;
-  if (!GROK_IMAGINE_VIDEO_ASPECT_RATIOS.includes(aspectRatio)) {
-    throw videoValidationError(
-      `xai/grok-imagine-video: aspect_ratio must be one of ${GROK_IMAGINE_VIDEO_ASPECT_RATIOS.join(", ")}.`
-    );
-  }
-
-  const resolution = typeof input.resolution === "string" && input.resolution.trim()
-    ? input.resolution.trim()
-    : GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION;
-  if (!GROK_IMAGINE_VIDEO_RESOLUTIONS.includes(resolution)) {
-    throw videoValidationError(
-      `xai/grok-imagine-video: resolution must be one of ${GROK_IMAGINE_VIDEO_RESOLUTIONS.join(", ")}.`
-    );
-  }
-
-  return {
-    payload: {
-      _operation: "generate",
-      prompt,
-      duration,
-      aspect_ratio: aspectRatio,
-      resolution,
-    },
-    normalized: {
-      prompt,
-      duration,
-      aspect_ratio: aspectRatio,
-      ratio: null,
-      quality: null,
-      resolution,
-      seed: null,
-      generate_audio: false,
-      watermark: null,
-      hasImageInput: false,
-      hasEndImageInput: false,
-      workflow: "text_to_video",
-    },
-  };
+  // Both exact Cloudflare aliases publish the same input schema. Keep their
+  // defaults and pricing separate; share only serialization and validation.
+  return buildGrokImagineVideo15PreviewPayload({
+    ...input, resolution: input.resolution ?? GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
+  });
 }
 
 function requireGrokPreviewUrlObject(value, field) {
@@ -1046,7 +987,7 @@ function buildGrokImagineVideo15PreviewPayload(input) {
   }
 
   const durationValue = input.duration ?? GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_DURATION;
-  const duration = typeof durationValue === "string" ? parseInt(durationValue, 10) : Number(durationValue);
+  const duration = Number(durationValue);
   if (
     !Number.isInteger(duration)
     || duration < GROK_IMAGINE_VIDEO_15_PREVIEW_MIN_DURATION

@@ -1,3 +1,4 @@
+import { createGrokVideoControls } from './grok-video-controls.js?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI — Generate Lab page
    Standalone member workspace for existing image, video, and
@@ -261,9 +262,11 @@ function currentImageDimensionValue(ref, fallback, { min = 64, max = 2048 } = {}
     return parsed ?? fallback;
 }
 
+let grokVideoControls;
 function currentVideoEstimateValues(model = selectedModel()) {
     const controls = model.controls || {};
     const values = {
+        ...(model.id.startsWith("xai/grok-imagine-video") ? grokVideoControls?.values() : {}),
         duration: Number(refs.videoDuration?.value || model.defaults?.duration || 5),
     };
     if (controls.resolutionField === 'resolution') {
@@ -789,6 +792,8 @@ function syncVideoOptionState({ reset = false } = {}) {
     const watermarkToggle = refs.videoWatermark?.closest('.generate-lab__toggle');
 
     if (!isVideo) return;
+    if (!grokVideoControls) grokVideoControls=createGrokVideoControls({anchor:referenceField,de:document.documentElement.lang==='de',changed:updateActionState,pick:openGrokSources});
+    grokVideoControls.sync(model,state.busy);
 
     const supportsNegative = controls.supportsNegativePrompt === true;
     const supportsReference = controls.supportsImageInput === true;
@@ -802,7 +807,7 @@ function syncVideoOptionState({ reset = false } = {}) {
     const aspectValues = model.options?.[aspectField] || [];
 
     if (negativeField) negativeField.hidden = !supportsNegative;
-    if (referenceField) referenceField.hidden = !supportsReference;
+    if (referenceField) referenceField.hidden = !supportsReference || model.id.startsWith("xai/grok-imagine-video");
     if (audioToggle) audioToggle.hidden = !supportsAudio;
     if (watermarkToggle) watermarkToggle.hidden = !supportsWatermark;
     if (seedField) {
@@ -1163,7 +1168,7 @@ async function openReferenceAssetsPicker(request) {
     if (!requireMember()) return;
     if (!refs.assetsOverlay) return;
     const isImageRequest = request?.type === 'image';
-    const max = isImageRequest ? getImageReferencePickerMax(request.index) : 1;
+    const max = request?.type==='grok' ? request.max : isImageRequest ? getImageReferencePickerMax(request.index) : 1;
     if (max <= 0) {
         const limit = selectedImageReferenceLimit();
         setMessage(localeText('generateLab.assetReferencePickerMaxReached', {
@@ -1185,12 +1190,13 @@ async function openReferenceAssetsPicker(request) {
         if (!assetsBrowser) createAssetsBrowser();
         await assetsBrowser.startPickerMode({
             max,
-            isAssetCompatible: isCompatibleImageReferenceAsset,
+            isAssetCompatible: request?.type==='grok' && request.media==='video' ? asset=>asset.source_module==='video' || asset.asset_type==='video' : isCompatibleImageReferenceAsset,
             emptyMessage: localeText('generateLab.assetReferencePickerEmpty'),
             unsupportedMessage: localeText('generateLab.assetReferencePickerUnsupported'),
             fetchFailedMessage: localeText('generateLab.assetReferencePickerFetchFailed'),
             onApply: async (selection) => {
                 setMessage(localeText('generateLab.assetReferencePickerPreparing'), 'info');
+                if (request?.type==='grok') return request.onApply(selection);
                 const applied = isImageRequest
                     ? await applyImageAssetReferences(selection, request.index || 0)
                     : await applyVideoAssetReference(selection);
@@ -1843,7 +1849,7 @@ async function generateImage(prompt) {
             ...(currentModel.controls?.supportsOutputFormat ? {outputFormat: refs.imageOutputFormat?.value || currentModel.defaults?.outputFormat || 'png'} : {}),
             ...(currentModel.controls?.supportsBackground ? {background: refs.imageBackground?.value || currentModel.defaults?.background || 'auto'} : {}),
             referenceImages: selectedImageReferences(),
-        }, {durable:true,onAccepted:()=>setMessage(localeText('generation.accepted'),'info')});
+        }, {durable:true,headers:{'X-BITBI-Workspace':'generate-lab'},onAccepted:()=>setMessage(localeText('generation.accepted'),'info')});
     } else if (isDimensionedProvider) {
         const dimensions = currentModel.options?.dimensions || {};
         const payload = {
@@ -1865,9 +1871,9 @@ async function generateImage(prompt) {
         if (currentModel.controls?.supportsReferenceImages && referenceImages.length > 0) {
             payload.referenceImages = referenceImages;
         }
-        res = await apiAiGenerateImage(payload,{durable:true,onAccepted:()=>setMessage(localeText('generation.accepted'),'info')});
+        res = await apiAiGenerateImage(payload,{durable:true,headers:{'X-BITBI-Workspace':'generate-lab'},onAccepted:()=>setMessage(localeText('generation.accepted'),'info')});
     } else {
-        res = await apiAiGenerateImage(prompt, steps, seed, model,{durable:true,onAccepted:()=>setMessage(localeText('generation.accepted'),'info')});
+        res = await apiAiGenerateImage(prompt, steps, seed, model,{durable:true,headers:{'X-BITBI-Workspace':'generate-lab'},onAccepted:()=>setMessage(localeText('generation.accepted'),'info')});
     }
     if (!res.ok) return res;
     const data = res.data?.data || res.data || {};
@@ -1898,12 +1904,18 @@ async function generateImage(prompt) {
     return res;
 }
 
+async function openGrokSources(request) {
+    if (!requireMember()) return;
+    await openReferenceAssetsPicker({type:'grok',...request});
+}
+
 async function generateVideo(prompt) {
     const model = selectedModel();
     const controls = model.controls || {};
     const payload = {
         model: model.id,
         prompt,
+        ...(model.id.startsWith("xai/grok-imagine-video") ? grokVideoControls?.values() : {}),
         duration: Number(refs.videoDuration?.value || model.defaults?.duration || 5),
     };
     if (controls.resolutionField === 'resolution') {
@@ -1928,14 +1940,17 @@ async function generateVideo(prompt) {
         ? parseOptionalInteger(refs.videoSeed?.value, { min: 0, max: controls.maxSeed || 2147483647 })
         : null;
     if (seed !== null) payload.seed = seed;
-    if (controls.supportsImageInput && state.videoReferenceDataUri) payload.image_input = state.videoReferenceDataUri;
+    if (model.id.startsWith('xai/grok-imagine-video')) {
+        if (!grokVideoControls.valid()) return {ok:false,error:document.documentElement.lang==='de'?'Ein Originalvideo ist erforderlich.':'An original video is required.'};
+        Object.assign(payload,grokVideoControls.values());
+    } else if (controls.supportsImageInput && state.videoReferenceDataUri) payload.image_input = state.videoReferenceDataUri;
     const folderId = refs.folderSelect?.value || '';
     if (folderId) payload.folder_id = folderId;
 
     const res = await apiAiGenerateVideo(payload, {
         durable: true,
         onAccepted:()=>setMessage(localeText('generation.accepted'),'info'),
-        headers: { 'Idempotency-Key': createIdempotencyKey('generate-lab-video') },
+        headers: { 'X-BITBI-Workspace': 'generate-lab', 'Idempotency-Key': createIdempotencyKey('generate-lab-video') },
     });
     if (res.ok) {
         renderVideoResult(res.data?.data || res.data || {});
@@ -1957,7 +1972,7 @@ async function generateMusic(prompt) {
     const res = await apiAiGenerateMusic(payload, {
         durable: true,
         onAccepted:()=>setMessage(localeText('generation.accepted'),'info'),
-        headers: { 'Idempotency-Key': createIdempotencyKey('generate-lab-music') },
+        headers: { 'X-BITBI-Workspace': 'generate-lab', 'Idempotency-Key': createIdempotencyKey('generate-lab-music') },
     });
     if (res.ok) {
         renderMusicResult(res.data?.data || res.data || {});
@@ -2019,11 +2034,10 @@ async function handleGenerate() {
         return;
     }
 
-    const balanceAfter = res.data?.billing?.balance_after;
-    if (typeof balanceAfter === 'number') {
-        state.creditBalance = balanceAfter;
-        updateAccountPanel();
-        updateActionState();
+    // An Admin replay may contain an older balance: reload the actual payer.
+    if(state.user?.role==='admin')await loadQuota();
+    else if(typeof res.data?.billing?.balance_after==='number'){
+        state.creditBalance=res.data.billing.balance_after;updateAccountPanel();updateActionState();
     }
     const saved = Boolean(res.data?.data?.asset?.id);
     const success = saved && state.mediaType === 'image' ? localeText('generateLab.imageSaved') : state.mediaType === 'image'
@@ -2124,7 +2138,7 @@ async function loadQuota() {
         return;
     }
     try {
-        const quota = await apiAiGetQuota();
+        const quota = await apiAiGetQuota(state.user?.role==='admin'?{workspace:'generate-lab'}:{});
         state.creditBalance = typeof quota?.creditBalance === 'number' ? quota.creditBalance : null;
     } catch (error) {
         console.warn('Generate Lab quota load failed:', error);

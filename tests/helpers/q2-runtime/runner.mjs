@@ -32,7 +32,7 @@ export const runtimeSuites = Object.freeze([
 // Miniflare outbound denial and sanitized bindings are defense in depth, not an
 // invented attestation of that external OS boundary.
 export function selectedRuntimeSuites(suite) {
-  if (suite && !['member-generation','model-status','canvas'].includes(suite)) throw new Error('Unsupported native suite');
+  if (suite && !['member-generation','model-status','canvas','q4-stream'].includes(suite)) throw new Error('Unsupported native suite');
   return suite ? runtimeSuites.filter(([name]) => name === suite) : runtimeSuites;
 }
 

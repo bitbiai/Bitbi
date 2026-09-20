@@ -1404,14 +1404,16 @@ async function storeAiTextAssetPosterObject(env, {
 }) {
   const existing = await loadAiTextAssetPosterStorage(env, { userId, assetId });
   if (!existing) return null;
-  const generationReservation = posterClaim ? {...posterClaim,kind:'poster'} : null;
-  const claimTable = posterClaim?.table === 'canvas_video_processing' ? 'canvas_video_processing' : 'member_generation_jobs';
+  const publicPoster=posterClaim?.table==='homepage_hero_video_uploads';
+  const generationReservation = posterClaim && !publicPoster ? {...posterClaim,kind:'poster'} : null;
+  const claimTable = publicPoster ? 'homepage_hero_video_uploads' : posterClaim?.table === 'canvas_video_processing' ? 'canvas_video_processing' : 'member_generation_jobs';
+  const claimCondition = publicPoster ? 'poster_processing_token IS ? AND poster_locked_until>?' : "processing_token=? AND locked_until>? AND status='preview_pending'";
   if (posterClaim) {
     const live = await env.DB.prepare(`SELECT id FROM ${claimTable} WHERE id=? AND user_id=?
-      AND processing_token=? AND locked_until>? AND status='preview_pending'`).bind(posterClaim.id,userId,posterClaim.token,nowIso()).first();
+      AND ${claimCondition}`).bind(posterClaim.id,userId,posterClaim.token,nowIso()).first();
     if (!live) throw Object.assign(new Error('generation_claim_lost'),{code:'generation_claim_lost'});
     if (existing.poster_r2_key) return {r2Key:existing.poster_r2_key,width:existing.poster_width,height:existing.poster_height,sizeBytes:existing.poster_size_bytes};
-    r2Key = r2Key.replace(/\.([a-z]+)$/, `-${posterClaim.token}.$1`);
+    r2Key = r2Key.replace(/\.([a-z]+)$/, `-${posterClaim.token || "legacy"}.$1`);
   }
 
   const previousSizeBytes = await getExistingPosterSizeBytes(env, existing);
@@ -1450,7 +1452,7 @@ async function storeAiTextAssetPosterObject(env, {
 
     const updateResult = await env.DB.prepare(
       `UPDATE ai_text_assets SET poster_r2_key = ?, poster_width = ?, poster_height = ?, poster_size_bytes = ? WHERE id = ? AND user_id = ?
-       ${posterClaim ? `AND poster_r2_key IS NULL AND EXISTS(SELECT 1 FROM ${claimTable} WHERE id=? AND processing_token=? AND locked_until>? AND status='preview_pending')` : ''}`
+       ${posterClaim ? `AND poster_r2_key IS NULL AND EXISTS(SELECT 1 FROM ${claimTable} WHERE id=? AND ${claimCondition})` : ''}`
     ).bind(r2Key, width, height, outputSizeBytes, assetId, userId,...(posterClaim?[posterClaim.id,posterClaim.token,nowIso()]:[])).run();
 
     if (!updateResult?.meta?.changes) {

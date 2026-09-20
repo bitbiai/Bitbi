@@ -51,7 +51,8 @@ import { getAiCostOperationRegistryEntry } from "./ai-cost-operations.js";
 import { WorkerConfigError } from "./config.js";
 import { fetchWithGenerationTimeout } from "./generation-timeout.js";
 import { addDaysIso, nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
-import { resolveAdminAiGrokPreviewMediaSourcesForProvider } from "./admin-ai-video-sources.js";
+import { snapshotGrokVideoSources, resolveAdminAiGrokPreviewMediaSourcesForProvider } from "./admin-ai-video-sources.js";
+import { readGrokVideoOutput } from './grok-video-output.js';
 
 export const AI_VIDEO_JOBS_QUEUE_NAME = "bitbi-ai-video-jobs";
 export const AI_VIDEO_JOB_QUEUE_SCHEMA_VERSION = 1;
@@ -978,7 +979,7 @@ export async function createAdminAiVideoJob({
   const modelId = selection.model.id;
   assertAdminVideoPricingConfigured(modelId, payload);
   const requestHash = await sha256Hex(stableStringify(payload));
-  const inputJson = stableStringify(buildJobStoredInput(payload, modelId));
+  let inputJson;
   const existing = await findIdempotentJob(env, adminUser.id, AI_VIDEO_JOB_SCOPE_ADMIN, idempotencyKey);
   if (existing) {
     if (existing.request_hash !== requestHash) {
@@ -991,6 +992,8 @@ export async function createAdminAiVideoJob({
     return { job: existing, existing: true };
   }
 
+  const sources = await snapshotGrokVideoSources(env,adminUser,payload);
+  inputJson = stableStringify({...buildJobStoredInput(payload,modelId), ...(sources.length ? {_source_snapshots:sources} : {})});
   const now = nowIso();
   const budgetPolicy = await buildAdminVideoJobBudgetPolicyContext({
     adminUser,
@@ -1984,14 +1987,16 @@ async function ingestProviderVideoOutput(env, job, providerResult) {
   // D1 and R2 cannot share a transaction. A stale in-flight put must never
   // overwrite another claim's bytes; only the winning key is published in D1.
   if (!job.processing_token) throw staleJobExecutionError();
-  const output = await fetchRemoteAsset(env, providerResult.videoUrl, {
+  const fresh = await getAdminAiVideoJob(env,{id:job.user_id},job.id);
+  const uploaded = await readGrokVideoOutput(env,fresh);
+  const output = uploaded || await fetchRemoteAsset(env, providerResult.videoUrl, {
     maxBytes: VIDEO_OUTPUT_MAX_BYTES,
     allowedContentTypes: VIDEO_OUTPUT_CONTENT_TYPES,
     label: "video_output",
   });
   if (job.processing_token) await assertJobClaim(env, job);
-  const outputKey = videoOutputKey(job.id, job.user_id, job.processing_token);
-  await env.USER_IMAGES.put(outputKey, output.body, {
+  const outputKey = uploaded?.key || videoOutputKey(job.id, job.user_id, job.processing_token);
+  if (!uploaded) await env.USER_IMAGES.put(outputKey, output.body, {
     httpMetadata: { contentType: output.contentType },
   });
 
@@ -2296,7 +2301,7 @@ async function processClaimedAiVideoJob(env, body, { messageAttempts, startedAt,
       parsedInput,
       {
         correlationId: payload.correlationId,
-        jobId: job.id,
+        jobId: job.id, prepareOutput: !storedProviderResult,
       }
     );
   } catch (error) {

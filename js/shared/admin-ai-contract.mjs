@@ -1057,10 +1057,13 @@ const VIDEO_MODELS = {
     generationEnabled: true,
     unavailableCode: null,
     unavailableMessage: null,
-    supportedOperations: ["generate"],
-    supportsImageInput: false,
-    supportsReferenceImages: false,
-    maxReferenceImages: 0,
+    supportedOperations: GROK_IMAGINE_VIDEO_15_PREVIEW_OPERATIONS,
+    availableOperations: Object.freeze(["generate"]),
+    supportsImageInput: true,
+    supportsVideoInput: true,
+    supportsSize: true,
+    supportsReferenceImages: true,
+    maxReferenceImages: GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_REFERENCE_IMAGES,
     supportsEndImage: false,
     supportsNegativePrompt: false,
     supportsSeed: false,
@@ -1098,11 +1101,12 @@ const VIDEO_MODELS = {
     unavailableCode: null,
     unavailableMessage: null,
     supportedOperations: GROK_IMAGINE_VIDEO_15_PREVIEW_OPERATIONS,
+    availableOperations: Object.freeze(["generate"]),
     supportsImageInput: true,
     supportsVideoInput: true,
     supportsReferenceImages: true,
     maxReferenceImages: GROK_IMAGINE_VIDEO_15_PREVIEW_MAX_REFERENCE_IMAGES,
-    supportsOutputUploadUrl: true,
+    supportsOutputUploadUrl: false,
     supportsSize: true,
     supportsEndImage: false,
     supportsNegativePrompt: false,
@@ -1123,7 +1127,7 @@ const VIDEO_MODELS = {
     defaultResolution: GROK_IMAGINE_VIDEO_15_PREVIEW_DEFAULT_RESOLUTION,
     defaultGenerateAudio: false,
     defaultPreset: "video_grok_imagine_15_preview",
-    description: "Admin-only xAI Grok Imagine Video 1.5 Preview via Cloudflare AI Gateway Unified Billing with generate, edit, and extend operations.",
+    description: "Admin-only xAI Grok Imagine Video 1.5 Preview via Cloudflare AI Gateway Unified Billing with generation; Edit and Extend await route-specific billing verification.",
   },
 };
 
@@ -1949,6 +1953,7 @@ function toPublicModel(model) {
       resolutionOptions: Array.isArray(model.allowedResolutions) ? [...model.allowedResolutions] : [],
       sizeOptions: Array.isArray(model.allowedSizes) ? [...model.allowedSizes] : [],
       supportedOperations: Array.isArray(model.supportedOperations) ? [...model.supportedOperations] : [],
+      availableOperations: [...(model.availableOperations || model.supportedOperations || [])],
       defaultDuration: model.defaultDuration || 5,
       defaultAspectRatio: model.defaultAspectRatio || "16:9",
       defaultQuality: model.defaultQuality || "720p",
@@ -3139,7 +3144,7 @@ export function validateAdminAiVideoBody(body, options = {}) {
     };
   }
 
-  if (selectedModel.id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID) {
+  if ([ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID, ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].includes(selectedModel.id)) {
     assertOnlyAllowedFields(
       input,
       [
@@ -3160,6 +3165,7 @@ export function validateAdminAiVideoBody(body, options = {}) {
         "videoInput",
         "source_image",
         "sourceImage",
+        "source_images",
         "source_video",
         "sourceVideo",
         "reference_images",
@@ -3214,6 +3220,12 @@ export function validateAdminAiVideoBody(body, options = {}) {
       firstNonEmptyValue(input.source_video, input.sourceVideo),
       "source_video"
     );
+    const source_images = input.source_images === undefined ? [] : input.source_images;
+    if (!Array.isArray(source_images) || source_images.length > selectedModel.maxReferenceImages) {
+      throw new AdminAiValidationError("Too many reference images.", 400, "validation_error");
+    }
+    const sources = source_images.map(source => normalizeGrokPreviewSourceImage(source, "source_images"));
+    if (sources.some(source => !source)) throw new AdminAiValidationError("Every reference must identify an owned or published image.", 400, "validation_error");
     const reference_images = optionalGrokPreviewReferenceImages(
       firstNonEmptyValue(input.reference_images, input.referenceImages),
       "reference_images",
@@ -3257,21 +3269,6 @@ export function validateAdminAiVideoBody(body, options = {}) {
         "validation_error"
       );
     }
-    if (operation === "generate" && !allowResolvedGrokPreviewMediaUrls && !source_image) {
-      throw new AdminAiValidationError(
-        "Grok Imagine Video 1.5 Preview requires an internal image source for generate. Text-only video generation is not supported by the provider.",
-        400,
-        "validation_error"
-      );
-    }
-    if (operation === "generate" && allowResolvedGrokPreviewMediaUrls && !image) {
-      throw new AdminAiValidationError(
-        "image.url is required for generate operations.",
-        400,
-        "validation_error"
-      );
-    }
-
     if ((operation === "edit" || operation === "extend") && source_image) {
       throw new AdminAiValidationError(
         "source_image is only supported for generate operations.",
@@ -3313,7 +3310,7 @@ export function validateAdminAiVideoBody(body, options = {}) {
     const hasImageInput = allowResolvedGrokPreviewMediaUrls ? !!image : !!source_image;
     const hasVideoInput = allowResolvedGrokPreviewMediaUrls ? !!video : !!source_video;
     try {
-      calculateGrokImagineVideo15PreviewCreditPricing({
+      (model === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID ? calculateGrokImagineVideoCreditPricing : calculateGrokImagineVideo15PreviewCreditPricing)({
         _operation: operation,
         duration,
         aspect_ratio,
@@ -3321,7 +3318,7 @@ export function validateAdminAiVideoBody(body, options = {}) {
         size,
         hasImageInput,
         hasVideoInput,
-        referenceImageCount: allowResolvedGrokPreviewMediaUrls ? reference_images.length : 0,
+        referenceImageCount: allowResolvedGrokPreviewMediaUrls ? reference_images.length : sources.length,
         outputUploadUrlPresent: !!output,
       });
     } catch {
@@ -3347,75 +3344,9 @@ export function validateAdminAiVideoBody(body, options = {}) {
     if (!allowResolvedGrokPreviewMediaUrls && source_image) validated.source_image = source_image;
     if (!allowResolvedGrokPreviewMediaUrls && source_video) validated.source_video = source_video;
     if (allowResolvedGrokPreviewMediaUrls && reference_images.length > 0) validated.reference_images = reference_images;
-    if (output) validated.output = output;
-    if (user) validated.user = user;
+    if (output || user) throw new AdminAiValidationError("Provider infrastructure fields are not generation controls.", 400, "validation_error");
+    if (!allowResolvedGrokPreviewMediaUrls && sources.length) validated.source_images = sources;
     return validated;
-  }
-
-  if (selectedModel.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID) {
-    assertOnlyAllowedFields(
-      input,
-      [
-        "preset",
-        "model",
-        "prompt",
-        "_operation",
-        "duration",
-        "aspect_ratio",
-        "resolution",
-      ],
-      selectedModel.id
-    );
-
-    const operation = optionalEnum(
-      input._operation,
-      "_operation",
-      ["generate"],
-      "generate"
-    );
-    const prompt = requiredString(input.prompt, "prompt", selectedModel.maxPromptLength);
-    const duration = optionalInteger(
-      input.duration,
-      "duration",
-      selectedModel.minDuration,
-      selectedModel.maxDuration,
-      selectedModel.defaultDuration
-    );
-    const aspect_ratio = optionalEnum(
-      input.aspect_ratio,
-      "aspect_ratio",
-      selectedModel.allowedAspectRatios,
-      selectedModel.defaultAspectRatio
-    );
-    const resolution = optionalEnum(
-      input.resolution,
-      "resolution",
-      selectedModel.allowedResolutions,
-      selectedModel.defaultResolution
-    );
-    try {
-      calculateGrokImagineVideoCreditPricing({
-        duration,
-        aspect_ratio,
-        resolution,
-      });
-    } catch {
-      throw new AdminAiValidationError(
-        selectedModel.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE,
-        409,
-        selectedModel.unavailableCode || ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE
-      );
-    }
-
-    return {
-      preset,
-      model,
-      prompt,
-      _operation: operation,
-      duration,
-      aspect_ratio,
-      resolution,
-    };
   }
 
   if (selectedModel.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) {
