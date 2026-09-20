@@ -1942,6 +1942,13 @@ export const ROUTE_POLICIES = Object.freeze([
     notes: "HEAD only returns metadata for the exact token-scoped internal source. It does not expose R2 keys, signed provider URLs, cookies, or private storage paths.",
   }),
   policy({
+    id:'internal.ai.h3-callback',method:'POST',path:'/api/internal/ai/h3-callback/:token',owner:'admin-ai',
+    auth:'anonymous',csrf:'not-browser-facing',sensitivity:'high',config:REQUIRED_CONFIG.adminAiVideoSource,
+    body:{kind:'json',maxBytesName:'smallJson',contentType:'application/json'},
+    rateLimit:{noneReason:'Job-bound HMAC, bounded receipt, immutable task identity and terminal outcome; no inference.'},
+    providerSignature:'hmac-token-path',notes:'Internal H3 callback destination; active accepted jobs only. No user-selected URL or storage key.',
+  }),
+  policy({
     id:'internal.ai.video-output',method:'PUT',path:'/api/internal/ai/video-output/:token',owner:'admin-ai',
     auth:'anonymous',csrf:'not-browser-facing',sensitivity:'high',config:REQUIRED_CONFIG.adminAiVideoSource,
     body:{kind:'raw',maxBytesName:'homepageHeroVideoUpload',contentType:'video/mp4'},

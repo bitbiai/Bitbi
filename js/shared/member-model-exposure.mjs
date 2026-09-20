@@ -1,3 +1,4 @@
+import { H3_MODEL } from './minimax-h3.mjs';
 import { GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID, GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_LABEL } from './grok-imagine-video-15-preview-pricing.mjs';
 /* ============================================================
    BITBI — Member model exposure contract
@@ -44,6 +45,7 @@ const MEMBER_IMAGE_MODEL_EXPOSURE = Object.freeze(
 );
 
 const MEMBER_NON_IMAGE_MODEL_EXPOSURE = Object.freeze([
+    Object.freeze({id:H3_MODEL,mediaType:'video',label:'MiniMax H3',vendor:'MiniMax'}),
     Object.freeze({
         id: PIXVERSE_V6_MODEL_ID,
         mediaType: 'video',

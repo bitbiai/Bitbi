@@ -20381,6 +20381,8 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('label:has(#aiVideoGenerateAudio)')).toBeVisible();
   });
 
+  test('@canvas-model-ui H3 Admin roles and durable controls',({page})=>require('./helpers/h3-model-controls.cjs').adminControls({page,expect,mockAdminAiLab,clickAiLabMode}));
+
   test('@canvas-model-ui Grok Imagine Video shows only supported controls and sends a sanitized async payload', async ({
     page,
   }) => {

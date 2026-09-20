@@ -1,3 +1,4 @@
+import { H3_MODEL, H3_ROLES, H3_RESOLUTIONS, H3_RATIOS } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { getAdminAiVideoModelSpec } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI — Generate Lab model registry
@@ -429,7 +430,17 @@ const music26Model = Object.freeze({
     estimateCredits: ({ generateLyrics }) => estimateModelCredits('music', MUSIC_26_MODEL_ID, { generateLyrics }),
 });
 
+const h3Model = Object.freeze({
+    id:H3_MODEL,displayName:'MiniMax H3',mediaType:'video',provider:'MiniMax / Cloudflare',route:'/api/ai/generate-video',outputType:'video',status:'LIVE',
+    summary:DE?'Video aus Text, Anfangs-/Endbild oder Bild-, Video- und Audioreferenzen.':'Video from text, first/last frames or image, video and audio references.',
+    capabilities:DE?['Text zu Video','Anfangs- und Endbild','Bild-, Video- und Audioreferenzen']:['Text to video','First and last frames','Image, video and audio references'],
+    defaults:{duration:5,resolution:'768P',aspectRatio:'16:9'},
+    options:{duration:{min:4,max:15},resolution:H3_RESOLUTIONS,aspectRatio:H3_RATIOS},
+    controls:{supportsImageInput:true,supportsVideoInput:true,supportsAudioInput:true,supportsReferenceImages:true,referenceRoles:H3_ROLES,maxReferenceImages:9,maxPromptLength:7000,resolutionField:'resolution',aspectField:'aspectRatio'},
+    estimateCredits:values=>estimateModelCredits('video',H3_MODEL,{...values,aspect_ratio:values.aspectRatio}),
+});
 const modelDefinitions = Object.freeze([
+    h3Model,
     ...imageModels,
     pixverseV6Model,
     happyHorseT2vModel,

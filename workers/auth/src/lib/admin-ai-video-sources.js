@@ -1,3 +1,7 @@
+import { H3_MODEL, h3References, h3MediaType } from '../../../../js/shared/minimax-h3.mjs';
+import { inspectH3TimeReference, validateH3Dimensions } from './h3-reference-metadata.js';
+import { prepareH3Callback } from './minimax-h3-callback.js';
+import { generationExecution } from './member-generation-jobs.js';
 import { GROK_IMAGE_2 } from '../../../../js/shared/grok-imagine-image-2-pricing.mjs';
 import {
   AdminAiValidationError, getAdminAiVideoModelSpec,
@@ -121,11 +125,12 @@ function safeEqualString(left, right) {
 
 function normalizeMediaType(value) {
   const media = String(value || "video").trim().toLowerCase();
-  return media === "image" || media === "video" ? media : "video";
+  return media === "image" || media === "video" || media === "audio" ? media : "video";
 }
 
 function normalizeSourceType(value, mediaType = "video") {
   const type = String(value || "").trim();
+  if (mediaType === "audio") return type === "saved_asset" ? type : "";
   if (mediaType === "image") return type === "saved_asset" || type === "mempic" ? type : "";
   return type === "saved_asset" || type === "memvid" ? type : "";
 }
@@ -271,6 +276,7 @@ function assertSupportedObjectContentType(mediaType, contentType) {
   if (mediaType === "image" && !SUPPORTED_IMAGE_MIME_TYPES.has(normalized)) {
     throw new AdminAiVideoSourceError("Image source MIME type is not supported.", { status: 400, code: "unsupported_image_source" });
   }
+  if (mediaType === "audio" && !["audio/mpeg","audio/wav","audio/x-wav"].includes(normalized)) throw new AdminAiVideoSourceError("Unsupported audio source.",{status:400,code:"unsupported_audio_source"});
   if (mediaType === "video" && !SUPPORTED_VIDEO_MIME_TYPES.has(normalized)) {
     throw new AdminAiVideoSourceError("Video source MIME type is not supported.", { status: 400, code: "unsupported_video_source" });
   }
@@ -496,6 +502,11 @@ async function getMempicSource(env, assetId) {
 }
 
 async function getSourceRow(env, sourceRef, adminUserId) {
+  if(sourceRef.media_type === 'audio') {
+    const row=await env.DB.prepare("SELECT * FROM ai_text_assets WHERE id=? AND user_id=? AND source_module='music' AND r2_key IS NOT NULL").bind(sourceRef.asset_id,adminUserId).first();
+    if(!row)throw new AdminAiVideoSourceError('Audio source not found.',{status:404,code:'audio_source_not_found'});
+    return row;
+  }
   if (sourceRef.media_type === "image") {
     return sourceRef.source_type === "saved_asset"
       ? getSavedImageSource(env, adminUserId, sourceRef.asset_id)
@@ -574,14 +585,16 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
   const mediaType = isLegacyVideoToken ? "video" : String(payload.media || "").trim().toLowerCase();
   const operation = String(payload.operation || "").trim();
   const modelId = String(payload.model || "").trim();
+  const isH3 = modelId===H3_MODEL;
   const isGrokVideoModel = [ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID, ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].includes(modelId);
   const isGrokImageModel = [ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,GROK_IMAGE_2.id].includes(modelId);
   const isGrokImageOperation = operation === "image_generate" || operation === "generate";
   if (
     payload.v !== ADMIN_AI_VIDEO_SOURCE_TOKEN_VERSION ||
     (payload.purpose !== ADMIN_AI_MEDIA_SOURCE_TOKEN_PURPOSE && !isLegacyVideoToken) ||
-    (!isGrokVideoModel && !isGrokImageModel) ||
-    !["image", "video"].includes(mediaType) ||
+    (!isGrokVideoModel && !isGrokImageModel && !isH3) ||
+    !["image", "video", ...(isH3?["audio"]:[])].includes(mediaType) ||
+    (isH3 && (operation!=="generate" || !payload.job_id || payload.source_type!=="saved_asset")) ||
     (isGrokVideoModel && !["generate", "edit", "extend"].includes(operation)) ||
     (isGrokVideoModel && operation === "generate" && mediaType !== "image") ||
     (isGrokVideoModel && (operation === "edit" || operation === "extend") && mediaType !== "video" && !String(payload.source_role || "").startsWith("reference_images.")) ||
@@ -594,7 +607,7 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
   if (isLegacyVideoToken && operation !== "extend") {
     throw new AdminAiVideoSourceError("Invalid media source token.", { status: 403, code: "invalid_media_source_token" });
   }
-  if (!(isGrokVideoModel && payload.job_id && payload.exp === 0) && (!Number.isFinite(Number(payload.exp)) || Number(payload.exp) <= now)) {
+  if (!((isGrokVideoModel || isH3) && payload.job_id && payload.exp === 0) && (!Number.isFinite(Number(payload.exp)) || Number(payload.exp) <= now)) {
     throw new AdminAiVideoSourceError("Media source token expired.", { status: 410, code: "media_source_token_expired" });
   }
   return {
@@ -605,7 +618,7 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
     source_role: typeof payload.source_role === "string" && payload.source_role ? payload.source_role : null,
     model: modelId,
     user_id: typeof payload.user_id === "string" && payload.user_id ? payload.user_id : null,
-    pinned_job: isGrokVideoModel && payload.exp === 0,
+    pinned_job: (isGrokVideoModel || isH3) && payload.exp === 0,
     job_id: typeof payload.job_id === "string" && payload.job_id ? payload.job_id : null,
   };
 }
@@ -725,6 +738,7 @@ export function isGrokVideo(model) {
 }
 
 function grokSourceReferences(payload) {
+  if(payload.model===H3_MODEL)return h3References(payload.references).map((ref,i)=>[`h3.${i}.${ref.role}`,{...ref.source,media_type:h3MediaType(ref.role)}]);
   const refs = [];
   if (payload.source_image) refs.push(['image', normalizeAdminAiMediaSourceReference(payload.source_image, 'image')]);
   if (payload.source_video) refs.push(['video', normalizeAdminAiMediaSourceReference(payload.source_video, 'video')]);
@@ -735,19 +749,32 @@ function grokSourceReferences(payload) {
 // Authorize before accepting/reserving; snapshots are server-owned and pin the
 // exact existing bytes while the accepted job needs them, even after deletion.
 export async function snapshotGrokVideoSources(env, user, payload) {
-  if (!isGrokVideo(payload.model)) return [];
+  if (!isGrokVideo(payload.model) && payload.model!==H3_MODEL) return [];
   if (!getAdminAiVideoModelSpec(payload.model).availableOperations.includes(payload._operation || 'generate')) {
     throw new AdminAiVideoSourceError('Edit and Extend are temporarily unavailable pending exact-route billing verification.', {status:409,code:'video_operation_billing_unverified'});
   }
   const snapshots = [];
+  const h3Totals={video:0,audio:0};
   for (const [role, ref] of grokSourceReferences(payload)) {
     const row = await getSourceRow(env, ref, user.id);
     const head = await env.USER_IMAGES.head(row.r2_key);
-    if (!head || !head.etag || head.size > (ref.media_type === 'video' ? 80_000_000 : 10_000_000)) {
+    if (!head || !head.etag || head.size > (payload.model===H3_MODEL ? {video:50_000_000,audio:15_000_000,image:30_000_000}[ref.media_type] : ref.media_type === 'video' ? 80_000_000 : 10_000_000)) {
       throw new AdminAiVideoSourceError('Source media is unavailable or too large.', {code:'media_source_unavailable'});
     }
     const mime = head.httpMetadata?.contentType || row.mime_type || 'image/png';
     assertSupportedObjectContentType(ref.media_type, mime);
+    if(payload.model===H3_MODEL) {
+      if(await env.DB.prepare('SELECT id FROM member_generation_unready_assets WHERE id=?').bind(row.id).first())throw new AdminAiVideoSourceError('Source is not ready.',{status:409,code:'h3_source_not_ready'});
+      const object=await env.USER_IMAGES.get(row.r2_key,{onlyIf:{etagMatches:head.etag}});
+      if(!object?.body)throw new AdminAiVideoSourceError('Source changed.',{code:'media_source_changed'});
+      const bytes=new Uint8Array(await new Response(object.body).arrayBuffer());
+      if(ref.media_type==='image')validateH3Dimensions(await env.IMAGES.info(bytes));
+      else {
+        const metadata=inspectH3TimeReference(bytes,ref.media_type,mime);
+        h3Totals[ref.media_type]+=metadata.duration;
+        if(h3Totals[ref.media_type]>15)throw new AdminAiVideoSourceError('H3 reference clips must total at most 15 seconds per media type.',{code:'h3_reference_duration'});
+      }
+    }
     snapshots.push({...ref, role, r2_key:row.r2_key, etag:head.etag, size_bytes:head.size, mime_type:mime});
   }
   return snapshots;
@@ -756,6 +783,17 @@ export async function snapshotGrokVideoSources(env, user, payload) {
 export async function resolveAdminAiGrokPreviewMediaSourcesForProvider(env, adminUser, payload, {
   jobId = null, origin = null, prepareOutput = false,
 } = {}) {
+  if(payload?.model===H3_MODEL) {
+    if(!jobId)throw new AdminAiVideoSourceError('A durable H3 job is required.',{code:'h3_durable_job_required'});
+    const content=[{type:'text',text:payload.prompt}];
+    for(const [role,ref] of grokSourceReferences(payload)) {
+      const token=await createMediaSourceToken(env,ref,{model:H3_MODEL,operation:'generate',sourceRole:role,userId:adminUser.id,jobId,expiresAt:0});
+      const key=`${ref.media_type}_url`;
+      content.push({type:key,[key]:{url:`${getProviderOrigin(env,origin)}/api/internal/ai/media-source/${encodeURIComponent(token)}`},role:role.split('.')[2]});
+    }
+    const h3_callback=await prepareH3Callback(env,{kind:generationExecution(env)?'member':'admin',id:jobId,userId:adminUser.id});
+    return {...stripPreviewMediaSourceFields(payload),h3_content:content,h3_callback};
+  }
   if (!isGrokVideo(payload?.model)) return payload;
   if (!jobId && !getAdminAiVideoModelSpec(payload.model).availableOperations.includes(payload._operation || 'generate')) {
     throw new AdminAiVideoSourceError('Operation billing is not verified.', {status:409,code:'video_operation_billing_unverified'});

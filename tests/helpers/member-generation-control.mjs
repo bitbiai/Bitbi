@@ -16,7 +16,7 @@ function interceptDb(db, intercept, interceptBatch = (_, execute) => execute()) 
 }
 
 export async function memberGenerationCase(nativeEnv,name,fixture={}) {
-  if(!name.startsWith('clock-')) return runMemberGenerationCase(nativeEnv,name,fixture);
+  if(!name.startsWith('clock-')&&!name.startsWith('h3-callback')) return runMemberGenerationCase(nativeEnv,name,fixture);
   const RealDate=globalThis.Date;
   let offset=0;
   globalThis.Date=class extends RealDate {
@@ -40,7 +40,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET:'synthetic-member-poster-secret-not-live',
     AI_VIDEO_JOBS_QUEUE:{async send(body){messages.push(body);}},
     AI_IMAGE_DERIVATIVES_QUEUE:{async send(){}},
-    AI:{async run(model,payload){calls.provider++;await duringProvider(model,payload);if(model.startsWith('xai/grok-imagine-video'))try{await verifyGrokOutputUpload(env,payload,videoBytes);}catch(error){calls.fixtureFailure=error.message;throw error;}if(kind==='image'||kind==='music')return {image:model==='xai/grok-imagine-image-2.0'?`data:image/png;base64,${fixture.imageBase64||png}`:fixture.imageBase64||png};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');return {video_url:'https://fixture.invalid/member.mp4'};}},
+    AI:{async run(model,payload){calls.provider++;await duringProvider(model,payload);if(model.startsWith('xai/grok-imagine-video'))try{await verifyGrokOutputUpload(env,payload,videoBytes);}catch(error){calls.fixtureFailure=error.message;throw error;}if(kind==='image'||kind==='music')return {image:model==='xai/grok-imagine-image-2.0'?`data:image/png;base64,${fixture.imageBase64||png}`:fixture.imageBase64||png};if(model==='minimax/h3')return {task:{id:'synthetic-h3-'+name,model:'MiniMax-H3',status:name.startsWith('h3-callback')?'queued':name==='h3-failed'?'failed':'succeeded',resolution:payload.resolution,duration:payload.duration,content:{url:'https://fixture.invalid/member.mp4'},usage:{output_seconds:name==='h3-output-usage'?4:payload.duration,input_seconds:99,total_seconds:104}}};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');return {video_url:'https://fixture.invalid/member.mp4'};}},
     AI_SERVICE_AUTH_SECRET:'synthetic-service-secret-not-live',
     AI_LAB:{async fetch(){calls.provider++;if(name==='music-failed')return Response.json({ok:false,code:'provider_rejected',error:'Synthetic confirmed rejection'},{status:422,headers:{'x-bitbi-provider-outcome':'failed'}});return Response.json({ok:true,result:{audioBase64:'SUQzBAAAAAAA',mimeType:'audio/mpeg',mode:'song',durationMs:1000},model:{id:'minimax/music-2.6'},preset:'music_studio'});}},
     __TEST_FETCH:async()=>{calls.download++;return new Response(videoBytes,{headers:{'Content-Type':'video/mp4'}});},
@@ -95,7 +95,12 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const input=fixture.input || (kind==='video'?{prompt:'Synthetic backend-only fixture',duration:5,quality:'720p',generate_audio:true}:kind==='image'?{prompt:'Synthetic backend-only image'}:{prompt:'Synthetic instrumental track',instrumental:true});
   if(name.startsWith('asset-naming-')) input.prompt='a  little worm in a pile of leaves';
   if(name.startsWith('asset-naming-') && name.includes('manual')) input.title='My deliberately long manual video name';
-  let sourceUrl=null;
+  let sourceUrl=null,callbackUrl=null;
+  if(input.model==='minimax/h3')duringProvider=async(model,payload)=>{
+    check(model===input.model && payload.content[0].text===input.prompt,'H3 exact alias and content');
+    check(payload.resolution===input.resolution || payload.resolution==='768P','H3 actual resolution');
+    callbackUrl=payload.callback_url;check(new URL(callbackUrl).pathname.startsWith('/api/internal/ai/h3-callback/'),'Internal completion destination');
+  };
   if(fixture.input?.model?.startsWith('xai/grok-imagine-video') && fixture.input._operation!=='generate') {
     const sourceId=(await sha256Hex(`source-${name}`)).slice(0,32), key=`users/${owner}/video/source.mp4`;
     await nativeEnv.USER_IMAGES.put(key,videoBytes,{httpMetadata:{contentType:'video/mp4'}});
@@ -109,6 +114,31 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
       check(response.ok && (await response.arrayBuffer()).byteLength===videoBytes.length,'Accepted source remains accessible to provider after owner deletion');
       const held=await db.prepare('SELECT r2_key FROM r2_cleanup_live_references WHERE r2_key=?').bind(key).first();
       check(Boolean(held),'Native managed cleanup retains the accepted source');
+    };
+  }
+  if(name==='h3-references') {
+    const image=bytes(fixture.h3ImageBase64),video=bytes(fixture.h3VideoBase64),audio=new Uint8Array(64044),view=new DataView(audio.buffer);
+    const text=(offset,value)=>audio.set(new TextEncoder().encode(value),offset);
+    text(0,'RIFF');view.setUint32(4,audio.length-8,true);text(8,'WAVEfmt ');view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);view.setUint32(24,16000,true);view.setUint32(28,32000,true);view.setUint16(32,2,true);view.setUint16(34,16,true);text(36,'data');view.setUint32(40,64000,true);
+    input.references=[];const sourceKeys=[];
+    for(const [media,data,mime] of [['image',image,'image/png'],['video',video,'video/mp4'],['audio',audio,'audio/wav']]) {
+      const assetId=(await sha256Hex('h3-'+media)).slice(0,32),key=`users/${owner}/source-${media}`;sourceKeys.push(key);
+      await env.USER_IMAGES.put(key,data,{httpMetadata:{contentType:mime}});
+      if(media==='image')await db.prepare("INSERT INTO ai_images(id,user_id,prompt,model,r2_key,size_bytes,created_at) VALUES(?,?,?,'synthetic',?,?,?)").bind(assetId,owner,'Synthetic frame',key,data.length,now).run();
+      else await db.prepare("INSERT INTO ai_text_assets(id,user_id,title,file_name,mime_type,size_bytes,r2_key,source_module,created_at) VALUES(?,?,?,'source',?,?,?,?,?)").bind(assetId,owner,'Synthetic reference',mime,data.length,key,media==='audio'?'music':'video',now).run();
+      input.references.push({role:'reference_'+media,source:{source_type:'saved_asset',asset_id:assetId}});
+    }
+    const foreign=await fetch('/api/ai/generate-video',{method:'POST',headers:{...headers,'Idempotency-Key':'h3-foreign'},body:JSON.stringify({...input,references:[{role:'reference_audio',source:{source_type:'saved_asset',asset_id:'foreign-missing'}}]})});
+    check(foreign.status===404&&calls.provider===0,'Unowned references rejected before provider');
+    duringProvider=async(model,payload)=>{
+      check(payload.content.map(c=>c.role||'text').join(',')==='text,reference_image,reference_video,reference_audio','Reference order and distinct roles preserved');
+      for(let i=0;i<3;i++) {
+        const entry=payload.content[i+1],url=entry[entry.type].url;
+        const res=await fetch(new URL(url).pathname);check(res.ok,'Pinned source privately readable by provider');
+        const expected=[image,video,audio][i],actual=new Uint8Array(await res.arrayBuffer());
+        check(actual.length===expected.length&&actual.every((v,j)=>v===expected[j]),'Exact original reference bytes, not poster');
+        check(await db.prepare('SELECT r2_key FROM r2_cleanup_live_references WHERE r2_key=?').bind(sourceKeys[i]).first(),'Accepted job owns cleanup fence');
+      }
     };
   }
   const body=JSON.stringify(input);
@@ -185,6 +215,24 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check(messages.length===1,'Scheduled repair recovers durable acceptance without browser polling');
     await Promise.all([deliver(),deliver()]);
   } else await deliver();
+  if(name.startsWith('h3-callback')) {
+    check((await row()).status==='outcome_unknown','Queued H3 is unresolved, not complete');
+    const attempts=(await row()).attempt_count;fixture.advance(5*60_000);
+    await worker.scheduled({cron:'*/5 * * * *'},env,{waitUntil(){throw new Error('Recovery must be awaited');}});await deliver();
+    check(calls.provider===1&&(await row()).attempt_count===attempts,'Waiting H3 task neither polls inference nor exhausts retries');
+    const path=new URL(callbackUrl).pathname;
+    const notify=body=>fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const forged=await fetch(path+'0',{method:'POST',body:'{}'});check(forged.status===403,'Callback HMAC is mandatory');
+    const challenge=await notify({challenge:'synthetic'});check(challenge.ok&&(await challenge.json()).challenge==='synthetic','Provider challenge is authenticated');
+    const task={id:'synthetic-h3-'+name,model:'MiniMax-H3',status:'running',resolution:'768P',usage:{output_seconds:5}};
+    check((await notify({task})).ok,'Persist running task receipt');
+    check((await notify({task:{...task,id:'foreign-task'}})).status===409,'Different provider task cannot replace original');
+    task.status=name==='h3-callback-failed'?'failed':'succeeded';if(task.status==='succeeded')task.content={url:'https://fixture.invalid/member.mp4'};
+    check((await notify({task})).ok,'Completion resumes original accepted job');
+    check((await notify({task})).ok,'Duplicate callback is idempotent');
+    await db.prepare("UPDATE member_generation_jobs SET next_attempt_at='2000-01-01T00:00:00.000Z',locked_until=NULL WHERE id=?").bind(id).run();
+    await deliver();check(calls.provider===1,'Callback never regenerates paid video');
+  }
   if(['clock-lease-expired','clock-credit-expired'].includes(name)) {
     fixture.advance(61_000);
     await worker.scheduled({cron:'*/5 * * * *'},env,{waitUntil(){throw new Error('Scheduled recovery must be awaited');}});
@@ -210,7 +258,11 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check((await row()).status==='preview_pending',`Lease recovery: ${(await row()).status} ${(await row()).error_code}`);
   }
   check(internalLimitCalls===0,'Durably accepted execution does not consume the browser HTTP throttle again');
-  if(name==='music-failed') {
+  if(name==='h3-output-usage') {
+    const debit=await db.prepare('SELECT amount FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
+    check(debit?.amount===-calculateAiVideoCreditCost('minimax/h3',{duration:4,resolution:'768P'}).credits,'Settlement uses output seconds, not input/total seconds');
+  }
+  if(['music-failed','h3-failed','h3-callback-failed'].includes(name)) {
     await deliver();
     const usage=await db.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=?').bind((await row()).usage_attempt_id).first();
     const credits=await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
@@ -327,7 +379,9 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const finished=await db.prepare('SELECT * FROM ai_text_assets WHERE id=?').bind(id).first();
   check(Boolean(await nativeEnv.USER_IMAGES.get(finished.poster_r2_key)),'Native poster bytes retained');
   const status=await fetch(`/api/ai/generation-jobs/${id}`,{headers:{Cookie:`bitbi_session=${owner}`}});
-  check(status.ok && (await status.json()).data.job.status==='succeeded','Later session sees completion');
+  const completedPayload=await status.json();
+  check(status.ok && completedPayload.data.job.status==='succeeded','Later session sees completion');
+  if(name==='h3-output-usage')check(completedPayload.data.result.billing.credits_charged===calculateAiVideoCreditCost('minimax/h3',{duration:4,resolution:'768P'}).credits,'Restored result reports the actual output charge, not the reservation');
   const denied=await fetch(`/api/ai/generation-jobs/${id}`,{headers:{Cookie:`bitbi_session=${owner}-other`}});
   check(denied.status===404,'Foreign user cannot inspect job');
   const ownedList=await fetch('/api/ai/assets',{headers:{Cookie:`bitbi_session=${owner}`}});
@@ -337,7 +391,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const credits=await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
   check(credits.n===1 && calls.provider===1,'One successful generation debit, no poster debit');
   if(input.model?.startsWith('xai/grok-imagine-video')){const debit=await db.prepare('SELECT amount FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();check(debit.amount===-calculateAiVideoCreditCost(input.model,input).credits,'Admin personal payer is charged the central model estimate once');}
-  check((await db.prepare('SELECT COUNT(*) AS n FROM ai_text_assets WHERE user_id=?').bind(owner).first()).n===1,'Exactly one owner asset');
+  check((await db.prepare('SELECT COUNT(*) AS n FROM ai_text_assets WHERE user_id=?').bind(owner).first()).n===(name==='h3-references'?3:1),'One generated owner asset plus the explicitly seeded reference assets');
   await checkName(await db.prepare('SELECT * FROM ai_text_assets WHERE id=?').bind(id).first(),id);
   if(sourceUrl)check((await fetch(new URL(sourceUrl).pathname)).status===410,'Completed input capability revoked');
   const completion={name,calls,status:(await row()).status,debits:credits.n,ownerDenied:denied.status};
@@ -355,7 +409,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
 export default {async fetch(request,env) {
   if(request.method!=='POST'||request.headers.get('x-q2-control')!==env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
   const {name,...fixture}=await request.json();
-  if(!/^admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})$/.test(name) && !['admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
+  if(!/^admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})$/.test(name) && !['h3-references','h3-callback-failed','h3-callback','h3-failed','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
   return Response.json(await memberGenerationCase(env,name,fixture));
 }};
 

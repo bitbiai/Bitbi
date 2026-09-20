@@ -2107,6 +2107,10 @@
                                 <code class="admin-ai__video-model-card-id">xai/grok-imagine-video</code>
                                 <span class="admin-ai__video-model-card-copy">Admin-only xAI video via Cloudflare AI Gateway Unified Billing and platform budget controls.</span>
                             </button>
+                            <button type="button" id="aiVideoCardH3" class="admin-ai__video-model-card" data-ai-video-model="minimax/h3" aria-selected="false">
+                                <span class="admin-ai__video-model-card-title">MiniMax H3</span>
+                                <span class="admin-ai__video-model-card-copy">Text, frames and media references</span>
+                            </button>
                             <button type="button" id="aiVideoCardGrokImagine15Preview" class="admin-ai__video-model-card" data-ai-video-model="xai/grok-imagine-video-1.5-preview" aria-selected="false">
                                 <span class="admin-ai__video-model-card-title">Grok Imagine Video 1.5 Preview</span>
                                 <code class="admin-ai__video-model-card-id">xai/grok-imagine-video-1.5-preview</code>
@@ -2258,6 +2262,7 @@
                             <label id="aiVideoAspectRatioField" class="admin-ai__field">
                                 <span class="admin-ai__label">Aspect Ratio</span>
                                 <select id="aiVideoAspectRatio" class="admin-ai__input">
+                                    <option value="adaptive">Adaptive</option>
                                     <option value="16:9" selected>16:9</option>
                                     <option value="4:3">4:3</option>
                                     <option value="1:1">1:1</option>
@@ -2284,6 +2289,8 @@
                             <label id="aiVideoResolutionField" class="admin-ai__field" hidden>
                                 <span class="admin-ai__label">Resolution</span>
                                 <select id="aiVideoResolution" class="admin-ai__input">
+                                    <option value="768P">768P</option>
+                                    <option value="2K">2K</option>
                                     <option value="480p">480p</option>
                                     <option value="540p">540p</option>
                                     <option value="720p" selected>720p</option>
@@ -2413,6 +2420,11 @@
                         <button type="button" id="aiLabAssetsBulkMoveCancel" class="studio__new-folder-cancel">Cancel</button>
                     </div>
 
+                    <div id="aiLabAssetsPickerActions" class="admin-ai__actions" hidden>
+                        <span id="aiLabAssetsPickerCount" role="status"></span>
+                        <button type="button" id="aiLabAssetsPickerApply" class="admin-ai__btn" disabled>Use selected media</button>
+                        <button type="button" id="aiLabAssetsPickerCancel" class="admin-ai__btn admin-ai__btn--secondary">Cancel selection</button>
+                    </div>
                     <div id="aiLabAssetsMsg" class="studio__msg" role="status"></div>
                     <div id="aiLabAssetsFolderGrid" class="studio__folder-grid"></div>
                     <div id="aiLabAssetsFolderBack" class="studio__folder-back">

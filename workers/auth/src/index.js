@@ -1,3 +1,4 @@
+import { handleH3Callback } from './lib/minimax-h3-callback.js';
 import { handlePrivateMediaService } from './routes/private-media-service.js';
 import { handleGrokVideoOutput } from './lib/grok-video-output.js';
 import { PRIVATE_MEDIA_WAKE, dispatchPrivateMedia } from './lib/private-media-service.js';
@@ -168,6 +169,8 @@ function requiresTrustedRequestContext(pathname, method) {
     return false;
   }
   // Only this exact machine-to-machine PUT uses a job-scoped HMAC instead of browser CSRF.
+  // route-policy: internal.ai.h3-callback
+  if (method === "POST" && /^\/api\/internal\/ai\/h3-callback\/[^/]+$/.test(pathname)) return false;
   // route-policy: internal.ai.video-output
   if (method === "PUT" && /^\/api\/internal\/ai\/video-output\/[^/]+$/.test(pathname)) return false;
   return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
@@ -364,6 +367,9 @@ export default {
       const result = await handleHomepageHeroVideos(ctx);
       if (result) return result;
     }
+    const h3CallbackMatch=pathname.match(/^\/api\/internal\/ai\/h3-callback\/([^/]+)$/);
+    // route-policy: internal.ai.h3-callback
+    if(h3CallbackMatch && method==='POST')return handleH3Callback(ctx,h3CallbackMatch[1]);
     const grokVideoOutputMatch = pathname.match(/^\/api\/internal\/ai\/video-output\/([^/]+)$/);
     // route-policy: internal.ai.video-output
     if (grokVideoOutputMatch && method === 'PUT') return handleGrokVideoOutput(ctx,grokVideoOutputMatch[1]);

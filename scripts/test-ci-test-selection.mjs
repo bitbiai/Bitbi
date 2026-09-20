@@ -725,3 +725,11 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  for(const unknown of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/ai/src/index.js','workers/auth/migrations/0092_unknown.sql','unknown.js'])assert.notEqual(selection([...files,unknown]).canvasText,true,unknown);
  assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
 }
+
+// H3 model/status integration uses the same actual Canvas/model + native callers.
+{
+ const files=['js/pages/generate-lab/main.js','js/pages/canvas/main.js','js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','js/shared/minimax-h3.mjs','js/shared/h3-reference-controls.js','js/shared/member-generation-client.js','js/shared/locale.js','workers/auth/src/lib/ai-usage-policy.js','workers/auth/src/lib/h3-reference-metadata.js','workers/auth/src/lib/minimax-h3-callback.js','workers/ai/src/routes/video-task.js','tests/helpers/h3-model-controls.cjs','tests/fixtures/media/h3-reference.mp4','tests/fixtures/media/h3-frame.png','tests/helpers/q2-runtime/linux-hosted.mjs'];
+ const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);
+ for(const flag of ['full','homepage','homepageMedia','carousel'])assert.equal(result[flag],false,flag);
+ for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','unknown-input.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
+}

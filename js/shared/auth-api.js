@@ -2,7 +2,7 @@
    BITBI — Auth API: pure fetch wrappers for auth endpoints
    ============================================================ */
 
-import { runMemberGeneration } from './member-generation-client.js?v=__ASSET_VERSION__';
+import { runMemberGeneration, observeMemberGeneration } from './member-generation-client.js?v=__ASSET_VERSION__';
 import { BITBI_GENERATION_TIMEOUT_MS } from './generation-timeout.mjs?v=__ASSET_VERSION__';
 
 const BASE = '/api';
@@ -1900,6 +1900,8 @@ export function apiAiGenerateVideo(payload, options = {}) {
         return res;
     });
 }
+
+export function apiAiObserveGeneration(job,options={}) { return observeMemberGeneration(request,job,options); }
 
 export function apiAiGetGenerationJobs(options = {}) { return request('GET','/ai/generation-jobs',undefined,options); }
 

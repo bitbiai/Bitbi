@@ -1,3 +1,4 @@
+import { H3_MODEL, calculateH3CreditPricing } from '../../../../js/shared/minimax-h3.mjs';
 import { invokePixverseExtension } from './pixverse-extend.js';
 import {
   ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID,
@@ -69,7 +70,7 @@ export function assertAdminSeedancePricingConfigured(modelId, payload = {}) {
 }
 
 export function assertAdminVideoPricingConfigured(modelId, payload = {}) {
-  if (!isAdminAiVideoSeedanceModelId(modelId) && !isAdminAiVideoGrokImagineModelId(modelId)) return;
+  if (modelId!==H3_MODEL && !isAdminAiVideoSeedanceModelId(modelId) && !isAdminAiVideoGrokImagineModelId(modelId)) return;
   try {
     const pricing = calculateAdminVideoBudgetPricing(modelId, payload);
     if (pricing?.credits > 0 && pricing?.providerCostUsd > 0) return;
@@ -230,6 +231,7 @@ function sanitizePublicError(value, fallback = "Video job failed.") {
 }
 
 function resolveProvider(modelId) {
+  if(modelId===H3_MODEL)return "minimax";
   if (modelId === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) return "vidu";
   if (
     modelId === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID
@@ -1202,11 +1204,21 @@ function boundedProviderResult(result) {
   for (const key of ["status", "providerTaskId", "providerState", "videoUrl", "posterUrl"]) {
     if (typeof result?.[key] === "string") clean[key] = result[key].slice(0, key.endsWith("Url") ? 2048 : 256);
   }
+  if(Number.isFinite(result?.outputSeconds))clean.outputSeconds=result.outputSeconds;
+  if(typeof result?.resolution==="string")clean.resolution=result.resolution;
   return clean;
 }
 
 async function recordJobProviderReceipt(env, job, result) {
   if (!job.dispatch_token) throw staleJobExecutionError();
+  if(job.model===H3_MODEL) {
+    const current=await env.DB.prepare('SELECT provider_result_json FROM ai_video_jobs_v2 WHERE id=? AND dispatch_token=?').bind(job.id,job.dispatch_token).first();
+    const previous=JSON.parse(current?.provider_result_json||'{}');
+    if(previous.status==='provider_pending' && previous.providerTaskId===result.providerTaskId) {
+      await env.DB.prepare('UPDATE ai_video_jobs_v2 SET provider_result_json=? WHERE id=? AND dispatch_token=? AND provider_result_json=?')
+        .bind(JSON.stringify(boundedProviderResult(result)),job.id,job.dispatch_token,current.provider_result_json).run();
+    }
+  }
   // Keep a usable private receipt even if processing ownership has changed.
   // Dispatch identity authorizes evidence only: Unknown/cancelled stay blocked,
   // and this write cannot publish R2 output, settle usage or replace a receipt.
@@ -2094,13 +2106,21 @@ function getProviderTaskResult(responseBody) {
 }
 
 async function recordJobBudgetUsage(env, job, budgetPolicy) {
+  let units=platformBudgetUnitsFromBudgetPolicy(budgetPolicy);
+  if(job.model===H3_MODEL) {
+    const receipt=JSON.parse(job.provider_result_json||'{}'),input=JSON.parse(job.input_json);
+    if(receipt.outputSeconds==null || receipt.resolution!==input.resolution)throw Object.assign(new Error('H3 output usage needs reconciliation.'),{code:'h3_usage_unverified'});
+    const actual=calculateH3CreditPricing(input,receipt.outputSeconds).credits;
+    if(actual>units)throw Object.assign(new Error('H3 usage exceeds admitted exposure.'),{code:'h3_usage_exceeds_reservation'});
+    units=actual;
+  }
   await recordPlatformBudgetUsageEvent(env, {
     budgetScope: budgetPolicy.budget_scope,
     operationKey: ADMIN_VIDEO_JOB_BUDGET_OPERATION_ID,
     sourceRoute: "/api/admin/ai/video-jobs",
     actorUserId: job.user_id,
     actorRole: "admin",
-    units: platformBudgetUnitsFromBudgetPolicy(budgetPolicy),
+    units,
     idempotencyKeyHash: job.idempotency_key ? await sha256Hex(job.idempotency_key) : null,
     requestFingerprint: job.budget_policy_fingerprint || job.request_hash || null,
     sourceJobId: job.id,
@@ -2340,6 +2360,14 @@ async function processClaimedAiVideoJob(env, body, { messageAttempts, startedAt,
 
   const completedAt = nowIso();
   let providerResult = getProviderTaskResult(responseBody);
+  if(job.model===H3_MODEL && response.ok && responseBody?.ok && providerResult) {
+    // Store every accepted H3 task. Subsequent deliveries inspect this receipt;
+    // only its authenticated callback can advance it. There is no H3 poll API.
+    await env.DB.prepare("UPDATE ai_video_jobs_v2 SET provider_result_json=? WHERE id=? AND dispatch_token=? AND provider_result_json='{}'")
+      .bind(JSON.stringify(boundedProviderResult(providerResult)),job.id,job.dispatch_token).run();
+    const current=await env.DB.prepare('SELECT provider_result_json FROM ai_video_jobs_v2 WHERE id=? AND dispatch_token=?').bind(job.id,job.dispatch_token).first();
+    providerResult=JSON.parse(current.provider_result_json);
+  }
   if (response.ok && responseBody?.ok === true && providerResult?.status === "succeeded" && providerResult.videoUrl) {
     // Persist before any claim-dependent mutation, including metadata updates:
     // losing the claim between a read and CAS must not lose provider evidence.
@@ -2379,12 +2407,13 @@ async function processClaimedAiVideoJob(env, body, { messageAttempts, startedAt,
       return { status: "failed", jobId: job.id, reason: code };
     }
 
+    if(job.model===H3_MODEL)await recordJobBudgetUsage(env,job,budgetPolicy);
     await updateJobSucceeded(env, job, {
       ...ingested,
       providerTaskId: providerResult.providerTaskId || job.provider_task_id || null,
       providerState: providerResult.providerState || "success",
     }, nowIso());
-    await recordJobBudgetUsage(env, job, budgetPolicy);
+    if(job.model!==H3_MODEL)await recordJobBudgetUsage(env, job, budgetPolicy);
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-video-jobs-queue",
@@ -2402,7 +2431,7 @@ async function processClaimedAiVideoJob(env, body, { messageAttempts, startedAt,
   }
 
   if (response.ok && responseBody?.ok && providerResult?.status === "failed") {
-    const failedOutcome = await env.DB.prepare("UPDATE ai_video_jobs_v2 SET provider_outcome = 'failed' WHERE id = ? AND processing_token = ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled') AND locked_until > ?").bind(job.id, job.processing_token, nowIso()).run();
+    const failedOutcome = await env.DB.prepare("UPDATE ai_video_jobs_v2 SET provider_outcome = 'failed' WHERE id = ? AND processing_token = ? AND provider_outcome IN ('dispatched','failed') AND status NOT IN ('succeeded', 'failed', 'cancelled') AND locked_until > ?").bind(job.id, job.processing_token, nowIso()).run();
     if (!failedOutcome?.meta?.changes) {
       await recordJobLateOutcome(env, job, providerResult, "failed");
       throw staleJobExecutionError();
@@ -2428,7 +2457,7 @@ async function processClaimedAiVideoJob(env, body, { messageAttempts, startedAt,
 
   if (response.ok && responseBody?.ok && providerResult?.status === "provider_pending") {
     const delaySeconds = parseRetryAfterSeconds(providerResult, getAiVideoJobRetryDelaySeconds(messageAttempts));
-    const nextAttemptAt = addMillisecondsIso(delaySeconds * 1000);
+    const nextAttemptAt = addMillisecondsIso(job.model===H3_MODEL?30*60_000:delaySeconds * 1000);
     if (job.attempt_count >= job.max_attempts) {
       if (providerResult.providerTaskId) {
         const pendingOutcome = await env.DB.prepare("UPDATE ai_video_jobs_v2 SET provider_task_id = COALESCE(?, provider_task_id) WHERE id = ? AND processing_token = ? AND provider_outcome = 'dispatched' AND status NOT IN ('succeeded', 'failed', 'cancelled') AND locked_until > ?")
@@ -2464,6 +2493,7 @@ async function processClaimedAiVideoJob(env, body, { messageAttempts, startedAt,
       );
     }
     await updateJobProviderPending(env, job, providerResult, completedAt, nextAttemptAt);
+    if(job.model===H3_MODEL)return {status:'scheduled',jobId:job.id,reason:'awaiting_provider_callback'};
     try {
       await enqueueAiVideoJobFollowup(env, {
         ...job,

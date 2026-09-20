@@ -6190,7 +6190,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     const modulePath = pathToFileURL(path.join(process.cwd(), 'js/shared/canvas-model-contract.mjs')).href;
     const { listCanvasModels, getCanvasModel, getCanvasModelForRole, CANVAS_FABLE_MAX_OUTPUT_TOKENS } = await import(modulePath);
     const models = listCanvasModels();
-    expect(models.length).toBe(24);
+    expect(models.length).toBe(25);
     for (const model of models) {
       expect(model).toEqual(expect.objectContaining({ id: expect.any(String), label: expect.any(String), capability: expect.any(String), canvasEnabled: true, runnable: expect.any(Boolean) }));
       expect(JSON.stringify(model).replace('requiresPlatformBudget', '')).not.toMatch(/secret|budget|evidence|adminOnly/i);
@@ -6207,6 +6207,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
       'xai/grok-imagine-video',
       'xai/grok-imagine-video-1.5-preview',
       'minimax/music-2.6',
+      'minimax/h3',
       'anthropic/claude-fable-5',
     ]) expect(getCanvasModel(id)?.runnable).toBe(true);
     for (const id of ['@cf/black-forest-labs/flux-2-dev', 'xai/grok-imagine-image', 'vidu/q3-pro', '@cf/baai/bge-m3', '@cf/google/embeddinggemma-300m']) {
@@ -54611,3 +54612,80 @@ for (const name of ['success', 'failure', 'unknown']) {
     expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
   } finally {db.close();}
  });
+
+
+test('Canvas MiniMax H3 validates roles, owned inputs, exact settings and output-second pricing', async () => {
+  const h3=await import(pathToFileURL(path.join(process.cwd(),'js/shared/minimax-h3.mjs')).href);
+  const pricing=await import(pathToFileURL(path.join(process.cwd(),'js/shared/model-credit-pricing.mjs')).href);
+  const contract=await import(pathToFileURL(path.join(process.cwd(),'js/shared/admin-ai-contract.mjs')).href);
+  const ref=(role,id)=>({role,source:{source_type:'saved_asset',asset_id:id}});
+  const base={model:h3.H3_MODEL,prompt:'Synthetic motion',duration:5,resolution:'768P',aspect_ratio:'16:9'};
+  for(const resolution of h3.H3_RESOLUTIONS)for(const duration of [4,5,15]) {
+    const cost=h3.calculateH3CreditPricing({...base,resolution,duration});
+    const provider=duration*(resolution==='2K'?0.13:0.08);
+    expect(cost.providerCostUsd).toBe(provider);
+    expect(cost.minimumSellPriceUsd).toBeCloseTo(provider/0.8,8);
+    expect(cost.credits).toBe(pricing.creditsForProviderCostUsd(provider));
+  }
+  for(const settings of [{duration:3},{duration:4.5},{duration:16},{resolution:'720p'},{resolution:''},{aspect_ratio:'2:1'}]) {
+    expect(()=>h3.normalizeH3Request({...base,...settings})).toThrow();
+    expect(()=>h3.calculateH3CreditPricing({...base,...settings})).toThrow();
+  }
+  expect(()=>h3.normalizeH3Request({...base,callback_url:'https://attacker.invalid'})).toThrow();
+  expect(()=>h3.normalizeH3Request({...base,prompt:'x'.repeat(7001)})).toThrow();
+  const frames=[ref('first_frame','first'),ref('last_frame','last')];
+  expect(()=>h3.normalizeH3Request({...base,references:frames})).toThrow(/adaptive/);
+  expect(h3.normalizeH3Request({...base,aspect_ratio:'adaptive',references:frames}).references).toEqual(frames);
+  expect(()=>h3.h3References([...frames,ref('reference_audio','sound')])).toThrow(/mixed/);
+  for(const [role,limit] of [['reference_image',9],['reference_video',3],['reference_audio',3]]) {
+    expect(h3.h3References(Array.from({length:limit},(_,i)=>ref(role,'asset-'+i)))).toHaveLength(limit);
+    expect(()=>h3.h3References(Array.from({length:limit+1},(_,i)=>ref(role,'asset-'+i)))).toThrow();
+  }
+  const references=[ref('reference_image','image'),ref('reference_video','video'),ref('reference_audio','audio')];
+  const input=h3.normalizeH3Request({...base,references});
+  expect(contract.validateAdminAiVideoBody(input)).toEqual(input);
+  expect(()=>contract.validateAdminAiVideoBody({...input,h3_callback:'https://attacker.invalid'})).toThrow();
+  input.h3_callback='https://bitbi.ai/api/internal/ai/h3-callback/synthetic';
+  input.h3_content=[{type:'text',text:base.prompt},...references.map((r,i)=>{const type=h3.h3MediaType(r.role)+'_url';return {type,role:r.role,[type]:{url:'https://bitbi.ai/api/internal/ai/media-source/synthetic-'+i}};})];
+  const {buildVideoPayload}=await loadInvokeAiVideoModule();
+  expect(buildVideoPayload({id:h3.H3_MODEL},input).payload).toEqual({content:input.h3_content,callback_url:input.h3_callback,duration:5,resolution:'768P',ratio:'16:9'});
+  expect(()=>h3.buildH3ProviderInput({...input,h3_content:[...input.h3_content].reverse()})).toThrow();
+  expect(()=>h3.buildH3ProviderInput({...input,h3_callback:'https://attacker.invalid/callback'})).toThrow();
+});
+
+test('Canvas MiniMax H3 task completion uses its own output and usage, never a Grok or input URL', async()=>{
+  const {parseH3Task}=await import(pathToFileURL(path.join(process.cwd(),'js/shared/minimax-h3.mjs')).href);
+  const task={id:'synthetic-task',model:'MiniMax-H3',status:'queued'};
+  for(const state of ['queued','running','succeeded','failed','cancelled']) {
+    const result=parseH3Task({task:{...task,status:state,content:{url:'https://fixture.invalid/output.mp4'},resolution:'768P',usage:{output_seconds:4,input_seconds:8,total_seconds:12,total_tokens:10000}}});
+    expect(result.pending).toBe(['queued','running'].includes(state));
+    expect(result.failed).toBe(['failed','cancelled'].includes(state));
+    expect(result.videoUrl).toBe(state==='succeeded'?'https://fixture.invalid/output.mp4':null);
+    expect(result.outputSeconds).toBe(4);
+  }
+  expect(()=>parseH3Task({result:{video:{url:'https://fixture.invalid/output.mp4'}}})).toThrow();
+  expect(()=>parseH3Task({task:{...task,status:'succeeded',content:{prompt:'https://fixture.invalid/source.mp4'}}})).toThrow();
+  expect(()=>parseH3Task({task:{...task,model:'another-model'}})).toThrow();
+  expect(parseH3Task({task:{...task,status:'succeeded',content:{url:'https://fixture.invalid/output.mp4'}}}).outputSeconds).toBeNull();
+});
+
+
+test('Canvas MiniMax H3 inspects original media bounds and the AI task adapter disables private Gateway logs',async()=>{
+  const {inspectH3TimeReference,validateH3Dimensions}=await import(pathToFileURL(path.join(process.cwd(),'workers/auth/src/lib/h3-reference-metadata.js')).href);
+  const fixture=fs.readFileSync(path.join(__dirname,'fixtures/media/h3-reference.mp4'));
+  expect(inspectH3TimeReference(fixture,'video','video/mp4')).toEqual({duration:2,width:320,height:320,fps:24});
+  expect(()=>inspectH3TimeReference(fixture.subarray(0,50),'video','video/mp4')).toThrow();
+  expect(()=>inspectH3TimeReference(fs.readFileSync(path.join(__dirname,'fixtures/media/detail-original.mp4')),'video','video/mp4')).toThrow();
+  expect(()=>validateH3Dimensions({width:320,height:180})).toThrow();
+  const {createVideoProviderTask}=await loadInvokeAiVideoModule();let calls=0;
+  for(const status of ['queued','running','succeeded','failed','cancelled']) {
+    const result=await createVideoProviderTask({AI:{run:async(model,input,options)=>{
+      calls++;expect(model).toBe('minimax/h3');expect(options.gateway.collectLog).toBe(false);expect(options.gateway.skipCache).toBe(true);
+      expect(input.callback_url).toBe('https://bitbi.ai/api/internal/ai/h3-callback/synthetic');
+      return {task:{id:'task-'+status,model:'MiniMax-H3',status,content:{url:'https://fixture.invalid/output.mp4'},resolution:'768P',usage:{output_seconds:4}}};
+    }}},{id:'minimax/h3',proxied:true},{model:'minimax/h3',prompt:'Synthetic',duration:4,resolution:'768P',h3_callback:'https://bitbi.ai/api/internal/ai/h3-callback/synthetic'});
+    expect(result.status).toBe(['queued','running'].includes(status)?'provider_pending':['failed','cancelled'].includes(status)?'failed':'succeeded');
+    expect(result.providerTaskId).toBe('task-'+status);
+  }
+  expect(calls).toBe(5);
+});

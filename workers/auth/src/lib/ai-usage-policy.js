@@ -346,6 +346,11 @@ async function prepareMemberGatewayPolicy({
       return dispatchToken;
     },
     async markProviderFailed(options = {}) {
+      if(execution?.receiptReplay && options.confirmedOutcome===true && attemptState.attempt.providerOutcome==='unknown') {
+        await execution.assertClaim();
+        await env.DB.prepare("UPDATE member_ai_usage_attempts_v2 SET provider_outcome='dispatched' WHERE id=? AND user_id=? AND dispatch_token=? AND provider_outcome='unknown' AND billing_status='reserved' AND reservation_released_at IS NULL")
+          .bind(attemptState.attempt.id,user.id,dispatchToken).run();
+      }
       return markMemberAiUsageAttemptProviderFailed(env, attemptState.attempt.id, { ...options, dispatchToken });
     },
     async recordLateOutcome(outcome, code = null) {
@@ -400,7 +405,11 @@ async function prepareMemberGatewayPolicy({
         { replay }
       );
     },
-    async chargeAfterSuccess(metadata = {}) {
+    async chargeAfterSuccess(metadata = {}, settlement = {}) {
+      const chargedCredits=settlement.credits===undefined?resolvedOperation.credits:Number(settlement.credits);
+      if(!Number.isInteger(chargedCredits)||chargedCredits<1||chargedCredits>resolvedOperation.credits) {
+        throw new BillingError('Authoritative output usage exceeds the reservation.',{status:409,code:'generation_result_requires_credit_review'});
+      }
       if(execution?.creditReview) throw new BillingError('The retained result requires credit reconciliation.',
         {status:409,code:'generation_result_requires_credit_review'});
       const result = await consumeMemberCredits({
@@ -408,7 +417,7 @@ async function prepareMemberGatewayPolicy({
         userId: user?.id || null,
         featureKey: resolvedOperation.featureKey,
         quantity: resolvedOperation.quantity || 1,
-        credits: resolvedOperation.credits,
+        credits: chargedCredits,
         idempotencyKey: gatewayPlan.scopedIdempotencyKey,
         requestFingerprint: gatewayPlan.fingerprint,
         aiDispatchToken: dispatchToken,
@@ -423,7 +432,7 @@ async function prepareMemberGatewayPolicy({
       return {
         user_id: user?.id || null,
         feature: resolvedOperation.featureKey,
-        credits_charged: resolvedOperation.credits,
+        credits_charged: chargedCredits,
         balance_after: result.creditBalance,
         daily_credit_allowance: MEMBER_DAILY_CREDIT_ALLOWANCE,
       };

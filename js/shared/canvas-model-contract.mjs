@@ -1,3 +1,4 @@
+import { H3_MODEL, H3_ROLES } from './minimax-h3.mjs';
 import { GROK_4_6_MODEL_ID, GROK_REASONING_EFFORTS, GROK_DEFAULT_REASONING_EFFORT, estimateGrokTextCostUsd } from "./grok-text-contract.mjs";
 import {
   CLAUDE_FABLE_5_MODEL_ID,
@@ -43,6 +44,7 @@ const RUNNABLE_IMAGE_MODELS = new Set([
 ]);
 
 const RUNNABLE_VIDEO_MODELS = new Set([
+  H3_MODEL,
   "pixverse/v6",
   "alibaba/hh1-t2v",
   "bytedance/seedance-2.0-fast",
@@ -214,6 +216,8 @@ function buildVideoModel(model) {
     resolutionOptions: safeOptions(capabilities.resolutionOptions),
     supportsImageInput: capabilities.supportsImageInput === true,
     supportsVideoInput: capabilities.supportsVideoInput === true,
+    supportsAudioInput: capabilities.supportsAudioInput === true,
+    referenceRoles: model.id === H3_MODEL ? H3_ROLES : [],
     nativeVideoInput: ["xai/grok-imagine-video","xai/grok-imagine-video-1.5-preview"].includes(model.id),
     supportedOperations: safeOptions(capabilities.supportedOperations),
     availableOperations: safeOptions(capabilities.availableOperations || capabilities.supportedOperations),

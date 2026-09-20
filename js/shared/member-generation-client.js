@@ -30,22 +30,35 @@ export async function runMemberGeneration(request,kind,body,options={}) {
     if(!accepted.ok || accepted.status!==202 || !job?.id) return accepted;
     window.dispatchEvent(new CustomEvent('bitbi:generation-accepted',{detail:{id:job.id}}));
     options.onAccepted?.(job);
+    const result=await observeMemberGeneration(request,job,options);
+    if(result.ok) current.clear();
+    return result;
+}
+
+// Resuming observation never submits an inference request or changes its key.
+export async function observeMemberGeneration(request,job,options={}) {
+    let latest=job;
+    const pending=()=>({ok:false,pending:true,job:latest,code:'generation_pending',error:localeText('generation.accepted')});
     const observer=new AbortController();
     const stop=()=>observer.abort();
     window.addEventListener('pagehide',stop,{once:true});options.signal?.addEventListener('abort',stop,{once:true});
+    if(options.signal?.aborted)stop();
     const deadline=Date.now()+10*60_000; // observation limit only; never cancels the backend job
     try {
         while(!observer.signal.aborted && Date.now()<deadline) {
             const state=await request('GET',`/ai/generation-jobs/${encodeURIComponent(job.id)}`,undefined,{signal:observer.signal});
-            if(!state.ok) return state;
+            if(!state.ok) return {...pending(),observationStatus:state.status};
             const data=state.data?.data;
+            if(data?.job?.id!==job.id) return pending();
+            latest={...latest,...data.job};options.onProgress?.(latest);
             if(data?.result?.ok && (data.job.status==='succeeded'||data.job.status==='preview_pending')) {
-                current.clear();
                 return {ok:true,status:200,data:{...data.result,data:{...data.result.data,generationJob:data.job}}};
             }
-            if(['failed','outcome_unknown'].includes(data?.job?.status)) return {ok:false,job:data.job,code:data.job.error_code,error:localeText('generation.attention')};
+            if(data?.job?.status==='outcome_unknown') return {...pending(),needsReview:true};
+            if(data?.job?.status==='failed') return {ok:false,job:data.job,code:data.job.error_code,error:localeText('generation.attention')};
             await sleep(2000,observer.signal);
         }
-        return {ok:false,pending:true,job,code:'generation_pending',error:localeText('generation.accepted')};
+        return pending();
+    } catch { return pending();
     } finally {window.removeEventListener('pagehide',stop);options.signal?.removeEventListener('abort',stop);observer.abort();}
 }

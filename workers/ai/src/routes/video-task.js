@@ -19,6 +19,7 @@ function providerTaskPayload(result) {
     retryAfterSeconds: result.retryAfterSeconds || null,
     prompt: result.prompt,
     duration: result.duration,
+    outputSeconds: result.outputSeconds ?? null,
     aspect_ratio: result.aspect_ratio,
     ratio: result.ratio || result.aspect_ratio || null,
     quality: result.quality,

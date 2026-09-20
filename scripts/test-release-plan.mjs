@@ -821,3 +821,11 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  await assert.rejects(ensurePrivateVideoLogging({read:async()=>initial,patch:async()=>{}}),/logging remains enabled/);
  console.log('Private video upload privacy: pre-activation readback, no-op reuse, denied/ineffective update and final receipt guard passed.');
 }
+
+// The H3 task adapter extends the reviewed AI service only; no media image or schema change.
+{
+ const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');
+ const plan=createReleasePlanFromRepo(repoRoot,{files:['workers/ai/src/routes/video-task.js','workers/ai/src/lib/invoke-ai-video.js','workers/auth/src/lib/minimax-h3-callback.js','workers/auth/src/routes/ai/video-generate.js','js/shared/minimax-h3.mjs','js/pages/generate-lab/main.js']});
+ assert(backendContinuationSupported(plan));assert.deepEqual(plan.workerDeploys.map(w=>w.worker),['ai','auth']);assert.equal(plan.schemaApplies.length,0);
+ assert(!backendContinuationSupported(createReleasePlanFromRepo(repoRoot,{files:[...plan.changedFiles,'workers/ai/src/routes/unknown.js']})));
+}

@@ -1,3 +1,4 @@
+import { H3_MODEL, H3_RESOLUTIONS, H3_RATIOS, H3_ROLES, normalizeH3Request } from './minimax-h3.mjs';
 import { GROK_IMAGE_2, calculateGrokImage2CreditCost } from './grok-imagine-image-2-pricing.mjs';
 import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens, normalizeGrokReasoningEffort, GROK_TEXT_PRICING } from "./grok-text-contract.mjs";
 import {
@@ -886,6 +887,18 @@ const MUSIC_MODELS = {
 };
 
 const VIDEO_MODELS = {
+  [H3_MODEL]: {
+    id:H3_MODEL,task:'video',label:'MiniMax H3',vendor:'MiniMax',providerLabel:'Cloudflare AI Gateway',
+    inputFormat:'minimax-h3',proxied:true,generationEnabled:true,pricingRequired:false,
+    supportsImageInput:true,supportsEndImage:true,supportsVideoInput:true,supportsAudioInput:true,
+    supportsReferenceImages:true,maxReferenceImages:9,referenceRoles:H3_ROLES,
+    supportsNegativePrompt:false,supportsSeed:false,supportsAudioToggle:false,
+    resolutionField:'resolution',aspectRatioMode:'always',maxPromptLength:7000,
+    minDuration:4,maxDuration:15,allowedAspectRatios:H3_RATIOS,allowedResolutions:H3_RESOLUTIONS,
+    defaultDuration:5,defaultResolution:'768P',defaultAspectRatio:'16:9',defaultGenerateAudio:true,
+    supportedOperations:['generate'],availableOperations:['generate'],defaultPreset:'video_minimax_h3',
+    description:'Video generation from text, first/last frames or ordered image, video and audio references.',
+  },
   [ADMIN_AI_VIDEO_MODEL_ID]: {
     id: ADMIN_AI_VIDEO_MODEL_ID,
     task: "video",
@@ -1132,6 +1145,7 @@ const VIDEO_MODELS = {
 };
 
 const PRESETS = {
+  video_minimax_h3: {name:'video_minimax_h3',task:'video',label:'MiniMax H3',model:H3_MODEL,description:'Multimodal video generation.'},
   fast: {
     name: "fast",
     task: "text",
@@ -1932,6 +1946,8 @@ function toPublicModel(model) {
     pub.capabilities = {
       supportsImageInput: !!model.supportsImageInput,
       supportsVideoInput: !!model.supportsVideoInput,
+      supportsAudioInput: !!model.supportsAudioInput,
+      referenceRoles: model.referenceRoles || [],
       supportsReferenceImages: !!model.supportsReferenceImages,
       maxReferenceImages: model.maxReferenceImages || 0,
       supportsOutputUploadUrl: !!model.supportsOutputUploadUrl,
@@ -2933,6 +2949,14 @@ export function validateAdminAiVideoBody(body, options = {}) {
       409,
       selectedModel.unavailableCode || ADMIN_AI_VIDEO_PRICING_REQUIRED_CODE
     );
+  }
+
+  if (selectedModel.id === H3_MODEL) {
+    // Only the authenticated AI service caller may carry resolved internal media.
+    const {h3_content, h3_callback, ...publicInput} = input;
+    if ((h3_content || h3_callback) && !allowResolvedGrokPreviewMediaUrls) throw new AdminAiValidationError('Internal H3 fields are not accepted.',400,'validation_error');
+    const normalized=normalizeH3Request(publicInput);
+    return {...normalized,...(allowResolvedGrokPreviewMediaUrls?{h3_content,h3_callback}:{})};
   }
 
   if (selectedModel.id === ADMIN_AI_VIDEO_MODEL_ID) {

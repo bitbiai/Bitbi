@@ -1,3 +1,4 @@
+import { H3_MODEL, calculateH3CreditPricing } from './minimax-h3.mjs';
 import { GROK_IMAGE_2, calculateGrokImage2CreditCost } from './grok-imagine-image-2-pricing.mjs';
 import {
   BITBI_MODEL_PRICING_USD_TO_EUR,
@@ -263,6 +264,7 @@ export function calculateAiImageCreditCost(modelId, params = {}) {
 
 export function calculateAiVideoCreditCost(modelId, params = {}) {
   const id = String(modelId || "").trim();
+  if (id === H3_MODEL) return calculateH3CreditPricing(params);
   if (id === PIXVERSE_V6_MODEL_ID) {
     return calculatePixverseV6CreditPricing(params);
   }

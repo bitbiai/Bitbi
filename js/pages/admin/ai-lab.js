@@ -1,3 +1,5 @@
+import { H3_MODEL } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
+import { createH3ReferenceControls } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { GROK_IMAGE_2 } from '../../shared/grok-imagine-image-2-pricing.mjs?v=__ASSET_VERSION__';
 import {
     apiAiGetFolders,
@@ -272,6 +274,7 @@ const DEFAULT_FORMS = {
         sourceImage: null,
         sourceVideo: null,
         sourceImages: [],
+        h3References: [],
         user: '',
     },
     compare: {
@@ -544,6 +547,7 @@ function snapshotVideoPayload(payload = {}) {
         ratio: payload.ratio || undefined,
         quality: payload.quality || undefined,
         resolution: payload.resolution || undefined,
+        references: payload.references ? structuredClone(payload.references) : undefined,
         seed: payload.seed ?? null,
         generate_audio: payload.generate_audio ?? payload.audio ?? null,
         audio: payload.audio ?? undefined,
@@ -1140,6 +1144,10 @@ export function createAdminAiLab({ showToast } = {}) {
         },
         savedAssets: {
             root: document.getElementById('aiLabSavedAssets'),
+            pickerActions: document.getElementById('aiLabAssetsPickerActions'),
+            pickerCount: document.getElementById('aiLabAssetsPickerCount'),
+            pickerApply: document.getElementById('aiLabAssetsPickerApply'),
+            pickerCancel: document.getElementById('aiLabAssetsPickerCancel'),
             galleryFilter: document.getElementById('aiLabAssetsGalleryFilter'),
             folderGrid: document.getElementById('aiLabAssetsFolderGrid'),
             folderBack: document.getElementById('aiLabAssetsFolderBack'),
@@ -1420,6 +1428,13 @@ export function createAdminAiLab({ showToast } = {}) {
         emptyStateMessage: 'No saved assets yet. Save an image or AI Lab result to populate your folders.',
         foldersUnavailableMessage: 'Could not load folders. Showing all saved assets.',
     });
+
+    const h3Controls=createH3ReferenceControls({anchor:refs.video.prompt.closest('label')||refs.video.prompt,
+        classes:{root:'admin-ai__field',select:'admin-ai__select',button:'admin-ai__btn admin-ai__btn--secondary'},
+        read:()=>state.forms.video.h3References||[],write:value=>{state.forms.video.h3References=value;},
+        changed:()=>{if((state.forms.video.h3References||[]).some(ref=>['first_frame','last_frame'].includes(ref.role)))state.forms.video.aspectRatio='adaptive';persistState();syncVideoFieldState();},
+        pick:async request=>{await savedAssetsBrowser.startPickerMode({max:1,isAssetCompatible:asset=>request.media==='image'?asset.asset_type==='image'||asset.source_module==='image':request.media==='audio'?asset.source_module==='music':asset.source_module==='video',
+            onApply:request.onApply,onApplied:()=>request.trigger.focus(),onCancel:()=>request.trigger.focus()});refs.savedAssets.root.scrollIntoView({block:'nearest'});}});
 
     let savedAssetsDirty = false;
     let savedAssetsWasShown = false;
@@ -2934,6 +2949,7 @@ export function createAdminAiLab({ showToast } = {}) {
             button.disabled = isBusy;
         });
 
+        h3Controls.sync(spec.id===H3_MODEL,isBusy);
         refs.video.prompt.maxLength = spec.maxPromptLength || ADMIN_AI_LIMITS.video.maxPromptLength;
         refs.video.prompt.placeholder = isSeedance
             ? 'Describe a Seedance video prompt.'
@@ -6582,7 +6598,8 @@ export function createAdminAiLab({ showToast } = {}) {
             duration: Number(state.forms.video.duration),
         };
 
-        if (videoSpec.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) {
+        if(videoSpec.id===H3_MODEL){payload={...payload,prompt,resolution:state.forms.video.resolution,aspect_ratio:state.forms.video.aspectRatio,references:h3Controls.values()};}
+        else if (videoSpec.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) {
             payload.prompt = prompt;
             payload.resolution = state.forms.video.resolution;
             payload.ratio = state.forms.video.aspectRatio;

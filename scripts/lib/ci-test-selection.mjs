@@ -90,6 +90,16 @@ const CANVAS_UI_FILES = new Set([
 // Closed Canvas generation/provider/storage integration scope. Unknown runtime/billing inputs
 // continue through ordinary impact selection; chat and native D1 are exercised.
 const CANVAS_TEXT_FILES = new Set([
+  'tests/helpers/h3-model-controls.cjs',
+  'tests/fixtures/media/h3-reference.mp4', 'tests/fixtures/media/h3-frame.png',
+  'tests/helpers/q2-runtime/linux-hosted.mjs',
+  // H3 reuses Canvas/member durable jobs, central pricing and owned media inputs.
+  'js/shared/minimax-h3.mjs', 'js/shared/h3-reference-controls.js',
+  'js/shared/member-generation-client.js', 'js/shared/locale.js',
+  'workers/auth/src/lib/ai-usage-policy.js',
+  'workers/auth/src/lib/h3-reference-metadata.js',
+  'workers/auth/src/lib/minimax-h3-callback.js',
+  'workers/ai/src/routes/video-task.js',
   'workers/auth/src/lib/grok-video-output.js',
   'workers/auth/wrangler.jsonc',
   'tests/helpers/q2-runtime/control.mjs',

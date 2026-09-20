@@ -1,3 +1,4 @@
+import { H3_MODEL, normalizeH3Request, buildH3ProviderInput, parseH3Task, calculateH3CreditPricing } from '../../../../../js/shared/minimax-h3.mjs';
 import { validateAdminAiVideoBody } from '../../../../../js/shared/admin-ai-contract.mjs';
 import { GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID } from '../../../../../js/shared/grok-imagine-video-15-preview-pricing.mjs';
 import { isGrokVideo, snapshotGrokVideoSources, resolveAdminAiGrokPreviewMediaSourcesForProvider } from '../../lib/admin-ai-video-sources.js';
@@ -219,6 +220,7 @@ function normalizeModelId(value) {
     ? PIXVERSE_V6_MODEL_ID
     : String(value).trim();
   if (
+    modelId === H3_MODEL ||
     modelId === PIXVERSE_V6_MODEL_ID ||
     modelId === HAPPYHORSE_T2V_MODEL_ID ||
     modelId === SEEDANCE_2_FAST_MODEL_ID ||
@@ -532,6 +534,15 @@ async function normalizeMemberVideoBody(body) {
   if (modelId === SEEDANCE_2_FAST_MODEL_ID || modelId === SEEDANCE_2_MODEL_ID) {
     return normalizeSeedanceBody(body, modelId);
   }
+  if(modelId===H3_MODEL) {
+    const {folder_id,folderId,title,...request}=body;
+    const validated=normalizeH3Request(request),pricing=calculateH3CreditPricing(validated);
+    return {modelId:H3_MODEL,modelLabel:'MiniMax H3',vendor:'MiniMax',provider:'ai_gateway_minimax',preset:'video_minimax_h3',
+      pricingSource:pricing.formula.pricingSource,prompt:validated.prompt,duration:validated.duration,resolution:validated.resolution,aspectRatio:validated.aspect_ratio,
+      operation:'generate',price:pricing.credits,seed:null,generateAudio:true,watermark:null,workflow:'h3-generation',
+      title:normalizeOptionalString(title,MAX_TITLE_LENGTH,'title')||titleFromPrompt(validated.prompt,'MiniMax H3 video'),
+      folderId:normalizeFolderId({folder_id,folderId}),policyBody:validated};
+  }
   if (isGrokVideo(modelId)) {
     return normalizeGrokImagineBody(body);
   }
@@ -707,6 +718,7 @@ function buildVideoReplayMetadata({
       sizeBytes: savedAsset.size_bytes,
       posterAvailable,
       balance_after: billingMetadata?.balance_after ?? null,
+      credits_charged: billingMetadata?.credits_charged ?? input.price,
     },
   };
 }
@@ -842,16 +854,16 @@ async function replayGeneratedVideoAttempt({ env, usagePolicy, input, respond })
     }),
     billing: {
       ...usagePolicy.billingMetadata({ replay: true }),
-      credits_charged: usagePolicy.credits,
-      price: usagePolicy.credits,
+      credits_charged: replay.credits_charged ?? usagePolicy.credits,
+      price: replay.credits_charged ?? usagePolicy.credits,
     },
   });
 }
 
-async function markVideoProviderFailed(usagePolicy, { code, message }) {
+async function markVideoProviderFailed(usagePolicy, { code, message, confirmedOutcome = false }) {
   if (typeof usagePolicy?.markProviderFailed !== "function") return;
   try {
-    await usagePolicy.markProviderFailed({ code, message });
+    await usagePolicy.markProviderFailed({ code, message, confirmedOutcome });
   } catch {}
 }
 
@@ -875,10 +887,14 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
 
   try {
     const result = await runWithGenerationTimeout((signal) => env.AI.run(modelId, payload, {
-      gateway: { id: "default" }, signal,
+      gateway: { id: "default", ...(modelId===H3_MODEL?{skipCache:true,collectLog:false}:{}) }, signal,
     }), {
       signal: callerSignal,
-      onLateResult: () => usagePolicy?.recordLateOutcome?.("succeeded"),
+      onLateResult: value => {
+        if(modelId!==H3_MODEL)return usagePolicy?.recordLateOutcome?.("succeeded");
+        const task=parseH3Task(value);
+        return usagePolicy?.recordLateOutcome?.(task.pending?"unknown":task.failed?"failed":"succeeded",task.pending?"h3_provider_pending":null);
+      },
       onLateError: (error) => usagePolicy?.recordLateOutcome?.("failed", error?.code),
     });
     logDiagnostic({
@@ -923,7 +939,7 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
 async function persistVideoResult({ env, userId, input, providerResult, elapsedMs, correlationId }) {
   const existing = await existingGenerationAsset(env,userId,'video');
   if(existing) return existing;
-  const videoUrl = extractProviderVideoUrl(providerResult);
+  const videoUrl = input.modelId===H3_MODEL?parseH3Task(providerResult).videoUrl:extractProviderVideoUrl(providerResult);
   if (!videoUrl) {
     const error = new Error("Video provider returned no savable video.");
     error.status = 502;
@@ -1045,7 +1061,7 @@ export async function handleGenerateVideo(ctx) {
   let input;
   try {
     input = await normalizeMemberVideoBody(parsed.body);
-    if (isGrokVideo(input.modelId)) {
+    if (isGrokVideo(input.modelId) || input.modelId===H3_MODEL) {
       const existing = generationExecution(env)?.job || await env.DB.prepare("SELECT source_refs_json FROM member_generation_jobs WHERE user_id=? AND media_type='video' AND request_key=?")
         .bind(userId,request.headers.get('Idempotency-Key') || '').first();
       input.sourceRefs = existing ? JSON.parse(existing.source_refs_json || '[]') : await snapshotGrokVideoSources(env,session.user,input.policyBody);
@@ -1164,9 +1180,9 @@ export async function handleGenerateVideo(ctx) {
   }
 
   let providerPayload = buildProviderPayload(input);
-  if (isGrokVideo(input.modelId)) {
+  if (isGrokVideo(input.modelId) || input.modelId===H3_MODEL) {
     const resolved = await resolveAdminAiGrokPreviewMediaSourcesForProvider(env,session.user,input.policyBody,{jobId:generationExecution(env)?.job.id,origin:new URL(request.url).origin,prepareOutput:Boolean(generationExecution(env))});
-    const {model, preset, ...parameters} = resolved; providerPayload = parameters;
+    const {model, preset, ...parameters} = resolved; providerPayload = input.modelId===H3_MODEL?buildH3ProviderInput(resolved):parameters;
   }
   const providerResponse = await invokeMemberVideoModel(env, input.modelId, providerPayload, { correlationId, userId, signal: request.signal, usagePolicy });
   if (!providerResponse.ok) {
@@ -1181,6 +1197,20 @@ export async function handleGenerateVideo(ctx) {
     }, { status: providerResponse.status || 502 });
   }
 
+  let h3Usage=null,h3UsageReview=false;
+  if(input.modelId===H3_MODEL) {
+    const task=parseH3Task(providerResponse.result);
+    if(task.pending) {
+      await usagePolicy.recordLateOutcome('unknown','h3_provider_pending');
+      return respond({ok:false,code:'generation_provider_outcome_unknown'},{status:202});
+    }
+    if(task.failed) {
+      await markVideoProviderFailed(usagePolicy,{code:`h3_${task.state}`,message:'H3 did not complete this task.',confirmedOutcome:true});
+      return respond({ok:false,code:`h3_${task.state}`,error:'Video generation did not complete.'},{status:502});
+    }
+    h3UsageReview=task.resolution!==input.resolution || task.outputSeconds===null;
+    if(!h3UsageReview) { try {h3Usage=calculateH3CreditPricing(input.policyBody,task.outputSeconds);} catch {h3UsageReview=true;} }
+  }
   let savedAsset = null;
   try {
     // Confirm the owned provider result before persistence; storage failure must
@@ -1224,6 +1254,7 @@ export async function handleGenerateVideo(ctx) {
 
   let billingMetadata = null;
   try {
+    if(h3UsageReview)throw Object.assign(new Error('H3 output usage needs reconciliation.'),{code:'generation_result_requires_credit_review'});
     billingMetadata = await usagePolicy.chargeAfterSuccess({
       model: input.modelId,
       preset: input.preset,
@@ -1238,7 +1269,8 @@ export async function handleGenerateVideo(ctx) {
       watermark: input.watermark,
       asset_id: savedAsset.id,
       source_module: "video",
-    });
+      ...(h3Usage?{h3_output_seconds:h3Usage.formula.outputSeconds}:{}),
+    }, h3Usage?{credits:h3Usage.credits}:{});
   } catch (error) {
     if (generationExecution(env)) throw error;
     await cleanupSavedAsset(env, userId, savedAsset?.id || null);
@@ -1304,8 +1336,8 @@ export async function handleGenerateVideo(ctx) {
         code: "member_ai_usage_finalization_failed",
         billing: {
           ...billingMetadata,
-          credits_charged: input.price,
-          price: input.price,
+          credits_charged: billingMetadata.credits_charged,
+          price: billingMetadata.credits_charged,
         },
       }, { status: 503 });
     }
@@ -1336,8 +1368,8 @@ export async function handleGenerateVideo(ctx) {
     ...(billingMetadata ? {
       billing: {
         ...billingMetadata,
-        credits_charged: input.price,
-        price: input.price,
+        credits_charged: billingMetadata.credits_charged,
+        price: billingMetadata.credits_charged,
       },
     } : {}),
   });

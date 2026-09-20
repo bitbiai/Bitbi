@@ -842,3 +842,35 @@ test.describe('Canvas private media controls',()=>{
     await page.screenshot({path:testInfo.outputPath(`canvas-private-${locale}.png`)});
   });
 });
+
+for(const locale of ['en','de']) test(`Canvas H3 ${locale}: connected input roles, estimates and persisted settings`,async({page},testInfo)=>{
+  await mockSharedAuth(page);
+  const {listCanvasModelsForRole}=await import('../js/shared/canvas-model-contract.mjs');
+  const state=createCanvasApiMock(page,{modelPayload:{models:listCanvasModelsForRole('user'),organizations:[],access:{role:'user'}}});
+  const project='1'.repeat(32),node='a'.repeat(32),now=new Date().toISOString();
+  state.projects.push({id:project,title:'H3 inputs',locale,created_at:now,updated_at:now});
+  state.nodes.push({id:node,project_id:project,type:'video_generation',title:'H3 target',model_id:'minimax/h3',x:30,y:30,config:{prompt:'Synthetic motion',duration:5,resolution:'768P'},content:{}});
+  for(const [i,kind] of ['image','video','audio'].entries()) {
+    const id=String(i+2).repeat(32);state.nodes.push({id,project_id:project,type:'asset_reference',title:kind,x:340,y:30+i*160,content:{asset:{id:'reference-'+kind,asset_type:kind,mime_type:kind==='image'?'image/png':kind==='video'?'video/mp4':'audio/wav'}},config:{}});
+    state.edges.push({id:String(i+4).repeat(32),project_id:project,source_node_id:id,target_node_id:node,config:{}});
+  }
+  const open=async()=>{await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${node}"]`).first().click();};
+  await open();const inspector=page.locator('#canvasInspectorBody');
+  const roles=inspector.getByRole('combobox',{name:locale==='de'?'Eingaberolle':'Input role',exact:true});
+  await expect(roles).toHaveCount(3);
+  expect(await roles.evaluateAll(list=>list.map(s=>s.value))).toEqual(['reference_image','reference_video','reference_audio']);
+  const cost=await inspector.locator('.canvas-cost-note').textContent();
+  await inspector.getByRole('combobox',{name:locale==='de'?'Auflösung':'Resolution',exact:true}).selectOption('2K');
+  await expect(inspector.locator('.canvas-cost-note')).not.toHaveText(cost);
+  await roles.first().selectOption('first_frame');
+  await expect(roles.first()).toBeFocused();
+  await expect(inspector.getByRole('button',{name:locale==='de'?'Ausführen':'Run',exact:true})).toBeDisabled();
+  await expect.poll(()=>state.nodes[0].config.h3Roles?.[state.edges[0].id]).toBe('first_frame');
+  await page.reload();await page.locator(`[data-node-id="${node}"]`).first().click();await expect(roles.first()).toHaveValue('first_frame');
+  await roles.first().selectOption('reference_image');await expect.poll(()=>state.nodes[0].config.h3Roles?.[state.edges[0].id]).toBe('reference_image');
+  await expect(inspector.getByRole('button',{name:locale==='de'?'Ausführen':'Run',exact:true})).toBeEnabled();
+  await page.screenshot({path:testInfo.outputPath(`h3-canvas-${locale}.png`)});
+  await page.setViewportSize({width:390,height:844});await page.locator('#canvasInspectorToggle').click();await roles.first().scrollIntoViewIfNeeded();await expect(roles.first()).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath(`h3-canvas-${locale}-mobile.png`)});
+});

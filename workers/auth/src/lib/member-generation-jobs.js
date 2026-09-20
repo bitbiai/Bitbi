@@ -1,3 +1,4 @@
+import { h3MemberReceipt, storedH3MemberTask } from './minimax-h3-callback.js';
 import { reclaimCanvasMedia, canvasMediaRun } from './canvas-media-storage.js';
 import { THUMBNAIL_BACKEND_SQL, notifyPrivateMedia, recoverPrivateMedia } from './private-media-service.js';
 import { finishCanvasGeneration } from './canvas-video-output.js';
@@ -30,7 +31,7 @@ export function usesPersonalGenerationCredits(ctx, user) {
 }
 
 function publicJob(row) {
-  return { id: row.id, media_type: row.media_type, status: row.asset_id && row.status === 'ingesting' ? 'preview_pending' : row.status,
+  return { id: row.id, model_id: row.model_id || null, media_type: row.media_type, status: row.asset_id && row.status === 'ingesting' ? 'preview_pending' : row.status,
     asset_id: row.error_code === 'generation_asset_removed' ? null : row.asset_id || null, error_code: row.error_code || null,
     created_at: row.created_at, updated_at: row.updated_at };
 }
@@ -45,7 +46,7 @@ export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType
   const attempt = usagePolicy.attempt;
   const existing = await env.DB.prepare('SELECT * FROM member_generation_jobs WHERE usage_attempt_id = ? AND user_id = ?')
     .bind(attempt.id, attempt.userId).first();
-  if (existing) return json({ ok: true, data: { job: publicJob(existing) } }, { status: 202, headers: { 'Cache-Control': 'no-store' } });
+  if (existing) return json({ ok: true, data: { job: publicJob({...existing,model_id:body.model}) } }, { status: 202, headers: { 'Cache-Control': 'no-store' } });
   if (!['reserved', 'retryable'].includes(usagePolicy.attemptKind)
     && !(usagePolicy.attemptKind === 'in_progress' && attempt.providerOutcome === 'not_dispatched' && attempt.billingStatus === 'reserved')) return null;
   const id = randomTokenHex(16), now = nowIso();
@@ -63,7 +64,7 @@ export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType
   if (row.id !== id) await env.USER_IMAGES.delete(inputKey);
   try { await env.AI_VIDEO_JOBS_QUEUE.send({ type: MEMBER_GENERATION_MESSAGE, job_id: row.id }); }
   catch { /* The scheduled outbox repair reads this durable queued row. */ }
-  return json({ ok: true, data: { job: publicJob(row) } }, { status: 202, headers: { 'Cache-Control': 'no-store' } });
+  return json({ ok: true, data: { job: publicJob({...row,model_id:body.model}) } }, { status: 202, headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function readMemberGenerationJobs(ctx, id = null) {
@@ -76,6 +77,8 @@ export async function readMemberGenerationJobs(ctx, id = null) {
   }
   const row = await ctx.env.DB.prepare('SELECT * FROM member_generation_jobs WHERE id = ? AND user_id = ?').bind(id, session.user.id).first();
   if (!row) return json({ ok: false, code: 'not_found' }, { status: 404 });
+  const acceptedInput=await ctx.env.USER_IMAGES.get(row.input_r2_key);
+  if(acceptedInput){const input=await new Response(acceptedInput.body).json();row.model_id=input.model || (row.media_type==='music'?'minimax/music-2.6':null);}
   let result = null;
   if (row.result_r2_key && row.error_code !== 'generation_asset_removed') {
     const stored = await ctx.env.USER_IMAGES.get(row.result_r2_key);
@@ -92,6 +95,8 @@ export async function readMemberGenerationJobs(ctx, id = null) {
 }
 
 async function hasPrimaryReceipt(env, job) {
+  const h3=await storedH3MemberTask(env,job);
+  if(h3)return ['succeeded','failed','cancelled'].includes(h3.task.status);
   const receipts=JSON.parse(job.provider_receipts_json || '{}');
   const name=receipts['ai-0']?'ai-0':'service-0', receipt=receipts[name];
   const expected=`users/${job.user_id}/generation-jobs/${job.id}/provider-${name}.json`;
@@ -111,10 +116,18 @@ async function providerCall(env, job, name, fingerprint, call) {
   await assertClaim(env, job);
   const row = await env.DB.prepare('SELECT provider_receipts_json FROM member_generation_jobs WHERE id = ?').bind(job.id).first();
   const receipts = JSON.parse(row.provider_receipts_json);
+  const h3=h3MemberReceipt({...job,provider_receipts_json:row.provider_receipts_json});
   let receipt = receipts[name];
   if (receipt) {
     if (receipt.fingerprint !== fingerprint) throw jobError('generation_provider_identity_mismatch');
     const object = await env.USER_IMAGES.get(receipt.key);
+    if(name==='ai-0' && h3 && ['succeeded','failed','cancelled'].includes(h3.task.status)) {
+      if(object) {
+        const original=await new Response(object.body).json();
+        if(original.kind!=='json'||String(original.value?.task?.id)!==String(h3.task.id))throw jobError('generation_provider_identity_mismatch');
+      }
+      return h3;
+    }
     if (!object) {
       logDiagnostic({ service: 'bitbi-auth', component: 'member-generation', event: 'provider_receipt_missing', level: 'error', media_type: job.media_type });
       throw jobError('generation_provider_outcome_unknown');
@@ -147,6 +160,12 @@ async function providerCall(env, job, name, fingerprint, call) {
   if (!written) throw jobError('generation_receipt_conflict');
   checkpoint('provider_receipt_stored');
   await assertClaim(env, job);
+  if(name==='ai-0' && stored.kind==='json' && stored.value?.task?.model==='MiniMax-H3') {
+    const current=await env.DB.prepare('SELECT provider_receipts_json FROM member_generation_jobs WHERE id=?').bind(job.id).first();
+    const callback=h3MemberReceipt({...job,...current});
+    if(callback && String(callback.task.id)!==String(stored.value.task.id))throw jobError('generation_provider_identity_mismatch');
+    if(callback && ['succeeded','failed','cancelled'].includes(callback.task.status))return callback;
+  }
   return decodeProviderResult(stored);
 }
 
@@ -265,7 +284,7 @@ export async function processMemberGeneration(env, body, execute) {
   } catch (error) {
     if (error.code === 'generation_claim_lost') return {status:'ignored'};
     const usage = await env.DB.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=?').bind(job.usage_attempt_id).first();
-    const unknown = usage?.provider_outcome === 'unknown' || /outcome_unknown|dispatch_not_claimed/.test(error.code || '');
+    const unknown = error.code==='generation_result_requires_credit_review' || usage?.provider_outcome === 'unknown' || /outcome_unknown|dispatch_not_claimed/.test(error.code || '');
     const closed = usage?.provider_outcome === 'failed' || usage?.billing_status === 'released';
     const retry = !unknown && !closed && job.attempt_count+1 < MAX_ATTEMPTS;
     const status=unknown?'outcome_unknown':retry?(job.result_r2_key?'ingesting':'queued'):'failed';

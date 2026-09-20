@@ -1,3 +1,5 @@
+import { H3_MODEL } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
+import { createH3ReferenceControls } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { createGrokVideoControls } from './grok-video-controls.js?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI — Generate Lab page
@@ -16,6 +18,8 @@ import {
     apiAiGenerateMusic,
     apiAiGenerateVideo,
     apiAiGetAssets,
+    apiAiGetGenerationJobs,
+    apiAiObserveGeneration,
     apiAiGetFolders,
     apiAiGetQuota,
     apiAiSaveImage,
@@ -52,6 +56,8 @@ const COVER_POLL_INTERVAL_MS = 2000;
 const COVER_POLL_TIMEOUT_MS = 30000;
 
 const refs = {};
+let generationView=0,acceptedStatusActive=false;
+let restoredObservation=null;
 let assetsBrowser = null;
 let releaseAssetsOverlayFocus = null;
 let assetsOverlayReturnFocus = null;
@@ -262,7 +268,8 @@ function currentImageDimensionValue(ref, fallback, { min = 64, max = 2048 } = {}
     return parsed ?? fallback;
 }
 
-let grokVideoControls;
+let grokVideoControls, h3Controls;
+let h3References=[];
 function currentVideoEstimateValues(model = selectedModel()) {
     const controls = model.controls || {};
     const values = {
@@ -338,6 +345,9 @@ function isAuthFailure(result) {
 }
 
 const workflowStatusConfig = Object.freeze({
+    reconciling: {title:"generateLab.workflowReconcilingTitle",copy:"generateLab.workflowReconcilingCopy",tone:"busy"},
+    accepted: {title:"generateLab.workflowAcceptedTitle",copy:"generateLab.workflowAcceptedCopy",tone:"busy"},
+    previewPending: {title:"generateLab.workflowPreviewTitle",copy:"generateLab.workflowPreviewCopy",tone:"busy"},
     generating: {
         title: 'generateLab.workflowGeneratingTitle',
         copy: 'generateLab.workflowGeneratingCopy',
@@ -365,8 +375,9 @@ const workflowStatusConfig = Object.freeze({
     },
 });
 
-function setWorkflowStatus(status = 'ready') {
+function setWorkflowStatus(status = 'ready', model = '') {
     if (!refs.workflowStatus) return;
+    if(status==='ready' && acceptedStatusActive)return;
     if (status === 'ready') {
         refs.workflowStatus.hidden = true;
         refs.workflowStatus.className = 'generate-lab__workflow-status';
@@ -379,7 +390,7 @@ function setWorkflowStatus(status = 'ready') {
     refs.workflowStatus.replaceChildren(
         el('span', { className: 'generate-lab__workflow-dot', attrs: { 'aria-hidden': 'true' } }),
         el('div', {},
-            el('strong', { text: localeText(config.title) }),
+            el('strong', { text: localeText(config.title,{model}) }),
             el('p', { text: localeText(config.copy) }),
         ),
     );
@@ -794,9 +805,13 @@ function syncVideoOptionState({ reset = false } = {}) {
     if (!isVideo) return;
     if (!grokVideoControls) grokVideoControls=createGrokVideoControls({anchor:referenceField,de:document.documentElement.lang==='de',changed:updateActionState,pick:openGrokSources});
     grokVideoControls.sync(model,state.busy);
+    if(!h3Controls)h3Controls=createH3ReferenceControls({anchor:referenceField,de:document.documentElement.lang==='de',pick:openGrokSources,read:()=>h3References,write:value=>{h3References=value;},changed:()=>{
+        if(h3References.some(ref=>['first_frame','last_frame'].includes(ref.role)))refs.videoAspect.value='adaptive';updateActionState();
+    }});
+    h3Controls.sync(model.id===H3_MODEL,state.busy);
 
     const supportsNegative = controls.supportsNegativePrompt === true;
-    const supportsReference = controls.supportsImageInput === true;
+    const supportsReference = controls.supportsImageInput === true && model.id!==H3_MODEL;
     const supportsSeed = controls.supportsSeed === true;
     const supportsAudio = controls.supportsAudioToggle === true;
     const supportsWatermark = controls.supportsWatermark === true;
@@ -878,7 +893,7 @@ function renderEmptyResult() {
 
 function renderLoadingResult(text) {
     const spinner = el('div', { className: 'generate-lab__spinner', attrs: { 'aria-hidden': 'true' } });
-    refs.resultStage?.replaceChildren(el('div', { className: 'generate-lab__loading-state' }, spinner, el('span', { text })));
+    refs.resultStage?.replaceChildren(el('div', { className: 'generate-lab__loading-state' }, spinner, ...(text ? [el('span', { text })] : [])));
 }
 
 function renderAllForSelection({ keepResult = false } = {}) {
@@ -1190,7 +1205,7 @@ async function openReferenceAssetsPicker(request) {
         if (!assetsBrowser) createAssetsBrowser();
         await assetsBrowser.startPickerMode({
             max,
-            isAssetCompatible: request?.type==='grok' && request.media==='video' ? asset=>asset.source_module==='video' || asset.asset_type==='video' : isCompatibleImageReferenceAsset,
+            isAssetCompatible: request?.type==='grok' && request.media==='audio' ? asset=>asset.source_module==='music'||asset.asset_type==='audio' : request?.type==='grok' && request.media==='video' ? asset=>asset.source_module==='video' || asset.asset_type==='video' : isCompatibleImageReferenceAsset,
             emptyMessage: localeText('generateLab.assetReferencePickerEmpty'),
             unsupportedMessage: localeText('generateLab.assetReferencePickerUnsupported'),
             fetchFailedMessage: localeText('generateLab.assetReferencePickerFetchFailed'),
@@ -1765,7 +1780,6 @@ async function saveImageOperation(operation) {
     operation.button.disabled = true;
     const { identity, imageData, meta, folderId } = operation.context;
     if (state.currentImageMeta === identity) {
-        setMessage(localeText('generateLab.savingImage'), 'info');
         setWorkflowStatus('saving');
         setCurrentResultSummary('saving');
     }
@@ -1823,12 +1837,12 @@ async function saveImageOperation(operation) {
         if (restoreSaveFocus) refs.resultStage?.querySelector('.generate-lab__result-actions a')?.focus({ preventScroll: true });
         setWorkflowStatus('saved');
         setCurrentResultSummary('saved');
-        setMessage(localeText('generateLab.imageSaved'), 'success');
+        setMessage();
     }
     await loadRecentAssets();
 }
 
-async function generateImage(prompt) {
+async function generateImage(prompt, observation) {
     const currentModel = selectedModel();
     const model = refs.imageModel?.value || currentModel.id;
     const isGpt = currentModel.controls?.supportsQuality === true;
@@ -1849,7 +1863,7 @@ async function generateImage(prompt) {
             ...(currentModel.controls?.supportsOutputFormat ? {outputFormat: refs.imageOutputFormat?.value || currentModel.defaults?.outputFormat || 'png'} : {}),
             ...(currentModel.controls?.supportsBackground ? {background: refs.imageBackground?.value || currentModel.defaults?.background || 'auto'} : {}),
             referenceImages: selectedImageReferences(),
-        }, {durable:true,headers:{'X-BITBI-Workspace':'generate-lab'},onAccepted:()=>setMessage(localeText('generation.accepted'),'info')});
+        }, {durable:true,headers:{'X-BITBI-Workspace':'generate-lab'},...observation});
     } else if (isDimensionedProvider) {
         const dimensions = currentModel.options?.dimensions || {};
         const payload = {
@@ -1871,9 +1885,9 @@ async function generateImage(prompt) {
         if (currentModel.controls?.supportsReferenceImages && referenceImages.length > 0) {
             payload.referenceImages = referenceImages;
         }
-        res = await apiAiGenerateImage(payload,{durable:true,headers:{'X-BITBI-Workspace':'generate-lab'},onAccepted:()=>setMessage(localeText('generation.accepted'),'info')});
+        res = await apiAiGenerateImage(payload,{durable:true,headers:{'X-BITBI-Workspace':'generate-lab'},...observation});
     } else {
-        res = await apiAiGenerateImage(prompt, steps, seed, model,{durable:true,headers:{'X-BITBI-Workspace':'generate-lab'},onAccepted:()=>setMessage(localeText('generation.accepted'),'info')});
+        res = await apiAiGenerateImage(prompt, steps, seed, model,{durable:true,headers:{'X-BITBI-Workspace':'generate-lab'},...observation});
     }
     if (!res.ok) return res;
     const data = res.data?.data || res.data || {};
@@ -1909,7 +1923,7 @@ async function openGrokSources(request) {
     await openReferenceAssetsPicker({type:'grok',...request});
 }
 
-async function generateVideo(prompt) {
+async function generateVideo(prompt, observation) {
     const model = selectedModel();
     const controls = model.controls || {};
     const payload = {
@@ -1943,22 +1957,23 @@ async function generateVideo(prompt) {
     if (model.id.startsWith('xai/grok-imagine-video')) {
         if (!grokVideoControls.valid()) return {ok:false,error:document.documentElement.lang==='de'?'Ein Originalvideo ist erforderlich.':'An original video is required.'};
         Object.assign(payload,grokVideoControls.values());
-    } else if (controls.supportsImageInput && state.videoReferenceDataUri) payload.image_input = state.videoReferenceDataUri;
+    } else if(model.id===H3_MODEL)payload.references=h3Controls.values();
+    else if (controls.supportsImageInput && state.videoReferenceDataUri) payload.image_input = state.videoReferenceDataUri;
     const folderId = refs.folderSelect?.value || '';
     if (folderId) payload.folder_id = folderId;
 
     const res = await apiAiGenerateVideo(payload, {
         durable: true,
-        onAccepted:()=>setMessage(localeText('generation.accepted'),'info'),
+        ...observation,
         headers: { 'X-BITBI-Workspace': 'generate-lab', 'Idempotency-Key': createIdempotencyKey('generate-lab-video') },
     });
-    if (res.ok) {
+    if (res.ok && observation.isCurrent()) {
         renderVideoResult(res.data?.data || res.data || {});
     }
     return res;
 }
 
-async function generateMusic(prompt) {
+async function generateMusic(prompt, observation) {
     const payload = {
         prompt,
         instrumental: refs.musicInstrumental?.checked === true,
@@ -1971,10 +1986,10 @@ async function generateMusic(prompt) {
 
     const res = await apiAiGenerateMusic(payload, {
         durable: true,
-        onAccepted:()=>setMessage(localeText('generation.accepted'),'info'),
+        ...observation,
         headers: { 'X-BITBI-Workspace': 'generate-lab', 'Idempotency-Key': createIdempotencyKey('generate-lab-music') },
     });
-    if (res.ok) {
+    if (res.ok && observation.isCurrent()) {
         renderMusicResult(res.data?.data || res.data || {});
     }
     return res;
@@ -2002,30 +2017,36 @@ async function handleGenerate() {
     }
 
     setMessage('');
+    restoredObservation?.abort();
+    const run=++generationView;
+    const submitted=Object.freeze({modelId:selectedModel().id,modelLabel:selectedModel().displayName,mediaType:state.mediaType});
+    let acceptedJob=null;
+    const onProgress=job=>{if(run!==generationView)return;acceptedJob=job;setWorkflowStatus(job.status==='outcome_unknown'?'reconciling':job.status==='ingesting'?'saving':job.status==='preview_pending'?'previewPending':'accepted',submitted.modelLabel);};
+    acceptedStatusActive=false;
+    const observation={onAccepted:job=>{acceptedStatusActive=true;onProgress(job);},onProgress,isCurrent:()=>run===generationView};
     setWorkflowStatus('generating');
     setCurrentResultSummary('generating');
     setBusy(true, state.mediaType === 'music' ? localeText('generateLab.generatingMusic') : state.mediaType === 'video' ? localeText('generateLab.generatingVideo') : localeText('generateLab.generatingImage'));
     state.currentImageData = null;
     state.currentImageMeta = null;
     syncDetachedImageSaves();
-    renderLoadingResult(state.mediaType === 'music'
-        ? localeText('generateLab.creatingTrack')
-        : state.mediaType === 'video'
-            ? localeText('generateLab.generatingPixverse')
-            : localeText('generateLab.creatingImage'));
+    renderLoadingResult('');
 
     let res;
     try {
-        if (state.mediaType === 'image') res = await generateImage(prompt);
-        else if (state.mediaType === 'video') res = await generateVideo(prompt);
-        else res = await generateMusic(prompt);
+        if (state.mediaType === 'image') res = await generateImage(prompt,observation);
+        else if (state.mediaType === 'video') res = await generateVideo(prompt,observation);
+        else res = await generateMusic(prompt,observation);
     } catch (error) {
         console.warn('Generate Lab generation failed:', error);
-        res = { ok: false, error: localeText('studio.generationFailed') };
+        res = acceptedJob ? {ok:false,pending:true,job:acceptedJob} : {ok:false,error:localeText('studio.generationFailed')};
     } finally {
         setBusy(false);
     }
 
+    if(run!==generationView)return;
+    if(res?.pending){acceptedStatusActive=true;setMessage('');setWorkflowStatus(res.job?.status==='outcome_unknown'?'reconciling':'accepted',submitted.modelLabel);return;}
+    acceptedStatusActive=false;
     if (!res?.ok) {
         renderEmptyResult();
         setMessage(res?.pending ? res.error : localeText('generateLab.generationFailedRetry', { error: res?.error || localeText('studio.generationFailed') }), res?.pending ? 'info' : 'error');
@@ -2040,13 +2061,8 @@ async function handleGenerate() {
         state.creditBalance=res.data.billing.balance_after;updateAccountPanel();updateActionState();
     }
     const saved = Boolean(res.data?.data?.asset?.id);
-    const success = saved && state.mediaType === 'image' ? localeText('generateLab.imageSaved') : state.mediaType === 'image'
-        ? localeText('generateLab.imageGeneratedSave')
-        : state.mediaType === 'video'
-            ? localeText('generateLab.videoGeneratedSaved')
-            : localeText('generateLab.musicGeneratedSaved');
-    setMessage(success, 'success');
-    setWorkflowStatus(state.mediaType === 'image' && !saved ? 'readyToSave' : 'saved');
+    setMessage('');
+    setWorkflowStatus(res.data?.data?.generationJob?.status==='preview_pending'?'previewPending':submitted.mediaType==='image'&&!saved?'readyToSave':'saved',submitted.modelLabel);
     setCurrentResultSummary(state.mediaType === 'image' && !saved ? 'unsaved' : 'saved');
     await loadRecentAssets();
 }
@@ -2130,6 +2146,33 @@ async function loadFolders() {
     renderFolderOptions();
 }
 
+async function restoreGeneration() {
+    restoredObservation?.abort();
+    if(!state.loggedIn||state.busy)return;
+    const own=++generationView,controller=new AbortController();restoredObservation=controller;
+    const response=await apiAiGetGenerationJobs({signal:controller.signal});
+    if(own!==generationView||!state.loggedIn)return;
+    const job=response.data?.data?.jobs?.find(job=>['queued','processing','ingesting','preview_pending','outcome_unknown'].includes(job.status));
+    if(!job)return;
+    acceptedStatusActive=true;
+    const onProgress=current=>{
+        if(own!==generationView)return;
+        const model=getGenerateLabModels().find(model=>model.id===current.model_id);
+        setWorkflowStatus(current.status==='outcome_unknown'?'reconciling':current.status==='ingesting'?'saving':current.status==='preview_pending'?'previewPending':'accepted',model?.displayName||current.model_id||'');
+    };
+    const result=await apiAiObserveGeneration(job,{signal:controller.signal,onProgress});
+    if(own!==generationView||!state.loggedIn)return;
+    if(result.ok){
+        acceptedStatusActive=false;
+        const data=result.data?.data;
+        if(job.media_type==='video')renderVideoResult(data);
+        else if(job.media_type==='music')renderMusicResult(data);
+        else if(data?.imageBase64){renderImageResult({imageData:`data:${data.mimeType||'image/png'};base64,${data.imageBase64}`,prompt:data.prompt||'',meta:data});if(data.asset?.id)renderImageSavedActions();}
+        setWorkflowStatus(data?.generationJob?.status==='preview_pending'?'previewPending':'saved',getGenerateLabModels().find(model=>model.id===data?.generationJob?.model_id)?.displayName||'');
+        await Promise.all([loadRecentAssets(),loadQuota()]);
+    } else if(!result.pending)setWorkflowStatus('attention');
+}
+
 async function loadQuota() {
     if (!state.loggedIn) {
         state.creditBalance = null;
@@ -2176,6 +2219,7 @@ async function loadSession() {
 function bindEvents() {
     for (const tab of document.querySelectorAll('.generate-lab__media-tab')) {
         tab.addEventListener('click', () => {
+            if(state.busy)return;
             const mediaType = tab.dataset.mediaType || 'image';
             state.mediaType = mediaType;
             state.modelId = getDefaultGenerateLabModel(mediaType).id;
@@ -2332,13 +2376,16 @@ async function init() {
     renderAllForSelection();
     await loadSession();
     await Promise.all([loadQuota(), loadFolders(), loadRecentAssets()]);
+    void restoreGeneration().catch(() => { /* The retained status remains unconfirmed; no paid resubmission. */ });
 }
 
 document.addEventListener('bitbi:auth-change', () => {
     window.setTimeout(() => {
         installHeaderStatusPanel();
-        loadSession().catch((error) => console.warn('Generate Lab auth refresh failed:', error));
+        generationView++;acceptedStatusActive=false;restoredObservation?.abort();
+        loadSession().then(()=>restoreGeneration()).catch((error) => console.warn('Generate Lab auth refresh failed:', error));
     }, 0);
 });
 
+window.addEventListener('pagehide',()=>{generationView++;acceptedStatusActive=false;restoredObservation?.abort();},{once:true});
 init();

@@ -1,3 +1,5 @@
+import { H3_MODEL, H3_ROLES, h3MediaType } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
+import { h3RoleLabel } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { renderCanvasFullVideo } from './full-video.js?v=__ASSET_VERSION__';
 import { videoInputCopy, renderVideoInput, awaitCanvasVideo, canvasVideoRunState } from './video-input.js?v=__ASSET_VERSION__';
 import { calculateAiImageCreditCost, calculateAiVideoCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
@@ -439,6 +441,18 @@ function renderInputContext(node, analysis) {
                 ? `${source.sourceTitle}: ${source.inputKind}`
                 : `${source.sourceTitle}: ${source.reason}`;
             section.append(el('p', '', message));
+            if(analysis.model?.id===H3_MODEL && source.assetId) {
+                const select=el('select','canvas-select');select.dataset.h3Role=source.edgeId;
+                const media=source.kind==='video_asset'?'video':source.kind==='audio_asset'?'audio':'image';
+                for(const role of H3_ROLES.filter(role=>h3MediaType(role)===media)){const option=el('option');option.value=role;option.textContent=h3RoleLabel(role,isGerman);select.append(option);}
+                select.value=source.h3Role;section.append(field(isGerman?'Eingaberolle':'Input role',select));
+                select.addEventListener('change',()=>{
+                    const config={...node.config,h3Roles:{...node.config.h3Roles,[source.edgeId]:select.value}};
+                    if(['first_frame','last_frame'].includes(select.value))config.aspectRatio='adaptive';
+                    scheduleNode(node,{config});renderGraph();renderInspector();
+                    dom.inspector.querySelector(`[data-h3-role="${source.edgeId}"]`)?.focus({preventScroll:true});
+                });
+            }
             if (source.videoInput) renderVideoInput({ source, model: analysis.model, section, projectId: store.state.project.id,
                 edge: store.state.edges.find(edge => edge.id === source.edgeId), beforePrepare: flushSaves, signal: inspectorAbort.signal, copy: videoCopy,
                 update(edge, focus) { store.upsertEdge(edge); renderGraph(); renderInspector(); if (focus) dom.inspector.querySelector(`[data-video-method="${edge.id}"]`)?.focus({ preventScroll: true }); }, report: showToast });

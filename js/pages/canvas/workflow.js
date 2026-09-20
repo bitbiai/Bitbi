@@ -1,3 +1,4 @@
+import { H3_MODEL, h3References } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { composeCanvasPrompt } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
 import { canvasVideoMethods, resolveCanvasVideoInput } from '../../shared/canvas-video-input.mjs?v=__ASSET_VERSION__';
 const GENERATION_CAPABILITY = Object.freeze({
@@ -69,9 +70,10 @@ function compatibility(target, model, kind, copy) {
         return { compatible: false, inputKind: 'image_reference', reason: copy.imageInputUnsupported.replace('{model}', model?.label || copy.selectedModel) };
     }
     if (kind === 'video_asset' || kind === 'video_reference') {
-        if (target.type === 'video_generation' && canvasVideoMethods(model, { kind: 'video_asset', assetId: 'pending' }).length) return { compatible: true, inputKind: 'video_reference' };
+        if (target.type === 'video_generation' && (model?.id===H3_MODEL || canvasVideoMethods(model, { kind: 'video_asset', assetId: 'pending' }).length)) return { compatible: true, inputKind: 'video_reference' };
         return { compatible: false, inputKind: 'video_reference', reason: copy.videoInputUnsupported.replace('{model}', model?.label || copy.selectedModel) };
     }
+    if (kind === 'audio_asset' && target.type==='video_generation' && model?.id===H3_MODEL) return {compatible:true,inputKind:'audio_reference'};
     if (kind === 'audio_asset') return { compatible: false, inputKind: 'audio_asset', reason: copy.audioInputUnsupported };
     if (kind === 'json') return { compatible: false, inputKind: 'json', reason: copy.jsonInputUnsupported };
     return { compatible: false, inputKind: 'none', reason: copy.noUsableOutput };
@@ -90,8 +92,8 @@ export function analyzeNodeInputs(target, nodes, edges, models, copy) {
         const kind = value.kind === 'none' ? value.expectedKind : value.kind;
         const accepted = compatibility(target, model, kind, copy);
         const status = value.kind === 'none' ? (accepted.compatible ? 'unresolved' : 'incompatible') : (accepted.compatible ? 'compatible' : 'incompatible');
-        const videoInput = kind === 'video_asset' ? resolveCanvasVideoInput(model, value, edge.config) : null;
-        return { ...value, videoInput, edgeId: edge.id, inputKind: accepted.inputKind, status, reason: status === 'unresolved' ? copy.runUpstream : accepted.reason || '' };
+        const videoInput = kind === 'video_asset' && model?.id!==H3_MODEL ? resolveCanvasVideoInput(model, value, edge.config) : null;
+        return { ...value, videoInput, h3Role:target.config?.h3Roles?.[edge.id] || (kind==='video_asset'?'reference_video':kind==='audio_asset'?'reference_audio':'reference_image'), edgeId: edge.id, inputKind: accepted.inputKind, status, reason: status === 'unresolved' ? copy.runUpstream : accepted.reason || '' };
     });
     const compatible = sources.filter((item) => item.status === 'compatible');
     const connectedPrompt = compatible.filter((item) => item.inputKind === 'prompt' && item.text).map((item) => item.text).join('\n\n').trim();
@@ -124,6 +126,10 @@ export function validationForNode(node, analysis, copy) {
     if (!GENERATION_CAPABILITY[node?.type]) return null;
     if (analysis?.incompatible.length) return analysis.incompatible[0].reason;
     if (analysis?.unresolved.length) return `${analysis.unresolved[0].sourceTitle}: ${copy.runUpstream}`;
+    if(analysis?.model?.id===H3_MODEL) {
+        try{h3References(analysis.compatible.filter(source=>source.assetId).map(source=>({role:source.h3Role,source:{source_type:'saved_asset',asset_id:source.assetId}})));}
+        catch(error){return error.message;}
+    }
     const videos = analysis?.sources.filter(source => source.videoInput?.methods.length) || [];
     if (videos.length > 1 || (videos.length && analysis.compatible.some(source => source.inputKind === 'image_reference'))) return copy.videoAmbiguous;
     if (videos.some(source => !source.videoInput.method)) return copy.videoMethodRequired;

@@ -9,7 +9,8 @@ import { saveGeneratedVideoAsset } from '../../workers/auth/src/lib/ai-text-asse
 const check = (value, message) => { if (!value) throw new Error(message); };
 export async function canvasVideoCase(base, name, fixture) {
   const grok = fixture.model?.startsWith('xai/grok-imagine-video');
-  const model = grok ? fixture.model : 'pixverse/v6';
+  const h3=name==='h3';
+  const model = h3?'minimax/h3':grok ? fixture.model : 'pixverse/v6';
   if (grok) name = `grok-${model.endsWith('preview')?'preview':'base'}-${fixture.operation}`;
   const owner = `canvas-video-${name}`, other = `${owner}-other`, now = new Date().toISOString();
   const db = base.DB, messages = [], requests = [], waits = [];
@@ -23,6 +24,12 @@ export async function canvasVideoCase(base, name, fixture) {
         const response=await worker.fetch(new Request(url),env,{waitUntil(p){waits.push(p);}});
         const actual=new Uint8Array(await response.arrayBuffer());
         check(response.ok && actual.length===expected.length && actual.every((b,i)=>b===expected[i]),'Provider receives exact authorized source bytes');
+      }
+      if(h3) {
+        const source=body.content.find(item=>item.type==='video_url');check(source?.role==='reference_video','Connected H3 video keeps its input role');
+        const response=await worker.fetch(new Request(source.video_url.url),env,{waitUntil(p){waits.push(p);}});
+        check(response.ok && (await response.arrayBuffer()).byteLength===bytes.length,'H3 connected source remains private and available');
+        return {task:{id:'canvas-h3',model:'MiniMax-H3',status:'succeeded',resolution:body.resolution,usage:{output_seconds:4},content:{url:'https://fixture.invalid/result.mp4'}}};
       }
       if (name === 'provider-interrupted') throw new Error('Synthetic lost provider response'); return { video: 'https://fixture.invalid/result.mp4' }; } },
     __TEST_FETCH: async (url, init) => {
@@ -49,7 +56,7 @@ export async function canvasVideoCase(base, name, fixture) {
   await db.prepare('INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,?,\'en\',?,?)').bind(pid,owner,'Video continuation',now,now).run();
   for (const [id, asset, output] of [[src,original.id,{ kind:'video',assetId:original.id,runId:'source-run' }],[dest,null,null]]) {
     await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,title,model_id,x,y,config_json,content_json,asset_id,output_json,created_at,updated_at) VALUES(?,?,?,'video_generation',?,?,0,0,?,'{}',?,?,?,?)")
-      .bind(id,pid,owner,id===src?'Source':'Continue',model,JSON.stringify({prompt:'Continue this fixture',duration:2,...(grok?{resolution:'480p',size:'848x480'}:{quality:'720p',generateAudio:false})}),asset,output?JSON.stringify(output):null,now,now).run();
+      .bind(id,pid,owner,id===src?'Source':'Continue',model,JSON.stringify({prompt:'Continue this fixture',duration:h3?4:2,...(h3?{resolution:'768P',h3Roles:{[eid]:'reference_video'}}:grok?{resolution:'480p',size:'848x480'}:{quality:'720p',generateAudio:false})}),asset,output?JSON.stringify(output):null,now,now).run();
   }
   await db.prepare('INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,\'{}\',?,?)').bind(eid,pid,owner,src,dest,now,now).run();
   const request = async (path, method='GET', body, user=owner, key=`canvas-video-${name}`) => {
@@ -60,7 +67,7 @@ export async function canvasVideoCase(base, name, fixture) {
   check((await request(projectPath,'GET',null,other)).status===404,'Foreign project denied');
   let result,method;
   if(name==='first') await db.prepare('DELETE FROM canvas_edges WHERE id=?').bind(eid).run();
-  else {
+  else if(!h3) {
   result=await request(runPath,'POST',{});
   check(result.status===409 || (name==='foreign' && result.status===404),'Unselected video must not generate');
   check(requests.length===0,'No provider on missing method');
@@ -177,7 +184,7 @@ export async function canvasVideoCase(base, name, fixture) {
   {
     check(['succeeded','preview_pending'].includes(finalJob.status),`Background completion ${finalJob.status}/${finalJob.error_code}`);
     check(debits.n===1,'Exactly one credit debit');
-    const expectedCredits=grok?calculateAiVideoCreditCost(model,{_operation:method,duration:2,resolution:'480p',size:'848x480'}).credits:56;
+    const expectedCredits=h3?calculateAiVideoCreditCost(model,{duration:4,resolution:'768P'}).credits:grok?calculateAiVideoCreditCost(model,{_operation:method,duration:2,resolution:'480p',size:'848x480'}).credits:56;
     check((await db.prepare("SELECT amount FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'").bind(owner).first()).amount===-expectedCredits,'One exact central estimate debit; Pixverse price unchanged');
     if(grok) {
       check(requests.length===1 && requests[0].model===model && requests[0].body._operation===method,'One exact native model/operation');
@@ -279,6 +286,36 @@ export async function adminPixverseCase(base, name, fixture) {
   check((await request(body,{actor:other})).status===403,'Member denied');
   check((await request(body,{proof:false})).status===403,'MFA required');
   check((await request(body,{origin:'https://foreign.invalid'})).status===403,'CSRF required');
+  if(name==='h3') {
+    const input={model:'minimax/h3',prompt:'Synthetic H3 Admin',duration:5,resolution:'768P',aspect_ratio:'16:9'};
+    let callbackUrl;
+    env.AI_LAB={async fetch(request){
+      check(new URL(request.url).pathname==='/internal/ai/video-task/create','No guessed H3 polling endpoint');
+      const payload=await request.json();calls.push(payload.model);callbackUrl=payload.h3_callback;
+      return Response.json({ok:true,result:{status:'provider_pending',providerTaskId:'synthetic-admin-h3',providerState:'queued',retryAfterSeconds:60}});
+    }};
+    env.__TEST_FETCH=async url=>{check(url==='https://fixture.invalid/h3.mp4','Exact completed task output');return new Response(bytes,{headers:{'Content-Type':'video/mp4'}});};
+    const accepted=await request(input);check(accepted.status===202,`H3 Admin accepted: ${JSON.stringify(accepted)}`);
+    const deliver=()=>worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body:messages[0],attempts:1,ack(){},retry(){}}]},env,{waitUntil(p){waits.push(p);}});
+    await deliver();let job=await db.prepare('SELECT * FROM ai_video_jobs_v2 WHERE user_id=?').bind(user).first();
+    check(job.status==='provider_pending',`H3 waits for callback: ${job.status}/${job.error_code}`);
+    await db.prepare("UPDATE ai_video_jobs_v2 SET next_attempt_at='2000-01-01' WHERE id=?").bind(job.id).run();
+    await deliver();check(calls.length===1,'Queued delivery does not reinvoke provider or invent polling');
+    await db.prepare("UPDATE ai_video_jobs_v2 SET status='processing',provider_outcome='unknown',error_code='provider_response_lost' WHERE id=?").bind(job.id).run();
+    const task={id:'synthetic-admin-h3',model:'MiniMax-H3',status:'succeeded',content:{url:'https://fixture.invalid/h3.mp4'},resolution:'768P',usage:{output_seconds:4,total_seconds:100}};
+    const notify=()=>worker.fetch(new Request(callbackUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task})}),env,{});
+    check((await notify()).ok,'H3 Admin callback accepted');check((await notify()).ok,'Identical callback accepted idempotently');
+    await db.prepare("UPDATE ai_video_jobs_v2 SET next_attempt_at='2000-01-01' WHERE id=?").bind(job.id).run();await deliver();await deliver();
+    job=await db.prepare('SELECT * FROM ai_video_jobs_v2 WHERE id=?').bind(job.id).first();
+    check(job.status==='succeeded',`H3 Admin complete: ${job.status}/${job.error_code}`);
+    check(calls.length===1,'One paid Admin call');
+    const usage=await db.prepare('SELECT units FROM platform_budget_usage_events WHERE source_job_id=?').bind(job.id).all();
+    const {calculateH3CreditPricing}=await import('../../js/shared/minimax-h3.mjs');
+    check(usage.results.length===1&&usage.results[0].units===calculateH3CreditPricing(input,4).credits,'Actual output seconds debit platform budget once');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=?').bind(user).first()).n===0,'No personal debit in Admin Lab');
+    check(await env.USER_IMAGES.head(job.output_r2_key),'Admin output materialized privately');
+    await Promise.all(waits);return {name,status:job.status,calls:calls.length};
+  }
   if(name.startsWith('grok-')) {
     const model=name==='grok-base'?'xai/grok-imagine-video':'xai/grok-imagine-video-1.5-preview';
     const input={model,prompt:'Synthetic ZDR generation',duration:2,resolution:'480p',_operation:'generate'};

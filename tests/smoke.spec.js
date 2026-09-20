@@ -10618,3 +10618,52 @@ for (const locale of ['en', 'de']) test(`@canvas-model-ui Generate Lab Grok vide
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath(`grok-video-${locale}.png`), fullPage: true });
 });
+
+for(const locale of ['en','de']) test(`@canvas-model-ui H3 Generate Lab ${locale}: roles, durable single status and restored model identity`,async({page},testInfo)=>{
+  await page.setViewportSize({width:1440,height:900});
+  await mockGenerateLabMemberSession(page,{credits:3000});
+  await mockGenerateLabSavedImageAssets(page,buildGenerateLabImageAssets(2));
+  let releaseAcceptance,submitted,postCount=0,restoring=false;
+  const accepted=new Promise(resolve=>{releaseAcceptance=resolve;});
+  const job={id:'h3-synthetic-job',status:'processing',media_type:'video',model_id:'minimax/h3'};
+  await page.route('**/api/ai/generation-jobs',route=>route.fulfill({json:{ok:true,data:{jobs:restoring?[job]:[]}}}));
+  await page.route('**/api/ai/generation-jobs/*',route=>restoring
+    ?route.fulfill({json:{ok:true,data:{job:{...job,status:'preview_pending'},result:{ok:true,data:{videoUrl:'/api/ai/text-assets/h3-output/file',asset:{id:'h3-output',source_module:'video'}}}}}})
+    :route.fulfill({status:503,json:{ok:false,code:'synthetic_observation_interruption'}}));
+  await page.route('**/api/ai/text-assets/h3-output/file',route=>route.fulfill({contentType:'video/mp4',body:TEST_MP4_BYTES}));
+  await page.route('**/api/ai/generate-video',async route=>{
+    postCount++;submitted=route.request().postDataJSON();await accepted;
+    await route.fulfill({status:202,json:{ok:true,data:{job}}});
+  });
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto(locale==='de'?'/de/generate-lab/':'/generate-lab/');
+  await page.getByRole('tab',{name:'Video',exact:true}).click();
+  await page.locator('[data-model-id="minimax/h3"]').click();
+  await expect(page.locator('#labVideoQuality option')).toHaveText(['768P','2K']);
+  const cost=await page.locator('#labCost').textContent();
+  await page.locator('#labVideoQuality').selectOption('2K');await expect(page.locator('#labCost')).not.toHaveText(cost);
+  const controls=page.locator('[data-h3-references]');await expect(controls).toBeVisible();
+  for(const [role,id] of [['first_frame','asset-ref-1'],['last_frame','asset-ref-2']]) {
+    await controls.locator('select').selectOption(role);
+    await controls.getByRole('button',{name:locale==='de'?'Gespeichertes Medium auswählen':'Choose saved media'}).click();
+    await page.locator(`#labAssetsGrid [data-asset-id="${id}"]`).click();await page.locator('#labAssetsPickerApply').click();
+  }
+  await expect(page.locator('#labVideoAspect')).toHaveValue('adaptive');
+  await page.locator('#labPrompt').fill('Synthetic H3 request');await page.locator('#labGenerate').click();
+  await expect(page.locator('#labWorkflowStatus')).toBeVisible();
+  await expect(page.locator('#labWorkflowStatus')).not.toContainText(locale==='de'?'Tab schließen':'close the tab');
+  releaseAcceptance();
+  await expect(page.locator('#labWorkflowStatus')).toContainText('MiniMax H3');
+  await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'mehrere Minuten':'several minutes');
+  await expect(page.locator('#labMessage')).toBeEmpty();await expect(page.locator('#labGenerate')).toBeEnabled();
+  expect(submitted).toMatchObject({model:'minimax/h3',resolution:'2K',aspect_ratio:'adaptive',references:[
+    {role:'first_frame',source:{source_type:'saved_asset',asset_id:'asset-ref-1'}},{role:'last_frame',source:{source_type:'saved_asset',asset_id:'asset-ref-2'}}]});
+  await page.locator('[data-model-id="pixverse/v6"]').click();
+  await expect(page.locator('#labWorkflowStatus')).toContainText('MiniMax H3');
+  await expect(page.locator('#labResultStage')).not.toContainText('PixVerse');
+  restoring=true;await page.reload();
+  await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'Vorschau':'Preview');
+  await expect(page.locator('#labResultStage video')).toHaveAttribute('src',/h3-output\/file/);
+  expect(postCount).toBe(1);expect(errors).toEqual([]);
+  await page.screenshot({path:testInfo.outputPath(`h3-status-${locale}.png`),fullPage:true});
+});
