@@ -1,3 +1,4 @@
+import { discoverRepairSource, repairSelection } from './lib/media-repair-source.mjs';
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -138,10 +139,21 @@ try {
     process.exit(0);
   }
   const resolved = resolveFiles(options);
-  const selection = selectCiTests(resolved.files, {
+  let selection = selectCiTests(resolved.files, {
     forceFull: options.forceFull || !!resolved.issue,
     forceReason: resolved.issue || "explicit full regression",
   });
+  if(options.githubOutput && !options.forceFull && !resolved.issue && process.env.GITHUB_ACTIONS==='true') {
+    const source=await discoverRepairSource();
+    if(source) {
+      selection=repairSelection(selection,source.files);
+      for(const key of ['REPAIR_SOURCE_SHA','REPAIR_SOURCE_RUN','REPAIR_SOURCE_ATTEMPT']) {
+        appendLine(process.env.GITHUB_ENV,`${key}=${source[key]}`);
+        appendLine(process.env.GITHUB_OUTPUT,`${key.toLowerCase()}=${source[key]}`);
+      }
+      console.log(`Preserving tested frontend ${source.expected.sha} / ${source.expected.run}/${source.expected.attempt}; fresh repair acceptance required for ${process.env.GITHUB_SHA}`);
+    }
+  }
   console.log(formatCiTestSelection(selection));
   console.log(JSON.stringify(selection, null, 2));
   if (options.githubOutput) {

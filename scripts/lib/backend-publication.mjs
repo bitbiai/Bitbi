@@ -8,6 +8,7 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {backendContinuationSupported} from './backend-continuation.mjs';
 import {createReleasePlanFromRepo} from './release-plan.mjs';
+import {mediaEvidenceRun} from './media-publication.mjs';
 import {verifyUploadSource} from './frontend-source.mjs';
 import {cloudflareRead} from './frontend-hosting.mjs';
 import {api} from '../pages-candidate.mjs';
@@ -162,7 +163,7 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   await verifyAuthBundle(receipt.authBundleDigest);
   if(c.plan.workerDeploys.some(s=>s.worker==='ai')) {assert(receipt.ai,'Missing AI prerequisite receipt');await verifyAiActivation(receipt.ai,c.sha);await verifyAuthBundle(receipt.ai.bundleDigest,undefined,'bitbi-ai');}
   if(requiresPrivateMediaImage(c.plan.changedFiles)) {
-    verifyMediaEvidence(receipt,{sha:c.sha,run:process.env.CANDIDATE_RUN,attempt:process.env.CANDIDATE_ATTEMPT,lifecycle:true,publicPreviews:c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql'),videoReferences:true});
+    verifyMediaEvidence(receipt,{sha:c.sha,...mediaEvidenceRun(),lifecycle:true,publicPreviews:c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql'),videoReferences:true});
     await mediaActive(receipt.media,backendEnv());
     if(c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql')) {
       const activation=receipt.smoke.find(s=>s.backend==='cloudflare')?.thumbnailActivation;

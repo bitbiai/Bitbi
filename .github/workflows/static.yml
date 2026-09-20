@@ -52,6 +52,9 @@ jobs:
     if: ${{ !github.event.inputs.candidate_run_id && !github.event.inputs.frontend_recovery_receipt }}
     runs-on: ubuntu-latest
     outputs:
+      repair_source_sha: ${{ steps.selection.outputs.repair_source_sha }}
+      repair_source_run: ${{ steps.selection.outputs.repair_source_run }}
+      repair_source_attempt: ${{ steps.selection.outputs.repair_source_attempt }}
       hosting_provider: ${{ steps.hosting.outputs.provider }}
       candidate_base: ${{ steps.baseline.outputs.base }}
       pages_allowed: ${{ steps.release_preflight.outputs.static_deploy_allowed }}
@@ -113,6 +116,7 @@ jobs:
       - name: Select tests from changed files
         id: selection
         env:
+          GH_TOKEN: ${{ github.token }}
           # Failed/skipped pushes remain in the unpublished range.
           CI_BASE_REF: ${{ env.CANDIDATE_BASE }}
           CI_HEAD_REF: ${{ github.sha }}
@@ -189,6 +193,7 @@ jobs:
         run: npm run validate:asset-version
 
       - name: Record candidate build
+        if: env.REPAIR_SOURCE_SHA == ''
         env:
           CANDIDATE_FULL: ${{ steps.selection.outputs.full }}
         run: |
@@ -198,8 +203,14 @@ jobs:
         if: steps.selection.outputs.worker_dependencies != 'true'
         run: npm --prefix workers/contact ci
       - name: Check frontend hosting package
-        run: npm run test:frontend-hosting
+        run: |
+          if [ -n "$REPAIR_SOURCE_SHA" ]; then
+            npm run test:frontend-hosting -- --unit
+          else
+            npm run test:frontend-hosting
+          fi
       - name: Upload immutable candidate build
+        if: env.REPAIR_SOURCE_SHA == ''
         uses: actions/upload-artifact@v6
         with:
           name: pages-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -285,6 +296,11 @@ jobs:
         run: |
           npm --prefix workers/media ci
           node scripts/test-private-media-lifecycle.mjs
+      - name: Verify repaired native media smoke
+        if: needs.release-compatibility.outputs.repair_source_sha != ''
+        env:
+          Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
+        run: node scripts/test-q2-runtime.mjs --suite canvas
       - name: Preserve tested private media image
         if: steps.media_image.outputs.required == 'true'
         uses: actions/upload-artifact@v6
@@ -295,7 +311,7 @@ jobs:
           compression-level: 0
           retention-days: 7
       - name: Upload native Linux acceptance evidence
-        if: always() && needs.release-compatibility.outputs.workers == 'true' && needs.release-compatibility.outputs.media_lifecycle != 'true'
+        if: always() && needs.release-compatibility.outputs.workers == 'true' && (needs.release-compatibility.outputs.media_lifecycle != 'true' || needs.release-compatibility.outputs.repair_source_sha != '')
         uses: actions/upload-artifact@v6
         with:
           name: q2-linux-runtime-${{ github.sha }}
@@ -657,8 +673,11 @@ jobs:
     env:
       HOSTING_PROVIDER: ${{ needs.reuse-candidate.outputs.hosting_provider || needs.release-compatibility.outputs.hosting_provider }}
       CANDIDATE_BASE: ${{ needs.reuse-candidate.outputs.candidate_base || needs.release-compatibility.outputs.candidate_base }}
-      CANDIDATE_RUN: ${{ github.event.inputs.candidate_run_id || github.run_id }}
-      CANDIDATE_ATTEMPT: ${{ github.event.inputs.candidate_run_id && github.event.inputs.candidate_run_attempt || github.run_attempt }}
+      REPAIR_SOURCE_SHA: ${{ needs.release-compatibility.outputs.repair_source_sha }}
+      REPAIR_SOURCE_RUN: ${{ needs.release-compatibility.outputs.repair_source_run }}
+      REPAIR_SOURCE_ATTEMPT: ${{ needs.release-compatibility.outputs.repair_source_attempt }}
+      CANDIDATE_RUN: ${{ needs.release-compatibility.outputs.repair_source_run || github.event.inputs.candidate_run_id || github.run_id }}
+      CANDIDATE_ATTEMPT: ${{ needs.release-compatibility.outputs.repair_source_attempt || (github.event.inputs.candidate_run_id && github.event.inputs.candidate_run_attempt) || github.run_attempt }}
     environment:
       name: ${{ (needs.reuse-candidate.outputs.hosting_provider || needs.release-compatibility.outputs.hosting_provider) == 'cloudflare' && 'cloudflare-static-production' || 'github-pages' }}
       url: ${{ steps.deployment.outputs.page_url }}
@@ -689,13 +708,18 @@ jobs:
           path: candidate
           digest-mismatch: error
       - name: Download this run's tested candidate
-        if: success() && !github.event.inputs.candidate_run_id
+        if: success() && !github.event.inputs.candidate_run_id && env.REPAIR_SOURCE_SHA == ''
         uses: actions/download-artifact@v8
         with:
           pattern: pages-*-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           merge-multiple: true
           path: candidate
           digest-mismatch: error
+      - name: Restore unchanged verified frontend package
+        if: env.REPAIR_SOURCE_SHA != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/frontend-release.mjs production-source
       - name: Apply verified candidate backend prerequisites
         if: success() && (needs.release-compatibility.outputs.backend_continuation == 'true' || needs.reuse-candidate.outputs.backend_continuation == 'true') && env.HOSTING_PROVIDER == 'cloudflare'
         env:

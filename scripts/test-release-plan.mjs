@@ -657,7 +657,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'media-identity-')),archive=path.join(dir,'image.tar');fs.writeFileSync(archive,'synthetic archive bytes');
  try {
    const sha='a'.repeat(40),expected={sha,run:'123',attempt:'1',archive};
-   const record={sha,run:'123',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',ffmpeg:'synthetic-version',ffprobe:'synthetic-version',image:`sha256:${'b'.repeat(64)}`,archiveDigest:hash(fs.readFileSync(archive)),tests:['two-five-clips','copy-normalize-audio','private-drain-poster','container-process-restart']};
+   const record={sha,run:'123',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',ffmpeg:'synthetic-version',ffprobe:'synthetic-version',image:`sha256:${'b'.repeat(64)}`,archiveDigest:hash(fs.readFileSync(archive)),tests:['two-five-clips','copy-normalize-audio','private-drain-poster','container-process-restart','h3-video-reference']};
    verifyMediaImage(record,expected);
    for(const patch of [{sha:'wrong'},{run:'124'},{attempt:'2'},{dirty:true},{sourceFiles:{}},{archiveDigest:'wrong'},{platform:'linux/arm64'},{tests:[]}])assert.throws(()=>verifyMediaImage({...record,...patch},expected));
    fs.appendFileSync(archive,'changed');assert.throws(()=>verifyMediaImage(record,expected));
@@ -835,4 +835,23 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const plan=createReleasePlanFromRepo(repoRoot,{files:['workers/ai/src/routes/video-task.js','workers/ai/src/lib/invoke-ai-video.js','workers/auth/src/lib/minimax-h3-callback.js','workers/auth/src/routes/ai/video-generate.js','js/shared/minimax-h3.mjs','js/pages/generate-lab/main.js']});
  assert(backendContinuationSupported(plan));assert.deepEqual(plan.workerDeploys.map(w=>w.worker),['ai','auth']);assert.equal(plan.schemaApplies.length,0);
  assert(!backendContinuationSupported(createReleasePlanFromRepo(repoRoot,{files:[...plan.changedFiles,'workers/ai/src/routes/unknown.js']})));
+}
+
+{
+ const {mediaSmoke,mediaEvidenceRun}=await import('./lib/media-publication.mjs');
+ const originalFetch=globalThis.fetch,keys=['REPAIR_SOURCE_SHA','CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID'];
+ const previous=Object.fromEntries(keys.map(k=>[k,process.env[k]])),calls=[];let reads=0;
+ try {
+  process.env.REPAIR_SOURCE_SHA='a'.repeat(40);process.env.CLOUDFLARE_API_TOKEN='synthetic';process.env.CLOUDFLARE_ACCOUNT_ID='c'.repeat(32);
+  globalThis.fetch=async(url,init={})=>{
+   if(String(url).endsWith('/instances')){reads++;return Response.json({success:true,result:{instances:[{id:'instance',status:{state:reads===1?'inactive':'running',exit_code:0}}]}});}
+   assert.equal(url,'https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke');
+   const body=JSON.parse(init.body);calls.push(body);assert.equal(body.fixtureSha,'a'.repeat(40));assert.equal(body.sha,'b'.repeat(40));
+   return Response.json({ok:true,data:body.action==='retry-reference'?{accepted:true}:{ready:false,failed:true,code:'media_smoke_reference_terminal'}});
+  };
+  await assert.rejects(mediaSmoke({sha:'b'.repeat(40),plan:{changedFiles:[]}},'synthetic',{application:'app'}),/media_smoke_reference_terminal/);
+  assert.deepEqual(calls.map(c=>c.action),['retry-reference','result'],'Terminal failure exits immediately, no reseeding or polling');
+  assert.deepEqual(mediaEvidenceRun({REPAIR_SOURCE_SHA:'old',GITHUB_RUN_ID:'new-run',GITHUB_RUN_ATTEMPT:'2',CANDIDATE_RUN:'old-run',CANDIDATE_ATTEMPT:'1'}),{run:'new-run',attempt:'2'});
+ }finally{globalThis.fetch=originalFetch;for(const k of keys)if(previous[k]===undefined)delete process.env[k];else process.env[k]=previous[k];}
+ console.log('Repair smoke: exact existing fixture, no reseeding, terminal fail-fast and fresh image run/attempt passed.');
 }

@@ -145,7 +145,7 @@ assert(!block('release-compatibility').includes('github.event.before'));
 for(const files of [['workers/media/src/index.js','scripts/test-private-media-lifecycle.mjs'],['js/pages/index/public-media-detail-panel.js'],['js/shared/saved-assets-browser.js','workers/auth/src/lib/asset-names.js'],['admin/index.html','tests/oma2-q3-newsfeed.spec.js'],['README.md'],['workers/auth/src/index.js'],['index.html'],['.github/workflows/static.yml'],['css/components/news-pulse.css'],['tests/homepage-hero-playback.spec.js']]) {
  const selection=selectCiTests(files);
  const outputs=Object.fromEntries(Object.entries(selection).map(([k,v])=>[k.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()),String(v)]));
- const ctx={needs:{'release-compatibility':{outputs}},steps:{selection:{outputs},media_image:{outputs:{required:String(files.some(f=>f.startsWith('workers/media/')))}},homepage_discovery:{outcome:selection.homepage||selection.carousel?'success':'skipped'}},success:()=>true};
+ const ctx={env:{REPAIR_SOURCE_SHA:''},needs:{'release-compatibility':{outputs}},steps:{selection:{outputs},media_image:{outputs:{required:String(files.some(f=>f.startsWith('workers/media/')))}},homepage_discovery:{outcome:selection.homepage||selection.carousel?'success':'skipped'}},success:()=>true};
  const active=(condition)=>condition ? Boolean(vm.runInNewContext(condition.replace(/^\$\{\{ (.*) \}\}$/,'$1').replace(/needs\.([\w-]+)/g,(_,key)=>`needs[${JSON.stringify(key)}]`),ctx)) : true;
  for(const [job,required] of Object.entries(requiredJobs(selection))) {
    const steps=[...block(job).matchAll(/^      - name: (.+)\n([\s\S]*?)(?=^      - name:|$(?![\s\S]))/gm)];
@@ -551,4 +551,33 @@ assert.throws(()=>verifyLaterAttempt({...run,conclusion:'failure'},[{name:'deplo
   for(const status of ['skipped','failed','timedOut']){const bad=structuredClone(report);bad.suites[0].specs[0].tests[0].results=[{status}];assert.throws(()=>verifyCanvasTextReport(bad,discovery));}
   const missing=structuredClone(report);missing.suites[0].specs.pop();assert.throws(()=>verifyCanvasTextReport(missing,discovery));
   const jobs=requiredJobs({canvasText:true,workers:true,auth:true,static:true});assert(jobs['worker-validation']);assert(jobs['browser-validation']);assert(!jobs['homepage-webkit-media']);
+}
+
+{
+ const {assertRepairFiles,repairSelection,assertRepairAcceptance}=await import('./lib/media-repair-source.mjs');
+ const files=['services/homepage-ffmpeg-processor/video-reference.mjs','workers/auth/src/lib/private-media-smoke.js','.github/workflows/static.yml'];
+ const full=selectCiTests(['js/pages/canvas/main.js',...files]);
+ const repair=repairSelection(full,files);
+ assert.equal(repair.workers,true);assert.equal(repair.mediaLifecycle,true);assert.equal(repair.canvasText,false);
+ for(const key of ['auth','homepage','homepageMedia','carousel','full'])assert.equal(repair[key],false);
+ assert.deepEqual(repair.files,full.files,'Complete unpublished range remains recorded');
+ for(const file of ['index.html','workers/auth/src/lib/session.js','workers/ai/src/index.js','unknown.mjs','services/homepage-ffmpeg-processor/processor.mjs'])assert.throws(()=>assertRepairFiles([...files,file]));
+ const required=requiredJobs(repair);required['release-compatibility']=required['release-compatibility'].filter(n=>n!=='Record candidate build');
+ required['release-compatibility'].push('Select tests from changed files');required['worker-validation'].push('Verify repaired native media smoke');
+ const jobs=Object.entries(required).map(([name,steps])=>({name,head_sha:sha,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
+ assertRepairAcceptance(jobs,sha);
+ for(const j of jobs) {
+  assert.throws(()=>assertRepairAcceptance(jobs.filter(x=>x!==j),sha));
+  for(const conclusion of ['failure','skipped','cancelled'])assert.throws(()=>assertRepairAcceptance(jobs.map(x=>x===j?{...x,conclusion}:x),sha));
+  for(const step of j.steps)assert.throws(()=>assertRepairAcceptance(jobs.map(x=>x===j?{...x,steps:x.steps.filter(s=>s!==step)}:x),sha));
+ }
+ assert.throws(()=>assertRepairAcceptance(jobs,'d'.repeat(40)));
+ const outputs=Object.fromEntries(Object.entries(repair).map(([k,v])=>[k.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()),String(v)]));
+ outputs.repair_source_sha=sha;
+ const context={needs:{'release-compatibility':{outputs}},env:{REPAIR_SOURCE_SHA:sha},success:()=>true,steps:{media_image:{outputs:{required:'true'}}}};
+ const active=body=>{const condition=body.match(/^        if: (.+)$/m)?.[1];return !condition||Boolean(vm.runInNewContext(condition.replace(/needs\.([\w-]+)/g,(_,k)=>`needs[${JSON.stringify(k)}]`),context));};
+ for(const name of ['Run worker route tests','Verify native Linux isolation before Worker tests'])assert(!active(block('worker-validation').split(`- name: ${name}\n`)[1].split('      - name:')[0]));
+ for(const name of required['worker-validation'])assert(active(block('worker-validation').split(`- name: ${name}\n`)[1].split('      - name:')[0]),name);
+ assert(!active(block('release-compatibility').split('- name: Record candidate build\n')[1].split('      - name:')[0]));
+ console.log('Closed media repair: unchanged candidate identity, full range, fresh native/image checks and unknown/security deltas fail closed.');
 }

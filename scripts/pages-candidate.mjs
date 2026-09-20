@@ -1,3 +1,4 @@
+import { repairDelta } from './lib/media-repair-source.mjs';
 import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase } from './lib/frontend-hosting.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -152,10 +153,11 @@ export async function sourceAttempt(runId,attempt,selection) {
   }
   return Number(attempt)===latest.run_attempt?latest:api(`actions/runs/${runId}/attempts/${attempt}`);
 }
-export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected, {previewBranch, currentPublication=false}={}) {
+export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected, {previewBranch, currentPublication=false, mediaRepair=false}={}) {
   assert.equal(expected.repository,REPOSITORY,'Foreign repository');
   if (!expected.selection) assert.equal(expected.base,Q4_BASE,'Incomplete legacy Q4 release scope');
-  assert.equal(mainSha,expected.sha,'Superseded candidate');
+  if(mediaRepair){assert(!previewBranch&&!currentPublication);repairDelta(expected.sha,expected.publicationSha,expected.base);}
+  assert.equal(mainSha,mediaRepair?expected.publicationSha:expected.sha,'Superseded candidate');
   assert.equal(run.repository?.full_name,REPOSITORY); assert.equal(run.head_repository?.full_name,REPOSITORY);
   assert.equal(run.head_sha,expected.sha,'Source SHA mismatch'); assert.equal(run.head_branch,previewBranch||'main');
   if(previewBranch && previewBranch!=='main')assert.equal(run.event,'workflow_dispatch','Branch preview must use explicit dispatch');
@@ -271,7 +273,7 @@ export async function collection(endpoint,key) {
   for(let page=1;page<=10;page++) { const data=await api(`${endpoint}${endpoint.includes('?')?'&':'?'}per_page=100&page=${page}`);rows.push(...data[key]);if(rows.length>=data.total_count)return rows; }
   throw new Error('Evidence pagination exceeded bounded scope');
 }
-function expected(env=process.env) { return {repository:env.GITHUB_REPOSITORY,sha:env.GITHUB_SHA,base:env.CANDIDATE_BASE,run:env.CANDIDATE_RUN||env.GITHUB_RUN_ID,attempt:env.CANDIDATE_ATTEMPT||env.GITHUB_RUN_ATTEMPT,currentRun:env.GITHUB_RUN_ID}; }
+function expected(env=process.env) { return {repository:env.GITHUB_REPOSITORY,sha:env.REPAIR_SOURCE_SHA||env.GITHUB_SHA,publicationSha:env.GITHUB_SHA,base:env.CANDIDATE_BASE,run:env.CANDIDATE_RUN||env.GITHUB_RUN_ID,attempt:env.CANDIDATE_ATTEMPT||env.GITHUB_RUN_ATTEMPT,currentRun:env.GITHUB_RUN_ID}; }
 function policyName(){return fs.existsSync('config/static-hosting.json')?hostingPolicy().provider:'github-pages';}
 async function main(command) {
   const e=expected(),dir='candidate',manifestFile=path.join(dir,'manifest.json');
@@ -288,7 +290,7 @@ async function main(command) {
   }
   e.selection=gitSelection(e.base,e.sha);
   if(command==='current') {
-    assert.equal((await api('git/ref/heads/main')).object.sha,e.sha,'Superseded candidate');
+    assert.equal((await api('git/ref/heads/main')).object.sha,e.publicationSha,'Superseded candidate');
     if (fs.existsSync('config/static-hosting.json')) {
       const remote=await api('contents/config/static-hosting.json?ref=main');
       assert.deepEqual(JSON.parse(Buffer.from(remote.content,'base64')),hostingPolicy(),'Hosting authority changed');

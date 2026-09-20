@@ -1,3 +1,4 @@
+import { repairDelta, verifyRepairSource } from './media-repair-source.mjs';
 // Read-only GitHub provenance and archive verification shared by preparation
 // and the immediately-before-upload boundary. No local JSON grants CI trust.
 import assert from 'node:assert/strict';
@@ -16,10 +17,12 @@ export function sourceExpectation(preview, env=process.env) {
   execFileSync('git',['check-ref-format',`refs/heads/${branch}`],{stdio:'pipe'});
   assert.equal(execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),env.GITHUB_SHA,'Checkout is not source SHA');
   execFileSync('git',['diff','--quiet','HEAD','--'],{stdio:'pipe'});
-  return {repository:REPOSITORY,sha:env.GITHUB_SHA,base:env.CANDIDATE_BASE,run:env.CANDIDATE_RUN,attempt:env.CANDIDATE_ATTEMPT,currentRun:env.GITHUB_RUN_ID,branch,selection:gitSelection(env.CANDIDATE_BASE,env.GITHUB_SHA)};
+  if(env.REPAIR_SOURCE_SHA){assert(!preview);repairDelta(env.REPAIR_SOURCE_SHA,env.GITHUB_SHA,env.CANDIDATE_BASE);}
+  return {repository:REPOSITORY,sha:env.REPAIR_SOURCE_SHA||env.GITHUB_SHA,...(env.REPAIR_SOURCE_SHA?{publicationSha:env.GITHUB_SHA}:{}),base:env.CANDIDATE_BASE,run:env.CANDIDATE_RUN,attempt:env.CANDIDATE_ATTEMPT,currentRun:env.GITHUB_RUN_ID,branch,selection:gitSelection(env.CANDIDATE_BASE,env.REPAIR_SOURCE_SHA||env.GITHUB_SHA)};
 }
 export async function sourceArchives(preview, env=process.env) {
   const e=sourceExpectation(preview,env);
+  if(env.REPAIR_SOURCE_SHA)await verifyRepairSource(env,{complete:env.GITHUB_JOB==='deploy'});
   const [run,jobs,artifacts,laterRuns,ref]=await Promise.all([
     sourceAttempt(e.run,e.attempt,e.selection),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),
     collection(`actions/runs/${e.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${e.sha}`,'workflow_runs'),
@@ -28,7 +31,7 @@ export async function sourceArchives(preview, env=process.env) {
   const relevant=laterRuns.filter(r=>isRequiredValidationRun(r,e.selection));
   for(const later of relevant.filter(r=>String(r.id)!==String(e.currentRun)&&Date.parse(r.created_at)>Date.parse(run.created_at)&&r.conclusion!=='success'))later.jobs=await collection(`actions/runs/${later.id}/attempts/${later.run_attempt}/jobs`,'jobs');
   const currentPublication=!preview && env.GITHUB_ACTIONS==='true' && env.GITHUB_JOB==='deploy' && env.GITHUB_REF==='refs/heads/main' && e.run===env.GITHUB_RUN_ID;
-  const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{previewBranch:preview?e.branch:undefined,currentPublication});
+  const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{previewBranch:preview?e.branch:undefined,currentPublication,mediaRepair:Boolean(env.REPAIR_SOURCE_SHA)});
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-source-'));
   const unpack=path.join(temporary,'package');fs.mkdirSync(unpack);
   try {
@@ -68,7 +71,7 @@ export async function verifyUploadSource({preview=false,download=false}={}) {
     const manifest=readJson('candidate/manifest.json');
     verifyManifest(manifest,source.expected,'candidate/site');verifyFrontend(manifest,tree);
     const proofs=fs.readdirSync('candidate').filter(f=>/^proof-.*\.json$/.test(f)).map(f=>readJson(`candidate/${f}`));verifyProofs(manifest,proofs);
-    assert.equal((await api(`git/ref/heads/${source.expected.branch.split('/').map(encodeURIComponent).join('/')}`)).object.sha,source.expected.sha,'Branch advanced during archive verification');
+    assert.equal((await api(`git/ref/heads/${source.expected.branch.split('/').map(encodeURIComponent).join('/')}`)).object.sha,source.expected.publicationSha||source.expected.sha,'Branch advanced during archive verification');
     assert.deepEqual(sourceExpectation(preview),source.expected,'Local source changed during verification');
     return {manifest,proofs,source:{scope:preview?'preview':'production',branch:source.expected.branch,sha:manifest.sha,run:manifest.run,attempt:manifest.attempt,artifacts:source.selected.map(({id,digest})=>({id,digest}))}};
   }finally{fs.rmSync(source.temporary,{recursive:true,force:true});}

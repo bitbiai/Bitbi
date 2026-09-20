@@ -14,9 +14,12 @@ export function mediaCommand(command,args,{cwd,timeout=600000}={}) {
   return new Promise((resolve,reject)=>{
     const child=spawn(command,args,{cwd,stdio:['ignore','pipe','pipe']}),timer=setTimeout(()=>child.kill('SIGKILL'),timeout);
     let stdout='';child.stdout.on('data',b=>{stdout+=b;if(stdout.length>1000000) child.kill('SIGKILL');});
-    child.stderr.on('data',()=>{});
+    // Retain only bounded, known tool diagnostics. Never echo paths, URLs,
+    // media metadata or arbitrary stderr (which can contain private content).
+    let stderr='';child.stderr.on('data',b=>{stderr=(stderr+b).slice(-4096);});
     child.on('error',()=>{clearTimeout(timer);reject(failure('canvas_media_tool_failed'));});
-    child.on('close',code=>{clearTimeout(timer);code===0?resolve(stdout):reject(failure('canvas_media_tool_failed'));});
+    child.on('close',(code,signal)=>{clearTimeout(timer);code===0?resolve(stdout):reject(Object.assign(failure('canvas_media_tool_failed'),{diagnostic:{exit:code,signal,
+      stderr:['Invalid data found','No such file or directory','Unknown encoder','Error initializing output stream','Conversion failed','Cannot allocate memory','No space left on device'].filter(text=>stderr.includes(text))}}));});
   });
 }
 export async function inspectClip(file,{ffprobe='ffprobe',run=mediaCommand}={}) {

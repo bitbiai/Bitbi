@@ -60,7 +60,7 @@ async function main() {
  assert.equal(process.env.GITHUB_REF,'refs/heads/main');assert.equal(process.env.GITHUB_REPOSITORY,'bitbiai/Bitbi');
  assert(['push','workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME));
  const {manifest,proofs}=await verifyUploadSource();
- assert.equal(manifest.sha,process.env.GITHUB_SHA);assert.deepEqual(tree('_site'),manifest.files);
+ assert.equal(manifest.sha,process.env.REPAIR_SOURCE_SHA||process.env.GITHUB_SHA);assert.deepEqual(tree('_site'),manifest.files);
  const output='test-results/frontend-upload.ndjson';fs.mkdirSync('test-results',{recursive:true});fs.rmSync(output,{force:true});
  fs.rmSync('hosting-receipt.json',{force:true});
  const current=async()=>execFileSync(process.execPath,['scripts/pages-candidate.mjs','current'],{stdio:'inherit'});
@@ -73,6 +73,7 @@ async function main() {
    const records=fs.readFileSync(output,'utf8').trim().split('\n').map(JSON.parse).filter(r=>r.type==='deploy');
    assert.equal(records.length,1,'Missing/ambiguous upload result');return records[0];
  }});
+ if(process.env.REPAIR_SOURCE_SHA)receipt.mediaRepair={sourceSha:manifest.sha,publicationSha:process.env.GITHUB_SHA};
  receipt.publicationRun=String(process.env.GITHUB_RUN_ID);receipt.publicationAttempt=String(process.env.GITHUB_RUN_ATTEMPT);
  fs.writeFileSync('hosting-receipt.json',JSON.stringify(receipt,null,2)+'\n');
  console.log(`Verified ${receipt.worker} ${receipt.versionId} at 100%; deployment ${receipt.deploymentId}`);

@@ -172,7 +172,26 @@ export async function privateMediaSmokeCase(base,fixture) {
     assert.equal((await smoke({sha,backend,action:'result'})).referencePending,true);
     const referenceBase='/api/internal/homepage/hero-videos/reference-videos/jobs';
     const referenceResponse=await fetch(referenceBase+'/claim',{protocol:1});assert.equal(referenceResponse.status,200);
-    const reference=(await referenceResponse.json()).data.jobs[0];assert(reference);
+    let reference=(await referenceResponse.json()).data.jobs[0];assert(reference);
+    if(backend==='cloudflare') {
+      const stale=reference;
+      assert.equal((await fetch(reference.completion.failure_url,{}, {'X-BITBI-Canvas-Claim':reference.claim})).status,200);
+      const terminal=await smoke({sha,backend,action:'result'});assert.equal(terminal.ready,false);assert.equal(terminal.failed,true);
+      assert.equal(terminal.code,'media_smoke_reference_terminal');
+      const repairSha='c'.repeat(40);env.PRIVATE_MEDIA_SOURCE_SHA=repairSha;
+      const retry={sha:repairSha,fixtureSha:sha,backend,action:'retry-reference'};
+      assert.equal((await smokeRequest({...retry,job:reference.id})).status,409,'No arbitrary job selector');
+      assert.equal((await smokeRequest({...retry,fixtureSha:'d'.repeat(40)})).status,409,'No unrelated synthetic record');
+      await env.DB.prepare("UPDATE private_video_references SET locked_until='2099-01-01' WHERE id=?").bind(reference.id).run();
+      assert.equal((await smokeRequest(retry)).status,409,'Never reclaim active lease');
+      await env.DB.prepare('UPDATE private_video_references SET locked_until=NULL WHERE id=?').bind(reference.id).run();
+      await smoke(retry);await smoke(retry);
+      const next=await fetch(referenceBase+'/claim',{protocol:1});assert.equal(next.status,200);
+      reference=(await next.json()).data.jobs[0];assert.equal(reference.id,stale.id);assert(reference.claim!==stale.claim);
+      assert.equal((await env.DB.prepare('SELECT attempt_count FROM private_video_references WHERE id=?').bind(reference.id).first()).attempt_count,2);
+      assert((await fetch(stale.completion.failure_url,{}, {'X-BITBI-Canvas-Claim':stale.claim})).status!==200,'Old failure cannot poison retry');
+      env.PRIVATE_MEDIA_SOURCE_SHA=sha;
+    }
     const referenceForm=new FormData();referenceForm.set('video',new Blob([Uint8Array.from(atob(fixture.preparedBase64),c=>c.charCodeAt(0))],{type:'video/mp4'}),'reference.mp4');
     assert.equal((await fetch(reference.completion.url,referenceForm,{'X-BITBI-Canvas-Claim':reference.claim})).status,200);
     const result=await smoke({sha,backend,action:'result'});assert.equal(result.ready,true);assert.equal(result.videoReference.metadata.frames,360);assert.equal(result.outputs.length,3);assert.equal(result.publicPreviews.length,2);

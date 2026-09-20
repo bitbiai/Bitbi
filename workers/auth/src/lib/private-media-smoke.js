@@ -13,8 +13,10 @@ const fail=()=>{throw Object.assign(new Error('media_smoke_invalid'),{code:'medi
 const digest=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
 const id=async value=>(await sha256Hex(value)).slice(0,32);
 export async function privateMediaSmoke(env,body) {
-  if(!body||Object.keys(body).some(k=>!['sha','backend','action','fixture','referenceFixture'].includes(k))||body.sha!==env.PRIVATE_MEDIA_SOURCE_SHA||!/^[a-f0-9]{40}$/.test(body.sha||'')||!['github','cloudflare'].includes(body.backend)||!['start','result','activate-thumbnails'].includes(body.action))fail();
-  const {sha,backend}=body,project=await id(`media-smoke:${sha}:${backend}`),node=await id(project+':node'),now=nowIso();
+  if(!body||Object.keys(body).some(k=>!['sha','backend','action','fixture','referenceFixture','fixtureSha'].includes(k))||body.sha!==env.PRIVATE_MEDIA_SOURCE_SHA||!/^[a-f0-9]{40}$/.test(body.sha||'')||!['github','cloudflare'].includes(body.backend)||!['start','result','activate-thumbnails','retry-reference'].includes(body.action))fail();
+  const {sha,backend}=body,fixtureSha=body.fixtureSha||sha;
+  if(!/^[a-f0-9]{40}$/.test(fixtureSha))fail();
+  const project=await id(`media-smoke:${fixtureSha}:${backend}`),node=await id(project+':node'),now=nowIso();
   if(body.action==='activate-thumbnails'){
     if(backend!=='cloudflare'||body.fixture!==undefined)fail();
     const current=await privateMediaStatus(env);
@@ -29,6 +31,28 @@ export async function privateMediaSmoke(env,body) {
     const result=await setPrivateMediaService(env,{backend:current.backend,thumbnailBackend:'cloudflare',thumbnailRolloutSha:sha,actor:null,reason:`Protected release ${sha}: verified thumbnail rollout`});
     await enqueueAdminAuditEvent(env,{id:await id('thumbnail-rollout:'+sha),adminUserId:'system:protected-release',action:'thumbnail_service_activated',meta:{sha,thumbnailBackend:result.thumbnailBackend,assemblyBackend:result.backend}},{allowDirectFallback:true});
     return {sha,backend:result.backend,thumbnailBackend:result.thumbnailBackend,verified:true};
+  }
+  if(body.action==='retry-reference') {
+    // Only this fixed synthetic source under the disabled smoke owner. Preserve
+    // identity, attempts and quota; never resurrect a retired/active/user job.
+    if(backend!=='cloudflare'||body.fixture!==undefined||body.referenceFixture!==undefined)fail();
+    const reference=await id(project+':reference');
+    const row=await env.DB.prepare('SELECT * FROM private_video_references WHERE id=? AND user_id=? AND processing_backend=?').bind(reference,owner,backend).first();
+    if(!row||row.source_asset_id!==reference||row.source_r2_key!==`users/${owner}/release/${reference}-source.mp4`||row.output_r2_key!==`users/${owner}/video-references/${reference}.mp4`)fail();
+    const account=await env.DB.prepare('SELECT status FROM users WHERE id=?').bind(owner).first();
+    const source=await env.USER_IMAGES.get(row.source_r2_key);
+    if(account?.status!=='disabled'||!source||source.etag!==row.source_etag||source.size!==row.source_bytes||await digest(await source.arrayBuffer())!==referenceFixtureHash)fail();
+    if(row.status==='failed') {
+      if(row.attempt_count!==1||row.error_code!=='h3_reference_preparation_failed'||row.locked_until||row.storage_reserved_bytes||await env.USER_IMAGES.head(row.output_r2_key))fail();
+      const changed=await env.DB.prepare(`UPDATE private_video_references SET status='queued',error_code=NULL,processing_token=NULL,next_attempt_at=?,updated_at=?
+        WHERE id=? AND user_id=? AND processing_backend='cloudflare' AND status='failed' AND attempt_count=1
+        AND error_code='h3_reference_preparation_failed' AND processing_token IS ? AND locked_until IS NULL AND storage_reserved_bytes=0
+        AND NOT EXISTS(SELECT 1 FROM r2_object_tombstones WHERE r2_key IN (private_video_references.source_r2_key,private_video_references.output_r2_key))`)
+        .bind(now,now,reference,owner,row.processing_token).run();
+      if(changed.meta?.changes!==1)fail();
+      await enqueueAdminAuditEvent(env,{id:await id('reference-retry:'+reference),adminUserId:'system:protected-release',action:'synthetic_reference_retry',meta:{sha,fixtureSha,reference,backend}},{allowDirectFallback:true});
+    } else if(!['queued','processing','ready'].includes(row.status)||row.attempt_count>2)fail();
+    await notifyPrivateMedia(env,backend);return {accepted:true,sha,fixtureSha,backend};
   }
   if(body.action==='start') {
     if(typeof body.referenceFixture!=='string'||body.referenceFixture.length>29000)fail();
@@ -86,12 +110,16 @@ export async function privateMediaSmoke(env,body) {
     await notifyPrivateMedia(env,backend);return {accepted:true,sha,backend};
   }
   if(body.fixture!==undefined||body.referenceFixture!==undefined)fail();
+  const reference=await env.DB.prepare('SELECT * FROM private_video_references WHERE id=? AND user_id=? AND processing_backend=?').bind(await id(project+':reference'),owner,backend).first();
+  if(['failed','retired'].includes(reference?.status))return {ready:false,failed:true,sha,backend,code:'media_smoke_reference_terminal'};
   const rows=(await env.DB.prepare('SELECT p.status,p.asset_id,a.r2_key,a.poster_r2_key,a.metadata_json FROM canvas_video_processing p LEFT JOIN ai_text_assets a ON a.id=p.asset_id AND a.user_id=p.user_id WHERE p.project_id=? AND p.user_id=? AND p.processing_backend=? ORDER BY p.kind').bind(project,owner,backend).all()).results||[];
+  if(rows.some(r=>['failed','retired'].includes(r.status)))return {ready:false,failed:true,sha,backend,code:'media_smoke_processing_terminal'};
   if(rows.length!==3||rows.some(r=>r.status!=='ready'||!r.r2_key||!r.poster_r2_key))return {ready:false,sha,backend,states:rows.map(r=>r.status)};
   const preview=await env.DB.prepare('SELECT status,file_r2_key,poster_r2_key FROM homepage_hero_video_derivatives WHERE id=? AND source_user_id=? AND processing_backend=?')
     .bind('hhvd_'+await id(project+':preview'),owner,backend).first();
   const source=await env.DB.prepare("SELECT r2_key,poster_r2_key FROM ai_text_assets WHERE id=? AND user_id=? AND visibility='private'")
     .bind(await id(project+':preview-source'),owner).first();
+  if(['failed','retired'].includes(preview?.status))return {ready:false,failed:true,sha,backend,code:'media_smoke_preview_terminal'};
   if(preview?.status!=='succeeded'||!preview.file_r2_key||!preview.poster_r2_key||!source?.poster_r2_key)return {ready:false,sha,backend,publicPreviewPending:true};
   const publicRows=[{r2_key:preview.file_r2_key,poster_r2_key:preview.poster_r2_key},source];
   const outputs=[];
@@ -103,7 +131,6 @@ export async function privateMediaSmoke(env,body) {
     const base64=b=>{let s='';for(const x of b)s+=String.fromCharCode(x);return btoa(s);};
     outputs.push({video:base64(v),poster:base64(p),videoDigest:await digest(v),posterDigest:await digest(p)});
   }
-  const reference=await env.DB.prepare("SELECT * FROM private_video_references WHERE id=? AND user_id=? AND processing_backend=?").bind(await id(project+':reference'),owner,backend).first();
   if(reference?.status!=='ready')return {ready:false,sha,backend,referencePending:true};
   const original=await env.USER_IMAGES.get(reference.source_r2_key),prepared=await env.USER_IMAGES.get(reference.output_r2_key);
   if(!original||!prepared||await digest(await original.arrayBuffer())!==referenceFixtureHash||prepared.size>100000)fail();

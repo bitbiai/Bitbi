@@ -56,7 +56,7 @@ try {
   artifacts.push({id:i+1,name,digest:`sha256:${hash(bytes)}`,size_in_bytes:bytes.length,expired:false,expires_at:new Date(Date.now()+86400000).toISOString(),workflow_run:{id:101,head_sha:sha}});
  }
  const responses={run,jobs,artifacts,sha};const dataFile=path.join(temp,'responses.json');
- const loader=path.join(temp,'http.mjs');fs.writeFileSync(loader,`import fs from 'node:fs';\nconst d=JSON.parse(fs.readFileSync(${JSON.stringify(dataFile)}));\nglobalThis.fetch=async (input,options={})=>{\n if(options.method&&options.method!=='GET')throw Error('Test forbids external writes');\n const u=new URL(input);if(u.hostname!=='api.github.com')throw Error('Unexpected network');\n const p=u.pathname.replace('/repos/bitbiai/Bitbi/','');\n if(p.match(/^actions\\/artifacts\\/\\d+\\/zip$/))return new Response(fs.readFileSync(${JSON.stringify(temp)}+'/'+p.split('/')[2]+'.zip'));\n let r;if(p==='actions/runs/101')r=d.run;else if(p==='actions/runs/101/attempts/1/jobs')r={jobs:d.jobs,total_count:d.jobs.length};else if(p==='actions/runs/101/artifacts')r={artifacts:d.artifacts,total_count:d.artifacts.length};else if(p==='actions/runs')r={workflow_runs:[d.run],total_count:1};else if(p.startsWith('git/ref/heads/'))r={object:{sha:d.sha}};else throw Error('Unmapped HTTP '+p);\n return Response.json(r);};\n`);
+ const loader=path.join(temp,'http.mjs');fs.writeFileSync(loader,`import fs from 'node:fs';\nconst d=JSON.parse(fs.readFileSync(${JSON.stringify(dataFile)}));\nglobalThis.fetch=async (input,options={})=>{\n if(options.method&&options.method!=='GET')throw Error('Test forbids external writes');\n const u=new URL(input);if(u.hostname!=='api.github.com')throw Error('Unexpected network');\n const p=u.pathname.replace('/repos/bitbiai/Bitbi/','');\n if(p.match(/^actions\\/artifacts\\/\\d+\\/zip$/))return new Response(fs.readFileSync(${JSON.stringify(temp)}+'/'+p.split('/')[2]+'.zip'));\n let r;if(p==='actions/workflows/static.yml/runs')r={workflow_runs:[d.run]};else if(p==='actions/runs/101')r=d.run;else if(p==='actions/runs/101/attempts/1/jobs')r={jobs:d.jobs,total_count:d.jobs.length};else if(p==='actions/runs/101/artifacts')r={artifacts:d.artifacts,total_count:d.artifacts.length};else if(p==='actions/runs/202/attempts/1/jobs')r={jobs:d.repairJobs,total_count:d.repairJobs.length};else if(p==='actions/runs')r={workflow_runs:u.searchParams.get('head_sha')===d.run.head_sha?[d.run]:[],total_count:u.searchParams.get('head_sha')===d.run.head_sha?1:0};else if(p.startsWith('git/ref/heads/'))r={object:{sha:d.sha}};else throw Error('Unmapped HTTP '+p);\n return Response.json(r);};\n`);
  const env={PATH:process.env.PATH,HOME:temp,TMPDIR:temp,NODE_OPTIONS:`--import=${loader}`,GH_TOKEN:'synthetic-read-only',GITHUB_REPOSITORY:'bitbiai/Bitbi',GITHUB_SHA:sha,CANDIDATE_BASE:base,CANDIDATE_RUN:'101',CANDIDATE_ATTEMPT:'1',CANDIDATE_BRANCH:'prep/workers-static-assets'};
  const cli=(name,command,mutate=()=>{},overrides={},pass=false)=>{
   fs.rmSync('candidate',{recursive:true,force:true});fs.cpSync(candidateBackup,'candidate',{recursive:true});
@@ -83,6 +83,34 @@ try {
  cli('preview upload rechecks changed bytes','preview-upload',()=>fs.writeFileSync('candidate/site/index.html','changed'),{FRONTEND_EXTERNAL_PHASE:'APPROVED_PREVIEW'});
  cli('staging upload rechecks extra file','stage-upload',()=>fs.writeFileSync('candidate/site/x','changed'),{FRONTEND_EXTERNAL_PHASE:'APPROVED_UNROUTED_STAGING'});
  cli('ordinary upload rechecks actual asset','deploy',()=>fs.writeFileSync('candidate/site/index.html','bad'), {GITHUB_REF:'refs/heads/main',GITHUB_EVENT_NAME:'push'});
+ // Real cross-revision CLI: original archived bytes/proofs retain source identity.
+ fs.mkdirSync('services/homepage-ffmpeg-processor',{recursive:true});
+ fs.writeFileSync('services/homepage-ffmpeg-processor/video-reference.mjs','// Synthetic repair only\n');
+ git(['add','services/homepage-ffmpeg-processor/video-reference.mjs']);git(['-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic media repair']);
+ const repaired=git(['rev-parse','HEAD']);
+ const repairRequirements=requiredJobs({workers:true,mediaLifecycle:true,files:['services/homepage-ffmpeg-processor/video-reference.mjs']});
+ repairRequirements['release-compatibility']=repairRequirements['release-compatibility'].filter(n=>n!=='Record candidate build');
+ repairRequirements['release-compatibility'].push('Select tests from changed files');repairRequirements['worker-validation'].push('Verify repaired native media smoke');
+ const repairJobs=Object.entries(repairRequirements).map(([name,steps])=>({name,head_sha:repaired,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
+ const repairEnv={GITHUB_ACTIONS:'true',GITHUB_JOB:'deploy',GITHUB_REF:'refs/heads/main',GITHUB_SHA:repaired,GITHUB_RUN_ID:'202',GITHUB_RUN_ATTEMPT:'1',REPAIR_SOURCE_SHA:sha,REPAIR_SOURCE_RUN:'101',REPAIR_SOURCE_ATTEMPT:'1'};
+ const repairData=d=>{d.sha=repaired;d.run.head_branch='main';d.repairJobs=structuredClone(repairJobs);};
+ const selectorData=structuredClone(responses);repairData(selectorData);fs.writeFileSync(dataFile,JSON.stringify(selectorData));
+ const outputFile=path.join(temp,'selection-output'),envFile=path.join(temp,'selection-env');
+ const selected=spawnSync(process.execPath,['scripts/select-ci-tests.mjs','--base',base,'--head',repaired,'--github-output'],{cwd:fixture,env:{...env,...repairEnv,GITHUB_OUTPUT:outputFile,GITHUB_ENV:envFile,CANDIDATE_BASE:base},encoding:'utf8',timeout:30000});
+ assert.equal(selected.status,0,selected.stderr);const selectedOutput=fs.readFileSync(outputFile,'utf8');
+ for(const line of ['workers=true','media_lifecycle=true','full=false','auth=false','homepage=false','repair_source_sha='+sha,'repair_source_run=101'])assert(selectedOutput.split('\n').includes(line),line);
+ assert(fs.readFileSync(envFile,'utf8').includes('REPAIR_SOURCE_SHA='+sha));record('actual CI selector authenticates unchanged source over full unpublished diff');
+ cli('repair reuses exact archived frontend identity','production-config',repairData,repairEnv,true);
+ cli('repair cannot use failed old validation','production-config',d=>{repairData(d);d.jobs[0].conclusion='failure';},repairEnv);
+ cli('repair cannot use expired artifact','production-config',d=>{repairData(d);d.artifacts[0].expired=true;},repairEnv);
+ cli('repair cannot use changed archive','production-config',d=>{repairData(d);d.artifacts[0].digest='sha256:'+'0'.repeat(64);},repairEnv);
+ for(const title of repairRequirements['worker-validation'])cli('repair requires new '+title,'production-config',d=>{repairData(d);d.repairJobs[1].steps=d.repairJobs[1].steps.filter(s=>s.name!==title);},repairEnv);
+ cli('repair cannot substitute current SHA in old artifact','production-config',repairData,{...repairEnv,CANDIDATE_RUN:'202'});
+ cli('repair cannot publish superseded head','production-config',d=>{repairData(d);d.sha='d'.repeat(40);},repairEnv);
+ fs.appendFileSync('frontend/index.mjs','\n// Changed frontend cannot reuse old bytes\n');
+ git(['add','frontend/index.mjs']);git(['-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic incompatible frontend']);
+ const incompatible=git(['rev-parse','HEAD']);
+ cli('repair rejects changed frontend input','production-config',d=>{repairData(d);d.sha=incompatible;},{...repairEnv,GITHUB_SHA:incompatible});
  process.chdir(root);
 
  // Effective permissions: job permissions REPLACE the workflow mapping;
@@ -169,6 +197,16 @@ try {
  db['deployments/3'].payload.receipt.restoredFrom=2;db['deployments/3'].payload.receiptSHA256=hash(JSON.stringify(db['deployments/3'].payload.receipt));await assert.rejects(durableBaseline(api,read));record('wrong rollback source denied','negative');
  db['deployments/3'].payload.receipt={...C};db['deployments/3'].payload.receipt.restoredFrom=1;db['deployments/3'].payload.receiptSHA256=hash(JSON.stringify(db['deployments/3'].payload.receipt));
  db['deployments/1'].payload.receiptSHA256='tampered';await assert.rejects(loadDurableReceipt(1,api));record('invalid old replacement receipt denied','negative');
+ // The active frontend still identifies its original tested bytes, while the
+ // completed protected repair revision becomes the next unpublished baseline.
+ const D=addReceipt(4,sha,'version-D','deployment-D');D.publicationSha=repaired;D.mediaRepair={sourceSha:sha,publicationSha:repaired};
+ db['deployments/4'].payload={receipt:D,receiptSHA256:hash(JSON.stringify(D))};
+ db['deployments/2004'].sha=repaired;db['actions/runs/1004'].head_sha=repaired;db['actions/jobs/3004'].head_sha=repaired;
+ db['actions/jobs/3004'].steps.push({name:'Apply verified candidate backend prerequisites',status:'completed',conclusion:'success'});
+ db['actions/runs/1004/attempts/1/jobs?per_page=100']={jobs:repairJobs};latest=4;current=active(D);
+ const repairRead=async endpoint=>endpoint.endsWith('version-D')?{id:D.versionId,annotations:{'workers/message':`bitbi:${D.sha}:${D.run}:1:${D.packageDigest}`}}:read(endpoint);
+ assert.equal((await durableBaseline(api,repairRead)).sha,repaired);record('protected media repair baseline keeps original frontend identity');
+ db['actions/runs/1004/attempts/1/jobs?per_page=100'].jobs[1].conclusion='failure';await assert.rejects(durableBaseline(api,repairRead));record('repair baseline rejects failed new acceptance','negative');
 } finally {
  process.chdir(root);if(environment.CLOUDFLARE_ACCOUNT_ID===undefined)delete process.env.CLOUDFLARE_ACCOUNT_ID;else process.env.CLOUDFLARE_ACCOUNT_ID=environment.CLOUDFLARE_ACCOUNT_ID;
  fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/frontend-review.json',JSON.stringify({syntheticPlatform:true,nativeBrowser:false,results},null,2));
