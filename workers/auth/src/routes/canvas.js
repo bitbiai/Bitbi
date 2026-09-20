@@ -353,11 +353,13 @@ async function loadOwnedImageDataUri(env, userId, assetId) {
 
 async function applyConnectedMediaInputs(env, userId, model, resolution, body) {
   if(model.id===H3_MODEL) {
-    body.references=h3References(resolution.sources.filter(source=>source.status==='compatible'&&source.assetId).map(source=>{
+    const continuations = resolution.videoReferences.filter(source => source.videoInput.method !== 'reference_video');
+    await applyCanvasVideoInput(env, userId, { ...resolution, videoReferences: continuations }, body, loadOwnedImageDataUri);
+    body.references=h3References([...(body.references || []), ...resolution.sources.filter(source=>source.status==='compatible'&&source.assetId && !continuations.includes(source)).map(source=>{
       const actual=source.kind===CANVAS_DATA_KINDS.VIDEO_ASSET?'video':source.kind===CANVAS_DATA_KINDS.AUDIO_ASSET?'audio':'image';
       if(h3MediaType(source.h3Role)!==actual)throw Object.assign(new Error('H3 reference role does not match the connected medium.'),{status:400,code:'h3_reference_role'});
       return {role:source.h3Role,source:{source_type:'saved_asset',asset_id:source.assetId}};
-    }));return body;
+    })]);return body;
   }
   await applyCanvasVideoInput(env, userId, resolution, body, loadOwnedImageDataUri);
   const imageAssetIds = [...new Set(resolution.imageReferences.map((input) => input.assetId).filter(Boolean))];
@@ -781,8 +783,8 @@ async function resolveCanvasNodeInputs(env, userId, projectId, node, model) {
     const status = value.kind === CANVAS_DATA_KINDS.NONE
       ? (compatibility.compatible ? "unresolved" : "incompatible")
       : (compatibility.compatible ? "compatible" : "incompatible");
-    const videoInput = kindForCompatibility === CANVAS_DATA_KINDS.VIDEO_ASSET && model.id!==H3_MODEL ? resolveCanvasVideoInput(model, value, safeJsonParse(row.edge_config_json, {})) : null;
-    sources.push({ ...value, videoInput, h3Role:config.h3Roles?.[row.edge_id] || (kindForCompatibility===CANVAS_DATA_KINDS.VIDEO_ASSET?"reference_video":kindForCompatibility===CANVAS_DATA_KINDS.AUDIO_ASSET?"reference_audio":"reference_image"), inputKind: compatibility.inputKind, status, reason: status === "unresolved" ? "Run the upstream node first." : compatibility.reason });
+    const videoInput = kindForCompatibility === CANVAS_DATA_KINDS.VIDEO_ASSET ? resolveCanvasVideoInput(model, value, safeJsonParse(row.edge_config_json, {})) : null;
+    sources.push({ ...value, videoInput, h3Role:videoInput?.method === 'last_frame' ? 'first_frame' : config.h3Roles?.[row.edge_id] || (kindForCompatibility===CANVAS_DATA_KINDS.VIDEO_ASSET?"reference_video":kindForCompatibility===CANVAS_DATA_KINDS.AUDIO_ASSET?"reference_audio":"reference_image"), inputKind: compatibility.inputKind, status, reason: status === "unresolved" ? "Run the upstream node first." : compatibility.reason });
   }
   const compatible = sources.filter((source) => source.status === "compatible");
   const connectedPrompt = compatible
@@ -1028,7 +1030,7 @@ async function runNode(ctx, session, projectId, nodeId) {
     connected_node_ids: resolution.sources.map((input) => input.sourceNodeId),
     connected_asset_ids: resolution.sources.map((input) => input.assetId).filter(Boolean),
     connected_input_kinds: resolution.sources.map((input) => input.inputKind),
-    ...(model.id!==H3_MODEL && resolution.videoReferences.length ? { connected_video_inputs: resolution.videoReferences.map(source => ({ edgeId: source.edgeId, ...source.videoInput.context, method: source.videoInput.method, sourceVersion:source.videoInput.sourceVersion, frame: source.videoInput.frame })) } : {}),
+    ...(resolution.videoReferences.some(source => source.videoInput.method !== 'reference_video') ? { connected_video_inputs: resolution.videoReferences.filter(source => source.videoInput.method !== 'reference_video').map(source => ({ edgeId: source.edgeId, ...source.videoInput.context, method: source.videoInput.method, sourceVersion:source.videoInput.sourceVersion, frame: source.videoInput.frame })) } : {}),
   };
   const inputJson = stableJson(requestInput);
   if (new TextEncoder().encode(inputJson).byteLength > MAX_NODE_JSON_BYTES) {

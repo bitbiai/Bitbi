@@ -1,3 +1,4 @@
+import { H3_MODEL } from '../../../../js/shared/minimax-h3.mjs';
 import { resolveCanvasVideoInput } from '../../../../js/shared/canvas-video-input.mjs';
 import { getCanvasModelForRole } from '../../../../js/shared/canvas-model-contract.mjs';
 import { sha256Hex, nowIso } from './tokens.js';
@@ -41,8 +42,9 @@ export async function prepareCanvasVideoEdge(ctx, user, edge, proposed, imageDat
   config.videoInput = { ...selected.context, method: selected.method };
   const same = prior && Object.keys(config.videoInput).every(key => prior[key] === config.videoInput[key]);
   if (same && prior.frame?.version === owned.version) config.videoInput.frame = prior.frame;
-  if (selected.method !== 'last_frame') config.videoInput.sourceVersion = owned.version;
+  config.videoInput.sourceVersion = owned.version;
   if (imageData !== undefined) {
+    if (proposed.videoInput.sourceVersion !== owned.version) fail('video_source_changed', 'The original changed during frame preparation. Prepare it again.');
     if (selected.method !== 'last_frame') fail('video_method_invalid', 'A frame belongs only to the start-image method.');
     const imageId = (await sha256Hex(`canvas-frame:${user.id}:${edge.project_id}:${edge.id}:${owned.version}:${value.runId}`)).slice(0, 32);
     // Register only a newly created derivative; existing historical frames keep
@@ -77,12 +79,13 @@ export async function applyCanvasVideoInput(env, userId, resolution, body, loadI
     body.source_video = {source_type:'saved_asset',asset_id:source.assetId};
     return;
   }
-  if (resolution.imageReferences.length) fail('video_source_ambiguous', 'A last-frame start image cannot be combined with a competing image input.');
+  if (resolution.imageReferences.some(input => !(body.model === H3_MODEL && input.h3Role === 'last_frame'))) fail('video_source_ambiguous', 'A last-frame start image cannot be combined with a competing image input.');
   if (selected.method !== 'last_frame') fail('video_method_invalid', 'Unsupported video input.');
   if (!selected.frame?.imageId) fail('video_frame_required', 'Prepare the last decoded frame before running.');
   await ownedCanvasVideo(env, userId, source.assetId, selected.frame.version);
   const image = await loadImage(env, userId, selected.frame.imageId);
   if (!image) fail('video_frame_unavailable', 'Prepare the source frame again; its saved image is unavailable.');
-  if (body.model?.startsWith('xai/grok-imagine-video')) body.source_image={source_type:'saved_asset',asset_id:selected.frame.imageId};
+  if (body.model === H3_MODEL) body.references = [{ role: 'first_frame', source: { source_type: 'saved_asset', asset_id: selected.frame.imageId } }];
+  else if (body.model?.startsWith('xai/grok-imagine-video')) body.source_image={source_type:'saved_asset',asset_id:selected.frame.imageId};
   else body.image_input = image;
 }

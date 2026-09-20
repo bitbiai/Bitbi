@@ -92,8 +92,8 @@ export function analyzeNodeInputs(target, nodes, edges, models, copy) {
         const kind = value.kind === 'none' ? value.expectedKind : value.kind;
         const accepted = compatibility(target, model, kind, copy);
         const status = value.kind === 'none' ? (accepted.compatible ? 'unresolved' : 'incompatible') : (accepted.compatible ? 'compatible' : 'incompatible');
-        const videoInput = kind === 'video_asset' && model?.id!==H3_MODEL ? resolveCanvasVideoInput(model, value, edge.config) : null;
-        return { ...value, videoInput, h3Role:target.config?.h3Roles?.[edge.id] || (kind==='video_asset'?'reference_video':kind==='audio_asset'?'reference_audio':'reference_image'), edgeId: edge.id, inputKind: accepted.inputKind, status, reason: status === 'unresolved' ? copy.runUpstream : accepted.reason || '' };
+        const videoInput = kind === 'video_asset' ? resolveCanvasVideoInput(model, value, edge.config) : null;
+        return { ...value, videoInput, h3Role:videoInput?.method === 'last_frame' ? 'first_frame' : target.config?.h3Roles?.[edge.id] || (kind==='video_asset'?'reference_video':kind==='audio_asset'?'reference_audio':'reference_image'), edgeId: edge.id, inputKind: accepted.inputKind, status, reason: status === 'unresolved' ? copy.runUpstream : accepted.reason || '' };
     });
     const compatible = sources.filter((item) => item.status === 'compatible');
     const connectedPrompt = compatible.filter((item) => item.inputKind === 'prompt' && item.text).map((item) => item.text).join('\n\n').trim();
@@ -130,8 +130,8 @@ export function validationForNode(node, analysis, copy) {
         try{h3References(analysis.compatible.filter(source=>source.assetId).map(source=>({role:source.h3Role,source:{source_type:'saved_asset',asset_id:source.assetId}})));}
         catch(error){return error.message;}
     }
-    const videos = analysis?.sources.filter(source => source.videoInput?.methods.length) || [];
-    if (videos.length > 1 || (videos.length && analysis.compatible.some(source => source.inputKind === 'image_reference'))) return copy.videoAmbiguous;
+    const videos = analysis?.sources.filter(source => source.videoInput?.methods.length && source.videoInput.method !== 'reference_video') || [];
+    if (videos.length > 1 || (videos.length && analysis.compatible.some(source => source.inputKind === 'image_reference' && !(analysis.model?.id === H3_MODEL && source.h3Role === 'last_frame')))) return copy.videoAmbiguous;
     if (videos.some(source => !source.videoInput.method)) return copy.videoMethodRequired;
     if (videos.some(source => source.videoInput.method === 'last_frame' && !source.videoInput.frame)) return copy.videoPreparing;
     if (!analysis?.effectivePrompt) return copy.promptRequired;

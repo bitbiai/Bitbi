@@ -652,7 +652,10 @@ assert(selection(['scripts/lib/unknown-release-policy.mjs']).full);
 for (const file of ['js/pages/canvas/api.js', 'js/pages/canvas/video-frame.js', 'js/pages/canvas/video-input.js', 'js/pages/canvas/workflow.js', 'js/shared/canvas-video-input.mjs', 'tests/fixtures/media/canvas-end-frame.mp4', 'tests/helpers/canvas-video-control.mjs']) {
  const result = selection([file]);
  assert.equal(result.full, false, file); assert.equal(result.homepageMedia, false, file); assert.equal(result.carousel, false, file);
- if (!file.includes('/helpers/')) assert(result.homepage, file);
+ if (file==='js/shared/canvas-video-input.mjs') {
+   assert.equal(result.canvasText,true);assert.equal(result.homepage,false);assert(result.auth);
+   assert(requiredJobs(result)['browser-validation'].includes('Run selected auth and admin tests'));
+ } else if (!file.includes('/helpers/')) assert(result.homepage, file);
  if (file.includes('/helpers/') || file.includes('/shared/') || file.endsWith('.mp4')) assert(result.workers, file);
 }
 assert(selection(['js/shared/canvas-video-input.mjs', 'unknown-video-adapter.mjs']).full);
@@ -732,4 +735,14 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);
  for(const flag of ['full','homepage','homepageMedia','carousel'])assert.equal(result[flag],false,flag);
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','unknown-input.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
+}
+
+// Connected-video adapter changes use the existing Canvas integration caller,
+// even when the model catalog itself is unchanged. Unknown/shared inputs stay broad.
+{
+ const files=['js/pages/canvas/main.js','js/pages/canvas/workflow.js','js/pages/canvas/video-input.js','js/shared/canvas-video-input.mjs','workers/auth/src/lib/canvas-video-input.js','workers/auth/src/routes/canvas.js','tests/canvas.spec.js','tests/helpers/canvas-video-control.mjs','tests/helpers/q2-runtime/canvas.mjs','tests/helpers/q2-runtime/control.mjs','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs','docs/runbooks/REGRESSION_REGISTER.md'];
+ const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);assert.equal(result.runtime,true);
+ for(const flag of ['full','homepage','homepageMedia','carousel'])assert.equal(result[flag],false,flag);
+ for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','js/shared/auth.js','unknown-input.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
+ assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
 }

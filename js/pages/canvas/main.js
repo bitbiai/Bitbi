@@ -441,7 +441,7 @@ function renderInputContext(node, analysis) {
                 ? `${source.sourceTitle}: ${source.inputKind}`
                 : `${source.sourceTitle}: ${source.reason}`;
             section.append(el('p', '', message));
-            if(analysis.model?.id===H3_MODEL && source.assetId) {
+            if(analysis.model?.id===H3_MODEL && source.assetId && source.kind !== 'video_asset') {
                 const select=el('select','canvas-select');select.dataset.h3Role=source.edgeId;
                 const media=source.kind==='video_asset'?'video':source.kind==='audio_asset'?'audio':'image';
                 for(const role of H3_ROLES.filter(role=>h3MediaType(role)===media)){const option=el('option');option.value=role;option.textContent=h3RoleLabel(role,isGerman);select.append(option);}
@@ -454,7 +454,10 @@ function renderInputContext(node, analysis) {
                 });
             }
             if (source.videoInput) renderVideoInput({ source, model: analysis.model, section, projectId: store.state.project.id,
-                edge: store.state.edges.find(edge => edge.id === source.edgeId), beforePrepare: flushSaves, signal: inspectorAbort.signal, copy: videoCopy,
+                edge: store.state.edges.find(edge => edge.id === source.edgeId), beforePrepare: async method => {
+                    if (analysis.model?.id === H3_MODEL && method === 'last_frame') scheduleNode(node, { config: { ...node.config, aspectRatio: 'adaptive' } });
+                    return flushSaves();
+                }, signal: inspectorAbort.signal, copy: videoCopy,
                 update(edge, focus) { store.upsertEdge(edge); renderGraph(); renderInspector(); if (focus) dom.inspector.querySelector(`[data-video-method="${edge.id}"]`)?.focus({ preventScroll: true }); }, report: showToast });
             if (source.previewUrl && source.kind === 'image_asset') {
                 const image = el('img'); image.src = source.previewUrl; image.alt = source.sourceTitle; image.loading = 'lazy'; section.append(image);

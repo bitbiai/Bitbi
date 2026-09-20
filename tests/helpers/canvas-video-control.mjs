@@ -9,7 +9,7 @@ import { saveGeneratedVideoAsset } from '../../workers/auth/src/lib/ai-text-asse
 const check = (value, message) => { if (!value) throw new Error(message); };
 export async function canvasVideoCase(base, name, fixture) {
   const grok = fixture.model?.startsWith('xai/grok-imagine-video');
-  const h3=name==='h3';
+  const h3=name.startsWith('h3'), continuation=h3 && name!=='h3';
   const model = h3?'minimax/h3':grok ? fixture.model : 'pixverse/v6';
   if (grok) name = `grok-${model.endsWith('preview')?'preview':'base'}-${fixture.operation}`;
   const owner = `canvas-video-${name}`, other = `${owner}-other`, now = new Date().toISOString();
@@ -26,9 +26,14 @@ export async function canvasVideoCase(base, name, fixture) {
         check(response.ok && actual.length===expected.length && actual.every((b,i)=>b===expected[i]),'Provider receives exact authorized source bytes');
       }
       if(h3) {
-        const source=body.content.find(item=>item.type==='video_url');check(source?.role==='reference_video','Connected H3 video keeps its input role');
-        const response=await worker.fetch(new Request(source.video_url.url),env,{waitUntil(p){waits.push(p);}});
-        check(response.ok && (await response.arrayBuffer()).byteLength===bytes.length,'H3 connected source remains private and available');
+        const content=body.content.filter(item=>item.type!=='text');
+        check(JSON.stringify(content.map(item=>item.role))===JSON.stringify(continuation?['first_frame','last_frame']:['reference_video']),'H3 exact ordered roles; final decoded image is the START frame');
+        for(const item of content) {
+          const type=continuation?'image':'video';check(item.type===type+'_url','Actual provider media type matches role');
+          const response=await worker.fetch(new Request(item[type+'_url'].url),env,{waitUntil(p){waits.push(p);}});
+          const actual=new Uint8Array(await response.arrayBuffer()), expected=continuation?Uint8Array.from(atob(fixture.imageBase64),c=>c.charCodeAt(0)):bytes;
+          check(response.ok && actual.length===expected.length && actual.every((b,i)=>b===expected[i]),'H3 receives exact authorized frame/reference bytes');
+        }
         return {task:{id:'canvas-h3',model:'MiniMax-H3',status:'succeeded',resolution:body.resolution,usage:{output_seconds:4},content:{url:'https://fixture.invalid/result.mp4'}}};
       }
       if (name === 'provider-interrupted') throw new Error('Synthetic lost provider response'); return { video: 'https://fixture.invalid/result.mp4' }; } },
@@ -51,7 +56,7 @@ export async function canvasVideoCase(base, name, fixture) {
   }
   await topUpMemberDailyCredits({ env, userId: owner });
   await grantMemberCredits({ env, userId: owner, amount: 2000, createdByUserId: owner, idempotencyKey: `grant-${name}` });
-  const original = await saveGeneratedVideoAsset(env, { userId: name === 'foreign' ? other : owner, title: 'Source original', videoBytes: bytes, mimeType: 'video/mp4', payload: { duration: 1 } });
+  const original = await saveGeneratedVideoAsset(env, { userId: ['foreign','h3-foreign'].includes(name) ? other : owner, title: 'Source original', videoBytes: bytes, mimeType: 'video/mp4', payload: { duration: 1 } });
   const pid = (await sha256Hex(name)).slice(0,32), src = (await sha256Hex(name+'source')).slice(0,32), dest = (await sha256Hex(name+'dest')).slice(0,32), eid = (await sha256Hex(name+'edge')).slice(0,32);
   await db.prepare('INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,?,\'en\',?,?)').bind(pid,owner,'Video continuation',now,now).run();
   for (const [id, asset, output] of [[src,original.id,{ kind:'video',assetId:original.id,runId:'source-run' }],[dest,null,null]]) {
@@ -67,9 +72,15 @@ export async function canvasVideoCase(base, name, fixture) {
   check((await request(projectPath,'GET',null,other)).status===404,'Foreign project denied');
   let result,method;
   if(name==='first') await db.prepare('DELETE FROM canvas_edges WHERE id=?').bind(eid).run();
-  else if(!h3) {
+  else if(!h3 || continuation) {
+  if (continuation) {
+    const selected=await request(edgePath,'PATCH',{config:{videoInput:{modelId:model,assetId:original.id,runId:'source-run',method:'last_frame'}}});
+    if(name==='h3-foreign'){check(selected.status===404 && !requests.length,'Foreign H3 predecessor denied');return {name,status:'denied'};}
+    check(selected.status===200,'H3 continuation selected');
+    await db.prepare("UPDATE canvas_nodes SET config_json=json_set(config_json,'$.aspectRatio','adaptive') WHERE id=?").bind(dest).run();
+  }
   result=await request(runPath,'POST',{});
-  check(result.status===409 || (name==='foreign' && result.status===404),'Unselected video must not generate');
+  check(result.status===409 || (['foreign','h3-foreign'].includes(name) && result.status===404),'Unselected video must not generate');
   check(requests.length===0,'No provider on missing method');
   if (name === 'blocked' || name === 'blocked-admin') {
     if (name === 'blocked-admin') {
@@ -92,7 +103,19 @@ export async function canvasVideoCase(base, name, fixture) {
     return {name,status:'denied'};
   }
   method=grok?fixture.operation:'last_frame';
-  const config={videoInput:{modelId:model,assetId:original.id,runId:'source-run',method}};
+  let config={videoInput:{modelId:model,assetId:original.id,runId:'source-run',method}};
+  if(method==='last_frame') {
+    const chosen=await request(edgePath,'PATCH',{config});
+    if(name==='foreign'){check(chosen.status===404,'Foreign video denied');return {name,status:'denied'};}
+    check(chosen.status===200,'Owned source version prepared');config=chosen.body.data.edge.config;
+    if(name==='h3-stale') {
+      const asset=await db.prepare('SELECT r2_key FROM ai_text_assets WHERE id=?').bind(original.id).first();
+      await env.USER_IMAGES.put(asset.r2_key,new Uint8Array([...bytes,0]),{httpMetadata:{contentType:'video/mp4'}});
+      const denied=await request(edgePath,'PATCH',{config,frame_image:`data:image/png;base64,${fixture.imageBase64}`});
+      check(denied.status===409 && denied.body.code==='video_source_changed','Original replacement during decode rejects stale frame');
+      check(!requests.length && !messages.length,'No inference or dispatch during preparation');return {name,status:'denied'};
+    }
+  }
   if (method==='last_frame') {
     const invalid=await request(edgePath,'PATCH',{config,frame_image:'data:image/png;base64,bm90IGEgcG5n'});
     check(invalid.status>=400 && requests.length===0, 'Invalid frame upload stops before inference');
@@ -126,7 +149,7 @@ export async function canvasVideoCase(base, name, fixture) {
   }
   }
   let referenceId;
-  if(grok || name==='last-frame') {
+  if(grok || name==='last-frame' || continuation) {
     referenceId=(await sha256Hex(`${name}-reference`)).slice(0,32);
     const key=`users/${owner}/reference.png`,nodeId=(await sha256Hex(`${name}-reference-node`)).slice(0,32),edgeId=(await sha256Hex(`${name}-reference-edge`)).slice(0,32);
     await env.USER_IMAGES.put(key,Uint8Array.from(atob(fixture.imageBase64),c=>c.charCodeAt(0)),{httpMetadata:{contentType:'image/png'}});
@@ -134,12 +157,19 @@ export async function canvasVideoCase(base, name, fixture) {
     await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,x,y,config_json,content_json,asset_id,output_json,created_at,updated_at) VALUES(?,?,?,'image_generation',0,0,'{}','{}',?,?,?,?)")
       .bind(nodeId,pid,owner,referenceId,JSON.stringify({kind:'image',assetId:referenceId}),now,now).run();
     await db.prepare("INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,'{}',?,?)").bind(edgeId,pid,owner,nodeId,dest,now,now).run();
-    if(!grok) {
+    if(continuation) {
+      await db.prepare("UPDATE canvas_nodes SET config_json=json_set(config_json,?, 'last_frame') WHERE id=?").bind('$.h3Roles.'+edgeId,dest).run();
+    } else if(!grok) {
       const conflict=await request(runPath,'POST',{});
       check(conflict.status===409 && conflict.body.code==='video_source_ambiguous' && requests.length===0,'Last-frame still rejects competing image before inference');
       await db.prepare('DELETE FROM canvas_edges WHERE id=?').bind(edgeId).run();
     }
   }
+  if(name==='h3-deleted') {
+    const asset=await db.prepare('SELECT r2_key FROM ai_text_assets WHERE id=?').bind(original.id).first();await env.USER_IMAGES.delete(asset.r2_key);
+    const denied=await request(runPath,'POST',{});check(denied.status===409 && !requests.length && !messages.length,'Deleted predecessor cannot use stale frame');return {name,status:'denied'};
+  }
+  check((await db.prepare("SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'").bind(owner).first()).n===0,'Preparation never debits inference credits');
   result=await request(runPath,'POST',{});
   check(result.status===202 && result.body.code==='canvas_video_pending',`Durable accepted: ${JSON.stringify(result)}`);
   const job=await db.prepare('SELECT * FROM member_generation_jobs WHERE user_id=?').bind(owner).first();
@@ -175,7 +205,7 @@ export async function canvasVideoCase(base, name, fixture) {
     await Promise.allSettled(waits);
     return { name, status: failed.status, code: failed.error_code, providerCalls: requests.length };
   }
-  if(method==='last_frame') {
+  if(method==='last_frame' && !h3) {
     check(requests.filter(r=>r.model).length===1,'One image-to-video call');
     check(requests.find(r=>r.model).body.image_input===`data:image/png;base64,${fixture.imageBase64}`,'Actual saved frame passed as start image');
   }
@@ -202,6 +232,26 @@ export async function canvasVideoCase(base, name, fixture) {
     const project=await request(projectPath);check(project.body.data.nodes.find(n=>n.id===dest).output.assetId===asset,'Reload restores output');
     await deliver();check((await db.prepare("SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'").bind(owner).first()).n===1,'Duplicate queue does not recharge');
     check((await request(`/api/ai/generation-jobs/${job.id}`,'GET',null,other)).status===404,'Foreign job denied');
+  }
+  if(h3) {
+    const {canvasVideoChain}=await import('../../workers/auth/src/lib/canvas-video-processing.js');
+    const run=await db.prepare('SELECT * FROM canvas_runs WHERE user_id=?').bind(owner).first();
+    const parents=JSON.parse(run.input_json).connected_video_inputs;
+    if(continuation) {
+      check(parents.length===1 && parents[0].method==='last_frame' && parents[0].assetId===original.id && parents[0].runId==='source-run' && parents[0].frame.version===parents[0].sourceVersion,'Immutable run/asset/version/frame provenance');
+      const posterKey=`users/${owner}/predecessor-poster.png`;
+      await env.USER_IMAGES.put(posterKey,Uint8Array.from(atob(fixture.imageBase64),c=>c.charCodeAt(0)),{httpMetadata:{contentType:'image/png'}});
+      await db.prepare('UPDATE ai_text_assets SET poster_r2_key=? WHERE id=?').bind(posterKey,original.id).run();
+      await db.prepare("INSERT INTO canvas_runs(id,project_id,node_id,user_id,model_id,operation_type,status,idempotency_key,input_json,output_json,asset_id,created_at,updated_at,completed_at) VALUES('source-run',?,?,?,?,'canvas.video.generate','completed',?,'{}','{}',?,?,?,?)")
+        .bind(pid,src,owner,model,'source-'+name,original.id,now,now,now).run();
+      const chain=await canvasVideoChain(env,owner,pid,run.id);
+      check(JSON.stringify(chain.map(item=>item.assetId))===JSON.stringify([original.id,job.id]),'Full-video chain includes each original clip once');
+      await db.prepare("UPDATE canvas_nodes SET output_json='{}',asset_id=NULL WHERE id=?").bind(src).run();
+      check((await canvasVideoChain(env,owner,pid,run.id)).length===2,'History remains independent of mutable node output');
+    } else {
+      check(!parents,'Whole-video reference does not become assembly ancestry');
+      check((await canvasVideoChain(env,owner,pid,run.id)).length===1,'Reference-only full-video chain contains own clip only');
+    }
   }
   if(name==='first'||name==='success') {
     const posterBase='/api/internal/homepage/hero-videos/source-posters/jobs';
