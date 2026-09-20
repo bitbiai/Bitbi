@@ -2005,6 +2005,22 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: {noneReason:"Durable private Canvas postprocessing state; no model invocation or billing."},
     providerSignature:"processor-bearer-secret",
   })),
+  ...[
+    ["capabilities", "GET", "claim", null],
+    ["claim", "POST", "claim", "homepageHeroProcessorJson"],
+    ["source", "GET", ":id/source/:index", null],
+    ["complete", "POST", ":id/complete", "homepageHeroVideoUpload"],
+    ["fail", "POST", ":id/fail", "homepageHeroProcessorJson"],
+  ].map(([suffix,method,route,bodyLimit]) => policy({
+    id: `internal.video-reference.${suffix}`, method,
+    path: `/api/internal/homepage/hero-videos/reference-videos/jobs/${route}`,
+    auth: "anonymous", csrf: "not-browser-facing", owner: "homepage", sensitivity: "high",
+    body: bodyLimit ? {kind:suffix==='complete'?'multipart':'json',maxBytesName:bodyLimit,contentType:suffix==='complete'?'multipart/form-data':'application/json'} : {kind:'none',noneReason:'Read-only processor capabilities or leased private source.'},
+    rateLimit: {noneReason:"Existing private processor secret; bounded claims and per-job expiring lease."},
+    config: ["DB","USER_IMAGES","MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET"],
+    audit: {noneReason:"Durable private video reference preparation state; no model invocation or billing."},
+    providerSignature:"processor-bearer-secret",
+  })),
   policy({
     id: "internal.homepage.hero-videos.source-posters.jobs.claim",
     method: "POST",

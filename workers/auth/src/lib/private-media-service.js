@@ -1,3 +1,4 @@
+import { retireVideoReferences } from './private-video-references.js';
 import { duePublicPreviews,publicPreviewCapabilities,recoverPublicPreviews } from './media-preview-jobs.js';
 import { nowIso, randomTokenHex } from './tokens.js';
 import { getMemvidStreamPreviewProcessorDispatchStatus } from './memvid-stream-preview-dispatch.js';
@@ -64,8 +65,10 @@ export async function duePrivateMedia(env,backend) {
     (SELECT COUNT(*) FROM member_generation_jobs WHERE processing_backend=? AND media_type='video' AND status='preview_pending'
       AND attempt_count<16 AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?)) +
     (SELECT COUNT(*) FROM canvas_video_processing WHERE (CASE WHEN status='preview_pending' THEN thumbnail_backend ELSE processing_backend END)=? AND status IN ('queued','processing','preview_pending')
-      AND attempt_count<8 AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?)) AS count`)
-    .bind(backend,now,now,backend,now,now).first();
+      AND attempt_count<8 AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?)) +
+    (SELECT COUNT(*) FROM private_video_references WHERE processing_backend=? AND status IN ('queued','processing')
+      AND attempt_count<3 AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?)) AS count`)
+    .bind(backend,now,now,backend,now,now,backend,now,now).first();
   return Number(row?.count||0) + await duePublicPreviews(env,backend);
 }
 
@@ -135,5 +138,6 @@ export async function mediaRunner(env,backend,{token,runner,action}) {
 
 export async function recoverPrivateMedia(env) {
   await recoverPublicPreviews(env);
+  await retireVideoReferences(env);
   for(const backend of MEDIA_BACKENDS)if(await duePrivateMedia(env,backend))await notifyPrivateMedia(env,backend);
 }

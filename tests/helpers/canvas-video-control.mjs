@@ -9,7 +9,7 @@ import { saveGeneratedVideoAsset } from '../../workers/auth/src/lib/ai-text-asse
 const check = (value, message) => { if (!value) throw new Error(message); };
 export async function canvasVideoCase(base, name, fixture) {
   const grok = fixture.model?.startsWith('xai/grok-imagine-video');
-  const h3=name.startsWith('h3'), continuation=h3 && name!=='h3';
+  const h3=name.startsWith('h3'), overrun=name.startsWith('h3-overrun'), continuation=h3 && name!=='h3' && !overrun;
   const model = h3?'minimax/h3':grok ? fixture.model : 'pixverse/v6';
   if (grok) name = `grok-${model.endsWith('preview')?'preview':'base'}-${fixture.operation}`;
   const owner = `canvas-video-${name}`, other = `${owner}-other`, now = new Date().toISOString();
@@ -31,7 +31,7 @@ export async function canvasVideoCase(base, name, fixture) {
         for(const item of content) {
           const type=continuation?'image':'video';check(item.type===type+'_url','Actual provider media type matches role');
           const response=await worker.fetch(new Request(item[type+'_url'].url),env,{waitUntil(p){waits.push(p);}});
-          const actual=new Uint8Array(await response.arrayBuffer()), expected=continuation?Uint8Array.from(atob(fixture.imageBase64),c=>c.charCodeAt(0)):bytes;
+          const actual=new Uint8Array(await response.arrayBuffer()), expected=continuation?Uint8Array.from(atob(fixture.imageBase64),c=>c.charCodeAt(0)):overrun?Uint8Array.from(atob(fixture.preparedBase64),c=>c.charCodeAt(0)):bytes;
           check(response.ok && actual.length===expected.length && actual.every((b,i)=>b===expected[i]),'H3 receives exact authorized frame/reference bytes');
         }
         return {task:{id:'canvas-h3',model:'MiniMax-H3',status:'succeeded',resolution:body.resolution,usage:{output_seconds:4},content:{url:'https://fixture.invalid/result.mp4'}}};
@@ -56,7 +56,23 @@ export async function canvasVideoCase(base, name, fixture) {
   }
   await topUpMemberDailyCredits({ env, userId: owner });
   await grantMemberCredits({ env, userId: owner, amount: 2000, createdByUserId: owner, idempotencyKey: `grant-${name}` });
-  const original = await saveGeneratedVideoAsset(env, { userId: ['foreign','h3-foreign'].includes(name) ? other : owner, title: 'Source original', videoBytes: bytes, mimeType: 'video/mp4', payload: { duration: 1 } });
+  const original = await saveGeneratedVideoAsset(env, { userId: ['foreign','h3-foreign'].includes(name) ? other : owner, title: 'Source original', videoBytes: bytes, mimeType: 'video/mp4', payload: { duration: overrun?15:1 } });
+  if(overrun) {
+    const source=await db.prepare('SELECT r2_key FROM ai_text_assets WHERE id=?').bind(original.id).first();
+    const {snapshotGrokVideoSources}=await import('../../workers/auth/src/lib/admin-ai-video-sources.js');
+    const input={model:'minimax/h3',references:[{role:'reference_video',source:{source_type:'saved_asset',asset_id:original.id}}]};
+    for(const [actor,code] of [[owner,'h3_reference_file_duration'],[other,'video_source_not_found']]) {
+      let failure;try{await snapshotGrokVideoSources(env,{id:actor},input);}catch(error){failure=error.code;}
+      check(failure===code,'Unproven encoder overrun and foreign source rejected specifically');
+    }
+    await db.prepare(`INSERT INTO ai_video_jobs_v2(id,user_id,scope,status,provider,model,input_json,request_hash,output_r2_key,created_at,updated_at,expires_at)
+      VALUES(?,?,'admin','succeeded','workers-ai','minimax/h3',?, ?, ?,?,?,?)`)
+      .bind('source-proof-'+name,owner,JSON.stringify({model:'minimax/h3',duration:15}),name,source.r2_key,now,now,new Date(Date.now()+3600000).toISOString()).run();
+    const short=await saveGeneratedVideoAsset(env,{userId:owner,title:'Short reference',videoBytes:Uint8Array.from(atob(fixture.shortBase64),c=>c.charCodeAt(0)),mimeType:'video/mp4',payload:{duration:2}});
+    let failure;try{await snapshotGrokVideoSources(env,{id:owner},{...input,references:[...input.references,{role:'reference_video',source:{source_type:'saved_asset',asset_id:short.id}}]});}catch(error){failure=error.code;}
+    check(failure==='h3_reference_total_duration',`Prepared 15s plus another clip exceeds aggregate limit before acceptance: ${failure}`);
+
+  }
   const pid = (await sha256Hex(name)).slice(0,32), src = (await sha256Hex(name+'source')).slice(0,32), dest = (await sha256Hex(name+'dest')).slice(0,32), eid = (await sha256Hex(name+'edge')).slice(0,32);
   await db.prepare('INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,?,\'en\',?,?)').bind(pid,owner,'Video continuation',now,now).run();
   for (const [id, asset, output] of [[src,original.id,{ kind:'video',assetId:original.id,runId:'source-run' }],[dest,null,null]]) {
@@ -186,6 +202,54 @@ export async function canvasVideoCase(base, name, fixture) {
   }
   const deliver=()=>worker.queue({messages:[{body:{type:'member_generation.process',job_id:job.id},ack(){},retry(){}}]},env,{waitUntil(p){waits.push(p);}});
   await deliver();
+  if(overrun) {
+    const queued=await db.prepare('SELECT * FROM member_generation_jobs WHERE id=?').bind(job.id).first();
+    check(queued.status==='queued' && queued.error_code==='h3_reference_preparing','Preparation waits in existing durable job');
+    check(!requests.length,'No inference before reference ready');
+    const usage=await db.prepare('SELECT billing_status,provider_outcome FROM member_ai_usage_attempts_v2 WHERE id=?').bind(job.usage_attempt_id).first();
+    check(usage.billing_status==='reserved' && usage.provider_outcome==='not_dispatched','Preparation retains reservation, never debits');
+    const rows=await db.prepare('SELECT * FROM private_video_references WHERE user_id=?').bind(owner).all();check(rows.results.length===1,'One derivative');
+    const ref=rows.results[0],path='/api/internal/homepage/hero-videos/reference-videos/jobs';
+    const machine=async(url,body,claim,secret='synthetic-poster')=>worker.fetch(new Request('https://bitbi.ai'+url,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+secret,...(claim?{'X-BITBI-Canvas-Claim':claim}:{}),...(body && !(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body?JSON.stringify(body):undefined}),env,{waitUntil(p){waits.push(p);}});
+    check((await machine(path+'/claim',{protocol:1},null,'wrong')).status===403,'Unauthenticated processor denied');
+    const claim=await (await machine(path+'/claim',{protocol:1})).json();
+    check(claim.data.jobs.length===1,'Existing processor claims reference');const token=claim.data.jobs[0].claim;
+    check((await machine(`${path}/${ref.id}/source/0`,null,'stale')).status===409,'Stale lease denied');
+    const sourceResponse=await machine(`${path}/${ref.id}/source/0`,null,token);
+    check(sourceResponse.ok && (await sourceResponse.arrayBuffer()).byteLength===bytes.length,'Pinned source transport');
+    const form=new FormData();form.set('video',new Blob([bytes],{type:'video/mp4'}),'overrun.mp4');
+    check((await machine(`${path}/${ref.id}/complete`,form,token)).status===400,'Processor cannot certify oversized original');
+    if(name==='h3-overrun-failure') {
+      await env.USER_IMAGES.put(ref.source_r2_key,new Uint8Array([...bytes,0]),{httpMetadata:{contentType:'video/mp4'}});
+      check((await machine(`${path}/${ref.id}/source/0`,null,token)).status===409,'Replaced source invalidates pinned preparation');
+      check((await machine(`${path}/${ref.id}/fail`,{},token)).ok,'Preparation failure recorded');
+      await db.prepare('UPDATE member_generation_jobs SET next_attempt_at=? WHERE id=?').bind(now,job.id).run();await deliver();
+      const failed=await db.prepare('SELECT status FROM member_generation_jobs WHERE id=?').bind(job.id).first();
+      check(failed.status==='failed' && !requests.length,'Terminal preparation failure never invokes model');
+      check((await db.prepare("SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'").bind(owner).first()).n===0,'No failure debit');
+      return {name,status:'failed_before_inference'};
+    }
+    const prepared=Uint8Array.from(atob(fixture.preparedBase64),c=>c.charCodeAt(0));form.set('video',new Blob([prepared],{type:'video/mp4'}),'reference.mp4');
+    await db.exec("CREATE TRIGGER reference_test_lost_completion BEFORE UPDATE OF status ON private_video_references WHEN NEW.status='ready' BEGIN SELECT RAISE(ABORT,'synthetic completion interruption'); END;");
+    check((await machine(`${path}/${ref.id}/complete`,form,token)).status===500,'Lost DB completion retains already uploaded bytes');
+    const beforeRetry=await env.USER_IMAGES.head(ref.output_r2_key);
+    await db.exec('DROP TRIGGER reference_test_lost_completion;');
+    check((await machine(`${path}/${ref.id}/complete`,form,token)).ok,'Native validated derivative stored');
+    check((await env.USER_IMAGES.head(ref.output_r2_key)).etag===beforeRetry.etag,'Completion retry reuses same private bytes');
+    check((await db.prepare('SELECT storage_reserved_bytes FROM private_video_references WHERE id=?').bind(ref.id).first()).storage_reserved_bytes===prepared.length,'Exactly one storage reservation');
+    const {prepareVideoReferences,retireVideoReferences}=await import('../../workers/auth/src/lib/private-video-references.js');
+    await prepareVideoReferences(env,owner,job.id);await prepareVideoReferences(env,owner,job.id);
+    check((await db.prepare('SELECT COUNT(*) AS n FROM private_video_references WHERE user_id=?').bind(owner).first()).n===1,'Retries reuse prepared bytes');
+    const head=await env.USER_IMAGES.head(ref.source_r2_key);check(head.etag===ref.source_etag,'Original unchanged');
+    await db.prepare('DELETE FROM ai_text_assets WHERE id=?').bind(original.id).run();
+    await retireVideoReferences(env);check((await db.prepare('SELECT status FROM private_video_references WHERE id=?').bind(ref.id).first()).status==='ready','Accepted job pins derivative after source deletion');
+    await db.prepare('UPDATE member_generation_jobs SET next_attempt_at=? WHERE id=?').bind(now,job.id).run();await deliver();
+    await retireVideoReferences(env);
+    check((await db.prepare('SELECT status,storage_reserved_bytes FROM private_video_references WHERE id=?').bind(ref.id).first()).status==='retired','No unneeded derivative retained after consumers finish');
+    const {processR2CleanupQueue}=await import('../../workers/auth/src/lib/r2-cleanup.js');await processR2CleanupQueue(env);
+    check(!await env.USER_IMAGES.head(ref.output_r2_key),'Managed derivative cleanup completes');
+    check(await env.USER_IMAGES.head(ref.source_r2_key),'Original remains under existing source receipt');
+  }
   if (['provider-interrupted', 'receipt-write'].includes(name)) {
     const failed = await db.prepare('SELECT * FROM member_generation_jobs WHERE id=?').bind(job.id).first();
     const expected = name === 'receipt-write' ? 'generation_receipt_write_failed' : 'generation_provider_call_outcome_unknown';
@@ -225,6 +289,13 @@ export async function canvasVideoCase(base, name, fixture) {
     }
     const detached=await db.prepare('SELECT status,asset_id FROM canvas_runs WHERE user_id=?').bind(owner).first();
     check(detached.status==='completed' && detached.asset_id===job.id,'Queue completes Canvas without a browser attach');
+    if(overrun) {
+      const restored=(await request(projectPath)).body.data;
+      check(restored.nodes.find(n=>n.id===dest).output.assetId===job.id,'Finished output remains visible after source deletion');
+      await deliver();check(requests.length===1,'Replay does not invoke provider again');
+      check((await request(`/api/ai/generation-jobs/${job.id}`,'GET',null,other)).status===404,'Foreign result denied');
+      return {name,status:finalJob.status,providerCalls:requests.length,debits:debits.n,derivativeRetired:true};
+    }
     result=await request(runPath,'POST',{});check(result.status===200,`Attach completed job: ${JSON.stringify(result)}`);
     const asset=result.body.data.run.asset_id;check(asset===job.id && asset!==original.id,'Owned new asset, original preserved');
     check((await request(runPath,'POST',{})).body.data.idempotent_replay===true,'Canvas replay');
@@ -337,17 +408,37 @@ export async function adminPixverseCase(base, name, fixture) {
   check((await request(body,{proof:false})).status===403,'MFA required');
   check((await request(body,{origin:'https://foreign.invalid'})).status===403,'CSRF required');
   if(name==='h3') {
-    const input={model:'minimax/h3',prompt:'Synthetic H3 Admin',duration:5,resolution:'768P',aspect_ratio:'16:9'};
+    const referenceBytes=Uint8Array.from(atob(fixture.referenceBase64),c=>c.charCodeAt(0)),preparedBytes=Uint8Array.from(atob(fixture.preparedBase64),c=>c.charCodeAt(0));
+    const source=await saveGeneratedVideoAsset(env,{userId:user,title:'Nominal 15s H3 output',videoBytes:referenceBytes,mimeType:'video/mp4',payload:{duration:15}});
+    const sourceKey=(await db.prepare('SELECT r2_key FROM ai_text_assets WHERE id=?').bind(source.id).first()).r2_key;
+    await db.prepare(`INSERT INTO ai_video_jobs_v2(id,user_id,scope,status,provider,model,input_json,request_hash,output_r2_key,created_at,updated_at,expires_at)
+      VALUES('admin-reference-proof',?,'admin','succeeded','workers-ai','minimax/h3',?, ?, ?,?,?,?)`)
+      .bind(user,JSON.stringify({model:'minimax/h3',duration:15}),'admin-reference',sourceKey,now,now,new Date(Date.now()+3600000).toISOString()).run();
+    const input={model:'minimax/h3',prompt:'Synthetic H3 Admin',duration:5,resolution:'768P',aspect_ratio:'16:9',references:[{role:'reference_video',source:{source_type:'saved_asset',asset_id:source.id}}]};
     let callbackUrl;
     env.AI_LAB={async fetch(request){
       check(new URL(request.url).pathname==='/internal/ai/video-task/create','No guessed H3 polling endpoint');
       const payload=await request.json();calls.push(payload.model);callbackUrl=payload.h3_callback;
+      const {buildH3ProviderInput}=await import('../../js/shared/minimax-h3.mjs');
+      const ref=buildH3ProviderInput(payload).content.find(item=>item.role==='reference_video');check(ref?.type==='video_url','Admin preserves whole-video role');
+      const served=await worker.fetch(new Request(ref.video_url.url),env,{}),actual=new Uint8Array(await served.arrayBuffer());
+      check(served.ok&&actual.length===preparedBytes.length&&actual.every((b,i)=>b===preparedBytes[i]),'Admin provider receives validated derivative, not original');
       return Response.json({ok:true,result:{status:'provider_pending',providerTaskId:'synthetic-admin-h3',providerState:'queued',retryAfterSeconds:60}});
     }};
     env.__TEST_FETCH=async url=>{check(url==='https://fixture.invalid/h3.mp4','Exact completed task output');return new Response(bytes,{headers:{'Content-Type':'video/mp4'}});};
     const accepted=await request(input);check(accepted.status===202,`H3 Admin accepted: ${JSON.stringify(accepted)}`);
     const deliver=()=>worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body:messages[0],attempts:1,ack(){},retry(){}}]},env,{waitUntil(p){waits.push(p);}});
-    await deliver();let job=await db.prepare('SELECT * FROM ai_video_jobs_v2 WHERE user_id=?').bind(user).first();
+    await deliver();let job=await db.prepare("SELECT * FROM ai_video_jobs_v2 WHERE user_id=? AND id<>'admin-reference-proof'").bind(user).first();
+    check(job.status==='queued'&&job.provider_outcome==='not_dispatched'&&calls.length===0,'Admin preparation waits without inference');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM platform_budget_usage_events WHERE source_job_id=?').bind(job.id).first()).n===0,'No Admin preparation charge');
+    env.PRIVATE_MEDIA_PROCESSOR_SECRET='synthetic-ref-cloudflare';env.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET='synthetic-ref-github';
+    const ref=await db.prepare('SELECT * FROM private_video_references WHERE user_id=?').bind(user).first(),processor='/api/internal/homepage/hero-videos/reference-videos/jobs';
+    const machine=(route,body,claim)=>worker.fetch(new Request('https://bitbi.ai'+processor+route,{method:'POST',headers:{Authorization:'Bearer synthetic-ref-'+ref.processing_backend,...(claim?{'X-BITBI-Canvas-Claim':claim}:{}),...(body instanceof FormData?{}:{'Content-Type':'application/json'})},body:body instanceof FormData?body:JSON.stringify(body)}),env,{});
+    const claim=await (await machine('/claim',{protocol:1})).json();check(claim.data.jobs[0]?.id===ref.id,'Admin reference claimed');
+    const form=new FormData();form.set('video',new Blob([preparedBytes],{type:'video/mp4'}),'reference.mp4');
+    check((await machine('/'+ref.id+'/complete',form,claim.data.jobs[0].claim)).ok,'Admin reference completes');
+    await db.prepare("UPDATE ai_video_jobs_v2 SET next_attempt_at='2000-01-01' WHERE id=?").bind(job.id).run();await deliver();
+    job=await db.prepare('SELECT * FROM ai_video_jobs_v2 WHERE id=?').bind(job.id).first();
     check(job.status==='provider_pending',`H3 waits for callback: ${job.status}/${job.error_code}`);
     await db.prepare("UPDATE ai_video_jobs_v2 SET next_attempt_at='2000-01-01' WHERE id=?").bind(job.id).run();
     await deliver();check(calls.length===1,'Queued delivery does not reinvoke provider or invent polling');

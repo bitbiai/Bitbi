@@ -19,7 +19,7 @@ export function assertMediaAuthConfig(before,after) {
   assert.deepEqual(next,previous,'Unreviewed Auth configuration change');
   assert.deepEqual(after.services.filter(s=>s.binding==='PRIVATE_MEDIA_PROCESSOR'),[{binding:'PRIVATE_MEDIA_PROCESSOR',service:'bitbi-private-media'}]);
 }
-export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false,publicPreviews=false}) {
+export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false,publicPreviews=false,videoReferences=false}) {
   assert(receipt.media,'Missing media activation evidence');
   assert.equal(receipt.media.sha,sha);assert.equal(receipt.media.sourceRun,run);assert.equal(receipt.media.sourceAttempt,attempt);
   assert(/^registry\.cloudflare\.com\/[a-f0-9]{32}\/bitbi-private-media@sha256:[a-f0-9]{64}$/.test(receipt.media.imageDigest),'Wrong image identity');
@@ -38,6 +38,12 @@ export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false,pub
     assert.equal(smoke.sha,sha);assert(smoke.completedMs>=0);assert.equal(smoke.outputs.length,3);
     for(const out of smoke.outputs)assert(/^[a-f0-9]{64}$/.test(out.videoDigest)&&/^[a-f0-9]{64}$/.test(out.posterDigest),'Missing durable output');
     if(publicPreviews){assert.equal(smoke.publicPreviews?.length,2,'Missing public preview/poster acceptance');for(const out of smoke.publicPreviews)assert(/^[a-f0-9]{64}$/.test(out.videoDigest)&&/^[a-f0-9]{64}$/.test(out.posterDigest),'Missing public preview bytes');}
+    if(videoReferences) {
+      const ref=smoke.videoReference;
+      assert(ref&&/^[a-f0-9]{64}$/.test(ref.videoDigest),'Missing video reference acceptance');
+      assert.equal(ref.originalDigest,'2c67d78cda7252be0cb6ef14396d92abb3b7193940ecc977a5c9fcc823bd1609','Wrong reference fixture');
+      assert(ref.metadata?.frames===360&&ref.metadata.duration<=15&&ref.metadata.duration>=14.9&&ref.metadata.audioDuration>14.9,'Invalid video reference result');
+    }
   }
 }
 export async function mediaActive(expected,env=process.env,{read=endpoint=>cloudflareRead(endpoint,env),now=Date.now,pause=ms=>new Promise(r=>setTimeout(r,ms)),timeout=120000}={}) {
@@ -174,13 +180,13 @@ export async function waitMediaState(application,state,{read=cloudflareRead,now=
   throw Error(`Media container did not become ${state} within bounded production verification`);
 }
 export async function mediaSmoke(c,secret,media) {
-  const fixture=fs.readFileSync('tests/fixtures/media/canvas-end-frame.mp4').toString('base64'),results=[];
+  const fixture=fs.readFileSync('tests/fixtures/media/canvas-end-frame.mp4').toString('base64'),referenceFixture=fs.readFileSync('tests/fixtures/media/h3-overrun.mp4').toString('base64'),results=[];
   const request=async body=>{
     const r=await fetch('https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke',{method:'POST',headers:{Authorization:`Bearer ${secret}`,'Content-Type':'application/json'},body:JSON.stringify({...body,sha:c.sha}),redirect:'error',signal:AbortSignal.timeout(30000)});
     assert(r.ok,`Private smoke HTTP ${r.status}`);const b=await r.json();assert(b.ok);return b.data;
   };
   const lifecycle={stoppedBefore:await waitMediaState(media.application,'stopped')};
-  for(const backend of ['github','cloudflare'])await request({action:'start',backend,fixture});
+  for(const backend of ['github','cloudflare'])await request({action:'start',backend,fixture,referenceFixture});
   lifecycle.running=await waitMediaState(media.application,'running');
   // This is the protected deployment's own finite job completion check, not
   // agent monitoring. A deadline is a failed acceptance, never synthetic green.
@@ -197,13 +203,18 @@ export async function mediaSmoke(c,secret,media) {
             const probe=JSON.parse(run('ffprobe',['-v','error','-show_streams','-of','json',file]));assert(probe.streams.some(s=>s.codec_type==='video'&&s.width>0&&s.height>0));
           }
         }
+        const reference=result.videoReference;assert(reference,'Missing H3 reference processing acceptance');
+        const bytes=Buffer.from(reference.video,'base64');assert.equal(hash(bytes),reference.videoDigest);assert.equal(reference.originalDigest,hash(Buffer.from(referenceFixture,'base64')));
+        const file=path.join(dir,'h3-reference.mp4');fs.writeFileSync(file,bytes);
+        const probe=JSON.parse(run('ffprobe',['-v','error','-show_streams','-show_format','-of','json',file]));
+        assert(Number(probe.format.duration)<=15);assert(probe.streams.some(s=>s.codec_type==='audio'));assert.equal(Number(probe.streams.find(s=>s.codec_type==='video')?.nb_frames),360);
       }finally{fs.rmSync(dir,{recursive:true,force:true});}
       if(backend==='cloudflare') {
         lifecycle.completed={observedAt:new Date().toISOString()};
         lifecycle.stoppedAfter=await waitMediaState(media.application,'stopped');
       }
       const digests=items=>items.map(o=>({videoDigest:o.videoDigest,posterDigest:o.posterDigest}));
-      results.push({backend,sha:c.sha,completedMs:Date.now()-started,outputs:digests(result.outputs),publicPreviews:digests(result.publicPreviews)});pending.delete(backend);
+      results.push({backend,sha:c.sha,completedMs:Date.now()-started,outputs:digests(result.outputs),publicPreviews:digests(result.publicPreviews),videoReference:{videoDigest:result.videoReference.videoDigest,originalDigest:result.videoReference.originalDigest,metadata:result.videoReference.metadata}});pending.delete(backend);
     }
     if(pending.size)await new Promise(resolve=>setTimeout(resolve,5000));
   }

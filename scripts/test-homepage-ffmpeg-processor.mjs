@@ -396,3 +396,5 @@ console.log('Actual processor mode/configuration gate passed with synthetic inpu
 await (await import('../services/homepage-ffmpeg-processor/canvas-full-video.test.mjs')).testCanvasConcatenation();
 
 await testPrivateMediaRunner();
+
+await (await import('../services/homepage-ffmpeg-processor/video-reference.test.mjs')).testVideoReferences();

@@ -47,6 +47,7 @@ const MUTATING_DISPATCH_FILES = [
   "workers/auth/src/routes/ai.js",
   "workers/auth/src/routes/canvas.js",
   "workers/auth/src/routes/canvas-video-processing.js",
+  "workers/auth/src/routes/private-video-references.js",
   "workers/auth/src/routes/private-media-service.js",
   "workers/auth/src/routes/orgs.js",
 ];

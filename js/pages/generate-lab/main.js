@@ -1,4 +1,4 @@
-import { H3_MODEL } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
+import { H3_MODEL, h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { createH3ReferenceControls } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { createGrokVideoControls } from './grok-video-controls.js?v=__ASSET_VERSION__';
 /* ============================================================
@@ -2049,7 +2049,7 @@ async function handleGenerate() {
     acceptedStatusActive=false;
     if (!res?.ok) {
         renderEmptyResult();
-        setMessage(res?.pending ? res.error : localeText('generateLab.generationFailedRetry', { error: res?.error || localeText('studio.generationFailed') }), res?.pending ? 'info' : 'error');
+        setMessage(res?.pending ? res.error : localeText('generateLab.generationFailedRetry', { error: h3ReferenceError(res?.code,document.documentElement.lang==='de') || res?.error || localeText('studio.generationFailed') }), res?.pending ? 'info' : 'error');
         setWorkflowStatus('attention');
         setCurrentResultSummary('attention');
         return;

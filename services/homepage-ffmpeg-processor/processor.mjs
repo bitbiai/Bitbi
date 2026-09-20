@@ -1,3 +1,4 @@
+import { processVideoReferences } from './video-reference.mjs';
 import { runPrivateMedia } from './private-media-runner.mjs';
 import { processCanvasExports } from './canvas-full-video.mjs';
 import { spawn } from "node:child_process";
@@ -957,6 +958,7 @@ async function main() {
   await logPosterEncoderCapabilities();
   if (process.env.PRIVATE_MEDIA_DISPATCH) {
     return runPrivateMedia({requestJson,token:process.env.PRIVATE_MEDIA_DISPATCH,runner:process.env.PRIVATE_MEDIA_RUNNER,
+      processReferences:()=>processVideoReferences({requestJson,authHeaders,baseUrl:BASE_URL,ffmpeg:FFMPEG_BIN,ffprobe:FFPROBE_BIN}),
       processExports:()=>processCanvasExports({requestJson,authHeaders,baseUrl:BASE_URL,limit:1,ffmpeg:FFMPEG_BIN,ffprobe:FFPROBE_BIN}),
       processPosters:async()=>{const jobs=await claimSourcePosterJobs();for(const job of jobs)await processSourcePosterJob(job);return jobs.length;},
       processPreviews:async({hero=false,stream=false}={})=>{
@@ -978,6 +980,7 @@ async function main() {
     }
   }
   if (process.env.MEMBER_GENERATION_POSTERS_ONLY === '1') {
+    await processVideoReferences({requestJson,authHeaders,baseUrl:BASE_URL,ffmpeg:FFMPEG_BIN,ffprobe:FFPROBE_BIN,dryRun:DRY_RUN});
     await processCanvasExports({ requestJson, authHeaders, baseUrl: BASE_URL, limit: JOB_LIMIT, dryRun: DRY_RUN, ffmpeg: FFMPEG_BIN, ffprobe: FFPROBE_BIN });
   }
   if (PROCESS_HOMEPAGE_SOURCE_POSTERS) {

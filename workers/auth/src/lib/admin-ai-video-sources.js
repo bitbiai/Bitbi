@@ -1,5 +1,6 @@
+import { generatedReferencePlan, prepareVideoReferences, readyVideoReference } from './private-video-references.js';
 import { H3_MODEL, h3References, h3MediaType } from '../../../../js/shared/minimax-h3.mjs';
-import { inspectH3TimeReference, validateH3Dimensions } from './h3-reference-metadata.js';
+import { inspectH3TimeReference, h3DurationError, validateH3Dimensions } from './h3-reference-metadata.js';
 import { prepareH3Callback } from './minimax-h3-callback.js';
 import { generationExecution } from './member-generation-jobs.js';
 import { GROK_IMAGE_2 } from '../../../../js/shared/grok-imagine-image-2-pricing.mjs';
@@ -763,6 +764,7 @@ export async function snapshotGrokVideoSources(env, user, payload) {
     }
     const mime = head.httpMetadata?.contentType || row.mime_type || 'image/png';
     assertSupportedObjectContentType(ref.media_type, mime);
+    let prepared={};
     if(payload.model===H3_MODEL) {
       if(await env.DB.prepare('SELECT id FROM member_generation_unready_assets WHERE id=?').bind(row.id).first())throw new AdminAiVideoSourceError('Source is not ready.',{status:409,code:'h3_source_not_ready'});
       const object=await env.USER_IMAGES.get(row.r2_key,{onlyIf:{etagMatches:head.etag}});
@@ -770,12 +772,13 @@ export async function snapshotGrokVideoSources(env, user, payload) {
       const bytes=new Uint8Array(await new Response(object.body).arrayBuffer());
       if(ref.media_type==='image')validateH3Dimensions(await env.IMAGES.info(bytes));
       else {
-        const metadata=inspectH3TimeReference(bytes,ref.media_type,mime);
-        h3Totals[ref.media_type]+=metadata.duration;
-        if(h3Totals[ref.media_type]>15)throw new AdminAiVideoSourceError('H3 reference clips must total at most 15 seconds per media type.',{code:'h3_reference_duration'});
+        const metadata=inspectH3TimeReference(bytes,ref.media_type,mime,{inspectOverrun:ref.media_type==='video'});
+        if(metadata.duration>15)prepared=await generatedReferencePlan(env,user.id,row,head,metadata);
+        h3Totals[ref.media_type]+=prepared.reference_id?15:metadata.duration;
+        if(h3Totals[ref.media_type]>15)throw h3DurationError(true);
       }
     }
-    snapshots.push({...ref, role, r2_key:row.r2_key, etag:head.etag, size_bytes:head.size, mime_type:mime});
+    snapshots.push({...ref, ...prepared, role, r2_key:row.r2_key, etag:head.etag, size_bytes:head.size, mime_type:mime});
   }
   return snapshots;
 }
@@ -785,6 +788,7 @@ export async function resolveAdminAiGrokPreviewMediaSourcesForProvider(env, admi
 } = {}) {
   if(payload?.model===H3_MODEL) {
     if(!jobId)throw new AdminAiVideoSourceError('A durable H3 job is required.',{code:'h3_durable_job_required'});
+    await prepareVideoReferences(env,adminUser.id,jobId);
     const content=[{type:'text',text:payload.prompt}];
     for(const [role,ref] of grokSourceReferences(payload)) {
       const token=await createMediaSourceToken(env,ref,{model:H3_MODEL,operation:'generate',sourceRole:role,userId:adminUser.id,jobId,expiresAt:0});
@@ -903,6 +907,7 @@ export async function handleAdminAiMediaSourceTokenRequest(ctx, token) {
       }
       if (!source) throw new AdminAiVideoSourceError('Source job is unavailable.', {status:410,code:'media_source_job_unavailable'});
     } else source = await getSourceRow(env, ref, ref.user_id);
+    source=await readyVideoReference(env,ref.user_id,source);
     const object = await env.USER_IMAGES.get(source.r2_key);
     if (!object || (source.etag && object.etag !== source.etag)) {
       throw new AdminAiVideoSourceError("Media source was not found.", { status: 404, code: "media_source_not_found" });

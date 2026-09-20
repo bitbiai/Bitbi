@@ -232,7 +232,7 @@ async function calculateTextAssetStorageUsage(env, userId) {
 
 export async function calculateUserAssetStorageUsage(env, userId) {
   return (await calculateImageStorageUsage(env, userId))
-    + (await calculateTextAssetStorageUsage(env, userId));
+    + (await calculateTextAssetStorageUsage(env, userId)) + await referenceStorageBytes(env,userId);
 }
 
 export async function getUserAssetStorageUsageSnapshot(env, userId) {
@@ -295,7 +295,7 @@ export async function reserveUserAssetStorage(env, { userId, uploadBytes, genera
   try {
     if (generationReservation) {
       const { id, token } = generationReservation;
-      const table = generationReservation.table === 'canvas_video_processing' ? 'canvas_video_processing' : 'member_generation_jobs';
+      const table = ['canvas_video_processing','private_video_references'].includes(generationReservation.table) ? generationReservation.table : 'member_generation_jobs';
       const column = generationReservation.kind === 'poster' ? 'poster_reserved_bytes' : 'storage_reserved_bytes';
       const job = await env.DB.prepare(`SELECT ${column} AS reserved_bytes FROM ${table} WHERE id=? AND user_id=? AND processing_token=? AND locked_until>?`)
         .bind(id,userId,token,nowIso()).first();
@@ -369,7 +369,7 @@ export async function releaseUserAssetStorage(env, { userId, bytes, generationRe
   if (!releaseBytes) return;
   if (generationReservation) {
     const {id,token}=generationReservation;
-    const table = generationReservation.table === 'canvas_video_processing' ? 'canvas_video_processing' : 'member_generation_jobs';
+    const table = ['canvas_video_processing','private_video_references'].includes(generationReservation.table) ? generationReservation.table : 'member_generation_jobs';
     const column = generationReservation.kind === 'poster' ? 'poster_reserved_bytes' : 'storage_reserved_bytes';
     await env.DB.batch([
       env.DB.prepare(`UPDATE user_asset_storage_usage SET used_bytes=MAX(0,used_bytes-?),updated_at=? WHERE user_id=?
@@ -443,7 +443,7 @@ export async function buildUserAssetStorageReconciliation(env, userId) {
   const folderIds = new Set((foldersRows.results || []).map((row) => row.id).filter(Boolean));
   const visibilityCounts = { public: 0, private: 0 };
   const assetCountsByType = { image: 0 };
-  let knownAssetBytes = 0;
+  let knownAssetBytes = await referenceStorageBytes(env,userId);
   let missingByteMetadataCount = 0;
   let orphanMetadataCount = 0;
 
@@ -516,4 +516,9 @@ export async function buildUserAssetStorageReconciliation(env, userId) {
       "No quota counters are changed automatically.",
     ],
   };
+}
+
+async function referenceStorageBytes(env,userId) {
+  const row=await env.DB.prepare("SELECT COALESCE(SUM(storage_reserved_bytes),0) AS bytes FROM private_video_references WHERE user_id=? AND status<>'retired'").bind(userId).first();
+  return Number(row?.bytes||0);
 }

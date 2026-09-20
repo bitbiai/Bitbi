@@ -746,3 +746,13 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','js/shared/auth.js','unknown-input.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
  assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
 }
+
+// H3 private reference preparation: real Canvas/worker/native and FFmpeg callers.
+{
+ const files=['workers/auth/src/lib/private-video-references.js','workers/auth/src/routes/private-video-references.js',
+  'workers/auth/src/lib/h3-reference-metadata.js','workers/auth/src/lib/admin-ai-video-sources.js',
+  'workers/auth/migrations/0093_add_private_video_references.sql','services/homepage-ffmpeg-processor/video-reference.mjs',
+  'services/homepage-ffmpeg-processor/video-reference.test.mjs','services/homepage-ffmpeg-processor/Dockerfile','scripts/check-route-policies.mjs','scripts/test-homepage-ffmpeg-processor.mjs','workers/auth/src/lib/asset-storage-quota.js','tests/helpers/canvas-video-control.mjs','tests/helpers/q2-runtime/canvas.mjs'];
+ const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);assert.equal(result.runtime,true);assert.equal(result.homepageMedia,false);
+ for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/auth/migrations/0094_unknown.sql','unknown.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
+}

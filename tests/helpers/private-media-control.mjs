@@ -145,7 +145,7 @@ export async function privateMediaSmokeCase(base,fixture) {
   await assert.rejects(privateMediaSmoke(env,{sha:'a'.repeat(40),backend:'cloudflare',action:'start',fixture:fixture.videoBase64}),/media_smoke_invalid/);
   await assert.rejects(privateMediaSmoke(env,{sha,backend:'cloudflare',action:'start',fixture:btoa('not-media')}),/media_smoke_invalid/);
   for(const backend of ['github','cloudflare']) {
-    const body={sha,backend,action:'start',fixture:fixture.videoBase64};await smoke(body);await smoke(body);
+    const body={sha,backend,action:'start',fixture:fixture.videoBase64,referenceFixture:fixture.referenceBase64};await smoke(body);await smoke(body);
     assert.equal((await smoke({sha,backend,action:'result'})).ready,false);
     const token=backend==='github'?'synthetic-github':'synthetic-container';
     const fetch=async(url,body,extra={})=>worker.fetch(new Request('https://bitbi.ai'+url,{method:'POST',headers:{Authorization:`Bearer ${token}`,...(body instanceof FormData?{}:{'Content-Type':'application/json'}),...extra},body:body instanceof FormData?body:JSON.stringify(body)}),env,{waitUntil(){}});
@@ -169,7 +169,13 @@ export async function privateMediaSmokeCase(base,fixture) {
       const data=new FormData();data.set('file',new Blob([video],{type:'video/mp4'}),'preview.mp4');data.set('poster',new Blob([image],{type:'image/webp'}),'poster.webp');
       assert.equal((await fetch(preview.completion.url,data,{'X-BITBI-Preview-Claim':preview.preview_claim})).status,200);
     }
-    const result=await smoke({sha,backend,action:'result'});assert.equal(result.ready,true);assert.equal(result.outputs.length,3);assert.equal(result.publicPreviews.length,2);
+    assert.equal((await smoke({sha,backend,action:'result'})).referencePending,true);
+    const referenceBase='/api/internal/homepage/hero-videos/reference-videos/jobs';
+    const referenceResponse=await fetch(referenceBase+'/claim',{protocol:1});assert.equal(referenceResponse.status,200);
+    const reference=(await referenceResponse.json()).data.jobs[0];assert(reference);
+    const referenceForm=new FormData();referenceForm.set('video',new Blob([Uint8Array.from(atob(fixture.preparedBase64),c=>c.charCodeAt(0))],{type:'video/mp4'}),'reference.mp4');
+    assert.equal((await fetch(reference.completion.url,referenceForm,{'X-BITBI-Canvas-Claim':reference.claim})).status,200);
+    const result=await smoke({sha,backend,action:'result'});assert.equal(result.ready,true);assert.equal(result.videoReference.metadata.frames,360);assert.equal(result.outputs.length,3);assert.equal(result.publicPreviews.length,2);
   }
   assert.equal(verified,1);
   const activate={sha,backend:'cloudflare',action:'activate-thumbnails'};

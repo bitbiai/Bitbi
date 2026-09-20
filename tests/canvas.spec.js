@@ -893,4 +893,10 @@ for(const locale of ['en','de']) test(`Canvas H3 ${locale}: connected input role
   await page.setViewportSize({width:390,height:844});await page.locator('#canvasInspectorToggle').click();await roles.first().scrollIntoViewIfNeeded();await expect(roles.first()).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:testInfo.outputPath(`h3-canvas-${locale}-mobile.png`)});
+  let code='h3_reference_file_duration',calls=0;
+  await page.route(`**/nodes/${node}/run`,route=>{calls++;return route.fulfill({status:400,json:{ok:false,code,error:'Specific reference error'}});});
+  const run=inspector.getByRole('button',{name:locale==='de'?'Ausführen':'Run',exact:true});
+  await run.click();await expect(page.locator('#canvasToast')).toContainText(locale==='de'?'zwischen 2 und 15 Sekunden':'between 2 and 15 seconds');
+  code='h3_reference_total_duration';await run.click();await expect(page.locator('#canvasToast')).toContainText(locale==='de'?'zusammen je Medienart':'per media type');
+  expect(calls).toBe(2);await expect(inspector.getByRole('combobox',{name:locale==='de'?'Video weiterverwenden':'Reuse video'})).toHaveValue('reference_video');
 });

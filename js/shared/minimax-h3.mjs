@@ -96,3 +96,11 @@ export function parseH3Task(raw) {
         outputSeconds: task.usage?.output_seconds ?? null, duration: task.duration ?? null,
         failed: ['failed', 'cancelled'].includes(task.status), pending: ['queued', 'running'].includes(task.status) };
 }
+
+export function h3ReferenceError(code,de=false) {
+    return ({
+        h3_reference_file_duration:['Each reference video or audio must be between 2 and 15 seconds.','Jede Video- oder Audioreferenz muss zwischen 2 und 15 Sekunden lang sein.'],
+        h3_reference_total_duration:['Reference videos or audio must total at most 15 seconds per media type.','Video- beziehungsweise Audioreferenzen dürfen zusammen je Medienart höchstens 15 Sekunden lang sein.'],
+        h3_reference_preparation_failed:['The video reference could not be prepared. The original is unchanged; no generation was started.','Die Videoreferenz konnte nicht vorbereitet werden. Das Original ist unverändert; keine Generierung wurde gestartet.'],
+    })[code]?.[de?1:0] || '';
+}

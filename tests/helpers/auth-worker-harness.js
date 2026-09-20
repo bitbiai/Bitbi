@@ -1243,6 +1243,7 @@ class MockD1 {
       appSettings: [],
       privateMediaDispatch: ['github','cloudflare'].map(backend=>({backend,token:null,runner_id:null,lease_until:null})),
       canvasVideoProcessing: [],
+      privateVideoReferences: [],
       memvidStreamUploadReceipts: [],
       homepageHeroVideoSlots: [],
       homepageHeroVideoDerivatives: [],
@@ -1762,6 +1763,9 @@ class MockD1 {
     const assignment=query.match(/^SELECT processing_backend FROM (homepage_hero_video_uploads|homepage_hero_video_derivatives|memvid_stream_previews) WHERE id=\?$/);
     if(assignment)return mediaTables[assignment[1]].find(r=>r.id===bindings[0])||null;
     if(query==='SELECT value_json FROM app_settings WHERE key=?')return this.state.appSettings.find(r=>r.key===bindings[0])||null;
+    if(query==="SELECT COALESCE(SUM(storage_reserved_bytes),0) AS bytes FROM private_video_references WHERE user_id=? AND status<>'retired'") {
+      return {bytes:this.state.privateVideoReferences.filter(row=>row.user_id===bindings[0]&&row.status!=='retired').reduce((sum,row)=>sum+Number(row.storage_reserved_bytes||0),0)};
+    }
     if(query==='SELECT backend,error_code,updated_at FROM private_media_dispatch')return {results:this.state.privateMediaDispatch};
     if(query.startsWith('SELECT (SELECT COUNT(*) FROM member_generation_jobs')){
       const [backend,now]=bindings;

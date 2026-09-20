@@ -1,3 +1,4 @@
+import { prepareVideoReferences } from '../../lib/private-video-references.js';
 import { H3_MODEL, normalizeH3Request, buildH3ProviderInput, parseH3Task, calculateH3CreditPricing } from '../../../../../js/shared/minimax-h3.mjs';
 import { validateAdminAiVideoBody } from '../../../../../js/shared/admin-ai-contract.mjs';
 import { GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID } from '../../../../../js/shared/grok-imagine-video-15-preview-pricing.mjs';
@@ -1104,6 +1105,13 @@ export async function handleGenerateVideo(ctx) {
   ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
   const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: parsed.body, mediaType: 'video', sourceRefs: input.sourceRefs || [] });
   if (accepted) return accepted;
+  if(input.modelId===H3_MODEL && generationExecution(env)) {
+    try {await prepareVideoReferences(env,userId,generationExecution(env).job.id);}
+    catch(error) {
+      if(error.code!=='h3_reference_preparing')await usagePolicy.markProviderFailed({code:error.code||'h3_reference_preparation_failed',definitelyNotDispatched:true});
+      throw error;
+    }
+  }
 
   if (usagePolicy.mode === "organization") {
     return respond({
@@ -1181,7 +1189,12 @@ export async function handleGenerateVideo(ctx) {
 
   let providerPayload = buildProviderPayload(input);
   if (isGrokVideo(input.modelId) || input.modelId===H3_MODEL) {
-    const resolved = await resolveAdminAiGrokPreviewMediaSourcesForProvider(env,session.user,input.policyBody,{jobId:generationExecution(env)?.job.id,origin:new URL(request.url).origin,prepareOutput:Boolean(generationExecution(env))});
+    let resolved;
+    try { resolved = await resolveAdminAiGrokPreviewMediaSourcesForProvider(env,session.user,input.policyBody,{jobId:generationExecution(env)?.job.id,origin:new URL(request.url).origin,prepareOutput:Boolean(generationExecution(env))}); }
+    catch(error) {
+      if(error.code!=='h3_reference_preparing')await markVideoProviderFailed(usagePolicy,{code:error.code||'video_source_resolution_failed',message:'Video reference preparation failed.'});
+      throw error;
+    }
     const {model, preset, ...parameters} = resolved; providerPayload = input.modelId===H3_MODEL?buildH3ProviderInput(resolved):parameters;
   }
   const providerResponse = await invokeMemberVideoModel(env, input.modelId, providerPayload, { correlationId, userId, signal: request.signal, usagePolicy });

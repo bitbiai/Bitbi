@@ -597,6 +597,13 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const sha='a'.repeat(40),digest='b'.repeat(64),scope={sha,run:'123',attempt:'1'};
  const receipt={media:{sha,sourceRun:'123',sourceAttempt:'1',imageDigest:`registry.cloudflare.com/${'c'.repeat(32)}/bitbi-private-media@sha256:${digest}`,artifact:{id:123,digest:`sha256:${digest}`}},smoke:['github','cloudflare'].map(backend=>({backend,sha,completedMs:100,outputs:Array.from({length:3},()=>({videoDigest:digest,posterDigest:digest}))}))};
  verifyMediaEvidence(receipt,scope);
+ assert.throws(()=>verifyMediaEvidence(receipt,{...scope,videoReferences:true}),/reference acceptance/);
+ const references={...receipt,smoke:receipt.smoke.map(s=>({...s,videoReference:{videoDigest:digest,originalDigest:'2c67d78cda7252be0cb6ef14396d92abb3b7193940ecc977a5c9fcc823bd1609',metadata:{frames:360,duration:15,audioDuration:15}}}))};
+ verifyMediaEvidence(references,{...scope,videoReferences:true});
+ for(const patch of [{originalDigest:digest},{metadata:{frames:362,duration:15.083333,audioDuration:15}},{metadata:{frames:360,duration:15,audioDuration:0}}]) {
+  const bad=structuredClone(references);Object.assign(bad.smoke[0].videoReference,patch);
+  assert.throws(()=>verifyMediaEvidence(bad,{...scope,videoReferences:true}));
+ }
  assert.throws(()=>verifyMediaEvidence(receipt,{...scope,publicPreviews:true}),/public preview/);
  const previews={...receipt,smoke:receipt.smoke.map(s=>({...s,publicPreviews:Array.from({length:2},()=>({videoDigest:digest,posterDigest:digest}))}))};
  verifyMediaEvidence(previews,{...scope,publicPreviews:true});

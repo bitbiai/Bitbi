@@ -20,7 +20,7 @@ export default {
     if (path==='/private-media-smoke') return Response.json(await privateMediaSmokeCase(env,body));
     if (path==='/private-media') return Response.json(await privateMediaCase(env,body));
     if (path==='/canvas-processing') return Response.json(await canvasProcessingCase(env,body));
-    if (path==='/canvas-video' && ['h3','h3-last-frame','h3-stale','h3-deleted','h3-foreign','first','success','last-frame','foreign','changed','blocked','blocked-admin','provider-interrupted','receipt-write'].includes(body.name)) return Response.json(await canvasVideoCase(env, body.name, body));
+    if (path==='/canvas-video' && ['h3','h3-overrun','h3-overrun-failure','h3-last-frame','h3-stale','h3-deleted','h3-foreign','first','success','last-frame','foreign','changed','blocked','blocked-admin','provider-interrupted','receipt-write'].includes(body.name)) return Response.json(await canvasVideoCase(env, body.name, body));
     if (path==='/session' && [ADMIN,MEMBER].includes(body.userId)) {
       const session=await createSession(env,body.userId);
       return Response.json({cookie:`${SECURE_SESSION_COOKIE_NAME}=${session.sessionToken}`});

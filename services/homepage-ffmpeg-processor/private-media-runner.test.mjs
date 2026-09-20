@@ -7,9 +7,9 @@ import os from 'node:os';
 import path from 'node:path';
 export async function testPrivateMediaRunner() {
   const token='a'.repeat(32),runner='synthetic',actions=[];let pass=0;
-  const args={token,runner,requestJson:async(url,{body})=>{assert.equal(url,'/api/internal/homepage/hero-videos/private-media/runner');const p=JSON.parse(body);actions.push(p.action);assert.equal(p.token,token);return {data:{pending:pass<2?1:0}};},processExports:async()=>{actions.push('export');},processPosters:async()=>{actions.push('poster');pass++;}};
+  const args={token,runner,requestJson:async(url,{body})=>{assert.equal(url,'/api/internal/homepage/hero-videos/private-media/runner');const p=JSON.parse(body);actions.push(p.action);assert.equal(p.token,token);return {data:{pending:pass<2?1:0}};},processReferences:async()=>{actions.push('reference');},processExports:async()=>{actions.push('export');},processPosters:async()=>{actions.push('poster');pass++;}};
   assert.equal((await runPrivateMedia(args)).passes,2);
-  assert.deepEqual(actions,['acquire','heartbeat','export','poster','heartbeat','heartbeat','export','poster','heartbeat','finish']);
+  assert.deepEqual(actions,['acquire','heartbeat','reference','export','poster','heartbeat','heartbeat','reference','export','poster','heartbeat','finish']);
   const previews=[];
   await runPrivateMedia({...args,requestJson:async()=>({data:{pending:0,previews:{hero:true,stream:true}}}),processPreviews:async capabilities=>previews.push(capabilities)});
   assert.deepEqual(previews,[{hero:true,stream:true}],'The same leased runner must drain public thumbnail/preview work');

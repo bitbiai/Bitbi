@@ -90,6 +90,14 @@ const CANVAS_UI_FILES = new Set([
 // Closed Canvas generation/provider/storage integration scope. Unknown runtime/billing inputs
 // continue through ordinary impact selection; chat and native D1 are exercised.
 const CANVAS_TEXT_FILES = new Set([
+  'scripts/check-route-policies.mjs','scripts/test-homepage-ffmpeg-processor.mjs',
+  'services/homepage-ffmpeg-processor/Dockerfile','workers/auth/src/lib/asset-storage-quota.js',
+
+  'workers/auth/src/lib/private-video-references.js', 'workers/auth/src/routes/private-video-references.js',
+  'workers/auth/migrations/0093_add_private_video_references.sql',
+  'services/homepage-ffmpeg-processor/video-reference.mjs','services/homepage-ffmpeg-processor/video-reference.test.mjs',
+  'tests/fixtures/media/h3-overrun.mp4','tests/fixtures/media/h3-prepared.mp4',
+
   'tests/helpers/h3-model-controls.cjs',
   'tests/fixtures/media/h3-reference.mp4', 'tests/fixtures/media/h3-frame.png',
   'tests/helpers/q2-runtime/linux-hosted.mjs',
@@ -529,7 +537,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     return selection;
   }
 
-  if (!forceFull && (changedFiles.some(f=>['js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js','js/shared/canvas-video-input.mjs'].includes(f))
+  if (!forceFull && (changedFiles.some(f=>['js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js','js/shared/canvas-video-input.mjs','workers/auth/src/lib/private-video-references.js'].includes(f))
       || ['js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','js/pages/canvas/main.js'].every(f=>changedFiles.includes(f))
       || ['js/pages/generate-lab/main.js','workers/auth/src/routes/ai/quota.js','workers/auth/src/lib/member-generation-jobs.js'].every(f=>changedFiles.includes(f)))
       && changedFiles.every(f=>isDocumentation(f)||CANVAS_TEXT_FILES.has(f)||RELEASE_TOOLING_FILES.has(f))) {

@@ -98,9 +98,11 @@ export async function runCanvasTests(f) {
     assert.equal(f.canvasProvider.requests.length, 4);
     assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM credit_ledger WHERE entry_type='consume'"), before);
   });
-  for (const name of ['h3','h3-last-frame','h3-stale','h3-deleted','h3-foreign','first','success','last-frame','foreign','changed','blocked','blocked-admin','provider-interrupted','receipt-write']) await f.test(`canvas_native_video_${name}`, async () => {
+  for (const name of ['h3','h3-overrun','h3-overrun-failure','h3-last-frame','h3-stale','h3-deleted','h3-foreign','first','success','last-frame','foreign','changed','blocked','blocked-admin','provider-interrupted','receipt-write']) await f.test(`canvas_native_video_${name}`, async () => {
     const response = await f.control('/canvas-video', { name,
-      videoBase64: fs.readFileSync(new URL(name.startsWith('h3')?'../../fixtures/media/h3-reference.mp4':'../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
+      shortBase64: fs.readFileSync(new URL('../../fixtures/media/h3-reference.mp4', import.meta.url)).toString('base64'),
+      preparedBase64: fs.readFileSync(new URL('../../fixtures/media/h3-prepared.mp4', import.meta.url)).toString('base64'),
+      videoBase64: fs.readFileSync(new URL(name.startsWith('h3-overrun')?'../../fixtures/media/h3-overrun.mp4':name.startsWith('h3')?'../../fixtures/media/h3-reference.mp4':'../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
       imageBase64: fs.readFileSync(new URL(name.startsWith('h3')?'../../fixtures/media/h3-frame.png':'../../fixtures/media/member-image.png', import.meta.url)).toString('base64'),
     });
     assert.equal(response.status, 200, `Native Canvas video ${name}: ${await response.clone().text()}`);
@@ -117,6 +119,8 @@ export async function runCanvasTests(f) {
   });
   for (const name of ['success','failure','unknown','grok-base','grok-preview','h3']) await f.test(`admin_native_pixverse_${name}`, async () => {
     const response = await f.control('/admin-pixverse', { name,
+      referenceBase64:fs.readFileSync(new URL('../../fixtures/media/h3-overrun.mp4',import.meta.url)).toString('base64'),
+      preparedBase64:fs.readFileSync(new URL('../../fixtures/media/h3-prepared.mp4',import.meta.url)).toString('base64'),
       videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
       imageBase64: fs.readFileSync(new URL(name.startsWith('h3')?'../../fixtures/media/h3-frame.png':'../../fixtures/media/member-image.png', import.meta.url)).toString('base64'),
     });
@@ -134,6 +138,8 @@ export async function runCanvasTests(f) {
   });
   await f.test('private_media_native_release_smoke_same_endpoints_both_backends',async()=>{
     const response=await f.control('/private-media-smoke',{
+      referenceBase64:fs.readFileSync(new URL('../../fixtures/media/h3-overrun.mp4',import.meta.url)).toString('base64'),
+      preparedBase64:fs.readFileSync(new URL('../../fixtures/media/h3-prepared.mp4',import.meta.url)).toString('base64'),
       videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
       imageBase64:fs.readFileSync(new URL('../../fixtures/media/member-image.png',import.meta.url)).toString('base64'),
     });assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());

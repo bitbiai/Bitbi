@@ -1,3 +1,4 @@
+import { handleVideoReferenceProcessor } from './private-video-references.js';
 import { processorBackend, THUMBNAIL_BACKEND_SQL, notifyPrivateMedia } from '../lib/private-media-service.js';
 import { claimHeroPreview, claimHeroPoster, ownsPublicPreview } from '../lib/media-preview-jobs.js';
 import { handleCanvasExportProcessor } from './canvas-video-processing.js';
@@ -3739,6 +3740,11 @@ export async function handleHomepageHeroVideos(ctx) {
   // route-policy: internal.canvas-export.claim
   // route-policy: internal.canvas-export.complete
   // route-policy: internal.canvas-export.fail
+  // route-policy: internal.video-reference.claim
+  // route-policy: internal.video-reference.complete
+  // route-policy: internal.video-reference.fail
+  const referenceResponse=await handleVideoReferenceProcessor(ctx);
+  if(referenceResponse)return referenceResponse;
   const canvasExport = await handleCanvasExportProcessor(ctx);
   if (canvasExport) return canvasExport;
   const { pathname, method } = ctx;

@@ -1,3 +1,4 @@
+import { h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { H3_MODEL, H3_ROLES, h3MediaType } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { h3RoleLabel } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { renderCanvasFullVideo } from './full-video.js?v=__ASSET_VERSION__';
@@ -133,6 +134,7 @@ function showToast(message) {
 }
 
 function errorMessage(result) {
+    const referenceError=h3ReferenceError(result?.code,isGerman);if(referenceError)return referenceError;
     if (result?.code === 'canvas_run_in_progress') return copy.runInProgress;
     const messages = {
       canvas_video_review_required: videoCopy.review,

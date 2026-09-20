@@ -54673,10 +54673,16 @@ test('Canvas MiniMax H3 task completion uses its own output and usage, never a G
 test('Canvas MiniMax H3 inspects original media bounds and the AI task adapter disables private Gateway logs',async()=>{
   const {inspectH3TimeReference,validateH3Dimensions}=await import(pathToFileURL(path.join(process.cwd(),'workers/auth/src/lib/h3-reference-metadata.js')).href);
   const fixture=fs.readFileSync(path.join(__dirname,'fixtures/media/h3-reference.mp4'));
-  expect(inspectH3TimeReference(fixture,'video','video/mp4')).toEqual({duration:2,width:320,height:320,fps:24});
+  expect(inspectH3TimeReference(fixture,'video','video/mp4')).toMatchObject({duration:2,width:320,height:320,fps:24,frames:48});
   expect(()=>inspectH3TimeReference(fixture.subarray(0,50),'video','video/mp4')).toThrow();
   expect(()=>inspectH3TimeReference(fs.readFileSync(path.join(__dirname,'fixtures/media/detail-original.mp4')),'video','video/mp4')).toThrow();
   expect(()=>validateH3Dimensions({width:320,height:180})).toThrow();
+  const env=createAuthTestEnv({privateVideoReferences:[
+    {user_id:'owner',status:'ready',storage_reserved_bytes:10},{user_id:'owner',status:'failed',storage_reserved_bytes:20},
+    {user_id:'owner',status:'retired',storage_reserved_bytes:80},{user_id:'other',status:'ready',storage_reserved_bytes:200},
+  ]});
+  const {calculateUserAssetStorageUsage}=await import(pathToFileURL(path.join(process.cwd(),'workers/auth/src/lib/asset-storage-quota.js')).href);
+  expect(await calculateUserAssetStorageUsage(env,'owner')).toBe(30);
   const {createVideoProviderTask}=await loadInvokeAiVideoModule();let calls=0;
   for(const status of ['queued','running','succeeded','failed','cancelled']) {
     const result=await createVideoProviderTask({AI:{run:async(model,input,options)=>{

@@ -1,4 +1,4 @@
-import { H3_MODEL } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
+import { H3_MODEL, h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { createH3ReferenceControls } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { GROK_IMAGE_2 } from '../../shared/grok-imagine-image-2-pricing.mjs?v=__ASSET_VERSION__';
 import {
@@ -645,6 +645,7 @@ function normalizeCode(value) {
 }
 
 function describeAdminAiError(task, error, code) {
+    if(h3ReferenceError(code))return h3ReferenceError(code);
     const normalizedCode = normalizeCode(code);
     const message = String(error || '').trim();
 

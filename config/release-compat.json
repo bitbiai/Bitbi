@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0092_pin_video_source_inputs.sql",
+        "latest": "0093_add_private_video_references.sql",
         "databaseName": "bitbi-auth-db"
       }
     },

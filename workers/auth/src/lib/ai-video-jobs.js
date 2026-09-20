@@ -2291,9 +2291,6 @@ async function processClaimedAiVideoJob(env, body, { messageAttempts, startedAt,
   let budgetPolicy;
   try {
     budgetPolicy = validateJobBudgetPolicy(job, storedProviderResult ? ADMIN_VIDEO_TASK_POLL_BUDGET_OPERATION_ID : budgetOperationId);
-    if (!job.provider_task_id && !storedProviderResult) {
-      budgetPolicy = await markProviderTaskCreateAttempted(env, job, budgetPolicy, nowIso());
-    }
   } catch (error) {
     const failedAt = nowIso();
     const code = error?.code || "budget_policy_invalid";
@@ -2324,7 +2321,16 @@ async function processClaimedAiVideoJob(env, body, { messageAttempts, startedAt,
         jobId: job.id, prepareOutput: !storedProviderResult,
       }
     );
+    // Waiting for a private derivative is not a provider attempt. Record this
+    // only once sources are ready, before the existing dispatch claim/call.
+    if (!job.provider_task_id && !storedProviderResult) {
+      budgetPolicy = await markProviderTaskCreateAttempted(env, job, budgetPolicy, nowIso());
+    }
   } catch (error) {
+    if(error.code==='h3_reference_preparing') {
+      await updateJobRetry(env,job,error.code,'Preparing private video reference.',nowIso(),new Date(Date.now()+60_000).toISOString());
+      return {status:'retry',jobId:job.id,delaySeconds:60};
+    }
     const failedAt = nowIso();
     await updateJobFailed(env, job, error?.code || "video_source_resolution_failed", "Video source could not be resolved.", failedAt);
     logDiagnostic({
