@@ -68,6 +68,12 @@ for(const fault of ['missing','failed','skipped','empty','foreign']) {
 assert.throws(()=>verifyAdminReport({suites:[]},{suites:[]}));
 const missingDiscovery=structuredClone(adminReport);missingDiscovery.suites[0].specs.pop();
 assert.throws(()=>verifyAdminReport(missingDiscovery,missingDiscovery));
+// Synthetic repositories inherit OS settings, never the invoking release's
+// identity, tokens or Actions output files. Poisoned parent values exercise
+// this boundary locally as well as in the actual repair CI environment.
+const parentEnv={...process.env,REPAIR_SOURCE_SHA:'f'.repeat(40),REPAIR_SOURCE_RUN:'987',REPAIR_SOURCE_ATTEMPT:'7',CANDIDATE_RUN:'987',CANDIDATE_ATTEMPT:'7'};
+const processKeys=['PATH','HOME','TMPDIR','TMP','TEMP','SystemRoot','WINDIR','LANG','LC_ALL'];
+const fixtureProcessEnv=Object.fromEntries(processKeys.filter(key=>parentEnv[key]!==undefined).map(key=>[key,parentEnv[key]]));
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-candidate-'));
 try {
  const git=(...args)=>{const r=spawnSync('git',args,{cwd:dir,encoding:'utf8'});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};
@@ -80,10 +86,12 @@ try {
  const candidateExpected={...expected,sha:candidateSha,base,selection};
  fs.mkdirSync(path.join(dir,'_site'));fs.writeFileSync(path.join(dir,'_site/index.html'),'<main>synthetic candidate</main>');
  const cli=new URL('./pages-candidate.mjs',import.meta.url).pathname;
- const env={...process.env,GITHUB_REPOSITORY:REPOSITORY,GITHUB_SHA:candidateSha,GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1',CANDIDATE_BASE:base,CANDIDATE_FULL:'true'};
+ const env={...fixtureProcessEnv,GITHUB_REPOSITORY:REPOSITORY,GITHUB_SHA:candidateSha,GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1',CANDIDATE_BASE:base,CANDIDATE_FULL:'true'};
  const invoke=(command,extra={})=>{const r=spawnSync(process.execPath,[cli,command],{cwd:dir,env:{...env,...extra},encoding:'utf8'});assert.equal(r.status,0,r.stderr);};
+ assert.throws(()=>invoke('record',{REPAIR_SOURCE_SHA:parentEnv.REPAIR_SOURCE_SHA}),/Not a valid commit name/,'The production CLI must still reject a foreign repair identity');
  invoke('record');
  const manifest=JSON.parse(fs.readFileSync(path.join(dir,'candidate/manifest.json')));
+ assert.deepEqual([manifest.sha,manifest.base,manifest.run,manifest.attempt],[candidateSha,base,'123','1'],'Parent release identity must not enter fixture artifacts');
  assert.equal(manifest.mediaPolicy,MEDIA_POLICY);
  assert.deepEqual(manifest.selection,selection, 'Scope includes the intervening unpublished Admin commit');
  verifyManifest(manifest,candidateExpected,path.join(dir,'_site'));
@@ -359,7 +367,7 @@ try {
    `);
    fs.writeFileSync(path.join(cwd,'playwright.assets.config.js'),fs.readFileSync(path.join(root,'playwright.assets.config.js'),'utf8') + `\nmodule.exports.outputDir=${JSON.stringify(oldLayout?'test-results':'test-results/asset-artifacts')};`);
    fs.mkdirSync(path.join(cwd,'scripts'));fs.writeFileSync(path.join(cwd,'scripts/pages-candidate.mjs'),`import {spawnSync} from 'node:child_process';const r=spawnSync(process.execPath,[${JSON.stringify(new URL('./pages-candidate.mjs',import.meta.url).pathname)},...process.argv.slice(2)],{stdio:'inherit'});process.exitCode=r.status ?? 1;`);
-   const env={...process.env,CI:'1',GITHUB_REPOSITORY:REPOSITORY,GITHUB_SHA:head,GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1',GITHUB_JOB:'browser-validation',CANDIDATE_BASE:base,CANDIDATE_FULL:'false'};
+   const env={...fixtureProcessEnv,CI:'1',GITHUB_REPOSITORY:REPOSITORY,GITHUB_SHA:head,GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1',GITHUB_JOB:'browser-validation',CANDIDATE_BASE:base,CANDIDATE_FULL:'false'};
    const execute=(command,success=true,extra={})=>{if(oldLayout)command=command.replace(' --output=test-results/browser-artifacts','');const r=spawnSync('/bin/sh',['-ec',command],{cwd,env:{...env,...extra},encoding:'utf8',timeout:30000});assert.equal(r.status===0,success,r.error?.message||r.stdout+r.stderr);return r;};
    fs.mkdirSync(path.join(cwd,'_site'));fs.writeFileSync(path.join(cwd,'_site/index.html'),'synthetic tested build');
    execute('node scripts/pages-candidate.mjs record');fs.rmSync(path.join(cwd,'_site'),{recursive:true});
