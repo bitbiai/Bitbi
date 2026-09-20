@@ -20527,7 +20527,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoMeta')).toContainText('Text-to-Video');
   });
 
-  test('@canvas-model-ui Grok Imagine Video 1.5 Preview exposes operation controls and sends Cloudflare schema payloads', async ({
+  test('@canvas-model-ui Grok Imagine Video 1.5 Preview keeps billing gates and sends Generate Cloudflare schema payloads', async ({
     page,
   }) => {
     const requests = [];
@@ -20551,8 +20551,6 @@ test.describe('Admin AI Lab', () => {
         },
       }));
     });
-    await page.goto('/admin/index.html#ai-lab');
-    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
     await page.unroute('**/api/admin/ai/video-jobs');
     await page.route('**/api/admin/ai/video-jobs/vidjob_grok15_*', async (route) => {
@@ -20680,6 +20678,10 @@ test.describe('Admin AI Lab', () => {
       });
     });
 
+    // Install every scenario route before initialization can cache candidates.
+    await page.goto('/admin/index.html#ai-lab');
+    await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
+
     await clickAiLabMode(page, 'video');
     await page.locator('#aiVideoCardGrokImagine15Preview').click();
     await expect(page.locator('#aiVideoModelBadge')).toContainText('xai/grok-imagine-video-1.5-preview');
@@ -20698,7 +20700,13 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoEndImageField')).toBeHidden();
     await expect(page.locator('#aiVideoResolution')).toHaveValue('480p');
     await expect(page.locator('#aiVideoResolution option:not([hidden])')).toHaveText(['480p', '720p']);
-    await expect(page.locator('#aiVideoOperation option:not([hidden])')).toHaveText(['Generate', 'Edit', 'Extend']);
+    await expect(page.locator('#aiVideoOperation option:not([hidden])')).toHaveText(['Generate']);
+    await expect(page.locator('#aiVideoOperation')).toHaveValue('generate');
+    for(const operation of ['edit','extend']) {
+      const option=page.locator(`#aiVideoOperation option[value="${operation}"]`);
+      await expect(option).toHaveCount(1);await expect(option).toHaveJSProperty('disabled',true);await expect(option).toHaveJSProperty('hidden',true);
+    }
+    expect(requests).toHaveLength(0);
 
     await page.locator('#aiVideoPrompt').fill('A Grok Imagine 1.5 preview smoke test');
     await page.locator('#aiVideoOperation').selectOption('generate');
@@ -20733,52 +20741,20 @@ test.describe('Admin AI Lab', () => {
     await expect.poll(() => statusPolls).toBeGreaterThan(0);
     await expect(page.locator('#aiVideoRun')).toBeEnabled();
 
-    await page.locator('#aiVideoOperation').selectOption('edit');
-    await expect(page.locator('#aiVideoVideoUrlField')).toBeHidden();
-    await expect(page.locator('#aiVideoSourcePickerField')).toContainText('Internal source video');
-    await expect(page.locator('#aiVideoSourceList')).toContainText('Saved video source');
-    await page.locator('#aiVideoSourceList .admin-ai__video-source-card', { hasText: 'Saved video source' }).click();
-    await page.locator('#aiVideoResolution').selectOption('720p');
-    await page.locator('#aiVideoRun').click();
-    await expect.poll(() => requests.length).toBe(2);
-    expect(requests[1]).toMatchObject({
-      preset: 'video_grok_imagine_15_preview',
-      model: 'xai/grok-imagine-video-1.5-preview',
-      _operation: 'edit',
-      prompt: 'A Grok Imagine 1.5 preview smoke test',
-      resolution: '720p',
-      source_video: {
-        source_type: 'saved_asset',
-        asset_id: 'asset_saved_video_1',
-      },
-    });
-    expect(requests[1].video).toBeUndefined();
-    expect(requests[1].video_url).toBeUndefined();
-    await expect.poll(() => statusPolls).toBeGreaterThan(0);
-
-    await page.locator('#aiVideoOperation').selectOption('extend');
-    await expect(page.locator('#aiVideoVideoUrlField')).toBeHidden();
-    await expect(page.locator('#aiVideoSourcePickerField')).toBeVisible();
-    await expect(page.locator('#aiVideoSourceList')).toContainText('Saved video source');
-    await page.locator('#aiVideoSourceList .admin-ai__video-source-card', { hasText: 'Saved video source' }).click();
-    await expect(page.locator('#aiVideoSourceSelected')).toContainText('Saved asset selected: Saved video source');
-    await page.locator('#aiVideoRun').click();
-    await expect.poll(() => requests.length).toBe(3);
-    expect(requests[2]).toMatchObject({
-      preset: 'video_grok_imagine_15_preview',
-      model: 'xai/grok-imagine-video-1.5-preview',
-      _operation: 'extend',
-      prompt: 'A Grok Imagine 1.5 preview smoke test',
-      resolution: '720p',
-      source_video: {
-        source_type: 'saved_asset',
-        asset_id: 'asset_saved_video_1',
-      },
-    });
-    expect(requests[2].video).toBeUndefined();
-    expect(requests[2].video_url).toBeUndefined();
-    expect(requests[2].videoInput).toBeUndefined();
-    await expect.poll(() => statusPolls).toBeGreaterThan(0);
+    // Keep the lower serializer coverage for already accepted/verified work;
+    // these payloads must not be admitted as new paid operations by the server.
+    const {validateAdminAiVideoBody}=await import('../js/shared/admin-ai-contract.mjs');
+    const {snapshotGrokVideoSources}=await import('../workers/auth/src/lib/admin-ai-video-sources.js');
+    for(const operation of ['edit','extend']) {
+      const payload=validateAdminAiVideoBody({preset:'video_grok_imagine_15_preview',model:'xai/grok-imagine-video-1.5-preview',_operation:operation,
+        prompt:'A Grok Imagine 1.5 preview smoke test',resolution:'720p',duration:5,source_video:{source_type:'saved_asset',asset_id:'asset_saved_video_1'}});
+      expect(payload).toMatchObject({preset:'video_grok_imagine_15_preview',model:'xai/grok-imagine-video-1.5-preview',_operation:operation,
+        prompt:'A Grok Imagine 1.5 preview smoke test',resolution:'720p',source_video:{source_type:'saved_asset',asset_id:'asset_saved_video_1'}});
+      expect(payload).not.toHaveProperty('video');expect(payload).not.toHaveProperty('video_url');expect(payload).not.toHaveProperty('videoInput');
+      await expect(snapshotGrokVideoSources({}, {id:'synthetic-admin',role:'admin'},payload)).rejects.toMatchObject({status:409,code:'video_operation_billing_unverified'});
+    }
+    expect(requests).toHaveLength(1);
+    await expect(page.locator('#aiVideoOperation option:not([hidden])')).toHaveText(['Generate']);
   });
 
   test('HappyHorse 1.0 T2V sends only supported Cloudflare fields and shows admin cost metadata', async ({
