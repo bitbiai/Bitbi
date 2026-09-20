@@ -6188,7 +6188,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
 
   test('Canvas model metadata includes runnable member models and fail-closed disabled catalog models', async () => {
     const modulePath = pathToFileURL(path.join(process.cwd(), 'js/shared/canvas-model-contract.mjs')).href;
-    const { listCanvasModels, getCanvasModel, CANVAS_FABLE_MAX_OUTPUT_TOKENS } = await import(modulePath);
+    const { listCanvasModels, getCanvasModel, getCanvasModelForRole, CANVAS_FABLE_MAX_OUTPUT_TOKENS } = await import(modulePath);
     const models = listCanvasModels();
     expect(models.length).toBe(24);
     for (const model of models) {
@@ -6205,13 +6205,42 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
       'bytedance/seedance-2.0-fast',
       'bytedance/seedance-2.0',
       'xai/grok-imagine-video',
+      'xai/grok-imagine-video-1.5-preview',
       'minimax/music-2.6',
       'anthropic/claude-fable-5',
     ]) expect(getCanvasModel(id)?.runnable).toBe(true);
-    for (const id of ['@cf/black-forest-labs/flux-2-dev', 'xai/grok-imagine-image', 'vidu/q3-pro', 'xai/grok-imagine-video-1.5-preview', '@cf/baai/bge-m3', '@cf/google/embeddinggemma-300m']) {
+    for (const id of ['@cf/black-forest-labs/flux-2-dev', 'xai/grok-imagine-image', 'vidu/q3-pro', '@cf/baai/bge-m3', '@cf/google/embeddinggemma-300m']) {
       expect(getCanvasModel(id)).toEqual(expect.objectContaining({ runnable: false, disabledReason: expect.any(String) }));
     }
-    expect(getCanvasModel('xai/grok-imagine-video-1.5-preview').disabledReason).toContain('Assets Manager');
+    const { canvasVideoMethods, resolveCanvasVideoInput } = await import(pathToFileURL(path.join(process.cwd(), 'js/shared/canvas-video-input.mjs')).href);
+    const { snapshotGrokVideoSources } = await import(pathToFileURL(path.join(process.cwd(), 'workers/auth/src/lib/admin-ai-video-sources.js')).href);
+    const source = { kind: 'video_asset', assetId: 'owned-video', runId: 'prior-run' };
+    for (const id of ['xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview']) {
+      for (const role of ['user', 'admin']) {
+        const model = getCanvasModelForRole(id, role);
+        expect(model).toMatchObject({ runnable: true, disabledReason: null,
+          memberCanvasEnabled: true, adminCanvasEnabled: true, executionMode: 'member',
+          route: '/api/ai/generate-video', requiresPersonalCredits: true,
+          requiresPlatformBudget: false, requiresOrganization: false, pricingStatus: 'member_credit_priced' });
+        expect(model.estimatedCredits).toBeGreaterThan(1);
+        expect(model.controls.supportedOperations).toEqual(['generate', 'edit', 'extend']);
+        expect(model.controls.availableOperations).toEqual(['generate']);
+        expect(canvasVideoMethods(model, source)).toEqual(['last_frame']);
+        // Do not reinterpret a persisted but held operation as a paid Generate.
+        for (const method of ['edit', 'extend']) {
+          const saved = { videoInput: { modelId: id, assetId: source.assetId, runId: source.runId, method } };
+          expect(resolveCanvasVideoInput(model, source, saved)).toMatchObject({ method: null, invalidMethod: true });
+          expect(saved.videoInput.method).toBe(method);
+        }
+      }
+      // The actual server admission accepts Generate and rejects held operations
+      // before any storage/reservation/provider access (no bindings are supplied).
+      await expect(snapshotGrokVideoSources({}, { id: 'catalog-owner' }, { model: id, _operation: 'generate' })).resolves.toEqual([]);
+      for (const operation of ['edit', 'extend']) {
+        await expect(snapshotGrokVideoSources({}, { id: 'catalog-owner' }, { model: id, _operation: operation }))
+          .rejects.toMatchObject({ status: 409, code: 'video_operation_billing_unverified' });
+      }
+    }
     expect(getCanvasModel('pixverse/v6').controls.supportsImageInput).toBe(true);
     expect(models.every((model) => typeof model.memberCanvasEnabled === 'boolean' && typeof model.adminCanvasEnabled === 'boolean')).toBe(true);
     expect(CANVAS_FABLE_MAX_OUTPUT_TOKENS).toBe(16384);
