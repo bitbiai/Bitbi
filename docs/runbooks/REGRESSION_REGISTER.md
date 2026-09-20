@@ -388,6 +388,19 @@ identity/traffic/binding/limit failures and the resumed activation order. A fail
 write may resume only its deploy job with the original accepted candidate;
 completed functional suites and immutable image archives are not rebuilt.
 
+Run 35509493844 exposed a separate false negative: the application **list**
+retained the old image after its referenced rollout completed. `mediaActive`
+now verifies the current rollout's exact target/version, completed 100%
+distribution, application detail and singleton image assignment, then fences
+rollout/Worker replacement during readback. It never searches historical
+successes. Initial creation without a rollout remains supported; assignment
+does not replace the subsequent real stop/wake/process/stop smoke acceptance.
+`npm run test:release-plan` (local and `static.yml` release-compatibility) replays
+this shape and rejects incomplete/foreign/stale/missing evidence, wrong
+accounts/limits/traffic and superseded reads under the unchanged finite deadline.
+Private current API snapshots reproduce the old failure and corrected acceptance;
+they establish assignment only, not completed Auth/frontend activation.
+
 Attempt 2 then exited from Auth `wrangler deploy` after version activation.
 The wrapper discarded stdout/stderr; the original API error cannot be recovered
 from that job. Independent readback confirms the expected bundle bytes, API route,

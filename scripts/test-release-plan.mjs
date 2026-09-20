@@ -682,29 +682,87 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
 {
  const {mediaActive,activateMedia,currentMediaVersion}=await import('./lib/media-publication.mjs');
  const expected={sha:'a'.repeat(40),imageDigest:'registry/synthetic@sha256:'+'b'.repeat(64)};
- const version={id:'version',annotations:{'workers/message':`bitbi-media:${expected.sha}:${expected.imageDigest}`},resources:{bindings:[{name:'MEDIA_CONTAINER',namespace_id:'namespace'},{name:'CLOUDFLARE_STREAM_API_TOKEN',type:'secret_text'},{name:'CLOUDFLARE_ACCOUNT_ID',text:'synthetic-account'}]}};
- let image='old-image',now=0,reads=0,pauses=0;
- const read=async endpoint=>{
-  reads++;
-  if(endpoint.endsWith('/deployments'))return {deployments:[{id:'deployment',versions:[{version_id:'version',percentage:100}]}]};
-  if(endpoint.includes('/versions/'))return version;
-  assert.equal(endpoint,'containers/applications');return [{id:'application',max_instances:1,configuration:{image},durable_objects:{namespace_id:'namespace'}}];
+ const env={CLOUDFLARE_ACCOUNT_ID:'synthetic-account'};
+ const version={id:'version',annotations:{'workers/message':`bitbi-media:${expected.sha}:${expected.imageDigest}`},resources:{bindings:[{name:'MEDIA_CONTAINER',namespace_id:'namespace'},{name:'CLOUDFLARE_STREAM_API_TOKEN',type:'secret_text'},{name:'CLOUDFLARE_ACCOUNT_ID',text:env.CLOUDFLARE_ACCOUNT_ID}]}};
+ const app={id:'application',account_id:env.CLOUDFLARE_ACCOUNT_ID,max_instances:1,instances:1,configuration:{image:'old-image'},durable_objects:{namespace_id:'namespace'},active_rollout_id:'current-rollout'};
+ const detail={...app,configuration:{image:expected.imageDigest},version:4};delete detail.active_rollout_id;
+ const rollout={id:'current-rollout',status:'completed',target_version:4,target_configuration:{image:expected.imageDigest},
+  steps:[{status:'completed',step_size:{percentage:100}}],progress:{total_instances:1,updated_instances:1,version_distribution:{target_version_instances:1,current_version_instances:0,target_version_percentage:100}}};
+ const instances={instances:[{id:'singleton',name:'private-media-singleton',application_id:app.id,image:expected.imageDigest,status:{state:'inactive'}}]};
+ const deployment={id:'deployment',versions:[{version_id:'version',percentage:100}]};
+ const fixture={
+  'workers/scripts/bitbi-private-media/deployments':{deployments:[deployment]},'workers/scripts/bitbi-private-media/versions/version':version,
+  'containers/applications':[app],'containers/applications/application':detail,
+  'containers/applications/application/rollouts/current-rollout':rollout,'containers/applications/application/instances':instances,
  };
- const options={read,now:()=>now,pause:async ms=>{now+=ms;pauses++;image=expected.imageDigest;}};
- const active=await mediaActive(expected,{CLOUDFLARE_ACCOUNT_ID:'synthetic-account'},options);assert.equal(active.application,'application');assert.equal(pauses,1);assert.equal(reads,6);
- image='old-image';await assert.rejects(mediaActive(expected,{CLOUDFLARE_ACCOUNT_ID:'synthetic-account'}, {...options,timeout:10000,pause:async ms=>{now+=ms;}}),/did not converge/);
- for(const fault of ['wrong-version','ambiguous-traffic','wrong-namespace','changed-limit','missing-preview-secret','wrong-preview-account']) {
-  const unsafe=async endpoint=>{const r=structuredClone(await read(endpoint));
+ const endpoints=[],read=async endpoint=>{endpoints.push(endpoint);assert(Object.hasOwn(fixture,endpoint),`Unexpected media read: ${endpoint}`);return structuredClone(fixture[endpoint]);};
+ let now=0,pauses=0;
+ const options={read,now:()=>now,pause:async ms=>{now+=ms;pauses++;},timeout:10000};
+ // Run 35509493844: stale list configuration, completed CURRENT target, same
+ // singleton assigned new bytes but inactive. This is assignment, not playback.
+ const active=await mediaActive(expected,env,options);assert.equal(active.application,'application');assert.equal(active.rollout,rollout.id);assert.equal(active.assignedInstance,'singleton');assert.equal(pauses,0);
+ assert(endpoints.includes('containers/applications/application/rollouts/current-rollout'));assert.equal(endpoints.filter(p=>p==='containers/applications').length,2);
+ for(const fault of ['wrong-version','wrong-version-response','ambiguous-traffic','wrong-namespace','changed-limit','wrong-account','missing-preview-secret','wrong-preview-account','wrong-rollout','failed-rollout','wrong-instance','ambiguous-instance']) {
+  const unsafe=async endpoint=>{const r=await read(endpoint);
    if(fault==='wrong-version'&&endpoint.includes('/versions/'))r.annotations['workers/message']='wrong';
+   if(fault==='wrong-version-response'&&endpoint.includes('/versions/'))r.id='another';
    if(fault==='ambiguous-traffic'&&endpoint.endsWith('/deployments'))r.deployments[0].versions[0].percentage=50;
    if(fault==='wrong-namespace'&&Array.isArray(r))r[0].durable_objects.namespace_id='other';
    if(fault==='changed-limit'&&Array.isArray(r))r[0].max_instances=2;
+   if(fault==='wrong-account'&&Array.isArray(r))r[0].account_id='other';
    if(fault==='missing-preview-secret'&&endpoint.includes('/versions/'))r.resources.bindings=r.resources.bindings.filter(b=>b.name!=='CLOUDFLARE_STREAM_API_TOKEN');
    if(fault==='wrong-preview-account'&&endpoint.includes('/versions/'))r.resources.bindings.find(b=>b.name==='CLOUDFLARE_ACCOUNT_ID').text='other-account';
+   if(fault==='wrong-rollout'&&endpoint.includes('/rollouts/'))r.id='historical';
+   if(fault==='failed-rollout'&&endpoint.includes('/rollouts/'))r.status='failed';
+   if(fault==='wrong-instance'&&endpoint.endsWith('/instances'))r.instances[0].application_id='other';
+   if(fault==='ambiguous-instance'&&endpoint.endsWith('/instances'))r.instances.push({...r.instances[0],id:'other'});
    return r;
   };
-  await assert.rejects(mediaActive(expected,{CLOUDFLARE_ACCOUNT_ID:'synthetic-account'}, {...options,read:unsafe,pause:async()=>{throw Error('Must fail without polling');}}));
+  let waited=false;
+  await assert.rejects(mediaActive(expected,env,{...options,read:unsafe,pause:async()=>{waited=true;throw Error('Unexpected wait');}}));
+  assert.equal(waited,false,`${fault} must fail without waiting`);
  }
+ for(const fault of ['incomplete','wrong-target','partial-distribution','wrong-version','incomplete-step','missing-distribution','wrong-image','missing-instance','stale-detail']) {
+  const unsafe=async endpoint=>{const r=await read(endpoint);
+   if(endpoint.includes('/rollouts/')) {
+    if(fault==='incomplete')r.status='progressing';
+    if(fault==='wrong-target')r.target_configuration.image='other';
+    if(fault==='partial-distribution')r.progress.version_distribution.target_version_percentage=50;
+    if(fault==='wrong-version')r.target_version=3;
+    if(fault==='incomplete-step')r.steps[0].status='running';
+    if(fault==='missing-distribution')delete r.progress.version_distribution;
+   }
+   if(endpoint.endsWith('/instances')) {
+    if(fault==='wrong-image')r.instances[0].image='old-image';
+    if(fault==='missing-instance')r.instances=[];
+   }
+   if(fault==='stale-detail'&&endpoint==='containers/applications/application')r.configuration.image='old-image';
+   return r;
+  };
+  const began=now;await assert.rejects(mediaActive(expected,env,{...options,read:unsafe}),/did not converge/);assert.equal(now-began,10000);
+ }
+ for(const fault of ['rollout','worker']) {
+  let snapshots=0;
+  await assert.rejects(mediaActive(expected,env,{...options,read:async endpoint=>{const r=await read(endpoint);
+   if(endpoint===(fault==='rollout'?'containers/applications':'workers/scripts/bitbi-private-media/deployments')&&++snapshots===2){if(fault==='rollout')r[0].active_rollout_id='replacement';else r.deployments[0].id='replacement';}return r;
+  }}),/superseded/);
+ }
+ // A completed historical rollout must never be searched/accepted in place of
+ // a current incomplete one, even when list/detail/instance already match.
+ let pending=true;
+ await mediaActive(expected,env,{...options,read:async endpoint=>{const r=await read(endpoint);if(endpoint.includes('/rollouts/')&&pending)r.status='progressing';return r;},pause:async ms=>{now+=ms;pending=false;}});
+ for(const count of [0,1]) {
+  await mediaActive(expected,env,{...options,read:async endpoint=>{const r=await read(endpoint);
+   if(endpoint==='containers/applications'){delete r[0].active_rollout_id;r[0].configuration.image=expected.imageDigest;r[0].instances=count;}
+   if(endpoint==='containers/applications/application')r.instances=count;
+   if(endpoint.endsWith('/instances')&&!count)r.instances=[];
+   assert(!endpoint.includes('/rollouts/'),'First creation must not search past rollouts');return r;
+  }});
+ }
+ await assert.rejects(mediaActive(expected,env,{...options,read:async endpoint=>{const r=await read(endpoint);
+  if(endpoint==='containers/applications')delete r[0].active_rollout_id;
+  assert(!endpoint.includes('/rollouts/'),'Missing current pointer cannot use historical success');return r;
+ }}),/did not converge/);
  assert.deepEqual(await currentMediaVersion(async()=>{throw Error('Cloudflare read failed (404)');}),{});
  assert.deepEqual(await currentMediaVersion(async()=>({deployments:[]})),{});
  for(const code of [401,403,429,500])await assert.rejects(currentMediaVersion(async()=>{throw Error(`Cloudflare read failed (${code})`);}));
@@ -713,7 +771,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const actions=[];await activateMedia(expected,{currentVersion:version,deploy:async()=>actions.push('deploy'),verify:async()=>actions.push('verify')});assert.deepEqual(actions,['verify']);
  actions.length=0;await activateMedia(expected,{currentVersion:{},deploy:async()=>actions.push('deploy'),verify:async()=>actions.push('verify')});assert.deepEqual(actions,['deploy','verify']);
  await assert.rejects(activateMedia(expected,{currentVersion:version,deploy:async()=>{},verify:async()=>{throw Error('not converged');}}),/not converged/);
- console.log('Container rollout: delayed image convergence, permanent mismatch, identity/traffic/limits and partial-deploy resume controls passed.');
+ console.log('Container rollout: observed stale-list success, current target/distribution/assignment, bounded convergence, first creation, supersession and partial-deploy resume controls passed.');
 }
 
 {

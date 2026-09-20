@@ -42,6 +42,12 @@ export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false,pub
 }
 export async function mediaActive(expected,env=process.env,{read=endpoint=>cloudflareRead(endpoint,env),now=Date.now,pause=ms=>new Promise(r=>setTimeout(r,ms)),timeout=120000}={}) {
   const started=now();
+  const application=async ns=>{
+    const matches=(await read('containers/applications')).filter(a=>a.durable_objects?.namespace_id===ns);
+    assert.equal(matches.length,1,'Missing/ambiguous container');const app=matches[0];
+    assert.equal(app.account_id,env.CLOUDFLARE_ACCOUNT_ID,'Wrong container account');assert.equal(app.max_instances,1);
+    return app;
+  };
   do {
     const deployment=(await read('workers/scripts/bitbi-private-media/deployments')).deployments[0];
     assert(deployment?.versions?.length===1&&deployment.versions[0].percentage===100,'Ambiguous media traffic');
@@ -50,10 +56,50 @@ export async function mediaActive(expected,env=process.env,{read=endpoint=>cloud
     assert(version.resources.bindings.some(b=>b.name==='CLOUDFLARE_STREAM_API_TOKEN'&&b.type==='secret_text'),'Missing preview processor credential');
     assert(version.resources.bindings.some(b=>b.name==='CLOUDFLARE_ACCOUNT_ID'&&b.text===env.CLOUDFLARE_ACCOUNT_ID),'Wrong preview account');
     const ns=version.resources.bindings.find(b=>b.name==='MEDIA_CONTAINER')?.namespace_id;assert(ns,'Missing container namespace');
-    const apps=await read('containers/applications');
-    const matches=apps.filter(a=>a.durable_objects?.namespace_id===ns);assert.equal(matches.length,1,'Missing/ambiguous container');
-    const app=matches[0];assert.equal(app.max_instances,1);
-    if(app.configuration.image===expected.imageDigest)return {...expected,workerVersion:version.id,deployment:deployment.id,application:app.id,namespace:ns};
+    assert.equal(version.id,deployment.versions[0].version_id,'Wrong media version response');
+    const app=await application(ns),prefix=`containers/applications/${app.id}`;
+    const detail=await read(prefix);
+    assert.equal(detail.id,app.id);assert.equal(detail.account_id,env.CLOUDFLARE_ACCOUNT_ID);
+    assert.equal(detail.durable_objects?.namespace_id,ns);assert.equal(detail.max_instances,1);
+    let converged=detail.configuration?.image===expected.imageDigest,rollout;
+    if(app.active_rollout_id) {
+      // The list's configuration can remain at the pre-rollout image. Only
+      // its CURRENT pointer, completed target distribution and assignment count.
+      rollout=await read(`${prefix}/rollouts/${app.active_rollout_id}`);
+      assert.equal(rollout.id,app.active_rollout_id,'Wrong current rollout');
+      assert(!['failed','cancelled','canceled','superseded'].includes(rollout.status),'Media rollout failed or superseded');
+      const progress=rollout.progress,distribution=progress?.version_distribution;
+      converged=converged&&rollout.status==='completed'&&rollout.target_configuration?.image===expected.imageDigest
+        &&Number.isInteger(rollout.target_version)&&detail.version===rollout.target_version
+        &&progress?.total_instances===1&&progress.updated_instances===1
+        &&distribution?.target_version_percentage===100&&distribution.target_version_instances===1&&distribution.current_version_instances===0
+        &&rollout.steps?.length>0&&rollout.steps.every(s=>s.status==='completed')&&rollout.steps.at(-1).step_size?.percentage===100;
+    } else {
+      // First creation/no effective configuration change starts no rollout.
+      // Never search historical successful rollouts to compensate for a mismatch.
+      converged=converged&&app.configuration?.image===expected.imageDigest;
+    }
+    const assigned=await read(`${prefix}/instances`);
+    assert(Array.isArray(assigned.instances)&&assigned.instances.length<=1&&!assigned.next_page_token,'Ambiguous media assignment');
+    for(const instance of assigned.instances) {
+      assert(instance.id&&instance.application_id===app.id,'Wrong media instance application');
+      assert.equal(instance.name,'private-media-singleton','Wrong media singleton');
+      assert(!['failed','unhealthy','unknown'].includes(instance.status?.state),'Failed media assignment');
+    }
+    converged=converged&&assigned.instances.every(i=>i.image===expected.imageDigest)
+      &&(assigned.instances.length===1||!app.active_rollout_id&&app.instances===0&&detail.instances===0);
+    if(converged) {
+      // Fence read races: a historical success cannot certify a replacement rollout.
+      const current=await application(ns);
+      assert.equal(current.id,app.id,'Media application replaced');
+      assert.equal(current.active_rollout_id,app.active_rollout_id,'Media rollout superseded during verification');
+      if(!rollout)assert.equal(current.configuration?.image,expected.imageDigest,'Media configuration changed');
+      const active=(await read('workers/scripts/bitbi-private-media/deployments')).deployments[0];
+      assert.deepEqual(active,deployment,'Media deployment superseded during verification');
+      assert(now()-started<timeout,'Media verification exceeded bounded window');
+      return {...expected,workerVersion:version.id,deployment:deployment.id,application:app.id,namespace:ns,
+        ...(rollout?{rollout:rollout.id}:{}),assignedInstance:assigned.instances[0]?.id??null};
+    }
     // Wrangler activates the Worker before the asynchronous container rollout.
     // Wait only for image convergence; wrong Worker/namespace/limits fail above.
     await pause(5000);
