@@ -571,3 +571,5 @@ export function initVideoCreate() {
         }
     });
 }
+
+window.addEventListener('bitbi:model-pricing', renderGenerateLabel);

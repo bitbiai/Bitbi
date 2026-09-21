@@ -1353,6 +1353,11 @@ export const ROUTE_POLICIES = Object.freeze([
     notes: "Requires prior soft deletion, exact typed conversation id, reason, Idempotency-Key, optimistic revision, and no active turn. External audit and budget evidence remain retained.",
   }),
 
+  safeRead('model-pricing.public', 'GET', '/api/model-pricing', 'model-pricing', { auth: 'anonymous', sensitivity: 'low' }),
+  adminRead('admin.ai.model-pricing.read', '/api/admin/ai/model-pricing', 'admin-ai', { config: ['DB', 'PUBLIC_RATE_LIMITER'] }),
+  adminJsonWrite('admin.ai.model-pricing.update', 'PATCH', '/api/admin/ai/model-pricing', 'admin-ai', 'smallJson', 'admin-model-pricing-ip', { config: ['DB', 'PUBLIC_RATE_LIMITER'], audit: { event: 'model_pricing_change' } }),
+  adminJsonWrite('admin.ai.model-pricing.quote', 'POST', '/api/admin/ai/model-pricing/quote', 'admin-ai', 'smallJson', 'admin-model-pricing-ip', { config: ['DB', 'PUBLIC_RATE_LIMITER'] }),
+  adminJsonWrite('admin.ai.model-pricing.source', 'POST', '/api/admin/ai/model-pricing/source', 'admin-ai', 'smallJson', 'admin-model-pricing-ip', { config: ['DB', 'PUBLIC_RATE_LIMITER'] }),
   adminRead("admin.ai.model-status", "/api/admin/ai/model-status", "admin-ai", {
     config: ["DB", "PUBLIC_RATE_LIMITER"],
     rateLimit: { id: "admin-ai-model-status-ip", failClosed: true },

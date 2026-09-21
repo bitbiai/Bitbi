@@ -1,3 +1,4 @@
+import { pinModelTariff, settlePinnedModelTariff } from './model-tariffs.js';
 import { H3_MODEL, calculateH3CreditPricing } from '../../../../js/shared/minimax-h3.mjs';
 import { invokePixverseExtension } from './pixverse-extend.js';
 import {
@@ -439,7 +440,7 @@ function compactAdminVideoBudgetPolicy(
 }
 
 export async function buildAdminVideoJobBudgetPolicyContext({
-  adminUser,
+  env, request, adminUser,
   modelId,
   payload,
   correlationId,
@@ -447,6 +448,9 @@ export async function buildAdminVideoJobBudgetPolicyContext({
   operationOverride = null,
 }) {
   const operation = adminVideoJobBudgetOperation({ modelId, payload, operationOverride });
+  const pinnedPricing = await pinModelTariff(env, { modelId, input: payload, credits: operation.estimatedCredits, request, context: 'admin' });
+  operation.estimatedCredits = pinnedPricing.credits;
+  // Preserve provider-budget exposure independently of retail credit overrides.
   const plan = classifyAdminPlatformBudgetPlan({
     operation,
     actorUserId: adminUser?.id || null,
@@ -474,11 +478,11 @@ export async function buildAdminVideoJobBudgetPolicyContext({
   return {
     plan,
     fingerprint,
-    summary: compactAdminVideoBudgetPolicy(plan, fingerprint, {
+    summary: { model_tariff: pinnedPricing, ...compactAdminVideoBudgetPolicy(plan, fingerprint, {
       createdAt,
       seedancePricing: buildSeedancePricingMetadata(modelId, payload, createdAt),
       grokImaginePricing: buildGrokImaginePricingMetadata(modelId, payload, createdAt),
-    }),
+    }) },
   };
 }
 
@@ -971,6 +975,7 @@ export async function createAdminAiVideoJob({
   idempotencyKey,
   correlationId,
   budgetOperationOverride = null,
+  request = null,
 }) {
   assertVideoJobConfig(env);
 
@@ -998,7 +1003,7 @@ export async function createAdminAiVideoJob({
   inputJson = stableStringify({...buildJobStoredInput(payload,modelId), ...(sources.length ? {_source_snapshots:sources} : {})});
   const now = nowIso();
   const budgetPolicy = await buildAdminVideoJobBudgetPolicyContext({
-    adminUser,
+    env, request, adminUser,
     modelId,
     payload,
     correlationId,
@@ -1052,7 +1057,11 @@ export async function createAdminAiVideoJob({
     expires_at: addDaysIso(30),
   };
 
-  await insertJob(env, job);
+  try { await insertJob(env, job); }
+  catch (error) {
+    if (String(error?.message || error).includes('model_pricing_stale')) throw new AdminAiValidationError('Prices changed. Review the refreshed estimate before generating.',409,'model_pricing_stale');
+    throw error;
+  }
 
   try {
     await env.AI_VIDEO_JOBS_QUEUE.send(buildQueueMessage(job, correlationId));
@@ -2110,7 +2119,10 @@ async function recordJobBudgetUsage(env, job, budgetPolicy) {
   if(job.model===H3_MODEL) {
     const receipt=JSON.parse(job.provider_result_json||'{}'),input=JSON.parse(job.input_json);
     if(receipt.outputSeconds==null || receipt.resolution!==input.resolution)throw Object.assign(new Error('H3 output usage needs reconciliation.'),{code:'h3_usage_unverified'});
-    const actual=calculateH3CreditPricing(input,receipt.outputSeconds).credits;
+    const pinned=budgetPolicy.model_tariff;
+    const actual=pinned?.factorySettlement
+      ? settlePinnedModelTariff({...pinned,tariff:{...pinned.tariff,rates:null}},units,{second:receipt.outputSeconds})
+      : calculateH3CreditPricing(input,receipt.outputSeconds).credits;
     if(actual>units)throw Object.assign(new Error('H3 usage exceeds admitted exposure.'),{code:'h3_usage_exceeds_reservation'});
     units=actual;
   }

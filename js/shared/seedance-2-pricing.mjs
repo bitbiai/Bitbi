@@ -1,3 +1,4 @@
+import { browserModelTariff, mediaTariffBasis } from './model-tariff.mjs';
 import {
   BITBI_MODEL_PRICING_USD_TO_EUR,
   BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
@@ -112,7 +113,7 @@ export function normalizeSeedance2PricingInput(modelId, settings = {}) {
   };
 }
 
-export function calculateSeedance2CreditPricing(modelId, settings = {}) {
+function factorySeedancePricing(modelId, settings = {}) {
   const normalized = normalizeSeedance2PricingInput(modelId, settings);
   const rates = SEEDANCE_2_PROVIDER_RATES_USD_PER_SECOND[normalized.modelId];
   const rateUsdPerSecond = rates[normalized.pricingResolution];
@@ -178,4 +179,9 @@ export function listSeedance2PricingMatrix() {
     }
   }
   return rows;
+}
+
+export function calculateSeedance2CreditPricing(modelId, settings = {}) {
+  const factory = factorySeedancePricing(modelId, settings);
+  return browserModelTariff(factory, mediaTariffBasis(factory, 'video', settings));
 }

@@ -1,3 +1,4 @@
+import { browserModelTariff, mediaTariffBasis } from './model-tariff.mjs';
 import { creditsForProviderCostUsd, requiredSellPriceUsdForProviderCost, creditValueUsd, effectiveProfitMarginForCredits } from './model-credit-pricing.mjs';
 
 // Reviewed 2026-09-19. Cloudflare's model schema restricts this route to 1k/2k.
@@ -31,7 +32,7 @@ export function normalizeGrokImage2(settings={}) {
     inputImageCount:count + (settings.image||settings.source_image||settings.sourceImage ? 1:0) + (settings.mask||settings.source_mask||settings.sourceMask ? 1:0),
   };
 }
-export function calculateGrokImage2CreditCost(settings={}) {
+function factory_calculateGrokImage2CreditCost(settings={}) {
   const normalized=normalizeGrokImage2(settings);
   const outputCostUsd=({low:{'1k':.04,'2k':.06},medium:{'1k':.06,'2k':.08}})[normalized.quality][normalized.resolution];
   const providerCostUsd=(outputCostUsd+.01*normalized.inputImageCount)*1.05;
@@ -41,4 +42,9 @@ export function calculateGrokImage2CreditCost(settings={}) {
     effectiveProfitMargin:effectiveProfitMarginForCredits(providerCostUsd,credits),
     formula:{pricingVersion:'grok-imagine-image-2.0-v1',outputCostUsd,inputCostUsd:.01,fundingMultiplier:1.05,
       pricingSource:'xai_model_rates_cloudflare_unified_billing',rounding:'central BITBI credit pricing'}};
+}
+
+export function calculateGrokImage2CreditCost(input = {}, ...rest) {
+    const factory = factory_calculateGrokImage2CreditCost(input, ...rest);
+    return browserModelTariff(factory, mediaTariffBasis(factory, 'image', input));
 }

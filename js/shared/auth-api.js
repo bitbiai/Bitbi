@@ -1,3 +1,4 @@
+import { modelPricingRequestHeaders, refreshModelPricing, modelPricingSession } from './model-pricing-client.js';
 /* ============================================================
    BITBI — Auth API: pure fetch wrappers for auth endpoints
    ============================================================ */
@@ -87,7 +88,7 @@ async function request(method, path, body, options = {}) {
         const opts = {
             method,
             credentials: 'include',
-            headers: {},
+            headers: { ...modelPricingRequestHeaders() },
         };
         if (signalState.signal) {
             opts.signal = signalState.signal;
@@ -106,6 +107,13 @@ async function request(method, path, body, options = {}) {
         const res = await fetch(BASE + path, opts);
         let data;
         try { data = await res.json(); } catch { data = null; }
+        modelPricingSession(path, res, data);
+        if (data?.code === 'model_pricing_stale') {
+            await refreshModelPricing();
+            data.error = document.documentElement.lang === 'de'
+                ? 'Preise wurden geändert. Prüfen Sie die aktualisierte Schätzung und bestätigen Sie die Generierung erneut.'
+                : 'Prices changed. Review the updated estimate and confirm generation again.';
+        }
         if (res.ok) return { ok: true, data, status: res.status };
         const retryAfterHeader = Number(res.headers.get('retry-after'));
         const retryAfterSeconds = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
@@ -143,7 +151,7 @@ async function requestForm(method, path, formData, options = {}) {
         const opts = {
             method,
             credentials: 'include',
-            headers: {},
+            headers: { ...modelPricingRequestHeaders() },
             body: formData,
         };
         if (signalState.signal) {
@@ -159,6 +167,13 @@ async function requestForm(method, path, formData, options = {}) {
         const res = await fetch(BASE + path, opts);
         let data;
         try { data = await res.json(); } catch { data = null; }
+        modelPricingSession(path, res, data);
+        if (data?.code === 'model_pricing_stale') {
+            await refreshModelPricing();
+            data.error = document.documentElement.lang === 'de'
+                ? 'Preise wurden geändert. Prüfen Sie die aktualisierte Schätzung und bestätigen Sie die Generierung erneut.'
+                : 'Prices changed. Review the updated estimate and confirm generation again.';
+        }
         if (res.ok) return { ok: true, data, status: res.status };
         return {
             ok: false,
@@ -1747,7 +1762,7 @@ export async function apiAdminAiLiveAgent(payload, options = {}) {
         const opts = {
             method: 'POST',
             credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...modelPricingRequestHeaders(), ...(options.headers || {}) },
             body: JSON.stringify(payload),
         };
         if (options.signal) opts.signal = options.signal;
@@ -1758,6 +1773,7 @@ export async function apiAdminAiLiveAgent(payload, options = {}) {
         }
         let data;
         try { data = await res.json(); } catch { data = null; }
+        if (data?.code === 'model_pricing_stale') await refreshModelPricing();
         if (res.ok) return { ok: true, data };
         return { ok: false, error: data?.error || `Error ${res.status}`, code: data?.code || null, data };
     } catch (e) {
@@ -2172,3 +2188,8 @@ export function apiAiRetryGenerationPreview(id,options={}) {return request("POST
 export function apiAdminModelStatus(options = {}) {
     return request('GET', '/admin/ai/model-status', undefined, options);
 }
+
+export const apiAdminModelPricing = options => request('GET', '/admin/ai/model-pricing', undefined, options);
+export const apiAdminModelPricingQuote = (body, options) => request('POST', '/admin/ai/model-pricing/quote', body, options);
+export const apiAdminModelPricingChange = (body, options) => request('PATCH', '/admin/ai/model-pricing', body, options);
+export const apiAdminModelPricingSource = (body, options) => request('POST', '/admin/ai/model-pricing/source', body, options);

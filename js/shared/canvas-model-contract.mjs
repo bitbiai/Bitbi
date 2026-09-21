@@ -1,5 +1,6 @@
+import { browserModelTariff, textTariffBasis } from './model-tariff.mjs';
 import { H3_MODEL, H3_ROLES } from './minimax-h3.mjs';
-import { GROK_4_6_MODEL_ID, GROK_REASONING_EFFORTS, GROK_DEFAULT_REASONING_EFFORT, estimateGrokTextCostUsd } from "./grok-text-contract.mjs";
+import { GROK_4_6_MODEL_ID, GROK_REASONING_EFFORTS, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens, estimateGrokTextCostUsd } from "./grok-text-contract.mjs";
 import {
   CLAUDE_FABLE_5_MODEL_ID,
   listAdminAiCatalog,
@@ -78,7 +79,7 @@ function safeDescription(value, fallback) {
   return description;
 }
 
-function textCredits(model, { prompt = "", systemPrompt = "", maxTokens, reasoningEffort } = {}) {
+function factoryTextCredits(model, { prompt = "", systemPrompt = "", maxTokens, reasoningEffort } = {}) {
   if (model.id === GROK_4_6_MODEL_ID) return creditsForProviderCostUsd(estimateGrokTextCostUsd({ prompt, systemPrompt, reasoningEffort }));
   if (model.id !== CLAUDE_FABLE_5_MODEL_ID) return 1;
   const inputTokens = Math.max(1, Math.ceil((String(prompt).length + String(systemPrompt).length) / 4));
@@ -90,6 +91,12 @@ function textCredits(model, { prompt = "", systemPrompt = "", maxTokens, reasoni
   const outputRate = Number(model.pricingPerMillionTokens?.output || 0);
   const providerCostUsd = ((inputTokens * inputRate) + (outputTokens * outputRate)) / 1_000_000;
   return Math.max(1, creditsForProviderCostUsd(providerCostUsd));
+}
+
+function textCredits(model, input = {}) {
+  const factory = { modelId: model.id, credits: factoryTextCredits(model, input) };
+  const values = { ...input, maxTokens: model.id === GROK_4_6_MODEL_ID ? getGrokMaxCompletionTokens(input.reasoningEffort || 'medium') : input.maxTokens ?? model.defaultMaxTokens };
+  return browserModelTariff(factory, textTariffBasis(model.id, values)).credits;
 }
 
 function buildTextModel(model) {

@@ -1,3 +1,4 @@
+import { browserModelTariff, mediaTariffBasis } from './model-tariff.mjs';
 export const PIXVERSE_V6_MODEL_ID = "pixverse/v6";
 export const PIXVERSE_V6_MODEL_LABEL = "PixVerse V6";
 
@@ -28,7 +29,7 @@ export function calculatePixverseV6MemberCredits({ duration, quality, generateAu
   return calculatePixverseV6CreditPricing({ duration, quality, generateAudio }).credits;
 }
 
-export function calculatePixverseV6CreditPricing({ duration, quality, generateAudio }) {
+function factory_calculatePixverseV6CreditPricing({ duration, quality, generateAudio }) {
   const qualityRates = PIXVERSE_V6_PROVIDER_CREDITS_PER_SECOND[quality];
   if (!qualityRates) {
     throw new Error("Unsupported PixVerse V6 quality.");
@@ -69,4 +70,9 @@ export function calculatePixverseV6CreditPricing({ duration, quality, generateAu
       note: "Preserved to avoid changing live PixVerse member billing.",
     },
   };
+}
+
+export function calculatePixverseV6CreditPricing(input = {}, ...rest) {
+    const factory = factory_calculatePixverseV6CreditPricing(input, ...rest);
+    return browserModelTariff(factory, mediaTariffBasis(factory, 'video', input));
 }

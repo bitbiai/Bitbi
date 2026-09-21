@@ -71,6 +71,7 @@ function normalizeMetadataJson(value) {
     if (text.length <= MAX_METADATA_JSON_LENGTH) return text;
     return JSON.stringify({
       metadata_truncated: true,
+      ...(value.model_tariff ? { model_tariff: value.model_tariff } : {}),
       gateway_result_type: typeof value.gateway_result_type === "string"
         ? value.gateway_result_type.slice(0, 80)
         : null,
@@ -169,6 +170,9 @@ async function getReplayObjectMetadata(env, key) {
 }
 
 function unavailableAttemptsError(error) {
+  if (String(error?.message || error).includes('model_pricing_stale')) {
+    return new BillingError('Prices changed. Review the refreshed estimate before generating.', { status:409, code:'model_pricing_stale' });
+  }
   if (String(error || "").includes("no such table: member_ai_usage_attempts_v2")) {
     return new BillingError("Member AI usage attempt tracking is unavailable.", {
       status: 503,
@@ -215,7 +219,7 @@ function serializeAttempt(row) {
   };
 }
 
-async function fetchAttemptByIdempotency(env, { userId, idempotencyKey }) {
+export async function fetchMemberAttemptByIdempotency(env, { userId, idempotencyKey }) {
   try {
     const row = await env.DB.prepare(
       `SELECT id, user_id, feature_key, operation_key, route,
@@ -329,7 +333,7 @@ async function reserveExistingAttempt(env, { attempt, now, expiresAt }) {
         code: "insufficient_member_credits",
       });
     }
-    return fetchAttemptByIdempotency(env, {
+    return fetchMemberAttemptByIdempotency(env, {
       userId: attempt.userId,
       idempotencyKey: attempt.idempotencyKey,
     });
@@ -409,7 +413,7 @@ export async function beginMemberAiUsageAttempt({
   const normalizedQuantity = normalizePositiveInteger(quantity, { fieldName: "quantity" });
   const now = nowIso();
   const expiresAt = addMinutesIso(ATTEMPT_TTL_MINUTES);
-  const existing = await fetchAttemptByIdempotency(env, {
+  const existing = await fetchMemberAttemptByIdempotency(env, {
     userId: normalizedUserId,
     idempotencyKey,
   });
@@ -418,7 +422,7 @@ export async function beginMemberAiUsageAttempt({
     assertSameRequest(existing, requestFingerprint);
     if (existing.expiresAt <= now && existing.billingStatus === "reserved" && existing.providerOutcome !== "succeeded") {
       await releaseExpiredAiDispatch(env, "member_ai_usage_attempts_v2", existing.id, now);
-      const refreshed = await fetchAttemptByIdempotency(env, { userId: normalizedUserId, idempotencyKey });
+      const refreshed = await fetchMemberAttemptByIdempotency(env, { userId: normalizedUserId, idempotencyKey });
       return { kind: classifyExistingAttempt(refreshed, now), attempt: refreshed, reused: true, preparation: null };
     }
     const kind = classifyExistingAttempt(existing, now);
@@ -448,7 +452,7 @@ export async function beginMemberAiUsageAttempt({
   };
   const inserted = await insertReservedAttempt(env, attempt);
   if (!inserted) {
-    const raced = await fetchAttemptByIdempotency(env, {
+    const raced = await fetchMemberAttemptByIdempotency(env, {
       userId: normalizedUserId,
       idempotencyKey,
     });
@@ -461,7 +465,7 @@ export async function beginMemberAiUsageAttempt({
       code: "insufficient_member_credits",
     });
   }
-  const created = await fetchAttemptByIdempotency(env, {
+  const created = await fetchMemberAttemptByIdempotency(env, {
     userId: normalizedUserId,
     idempotencyKey,
   });

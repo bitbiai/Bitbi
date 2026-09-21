@@ -1,3 +1,4 @@
+import { runModelPricingTests } from '../../model-pricing-runtime.mjs';
 import { runCanvasTests } from './canvas.mjs';
 import { runModelStatusTests } from '../../admin-model-status-runtime.mjs';
 import fs from 'node:fs';
@@ -18,6 +19,7 @@ import { runPublicVideoTests } from '../../q4-runtime-public-video.mjs';
 export const runtimeSuites = Object.freeze([
   ['canvas', runCanvasTests, {}],
   ['model-status', runModelStatusTests, {}],
+  ['model-pricing', runModelPricingTests, {}],
   ['member-generation', runMemberGenerationTests, {q4Control:'member-generation-control.mjs'}],
   ['native', runNativeTests, {}], ['references', runReferenceTests, { referenceOnly: true }], ['recovery', runRecoveryTests, { restricted: true }],
   ['q4-public-video', runPublicVideoTests, {}],
@@ -32,7 +34,7 @@ export const runtimeSuites = Object.freeze([
 // Miniflare outbound denial and sanitized bindings are defense in depth, not an
 // invented attestation of that external OS boundary.
 export function selectedRuntimeSuites(suite) {
-  if (suite && !['member-generation','model-status','canvas','q4-stream'].includes(suite)) throw new Error('Unsupported native suite');
+  if (suite && !['member-generation','model-status','model-pricing','canvas','q4-stream'].includes(suite)) throw new Error('Unsupported native suite');
   return suite ? runtimeSuites.filter(([name]) => name === suite) : runtimeSuites;
 }
 

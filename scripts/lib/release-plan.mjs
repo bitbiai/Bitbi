@@ -52,6 +52,8 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "workers/shared/grok-chat-contract.mjs": ["auth", "ai"],
   "js/shared/admin-ai-contract.mjs": ["auth", "ai"],
   "js/shared/canvas-model-contract.mjs": ["auth"],
+  "js/shared/model-pricing-catalog.mjs": ["auth"],
+  "js/shared/model-tariff.mjs": ["auth", "ai"],
   "js/shared/grok-text-contract.mjs": ["auth", "ai"],
   "js/shared/grok-imagine-image-2-pricing.mjs": ["auth", "ai"],
   "js/shared/canvas-video-input.mjs": ["auth"],
@@ -194,6 +196,7 @@ function isValidationOnlyPath(relativePath) {
     || normalized === "playwright.public-media.config.js"
     || normalized === "playwright.workspace.config.js"
     || normalized === "playwright.model-status.config.js"
+    || normalized === "playwright.model-pricing.config.js"
     || normalized === ".nvmrc"
     || normalized === ".node-version"
     || normalized === ".gitignore"

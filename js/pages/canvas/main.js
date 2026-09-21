@@ -3,7 +3,7 @@ import { H3_MODEL, H3_ROLES, h3MediaType } from '../../shared/minimax-h3.mjs?v=_
 import { h3RoleLabel } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { renderCanvasFullVideo } from './full-video.js?v=__ASSET_VERSION__';
 import { videoInputCopy, renderVideoInput, awaitCanvasVideo, canvasVideoRunState } from './video-input.js?v=__ASSET_VERSION__';
-import { calculateAiImageCreditCost, calculateAiVideoCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
+import { calculateAiImageCreditCost, calculateAiVideoCreditCost, calculateAiModelCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { estimateCanvasTextCredits, CANVAS_TEXT_PURPOSES, CANVAS_TEXT_DEFAULT_PURPOSE, getCanvasTextInstructions } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initAuthEntryActions } from '../../shared/auth-entry-actions.js?v=__ASSET_VERSION__';
@@ -519,12 +519,14 @@ function renderInspector() {
                 try {
                     if (capability === 'video' && model.runnable) estimate = calculateAiVideoCreditCost(model.id, { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, resolution: node.config?.resolution || model.controls.defaultResolution, aspect_ratio: node.config?.aspectRatio || model.controls.defaultAspectRatio, generateAudio: node.config?.generateAudio !== false })?.credits;
                     if (capability === 'image' && model.runnable) estimate = calculateAiImageCreditCost(model.id, { ...node.config, referenceImageCount: workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0 })?.credits;
+                    if (capability === 'music' && model.runnable) estimate = calculateAiModelCreditCost({ mediaType:'music', modelId:model.id, params:node.config || {} })?.credits;
                     if (capability === 'text' && model.runnable) estimate = estimateCanvasTextCredits(model.id, { ...node.config, systemPrompt: getCanvasTextInstructions(node.config), prompt: analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id)?.effectivePrompt || "" });
                 } catch { estimate = null; }
                 cost.textContent = `${copy.estimated}: ${estimate ?? '—'}`;
             };
             updateCost();
             dom.inspector.addEventListener('input', updateCost, { signal: inspectorAbort.signal });
+            window.addEventListener('bitbi:model-pricing', updateCost, { signal: inspectorAbort.signal });
             dom.inspector.append(cost);
         }
         const prompt = textareaControl(node.config?.prompt || '');

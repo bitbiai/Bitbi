@@ -28,6 +28,8 @@ const STATIC_BUILD_RELATED_FILES = new Set([
 
 // Keep this aligned with the shared Worker impact map in release-plan.mjs.
 const SHARED_WORKER_FILE_MAP = new Map([
+  ["js/shared/model-pricing-catalog.mjs", ["auth"]],
+  ["js/shared/model-tariff.mjs", ["auth", "ai"]],
   ["workers/shared/ai-caller-policy.mjs", ["auth", "ai"]],
   ["workers/shared/fable-chat-contract.mjs", ["auth", "ai"]],
   ["workers/shared/fable-chat-memory-contract.mjs", ["auth", "ai"]],
@@ -204,6 +206,73 @@ const CANVAS_TEXT_FILES = new Set([
   'tests/helpers/q2-runtime/runner.mjs',
 ]);
 
+// Closed pricing-control integration: quote/admission/settlement, Admin editor
+// and the existing cross-surface calculators. Security/ledger/provider changes
+// outside this list keep ordinary wider acceptance, including forced Full.
+const MODEL_PRICING_FILES = new Set([
+  'admin/index.html',
+  'css/admin/model-pricing.css',
+  'js/pages/admin/model-pricing.js',
+  'js/pages/admin/main.js',
+  'js/pages/admin/router.js',
+  'js/pages/admin/nav.js',
+  'js/pages/admin/ai-lab.js',
+  'js/pages/canvas/main.js',
+  'js/pages/canvas/api.js',
+  'js/pages/generate-lab/main.js',
+  'js/pages/index/studio.js',
+  'js/pages/index/video-create.js',
+  'js/pages/index/soundlab-create.js',
+  'js/shared/auth-api.js',
+  'js/shared/model-pricing-client.js',
+  'js/shared/model-pricing-catalog.mjs',
+  'js/shared/model-tariff.mjs',
+  'js/shared/ai-model-pricing.mjs',
+  'js/shared/canvas-model-contract.mjs',
+  'js/shared/gpt-image-2-pricing.mjs',
+  'js/shared/grok-imagine-image-2-pricing.mjs',
+  'js/shared/grok-imagine-image-pricing.mjs',
+  'js/shared/grok-imagine-video-15-preview-pricing.mjs',
+  'js/shared/grok-imagine-video-pricing.mjs',
+  'js/shared/happyhorse-t2v-pricing.mjs',
+  'js/shared/minimax-h3.mjs',
+  'js/shared/music-2-6-pricing.mjs',
+  'js/shared/pixverse-v6-pricing.mjs',
+  'js/shared/seedance-2-pricing.mjs',
+  'workers/auth/src/app/route-policy.js',
+  'workers/auth/src/index.js',
+  'workers/auth/src/routes/admin-ai.js',
+  'workers/auth/src/routes/admin.js',
+  'workers/auth/src/routes/ai/images-write.js',
+  'workers/auth/src/routes/ai/text-generate.js',
+  'workers/auth/src/routes/ai/video-generate.js',
+  'workers/auth/src/routes/model-pricing.js',
+  'workers/auth/src/lib/model-tariffs.js',
+  'workers/auth/src/lib/model-provider-prices.js',
+  'workers/auth/src/lib/ai-usage-attempts.js',
+  'workers/auth/src/lib/member-ai-usage-attempts.js',
+  'workers/auth/src/lib/admin-ai-idempotency.js',
+  'workers/auth/src/lib/ai-usage-policy.js',
+  'workers/auth/src/lib/ai-video-jobs.js',
+  'workers/auth/migrations/0094_model_pricing.sql',
+  'config/release-compat.json',
+  'tests/model-pricing.spec.js',
+  'tests/model-pricing-runtime.mjs',
+  'tests/oma2-q3-model-pricing.spec.js',
+  'tests/helpers/model-pricing-control.mjs',
+  'tests/helpers/auth-worker-harness.js',
+  'tests/helpers/q2-runtime/control.mjs',
+  'tests/helpers/q2-runtime/environment.mjs',
+  'tests/helpers/q2-runtime/runner.mjs',
+  'tests/helpers/q2-runtime/linux-bootstrap.py',
+  'tests/helpers/q2-runtime/linux-runtime-child.mjs',
+  'tests/helpers/q2-runtime/linux-hosted.mjs',
+  'playwright.config.js',
+  'playwright.workers.config.js',
+  'playwright.model-pricing.config.js',
+  'scripts/test-q2-runtime-launcher.mjs',
+]);
+
 const AUTH_SHARED_PATTERNS = [
   /(?:^|\/)auth(?:-|\/|\.)/,
   /(?:^|\/)session(?:-|\/|\.)/,
@@ -267,6 +336,7 @@ const ASSETS_MANAGER_SHARED_FILES = new Set([
 ]);
 
 const AUTH_TEST_FILES = new Set([
+  "tests/oma2-q3-model-pricing.spec.js",
   "tests/oma2-q1-member.spec.js",
   "tests/oma2-q3-newsfeed.spec.js",
   "tests/oma2-q3-model-status.spec.js",
@@ -283,6 +353,7 @@ const AUTH_TEST_FILES = new Set([
 ]);
 
 const WORKER_TEST_PREFIXES = [
+  "tests/model-pricing.spec.js", "tests/model-pricing-runtime.mjs", "tests/helpers/model-pricing-control.mjs",
   "tests/helpers/q2-runtime/",
   "tests/member-generation.cases.js",
   "tests/member-generation-runtime.mjs",
@@ -508,6 +579,16 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
   if (forceFull) selectFullRegression(selection, "<forced>", forceReason);
   if (changedFiles.length === 0) {
     selectFullRegression(selection, "", "empty or unresolved diff fails closed");
+  }
+
+  if (!forceFull && changedFiles.some(file => ['workers/auth/src/lib/model-tariffs.js','js/shared/model-tariff.mjs','js/pages/admin/model-pricing.js','tests/model-pricing.spec.js','tests/oma2-q3-model-pricing.spec.js'].includes(file))
+      && changedFiles.every(file => isDocumentation(file) || MODEL_PRICING_FILES.has(file) || RELEASE_TOOLING_FILES.has(file))) {
+    selection.policy = 'model-pricing-v1'; selection.modelPricing = true;
+    selection.workers = selection.auth = selection.static = selection.runtime = true;
+    selection.reasons.workers.push('Real member/organization/Admin billing callers, tariff/rounding/replay regressions and native D1 admission/settlement/edit-conflict checks');
+    selection.reasons.auth.push('Admin pricing editor, authorization denial and all four shared pricing surfaces in Chromium/WebKit against the candidate artifact');
+    selection.reasons.static.push('Schema 0094, protected backend continuation, exact candidate/build and frontend routing checks');
+    return selection;
   }
 
   if (!forceFull && changedFiles.some(file => ADMIN_READER_PRODUCTION.has(file))

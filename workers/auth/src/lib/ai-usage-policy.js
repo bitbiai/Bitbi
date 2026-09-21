@@ -1,3 +1,6 @@
+import { pinModelTariff, settlePinnedModelTariff } from './model-tariffs.js';
+import { fetchMemberAttemptByIdempotency } from './member-ai-usage-attempts.js';
+import { fetchOrgAttemptByIdempotency } from './ai-usage-attempts.js';
 import { generationExecution } from './member-generation-jobs.js';
 import {
   BillingError,
@@ -268,6 +271,10 @@ async function prepareMemberGatewayPolicy({
     });
   }
 
+  const existingPricingAttempt = await fetchMemberAttemptByIdempotency(env, { userId: user.id, idempotencyKey: gatewayPlan.scopedIdempotencyKey });
+  let pinnedPricing = await pinModelTariff(env, { modelId: resolvedOperation.modelId || body.model, input: body, factory: resolvedOperation.pricingFactory,
+    credits: resolvedOperation.credits, request, existing: existingPricingAttempt });
+  resolvedOperation = { ...resolvedOperation, credits: pinnedPricing.credits };
   const attemptState = await beginMemberAiUsageAttempt({
     env,
     userId: user?.id || null,
@@ -279,6 +286,7 @@ async function prepareMemberGatewayPolicy({
     creditCost: resolvedOperation.credits,
     quantity: resolvedOperation.quantity || 1,
     metadata: {
+      model_tariff: pinnedPricing,
       gateway_version: gatewayPlan.gatewayVersion,
       operation_id: gatewayPlan.operationId,
       route,
@@ -298,6 +306,10 @@ async function prepareMemberGatewayPolicy({
     }),
   });
 
+  // A concurrent admission may have won with an earlier tariff. The persisted
+  // attempt, never the quote computed before INSERT, owns reservation/settlement.
+  pinnedPricing = attemptState.attempt.metadata?.model_tariff || pinnedPricing;
+  resolvedOperation = { ...resolvedOperation, credits: attemptState.attempt.creditCost };
   const execution = generationExecution(env);
   if (execution) {
     await execution.assertClaim();
@@ -388,7 +400,7 @@ async function prepareMemberGatewayPolicy({
           .bind(attemptState.attempt.id, user.id, dispatchToken).first();
         if (finalized) return; // The job's private result checkpoint supplies replay after a committed debit.
       }
-      return markMemberAiUsageAttemptSucceeded(env, attemptState.attempt.id, { ...result, dispatchToken });
+      return markMemberAiUsageAttemptSucceeded(env, attemptState.attempt.id, { ...result, metadata: { ...result.metadata, model_tariff: pinnedPricing }, dispatchToken });
     },
     async markReplayUnavailable(result = {}) {
       return markMemberAiUsageAttemptReplayUnavailable(env, attemptState.attempt.id, result);
@@ -406,7 +418,7 @@ async function prepareMemberGatewayPolicy({
       );
     },
     async chargeAfterSuccess(metadata = {}, settlement = {}) {
-      const chargedCredits=settlement.credits===undefined?resolvedOperation.credits:Number(settlement.credits);
+      const chargedCredits=settlePinnedModelTariff(pinnedPricing, settlement.credits===undefined?resolvedOperation.credits:Number(settlement.credits), settlement.units);
       if(!Number.isInteger(chargedCredits)||chargedCredits<1||chargedCredits>resolvedOperation.credits) {
         throw new BillingError('Authoritative output usage exceeds the reservation.',{status:409,code:'generation_result_requires_credit_review'});
       }
@@ -449,7 +461,7 @@ export async function prepareAiUsagePolicy({
   route,
   allowAdminMemberCredits = false,
 }) {
-  const resolvedOperation = resolveOperation(operation);
+  let resolvedOperation = resolveOperation(operation);
   if (!hasOrganizationContext(body)) {
     if (user?.role === "admin" && allowAdminMemberCredits !== true) {
       throw new BillingError(
@@ -595,6 +607,10 @@ export async function prepareAiUsagePolicy({
     organizationId,
     userId: user?.id || null,
   });
+  const existingPricingAttempt = await fetchOrgAttemptByIdempotency(env, { organizationId, idempotencyKey });
+  let pinnedPricing = await pinModelTariff(env, { modelId: resolvedOperation.modelId || body.model, input: body, factory: resolvedOperation.pricingFactory,
+    credits: resolvedOperation.credits, request, existing: existingPricingAttempt });
+  resolvedOperation = { ...resolvedOperation, credits: pinnedPricing.credits };
   const attemptState = await beginAiUsageAttempt({
     env,
     organizationId,
@@ -606,8 +622,11 @@ export async function prepareAiUsagePolicy({
     requestFingerprint,
     creditCost: resolvedOperation.credits,
     quantity: resolvedOperation.quantity || 1,
+    metadata: { model_tariff: pinnedPricing },
   });
 
+  pinnedPricing = attemptState.attempt.metadata?.model_tariff || pinnedPricing;
+  resolvedOperation = { ...resolvedOperation, credits: attemptState.attempt.creditCost };
   rejectUnresolvedAttempt(attemptState);
   let dispatchToken = null;
   return {
@@ -636,7 +655,7 @@ export async function prepareAiUsagePolicy({
       return markAiUsageAttemptBillingFailed(env, attemptState.attempt.id, { code, message, dispatchToken });
     },
     async markSucceeded(result = {}) {
-      return markAiUsageAttemptSucceeded(env, attemptState.attempt.id, { ...result, dispatchToken });
+      return markAiUsageAttemptSucceeded(env, attemptState.attempt.id, { ...result, metadata: { ...result.metadata, model_tariff: pinnedPricing }, dispatchToken });
     },
     billingMetadata({ replay = false, balanceAfter = null } = {}) {
       return billingMetadataFromAttempt(
@@ -647,14 +666,18 @@ export async function prepareAiUsagePolicy({
         { replay }
       );
     },
-    async chargeAfterSuccess(metadata = {}) {
+    async chargeAfterSuccess(metadata = {}, settlement = {}) {
+      const chargedCredits = settlePinnedModelTariff(pinnedPricing, settlement.credits ?? resolvedOperation.credits, settlement.units);
+      if (!Number.isInteger(chargedCredits) || chargedCredits < 1 || chargedCredits > resolvedOperation.credits) {
+        throw new BillingError('Actual usage exceeds the accepted reservation.', { status:409, code:'generation_result_requires_credit_review' });
+      }
       const result = await consumeOrganizationCredits({
         env,
         organizationId,
         userId: user?.id || null,
         featureKey: resolvedOperation.featureKey,
         quantity: resolvedOperation.quantity || 1,
-        credits: resolvedOperation.credits,
+        credits: chargedCredits,
         idempotencyKey,
         requestFingerprint,
         aiDispatchToken: dispatchToken,
@@ -667,7 +690,7 @@ export async function prepareAiUsagePolicy({
       return {
         organization_id: organizationId,
         feature: resolvedOperation.featureKey,
-        credits_charged: resolvedOperation.credits,
+        credits_charged: chargedCredits,
         balance_after: result.creditBalance,
       };
     },

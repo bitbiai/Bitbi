@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0093_add_private_video_references.sql",
+        "latest": "0094_model_pricing.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -873,6 +873,9 @@
   },
   "adminAi": {
     "staticAuthApiPaths": [
+      "/admin/ai/model-pricing",
+      "/admin/ai/model-pricing/quote",
+      "/admin/ai/model-pricing/source",
       "/admin/ai/model-status",
       "/admin/ai/models",
       "/admin/ai/test-text",
@@ -923,6 +926,9 @@
       "/internal/ai/video-task/poll"
     ],
     "authOnlyRoutes": [
+      "/api/admin/ai/model-pricing",
+      "/api/admin/ai/model-pricing/quote",
+      "/api/admin/ai/model-pricing/source",
       "/api/admin/ai/model-status",
       "/api/admin/ai/budget-evidence",
       "/api/admin/ai/budget-switches",

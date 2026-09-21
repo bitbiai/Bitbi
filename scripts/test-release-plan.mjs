@@ -855,3 +855,13 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  }finally{globalThis.fetch=originalFetch;for(const k of keys)if(previous[k]===undefined)delete process.env[k];else process.env[k]=previous[k];}
  console.log('Repair smoke: exact existing fixture, no reseeding, terminal fail-fast and fresh image run/attempt passed.');
 }
+
+{
+ const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');
+ const files=['workers/auth/migrations/0094_model_pricing.sql','config/release-compat.json','workers/auth/src/lib/model-tariffs.js','workers/auth/src/routes/model-pricing.js','js/shared/model-tariff.mjs','js/shared/model-pricing-catalog.mjs','js/pages/admin/model-pricing.js'];
+ const plan=createReleasePlanFromRepo(repoRoot,{files});
+ assert(backendContinuationSupported(plan));assert.deepEqual(plan.workerDeploys.map(w=>w.worker),['ai','auth']);assert.equal(plan.schemaApplies[0].latestMigration,'0094_model_pricing.sql');
+ assert(!plan.workerDeploys.some(w=>w.worker==='media'));
+ assert.equal(plan.deploySteps[0].type,'schema-checkpoint');assert.equal(plan.deploySteps.at(-1).type,'static');
+ console.log('Pricing: additive 0094 before AI/Auth and exact static artifact; unchanged media excluded.');
+}

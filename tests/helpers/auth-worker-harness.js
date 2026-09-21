@@ -1159,6 +1159,7 @@ class MockD1 {
     this.failQueries = Array.isArray(seed.failQueries) ? seed.failQueries.map((value) => String(value)) : [];
     this.runCalls = [];
     this.state = {
+      modelPricingState: { revision:0, factory_version:'factory-2026-09-21', rules_json:'{}', updated_at:'2026-09-21T00:00:00Z' },
       users: [],
       sessions: [],
       emailVerificationTokens: [],
@@ -1393,6 +1394,10 @@ class MockD1 {
 
   async execute(rawQuery, bindings, mode) {
     const originalQuery = normalizeSql(rawQuery);
+    if (originalQuery === 'SELECT revision, factory_version, rules_json, updated_at FROM model_pricing_state WHERE id=1') {
+      if (this.missingTables.has('model_pricing_state')) throw new Error('no such table: model_pricing_state');
+      return this.state.modelPricingState ? deepClone(this.state.modelPricingState) : null;
+    }
     let query = originalQuery;
     // These correlated anti-joins consume no parameters. Keep the existing
     // folder/cursor parser, but apply the view's SQL semantics before LIMIT.
@@ -2340,14 +2345,14 @@ class MockD1 {
     const dispatchResult = handleAiDispatchQuery(this.state, query, bindings);
     if (dispatchResult !== undefined) return dispatchResult;
 
-    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at FROM ai_usage_attempts WHERE organization_id = ? AND idempotency_key = ?')) {
+    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at, metadata_json FROM ai_usage_attempts WHERE organization_id = ? AND idempotency_key = ?')) {
       const [organizationId, idempotencyKey] = bindings;
       return deepClone(this.state.aiUsageAttempts.find((row) =>
         row.organization_id === organizationId && row.idempotency_key === idempotencyKey
       ) || null);
     }
 
-    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at FROM ai_usage_attempts WHERE id = ? LIMIT 1')) {
+    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at, metadata_json FROM ai_usage_attempts WHERE id = ? LIMIT 1')) {
       const [attemptId] = bindings;
       return deepClone(this.state.aiUsageAttempts.find((row) => row.id === attemptId) || null);
     }

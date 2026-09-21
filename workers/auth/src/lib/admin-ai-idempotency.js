@@ -115,6 +115,9 @@ function sanitizeMetadataForAdmin(value, { key = "", depth = 0 } = {}) {
 }
 
 function unavailableAttemptsError(error) {
+  if (String(error?.message || error).includes('model_pricing_stale')) {
+    return new AdminAiIdempotencyError('Prices changed. Review the refreshed estimate before generating.', { status:409, code:'model_pricing_stale' });
+  }
   if (String(error || "").includes("no such table: admin_ai_usage_attempts_v2")) {
     return new AdminAiIdempotencyError("Admin AI idempotency tracking is unavailable.", {
       code: "admin_ai_idempotency_unavailable",

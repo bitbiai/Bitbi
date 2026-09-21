@@ -1,7 +1,8 @@
+import { modelPricingRequestHeaders, refreshModelPricing } from '../../shared/model-pricing-client.js';
 const BASE = '/api/account/canvas';
 
 async function requestUrl(url, { method = 'GET', body, idempotencyKey, signal } = {}) {
-    const headers = { Accept: 'application/json' };
+    const headers = { Accept: 'application/json', ...modelPricingRequestHeaders() };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
     try {
@@ -14,6 +15,12 @@ async function requestUrl(url, { method = 'GET', body, idempotencyKey, signal } 
         });
         let payload = null;
         try { payload = await response.json(); } catch { payload = null; }
+        if (payload?.code === 'model_pricing_stale') {
+            await refreshModelPricing();
+            payload.error = document.documentElement.lang === 'de'
+                ? 'Preise wurden geändert. Prüfen Sie die aktualisierte Schätzung und bestätigen Sie erneut.'
+                : 'Prices changed. Review the updated estimate and confirm again.';
+        }
         if (response.ok && payload?.ok) return { ok: true, status: response.status, data: payload.data };
         return {
             ok: false,

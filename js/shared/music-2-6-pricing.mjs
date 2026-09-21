@@ -1,3 +1,4 @@
+import { browserModelTariff, mediaTariffBasis } from './model-tariff.mjs';
 export const MINIMAX_MUSIC_2_6_MODEL_ID = "minimax/music-2.6";
 export const MINIMAX_MUSIC_2_6_MODEL_LABEL = "MiniMax Music 2.6";
 export const MINIMAX_MUSIC_2_6_BASE_CREDITS = 150;
@@ -11,7 +12,7 @@ export function normalizeMinimaxMusic26PricingInput(params = {}) {
   return { separateLyricsGeneration };
 }
 
-export function calculateMinimaxMusic26CreditCost(params = {}) {
+function factory_calculateMinimaxMusic26CreditCost(params = {}) {
   const normalized = normalizeMinimaxMusic26PricingInput(params);
   const credits = normalized.separateLyricsGeneration
     ? MINIMAX_MUSIC_2_6_WITH_SEPARATE_LYRICS_CREDITS
@@ -28,4 +29,9 @@ export function calculateMinimaxMusic26CreditCost(params = {}) {
       separateLyricsCredits: MINIMAX_MUSIC_2_6_WITH_SEPARATE_LYRICS_CREDITS,
     },
   };
+}
+
+export function calculateMinimaxMusic26CreditCost(input = {}, ...rest) {
+    const factory = factory_calculateMinimaxMusic26CreditCost(input, ...rest);
+    return browserModelTariff(factory, mediaTariffBasis(factory, 'music', input));
 }

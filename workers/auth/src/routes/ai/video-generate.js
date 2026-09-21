@@ -1297,7 +1297,7 @@ export async function handleGenerateVideo(ctx) {
       asset_id: savedAsset.id,
       source_module: "video",
       ...(h3Usage?{h3_output_seconds:h3Usage.formula.outputSeconds}:{}),
-    }, h3Usage?{credits:h3Usage.credits}:{});
+    }, h3Usage?{credits:h3Usage.credits,units:{second:h3Usage.formula.outputSeconds}}:{});
   } catch (error) {
     if (generationExecution(env)) throw error;
     await cleanupSavedAsset(env, userId, savedAsset?.id || null);

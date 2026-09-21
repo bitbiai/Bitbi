@@ -897,6 +897,7 @@ export async function handleGenerateImage(ctx) {
       operation: {
         ...AI_USAGE_OPERATIONS.MEMBER_IMAGE_GENERATE,
         credits: imagePricing.credits,
+        pricingFactory: imagePricing,
         modelId: modelConfig.id,
       },
       route: "/api/ai/generate-image",

@@ -1,3 +1,6 @@
+import { pinModelTariff } from '../lib/model-tariffs.js';
+import { fetchOrgAttemptByIdempotency, getAiUsageAttemptReplayMetadata } from '../lib/ai-usage-attempts.js';
+import { handleModelPricing } from './model-pricing.js';
 import { GROK_4_6_MODEL_ID, estimateGrokTextCostUsd } from "../../../../js/shared/grok-text-contract.mjs";
 import { creditsForProviderCostUsd } from "../../../../js/shared/model-credit-pricing.mjs";
 import { validateAdminPixverseExtension } from '../lib/pixverse-extend.js';
@@ -764,7 +767,7 @@ function withAdminLabAttemptBudgetMetadata(budgetPolicy, attempt = null, state =
 }
 
 async function buildAdminLabBudgetPolicyContext({
-  user,
+  env, request, user,
   operationId,
   modelId,
   modelResolverKey,
@@ -788,6 +791,11 @@ async function buildAdminLabBudgetPolicyContext({
     operation.estimatedCostUnits = creditsForProviderCostUsd(estimateGrokTextCostUsd({ prompt: payload.prompt, systemPrompt: payload.system, reasoningEffort: payload.reasoningEffort }));
     operation.estimatedCredits = operation.estimatedCostUnits;
   }
+  const existing = await findExistingAdminAiIdempotencyAttempt(env, { adminUserId: user.id, operationKey: operationId, idempotencyKeyHash: await sha256Hex(idempotencyKey) });
+  const pinnedPricing = await pinModelTariff(env, { modelId, input: payload, credits: operation.estimatedCredits, context: 'admin', request, existing });
+  // Platform-budget units are an internal cost safeguard, not customer credits.
+  // Retail overrides must not lower that independent cap exposure.
+  operation.estimatedCredits = pinnedPricing.credits;
   const plan = classifyAdminPlatformBudgetPlan({
     operation,
     actorUserId: user?.id || null,
@@ -812,9 +820,9 @@ async function buildAdminLabBudgetPolicyContext({
   return {
     plan,
     fingerprint,
-    summary: compactAdminLabBudgetPolicy(plan, fingerprint, {
+    summary: { ...compactAdminLabBudgetPolicy(plan, fingerprint, {
       idempotencyKeyHash: await sha256Hex(idempotencyKey),
-    }),
+    }), model_tariff: pinnedPricing },
   };
 }
 
@@ -1956,6 +1964,19 @@ export async function handleAdminAI(ctx) {
     return withAdminAiCode(result);
   }
 
+  // route-policy: admin.ai.model-pricing.read
+  if ((pathname === "/api/admin/ai/model-pricing" && method === "GET")
+      // route-policy: admin.ai.model-pricing.update
+      || (pathname === "/api/admin/ai/model-pricing" && method === "PATCH")
+      // route-policy: admin.ai.model-pricing.quote
+      || (pathname === "/api/admin/ai/model-pricing/quote" && method === "POST")
+      // route-policy: admin.ai.model-pricing.source
+      || (pathname === "/api/admin/ai/model-pricing/source" && method === "POST")) {
+    const limited = await rateLimitAdminAi(request, env, 'admin-model-pricing-ip', 60, 600_000, correlationId);
+    if (limited) return limited;
+    return handleModelPricing(ctx);
+  }
+
   // route-policy: admin.ai.model-status
   if (pathname === "/api/admin/ai/model-status" && method === "GET") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-model-status-ip", 30, 600_000, correlationId);
@@ -2838,7 +2859,7 @@ export async function handleAdminAI(ctx) {
       const selection = resolveAdminAiModelSelection("text", validated);
       const modelId = selection.model.id;
       const budgetPolicy = await buildAdminLabBudgetPolicyContext({
-        user: result.user,
+        env, request, user: result.user,
         operationId: ADMIN_TEXT_OPERATION_ID,
         modelId,
         modelResolverKey: "admin.text.model_registry",
@@ -3019,7 +3040,7 @@ export async function handleAdminAI(ctx) {
             referenceImageCount: flux2MaxReferencePricing.referenceImageCount,
           }
         : payload;
-      const pricing = isChargeableAdminImageTestModel(modelId)
+      let pricing = isChargeableAdminImageTestModel(modelId)
         ? calculateAdminImageTestCreditCost(modelId, pricingPayload)
         : null;
       if (!pricing) {
@@ -3114,6 +3135,9 @@ export async function handleAdminAI(ctx) {
         modelId,
         pricing,
       });
+      const existingPricingAttempt = await fetchOrgAttemptByIdempotency(env, { organizationId, idempotencyKey: scopedIdempotencyKey });
+      const pinnedPricing = await pinModelTariff(env, { modelId, input: pricingPayload, factory: pricing, credits: pricing.credits, request, existing: existingPricingAttempt });
+      pricing = { ...pricing, credits: pinnedPricing.credits };
       const attemptState = await beginAiUsageAttempt({
         env,
         organizationId,
@@ -3124,9 +3148,12 @@ export async function handleAdminAI(ctx) {
         idempotencyKey: scopedIdempotencyKey,
         requestFingerprint,
         creditCost: pricing.credits,
+        metadata: { model_tariff: pinnedPricing },
         quantity: 1,
       });
 
+      pricing = { ...pricing, credits: attemptState.attempt.creditCost };
+      budgetPolicy.summary.estimated_credits = pricing.credits;
       if (attemptState.kind !== "reserved") {
         return adminImageAttemptResponse({
           usageKind: attemptState.kind,
@@ -3339,7 +3366,7 @@ export async function handleAdminAI(ctx) {
       const selection = resolveAdminAiModelSelection("embeddings", validated);
       const modelId = selection.model.id;
       const budgetPolicy = await buildAdminLabBudgetPolicyContext({
-        user: result.user,
+        env, request, user: result.user,
         operationId: ADMIN_EMBEDDINGS_OPERATION_ID,
         modelId,
         modelResolverKey: "admin.embeddings.model_registry",
@@ -3504,7 +3531,7 @@ export async function handleAdminAI(ctx) {
       });
       const budgetPolicy = withAdminMusicProviderCostEvidence(
         await buildAdminLabBudgetPolicyContext({
-          user: result.user,
+          env, request, user: result.user,
           operationId: ADMIN_MUSIC_OPERATION_ID,
           modelId,
           modelResolverKey: "admin.music.model_registry",
@@ -3932,7 +3959,7 @@ export async function handleAdminAI(ctx) {
       if (minimalMode) validated.minimal_mode = true;
       const idempotencyKey = normalizeAiVideoIdempotencyKey(request.headers.get("Idempotency-Key"));
       const { job, existing } = await createAdminAiVideoJob({
-        env,
+        env, request,
         adminUser: result.user,
         payload: validated,
         idempotencyKey,
@@ -4121,7 +4148,7 @@ export async function handleAdminAI(ctx) {
       const validated = validateComparePayload(body);
       const modelId = "admin.compare.multi_model";
       const budgetPolicy = await buildAdminLabBudgetPolicyContext({
-        user: result.user,
+        env, request, user: result.user,
         operationId: ADMIN_COMPARE_OPERATION_ID,
         modelId,
         modelResolverKey: "admin.compare.model_registry",
@@ -4275,7 +4302,7 @@ export async function handleAdminAI(ctx) {
       const validated = validateLiveAgentPayload(body);
       const modelId = ADMIN_AI_LIVE_AGENT_MODEL.id;
       const budgetPolicy = await buildAdminLabBudgetPolicyContext({
-        user: result.user,
+        env, request, user: result.user,
         operationId: ADMIN_LIVE_AGENT_OPERATION_ID,
         modelId,
         modelResolverKey: "admin.live_agent.model",

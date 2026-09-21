@@ -1,3 +1,4 @@
+import { browserModelTariff, mediaTariffBasis } from './model-tariff.mjs';
 import {
   BITBI_MODEL_PRICING_USD_TO_EUR,
   BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
@@ -150,7 +151,7 @@ export function normalizeGrokImagineImagePricingInput(settings = {}) {
   };
 }
 
-export function calculateGrokImagineImageCreditPricing(settings = {}) {
+function factory_calculateGrokImagineImageCreditPricing(settings = {}) {
   const normalized = normalizeGrokImagineImagePricingInput(settings);
   const providerCostUsd =
     (normalized.n * GROK_IMAGINE_IMAGE_PROVIDER_OUTPUT_COST_USD_PER_IMAGE)
@@ -204,4 +205,9 @@ export function listGrokImagineImagePricingMatrix() {
     }
   }
   return rows;
+}
+
+export function calculateGrokImagineImageCreditPricing(input = {}, ...rest) {
+    const factory = factory_calculateGrokImagineImageCreditPricing(input, ...rest);
+    return browserModelTariff(factory, mediaTariffBasis(factory, 'image', input));
 }

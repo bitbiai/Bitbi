@@ -412,7 +412,7 @@ try {
    const nextOutput=path.join(cwd,oldLayout?'test-results':'test-results/browser-artifacts');
    fs.mkdirSync(nextOutput,{recursive:true});
    fs.writeFileSync(path.join(nextOutput,'stale.txt'),'previous invocation');
-   execute(stepRun('Run selected auth and admin tests').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false'));
+   execute(stepRun('Run selected auth and admin tests').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false'));
    assert(!fs.existsSync(path.join(nextOutput,'stale.txt')),'Second invocation must still clean disposable output');
    assert.equal(fs.existsSync(reports[0]),!oldLayout);
    execute(stepRun('Confirm tested browser candidate bytes'),!oldLayout);
@@ -512,7 +512,7 @@ try {
  const text=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8');
  const block=text.split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0];
  const command=block.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n')
-   .replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','true')
+   .replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','true')
    .replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
  fs.writeFileSync(path.join(workspaceShell,'npm'),'#!/bin/sh\nprintf "%s\\n" "$*" >> calls\nexit "${FAIL_NPM:-0}"\n',{mode:0o755});
  for(const fail of ['0','1']) {
@@ -534,7 +534,7 @@ for(const status of ['failed','skipped','timedOut']){const wrong=structuredClone
 assert.throws(()=>verifyModelStatusReport({suites:[]},statusDiscovery));
 const statusSelection=selectCiTests(['workers/auth/src/lib/admin-model-status.js','js/pages/admin/model-status.js']);
 assert.deepEqual(Object.keys(requiredJobs(statusSelection)),['release-compatibility','worker-validation','browser-validation']);
-const statusShell=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','true').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
+const statusShell=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','true').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
 const statusTmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-status-shell-'));
 try{
  fs.mkdirSync(path.join(statusTmp,'test-results'));fs.writeFileSync(path.join(statusTmp,'npm'),'#!/bin/sh\nprintf "%s\\n" "$*" >> calls\nexit "${FAIL_NPM:-0}"\n',{mode:0o755});
@@ -620,3 +620,21 @@ assert.throws(()=>verifyLaterAttempt({...run,conclusion:'failure'},[{name:'deplo
  assert(!active(block('release-compatibility').split('- name: Record candidate build\n')[1].split('      - name:')[0]));
  console.log('Closed media repair: unchanged candidate identity, full range, fresh native/image checks and unknown/security deltas fail closed.');
 }
+
+const {verifyModelPricingReport}=await import('./pages-candidate.mjs');
+const pricingDiscovery={suites:[{specs:['chromium','webkit'].map(engine=>({id:engine+'-pricing',file:'oma2-q3-model-pricing.spec.js',tests:[{projectName:engine+'-pricing',results:[]}]}))}]};
+const pricingReport=structuredClone(pricingDiscovery);for(const spec of pricingReport.suites[0].specs)spec.tests[0].results=[{status:'passed'}];
+verifyModelPricingReport(pricingReport,pricingDiscovery);
+for(const status of ['failed','skipped','timedOut']){const wrong=structuredClone(pricingReport);wrong.suites[0].specs[0].tests[0].results=[{status}];assert.throws(()=>verifyModelPricingReport(wrong,pricingDiscovery));}
+assert.throws(()=>verifyModelPricingReport({suites:[]},pricingDiscovery));
+assert.throws(()=>verifyModelPricingReport(pricingReport,{suites:[]}));
+const pricingSelected=selectCiTests(['workers/auth/src/lib/model-tariffs.js','tests/oma2-q3-model-pricing.spec.js']);
+assert.deepEqual(Object.keys(requiredJobs(pricingSelected)),['release-compatibility','worker-validation','browser-validation']);
+// Execute the exact named browser branch; fail-fast preserves the discovery/run contract.
+const pricingShell=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','true');
+const pricingTmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-pricing-shell-'));
+try{
+ fs.mkdirSync(path.join(pricingTmp,'test-results'));fs.writeFileSync(path.join(pricingTmp,'npm'),'#!/bin/sh\nprintf "%s\\n" "$*" >> calls\nexit "${FAIL_NPM:-0}"\n',{mode:0o755});
+ for(const fail of ['0','37']){fs.rmSync(path.join(pricingTmp,'calls'),{force:true});const result=spawnSync('bash',['-e','-c',pricingShell],{cwd:pricingTmp,env:{...process.env,PATH:pricingTmp+':'+process.env.PATH,FAIL_NPM:fail},encoding:'utf8'});assert.equal(result.status,Number(fail),result.stderr);const calls=fs.readFileSync(path.join(pricingTmp,'calls'),'utf8').trim().split('\n');assert.equal(calls.length,fail==='0'?2:1);assert(calls[0].includes('playwright.model-pricing.config.js --list'));if(fail==='0')assert(calls[1].includes('playwright.model-pricing.config.js --reporter=list,json'));}
+}finally{fs.rmSync(pricingTmp,{recursive:true,force:true});}
+console.log('Pricing: actual selected shell, both engines and missing/failed/skipped/empty report rejection.');

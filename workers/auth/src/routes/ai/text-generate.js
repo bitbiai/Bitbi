@@ -713,7 +713,7 @@ export async function handleGenerateText(ctx) {
           model: provider.model || null,
           maxTokens: provider.maxTokens,
           temperature: provider.temperature,
-          estimatedCredits: input.credits,
+          estimatedCredits: usagePolicy.credits,
         },
       },
     });
@@ -737,7 +737,7 @@ export async function handleGenerateText(ctx) {
     usage: provider.usage || null,
     billing: {
       ...billingMetadata,
-      estimated_credits: input.credits,
+      estimated_credits: usagePolicy.credits,
       idempotent_replay: false,
     },
   });

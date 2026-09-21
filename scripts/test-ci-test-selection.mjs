@@ -813,3 +813,13 @@ for(const browserName of ['chromium','webkit']) {
  assert(memberProject.grep.test('durable generation en: accepted image is already saved without a browser save request'));
  assert(memberProject.grep.test('durable generation de: accepted image is already saved without a browser save request'));
 }
+
+// One central tariff surface includes real charging callers and native D1.
+const pricingDelta=['js/pages/admin/model-pricing.js','js/shared/model-tariff.mjs','js/shared/model-pricing-catalog.mjs','js/shared/model-pricing-client.js','workers/auth/src/lib/model-tariffs.js','workers/auth/src/lib/ai-usage-policy.js','workers/auth/src/lib/ai-usage-attempts.js','workers/auth/src/lib/member-ai-usage-attempts.js','workers/auth/migrations/0094_model_pricing.sql','tests/model-pricing.spec.js','tests/model-pricing-runtime.mjs','tests/oma2-q3-model-pricing.spec.js','tests/helpers/model-pricing-control.mjs','tests/helpers/q2-runtime/linux-runtime-child.mjs','playwright.model-pricing.config.js','.github/workflows/static.yml','scripts/pages-candidate.mjs'];
+const pricing=selection(pricingDelta);
+assert.equal(pricing.policy,'model-pricing-v1');
+for(const key of ['workers','auth','static','runtime'])assert.equal(pricing[key],true,key);
+for(const key of ['homepage','homepageMedia','carousel','full'])assert.equal(pricing[key],false,key);
+assert.deepEqual(Object.keys(requiredJobs(pricing)),['release-compatibility','worker-validation','browser-validation']);
+for(const neighbor of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/auth/src/lib/unknown-pricing.js','workers/media/src/index.js','js/pages/index/hero-controller.js'])assert.notEqual(selection([...pricingDelta,neighbor]).policy,'model-pricing-v1',neighbor);
+assert.equal(selection(pricingDelta,{forceFull:true}).full,true);

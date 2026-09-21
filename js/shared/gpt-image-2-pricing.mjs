@@ -1,3 +1,4 @@
+import { browserModelTariff, mediaTariffBasis } from './model-tariff.mjs';
 export const GPT_IMAGE_2_MODEL_ID = "openai/gpt-image-2";
 
 export const GPT_IMAGE_2_QUALITY_OPTIONS = Object.freeze(["low", "medium", "high", "auto"]);
@@ -87,7 +88,7 @@ export function normalizeGptImage2PricingInput(params = {}) {
   };
 }
 
-export function calculateGptImage2CreditCost(params = {}) {
+function factory_calculateGptImage2CreditCost(params = {}) {
   const normalized = normalizeGptImage2PricingInput(params);
   const usesAutoBase = normalized.quality === "auto" || normalized.size === "auto";
   const baseCredits = usesAutoBase
@@ -120,4 +121,9 @@ export function calculateGptImage2CreditCost(params = {}) {
       referenceImageSurcharge: "25_low_medium_50_high_auto",
     },
   };
+}
+
+export function calculateGptImage2CreditCost(input = {}, ...rest) {
+    const factory = factory_calculateGptImage2CreditCost(input, ...rest);
+    return browserModelTariff(factory, mediaTariffBasis(factory, 'image', input));
 }

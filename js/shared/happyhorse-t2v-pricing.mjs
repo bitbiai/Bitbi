@@ -1,3 +1,4 @@
+import { browserModelTariff, mediaTariffBasis } from './model-tariff.mjs';
 import {
   BITBI_MODEL_PRICING_USD_TO_EUR,
   BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
@@ -92,7 +93,7 @@ export function creditsForHappyHorseProviderCost(providerCostUsd) {
   return creditsForProviderCostUsd(providerCostUsd);
 }
 
-export function calculateHappyHorseT2vCreditPricing(settings = {}) {
+function factory_calculateHappyHorseT2vCreditPricing(settings = {}) {
   const provider = calculateHappyHorseProviderCost(settings);
   const providerCostUsd = provider.providerCostUsd;
   const minimumSellPriceUsd = requiredSellPriceUsdForProviderCost(providerCostUsd);
@@ -153,4 +154,9 @@ export function listHappyHorseT2vPricingMatrix() {
     }
   }
   return rows;
+}
+
+export function calculateHappyHorseT2vCreditPricing(input = {}, ...rest) {
+    const factory = factory_calculateHappyHorseT2vCreditPricing(input, ...rest);
+    return browserModelTariff(factory, mediaTariffBasis(factory, 'video', input));
 }

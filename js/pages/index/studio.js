@@ -444,3 +444,5 @@ export function initGalleryStudio() {
         }
     });
 }
+
+window.addEventListener('bitbi:model-pricing', renderGenerateButtonLabel);

@@ -5,6 +5,7 @@ const SECTION_ICONS = {
     orgs: 'M4 21V3h12v18 M16 9h4v12 M8 7h4 M8 11h4 M8 15h4 M8 21v-2h4v2',
     billing: 'M3 5h18v14H3z M3 10h18 M6 15h3',
     'billing-events': 'M6 3h12v18l-3-2-3 2-3-2-3 2z M9 7h6 M9 11h6 M9 15h3',
+    'model-pricing': 'M3 5h18v14H3z M3 10h18 M7 15h3 M16 13v4 M14 15h4',
     'model-status': 'M3 12h4l3-8 4 16 3-8h4',
     'ai-lab': 'M9 3h6 M10 3v6l-6 10a1 1 0 0 0 1 2h14a1 1 0 0 0 1-2L14 9V3 M8 15h8',
     'fable-data-center': 'M3 4h18v13H9l-6 4z M7 8h10 M7 12h6',

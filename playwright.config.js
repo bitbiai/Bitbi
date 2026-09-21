@@ -4,7 +4,7 @@ module.exports = defineConfig({
   testDir: './tests',
   grepInvert: process.env.HOMEPAGE_EXTENDED === 'true' ? undefined : /@homepage-extended/,
   // Native video is mandatory in the dedicated Linux/macOS homepage jobs.
-  testIgnore: ['**/admin-model-status.spec.js', '**/homepage-hero-playback.spec.js', '**/homepage-native-control.spec.js', '**/workers.spec.js', '**/fable-chat-workers.spec.js', '**/admin-ai-save-operations.spec.js', '**/q4-*.spec.js'],
+  testIgnore: ['**/model-pricing.spec.js', '**/admin-model-status.spec.js', '**/homepage-hero-playback.spec.js', '**/homepage-native-control.spec.js', '**/workers.spec.js', '**/fable-chat-workers.spec.js', '**/admin-ai-save-operations.spec.js', '**/q4-*.spec.js'],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
@@ -23,6 +23,7 @@ module.exports = defineConfig({
       name: 'chromium',
       use: { browserName: 'chromium' },
     },
+    { name: 'webkit-pricing', testMatch: ['**/oma2-q3-model-pricing.spec.js'], use: { browserName: 'webkit' } },
     {
       name: 'webkit-canvas',
       testMatch: ['**/canvas.spec.js', '**/oma2-q1-canvas.spec.js', '**/auth-admin.spec.js', '**/smoke.spec.js'],

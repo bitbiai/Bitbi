@@ -5,6 +5,7 @@ module.exports = defineConfig({
   testMatch: [
     '**/workers.spec.js',
     '**/admin-model-status.spec.js',
+    '**/model-pricing.spec.js',
     '**/admin-ai-save-operations.spec.js',
     '**/fable-chat-workers.spec.js',
     '**/fable-chat-advanced.spec.js',

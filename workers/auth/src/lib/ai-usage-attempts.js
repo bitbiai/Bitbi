@@ -197,7 +197,8 @@ async function getReplayObjectMetadata(env, key) {
 
 function serializeAttempt(row) {
   if (!row) return null;
-  return {
+  let metadata = {}; try { metadata = JSON.parse(row.metadata_json || '{}'); } catch {}
+  return { metadata,
     id: row.id,
     organizationId: row.organization_id,
     userId: row.user_id || null,
@@ -279,6 +280,9 @@ function serializeAdminAttempt(row, { detail = false, now = nowIso() } = {}) {
 }
 
 function unavailableAttemptsError(error) {
+  if (String(error?.message || error).includes('model_pricing_stale')) {
+    return new BillingError('Prices changed. Review the refreshed estimate before generating.', { status:409, code:'model_pricing_stale' });
+  }
   if (String(error || "").includes("no such table: ai_usage_attempts_v2")) {
     return new BillingError("AI usage attempt tracking is unavailable.", {
       status: 503,
@@ -288,7 +292,7 @@ function unavailableAttemptsError(error) {
   return error;
 }
 
-async function fetchAttemptByIdempotency(env, { organizationId, idempotencyKey }) {
+export async function fetchOrgAttemptByIdempotency(env, { organizationId, idempotencyKey }) {
   try {
     const row = await env.DB.prepare(
       `SELECT id, organization_id, user_id, feature_key, operation_key, route,
@@ -297,7 +301,7 @@ async function fetchAttemptByIdempotency(env, { organizationId, idempotencyKey }
               result_temp_key, result_save_reference, result_mime_type,
               result_model, result_prompt_length, result_steps, result_seed,
               balance_after, error_code, error_message, created_at, updated_at,
-              completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at
+              completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at, metadata_json
        FROM ai_usage_attempts_v2
        WHERE organization_id = ? AND idempotency_key = ?
        LIMIT 1`
@@ -317,7 +321,7 @@ async function fetchAttemptById(env, attemptIdValue) {
               result_temp_key, result_save_reference, result_mime_type,
               result_model, result_prompt_length, result_steps, result_seed,
               balance_after, error_code, error_message, created_at, updated_at,
-              completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at
+              completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at, metadata_json
        FROM ai_usage_attempts_v2
        WHERE id = ?
        LIMIT 1`
@@ -424,7 +428,7 @@ async function reserveExistingAttempt(env, { attempt, now, expiresAt }) {
         code: "insufficient_credits",
       });
     }
-    return fetchAttemptByIdempotency(env, {
+    return fetchOrgAttemptByIdempotency(env, {
       organizationId: attempt.organizationId,
       idempotencyKey: attempt.idempotencyKey,
     });
@@ -474,7 +478,7 @@ async function insertReservedAttempt(env, attempt) {
       attempt.createdAt,
       attempt.updatedAt,
       attempt.expiresAt,
-      "{}",
+      JSON.stringify(attempt.metadata || {}),
       attempt.organizationId,
       attempt.organizationId,
       attempt.createdAt,
@@ -498,19 +502,20 @@ export async function beginAiUsageAttempt({
   requestFingerprint,
   creditCost,
   quantity = 1,
+  metadata = {},
 }) {
   const orgId = normalizeOrgId(organizationId);
   const normalizedCredits = normalizePositiveInteger(creditCost, { fieldName: "creditCost" });
   const normalizedQuantity = normalizePositiveInteger(quantity, { fieldName: "quantity" });
   const now = nowIso();
   const expiresAt = addMinutesIso(ATTEMPT_TTL_MINUTES);
-  const existing = await fetchAttemptByIdempotency(env, { organizationId: orgId, idempotencyKey });
+  const existing = await fetchOrgAttemptByIdempotency(env, { organizationId: orgId, idempotencyKey });
 
   if (existing) {
     assertSameRequest(existing, requestFingerprint);
     if (existing.expiresAt <= now && existing.billingStatus === "reserved" && existing.providerOutcome !== "succeeded") {
       await releaseExpiredAiDispatch(env, "ai_usage_attempts_v2", existing.id, now);
-      const refreshed = await fetchAttemptByIdempotency(env, { organizationId: orgId, idempotencyKey });
+      const refreshed = await fetchOrgAttemptByIdempotency(env, { organizationId: orgId, idempotencyKey });
       return { kind: classifyExistingAttempt(refreshed, now), attempt: refreshed, reused: true, preparation: null };
     }
     const kind = classifyExistingAttempt(existing, now);
@@ -531,6 +536,7 @@ export async function beginAiUsageAttempt({
     idempotencyKey,
     requestFingerprint,
     creditCost: normalizedCredits,
+    metadata,
     quantity: normalizedQuantity,
     createdAt: now,
     updatedAt: now,
@@ -538,7 +544,7 @@ export async function beginAiUsageAttempt({
   };
   const inserted = await insertReservedAttempt(env, attempt);
   if (!inserted) {
-    const raced = await fetchAttemptByIdempotency(env, { organizationId: orgId, idempotencyKey });
+    const raced = await fetchOrgAttemptByIdempotency(env, { organizationId: orgId, idempotencyKey });
     if (raced) {
       assertSameRequest(raced, requestFingerprint);
       return { kind: classifyExistingAttempt(raced, now), attempt: raced, reused: true };
@@ -548,7 +554,7 @@ export async function beginAiUsageAttempt({
       code: "insufficient_credits",
     });
   }
-  const created = await fetchAttemptByIdempotency(env, { organizationId: orgId, idempotencyKey });
+  const created = await fetchOrgAttemptByIdempotency(env, { organizationId: orgId, idempotencyKey });
   return { kind: "reserved", attempt: created, reused: false };
 }
 
@@ -611,7 +617,8 @@ export async function markAiUsageAttemptSucceeded(env, attemptIdValue, {
 } = {}) {
   const now = nowIso();
   const resolvedResultStatus = resultStatus || (tempKey && saveReference ? "stored" : "unavailable");
-  const metadataJson = normalizeMetadataJson(metadata);
+  const previous = serializeAttempt(await fetchAttemptById(env, attemptIdValue))?.metadata || {};
+  const metadataJson = normalizeMetadataJson({ ...metadata, ...(previous.model_tariff ? { model_tariff: previous.model_tariff } : {}) });
   try {
     const result = await env.DB.prepare(
       `UPDATE ai_usage_attempts_v2
@@ -715,7 +722,7 @@ export async function listAdminAiUsageAttempts(env, {
               result_temp_key, result_save_reference, result_mime_type,
               result_model, result_prompt_length, result_steps, result_seed,
               balance_after, error_code, error_message, created_at, updated_at,
-              completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at
+              completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at, metadata_json
        FROM ai_usage_attempts_v2
        WHERE (? IS NULL OR status = ?)
          AND (? IS NULL OR organization_id = ?)

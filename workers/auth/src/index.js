@@ -1,3 +1,4 @@
+import { handleModelPricing } from './routes/model-pricing.js';
 import { handleH3Callback } from './lib/minimax-h3-callback.js';
 import { handlePrivateMediaService } from './routes/private-media-service.js';
 import { handleGrokVideoOutput } from './lib/grok-video-output.js';
@@ -472,6 +473,8 @@ export default {
       if (result) return result;
     }
 
+    // route-policy: model-pricing.public
+    if (pathname === '/api/model-pricing' && method === 'GET') return handleModelPricing(ctx);
     // Admin routes
     if (pathname.startsWith("/api/admin/")) {
       const result = await handleAdmin(ctx);

@@ -1,3 +1,4 @@
+import { modelPricingCase } from '../model-pricing-control.mjs';
 import { privateMediaCase,privateMediaSmokeCase } from '../private-media-control.mjs';
 import { canvasProcessingCase } from '../canvas-processing-control.mjs';
 import { canvasVideoCase, adminPixverseCase } from '../canvas-video-control.mjs';
@@ -16,6 +17,10 @@ export default {
     if (request.method !== 'POST' || request.headers.get('x-q2-control') !== env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
     const path=new URL(request.url).pathname;
     const body=await request.json();
+    if (path==='/model-pricing') {
+      try { return Response.json(await modelPricingCase(env,body)); }
+      catch(error) { return Response.json({code:error.code||null,message:error.message},{status:error.status||500}); }
+    }
     if (path==='/admin-pixverse' && ['success','failure','unknown','grok-base','grok-preview','h3'].includes(body.name)) return Response.json(await adminPixverseCase(env, body.name, body));
     if (path==='/private-media-smoke') return Response.json(await privateMediaSmokeCase(env,body));
     if (path==='/private-media') return Response.json(await privateMediaCase(env,body));

@@ -53,9 +53,9 @@ export function parseRuntimeArgs(args, env = {}) {
     if (args[i] === '--preflight' && !result.preflight) result.preflight = true;
     else if (args[i] === '--artifacts' && !explicitArtifacts && args[i + 1] && !args[i + 1].startsWith('--')) {
       result.artifacts = args[++i]; explicitArtifacts = true;
-    } else if (args[i] === '--suite' && !result.suite && ['member-generation','model-status','canvas','q4-stream'].includes(args[i+1])) {
+    } else if (args[i] === '--suite' && !result.suite && ['member-generation','model-status','model-pricing','canvas','q4-stream'].includes(args[i+1])) {
       result.suite = args[++i];
-    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation|model-status|canvas|q4-stream] [--artifacts <outside-repository-directory>]');
+    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation|model-status|model-pricing|canvas|q4-stream] [--artifacts <outside-repository-directory>]');
   }
   return result;
 }
@@ -83,7 +83,7 @@ export function stageInputPlan() {
     'tests/fixtures/media/h3-overrun.mp4','tests/fixtures/media/h3-prepared.mp4',
     'tests/fixtures/media/h3-reference.mp4', 'tests/fixtures/media/h3-frame.png',
     'tests/fixtures/media/member-image.png', 'tests/fixtures/media/test-video-changing.mp4', 'tests/fixtures/media/member-video-poster.webp', 'tests/fixtures/media/canvas-end-frame.mp4',
-    'tests/admin-model-status-runtime.mjs', 'tests/member-generation-runtime.mjs', 'tests/helpers/member-generation-control.mjs',
+    'tests/admin-model-status-runtime.mjs', 'tests/model-pricing-runtime.mjs', 'tests/helpers/model-pricing-control.mjs', 'tests/member-generation-runtime.mjs', 'tests/helpers/member-generation-control.mjs',
     'tests/helpers/q4-video-control.mjs', 'tests/helpers/q4-subscription-payloads.cjs',
   ];
 }

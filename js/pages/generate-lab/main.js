@@ -2389,3 +2389,5 @@ document.addEventListener('bitbi:auth-change', () => {
 
 window.addEventListener('pagehide',()=>{generationView++;acceptedStatusActive=false;restoredObservation?.abort();},{once:true});
 init();
+
+window.addEventListener('bitbi:model-pricing', updateActionState);

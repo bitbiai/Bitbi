@@ -1,3 +1,4 @@
+import { browserModelTariff, mediaTariffBasis } from './model-tariff.mjs';
 import { H3_MODEL, calculateH3CreditPricing } from './minimax-h3.mjs';
 import { GROK_IMAGE_2, calculateGrokImage2CreditCost } from './grok-imagine-image-2-pricing.mjs';
 import {
@@ -251,13 +252,16 @@ export function calculateAiImageCreditCost(modelId, params = {}) {
     return calculateGrokImagineImageCreditPricing(params);
   }
   if (id === FLUX_1_SCHNELL_IMAGE_MODEL_ID) {
-    return priceProviderCostModel(id, flux1SchnellCost(params));
+    const factory = priceProviderCostModel(id, flux1SchnellCost(params));
+    return browserModelTariff(factory, mediaTariffBasis(factory, 'image', params));
   }
   if (FLUX_2_KLEIN_IMAGE_MODEL_IDS.includes(id)) {
-    return priceProviderCostModel(id, flux2KleinCost(params));
+    const factory = priceProviderCostModel(id, flux2KleinCost(params));
+    return browserModelTariff(factory, mediaTariffBasis(factory, 'image', params));
   }
   if (id === FLUX_2_MAX_IMAGE_MODEL_ID) {
-    return priceProviderCostModel(id, flux2MaxCost(params));
+    const factory = priceProviderCostModel(id, flux2MaxCost(params));
+    return browserModelTariff(factory, mediaTariffBasis(factory, 'image', params));
   }
   return null;
 }

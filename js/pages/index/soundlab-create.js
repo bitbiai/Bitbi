@@ -373,3 +373,5 @@ export function initSoundLabCreate() {
         }
     });
 }
+
+window.addEventListener('bitbi:model-pricing', renderGenerateLabel);

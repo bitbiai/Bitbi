@@ -1,3 +1,4 @@
+import { browserModelTariff, mediaTariffBasis } from './model-tariff.mjs';
 import { creditsForProviderCostUsd, requiredSellPriceUsdForProviderCost, creditValueUsd } from './model-credit-pricing.mjs';
 
 // Exact Cloudflare alias/schema; reference constraints follow its linked H3
@@ -50,7 +51,7 @@ export function normalizeH3Request(input = {}) {
     return { model: H3_MODEL, preset: 'video_minimax_h3', prompt, ...settings, references };
 }
 
-export function calculateH3CreditPricing(input = {}, outputSeconds = null) {
+function factory_calculateH3CreditPricing(input = {}, outputSeconds = null) {
     const normalized = h3Settings(input);
     const seconds = outputSeconds === null ? normalized.duration : Number(outputSeconds);
     if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 15) fail('Invalid H3 output usage.');
@@ -103,4 +104,9 @@ export function h3ReferenceError(code,de=false) {
         h3_reference_total_duration:['Reference videos or audio must total at most 15 seconds per media type.','Video- beziehungsweise Audioreferenzen dürfen zusammen je Medienart höchstens 15 Sekunden lang sein.'],
         h3_reference_preparation_failed:['The video reference could not be prepared. The original is unchanged; no generation was started.','Die Videoreferenz konnte nicht vorbereitet werden. Das Original ist unverändert; keine Generierung wurde gestartet.'],
     })[code]?.[de?1:0] || '';
+}
+
+export function calculateH3CreditPricing(input = {}, ...rest) {
+    const factory = factory_calculateH3CreditPricing(input, ...rest);
+    return browserModelTariff(factory, mediaTariffBasis(factory, 'video', input));
 }

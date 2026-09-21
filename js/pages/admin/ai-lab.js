@@ -7794,6 +7794,11 @@ export function createAdminAiLab({ showToast } = {}) {
             state.initialized = true;
             hydrateMusicModelOptions();
             bindEvents();
+            window.addEventListener('bitbi:model-pricing', () => {
+                if (!state.active) return;
+                syncImageBillingUi(); syncMusicCostEstimate();
+                if (refs.video.run && !state.controllers.video) refs.video.run.textContent = getVideoRunLabel();
+            });
             syncFormInputs();
             liveAgentUpdateSystemCount();
             syncLiveAgentSaveButton();

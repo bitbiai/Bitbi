@@ -1,3 +1,4 @@
+import { browserModelTariff, mediaTariffBasis } from './model-tariff.mjs';
 import {
   BITBI_MODEL_PRICING_USD_TO_EUR,
   BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
@@ -93,7 +94,7 @@ export function normalizeGrokImagineVideoPricingInput(settings = {}) {
   };
 }
 
-export function calculateGrokImagineVideoCreditPricing(settings = {}) {
+function factory_calculateGrokImagineVideoCreditPricing(settings = {}) {
   const normalized = normalizeGrokImagineVideoPricingInput(settings);
   // Unified Billing purchases carry a 5% acquisition fee (Cloudflare docs).
   // Include it once in cost, then use the existing cost / 0.8 target margin.
@@ -157,4 +158,9 @@ export function listGrokImagineVideoPricingMatrix() {
     }
   }
   return rows;
+}
+
+export function calculateGrokImagineVideoCreditPricing(input = {}, ...rest) {
+    const factory = factory_calculateGrokImagineVideoCreditPricing(input, ...rest);
+    return browserModelTariff(factory, mediaTariffBasis(factory, 'video', input));
 }
