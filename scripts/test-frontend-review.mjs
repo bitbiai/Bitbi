@@ -8,6 +8,7 @@ import {prepareFrontend,hash,hostingPolicy,materializeFrontendConfig} from './li
 import {durableBaseline,loadDurableReceipt,activateRecovery,persistDurableReceipt,RECEIPT_TASK} from './lib/frontend-receipts.mjs';
 import {yaml} from '../node_modules/playwright-core/lib/utilsBundle.js';
 import vm from 'node:vm';
+import {backendReceiptContext,readToolingBackendReceipt,verifyBackendActivation} from './lib/backend-publication.mjs';
 const root=process.cwd(),temp=fs.mkdtempSync(path.join(process.env.TMPDIR||os.tmpdir(),'bitbi-hosting-review-'));
 const results=[];const record=(name,kind='positive')=>results.push({name,kind,passed:true});
 const environment={...process.env};
@@ -18,6 +19,7 @@ try {
   fs.mkdirSync(path.dirname(path.join(fixture,file)),{recursive:true});fs.cpSync(path.join(root,file),path.join(fixture,file),{recursive:true});
  }
  const initialPolicy=JSON.parse(fs.readFileSync(path.join(fixture,'config/static-hosting.json')));initialPolicy.provider='cloudflare';fs.writeFileSync(path.join(fixture,'config/static-hosting.json'),JSON.stringify(initialPolicy));
+ fs.mkdirSync(path.join(fixture,'workers/auth/src'),{recursive:true});fs.writeFileSync(path.join(fixture,'workers/auth/src/index.js'),'// Synthetic unchanged Auth input\n');
  fs.writeFileSync(path.join(fixture,'.gitignore'),'candidate/\n.local/\n');
  const git=args=>execFileSync('git',args,{cwd:fixture,env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'},stdio:'pipe'}).toString().trim();
  git(['init','-q']);git(['add','--all']);git(['-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic CLI fixture only']);
@@ -111,6 +113,49 @@ try {
  git(['add','frontend/index.mjs']);git(['-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic incompatible frontend']);
  const incompatible=git(['rev-parse','HEAD']);
  cli('repair rejects changed frontend input','production-config',d=>{repairData(d);d.sha=incompatible;},{...repairEnv,GITHUB_SHA:incompatible});
+ // Distinct closed tooling repair: product/Worker inputs are unchanged.
+ git(['checkout','--detach',sha]);
+ fs.mkdirSync('.github/workflows',{recursive:true});fs.writeFileSync('.github/workflows/static.yml','# Synthetic changed release caller\n');
+ fs.appendFileSync('scripts/validate-site-references.mjs','\n// Synthetic reference-check repair\n');
+ git(['add','.github/workflows/static.yml','scripts/validate-site-references.mjs']);git(['-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic tooling repair']);
+ const toolingSha=git(['rev-parse','HEAD']),toolingFiles=['.github/workflows/static.yml','scripts/validate-site-references.mjs'];
+ const toolingContext=backendReceiptContext({sha:toolingSha,base},{REPAIR_SOURCE_SHA:sha,REPAIR_SOURCE_RUN:'101',REPAIR_SOURCE_ATTEMPT:'1'});
+ assert.deepEqual(toolingContext,{sha,base,publicationSha:toolingSha,runId:'101',attempt:'1'});
+ // Existing backend acceptance may be reused only as its original authenticated
+ // identity; ZIP/digest/job checks remain independent of local receipt JSON.
+ const backendContext={sha,base,runId:'101',attempt:'1',publicationSha:toolingSha};
+ const backendReceipt={sha,base,run:'101',attempt:'1',worker:'bitbi-auth',migration:'0094_model_pricing.sql',version:'auth-original',deployment:'auth-original-deployment',processorRef:sha,sourceTree:git(['rev-parse',`${sha}:workers/auth`]),authBundleDigest:'f'.repeat(64)};
+ const backendJob={name:'deploy',head_sha:sha,run_id:101,run_attempt:1,status:'completed',conclusion:'failure',steps:['Apply verified candidate backend prerequisites','Preserve backend activation evidence'].map(name=>({name,status:'completed',conclusion:'success'}))};
+ const receiptArchive=value=>{
+  const directory=fs.mkdtempSync(path.join(temp,'backend-archive-')),archive=path.join(directory,'receipt.zip');
+  fs.writeFileSync(path.join(directory,'backend-release.json'),JSON.stringify(value));
+  execFileSync('zip',['-q',archive,'backend-release.json'],{cwd:directory});return fs.readFileSync(archive);
+ };
+ const receiptBytes=receiptArchive(backendReceipt);
+ const receiptArtifact={id:88,name:`backend-receipt-${sha}-101-1`,expired:false,expires_at:new Date(Date.now()+86400000).toISOString(),size_in_bytes:receiptBytes.length,digest:`sha256:${hash(receiptBytes)}`,workflow_run:{id:101,head_sha:sha}};
+ const backendCheck=async(name,mutate=()=>{},pass=false)=>{
+  const d={jobs:[structuredClone(backendJob)],artifacts:[structuredClone(receiptArtifact)],bytes:receiptBytes,context:{...backendContext}};mutate(d);let provenanceChecks=0;
+  const promise=readToolingBackendReceipt(d.context,{GH_TOKEN:'synthetic'},{verify:async(_env,options)=>{provenanceChecks++;assert.deepEqual(options,{complete:true});},list:async(endpoint,key)=>{assert(endpoint.startsWith('actions/runs/101/'));return d[key];},download:async(url,options)=>{assert.equal(options.method,undefined,'Receipt retrieval must never mutate production');assert(url.endsWith('/artifacts/88/zip'));return new Response(d.bytes);}});
+  if(pass)assert.deepEqual(await promise,backendReceipt);else await assert.rejects(promise);
+  assert.equal(provenanceChecks,1);record(name,pass?'positive':'negative');
+ };
+ await backendCheck('tooling repair retains authenticated already-active backend source identity',()=>{},true);
+ for(const [name,mutate] of [
+  ['missing receipt',d=>d.artifacts=[]],['expired receipt',d=>d.artifacts[0].expires_at='2000-01-01'],
+  ['wrong archive digest',d=>d.artifacts[0].digest='sha256:'+'0'.repeat(64)],
+  ['failed backend activation',d=>d.jobs[0].steps[0].conclusion='failure'],
+  ['missing source upload',d=>d.jobs[0].steps.pop()],['wrong source job SHA',d=>d.jobs[0].head_sha=incompatible],
+  ['wrong source attempt',d=>d.jobs[0].run_attempt=2],['wrong source artifact run',d=>d.artifacts[0].workflow_run.id=202],
+  ['ambiguous backend evidence',d=>d.jobs.push(structuredClone(backendJob))],
+ ])await backendCheck('backend reuse rejects '+name,mutate);
+ for(const field of ['sha','base','run','attempt','processorRef','sourceTree'])await backendCheck('backend reuse rejects wrong receipt '+field,d=>{d.bytes=receiptArchive({...backendReceipt,[field]:'wrong'});d.artifacts[0].size_in_bytes=d.bytes.length;d.artifacts[0].digest=`sha256:${hash(d.bytes)}`;});
+ const activation={...backendContext,version:{id:backendReceipt.version,annotations:{'workers/message':`bitbi-auth:${sha}`}},deployment:{id:backendReceipt.deployment,versions:[{version_id:backendReceipt.version,percentage:100}]},migration:backendReceipt.migration,processorSha:sha};
+ verifyBackendActivation(backendReceipt,activation);
+ assert.throws(()=>verifyBackendActivation(backendReceipt,{...activation,sha:incompatible}));
+ assert.throws(()=>verifyBackendActivation(backendReceipt,{...activation,deployment:{...activation.deployment,id:'other-active-deployment'}}));
+ assert.deepEqual(backendReceiptContext({sha,base},{ }),{sha,base});
+ assert.equal(backendReceiptContext({sha:repaired,base},{REPAIR_SOURCE_SHA:sha}).sha,repaired,'Processor repairs must still publish their changed backend');
+ record('receipt reuse cannot relabel source or accept changed production; processor repairs remain deployments');
  process.chdir(root);
 
  // Effective permissions: job permissions REPLACE the workflow mapping;
@@ -207,6 +252,18 @@ try {
  const repairRead=async endpoint=>endpoint.endsWith('version-D')?{id:D.versionId,annotations:{'workers/message':`bitbi:${D.sha}:${D.run}:1:${D.packageDigest}`}}:read(endpoint);
  assert.equal((await durableBaseline(api,repairRead)).sha,repaired);record('protected media repair baseline keeps original frontend identity');
  db['actions/runs/1004/attempts/1/jobs?per_page=100'].jobs[1].conclusion='failure';await assert.rejects(durableBaseline(api,repairRead));record('repair baseline rejects failed new acceptance','negative');
+ const E=addReceipt(5,sha,'version-E','deployment-E');E.publicationSha=toolingSha;E.releaseRepair={kind:'tooling',sourceSha:sha,publicationSha:toolingSha};
+ db['deployments/5'].payload={receipt:E,receiptSHA256:hash(JSON.stringify(E))};
+ db['deployments/2005'].sha=toolingSha;db['actions/runs/1005'].head_sha=toolingSha;db['actions/jobs/3005'].head_sha=toolingSha;
+ db['actions/jobs/3005'].steps.push(...['Apply verified candidate backend prerequisites','Validate candidate references before backend publication'].map(name=>({name,status:'completed',conclusion:'success'})));
+ const toolingSteps=requiredJobs({workers:false,files:toolingFiles})['release-compatibility'].filter(n=>n!=='Record candidate build').concat(['Select tests from changed files','Validate static website references']);
+ db['actions/runs/1005/attempts/1/jobs?per_page=100']={jobs:[{name:'release-compatibility',head_sha:toolingSha,status:'completed',conclusion:'success',steps:toolingSteps.map(name=>({name,status:'completed',conclusion:'success'}))}]};latest=5;current=active(E);
+ const toolingRead=async endpoint=>endpoint.endsWith('version-E')?{id:E.versionId,annotations:{'workers/message':`bitbi:${E.sha}:${E.run}:1:${E.packageDigest}`}}:read(endpoint);
+ assert.equal((await durableBaseline(api,toolingRead)).sha,toolingSha);record('protected tooling publication baseline preserves accepted frontend and backend source');
+ db['actions/jobs/3005'].steps.pop();await assert.rejects(durableBaseline(api,toolingRead));record('tooling baseline rejects missing before-backend candidate reference check','negative');
+ db['actions/jobs/3005'].steps.push({name:'Validate candidate references before backend publication',status:'completed',conclusion:'success'});
+ db['actions/runs/1005/attempts/1/jobs?per_page=100'].jobs[0].steps.pop();await assert.rejects(durableBaseline(api,toolingRead));record('tooling baseline rejects missing fresh checker acceptance','negative');
+
 } finally {
  process.chdir(root);if(environment.CLOUDFLARE_ACCOUNT_ID===undefined)delete process.env.CLOUDFLARE_ACCOUNT_ID;else process.env.CLOUDFLARE_ACCOUNT_ID=environment.CLOUDFLARE_ACCOUNT_ID;
  fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/frontend-review.json',JSON.stringify({syntheticPlatform:true,nativeBrowser:false,results},null,2));

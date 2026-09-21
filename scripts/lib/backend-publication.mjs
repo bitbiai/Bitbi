@@ -11,7 +11,8 @@ import {createReleasePlanFromRepo} from './release-plan.mjs';
 import {mediaEvidenceRun} from './media-publication.mjs';
 import {verifyUploadSource} from './frontend-source.mjs';
 import {cloudflareRead} from './frontend-hosting.mjs';
-import {api} from '../pages-candidate.mjs';
+import {api,collection,REPOSITORY} from '../pages-candidate.mjs';
+import {repairDelta,repairKind,verifyRepairSource} from './media-repair-source.mjs';
 const worker='bitbi-auth';
 const backendEnv=()=>({...process.env,CLOUDFLARE_API_TOKEN:process.env.CF_BACKEND_DEPLOY_TOKEN||process.env.CLOUDFLARE_API_TOKEN});
 const readBackend=endpoint=>cloudflareRead(endpoint,backendEnv());
@@ -152,9 +153,50 @@ async function publishAi(c,directory) {
   const receipt={...probe,bundleDigest:digest};
   await verifyAiActivation(receipt,c.sha);await verifyAuthBundle(digest,undefined,'bitbi-ai');return receipt;
 }
+// A tooling repair preserves the independently recorded backend identity. The
+// authenticated Actions archive, not a mutable local receipt, authorizes reuse.
+export function backendReceiptContext(c,env=process.env) {
+  if(!env.REPAIR_SOURCE_SHA)return c;
+  const files=repairDelta(env.REPAIR_SOURCE_SHA,c.sha,c.base);
+  if(repairKind(files)!=='tooling')return c;
+  return {...c,publicationSha:c.sha,sha:env.REPAIR_SOURCE_SHA,runId:env.REPAIR_SOURCE_RUN,attempt:env.REPAIR_SOURCE_ATTEMPT};
+}
+export async function readToolingBackendReceipt(c,env=process.env,{list=collection,download=fetch,verify=verifyRepairSource}={}) {
+  assert(c.publicationSha,'Not a tooling receipt continuation');
+  await verify(env,{complete:true});
+  const jobs=await list(`actions/runs/${c.runId}/attempts/${c.attempt}/jobs`,'jobs');
+  const deploys=jobs.filter(j=>j.name==='deploy');assert.equal(deploys.length,1,'Missing/ambiguous source backend publication');
+  const job=deploys[0];assert.equal(job.head_sha,c.sha);assert.equal(String(job.run_id),c.runId);assert.equal(String(job.run_attempt),c.attempt);assert.equal(job.status,'completed');
+  for(const name of ['Apply verified candidate backend prerequisites','Preserve backend activation evidence'])assert(job.steps.some(s=>s.name===name&&s.status==='completed'&&s.conclusion==='success'),`Missing backend receipt evidence: ${name}`);
+  const artifacts=(await list(`actions/runs/${c.runId}/artifacts`,'artifacts')).filter(a=>a.name===`backend-receipt-${c.sha}-${c.runId}-${c.attempt}`);
+  assert.equal(artifacts.length,1,'Missing/ambiguous source backend receipt');const artifact=artifacts[0];
+  assert.equal(artifact.expired,false);assert(Date.parse(artifact.expires_at)>Date.now(),'Expired backend receipt');
+  assert.equal(String(artifact.workflow_run?.id),c.runId);assert.equal(artifact.workflow_run?.head_sha,c.sha);
+  assert(/^sha256:[a-f0-9]{64}$/.test(artifact.digest||''),'Missing backend archive digest');assert(artifact.size_in_bytes>0&&artifact.size_in_bytes<=65536,'Oversized backend receipt');
+  const response=await download(`https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${artifact.id}/zip`,{headers:{Authorization:`Bearer ${env.GH_TOKEN}`},signal:AbortSignal.timeout(30000)});
+  assert(response.ok,'Cannot download backend receipt');const bytes=Buffer.from(await response.arrayBuffer());
+  assert.equal(bytes.length,artifact.size_in_bytes);assert.equal(`sha256:${createHash('sha256').update(bytes).digest('hex')}`,artifact.digest,'Backend receipt archive digest mismatch');
+  const json=execFileSync('python3',['-I','-c',`import sys,io,zipfile,stat
+with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:
+ entries=z.infolist();assert len(entries)==1
+ e=entries[0];assert e.filename=='backend-release.json' and e.file_size<=65536
+ assert stat.S_IFMT((e.external_attr>>16)&0xffff) in (0,stat.S_IFREG)
+ sys.stdout.buffer.write(z.read(e))
+`],{input:bytes,timeout:10000,maxBuffer:65536});
+  const receipt=JSON.parse(json);
+  for(const [key,value] of Object.entries({sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,processorRef:c.sha}))assert.equal(receipt[key],value,`Wrong source backend ${key}`);
+  assert.equal(receipt.sourceTree,execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim(),'Wrong source Auth tree');
+  return receipt;
+}
+function storeBackendReceipt(receipt) {
+  fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/backend-release.json',JSON.stringify(receipt,null,2)+'\n');
+  if(process.env.GITHUB_ENV)fs.appendFileSync(process.env.GITHUB_ENV,`BACKEND_RELEASE_RECEIPT=${path.resolve('test-results/backend-release.json')}\n`);
+}
 export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECEIPT) {
-  const c=context();await current(c.sha);
-  const receipt=JSON.parse(fs.readFileSync(file));const state=await active();
+  const publication=context();await current(publication.sha);const c=backendReceiptContext(publication);
+  const receipt=JSON.parse(fs.readFileSync(file));
+  if(c.publicationSha)assert.deepEqual(receipt,await readToolingBackendReceipt(c),'Local backend receipt differs from authenticated source');
+  const state=await active();
   const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
   assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Required schema not active');
   prerequisites(c.plan,state.version,c.config);
@@ -177,7 +219,9 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   assert(state.version.resources.bindings.some(b=>b.name==='PRIVATE_MEDIA_PROCESSOR'&&b.service==='bitbi-private-media'),'Missing media service binding');
   assert(state.version.resources.bindings.some(b=>b.name==='PRIVATE_MEDIA_PROCESSOR_SECRET'&&b.type==='secret_text'),'Missing private processor credential');
   const processor=await api(`contents/services/homepage-ffmpeg-processor/processor.mjs?ref=${c.sha}`);assert.equal(processor.sha,execFileSync('git',['rev-parse',`${c.sha}:services/homepage-ffmpeg-processor/processor.mjs`],{encoding:'utf8'}).trim());
-  verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});return receipt;
+  verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});
+  // Ephemeral caller binding only; the authenticated stored receipt is intact.
+  return c.publicationSha?{...receipt,publicationSha:c.publicationSha}:receipt;
 }
 export async function advanceBackend({sha,pending,activeVersion,assertCurrent,applyMigration,assertSchema,deploy,readActive,prepareMedia,prepareAi,verifyMedia,verifyConfiguration}) {
   await assertCurrent();
@@ -193,6 +237,11 @@ export async function advanceBackend({sha,pending,activeVersion,assertCurrent,ap
 export async function publishBackend() {
   fs.mkdirSync('test-results',{recursive:true});fs.rmSync('test-results/backend-diagnostics.jsonl',{force:true});
   const c=context();await verifyUploadSource();await current(c.sha);
+  const original=backendReceiptContext(c);
+  if(original.publicationSha) {
+    const receipt=await readToolingBackendReceipt(original);storeBackendReceipt(receipt);
+    await verifyBackendReceipt('test-results/backend-release.json');console.log(JSON.stringify({reusedBackend:receipt}));return;
+  }
   const mediaRequired=requiresPrivateMediaImage(c.plan.changedFiles);
   const beforeConfig=JSON.parse(execFileSync('git',['show',`${c.base}:workers/auth/wrangler.jsonc`],{encoding:'utf8'}));
   assertMediaAuthConfig(beforeConfig,c.config);
@@ -239,8 +288,7 @@ export async function publishBackend() {
   const receipt={sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,migration,version:state.version.id,deployment:state.deployment.id,
     ...(media?{media,smoke}:{}),...(ai?{ai}:{}),mediaSourceSha,authBundleDigest:c.authBundleDigest,processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
   verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});
-  fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/backend-release.json',JSON.stringify(receipt,null,2)+'\n');
+  storeBackendReceipt(receipt);
   await verifyBackendReceipt('test-results/backend-release.json');
   console.log(JSON.stringify(receipt));
-  if(process.env.GITHUB_ENV)fs.appendFileSync(process.env.GITHUB_ENV,`BACKEND_RELEASE_RECEIPT=${path.resolve('test-results/backend-release.json')}\n`);
 }

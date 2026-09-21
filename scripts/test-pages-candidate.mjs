@@ -621,6 +621,59 @@ assert.throws(()=>verifyLaterAttempt({...run,conclusion:'failure'},[{name:'deplo
  console.log('Closed media repair: unchanged candidate identity, full range, fresh native/image checks and unknown/security deltas fail closed.');
 }
 
+{
+ const {repairKind,repairDelta,repairSelection,assertUnchangedReleaseInputs,assertRepairAcceptance}=await import('./lib/media-repair-source.mjs');
+ const toolingFiles=['.github/workflows/static.yml','scripts/validate-site-references.mjs','scripts/lib/media-repair-source.mjs'];
+ const original=selectCiTests(['js/shared/appearance.js','workers/auth/src/lib/appearance-settings.js']);
+ const selected=repairSelection(original,toolingFiles);
+ assert.equal(selected.policy,'release-tooling-repair-v1');assert.equal(selected.static,true);assert.equal(repairKind(toolingFiles),'tooling');
+ assert.deepEqual(selected.files,original.files,'Reuse keeps the complete unpublished range, not just the repair');
+ for(const key of ['workers','mediaLifecycle','mediaRepair','appearance','modelPricing','auth','runtime','homepage','homepageMedia','carousel','full'])assert.equal(selected[key],false,key);
+ const requirements=requiredJobs(selected);requirements['release-compatibility']=requirements['release-compatibility'].filter(name=>name!=='Record candidate build');
+ requirements['release-compatibility'].push('Select tests from changed files','Validate static website references');
+ assert.deepEqual(Object.keys(requirements),['release-compatibility'],'Unchanged product execution is neither allocated nor claimed');
+ const accepted=Object.entries(requirements).map(([name,steps])=>({name,head_sha:sha,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
+ assertRepairAcceptance(accepted,sha,toolingFiles);
+ for(const result of ['failure','skipped','cancelled'])assert.throws(()=>assertRepairAcceptance(accepted.map(job=>({...job,conclusion:result})),sha,toolingFiles));
+ for(const step of accepted[0].steps)assert.throws(()=>assertRepairAcceptance([{...accepted[0],steps:accepted[0].steps.filter(item=>item!==step)}],sha,toolingFiles));
+ assert.throws(()=>assertRepairAcceptance([],sha,toolingFiles));assert.throws(()=>assertRepairAcceptance(accepted,'d'.repeat(40),toolingFiles));
+ const fixture=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-tooling-repair-'))),previous=process.cwd();
+ const git=(args,input)=>{const result=spawnSync('git',args,{cwd:fixture,env:fixtureProcessEnv,encoding:'utf8',input});assert.equal(result.status,0,result.stderr);return result.stdout.trim();};
+ const write=(file,text)=>{fs.mkdirSync(path.dirname(path.join(fixture,file)),{recursive:true});fs.writeFileSync(path.join(fixture,file),text);};
+ try {
+  git(['init','-q']);git(['config','user.name','Synthetic']);git(['config','user.email','synthetic@example.invalid']);
+  const protectedFiles=['index.html','css/base/appearance.css','workers/auth/src/index.js','workers/ai/src/index.js','scripts/build-static-site.mjs','config/static-hosting.json','package-lock.json','tests/appearance.spec.js'];
+  for(const file of protectedFiles)write(file,'original input\n');
+  git(['add','.']);git(['commit','-qm','published base']);const base=git(['rev-parse','HEAD']);
+  write('admin/index.html','accepted appearance\n');git(['add','.']);git(['commit','-qm','accepted candidate']);const source=git(['rev-parse','HEAD']);
+  for(const file of toolingFiles)write(file,'reviewed release tooling\n');
+  git(['add','.']);git(['commit','-qm','reference repair']);const head=git(['rev-parse','HEAD']);
+  process.chdir(fixture);
+  assert.deepEqual(repairDelta(source,head,base).sort(),[...toolingFiles].sort());assertUnchangedReleaseInputs(source,head);
+  // Real Git tree objects, not only a simulated changed-file list, prove that
+  // all product/build/test bytes and modes stay outside this reuse exception.
+  for(const file of [...protectedFiles,'unmapped.mjs']) {
+   git(['read-tree',head]);const blob=git(['hash-object','-w','--stdin'],'changed bytes\n');
+   git(['update-index','--add','--cacheinfo',`100644,${blob},${file}`]);
+   const changed=git(['commit-tree',git(['write-tree']),'-p',head],`changed ${file}\n`);
+   assert.throws(()=>repairDelta(source,changed,base),file);assert.throws(()=>assertUnchangedReleaseInputs(source,changed),file);
+  }
+  git(['read-tree',head]);git(['update-index','--force-remove','index.html']);
+  const deleted=git(['commit-tree',git(['write-tree']),'-p',head],'deleted source\n');assert.throws(()=>assertUnchangedReleaseInputs(source,deleted));
+  git(['read-tree',head]);const link=git(['hash-object','-w','--stdin'],'../untrusted-script.mjs');
+  git(['update-index','--cacheinfo',`120000,${link},scripts/validate-site-references.mjs`]);
+  const symlink=git(['commit-tree',git(['write-tree']),'-p',head],'symlink checker\n');assert.throws(()=>repairDelta(source,symlink,base));
+  assert.throws(()=>repairDelta('f'.repeat(40),head,base));assert.throws(()=>repairDelta(head,source,base));assert.throws(()=>repairDelta(source,head,head));
+  const sourceExpected={...ordinary,sha:source,publicationSha:head,base};
+  const evidence={...newsEvidence,mainSha:head,run:{...run,head_sha:source},jobs:newsJobs.map(job=>({...job,head_sha:source})),artifacts:newsArtifacts.map(artifact=>({...artifact,name:artifact.name.replace(sha,source),workflow_run:{id:123,head_sha:source}}))};
+  assert.equal(validateSource(evidence,sourceExpected,{mediaRepair:true}).length,2,'Original exact source/run/attempt and passed jobs remain required');
+  for(const patch of [{sha:base},{run:'999'},{attempt:'2'}])assert.throws(()=>validateSource(evidence,{...sourceExpected,...patch},{mediaRepair:true}));
+  assert.throws(()=>validateSource({...evidence,mainSha:source},sourceExpected,{mediaRepair:true}));
+  assert.throws(()=>validateSource({...evidence,jobs:evidence.jobs.filter(job=>job.name!=='browser-validation')},sourceExpected,{mediaRepair:true}));
+ } finally {process.chdir(previous);fs.rmSync(fixture,{recursive:true,force:true});}
+ console.log('Closed tooling repair: protected Git bytes, exact source evidence and fresh named release acceptance; no product reruns.');
+}
+
 const {verifyModelPricingReport}=await import('./pages-candidate.mjs');
 const pricingDiscovery={suites:[{specs:['chromium','webkit'].map(engine=>({id:engine+'-pricing',file:'oma2-q3-model-pricing.spec.js',tests:[{projectName:engine+'-pricing',results:[]}]}))}]};
 const pricingReport=structuredClone(pricingDiscovery);for(const spec of pricingReport.suites[0].specs)spec.tests[0].results=[{status:'passed'}];

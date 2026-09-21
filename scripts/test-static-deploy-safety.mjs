@@ -549,3 +549,33 @@ for(const files of ['workers/auth/src/index.js,admin/index.html','unknown-releas
  const result=guard(['--backend-preflight','--event-name','workflow_dispatch','--files',files]);
  assert.notEqual(result.status,0);
 }
+
+// Exercise the actual final guard CLI after its remote backend-verification
+// boundary. The source/archive/current-version verification itself is covered
+// by test-frontend-review; this regression protects its caller's range binding.
+{
+ const temp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-backend-guard-'));
+ try {
+  const head=spawnSync('git',['rev-parse','HEAD'],{cwd:repoRoot,encoding:'utf8'}).stdout.trim();
+  assert.match(head,/^[a-f0-9]{40}$/);
+  fs.writeFileSync(path.join(temp,'register.mjs'),"import {register} from 'node:module';register(new URL('./backend-reader.mjs',import.meta.url));\n");
+  fs.writeFileSync(path.join(temp,'backend-reader.mjs'),`export async function load(url,context,next) {
+   if(url.endsWith('/scripts/lib/backend-publication.mjs'))return {format:'module',shortCircuit:true,source:'export async function verifyBackendReceipt(){if(process.env.BITBI_TEST_BACKEND_FAILURE)throw Error("Unverified backend");return JSON.parse(process.env.BITBI_TEST_VERIFIED_BACKEND)}'};
+   return next(url,context);
+  }\n`);
+  const invoke=(receipt,extra={},args=[])=>guard(['--event-name','push','--base',head,'--head',head,...args],{env:{
+   NODE_OPTIONS:`--import=${path.join(temp,'register.mjs')}`,BACKEND_RELEASE_RECEIPT:'synthetic-verified-receipt',
+   BITBI_TEST_VERIFIED_BACKEND:JSON.stringify(receipt),...extra,
+  }});
+  const original={sha:'a'.repeat(40),base:head},verified={...original,publicationSha:head};
+  assert.equal(invoke(verified).status,0,'Verified tooling publication must retain the old backend identity');
+  assert.equal(invoke({sha:head,base:head}).status,0,'Ordinary exact-SHA publication remains supported');
+  for(const receipt of [original,{...verified,publicationSha:'b'.repeat(40)},{...verified,base:'c'.repeat(40)}]) {
+   const result=invoke(receipt);assert.notEqual(result.status,0);assert.match(result.stderr,/Backend receipt range mismatch/);
+  }
+  assert.notEqual(invoke(verified,{BITBI_TEST_BACKEND_FAILURE:'true'}).status,0,'Failed backend verification cannot grant static authority');
+  const plan=path.join(temp,'plan.json');fs.writeFileSync(plan,JSON.stringify(safetyFor(['admin/index.html']).plan));
+  assert.notEqual(invoke(verified,{},['--plan-json',plan]).status,0,'A verified receipt cannot authorize a substituted local plan');
+ }finally{fs.rmSync(temp,{recursive:true,force:true});}
+ console.log('Final static guard: verified publication/source split, exact range and failed-backend countercontrols passed.');
+}

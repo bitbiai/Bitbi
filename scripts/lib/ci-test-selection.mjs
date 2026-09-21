@@ -451,6 +451,7 @@ const RELEASE_TOOLING_FILES = new Set([
   'scripts/lib/media-repair-source.mjs', 'scripts/lib/frontend-receipts.mjs', 'scripts/private-media-image.mjs',
   'scripts/lib/backend-continuation.mjs', 'scripts/lib/backend-publication.mjs', 'scripts/lib/media-publication.mjs',
   'scripts/test-pages-candidate.mjs', 'scripts/test-pages-workflow.mjs', 'scripts/test-static-deploy-safety.mjs',
+  'scripts/validate-site-references.mjs',
   'scripts/lib/frontend-hosting.mjs', 'scripts/lib/frontend-source.mjs', 'scripts/test-frontend-hosting.mjs',
   'scripts/test-frontend-review.mjs', 'scripts/lib/fast-deploy-paths.mjs',
   'scripts/lib/homepage-test-selection.mjs', 'scripts/check-homepage-selection.mjs', 'scripts/test-homepage-selection.mjs',

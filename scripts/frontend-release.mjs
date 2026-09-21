@@ -8,7 +8,28 @@ import path from 'node:path';
 import { hostingPolicy, readJson, verifyFrontend, wrangler, hash, cloudflareRead, validateActivation, verifyDomains, materializeFrontendConfig } from './lib/frontend-hosting.mjs';
 import {persistDurableReceipt,activateRecovery} from './lib/frontend-receipts.mjs';
 import {verifyUploadSource} from './lib/frontend-source.mjs';
+import {repairDelta,repairKind} from './lib/media-repair-source.mjs';
 import { tree, verifyProofs } from './pages-candidate.mjs';
+// Bounded anonymous verification, without settings mutations or polling.
+export async function verifyPublishedAppearance(manifest,read=fetch) {
+  const assets=['js/shared/appearance-contract.js','js/shared/appearance.js','css/base/appearance.css'];
+  const verified=[];
+  for(const [file,url] of [['index.html','/'],['de/index.html','/de/'],...assets.map(file=>[file,`/${file}`])]) {
+    assert(manifest.files[file],`Missing appearance candidate input: ${file}`);
+    const suffix=`?v=${manifest.sha.slice(0,12)}-${manifest.run}-${manifest.attempt}`;
+    const response=await read(`https://bitbi.ai${url}${suffix}`,{credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(20000)});
+    assert(response.ok,`Public appearance file unavailable: ${file} (${response.status})`);
+    assert.equal(hash(Buffer.from(await response.arrayBuffer())),manifest.files[file],`Public bytes differ: ${file}`);
+    verified.push(file);
+  }
+  const response=await read('https://bitbi.ai/api/appearance',{credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(20000)});
+  assert(response.ok,`Public theme configuration unavailable (${response.status})`);
+  const result=await response.json();assert.equal(result.ok,true);
+  const {default:contract}=await import('../js/shared/appearance-contract.js');
+  const settings=contract.normalizeAppearance(result.appearance);
+  assert.match(response.headers.get('cache-control')||'',/no-store/);
+  return {checkedAt:new Date().toISOString(),verified,revision:settings.revision,segments:settings.segments,personalEnabled:settings.personalEnabled};
+}
 export async function publishFrontend({upload,read,current,manifest,proofs,account}) {
   assert(/^[a-f0-9]{32}$/.test(account||''),'Missing explicit frontend account');
   verifyProofs(manifest,proofs);
@@ -73,8 +94,14 @@ async function main() {
    const records=fs.readFileSync(output,'utf8').trim().split('\n').map(JSON.parse).filter(r=>r.type==='deploy');
    assert.equal(records.length,1,'Missing/ambiguous upload result');return records[0];
  }});
- if(process.env.REPAIR_SOURCE_SHA)receipt.mediaRepair={sourceSha:manifest.sha,publicationSha:process.env.GITHUB_SHA};
+ if(process.env.REPAIR_SOURCE_SHA) {
+   const kind=repairKind(repairDelta(manifest.sha,process.env.GITHUB_SHA,process.env.CANDIDATE_BASE));
+   const identity={sourceSha:manifest.sha,publicationSha:process.env.GITHUB_SHA};
+   if(kind==='media')receipt.mediaRepair=identity;
+   else receipt.releaseRepair={kind,...identity};
+ }
  receipt.publicationRun=String(process.env.GITHUB_RUN_ID);receipt.publicationAttempt=String(process.env.GITHUB_RUN_ATTEMPT);
+ if(receipt.releaseRepair?.kind==='tooling')receipt.appearanceAcceptance=await verifyPublishedAppearance(manifest);
  fs.writeFileSync('hosting-receipt.json',JSON.stringify(receipt,null,2)+'\n');
  console.log(`Verified ${receipt.worker} ${receipt.versionId} at 100%; deployment ${receipt.deploymentId}`);
 }

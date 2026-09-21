@@ -1,4 +1,4 @@
-import { repairDelta, assertRepairAcceptance } from './media-repair-source.mjs';
+import { repairDelta, repairKind, assertRepairAcceptance } from './media-repair-source.mjs';
 // GitHub deployment payloads survive Actions artifact expiry. They are only
 // evidence together with their protected Actions job and Cloudflare identity.
 import assert from 'node:assert/strict';
@@ -41,10 +41,14 @@ export async function loadDurableReceipt(id,api=githubRequest,{parent=false}={})
     assert.equal(run.event,'workflow_dispatch','Recovery requires an explicit protected dispatch');
   } else {
     assert.equal(receipt.kind,'publication');
-    if(receipt.mediaRepair){
-      assert.equal(receipt.mediaRepair.sourceSha,receipt.sha);assert.equal(receipt.mediaRepair.publicationSha,receipt.publicationSha);
-      repairDelta(receipt.sha,receipt.publicationSha,receipt.sha);
-      assertRepairAcceptance((await api(`actions/runs/${receipt.publicationRun}/attempts/${receipt.publicationAttempt}/jobs?per_page=100`)).jobs,receipt.publicationSha);
+    const repair=receipt.releaseRepair||receipt.mediaRepair;
+    if(repair){
+      assert(!(receipt.releaseRepair&&receipt.mediaRepair),'Ambiguous repair receipt');
+      assert.equal(repair.sourceSha,receipt.sha);assert.equal(repair.publicationSha,receipt.publicationSha);
+      const files=repairDelta(receipt.sha,receipt.publicationSha,receipt.sha),kind=repairKind(files);
+      assert.equal(kind,receipt.releaseRepair?repair.kind:'media','Repair receipt policy mismatch');
+      assertRepairAcceptance((await api(`actions/runs/${receipt.publicationRun}/attempts/${receipt.publicationAttempt}/jobs?per_page=100`)).jobs,receipt.publicationSha,files);
+      if(kind==='tooling')assert(job.steps.some(s=>s.name==='Validate candidate references before backend publication'&&s.status==='completed'&&s.conclusion==='success'),'Missing pre-publication reference validation');
       assert(job.steps.some(s=>s.name==='Apply verified candidate backend prerequisites'&&s.conclusion==='success'),'Missing repaired backend publication');
     }else assert.equal(receipt.sha,receipt.publicationSha);
   }
@@ -57,7 +61,7 @@ export async function durableBaseline(api=githubRequest,read=cloudflareRead) {
   const active=await read(`workers/scripts/${p.worker}/deployments`),version=await read(`workers/scripts/${p.worker}/versions/${receipt.versionId}`);
   verifyDomains(await read('workers/domains'),p);
   validateActivation({receipt,deployment:active.deployments?.[0]||{},version},{...receipt,account:process.env.CLOUDFLARE_ACCOUNT_ID});
-  return {sha:receipt.kind==='publication'&&receipt.mediaRepair?receipt.publicationSha:receipt.sha,deployment:receipt.deploymentId,run:receipt.publicationRun,receipt:records[0].id};
+  return {sha:receipt.kind==='publication'&&(receipt.mediaRepair||receipt.releaseRepair)?receipt.publicationSha:receipt.sha,deployment:receipt.deploymentId,run:receipt.publicationRun,receipt:records[0].id};
 }
 export async function persistDurableReceipt(receipt,{api=githubRequest,read=cloudflareRead,env=process.env}={}) {
   const p=hostingPolicy();assert.equal(p.provider,'cloudflare');assert.equal(env.GITHUB_REPOSITORY,repo);assert.equal(env.GITHUB_REF,'refs/heads/main');

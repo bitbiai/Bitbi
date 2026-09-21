@@ -327,7 +327,9 @@ try {
   let dependenciesVerified=false;
   if(process.env.BACKEND_RELEASE_RECEIPT) {
     const receipt=await (await import('./lib/backend-publication.mjs')).verifyBackendReceipt();
-    if(receipt.sha!==options.releaseOptions.head || receipt.base!==options.releaseOptions.base || options.planJson) throw new Error('Backend receipt range mismatch');
+    // A tooling continuation returns its independently verified publication
+    // binding while keeping the already-active backend receipt's source SHA.
+    if((receipt.publicationSha||receipt.sha)!==options.releaseOptions.head || receipt.base!==options.releaseOptions.base || options.planJson) throw new Error('Backend receipt range mismatch');
     dependenciesVerified=true;
   }
   const result = evaluateStaticDeploySafety(plan, {

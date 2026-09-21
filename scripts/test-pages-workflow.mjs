@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import vm from 'node:vm';
 import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {verifyPublishedAppearance} from './frontend-release.mjs';
 
 // Execute the actual, deliberately simple workflow conditions with synthetic
 // GitHub step states. This is orchestration acceptance, not a live Pages test.
@@ -156,6 +161,74 @@ for(const failed of [true,false])for(const cancelled of [true,false])for(const p
 // Automatic backend continuation stays under the same protected lock and all
 // selected job gates. No backend failure may begin frontend publication.
 const backend=cfSteps.find(s=>s.name==='Apply verified candidate backend prerequisites');
+const references=cfSteps.find(s=>s.name==='Validate candidate references before backend publication');
+const lateReferences=cfSteps.find(s=>s.name==='Validate local CSS/JS references');
+const earlyReferences=early.find(s=>s.name==='Validate static website references');
+const referenceCommand='node scripts/validate-site-references.mjs --root candidate/site';
+assert.equal(references.source.trim(),`run: ${referenceCommand}`);
+assert(lateReferences.source.includes(`run: ${referenceCommand}`));
+assert(cfSteps.indexOf(references)>cfSteps.findIndex(s=>s.name==='Restore unchanged verified frontend package'));
+assert(cfSteps.indexOf(references)<cfSteps.indexOf(backend),'Missing candidate assets must stop before any backend write');
+assert(earlyReferences.source.includes('node scripts/validate-site-references.mjs --root . --source'));
+assert(earlyReferences.source.includes(referenceCommand));
+assert(earlyReferences.source.includes('node scripts/frontend-release.mjs production-source'),'Repair checks original authenticated candidate bytes');
+assert(earlyReferences.source.includes('CANDIDATE_RUN="$REPAIR_SOURCE_RUN" CANDIDATE_ATTEMPT="$REPAIR_SOURCE_ATTEMPT"'));
+assert(!permits(references,{success:()=>false}));
+const referenceShell=earlyReferences.source.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n');
+for(const repair of [false,true])for(const failure of [false,true]) {
+  const mock=`node() { printf '%s\\n' "$*"; if [ "$2" = production-source ]; then test "$CANDIDATE_RUN" = 123 && test "$CANDIDATE_ATTEMPT" = 1 || return 9; return ${failure?17:0}; fi; };`;
+  const run=spawnSync('/bin/bash',['--noprofile','--norc','-e','-c',mock+'\n'+referenceShell],{encoding:'utf8',env:{PATH:process.env.PATH,...(repair?{REPAIR_SOURCE_SHA:'a'.repeat(40),REPAIR_SOURCE_RUN:'123',REPAIR_SOURCE_ATTEMPT:'1'}:{})},timeout:5000});
+  assert.equal(run.status,repair&&failure?17:0,run.stderr);
+  const calls=run.stdout.trim().split('\n');
+  assert.deepEqual(calls,repair&&failure?['scripts/frontend-release.mjs production-source']:[...(repair?['scripts/frontend-release.mjs production-source']:[]),'scripts/validate-site-references.mjs --root . --source','scripts/validate-site-references.mjs --root candidate/site']);
+}
+
+// Exercise the real workflow CLI, with source and candidate beside each other.
+// A source-present file must never rescue a broken publication package.
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-site-references-'));
+try {
+  const write=(name,value)=>{fs.mkdirSync(path.dirname(path.join(root,name)),{recursive:true});fs.writeFileSync(path.join(root,name),value);};
+  const html='<link href="/css/theme.css?v=source#theme"><script src="js/theme.js?v=1"></script>';
+  write('index.html',html);write('css/theme.css','body{}');write('js/theme.js','void 0;');
+  write('de/nested/index.html',"<link href='../../css/theme.css?v=2'><script src='/js/theme.js?v=2'></script><script src='https://cdn.invalid/remote.js'></script>");
+  for(const dir of ['css','js','de'])fs.cpSync(path.join(root,dir),path.join(root,'candidate/site',dir),{recursive:true});
+  write('candidate/site/index.html',html.replaceAll('source','built'));
+  const cli=fileURLToPath(new URL('./validate-site-references.mjs',import.meta.url));
+  const check=(args)=>spawnSync(process.execPath,[cli,...args],{cwd:root,encoding:'utf8',timeout:5000});
+  const candidateArgs=referenceCommand.split(' ').slice(2);
+  assert.equal(check(['--root','.','--source']).status,0);
+  assert.equal(check(candidateArgs).status,0,'Root, nested relative and versioned references resolve within candidate');
+  write('candidate/broken.html','<script src="/not-a-site-input.js"></script>');
+  assert.equal(check(['--root','.','--source']).status,0,'Checkout scanner must not traverse candidate or unrelated HTML');
+  fs.unlinkSync(path.join(root,'candidate/site/js/theme.js'));
+  const missingCandidate=check(candidateArgs);
+  assert.equal(missingCandidate.status,1);assert.match(missingCandidate.stderr,/missing\/unsafe.*theme\.js/);
+  assert.equal(check(['--root','.','--source']).status,0,'Source remains valid while candidate independently fails');
+  write('candidate/site/js/theme.js','void 0;');
+  fs.unlinkSync(path.join(root,'css/theme.css'));
+  assert.equal(check(['--root','.','--source']).status,1,'Candidate must not conceal a missing source asset either');
+  assert.equal(check(candidateArgs).status,0);
+  write('candidate/site/de/nested/index.html','<script src="../../js/missing.js?v=1"></script>');
+  assert.equal(check(candidateArgs).status,1,'Real nested missing files remain fatal');
+  write('candidate/site/de/nested/index.html','<script src="/js/linked.js"></script>');
+  fs.symlinkSync(path.join(root,'js/theme.js'),path.join(root,'candidate/site/js/linked.js'));
+  assert.equal(check(candidateArgs).status,1,'A source symlink cannot escape candidate isolation');
+  assert.equal(check([]).status,1,'Root must be explicit');
+}finally{fs.rmSync(root,{recursive:true,force:true});}
+console.log('Website-root reference CLI: isolated source/candidate, URL variants and missing-file countercontrols passed.');
+const appearanceFiles=['index.html','de/index.html','js/shared/appearance-contract.js','js/shared/appearance.js','css/base/appearance.css'];
+const appearanceManifest={sha:'a'.repeat(40),run:'123',attempt:'1',files:Object.fromEntries(appearanceFiles.map(f=>[f,createHash('sha256').update(f).digest('hex')]))};
+const publicSettings={version:1,revision:0,segments:{public:'dark',admin:'dark',generateLab:'dark',canvas:'dark',account:'dark'},personalEnabled:false};
+const liveFixture=(fault)=>async(url,options)=>{
+  assert.equal(options.credentials,'omit');assert.equal(options.cache,'no-store');
+  const pathname=new URL(url).pathname;
+  if(pathname==='/api/appearance')return Response.json({ok:true,appearance:{...publicSettings,...(fault==='personal'?{personalEnabled:true}:{})}},{headers:{'Cache-Control':'no-store'}});
+  assert(new URL(url).searchParams.get('v').includes('-123-1'));
+  const file=pathname==='/'?'index.html':pathname==='/de/'?'de/index.html':pathname.slice(1);
+  return new Response(fault==='stale'?'old-build':file,{status:fault==='missing'?404:200});
+};
+assert.equal((await verifyPublishedAppearance(appearanceManifest,liveFixture())).personalEnabled,false);
+for(const fault of ['stale','missing','personal'])await assert.rejects(()=>verifyPublishedAppearance(appearanceManifest,liveFixture(fault)));
 assert(cfSteps.indexOf(backend)>cfSteps.findIndex(s=>s.name==="Download this run's tested candidate"));
 assert(cfSteps.indexOf(backend)<cfSteps.findIndex(s=>s.name==='Check static deploy release-plan safety'));
 for(const reused of ['true','false',undefined])for(const result of ['true','false',undefined])for(const success of [true,false]) {

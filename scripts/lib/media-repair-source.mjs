@@ -1,4 +1,4 @@
-// A release-ending processor repair can reuse an independently accepted static
+// A closed release-ending repair can reuse an independently accepted static
 // package. The package keeps its ORIGINAL SHA/run/proofs; only the closed repair
 // delta receives new acceptance. This is not a general cross-SHA test cache.
 import assert from 'node:assert/strict';
@@ -19,28 +19,63 @@ export const MEDIA_REPAIR_FILES=new Set([
   'scripts/test-ci-test-selection.mjs','scripts/test-release-plan.mjs',
   'docs/runbooks/REGRESSION_REGISTER.md',
 ]);
+// Release-reference validation may change without changing any tested website,
+// backend, build, configuration or product-test bytes. This is a distinct policy
+// from processor repair: it must not allocate media/Worker/browser validation.
+export const TOOLING_REPAIR_FILES=new Set([
+  '.github/workflows/static.yml','scripts/validate-site-references.mjs',
+  'scripts/lib/media-repair-source.mjs','scripts/lib/backend-publication.mjs',
+  'scripts/lib/backend-continuation.mjs','scripts/lib/ci-test-selection.mjs',
+  'scripts/frontend-release.mjs','scripts/lib/frontend-receipts.mjs',
+  'scripts/check-static-deploy-safety.mjs','scripts/test-static-deploy-safety.mjs',
+  'scripts/test-pages-candidate.mjs','scripts/test-pages-workflow.mjs',
+  'scripts/test-frontend-review.mjs','docs/runbooks/REGRESSION_REGISTER.md',
+]);
 const git=args=>execFileSync('git',args,{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
-export function assertRepairFiles(files) {
-  assert(files.length>0&&files.includes('services/homepage-ffmpeg-processor/video-reference.mjs'),'Not a reference processor repair');
+export function repairKind(files) {
+  if(files.includes('scripts/validate-site-references.mjs')) {
+    assert(files.includes('.github/workflows/static.yml'),'Reference repair lacks its real workflow caller');
+    assert(files.every(f=>TOOLING_REPAIR_FILES.has(f)),'Changed input is outside release tooling equivalence');
+    return 'tooling';
+  }
+  assert(files.length>0&&files.includes('services/homepage-ffmpeg-processor/video-reference.mjs'),'Not a closed release repair');
   assert(files.every(f=>MEDIA_REPAIR_FILES.has(f)),'Changed input is outside media repair equivalence');
+  return 'media';
+}
+export function assertRepairFiles(files) { repairKind(files); }
+export function assertUnchangedReleaseInputs(source,head) {
+  // Compare the complete protected Git trees independently of the name-only
+  // selector: object hashes, modes and types catch changed/deleted/new inputs.
+  const entries=sha=>git(['ls-tree','-rz',sha]).split('\0').filter(Boolean).map(line=>{
+    const [identity,file]=line.split('\t');
+    assert(identity&&file,'Invalid Git tree entry');return {identity,file};
+  });
+  const before=entries(source),after=entries(head);
+  const protectedTree=rows=>rows.filter(row=>!TOOLING_REPAIR_FILES.has(row.file));
+  assert.deepEqual(protectedTree(after),protectedTree(before),'Tested website/backend/build inputs changed');
+  for(const row of after.filter(row=>TOOLING_REPAIR_FILES.has(row.file)))assert(/^100(?:644|755) blob [a-f0-9]{40}$/.test(row.identity),'Repair tooling must remain regular Git files');
 }
 export function repairDelta(source,head,base) {
   for(const sha of [source,head,base])assert(/^[a-f0-9]{40}$/.test(sha||''),'Exact repair identities required');
   git(['merge-base','--is-ancestor',base,source]);git(['merge-base','--is-ancestor',source,head]);
-  const files=git(['diff','--name-only','--no-renames',source,head]).split('\n').filter(Boolean);assertRepairFiles(files);return files;
+  const files=git(['diff','--name-only','--no-renames',source,head]).split('\n').filter(Boolean);assertRepairFiles(files);
+  if(repairKind(files)==='tooling')assertUnchangedReleaseInputs(source,head);
+  return files;
 }
 export function repairSelection(full,files) {
-  assertRepairFiles(files);
-  return {...full,policy:'media-repair-v1',docsOnly:false,memberModels:false,full:false,homepage:false,homepageMedia:false,carousel:false,assets:false,auth:false,
+  const media=repairKind(files)==='media';
+  return {...full,policy:media?'media-repair-v1':'release-tooling-repair-v1',docsOnly:false,memberModels:false,full:false,homepage:false,homepageMedia:false,carousel:false,assets:false,auth:false,
     adminRelease:false,memberAssets:false,publicMedia:false,modelStatus:false,canvasText:false,workspaceHelp:false,
-    workers:true,mediaLifecycle:true,static:true,mediaRepair:true,dependencies:false,workerDependencies:false,
-    reasons:{...Object.fromEntries(Object.keys(full.reasons).map(k=>[k,[]])),workers:['Fresh processor Linux image, native D1/R2 smoke and SDK lifecycle'],static:['Authenticated unchanged frontend source; no new browser execution claimed'],dependencies:[],workerDependencies:[]}};
+    appearance:false,modelPricing:false,workers:media,mediaLifecycle:media,runtime:media,static:true,mediaRepair:media,dependencies:false,workerDependencies:false,
+    reasons:{...Object.fromEntries(Object.keys(full.reasons).map(k=>[k,[]])),workers:media?['Fresh processor Linux image, native D1/R2 smoke and SDK lifecycle']:[],static:['Authenticated unchanged frontend source; no new browser execution claimed'],dependencies:[],workerDependencies:[]}};
 }
-export function assertRepairAcceptance(jobs,sha) {
-  const requirements=requiredJobs({workers:true,mediaLifecycle:true,files:['services/homepage-ffmpeg-processor/video-reference.mjs']});
+export function assertRepairAcceptance(jobs,sha,files=['services/homepage-ffmpeg-processor/video-reference.mjs']) {
+  const media=repairKind(files)==='media';
+  const requirements=requiredJobs({workers:media,mediaLifecycle:media,files});
   requirements['release-compatibility']=requirements['release-compatibility'].filter(s=>s!=='Record candidate build');
   requirements['release-compatibility'].push('Select tests from changed files');
-  requirements['worker-validation'].push('Verify repaired native media smoke');
+  if(media)requirements['worker-validation'].push('Verify repaired native media smoke');
+  else requirements['release-compatibility'].push('Validate static website references');
   for(const [name,steps] of Object.entries(requirements)) {
     const found=jobs.filter(j=>j.name===name);assert.equal(found.length,1,'Missing repair job');const j=found[0];
     assert.equal(j.head_sha,sha);assert.equal(j.status,'completed');assert.equal(j.conclusion,'success');
@@ -62,9 +97,9 @@ export async function verifyRepairSource(env=process.env,{complete=false}={}) {
   for(const r of currentRuns.filter(r=>String(r.id)!==String(env.GITHUB_RUN_ID)&&isRequiredValidationRun(r,repairSelection(e.selection,files)))) {
     assert.equal(r.status,'completed','Another repair validation is running');
     const rs=await collection(`actions/runs/${r.id}/attempts/${r.run_attempt}/jobs`,'jobs');
-    assertRepairAcceptance(rs,head);
+    assertRepairAcceptance(rs,head,files);
   }
-  if(complete)assertRepairAcceptance(await collection(`actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs`,'jobs'),head);
+  if(complete)assertRepairAcceptance(await collection(`actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs`,'jobs'),head,files);
   return {expected:e,files,artifacts:selected};
 }
 export async function discoverRepairSource(env=process.env) {

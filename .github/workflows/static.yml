@@ -201,6 +201,17 @@ jobs:
         run: |
           npm run build:static
           node scripts/pages-candidate.mjs record
+      - name: Validate static website references
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REPAIR_SOURCE_SHA:-}" ]; then
+            export CANDIDATE_RUN="$REPAIR_SOURCE_RUN" CANDIDATE_ATTEMPT="$REPAIR_SOURCE_ATTEMPT"
+            node scripts/frontend-release.mjs production-source
+          fi
+          node scripts/validate-site-references.mjs --root . --source
+          node scripts/validate-site-references.mjs --root candidate/site
       - name: Install pinned frontend runtime tooling
         if: steps.selection.outputs.worker_dependencies != 'true'
         run: npm --prefix workers/contact ci
@@ -739,6 +750,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/frontend-release.mjs production-source
+      - name: Validate candidate references before backend publication
+        run: node scripts/validate-site-references.mjs --root candidate/site
       - name: Apply verified candidate backend prerequisites
         if: success() && (needs.release-compatibility.outputs.backend_continuation == 'true' || needs.reuse-candidate.outputs.backend_continuation == 'true') && env.HOSTING_PROVIDER == 'cloudflare'
         env:
@@ -838,47 +851,7 @@ jobs:
           echo "All target=\"_blank\" links include rel=\"noopener\" — OK"
       - name: Validate local CSS/JS references
         if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
-        run: |
-          # Check that CSS stylesheet and JS script references point to existing files
-          # (Complements the JS import path validator above)
-          grep -rn 'href="[^"]*\.css' --include="*.html" --exclude-dir=node_modules --exclude-dir=workers --exclude-dir=_site --exclude-dir=.wrangler . | while IFS= read -r line; do
-            file=$(echo "$line" | cut -d: -f1)
-            echo "$line" | grep -oE 'href="[^"]*\.css[^"]*"' | sed 's/href="//;s/"//' | while IFS= read -r ref; do
-              case "$ref" in http://*|https://*|//*) continue ;; esac
-              [ -z "$ref" ] && continue
-              clean=$(echo "$ref" | sed 's/[?#].*//')
-              dir=$(dirname "$file")
-              resolved=$(cd "$dir" && realpath -m "$clean" 2>/dev/null || echo "$dir/$clean")
-              if [ ! -f "$resolved" ]; then
-                echo "ERROR: Missing CSS in $file"
-                echo "  href='$ref' -> $resolved (not found)"
-                echo "FAIL" >> /tmp/asset_errors
-              fi
-            done
-          done
-          grep -rn 'src="[^"]*\.js' --include="*.html" --exclude-dir=node_modules --exclude-dir=workers --exclude-dir=_site --exclude-dir=.wrangler . | while IFS= read -r line; do
-            file=$(echo "$line" | cut -d: -f1)
-            echo "$line" | grep -oE 'src="[^"]*\.js[^"]*"' | sed 's/src="//;s/"//' | while IFS= read -r ref; do
-              case "$ref" in http://*|https://*|//*) continue ;; esac
-              [ -z "$ref" ] && continue
-              clean=$(echo "$ref" | sed 's/[?#].*//')
-              dir=$(dirname "$file")
-              resolved=$(cd "$dir" && realpath -m "$clean" 2>/dev/null || echo "$dir/$clean")
-              if [ ! -f "$resolved" ]; then
-                echo "ERROR: Missing JS in $file"
-                echo "  src='$ref' -> $resolved (not found)"
-                echo "FAIL" >> /tmp/asset_errors
-              fi
-            done
-          done
-          if [ -f /tmp/asset_errors ]; then
-            count=$(wc -l < /tmp/asset_errors)
-            rm /tmp/asset_errors
-            echo ""
-            echo "FAILED: $count broken CSS/JS reference(s) found"
-            exit 1
-          fi
-          echo "All local CSS/JS references validated successfully"
+        run: node scripts/validate-site-references.mjs --root candidate/site
       - name: Validate page metadata
         if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
         run: |
