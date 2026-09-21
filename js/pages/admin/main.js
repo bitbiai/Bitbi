@@ -51,6 +51,7 @@ const factories = {
     }),
     activity: () => loadAdminModule(new URL('./activity.js?v=__ASSET_VERSION__', import.meta.url)).then(m => () => m.createAdminActivity(common)),
     modelPricing: () => loadAdminModule(new URL('./model-pricing.js?v=__ASSET_VERSION__', import.meta.url)).then(m => () => m.createAdminModelPricing()),
+    appearance: () => loadAdminModule(new URL('./appearance.js?v=__ASSET_VERSION__', import.meta.url)).then(m => () => m.createAdminAppearance()),
     modelStatus: () => loadAdminModule(new URL('./model-status.js?v=__ASSET_VERSION__', import.meta.url)).then(m => () => m.createAdminModelStatus()),
     newsfeed: () => loadAdminModule(new URL('./newsfeed.js?v=__ASSET_VERSION__', import.meta.url)).then(m => () => m.createAdminNewsfeed()),
     news: () => loadAdminModule(new URL('./news-feed-agent.js?v=__ASSET_VERSION__', import.meta.url)).then(m => () => m.createAdminNewsFeedAgent(common)),
@@ -69,7 +70,7 @@ async function getDomain(key, isCurrent = () => true) {
     if (!instances.has(key)) { const instance = factory(); instance.bind?.(); instances.set(key, instance); }
     return instances.get(key);
 }
-const sectionDomain = { dashboard:'dashboard', users:'users', activity:'activity', newsfeed:'newsfeed', 'model-pricing':'modelPricing', 'model-status':'modelStatus', 'news-feed-agent':'news', 'homepage-hero-videos':'hero', 'ai-lab':'ai' };
+const sectionDomain = { dashboard:'dashboard', users:'users', activity:'activity', newsfeed:'newsfeed', appearance:'appearance', 'model-pricing':'modelPricing', 'model-status':'modelStatus', 'news-feed-agent':'news', 'homepage-hero-videos':'hero', 'ai-lab':'ai' };
 function leaveSection(previous, next) {
     if (previous === next) return;
     for (const [key, instance] of instances) {

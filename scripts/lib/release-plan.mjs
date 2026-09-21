@@ -52,6 +52,7 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "workers/shared/grok-chat-contract.mjs": ["auth", "ai"],
   "js/shared/admin-ai-contract.mjs": ["auth", "ai"],
   "js/shared/canvas-model-contract.mjs": ["auth"],
+  "js/shared/appearance-contract.js": ["auth"],
   "js/shared/model-pricing-catalog.mjs": ["auth"],
   "js/shared/model-tariff.mjs": ["auth", "ai"],
   "js/shared/grok-text-contract.mjs": ["auth", "ai"],

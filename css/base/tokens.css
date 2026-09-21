@@ -54,6 +54,29 @@
         --color-success: #22c55e;
         --color-danger: #ef4444;
 
+        /* Appearance roles. Existing dark component declarations remain the
+           initial factory presentation; light mode maps those same roles. */
+        --theme-page: #0a0a0a;
+        --theme-surface: #161e27;
+        --theme-inset: #10161e;
+        --theme-raised: #1c2732;
+        --theme-ink: #e6edf3;
+        --theme-muted: #a6b5c4;
+        --theme-line: #303e4b;
+        --theme-line-strong: #526777;
+        --theme-accent: #9de7de;
+        --theme-accent-soft: #1b343a;
+        --theme-on-accent: #0e2628;
+        --theme-success: #a5e3ca;
+        --theme-success-soft: #16372e;
+        --theme-warning: #e6c990;
+        --theme-warning-soft: #362e1e;
+        --theme-danger: #ffb0aa;
+        --theme-danger-soft: #392426;
+        --theme-shadow: 0 18px 50px #0004;
+        --theme-scrim: rgb(3 8 15 / .72);
+        --theme-focus: #9de7de;
+
         /* Font Stacks */
         --font-display: 'Playfair Display', Georgia, serif;
         --font-body: 'Inter', system-ui, sans-serif;

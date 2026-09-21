@@ -1,3 +1,4 @@
+import { handleAppearance } from './routes/appearance.js';
 import { handleModelPricing } from './routes/model-pricing.js';
 import { handleH3Callback } from './lib/minimax-h3-callback.js';
 import { handlePrivateMediaService } from './routes/private-media-service.js';
@@ -472,6 +473,19 @@ export default {
       const result = await handleBillingWebhooks(ctx);
       if (result) return result;
     }
+
+    // route-policy: appearance.public
+    if (pathname === '/api/appearance' && method === 'GET') return handleAppearance(ctx);
+    // route-policy: appearance.admin.read
+    if (pathname === '/api/admin/appearance' && method === 'GET') return handleAppearance(ctx);
+    // route-policy: appearance.admin.update
+    if (pathname === '/api/admin/appearance' && method === 'PATCH') return handleAppearance(ctx);
+    // route-policy: appearance.personal.put
+    if (pathname === '/api/account/appearance' && method === 'PUT') return handleAppearance(ctx);
+    // route-policy: appearance.personal.patch
+    if (pathname === '/api/account/appearance' && method === 'PATCH') return handleAppearance(ctx);
+    // route-policy: appearance.personal.post
+    if (pathname === '/api/account/appearance' && method === 'POST') return handleAppearance(ctx);
 
     // route-policy: model-pricing.public
     if (pathname === '/api/model-pricing' && method === 'GET') return handleModelPricing(ctx);

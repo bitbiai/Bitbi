@@ -81,6 +81,7 @@ function writeGithubOutput(selection) {
     public_media: selection.publicMedia === true,
     model_status: selection.modelStatus === true,
     model_pricing: selection.modelPricing === true,
+    appearance: selection.appearance === true,
     canvas_text: selection.canvasText === true,
     media_lifecycle: selection.mediaLifecycle === true,
     workspace_help: selection.workspaceHelp === true,

@@ -823,3 +823,26 @@ for(const key of ['homepage','homepageMedia','carousel','full'])assert.equal(pri
 assert.deepEqual(Object.keys(requiredJobs(pricing)),['release-compatibility','worker-validation','browser-validation']);
 for(const neighbor of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/auth/src/lib/unknown-pricing.js','workers/media/src/index.js','js/pages/index/hero-controller.js'])assert.notEqual(selection([...pricingDelta,neighbor]).policy,'model-pricing-v1',neighbor);
 assert.equal(selection(pricingDelta,{forceFull:true}).full,true);
+
+// Appearance spans every public/member/Admin host: never the Admin-reader path.
+const appearanceDelta = [
+  'index.html', 'de/index.html', 'pricing.html', 'de/pricing.html',
+  ...['privacy','datenschutz','terms','imprint'].flatMap(name=>[`legal/${name}.html`,`de/legal/${name}.html`]),
+  ...['assets-manager','credits','forgot-password','organization','profile-settings','profile','reset-password','verify-email'].flatMap(name=>[`account/${name}.html`,`de/account/${name}.html`]),
+  'admin/index.html','canvas/index.html','de/canvas/index.html','generate-lab/index.html','de/generate-lab/index.html',
+  'css/base/tokens.css','css/base/appearance.css','css/admin/appearance.css','js/shared/appearance.js','js/shared/appearance-contract.js','js/shared/auth-api.js',
+  'js/pages/admin/appearance.js','js/pages/admin/main.js','js/pages/admin/router.js','js/pages/admin/nav.js',
+  'workers/auth/src/lib/appearance-settings.js','workers/auth/src/routes/appearance.js','workers/auth/src/index.js','workers/auth/src/app/route-policy.js',
+  'config/release-compat.json','tests/appearance.spec.js','tests/appearance-runtime.mjs','tests/oma2-q3-appearance.spec.js','tests/helpers/appearance.js','tests/auth-admin.spec.js',
+  'playwright.config.js','playwright.workers.config.js','tests/helpers/q2-runtime/runner.mjs','tests/helpers/q2-runtime/linux-hosted.mjs','tests/helpers/q2-runtime/linux-runtime-child.mjs','tests/helpers/q2-runtime/linux-bootstrap.py',
+  'scripts/test-q2-runtime-launcher.mjs','scripts/lib/ci-test-selection.mjs','scripts/select-ci-tests.mjs','scripts/test-ci-test-selection.mjs','scripts/pages-candidate.mjs','scripts/test-pages-candidate.mjs','.github/workflows/static.yml',
+];
+const appearanceSelection=selection(appearanceDelta);
+assert.equal(appearanceSelection.policy,'appearance-v1');assert.equal(appearanceSelection.appearance,true);
+for(const key of ['workers','auth','static','runtime'])assert.equal(appearanceSelection[key],true,key);
+for(const key of ['adminRelease','homepage','homepageMedia','carousel','assets','full'])assert.equal(appearanceSelection[key],false,key);
+assert.deepEqual(Object.keys(requiredJobs(appearanceSelection)),['release-compatibility','worker-validation','browser-validation']);
+assert.equal(requiresPrivateMediaImage(appearanceDelta),false);
+for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/auth/src/routes/canvas.js','js/pages/canvas/main.js','js/pages/generate-lab/main.js','js/shared/saved-assets-browser.js','css/pages/index.css','unknown-theme.js','scripts/new-theme-tool.mjs'])assert.notEqual(selection([...appearanceDelta,extra]).policy,'appearance-v1',extra);
+assert.equal(selection(appearanceDelta,{forceFull:true}).full,true);
+assert.notEqual(selection(['css/base/tokens.css','js/shared/auth-api.js']).policy,'appearance-v1','Shared inputs alone cannot claim the bounded cross-segment theme implementation');

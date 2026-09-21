@@ -5,6 +5,6 @@ assert.equal(process.getuid(), 65534);
 assert.equal(process.getgid(), 65534);
 const {readFileSync} = await import('node:fs');
 const {suite} = JSON.parse(readFileSync('/runtime/boundary.json'));
-assert.ok(suite == null || ['member-generation', 'model-status', 'model-pricing', 'canvas', 'q4-stream'].includes(suite), 'Unknown runtime suite');
+assert.ok(suite == null || ['member-generation', 'model-status', 'model-pricing', 'appearance', 'canvas', 'q4-stream'].includes(suite), 'Unknown runtime suite');
 const { runQ2Runtime } = await import('./runner.mjs');
 await runQ2Runtime(['--artifacts', '/artifacts'], suite);

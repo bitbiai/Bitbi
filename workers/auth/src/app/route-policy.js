@@ -89,6 +89,11 @@ const adminJsonWrite = (id, method, path, owner, bodyMaxBytesName, rateLimitId, 
 });
 
 export const ROUTE_POLICIES = Object.freeze([
+  safeRead('appearance.public', 'GET', '/api/appearance', 'appearance', { auth: 'anonymous', sensitivity: 'low' }),
+  adminRead('appearance.admin.read', '/api/admin/appearance', 'appearance'),
+  adminJsonWrite('appearance.admin.update', 'PATCH', '/api/admin/appearance', 'appearance', 'smallJson', 'appearance-admin-write', {audit:{event:'appearance.updated'}}),
+  ...['PUT','PATCH','POST'].map(method => userJsonWrite('appearance.personal.'+method.toLowerCase(), method, '/api/account/appearance', 'appearance', null, 'none', {body:{kind:'none',noneReason:'Personal themes are disabled; no payload is parsed.'},rateLimit:{noneReason:'Always rejects without mutation.'},audit:{noneReason:'Disabled feature; no change can occur.'}})),
+
   safeRead("health.read", "GET", "/api/health", "platform", {
     auth: "anonymous",
     sensitivity: "low",

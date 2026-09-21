@@ -72,6 +72,7 @@ jobs:
       public_media: ${{ steps.selection.outputs.public_media }}
       model_status: ${{ steps.selection.outputs.model_status }}
       model_pricing: ${{ steps.selection.outputs.model_pricing }}
+      appearance: ${{ steps.selection.outputs.appearance }}
       canvas_text: ${{ steps.selection.outputs.canvas_text }}
       media_lifecycle: ${{ steps.selection.outputs.media_lifecycle }}
       workspace_help: ${{ steps.selection.outputs.workspace_help }}
@@ -248,7 +249,7 @@ jobs:
         if: needs.release-compatibility.outputs.workers == 'true'
         run: npm --prefix workers/auth ci
       - name: Install Worker media test tools
-        if: needs.release-compatibility.outputs.workers == 'true' && needs.release-compatibility.outputs.model_pricing != 'true' && needs.release-compatibility.outputs.model_status != 'true' && needs.release-compatibility.outputs.member_assets != 'true' && needs.release-compatibility.outputs.canvas_text != 'true'
+        if: needs.release-compatibility.outputs.workers == 'true' && needs.release-compatibility.outputs.appearance != 'true' && needs.release-compatibility.outputs.model_pricing != 'true' && needs.release-compatibility.outputs.model_status != 'true' && needs.release-compatibility.outputs.member_assets != 'true' && needs.release-compatibility.outputs.canvas_text != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
@@ -266,7 +267,11 @@ jobs:
         env:
           Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
         run: |
-          if [ "${{ needs.release-compatibility.outputs.model_pricing }}" = 'true' ]; then
+          if [ "${{ needs.release-compatibility.outputs.appearance }}" = 'true' ]; then
+            node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
+            npx playwright test -c playwright.workers.config.js tests/appearance.spec.js --retries=0 &&
+            node scripts/test-q2-runtime.mjs --suite appearance
+          elif [ "${{ needs.release-compatibility.outputs.model_pricing }}" = 'true' ]; then
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
             npx playwright test -c playwright.workers.config.js tests/model-pricing.spec.js --retries=0 &&
             npx playwright test -c playwright.workers.config.js tests/workers.spec.js --grep 'Canvas Grok one-shot|Canvas Fable 5 run charges|admin Canvas resolves active organization|Canvas admin billing denies|member user-scoped image generation|member personal image gateway|central AI model pricing dispatch|member PixVerse V6 generation|member video gateway rejects|member HappyHorse T2V generation|member Seedance 2.0 Fast generation|member Grok Imagine Video rejects|member music generation charges|member music generation blocks|member music provider and storage failures|member music billing finalization|org owner, admin, and member roles can generate|insufficient org credits and provider failures|Phase 2-D active reservations|Phase 2-H text generation|charged BFL admin image tests|admin text durable idempotency|admin text duplicate in-progress|admin text, embeddings, compare, and live-agent|admin text and embeddings caller-policy|queues priced Seedance|queues Grok Imagine Video|runtime admin video job budget switch' --retries=0 &&
@@ -576,14 +581,18 @@ jobs:
       - name: Run selected auth and admin tests
         if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.full != 'true' && needs.release-compatibility.outputs.admin_release != 'true'
         run: |
-          if [ "${{ needs.release-compatibility.outputs.model_pricing }}" = 'true' ]; then
+          if [ "${{ needs.release-compatibility.outputs.appearance }}" = 'true' ]; then
+            rm -f test-results/appearance-discovery.json test-results/candidate-auth.json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/appearance-discovery.json npm run test:static -- tests/oma2-q3-appearance.spec.js tests/auth-admin.spec.js --project=chromium --project=webkit-appearance --grep 'oma2-q3-appearance\.spec\.js|cold workspace exposes grouped tasks' --workers=1 --retries=0 --output=test-results/appearance-artifacts --list --reporter=json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- tests/oma2-q3-appearance.spec.js tests/auth-admin.spec.js --project=chromium --project=webkit-appearance --grep 'oma2-q3-appearance\.spec\.js|cold workspace exposes grouped tasks' --workers=1 --retries=0 --output=test-results/appearance-artifacts --reporter=list,json
+          elif [ "${{ needs.release-compatibility.outputs.model_pricing }}" = 'true' ]; then
             rm -f test-results/model-pricing-discovery.json test-results/candidate-auth.json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/model-pricing-discovery.json npm run test:static -- --config playwright.model-pricing.config.js --list --reporter=json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- --config playwright.model-pricing.config.js --reporter=list,json
           elif [ "${{ needs.release-compatibility.outputs.canvas_text }}" = 'true' ]; then
             rm -f test-results/canvas-discovery.json test-results/candidate-auth.json
-            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static -- tests/canvas.spec.js tests/oma2-q1-canvas.spec.js tests/auth-admin.spec.js tests/smoke.spec.js --grep 'Canvas|P13|@canvas-model-ui' --list --reporter=json
-            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- tests/canvas.spec.js tests/oma2-q1-canvas.spec.js tests/auth-admin.spec.js tests/smoke.spec.js --grep 'Canvas|P13|@canvas-model-ui' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static -- tests/canvas.spec.js tests/oma2-q1-canvas.spec.js tests/auth-admin.spec.js tests/smoke.spec.js --project=chromium --project=webkit-canvas --grep 'Canvas|P13|@canvas-model-ui' --list --reporter=json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- tests/canvas.spec.js tests/oma2-q1-canvas.spec.js tests/auth-admin.spec.js tests/smoke.spec.js --project=chromium --project=webkit-canvas --grep 'Canvas|P13|@canvas-model-ui' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json
           elif [ "${{ needs.release-compatibility.outputs.model_status }}" = 'true' ]; then
             rm -f test-results/model-status-discovery.json test-results/candidate-auth.json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/model-status-discovery.json npm run test:static -- --config playwright.model-status.config.js --list --reporter=json

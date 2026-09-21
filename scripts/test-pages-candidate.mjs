@@ -412,7 +412,7 @@ try {
    const nextOutput=path.join(cwd,oldLayout?'test-results':'test-results/browser-artifacts');
    fs.mkdirSync(nextOutput,{recursive:true});
    fs.writeFileSync(path.join(nextOutput,'stale.txt'),'previous invocation');
-   execute(stepRun('Run selected auth and admin tests').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false'));
+   execute(stepRun('Run selected auth and admin tests').replaceAll('${{ needs.release-compatibility.outputs.appearance }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false').replaceAll('${{ needs.release-compatibility.outputs.appearance }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false'));
    assert(!fs.existsSync(path.join(nextOutput,'stale.txt')),'Second invocation must still clean disposable output');
    assert.equal(fs.existsSync(reports[0]),!oldLayout);
    execute(stepRun('Confirm tested browser candidate bytes'),!oldLayout);
@@ -512,7 +512,7 @@ try {
  const text=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8');
  const block=text.split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0];
  const command=block.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n')
-   .replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','true')
+   .replaceAll('${{ needs.release-compatibility.outputs.appearance }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','true')
    .replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
  fs.writeFileSync(path.join(workspaceShell,'npm'),'#!/bin/sh\nprintf "%s\\n" "$*" >> calls\nexit "${FAIL_NPM:-0}"\n',{mode:0o755});
  for(const fail of ['0','1']) {
@@ -534,7 +534,7 @@ for(const status of ['failed','skipped','timedOut']){const wrong=structuredClone
 assert.throws(()=>verifyModelStatusReport({suites:[]},statusDiscovery));
 const statusSelection=selectCiTests(['workers/auth/src/lib/admin-model-status.js','js/pages/admin/model-status.js']);
 assert.deepEqual(Object.keys(requiredJobs(statusSelection)),['release-compatibility','worker-validation','browser-validation']);
-const statusShell=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','true').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
+const statusShell=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.appearance }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','true').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
 const statusTmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-status-shell-'));
 try{
  fs.mkdirSync(path.join(statusTmp,'test-results'));fs.writeFileSync(path.join(statusTmp,'npm'),'#!/bin/sh\nprintf "%s\\n" "$*" >> calls\nexit "${FAIL_NPM:-0}"\n',{mode:0o755});
@@ -631,10 +631,88 @@ assert.throws(()=>verifyModelPricingReport(pricingReport,{suites:[]}));
 const pricingSelected=selectCiTests(['workers/auth/src/lib/model-tariffs.js','tests/oma2-q3-model-pricing.spec.js']);
 assert.deepEqual(Object.keys(requiredJobs(pricingSelected)),['release-compatibility','worker-validation','browser-validation']);
 // Execute the exact named browser branch; fail-fast preserves the discovery/run contract.
-const pricingShell=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','true');
+const pricingShell=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.appearance }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','true');
 const pricingTmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-pricing-shell-'));
 try{
  fs.mkdirSync(path.join(pricingTmp,'test-results'));fs.writeFileSync(path.join(pricingTmp,'npm'),'#!/bin/sh\nprintf "%s\\n" "$*" >> calls\nexit "${FAIL_NPM:-0}"\n',{mode:0o755});
  for(const fail of ['0','37']){fs.rmSync(path.join(pricingTmp,'calls'),{force:true});const result=spawnSync('bash',['-e','-c',pricingShell],{cwd:pricingTmp,env:{...process.env,PATH:pricingTmp+':'+process.env.PATH,FAIL_NPM:fail},encoding:'utf8'});assert.equal(result.status,Number(fail),result.stderr);const calls=fs.readFileSync(path.join(pricingTmp,'calls'),'utf8').trim().split('\n');assert.equal(calls.length,fail==='0'?2:1);assert(calls[0].includes('playwright.model-pricing.config.js --list'));if(fail==='0')assert(calls[1].includes('playwright.model-pricing.config.js --reporter=list,json'));}
 }finally{fs.rmSync(pricingTmp,{recursive:true,force:true});}
 console.log('Pricing: actual selected shell, both engines and missing/failed/skipped/empty report rejection.');
+
+const {verifyAppearanceReport}=await import('./pages-candidate.mjs');
+const appearanceDiscovery={suites:[{specs:['chromium','webkit-appearance'].flatMap(projectName=>['oma2-q3-appearance.spec.js','auth-admin.spec.js'].map(file=>({id:projectName+file,file,tests:[{projectName,results:[]}]})))}]};
+const appearanceReport=structuredClone(appearanceDiscovery);for(const spec of appearanceReport.suites[0].specs)spec.tests[0].results=[{status:'passed'}];
+verifyAppearanceReport(appearanceReport,appearanceDiscovery);
+for(const status of ['failed','skipped','timedOut','interrupted']) {const bad=structuredClone(appearanceReport);bad.suites[0].specs[0].tests[0].results=[{status}];assert.throws(()=>verifyAppearanceReport(bad,appearanceDiscovery));}
+for(const fault of ['missing','wrong-project','retry']) {const bad=structuredClone(appearanceReport);if(fault==='missing')bad.suites[0].specs.pop();else if(fault==='wrong-project')bad.suites[0].specs[0].tests[0].projectName='foreign';else bad.suites[0].specs[0].tests[0].results.unshift({status:'failed'});assert.throws(()=>verifyAppearanceReport(bad,appearanceDiscovery),fault);}
+assert.throws(()=>verifyAppearanceReport({suites:[]},appearanceDiscovery));assert.throws(()=>verifyAppearanceReport(appearanceReport,{suites:[]}));
+const appearanceSelected=selectCiTests(['js/shared/appearance.js','workers/auth/src/lib/appearance-settings.js','css/base/tokens.css','tests/oma2-q3-appearance.spec.js']);
+assert.equal(appearanceSelected.policy,'appearance-v1');assert.equal(appearanceSelected.adminRelease,false);
+const appearanceJobs=Object.entries(requiredJobs(appearanceSelected)).map(([name,steps])=>({name,head_sha:sha,status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
+const appearanceExpected={...ordinary,selection:appearanceSelected};
+assert.equal(validateSource({...newsEvidence,jobs:appearanceJobs},appearanceExpected).length,2);
+for(const name of ['worker-validation','browser-validation']) {
+ assert.throws(()=>validateSource({...newsEvidence,jobs:appearanceJobs.filter(job=>job.name!==name)},appearanceExpected));
+ for(const conclusion of ['failure','skipped','cancelled'])assert.throws(()=>validateSource({...newsEvidence,jobs:appearanceJobs.map(job=>job.name===name?{...job,conclusion}:job)},appearanceExpected));
+}
+assert.throws(()=>validateSource({...newsEvidence,jobs:appearanceJobs,mainSha:'d'.repeat(40)},appearanceExpected));
+const appearanceContext={...normal,needs:structuredClone(normal.needs)};
+Object.assign(appearanceContext.needs['release-compatibility'].outputs,{appearance:'true',homepage:'false',homepage_media:'false',carousel:'false',assets:'false',workers:'true',auth:'true'});
+for(const job of ['homepage-validation','homepage-webkit-media'])appearanceContext.needs[job].result='skipped';
+assert(permits('browser-validation',appearanceContext));assert(permits('deploy',appearanceContext));
+const appearanceMediaTools=block('worker-validation').split('      - name: Install Worker media test tools\n')[1].split('      - name:')[0].match(/^        if: (.+)$/m)[1];
+assert.equal(Boolean(vm.runInNewContext(appearanceMediaTools.replaceAll('needs.release-compatibility', "needs['release-compatibility']"),appearanceContext)),false,'Appearance must not install unrelated FFmpeg tools');
+for(const name of ['worker-validation','browser-validation'])for(const result of ['failure','skipped',undefined]){const ctx={...appearanceContext,needs:structuredClone(appearanceContext.needs)};ctx.needs[name].result=result;assert(!permits('deploy',ctx));}
+
+// Actual existing discovery -> execution shell with browser-free fixtures proves
+// fresh reports survive Playwright cleanup at the effective per-project paths.
+const appearanceShell=block('browser-validation').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.appearance }}','true');
+const appearanceTmp=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-appearance-report-'))),appearanceRoot=new URL('../',import.meta.url).pathname;
+try {
+ const discoveryCommands=appearanceShell.split('\n').map(line=>line.trim()).filter(line=>line.startsWith('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/appearance-discovery.json '));
+ assert.equal(discoveryCommands.length,1,'One named appearance discovery producer');
+ const executionCommands=appearanceShell.split('\n').map(line=>line.trim()).filter(line=>line.startsWith('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json ')&&line.includes('--project=webkit-appearance'));
+ assert.equal(executionCommands.length,1,'One named appearance execution caller');
+ const commandInputs=command=>command.replace(/^PLAYWRIGHT_JSON_OUTPUT_NAME=\S+ /,'').replace(/ --list(?= |$)/g,'').replace(/ --reporter=\S+/g,'');
+ assert.equal(commandInputs(discoveryCommands[0]),commandInputs(executionCommands[0]),'Discovery and actual execution must use identical files/projects/grep/output/worker/retry inputs');
+ const discoverAppearance=(command,name)=>{
+   const output=path.join(appearanceTmp,name+'.json');
+   const escaped="'"+output.replaceAll("'","'\\''")+"'";
+   const actual=command.replace(/^PLAYWRIGHT_JSON_OUTPUT_NAME=\S+/,`PLAYWRIGHT_JSON_OUTPUT_NAME=${escaped}`);
+   const result=spawnSync('/bin/sh',['-ec',actual],{cwd:appearanceRoot,env:fixtureProcessEnv,encoding:'utf8',timeout:30000});
+   assert.equal(result.status,0,result.error?.message||result.stdout+result.stderr);return JSON.parse(fs.readFileSync(output));
+ };
+ const appearanceCases=report=>{
+   const cases=[];const visit=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests||[])cases.push({file:path.basename(spec.file),title:spec.title,project:test.projectName,key:`${test.projectName}:${spec.id}`});(suite.suites||[]).forEach(visit);};(report.suites||[]).forEach(visit);return cases;
+ };
+ // Baseline discovers the entire dedicated feature spec, irrespective of titles.
+ const allAppearance=appearanceCases(discoverAppearance(discoveryCommands[0].replace(' tests/auth-admin.spec.js','').replace(/--grep '[^']*'/,"--grep '.*'"),'all-appearance'));
+ const assertScopedAppearance=report=>{
+   const cases=appearanceCases(report);
+   assert(cases.every(row=>['chromium','webkit-appearance'].includes(row.project)),'Only the two required engines');
+   assert(cases.every(row=>['oma2-q3-appearance.spec.js','auth-admin.spec.js'].includes(row.file)),'No unrelated spec may enter appearance acceptance');
+   for(const project of ['chromium','webkit-appearance']) {
+     const expected=allAppearance.filter(row=>row.project===project).map(row=>row.key).sort();assert(expected.length>0);
+     assert.deepEqual(cases.filter(row=>row.project===project&&row.file==='oma2-q3-appearance.spec.js').map(row=>row.key).sort(),expected,'Every feature case must be selected in both engines');
+     assert.deepEqual(cases.filter(row=>row.project===project&&row.file==='auth-admin.spec.js').map(row=>row.title),['cold workspace exposes grouped tasks and each group can collapse independently'],'Exactly the existing navigation case, no other Admin tests');
+   }
+ };
+ assertScopedAppearance(discoverAppearance(discoveryCommands[0],'actual-appearance'));
+ // Playwright grep includes the project name. The old bare "appearance" also
+ // matched every auth-admin test under webkit-appearance; prove that is rejected.
+ const oldGrepConfig=path.join(appearanceTmp,'old-grep.config.cjs');
+ fs.writeFileSync(oldGrepConfig,`const c=require(${JSON.stringify(path.join(appearanceRoot,'playwright.config.js'))});module.exports={...c,testDir:${JSON.stringify(path.join(appearanceRoot,'tests'))},webServer:undefined,projects:c.projects.map(p=>p.name==='webkit-appearance'?{...p,grep:/appearance|cold workspace exposes grouped tasks/}:p)};`);
+ const broadAppearance=discoverAppearance(discoveryCommands[0].replace(/--grep '[^']*'/,"--grep 'appearance|cold workspace exposes grouped tasks'")+` --config '${oldGrepConfig.replaceAll("'","'\\''")}'`,'wrong-project-name-grep');
+ assert.throws(()=>assertScopedAppearance(broadAppearance),/Exactly the existing navigation case/);
+ fs.mkdirSync(path.join(appearanceTmp,'tests'));fs.mkdirSync(path.join(appearanceTmp,'test-results/appearance-artifacts'),{recursive:true});
+ fs.writeFileSync(path.join(appearanceTmp,'package.json'),JSON.stringify({scripts:{'test:static':`node ${JSON.stringify(path.join(appearanceRoot,'node_modules/@playwright/test/cli.js'))} test -c playwright.config.js`}}));
+ fs.writeFileSync(path.join(appearanceTmp,'playwright.config.js'),`const c=require(${JSON.stringify(path.join(appearanceRoot,'playwright.config.js'))});module.exports={...c,testDir:__dirname+'/tests',webServer:undefined};`);
+ for(const file of ['oma2-q3-appearance.spec.js','auth-admin.spec.js'])fs.writeFileSync(path.join(appearanceTmp,'tests',file),`const {test,expect}=require(${JSON.stringify(path.join(appearanceRoot,'node_modules/@playwright/test'))});test(${JSON.stringify(file==='auth-admin.spec.js'?'cold workspace exposes grouped tasks and each group can collapse independently':'appearance report lifecycle')},async({},info)=>{expect(require('fs').existsSync(require('path').join(info.project.outputDir,'stale.txt'))).toBe(false);expect(info.project.outputDir).toBe(require('path').join(${JSON.stringify(appearanceTmp)},'test-results/appearance-artifacts'));});`);
+ for(const file of ['appearance-discovery.json','candidate-auth.json','appearance-artifacts/stale.txt'])fs.writeFileSync(path.join(appearanceTmp,'test-results',file),'stale');
+ const executed=spawnSync('/bin/bash',['-e','-c',appearanceShell],{cwd:appearanceTmp,env:{...fixtureProcessEnv,CI:'1'},encoding:'utf8',timeout:30000});
+ assert.equal(executed.status,0,executed.error?.message||executed.stdout+executed.stderr);
+ const discovered=JSON.parse(fs.readFileSync(path.join(appearanceTmp,'test-results/appearance-discovery.json'))),actual=JSON.parse(fs.readFileSync(path.join(appearanceTmp,'test-results/candidate-auth.json')));
+ assert.equal(actual.stats.expected,4);assert.equal(actual.stats.unexpected+actual.stats.skipped+actual.stats.flaky,0);verifyAppearanceReport(actual,discovered);
+ assert(!fs.existsSync(path.join(appearanceTmp,'test-results/appearance-artifacts/stale.txt')));
+} finally {fs.rmSync(appearanceTmp,{recursive:true,force:true});}
+console.log('Appearance: real selected discovery/execution keeps fresh evidence, required native/browser jobs and both engines; missing, failed, retried or wrong-identity acceptance blocks.');

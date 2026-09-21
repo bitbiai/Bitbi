@@ -865,3 +865,15 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  assert.equal(plan.deploySteps[0].type,'schema-checkpoint');assert.equal(plan.deploySteps.at(-1).type,'static');
  console.log('Pricing: additive 0094 before AI/Auth and exact static artifact; unchanged media excluded.');
 }
+
+{
+ const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');
+ const files=['js/shared/appearance-contract.js','workers/auth/src/lib/appearance-settings.js','workers/auth/src/routes/appearance.js','js/shared/appearance.js','admin/index.html','css/base/appearance.css'];
+ const plan=createReleasePlanFromRepo(repoRoot,{files});
+ assert(backendContinuationSupported(plan));
+ assert.deepEqual(plan.workerDeploys.map(w=>w.worker),['auth']);
+ assert.deepEqual(plan.schemaApplies,[]);
+ assert.deepEqual(plan.deploySteps.map(s=>s.id),['auth-worker','static-site']);
+ assert.deepEqual(plan.impacts.uncategorizedFiles,[]);
+ console.log('Appearance: existing app_settings; Auth before exact static artifact; AI/media and pricing schema unchanged.');
+}

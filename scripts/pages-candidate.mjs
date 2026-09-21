@@ -238,6 +238,10 @@ export function verifyCanvasTextReport(report,discovery) {
   verifyAdminReport(report,discovery,[['canvas',['canvas.spec.js','oma2-q1-canvas.spec.js','auth-admin.spec.js','smoke.spec.js']]],engine=>engine==='chromium'?'chromium':'webkit-canvas');
 }
 
+export function verifyAppearanceReport(report,discovery) {
+  verifyAdminReport(report,discovery,[['appearance',['oma2-q3-appearance.spec.js','auth-admin.spec.js']]],engine=>engine==='chromium'?'chromium':'webkit-appearance');
+}
+
 export function verifyModelPricingReport(report,discovery) {
   verifyAdminReport(report,discovery,[['pricing',['oma2-q3-model-pricing.spec.js']]]);
 }
@@ -347,6 +351,7 @@ async function main(command) {
       verifyHomepageReport(report, JSON.parse(fs.readFileSync('test-results/homepage-discovery.json')), manifest.selection.homepageMedia);
     if (manifest.selection?.assets && !manifest.selection.full && process.env.GITHUB_JOB === 'browser-validation') verifyAssetReport(reports[names.indexOf('test-results/candidate-assets.json')], JSON.parse(fs.readFileSync('test-results/assets-discovery.json')));
     if (manifest.selection?.canvasText) verifyCanvasTextReport(report, JSON.parse(fs.readFileSync('test-results/canvas-discovery.json')));
+    if (manifest.selection?.appearance) verifyAppearanceReport(report, JSON.parse(fs.readFileSync('test-results/appearance-discovery.json')));
     if (manifest.selection?.modelPricing) verifyModelPricingReport(report, JSON.parse(fs.readFileSync('test-results/model-pricing-discovery.json')));
     if (manifest.selection?.modelStatus) verifyModelStatusReport(report, JSON.parse(fs.readFileSync('test-results/model-status-discovery.json')));
     if (manifest.selection?.workspaceHelp) verifyWorkspaceHelpReport(report, JSON.parse(fs.readFileSync('test-results/workspace-discovery.json')));

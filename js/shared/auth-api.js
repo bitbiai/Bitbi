@@ -2193,3 +2193,5 @@ export const apiAdminModelPricing = options => request('GET', '/admin/ai/model-p
 export const apiAdminModelPricingQuote = (body, options) => request('POST', '/admin/ai/model-pricing/quote', body, options);
 export const apiAdminModelPricingChange = (body, options) => request('PATCH', '/admin/ai/model-pricing', body, options);
 export const apiAdminModelPricingSource = (body, options) => request('POST', '/admin/ai/model-pricing/source', body, options);
+export const apiAdminAppearance = options => request('GET', '/admin/appearance', undefined, options);
+export const apiAdminAppearanceChange = (body, options) => request('PATCH', '/admin/appearance', body, options);

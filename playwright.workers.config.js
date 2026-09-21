@@ -3,6 +3,7 @@ const { defineConfig } = require('@playwright/test');
 module.exports = defineConfig({
   testDir: './tests',
   testMatch: [
+    '**/appearance.spec.js',
     '**/workers.spec.js',
     '**/admin-model-status.spec.js',
     '**/model-pricing.spec.js',

@@ -6,6 +6,7 @@ const SECTION_ICONS = {
     billing: 'M3 5h18v14H3z M3 10h18 M6 15h3',
     'billing-events': 'M6 3h12v18l-3-2-3 2-3-2-3 2z M9 7h6 M9 11h6 M9 15h3',
     'model-pricing': 'M3 5h18v14H3z M3 10h18 M7 15h3 M16 13v4 M14 15h4',
+    appearance: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18 M12 3v18',
     'model-status': 'M3 12h4l3-8 4 16 3-8h4',
     'ai-lab': 'M9 3h6 M10 3v6l-6 10a1 1 0 0 0 1 2h14a1 1 0 0 0 1-2L14 9V3 M8 15h8',
     'fable-data-center': 'M3 4h18v13H9l-6 4z M7 8h10 M7 12h6',

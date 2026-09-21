@@ -28,6 +28,7 @@ const STATIC_BUILD_RELATED_FILES = new Set([
 
 // Keep this aligned with the shared Worker impact map in release-plan.mjs.
 const SHARED_WORKER_FILE_MAP = new Map([
+  ["js/shared/appearance-contract.js", ["auth"]],
   ["js/shared/model-pricing-catalog.mjs", ["auth"]],
   ["js/shared/model-tariff.mjs", ["auth", "ai"]],
   ["workers/shared/ai-caller-policy.mjs", ["auth", "ai"]],
@@ -273,6 +274,72 @@ const MODEL_PRICING_FILES = new Set([
   'scripts/test-q2-runtime-launcher.mjs',
 ]);
 
+// Cross-segment appearance is not an Admin-reader scope. All five hosted
+// surfaces, shared overlays and the guarded D1 settings route run in the
+// existing browser/Worker jobs. Unknown or generation/security inputs stay broad.
+const APPEARANCE_FILES = new Set([
+  'account/assets-manager.html',
+  'account/credits.html',
+  'account/forgot-password.html',
+  'account/organization.html',
+  'account/profile-settings.html',
+  'account/profile.html',
+  'account/reset-password.html',
+  'account/verify-email.html',
+  'admin/index.html',
+  'canvas/index.html',
+  'de/account/assets-manager.html',
+  'de/account/credits.html',
+  'de/account/forgot-password.html',
+  'de/account/organization.html',
+  'de/account/profile-settings.html',
+  'de/account/profile.html',
+  'de/account/reset-password.html',
+  'de/account/verify-email.html',
+  'de/canvas/index.html',
+  'de/generate-lab/index.html',
+  'de/index.html',
+  'de/legal/datenschutz.html',
+  'de/legal/imprint.html',
+  'de/legal/privacy.html',
+  'de/legal/terms.html',
+  'de/pricing.html',
+  'generate-lab/index.html',
+  'index.html',
+  'legal/datenschutz.html',
+  'legal/imprint.html',
+  'legal/privacy.html',
+  'legal/terms.html',
+  'pricing.html',
+  'css/base/tokens.css',
+  'css/base/appearance.css',
+  'css/admin/appearance.css',
+  'js/shared/appearance-contract.js',
+  'js/shared/appearance.js',
+  'js/shared/auth-api.js',
+  'js/pages/admin/appearance.js',
+  'js/pages/admin/main.js',
+  'js/pages/admin/router.js',
+  'js/pages/admin/nav.js',
+  'workers/auth/src/lib/appearance-settings.js',
+  'workers/auth/src/routes/appearance.js',
+  'workers/auth/src/index.js',
+  'workers/auth/src/app/route-policy.js',
+  'config/release-compat.json',
+  'tests/appearance.spec.js',
+  'tests/appearance-runtime.mjs',
+  'tests/oma2-q3-appearance.spec.js',
+  'tests/helpers/appearance.js',
+  'tests/auth-admin.spec.js',
+  'playwright.config.js',
+  'playwright.workers.config.js',
+  'scripts/test-q2-runtime-launcher.mjs',
+  'tests/helpers/q2-runtime/runner.mjs',
+  'tests/helpers/q2-runtime/linux-hosted.mjs',
+  'tests/helpers/q2-runtime/linux-runtime-child.mjs',
+  'tests/helpers/q2-runtime/linux-bootstrap.py',
+]);
+
 const AUTH_SHARED_PATTERNS = [
   /(?:^|\/)auth(?:-|\/|\.)/,
   /(?:^|\/)session(?:-|\/|\.)/,
@@ -336,6 +403,7 @@ const ASSETS_MANAGER_SHARED_FILES = new Set([
 ]);
 
 const AUTH_TEST_FILES = new Set([
+  "tests/oma2-q3-appearance.spec.js",
   "tests/oma2-q3-model-pricing.spec.js",
   "tests/oma2-q1-member.spec.js",
   "tests/oma2-q3-newsfeed.spec.js",
@@ -353,6 +421,7 @@ const AUTH_TEST_FILES = new Set([
 ]);
 
 const WORKER_TEST_PREFIXES = [
+  "tests/appearance.spec.js", "tests/appearance-runtime.mjs",
   "tests/model-pricing.spec.js", "tests/model-pricing-runtime.mjs", "tests/helpers/model-pricing-control.mjs",
   "tests/helpers/q2-runtime/",
   "tests/member-generation.cases.js",
@@ -579,6 +648,16 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
   if (forceFull) selectFullRegression(selection, "<forced>", forceReason);
   if (changedFiles.length === 0) {
     selectFullRegression(selection, "", "empty or unresolved diff fails closed");
+  }
+
+  if (!forceFull && changedFiles.some(file => ['js/shared/appearance.js','js/shared/appearance-contract.js','js/pages/admin/appearance.js','workers/auth/src/lib/appearance-settings.js','tests/appearance.spec.js','tests/oma2-q3-appearance.spec.js'].includes(file))
+      && changedFiles.every(file => isDocumentation(file) || APPEARANCE_FILES.has(file) || RELEASE_TOOLING_FILES.has(file))) {
+    selection.policy = 'appearance-v1'; selection.appearance = true;
+    selection.workers = selection.auth = selection.static = selection.runtime = true;
+    selection.reasons.workers.push('Versioned appearance settings, role/MFA/CSRF, concurrent edits, audit rollback and native D1 persistence; personal preference writes remain disabled');
+    selection.reasons.auth.push('All five segments, EN/DE, both themes, Chromium/WebKit, shared overlay inheritance, propagation, reload/state preservation and Admin navigation on the same candidate build');
+    selection.reasons.static.push('Full unpublished appearance scope, shared palettes, protected Auth-to-frontend continuation and exact tested artifact');
+    return selection;
   }
 
   if (!forceFull && changedFiles.some(file => ['workers/auth/src/lib/model-tariffs.js','js/shared/model-tariff.mjs','js/pages/admin/model-pricing.js','tests/model-pricing.spec.js','tests/oma2-q3-model-pricing.spec.js'].includes(file))

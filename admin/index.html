@@ -16,6 +16,8 @@
     <link rel="preload" href="../fonts/inter-v20-latin_latin-ext-regular.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="../fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
     <style>@layer tokens, reset, base, components, pages, utilities;</style>
+    <script src="/js/shared/appearance-contract.js?v=__ASSET_VERSION__"></script>
+    <script src="/js/shared/appearance.js?v=__ASSET_VERSION__"></script>
     <link rel="stylesheet" href="../css/base/tokens.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/base/reset.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/base/base.css?v=__ASSET_VERSION__">
@@ -24,11 +26,13 @@
     <link rel="stylesheet" href="../css/admin/admin.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/admin/workspace.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/admin/model-pricing.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../css/admin/appearance.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/admin/model-status.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/admin/newsfeed.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/account/assets-manager.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
     <script>document.documentElement.classList.add('js-ready');setTimeout(function(){document.querySelectorAll('.reveal:not(.visible)').forEach(function(el){el.classList.add('visible')})},4000)</script>
+    <link rel="stylesheet" href="/css/base/appearance.css?v=__ASSET_VERSION__">
 </head>
 <body class="admin-workspace">
 
@@ -127,6 +131,7 @@
 <a href="#object-storage" class="admin-nav__link" data-section="object-storage">R2 Drive</a>
 <a href="#lifecycle" class="admin-nav__link" data-section="lifecycle">Data lifecycle</a>
 <a href="#activity" class="admin-nav__link" data-section="activity">Activity</a>
+<a href="#appearance" class="admin-nav__link" data-section="appearance">Appearance</a>
 </div></div>
 <div class="admin-nav__group" role="group" aria-label="Security & diagnostics"><button type="button" class="admin-nav__group-toggle" aria-expanded="true" aria-controls="adminNavGroupEvidence"><span class="admin-nav__group-label">Security & diagnostics</span><span class="admin-nav__group-chevron" aria-hidden="true"></span></button><div class="admin-nav__group-items" id="adminNavGroupEvidence">
 <a href="#operations" class="admin-nav__link" data-section="operations">Diagnostics</a>
@@ -2471,6 +2476,7 @@
                  NEWS FEED AGENT / NEWS PULSE
                  ═══════════════════════════════════════ -->
             <section id="sectionModelPricing" class="admin-section model-pricing" hidden style="display:none" aria-label="Model Pricing"></section>
+            <section id="sectionAppearance" class="admin-section appearance" hidden style="display:none" aria-label="Appearance"></section>
             <section id="sectionModelStatus" class="admin-section model-status" aria-label="Model status" hidden style="display:none"></section>
             <section id="sectionNewsfeed" class="admin-section admin-reader" aria-label="Newsfeed reader" hidden style="display:none"></section>
             <div id="sectionNewsFeedAgent" class="admin-section" style="display:none">

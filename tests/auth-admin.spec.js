@@ -18149,9 +18149,9 @@ test.describe('Admin nav accordion behavior', () => {
     const toggles = page.locator('.admin-nav__group-toggle');
     const groups = [
       ['People & payments', ['dashboard', 'users', 'orgs', 'billing', 'billing-events']],
-      ['AI & models', ['model-status', 'ai-lab', 'fable-data-center']],
+      ['AI & models', ['model-status', 'model-pricing', 'ai-lab', 'fable-data-center']],
       ['Content', ['newsfeed', 'news-feed-agent', 'homepage-hero-videos']],
-      ['Operations', ['ai-usage', 'ai-budget-switches', 'object-storage', 'lifecycle', 'activity']],
+      ['Operations', ['ai-usage', 'ai-budget-switches', 'object-storage', 'lifecycle', 'activity', 'appearance']],
       ['Security & diagnostics', ['operations', 'tenant-assets', 'security', 'live-billing']],
     ];
     await expect(toggles).toHaveText(groups.map(([label]) => label));

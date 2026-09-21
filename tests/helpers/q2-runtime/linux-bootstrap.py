@@ -17,7 +17,7 @@ import tempfile
 
 SAFE_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
 REPORT_NAMES = {"isolation-result.json", "isolation-final.json", "linux-child-probe.json", "linux-child-probe-final.json", "result.json",
-                "native-result.json", "references-result.json", "recovery-result.json", "model-status-result.json", "model-pricing-result.json", "canvas-result.json", "q4-stream-result.json", "member-generation-result.json",
+                "native-result.json", "references-result.json", "recovery-result.json", "model-status-result.json", "model-pricing-result.json", "appearance-result.json", "canvas-result.json", "q4-stream-result.json", "member-generation-result.json",
                 "build-provenance.json", "wrangler-build.log"}
 
 
@@ -243,7 +243,7 @@ def main():
     parser.add_argument("--node-sha256", required=True)
     parser.add_argument("--uid", required=True, type=int)
     parser.add_argument("--gid", required=True, type=int)
-    parser.add_argument("--suite", choices=["member-generation", "model-status", "model-pricing", "canvas", "q4-stream"])
+    parser.add_argument("--suite", choices=["member-generation", "model-status", "model-pricing", "appearance", "canvas", "q4-stream"])
     parser.add_argument("--mode", required=True, choices=["preflight", "runtime"])
     args = parser.parse_args()
     session = Path(args.session)
