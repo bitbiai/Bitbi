@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { formatCiTestSelection, selectCiTests } from "./lib/ci-test-selection.mjs";
+import { formatCiTestSelection, selectCiTests, memberSpecSources } from "./lib/ci-test-selection.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -142,6 +142,7 @@ try {
   let selection = selectCiTests(resolved.files, {
     forceFull: options.forceFull || !!resolved.issue,
     forceReason: resolved.issue || "explicit full regression",
+    memberTestSources: options.base ? memberSpecSources(options.base, options.head, repoRoot) : null,
   });
   if(options.githubOutput && !options.forceFull && !resolved.issue && process.env.GITHUB_ACTIONS==='true') {
     const source=await discoverRepairSource();

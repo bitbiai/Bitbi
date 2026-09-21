@@ -1,4 +1,5 @@
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { isMemberModelFastDeployPath } from "./fast-deploy-paths.mjs";
 
 const DOCUMENTATION_FILENAMES = new Set([
@@ -442,7 +443,35 @@ const ADMIN_STATUS_FILES = new Set([
   'tests/helpers/q2-runtime/linux-runtime-child.mjs','tests/helpers/q2-runtime/test_linux_bootstrap.py',
 ]);
 
-export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression" } = {}) {
+// This multipurpose spec also contains checkout/organization tests outside the
+// Assets caller's filter. Admit only body edits to its existing durable image
+// case, with every shared fixture and neighboring case byte-identical. Missing
+// source context, changed boundaries or extra test declarations fail closed.
+const MEMBER_SPEC = 'tests/oma2-q1-member.spec.js';
+export function isDurableImageTestChange(sources) {
+  const start = '  test(`durable generation ${language}: accepted image is already saved without a browser save request`, async ({page}) => {';
+  const end = '\n  test(`durable generation ${language}: restored jobs, preview pending and failed status stay read-only`';
+  const outside = source => {
+    if (typeof source !== 'string') return null;
+    const from = source.indexOf(start), to = source.indexOf(end);
+    if (from < 0 || to <= from || source.indexOf(start, from + 1) >= 0 || source.indexOf(end, to + 1) >= 0) return null;
+    if ((source.slice(from, to).match(/\btest\b/g) || []).length !== 1) return null;
+    return [source.slice(0, from + start.length), source.slice(to)];
+  };
+  const before = outside(sources?.before), after = outside(sources?.after);
+  return !!before && !!after && sources.before !== sources.after
+    && before.every((part, i) => part === after[i]);
+}
+
+export function memberSpecSources(base, head, cwd = process.cwd()) {
+  try {
+    const git = args => execFileSync('git', args, {cwd, encoding:'utf8', stdio:['ignore','pipe','pipe']});
+    const ancestor = git(['merge-base', base, head]).trim();
+    return {before:git(['show', `${ancestor}:${MEMBER_SPEC}`]), after:git(['show', `${head}:${MEMBER_SPEC}`])};
+  } catch { return null; }
+}
+
+export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression", memberTestSources = null } = {}) {
   const changedFiles = normalizeFiles(files);
   const selection = {
     files: changedFiles,
@@ -495,12 +524,14 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 
   if (!forceFull && changedFiles.some(file => MEMBER_ASSET_PRODUCTION.has(file))
       && changedFiles.every(file => isDocumentation(file) || MEMBER_ASSET_PRODUCTION.has(file)
-        || MEMBER_ASSET_VALIDATION.has(file) || RELEASE_TOOLING_FILES.has(file))) {
+        || MEMBER_ASSET_VALIDATION.has(file) || RELEASE_TOOLING_FILES.has(file)
+        || (file === MEMBER_SPEC && isDurableImageTestChange(memberTestSources)))) {
     selection.policy = 'member-assets-v1';
     selection.memberAssets = true;
     selection.assets = selection.static = selection.runtime = true;
     selection.workers = changedFiles.some(file => file.startsWith('workers/') || file.includes('member-generation') || file.includes('q2-runtime') || file === 'tests/helpers/auth-worker-harness.js');
     selection.reasons.assets.push('Shared cards, owner actions/picker and durable client in Chromium/WebKit; same candidate build');
+    if (changedFiles.includes(MEMBER_SPEC)) selection.reasons.assets.push('Only the executed durable-image test body changed; shared fixtures and all other member/credit cases are unchanged');
     if (selection.workers) selection.reasons.workers.push('Affected image/video/music/storage routes including access/credit failures, durable jobs and native member-generation suite; no unrelated Auth/Admin or Q4 suite');
     return selection;
   }

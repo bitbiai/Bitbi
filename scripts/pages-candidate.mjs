@@ -2,7 +2,7 @@ import { repairDelta } from './lib/media-repair-source.mjs';
 import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase } from './lib/frontend-hosting.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { selectCiTests,requiresPrivateMediaImage } from './lib/ci-test-selection.mjs';
+import { selectCiTests, requiresPrivateMediaImage, memberSpecSources } from './lib/ci-test-selection.mjs';
 import { HOMEPAGE_WEBKIT_REQUIRED, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
 export const MEDIA_POLICY = 'decorative-core-v1';
 import fs from 'node:fs';
@@ -61,7 +61,7 @@ export function gitSelection(base, sha) {
   assert(/^[a-f0-9]{40}$/.test(base || ''), 'Missing exact release base');
   assert(/^[a-f0-9]{40}$/.test(sha || ''), 'Missing exact release head');
   execFileSync('git',['merge-base','--is-ancestor',base,sha],{stdio:'pipe'});
-  return selectCiTests(execFileSync('git',['diff','--name-only','--no-renames',`${base}...${sha}`,'--'],{encoding:'utf8'}).trim().split('\n').filter(Boolean));
+  return selectCiTests(execFileSync('git',['diff','--name-only','--no-renames',`${base}...${sha}`,'--'],{encoding:'utf8'}).trim().split('\n').filter(Boolean), {memberTestSources:memberSpecSources(base,sha)});
 }
 export function validatePublishedDeployment(deployment,status,run,job) {
   assert.equal(deployment.environment,'github-pages'); assert.equal(status.state,'success');

@@ -138,6 +138,32 @@ try {
  fs.copyFileSync(path.join(dir,'candidate-proofs/proof-browser-validation.json'),path.join(dir,'candidate/proof-browser-validation.json'));
  const ordinaryBytes=tree(path.join(dir,'_site'));fs.rmSync(path.join(dir,'_site'),{recursive:true});invoke('publish');assert.deepEqual(tree(path.join(dir,'_site')),ordinaryBytes);
 
+ // The real selector CLI and candidate record independently read the same Git
+ // sources. No source context or a neighboring credit edit may narrow the spec.
+ fs.mkdirSync(path.join(dir,'tests'),{recursive:true});
+ const memberFile='tests/oma2-q1-member.spec.js';
+ const memberSource=fs.readFileSync(new URL('../'+memberFile,import.meta.url),'utf8');
+ fs.writeFileSync(path.join(dir,memberFile),memberSource);git('add',memberFile);git('commit','-qm','published member tests');
+ const pickerBase=git('rev-parse','HEAD');
+ fs.mkdirSync(path.join(dir,'js/pages/canvas'),{recursive:true});
+ fs.writeFileSync(path.join(dir,'js/pages/canvas/asset-picker.js'),'// synthetic picker');
+ fs.writeFileSync(path.join(dir,memberFile),memberSource.replace('expect(accepted).toBe(1);','expect(accepted).toBe(1); // body-only correction'));
+ git('add',memberFile,'js/pages/canvas/asset-picker.js');git('commit','-qm','picker and saved-state test');
+ fs.mkdirSync(path.join(dir,'scripts'),{recursive:true});
+ fs.copyFileSync(new URL('./select-ci-tests.mjs',import.meta.url),path.join(dir,'scripts/select-ci-tests.mjs'));
+ fs.symlinkSync(new URL('./lib',import.meta.url).pathname,path.join(dir,'scripts/lib'),'dir');
+ for(const broader of [false,true]) {
+   if(broader) {fs.appendFileSync(path.join(dir,memberFile),'\n// changed shared/other member context');git('add',memberFile);git('commit','-qm','broader member change');}
+   const pickerHead=git('rev-parse','HEAD');
+   const selected=spawnSync(process.execPath,['scripts/select-ci-tests.mjs','--base',pickerBase,'--head',pickerHead],{cwd:dir,env:fixtureProcessEnv,encoding:'utf8'});
+   assert.equal(selected.status,0,selected.stderr);
+   const parsed=JSON.parse(selected.stdout.slice(selected.stdout.indexOf('{')));
+   assert.equal(parsed.policy==='member-assets-v1',!broader);
+   fs.rmSync(path.join(dir,'candidate'),{recursive:true});
+   Object.assign(env,{GITHUB_SHA:pickerHead,CANDIDATE_BASE:pickerBase});
+   invoke('record');
+   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir,'candidate/manifest.json'))).selection,parsed,'Selector and proof source contracts must agree');
+ }
 } finally {fs.rmSync(dir,{recursive:true,force:true});}
 
 // Execute the actual job selection expression: reuse performs no second suite.

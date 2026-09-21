@@ -7,7 +7,7 @@ import {
   FAST_DEPLOY_WORKFLOW_PATHS,
   isFastDeploySafePath,
 } from "./lib/fast-deploy-paths.mjs";
-import { selectCiTests, requiresPrivateMediaImage } from "./lib/ci-test-selection.mjs";
+import { selectCiTests, requiresPrivateMediaImage, isDurableImageTestChange } from "./lib/ci-test-selection.mjs";
 import { requiredJobs } from "./pages-candidate.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -784,10 +784,32 @@ assert.equal(canvasPickerSelection.policy,'member-assets-v1');
 assert.equal(canvasPickerSelection.assets,true);assert.equal(canvasPickerSelection.static,true);
 for(const flag of ['workers','auth','homepage','homepageMedia','carousel','full'])assert.equal(canvasPickerSelection[flag],false,flag);
 for(const extra of ['js/pages/canvas/api.js','js/pages/canvas/workflow.js','js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','unknown-picker.js'])assert.notEqual(selection([...canvasPickerFiles,extra]).policy,'member-assets-v1',extra);
+const pickerFollowup=[...canvasPickerFiles,'tests/oma2-q1-member.spec.js'];
+const memberBefore=fs.readFileSync(path.join(repoRoot,'tests/oma2-q1-member.spec.js'),'utf8');
+const memberAfter=memberBefore.replace('expect(accepted).toBe(1);','expect(accepted).toBe(1); // case-body edit');
+const memberTestSources={before:memberBefore,after:memberAfter};
+assert(isDurableImageTestChange(memberTestSources));
+assert.equal(selection(pickerFollowup,{memberTestSources}).policy,'member-assets-v1');
+for(const flag of ['workers','auth','homepage','homepageMedia','carousel','full'])assert.equal(selection(pickerFollowup,{memberTestSources})[flag],false,flag);
+assert.notEqual(selection(pickerFollowup).policy,'member-assets-v1','Path names alone cannot narrow this multipurpose spec');
+for(const after of [memberBefore,memberAfter.replace('creditBalance: 1000','creditBalance: 900'),memberAfter.replace('restored jobs, preview pending','renamed jobs, preview pending'),memberAfter+'\ntest("new checkout case",()=>{});',memberAfter.replace('// case-body edit','test("unselected case",()=>{});')]) {
+ const sources={before:memberBefore,after};
+ assert.equal(isDurableImageTestChange(sources),false);
+ assert.notEqual(selection(pickerFollowup,{memberTestSources:sources}).policy,'member-assets-v1');
+}
+assert.equal(isDurableImageTestChange(null),false);
+assert.notEqual(selection(pickerFollowup,{memberTestSources,forceFull:true}).policy,'member-assets-v1');
+assert.equal(selection(['tests/oma2-q1-member.spec.js']).auth,true,'Standalone member/credit test edits retain their ordinary impact');
+for(const extra of ['js/shared/auth-api.js','workers/auth/src/lib/credit-ledger.js','unknown-member.js'])assert.notEqual(selection([...pickerFollowup,extra],{memberTestSources}).policy,'member-assets-v1',extra);
 const assetConfig=createRequire(import.meta.url)(path.join(repoRoot,'playwright.assets.config.js'));
 for(const browserName of ['chromium','webkit']) {
  const project=assetConfig.projects.find(project=>project.name===`${browserName}-canvas`);
  assert.equal(project.use.browserName,browserName);
  assert.deepEqual(project.testMatch,['**/canvas.spec.js','**/oma2-q1-canvas.spec.js']);
  assert.equal(project.grep,undefined,'the existing Canvas contract is not hidden behind a picker-only filter');
+ const memberProject=assetConfig.projects.find(project=>project.name===`${browserName}-jobs`);
+ assert.equal(memberProject.use.browserName,browserName);
+ assert.deepEqual(memberProject.testMatch,['**/oma2-q1-member.spec.js']);
+ assert(memberProject.grep.test('durable generation en: accepted image is already saved without a browser save request'));
+ assert(memberProject.grep.test('durable generation de: accepted image is already saved without a browser save request'));
 }

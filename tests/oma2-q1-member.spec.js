@@ -568,7 +568,10 @@ for (const language of ['en', 'de']) {
     await openSurface(page,'lab',language);
     const ui=controls(page,'lab');await ui.prompt.fill('Alpha red forest');await ui.generate.click();
     await expect(ui.image).toHaveAttribute('src',state.images[0]);
-    await expect(ui.message).toContainText(language==='de'?'gespeichert':'saved');
+    const status=page.locator('#labWorkflowStatus');
+    await expect(status).toBeVisible();
+    await expect(status.locator('strong')).toHaveText(language==='de'?'Im Assets Manager gespeichert':'Saved to Assets Manager');
+    await expect(ui.message).toBeEmpty();
     expect(accepted).toBe(1);expect(reads).toBe(1);expect(state.saves).toHaveLength(0);
     expect(await page.evaluate(()=>Object.keys(localStorage).filter(key=>key.startsWith('bitbi-generation:')))).toEqual([]);
     await noHorizontalOverflow(page);
