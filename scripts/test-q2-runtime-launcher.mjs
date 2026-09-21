@@ -317,10 +317,15 @@ test('native artifact paths use runner context only after runner assignment', ()
     assert.throws(() => assertArtifactContext(broken, job), /Runner context is unavailable/);
     // Losing the path on either caller must not hide its result from upload.
     const stepEnv = '        env:\n          Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence\n';
-    assert.throws(() => assertArtifactContext(content.replace(stepEnv, ''), job), /Artifact environment/);
-    const last = content.lastIndexOf(stepEnv);
-    assert.ok(last >= 0);
-    assert.throws(() => assertArtifactContext(content.slice(0, last) + content.slice(last + stepEnv.length), job), /Artifact environment/);
+    for (const command of ['node scripts/test-q2-runtime.mjs --preflight', 'npm run test:workers']) {
+      const matches = block.split(/^      - /m).slice(1).filter(step =>
+        step.split('\n').some(line => [command, `run: ${command}`].includes(line.trim())));
+      assert.equal(matches.length, 1, `Mutation must target one actual caller in ${job}: ${command}`);
+      const caller = matches[0];
+      assert.ok(caller.includes(stepEnv), `Caller must have the artifact environment before mutation: ${command}`);
+      const brokenBlock = block.replace(caller, caller.replace(stepEnv, ''));
+      assert.throws(() => assertArtifactContext(content.replace(block, brokenBlock), job), /Artifact environment/);
+    }
   }
 });
 

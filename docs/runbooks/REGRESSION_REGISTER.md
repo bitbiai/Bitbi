@@ -339,6 +339,11 @@ artifact in both normal and Full callers, then checks its path and runner contex
 An unrelated preceding upload passes; missing/duplicate native identity, wrong
 path and pre-runner context fail. Caller: `node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs`
 inside `test:q2-runtime`; neither upload ordering nor native acceptance is bypassed.
+Run35574133948 exposed a second fixture assumption: global first/last environment
+removal targeted the added repair-smoke step instead of the actual Worker caller.
+The same negative control now locates each unique preflight/Worker execution step
+inside its job before removing its artifact environment. Both callers must reject
+the mutation; unrelated steps and the production guard remain unchanged.
 `test:homepage-ffmpeg-processor` and the selected existing Worker job's
 `private-media-image.mjs` run shared FFmpeg tests; the latter kills/restarts the
 real Container HTTP/child process in the immutable Linux image. `test:auth` runs
