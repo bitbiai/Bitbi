@@ -6,7 +6,7 @@ import {
   FAST_DEPLOY_WORKFLOW_PATHS,
   isFastDeploySafePath,
 } from "./lib/fast-deploy-paths.mjs";
-import { selectCiTests } from "./lib/ci-test-selection.mjs";
+import { selectCiTests, requiresPrivateMediaImage } from "./lib/ci-test-selection.mjs";
 import { requiredJobs } from "./pages-candidate.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -755,4 +755,18 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
   'services/homepage-ffmpeg-processor/video-reference.test.mjs','services/homepage-ffmpeg-processor/Dockerfile','scripts/check-route-policies.mjs','scripts/test-homepage-ffmpeg-processor.mjs','workers/auth/src/lib/asset-storage-quota.js','tests/helpers/canvas-video-control.mjs','tests/helpers/q2-runtime/canvas.mjs'];
  const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);assert.equal(result.runtime,true);assert.equal(result.homepageMedia,false);
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/auth/migrations/0094_unknown.sql','unknown.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
+}
+
+// H3 response/rejection settlement stays in its existing model/native path.
+{
+ const files=['workers/auth/src/lib/h3-provider-result.js','workers/auth/src/lib/member-generation-jobs.js',
+  'workers/auth/src/lib/minimax-h3-callback.js','workers/auth/src/routes/ai/video-generate.js','workers/auth/src/lib/canvas-video-jobs.js',
+  'js/pages/canvas/main.js','js/pages/canvas/video-input.js','tests/canvas.spec.js','tests/workers.spec.js',
+  'tests/member-generation-runtime.mjs','tests/helpers/member-generation-control.mjs','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs'];
+ const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);
+ for(const flag of ['full','homepage','homepageMedia','carousel'])assert.equal(result[flag],false,flag);
+ assert.notEqual(result.mediaLifecycle,true);
+ assert.equal(requiresPrivateMediaImage(files),false,'No changed media processor/container bytes');
+ for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','unknown.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
+ assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
 }

@@ -1,4 +1,5 @@
 import { h3MemberReceipt, storedH3MemberTask } from './minimax-h3-callback.js';
+import { callH3Provider, h3Failure } from './h3-provider-result.js';
 import { reclaimCanvasMedia, canvasMediaRun } from './canvas-media-storage.js';
 import { THUMBNAIL_BACKEND_SQL, notifyPrivateMedia, recoverPrivateMedia } from './private-media-service.js';
 import { finishCanvasGeneration } from './canvas-video-output.js';
@@ -33,6 +34,7 @@ export function usesPersonalGenerationCredits(ctx, user) {
 function publicJob(row) {
   return { id: row.id, model_id: row.model_id || null, media_type: row.media_type, status: row.asset_id && row.status === 'ingesting' ? 'preview_pending' : row.status,
     asset_id: row.error_code === 'generation_asset_removed' ? null : row.asset_id || null, error_code: row.error_code || null,
+    rejection_settled: row.rejection_settled === true,
     created_at: row.created_at, updated_at: row.updated_at };
 }
 
@@ -77,6 +79,10 @@ export async function readMemberGenerationJobs(ctx, id = null) {
   }
   const row = await ctx.env.DB.prepare('SELECT * FROM member_generation_jobs WHERE id = ? AND user_id = ?').bind(id, session.user.id).first();
   if (!row) return json({ ok: false, code: 'not_found' }, { status: 404 });
+  if (row.error_code === 'generation_provider_rejected' && row.status === 'failed') {
+    const usage = await ctx.env.DB.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=? AND user_id=?').bind(row.usage_attempt_id,row.user_id).first();
+    row.rejection_settled = usage?.provider_outcome === 'failed' && usage.billing_status === 'released';
+  }
   const acceptedInput=await ctx.env.USER_IMAGES.get(row.input_r2_key);
   if(acceptedInput){const input=await new Response(acceptedInput.body).json();row.model_id=input.model || (row.media_type==='music'?'minimax/music-2.6':null);}
   let result = null;
@@ -100,6 +106,7 @@ async function hasPrimaryReceipt(env, job) {
   const receipts=JSON.parse(job.provider_receipts_json || '{}');
   const name=receipts['ai-0']?'ai-0':'service-0', receipt=receipts[name];
   const expected=`users/${job.user_id}/generation-jobs/${job.id}/provider-${name}.json`;
+  if (receipt?.key === expected && receipt.rejection?.noInference === true && /^[a-f0-9]{64}$/.test(receipt.fingerprint || '')) return true;
   return Boolean(receipt?.key===expected && /^[a-f0-9]{64}$/.test(receipt.fingerprint||'') && await env.USER_IMAGES.head(expected));
 }
 
@@ -120,6 +127,10 @@ async function providerCall(env, job, name, fingerprint, call) {
   let receipt = receipts[name];
   if (receipt) {
     if (receipt.fingerprint !== fingerprint) throw jobError('generation_provider_identity_mismatch');
+    if (receipt.rejection?.noInference === true) {
+      if (receipts['h3-task']) throw jobError('generation_provider_identity_mismatch');
+      throw h3Failure(receipt.rejection, true);
+    }
     const object = await env.USER_IMAGES.get(receipt.key);
     if(name==='ai-0' && h3 && ['succeeded','failed','cancelled'].includes(h3.task.status)) {
       if(object) {
@@ -135,7 +146,7 @@ async function providerCall(env, job, name, fingerprint, call) {
     const stored = await new Response(object.body).json();
     return decodeProviderResult(stored);
   }
-  receipt = { key: `users/${job.user_id}/generation-jobs/${job.id}/provider-${name}.json`, fingerprint };
+  receipt = { key: `users/${job.user_id}/generation-jobs/${job.id}/provider-${name}.json`, fingerprint, correlationId: randomTokenHex(16) };
   receipts[name] = receipt;
   const intent = await env.DB.prepare(`UPDATE member_generation_jobs SET provider_receipts_json = ?
     WHERE id = ? AND processing_token = ? AND locked_until > ? AND provider_receipts_json = ?`)
@@ -146,8 +157,25 @@ async function providerCall(env, job, name, fingerprint, call) {
   const checkpoint = event => logDiagnostic({ service: 'bitbi-auth', component: 'member-generation', event, media_type: job.media_type });
   checkpoint('provider_call_started');
   let result, stored;
-  try { result = await call(); }
-  catch (error) { checkpoint('provider_call_interrupted'); throw job.media_type === 'video' ? jobError('generation_provider_call_outcome_unknown') : error; }
+  try { result = await call(receipt.correlationId); }
+  catch (error) {
+    checkpoint('provider_call_interrupted');
+    const diagnostic = error.providerDiagnostic;
+    if (diagnostic) {
+      logDiagnostic({ service:'bitbi-auth', component:'member-generation', event:'provider_call_rejected_or_unknown', level:'error', ...diagnostic });
+      const current = await env.DB.prepare('SELECT provider_receipts_json FROM member_generation_jobs WHERE id=?').bind(job.id).first();
+      const latest = JSON.parse(current.provider_receipts_json);
+      // A callback receipt wins over a competing assertion of non-acceptance.
+      // Conversely, a durable rejection prevents later callback resurrection.
+      if (latest[name]?.fingerprint === fingerprint && !latest['h3-task'] && !latest[name].rejection) {
+        latest[name][diagnostic.noInference ? 'rejection' : 'diagnostic'] = diagnostic;
+        const saved = await env.DB.prepare('UPDATE member_generation_jobs SET provider_receipts_json=? WHERE id=? AND provider_receipts_json=?')
+          .bind(JSON.stringify(latest),job.id,current.provider_receipts_json).run();
+        if (saved.meta?.changes && diagnostic.noInference) throw h3Failure(diagnostic, true);
+      }
+    }
+    throw job.media_type === 'video' ? jobError('generation_provider_call_outcome_unknown') : error;
+  }
   checkpoint('provider_call_returned');
   try { stored = await encodeProviderResult(result); }
   catch (error) { checkpoint('provider_receipt_encoding_failed'); throw job.media_type === 'video' ? jobError('generation_receipt_encoding_failed') : error; }
@@ -221,7 +249,7 @@ export async function processMemberGeneration(env, body, execute) {
   const execution = { job, user, receiptReplay: await hasPrimaryReceipt(env,job), assertClaim: () => assertClaim(env,job) };
   executions.set(scoped, execution);
   let calls = 0;
-  if (env.AI) scoped.AI = { run: async (...args) => providerCall(env,job,`ai-${calls++}`,await sha256Hex(JSON.stringify(args.slice(0,2))),()=>env.AI.run(...args)) };
+  if (env.AI) scoped.AI = { run: async (...args) => providerCall(env,job,`ai-${calls++}`,await sha256Hex(JSON.stringify(args.slice(0,2))),correlation=>args[0]==='minimax/h3'?callH3Provider(env.AI,args[0],args[1],args[2],correlation):env.AI.run(...args)) };
   if (env.AI_LAB) scoped.AI_LAB = { fetch: async (...args) => { const request = new Request(...args); return providerCall(env,job,`service-${calls++}`,await sha256Hex(request.url+':'+await request.clone().text()),()=>env.AI_LAB.fetch(request)); } };
   try {
     const input = await env.USER_IMAGES.get(job.input_r2_key);
@@ -284,12 +312,22 @@ export async function processMemberGeneration(env, body, execute) {
   } catch (error) {
     if (error.code === 'generation_claim_lost') return {status:'ignored'};
     const usage = await env.DB.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=?').bind(job.usage_attempt_id).first();
-    const unknown = error.code==='generation_result_requires_credit_review' || usage?.provider_outcome === 'unknown' || /outcome_unknown|dispatch_not_claimed/.test(error.code || '');
+    let code = error.code;
+    if (usage?.provider_outcome === 'failed' && usage.billing_status === 'released') {
+      // Settlement may have committed before its reply was lost. Read both
+      // durable facts; a terminal billing row alone is not a rejection receipt.
+      const current = await env.DB.prepare('SELECT provider_receipts_json FROM member_generation_jobs WHERE id=?').bind(job.id).first();
+      const receipts = JSON.parse(current.provider_receipts_json), receipt = receipts['ai-0'];
+      if (!receipts['h3-task'] && receipt?.rejection?.noInference === true
+        && receipt.key === `users/${job.user_id}/generation-jobs/${job.id}/provider-ai-0.json`
+        && /^[a-f0-9]{64}$/.test(receipt.fingerprint || '')) code = 'generation_provider_rejected';
+    }
+    const unknown = code==='generation_result_requires_credit_review' || code==='generation_rejection_settlement_pending' || usage?.provider_outcome === 'unknown' || /outcome_unknown|dispatch_not_claimed/.test(code || '');
     const closed = usage?.provider_outcome === 'failed' || usage?.billing_status === 'released';
     const retry = !unknown && !closed && job.attempt_count+1 < MAX_ATTEMPTS;
     const status=unknown?'outcome_unknown':retry?(job.result_r2_key?'ingesting':'queued'):'failed';
     await env.DB.prepare(`UPDATE member_generation_jobs SET status=?,error_code=?,locked_until=NULL,next_attempt_at=?,updated_at=? WHERE id=? AND processing_token=?`)
-      .bind(status, safeCode(error.code),new Date(Date.now()+60_000).toISOString(),nowIso(),job.id,token).run();
+      .bind(status, safeCode(code),new Date(Date.now()+60_000).toISOString(),nowIso(),job.id,token).run();
     return {status:retry?'retry':status,delaySeconds:60};
   } finally { executions.delete(scoped); }
 }

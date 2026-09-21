@@ -9,6 +9,7 @@ export const videoInputCopy = de => de ? {
     unavailable: 'Dieser gespeicherte Vorgang ist beim aktuellen Modell nicht verfügbar. Wähle bei Bedarf das Schlussbild.',
     required: 'Bereite das Schlussbild des verbundenen Videos vor.', ambiguous: 'Verbinde genau eine Videoquelle ohne konkurrierendes Bild.',
     review: 'Das Anbieterergebnis ist ungeklärt. Keine weitere Generierung starten; Betreiberprüfung erforderlich.',
+    rejected: 'Der Anbieter hat den Auftrag vor der Generierung abgelehnt. Die reservierten Credits wurden freigegeben.',
     preparing: 'Schlussbild wird dekodiert und gespeichert…',
     failed: 'Videoeingabe konnte nicht vorbereitet werden. Keine Generierung gestartet.', pending: 'Video wird im Hintergrund verarbeitet. Das Ergebnis bleibt nach erneutem Öffnen verfügbar.',
     note: 'Das Schlussbild startet einen neuen Clip; eine nahtlose Bewegungs- oder Tonfortsetzung ist nicht garantiert.',
@@ -20,6 +21,7 @@ export const videoInputCopy = de => de ? {
     unavailable: 'This saved operation is unavailable for the current model. You can choose Last frame instead.',
     required: 'Prepare the connected video’s last frame first.', ambiguous: 'Connect exactly one video source without a competing image.',
     review: 'The provider outcome is unresolved. Do not generate again; operator review is required.',
+    rejected: 'The provider rejected the request before generation. Reserved credits were released.',
     preparing: 'Decoding and saving the last frame…',
     failed: 'Video input could not be prepared. No generation started.', pending: 'Video processing continues in the background. Reopen this project to restore the result.',
     note: 'The last frame starts a new clip; seamless motion or audio continuation is not guaranteed.',
@@ -81,7 +83,7 @@ export function canvasVideoRunState(runs, nodeId, copy) {
     const run = own.find(blocked) || own[0];
     if (!run) return { blocked: false, message: '' };
     const state = run.video_job_status || (run.error_code === 'canvas_video_review_required' ? 'outcome_unknown' : run.status);
-    const message = state === 'outcome_unknown' ? copy.review : run.error_code === 'canvas_video_review_required' ? (state === 'failed' ? copy.jobFailed : copy.review) : run.error_code === 'canvas_video_pending' ? (copy[state] || copy.pending)
+    const message = run.error_code === 'canvas_video_rejected' ? copy.rejected : state === 'outcome_unknown' ? copy.review : run.error_code === 'canvas_video_review_required' ? (state === 'failed' ? copy.jobFailed : copy.review) : run.error_code === 'canvas_video_pending' ? (copy[state] || copy.pending)
         : run.status === 'failed' ? (run.error_message || copy.jobFailed) : run.video_job_id ? copy.succeeded : '';
     return { blocked: blocked(run), message: run.observation_error ? `${message} ${copy.observation}` : message, run };
 }

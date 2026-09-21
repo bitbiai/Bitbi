@@ -658,6 +658,10 @@ for (const locale of ['en', 'de']) test(`Canvas durable video status ${locale}: 
   await page.reload(); await card.click();
   await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'Videoverarbeitung fehlgeschlagen' : 'Video processing failed');
   await expect(button).toBeDisabled(); expect(attachments).toBe(1);
+  Object.assign(run, { error_code: 'canvas_video_rejected', video_job_status: 'failed', video_job_id: null, retry_key: null, error_message: null });
+  await page.reload(); await card.click();
+  await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'reservierten Credits wurden freigegeben' : 'Reserved credits were released');
+  await expect(button).toBeEnabled(); expect(attachments).toBe(1);
 });
 
 for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable export, private poster and reload`, async ({page},testInfo) => {

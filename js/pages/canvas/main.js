@@ -138,6 +138,7 @@ function errorMessage(result) {
     if (result?.code === 'canvas_run_in_progress') return copy.runInProgress;
     const messages = {
       canvas_video_review_required: videoCopy.review,
+      canvas_video_rejected: videoCopy.rejected,
       canvas_video_pending: videoCopy.pending,
       pixverse_extension_unavailable: videoCopy.unavailable,
       text_output_token_limit: isGerman ? 'Das Tokenlimit wurde ohne sichtbare Antwort erreicht. Prüfe Max. Tokens; es wird nicht automatisch erneut generiert.' : 'The token limit was reached without a visible answer. Review Max tokens; generation is not retried automatically.',

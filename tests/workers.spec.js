@@ -54669,6 +54669,49 @@ test('Canvas MiniMax H3 task completion uses its own output and usage, never a G
   expect(parseH3Task({task:{...task,status:'succeeded',content:{url:'https://fixture.invalid/output.mp4'}}}).outputSeconds).toBeNull();
 });
 
+test('Canvas MiniMax H3 rejection diagnostics preserve response identity without promoting bare errors to certainty', async()=>{
+  const {callH3Provider,h3Diagnostic,h3Failure,recordVideoLateError}=await import('../workers/auth/src/lib/h3-provider-result.js');
+  const correlation='synthetic-dispatch-123';
+  const cases=[
+    [400,{errors:[{code:3003,message:'Missing required body: PRIVATE_PROMPT https://private.invalid/SECRET'}]},true],
+    [400,{errors:[{code:9999,message:'Callback verification failed at https://private.invalid/SECRET'}]},false],
+    [400,{error:'PRIVATE_PROMPT'},false],
+    [500,{errors:[{code:3003,message:'Missing required body'}]},false],
+    [400,{errors:[{code:3003,message:'Missing required body'}],task:{id:'accepted'}},false],
+  ];
+  for(const [status,body,known] of cases) {
+    let calls=0;
+    const ai={run:async(model,input,options)=>{
+      calls++;expect(options.returnRawResponse).toBe(true);
+      expect(options.gateway).toMatchObject({collectLog:false,skipCache:true,metadata:{bitbi_dispatch:correlation}});
+      return Response.json(body,{status,headers:{'cf-ai-req-id':'synthetic-response-123','cf-aig-log-id':'synthetic-gateway-123'}});
+    }};
+    const error=await callH3Provider(ai,'minimax/h3',{}, {gateway:{id:'default'}},correlation).catch(e=>e);
+    expect(error.code).toBe('generation_provider_call_outcome_unknown'); // Not durable yet.
+    expect(error.confirmedRejection).toBe(false);
+    expect(error.providerDiagnostic).toMatchObject({noInference:known,requestId:'synthetic-response-123',gatewayId:'synthetic-gateway-123',correlationId:correlation});
+    expect(JSON.stringify(error)).not.toMatch(/SECRET|PRIVATE_PROMPT|private\.invalid/);
+    expect(calls).toBe(1);
+  }
+  const transport=await callH3Provider({run:async()=>{throw Object.assign(new Error('3003: missing required'),{status:400});}},'minimax/h3',{}, {},correlation).catch(e=>e);
+  expect(transport.providerDiagnostic.noInference).toBe(false);
+  expect(h3Diagnostic({code:3003,message:'Missing required'},{status:400}).noInference).toBe(true);
+  const task={task:{id:'accepted',model:'MiniMax-H3',status:'queued'}};
+  expect(await callH3Provider({run:async()=>Response.json(task)},'minimax/h3',{}, {},correlation)).toEqual(task);
+  expect(await callH3Provider({run:async()=>Response.json({success:true,result:task})},'minimax/h3',{}, {},correlation)).toEqual(task);
+  const {runWithGenerationTimeout}=await import('../workers/auth/src/lib/generation-timeout.js');
+  for(const durable of [false,true]) {
+    const controller=new AbortController();let rejectProvider,started,completed;
+    const start=new Promise(resolve=>{started=resolve;}),late=new Promise(resolve=>{completed=resolve;});
+    const policy={recordLateOutcome:async outcome=>completed(outcome)};
+    const waiting=runWithGenerationTimeout(()=>{started();return new Promise((_,reject)=>{rejectProvider=reject;});},
+      {signal:controller.signal,onLateError:error=>recordVideoLateError(policy,error)}).catch(e=>e);
+    await start;controller.abort();expect((await waiting).name).toBe('AbortError');
+    rejectProvider(h3Failure({noInference:true},durable));
+    expect(await late).toBe(durable?'failed':'unknown');
+  }
+});
+
 
 test('Canvas MiniMax H3 inspects original media bounds and the AI task adapter disables private Gateway logs',async()=>{
   const {inspectH3TimeReference,validateH3Dimensions}=await import(pathToFileURL(path.join(process.cwd(),'workers/auth/src/lib/h3-reference-metadata.js')).href);

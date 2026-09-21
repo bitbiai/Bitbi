@@ -40,7 +40,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET:'synthetic-member-poster-secret-not-live',
     AI_VIDEO_JOBS_QUEUE:{async send(body){messages.push(body);}},
     AI_IMAGE_DERIVATIVES_QUEUE:{async send(){}},
-    AI:{async run(model,payload){calls.provider++;await duringProvider(model,payload);if(model.startsWith('xai/grok-imagine-video'))try{await verifyGrokOutputUpload(env,payload,videoBytes);}catch(error){calls.fixtureFailure=error.message;throw error;}if(kind==='image'||kind==='music')return {image:model==='xai/grok-imagine-image-2.0'?`data:image/png;base64,${fixture.imageBase64||png}`:fixture.imageBase64||png};if(model==='minimax/h3')return {task:{id:'synthetic-h3-'+name,model:'MiniMax-H3',status:name.startsWith('h3-callback')?'queued':name==='h3-failed'?'failed':'succeeded',resolution:payload.resolution,duration:payload.duration,content:{url:'https://fixture.invalid/member.mp4'},usage:{output_seconds:name==='h3-output-usage'?4:payload.duration,input_seconds:99,total_seconds:104}}};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');return {video_url:'https://fixture.invalid/member.mp4'};}},
+    AI:{async run(model,payload,options){calls.provider++;await duringProvider(model,payload);if(name.startsWith('h3-rejection-')){check(options.returnRawResponse===true && options.gateway.collectLog===false && /^[a-f0-9]{32}$/.test(options.gateway.metadata.bitbi_dispatch),'H3 response-local diagnosis and private Gateway');return Response.json({errors:[{code:name==='h3-rejection-unknown'?9999:3003,message:'Invalid input: private prompt https://bitbi.ai/api/internal/ai/media-source/secret-token'}]},{status:400,headers:{'cf-ai-req-id':'synthetic-request-123','cf-aig-log-id':'synthetic-gateway-123'}});}if(model.startsWith('xai/grok-imagine-video'))try{await verifyGrokOutputUpload(env,payload,videoBytes);}catch(error){calls.fixtureFailure=error.message;throw error;}if(kind==='image'||kind==='music')return {image:model==='xai/grok-imagine-image-2.0'?`data:image/png;base64,${fixture.imageBase64||png}`:fixture.imageBase64||png};if(model==='minimax/h3')return {task:{id:'synthetic-h3-'+name,model:'MiniMax-H3',status:name.startsWith('h3-callback')?'queued':name==='h3-failed'?'failed':'succeeded',resolution:payload.resolution,duration:payload.duration,content:{url:'https://fixture.invalid/member.mp4'},usage:{output_seconds:name==='h3-output-usage'?4:payload.duration,input_seconds:99,total_seconds:104}}};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');return {video_url:'https://fixture.invalid/member.mp4'};}},
     AI_SERVICE_AUTH_SECRET:'synthetic-service-secret-not-live',
     AI_LAB:{async fetch(){calls.provider++;if(name==='music-failed')return Response.json({ok:false,code:'provider_rejected',error:'Synthetic confirmed rejection'},{status:422,headers:{'x-bitbi-provider-outcome':'failed'}});return Response.json({ok:true,result:{audioBase64:'SUQzBAAAAAAA',mimeType:'audio/mpeg',mode:'song',durationMs:1000},model:{id:'minimax/music-2.6'},preset:'music_studio'});}},
     __TEST_FETCH:async()=>{calls.download++;return new Response(videoBytes,{headers:{'Content-Type':'video/mp4'}});},
@@ -64,6 +64,16 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     if(fail && name==='finalization-response-lost' && sql.includes("SET status = 'succeeded'") && sql.includes("result_save_reference = ?")) {fail=false;throw new Error('synthetic finalized reply lost');}
     return result;
   });
+  if(['h3-rejection-settlement','h3-rejection-settlement-lost'].includes(name)) env.DB=interceptDb(db,async(sql,execute)=>{
+    if(fail && sql.includes("SET status = 'provider_failed'")) {
+      fail=false;
+      const race=await worker.fetch(new Request(callbackUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task:{id:'late-task',model:'MiniMax-H3',status:'running'}})}),env,{});
+      check(race.status===409,'Durable rejection blocks callback before credit settlement/job completion');
+      if(name==='h3-rejection-settlement-lost')await execute();
+      throw new Error('Synthetic failure settlement unavailable');
+    }
+    return execute();
+  });
   if(name==='music-cover-retry') env.USER_IMAGES={
     get:key=>nativeEnv.USER_IMAGES.get(key),head:key=>nativeEnv.USER_IMAGES.head(key),delete:key=>nativeEnv.USER_IMAGES.delete(key),
     async put(key,...args){if(fail && key.startsWith('tmp/ai-generated/music-covers/')){fail=false;throw new Error('synthetic temporary cover storage failure');}return nativeEnv.USER_IMAGES.put(key,...args);},
@@ -84,6 +94,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   await grantMemberCredits({env,userId:owner,amount:2000,createdByUserId:owner,idempotencyKey:`grant-${name}-synthetic`});
   const fetch = (path,options={})=>worker.fetch(new Request('https://bitbi.ai'+path,options),env,{waitUntil(){throw new Error('No detached HTTP work allowed');}});
   const headers={'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:`bitbi_session=${owner}`,'Idempotency-Key':`member-${name}-idempotency`,Prefer:'respond-async'};
+  if(name.startsWith('h3-rejection-'))headers['Idempotency-Key']=`canvas-video-${name}`;
   if(name.startsWith('admin-lab-')){
     const denied=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body:JSON.stringify({prompt:'Fixture'})});
     check(denied.status===403,'The generic Admin no-context guard is retained');
@@ -209,12 +220,56 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check(calls.provider===0,'Exhaustion never creates another provider request');
     return {name,calls,status:(await row()).status};
   }
+  if(name==='h3-rejection-callback-race') {
+    const inspect=duringProvider;
+    duringProvider=async(model,payload)=>{
+      await inspect(model,payload);
+      const response=await fetch(new URL(callbackUrl).pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task:{id:'racing-task',model:'MiniMax-H3',status:'running'}})});
+      check(response.ok,'Authenticated task acceptance wins before rejection CAS');
+    };
+  }
   if(name==='closed-browser') {
     messages.length=0; // Simulate a lost initial queue delivery, not a live browser.
     await worker.scheduled({cron:'*/5 * * * *'},env,{waitUntil(){throw new Error('Outbox repair must be awaited');}});
     check(messages.length===1,'Scheduled repair recovers durable acceptance without browser polling');
     await Promise.all([deliver(),deliver()]);
   } else await deliver();
+  if(name.startsWith('h3-rejection-')) {
+    const state=await row(), receipts=JSON.parse(state.provider_receipts_json);
+    const uncertain=['h3-rejection-unknown','h3-rejection-callback-race'].includes(name);
+    check(!JSON.stringify(receipts).includes('secret-token') && !JSON.stringify(receipts).includes('private prompt'),'No provider prose, private URLs or prompt enters durable diagnosis');
+    check(Boolean(receipts['ai-0'].rejection)===!uncertain,'Only proven non-acceptance can be a terminal receipt');
+    if(name==='h3-rejection-settlement-lost') {
+      check(!fail && state.status==='failed' && state.error_code==='generation_provider_rejected','Committed settlement survives a lost reply');
+      const job=(await (await fetch(`/api/ai/generation-jobs/${id}`,{headers})).json()).data.job;
+      check(job.rejection_settled===true,'Released credit is confirmed by independent D1 readback');
+    }
+    if(name==='h3-rejection-settlement') {
+      check(!fail && state.status==='outcome_unknown' && state.error_code==='generation_rejection_settlement_pending','Failed credit release remains reconciliation');
+      const job=(await (await fetch(`/api/ai/generation-jobs/${id}`,{headers})).json()).data.job;
+      check(job.rejection_settled===false,'No premature claim of released credits');
+      await db.prepare("UPDATE member_generation_jobs SET next_attempt_at='2000-01-01T00:00:00.000Z' WHERE id=?").bind(id).run();
+      await worker.scheduled({cron:'*/5 * * * *'},env,{waitUntil(){throw new Error('Recovery must be awaited');}});
+      await deliver();
+    }
+    const usage=await db.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=?').bind(state.usage_attempt_id).first();
+    check(usage.billing_status===(uncertain?'reserved':'released'),'Only durable rejection releases reservation');
+    check((await row()).status===(uncertain?'outcome_unknown':'failed'),'Correct terminal versus review status');
+    if(!uncertain) { const late=await fetch(new URL(callbackUrl).pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task:{id:'late-task',model:'MiniMax-H3',status:'succeeded',content:{url:'https://fixture.invalid/member.mp4'}}})});
+    check(!late.ok,'Rejected job cannot be resurrected by authenticated late success'); }
+    env.PUBLIC_RATE_LIMITER=browserLimiter;
+    const replay=await fetch('/api/ai/generate-video',{method:'POST',headers,body});
+    check(replay.status===202 && (await replay.json()).data.job.id===id,'Same accepted identity retained on browser replay');
+    await deliver();
+    check(calls.provider===1,'Rejection/reconciliation replay never repeats paid inference');
+    const debits=await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
+    check(debits.n===0,'No debit for rejected or uncertain request');
+    const {restoreCanvasVideoJobs}=await import('../../workers/auth/src/lib/canvas-video-jobs.js');
+    const restored=await restoreCanvasVideoJobs(env,owner,[{id:name,status:'failed',operation_type:'canvas.video.generate',error_code:'canvas_video_pending'}]);
+    check(restored[0].error_code===(uncertain?'canvas_video_review_required':'canvas_video_rejected'),'Canvas reload distinguishes verified credit release from unresolved outcome');
+    const other=await fetch(`/api/ai/generation-jobs/${id}`,{headers:{Cookie:`bitbi_session=${owner}-other`}});check(other.status===404,'Rejection status remains private');
+    return {name,calls,status:(await row()).status,billing:usage.billing_status};
+  }
   if(name.startsWith('h3-callback')) {
     check((await row()).status==='outcome_unknown','Queued H3 is unresolved, not complete');
     const attempts=(await row()).attempt_count;fixture.advance(5*60_000);
@@ -409,7 +464,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
 export default {async fetch(request,env) {
   if(request.method!=='POST'||request.headers.get('x-q2-control')!==env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
   const {name,...fixture}=await request.json();
-  if(!/^admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})$/.test(name) && !['h3-references','h3-callback-failed','h3-callback','h3-failed','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
+  if(!/^admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})$/.test(name) && !['h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-references','h3-callback-failed','h3-callback','h3-failed','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
   return Response.json(await memberGenerationCase(env,name,fixture));
 }};
 

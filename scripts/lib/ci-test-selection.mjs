@@ -107,6 +107,7 @@ const CANVAS_TEXT_FILES = new Set([
   'workers/auth/src/lib/ai-usage-policy.js',
   'workers/auth/src/lib/h3-reference-metadata.js',
   'workers/auth/src/lib/minimax-h3-callback.js',
+  'workers/auth/src/lib/h3-provider-result.js', 'workers/auth/src/lib/canvas-video-jobs.js',
   'workers/ai/src/routes/video-task.js',
   'workers/auth/src/lib/grok-video-output.js',
   'workers/auth/wrangler.jsonc',
@@ -538,7 +539,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     return selection;
   }
 
-  if (!forceFull && (changedFiles.some(f=>['js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js','js/shared/canvas-video-input.mjs','workers/auth/src/lib/private-video-references.js'].includes(f))
+  if (!forceFull && (changedFiles.some(f=>['js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js','js/shared/canvas-video-input.mjs','workers/auth/src/lib/private-video-references.js','workers/auth/src/lib/h3-provider-result.js'].includes(f))
       || ['js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','js/pages/canvas/main.js'].every(f=>changedFiles.includes(f))
       || ['js/pages/generate-lab/main.js','workers/auth/src/routes/ai/quota.js','workers/auth/src/lib/member-generation-jobs.js'].every(f=>changedFiles.includes(f)))
       && changedFiles.every(f=>isDocumentation(f)||CANVAS_TEXT_FILES.has(f)||RELEASE_TOOLING_FILES.has(f))) {

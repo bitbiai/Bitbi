@@ -1,5 +1,6 @@
 import { prepareVideoReferences } from '../../lib/private-video-references.js';
 import { H3_MODEL, normalizeH3Request, buildH3ProviderInput, parseH3Task, calculateH3CreditPricing } from '../../../../../js/shared/minimax-h3.mjs';
+import { recordVideoLateError } from '../../lib/h3-provider-result.js';
 import { validateAdminAiVideoBody } from '../../../../../js/shared/admin-ai-contract.mjs';
 import { GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID } from '../../../../../js/shared/grok-imagine-video-15-preview-pricing.mjs';
 import { isGrokVideo, snapshotGrokVideoSources, resolveAdminAiGrokPreviewMediaSourcesForProvider } from '../../lib/admin-ai-video-sources.js';
@@ -896,7 +897,7 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
         const task=parseH3Task(value);
         return usagePolicy?.recordLateOutcome?.(task.pending?"unknown":task.failed?"failed":"succeeded",task.pending?"h3_provider_pending":null);
       },
-      onLateError: (error) => usagePolicy?.recordLateOutcome?.("failed", error?.code),
+      onLateError: (error) => recordVideoLateError(usagePolicy, error),
     });
     logDiagnostic({
       service: "bitbi-auth",
@@ -931,7 +932,8 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
     return {
       ok: false,
       status: 502,
-      code: ["generation_provider_outcome_unknown", "generation_provider_call_outcome_unknown", "generation_provider_identity_mismatch", "generation_receipt_encoding_failed", "generation_receipt_write_failed", "generation_receipt_conflict", "generation_claim_lost"].includes(error?.code) ? error.code : "upstream_error",
+      code: ["generation_provider_rejected", "generation_provider_outcome_unknown", "generation_provider_call_outcome_unknown", "generation_provider_identity_mismatch", "generation_receipt_encoding_failed", "generation_receipt_write_failed", "generation_receipt_conflict", "generation_claim_lost"].includes(error?.code) ? error.code : "upstream_error",
+      confirmedRejection: error?.confirmedRejection === true,
       error: "Video generation failed.",
     };
   }
@@ -1199,6 +1201,18 @@ export async function handleGenerateVideo(ctx) {
   }
   const providerResponse = await invokeMemberVideoModel(env, input.modelId, providerPayload, { correlationId, userId, signal: request.signal, usagePolicy });
   if (!providerResponse.ok) {
+    if (providerResponse.confirmedRejection) {
+      // A stored rejection can be replayed to finish settlement; a failed D1
+      // update must never be presented as released credit or trigger inference.
+      try {
+        await usagePolicy.markProviderFailed({ code: 'generation_provider_rejected', message:'Provider rejected the request before inference.', confirmedOutcome:true });
+        const usage = await env.DB.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=? AND user_id=?').bind(usagePolicy.attempt.id,userId).first();
+        if (usage?.provider_outcome !== 'failed' || usage.billing_status !== 'released') throw new Error('settlement pending');
+      } catch {
+        return respond({ok:false,code:'generation_rejection_settlement_pending',error:'Provider rejection recorded; credit reconciliation is pending.'},{status:503});
+      }
+      return respond({ok:false,code:'generation_provider_rejected',error:'Provider rejected the request. Reserved credits were released.'},{status:422});
+    }
     await markVideoProviderFailed(usagePolicy, {
       code: providerResponse.code || "upstream_error",
       message: "Video provider call failed.",

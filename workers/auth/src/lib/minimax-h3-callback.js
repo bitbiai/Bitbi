@@ -33,7 +33,7 @@ export async function prepareH3Callback(env,{kind,id,userId}) {
 }
 export function h3MemberReceipt(job) {
     const receipts=JSON.parse(job.provider_receipts_json||'{}');
-    return receipts['ai-0'] && receipts['h3-task']?.task ? {task:receipts['h3-task'].task} : null;
+    return !receipts['ai-0']?.rejection && receipts['ai-0'] && receipts['h3-task']?.task ? {task:receipts['h3-task'].task} : null;
 }
 export async function storedH3MemberTask(env,job) {
     if(job.media_type!=='video')return null;
@@ -69,6 +69,7 @@ export async function handleH3Callback({env,request},token) {
         if(!Array.isArray(fields)||fields.length!==5||version!=='v1')fail('h3_callback_identity',403);
         const job=await find(env,kind,id);
         if(job.user_id!==userId||job.created_at!==created)fail('h3_callback_identity',403);
+        if(kind==='member' && JSON.parse(job.provider_receipts_json||'{}')['ai-0']?.rejection)fail('h3_terminal_conflict');
         const body=JSON.parse(new TextDecoder().decode(await readBodyBytesLimited(request,{maxBytes:16_384})));
         // Official H3 callback verification, still protected by this job's HMAC.
         if(typeof body.challenge==='string'&&body.challenge.length<=1024) return Response.json({challenge:body.challenge},{headers});
