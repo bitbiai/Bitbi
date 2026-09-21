@@ -491,6 +491,7 @@ export function createSavedAssetsBrowser({
     let selectedIds = new Set();
     let selectionScope = null;
     let pickerMode = false;
+    let pickerOpening = 0;
     let pickerOptions = null;
     let pickerSelection = [];
     let currentAssets = [];
@@ -2682,7 +2683,9 @@ export function createSavedAssetsBrowser({
     }
 
     async function startPickerMode(options = {}) {
+        const opening = ++pickerOpening;
         await init();
+        if (opening !== pickerOpening) return;
         if (selectMode) exitSelectMode();
         hideNewFolderForm();
         hideDeleteFolderForm();
@@ -2693,12 +2696,15 @@ export function createSavedAssetsBrowser({
         pickerSelection = [];
         setPickerActionState();
         hideMsg();
-        await openAllAssets();
+        if (options.initialView === 'folders') showFolderView();
+        else await openAllAssets();
+        if (opening !== pickerOpening) return;
         refreshPickerCardDecorations();
         refreshPickerSelectionStatus();
     }
 
     function endPickerMode() {
+        pickerOpening += 1;
         if (!pickerMode) return;
         pickerMode = false;
         pickerOptions = null;

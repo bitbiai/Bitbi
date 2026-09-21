@@ -294,6 +294,7 @@ for(const locale of ['en','de']) test(`shared asset cards ${locale}: Generate La
   await video.focus();
   await page.keyboard.press('Escape');
   await page.locator('[data-media-type="video"]').click();
+  await page.locator('[data-model-id="pixverse/v6"]').click();
   await page.locator('#labVideoReferenceTrigger').click();
   await page.locator('[data-reference-source-action="assets"]').click();
   const image=page.locator('#labAssetsGrid [data-asset-id="card-image"]');

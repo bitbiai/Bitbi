@@ -260,7 +260,7 @@ export function verifyPublicMediaReport(report, discovery) {
 }
 
 export function verifyAssetReport(report, discovery) {
-  verifyAdminReport(report, discovery, [['cards',['assets-manager-focused.spec.js']],['jobs',['oma2-q1-member.spec.js']],['actions',['auth-admin.spec.js']]]);
+  verifyAdminReport(report, discovery, [['cards',['assets-manager-focused.spec.js']],['jobs',['oma2-q1-member.spec.js']],['actions',['auth-admin.spec.js']],['canvas',['canvas.spec.js','oma2-q1-canvas.spec.js']]]);
 }
 
 export async function api(endpoint) {

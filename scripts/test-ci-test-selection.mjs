@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import {
   FAST_DEPLOY_WORKFLOW_PATHS,
   isFastDeploySafePath,
@@ -769,4 +770,24 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  assert.equal(requiresPrivateMediaImage(files),false,'No changed media processor/container bytes');
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','unknown.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
  assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
+}
+
+// Canvas hosts the existing Assets picker; its complete frontend suites join
+// the existing shared-card caller, without generation or native-media jobs.
+const canvasPickerFiles=['canvas/index.html','de/canvas/index.html','js/pages/canvas/main.js',
+ 'js/pages/canvas/asset-picker.js','css/pages/canvas.css','css/components/assets-picker.css',
+ 'generate-lab/index.html','de/generate-lab/index.html','css/pages/generate-lab.css',
+ 'js/shared/saved-assets-browser.js','tests/canvas.spec.js','playwright.assets.config.js',
+ 'scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs'];
+const canvasPickerSelection=selection(canvasPickerFiles);
+assert.equal(canvasPickerSelection.policy,'member-assets-v1');
+assert.equal(canvasPickerSelection.assets,true);assert.equal(canvasPickerSelection.static,true);
+for(const flag of ['workers','auth','homepage','homepageMedia','carousel','full'])assert.equal(canvasPickerSelection[flag],false,flag);
+for(const extra of ['js/pages/canvas/api.js','js/pages/canvas/workflow.js','js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','unknown-picker.js'])assert.notEqual(selection([...canvasPickerFiles,extra]).policy,'member-assets-v1',extra);
+const assetConfig=createRequire(import.meta.url)(path.join(repoRoot,'playwright.assets.config.js'));
+for(const browserName of ['chromium','webkit']) {
+ const project=assetConfig.projects.find(project=>project.name===`${browserName}-canvas`);
+ assert.equal(project.use.browserName,browserName);
+ assert.deepEqual(project.testMatch,['**/canvas.spec.js','**/oma2-q1-canvas.spec.js']);
+ assert.equal(project.grep,undefined,'the existing Canvas contract is not hidden behind a picker-only filter');
 }

@@ -348,16 +348,17 @@ try {
    const cwd=path.join(sequenceDir,oldLayout?'old':'fixed');fs.mkdirSync(cwd);
    const git=(...args)=>{const r=spawnSync('git',args,{cwd,encoding:'utf8'});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};
    git('init','-q');git('config','user.name','Synthetic');git('config','user.email','synthetic@example.invalid');
-   fs.writeFileSync(path.join(cwd,'README.md'),'base');git('add','.');git('commit','-qm','base');
-   const base=git('rev-parse','HEAD');
+   fs.writeFileSync(path.join(cwd,'README.md'),'base');
    fs.mkdirSync(path.join(cwd,'tests'));
-   for(const file of ['assets-manager-focused.spec.js','auth-admin.spec.js','oma2-q1-member.spec.js'])fs.writeFileSync(path.join(cwd,'tests',file),`
+   for(const file of ['assets-manager-focused.spec.js','auth-admin.spec.js','oma2-q1-member.spec.js','canvas.spec.js','oma2-q1-canvas.spec.js'])fs.writeFileSync(path.join(cwd,'tests',file),`
      const {test,expect}=require(${JSON.stringify(path.join(root,'node_modules/@playwright/test'))});
      test('${file==='auth-admin.spec.js'?'account Assets Manager lets the owner publish':file==='oma2-q1-member.spec.js'?'durable generation selected':'selected cards'}',async({},info)=>{
        expect(require('node:fs').existsSync(require('node:path').join(info.project.outputDir,'stale.txt'))).toBe(false);
        require('node:fs').writeFileSync(info.outputPath('artifact.txt'),'current invocation');
      });
    `);
+   git('add','README.md','tests/canvas.spec.js','tests/oma2-q1-canvas.spec.js');git('commit','-qm','base');
+   const base=git('rev-parse','HEAD');
    git('add','.');git('commit','-qm','selected candidate');const head=git('rev-parse','HEAD');
    fs.writeFileSync(path.join(cwd,'package.json'),JSON.stringify({scripts:Object.fromEntries(['test:static','test:assets-manager','test:auth'].map(name=>[name,scripts[name].replace(/^playwright /,`node ${JSON.stringify(path.join(root,'node_modules/@playwright/test/cli.js'))} `)]))}));
    fs.writeFileSync(path.join(cwd,'playwright.config.js'),`
@@ -379,7 +380,7 @@ try {
    execute(stepRun('Confirm tested browser candidate bytes'),false);
    execute(stepRun('Run selected Assets Manager tests'));
    const first=fs.readFileSync(reports[0]);
-   const report=JSON.parse(first);assert.equal(report.stats.expected,6);
+   const report=JSON.parse(first);assert.equal(report.stats.expected,10);
    const output=report.config.projects[0].outputDir;
    assert.equal(output,path.join(cwd,oldLayout?'test-results':'test-results/asset-artifacts'));
    const nextOutput=path.join(cwd,oldLayout?'test-results':'test-results/browser-artifacts');
@@ -392,7 +393,7 @@ try {
    if(!oldLayout) {
      assert.deepEqual(fs.readFileSync(reports[0]),first);
      const proofFile=path.join(cwd,'candidate-proofs/proof-browser-validation.json');
-     const proof=JSON.parse(fs.readFileSync(proofFile));assert.equal(proof.tests,8);
+     const proof=JSON.parse(fs.readFileSync(proofFile));assert.equal(proof.tests,12);
      const auth=fs.readFileSync(reports[1]);
      for(const fault of ['missing','failed','empty']) {
        if(fault==='missing')fs.unlinkSync(reports[1]);
@@ -412,9 +413,13 @@ for(const c of [context,normal]) {
 }
 
 const assetReport={suites:[{specs:[]}]};
-for(const engine of ['chromium','webkit'])for(const [scope,file] of [['cards','assets-manager-focused.spec.js'],['jobs','oma2-q1-member.spec.js'],['actions','auth-admin.spec.js']])
+for(const engine of ['chromium','webkit'])for(const [scope,file] of [['cards','assets-manager-focused.spec.js'],['jobs','oma2-q1-member.spec.js'],['actions','auth-admin.spec.js'],['canvas','canvas.spec.js'],['canvas','oma2-q1-canvas.spec.js']])
  assetReport.suites[0].specs.push({id:engine+file,file,tests:[{projectName:`${engine}-${scope}`,results:[{status:'passed'}]}]});
 verifyAssetReport(assetReport,assetReport);
+for (const file of ['canvas.spec.js','oma2-q1-canvas.spec.js']) {
+ const missing=structuredClone(assetReport);missing.suites[0].specs=missing.suites[0].specs.filter(spec=>spec.file!==file);
+ assert.throws(()=>verifyAssetReport(missing,missing),/Missing required Admin discovery/);
+}
 for(const fault of ['missing','failed','skipped','empty','foreign']) {
  const bad=structuredClone(assetReport);
  if(fault==='missing')bad.suites[0].specs.pop();

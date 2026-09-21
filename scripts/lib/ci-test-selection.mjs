@@ -336,6 +336,7 @@ const ADMIN_READER_VALIDATION = new Set([
 // Member storage/card domain: real route security + durable queue tests and the
 // shared card/picker browser path. Unknown inputs still use ordinary impact.
 const MEMBER_ASSET_PRODUCTION = new Set([
+  'js/pages/canvas/asset-picker.js', 'css/components/assets-picker.css',
   'account/assets-manager.html', 'de/account/assets-manager.html',
   'css/account/assets-manager.css', 'js/shared/saved-assets-browser.js',
   'workers/auth/src/lib/asset-names.js', 'workers/auth/src/lib/ai-text-assets.js',
@@ -344,6 +345,12 @@ const MEMBER_ASSET_PRODUCTION = new Set([
   'workers/auth/src/routes/ai/video-generate.js', 'workers/auth/src/routes/ai/music-generate.js',
 ]);
 const MEMBER_ASSET_VALIDATION = new Set([
+  // Shared picker presentation/call sites: both Canvas suites execute in the
+  // existing assets browser job. API, graph/workflow and model contracts are
+  // deliberately excluded from this closed frontend set.
+  'canvas/index.html', 'de/canvas/index.html', 'css/pages/canvas.css', 'js/pages/canvas/main.js',
+  'generate-lab/index.html', 'de/generate-lab/index.html', 'css/pages/generate-lab.css',
+  'tests/canvas.spec.js', 'tests/oma2-q1-canvas.spec.js',
   'js/shared/mobile-media-grid-overlay.js', // existing detail export consumed by shared audio cards
 
   'playwright.assets.config.js', 'tests/assets-manager-focused.spec.js',

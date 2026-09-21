@@ -1,5 +1,9 @@
 /* Canvas owns the remaining viewport; the site header keeps its natural height. */
 @layer pages {
+    .canvas-assets-picker { --lab-accent-rgb: 0, 240, 255; --lab-accent-ink: #c6f7fa; --lab-surface: #161e27; --lab-inset: #111820; --lab-line: #303e4b; --lab-muted: #a6b5c4; }
+    .canvas-assets-picker .generate-lab-assets-overlay__shell { max-block-size: 100%; }
+    .canvas-assets-picker :is(button,select,[role="button"]):focus-visible { outline: 2px solid #c6f7fa; outline-offset: 3px; }
+    .canvas-asset-name { overflow-wrap: anywhere; margin: 0; color: var(--canvas-ink, #e4edf6); }
   .canvas-page {
     --canvas-surface: #161e27;
     --canvas-inset: #10161e;

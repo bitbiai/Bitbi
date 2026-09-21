@@ -15,7 +15,9 @@
     <link rel="icon" href="/assets/favicons/favicon.ico" sizes="48x48"><link rel="icon" href="/assets/favicons/favicon-32x32.png" sizes="32x32" type="image/png"><link rel="apple-touch-icon" href="/assets/favicons/apple-touch-icon.png" sizes="180x180"><link rel="manifest" href="/assets/favicons/site.webmanifest">
     <link rel="preload" href="../../fonts/inter-v20-latin_latin-ext-regular.woff2" as="font" type="font/woff2" crossorigin>
     <style>@layer tokens, reset, base, components, pages, utilities;</style>
-    <link rel="stylesheet" href="../../css/base/tokens.css?v=__ASSET_VERSION__"><link rel="stylesheet" href="../../css/base/reset.css?v=__ASSET_VERSION__"><link rel="stylesheet" href="../../css/base/base.css?v=__ASSET_VERSION__"><link rel="stylesheet" href="../../css/components/components.css?v=__ASSET_VERSION__"><link rel="stylesheet" href="../../css/components/auth.css?v=__ASSET_VERSION__"><link rel="stylesheet" href="../../css/pages/canvas.css?v=__ASSET_VERSION__"><link rel="stylesheet" href="../../css/base/utilities.css?v=__ASSET_VERSION__">
+    <link rel="stylesheet" href="../../css/base/tokens.css?v=__ASSET_VERSION__"><link rel="stylesheet" href="../../css/base/reset.css?v=__ASSET_VERSION__"><link rel="stylesheet" href="../../css/base/base.css?v=__ASSET_VERSION__"><link rel="stylesheet" href="../../css/components/components.css?v=__ASSET_VERSION__"><link rel="stylesheet" href="../../css/components/auth.css?v=__ASSET_VERSION__"><link rel="stylesheet" href="../../css/account/assets-manager.css?v=__ASSET_VERSION__">
+<link rel="stylesheet" href="../../css/components/assets-picker.css?v=__ASSET_VERSION__">
+<link rel="stylesheet" href="../../css/pages/canvas.css?v=__ASSET_VERSION__"><link rel="stylesheet" href="../../css/base/utilities.css?v=__ASSET_VERSION__">
 </head>
 <body class="canvas-page">
 <a href="#main-content" class="skip-link">Zu Canvas springen</a>
@@ -67,6 +69,36 @@
         </div>
     </section>
 </main>
+<section id="canvasAssetsOverlay" class="generate-lab-assets-overlay generate-lab-assets-overlay--picker canvas-assets-picker" role="dialog" aria-modal="true" aria-labelledby="canvasAssetsTitle" aria-hidden="true" hidden>
+    <div class="generate-lab-assets-overlay__backdrop" data-canvas-assets-close aria-hidden="true"></div>
+    <div class="generate-lab-assets-overlay__shell" tabindex="-1">
+        <div class="generate-lab-assets-overlay__head">
+            <h2 id="canvasAssetsTitle" class="generate-lab-assets-overlay__title">Assets Manager</h2>
+            <div class="generate-lab-assets-overlay__actions">
+                <div id="canvasAssetsPickerActions" class="generate-lab-assets-overlay__picker-actions" hidden>
+                    <span id="canvasAssetsPickerCount" class="generate-lab-assets-overlay__picker-count" aria-live="polite"></span>
+                    <button id="canvasAssetsPickerApply" type="button" class="generate-lab-assets-overlay__picker-apply" disabled>Übernehmen</button>
+                    <button id="canvasAssetsPickerCancel" type="button" class="generate-lab-assets-overlay__picker-cancel">Abbrechen</button>
+                </div>
+                <button id="canvasAssetsClose" type="button" class="generate-lab-assets-overlay__close" aria-label="Assets Manager schließen">Schließen</button>
+            </div>
+        </div>
+        <div class="generate-lab-assets-overlay__body">
+            <div id="canvasAssetsRoot" class="assets-manager">
+                <div class="studio__card assets-manager__dashboard">
+                    <div class="studio__gallery-header assets-manager__toolbar">
+                        <h3 class="studio__card-title">Ordner &amp; Assets</h3>
+                        <div class="studio__folder-bar"><select id="canvasAssetsFilter" class="studio__folder-filter" aria-label="Alle Ordner"><option value="">Alle Ordner</option></select></div>
+                    </div>
+                    <div id="canvasAssetsMessage" class="studio__msg" role="status" aria-live="polite"></div>
+                    <div id="canvasAssetsFolderGrid" class="studio__folder-grid"></div>
+                    <div id="canvasAssetsFolderBack" class="studio__folder-back"><button id="canvasAssetsFolderBackBtn" type="button" class="studio__folder-back-btn">← Alle Ordner</button></div>
+                    <div id="canvasAssetsGrid" class="studio__image-grid" style="display:none"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
 <div id="canvasToast" class="canvas-toast" role="status" aria-live="polite" hidden></div>
 <script type="module" src="../../js/pages/canvas/main.js?v=__ASSET_VERSION__"></script>
 </body>

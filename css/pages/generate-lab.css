@@ -1307,9 +1307,6 @@
         text-align: center;
     }
 
-    .generate-lab-assets-open {
-        overflow: hidden;
-    }
 
     .generate-lab-reference-source-open {
         overflow: hidden;
@@ -1403,218 +1400,6 @@
         outline: 2px solid rgba(var(--lab-accent-rgb), 0.22);
         outline-offset: 2px;
         border-color: rgba(var(--lab-accent-rgb), 0.4);
-    }
-
-    .generate-lab-assets-overlay[hidden] {
-        display: none;
-    }
-
-    .generate-lab-assets-overlay {
-        position: fixed;
-        inset: 0;
-        z-index: 90;
-        display: grid;
-        place-items: center;
-        padding: calc(4.6rem + env(safe-area-inset-top, 0px)) clamp(1rem, 2vw, 2rem) calc(1rem + env(safe-area-inset-bottom, 0px));
-    }
-
-    .generate-lab-assets-overlay__backdrop {
-        position: absolute;
-        inset: 0;
-        background:
-            radial-gradient(circle at 18% 12%, rgba(var(--lab-accent-rgb), 0.16), transparent 28rem),
-            rgba(2, 5, 10, 0.82);
-        backdrop-filter: blur(18px);
-        -webkit-backdrop-filter: blur(18px);
-    }
-
-    .generate-lab-assets-overlay__shell {
-        position: relative;
-        z-index: 1;
-        inline-size: min(100%, 1420px);
-        block-size: min(86vh, 920px);
-        display: grid;
-        grid-template-rows: auto minmax(0, 1fr);
-        border: 1px solid rgba(var(--lab-accent-rgb), 0.18);
-        border-radius: 1.45rem;
-        background:
-            linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025)),
-            rgba(6, 12, 22, 0.94);
-        box-shadow: inset 0 1px rgba(255, 255, 255, 0.08), 0 40px 120px rgba(0, 0, 0, 0.5);
-        overflow: hidden;
-    }
-
-    .generate-lab-assets-overlay__head {
-        display: flex;
-        align-items: start;
-        justify-content: space-between;
-        gap: 1rem;
-        padding: clamp(1rem, 1.6vw, 1.35rem);
-        border-block-end: 1px solid rgba(255, 255, 255, 0.1);
-        background:
-            radial-gradient(circle at 100% 0%, rgba(var(--lab-accent-rgb), 0.13), transparent 18rem),
-            rgba(255, 255, 255, 0.035);
-    }
-
-    .generate-lab-assets-overlay__title {
-        margin: 0.15rem 0 0;
-        font-family: var(--font-display);
-        font-size: clamp(1.45rem, 2vw, 2rem);
-        color: rgba(255, 255, 255, 0.94);
-        line-height: 1;
-    }
-
-    .generate-lab-assets-overlay__copy {
-        max-inline-size: 42rem;
-        margin: 0.45rem 0 0;
-        color: rgba(255, 255, 255, 0.62);
-        line-height: 1.45;
-        font-size: 0.9rem;
-    }
-
-    .generate-lab-assets-overlay__actions {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        flex: 0 0 auto;
-        flex-wrap: wrap;
-        gap: var(--space-2);
-    }
-
-    .generate-lab-assets-overlay__picker-actions {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-    }
-
-    .generate-lab-assets-overlay__picker-actions[hidden] {
-        display: none;
-    }
-
-    .generate-lab-assets-overlay__picker-count {
-        padding: 0.48rem 0.7rem;
-        border: 1px solid rgba(34, 197, 94, 0.26);
-        border-radius: 999px;
-        background: rgba(34, 197, 94, 0.1);
-        color: rgba(220, 252, 231, 0.94);
-        font-family: var(--font-mono);
-        font-size: 0.72rem;
-        font-weight: 900;
-    }
-
-    .generate-lab-assets-overlay__picker-apply,
-    .generate-lab-assets-overlay__picker-cancel {
-        min-block-size: 2.45rem;
-        border-radius: 999px;
-        padding-inline: 0.85rem;
-        border: 1px solid rgba(var(--lab-accent-rgb), 0.22);
-        background: rgba(var(--lab-accent-rgb), 0.08);
-        color: var(--lab-accent-ink);
-        font-family: var(--font-mono);
-        font-size: 0.7rem;
-        font-weight: 900;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        cursor: pointer;
-    }
-
-    .generate-lab-assets-overlay__picker-apply {
-        border-color: rgba(34, 197, 94, 0.34);
-        background: rgba(34, 197, 94, 0.14);
-        color: rgba(220, 252, 231, 0.96);
-    }
-
-    .generate-lab-assets-overlay__picker-apply:disabled {
-        cursor: not-allowed;
-        opacity: 0.48;
-    }
-
-    .generate-lab-assets-overlay__close {
-        min-block-size: 2.7rem;
-        flex: 0 0 auto;
-        border: 1px solid rgba(var(--lab-accent-rgb), 0.24);
-        border-radius: 999px;
-        padding-inline: 1rem;
-        background: rgba(var(--lab-accent-rgb), 0.09);
-        color: var(--lab-accent-ink);
-        font-family: var(--font-mono);
-        font-size: 0.74rem;
-        font-weight: 900;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        cursor: pointer;
-    }
-
-    .generate-lab-assets-overlay__close:hover,
-    .generate-lab-assets-overlay__close:focus-visible {
-        border-color: rgba(var(--lab-accent-rgb), 0.42);
-        background: rgba(var(--lab-accent-rgb), 0.15);
-        outline: 2px solid rgba(var(--lab-accent-rgb), 0.18);
-        outline-offset: 2px;
-    }
-
-    .generate-lab-assets-overlay__body {
-        min-block-size: 0;
-        overflow: auto;
-        padding: clamp(0.9rem, 1.5vw, 1.25rem);
-    }
-
-    .generate-lab-assets-overlay .assets-manager__dashboard {
-        min-block-size: 100%;
-        margin: 0;
-        border-color: rgba(255, 255, 255, 0.1);
-        background:
-            radial-gradient(circle at 100% 0%, rgba(var(--lab-accent-rgb), 0.1), transparent 18rem),
-            rgba(255, 255, 255, 0.04);
-    }
-
-    .generate-lab-assets-overlay--picker .studio__image-item {
-        position: relative;
-    }
-
-    .generate-lab-assets-overlay--picker .assets-manager--picker .studio__image-overlay,
-    .generate-lab-assets-overlay--picker .assets-manager--picker .studio__asset-actions,
-    .generate-lab-assets-overlay--picker .assets-manager--picker .studio__asset-audio {
-        display: none;
-    }
-
-    .generate-lab-assets-overlay--picker .assets-manager--picker .studio__image-item--reference-pickable {
-        cursor: pointer;
-        border-color: rgba(255, 255, 255, 0.14);
-    }
-
-    .generate-lab-assets-overlay--picker .assets-manager--picker .studio__image-item--reference-selected {
-        border-color: rgba(34, 197, 94, 0.62);
-        box-shadow:
-            inset 0 0 0 1px rgba(34, 197, 94, 0.24),
-            0 0 0 1px rgba(34, 197, 94, 0.18);
-    }
-
-    .generate-lab-assets-overlay--picker .assets-manager--picker .studio__image-item--reference-incompatible {
-        opacity: 0.42;
-        cursor: not-allowed;
-        filter: grayscale(0.85);
-    }
-
-    .generate-lab-assets-overlay--picker .assets-manager--picker .studio__reference-order-badge {
-        position: absolute;
-        inset-block-start: 0.55rem;
-        inset-inline-end: 0.55rem;
-        z-index: 4;
-        inline-size: 1.75rem;
-        block-size: 1.75rem;
-        display: grid;
-        place-items: center;
-        border: 2px solid rgba(220, 252, 231, 0.92);
-        border-radius: 999px;
-        background: rgb(34, 197, 94);
-        color: rgb(5, 46, 22);
-        font-family: var(--font-mono);
-        font-size: 0.78rem;
-        font-weight: 900;
-        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
     }
 
     @media (max-width: 899px) {
@@ -1823,22 +1608,7 @@
             display: grid;
         }
 
-        .generate-lab-assets-overlay {
-            padding-inline: 0.75rem;
-        }
 
-        .generate-lab-assets-overlay__shell {
-            block-size: min(88vh, 920px);
-            border-radius: 1rem;
-        }
-
-        .generate-lab-assets-overlay__head {
-            display: grid;
-        }
-
-        .generate-lab-assets-overlay__actions {
-            justify-content: start;
-        }
     }
 
     @media (max-width: 480px) {
@@ -1878,7 +1648,7 @@
     .generate-lab__section-title { margin: 0 0 14px; color: #d7e1ea; font: 600 14px/1.5 var(--font-body); letter-spacing: -.01em; }
     .generate-lab__panel--left > .generate-lab__field > .generate-lab__label { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); }
     .generate-lab__panel--settings { margin-block-start: 24px; }
-    .generate-lab__model-list[hidden], .generate-lab__message:empty, .generate-lab-assets-overlay__copy:empty { display: none; }
+    .generate-lab__model-list[hidden], .generate-lab__message:empty { display: none; }
     .generate-lab__settings-stack { grid-template-columns: minmax(0,1fr); gap: 18px; }
     .generate-lab__field-grid { gap: 12px; }
     .generate-lab__model-card-top strong { font: 500 13px/1.5 var(--font-body); overflow-wrap: anywhere; }
@@ -1921,15 +1691,6 @@
     .generate-lab__account-status { background: transparent; color: var(--lab-muted); }
     .generate-lab__credit-status { background: var(--lab-inset); border: 1px solid var(--lab-line); color: #e6cf91; }
     .generate-lab__assets-link { background: var(--lab-surface); border-color: var(--lab-line); color: #d2deea; }
-    .generate-lab-assets-overlay__shell { background: var(--lab-surface); border: 1px solid #455565; border-radius: 14px; box-shadow: 0 24px 90px #0008; }
-    .generate-lab-assets-overlay__head { background: var(--lab-inset); border-block-end: 1px solid var(--lab-line); }
-    .generate-lab-assets-overlay__title { font: 500 23px/1.4 var(--font-body); letter-spacing: -.03em; }
-    .generate-lab-assets-overlay__copy { color: var(--lab-muted); font-size: 12px; }
-    .generate-lab-assets-overlay .assets-manager__dashboard { background: transparent; border: 0; padding: 0; }
-    .generate-lab-assets-overlay :is(.studio__folder-filter,.studio__new-folder-input,.studio__bulk-move-select,.studio__delete-folder-select) { border-color: #455565; background: var(--lab-inset); border-radius: 8px; font-family: var(--font-body); }
-    .generate-lab-assets-overlay :is(.studio__folder-action,.studio__bulk-btn,.studio__new-folder-save,.studio__new-folder-cancel,.generate-lab-assets-overlay__close,.generate-lab-assets-overlay__picker-apply,.generate-lab-assets-overlay__picker-cancel) { border-radius: 8px; min-block-size: 40px; font: 500 12px/1.5 var(--font-body); letter-spacing: 0; text-transform: none; }
-    .generate-lab-assets-overlay .studio__folder-card { background: var(--lab-inset); border-color: var(--lab-line); border-radius: 10px; }
-    .generate-lab-assets-overlay .studio__card-title { font: 500 15px/1.5 var(--font-body); }
     body.generate-lab-page :is(button,a,input,select,textarea,summary):focus-visible { outline: 2px solid var(--lab-accent-ink); outline-offset: 3px; }
     .generate-lab__toggle input:focus-visible + .generate-lab__toggle-ui { outline: 2px solid var(--lab-accent-ink); outline-offset: 3px; }
     body.generate-lab-page .site-footer { background: transparent; }

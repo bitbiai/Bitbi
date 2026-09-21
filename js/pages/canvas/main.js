@@ -8,6 +8,7 @@ import { estimateCanvasTextCredits, CANVAS_TEXT_PURPOSES, CANVAS_TEXT_DEFAULT_PU
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initAuthEntryActions } from '../../shared/auth-entry-actions.js?v=__ASSET_VERSION__';
 import { canvasApi } from './api.js?v=__ASSET_VERSION__';
+import { createCanvasAssetPicker } from './asset-picker.js?v=__ASSET_VERSION__';
 import { createCanvasState, createCanvasSaveQueue } from './state.js?v=__ASSET_VERSION__';
 import { createCanvasGraph } from './graph.js?v=__ASSET_VERSION__';
 import { analyzeWorkflow, validationForNode, upstreamDisplayNode } from './workflow.js?v=__ASSET_VERSION__';
@@ -69,7 +70,8 @@ const dom = Object.freeze({
 });
 
 const store = createCanvasState();
-let assetsCache = null;
+const assetPicker = createCanvasAssetPicker({ german: isGerman, onApply: assignAsset });
+let legacyAssetLabels;
 let runningNodeId = null;
 let projectTransition = false;
 let toastTimer = 0;
@@ -384,6 +386,11 @@ function renderOutput(node) {
         renderCanvasFullVideo({ section, output, projectId: store.state.project.id, german: isGerman, signal: inspectorAbort.signal, video });
     } else if (output.kind === 'audio' && output.asset?.file_url) {
         const audio = el('audio'); audio.src = output.asset.file_url; audio.controls = true; audio.preload = 'metadata'; section.append(audio);
+    } else if (output.kind === 'file' && output.asset?.file_url) {
+        const label = node.config?.assetReferenceLabel;
+        if (label?.id === output.asset.id && label.preview) section.append(el('pre', '', label.preview));
+        const link = el('a', 'canvas-button', isGerman ? 'Datei öffnen' : 'Open file');
+        link.href = output.asset.file_url; link.target = '_blank'; link.rel = 'noopener'; section.append(link);
     } else section.append(el('p', 'canvas-muted', copy.outputEmpty));
     if (output.storage === 'canvas' && output.runId) {
         const projectId=store.state.project.id, signal=inspectorAbort.signal;
@@ -393,7 +400,7 @@ function renderOutput(node) {
             const result=await canvasApi.saveOutput(projectId,output.runId);
             if(signal.aborted)return;
             if (!result.ok) {showToast(result.error);save.disabled=false;return;}
-            output.storage='assets';assetsCache=null;save.textContent=isGerman?'In Assets gespeichert':'Saved to Assets';
+            output.storage='assets';save.textContent=isGerman?'In Assets gespeichert':'Saved to Assets';
         }); section.append(save);
     }
     return section;
@@ -409,29 +416,10 @@ function displayNodeOutput(node, visited = new Set()) {
             ? 'image'
             : (asset.asset_type === 'music' || asset.asset_type === 'audio' || mime.startsWith('audio/'))
                 ? 'audio'
-                : 'video';
+                : asset.asset_type === 'video' || mime.startsWith('video/') ? 'video' : 'file';
         return { ...resolved, output: { kind, asset } };
     }
     return resolved;
-}
-
-async function loadAssetOptions(node, select) {
-    select.disabled = true;
-    const loading = el('option', '', copy.loadingAssets); loading.value = ''; select.replaceChildren(loading);
-    try {
-        assetsCache ||= await canvasApi.listAssets();
-        select.replaceChildren();
-        const empty = el('option', '', assetsCache.assets.length ? copy.selectAsset : copy.noAssets); empty.value = ''; select.append(empty);
-        for (const asset of assetsCache.assets) {
-            const option = el('option', '', asset.title || asset.prompt || asset.file_name || asset.id);
-            option.value = asset.id;
-            if (asset.id === node.asset_id) option.selected = true;
-            select.append(option);
-        }
-        select.disabled = assetsCache.assets.length === 0;
-    } catch {
-        select.replaceChildren(el('option', '', copy.noAssets));
-    }
 }
 
 function renderInputContext(node, analysis) {
@@ -477,6 +465,7 @@ function renderInputContext(node, analysis) {
 
 let inspectorAbort = new AbortController();
 function renderInspector() {
+    assetPicker.invalidate();
     inspectorAbort.abort(); inspectorAbort = new AbortController();
     dom.inspector.replaceChildren();
     const node = selectedNode();
@@ -629,10 +618,28 @@ function renderInspector() {
     }
 
     if (node.type === 'asset_reference') {
-        const select = el('select', 'canvas-select');
-        select.addEventListener('change', () => { if (select.value) void assignAsset(node, select.value); });
-        dom.inspector.append(field(copy.selectAsset, select));
-        void loadAssetOptions(node, select);
+        const choose = el('button', 'canvas-button', copy.selectAsset);
+        choose.id = 'canvasAssetChoose'; choose.type = 'button'; choose.setAttribute('aria-haspopup', 'dialog');
+        choose.addEventListener('click', () => {
+            const project = store.state.project;
+            void assetPicker.open({ node, isCurrent: () => store.state.project === project && selectedNode() === node });
+        });
+        dom.inspector.append(choose);
+        if (node.asset_id) {
+            const label = node.config?.assetReferenceLabel;
+            const name = el('p', 'canvas-asset-name', label?.id === node.asset_id ? label.name : (node.content?.asset?.title || node.asset_id));
+            dom.inspector.append(name);
+            // Older references contain only the server identity. Reuse the
+            // previous catalog read for their names without rewriting nodes.
+            if (label?.id !== node.asset_id && !node.content?.asset?.title) {
+                legacyAssetLabels ||= canvasApi.listAssets();
+                const assetId = node.asset_id;
+                void legacyAssetLabels.then(({ assets }) => {
+                    const asset = assets.find(item => item.id === assetId);
+                    if (asset && name.isConnected && node.asset_id === assetId) name.textContent = asset.title || asset.file_name || asset.prompt || asset.id;
+                }).catch(() => { legacyAssetLabels = null; });
+            }
+        }
     }
     dom.inspector.append(renderOutput(displayNodeOutput(node)));
 }
@@ -811,11 +818,24 @@ async function deleteSelection() {
     });
 }
 
-async function assignAsset(node, assetId) {
+async function assignAsset(context, asset) {
+    const { node, isCurrent } = context;
+    if (!isCurrent()) return false;
     return withProjectTransition(async () => {
-        const result = await canvasApi.setAssetReference(node.project_id, node.id, assetId);
-        if (!result.ok) return showToast(errorMessage(result));
-        node.asset_id = result.data.asset.id; node.content = { asset: result.data.asset }; renderGraph(); renderInspector();
+        if (!isCurrent()) return false;
+        const result = await canvasApi.setAssetReference(node.project_id, node.id, asset.id);
+        if (!isCurrent() || !result.ok || result.data?.node_id !== node.id || result.data?.asset?.id !== asset.id) return false;
+        node.asset_id = result.data.asset.id; node.content = { asset: result.data.asset };
+        // Display-only snapshot uses existing node persistence; authorization,
+        // source URLs and downstream media identity come solely from the API.
+        scheduleNode(node, { config: { ...node.config, assetReferenceLabel: { id: asset.id,
+            name: String(asset.title || asset.file_name || asset.prompt || asset.id).slice(0, 1000),
+            preview: String(asset.preview_text || '').slice(0, 1000),
+        } } });
+        const saved = await flushSaves();
+        if (!isCurrent()) return false;
+        renderGraph(); renderInspector();
+        return saved;
     });
 }
 
@@ -956,6 +976,7 @@ function bindEvents() {
         if (event.target === dom.viewport || event.target.closest?.('.canvas-surface') === event.target) { store.state.selected = null; renderGraph(); renderInspector(); }
     });
     document.addEventListener('keydown', (event) => {
+        if (assetPicker.isOpen()) return;
         if (!['Delete', 'Backspace'].includes(event.key) || !store.state.selected) return;
         if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
         event.preventDefault(); void deleteSelection();

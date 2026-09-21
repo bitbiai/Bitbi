@@ -904,3 +904,193 @@ for(const locale of ['en','de']) test(`Canvas H3 ${locale}: connected input role
   code='h3_reference_total_duration';await run.click();await expect(page.locator('#canvasToast')).toContainText(locale==='de'?'zusammen je Medienart':'per media type');
   expect(calls).toBe(2);await expect(inspector.getByRole('combobox',{name:locale==='de'?'Video weiterverwenden':'Reuse video'})).toHaveValue('reference_video');
 });
+
+// The existing Canvas caller and shared Assets caller both execute these cases.
+async function prepareCanvasAssetPicker(page, { locale = 'en', foldersReady = null } = {}) {
+  const projectId = '1'.repeat(32), nodeId = '2'.repeat(32), otherId = '3'.repeat(32), folderId = 'f'.repeat(32);
+  const assets = [
+    { id: 'a'.repeat(32), asset_type: 'image', title: 'A saved mountain study', mime_type: 'image/png' },
+    { id: 'b'.repeat(32), asset_type: 'video', title: 'The original motion study', mime_type: 'video/mp4' },
+    { id: 'c'.repeat(32), asset_type: 'sound', title: 'A saved sound sketch', mime_type: 'audio/wav' },
+    { id: 'd'.repeat(32), asset_type: 'text', title: 'Saved creative notes', mime_type: 'text/plain', preview_text: 'A quiet mountain at sunrise.' },
+    { id: 'e'.repeat(32), asset_type: 'embedding', title: 'Saved structured data', mime_type: 'application/json', preview_text: '{"dimensions": 3}' },
+  ].map(asset => ({ ...asset, folder_id: folderId, visibility: 'private', poster_status: 'ready',
+    file_url: `/api/ai/${asset.asset_type === 'image' ? 'images' : 'text-assets'}/${asset.id}/file`,
+    thumb_url: `/api/ai/images/${asset.id}/thumb`, poster_url: `/api/ai/text-assets/${asset.id}/poster`,
+  }));
+  const requests = [], assignments = [];
+  await page.addInitScript(() => localStorage.setItem('bitbi_cookie_consent', JSON.stringify({v:'1',ts:Date.now(),necessary:true,analytics:false,marketing:false})));
+  await page.route('**/api/**', async route => {
+    const url = new URL(route.request().url());
+    requests.push({ path: url.pathname, search: url.search, method: route.request().method() });
+    if (/\/(thumb|medium|poster)$/.test(url.pathname)) return route.fulfill({status:200,contentType:'image/png',body:fs.readFileSync(path.join(__dirname,'fixtures/media/member-image.png'))});
+    if (url.pathname.endsWith('/file')) {
+      const asset = assets.find(item => url.pathname.includes(item.id));
+      if (asset?.asset_type === 'video') return route.fulfill({status:200,contentType:asset.mime_type,body:fs.readFileSync(path.join(__dirname,'fixtures/media/test-video-changing.mp4'))});
+      return route.fulfill({status:200,contentType:asset?.mime_type || 'text/plain',body:asset?.preview_text || ''});
+    }
+    if (url.pathname === '/api/ai/folders') {
+      if (foldersReady) await foldersReady;
+      return route.fulfill({json:{ok:true,data:{folders:[{id:folderId,name:'Studio references'}],counts:{[folderId]:assets.length},unfolderedCount:0}}});
+    }
+    if (url.pathname === '/api/ai/assets') return route.fulfill({json:{ok:true,data:{assets,has_more:false,next_cursor:null,applied_limit:60}}});
+    if (url.pathname === '/api/ai/generation-jobs') return route.fulfill({json:{ok:true,data:{jobs:[]}}});
+    return route.fulfill({json:{ok:true,data:{}}});
+  });
+  await mockSharedAuth(page);
+  const state = createCanvasApiMock(page);
+  state.projects = [{id:projectId,title:'Reference workspace',locale}];
+  state.nodes = [nodeId,otherId].map((id,i) => ({id,project_id:projectId,type:'asset_reference',title:i?'Other reference':'Reference',x:80+i*300,y:80,config:{},content:{},asset_id:null,output:null}));
+  state.assignmentStatus = 200;
+  await page.route('**/api/account/canvas/**/asset-reference', async route => {
+    const body = route.request().postDataJSON();
+    assignments.push({path:new URL(route.request().url()).pathname,body});
+    if (state.assignmentGate) await state.assignmentGate;
+    if (state.assignmentStatus !== 200) return route.fulfill({status:state.assignmentStatus,json:{ok:false,code:'asset_not_found',error:'Asset unavailable'}});
+    const asset = assets.find(item => item.id === body.asset_id);
+    const id = new URL(route.request().url()).pathname.split('/').at(-2);
+    const reference = {id:asset.id,asset_type:asset.asset_type === 'image'?'image':asset.asset_type === 'sound'?'audio':asset.asset_type === 'video'?'video':'file',mime_type:asset.mime_type,file_url:asset.file_url,preview_url:asset.asset_type==='image'?`/api/ai/images/${asset.id}/medium`:asset.poster_url};
+    const node = state.nodes.find(item => item.id === id);
+    node.asset_id=asset.id;node.content={asset:reference};
+    return route.fulfill({json:{ok:true,data:{node_id:id,asset:reference}}});
+  });
+  await page.goto(`${locale==='de'?'/de':''}/canvas/`);
+  await page.locator(`[data-node-id="${nodeId}"]`).press('Enter');
+  if (page.viewportSize().width < 760) await page.locator('#canvasInspectorToggle').click();
+  return {state,assets,requests,assignments,nodeId,otherId,folderId};
+}
+
+for (const locale of ['en','de']) test.describe(`Canvas asset picker ${locale}`, () => {
+  test.use({viewport:{width:locale==='de'?390:1440,height:900},hasTouch:locale==='de'});
+  test('folders first, explicit single selection, cancellation and persisted preview', async ({page}, testInfo) => {
+    const fixture = await prepareCanvasAssetPicker(page,{locale});
+    const {assets,state,requests,assignments,folderId,nodeId}=fixture;
+    const errors=[];page.on('pageerror',error=>errors.push(error.message));
+    const choose=page.locator('#canvasAssetChoose'), dialog=page.locator('#canvasAssetsOverlay');
+    await choose.click();
+    await expect(dialog).toBeVisible();
+    await expect(page.locator('#canvasAssetsFolderGrid .studio__folder-card')).toHaveCount(3);
+    await expect(page.locator('#canvasAssetsGrid')).toBeHidden();
+    expect(requests.filter(r=>r.path==='/api/ai/assets')).toHaveLength(0);
+    await expect(page.locator('main')).toHaveAttribute('inert','');
+    await page.screenshot({path:testInfo.outputPath(`canvas-assets-${locale}-folders.png`)});
+    await page.locator('#canvasAssetsFilter').selectOption(folderId);
+    const image=page.locator(`#canvasAssetsGrid [data-asset-id="${assets[0].id}"]`);
+    await expect(image.locator('img')).toBeVisible();
+    if(locale==='de') await image.tap(); else await image.press('Enter');
+    await expect(image).toHaveAttribute('data-reference-picker-order','1');
+    await expect(page.locator('#canvasAssetsPickerCount')).toHaveText(/1 \/ 1/);
+    expect(assignments).toHaveLength(0);
+    await page.keyboard.press('Delete');
+    expect(state.nodes).toHaveLength(2);
+    await page.locator('#canvasAssetsPickerCancel').click();
+    await expect(dialog).toBeHidden();await expect(choose).toBeFocused();
+    expect(state.nodes[0].asset_id).toBeNull();expect(assignments).toHaveLength(0);
+    await choose.click();
+    await expect(page.locator('#canvasAssetsFolderGrid')).toBeVisible();
+    await page.locator('#canvasAssetsFilter').selectOption(folderId);
+    await image.click();
+    await page.screenshot({path:testInfo.outputPath(`canvas-assets-${locale}-selection.png`)});
+    const bounds=await dialog.evaluate(el=>{const shell=el.querySelector('.generate-lab-assets-overlay__shell').getBoundingClientRect();return {x:shell.x,right:shell.right,bottom:shell.bottom,width:innerWidth,height:innerHeight,overflow:document.documentElement.scrollWidth-innerWidth};});
+    expect(bounds.x).toBeGreaterThanOrEqual(0);expect(bounds.right).toBeLessThanOrEqual(bounds.width);expect(bounds.bottom).toBeLessThanOrEqual(bounds.height+1);expect(bounds.overflow).toBeLessThanOrEqual(1);
+    await page.locator('#canvasAssetsPickerApply').click();
+    await expect(dialog).toBeHidden();
+    expect(assignments).toEqual([{path:`/api/account/canvas/projects/${state.projects[0].id}/nodes/${nodeId}/asset-reference`,body:{asset_id:assets[0].id}}]);
+    await expect(page.locator('.canvas-asset-name')).toHaveText(assets[0].title);
+    await expect(page.locator('#canvasInspectorBody .canvas-output img')).toHaveAttribute('src',`/api/ai/images/${assets[0].id}/medium`);
+    await page.reload();await page.locator(`[data-node-id="${nodeId}"]`).press('Enter');
+    if (locale==='de') await page.locator('#canvasInspectorToggle').click();
+    await expect(page.locator('.canvas-asset-name')).toHaveText(assets[0].title);
+    await expect(page.locator('#canvasInspectorBody .canvas-output img')).toBeVisible();
+    await page.screenshot({path:testInfo.outputPath(`canvas-assets-${locale}-inspector.png`)});
+    expect(requests.filter(r=>r.method!=='GET')).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+});
+
+test('Canvas asset picker retains all media types and rejects failed or stale assignment', async ({page})=>{
+  const {state,assets,assignments,folderId,nodeId,otherId}=await prepareCanvasAssetPicker(page);
+  const dialog=page.locator('#canvasAssetsOverlay');
+  for (const asset of assets.slice(1)) {
+    await page.locator('#canvasAssetChoose').click();
+    await page.locator('#canvasAssetsFilter').selectOption(folderId);
+    const card=page.locator(`#canvasAssetsGrid [data-asset-id="${asset.id}"]`);
+    await card.click();
+    await expect(page.locator('#canvasAssetsPickerApply')).toBeEnabled();
+    if(asset===assets[1]) {
+      state.assignmentStatus=403;
+      await page.locator('#canvasAssetsPickerApply').click();
+      await expect(page.locator('#canvasAssetsMessage')).toContainText('could not be assigned');
+      await expect(dialog).toBeVisible();expect(state.nodes[0].asset_id).toBeNull();
+      state.assignmentStatus=200;
+    }
+    await page.locator('#canvasAssetsPickerApply').click();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('.canvas-asset-name')).toHaveText(asset.title);
+    if(asset.asset_type==='video'||asset.asset_type==='sound') await expect(page.locator(`#canvasInspectorBody ${asset.asset_type==='video'?'video':'audio'}`)).toHaveAttribute('src',asset.file_url);
+    else {await expect(page.locator('#canvasInspectorBody .canvas-output pre')).toHaveText(asset.preview_text);await expect(page.getByRole('link',{name:'Open file',exact:true})).toHaveAttribute('href',asset.file_url);}
+  }
+  const previous=structuredClone(state.nodes[0]);
+  await page.locator('#canvasAssetChoose').click();
+  await page.locator('#canvasAssetsFilter').selectOption(folderId);
+  await page.locator(`#canvasAssetsGrid [data-asset-id="${assets[0].id}"]`).click();
+  const count=assignments.length;
+  // A queued selection event may arrive after the modal opens. It must revoke
+  // its original target rather than assign to the newly selected node.
+  await page.locator(`[data-node-id="${otherId}"]`).dispatchEvent('click');
+  await expect(dialog).toBeHidden();
+  expect(assignments).toHaveLength(count);expect(state.nodes[0]).toEqual(previous);expect(state.nodes[1].asset_id).toBeNull();
+  await page.locator(`[data-node-id="${nodeId}"]`).press('Enter');
+  await expect(page.locator('.canvas-asset-name')).toHaveText(assets[4].title);
+});
+
+test('Canvas asset picker cancelled during loading stays closed and late assignment cannot update another node',async({page})=>{
+  let releaseFolders;const foldersReady=new Promise(resolve=>{releaseFolders=resolve;});
+  const {state,assets,nodeId,otherId,assignments}=await prepareCanvasAssetPicker(page,{foldersReady});
+  await page.locator('#canvasAssetChoose').click();
+  await expect(page.locator('#canvasAssetsMessage')).toContainText('Loading');
+  await page.keyboard.press('Escape');releaseFolders();
+  await expect(page.locator('#canvasAssetsOverlay')).toBeHidden();
+  await expect(page.locator('#canvasAssetChoose')).toBeFocused();
+  await page.locator('#canvasAssetChoose').click();
+  await expect(page.locator('#canvasAssetsFolderGrid .studio__folder-card')).toHaveCount(3);
+  await page.locator('#canvasAssetsFolderGrid .studio__folder-card').first().press('Enter');
+  await page.locator(`#canvasAssetsGrid [data-asset-id="${assets[0].id}"]`).click();
+  let releaseAssignment;state.assignmentGate=new Promise(resolve=>{releaseAssignment=resolve;});
+  await page.locator('#canvasAssetsPickerApply').click();
+  await expect.poll(()=>assignments.length).toBe(1);
+  await expect(page.locator('#canvasAssetsClose')).toBeDisabled();
+  await page.locator(`[data-node-id="${otherId}"]`).dispatchEvent('click');
+  await expect(page.locator('#canvasAssetsOverlay')).toBeHidden();
+  releaseAssignment();
+  await expect.poll(()=>state.nodes[0].asset_id).toBe(assets[0].id);
+  await expect(page.locator('#canvasInspectorTitle')).toHaveText('Other reference');
+  await expect(page.locator('.canvas-asset-name')).toHaveCount(0);
+  expect(state.nodes[1].asset_id).toBeNull();
+  expect(state.requests.filter(r=>r.method==='PATCH')).toEqual([]);
+  expect(assignments[0].path).toContain(`/nodes/${nodeId}/`);
+});
+
+test('Canvas asset picker preserves legacy references and cancels on a project change',async({page})=>{
+  const {state,assets,nodeId,assignments}=await prepareCanvasAssetPicker(page);
+  const original=assets[0];
+  state.nodes[0].asset_id=original.id;
+  state.nodes[0].content={asset:{id:original.id,asset_type:'image',mime_type:'image/png',file_url:original.file_url,preview_url:original.thumb_url}};
+  await page.reload();await page.locator(`[data-node-id="${nodeId}"]`).press('Enter');
+  await expect(page.locator('.canvas-asset-name')).toHaveText(original.title);
+  await expect(page.locator('#canvasInspectorBody .canvas-output img')).toHaveAttribute('src',original.thumb_url);
+  await page.locator('#canvasAssetChoose').click();
+  await page.locator('#canvasAssetsFolderGrid .studio__folder-card').first().click();
+  await page.locator(`#canvasAssetsGrid [data-asset-id="${assets[1].id}"]`).click();
+  await page.keyboard.press('Escape');
+  expect(state.nodes[0].asset_id).toBe(original.id);expect(assignments).toEqual([]);
+  expect(state.requests.filter(r=>r.method==='PATCH')).toEqual([]);
+  await page.locator('#canvasAssetChoose').click();
+  // A project navigation already queued before the modal is another stale
+  // target. Exercise the existing project action, not a private test hook.
+  page.once('dialog',dialog=>dialog.accept('Another project'));
+  await page.locator('#canvasNewProject').dispatchEvent('click');
+  await expect(page.locator('#canvasProjectTitle')).toHaveValue('Another project');
+  await expect(page.locator('#canvasAssetsOverlay')).toBeHidden();
+  expect(assignments).toEqual([]);
+});
