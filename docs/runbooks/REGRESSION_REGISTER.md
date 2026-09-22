@@ -579,3 +579,13 @@ selected jobs, archive/proof digests and the exact protected failed upload while
 retaining the last accepted baseline. It does not authorize unchanged-byte reuse
 for new product code. `test-frontend-review.mjs` covers ordinary activation with
 newer product work, missing proofs, wrong versions and unchanged reuse guards.
+
+Run 35714314642 exposed a Canvas fixture read relative to cwd: the hosted Linux
+boundary deliberately starts in `/`, although the PNG was correctly staged.
+Canvas now resolves that fixture relative to its module, like its other readers.
+The existing launcher self-test executes this reader from `/` and an empty cwd,
+checks the staged PNG digest, and rejects the old cwd-relative implementation.
+Actual caller: `node --test tests/q2-recovery-staging.test.mjs
+scripts/test-q2-runtime-launcher.mjs`. This orchestration countercheck does not
+replace the selected hosted `test:q2-runtime -- --suite canvas` or the subsequent
+Appearance/native and Chromium/WebKit gates; the failed run provided neither.

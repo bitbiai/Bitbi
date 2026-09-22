@@ -15,7 +15,7 @@ export async function runCanvasTests(f) {
   await f.sql('INSERT INTO canvas_nodes(id,project_id,user_id,type,model_id,x,y,config_json,content_json,created_at,updated_at) VALUES(?,?,?,?,?,0,0,?,?,?,?)', node, project, adminId, 'text_generation', '@cf/meta/llama-3.1-8b-instruct-fast', JSON.stringify({ prompt: 'Synthetic native prompt', maxTokens: 300 }), '{}', now, now).run();
   const route = `/api/account/canvas/projects/${project}/nodes/${node}/run`;
   await f.test('image25_native_owned_reference_boundary_and_unverified_tariff_blocks_dispatch', async () => {
-    const bytes = fs.readFileSync('tests/fixtures/media/member-image.png');
+    const bytes = fs.readFileSync(new URL('../../fixtures/media/member-image.png', import.meta.url));
     const sources = [];
     for (let i = 0; i < 16; i++) {
       const id = `image25-native-${i}`, key = `users/${memberId}/image25-${i}.png`;

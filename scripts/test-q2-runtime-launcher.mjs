@@ -401,6 +401,59 @@ test('default native runtime plan stages every actual suite and control input', 
 });
 
 
+test('Canvas reference fixture reads the staged bytes from a non-repository cwd', t => {
+  const f = fixture(t);
+  const moduleName = 'tests/helpers/q2-runtime/canvas.mjs';
+  const fixtureName = 'tests/fixtures/media/member-image.png';
+  const source = read(moduleName);
+  const bytes = fs.readFileSync(path.join(root, fixtureName));
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  f.put(moduleName, source);
+  f.put(fixtureName, bytes);
+  const child = `
+    import assert from 'node:assert/strict';
+    import { createHash } from 'node:crypto';
+    const { runCanvasTests } = await import(process.argv[1]);
+    const reached = new Error('fixture read reached');
+    const f = {
+      migrations: [],
+      sql: () => ({ run: async () => {} }),
+      control: async () => Response.json({ cookie: 'synthetic' }),
+      test: async (name, operation) => {
+        assert.equal(name, 'image25_native_owned_reference_boundary_and_unverified_tariff_blocks_dispatch');
+        await operation();
+      },
+      bucket: { put: async (key, bytes) => {
+        assert.equal(key, 'users/q2-workerd-member/image25-0.png');
+        assert.equal(createHash('sha256').update(bytes).digest('hex'), process.argv[2]);
+        throw reached;
+      } },
+    };
+    await assert.rejects(runCanvasTests(f), error => error === reached);
+    console.log(JSON.stringify({ cwd: process.cwd(), sha256: process.argv[2] }));
+  `;
+  const run = cwd => spawnSync(process.execPath, ['--input-type=module', '-e', child,
+    pathToFileURL(path.join(f.repo, moduleName)).href, digest], {
+    cwd, env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 10000,
+  });
+  for (const cwd of [f.staged, path.parse(root).root]) {
+    const result = run(cwd);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).sha256, digest);
+  }
+  // Executable countercontrol: the original reader must fail, even though the
+  // fixture remains in the staged module tree. This is not native D1 acceptance.
+  const previous = source.replace(
+    "fs.readFileSync(new URL('../../fixtures/media/member-image.png', import.meta.url))",
+    "fs.readFileSync('tests/fixtures/media/member-image.png')",
+  );
+  assert.notEqual(previous, source);
+  f.put(moduleName, previous);
+  const rejected = run(f.staged);
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /ENOENT/);
+});
+
 test('host network comparison canonicalizes order but retains interface, address, MTU and route changes', () => {
   const rows = [{ ifname: 'eth0', ifindex: 2, flags: ['UP','LOWER_UP'], mtu: 1500, operstate: 'UP',
     addr_info: [{ family:'inet', local:'192.0.2.1', prefixlen:24, scope:'global' }, {family:'inet6',local:'2001:db8::1',prefixlen:64,scope:'global'}] },
