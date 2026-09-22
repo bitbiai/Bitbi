@@ -17,11 +17,73 @@ test('appearance resolves real nested EN/DE routes and keeps personal preference
         account: ['/account/assets-manager.html', '/de/account/profile-settings.html', '/account/organization.html', '/de/account/reset-password.html'],
     })) for (const route of routes) expect(contract.resolveSegment(route)).toBe(segment);
     expect(contract.PERSONAL_THEMES_ENABLED).toBe(false);
+    expect(contract.THEMES).toEqual(['dark', 'light', 'soft']);
+    expect(contract.DEFAULT_SEGMENTS).toEqual(defaults);
     const personalPreference = { version: 1, theme: 'light' };
     expect(contract.resolvePreference({ globalTheme: 'dark', personalPreference })).toBe('dark');
     expect(contract.resolvePreference({ globalTheme: 'dark', personalPreference, personalEnabled: false })).toBe('dark');
     expect(contract.resolvePreference({ globalTheme: 'dark', personalPreference, personalEnabled: true })).toBe('light');
+    expect(contract.resolvePreference({ globalTheme: 'soft', personalPreference })).toBe('soft');
+    expect(contract.resolvePreference({ globalTheme: 'dark', personalPreference: { version: 1, theme: 'soft' } })).toBe('dark');
+    expect(contract.resolvePreference({ globalTheme: 'dark', personalPreference: { version: 1, theme: 'soft' }, personalEnabled: true })).toBe('soft');
     expect(() => contract.normalizeAppearance({ version: 1, revision: 0, segments: defaults, personalEnabled: true })).toThrow();
+});
+
+test('appearance extends stored Dark/Light settings to Soft without resetting revisions or neighboring segments', async () => {
+    const m = await load(), DB = new SqliteD1Database(); applyAuthMigrations(DB);
+    const legacy = { version: 1, revision: 18, segments: { ...defaults, public: 'light', account: 'light' }, personalEnabled: false };
+    try {
+        const previous = JSON.stringify({ ...legacy, changeId: 'previous-version-setting' });
+        await DB.prepare('INSERT INTO app_settings(key,value_json,updated_at) VALUES(?,?,?)').bind(m.APPEARANCE_SETTING_KEY, previous, '2026-09-21T12:00:00.000Z').run();
+        expect(await m.getAppearance({ DB })).toEqual(legacy);
+        expect((await DB.prepare('SELECT value_json FROM app_settings WHERE key=?').bind(m.APPEARANCE_SETTING_KEY).first()).value_json).toBe(previous);
+        const updated = await m.saveAppearance({ DB }, admin, { revision: legacy.revision, segments: { ...legacy.segments, canvas: 'soft' } });
+        expect(updated).toMatchObject({ version: 1, revision: 19, segments: { ...legacy.segments, canvas: 'soft' }, personalEnabled: false });
+        expect((await m.getAppearance({ DB })).segments).toEqual(updated.segments);
+        await expect(m.saveAppearance({ DB }, admin, { revision: legacy.revision, segments: legacy.segments })).rejects.toMatchObject({ status: 409 });
+        expect((await m.getAppearance({ DB })).segments.canvas).toBe('soft');
+        const audit = JSON.parse((await DB.prepare('SELECT meta_json FROM admin_audit_log').first()).meta_json);
+        expect(audit.before).toEqual(legacy); expect(audit.after.segments).toEqual(updated.segments);
+        const unknown = JSON.stringify({ ...updated, segments: { ...updated.segments, canvas: 'future-unsupported-theme' } });
+        await DB.prepare('UPDATE app_settings SET value_json=? WHERE key=?').bind(unknown, m.APPEARANCE_SETTING_KEY).run();
+        await expect(m.getAppearance({ DB })).rejects.toMatchObject({ status: 503 });
+        await expect(m.saveAppearance({ DB }, admin, { revision: 19, segments: defaults })).rejects.toMatchObject({ status: 503 });
+        expect((await DB.prepare('SELECT value_json FROM app_settings WHERE key=?').bind(m.APPEARANCE_SETTING_KEY).first()).value_json).toBe(unknown);
+    } finally { DB.close(); }
+});
+
+test('appearance bootstrap paints cached Soft early and rejects stale or unknown responses without overriding global policy', async () => {
+    const vm = require('node:vm');
+    const cached = { version: 1, revision: 7, segments: { ...defaults, canvas: 'soft' }, personalEnabled: false };
+    const documentRoot = { dataset: {}, style: {}, setAttribute() {}, removeAttribute() {} }, meta = {};
+    const requests = [], writes = [], events = new Map();
+    const context = {
+        URL, AbortController, CustomEvent, structuredClone, location: { pathname: '/de/canvas/' },
+        localStorage: { getItem: () => JSON.stringify(cached), setItem: (key, value) => writes.push([key, value]) },
+        document: { documentElement: documentRoot, visibilityState: 'visible', querySelector: () => meta, addEventListener() {} },
+        setTimeout: () => 1, clearTimeout() {},
+        fetch: () => new Promise(resolve => requests.push(resolve)),
+        addEventListener: (name, callback) => events.set(name, callback), dispatchEvent() {},
+    };
+    context.window = context;
+    vm.createContext(context);
+    for (const file of ['appearance-contract.js', 'appearance.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/shared', file), 'utf8'), context);
+    expect(documentRoot.dataset).toMatchObject({ theme: 'soft', themeSegment: 'canvas' });
+    expect(documentRoot.style.colorScheme).toBe('light'); expect(meta.content).toBe('#f3f0e8');
+    expect(writes).toHaveLength(0); // Reading a cache cannot claim a server-confirmed write.
+    const confirmed = { ...cached, revision: 9, segments: { ...cached.segments, public: 'light' } };
+    expect(context.BitbiAppearance.acceptConfirmed(confirmed)).toBe(true);
+    const pending = context.BitbiAppearance.refresh({ force: true });
+    requests.shift()({ ok: true, json: async () => ({ ok: true, appearance: { ...cached, revision: 8, segments: defaults } }) });
+    await pending;
+    expect(context.BitbiAppearance.snapshot()).toEqual(confirmed); expect(documentRoot.dataset.theme).toBe('soft');
+    expect(context.BitbiAppearance.acceptConfirmed({ ...confirmed, revision: 10, segments: { ...defaults, canvas: 'sepia' } })).toBe(false);
+    expect(context.BitbiAppearance.acceptConfirmed({ ...confirmed, revision: 10, personalEnabled: true })).toBe(false);
+    expect(documentRoot.dataset.theme).toBe('soft'); expect(writes).toHaveLength(1);
+    events.get('pagehide')(); events.get('pageshow')();
+    const resumed = context.BitbiAppearance.refresh({ force: true });
+    requests.shift()({ ok: true, json: async () => ({ ok: true, appearance: confirmed }) }); await resumed;
+    expect(documentRoot.dataset.theme).toBe('soft'); expect(context.BitbiAppearance.snapshot().personalEnabled).toBe(false);
 });
 
 test('appearance rollout is unchanged; persisted safe configuration survives another database connection', async () => {

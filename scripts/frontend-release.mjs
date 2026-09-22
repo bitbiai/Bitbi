@@ -26,7 +26,7 @@ export function appearanceHtmlBytes(bytes) {
 // Bounded anonymous verification, without settings mutations or polling. Only
 // the existing single-hop same-origin DACH redirect is allowed for the root.
 export async function verifyPublishedAppearance(manifest,read=fetch) {
-  const assets=['js/shared/appearance-contract.js','js/shared/appearance.js','css/base/appearance.css'];
+  const assets=['js/shared/appearance-contract.js','js/shared/appearance.js','css/base/appearance.css','css/base/tokens.css'];
   const verified=[],documents=[],options=()=>({credentials:'omit',cache:'no-store',redirect:'manual',signal:AbortSignal.timeout(20000)});
   for(const [input,url] of [['index.html','/'],['de/index.html','/de/'],...assets.map(file=>[file,`/${file}`])]) {
     let file=input;
@@ -58,7 +58,7 @@ export async function verifyPublishedAppearance(manifest,read=fetch) {
   assert.match(response.headers.get('cache-control')||'',/no-store/);
   return {checkedAt:new Date().toISOString(),verified,documents,revision:settings.revision,segments:settings.segments,personalEnabled:settings.personalEnabled};
 }
-export async function publishFrontend({upload,read,current,manifest,proofs,account,reconcile}) {
+export async function publishFrontend({upload,read,current,manifest,proofs,account,reconcile,readPublic=fetch}) {
   assert(/^[a-f0-9]{32}$/.test(account||''),'Missing explicit frontend account');
   verifyProofs(manifest,proofs);
   const packageDigest=hash(JSON.stringify(manifest));
@@ -77,6 +77,7 @@ export async function publishFrontend({upload,read,current,manifest,proofs,accou
   validateActivation({receipt,deployment,version},expected);
   receipt.domains=verifyDomains(await read('workers/domains'));
   if(pending){assert.equal(receipt.deploymentId,pending.receipt.deploymentId,'Activation changed during reconciliation');receipt.activationReconciliation=pending.reconciliation;}
+  if(manifest.selection?.appearance || reconcile)receipt.appearanceAcceptance=await verifyPublishedAppearance(manifest,readPublic);
   await current();
   return receipt;
 }
@@ -136,7 +137,6 @@ async function main() {
    else receipt.releaseRepair={kind,...identity};
  }
  receipt.publicationRun=String(process.env.GITHUB_RUN_ID);receipt.publicationAttempt=String(process.env.GITHUB_RUN_ATTEMPT);
- if(receipt.releaseRepair?.kind==='tooling')receipt.appearanceAcceptance=await verifyPublishedAppearance(manifest);
  fs.writeFileSync('hosting-receipt.json',JSON.stringify(receipt,null,2)+'\n');
  console.log(`Verified ${receipt.worker} ${receipt.versionId} at 100%; deployment ${receipt.deploymentId}`);
 }

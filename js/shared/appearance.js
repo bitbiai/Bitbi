@@ -15,10 +15,10 @@
         const theme = contract.resolvePreference({ globalTheme: state.segments[segment] });
         root.dataset.theme = theme;
         root.dataset.themeSegment = segment;
-        root.style.colorScheme = theme;
+        root.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
         let meta = document.querySelector('meta[name="theme-color"]');
         if (!meta) { meta = document.createElement('meta'); meta.name = 'theme-color'; document.head.append(meta); }
-        meta.content = theme === 'light' ? '#f1f5f7' : '#0A0A0A';
+        meta.content = { dark: '#0A0A0A', light: '#f1f5f7', soft: '#f3f0e8' }[theme];
     }
     const reveal = () => root.removeAttribute('data-appearance-pending');
     if (!cached) { root.setAttribute('data-appearance-pending', ''); setTimeout(reveal, 600); }

@@ -29,23 +29,23 @@ for (const [locale, width] of [['en', 1440], ['de', 390]]) test.describe(`${loca
         await expect(choice(page, 'canvas', 'dark')).toBeChecked();
         expect(state.calls.filter(call => call.method === 'PATCH')).toEqual([]);
         await choose('canvas', 'light');
-        await choose('admin', 'light');
+        await choose('admin', 'soft');
         await appearance(page).getByRole('button', { name: labels.save, exact: true }).click();
-        await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+        await expect(page.locator('html')).toHaveAttribute('data-theme', 'soft');
         await expect(appearance(page).locator('.appearance__state')).toHaveText(locale === 'de' ? 'Gespeichert' : 'Saved');
-        expect(state.appearance).toMatchObject({ revision: 1, personalEnabled: false, segments: { public: 'dark', admin: 'light', generateLab: 'dark', canvas: 'light', account: 'dark' } });
+        expect(state.appearance).toMatchObject({ revision: 1, personalEnabled: false, segments: { public: 'dark', admin: 'soft', generateLab: 'dark', canvas: 'light', account: 'dark' } });
         const write = state.calls.find(call => call.method === 'PATCH');
         expect(write).toMatchObject({ pathname: '/api/admin/appearance', body: { revision: 0, segments: state.appearance.segments } });
         expect(Object.keys(write.body)).toEqual(['revision', 'segments']);
         await page.reload();
         await expect(choice(page, 'canvas', 'light')).toBeChecked();
-        await expect(choice(page, 'admin', 'light')).toBeChecked();
+        await expect(choice(page, 'admin', 'soft')).toBeChecked();
         if (locale === 'de') await appearance(page).getByLabel('Appearance language').selectOption('de');
-        await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+        await expect(page.locator('html')).toHaveAttribute('data-theme', 'soft');
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-        await page.screenshot({ path: path.join(info.outputDir, `${locale}-${width}-appearance-light.png`), fullPage: true, animations: 'disabled' });
+        await page.screenshot({ path: path.join(info.outputDir, `${locale}-${width}-appearance-soft.png`), fullPage: true, animations: 'disabled' });
         await appearance(page).getByRole('button', { name: labels.reset, exact: true }).click();
-        await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+        await expect(page.locator('html')).toHaveAttribute('data-theme', 'soft');
         expect(state.appearance.revision).toBe(1);
         await appearance(page).getByRole('button', { name: labels.save, exact: true }).click();
         await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -90,14 +90,14 @@ for (const [role, adminGate] of [['anonymous', 401], ['user', 403], ['admin', 42
 });
 
 // One compact matrix per engine: real pages, public/member/Admin identities,
-// both paints, alternating EN/DE and viewport sizes. No product mutations.
+// all three paints, alternating EN/DE and viewport sizes. No product mutations.
 for (const entry of [
     { segment: 'public', route: '/', role: 'anonymous', width: 1440, ready: '#navbar', surface: 'body' },
     { segment: 'admin', route: '/admin/index.html#appearance', role: 'admin', width: 1440, ready: '#sectionAppearance fieldset', surface: '.appearance__segment' },
     { segment: 'generateLab', route: '/de/generate-lab/', role: 'user', width: 1440, ready: '#labPrompt', surface: '#labPrompt' },
     { segment: 'canvas', route: '/de/canvas/', role: 'user', width: 390, ready: '#canvasProjectTitle', surface: '.canvas-topbar' },
     { segment: 'account', route: '/de/account/forgot-password.html', role: 'anonymous', width: 390, ready: '#emailInput', surface: '#emailInput' },
-]) test(`appearance ${entry.segment} paints both themes without replacing active UI or leaking across segments`, async ({ page, baseURL }, info) => {
+]) test(`appearance ${entry.segment} paints all three themes without replacing active UI or leaking across segments`, async ({ page, baseURL }, info) => {
     await page.setViewportSize({ width: entry.width, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' });
     const state = await setupAppearance(page, baseURL, { role: entry.role });
@@ -109,23 +109,23 @@ for (const entry of [
     if (typed) await typed.fill(entry.segment === 'account' ? 'unsent@example.invalid' : 'Keep this unsent creative draft');
     const before = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth, nodes: [...document.querySelectorAll('.canvas-node')].map(el => ({ id: el.dataset.nodeId, transform: el.style.transform })) }));
     const colors = [];
-    for (const theme of ['dark', 'light']) {
+    for (const theme of ['dark', 'light', 'soft']) {
         state.change({ [entry.segment]: theme });
         await page.evaluate(() => window.BitbiAppearance.refresh({ force: true }));
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-        await expect(page.locator('html')).toHaveCSS('color-scheme', theme);
-        expect(await page.locator('meta[name="theme-color"]').getAttribute('content')).toBe(theme === 'light' ? '#f1f5f7' : '#0A0A0A');
+        await expect(page.locator('html')).toHaveCSS('color-scheme', theme === 'dark' ? 'dark' : 'light');
+        expect(await page.locator('meta[name="theme-color"]').getAttribute('content')).toBe(theme === 'soft' ? '#f3f0e8' : theme === 'light' ? '#f1f5f7' : '#0A0A0A');
         const paint = () => page.locator(entry.surface).first().evaluate(el => ({ background: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }));
-        if (theme === 'light') await expect.poll(paint).not.toEqual(colors[0]);
+        if (theme !== 'dark') await expect.poll(paint).not.toEqual(colors[colors.length - 1]);
         colors.push(await paint());
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
         if (typed) await expect(typed).toHaveValue(entry.segment === 'account' ? 'unsent@example.invalid' : 'Keep this unsent creative draft');
         await page.screenshot({ path: path.join(info.outputDir, `${entry.segment}-${theme}-${entry.width}.png`), fullPage: true, animations: 'disabled' });
     }
-    expect(colors[0]).not.toEqual(colors[1]);
+    expect(new Set(colors.map(color => JSON.stringify(color))).size).toBe(3);
     expect(await page.evaluate(() => [...document.querySelectorAll('.canvas-node')].map(el => ({ id: el.dataset.nodeId, transform: el.style.transform })))).toEqual(before.nodes);
     const confirmed = await page.evaluate(() => window.BitbiAppearance.snapshot());
-    for (const [segment, value] of Object.entries(confirmed.segments)) expect(value).toBe(segment === entry.segment ? 'light' : 'dark');
+    for (const [segment, value] of Object.entries(confirmed.segments)) expect(value).toBe(segment === entry.segment ? 'soft' : 'dark');
     expect(state.calls.filter(call => call.method !== 'GET')).toEqual([]);
     expect(state.unexpectedWrites).toEqual([]); expect(state.errors).toEqual([]);
 });
@@ -172,12 +172,12 @@ test('appearance propagates to another open session, ignores stale responses and
         const remote = await setupAppearance(other, baseURL, { appearance: state.appearance });
         await other.goto('/admin/index.html#appearance');
         await expect(appearance(other).locator('fieldset')).toHaveCount(5);
-        await choice(other, 'canvas', 'light').check();
+        await choice(other, 'canvas', 'soft').check();
         await appearance(other).getByRole('button', { name: 'Save changes', exact: true }).click();
         await expect(appearance(other).locator('.appearance__state')).toHaveText('Saved');
         state.appearance = remote.appearance;
         await page.clock.fastForward(60_000);
-        await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+        await expect(page.locator('html')).toHaveAttribute('data-theme', 'soft');
         const hold = state.holdPublic();
         const oldRead = page.evaluate(() => window.BitbiAppearance.refresh({ force: true }));
         await hold.requested;
@@ -235,4 +235,110 @@ test('appearance cold failure is bounded; navigation, reload and nested routes u
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     expect(await page.evaluate(() => window.BitbiAppearance.snapshot().revision)).toBe(state.appearance.revision);
     expect(state.unexpectedWrites).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+for (const [locale, width] of [['en', 1440], ['de', 390]]) test.describe(`${locale} appearance populated media`, () => {
+    test.use({ hasTouch: width < 500 });
+    test('light variants preserve decoded previews, accessible actions and the active player', async ({ page, baseURL }, info) => {
+        await page.setViewportSize({ width, height: 900 });
+        const state = await setupAppearance(page, baseURL, { role: 'user', media: true, segments: { account: 'light' } });
+        await page.goto(`${locale === 'de' ? '/de' : ''}/account/assets-manager.html`);
+        await expect(page.locator('#studioViewShowAll')).toBeVisible();
+        await page.locator('#studioViewShowAll').click();
+        const cards = page.locator('.studio__image-item--visual');
+        await expect(cards).toHaveCount(3);
+        // Measure the real success notice while shown, not during its deliberate
+        // transient-dismissal fade halfway through the later media interactions.
+        const notice = page.locator('#studioGalleryMsg');
+        await expect(notice).not.toBeEmpty(); await expect(notice).toHaveCSS('opacity', '1');
+        const noticePaint = await require('./helpers/appearance').measureContrast(notice);
+        expect(noticePaint).toHaveLength(1); expect(noticePaint[0].ratio).toBeGreaterThanOrEqual(4.5);
+        const metrics = [{ notice: noticePaint }];
+        for (const theme of ['light', 'soft']) {
+            state.change({ account: theme }); await page.evaluate(() => window.BitbiAppearance.refresh({ force: true }));
+            await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+            const text = await require('./helpers/appearance').measureContrast(page.locator('.assets-manager__list-status,.studio__folder-back-btn,.browse-pagination__status'));
+            expect(text.length).toBeGreaterThan(0);
+            for (const value of text) expect(value.ratio, JSON.stringify(value)).toBeGreaterThanOrEqual(4.5);
+            metrics.push({ theme, text });
+            for (let index = 0; index < 3; index++) {
+                const card = cards.nth(index);
+                if (width < 500) {
+                    const dot = page.locator('#studioImageGrid + .studio-deck-dots .studio-deck-dot').nth(index);
+                    await dot.tap(); await expect(dot).toHaveAttribute('aria-selected', 'true');
+                    // A touchstart snaps the deck transition to its endpoint.
+                    // Wait for the selected card's actual settled geometry so
+                    // the tap lands on the same button at touchstart/touchend.
+                    await expect(card).toHaveCSS('opacity', '1');
+                    await expect(card).toHaveCSS('transform', 'matrix(0.9, 0, 0, 0.9, 0, 0)');
+                }
+                const picture = card.locator('img').first(); await expect(picture).toBeVisible();
+                await expect.poll(() => picture.evaluate(img => img.complete && img.naturalWidth > 0)).toBe(true);
+                await expect(picture).toHaveCSS('filter', 'none'); await expect(picture).toHaveCSS('opacity', '1');
+                await expect(card).toHaveAttribute('title', state.assets[index].title);
+                const menu = card.locator('.studio__card-menu');
+                if (width < 500) await menu.tap(); else { await menu.focus(); await menu.press('Enter'); }
+                await expect(menu).toHaveAttribute('aria-expanded', 'true');
+                await expect(card.locator('.studio__card-actions')).toHaveCSS('opacity', '1');
+                for (const paint of await require('./helpers/appearance').measureContrast(card.locator('.studio__card-actions button'))) expect(paint.ratio, JSON.stringify(paint)).toBeGreaterThanOrEqual(4.5);
+                expect(await card.evaluate(el => { const r = el.getBoundingClientRect(); return [...el.querySelectorAll('.studio__card-actions button')].every(b => { const q = b.getBoundingClientRect(); return q.left >= r.left && q.right <= r.right && q.top >= r.top && q.bottom <= r.bottom && q.width >= 44 && q.height >= 44; }); })).toBe(true);
+                if (index === 1) await page.screenshot({ path: info.outputPath(`assets-${locale}-${theme}.png`), fullPage: true });
+                if (width < 500) await menu.tap(); else { await menu.focus(); await menu.press('Enter'); }
+                await expect(menu).toHaveAttribute('aria-expanded', 'false');
+            }
+        }
+        expect(state.calls.filter(call => call.pathname.endsWith('/file'))).toEqual([]);
+        const video = cards.nth(1);
+        if (width < 500) await page.locator('#studioImageGrid + .studio-deck-dots .studio-deck-dot').nth(1).tap();
+        await video.locator('.studio__asset-video-trigger').click();
+        const videoDialog = page.locator(width < 500 ? '.mobile-media-detail-overlay' : '#studioImageModal.active'); await expect(videoDialog).toBeVisible();
+        const player = videoDialog.locator('video'); await expect(player).toHaveAttribute('controls', '');
+        await player.evaluate(v => v.play());
+        await expect.poll(() => player.evaluate(v => v.videoWidth > 0 && v.readyState >= 2 && !v.error)).toBe(true);
+        await expect(player).toHaveAttribute('src', state.assets[1].file_url);
+        const videoElement = await player.elementHandle();
+        await page.keyboard.press('Escape'); await expect(videoDialog).toHaveCount(0);
+        expect(await videoElement.evaluate(v => v.paused && !v.hasAttribute('src'))).toBe(true);
+        if (width < 500) await page.locator('#studioImageGrid + .studio-deck-dots .studio-deck-dot').nth(2).tap();
+        // Theme propagation changes paint, never the actual playing element/source.
+        const sound = cards.nth(2); await sound.locator('.studio__asset-video-trigger').click();
+        const dialog = page.locator('.mobile-media-detail-overlay'); await expect(dialog).toBeVisible();
+        const audio = dialog.locator('audio'); await expect(audio).toHaveAttribute('controls', '');
+        await expect.poll(() => audio.evaluate(a => !a.paused && a.currentTime > 0)).toBe(true);
+        const element = await audio.elementHandle(), source = await audio.getAttribute('src');
+        state.change({ account: 'dark' }); await page.evaluate(() => window.BitbiAppearance.refresh({ force: true }));
+        expect(await element.evaluate(a => a.isConnected && !a.paused)).toBe(true); await expect(audio).toHaveAttribute('src', source);
+        await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
+        expect(await element.evaluate(a => a.paused && !a.hasAttribute('src'))).toBe(true);
+        await expect(sound.locator('.studio__asset-video-trigger')).toBeFocused();
+        expect(state.unexpectedWrites).toEqual([]); expect(state.errors).toEqual([]);
+        await info.attach('rendered-contrast', { body: JSON.stringify(metrics, null, 2), contentType: 'application/json' });
+    });
+});
+
+test('appearance light variants render loaded Admin video choices with readable selected, focus and input states', async ({ page, baseURL }, info) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const state = await setupAppearance(page, baseURL, { segments: { admin: 'light' } });
+    await page.goto('/admin/index.html#ai-lab');
+    await page.locator('[data-ai-mode="video"]').click();
+    const choices = page.locator('.admin-ai__video-model-card'); await expect(choices.first()).toBeVisible();
+    expect(await choices.count()).toBeGreaterThan(1);
+    const metrics = [];
+    for (const theme of ['light', 'soft']) {
+        state.change({ admin: theme }); await page.evaluate(() => window.BitbiAppearance.refresh({ force: true }));
+        await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+        const last = choices.last(); await last.focus(); await last.press('Enter');
+        await expect(last).toHaveClass(/admin-ai__video-model-card--active/);
+        await expect(page.locator('#aiVideoPrompt')).toBeVisible();
+        await page.locator('#aiVideoPrompt').fill('Do not submit this retained draft');
+        const text = await require('./helpers/appearance').measureContrast(page.locator('.admin-ai__video-model-card-title,.admin-ai__video-model-card-id,.admin-ai__video-model-card-copy,#aiVideoModelBadge,#aiVideoPrompt'));
+        expect(text.length).toBeGreaterThan(await choices.count());
+        for (const value of text) expect(value.ratio, JSON.stringify(value)).toBeGreaterThanOrEqual(4.5);
+        metrics.push({ theme, text });
+        await page.screenshot({ path: info.outputPath(`admin-video-${theme}.png`), fullPage: true });
+    }
+    state.change({ admin: 'dark' }); await page.evaluate(() => window.BitbiAppearance.refresh({ force: true }));
+    await expect(page.locator('#aiVideoPrompt')).toHaveValue('Do not submit this retained draft');
+    expect(state.unexpectedWrites).toEqual([]); expect(state.errors).toEqual([]);
+    await info.attach('rendered-contrast', { body: JSON.stringify(metrics, null, 2), contentType: 'application/json' });
 });

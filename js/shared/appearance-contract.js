@@ -5,13 +5,14 @@
     else root.BitbiAppearanceContract = contract;
 })(typeof globalThis === 'object' ? globalThis : this, function () {
     const SEGMENTS = Object.freeze(['public', 'admin', 'generateLab', 'canvas', 'account']);
+    const THEMES = Object.freeze(['dark', 'light', 'soft']);
     const DEFAULT_SEGMENTS = Object.freeze(Object.fromEntries(SEGMENTS.map(key => [key, 'dark'])));
     const PERSONAL_THEMES_ENABLED = false;
     function validateSegments(value) {
         if (!value || typeof value !== 'object' || Array.isArray(value)
             || Object.keys(value).length !== SEGMENTS.length
-            || SEGMENTS.some(key => !Object.hasOwn(value, key) || !['light', 'dark'].includes(value[key]))) {
-            throw new TypeError('Provide one light or dark theme for each segment.');
+            || SEGMENTS.some(key => !Object.hasOwn(value, key) || !THEMES.includes(value[key]))) {
+            throw new TypeError('Provide one dark, light or soft theme for each segment.');
         }
         return Object.fromEntries(SEGMENTS.map(key => [key, value[key]]));
     }
@@ -30,11 +31,11 @@
         if (/^\/(?:account|profile)(?:\/|$)/.test(path)) return 'account';
         return 'public'; // Legal, pricing, landing pages and future public routes.
     }
-    // Future preference persistence: {version:1, theme:'light'|'dark'|null}.
+    // Future preference persistence: {version:1, theme:'dark'|'light'|'soft'|null}.
     // Only a future separately authorized server gate may pass personalEnabled.
     function resolvePreference({ globalTheme = 'dark', personalPreference, personalEnabled = PERSONAL_THEMES_ENABLED } = {}) {
-        if (personalEnabled === true && personalPreference?.version === 1 && ['light', 'dark'].includes(personalPreference.theme)) return personalPreference.theme;
-        return ['light', 'dark'].includes(globalTheme) ? globalTheme : 'dark';
+        if (personalEnabled === true && personalPreference?.version === 1 && THEMES.includes(personalPreference.theme)) return personalPreference.theme;
+        return THEMES.includes(globalTheme) ? globalTheme : 'dark';
     }
-    return Object.freeze({ SEGMENTS, DEFAULT_SEGMENTS, PERSONAL_THEMES_ENABLED, validateSegments, normalizeAppearance, resolveSegment, resolvePreference });
+    return Object.freeze({ SEGMENTS, THEMES, DEFAULT_SEGMENTS, PERSONAL_THEMES_ENABLED, validateSegments, normalizeAppearance, resolveSegment, resolvePreference });
 });

@@ -43,7 +43,7 @@ export async function saveAppearance(env, actor, input) {
     }
     let requested;
     try { requested = normalizeAppearance({ version: 1, revision: input.revision, segments: input.segments, personalEnabled: false }); }
-    catch { throw new AppearanceError('Each of the five segments must use light or dark.'); }
+    catch { throw new AppearanceError('Each of the five segments must use dark, light or soft.'); }
     const current = await readStored(env);
     if (current.appearance.revision !== input.revision) throw new AppearanceError('Appearance was changed elsewhere. Reload before saving.', 409, 'appearance_conflict');
     const next = { ...requested, revision: requested.revision + 1 };

@@ -37,21 +37,23 @@ export async function runAppearanceTests(f) {
     const save = (revision, segments) => call(admin, 'PATCH', route, { revision, segments });
     await f.test('appearance_authorized_save_is_durable_segment_scoped_and_atomically_audited', async () => {
         assert.equal((await call(admin, 'PATCH', route, { revision: 0, segments: defaults }, 'https://untrusted.invalid')).status, 403);
-        const segments = { ...defaults, canvas: 'light' }, saved = await save(0, segments); assert.equal(saved.status, 200);
+        const segments = { ...defaults, public: 'light', canvas: 'soft' }, saved = await save(0, segments); assert.equal(saved.status, 200);
         const result = (await saved.json()).appearance; assert.equal(result.revision, 1); assert.equal(result.personalEnabled, false);
         for (const identity of ['', member, admin]) assert.deepEqual(await publicRead(identity), { version: 1, revision: 1, segments, personalEnabled: false });
         const read = await call(admin, 'GET', route); assert.equal(read.status, 200); assert.equal((await read.json()).appearance.updatedAt, result.updatedAt);
-        const row = await f.sql("SELECT * FROM app_settings WHERE key='appearance.global.v1'").first(); assert.equal(JSON.parse(row.value_json).segments.canvas, 'light');
+        const row = await f.sql("SELECT * FROM app_settings WHERE key='appearance.global.v1'").first(); assert.equal(JSON.parse(row.value_json).segments.canvas, 'soft');
         const audit = await f.sql("SELECT * FROM admin_audit_log WHERE action='appearance.updated'").first();
         assert.equal(audit.admin_user_id, 'q2-workerd-admin'); assert.equal(audit.created_at, result.updatedAt);
         assert.deepEqual(JSON.parse(audit.meta_json).before.segments, defaults); assert.deepEqual(JSON.parse(audit.meta_json).after.segments, segments);
         assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM activity_search_index WHERE action_norm='appearance.updated'"), 1);
     });
     await f.test('appearance_concurrent_native_D1_writes_have_one_winner_and_one_audit_record', async () => {
-        const responses = await Promise.all([save(1, { ...defaults, account: 'light' }), save(1, { ...defaults, public: 'light' })]);
+        const current = await publicRead();
+        const responses = await Promise.all([save(1, { ...current.segments, account: 'soft' }), save(1, { ...current.segments, admin: 'soft' })]);
         assert.deepEqual(responses.map(response => response.status).sort(), [200, 409]);
         const accepted = (await responses.find(response => response.status === 200).json()).appearance;
         assert.deepEqual((await publicRead()).segments, accepted.segments); assert.equal((await publicRead()).revision, 2);
+        assert.equal(accepted.segments.canvas, 'soft'); assert.equal(accepted.segments.public, 'light');
         assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM admin_audit_log WHERE action='appearance.updated'"), 2);
         assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM activity_search_index WHERE action_norm='appearance.updated'"), 2);
         assert.equal((await save(1, defaults)).status, 409);
@@ -59,7 +61,7 @@ export async function runAppearanceTests(f) {
     await f.test('appearance_invalid_and_personal_preference_requests_cannot_override_global_policy', async () => {
         for (const method of ['POST', 'PUT', 'PATCH']) {
             for (const identity of [member, admin]) {
-                const response = await call(identity, method, '/api/account/appearance', { theme: 'light', personalEnabled: true });
+                const response = await call(identity, method, '/api/account/appearance', { theme: 'soft', personalEnabled: true });
                 assert.equal(response.status, 403); assert.equal((await response.json()).code, 'appearance_personal_disabled');
             }
         }

@@ -523,7 +523,7 @@ Actual callers: static.yml model-pricing selection runs the four pricing/SQL cas
 
 Global settings use the existing app_settings row and atomic revision/CAS plus Admin audit; public reads expose only safe theme values. Five segments share one route/resolver and semantic paint layer. Defaults remain Dark; personal editing is server-denied. A higher disk-cache revision must not defeat the first confirmed server response, while an older in-flight response must never roll back a newer confirmed save. Page lifecycle aborts are released before resume so an aborted request cannot suppress revalidation. Theme changes update paint only and preserve drafts, Canvas identity and private media.
 
-Actual callers: appearance-v1 in existing static.yml runs five Worker/SQLite cases, native --suite appearance (Admin/MFA/CSRF, concurrent HTTP writes, audit rollback, durable read/reset and pricing isolation), and the shared appearance/strict navigation browser cases in Chromium/WebKit. The matrix verifies five segments, EN/DE, desktop/mobile, host-overlay inheritance, cache versus authority, bounded first paint, periodic refresh and tab resume without inference. Discovery/results survive runner cleanup; candidate proof rejects missing/failed/skipped/retried cases. Native macOS is not Linux CI. No new schema, permission, media or billing behavior is involved.
+Actual callers: appearance-v1 in existing static.yml runs focused Worker/SQLite cases, native --suite appearance (Admin/MFA/CSRF, concurrent HTTP writes, audit rollback, durable read/reset and pricing isolation), and the shared appearance/strict navigation browser cases in Chromium/WebKit. The matrix verifies five segments, EN/DE, desktop/mobile, host-overlay inheritance, cache versus authority, bounded first paint, periodic refresh and tab resume without inference. Discovery/results survive runner cleanup; candidate proof rejects missing/failed/skipped/retried cases. Native macOS is not Linux CI. No new schema, permission, media or billing behavior is involved.
 
 ### Website roots and unchanged-package release repair (2026-09-22)
 
@@ -534,3 +534,22 @@ The existing repair continuation has a distinct closed tooling scope with comple
 Public appearance acceptance must compare the document actually served by the existing single-hop DACH route. Only the observed empty, hidden same-origin AI Labyrinth link and digest-pinned Cloudflare Insights augmentation may be removed before exact candidate hashing; all other HTML/asset changes and unexpected redirects fail. A locale redirect is recorded as German delivery, never English evidence. Countercontrols run through `test-pages-workflow.mjs` under static deploy safety.
 
 A failure after activation is not a completed publication. The baseline resolver permits reconciliation only after independently matching the original accepted candidate archive, protected failed upload artifact, exact source/run/attempt/package, current 100% version and domains. It retains the previous accepted baseline until the existing protected deploy job verifies the active version without uploading and records a new durable receipt; the old job remains failed. `test-frontend-review.mjs` covers wrong/expired evidence, supersession, unconfirmed activation, unchanged-byte reuse across tooling repairs and durable receipt survival after diagnostic artifact expiry; the publication adapter has a zero-upload countercheck. No Auth redeployment or routing/protection change follows from this verification repair.
+
+### Light component visibility and Soft value propagation (2026-09-22)
+
+Light surfaces alone did not fix pinned white text in Admin model cards, nested
+user dialogs and account/legal states; shared accent tokens also darkened actions
+that retained dark media-overlay backgrounds. Keep semantic foreground/background
+pairs together, without changing media pixels. Soft extends the same validated
+five-segment contract, preserving stored Light/Dark values, reset defaults, CAS,
+audit and disabled personal overrides; unknown values fail closed.
+
+Countercontrols use the actual `appearance-v1` Worker/native D1 callers and
+`oma2-q3-appearance.spec.js` in Chromium/WebKit against `_site`: all three palettes,
+Admin save/conflict/failure, propagation/resume, actual catalog controls, decoded
+image/poster/video/audio fixtures, measured action/text contrast and retained player
+identity. A visible skeleton/container is not proof of readable controls or media.
+Ordinary Appearance publication now calls the same strict live verifier as
+reconciliation, including tokens.css. `test-pages-workflow.mjs` executes that
+publication caller and rejects changed palette bytes, unexpected HTML/redirects
+and enabled personal preferences before a success receipt can be returned.

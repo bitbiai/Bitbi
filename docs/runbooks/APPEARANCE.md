@@ -1,7 +1,7 @@
 # Global appearance
 
-Admin → Operations → Appearance (`/admin/index.html#appearance`) selects Light
-or Dark independently for five areas. This section alone has an English/German
+Admin → Operations → Appearance (`/admin/index.html#appearance`) selects Dark, Light
+or Soft (Sanft) independently for five areas. This section alone has an English/German
 language selector; it does not change the rest of the Admin language.
 
 `js/shared/appearance-contract.js` is the common route/value/resolver contract.
@@ -42,6 +42,14 @@ paint immediately. Last confirmed/default appearance remains usable on failure;
 there is no indefinite loading or claim of successful propagation offline.
 Native `color-scheme` and `theme-color` follow the same selected theme.
 
+Light keeps white surfaces; Soft uses warm neutral surface roles in the same
+semantic token system. Media pixels are never filtered or recolored. Old stored
+Dark/Light choices and Dark reset defaults remain unchanged. Deploy the expanded
+Auth validator before the frontend. An already-open pre-Soft client fails closed
+on an unknown value and keeps its last valid paint until ordinary navigation or
+reload loads the new client; it cannot overwrite the new revision or other areas.
+No forced reload is introduced.
+
 ## Personal preference is deliberately inactive
 
 `PERSONAL_THEMES_ENABLED` is false. Production normalization accepts only
@@ -50,7 +58,7 @@ are not read as overrides. PUT/PATCH/POST `/api/account/appearance` require a
 session and reject personal editing with 403. There is no personal control.
 
 The shared resolver reserves the future persistence shape
-`{ version: 1, theme: 'light' | 'dark' | null }`. Only a separately authorized
+`{ version: 1, theme: 'dark' | 'light' | 'soft' | null }`. Only a separately authorized
 server-gate activation, authenticated persistence and quote-free preference
 read would make an explicit personal choice take precedence. That branch is
 exercised solely with controlled test inputs, not enabled by this release.
@@ -64,10 +72,17 @@ strict Admin navigation case in Chromium and WebKit against `_site`. Discovery
 and execution JSON are siblings of `test-results/appearance-artifacts`, not
 inside Playwright's cleaned directory. Candidate proof requires every selected
 case and both engines; unknown/runtime/accounting changes remain broader.
+The three-mode cases also load actual model choices and decoded image/video/audio
+fixtures, measure rendered text/action contrast, exercise disclosures and playback
+cleanup, and preserve active media and drafts during refresh. Broader route/state
+visual inventory is local synthetic evidence, not production access acceptance.
 
 The unchanged 0094 pricing schema is current. Appearance uses existing tables;
 no migration, binding, AI Worker or media/container rollout is needed. The
 existing protected continuation activates Auth, verifies its identity, then
-publishes the same tested frontend artifact. Required credentials remain the
+publishes the same tested frontend artifact. Before returning a successful
+receipt, ordinary Appearance releases and repair reconciliation verify the
+public locale/HTML contract, exact bootstrap/palette/token bytes and safe public
+configuration without changing settings. Required credentials remain the
 separate backend/frontend environment tokens; locks/reviews are unchanged.
 Local workerd checks are not Linux CI or proof of production publication.

@@ -216,7 +216,7 @@ try {
   assert.equal(check([]).status,1,'Root must be explicit');
 }finally{fs.rmSync(root,{recursive:true,force:true});}
 console.log('Website-root reference CLI: isolated source/candidate, URL variants and missing-file countercontrols passed.');
-const appearanceFiles=['index.html','de/index.html','js/shared/appearance-contract.js','js/shared/appearance.js','css/base/appearance.css'];
+const appearanceFiles=['index.html','de/index.html','js/shared/appearance-contract.js','js/shared/appearance.js','css/base/appearance.css','css/base/tokens.css'];
 const appearanceContent=Object.fromEntries(appearanceFiles.map(f=>[f,f.endsWith('.html')?`<!doctype html>\n<body>\n<main>${f}</main>\n</body>\n`:f]));
 const digest=value=>createHash('sha256').update(value).digest('hex');
 const appearanceManifest={sha:'a'.repeat(40),run:'123',attempt:'1',selection:{},hosting:{worker:'bitbi-frontend'},files:Object.fromEntries(appearanceFiles.map(f=>[f,digest(appearanceContent[f])]))};
@@ -240,6 +240,7 @@ const liveFixture=(fault)=>async(url,options)=>{
   let content=appearanceContent[file];
   if(file.endsWith('.html')&&fault!=='plain')content=augmented(content);
   if(fault==='stale')content='old-build';
+  if(fault==='changed-tokens'&&file==='css/base/tokens.css')content+='changed';
   if(fault==='changed-theme'&&file==='css/base/appearance.css')content+='changed';
   if(fault==='visible-anchor')content=content.replace('display: none','display: block');
   if(fault==='wrong-origin')content=content.replace('https://bitbi.ai/cdn-cgi','https://foreign.invalid/cdn-cgi');
@@ -257,7 +258,7 @@ for(const mode of ['plain',undefined,'dach','dach-query']) {
   assert.equal(accepted.documents[0].augmentations.length,mode==='plain'?0:2);
   if(mode?.startsWith('dach'))assert(!accepted.verified.includes('index.html'),'A DE redirect is not EN delivery evidence');
 }
-for(const fault of ['stale','missing','personal','changed-theme','visible-anchor','wrong-origin','extra-script','changed-beacon','changed-html','duplicate-anchor','foreign-redirect','unexpected-path','unexpected-query','redirect-loop','asset-redirect','api-redirect'])await assert.rejects(()=>verifyPublishedAppearance(appearanceManifest,liveFixture(fault)),fault);
+for(const fault of ['stale','missing','personal','changed-theme','changed-tokens','visible-anchor','wrong-origin','extra-script','changed-beacon','changed-html','duplicate-anchor','foreign-redirect','unexpected-path','unexpected-query','redirect-loop','asset-redirect','api-redirect'])await assert.rejects(()=>verifyPublishedAppearance(appearanceManifest,liveFixture(fault)),fault);
 assert.equal(appearanceHtmlBytes(Buffer.from(augmented(appearanceContent['index.html']))).bytes.toString(),appearanceContent['index.html']);
 
 // The normal publication adapter must verify in place, with zero upload calls.
@@ -265,12 +266,24 @@ const account='c'.repeat(32),packageDigest=digest(JSON.stringify(appearanceManif
 const activated={sha:appearanceManifest.sha,run:'123',attempt:'1',packageDigest,worker:'bitbi-frontend',account,versionId:'active-version',deploymentId:'active-deployment'};
 const reconcile=async()=>({receipt:activated,reconciliation:{run:'failed-upload-run'}});
 let uploads=0,identityChecks=0;
-const publishOptions={manifest:appearanceManifest,proofs:[{job:'frontend-runtime',status:'passed',manifestHash:packageDigest,tests:1,reportHash:'synthetic'}],account,reconcile,
+const publishOptions={manifest:appearanceManifest,proofs:[{job:'frontend-runtime',status:'passed',manifestHash:packageDigest,tests:1,reportHash:'synthetic'}],account,reconcile,readPublic:liveFixture(),
   current:async()=>{identityChecks++;},upload:async()=>{uploads++;throw Error('unexpected upload');},
   read:async endpoint=>endpoint==='workers/domains'?['bitbi.ai','www.bitbi.ai'].map(hostname=>({id:hostname,zone_id:'synthetic-zone',hostname,service:'bitbi-frontend',environment:'production'})):endpoint.endsWith('/deployments')?{deployments:[{id:activated.deploymentId,versions:[{version_id:activated.versionId,percentage:100}]}]}:{id:activated.versionId,annotations:{'workers/message':`bitbi:${activated.sha}:123:1:${packageDigest}`}}};
 const reconciled=await publishFrontend(publishOptions);assert.equal(reconciled.versionId,activated.versionId);assert.equal(uploads,0);assert.equal(identityChecks,2);assert.deepEqual(reconciled.activationReconciliation,{run:'failed-upload-run'});
 for(const key of ['sha','run','attempt','packageDigest','worker','account','deploymentId','versionId'])await assert.rejects(()=>publishFrontend({...publishOptions,reconcile:async()=>({receipt:{...activated,[key]:'wrong'},reconciliation:{}})}),key);
 await assert.rejects(()=>publishFrontend({...publishOptions,reconcile:async()=>{throw Error('unknown activation');}}));assert.equal(uploads,0);
+// Fresh appearance publications require the same public acceptance before a
+// receipt can be returned; activation alone cannot claim a successful release.
+const ordinaryManifest={...appearanceManifest,selection:{appearance:true,auth:true}};
+const ordinaryDigest=digest(JSON.stringify(ordinaryManifest));
+const ordinary={...publishOptions,manifest:ordinaryManifest,reconcile:undefined,
+  proofs:['browser-validation','frontend-runtime'].map(job=>({job,status:'passed',manifestHash:ordinaryDigest,tests:1,reportHash:'synthetic'})),
+  upload:async()=>({worker_name:'bitbi-frontend',version_id:activated.versionId}),
+  read:async endpoint=>endpoint.includes('/versions/')?{id:activated.versionId,annotations:{'workers/message':`bitbi:${activated.sha}:123:1:${ordinaryDigest}`}}:publishOptions.read(endpoint)};
+const acceptedOrdinary=await publishFrontend(ordinary);
+assert(acceptedOrdinary.appearanceAcceptance.verified.includes('css/base/tokens.css'));
+assert.equal(acceptedOrdinary.appearanceAcceptance.personalEnabled,false);
+for(const fault of ['changed-tokens','changed-html','personal','foreign-redirect'])await assert.rejects(()=>publishFrontend({...ordinary,readPublic:liveFixture(fault)}),fault);
 console.log('Public appearance integrity/locale and in-place activation/no-upload countercontrols passed.');
 assert(cfSteps.indexOf(backend)>cfSteps.findIndex(s=>s.name==="Download this run's tested candidate"));
 assert(cfSteps.indexOf(backend)<cfSteps.findIndex(s=>s.name==='Check static deploy release-plan safety'));

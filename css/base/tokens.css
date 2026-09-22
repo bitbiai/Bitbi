@@ -124,3 +124,60 @@
         --radius-full: 9999px;
     }
 }
+
+/* Global segment palettes. Semantic roles also feed shared dialogs/pickers.
+   Light keeps its white surface; Soft changes paint without touching media. */
+@layer tokens {
+    html[data-theme="light"] {
+        --theme-page: #f1f5f7;
+        --theme-surface: #ffffff;
+        --theme-inset: #eaf0f3;
+        --theme-raised: #f7f9fb;
+        --theme-ink: #172b3a;
+        --theme-muted: #526777;
+        --theme-line: #c9d5dd;
+        --theme-line-strong: #849ba9;
+        --theme-accent: #006d73;
+        --theme-accent-soft: #dcefed;
+        --theme-on-accent: #ffffff;
+        --theme-success: #1d6b45;
+        --theme-success-soft: #e2f3e9;
+        --theme-warning: #805400;
+        --theme-warning-soft: #fff1d4;
+        --theme-danger: #aa2d37;
+        --theme-danger-soft: #fbe7e9;
+        --theme-shadow: 0 18px 50px rgb(26 53 71 / .12);
+        --theme-scrim: rgb(26 42 55 / .38);
+        --theme-focus: #006d73;
+        --theme-nav: rgb(247 249 251 / .96);
+        --theme-grid: #aabdc9;
+        --theme-hero-mid: #edf4f7;
+        --theme-hero-end: #e4edf2;
+    }
+    html[data-theme="soft"] {
+        --theme-page: #f3f0e8;
+        --theme-surface: #fffdf8;
+        --theme-inset: #e8e4da;
+        --theme-raised: #f7f4ed;
+        --theme-ink: #29332e;
+        --theme-muted: #5b635b;
+        --theme-line: #d3d0c5;
+        --theme-line-strong: #899389;
+        --theme-accent: #00665f;
+        --theme-accent-soft: #deece5;
+        --theme-on-accent: #ffffff;
+        --theme-success: #276444;
+        --theme-success-soft: #e2ede1;
+        --theme-warning: #795315;
+        --theme-warning-soft: #f6ead0;
+        --theme-danger: #a3353c;
+        --theme-danger-soft: #f5e3e0;
+        --theme-shadow: 0 18px 50px rgb(46 48 37 / .10);
+        --theme-scrim: rgb(36 42 37 / .38);
+        --theme-focus: #00665f;
+        --theme-nav: rgb(247 244 237 / .97);
+        --theme-grid: #acb0a2;
+        --theme-hero-mid: #f3f0e8;
+        --theme-hero-end: #e8e5da;
+    }
+}

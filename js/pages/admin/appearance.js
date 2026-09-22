@@ -8,7 +8,7 @@ const COPY = {
         generateLab: 'Generate Lab', generateLabDescription: 'The creation workspace and its asset picker.',
         canvas: 'Canvas', canvasDescription: 'Projects, graph, inspector and dialogs.',
         account: 'Profile & account', accountDescription: 'Profile, Assets Manager and all account pages.',
-        light: 'Light', dark: 'Dark', saved: 'Saved', unsaved: 'Unsaved changes', saving: 'Saving…',
+        light: 'Light', dark: 'Dark', soft: 'Soft', saved: 'Saved', unsaved: 'Unsaved changes', saving: 'Saving…',
         loading: 'Loading appearance settings…', save: 'Save changes', cancel: 'Cancel', reset: 'Reset to initial defaults',
         reload: 'Reload saved settings', discard: 'Discard your unsaved appearance changes and load the saved settings?',
         saveSuccess: 'Appearance saved. Open pages update automatically; their current work stays in place.',
@@ -24,7 +24,7 @@ const COPY = {
         generateLab: 'Generate Lab', generateLabDescription: 'Erstellungsbereich und zugehörige Asset-Auswahl.',
         canvas: 'Canvas', canvasDescription: 'Projekte, Graph, Inspector und Dialoge.',
         account: 'Profil & Konto', accountDescription: 'Profil, Assets Manager und alle Kontoseiten.',
-        light: 'Hell', dark: 'Dunkel', saved: 'Gespeichert', unsaved: 'Ungespeicherte Änderungen', saving: 'Wird gespeichert…',
+        light: 'Hell', dark: 'Dunkel', soft: 'Sanft', saved: 'Gespeichert', unsaved: 'Ungespeicherte Änderungen', saving: 'Wird gespeichert…',
         loading: 'Darstellungseinstellungen werden geladen…', save: 'Änderungen speichern', cancel: 'Abbrechen', reset: 'Auf ursprüngliche Standardwerte zurücksetzen',
         reload: 'Gespeicherte Einstellungen laden', discard: 'Ungespeicherte Darstellungsänderungen verwerfen und gespeicherte Einstellungen laden?',
         saveSuccess: 'Darstellung gespeichert. Geöffnete Seiten aktualisieren sich automatisch; laufende Arbeit bleibt erhalten.',
@@ -101,7 +101,7 @@ export function createAdminAppearance() {
             const description = element('p', 'appearance__muted', text(`${key}Description`)); description.id = `appearance-${key}-description`;
             field.append(description); field.setAttribute('aria-describedby', description.id);
             const choices = element('div', 'appearance__choices');
-            for (const mode of ['light', 'dark']) {
+            for (const mode of contract.THEMES) {
                 const label = element('label', 'appearance__choice');
                 const input = element('input'); input.type = 'radio'; input.name = key; input.value = mode;
                 const sample = element('span', `appearance__sample appearance__sample--${mode}`); sample.setAttribute('aria-hidden', 'true');
