@@ -5,7 +5,7 @@ import os from 'node:os';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {tree,gitSelection,requiredJobs,proofJobs,MEDIA_POLICY} from './pages-candidate.mjs';
 import {prepareFrontend,hash,hostingPolicy,materializeFrontendConfig} from './lib/frontend-hosting.mjs';
-import {durableBaseline,loadDurableReceipt,activateRecovery,persistDurableReceipt,RECEIPT_TASK} from './lib/frontend-receipts.mjs';
+import {durableBaseline,loadDurableReceipt,activateRecovery,persistDurableReceipt,findPendingFrontendActivation,RECEIPT_TASK} from './lib/frontend-receipts.mjs';
 import {yaml} from '../node_modules/playwright-core/lib/utilsBundle.js';
 import vm from 'node:vm';
 import {backendReceiptContext,readToolingBackendReceipt,verifyBackendActivation} from './lib/backend-publication.mjs';
@@ -58,7 +58,7 @@ try {
   artifacts.push({id:i+1,name,digest:`sha256:${hash(bytes)}`,size_in_bytes:bytes.length,expired:false,expires_at:new Date(Date.now()+86400000).toISOString(),workflow_run:{id:101,head_sha:sha}});
  }
  const responses={run,jobs,artifacts,sha};const dataFile=path.join(temp,'responses.json');
- const loader=path.join(temp,'http.mjs');fs.writeFileSync(loader,`import fs from 'node:fs';\nconst d=JSON.parse(fs.readFileSync(${JSON.stringify(dataFile)}));\nglobalThis.fetch=async (input,options={})=>{\n if(options.method&&options.method!=='GET')throw Error('Test forbids external writes');\n const u=new URL(input);if(u.hostname!=='api.github.com')throw Error('Unexpected network');\n const p=u.pathname.replace('/repos/bitbiai/Bitbi/','');\n if(p.match(/^actions\\/artifacts\\/\\d+\\/zip$/))return new Response(fs.readFileSync(${JSON.stringify(temp)}+'/'+p.split('/')[2]+'.zip'));\n let r;if(p==='actions/workflows/static.yml/runs')r={workflow_runs:[d.run]};else if(p==='actions/runs/101')r=d.run;else if(p==='actions/runs/101/attempts/1/jobs')r={jobs:d.jobs,total_count:d.jobs.length};else if(p==='actions/runs/101/artifacts')r={artifacts:d.artifacts,total_count:d.artifacts.length};else if(p==='actions/runs/202/attempts/1/jobs')r={jobs:d.repairJobs,total_count:d.repairJobs.length};else if(p==='actions/runs')r={workflow_runs:u.searchParams.get('head_sha')===d.run.head_sha?[d.run]:[],total_count:u.searchParams.get('head_sha')===d.run.head_sha?1:0};else if(p.startsWith('git/ref/heads/'))r={object:{sha:d.sha}};else throw Error('Unmapped HTTP '+p);\n return Response.json(r);};\n`);
+ const loader=path.join(temp,'http.mjs');fs.writeFileSync(loader,`import fs from 'node:fs';\nconst d=JSON.parse(fs.readFileSync(${JSON.stringify(dataFile)}));\nglobalThis.fetch=async (input,options={})=>{\n if(options.method&&options.method!=='GET')throw Error('Test forbids external writes');\n const u=new URL(input);if(u.hostname!=='api.github.com')throw Error('Unexpected network');\n const p=u.pathname.replace('/repos/bitbiai/Bitbi/','');\n if(p.match(/^actions\\/artifacts\\/\\d+\\/zip$/))return new Response(fs.readFileSync(${JSON.stringify(temp)}+'/'+p.split('/')[2]+'.zip'));\n let r;if(p==='actions/workflows/static.yml/runs')r={workflow_runs:d.runs||[d.run]};else if(p==='actions/runs/101')r=d.run;else if(p==='actions/runs/101/attempts/1/jobs')r={jobs:d.jobs,total_count:d.jobs.length};else if(p==='actions/runs/101/artifacts')r={artifacts:d.artifacts,total_count:d.artifacts.length};else if(p==='actions/runs/202/attempts/1/jobs')r={jobs:d.repairJobs,total_count:d.repairJobs.length};else if(p==='actions/runs')r={workflow_runs:u.searchParams.get('head_sha')===d.run.head_sha?[d.run]:[],total_count:u.searchParams.get('head_sha')===d.run.head_sha?1:0};else if(p.startsWith('git/ref/heads/'))r={object:{sha:d.sha}};else throw Error('Unmapped HTTP '+p);\n return Response.json(r);};\n`);
  const env={PATH:process.env.PATH,HOME:temp,TMPDIR:temp,NODE_OPTIONS:`--import=${loader}`,GH_TOKEN:'synthetic-read-only',GITHUB_REPOSITORY:'bitbiai/Bitbi',GITHUB_SHA:sha,CANDIDATE_BASE:base,CANDIDATE_RUN:'101',CANDIDATE_ATTEMPT:'1',CANDIDATE_BRANCH:'prep/workers-static-assets'};
  const cli=(name,command,mutate=()=>{},overrides={},pass=false)=>{
   fs.rmSync('candidate',{recursive:true,force:true});fs.cpSync(candidateBackup,'candidate',{recursive:true});
@@ -263,6 +263,77 @@ try {
  db['actions/jobs/3005'].steps.pop();await assert.rejects(durableBaseline(api,toolingRead));record('tooling baseline rejects missing before-backend candidate reference check','negative');
  db['actions/jobs/3005'].steps.push({name:'Validate candidate references before backend publication',status:'completed',conclusion:'success'});
  db['actions/runs/1005/attempts/1/jobs?per_page=100'].jobs[0].steps.pop();await assert.rejects(durableBaseline(api,toolingRead));record('tooling baseline rejects missing fresh checker acceptance','negative');
+
+ // Post-activation failure: real Git candidate/repair chain and real ZIP
+ // metadata, synthetic platform only. Never upload or pretend the old failed
+ // environment job succeeded; the next protected job accepts the same bytes.
+ git(['checkout','--detach',toolingSha]);fs.appendFileSync('scripts/frontend-release.mjs','\n// Synthetic verification-only continuation\n');
+ git(['add','scripts/frontend-release.mjs']);git(['-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic active publication reconciliation']);
+ const reconciliationSha=git(['rev-parse','HEAD']),previous=addReceipt(6,base,'version-previous','deployment-previous');
+ const activeVersion='version-pending',activeDeployment='deployment-pending',annotation=`bitbi:${sha}:101:1:${hash(JSON.stringify(manifest))}`;
+ const activationRecords=[{type:'wrangler-session',wrangler_version:policy.wranglerVersion,command_line_args:['deploy','--config','/tmp/config','--message',annotation]},{type:'deploy',worker_name:policy.worker,version_id:activeVersion,worker_name_overridden:false}];
+ const archiveDir=fs.mkdtempSync(path.join(temp,'pending-upload-')),archivePath=path.join(archiveDir,'upload.zip');
+ fs.writeFileSync(path.join(archiveDir,'frontend-upload.ndjson'),activationRecords.map(v=>JSON.stringify(v)).join('\n'));
+ execFileSync('zip',['-q',archivePath,'frontend-upload.ndjson'],{cwd:archiveDir});const uploadBytes=fs.readFileSync(archivePath);
+ const failedArtifact={id:89,name:`frontend-failed-upload-${toolingSha}-202-1`,expired:false,expires_at:new Date(Date.now()+86400000).toISOString(),size_in_bytes:uploadBytes.length,digest:`sha256:${hash(uploadBytes)}`,workflow_run:{id:202,head_sha:toolingSha}};
+ const failedJob={id:4202,run_id:202,run_attempt:1,name:'deploy',head_sha:toolingSha,status:'completed',conclusion:'failure',steps:[...['Validate candidate references before backend publication','Apply verified candidate backend prerequisites','Preserve backend activation evidence','Preserve failed frontend upload identity'].map(name=>({name,status:'completed',conclusion:'success'})),{name:'Deploy and verify Cloudflare frontend',status:'completed',conclusion:'failure'},{name:'Record durable frontend receipt',status:'completed',conclusion:'skipped'}]};
+ const pendingSource={...run,head_branch:'main'},failedRun={...pendingSource,id:202,head_sha:toolingSha,conclusion:'failure'};
+ const chainedData={...structuredClone(responses),sha:reconciliationSha,run:pendingSource,runs:[failedRun,pendingSource]};fs.writeFileSync(dataFile,JSON.stringify(chainedData));
+ const chainedOutput=path.join(temp,'chained-selection-output'),chainedEnv=path.join(temp,'chained-selection-env');
+ const chainedSelection=spawnSync(process.execPath,['scripts/select-ci-tests.mjs','--base',base,'--head',reconciliationSha,'--github-output'],{cwd:fixture,env:{...env,GITHUB_ACTIONS:'true',GITHUB_REF:'refs/heads/main',GITHUB_SHA:reconciliationSha,GITHUB_RUN_ID:'303',GITHUB_RUN_ATTEMPT:'1',GITHUB_OUTPUT:chainedOutput,GITHUB_ENV:chainedEnv},encoding:'utf8',timeout:30000});
+ assert.equal(chainedSelection.status,0,chainedSelection.stderr);const chainedLines=fs.readFileSync(chainedOutput,'utf8').split('\n');
+ for(const line of ['repair_source_sha='+sha,'repair_source_run=101','workers=false','auth=false','full=false'])assert(chainedLines.includes(line),line);
+ assert(!chainedLines.includes('repair_source_run=202'),'Repair-only run has no new product acceptance');record('actual chained CI selector keeps original candidate; failed tooling run is not a replacement candidate');
+ const pendingState={head:reconciliationSha,previous:structuredClone(previous),source:pendingSource,sourceJobs:structuredClone(jobs),sourceArtifacts:structuredClone(artifacts),failedRun,failedJob,failedArtifact,failedChecks:[{name:'release-compatibility',head_sha:toolingSha,status:'completed',conclusion:'success',steps:toolingSteps.map(name=>({name,status:'completed',conclusion:'success'}))}],version:{id:activeVersion,annotations:{'workers/message':annotation}},active:{id:activeDeployment,versions:[{version_id:activeVersion,percentage:100}]},domains};
+ const pendingEnv={GITHUB_REPOSITORY:'bitbiai/Bitbi',GITHUB_REF:'refs/heads/main',GITHUB_SHA:reconciliationSha,GITHUB_RUN_ID:'303',CLOUDFLARE_ACCOUNT_ID:account,GH_TOKEN:'synthetic'};
+ function pendingOptions(state) {
+  const api=async endpoint=>{
+   if(endpoint.includes(`task=${RECEIPT_TASK}`))return [{id:6}];
+   if(endpoint===`deployments?environment=${policy.productionEnvironment}&per_page=100`)return [{id:2202,task:'deploy',sha:toolingSha,environment:policy.productionEnvironment}];
+   if(endpoint==='git/ref/heads/main')return {object:{sha:state.head}};
+   if(endpoint==='deployments/2202')return {id:2202,task:'deploy',sha:toolingSha,environment:policy.productionEnvironment};
+   if(endpoint==='deployments/2202/statuses')return [{state:'failure',log_url:'https://github.com/bitbiai/Bitbi/actions/runs/202/job/4202'}];
+   if(endpoint==='actions/runs/101')return state.source;
+   if(endpoint==='actions/runs/101/attempts/1/jobs?per_page=100')return {jobs:state.sourceJobs};
+   if(endpoint==='actions/runs/101/artifacts?per_page=100')return {artifacts:state.sourceArtifacts};
+   if(endpoint===`actions/runs?head_sha=${sha}&per_page=100`)return {workflow_runs:[state.source]};
+   if(endpoint==='actions/runs/202')return state.failedRun;
+   if(endpoint==='actions/jobs/4202')return state.failedJob;
+   if(endpoint==='actions/runs/202/attempts/1/jobs?per_page=100')return {jobs:state.failedChecks};
+   if(endpoint==='actions/runs/202/artifacts?per_page=100')return {artifacts:[state.failedArtifact]};
+   assert(endpoint in db,'Unexpected reconciliation read '+endpoint);return structuredClone(db[endpoint]);
+  };
+  const read=async endpoint=>{if(endpoint==='workers/domains')return state.domains;if(endpoint.endsWith('/deployments'))return {deployments:[state.active]};assert(endpoint.endsWith('/'+activeVersion));return state.version;};
+  const download=async(input,options)=>{assert.equal(options.method,undefined,'Reconciliation never mutates production');const id=String(input).match(/artifacts\/(\d+)\/zip$/)?.[1];assert(['1','89'].includes(id));return new Response(id==='89'?uploadBytes:fs.readFileSync(path.join(temp,'1.zip')));};
+  return {api,read,download,env:pendingEnv,baseline:{id:6,receipt:state.previous},manifest};
+ }
+ const pending=await findPendingFrontendActivation(pendingOptions(structuredClone(pendingState)));
+ assert.equal(pending.receipt.versionId,activeVersion);assert.equal(pending.receipt.deploymentId,activeDeployment);assert.equal(pending.baseline.sha,base);assert.equal(pending.reconciliation.publicationSha,toolingSha);assert.equal(pending.reconciliation.run,'202');
+ const sameHeadState=structuredClone(pendingState);sameHeadState.head=toolingSha;const sameHeadOptions=pendingOptions(sameHeadState);sameHeadOptions.env={...pendingEnv,GITHUB_SHA:toolingSha};
+ assert.equal((await findPendingFrontendActivation(sameHeadOptions)).reconciliation.run,'202','Read-only diagnosis recognizes prior failed activation at current main');
+ await assert.rejects(findPendingFrontendActivation({...sameHeadOptions,env:{...sameHeadOptions.env,GITHUB_RUN_ID:'202'}}));record('same-head prior activation recognized; failed run cannot authorize its own reconciliation');
+ const pendingGate=pendingOptions(structuredClone(pendingState)),oldBaseline=await durableBaseline(pendingGate.api,pendingGate.read,pendingGate);
+ assert.equal(oldBaseline.sha,base,'Active but unaccepted candidate cannot become release baseline');assert.equal(oldBaseline.pendingReconciliation.versionId,activeVersion);
+ record('protected post-activation reconciliation retains exact candidate and previous accepted baseline without upload');
+ for(const [name,mutate] of [
+  ['wrong active version',d=>d.active.versions[0].version_id='foreign'],['mixed activation',d=>d.active.versions[0].percentage=50],
+  ['wrong package identity',d=>d.version.annotations['workers/message']=annotation.replace(hash(JSON.stringify(manifest)),'0'.repeat(64))],
+  ['wrong failed-upload digest',d=>d.failedArtifact.digest='sha256:'+'0'.repeat(64)],['expired upload',d=>d.failedArtifact.expired=true],
+  ['wrong artifact run',d=>d.failedArtifact.workflow_run.id=303],['missing protected job',d=>d.failedJob.name='unprotected'],
+  ['wrong protected head',d=>d.failedJob.head_sha=sha],['failed repair acceptance',d=>d.failedChecks[0].conclusion='failure'],
+  ['missing original required suite',d=>d.sourceJobs.shift()],['failed original required suite',d=>d.sourceJobs[0].conclusion='failure'],
+  ['wrong original artifact digest',d=>d.sourceArtifacts[0].digest='sha256:'+'0'.repeat(64)],
+  ['superseded repair',d=>d.head=sha],['stale prior baseline',d=>d.previous.sha=sha],
+  ['missing domain',d=>d.domains.pop()],['old failure relabelled success',d=>d.failedJob.conclusion='success'],
+ ]) {const d=structuredClone(pendingState);mutate(d);await assert.rejects(findPendingFrontendActivation(pendingOptions(d)));record('pending activation rejects '+name,'negative');}
+ const accepted=addReceipt(7,sha,activeVersion,activeDeployment);accepted.publicationSha=reconciliationSha;accepted.releaseRepair={kind:'tooling',sourceSha:sha,publicationSha:reconciliationSha};accepted.activationReconciliation=pending.reconciliation;accepted.appearanceAcceptance={verified:['index.html','de/index.html'],revision:1};
+ db['deployments/7'].payload={receipt:accepted,receiptSHA256:hash(JSON.stringify(accepted))};db['deployments/2007'].sha=reconciliationSha;db['actions/runs/1007'].head_sha=reconciliationSha;db['actions/jobs/3007'].head_sha=reconciliationSha;
+ db['actions/jobs/3007'].steps.push(...['Apply verified candidate backend prerequisites','Validate candidate references before backend publication'].map(name=>({name,status:'completed',conclusion:'success'})));
+ db['actions/runs/1007/attempts/1/jobs?per_page=100']={jobs:[{...structuredClone(pendingState.failedChecks[0]),head_sha:reconciliationSha}]};
+ const durableState=structuredClone(pendingState);durableState.failedArtifact.expired=true;
+ assert.equal((await loadDurableReceipt(7,pendingOptions(durableState).api)).publicationSha,reconciliationSha);
+ durableState.failedJob.conclusion='success';await assert.rejects(loadDurableReceipt(7,pendingOptions(durableState).api));
+ record('new protected success records unchanged activation durably; old failed job stays failed and archive expiry cannot erase acceptance');
 
 } finally {
  process.chdir(root);if(environment.CLOUDFLARE_ACCOUNT_ID===undefined)delete process.env.CLOUDFLARE_ACCOUNT_ID;else process.env.CLOUDFLARE_ACCOUNT_ID=environment.CLOUDFLARE_ACCOUNT_ID;
