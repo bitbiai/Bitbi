@@ -668,3 +668,12 @@ schema and both recovered originals, then records new acceptance without repeati
 migration, deployment or recovery. Original candidate SHA/run/attempt/proofs stay
 unchanged; fresh backend acceptance is included in the existing durable frontend
 receipt. Authenticated D1/R2 readback is not an authenticated browser visibility test.
+
+Run 35756067520 recorded that fresh receipt, then its second read-only
+verification lost the fetch operation and nested transport cause behind the generic
+`fetch failed` message. Backend receipt reads now retry only bounded transient
+transport/service failures and fail with redacted provider, operation, transport
+type and safe cause code. Authorization, identity, archive digest and content
+failures remain immediate. `test-frontend-review.mjs` exercises recovery, exhausted
+transport diagnostics and a non-retried authorization countercontrol through the
+actual release helper; `test:static-deploy-safety` remains the final caller.

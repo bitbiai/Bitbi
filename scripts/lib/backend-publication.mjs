@@ -16,7 +16,51 @@ import {api,collection,REPOSITORY} from '../pages-candidate.mjs';
 import {repairDelta,repairKind,verifyRepairSource} from './media-repair-source.mjs';
 const worker='bitbi-auth';
 const backendEnv=()=>({...process.env,CLOUDFLARE_API_TOKEN:process.env.CF_BACKEND_DEPLOY_TOKEN||process.env.CLOUDFLARE_API_TOKEN});
-const readBackend=endpoint=>cloudflareRead(endpoint,backendEnv());
+const pause=milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds));
+function safeReadCause(error) {
+  const nested=error?.cause;
+  const type=String(nested?.name||error?.name||'Error').replace(/[^A-Za-z0-9_-]/g,'').slice(0,64)||'Error';
+  const rawCode=String(nested?.code||error?.code||'');
+  const code=/^[A-Z0-9_-]{1,64}$/.test(rawCode)?rawCode:null;
+  return {type,code};
+}
+function transientReadFailure(error) {
+  const {type,code}=safeReadCause(error),message=String(error?.message||'');
+  return ['AbortError','TimeoutError','TypeError'].includes(error?.name)||['AbortError','TimeoutError'].includes(type)
+    || /^(?:ECONNRESET|ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|UND_ERR_[A-Z0-9_]+)$/.test(code||'')
+    || /\b(?:429|500|502|503|504)\b/.test(message);
+}
+// Release readback is idempotent. Retry only transient transport/service
+// failures and expose a bounded, sanitized operation/cause if all reads fail.
+export async function verifiedRead({provider,operation,action,attempts=3,wait=pause}) {
+  assert(/^(?:cloudflare|github)$/.test(provider),'Unknown read provider');
+  assert(/^[a-z0-9-]+$/.test(operation),'Unsafe read operation label');
+  assert(Number.isSafeInteger(attempts)&&attempts>=1&&attempts<=3,'Unsafe read retry count');
+  let last;
+  for(let attempt=1;attempt<=attempts;attempt++) {
+    try{return await action();}
+    catch(error) {
+      last=error;
+      if(!transientReadFailure(error))throw error;
+      if(attempt<attempts)await wait(attempt*250);
+    }
+  }
+  const cause=safeReadCause(last);
+  throw new Error(`Read verification failed: provider=${provider} operation=${operation} transport=${cause.type}${cause.code?` code=${cause.code}`:''} attempts=${attempts}`,{cause:last});
+}
+function cloudflareOperation(endpoint) {
+  if(endpoint.includes('/deployments'))return 'worker-deployment';
+  if(endpoint.includes('/versions/'))return 'worker-version';
+  if(endpoint.includes('/queues'))return 'queue-configuration';
+  if(endpoint.includes('/schedules'))return 'worker-schedules';
+  if(endpoint.includes('/routes'))return 'worker-routes';
+  if(endpoint.includes('/subdomain'))return 'worker-subdomain';
+  if(endpoint.includes('/script-settings'))return 'worker-settings';
+  if(endpoint.includes('/containers/'))return 'container-readiness';
+  return 'worker-configuration';
+}
+const readBackend=endpoint=>verifiedRead({provider:'cloudflare',operation:cloudflareOperation(endpoint),action:()=>cloudflareRead(endpoint,backendEnv())});
+const readGithub=(operation,action)=>verifiedRead({provider:'github',operation,action});
 // Do not emit Wrangler's binding table or arbitrary API response bodies.
 // Preserve actionable, allowlisted diagnostics even when the command fails.
 export function backendDiagnostic(error,args) {
@@ -83,8 +127,9 @@ export async function activateAuthVersion({sha,mediaSourceSha=sha,secretFile,ass
 }
 export async function verifyAuthBundle(digest,read=()=>fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${script}/content/v2`,{headers:{Authorization:`Bearer ${backendEnv().CLOUDFLARE_API_TOKEN}`},signal:AbortSignal.timeout(20000)}),script=worker) {
   assert(/^[a-f0-9]{64}$/.test(digest||''),'Missing Auth bundle identity');
-  const response=await read();assert(response.ok,`Auth bundle read failed (${response.status})`);
-  const modules=await response.formData();assert.deepEqual([...modules.keys()],['index.js'],'Unexpected Auth modules');
+  const modules=await verifiedRead({provider:'cloudflare',operation:'worker-bundle',action:async()=>{
+    const response=await read();assert(response.ok,`Auth bundle read failed (${response.status})`);return response.formData();
+  }});assert.deepEqual([...modules.keys()],['index.js'],'Unexpected Auth modules');
   const module=modules.get('index.js');assert(module&&typeof module!=='string'&&module.size<=10*1024*1024,'Invalid Auth module');
   assert.equal(createHash('sha256').update(Buffer.from(await module.arrayBuffer())).digest('hex'),digest,'Active Auth bytes differ from candidate build');
 }
@@ -100,16 +145,20 @@ export function backendD1Diagnostic(status,body) {
   [401,403].includes(status)?'authorization':errors.some(e=>/SQLITE_ERROR|no such column|no such table|syntax error/i.test(String(e.message)))?'sql':status===429?'rate_limit':status>=500?'service':'query'};
 }
 export async function query(db,sql,params=[]) {
-  const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/d1/database/${db}/query`,{method:'POST',headers:{Authorization:`Bearer ${backendEnv().CLOUDFLARE_API_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({sql,params}),signal:AbortSignal.timeout(20000)});
-  const b=await r.json().catch(()=>null);
-  assert(r.ok&&b?.success&&b.result?.[0]?.success,`Backend D1 verification failed: ${JSON.stringify(backendD1Diagnostic(r.status,b))}`);return b.result[0].results;
+  return verifiedRead({provider:'cloudflare',operation:'d1-read',action:async()=>{
+    const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/d1/database/${db}/query`,{method:'POST',headers:{Authorization:`Bearer ${backendEnv().CLOUDFLARE_API_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({sql,params}),signal:AbortSignal.timeout(20000)});
+    const b=await r.json().catch(()=>null);
+    assert(r.ok&&b?.success&&b.result?.[0]?.success,`Backend D1 verification failed: ${JSON.stringify(backendD1Diagnostic(r.status,b))}`);return b.result[0].results;
+  }});
 }
 async function imageDeliveryObject(key) {
   assert(/^users\/[a-zA-Z0-9-]+\//.test(key)&&!key.includes('..'),'Unsafe recovered image key');
-  const response=await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/r2/buckets/bitbi-user-images/objects/${key.split('/').map(encodeURIComponent).join('/')}`,{headers:{Authorization:`Bearer ${backendEnv().CLOUDFLARE_API_TOKEN}`},redirect:'error',signal:AbortSignal.timeout(30000)});
-  assert(response.ok,`Recovered image verification: R2 read failed (${response.status})`);
-  const {readImage25Bytes}=await import('../../workers/shared/gpt-image-25.mjs');
-  return Buffer.from(await readImage25Bytes(response,32*1024*1024));
+  return verifiedRead({provider:'cloudflare',operation:'r2-original-read',action:async()=>{
+    const response=await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/r2/buckets/bitbi-user-images/objects/${key.split('/').map(encodeURIComponent).join('/')}`,{headers:{Authorization:`Bearer ${backendEnv().CLOUDFLARE_API_TOKEN}`},redirect:'error',signal:AbortSignal.timeout(30000)});
+    assert(response.ok,`Recovered image verification: R2 read failed (${response.status})`);
+    const {readImage25Bytes}=await import('../../workers/shared/gpt-image-25.mjs');
+    return Buffer.from(await readImage25Bytes(response,32*1024*1024));
+  }});
 }
 function context() {
   assert.equal(process.env.GITHUB_ACTIONS,'true');assert.equal(process.env.GITHUB_JOB,'deploy');assert.equal(process.env.GITHUB_REF,'refs/heads/main');
@@ -120,7 +169,7 @@ function context() {
   const config=JSON.parse(fs.readFileSync('workers/auth/wrangler.jsonc'));
   return {sha,base,plan,config,db:config.d1_databases.find(b=>b.binding==='DB').database_id,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT};
 }
-async function current(sha) {assert.equal((await api('git/ref/heads/main')).object.sha,sha,'Superseded backend candidate');}
+async function current(sha) {assert.equal((await readGithub('main-ref',()=>api('git/ref/heads/main'))).object.sha,sha,'Superseded backend candidate');}
 async function active() {
   const deployment=(await readBackend(`workers/scripts/${worker}/deployments`)).deployments[0];
   assert(deployment?.versions?.length===1&&deployment.versions[0].percentage===100,'Ambiguous Auth traffic');
@@ -176,18 +225,20 @@ export function backendReceiptContext(c,env=process.env) {
 }
 export async function readToolingBackendReceipt(c,env=process.env,{list=collection,download=fetch,verify=verifyRepairSource}={}) {
   assert(c.publicationSha,'Not a tooling receipt continuation');
-  await verify(env,{complete:true});
-  const jobs=await list(`actions/runs/${c.runId}/attempts/${c.attempt}/jobs`,'jobs');
+  await readGithub('repair-source',()=>verify(env,{complete:true}));
+  const jobs=await readGithub('backend-receipt-jobs',()=>list(`actions/runs/${c.runId}/attempts/${c.attempt}/jobs`,'jobs'));
   const deploys=jobs.filter(j=>j.name==='deploy');assert.equal(deploys.length,1,'Missing/ambiguous source backend publication');
   const job=deploys[0];assert.equal(job.head_sha,c.sha);assert.equal(String(job.run_id),c.runId);assert.equal(String(job.run_attempt),c.attempt);assert.equal(job.status,'completed');
   for(const name of ['Apply verified candidate backend prerequisites','Preserve backend activation evidence'])assert(job.steps.some(s=>s.name===name&&s.status==='completed'&&s.conclusion==='success'),`Missing backend receipt evidence: ${name}`);
-  const artifacts=(await list(`actions/runs/${c.runId}/artifacts`,'artifacts')).filter(a=>a.name===`backend-receipt-${c.sha}-${c.runId}-${c.attempt}`);
+  const artifacts=(await readGithub('backend-receipt-artifacts',()=>list(`actions/runs/${c.runId}/artifacts`,'artifacts'))).filter(a=>a.name===`backend-receipt-${c.sha}-${c.runId}-${c.attempt}`);
   assert.equal(artifacts.length,1,'Missing/ambiguous source backend receipt');const artifact=artifacts[0];
   assert.equal(artifact.expired,false);assert(Date.parse(artifact.expires_at)>Date.now(),'Expired backend receipt');
   assert.equal(String(artifact.workflow_run?.id),c.runId);assert.equal(artifact.workflow_run?.head_sha,c.sha);
   assert(/^sha256:[a-f0-9]{64}$/.test(artifact.digest||''),'Missing backend archive digest');assert(artifact.size_in_bytes>0&&artifact.size_in_bytes<=65536,'Oversized backend receipt');
-  const response=await download(`https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${artifact.id}/zip`,{headers:{Authorization:`Bearer ${env.GH_TOKEN}`},signal:AbortSignal.timeout(30000)});
-  assert(response.ok,'Cannot download backend receipt');const bytes=Buffer.from(await response.arrayBuffer());
+  const bytes=await readGithub('backend-receipt-download',async()=>{
+    const response=await download(`https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${artifact.id}/zip`,{headers:{Authorization:`Bearer ${env.GH_TOKEN}`},signal:AbortSignal.timeout(30000)});
+    assert(response.ok,`Cannot download backend receipt (${response.status})`);return Buffer.from(await response.arrayBuffer());
+  });
   assert.equal(bytes.length,artifact.size_in_bytes);assert.equal(`sha256:${createHash('sha256').update(bytes).digest('hex')}`,artifact.digest,'Backend receipt archive digest mismatch');
   const json=execFileSync('python3',['-I','-c',`import sys,io,zipfile,stat
 with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:
@@ -214,12 +265,12 @@ function imageAcceptanceRepair(c) {
 export async function findImageDeliveryActivation(c,states,{read=api}={}) {
   const matches=[];
   assert.equal(states.length,2);assert.deepEqual(states.map(s=>s.worker).sort(),['bitbi-ai','bitbi-auth']);
-  for(const d of (await read('deployments?environment=cloudflare-static-production&per_page=100')).filter(d=>d.task==='deploy'&&d.sha===c.sha)) {
-    const statuses=await read(`deployments/${d.id}/statuses`),log=statuses.find(s=>s.state==='failure')?.log_url?.match(/^https:\/\/github\.com\/bitbiai\/Bitbi\/actions\/runs\/(\d+)\/job\/(\d+)$/);
+  for(const d of (await readGithub('deployment-history',()=>read('deployments?environment=cloudflare-static-production&per_page=100'))).filter(d=>d.task==='deploy'&&d.sha===c.sha)) {
+    const statuses=await readGithub('deployment-status',()=>read(`deployments/${d.id}/statuses`)),log=statuses.find(s=>s.state==='failure')?.log_url?.match(/^https:\/\/github\.com\/bitbiai\/Bitbi\/actions\/runs\/(\d+)\/job\/(\d+)$/);
     if(!log||log[1]===String(process.env.GITHUB_RUN_ID))continue;
-    const job=await read(`actions/jobs/${log[2]}`),step=job.steps?.find(s=>s.name==='Apply verified candidate backend prerequisites');
+    const job=await readGithub('activation-job',()=>read(`actions/jobs/${log[2]}`)),step=job.steps?.find(s=>s.name==='Apply verified candidate backend prerequisites');
     if(!step||!states.every(s=>Date.parse(s.deployment.created_on)>=Date.parse(step.started_at)&&Date.parse(s.deployment.created_on)<=Date.parse(step.completed_at)))continue;
-    const run=await read(`actions/runs/${log[1]}`);
+    const run=await readGithub('activation-run',()=>read(`actions/runs/${log[1]}`));
     assert.equal(d.environment,'cloudflare-static-production');assert.equal(run.repository?.full_name,REPOSITORY);assert.equal(run.head_repository?.full_name,REPOSITORY);
     assert.equal(String(run.id),log[1]);assert.equal(run.path,'.github/workflows/static.yml');assert.equal(run.head_branch,'main');assert(['push','workflow_dispatch'].includes(run.event));
     assert.equal(run.head_sha,c.sha);assert.equal(run.status,'completed');assert.equal(run.conclusion,'failure');
@@ -271,7 +322,7 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   const publication=context();await current(publication.sha);let c=backendReceiptContext(publication);
   const receipt=JSON.parse(fs.readFileSync(file));
   if(imageAcceptanceRepair(c)) {
-    await verifyRepairSource(process.env,{complete:true});
+    await readGithub('repair-source',()=>verifyRepairSource(process.env,{complete:true}));
     assert.equal(receipt.sourceTree,execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim());
     verifyImageAcceptanceReceipt(receipt,c,publication,await findImageDeliveryActivation(c,await imageActivationStates()));
     c={...c,runId:publication.runId,attempt:publication.attempt};
@@ -299,7 +350,7 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   for(const [name,value] of [['PRIVATE_MEDIA_SOURCE_SHA',receipt.mediaSourceSha||c.sha]])assert(state.version.resources.bindings.some(b=>b.name===name&&b.text===value),'Wrong active media source');
   assert(state.version.resources.bindings.some(b=>b.name==='PRIVATE_MEDIA_PROCESSOR'&&b.service==='bitbi-private-media'),'Missing media service binding');
   assert(state.version.resources.bindings.some(b=>b.name==='PRIVATE_MEDIA_PROCESSOR_SECRET'&&b.type==='secret_text'),'Missing private processor credential');
-  const processor=await api(`contents/services/homepage-ffmpeg-processor/processor.mjs?ref=${c.sha}`);assert.equal(processor.sha,execFileSync('git',['rev-parse',`${c.sha}:services/homepage-ffmpeg-processor/processor.mjs`],{encoding:'utf8'}).trim());
+  const processor=await readGithub('processor-source',()=>api(`contents/services/homepage-ffmpeg-processor/processor.mjs?ref=${c.sha}`));assert.equal(processor.sha,execFileSync('git',['rev-parse',`${c.sha}:services/homepage-ffmpeg-processor/processor.mjs`],{encoding:'utf8'}).trim());
   verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});
   // Ephemeral caller binding only; the authenticated stored receipt is intact.
   return c.publicationSha?{...receipt,publicationSha:c.publicationSha}:receipt;

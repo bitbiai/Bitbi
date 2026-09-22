@@ -8,11 +8,30 @@ import {prepareFrontend,hash,hostingPolicy,materializeFrontendConfig} from './li
 import {durableBaseline,loadDurableReceipt,activateRecovery,persistDurableReceipt,findPendingFrontendActivation,RECEIPT_TASK} from './lib/frontend-receipts.mjs';
 import {yaml} from '../node_modules/playwright-core/lib/utilsBundle.js';
 import vm from 'node:vm';
-import {backendReceiptContext,readToolingBackendReceipt,verifyBackendActivation} from './lib/backend-publication.mjs';
+import {backendReceiptContext,readToolingBackendReceipt,verifiedRead,verifyBackendActivation} from './lib/backend-publication.mjs';
 const root=process.cwd(),temp=fs.mkdtempSync(path.join(process.env.TMPDIR||os.tmpdir(),'bitbi-hosting-review-'));
 const results=[];const record=(name,kind='positive')=>results.push({name,kind,passed:true});
 const environment={...process.env};
 try {
+ {
+  let calls=0;const waits=[];
+  const value=await verifiedRead({provider:'cloudflare',operation:'worker-settings',wait:async milliseconds=>waits.push(milliseconds),action:async()=>{
+   calls++;if(calls<3)throw new TypeError('fetch failed',{cause:Object.assign(new Error('private endpoint and credential detail'),{name:'ConnectTimeoutError',code:'UND_ERR_CONNECT_TIMEOUT'})});return 'recovered';
+  }});
+  assert.equal(value,'recovered');assert.equal(calls,3);assert.deepEqual(waits,[250,500]);
+  calls=0;
+  await assert.rejects(verifiedRead({provider:'github',operation:'backend-receipt-download',wait:async()=>{},action:async()=>{
+   calls++;throw new TypeError('fetch failed SECRET_VALUE',{cause:Object.assign(new Error('https://private.invalid/TOKEN'),{name:'SocketError',code:'UND_ERR_SOCKET'})});
+  }}),error=>{
+   assert.equal(error.message,'Read verification failed: provider=github operation=backend-receipt-download transport=SocketError code=UND_ERR_SOCKET attempts=3');
+   assert(!error.message.includes('SECRET_VALUE')&&!error.message.includes('private.invalid'));return true;
+  });
+  assert.equal(calls,3);
+  calls=0;
+  await assert.rejects(verifiedRead({provider:'cloudflare',operation:'d1-read',wait:async()=>{},action:async()=>{calls++;throw Error('Backend D1 verification failed: {"http":403,"category":"authorization"}');}}),/authorization/);
+  assert.equal(calls,1,'Authorization failures must not be retried');
+  record('backend receipt reads retry transient transport only and expose sanitized provider/operation/cause');
+ }
  // Real CLI, real Git fixture and real ZIPs; only HTTP responses are synthetic.
  const fixture=path.join(temp,'checkout');fs.mkdirSync(fixture);
  for(const file of ['scripts','frontend','config/static-hosting.json','workers/contact/package-lock.json']) {
