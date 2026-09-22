@@ -5,6 +5,8 @@ async function setup(page,baseURL,{gate=0}={}){
  const DB=new SqliteD1Database();applyAuthMigrations(DB);
  const catalog=await import('../js/shared/model-pricing-catalog.mjs'),tariff=await import('../workers/auth/src/lib/model-tariffs.js'),math=await import('../js/shared/model-tariff.mjs');
  const env={DB}, calls=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const project={id:'a'.repeat(32),title:'Pricing fixture',locale:'en'},node={id:'b'.repeat(32),project_id:project.id,type:'video_generation',title:'H3 pricing',model_id:'minimax/h3',x:80,y:80,config:{prompt:'A synthetic scene',duration:5,resolution:'768P',aspectRatio:'16:9'},content:{},output:null};
+ const canvasModels=(await import('../js/shared/canvas-model-contract.mjs')).listCanvasModelsForRole('admin');
  await page.addInitScript(()=>localStorage.setItem('bitbi_cookie_consent',JSON.stringify({v:'1',ts:Date.now(),necessary:true,analytics:false,marketing:false})));
  const evidence=await import('../workers/auth/src/lib/model-provider-prices.js');
  const response=async()=>{const state=await tariff.getModelTariff(env);return {...state,models:catalog.modelPricingCatalog().map(model=>{const {price,basis}=catalog.modelFactoryPrice(model.id);return{...model,pricingControls:catalog.modelPricingControls(model),factory:price,providerEvidence:evidence.providerPriceEvidence(model,price),effective:math.applyModelTariff(price,state,basis),basis};})};};
@@ -17,16 +19,93 @@ async function setup(page,baseURL,{gate=0}={}){
    if(url.pathname==='/api/me')data={loggedIn:!!user,user};
    else if(url.pathname==='/api/admin/me')return route.fulfill({status:gate||200,json:{ok:!gate,user}});
    else if(url.pathname==='/api/model-pricing')data={ok:true,...await tariff.getModelTariff(env)};
+   else if(url.pathname==='/api/account/canvas/projects')data={ok:true,data:{projects:[project]}};
+   else if(url.pathname==='/api/account/canvas/models')data={ok:true,data:{models:canvasModels,organizations:[],access:{role:'admin',is_admin:true}}};
+   else if(url.pathname===`/api/account/canvas/projects/${project.id}`)data={ok:true,data:{project,nodes:[node],edges:[],runs:[]}};
+   else if(url.pathname===`/api/account/canvas/projects/${project.id}/nodes/${node.id}/run`)data={ok:true,data:{run:{id:'c'.repeat(32),node_id:node.id,status:'succeeded',output:null}}};
+   else if(url.pathname.startsWith('/api/account/credits-dashboard'))data={ok:true,data:{dashboard:{balance:{totalCredits:1000}}}};
    else if(url.pathname==='/api/admin/ai/model-pricing'&&req.method()==='GET')data={ok:true,...await response()};
    else if(url.pathname==='/api/admin/ai/model-pricing'&&req.method()==='PATCH')data={ok:true,...await tariff.changeModelTariff(env,user,req.postDataJSON())};
    else if(url.pathname==='/api/admin/ai/model-pricing/quote'){const {modelId,settings}=req.postDataJSON();data={ok:true,price:await tariff.quoteModelTariff(env,{modelId,input:settings})};}
    return route.fulfill({json:data});
   }catch(e){return route.fulfill({status:e.status||400,json:{ok:false,code:e.code,error:e.message}});}
  });
- return {calls,errors,DB,tariff,env};
+ return {calls,errors,DB,tariff,env,project,node};
 }
 const root=page=>page.locator('#sectionModelPricing');
 async function open(page){await page.goto('/admin/index.html#model-pricing');await expect(root(page).locator('.model-pricing__row').first()).toBeVisible();}
+async function pricingLifecycle(page){
+ const catalog=await import('../js/shared/model-pricing-catalog.mjs'),math=await import('../js/shared/model-tariff.mjs');
+ const {basis}=catalog.modelFactoryPrice('minimax/h3',{duration:5,resolution:'768P'});
+ const snapshot={revision:1,rules:{[math.tariffKey('minimax/h3',basis.configuration)]:{rates:{second:9}}}};
+ await page.route('**/pricing-lifecycle.html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="en"><title>Controlled pricing lifecycle</title></html>'}));
+ for(const order of ['me-first','pricing-first']){
+  await page.goto('/pricing-lifecycle.html');
+  const observed=await page.evaluate(async({snapshot,order})=>{
+   const original=window.fetch,requests=[];
+   window.fetch=(input,options={})=>{
+    const path=new URL(input,location.href).pathname;
+    if(!['/api/me','/api/model-pricing'].includes(path))return original(input,options);
+    // Deliberately allow late transport responses after abort: the client must
+    // fence them itself. Every release below is explicit, with no timer/retry.
+    return new Promise(resolve=>requests.push({path,signal:options.signal,respond:resolve,resolve:(body,status=200)=>resolve(new Response(JSON.stringify(body),{status}))}));
+   };
+   const client=await import('/js/shared/model-pricing-client.js'),auth=await import('/js/shared/auth-state.js'),math=await import('/js/shared/model-tariff.mjs');
+   const {calculateAiVideoCreditCost}=await import('/js/shared/ai-model-pricing.mjs');
+   const facts=()=>({credits:calculateAiVideoCreditCost('minimax/h3',{duration:5,resolution:'768P'}).credits,revision:client.modelPricingRequestHeaders()['X-Bitbi-Tariff-Revision'],snapshot:math.getBrowserTariff()?.revision??null});
+   const priceRequests=()=>requests.filter(r=>r.path==='/api/model-pricing');
+   const user={id:'lifecycle-user',role:'user',credits:100};
+   const me=auth.initAuth(),waiting=client.refreshModelPricing().then(facts),first=priceRequests()[0];
+   if(order==='pricing-first'){first.resolve(snapshot);await waiting;}
+   requests.find(r=>r.path==='/api/me').resolve({loggedIn:true,user});await me;
+   const current=client.refreshModelPricing();first.resolve(snapshot);priceRequests().at(-1).resolve(snapshot);
+   await current;const initial=await waiting;
+   const pending=client.refreshModelPricing(),request=priceRequests().at(-1),count=priceRequests().length;
+   auth.patchAuthUser({credits:90,displayName:'Updated profile'});
+   const duringUpdate={...facts(),requests:priceRequests().length-count,aborted:request.signal.aborted};
+   const sameMe=auth.initAuth();requests.filter(r=>r.path==='/api/me').at(-1).resolve({loggedIn:true,user:{...user,credits:80}});await sameMe;
+   request.resolve(snapshot);priceRequests().at(-1).resolve(snapshot);await client.refreshModelPricing();await pending;
+   const afterUpdate=facts();
+   const superseded=client.refreshModelPricing().then(facts),old=priceRequests().at(-1);
+   const otherMe=auth.initAuth();requests.filter(r=>r.path==='/api/me').at(-1).resolve({loggedIn:true,user:{id:'other-user',role:'user'}});await otherMe;
+   old.resolve({...snapshot,revision:99});const replacement=client.refreshModelPricing();priceRequests().at(-1).resolve(snapshot);await replacement;
+   const afterSwitch=await superseded;
+   const stale=client.refreshModelPricing();priceRequests().at(-1).resolve({revision:0,rules:{}});await stale;const afterStale=facts();
+   const unavailable=client.refreshModelPricing();priceRequests().at(-1).resolve({},503);await unavailable;const afterNetwork=facts();
+   const denied=[];
+   for(const status of [401,403,428]){
+    const deniedWait=client.refreshModelPricing();priceRequests().at(-1).resolve({},status);await deniedWait;denied.push(facts());
+    const revalidate=auth.initAuth();requests.filter(r=>r.path==='/api/me').at(-1).resolve({loggedIn:true,user:{id:'other-user',role:'user'}});await revalidate;
+    const restored=client.refreshModelPricing();priceRequests().at(-1).resolve(snapshot);await restored;
+   }
+   const logoutWait=client.refreshModelPricing(),late=priceRequests().at(-1);
+   client.modelPricingSession('/logout',{ok:true},{});late.resolve({...snapshot,revision:99});await logoutWait;
+   const afterLogout={...facts(),aborted:late.signal.aborted};
+   // Logout clears the previous session; a NEW public retail read still works.
+   const guestRead=client.refreshModelPricing();priceRequests().at(-1).resolve(snapshot);await guestRead;const afterGuestRead=facts();
+   const relogin=auth.initAuth();requests.filter(r=>r.path==='/api/me').at(-1).resolve({loggedIn:true,user});await relogin;
+   const accepted=client.refreshModelPricing();priceRequests().at(-1).resolve(snapshot);await accepted;
+   let bodyReady,finishBody;const bodyStarted=new Promise(resolve=>{bodyReady=resolve;});
+   const lateBody=client.refreshModelPricing();priceRequests().at(-1).respond({ok:true,status:200,json:()=>{bodyReady();return new Promise(resolve=>{finishBody=resolve;});}});
+   await bodyStarted;client.modelPricingSession('/logout',{ok:true},{});finishBody({...snapshot,revision:99});await lateBody;
+   const afterLateBody=facts();
+   const noLateMe=auth.initAuth();requests.filter(r=>r.path==='/api/me').at(-1).resolve({loggedIn:false,user:null});await noLateMe;
+   client.modelPricingSession('/admin/me',{ok:false,status:403},{ok:false});
+   const afterDenial=facts();window.fetch=original;
+   return {initial,duringUpdate,afterUpdate,afterSwitch,afterStale,afterNetwork,denied,afterLogout,afterGuestRead,afterLateBody,afterDenial};
+  },{snapshot,order});
+  const ready={credits:45,revision:'1',snapshot:1};
+  expect(observed.initial,order).toEqual(ready);
+  expect(observed.duringUpdate,order).toEqual({...ready,requests:0,aborted:false});
+  expect(observed.afterUpdate,order).toEqual(ready);expect(observed.afterSwitch,order).toEqual(ready);
+  expect(observed.afterStale,order).toEqual(ready);expect(observed.afterNetwork,order).toEqual(ready);
+  for(const denied of observed.denied)expect(denied,order).toMatchObject({revision:'0',snapshot:null});
+  expect(observed.afterLogout,order).toMatchObject({revision:'0',snapshot:null,aborted:true});
+  expect(observed.afterGuestRead,order).toEqual(ready);
+  expect(observed.afterLateBody,order).toMatchObject({revision:'0',snapshot:null});
+  expect(observed.afterDenial,order).toMatchObject({revision:'0',snapshot:null});
+ }
+}
 for(const [locale,width]of [['en',1440],['de',390]])test.describe(`${locale} pricing controls`,()=>{
  test.use({hasTouch:width<500});
  test('Admin exact configuration preview, cancel, save, reload and reset with keyboard/touch',async({page,baseURL},info)=>{
@@ -95,6 +174,7 @@ for(const [locale,width]of [['en',1440],['de',390]])test(`GPT Image 2.5 pricing 
 });
 test('pricing conflict preserves editor; a new retail snapshot refreshes existing cross-surface estimators and request revision',async({page,baseURL})=>{
  const f=await setup(page,baseURL);try{
+ await pricingLifecycle(page);
  await open(page);await root(page).getByRole('searchbox').fill('MiniMax H3');await root(page).locator('.model-pricing__row').click();const dialog=page.getByRole('dialog',{name:'MiniMax H3',exact:true});await expect(dialog.locator('.model-pricing__breakdown')).toContainText('262');await dialog.locator('input[step="0.00000001"]').fill('7.25');
  await f.tariff.changeModelTariff(f.env,{id:'other-admin'},{revision:0,action:'save',modelId:'minimax/h3',settings:{duration:5,resolution:'768P'},rates:{second:9}});
  await dialog.getByRole('button',{name:'Save tariff',exact:true}).click();await expect(dialog).toBeVisible();await expect(dialog.getByRole('status')).toContainText('Another administrator');
@@ -104,7 +184,14 @@ test('pricing conflict preserves editor; a new retail snapshot refreshes existin
   expect(result.credits,route).toBe(45);expect(result.headers['X-Bitbi-Tariff-Revision'],route).toBe('1');
   if(route.includes('/generate-lab/')){await page.locator('[data-media-type=video]').click();await page.locator('[data-model-id="minimax/h3"]').click();await expect(page.locator('#labCost')).toContainText('45');await page.locator('#labVideoDuration').selectOption('6');await expect(page.locator('#labCost')).toContainText('54');}
   if(route==='/generate-lab/'){await page.evaluate(async()=>{const api=await import('/js/shared/auth-api.js');return api.apiAiGenerateVideo({model:'minimax/h3',duration:5,resolution:'768P'});});expect(f.calls.find(c=>c.path==='/api/ai/generate-video').revision).toBe('1');}
-  if(route==='/canvas/'){await page.evaluate(async()=>{const {canvasApi}=await import('/js/pages/canvas/api.js');return canvasApi.runNode('synthetic-project','synthetic-node','synthetic-pricing-key');});expect(f.calls.find(c=>c.path.endsWith('/synthetic-node/run')).revision).toBe('1');}
+  if(route==='/canvas/'||route==='/de/canvas/'){
+   await page.locator(`.canvas-node[data-node-id="${f.node.id}"]`).click();
+   await expect(page.locator('#canvasInspectorBody .canvas-cost-note')).toHaveText(route.startsWith('/de/')?'Geschätzte Credits: 45':'Estimated credits: 45');
+   const before=f.calls.filter(c=>c.path.endsWith(`/${f.node.id}/run`)).length;
+   await page.locator('#canvasInspectorBody').getByRole('button',{name:route.startsWith('/de/')?'Ausführen':'Run',exact:true}).click();
+   await expect.poll(()=>f.calls.filter(c=>c.path.endsWith(`/${f.node.id}/run`)).length).toBe(before+1);
+   expect(f.calls.filter(c=>c.path.endsWith(`/${f.node.id}/run`)).at(-1)).toMatchObject({revision:'1',method:'POST',body:{}});
+  }
  }
  const cleared=await page.evaluate(async()=>{const client=await import('/js/shared/model-pricing-client.js'),math=await import('/js/shared/model-tariff.mjs');await client.refreshModelPricing();const original=window.fetch;let finish;window.fetch=()=>new Promise(resolve=>{finish=resolve;});try{const pending=client.refreshModelPricing();client.modelPricingSession('/logout',{ok:true},{});finish(new Response(JSON.stringify({revision:99,rules:{private:{modelId:'private-admin'}}}),{status:200}));await pending;return math.getBrowserTariff();}finally{window.fetch=original;}});expect(cleared).toBe(null);
  }finally{f.DB.close();}

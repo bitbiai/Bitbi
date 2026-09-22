@@ -632,3 +632,16 @@ failure of either job aborts promptly. `test:release-plan` exercises this actual
 helper with simulated time, missing/foreign evidence, no debit, partial recovery,
 supersession and a hard deadline. Production remains the existing protected
 backend job; this observer never dispatches work or modifies reservations.
+
+Run 35740462268 passed Worker/native acceptance but WebKit Canvas observed factory
+262 instead of the configured 45. Controlled browser reproduction establishes
+the shared pricing client's cause: every auth event cleared pricing, including
+same-user credit/profile updates, and superseded refresh waiters returned before
+their replacement. It does not establish the historical CI event ordering.
+Bind pricing to actor/access identity, preserve confirmed snapshots on routine
+updates, join current-session refreshes, and fence responses across logout,
+denial and actor changes. Existing `oma2-q3-model-pricing.spec.js` covers controlled
+/me/pricing order, stale bodies/responses, denial, and the actual EN/DE Canvas
+Inspector (45) plus Run revision (1). Its caller is the unchanged 40-case
+`CI_IMAGE_MODELS=true` pricing configuration in the static workflow, executed
+against `_site`; no new suite or billing/provider change.
