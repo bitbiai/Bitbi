@@ -1,4 +1,7 @@
 import { modelPricingCase } from '../model-pricing-control.mjs';
+import { image25Output } from '../../../workers/shared/gpt-image-25.mjs';
+import { cleanupExpiredMemberAiUsageAttempts } from '../../../workers/auth/src/lib/member-ai-usage-attempts.js';
+import worker from '../../../workers/auth/src/index.js';
 import { privateMediaCase,privateMediaSmokeCase } from '../private-media-control.mjs';
 import { canvasProcessingCase } from '../canvas-processing-control.mjs';
 import { canvasVideoCase, adminPixverseCase } from '../canvas-video-control.mjs';
@@ -17,6 +20,23 @@ export default {
     if (request.method !== 'POST' || request.headers.get('x-q2-control') !== env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
     const path=new URL(request.url).pathname;
     const body=await request.json();
+    if(path==='/image25-queue') {
+      const job=await env.DB.prepare('SELECT id FROM member_generation_jobs WHERE id=? AND user_id=?').bind(body.id,MEMBER).first();
+      if(!job)return new Response(null,{status:404});
+      if(body.expire)return Response.json(await cleanupExpiredMemberAiUsageAttempts({env,dryRun:false}));
+      const result={ack:0,retry:0};
+      await worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body:{type:'member_generation.process',job_id:job.id},attempts:1,
+        ack(){result.ack++;},retry(){result.retry++;}}]},env,{waitUntil(){throw new Error('No browser/detached work');}});
+      return Response.json(result);
+    }
+    if (path==='/image25-output') {
+      let rejected=false;
+      try { await globalThis.fetch('https://image25-output.example/original.png',{redirect:'error'}); }
+      catch(error) {rejected=error instanceof TypeError && error.message.includes('Invalid redirect value');}
+      if(!rejected)throw new Error('Old redirect contract no longer reproduces; review native expectation');
+      try { return Response.json({ok:true,output:await image25Output({state:'Completed',result:{image:'https://image25-output.example/original.png'}},{fetcher:globalThis.fetch,outputFormat:'png'})}); }
+      catch(error) {return Response.json({code:error.code,diagnostic:error.providerDiagnostic},{status:502});}
+    }
     if (path==='/model-pricing') {
       try { return Response.json(await modelPricingCase(env,body)); }
       catch(error) { return Response.json({code:error.code||null,message:error.message},{status:error.status||500}); }

@@ -81,7 +81,7 @@ test('GPT Image 2.5 cancels stalled provider output bodies at the existing deadl
   let cancelled = false;
   const fetcher = async (_url, { signal, redirect }) => {
     expect(signal).toBeInstanceOf(AbortSignal);
-    expect(redirect).toBe('error');
+    expect(redirect).toBe('manual');
     return new Response(new ReadableStream({ cancel() { cancelled = true; } }), { headers: { 'Content-Type': 'image/png' } });
   };
   await expect(runWithGenerationTimeout(signal => image25Output({ image: 'https://provider.example/image.png' }, { fetcher, signal }), { timeoutMs: 25 })).rejects.toMatchObject({ code: 'generation_timeout' });
@@ -94,4 +94,23 @@ test('GPT Image 2.5 temporary result rejects undecodable content before storage 
   const env = { USER_IMAGES: { put: async () => { writes++; } }, IMAGES: { info: async () => { throw new Error('synthetic decoder rejected'); } } };
   await expect(createAiGeneratedSaveReferenceFromBase64(env, { userId: 'owner', imageBase64: fixture.toString('base64'), mimeType: 'image/png', generationMetadata: { model: 'openai/gpt-image-2.5-flare' } })).rejects.toMatchObject({ code: 'image_output_invalid' });
   expect(writes).toBe(0);
+});
+
+test('GPT Image 2.5 HTTPS delivery rejects redirects, preserves correlation and bounds transport/body diagnostics', async () => {
+  const {callImage25Provider,image25Output}=await import('../workers/shared/gpt-image-25.mjs');
+  const correlation='abcde12345abcde12345abcde12345abcd';let options;
+  const result=await callImage25Provider({run:async(_model,_input,sent)=>{options=sent;return Response.json({state:'Completed',result:{image:'https://provider.example/output?private-signature'}},{headers:{'cf-ai-req-id':'request_12345'}});}},'openai/gpt-image-2.5-flare',{}, {gateway:{id:'existing',metadata:{surface:'synthetic'}}},correlation);
+  expect(options.gateway).toMatchObject({id:'existing',metadata:{surface:'synthetic',bitbi_dispatch:correlation}});
+  for(const [stage,fetcher] of [
+    ['output_fetch',async()=>{throw new TypeError('private signed URL');}],
+    ['output_body',async()=>new Response(new ReadableStream({pull(controller){controller.error(new TypeError('private response'));}}),{headers:{'Content-Type':'image/png'}})],
+    ['output_redirect_rejected',async()=>new Response(null,{status:302,headers:{Location:'https://other.example/private'}})],
+  ]) {
+    let error;try{await image25Output(result,{fetcher});}catch(caught){error=caught;}
+    expect(error).toMatchObject({providerCompleted:true,providerDiagnostic:{stage,correlationId:correlation,requestId:'request_12345'}});
+    expect(JSON.stringify(error)).not.toContain('private');expect(error.message).not.toContain('https:');
+  }
+  let calls=0;
+  expect((await image25Output(result,{fetcher:async(_url,options)=>{calls++;expect(options.redirect).toBe('manual');return new Response(fixture,{headers:{'Content-Type':'image/png'}});}})).base64).toBe(fixture.toString('base64'));
+  expect(calls).toBe(1);
 });

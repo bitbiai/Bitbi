@@ -869,3 +869,16 @@ for (const files of [imagePricingDelta,[...imagePricingDelta,...appearanceDelta]
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/member-credit-ledger.js','workers/ai/src/routes/unknown.js','js/shared/auth.js','unknown.js'])assert.notEqual(selection([...files,extra]).policy,'model-pricing-v1');
  assert.equal(selection(files,{forceFull:true}).full,true);
 }
+
+// Completed HTTPS output repair owns its actual queued native/image/browser callers.
+const imageDeliveryDelta=['workers/auth/migrations/0095_retained_image_delivery.sql','config/release-compat.json','workers/shared/gpt-image-25.mjs','workers/auth/src/lib/image-delivery-recovery.js',
+ 'workers/auth/src/lib/member-generation-jobs.js','workers/auth/src/lib/ai-usage-policy.js','workers/auth/src/routes/ai/images-write.js',
+ 'js/pages/generate-lab/main.js','js/shared/member-generation-status.js','js/shared/locale.js',
+ 'tests/helpers/q2-runtime/canvas.mjs','tests/helpers/q2-runtime/control.mjs','tests/helpers/q2-runtime/environment.mjs',
+ 'tests/q2-gpt-image-25.spec.js','tests/smoke.spec.js','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs'];
+const deliverySelection=selection(imageDeliveryDelta);
+assert.equal(deliverySelection.policy,'model-pricing-v1');assert.equal(deliverySelection.imageModels,true);
+for(const key of ['workers','auth','runtime','static'])assert.equal(deliverySelection[key],true,key);
+for(const key of ['full','homepageMedia','carousel','appearance'])assert.equal(Boolean(deliverySelection[key]),false,key);
+assert.equal(requiresPrivateMediaImage(imageDeliveryDelta),false);
+for(const file of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/ai/src/routes/unknown.js'])assert.notEqual(selection([...imageDeliveryDelta,file]).policy,'model-pricing-v1');

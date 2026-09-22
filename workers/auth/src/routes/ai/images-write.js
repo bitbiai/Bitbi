@@ -1,5 +1,5 @@
 import { isGptImage25Model, normalizeGptImage25Options, GPT_IMAGE_25_MAX_PROMPT_LENGTH } from '../../../../../js/shared/gpt-image-25-contract.mjs';
-import { callImage25Provider, image25Output } from '../../../../shared/gpt-image-25.mjs';
+import { callImage25Provider, image25Output, image25DeliveryError } from '../../../../shared/gpt-image-25.mjs';
 import { resolveImage25Sources } from '../../lib/gpt-image-25-sources.js';
 import { GROK_IMAGE_2, normalizeGrokImage2 } from '../../../../../js/shared/grok-imagine-image-2-pricing.mjs';
 import { promptAssetTitle } from '../../lib/asset-names.js';
@@ -1118,7 +1118,7 @@ export async function handleGenerateImage(ctx) {
     }, {
       signal: request.signal,
       onLateResult: () => usagePolicy.recordLateOutcome?.("succeeded"),
-      onLateError: (error) => usagePolicy.recordLateOutcome?.(gptImage25 && !error?.confirmedRejection ? "unknown" : "failed", error?.code),
+      onLateError: (error) => usagePolicy.recordLateOutcome?.(error?.providerCompleted ? "succeeded" : gptImage25 && !error?.confirmedRejection ? "unknown" : "failed", error?.code),
     });
     if (extracted) {
       base64 = extracted.base64;
@@ -1137,6 +1137,7 @@ export async function handleGenerateImage(ctx) {
         });
       } catch {}
     }
+    if(gptImage25 && e.providerCompleted)await usagePolicy.recordLateOutcome?.('succeeded','image_output_delivery_pending');
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-generate-image",
@@ -1236,10 +1237,13 @@ export async function handleGenerateImage(ctx) {
           });
         } catch {}
       }
+      const deliveryDiagnostic=gptImage25?image25DeliveryError(error,'output_decode_or_store',{correlationId:generationExecution(env)?.job.providerCorrelationId || correlationId}).providerDiagnostic:null;
+      if(gptImage25)await usagePolicy.recordLateOutcome?.('succeeded','image_output_delivery_pending');
       logDiagnostic({
         service: "bitbi-auth",
         component: "ai-generate-image",
         event: "ai_generated_temp_store_failed",
+        ...(deliveryDiagnostic?{providerDiagnostic:deliveryDiagnostic}:{}),
         level: "error",
         correlationId,
         user_id: userId,
@@ -1251,6 +1255,7 @@ export async function handleGenerateImage(ctx) {
         ok: false,
         error: gptImage25 ? "Generated image could not be stored. Retain this operation for recovery; do not generate again." : "Generated image could not be stored. Please try again.",
         code: "generated_image_temp_store_failed",
+        ...(deliveryDiagnostic?{providerDiagnostic:deliveryDiagnostic}:{}),
       }, { status: 500 });
     }
   }
@@ -1343,10 +1348,13 @@ export async function handleGenerateImage(ctx) {
         saveReference: tempSaveResult.saveReference,
       };
     } catch (error) {
+      const deliveryDiagnostic=gptImage25?image25DeliveryError(error,'output_decode_or_store',{correlationId:generationExecution(env)?.job.providerCorrelationId || correlationId}).providerDiagnostic:null;
+      if(gptImage25)await usagePolicy.recordLateOutcome?.('succeeded','image_output_delivery_pending');
       logDiagnostic({
         service: "bitbi-auth",
         component: "ai-generate-image",
         event: "ai_generated_temp_store_failed",
+        ...(deliveryDiagnostic?{providerDiagnostic:deliveryDiagnostic}:{}),
         level: "warn",
         correlationId,
         user_id: userId,

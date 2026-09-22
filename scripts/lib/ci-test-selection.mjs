@@ -286,7 +286,8 @@ const IMAGE_MODEL_FILES = new Set([
   'workers/shared/gpt-image-25.mjs','workers/ai/src/index.js',
   'workers/ai/src/lib/invoke-ai.js','workers/ai/src/lib/responses.js',
   'workers/ai/src/lib/validate.js','workers/ai/src/routes/image.js',
-  'workers/auth/src/lib/gpt-image-25-sources.js',
+  'workers/auth/src/lib/gpt-image-25-sources.js','workers/auth/src/lib/image-delivery-recovery.js','workers/auth/migrations/0095_retained_image_delivery.sql',
+  'js/shared/member-generation-status.js','js/shared/locale.js',
   'workers/auth/src/lib/ai-dispatch-state.js','workers/auth/src/lib/member-generation-jobs.js',
   'workers/auth/src/lib/ai-image-credit-pricing.js',
   'workers/auth/src/lib/admin-ai-image-credit-pricing.js',
@@ -473,7 +474,7 @@ const RELEASE_TOOLING_FILES = new Set([
   'scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs',
   'scripts/check-static-deploy-safety.mjs', 'scripts/release-apply.mjs', 'scripts/frontend-release.mjs',
   'scripts/lib/media-repair-source.mjs', 'scripts/lib/frontend-receipts.mjs', 'scripts/private-media-image.mjs',
-  'scripts/lib/backend-continuation.mjs', 'scripts/lib/backend-publication.mjs', 'scripts/lib/media-publication.mjs',
+  'scripts/lib/backend-continuation.mjs', 'scripts/lib/backend-publication.mjs', 'scripts/lib/image-delivery-acceptance.mjs', 'scripts/lib/media-publication.mjs',
   'scripts/test-pages-candidate.mjs', 'scripts/test-pages-workflow.mjs', 'scripts/test-static-deploy-safety.mjs',
   'scripts/validate-site-references.mjs',
   'scripts/lib/frontend-hosting.mjs', 'scripts/lib/frontend-source.mjs', 'scripts/test-frontend-hosting.mjs',
@@ -685,7 +686,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     return selection;
   }
 
-  if (!forceFull && changedFiles.some(file => ['workers/auth/src/lib/model-tariffs.js','js/shared/model-tariff.mjs','js/pages/admin/model-pricing.js','tests/model-pricing.spec.js','tests/oma2-q3-model-pricing.spec.js'].includes(file))
+  if (!forceFull && changedFiles.some(file => ['workers/shared/gpt-image-25.mjs','workers/auth/src/lib/image-delivery-recovery.js','workers/auth/src/lib/model-tariffs.js','js/shared/model-tariff.mjs','js/pages/admin/model-pricing.js','tests/model-pricing.spec.js','tests/oma2-q3-model-pricing.spec.js'].includes(file))
       && changedFiles.every(file => isDocumentation(file) || MODEL_PRICING_FILES.has(file) || IMAGE_MODEL_FILES.has(file) || APPEARANCE_FILES.has(file) || RELEASE_TOOLING_FILES.has(file))) {
     selection.policy = 'model-pricing-v1'; selection.modelPricing = true;
     selection.imageModels = changedFiles.some(file => IMAGE_MODEL_FILES.has(file));

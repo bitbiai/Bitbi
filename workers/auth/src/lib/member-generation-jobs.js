@@ -1,4 +1,6 @@
 import { h3MemberReceipt, storedH3MemberTask } from './minimax-h3-callback.js';
+import { retainedImageDelivery, recordImageDelivery, IMAGE_DELIVERY_ATTEMPTS } from './image-delivery-recovery.js';
+import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
 import { callH3Provider, h3Failure } from './h3-provider-result.js';
 import { reclaimCanvasMedia, canvasMediaRun } from './canvas-media-storage.js';
 import { THUMBNAIL_BACKEND_SQL, notifyPrivateMedia, recoverPrivateMedia } from './private-media-service.js';
@@ -32,7 +34,9 @@ export function usesPersonalGenerationCredits(ctx, user) {
 }
 
 function publicJob(row) {
+  const delivery=JSON.parse(row.provider_receipts_json || '{}')['ai-0']?.delivery;
   return { id: row.id, model_id: row.model_id || null, media_type: row.media_type, status: row.asset_id && row.status === 'ingesting' ? 'preview_pending' : row.status,
+    ...(delivery ? {delivery_status:delivery.status,billing_reconciliation:delivery.billing || null} : {}),
     asset_id: row.error_code === 'generation_asset_removed' ? null : row.asset_id || null, error_code: row.error_code || null,
     rejection_settled: row.rejection_settled === true,
     created_at: row.created_at, updated_at: row.updated_at };
@@ -126,6 +130,7 @@ async function providerCall(env, job, name, fingerprint, call) {
   const h3=h3MemberReceipt({...job,provider_receipts_json:row.provider_receipts_json});
   let receipt = receipts[name];
   if (receipt) {
+    job.providerCorrelationId=receipt.correlationId;
     if (receipt.fingerprint !== fingerprint) throw jobError('generation_provider_identity_mismatch');
     if (receipt.rejection?.noInference === true) {
       if (receipts['h3-task']) throw jobError('generation_provider_identity_mismatch');
@@ -144,10 +149,11 @@ async function providerCall(env, job, name, fingerprint, call) {
       throw jobError('generation_provider_outcome_unknown');
     }
     const stored = await new Response(object.body).json();
-    return decodeProviderResult(stored);
+    return decodeProviderResult(stored,receipt.correlationId);
   }
   receipt = { key: `users/${job.user_id}/generation-jobs/${job.id}/provider-${name}.json`, fingerprint, correlationId: randomTokenHex(16) };
   receipts[name] = receipt;
+  job.providerCorrelationId=receipt.correlationId;
   const intent = await env.DB.prepare(`UPDATE member_generation_jobs SET provider_receipts_json = ?
     WHERE id = ? AND processing_token = ? AND locked_until > ? AND provider_receipts_json = ?`)
     .bind(JSON.stringify(receipts), job.id, job.processing_token, nowIso(), row.provider_receipts_json).run();
@@ -194,7 +200,7 @@ async function providerCall(env, job, name, fingerprint, call) {
     if(callback && String(callback.task.id)!==String(stored.value.task.id))throw jobError('generation_provider_identity_mismatch');
     if(callback && ['succeeded','failed','cancelled'].includes(callback.task.status))return callback;
   }
-  return decodeProviderResult(stored);
+  return decodeProviderResult(stored,receipt.correlationId);
 }
 
 async function encodeProviderResult(value) {
@@ -215,7 +221,7 @@ async function encodeProviderResult(value) {
   if (!text || text.length > 32 * 1024 * 1024) throw jobError('generation_receipt_invalid');
   return { kind: 'json', value };
 }
-function decodeProviderResult(value) {
+function decodeProviderResult(value, correlationId) {
   if (value.kind === 'json') return value.value;
   const bytes = Uint8Array.from(atob(value.body), c => c.charCodeAt(0));
   const correlationHeaders = {};
@@ -223,6 +229,7 @@ function decodeProviderResult(value) {
     const id = value.correlationHeaders?.[name];
     if (/^[a-zA-Z0-9_-]{8,128}$/.test(id || '')) correlationHeaders[name] = id;
   }
+  if (/^[a-f0-9]{32}$/.test(correlationId || '')) correlationHeaders['x-bitbi-dispatch-correlation']=correlationId;
   return value.kind === 'response' ? new Response(bytes, { status: value.status, headers: { 'Content-Type': value.contentType || 'application/octet-stream', ...correlationHeaders, ...(['failed','succeeded'].includes(value.providerOutcome) ? {'x-bitbi-provider-outcome':value.providerOutcome} : {}) } }) : bytes;
 }
 
@@ -235,10 +242,13 @@ async function writeResult(env,job,key,result) {
 
 export async function processMemberGeneration(env, body, execute) {
   const job = await env.DB.prepare('SELECT * FROM member_generation_jobs WHERE id = ?').bind(body.job_id).first();
-  if (!job || !runnable.has(job.status)) return { status: 'ignored' };
+  if (!job || ![...runnable,'outcome_unknown'].includes(job.status)) return { status: 'ignored' };
+  const retained=await retainedImageDelivery(env,job);
+  if (!runnable.has(job.status) && !retained) return {status:'ignored'};
+  if (retained && retained.attempts>=IMAGE_DELIVERY_ATTEMPTS) return {status:'ignored'};
   const now = nowIso();
   if (job.next_attempt_at > now || (job.locked_until && job.locked_until > now)) return { status: 'retry', delaySeconds: 60 };
-  if (job.attempt_count >= MAX_ATTEMPTS) {
+  if (job.attempt_count >= MAX_ATTEMPTS && !retained) {
     await env.DB.prepare(`UPDATE member_generation_jobs SET status='failed',error_code='generation_retry_exhausted',locked_until=NULL,updated_at=?
       WHERE id=? AND status IN ('queued','processing','ingesting') AND attempt_count>=? AND (locked_until IS NULL OR locked_until<=?)`)
       .bind(now,job.id,MAX_ATTEMPTS,now).run();
@@ -246,20 +256,26 @@ export async function processMemberGeneration(env, body, execute) {
   }
   const token = randomTokenHex(16);
   const claim = await env.DB.prepare(`UPDATE member_generation_jobs SET status='processing', processing_token=?, locked_until=?, attempt_count=attempt_count+1, updated_at=?
-    WHERE id=? AND status IN ('queued','processing','ingesting') AND (locked_until IS NULL OR locked_until <= ?)`)
-    .bind(token, new Date(Date.now()+LEASE_MS).toISOString(), now, job.id, now).run();
+    WHERE id=? AND status IN ('queued','processing','ingesting','outcome_unknown') AND provider_receipts_json=? AND (locked_until IS NULL OR locked_until <= ?)`)
+    .bind(token, new Date(Date.now()+LEASE_MS).toISOString(), now, job.id, job.provider_receipts_json, now).run();
   if (!claim.meta?.changes) return { status: 'retry', delaySeconds: 60 };
   job.processing_token = token;
+  if(retained) await recordImageDelivery(env,job,{status:'processing',attempts:retained.attempts+1,receiptSha256:retained.sha256});
   const user = await env.DB.prepare("SELECT id,email,role,status FROM users WHERE id=? AND status='active'").bind(job.user_id).first();
   if (!user) {
     await env.DB.prepare("UPDATE member_generation_jobs SET status='failed',error_code='generation_owner_unavailable',locked_until=NULL WHERE id=? AND processing_token=?").bind(job.id,token).run();
     return { status:'failed' };
   }
   const scoped = { ...env };
-  const execution = { job, user, receiptReplay: await hasPrimaryReceipt(env,job), assertClaim: () => assertClaim(env,job) };
+  const execution = { job, user, retainedImage:retained, receiptReplay: await hasPrimaryReceipt(env,job), assertClaim: () => assertClaim(env,job) };
   executions.set(scoped, execution);
   let calls = 0;
-  if (env.AI) scoped.AI = { run: async (...args) => providerCall(env,job,`ai-${calls++}`,await sha256Hex(JSON.stringify(args.slice(0,2))),correlation=>args[0]==='minimax/h3'?callH3Provider(env.AI,args[0],args[1],args[2],correlation):env.AI.run(...args)) };
+  if (env.AI) scoped.AI = { run: async (...args) => providerCall(env,job,`ai-${calls++}`,await sha256Hex(JSON.stringify(args.slice(0,2))),correlation=>{
+    if(retained)throw jobError('generation_provider_identity_mismatch');
+    if(args[0]==='minimax/h3')return callH3Provider(env.AI,args[0],args[1],args[2],correlation);
+    if(isGptImage25Model(args[0]))args[2]={...args[2],gateway:{...args[2]?.gateway,metadata:{...args[2]?.gateway?.metadata,bitbi_dispatch:correlation}}};
+    return env.AI.run(...args);
+  }) };
   if (env.AI_LAB) scoped.AI_LAB = { fetch: async (...args) => { const request = new Request(...args); return providerCall(env,job,`service-${calls++}`,await sha256Hex(request.url+':'+await request.clone().text()),()=>env.AI_LAB.fetch(request)); } };
   try {
     const input = await env.USER_IMAGES.get(job.input_r2_key);
@@ -276,7 +292,7 @@ export async function processMemberGeneration(env, body, execute) {
       const response = await execute({ env:scoped, request, pathname:new URL(request.url).pathname, method:'POST', correlationId:null });
       await assertClaim(env,job);
       result = await response.json();
-      if (!response.ok || result.ok === false) throw jobError(result.code || 'generation_execution_failed');
+      if (!response.ok || result.ok === false) throw Object.assign(jobError(result.code || 'generation_execution_failed'),{providerDiagnostic:result.providerDiagnostic});
       await writeResult(env,job,resultKey,result);
       await env.DB.prepare(`UPDATE member_generation_jobs SET status='ingesting',result_r2_key=?,asset_id=?,updated_at=? WHERE id=? AND processing_token=? AND locked_until>?`)
         .bind(resultKey,result.data?.asset?.id||null,nowIso(),job.id,token,nowIso()).run();
@@ -288,7 +304,7 @@ export async function processMemberGeneration(env, body, execute) {
       const data = result.data;
       const request = new Request('https://bitbi.ai/api/ai/images/save', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
         prompt:data.prompt || bodyInput.prompt, title:bodyInput.title, model:data.model, steps:data.steps, seed:data.seed,
-        imageData:`data:${data.mimeType || 'image/png'};base64,${data.imageBase64}`, folder_id:bodyInput.folder_id,
+        ...(data.saveReference ? {save_reference:data.saveReference} : {imageData:`data:${data.mimeType || 'image/png'};base64,${data.imageBase64}`}), folder_id:bodyInput.folder_id,
       })});
       const response = await execute({env:scoped,request,pathname:new URL(request.url).pathname,method:'POST',correlationId:null});
       const saved = await response.json();
@@ -315,6 +331,7 @@ export async function processMemberGeneration(env, body, execute) {
     const asset = result.data?.asset;
     const needsPoster = job.media_type==='video' && !asset?.poster_url;
     await finishCanvasGeneration(env,job,result);
+    if(job.media_type==='image' && (retained || isGptImage25Model(bodyInput.model))) await recordImageDelivery(env,job,{status:'saved',billing:execution.creditReview || result.billing?.billing_status==='released_no_debit' || result.data?.billing?.billing_status==='released_no_debit'?'released_no_debit':'settled'});
     await env.DB.prepare(`UPDATE member_generation_jobs SET status=?,result_r2_key=?,asset_id=?,locked_until=NULL,error_code=NULL,updated_at=?,completed_at=? WHERE id=? AND processing_token=? AND locked_until>?`)
       .bind(needsPoster?'preview_pending':'succeeded',resultKey,asset?.id||null,nowIso(),needsPoster?null:nowIso(),job.id,token,nowIso()).run();
     if(needsPoster)await notifyPrivateMedia(env,job.processing_backend);
@@ -323,6 +340,15 @@ export async function processMemberGeneration(env, body, execute) {
     if (error.code === 'generation_claim_lost') return {status:'ignored'};
     const usage = await env.DB.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=?').bind(job.usage_attempt_id).first();
     let code = error.code;
+    const completedImage=await retainedImageDelivery(env,{...job,...await env.DB.prepare('SELECT provider_receipts_json FROM member_generation_jobs WHERE id=?').bind(job.id).first()});
+    if(completedImage) {
+      const attempts=Math.max(1,completedImage.attempts), diagnostic=error.providerDiagnostic || null;
+      const retry=attempts<IMAGE_DELIVERY_ATTEMPTS && diagnostic?.stage!=='output_redirect_rejected' && !(diagnostic?.stage==='output_http' && diagnostic.status>=400 && diagnostic.status<500) && code!=='generation_provider_identity_mismatch';
+      await recordImageDelivery(env,job,{status:retry?'pending':'failed',attempts,receiptSha256:completedImage.sha256,diagnostic,billing:usage?.billing_status==='released'?'released_no_debit':'unsettled'});
+      await env.DB.prepare(`UPDATE member_generation_jobs SET status=?,error_code=?,locked_until=NULL,next_attempt_at=?,updated_at=? WHERE id=? AND processing_token=?`)
+        .bind(retry?'ingesting':'failed',retry?'generation_output_delivery_pending':'generation_output_delivery_failed',new Date(Date.now()+60_000).toISOString(),nowIso(),job.id,token).run();
+      return {status:retry?'retry':'failed',delaySeconds:60};
+    }
     if (usage?.provider_outcome === 'failed' && usage.billing_status === 'released') {
       // Settlement may have committed before its reply was lost. Read both
       // durable facts; a terminal billing row alone is not a rejection receipt.
@@ -343,12 +369,21 @@ export async function processMemberGeneration(env, body, execute) {
 }
 
 export async function requeueMemberGenerations(env) {
+  // Historical exhausted image attempts can still own a Completed receipt.
+  // Queue a bounded delivery-only claim; never reset counters or reservations.
+  const images=await env.DB.prepare(`SELECT * FROM member_generation_jobs WHERE media_type='image' AND status='outcome_unknown'
+    AND next_attempt_at<=? ORDER BY next_attempt_at LIMIT 25`).bind(nowIso()).all();
+  for(const job of images.results||[]) {
+    const retained=await retainedImageDelivery(env,job);
+    if(retained && retained.attempts<IMAGE_DELIVERY_ATTEMPTS)await env.AI_VIDEO_JOBS_QUEUE.send({type:MEMBER_GENERATION_MESSAGE,job_id:job.id});
+  }
   // A receipt may arrive after a second consumer has fenced the lost lease.
   // Reuse only this job's immutable primary receipt; never repeat paid inference.
   const late=await env.DB.prepare(`SELECT * FROM member_generation_jobs WHERE status='outcome_unknown'
     AND error_code!='generation_result_requires_credit_review' AND attempt_count<8 AND next_attempt_at<=?
     ORDER BY next_attempt_at LIMIT 25`).bind(nowIso()).all();
   for(const job of late.results||[]) {
+    if(await retainedImageDelivery(env,job))continue;
     if(await hasPrimaryReceipt(env,job)) await env.DB.prepare(`UPDATE member_generation_jobs
       SET status='queued',locked_until=NULL,updated_at=? WHERE id=? AND status='outcome_unknown' AND provider_receipts_json=?`)
       .bind(nowIso(),job.id,job.provider_receipts_json).run();

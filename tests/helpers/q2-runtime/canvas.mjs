@@ -202,6 +202,10 @@ export async function runCanvasTests(f) {
     assert.equal((await request(endpoint,{},'foreign-grok',admin)).status,404);
   });
   await f.test('image25_native_completed_uri_preserves_alpha_format_model_and_single_paid_save_after_reload', async () => {
+    f.canvasProvider.image25Https = true;
+    const probe=await f.control('/image25-output',{});
+    if (!probe.ok) console.log(JSON.stringify(await probe.json()));
+    assert.equal(probe.status,200);
     const { calculateAiImageCreditCost } = await import('../../../js/shared/ai-model-pricing.mjs');
     const p='81'.repeat(16);
     await f.sql('INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,?,?,?,?)',p,memberId,'Image 2.5 native','en',now,now).run();
@@ -246,6 +250,98 @@ export async function runCanvasTests(f) {
       f.metrics.push({model:modelId,format,width:1024,height:1024,providerCalls:1,debits:1,credits:calculateAiImageCreditCost(modelId,config).credits,checkpointBeforeDebit:true,interruptedSaveRecovered:Boolean(index),reloadReplayAndSave:true});
     }
     await f.db.exec('DROP TRIGGER image25_native_checkpoint_before_debit;');
+  });
+
+  for(const [scenario,model,format] of [
+    ['success','openai/gpt-image-2.5-sunburst','png'],
+    ['released','openai/gpt-image-2.5-flare','webp'],
+    ['body','openai/gpt-image-2.5-sunburst','png'],
+    ['redirect','openai/gpt-image-2.5-flare','png'],
+  ]) await f.test(`image25_native_generate_lab_queue_https_${scenario}`,async()=>{
+    const before=f.canvasProvider.requests.length, key=`image25-queue-${scenario}`;
+    const payload={model,prompt:'Synthetic queued image',quality:'medium',size:'1024x1024',background:'transparent',outputFormat:format};
+    const accepted=await f.mf.dispatchFetch('https://bitbi.ai/api/ai/generate-image',{method:'POST',headers:{Cookie:member,Origin:'https://bitbi.ai','Content-Type':'application/json','Idempotency-Key':key,Prefer:'respond-async','CF-Connecting-IP':`192.0.2.${++count}`},body:JSON.stringify(payload)});
+    assert.equal(accepted.status,202,await accepted.clone().text());
+    const id=(await accepted.json()).data.job.id;
+    const row=()=>f.sql('SELECT * FROM member_generation_jobs WHERE id=?',id).first();
+    const usage=async()=>f.sql('SELECT * FROM member_ai_usage_attempts_v2 WHERE id=?',(await row()).usage_attempt_id).first();
+    const debit=async()=>f.scalar("SELECT COUNT(*) AS value FROM member_credit_ledger l JOIN member_ai_usage_attempts_v2 a ON a.user_id=l.user_id AND a.idempotency_key=l.idempotency_key WHERE a.id=? AND l.entry_type='consume'",(await row()).usage_attempt_id);
+    const queue=async()=>{const response=await f.control('/image25-queue',{id});assert.equal(response.status,200,await response.clone().text());return response.json();};
+    f.canvasProvider.outputFailure=scenario==='released'?'transport':scenario==='success'?null:scenario;
+    await queue();
+    assert.equal(f.canvasProvider.requests.length,before+1);
+    let job=await row(),receipt=JSON.parse(job.provider_receipts_json)['ai-0'];
+    assert.match(receipt.correlationId,/^[a-f0-9]{32}$/);
+    assert.ok(JSON.stringify(f.canvasProvider.requestOptions.at(-1)).includes(receipt.correlationId),'Real AI binding receives immutable dispatch correlation');
+    const receiptObject=await f.bucket.get(receipt.key),originalReceipt=Buffer.from(await receiptObject.arrayBuffer());
+    if(scenario!=='success'){
+      assert.equal(job.delivery_status,undefined,'Delivery stays in the existing receipt metadata');
+      assert.ok(receipt.delivery.diagnostic,JSON.stringify({code:job.error_code,delivery:receipt.delivery,usage:(await usage()).error_code}));
+      assert.equal(receipt.delivery.diagnostic.correlationId,receipt.correlationId);
+      assert.equal(receipt.delivery.diagnostic.stage,scenario==='released'?'output_http':scenario==='body'?'output_validate':'output_redirect_rejected');
+      if(scenario==='released')assert.equal(receipt.delivery.diagnostic.status,500,'Native service transport failure becomes HTTP 500');
+      assert.equal(await debit(),0);
+      assert.equal((await usage()).late_outcome,'succeeded');
+      assert.equal(job.status,scenario==='redirect'?'failed':'ingesting');
+      if(scenario==='released'){
+        // Simulate the recorded elapsed lease/reservation, using real expiry accounting.
+        await f.sql("UPDATE member_ai_usage_attempts_v2 SET expires_at=? WHERE id=?",new Date(Date.now()-60_000).toISOString(),job.usage_attempt_id).run();
+        assert.equal((await f.control('/image25-queue',{id,expire:true})).status,200);
+        assert.equal((await usage()).billing_status,'released');
+        await f.sql("UPDATE member_generation_jobs SET status='outcome_unknown',attempt_count=8 WHERE id=?",id).run();
+      }
+      if(scenario==='redirect'){
+        await queue();assert.equal(f.canvasProvider.requests.length,before+1);assert.equal(await debit(),0);
+        assert.equal((await row()).status,'failed');return;
+      }
+      f.canvasProvider.outputFailure=null;
+      await f.sql('UPDATE member_generation_jobs SET next_attempt_at=? WHERE id=?',new Date(Date.now()-1000).toISOString(),id).run();
+      await queue();job=await row();receipt=JSON.parse(job.provider_receipts_json)['ai-0'];
+    }
+    assert.equal(job.status,'succeeded',JSON.stringify({status:job.status,code:job.error_code,delivery:receipt.delivery}));
+    assert.equal(job.asset_id,id);assert.equal(receipt.delivery.status,'saved');
+    const expectedDebit=scenario==='released'?0:1;
+    assert.equal(await debit(),expectedDebit);
+    if(scenario==='released'){
+      const attempt=await usage();assert.equal(attempt.billing_status,'released');assert.ok(attempt.reservation_released_at);
+      assert.equal(job.attempt_count,9);assert.equal(receipt.delivery.billing,'released_no_debit');
+      const reconciliation=JSON.parse(attempt.metadata_json).image_delivery_reconciliation;
+      assert.equal(reconciliation.receiptSha256,(await import('node:crypto')).createHash('sha256').update(originalReceipt).digest('hex'));
+      assert.equal(reconciliation.creditsCharged,0);assert.equal(reconciliation.jobId,id);
+      await f.sql("UPDATE member_ai_usage_attempts_v2 SET metadata_json=json_remove(metadata_json,'$.image_delivery_reconciliation.receiptSha256') WHERE id=?",job.usage_attempt_id).run();
+      assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_generation_unready_assets WHERE id=?',id),1,'Missing audit cannot expose released output');
+      await f.sql('UPDATE member_ai_usage_attempts_v2 SET metadata_json=? WHERE id=?',attempt.metadata_json,job.usage_attempt_id).run();
+      assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_generation_unready_assets WHERE id=?',id),0);
+      await f.db.exec("DROP VIEW member_generation_unready_assets; CREATE VIEW member_generation_unready_assets AS SELECT jobs.id FROM member_generation_jobs jobs JOIN member_ai_usage_attempts_v2 usage ON usage.id=jobs.usage_attempt_id WHERE usage.billing_status <> 'finalized';");
+      assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_generation_unready_assets WHERE id=?',id),1,'Old visibility contract hides the recovered image');
+      const migration=f.migrations.find(value=>value.path.startsWith('0095_'));
+      await f.db.batch(migration.statements.map(statement=>f.db.prepare(statement)));
+      assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_generation_unready_assets WHERE id=?',id),0,'Populated native migration exposes only audited recovery');
+
+
+    }
+    const image=await f.sql('SELECT r2_key,model FROM ai_images WHERE id=? AND user_id=?',id,memberId).first();
+    assert.equal(image.model,model);assert.ok(image.r2_key.endsWith('.'+format));
+    assert.deepEqual(Buffer.from(await (await f.bucket.get(image.r2_key)).arrayBuffer()),f.canvasProvider.image25Fixtures[format]);
+    const read=await ok(await request(`/api/ai/generation-jobs/${id}`,undefined,key,member));
+    assert.equal(read.job.status,'succeeded');assert.equal(read.result.data.asset.id,id);assert.equal(read.result.data.mimeType,`image/${format}`);
+    assert.equal((await request(`/api/ai/generation-jobs/${id}`,undefined,key,admin)).status,404);
+    const download=await request(`/api/ai/images/${id}/file`,undefined,key,member);
+    assert.equal(download.status,200);assert.equal(download.headers.get('Content-Type'),`image/${format}`);
+    assert.ok(download.headers.get('Content-Disposition').includes('.'+format));
+    assert.deepEqual(Buffer.from(await download.arrayBuffer()),f.canvasProvider.image25Fixtures[format]);
+    assert.equal((await request(`/api/ai/images/${id}/file`,undefined,key,admin)).status,404);
+
+    await queue();await queue();
+    assert.equal(f.canvasProvider.requests.length,before+1);assert.equal(await debit(),expectedDebit);
+    assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM ai_images WHERE id=?',id),1);
+    assert.deepEqual(Buffer.from(await (await f.bucket.get(receipt.key)).arrayBuffer()),originalReceipt);
+    if(scenario==='released') {
+      assert.equal((await request(`/api/ai/images/${id}`,undefined,key,member,'DELETE')).status,200);
+      await queue();assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM ai_images WHERE id=?',id),0);
+      assert.equal((await row()).error_code,'generation_asset_removed');assert.equal(f.canvasProvider.requests.length,before+1);
+    }
+    f.metrics.push({scenario,queue:true,https:true,nativeDecode:true,providerCalls:1,debits:expectedDebit,assets:1,receiptUnchanged:true});
   });
   assert.equal(f.counters.outboundDenied, 0, 'No external provider or network call');
 }

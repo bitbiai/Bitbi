@@ -10672,3 +10672,35 @@ for(const locale of ['en','de']) test(`@canvas-model-ui H3 Generate Lab ${locale
 
 for (const locale of ['en', 'de']) test(`@canvas-model-ui GPT Image 2.5 Generate Lab ${locale} decoded upload and controls`, ({ page }) => require('./helpers/gpt-image25-ui.cjs').member({ page, expect, locale, mockGenerateLabMemberSession }));
 for (const locale of ['en', 'de']) test(`@canvas-model-ui GPT Image 2.5 Generate Lab ${locale} actual factory generation price and edit gate`, ({ page }) => require('./helpers/gpt-image25-ui.cjs').memberPricingGate({ page, expect, locale, mockGenerateLabMemberSession }));
+
+for(const locale of ['en','de']) test(`@canvas-model-ui GPT Image 2.5 Generate Lab ${locale}: retained HTTPS delivery, reload and saved original`,async({page},testInfo)=>{
+  await page.setViewportSize({width:locale==='de'?1100:1440,height:900});
+  await mockGenerateLabMemberSession(page,{credits:3000});
+  const recent=[];await mockGenerateLabSavedImageAssets(page,recent);
+  const bytes=fs.readFileSync(path.join(__dirname,'fixtures/media/member-image.png'));
+  const job={id:'retained-image25',media_type:'image',model_id:'openai/gpt-image-2.5-flare',status:'ingesting',delivery_status:'pending'};
+  let phase='initial',calls=0;
+  await page.route('**/api/ai/generation-jobs',route=>route.fulfill({json:{ok:true,data:{jobs:phase==='initial'?[]:phase==='history'?[{...job,status:'succeeded',delivery_status:'saved',asset_id:'saved-image25'}]:[job]}}}));
+  await page.route('**/api/ai/generation-jobs/*',route=>route.fulfill({json:{ok:true,data:{job:phase==='saved'?{...job,status:'succeeded',delivery_status:'saved',asset_id:'saved-image25'}:phase==='failed'?{...job,status:'failed',delivery_status:'failed'}:{...job,status:'outcome_unknown'},...(phase==='saved'?{result:{ok:true,billing:{credits_charged:0,billing_status:'released_no_debit'},data:{model:job.model_id,mimeType:'image/png',imageBase64:bytes.toString('base64'),asset:{id:'saved-image25',file_url:'/api/ai/images/saved-image25/file'},prompt:'Synthetic retained image'}}}:{})}}}));
+  await page.route('**/api/ai/images/saved-image25/file*',route=>route.fulfill({contentType:'image/png',body:bytes}));
+  await page.route('**/api/ai/generate-image',route=>{calls++;phase='pending';return route.fulfill({status:202,json:{ok:true,data:{job}}});});
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto(locale==='de'?'/de/generate-lab/':'/generate-lab/');
+  await page.locator('#labImageModel').selectOption('openai/gpt-image-2.5-flare');
+  await page.locator('#labPrompt').fill('Synthetic retained image');await page.locator('#labGenerate').click();
+  await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'Bild erzeugt – Zustellung ausstehend':'Image generated – delivery pending');
+  await expect(page.locator('#labMessage')).toBeEmpty();
+  await page.reload();await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'Zustellung ausstehend':'delivery pending');
+  phase='failed';await page.reload();await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'Zustellung fehlgeschlagen':'delivery failed');
+  await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'Nicht erneut generieren':'Do not generate again');
+  phase='saved';await page.reload();
+  const image=page.locator('#labResultStage img').first();await expect(image).toBeVisible();
+  await expect.poll(()=>image.evaluate(node=>node.complete&&node.naturalWidth>0)).toBe(true);
+  await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'Im Assets Manager gespeichert':'Saved');
+  recent.push({...buildGenerateLabImageAssets(1)[0],id:'saved-image25',title:'Synthetic retained image',thumb_url:'/api/ai/images/saved-image25/file'});
+  phase='history';await page.reload();
+  const card=page.locator('#labRecentAssets [data-asset-id="saved-image25"]');await expect(card).toBeVisible();
+  await expect.poll(()=>card.locator('img').evaluate(node=>node.complete&&node.naturalWidth>0)).toBe(true);
+  expect(calls).toBe(1);expect(errors).toEqual([]);
+  await page.screenshot({path:testInfo.outputPath(`image25-delivery-${locale}.png`),fullPage:true});
+});

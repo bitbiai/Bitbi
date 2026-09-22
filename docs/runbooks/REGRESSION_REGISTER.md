@@ -589,3 +589,31 @@ Actual caller: `node --test tests/q2-recovery-staging.test.mjs
 scripts/test-q2-runtime-launcher.mjs`. This orchestration countercheck does not
 replace the selected hosted `test:q2-runtime -- --suite canvas` or the subsequent
 Appearance/native and Chromium/WebKit gates; the failed run provided neither.
+
+### GPT Image 2.5 retained HTTPS delivery (2026-09-22)
+
+Pinned native workerd rejects `fetch(..., {redirect:'error'})` before transport;
+Completed HTTPS image receipts therefore survived while ingestion exhausted its
+attempts. Data-URI fixtures had missed the queued path. Use manual redirect mode
+and reject every redirect explicitly; keep HTTPS, format, byte/decode limits and
+safe stage diagnostics. The real AI binding receives the immutable receipt
+correlation without discarding existing Gateway metadata. Retained Completed
+receipts get at most three delivery-only attempts; no inference re-dispatch.
+Released reservations remain released, with a receipt-digest-bound audit instead
+of retrospective charging. Migration **0095_retained_image_delivery.sql** keeps
+unready assets hidden except exact succeeded, audited image recoveries; missing
+audit fields fail closed. Apply it before Auth. AI/shared adapter, Auth and the
+exact tested frontend are the only changed deployment units; no media image.
+
+Actual callers: `tests/q2-gpt-image-25.spec.js`, native `--suite canvas` through
+`tests/helpers/q2-runtime/canvas.mjs` (real Generate Lab queue, D1/R2/Images,
+HTTPS output, transport/truncated body/redirect, released eight-attempt recovery,
+owner download, replay, missing audit and deletion), and the existing tagged
+`tests/smoke.spec.js` EN/DE Chromium/WebKit cases. Existing model-pricing/image
+selection executes these plus charged-role regression; unknown inputs remain
+broad. `scripts/test-release-plan.mjs` covers protected receipt/owner/byte checks,
+no debit, bounded incomplete rejection and partial-activation reuse. The existing
+backend publication captures eligible retained jobs before deployment and checks
+cron recovery afterward before allowing the frontend; it invokes no model.
+Local success is not hosted Linux or production acceptance. Private originals,
+receipt hashes, native failures and final reports remain outside the repository.

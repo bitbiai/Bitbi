@@ -13,6 +13,11 @@ export const SUPPORTED_LOCALES = Object.freeze(['en', 'de']);
 const STRINGS = Object.freeze({
     en: Object.freeze({
         generation: Object.freeze({
+            deliveryPending: 'Image generated – delivery pending',
+            deliveryPendingCopy: 'The existing result is being retrieved and saved. No new image is being generated. You can close the tab.',
+            deliveryFailed: 'Image generated – delivery failed',
+            deliveryFailedCopy: 'The bounded retrieval of the existing result could not finish. The job is retained for recovery. Do not generate again.',
+
             accepted: 'Accepted. Processing continues on the server; you can close this page. Results will appear in My Assets.',
             attention: 'This generation needs attention. Check its status in My Assets before submitting again.',
             signIn: 'Please sign in to view your generation jobs.',
@@ -1002,6 +1007,11 @@ const STRINGS = Object.freeze({
     }),
     de: Object.freeze({
         generation: Object.freeze({
+            deliveryPending: 'Bild erzeugt – Zustellung ausstehend',
+            deliveryPendingCopy: 'Das vorhandene Ergebnis wird abgerufen und gespeichert. Es wird kein neues Bild erzeugt. Sie können den Tab schließen.',
+            deliveryFailed: 'Bild erzeugt – Zustellung fehlgeschlagen',
+            deliveryFailedCopy: 'Der begrenzte Abruf des vorhandenen Ergebnisses konnte nicht abgeschlossen werden. Der Auftrag bleibt zur Wiederherstellung erhalten. Nicht erneut generieren.',
+
             accepted: 'Angenommen. Die Verarbeitung läuft auf dem Server weiter; Sie können diese Seite schließen. Ergebnisse erscheinen unter Meine Assets.',
             attention: 'Dieser Auftrag benötigt Aufmerksamkeit. Prüfen Sie seinen Status unter Meine Assets, bevor Sie ihn erneut absenden.',
             signIn: 'Bitte melden Sie sich an, um Ihre Generierungsaufträge zu sehen.',

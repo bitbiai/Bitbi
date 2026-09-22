@@ -2,6 +2,7 @@ import { pinModelTariff, settlePinnedModelTariff } from './model-tariffs.js';
 import { fetchMemberAttemptByIdempotency } from './member-ai-usage-attempts.js';
 import { fetchOrgAttemptByIdempotency } from './ai-usage-attempts.js';
 import { generationExecution } from './member-generation-jobs.js';
+import { checkpointReleasedImageDelivery } from './image-delivery-recovery.js';
 import { checkpointAiDispatchImage } from './ai-dispatch-state.js';
 import {
   BillingError,
@@ -373,6 +374,7 @@ async function prepareMemberGatewayPolicy({
     async checkpointImage(result) {
       if (execution) {
         await execution.assertClaim();
+        if(execution.creditReview && execution.retainedImage)return checkpointReleasedImageDelivery(env,execution,attemptState.attempt,result);
         if (attemptState.attempt.billingStatus === 'finalized') return;
       }
       return checkpointAiDispatchImage(env, 'member_ai_usage_attempts_v2', attemptState.attempt.id, { ...result, dispatchToken });
@@ -402,6 +404,7 @@ async function prepareMemberGatewayPolicy({
     async markSucceeded(result = {}) {
       if (execution) {
         await execution.assertClaim();
+        if(execution.creditReview && execution.retainedImage)return;
         const finalized = await env.DB.prepare(`SELECT id FROM member_ai_usage_attempts_v2
           WHERE id=? AND user_id=? AND dispatch_token=? AND provider_outcome='succeeded'
           AND status='succeeded' AND billing_status='finalized' AND reservation_released_at IS NULL`)
@@ -429,6 +432,15 @@ async function prepareMemberGatewayPolicy({
       const chargedCredits=settlePinnedModelTariff(pinnedPricing, settlement.credits===undefined?resolvedOperation.credits:Number(settlement.credits), settlement.units);
       if(!Number.isInteger(chargedCredits)||chargedCredits<1||chargedCredits>resolvedOperation.credits) {
         throw new BillingError('Authoritative output usage exceeds the reservation.',{status:409,code:'generation_result_requires_credit_review'});
+      }
+      if(execution?.creditReview && execution.retainedImage) {
+        await execution.assertClaim();
+        const row=await env.DB.prepare(`SELECT id FROM member_ai_usage_attempts_v2 WHERE id=? AND user_id=? AND dispatch_token=?
+          AND billing_status='released' AND reservation_released_at IS NOT NULL AND result_status='stored'
+          AND json_extract(metadata_json,'$.image_delivery_reconciliation.receiptSha256')=?`)
+          .bind(attemptState.attempt.id,user.id,dispatchToken,execution.retainedImage.sha256).first();
+        if(!row)throw new BillingError('Retained image checkpoint is missing.',{status:409,code:'generation_result_requires_credit_review'});
+        return {user_id:user.id,feature:resolvedOperation.featureKey,credits_charged:0,balance_after:null,billing_status:'released_no_debit'};
       }
       if(execution?.creditReview) throw new BillingError('The retained result requires credit reconciliation.',
         {status:409,code:'generation_result_requires_credit_review'});

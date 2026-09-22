@@ -4,6 +4,19 @@ export const GPT_IMAGE_25_AGGREGATE_BYTES = GPT_IMAGE_25_MAX_AGGREGATE_REFERENCE
 export const GPT_IMAGE_25_IMAGE_BYTES = GPT_IMAGE_25_MAX_REFERENCE_BYTES;
 export const GPT_IMAGE_25_INTERNAL_JSON_BYTES = 24 * 1024 * 1024;
 const types = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const receiptDiagnostic = Symbol('image25ReceiptDiagnostic');
+
+export function image25DeliveryError(error, stage, context = {}) {
+  const reason = /Invalid redirect value/.test(String(error?.message || '')) ? 'unsupported_redirect_mode'
+    : ['AbortError', 'TimeoutError'].includes(error?.name) ? 'deadline'
+      : error?.code === 'image_too_large' ? 'byte_limit'
+        : error?.name === 'TypeError' ? 'transport_or_body' : 'invalid_output';
+  return Object.assign(image25Error('generation_output_delivery_pending', 'The image was generated; delivery needs recovery. Do not generate again.', 502), {
+    providerCompleted: true,
+    providerDiagnostic: { ...image25Diagnostic(null, context), stage, reason,
+      errorType: ['TypeError','AbortError','TimeoutError'].includes(error?.name) ? error.name : 'Error' },
+  });
+}
 
 export function image25Error(code, message, status = 400) {
   return Object.assign(new Error(message), { code, status });
@@ -56,7 +69,17 @@ function safeProviderUrl(value) {
   return url.href;
 }
 
-export async function image25Output(result, { fetcher = fetch, signal, outputFormat } = {}) {
+export async function image25Output(result, options = {}) {
+  try { return await resolveImage25Output(result, options); }
+  catch(error) {
+    if(error.code==='generation_provider_outcome_unknown' || error.providerDiagnostic)throw error;
+    const diagnostic=image25DeliveryError(error,'output_validate',result?.[receiptDiagnostic]);
+    Object.assign(error,{providerCompleted:true,providerDiagnostic:diagnostic.providerDiagnostic});
+    throw error;
+  }
+}
+
+async function resolveImage25Output(result, { fetcher = fetch, signal, outputFormat } = {}) {
   // Accept both the documented direct schema and the Completed gateway envelope.
   if (result && Object.hasOwn(result, 'state') && result.state !== 'Completed') throw image25Error('generation_provider_outcome_unknown', 'Provider completion is unresolved. Do not resubmit.', 502);
   const value = result?.result?.image ?? result?.image;
@@ -68,11 +91,19 @@ export async function image25Output(result, { fetcher = fetch, signal, outputFor
     let binary; try { binary = atob(match[2]); } catch { throw image25Error('image_output_invalid', 'Provider returned invalid image data.', 502); }
     bytes = Uint8Array.from(binary, character => character.charCodeAt(0)); mime = match[1];
   } else {
-    const response = await fetcher(safeProviderUrl(value), { signal, redirect: 'error' });
-    if (!response.ok) throw image25Error('image_output_unavailable', 'Generated image retrieval failed; do not generate again.', 502);
+    const url = safeProviderUrl(value);
+    let response;
+    try { response = await fetcher(url, { signal, redirect: 'manual' }); }
+    catch (error) { throw image25DeliveryError(error, 'output_fetch', result[receiptDiagnostic]); }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
+      const error = image25DeliveryError(null, response.status >= 300 && response.status < 400 ? 'output_redirect_rejected' : 'output_http', { ...result[receiptDiagnostic], status:response.status });
+      throw error;
+    }
     mime = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-    if (!types.has(mime)) throw image25Error('image_output_invalid', 'Provider returned an unsupported image type.', 502);
-    bytes = await readImage25Bytes(response, GPT_IMAGE_25_IMAGE_BYTES, signal);
+    if (!types.has(mime)) { await response.body?.cancel().catch(() => {}); throw image25Error('image_output_invalid', 'Provider returned an unsupported image type.', 502); }
+    try { bytes = await readImage25Bytes(response, GPT_IMAGE_25_IMAGE_BYTES, signal); }
+    catch (error) { throw image25DeliveryError(error, 'output_body', result[receiptDiagnostic]); }
   }
   if (bytes.byteLength > GPT_IMAGE_25_IMAGE_BYTES) throw image25Error('image_output_invalid', 'Provider image exceeds the application byte limit.', 502);
   image25Mime(bytes, mime);
@@ -95,14 +126,18 @@ export async function callImage25Provider(ai, model, payload, options = {}, corr
   let response;
   try {
     response = await ai.run(model, payload, { ...options, returnRawResponse: true,
-      gateway: { ...options.gateway, skipCache: true, collectLog: false, metadata: { bitbi_dispatch: correlationId } } });
+      gateway: { ...options.gateway, skipCache: true, collectLog: false, metadata: { ...options.gateway?.metadata, bitbi_dispatch: correlationId } } });
   } catch (error) { throw image25ProviderFailure(image25Diagnostic(error, { correlationId })); }
   if (!(response instanceof Response)) return response; // Native harness adapter.
-  const context = { status: response.status, correlationId, requestId: response.headers.get('cf-ai-req-id'), gatewayId: response.headers.get('cf-aig-log-id') };
+  const context = { status: response.status, correlationId: response.headers.get('x-bitbi-dispatch-correlation') || correlationId, requestId: response.headers.get('cf-ai-req-id'), gatewayId: response.headers.get('cf-aig-log-id') };
   let body;
   try { body = JSON.parse(new TextDecoder().decode(await readImage25Bytes(response, GPT_IMAGE_25_INTERNAL_JSON_BYTES, options.signal))); }
   catch { throw image25ProviderFailure(image25Diagnostic(null, context)); }
-  if (response.ok && body?.success !== false) return body && Object.hasOwn(body, 'state') ? body : body?.result?.state || body?.result?.image ? body.result : body;
+  if (response.ok && body?.success !== false) {
+    const result = body && Object.hasOwn(body, 'state') ? body : body?.result?.state || body?.result?.image ? body.result : body;
+    if (result && typeof result === 'object') Object.defineProperty(result, receiptDiagnostic, {value:context});
+    return result;
+  }
   const diagnostic = image25Diagnostic(body?.errors?.[0] || body?.error, context);
   if (body?.image || body?.result?.image || body?.state) diagnostic.noInference = false;
   throw image25ProviderFailure(diagnostic);

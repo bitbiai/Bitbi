@@ -20,7 +20,8 @@ export function createMemberGenerationStatus(root) {
             for(const job of jobs) {
                 const item=document.createElement('li');
                 const valid=['queued','processing','ingesting','preview_pending','succeeded','failed','outcome_unknown'].includes(job.status);
-                const status=localeText(`generation.${job.asset_id && job.error_code && ['preview_pending','failed','outcome_unknown'].includes(job.status)?'previewFailed':valid?job.status:'attention'}`);
+                const delivery=job.delivery_status==='failed'?'deliveryFailed':['pending','processing'].includes(job.delivery_status)?'deliveryPending':null;
+                const status=localeText(`generation.${delivery || (job.asset_id && job.error_code && ['preview_pending','failed','outcome_unknown'].includes(job.status)?'previewFailed':valid?job.status:'attention')}`);
                 const date=new Date(job.created_at);
                 item.textContent=`${Number.isNaN(date.valueOf())?'':date.toLocaleString()} · ${status} · ${String(job.id).slice(0,8)}`;
                 if(job.error_code) item.append(document.createTextNode(` (${job.error_code})`));

@@ -81,7 +81,7 @@ export function prepareBuild(artifactParent = os.tmpdir()) {
   const migrations = readMigrations(repoRoot);
   const latest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'config/release-compat.json'), 'utf8')).release.schemaCheckpoints.auth.latest;
   assert.equal(migrations.at(-1).path, latest, 'Native build and declared release schema must match');
-  assert.deepEqual(migrations.filter(row => Number(row.path.slice(0, 4)) > 83).map(row => row.path.slice(0, 4)), ['0084', '0085', '0086', '0087', '0088', '0089', '0090', '0091', '0092', '0093', '0094'], 'Native matrix includes the additive member-generation and Canvas processing migrations');
+  assert.deepEqual(migrations.filter(row => Number(row.path.slice(0, 4)) > 83).map(row => row.path.slice(0, 4)), ['0084', '0085', '0086', '0087', '0088', '0089', '0090', '0091', '0092', '0093', '0094', '0095'], 'Native matrix includes the additive member-generation and Canvas processing migrations');
   const provenance = { versions, compatibilityDate: config.compatibility_date, bundleSha256: sha256(bundle), sourceLedger,
     workerdBinarySha256: sha256(fs.readFileSync(workerd.default)), migrations: migrations.map(({ path: name, sha256: hash }) => ({ path: name, sha256: hash })) };
   fs.writeFileSync(path.join(workDir, 'build-provenance.json'), JSON.stringify(provenance, null, 2), { flag: 'wx' });
@@ -110,11 +110,23 @@ export async function createRuntime(build, name, { restricted = false, reference
     canvasProvider.image25Fixtures = { png: await sharp(sample).png().toBuffer(), webp: await sharp(sample).webp({lossless:true}).toBuffer() };
   }
   const canvasImage25Service = async request => {
-    const { inputs: payload } = await request.json(), model = request.headers.get('cf-consn-model-id');
+    const envelope = await request.json(), payload=envelope.inputs, model = request.headers.get('cf-consn-model-id');
+    (canvasProvider.requestOptions ||= []).push({options:envelope.options,headers:Object.fromEntries(request.headers)});
     canvasProvider.requests.push({ path: '/ai/run', body: { model, ...payload } });
     const bytes = canvasProvider.image25Fixtures[payload.output_format];
     assert.ok(['openai/gpt-image-2.5-sunburst','openai/gpt-image-2.5-flare'].includes(model) && bytes, 'Only exact synthetic image aliases/formats may dispatch');
-    return Response.json({state:'Completed',result:{image:`data:image/${payload.output_format};base64,${bytes.toString('base64')}`},gatewayMetadata:{keySource:'Unified'}});
+    return Response.json({state:'Completed',result:{image:canvasProvider.image25Https ? `https://image25-output.example/original.${payload.output_format}` : `data:image/${payload.output_format};base64,${bytes.toString('base64')}`},gatewayMetadata:{keySource:'Unified'}});
+  };
+  const canvasOutput = async request => {
+    const url = new URL(request.url);
+    const format = url.pathname.split('.').at(-1), bytes = canvasProvider.image25Fixtures[format];
+    if (url.origin !== 'https://image25-output.example' || !bytes) return deny();
+    canvasProvider.outputFetches = (canvasProvider.outputFetches || 0) + 1;
+    if(canvasProvider.outputFailure==='transport')throw new TypeError('Synthetic connection reset');
+    if(canvasProvider.outputFailure==='http')return new Response(null,{status:404});
+    if(canvasProvider.outputFailure==='redirect')return new Response(null,{status:302,headers:{Location:'https://forbidden.example/private'}});
+    if(canvasProvider.outputFailure==='body')return new Response(new ReadableStream({start(controller){controller.error(new TypeError('Synthetic body interruption'));}}),{headers:{'Content-Type':`image/${format}`}});
+    return new Response(bytes, {headers:{'Content-Type':`image/${format}`}});
   };
   const canvasService = async request => {
     const body = await request.json(); canvasProvider.requests.push({ path: new URL(request.url).pathname, body });
@@ -125,7 +137,7 @@ export async function createRuntime(build, name, { restricted = false, reference
   };
   const shared = { modules: true, ...(['member-generation','canvas'].includes(name) ? {images:{binding:'IMAGES'}} : {}), compatibilityDate: build.config.compatibility_date, bindings, d1Databases: { DB: `q2-${name}-db` },
     r2Buckets: { USER_IMAGES: `q2-${name}-images`, PRIVATE_MEDIA: `q2-${name}-private`, AUDIT_ARCHIVE: `q2-${name}-archive` },
-    outboundService: deny, serviceBindings: { AI_LAB: name === 'canvas' ? canvasService : denyService },
+    outboundService: name === 'canvas' ? canvasOutput : deny, serviceBindings: { AI_LAB: name === 'canvas' ? canvasService : denyService },
     ...(name === 'canvas' ? { unsafeBindings: [{name:'AI',type:'q2-image25-ai',plugin:{name:'q2-image25-ai',package:fileURLToPath(new URL('./image25-ai-binding.mjs',import.meta.url))},options:{}}] } : {}), unsafeRegisterWorker: false };
   const limiterOwner = restricted ? 'q2-restricted' : 'q2-candidate';
   const limiter = owner => ({ PUBLIC_RATE_LIMITER: { className: 'AuthPublicRateLimiterDurableObject', useSQLite: true, ...(owner ? { scriptName: owner } : {}) } });
@@ -150,7 +162,7 @@ export async function createRuntime(build, name, { restricted = false, reference
     assert.equal(control.outputFiles.length, 1);
     assert.ok(Object.values(control.metafile.outputs).every(output => output.imports.length === 0));
     fs.writeFileSync(path.join(executionDir, 'control-metafile.json'), JSON.stringify(control.metafile, null, 2), { flag: 'wx' });
-    workers.push({ ...shared, name: 'q2-control', script: control.outputFiles[0].text, durableObjects: limiter(limiterOwner) });
+    workers.push({ ...shared, name: 'q2-control', script: control.outputFiles[0].text, durableObjects: limiter(limiterOwner), queueProducers:queues });
   }
   if (name === 'native') workers.push({ name: 'q2-images', modules: true,
     compatibilityDate: build.config.compatibility_date, images: { binding: 'IMAGES' }, outboundService: deny,

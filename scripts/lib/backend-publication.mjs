@@ -1,4 +1,5 @@
 import os from 'node:os';
+import {captureImageDeliveryRecovery,verifyImageDeliveryRecovery} from './image-delivery-acceptance.mjs';
 import {createHash} from 'node:crypto';
 import {publishMedia,mediaActive,mediaSmoke,assertMediaAuthConfig,verifyMediaEvidence} from './media-publication.mjs';
 import {requiresPrivateMediaImage} from './ci-test-selection.mjs';
@@ -97,6 +98,13 @@ async function query(db,sql,params=[]) {
   const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/d1/database/${db}/query`,{method:'POST',headers:{Authorization:`Bearer ${backendEnv().CLOUDFLARE_API_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({sql,params}),signal:AbortSignal.timeout(20000)});
   assert(r.ok,`Backend D1 access denied/unavailable (${r.status}); existing credential needs D1 access. No automatic permission expansion.`);
   const b=await r.json();assert(b.success&&b.result?.[0]?.success,'Backend D1 verification failed');return b.result[0].results;
+}
+async function imageDeliveryObject(key) {
+  assert(/^users\/[a-zA-Z0-9-]+\//.test(key)&&!key.includes('..'),'Unsafe recovered image key');
+  const response=await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/r2/buckets/bitbi-user-images/objects/${key.split('/').map(encodeURIComponent).join('/')}`,{headers:{Authorization:`Bearer ${backendEnv().CLOUDFLARE_API_TOKEN}`},redirect:'error',signal:AbortSignal.timeout(30000)});
+  assert(response.ok,`Recovered image verification: R2 read failed (${response.status})`);
+  const {readImage25Bytes}=await import('../../workers/shared/gpt-image-25.mjs');
+  return Buffer.from(await readImage25Bytes(response,32*1024*1024));
 }
 function context() {
   assert.equal(process.env.GITHUB_ACTIONS,'true');assert.equal(process.env.GITHUB_JOB,'deploy');assert.equal(process.env.GITHUB_REF,'refs/heads/main');
@@ -200,6 +208,7 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
   assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Required schema not active');
   prerequisites(c.plan,state.version,c.config);
+  if(c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js'))assert(Array.isArray(receipt.imageDelivery),'Missing image recovery acceptance');
   await verifyAuthTriggers(c.config);
   await ensurePrivateVideoLogging({verifyOnly:true});
   await verifyAuthBundle(receipt.authBundleDigest);
@@ -250,13 +259,14 @@ export async function publishBackend() {
   if(mediaRequired)await readBackend('containers/applications');
 
   const before=await active();prerequisites(c.plan,before.version,c.config,false);
+  const imageTargets=c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?await captureImageDeliveryRecovery((sql,params)=>query(c.db,sql,params),imageDeliveryObject):[];
   await ensurePrivateVideoLogging();
   const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
   const applied=new Set((await query(c.db,'SELECT name FROM d1_migrations')).map(r=>r.name));
   const pending=fs.readdirSync('workers/auth/migrations').filter(f=>f.endsWith('.sql')&&!applied.has(f));
   // This authority covers the reviewed additive Canvas migration only. Future
   // schema changes need their own reviewed release support.
-  assert(pending.every(f=>['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql'].includes(f)),'Unexpected pending migrations');
+  assert(pending.every(f=>['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql'].includes(f)),'Unexpected pending migrations');
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-backend-secret-'));
   const mediaSourceSha=mediaRequired?c.sha:before.version.resources.bindings.find(b=>b.name==='PRIVATE_MEDIA_SOURCE_SHA')?.text;
   assert(/^[a-f0-9]{40}$/.test(mediaSourceSha||''),'Missing existing media source identity');
@@ -285,8 +295,9 @@ export async function publishBackend() {
     });
   }finally{fs.rmSync(temporary,{recursive:true,force:true});}
   prerequisites(c.plan,state.version,c.config);
+  const imageDelivery=await verifyImageDeliveryRecovery(imageTargets,{query:(sql,params)=>query(c.db,sql,params),object:imageDeliveryObject,current:()=>current(c.sha)});
   const receipt={sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,migration,version:state.version.id,deployment:state.deployment.id,
-    ...(media?{media,smoke}:{}),...(ai?{ai}:{}),mediaSourceSha,authBundleDigest:c.authBundleDigest,processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
+    ...(media?{media,smoke}:{}),...(ai?{ai}:{}),...(c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?{imageDelivery}:{}),mediaSourceSha,authBundleDigest:c.authBundleDigest,processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
   verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});
   storeBackendReceipt(receipt);
   await verifyBackendReceipt('test-results/backend-release.json');

@@ -875,7 +875,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');
  const files=['workers/auth/migrations/0094_model_pricing.sql','config/release-compat.json','workers/auth/src/lib/model-tariffs.js','workers/auth/src/routes/model-pricing.js','js/shared/model-tariff.mjs','js/shared/model-pricing-catalog.mjs','js/pages/admin/model-pricing.js'];
  const plan=createReleasePlanFromRepo(repoRoot,{files});
- assert(backendContinuationSupported(plan));assert.deepEqual(plan.workerDeploys.map(w=>w.worker),['ai','auth']);assert.equal(plan.schemaApplies[0].latestMigration,'0094_model_pricing.sql');
+ assert(backendContinuationSupported(plan));assert.deepEqual(plan.workerDeploys.map(w=>w.worker),['ai','auth']);assert.equal(plan.schemaApplies[0].latestMigration,JSON.parse(fs.readFileSync(path.join(repoRoot,'config/release-compat.json'))).release.schemaCheckpoints.auth.latest);
  assert(!plan.workerDeploys.some(w=>w.worker==='media'));
  assert.equal(plan.deploySteps[0].type,'schema-checkpoint');assert.equal(plan.deploySteps.at(-1).type,'static');
  console.log('Pricing: additive 0094 before AI/Auth and exact static artifact; unchanged media excluded.');
@@ -891,4 +891,23 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  assert.deepEqual(plan.deploySteps.map(s=>s.id),['auth-worker','static-site']);
  assert.deepEqual(plan.impacts.uncategorizedFiles,[]);
  console.log('Appearance: existing app_settings; Auth before exact static artifact; AI/media and pricing schema unchanged.');
+}
+
+{
+ const {captureImageDeliveryRecovery,verifyImageDeliveryRecovery}=await import('./lib/image-delivery-acceptance.mjs');
+ const {createHash}=await import('node:crypto');const digest=v=>createHash('sha256').update(v).digest('hex');
+ const owner='synthetic-owner',id='a'.repeat(32),key=`users/${owner}/generation-jobs/${id}/provider-ai-0.json`;
+ const receipt={key,fingerprint:'b'.repeat(64),correlationId:'c'.repeat(32)};
+ const original=Buffer.from('synthetic original bytes'),raw=Buffer.from(JSON.stringify({kind:'response',status:200,body:Buffer.from(JSON.stringify({state:'Completed',result:{image:'https://provider.example/private'}})).toString('base64')}));
+ const base={id,user_id:owner,input_r2_key:`users/${owner}/generation-jobs/${id}/input.json`,asset_id:id,status:'outcome_unknown',attempt_count:8,provider_receipts_json:JSON.stringify({'ai-0':receipt}),billing_status:'released',reservation_released_at:'2026-09-22T11:10:00Z',debits:0};
+ const targets=await captureImageDeliveryRecovery(async()=>[base],async key=>key.endsWith('/input.json')?Buffer.from(JSON.stringify({model:'openai/gpt-image-2.5-flare'})):raw);assert.equal(targets.length,1);
+ const saved={...base,status:'succeeded',attempt_count:9,result_r2_key:'result',provider_receipts_json:JSON.stringify({'ai-0':{...receipt,delivery:{status:'saved',billing:'released_no_debit',attempts:1}}}),metadata_json:JSON.stringify({image_delivery_reconciliation:{receiptSha256:digest(raw),creditsCharged:0}})};
+ const asset={id,user_id:owner,r2_key:'original',size_bytes:original.length,width:1024,height:1024};
+ const object=async k=>k===key?raw:k==='original'?original:Buffer.from(JSON.stringify({billing:{credits_charged:0,billing_status:'released_no_debit'},data:{asset:{id},imageBase64:original.toString('base64')}}));
+ const execute=row=>verifyImageDeliveryRecovery(targets,{query:async sql=>[sql.startsWith('SELECT id,user_id')?asset:row],object,current:async()=>{},pause:async()=>{}});
+ assert.equal((await execute(saved))[0].creditsCharged,0);
+ for(const patch of [{status:'failed'},{status:'outcome_unknown'},{debits:1},{billing_status:'finalized'},{user_id:'foreign'},{asset_id:'different'},{attempt_count:12}])await assert.rejects(execute({...saved,...patch}));
+ await assert.rejects(verifyImageDeliveryRecovery(targets,{query:async sql=>[sql.startsWith('SELECT id,user_id')?asset:saved],object:async()=>Buffer.from('changed'),current:async()=>{},pause:async()=>{}}));
+ const completedTargets=await captureImageDeliveryRecovery(async()=>[saved],async key=>key.endsWith('/input.json')?Buffer.from(JSON.stringify({model:'openai/gpt-image-2.5-flare'})):raw);assert.equal(completedTargets[0].attempts,8,'Partial deployment resumes exact completed recovery');
+ console.log('Released image delivery acceptance: exact receipt/owner/bytes, no debit, bounded pending rejection and partial activation passed.');
 }

@@ -346,7 +346,15 @@ function isAuthFailure(result) {
     return result?.status === 401 || result?.status === 403;
 }
 
+function jobWorkflowStatus(job) {
+    if(job?.delivery_status==='failed')return 'deliveryFailed';
+    if(['pending','processing'].includes(job?.delivery_status))return 'deliveryPending';
+    return job?.status==='outcome_unknown'?'reconciling':job?.status==='ingesting'?'saving':job?.status==='preview_pending'?'previewPending':job?.status==='succeeded'?'saved':'accepted';
+}
+
 const workflowStatusConfig = Object.freeze({
+    deliveryPending:{title:'generation.deliveryPending',copy:'generation.deliveryPendingCopy',tone:'busy'},
+    deliveryFailed:{title:'generation.deliveryFailed',copy:'generation.deliveryFailedCopy',tone:'error'},
     reconciling: {title:"generateLab.workflowReconcilingTitle",copy:"generateLab.workflowReconcilingCopy",tone:"busy"},
     accepted: {title:"generateLab.workflowAcceptedTitle",copy:"generateLab.workflowAcceptedCopy",tone:"busy"},
     previewPending: {title:"generateLab.workflowPreviewTitle",copy:"generateLab.workflowPreviewCopy",tone:"busy"},
@@ -2072,7 +2080,7 @@ async function handleGenerate() {
     const run=++generationView;
     const submitted=Object.freeze({modelId:selectedModel().id,modelLabel:selectedModel().displayName,mediaType:state.mediaType});
     let acceptedJob=null;
-    const onProgress=job=>{if(run!==generationView)return;acceptedJob=job;setWorkflowStatus(job.status==='outcome_unknown'?'reconciling':job.status==='ingesting'?'saving':job.status==='preview_pending'?'previewPending':'accepted',submitted.modelLabel);};
+    const onProgress=job=>{if(run!==generationView)return;acceptedJob=job;setWorkflowStatus(jobWorkflowStatus(job),submitted.modelLabel);};
     acceptedStatusActive=false;
     const observation={onAccepted:job=>{acceptedStatusActive=true;onProgress(job);},onProgress,isCurrent:()=>run===generationView};
     setWorkflowStatus('generating');
@@ -2096,8 +2104,9 @@ async function handleGenerate() {
     }
 
     if(run!==generationView)return;
-    if(res?.pending){acceptedStatusActive=true;setMessage('');setWorkflowStatus(res.job?.status==='outcome_unknown'?'reconciling':'accepted',submitted.modelLabel);return;}
+    if(res?.pending){acceptedStatusActive=true;setMessage('');setWorkflowStatus(jobWorkflowStatus(res.job),submitted.modelLabel);return;}
     acceptedStatusActive=false;
+    if(res?.job?.delivery_status==='failed'){setMessage('');setWorkflowStatus('deliveryFailed',submitted.modelLabel);return;}
     if (!res?.ok) {
         renderEmptyResult();
         setMessage(res?.pending ? res.error : localeText('generateLab.generationFailedRetry', { error: h3ReferenceError(res?.code,document.documentElement.lang==='de') || res?.error || localeText('studio.generationFailed') }), res?.pending ? 'info' : 'error');
@@ -2203,13 +2212,13 @@ async function restoreGeneration() {
     const own=++generationView,controller=new AbortController();restoredObservation=controller;
     const response=await apiAiGetGenerationJobs({signal:controller.signal});
     if(own!==generationView||!state.loggedIn)return;
-    const job=response.data?.data?.jobs?.find(job=>['queued','processing','ingesting','preview_pending','outcome_unknown'].includes(job.status));
+    const job=response.data?.data?.jobs?.find(job=>['queued','processing','ingesting','preview_pending','outcome_unknown'].includes(job.status) || job.delivery_status==='failed');
     if(!job)return;
     acceptedStatusActive=true;
     const onProgress=current=>{
         if(own!==generationView)return;
         const model=getGenerateLabModels().find(model=>model.id===current.model_id);
-        setWorkflowStatus(current.status==='outcome_unknown'?'reconciling':current.status==='ingesting'?'saving':current.status==='preview_pending'?'previewPending':'accepted',model?.displayName||current.model_id||'');
+        setWorkflowStatus(jobWorkflowStatus(current),model?.displayName||current.model_id||'');
     };
     const result=await apiAiObserveGeneration(job,{signal:controller.signal,onProgress});
     if(own!==generationView||!state.loggedIn)return;
@@ -2221,7 +2230,7 @@ async function restoreGeneration() {
         else if(data?.imageBase64){renderImageResult({imageData:`data:${data.mimeType||'image/png'};base64,${data.imageBase64}`,prompt:data.prompt||'',meta:data});if(data.asset?.id)renderImageSavedActions();}
         setWorkflowStatus(data?.generationJob?.status==='preview_pending'?'previewPending':'saved',getGenerateLabModels().find(model=>model.id===data?.generationJob?.model_id)?.displayName||'');
         await Promise.all([loadRecentAssets(),loadQuota()]);
-    } else if(!result.pending)setWorkflowStatus('attention');
+    } else if(!result.pending)setWorkflowStatus(result.job?.delivery_status==='failed'?'deliveryFailed':'attention');
 }
 
 async function loadQuota() {
