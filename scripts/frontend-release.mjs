@@ -137,6 +137,12 @@ async function main() {
    else receipt.releaseRepair={kind,...identity};
  }
  receipt.publicationRun=String(process.env.GITHUB_RUN_ID);receipt.publicationAttempt=String(process.env.GITHUB_RUN_ATTEMPT);
+ // Keep recovered originals and their original activation provenance in the
+ // existing durable deployment payload, beyond Actions artifact retention.
+ if(process.env.BACKEND_RELEASE_RECEIPT) {
+   const backend=await (await import('./lib/backend-publication.mjs')).verifyBackendReceipt();
+   if(backend.acceptance&&backend.imageDelivery)receipt.backendAcceptance=backend;
+ }
  fs.writeFileSync('hosting-receipt.json',JSON.stringify(receipt,null,2)+'\n');
  console.log(`Verified ${receipt.worker} ${receipt.versionId} at 100%; deployment ${receipt.deploymentId}`);
 }

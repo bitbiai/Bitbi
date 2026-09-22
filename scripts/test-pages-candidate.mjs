@@ -663,6 +663,15 @@ assert.throws(()=>verifyLaterAttempt({...run,conclusion:'failure'},[{name:'deplo
   git(['read-tree',head]);const link=git(['hash-object','-w','--stdin'],'../untrusted-script.mjs');
   git(['update-index','--cacheinfo',`120000,${link},scripts/validate-site-references.mjs`]);
   const symlink=git(['commit-tree',git(['write-tree']),'-p',head],'symlink checker\n');assert.throws(()=>repairDelta(source,symlink,base));
+  // The image acceptance repair has the same protected product trees, but
+  // requires its actual verifier, backend caller and regression together.
+  for(const file of ['scripts/lib/image-delivery-acceptance.mjs','scripts/lib/backend-publication.mjs','scripts/test-release-plan.mjs'])write(file,'reviewed image acceptance tooling\n');
+  git(['add','.']);git(['commit','-qm','image acceptance repair']);const imageHead=git(['rev-parse','HEAD']);
+  const imageFiles=repairDelta(source,imageHead,base);assert.equal(repairKind(imageFiles),'tooling');
+  const imageSelection=repairSelection(original,imageFiles);assert.equal(imageSelection.imageModels,false);assert.equal(imageSelection.workers,false);assert.equal(imageSelection.auth,false);
+  assertRepairAcceptance(accepted,sha,imageFiles);
+  assert.throws(()=>repairKind(imageFiles.filter(f=>f!=='scripts/test-release-plan.mjs')),/caller\/regression/);
+  assert.throws(()=>repairKind([...imageFiles,'workers/auth/src/lib/image-delivery-recovery.js']),/outside/);
   assert.throws(()=>repairDelta('f'.repeat(40),head,base));assert.throws(()=>repairDelta(head,source,base));assert.throws(()=>repairDelta(source,head,head));
   const sourceExpected={...ordinary,sha:source,publicationSha:head,base};
   const evidence={...newsEvidence,mainSha:head,run:{...run,head_sha:source},jobs:newsJobs.map(job=>({...job,head_sha:source})),artifacts:newsArtifacts.map(artifact=>({...artifact,name:artifact.name.replace(sha,source),workflow_run:{id:123,head_sha:source}}))};

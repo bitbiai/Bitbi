@@ -30,11 +30,13 @@ export const TOOLING_REPAIR_FILES=new Set([
   'scripts/check-static-deploy-safety.mjs','scripts/test-static-deploy-safety.mjs',
   'scripts/test-pages-candidate.mjs','scripts/test-pages-workflow.mjs',
   'scripts/test-frontend-review.mjs','docs/runbooks/REGRESSION_REGISTER.md',
+  'scripts/lib/image-delivery-acceptance.mjs','scripts/test-release-plan.mjs',
 ]);
 const git=args=>execFileSync('git',args,{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 export function repairKind(files) {
-  if(files.includes('scripts/validate-site-references.mjs')) {
+  if(files.includes('scripts/validate-site-references.mjs')||files.includes('scripts/lib/image-delivery-acceptance.mjs')) {
     assert(files.includes('.github/workflows/static.yml'),'Reference repair lacks its real workflow caller');
+    if(files.includes('scripts/lib/image-delivery-acceptance.mjs'))assert(['scripts/lib/backend-publication.mjs','scripts/test-release-plan.mjs'].every(f=>files.includes(f)),'Recovery acceptance repair lacks its caller/regression');
     assert(files.every(f=>TOOLING_REPAIR_FILES.has(f)),'Changed input is outside release tooling equivalence');
     return 'tooling';
   }
@@ -66,7 +68,7 @@ export function repairSelection(full,files) {
   const media=repairKind(files)==='media';
   return {...full,policy:media?'media-repair-v1':'release-tooling-repair-v1',docsOnly:false,memberModels:false,full:false,homepage:false,homepageMedia:false,carousel:false,assets:false,auth:false,
     adminRelease:false,memberAssets:false,publicMedia:false,modelStatus:false,canvasText:false,workspaceHelp:false,
-    appearance:false,modelPricing:false,workers:media,mediaLifecycle:media,runtime:media,static:true,mediaRepair:media,dependencies:false,workerDependencies:false,
+    appearance:false,modelPricing:false,imageModels:false,workers:media,mediaLifecycle:media,runtime:media,static:true,mediaRepair:media,dependencies:false,workerDependencies:false,
     reasons:{...Object.fromEntries(Object.keys(full.reasons).map(k=>[k,[]])),workers:media?['Fresh processor Linux image, native D1/R2 smoke and SDK lifecycle']:[],static:['Authenticated unchanged frontend source; no new browser execution claimed'],dependencies:[],workerDependencies:[]}};
 }
 export function assertRepairAcceptance(jobs,sha,files=['services/homepage-ffmpeg-processor/video-reference.mjs']) {
@@ -109,6 +111,10 @@ export async function discoverRepairSource(env=process.env) {
   const runs=await api('actions/workflows/static.yml/runs?branch=main&per_page=20');
   for(const r of runs.workflow_runs.filter(r=>r.status==='completed'&&['success','failure'].includes(r.conclusion))) {
     try {repairDelta(r.head_sha,env.GITHUB_SHA,env.CANDIDATE_BASE);}catch{continue;}
+    const jobs=await collection(`actions/runs/${r.id}/attempts/${r.run_attempt}/jobs`,'jobs');
+    // A completed publish-only continuation has no new validation/artifacts.
+    // Only this positively identified shape may be passed over, never a red suite.
+    if(jobs.some(j=>j.name==='reuse-candidate'&&j.status==='completed'&&j.conclusion==='success')&&Object.keys(requiredJobs(gitSelection(env.CANDIDATE_BASE,r.head_sha))).every(name=>jobs.filter(j=>j.name===name).length===1&&jobs.some(j=>j.name===name&&j.status==='completed'&&j.conclusion==='skipped')))continue;
     // Once a matching source is found, fail closed on invalid evidence rather
     // than searching past it for older green results.
     const inputs={REPAIR_SOURCE_SHA:r.head_sha,REPAIR_SOURCE_RUN:String(r.id),REPAIR_SOURCE_ATTEMPT:String(r.run_attempt)};

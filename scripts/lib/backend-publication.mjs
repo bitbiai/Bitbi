@@ -94,10 +94,15 @@ export function verifyBackendActivation(receipt,{sha,base,runId,attempt,version,
   assert.equal(version.id,receipt.version);assert.equal(version.annotations?.['workers/message'],`bitbi-auth:${sha}`);
   assert.equal(deployment.id,receipt.deployment);assert.deepEqual(deployment.versions,[{version_id:receipt.version,percentage:100}]);
 }
-async function query(db,sql,params=[]) {
+export function backendD1Diagnostic(status,body) {
+ const errors=Array.isArray(body?.errors)?body.errors.slice(0,8):[];
+ return {http:status,codes:errors.map(e=>Number(e.code)).filter(Number.isSafeInteger),category:
+  [401,403].includes(status)?'authorization':errors.some(e=>/SQLITE_ERROR|no such column|no such table|syntax error/i.test(String(e.message)))?'sql':status===429?'rate_limit':status>=500?'service':'query'};
+}
+export async function query(db,sql,params=[]) {
   const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/d1/database/${db}/query`,{method:'POST',headers:{Authorization:`Bearer ${backendEnv().CLOUDFLARE_API_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({sql,params}),signal:AbortSignal.timeout(20000)});
-  assert(r.ok,`Backend D1 access denied/unavailable (${r.status}); existing credential needs D1 access. No automatic permission expansion.`);
-  const b=await r.json();assert(b.success&&b.result?.[0]?.success,'Backend D1 verification failed');return b.result[0].results;
+  const b=await r.json().catch(()=>null);
+  assert(r.ok&&b?.success&&b.result?.[0]?.success,`Backend D1 verification failed: ${JSON.stringify(backendD1Diagnostic(r.status,b))}`);return b.result[0].results;
 }
 async function imageDeliveryObject(key) {
   assert(/^users\/[a-zA-Z0-9-]+\//.test(key)&&!key.includes('..'),'Unsafe recovered image key');
@@ -200,10 +205,77 @@ function storeBackendReceipt(receipt) {
   fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/backend-release.json',JSON.stringify(receipt,null,2)+'\n');
   if(process.env.GITHUB_ENV)fs.appendFileSync(process.env.GITHUB_ENV,`BACKEND_RELEASE_RECEIPT=${path.resolve('test-results/backend-release.json')}\n`);
 }
+function imageAcceptanceRepair(c) {
+  return Boolean(c.publicationSha&&repairDelta(c.sha,c.publicationSha,c.base).includes('scripts/lib/image-delivery-acceptance.mjs'));
+}
+// Independently attribute an already-active backend to the protected failed
+// publication window. The failed step stays failed; this run records NEW
+// acceptance, with unchanged candidate bytes and original activation identity.
+export async function findImageDeliveryActivation(c,states,{read=api}={}) {
+  const matches=[];
+  assert.equal(states.length,2);assert.deepEqual(states.map(s=>s.worker).sort(),['bitbi-ai','bitbi-auth']);
+  for(const d of (await read('deployments?environment=cloudflare-static-production&per_page=100')).filter(d=>d.task==='deploy'&&d.sha===c.sha)) {
+    const statuses=await read(`deployments/${d.id}/statuses`),log=statuses.find(s=>s.state==='failure')?.log_url?.match(/^https:\/\/github\.com\/bitbiai\/Bitbi\/actions\/runs\/(\d+)\/job\/(\d+)$/);
+    if(!log||log[1]===String(process.env.GITHUB_RUN_ID))continue;
+    const job=await read(`actions/jobs/${log[2]}`),step=job.steps?.find(s=>s.name==='Apply verified candidate backend prerequisites');
+    if(!step||!states.every(s=>Date.parse(s.deployment.created_on)>=Date.parse(step.started_at)&&Date.parse(s.deployment.created_on)<=Date.parse(step.completed_at)))continue;
+    const run=await read(`actions/runs/${log[1]}`);
+    assert.equal(d.environment,'cloudflare-static-production');assert.equal(run.repository?.full_name,REPOSITORY);assert.equal(run.head_repository?.full_name,REPOSITORY);
+    assert.equal(String(run.id),log[1]);assert.equal(run.path,'.github/workflows/static.yml');assert.equal(run.head_branch,'main');assert(['push','workflow_dispatch'].includes(run.event));
+    assert.equal(run.head_sha,c.sha);assert.equal(run.status,'completed');assert.equal(run.conclusion,'failure');
+    assert.equal(job.name,'deploy');assert.equal(job.head_sha,c.sha);assert.equal(String(job.id),log[2]);assert.equal(String(job.run_id),log[1]);assert.equal(job.run_attempt,run.run_attempt);
+    assert.equal(job.status,'completed');assert.equal(job.conclusion,'failure');assert.equal(step.status,'completed');assert.equal(step.conclusion,'failure');
+    for(const [name,result] of [['Validate candidate references before backend publication','success'],['Preserve backend activation evidence','skipped']])assert(job.steps.some(s=>s.name===name&&s.status==='completed'&&s.conclusion===result),'Unexpected prior backend acceptance');
+    for(const s of states){assert.equal(s.version.annotations?.['workers/message'],`${s.worker}:${c.sha}`);assert.deepEqual(s.deployment.versions,[{version_id:s.version.id,percentage:100}]);}
+    matches.push({sha:c.sha,run:log[1],attempt:String(job.run_attempt),job:job.id,authorization:d.id,components:states.map(s=>({worker:s.worker,version:s.version.id,deployment:s.deployment.id,activatedAt:s.deployment.created_on}))});
+  }
+  assert.equal(matches.length,1,'Missing/ambiguous protected backend activation provenance');return matches[0];
+}
+async function imageActivationStates() {
+  const auth=await active(),deployment=(await readBackend('workers/scripts/bitbi-ai/deployments')).deployments[0];
+  assert(deployment?.versions?.length===1&&deployment.versions[0].percentage===100,'Ambiguous AI traffic');
+  return [{worker,...auth},{worker:'bitbi-ai',deployment,version:await readBackend(`workers/scripts/bitbi-ai/versions/${deployment.versions[0].version_id}`)}];
+}
+export function verifyImageAcceptanceReceipt(receipt,c,publication,activation) {
+  for(const [key,value] of Object.entries({sha:c.sha,base:c.base,run:publication.runId,attempt:publication.attempt,processorRef:c.sha}))assert.equal(receipt[key],value,`Wrong fresh backend acceptance ${key}`);
+  assert.equal(receipt.acceptance?.publicationSha,c.publicationSha);assert.equal(receipt.acceptance.candidateRun,c.runId);assert.equal(receipt.acceptance.candidateAttempt,c.attempt);
+  assert(Number.isFinite(Date.parse(receipt.acceptance.verifiedAt)),'Missing fresh backend acceptance time');
+  assert.deepEqual(receipt.activation,activation,'Original backend activation changed');
+  verifyImageDeliveryEvidence(receipt.imageDelivery);
+}
+export async function reconcileImageDeliveryBackend(c) {
+  assert(imageAcceptanceRepair(c),'Not an image acceptance repair');
+  assert(c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')&&!requiresPrivateMediaImage(c.plan.changedFiles),'Unexpected reconciliation scope');
+  const states=await imageActivationStates(),activation=await findImageDeliveryActivation(c,states);
+  const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
+  assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Required schema not active');
+  prerequisites(c.plan,states[0].version,c.config);await verifyAuthTriggers(c.config);await ensurePrivateVideoLogging({verifyOnly:true});
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-backend-readback-')),digests={};
+  try {
+    for(const [script,project] of [[worker,'auth'],['bitbi-ai','ai']]) {
+      const directory=path.join(temporary,project);
+      backendCommand(['versions','upload','--dry-run','--keep-vars','--outdir',directory],execFileSync,undefined,`workers/${project}`);
+      digests[script]=createHash('sha256').update(fs.readFileSync(path.join(directory,'index.js'))).digest('hex');
+      await verifyAuthBundle(digests[script],undefined,script);
+    }
+  }finally{fs.rmSync(temporary,{recursive:true,force:true});}
+  const targets=await captureImageDeliveryRecovery((sql,params)=>query(c.db,sql,params),imageDeliveryObject);
+  const imageDelivery=await verifyImageDeliveryRecovery(targets,{query:(sql,params)=>query(c.db,sql,params),object:imageDeliveryObject,current:()=>current(c.publicationSha)});
+  const [auth,ai]=states;
+  return {sha:c.sha,base:c.base,run:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,worker,migration,version:auth.version.id,deployment:auth.deployment.id,
+    ai:{sha:c.sha,version:ai.version.id,deployment:ai.deployment.id,bundleDigest:digests['bitbi-ai']},authBundleDigest:digests[worker],imageDelivery,
+    activation,acceptance:{publicationSha:c.publicationSha,verifiedAt:new Date().toISOString(),candidateRun:c.runId,candidateAttempt:c.attempt},
+    mediaSourceSha:auth.version.resources.bindings.find(b=>b.name==='PRIVATE_MEDIA_SOURCE_SHA')?.text,processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
+}
 export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECEIPT) {
-  const publication=context();await current(publication.sha);const c=backendReceiptContext(publication);
+  const publication=context();await current(publication.sha);let c=backendReceiptContext(publication);
   const receipt=JSON.parse(fs.readFileSync(file));
-  if(c.publicationSha)assert.deepEqual(receipt,await readToolingBackendReceipt(c),'Local backend receipt differs from authenticated source');
+  if(imageAcceptanceRepair(c)) {
+    await verifyRepairSource(process.env,{complete:true});
+    assert.equal(receipt.sourceTree,execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim());
+    verifyImageAcceptanceReceipt(receipt,c,publication,await findImageDeliveryActivation(c,await imageActivationStates()));
+    c={...c,runId:publication.runId,attempt:publication.attempt};
+  }else if(c.publicationSha)assert.deepEqual(receipt,await readToolingBackendReceipt(c),'Local backend receipt differs from authenticated source');
   const state=await active();
   const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
   assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Required schema not active');
@@ -248,7 +320,7 @@ export async function publishBackend() {
   const c=context();await verifyUploadSource();await current(c.sha);
   const original=backendReceiptContext(c);
   if(original.publicationSha) {
-    const receipt=await readToolingBackendReceipt(original);storeBackendReceipt(receipt);
+    const receipt=imageAcceptanceRepair(original)?await reconcileImageDeliveryBackend(original):await readToolingBackendReceipt(original);storeBackendReceipt(receipt);
     await verifyBackendReceipt('test-results/backend-release.json');console.log(JSON.stringify({reusedBackend:receipt}));return;
   }
   const mediaRequired=requiresPrivateMediaImage(c.plan.changedFiles);

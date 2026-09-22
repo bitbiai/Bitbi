@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
+import {createRequire} from 'node:module';
 import {BITBI_GENERATION_TIMEOUT_MS} from '../../js/shared/generation-timeout.mjs';
 // The two authorized incidents, not a best-effort sample of recent jobs.
 export const IMAGE_DELIVERY_INCIDENTS = Object.freeze([
@@ -11,6 +12,16 @@ const MAX_ATTEMPTS=3, CRON_MS=5*60_000, RETRY_MS=60_000, STORAGE_MS=2*60_000, PO
 // delays and storage/readback margin. Both jobs share this absolute deadline.
 export const IMAGE_DELIVERY_ACCEPTANCE_MS=CRON_MS+MAX_ATTEMPTS*BITBI_GENERATION_TIMEOUT_MS+(MAX_ATTEMPTS-1)*RETRY_MS+STORAGE_MS;
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+// Use the existing pinned native decoder. Metadata alone does not prove that
+// the original raster decodes; neither D1 nor thumbnails supply dimensions.
+export async function decodeImageDeliveryOriginal(bytes) {
+ assert(Buffer.isBuffer(bytes)&&bytes.length>0&&bytes.length<=32*1024*1024,'Invalid original image size');
+ const sharp=createRequire(new URL('../../workers/contact/package.json',import.meta.url))('sharp');
+ try {
+  const {info}=await sharp(bytes,{failOn:'warning',limitInputPixels:16*1024*1024}).raw().toBuffer({resolveWithObject:true});
+  assert(info.width>0&&info.height>0);return {width:info.width,height:info.height};
+ }catch{throw Error('Recovered original image does not decode');}
+}
 const select=`SELECT j.*,a.billing_status,a.reservation_released_at,a.metadata_json,
  (SELECT COUNT(*) FROM member_credit_ledger l WHERE l.user_id=a.user_id AND l.idempotency_key=a.idempotency_key AND l.amount<0) AS debits
  FROM member_generation_jobs j JOIN member_ai_usage_attempts_v2 a ON a.id=j.usage_attempt_id AND a.user_id=j.user_id`;
@@ -91,8 +102,8 @@ export async function verifyImageDeliveryRecovery(targets,{query,object,current,
   assert(row.attempt_count>target.attempts&&row.attempt_count<=target.attempts+3);
   const audit=JSON.parse(row.metadata_json).image_delivery_reconciliation;
   assert.equal(audit.receiptSha256,target.receiptSha256);assert.equal(audit.creditsCharged,0);
-  const [asset]=await query('SELECT id,user_id,r2_key,size_bytes,width,height FROM ai_images WHERE id=? AND user_id=?',[target.id,target.owner]);
-  assert(asset&&asset.width>0&&asset.height>0,'Recovered decoded asset missing');
+  const [asset]=await query('SELECT id,user_id,r2_key,size_bytes FROM ai_images WHERE id=? AND user_id=?',[target.id,target.owner]);
+  assert(asset,'Recovered asset missing');
   assert.equal(asset.id,target.id);assert.equal(asset.user_id,target.owner);
   assert.deepEqual(await query('SELECT id FROM member_generation_unready_assets WHERE id=?',[target.id]),[],'Recovered image remains hidden by the unfinished-asset guard');
   assert(asset.r2_key.startsWith(`users/${target.owner}/`),'Foreign original object');
@@ -100,9 +111,10 @@ export async function verifyImageDeliveryRecovery(targets,{query,object,current,
   const original=await object(asset.r2_key),resultBytes=await object(row.result_r2_key),saved=JSON.parse(resultBytes);
   assert.equal(original.length,asset.size_bytes);assert.equal(saved.data.asset.id,asset.id);
   assert.equal(hash(original),hash(Buffer.from(saved.data.imageBase64,'base64')),'Saved original differs from recovered result');
+  const dimensions=await decodeImageDeliveryOriginal(original);
   assert.equal(saved.billing.billing_status,'released_no_debit');assert.equal(saved.billing.credits_charged,0);
   results.push({job:target.id,receiptSha256:target.receiptSha256,assetSha256:hash(original),resultSha256:hash(resultBytes),bytes:original.length,
-   width:asset.width,height:asset.height,creditsCharged:0,releasePreserved:true,visibilityFenceCleared:true,verifiedAt:new Date().toISOString()});
+   ...dimensions,creditsCharged:0,releasePreserved:true,visibilityFenceCleared:true,verifiedAt:new Date().toISOString()});
  }
  verifyImageDeliveryEvidence(results);
  return results;

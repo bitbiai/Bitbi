@@ -645,3 +645,26 @@ denial and actor changes. Existing `oma2-q3-model-pricing.spec.js` covers contro
 Inspector (45) plus Run revision (1). Its caller is the unchanged 40-case
 `CI_IMAGE_MODELS=true` pricing configuration in the static workflow, executed
 against `_site`; no new suite or billing/provider change.
+
+### Recovered-image acceptance after backend activation (2026-09-22)
+
+Run 35749416706 activated AI/Auth and recovered both released image jobs, then
+its verifier queried nonexistent `ai_images.width,height`. The D1 wrapper
+mislabelled SQL400/7500 as a credential failure. Acceptance now selects the real
+migrated columns and fully decodes authenticated original bytes with the existing
+pinned native decoder; original/result hashes, owner, visibility, immutable
+receipt and zero debit remain required. D1 errors expose bounded numeric codes
+and a category, never SQL, parameters or arbitrary provider messages.
+
+Real callers: `npm run test:release-plan` executes the acceptance SQL, original
+raster and corrupt-image controls, completed recovery replay and protected failed
+activation/fresh-receipt identity checks. `test-pages-candidate.mjs` and
+`test-frontend-review.mjs` exercise closed tooling equivalence and the actual CI
+selector across a publish-only failure; changed product/test bytes or a failed
+validation still block reuse. `test-pages-workflow.mjs` requires decoder installation
+before the actual caller. Protected continuation recompiles and compares active
+AI/Auth bytes, attributes their original protected activation window, verifies
+schema and both recovered originals, then records new acceptance without repeating
+migration, deployment or recovery. Original candidate SHA/run/attempt/proofs stay
+unchanged; fresh backend acceptance is included in the existing durable frontend
+receipt. Authenticated D1/R2 readback is not an authenticated browser visibility test.

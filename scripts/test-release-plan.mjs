@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import {execFileSync} from 'node:child_process';
 import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -894,7 +895,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
 }
 
 {
- const {captureImageDeliveryRecovery,verifyImageDeliveryRecovery,verifyImageDeliveryEvidence,IMAGE_DELIVERY_INCIDENTS,IMAGE_DELIVERY_ACCEPTANCE_MS}=await import('./lib/image-delivery-acceptance.mjs');
+ const {captureImageDeliveryRecovery,verifyImageDeliveryRecovery,verifyImageDeliveryEvidence,decodeImageDeliveryOriginal,IMAGE_DELIVERY_INCIDENTS,IMAGE_DELIVERY_ACCEPTANCE_MS}=await import('./lib/image-delivery-acceptance.mjs');
  const {BITBI_GENERATION_TIMEOUT_MS}=await import('../js/shared/generation-timeout.mjs');
  const {IMAGE_DELIVERY_ATTEMPTS}=await import('../workers/auth/src/lib/image-delivery-recovery.js');
  const {createHash}=await import('node:crypto');const digest=v=>createHash('sha256').update(v).digest('hex');
@@ -905,10 +906,10 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const fixtures=IMAGE_DELIVERY_INCIDENTS.map(({id,model},index)=>{
   const prefix=`users/${owner}/generation-jobs/${id}/`,key=prefix+'provider-ai-0.json';
   const receipt={key,fingerprint:String(index+1).repeat(64),correlationId:String(index+3).repeat(32)};
-  const original=Buffer.from(`synthetic original ${id}`),raw=Buffer.from(JSON.stringify({kind:'response',status:200,body:Buffer.from(JSON.stringify({state:'Completed',result:{image:`https://provider.example/${id}`}})).toString('base64')}));
+  const original=fs.readFileSync(path.join(repoRoot,'tests/fixtures/media/member-image.png')),raw=Buffer.from(JSON.stringify({kind:'response',status:200,body:Buffer.from(JSON.stringify({state:'Completed',result:{image:`https://provider.example/${id}`}})).toString('base64')}));
   const base={id,user_id:owner,usage_attempt_id:`synthetic-attempt-${index}`,media_type:'image',input_r2_key:prefix+'input.json',asset_id:id,status:'outcome_unknown',attempt_count:8,provider_receipts_json:JSON.stringify({'ai-0':receipt}),billing_status:'released',reservation_released_at:'2026-09-22T11:10:00Z',debits:0};
   const saved={...base,status:'succeeded',attempt_count:9,result_r2_key:prefix+'result.json',provider_receipts_json:JSON.stringify({'ai-0':{...receipt,delivery:{status:'saved',billing:'released_no_debit',attempts:1}}}),metadata_json:JSON.stringify({image_delivery_reconciliation:{receiptSha256:digest(raw),creditsCharged:0}})};
-  const asset={id,user_id:owner,r2_key:`users/${owner}/folders/default/${id}.png`,size_bytes:original.length,width:1024,height:1024};
+  const asset={id,user_id:owner,r2_key:`users/${owner}/folders/default/${id}.png`,size_bytes:original.length};
   objects.set(key,raw);objects.set(base.input_r2_key,Buffer.from(JSON.stringify({model})));objects.set(asset.r2_key,original);
   objects.set(saved.result_r2_key,Buffer.from(JSON.stringify({billing:{credits_charged:0,billing_status:'released_no_debit'},data:{asset:{id},imageBase64:original.toString('base64')}})));
   return {base,saved,asset,receipt};
@@ -927,12 +928,25 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
   const result=await verifyImageDeliveryRecovery(inputs,{current,object:reader,now:()=>elapsed,pause:async ms=>{elapsed+=ms;pauses++;},query:async(sql,params)=>{
    assert(/^SELECT\b/.test(sql),'Acceptance must remain read-only');
    if(sql.startsWith('SELECT id FROM member_generation_unready_assets'))return hidden?[{id:params[0]}]:[];
-   if(sql.startsWith('SELECT id,user_id')){assert.equal(params[1],owner);return fixtures.filter(f=>f.asset.id===params[0]).map(f=>f.asset);}
+   if(sql.startsWith('SELECT id,user_id')){
+    assert.equal(params[1],owner);
+    const assets=fixtures.map(f=>f.asset);
+    // Execute the acceptance SQL against the migrated column contract: there
+    // are no width/height columns. The former query fails this real SQL caller.
+    return JSON.parse(execFileSync('python3',['-I','-c',`import sqlite3,json,sys
+c=sqlite3.connect(':memory:');c.row_factory=sqlite3.Row
+c.execute('CREATE TABLE ai_images(id TEXT,user_id TEXT,r2_key TEXT,size_bytes INTEGER)')
+for a in json.loads(sys.argv[2]):c.execute('INSERT INTO ai_images VALUES(?,?,?,?)',(a['id'],a['user_id'],a['r2_key'],a['size_bytes']))
+print(json.dumps([dict(r) for r in c.execute(sys.argv[1],json.loads(sys.argv[3]))]))`,sql,JSON.stringify(assets),JSON.stringify(params)],{encoding:'utf8'}));
+   }
    return (resolveRows?resolveRows(elapsed):rows).filter(row=>row.id===params[0]);
   }});
   return {result,elapsed,pauses};
  };
  const initial=await execute();assert.equal(initial.pauses,0);verifyImageDeliveryEvidence(initial.result);
+ const raster=await decodeImageDeliveryOriginal(objects.get(fixtures[0].asset.r2_key));
+ assert.deepEqual(initial.result.map(r=>({width:r.width,height:r.height})),[raster,raster]);
+ for(const invalid of [Buffer.from('not an image'),objects.get(fixtures[0].asset.r2_key).subarray(0,40)])await assert.rejects(decodeImageDeliveryOriginal(invalid),/does not decode/);
  for(const results of [undefined,[],[initial.result[0]],[initial.result[0],initial.result[0]],initial.result.map(r=>({...r,job:'other'}))])assert.throws(()=>verifyImageDeliveryEvidence(results));
  for(const key of ['receiptSha256','assetSha256','resultSha256'])assert.throws(()=>verifyImageDeliveryEvidence(initial.result.map(r=>({...r,[key]:null}))));
  for(const patch of [{status:'failed'},{status:'outcome_unknown'},{debits:1},{billing_status:'finalized'},{user_id:'foreign'},{usage_attempt_id:'changed'},{error_code:'generation_asset_removed'},{asset_id:'different'},{attempt_count:12},{result_r2_key:'foreign'},{metadata_json:'{}'}])await assert.rejects(execute({rows:[{...fixtures[0].saved,...patch},fixtures[1].saved]}));
@@ -956,4 +970,32 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  await assert.rejects(verifyImageDeliveryRecovery(targets,{object,current:async()=>{},pause:async()=>{terminalPauses++;},query:async(sql,[id])=>[id===fixtures[0].base.id?fixtures[0].base:{...fixtures[1].base,status:'failed'}]}),/terminal/);
  assert.equal(terminalPauses,0,'Terminal second job must fail while first is still pending');
  console.log('Released image acceptance: BOTH exact incidents, authenticated input/result/original, terminal failure, 5-minute cron + processing, absolute deadline, owner/billing/replay and receipt completeness passed.');
+}
+
+{
+ const {backendD1Diagnostic,findImageDeliveryActivation,verifyImageAcceptanceReceipt}=await import('./lib/backend-publication.mjs');
+ assert.deepEqual(backendD1Diagnostic(400,{errors:[{code:7500,message:'no such column: width at offset 36: SQLITE_ERROR private-input'}]}),{http:400,codes:[7500],category:'sql'});
+ for(const http of [401,403])assert.equal(backendD1Diagnostic(http,{errors:[{code:9109,message:'private-token'}]}).category,'authorization');
+ assert.equal(backendD1Diagnostic(500,null).category,'service');assert.equal(backendD1Diagnostic(429,{}).category,'rate_limit');
+ const sanitized=JSON.stringify(backendD1Diagnostic(400,{errors:Array.from({length:20},()=>({code:7500,message:'private signed-url prompt token'}))}));
+ assert(!/private|prompt|token|signed/.test(sanitized));assert.equal(JSON.parse(sanitized).codes.length,8);
+ const sha='a'.repeat(40),publicationSha='b'.repeat(40),base='c'.repeat(40),t='2026-09-22T15:48:00Z';
+ const context={sha,base,publicationSha,runId:'101',attempt:'1'},publication={runId:'303',attempt:'1'};
+ const states=['bitbi-auth','bitbi-ai'].map(worker=>({worker,version:{id:worker+'-version',annotations:{'workers/message':`${worker}:${sha}`}},deployment:{id:worker+'-deployment',created_on:t,versions:[{version_id:worker+'-version',percentage:100}]}}));
+ const prior={d:{id:7,sha,environment:'cloudflare-static-production',task:'deploy'},run:{id:202,run_attempt:1,repository:{full_name:'bitbiai/Bitbi'},head_repository:{full_name:'bitbiai/Bitbi'},path:'.github/workflows/static.yml',head_branch:'main',head_sha:sha,event:'workflow_dispatch',status:'completed',conclusion:'failure'},job:{id:8,run_id:202,run_attempt:1,name:'deploy',head_sha:sha,status:'completed',conclusion:'failure',steps:[{name:'Validate candidate references before backend publication',status:'completed',conclusion:'success'},{name:'Apply verified candidate backend prerequisites',status:'completed',conclusion:'failure',started_at:'2026-09-22T15:47:00Z',completed_at:'2026-09-22T15:49:00Z'},{name:'Preserve backend activation evidence',status:'completed',conclusion:'skipped'}]}};
+ const probe=async(mutator=()=>{})=>{const data=structuredClone(prior),active=structuredClone(states);mutator(data,active);return findImageDeliveryActivation(context,active,{read:async endpoint=>{
+  if(endpoint.startsWith('deployments?'))return data.d?[data.d]:[];
+  if(endpoint==='deployments/7/statuses')return [{state:'failure',log_url:'https://github.com/bitbiai/Bitbi/actions/runs/202/job/8'}];
+  if(endpoint==='actions/jobs/8')return data.job;if(endpoint==='actions/runs/202')return data.run;throw Error('Unexpected platform read');
+ }});};
+ const activation=await probe();assert.equal(activation.run,'202');assert.equal(activation.authorization,7);
+ for(const mutate of [d=>d.d=null,d=>d.d.environment='unprotected',d=>d.run.head_repository.full_name='foreign/repo',d=>d.run.head_sha=publicationSha,d=>d.run.run_attempt=2,d=>d.job.steps[1].conclusion='success',d=>d.job.steps[2].conclusion='success',(d,a)=>a[0].deployment.created_on='2026-09-22T14:00:00Z',(d,a)=>a[1].version.annotations['workers/message']='bitbi-ai:wrong',(d,a)=>a[0].deployment.versions[0].percentage=50])await assert.rejects(probe(mutate));
+ const imageDelivery=['6779ba33ae9043a715c68940387a2edf','404b60bbdd0863323a5db28124850515'].map(job=>({job,receiptSha256:'d'.repeat(64),assetSha256:'e'.repeat(64),resultSha256:'f'.repeat(64),bytes:42,width:1024,height:1024,creditsCharged:0,releasePreserved:true,visibilityFenceCleared:true,verifiedAt:t}));
+ const receipt={sha,base,run:'303',attempt:'1',processorRef:sha,activation,imageDelivery,acceptance:{publicationSha,candidateRun:'101',candidateAttempt:'1',verifiedAt:t}};
+ verifyImageAcceptanceReceipt(receipt,context,publication,activation);
+ for(const key of ['sha','base','run','attempt','processorRef'])assert.throws(()=>verifyImageAcceptanceReceipt({...receipt,[key]:'wrong'},context,publication,activation));
+ for(const key of ['publicationSha','candidateRun','candidateAttempt','verifiedAt'])assert.throws(()=>verifyImageAcceptanceReceipt({...receipt,acceptance:{...receipt.acceptance,[key]:'wrong'}},context,publication,activation));
+ assert.throws(()=>verifyImageAcceptanceReceipt({...receipt,activation:{...activation,run:'101'}},context,publication,activation));
+ assert.throws(()=>verifyImageAcceptanceReceipt({...receipt,imageDelivery:[]},context,publication,activation));
+ console.log('Image acceptance reconciliation: protected failed activation without receipt, exact original components, fresh acceptance identity, SQL/authorization diagnostics and rejection controls passed.');
 }

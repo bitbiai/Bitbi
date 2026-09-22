@@ -29,6 +29,9 @@ const permits = (step, context) => {
 
 // The full Worker caller includes real FFmpeg/ffprobe integration. Narrow
 // status/asset branches do not; neither should install unrelated tools.
+const releaseSteps=steps(job(standard,'release-compatibility'));
+assert(releaseSteps.findIndex(s=>s.name==='Install pinned frontend runtime tooling')<releaseSteps.findIndex(s=>s.name==='Run release planner tests'),'Pinned original-image decoder must be installed before acceptance regressions');
+assert(steps(job(standard,'deploy')).find(s=>s.name==='Apply verified candidate backend prerequisites').source.includes('npm --prefix workers/contact ci'),'Protected recovery verifier needs its pinned decoder');
 const workerSteps=steps(job(standard,'worker-validation'));
 const mediaTools=workerSteps.find(s=>s.name==='Install Worker media test tools');
 assert(mediaTools,'Full Worker tests require explicit media tools');

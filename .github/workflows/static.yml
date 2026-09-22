@@ -156,6 +156,9 @@ jobs:
         run: npm run check:js
       - name: Run release compatibility tests
         run: npm run test:release-compat
+      - name: Install pinned frontend runtime tooling
+        if: steps.selection.outputs.worker_dependencies != 'true'
+        run: npm --prefix workers/contact ci
       - name: Run release planner tests
         run: npm run test:release-plan
       - name: Run static deploy safety tests
@@ -213,9 +216,6 @@ jobs:
           fi
           node scripts/validate-site-references.mjs --root . --source
           node scripts/validate-site-references.mjs --root candidate/site
-      - name: Install pinned frontend runtime tooling
-        if: steps.selection.outputs.worker_dependencies != 'true'
-        run: npm --prefix workers/contact ci
       - name: Check frontend hosting package
         run: |
           if [ -n "$REPAIR_SOURCE_SHA" ]; then
@@ -783,6 +783,7 @@ jobs:
           npm --prefix workers/auth ci
           npm --prefix workers/media ci
           npm --prefix workers/ai ci
+          npm --prefix workers/contact ci
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           node scripts/release-apply.mjs --ci-verified-candidate
