@@ -2,6 +2,7 @@ import { pinModelTariff, settlePinnedModelTariff } from './model-tariffs.js';
 import { fetchMemberAttemptByIdempotency } from './member-ai-usage-attempts.js';
 import { fetchOrgAttemptByIdempotency } from './ai-usage-attempts.js';
 import { generationExecution } from './member-generation-jobs.js';
+import { checkpointAiDispatchImage } from './ai-dispatch-state.js';
 import {
   BillingError,
   MEMBER_DAILY_CREDIT_ALLOWANCE,
@@ -369,6 +370,13 @@ async function prepareMemberGatewayPolicy({
       await markMemberAiUsageAttemptUnknown(env, attemptState.attempt.id, { dispatchToken, code: "late_provider_completion" });
       return markMemberAiUsageAttemptLateOutcome(env, attemptState.attempt.id, { dispatchToken, outcome, code });
     },
+    async checkpointImage(result) {
+      if (execution) {
+        await execution.assertClaim();
+        if (attemptState.attempt.billingStatus === 'finalized') return;
+      }
+      return checkpointAiDispatchImage(env, 'member_ai_usage_attempts_v2', attemptState.attempt.id, { ...result, dispatchToken });
+    },
     async markFinalizing() {
       if(execution?.receiptReplay && attemptState.attempt.providerOutcome==='unknown') {
         await execution.assertClaim();
@@ -647,6 +655,9 @@ export async function prepareAiUsagePolicy({
     async recordLateOutcome(outcome, code = null) {
       await markAiUsageAttemptUnknown(env, attemptState.attempt.id, { dispatchToken, code: "late_provider_completion" });
       return markAiUsageAttemptLateOutcome(env, attemptState.attempt.id, { dispatchToken, outcome, code });
+    },
+    async checkpointImage(result) {
+      return checkpointAiDispatchImage(env, 'ai_usage_attempts_v2', attemptState.attempt.id, { ...result, dispatchToken });
     },
     async markFinalizing() {
       return markAiUsageAttemptFinalizing(env, attemptState.attempt.id, { dispatchToken });

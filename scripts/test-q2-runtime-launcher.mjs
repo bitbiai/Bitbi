@@ -378,6 +378,14 @@ test('default native runtime plan stages every actual suite and control input', 
   const staged = stageRuntimeInputs(root, f.staged, plan);
   assert.ok(staged.files >= imports.length);
   for (const filename of imports) assert.deepEqual(fs.readFileSync(path.join(f.staged, filename)), fs.readFileSync(path.join(root, filename)), filename);
+  // Miniflare loads this fixture by URL, outside the static import graph.
+  // It must remain available with identical bytes in the isolated Linux tree.
+  const imageBinding = 'tests/helpers/q2-runtime/image25-ai-binding.mjs';
+  assert.deepEqual(fs.readFileSync(path.join(f.staged, imageBinding)), fs.readFileSync(path.join(root, imageBinding)));
+  const { plugins } = await import(pathToFileURL(path.join(f.staged, imageBinding)).href);
+  assert.deepEqual(plugins['q2-image25-ai'].getBindings({ config: { env: { AI: { type: 'unsafe:q2-image25-ai' } } } }), [
+    { name: 'AI', wrapped: { moduleName: 'cloudflare-internal:ai-api', innerBindings: [{ name: 'fetcher', service: { name: 'core:user:q2-image25-ai' } }] } },
+  ]);
   const videoFixture = 'tests/fixtures/media/canvas-end-frame.mp4';
   assert.deepEqual(fs.readFileSync(path.join(f.staged, videoFixture)), fs.readFileSync(path.join(root, videoFixture)),
     'Canvas runtime reads the real video fixture from the isolated input tree');

@@ -1,9 +1,10 @@
 // Retail credits only. Provider costs remain in the existing factory calculators.
 // This module is also used by Auth; browser state is never an authority there.
+import { isGptImage25Model } from './gpt-image-25-contract.mjs';
 export const MODEL_TARIFF_VERSION = 'model-tariff-v1';
 export const FACTORY_TARIFF_VERSION = 'factory-2026-09-21';
 export const TARIFF_HEADER = 'X-Bitbi-Tariff-Revision';
-const DIMENSIONS = ['resolution', 'quality', 'size', 'width', 'height', 'steps', 'operation', 'generateAudio', 'reasoningEffort', 'separateLyricsGeneration'];
+const DIMENSIONS = ['resolution', 'quality', 'size', 'background', 'outputFormat', 'width', 'height', 'steps', 'operation', 'generateAudio', 'reasoningEffort', 'separateLyricsGeneration'];
 export const TARIFF_UNITS = ['request', 'second', 'image', 'referenceImage', 'inputMegapixel', 'inputToken', 'cachedInputToken', 'outputToken', 'cacheWriteToken'];
 export const stablePricingJson = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v)
     ? Object.fromEntries(Object.keys(v).sort().map(key => [key, v[key]])) : v);
@@ -20,6 +21,13 @@ export function tariffKey(modelId, configuration) {
 export function mediaTariffBasis(factory, mediaType, input = {}) {
     const normalized = factory?.normalized || {};
     const configuration = tariffConfiguration(normalized);
+    // Existing retail rules predate format/background dimensions. Keep their
+    // exact keys, including their reset/history behavior. The new adapter has
+    // independent dimensions from its first accepted tariff.
+    if (!isGptImage25Model(factory?.modelId)) {
+        delete configuration.background;
+        delete configuration.outputFormat;
+    }
     // Operations are separate tariffs even where their current prices coincide.
     if (mediaType === 'video' || mediaType === 'image') configuration.operation = input.operation || input._operation || normalized.operation || 'generate';
     let units;

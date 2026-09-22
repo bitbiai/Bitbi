@@ -1,5 +1,7 @@
 // Provider evidence only: never used to change a customer's accepted tariff.
 // Exact Workers AI aliases checked against Cloudflare's public pricing table.
+import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
+import { GPT_IMAGE_25_PROVIDER_PRICING } from '../../../../js/shared/gpt-image-25-pricing.mjs';
 const SOURCE = 'https://developers.cloudflare.com/workers-ai/platform/pricing/';
 const checkedAt = '2026-09-21';
 const tokenRates = {
@@ -11,6 +13,9 @@ const tokenRates = {
     '@cf/baai/bge-m3': { input:0.012 },
 };
 function evidence(model, factory) {
+    if (isGptImage25Model(model.id)) return { status:'verified', ...GPT_IMAGE_25_PROVIDER_PRICING,
+        acquisitionMultiplier:GPT_IMAGE_25_PROVIDER_PRICING.fundingMultiplier,
+        quantityEvidenceStatus:'generation_verified_reference_images_not_verified' };
     if (tokenRates[model.id]) return { status:'verified', checkedAt, sourceUrl:SOURCE, unit:'million_tokens', ratesUsd:tokenRates[model.id] };
     if (model.id === '@cf/black-forest-labs/flux-1-schnell') return { status:'verified', checkedAt, sourceUrl:SOURCE, ratesUsd:{tile512:0.0000528,step:0.0001056} };
     if (model.id === '@cf/black-forest-labs/flux-2-klein-9b') return { status:'verified', checkedAt, sourceUrl:SOURCE, ratesUsd:{firstMegapixel:0.015,additionalMegapixel:0.002,inputMegapixel:0.002} };

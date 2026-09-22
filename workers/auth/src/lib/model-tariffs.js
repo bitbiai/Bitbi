@@ -1,6 +1,7 @@
 import { BITBI_MODEL_PRICING_USD_TO_EUR, BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING, BITBI_TARGET_PROFIT_MARGIN, creditsForProviderCostUsd } from '../../../../js/shared/model-credit-pricing.mjs';
 import { applyModelTariff, mediaTariffBasis, canonicalPricingModel, tariffKey, validateTariffRates, FACTORY_TARIFF_VERSION, TARIFF_HEADER, stablePricingJson } from '../../../../js/shared/model-tariff.mjs';
 import { modelFactoryPrice, modelPricingCatalog, validateModelPricingSettings } from '../../../../js/shared/model-pricing-catalog.mjs';
+import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
 import { BillingError } from './billing.js';
 import { sha256Hex, randomTokenHex } from './tokens.js';
 
@@ -25,6 +26,9 @@ export async function quoteModelTariff(env, { modelId, input = {}, credits, cont
     const { model } = resolved;
     if (!model) fail('Unknown model.');
     const price = factory || resolved.price;
+    if (isGptImage25Model(model.id) && !Number.isSafeInteger(resolved.price?.credits ?? modelFactoryPrice(model.id, input).price.credits)) {
+        fail('Cloudflare input-image token quantities are not verified; reference editing pricing is unavailable.', 'gpt_image_25_reference_pricing_unavailable', 503);
+    }
     const basis = factory ? mediaTariffBasis(factory, model.kind, input) : resolved.basis;
     const priced = applyModelTariff(price, snapshot, basis);
     // H3 alone currently settles authoritative output seconds. Freeze its
@@ -47,9 +51,26 @@ export async function pinModelTariff(env, { modelId, input, credits, request, ex
     }
     const price = await quoteModelTariff(env, { modelId, input, credits, context, request, factory });
     if (!Number.isSafeInteger(price.credits) || price.credits < 0) fail('This execution path has no configured credit tariff.', 'model_pricing_unavailable', 503);
-    return { credits: price.credits, tariff: price.tariff, factorySettlement: price.factorySettlement };
+    return { credits: price.credits, tariff: price.tariff, factorySettlement: price.factorySettlement,
+        ...(isGptImage25Model(modelId) ? { factoryQuote: {
+            pricingVersion: price.formula.pricingVersion,
+            providerCostUsdEstimate: price.providerCostUsd,
+            textInputTokenBound: price.formula.textInputTokenBound,
+            outputImageTokens: price.formula.outputImageTokens,
+            outputImageTokensAreBound: price.formula.outputImageTokensAreBound,
+            fundingMultiplier: price.formula.fundingMultiplier,
+            quantityPolicy: price.formula.quantityPolicy,
+        } } : {}),
+    };
 }
 export function settlePinnedModelTariff(pinned, fallbackCredits, actualUnits) {
+    // This adapter promises an image URI, not metering or resolved auto values.
+    // Its accepted image/reference quote is final; missing usage cannot zero a
+    // charge and later factory/Admin changes cannot reprice successful work.
+    if (isGptImage25Model(pinned?.tariff?.key?.split(':')[0])) {
+        if (!Number.isSafeInteger(pinned.credits) || pinned.credits < 1) fail('The accepted image tariff requires review.', 'generation_result_requires_credit_review', 409);
+        return pinned.credits;
+    }
     if (!actualUnits || !pinned?.tariff) return fallbackCredits;
     if (!pinned.tariff.rates) {
         if (!pinned.factorySettlement) return fallbackCredits;

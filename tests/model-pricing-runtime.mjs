@@ -24,6 +24,23 @@ export async function runModelPricingTests(f) {
   const response=await call(admin,'PATCH',route,{revision,action,modelId:'minimax/h3',settings,...(action==='save'?{rates}:{})});assert.match(response.headers.get('content-type')||'',/json/,`pricing response ${response.status}: ${(await response.clone().text()).slice(0,600)}`);return {status:response.status,data:await response.json()};};
  const quote=async settings=>{const response=await call(admin,'POST',route+'/quote',{modelId:'minimax/h3',settings});assert.equal(response.status,200);return (await response.json()).price;};
  const control=async body=>{const response=await f.control('/model-pricing',body);assert.match(response.headers.get('content-type')||'',/json/,`pricing response ${response.status}: ${(await response.clone().text()).slice(0,600)}`);return {status:response.status,data:await response.json()};};
+ await f.test('pricing_gpt_image_25_unverified_reference_cost_rejects_quotes_and_overrides_without_mutation',async()=>{
+  const response=await call(admin,'GET',route);assert.equal(response.status,200);const catalog=(await response.json()).models;
+  for(const modelId of ['openai/gpt-image-2.5-sunburst','openai/gpt-image-2.5-flare']){
+   const model=catalog.find(value=>value.id===modelId);assert.ok(model);assert.equal(model.enabled,true);assert.ok(model.factory.credits>0);assert.ok(model.factory.providerCostUsd>0);
+   assert.deepEqual(model.pricingControls.find(value=>value.key==='background').options,['transparent','opaque','auto']);
+   assert.deepEqual(model.pricingControls.find(value=>value.key==='outputFormat').options,['png','webp','jpeg']);
+   assert.equal(model.pricingControls.find(value=>value.key==='referenceImageCount').max,16);
+   const unavailable=await call(admin,'POST',route+'/quote',{modelId,settings:{quality:'max',size:'auto',background:'transparent',outputFormat:'webp',referenceImageCount:16,operation:'edit'}});
+   assert.equal(unavailable.status,503);assert.equal((await unavailable.json()).code,'gpt_image_25_reference_pricing_unavailable');
+   const invalid=await call(admin,'POST',route+'/quote',{modelId,settings:{background:'transparent',outputFormat:'jpeg'}});assert.equal(invalid.status,400);
+   const override=await call(admin,'PATCH',route,{modelId,revision:0,action:'save',settings:{referenceImageCount:1},rates:{image:1,referenceImage:1}});assert.equal(override.status,400);
+  }
+  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes'),0);
+  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_ai_usage_attempts_v2'),0);
+  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM ai_usage_attempts_v2'),0);
+  assert.equal(f.counters.outboundDenied,0);assert.equal(f.counters.serviceDenied,0);
+ });
  await f.test('pricing_factory_rollout_no_charge_change_and_configuration_specific_durable_override',async()=>{
   const csrf=await f.mf.dispatchFetch('https://bitbi.ai'+route,{method:'PATCH',headers:{Cookie:admin,Origin:'https://untrusted.invalid','Content-Type':'application/json'},body:'{}'});assert.equal(csrf.status,403);
   const before=await quote({duration:5,resolution:'768P'});assert.equal(before.credits,262);assert.equal(before.tariff.source,'factory');
@@ -62,6 +79,38 @@ export async function runModelPricingTests(f) {
  await f.test('pricing_reset_preserves_factory_and_audit',async()=>{
   assert.equal((await change(2,'reset')).status,200);assert.equal((await quote({duration:5,resolution:'768P'})).credits,262);
   assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_factory'),2);assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes'),3);
+  assert.equal(f.counters.outboundDenied,0);assert.equal(f.counters.serviceDenied,0);
+ });
+ await f.test('pricing_gpt_image_25_generation_pins_member_and_org_quotes_across_override_reset_and_replay',async()=>{
+  let revision=3;
+  for(const modelId of ['openai/gpt-image-2.5-sunburst','openai/gpt-image-2.5-flare']){
+   const settings={quality:'high',size:'1024x1536',background:'transparent',outputFormat:'webp',referenceImageCount:0,operation:'generate'};
+   const patch=async(action,rates)=>{const response=await call(admin,'PATCH',route,{modelId,revision,action,settings,...(rates?{rates}:{})});assert.equal(response.status,200);revision=(await response.json()).revision;};
+   await patch('save',{image:7.25,referenceImage:2.5});
+   const acceptedRevision=revision, suffix=modelId.split('-').at(-1);
+   const request={modelId,settings,revision:acceptedRevision,key:`pricing-gpt25-${suffix}-member`};
+   const memberBefore=await f.scalar('SELECT COUNT(*) AS value FROM member_credit_ledger WHERE amount<0'),orgBefore=await f.scalar('SELECT COUNT(*) AS value FROM credit_ledger WHERE amount<0');
+   const memberAccepted=await control(request);assert.equal(memberAccepted.status,200);assert.equal(memberAccepted.data.credits,8);
+   assert.equal(memberAccepted.data.tariff.factoryQuote.pricingVersion,'gpt-image-2.5-bounded-2026-09-22');
+   assert.equal(memberAccepted.data.tariff.factoryQuote.textInputTokenBound,new TextEncoder().encode('Synthetic pricing fixture').length);
+   assert.equal(memberAccepted.data.tariff.factoryQuote.outputImageTokens,1372);
+   assert.equal(memberAccepted.data.tariff.factoryQuote.fundingMultiplier,1.05);
+   const organizationRequest={...request,organization:org,key:`pricing-gpt25-${suffix}-org`};
+   assert.equal((await control(organizationRequest)).data.credits,8);
+   await patch('save',{image:57,referenceImage:2.5});
+   const stale=await control({...request,key:`pricing-gpt25-${suffix}-stale`});assert.equal(stale.status,409);assert.equal(stale.data.code,'model_pricing_stale');
+   for(const input of [request,organizationRequest]){
+    const resumed=await control(input);assert.equal(resumed.status,200);assert.equal(resumed.data.credits,8);assert.equal(resumed.data.tariff.tariff.revision,acceptedRevision);
+    assert.equal((await control({...input,settle:true})).data.billing.credits_charged,8);
+    const replay=await control(input);assert.equal(replay.data.kind,'completed');assert.equal(replay.data.credits,8);
+   }
+   assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_credit_ledger WHERE amount<0'),memberBefore+1);
+   assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM credit_ledger WHERE amount<0'),orgBefore+1);
+   const fresh=await control({...request,revision,key:`pricing-gpt25-${suffix}-fresh`});assert.equal(fresh.data.credits,57);
+   const quoteResponse=await call(admin,'POST',route+'/quote',{modelId,settings:{...settings,background:'opaque'}});assert.equal(quoteResponse.status,200);assert.equal((await quoteResponse.json()).price.tariff.source,'factory');
+   await patch('reset');
+   const reset=await call(admin,'POST',route+'/quote',{modelId,settings});assert.equal(reset.status,200);assert.equal((await reset.json()).price.tariff.source,'factory');
+  }
   assert.equal(f.counters.outboundDenied,0);assert.equal(f.counters.serviceDenied,0);
  });
 }

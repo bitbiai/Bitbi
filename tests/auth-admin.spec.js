@@ -21613,3 +21613,5 @@ for (const browserName of ['chromium', 'webkit']) {
 });
 
 }
+
+test('@canvas-model-ui GPT Image 2.5 Admin ordered decoded references and settings', ({ page }) => require('./helpers/gpt-image25-ui.cjs').admin({ page, expect, mockAdminAiLab, clickAiLabMode, seedCookieConsent }));

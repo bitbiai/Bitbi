@@ -274,6 +274,30 @@ const MODEL_PRICING_FILES = new Set([
   'scripts/test-q2-runtime-launcher.mjs',
 ]);
 
+// Image adapters share the pricing admission/storage paths, not video processors.
+// Only this explicit integration set can add image acceptance to pricing.
+const IMAGE_MODEL_FILES = new Set([
+  'css/admin/admin.css','css/pages/generate-lab.css',
+  'js/shared/gpt-image-25-contract.mjs','js/shared/gpt-image-25-pricing.mjs',
+  'js/shared/admin-ai-contract.mjs','js/shared/ai-image-models.mjs',
+  'js/pages/generate-lab/model-registry.js','js/pages/canvas/asset-picker.js',
+  'js/pages/admin/gpt-image25-controls.js','js/pages/index/category-ghost-models.js',
+  'js/pages/canvas/image-references.js','js/pages/canvas/workflow.js',
+  'workers/shared/gpt-image-25.mjs','workers/ai/src/index.js',
+  'workers/ai/src/lib/invoke-ai.js','workers/ai/src/lib/responses.js',
+  'workers/ai/src/lib/validate.js','workers/ai/src/routes/image.js',
+  'workers/auth/src/lib/gpt-image-25-sources.js',
+  'workers/auth/src/lib/ai-dispatch-state.js','workers/auth/src/lib/member-generation-jobs.js',
+  'workers/auth/src/lib/ai-image-credit-pricing.js',
+  'workers/auth/src/lib/admin-ai-image-credit-pricing.js',
+  'workers/auth/src/routes/canvas.js',
+  'workers/auth/src/routes/ai/generated-image-save-reference.js',
+  'tests/q2-gpt-image-25.spec.js','tests/helpers/q2-runtime/canvas.mjs',
+  'tests/helpers/q2-runtime/image25-ai-binding.mjs',
+  'tests/auth-admin.spec.js','tests/smoke.spec.js','tests/canvas.spec.js',
+  'tests/helpers/gpt-image25-ui.cjs',
+]);
+
 // Cross-segment appearance is not an Admin-reader scope. All five hosted
 // surfaces, shared overlays and the guarded D1 settings route run in the
 // existing browser/Worker jobs. Unknown or generation/security inputs stay broad.
@@ -662,8 +686,12 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
   }
 
   if (!forceFull && changedFiles.some(file => ['workers/auth/src/lib/model-tariffs.js','js/shared/model-tariff.mjs','js/pages/admin/model-pricing.js','tests/model-pricing.spec.js','tests/oma2-q3-model-pricing.spec.js'].includes(file))
-      && changedFiles.every(file => isDocumentation(file) || MODEL_PRICING_FILES.has(file) || RELEASE_TOOLING_FILES.has(file))) {
+      && changedFiles.every(file => isDocumentation(file) || MODEL_PRICING_FILES.has(file) || IMAGE_MODEL_FILES.has(file) || APPEARANCE_FILES.has(file) || RELEASE_TOOLING_FILES.has(file))) {
     selection.policy = 'model-pricing-v1'; selection.modelPricing = true;
+    selection.imageModels = changedFiles.some(file => IMAGE_MODEL_FILES.has(file));
+    selection.appearance = changedFiles.some(file => ['css/base/tokens.css','css/base/appearance.css','js/shared/appearance.js','js/shared/appearance-contract.js','workers/auth/src/lib/appearance-settings.js','tests/oma2-q3-appearance.spec.js'].includes(file));
+    if (selection.imageModels) selection.reasons.workers.push('Image adapter payloads/errors, owned references, native Canvas D1/R2 persistence and unchanged GPT Image 2 accounting');
+    if (selection.appearance) selection.reasons.auth.push('Unpublished appearance bytes retain all cross-segment Chromium/WebKit cases and native settings acceptance');
     selection.workers = selection.auth = selection.static = selection.runtime = true;
     selection.reasons.workers.push('Real member/organization/Admin billing callers, tariff/rounding/replay regressions and native D1 admission/settlement/edit-conflict checks');
     selection.reasons.auth.push('Admin pricing editor, authorization denial and all four shared pricing surfaces in Chromium/WebKit against the candidate artifact');

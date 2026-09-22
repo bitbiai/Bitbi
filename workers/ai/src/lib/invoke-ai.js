@@ -1,3 +1,5 @@
+import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
+import { callImage25Provider, image25Output } from '../../../shared/gpt-image-25.mjs';
 import {
   ADMIN_AI_MUSIC_MODEL_ID,
   CLAUDE_FABLE_5_MODEL_ID,
@@ -2067,7 +2069,7 @@ export async function invokeImage(env, model, input) {
   let referenceImageCount = Array.isArray(input.referenceImages) ? input.referenceImages.length : 0;
   let runOptions;
 
-  if (model.inputFormat === "gpt-image-2") {
+  if (["gpt-image-2", "gpt-image-2.5"].includes(model.inputFormat)) {
     const gptRequest = buildAdminAiGptImage2Request(model, input);
     payload = gptRequest.payload;
     appliedQuality = gptRequest.appliedQuality;
@@ -2192,7 +2194,11 @@ export async function invokeImage(env, model, input) {
 
   let raw;
   try {
-    raw = await runWithGenerationTimeout((signal) => env.AI.run(model.id, payload, { ...runOptions, signal }));
+    raw = await runWithGenerationTimeout(async (signal) => {
+      if (!isGptImage25Model(model.id)) return env.AI.run(model.id, payload, { ...runOptions, signal });
+      const result = await callImage25Provider(env.AI, model.id, payload, { ...runOptions, signal }, input.correlationId);
+      return image25Output(result, { signal, outputFormat: appliedOutputFormat });
+    });
   } catch (error) {
     logDiagnostic({
       service: "bitbi-ai",
@@ -2219,7 +2225,8 @@ export async function invokeImage(env, model, input) {
     });
     throw error;
   }
-  const image = await extractImageResponse(raw, model);
+  const extracted = isGptImage25Model(model.id) ? raw : null;
+  const image = extracted ? { imageBase64: extracted.base64, mimeType: extracted.mimeType } : await extractImageResponse(raw, model);
 
   if (!image) {
     throw new Error("Model returned no image output.");

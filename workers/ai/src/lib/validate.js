@@ -1362,17 +1362,17 @@ export function validateFableChatMemoryBody(body) {
 }
 
 export function validateImageBody(body) {
-  return validateAdminAiImageBody(body, { allowResolvedGrokImageMediaUrls: true });
+  return validateAdminAiImageBody(body, { allowResolvedGrokImageMediaUrls: true, allowResolvedGptImage25References: true });
 }
 
 export function validateVideoBody(body) {
   return validateAdminAiVideoBody(body, { allowResolvedGrokPreviewMediaUrls: true });
 }
 
-export async function readJsonBody(request) {
+export async function readJsonBody(request, { maxBytes = INTERNAL_AI_JSON_MAX_BYTES } = {}) {
   try {
     const body = await readJsonBodyLimited(request, {
-      maxBytes: INTERNAL_AI_JSON_MAX_BYTES,
+      maxBytes,
       requiredContentType: false,
     });
     // Caller-policy metadata is signed inside the internal JSON body for Auth -> AI Worker

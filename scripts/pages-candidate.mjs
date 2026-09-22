@@ -153,11 +153,19 @@ export async function sourceAttempt(runId,attempt,selection) {
   }
   return Number(attempt)===latest.run_attempt?latest:api(`actions/runs/${runId}/attempts/${attempt}`);
 }
-export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected, {previewBranch, currentPublication=false, mediaRepair=false}={}) {
+export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected, {previewBranch, currentPublication=false, mediaRepair=false, historicalActivation=false}={}) {
   assert.equal(expected.repository,REPOSITORY,'Foreign repository');
   if (!expected.selection) assert.equal(expected.base,Q4_BASE,'Incomplete legacy Q4 release scope');
   if(mediaRepair){assert(!previewBranch&&!currentPublication);repairDelta(expected.sha,expected.publicationSha,expected.base);}
-  assert.equal(mainSha,mediaRepair?expected.publicationSha:expected.sha,'Superseded candidate');
+  if(historicalActivation) {
+    // Read-only attribution of an already activated version. This grants no
+    // publication/reuse authority and cannot certify the intervening product.
+    assert(!previewBranch&&!currentPublication&&!mediaRepair);
+    for(const sha of [expected.base,expected.sha,expected.publicationSha])assert(/^[a-f0-9]{40}$/.test(sha||''),'Exact activation ancestry required');
+    execFileSync('git',['merge-base','--is-ancestor',expected.base,expected.sha],{stdio:'pipe'});
+    execFileSync('git',['merge-base','--is-ancestor',expected.sha,expected.publicationSha],{stdio:'pipe'});
+  }
+  assert.equal(mainSha,mediaRepair||historicalActivation?expected.publicationSha:expected.sha,'Superseded candidate');
   assert.equal(run.repository?.full_name,REPOSITORY); assert.equal(run.head_repository?.full_name,REPOSITORY);
   assert.equal(run.head_sha,expected.sha,'Source SHA mismatch'); assert.equal(run.head_branch,previewBranch||'main');
   if(previewBranch && previewBranch!=='main')assert.equal(run.event,'workflow_dispatch','Branch preview must use explicit dispatch');
@@ -242,8 +250,11 @@ export function verifyAppearanceReport(report,discovery) {
   verifyAdminReport(report,discovery,[['appearance',['oma2-q3-appearance.spec.js','auth-admin.spec.js']]],engine=>engine==='chromium'?'chromium':'webkit-appearance');
 }
 
-export function verifyModelPricingReport(report,discovery) {
-  verifyAdminReport(report,discovery,[['pricing',['oma2-q3-model-pricing.spec.js']]]);
+export function verifyModelPricingReport(report,discovery,selection={}) {
+  const files=['oma2-q3-model-pricing.spec.js'];
+  if(selection.imageModels)files.push('auth-admin.spec.js','smoke.spec.js','canvas.spec.js');
+  if(selection.appearance)files.push('oma2-q3-appearance.spec.js','auth-admin.spec.js');
+  verifyAdminReport(report,discovery,[['pricing',[...new Set(files)]]]);
 }
 
 export function verifyModelStatusReport(report, discovery) {
@@ -351,8 +362,8 @@ async function main(command) {
       verifyHomepageReport(report, JSON.parse(fs.readFileSync('test-results/homepage-discovery.json')), manifest.selection.homepageMedia);
     if (manifest.selection?.assets && !manifest.selection.full && process.env.GITHUB_JOB === 'browser-validation') verifyAssetReport(reports[names.indexOf('test-results/candidate-assets.json')], JSON.parse(fs.readFileSync('test-results/assets-discovery.json')));
     if (manifest.selection?.canvasText) verifyCanvasTextReport(report, JSON.parse(fs.readFileSync('test-results/canvas-discovery.json')));
-    if (manifest.selection?.appearance) verifyAppearanceReport(report, JSON.parse(fs.readFileSync('test-results/appearance-discovery.json')));
-    if (manifest.selection?.modelPricing) verifyModelPricingReport(report, JSON.parse(fs.readFileSync('test-results/model-pricing-discovery.json')));
+    if (manifest.selection?.appearance && !manifest.selection?.modelPricing) verifyAppearanceReport(report, JSON.parse(fs.readFileSync('test-results/appearance-discovery.json')));
+    if (manifest.selection?.modelPricing) verifyModelPricingReport(report, JSON.parse(fs.readFileSync('test-results/model-pricing-discovery.json')), manifest.selection);
     if (manifest.selection?.modelStatus) verifyModelStatusReport(report, JSON.parse(fs.readFileSync('test-results/model-status-discovery.json')));
     if (manifest.selection?.workspaceHelp) verifyWorkspaceHelpReport(report, JSON.parse(fs.readFileSync('test-results/workspace-discovery.json')));
     if (manifest.selection?.publicMedia) verifyPublicMediaReport(report, JSON.parse(fs.readFileSync('test-results/public-media-discovery.json')));

@@ -1719,3 +1719,34 @@
         .generate-lab__mobile-link { border-radius: 8px; font: 500 13px/1.5 var(--font-body); text-transform: none; min-block-size: 44px; }
     }
 }
+
+/* Ordered reference controls inherit all three workspace themes. */
+html:is([data-theme="light"], [data-theme="soft"]) .generate-lab-ref-images :is(.generate-lab-ref-images__slot-label, .generate-lab-ref-images__head > span, .generate-lab-ref-images__toggle) {
+    color: var(--theme-ink);
+    background: var(--lab-surface);
+    border-color: var(--lab-line);
+}
+html:is([data-theme="light"], [data-theme="soft"]) .generate-lab-ref-images__toggle small {
+    color: var(--lab-muted);
+}
+.generate-lab-ref-images__move {
+    min-inline-size: 44px;
+    min-block-size: 44px;
+    margin: 0.2rem;
+    border: 1px solid currentColor;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+.generate-lab-ref-images__move:disabled { opacity: 0.4; cursor: default; }
+.generate-lab-ref-images__move:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+@media (max-width: 899px) {
+    body[data-lab-mobile-image="true"] .generate-lab__desktop { display: block; }
+    body[data-lab-mobile-image="true"] .generate-lab__mobile-fallback { display: none; }
+    body[data-lab-mobile-image="true"] .generate-lab__workspace { grid-template-columns: minmax(0, 1fr); }
+    body[data-lab-mobile-image="true"] .generate-lab-ref-images__grid--primary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    body[data-lab-mobile-image="true"] .generate-lab__panel { min-inline-size: 0; }
+}

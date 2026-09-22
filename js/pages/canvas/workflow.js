@@ -1,3 +1,5 @@
+import { calculateAiImageCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
+import { isGptImage25Model, normalizeGptImage25Options } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
 import { H3_MODEL, h3References } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { composeCanvasPrompt } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
 import { canvasVideoMethods, resolveCanvasVideoInput } from '../../shared/canvas-video-input.mjs?v=__ASSET_VERSION__';
@@ -87,6 +89,11 @@ export function analyzeNodeInputs(target, nodes, edges, models, copy) {
         .filter((edge) => edge.target_node_id === target?.id)
         .map((edge, index) => ({ edge, index, source: nodes.find((node) => node.id === edge.source_node_id) }))
         .filter((item) => item.source);
+    if (isGptImage25Model(model?.id)) {
+        const order = target.config?.referenceOrder || [];
+        const rank = edge => order.includes(edge.id) ? order.indexOf(edge.id) : order.length;
+        incoming.sort((a, b) => rank(a.edge) - rank(b.edge) || String(a.edge.created_at || '').localeCompare(String(b.edge.created_at || '')) || String(a.edge.id).localeCompare(String(b.edge.id)));
+    }
     const sources = incoming.map(({ edge, source }) => {
         const value = nodeOutputValue(source);
         const kind = value.kind === 'none' ? value.expectedKind : value.kind;
@@ -124,6 +131,14 @@ export function analyzeWorkflow(nodes, edges, models, copy) {
 
 export function validationForNode(node, analysis, copy) {
     if (!GENERATION_CAPABILITY[node?.type]) return null;
+    if (isGptImage25Model(analysis?.model?.id)) {
+        try {
+            const { source_images, ...config } = node.config || {};
+            const referenceImageCount = (source_images?.length || 0) + (analysis.compatible?.filter(source => source.inputKind === 'image_reference').length || 0);
+            normalizeGptImage25Options({ ...config, prompt: undefined, referenceImageCount });
+            if (referenceImageCount && !Number.isFinite(calculateAiImageCreditCost(analysis.model.id, { ...config, prompt: analysis.effectivePrompt || undefined, referenceImageCount })?.credits)) return copy.promptRequired?.startsWith('Füge') ? 'Bearbeitung ist bis zur Prüfung der Referenzbild-Tokenpreise nicht verfügbar. Referenzen bleiben gespeichert.' : 'Editing is unavailable until reference-image token pricing is verified. References remain saved.';
+        } catch (error) { return copy.promptRequired?.startsWith('Füge') ? 'Bitte Einstellungen prüfen: maximal 16 Referenzen; Transparenz erfordert PNG oder WebP.' : error.message; }
+    }
     if (analysis?.incompatible.length) return analysis.incompatible[0].reason;
     if (analysis?.unresolved.length) return `${analysis.unresolved[0].sourceTitle}: ${copy.runUpstream}`;
     if(analysis?.model?.id===H3_MODEL) {

@@ -1,6 +1,8 @@
 import { browserModelTariff, mediaTariffBasis } from './model-tariff.mjs';
 import { H3_MODEL, calculateH3CreditPricing } from './minimax-h3.mjs';
 import { GROK_IMAGE_2, calculateGrokImage2CreditCost } from './grok-imagine-image-2-pricing.mjs';
+import { GPT_IMAGE_25_MODEL_IDS, isGptImage25Model } from './gpt-image-25-contract.mjs';
+import { calculateGptImage25CreditCost, isGptImage25PricingAvailable } from './gpt-image-25-pricing.mjs';
 import {
   BITBI_MODEL_PRICING_USD_TO_EUR,
   BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
@@ -42,6 +44,7 @@ import {
 } from "./music-2-6-pricing.mjs";
 
 export {
+  GPT_IMAGE_25_MODEL_IDS,
   GPT_IMAGE_2_MODEL_ID,
   GROK_IMAGINE_IMAGE_MODEL_ID,
   PIXVERSE_V6_MODEL_ID,
@@ -235,6 +238,7 @@ function priceProviderCostModel(modelId, pricing) {
 
 export function isPricedAiImageModel(modelId) {
   const id = String(modelId || "").trim();
+  if (isGptImage25Model(id)) return isGptImage25PricingAvailable(id);
   return id === FLUX_1_SCHNELL_IMAGE_MODEL_ID
     || FLUX_2_KLEIN_IMAGE_MODEL_IDS.includes(id)
     || id === FLUX_2_MAX_IMAGE_MODEL_ID
@@ -243,6 +247,7 @@ export function isPricedAiImageModel(modelId) {
 }
 
 export function calculateAiImageCreditCost(modelId, params = {}) {
+  if (isGptImage25Model(modelId)) return calculateGptImage25CreditCost(modelId, params);
   if (modelId === GROK_IMAGE_2.id) return calculateGrokImage2CreditCost(params);
   const id = String(modelId || "").trim();
   if (id === GPT_IMAGE_2_MODEL_ID) {

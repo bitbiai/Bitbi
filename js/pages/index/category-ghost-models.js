@@ -1,3 +1,4 @@
+import { GPT_IMAGE_25_MODELS } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI - Homepage category ghost model names
    ============================================================ */
@@ -141,6 +142,7 @@ const CATEGORY_KNOWN_MODEL_NAMES = Object.freeze({
         'FLUX.2 Dev',
         'FLUX.2 Max',
         'GPT Image 2',
+        ...GPT_IMAGE_25_MODELS.filter(model => model.generationEnabled).map(model => model.label),
     ]),
     video: new Set([
         'PixVerse V6',
@@ -172,6 +174,7 @@ const MODEL_LABELS = new Map([
     ['flux-2-dev', 'FLUX.2 Dev'],
     ['black-forest-labs/flux-2-max', 'FLUX.2 Max'],
     ['flux-2-max', 'FLUX.2 Max'],
+    ...GPT_IMAGE_25_MODELS.filter(model => model.generationEnabled).map(model => [model.id, model.label]),
     ['openai/gpt-image-2', 'GPT Image 2'],
     ['gpt-image-2', 'GPT Image 2'],
     ['pixverse/v6', 'PixVerse V6'],

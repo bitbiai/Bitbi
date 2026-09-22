@@ -1,3 +1,4 @@
+import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
 import { H3_MODEL, h3References, h3MediaType } from '../../../../js/shared/minimax-h3.mjs';
 import { canvasMediaStatements, canvasMediaEnvironment, saveCanvasMedia, annotateCanvasMedia, reclaimCanvasMedia } from '../lib/canvas-media-storage.js';
 import { composeCanvasPrompt } from '../../../../js/shared/canvas-model-contract.mjs';
@@ -362,7 +363,21 @@ async function applyConnectedMediaInputs(env, userId, model, resolution, body) {
     })]);return body;
   }
   await applyCanvasVideoInput(env, userId, resolution, body, loadOwnedImageDataUri);
-  const imageAssetIds = [...new Set(resolution.imageReferences.map((input) => input.assetId).filter(Boolean))];
+  const orderedReferences = [...resolution.imageReferences];
+  if (isGptImage25Model(model.id)) {
+    const order = body.referenceOrder || [];
+    const rank = edgeId => { const index = order.indexOf(edgeId); return index < 0 ? order.length : index; };
+    orderedReferences.sort((a, b) => rank(a.edgeId) - rank(b.edgeId));
+    delete body.referenceOrder;
+  }
+  const imageAssetIds = [...new Set(orderedReferences.map((input) => input.assetId).filter(Boolean))];
+  if (isGptImage25Model(model.id)) {
+    const selected = body.source_images || [];
+    const ids = [...selected.map(source => source.asset_id), ...orderedReferences.map(source => source.assetId).filter(Boolean)];
+    if (ids.length > 16) throw Object.assign(new Error('At most 16 reference images are supported.'), { status: 400, code: 'too_many_references' });
+    body.source_images = ids.map(asset_id => ({ source_type: 'saved_asset', asset_id }));
+    return body;
+  }
   if (!imageAssetIds.length) return body;
   if (model.capability === 'video' && model.id.startsWith('xai/grok-imagine-video')) {
     if (imageAssetIds.length > model.controls.maxReferenceImages) throw Object.assign(new Error('Too many image references.'),{status:400,code:'too_many_references'});
@@ -846,6 +861,7 @@ function buildGenerationBody(node, model, resolution) {
     if (config.temperature !== undefined) body.temperature = config.temperature;
   } else if (model.capability === "image") {
     const c = model.controls || {};
+    if (isGptImage25Model(model.id)) { body.source_images = config.source_images || []; body.referenceOrder = Array.isArray(config.referenceOrder) ? config.referenceOrder : []; }
     const fields = { steps: c.supportsSteps, seed: c.supportsSeed, width: c.supportsDimensions, height: c.supportsDimensions,
       quality: c.qualityOptions?.length, resolution:c.resolutionOptions?.length, aspectRatio:c.aspectRatioOptions?.length, size: c.sizeOptions?.length, outputFormat: c.outputFormatOptions?.length,
       background: c.backgroundOptions?.length, safetyTolerance: c.supportsSafetyTolerance };
@@ -958,7 +974,7 @@ function safeRunOutput(model, payload, imageAsset = null, { runId, createdAt } =
     };
   }
   if (model.capability === "image") {
-    const asset = { id: imageAsset.id, asset_type: "image", mime_type: "image/*", file_url: `/api/ai/images/${imageAsset.id}/file`, preview_url: `/api/ai/images/${imageAsset.id}/medium` };
+    const asset = { id: imageAsset.id, asset_type: "image", mime_type: imageAsset.mime_type || "image/*", file_url: `/api/ai/images/${imageAsset.id}/file`, preview_url: `/api/ai/images/${imageAsset.id}/medium` };
     return { kind: "image", assetId: asset.id, assetType: "image", mimeType: asset.mime_type, previewUrl: asset.preview_url, fileUrl: asset.file_url, modelId: model.id, runId, createdAt, asset, model: model.id, billing: payload.billing || null };
   }
   const data = payload.data || {};

@@ -106,8 +106,10 @@ export const GENERATE_LAB_MEDIA_TYPES = Object.freeze([
 export const MUSIC_26_MODEL_ID = MINIMAX_MUSIC_2_6_MODEL_ID;
 
 function estimateModelCredits(mediaType, modelId, values = {}) {
-    const pricing = calculateAiModelCreditCost({ mediaType, modelId, params: values });
-    return Math.max(1, Math.ceil(Number(pricing?.credits || 1)));
+    try {
+        const pricing = calculateAiModelCreditCost({ mediaType, modelId, params: values });
+        return Number.isFinite(pricing?.credits) ? Math.max(1, Math.ceil(pricing.credits)) : null;
+    } catch { return null; }
 }
 
 const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
@@ -121,7 +123,7 @@ const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
         options:{quality:config.qualityOptions,size:config.resolutionOptions},
         estimateCredits:(values={})=>estimateModelCredits('image',model.id,values),
     });
-    if (config?.requestMode === 'gpt-image-2' || model.id === GPT_IMAGE_2_MODEL_ID) {
+    if (['gpt-image-2', 'gpt-image-2.5'].includes(config?.requestMode) || model.id === GPT_IMAGE_2_MODEL_ID) {
         return Object.freeze({
             id: model.id,
             displayName: model.label,
@@ -130,10 +132,12 @@ const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
             route: '/api/ai/generate-image',
             outputType: 'image',
             status: DE ? 'NEU' : 'NEW',
-            summary: DE ? 'OpenAI-Bildgenerierung und -Bearbeitung über Cloudflare AI Gateway.' : 'OpenAI image generation and editing via Cloudflare AI Gateway.',
+            summary: config.requestMode === 'gpt-image-2.5'
+                ? (DE ? 'OpenAI-Bildgenerierung mit transparentem PNG/WebP. Bearbeitung wartet auf verifizierte Referenzpreise.' : 'OpenAI image generation with transparent PNG/WebP. Editing awaits verified reference pricing.')
+                : (DE ? 'OpenAI-Bildgenerierung und -Bearbeitung über Cloudflare AI Gateway.' : 'OpenAI image generation and editing via Cloudflare AI Gateway.'),
             capabilities: Object.freeze([
                 DE ? 'Text zu Bild' : 'Text to image',
-                DE ? 'Bildbearbeitung' : 'Image edit',
+                config.requestMode === 'gpt-image-2.5' ? (DE ? 'Bearbeitung: Preisprüfung ausstehend' : 'Editing: pricing pending') : (DE ? 'Bildbearbeitung' : 'Image edit'),
                 DE ? 'Mehrere Referenzen' : 'Multi-reference',
                 'PNG / WebP / JPEG',
                 DE ? 'Speicherbar im Assets Manager' : 'Savable to Assets Manager',
@@ -146,7 +150,9 @@ const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
                 supportsOutputFormat: true,
                 supportsBackground: true,
                 supportsReferenceImages: true,
-                maxReferenceImages: 16,
+                maxReferenceImages: config.maxReferenceImages,
+                maxPromptLength: config.maxPromptLength || 1000,
+                supportsTransparentBackground: config.supportsTransparentBackground,
             }),
             defaults: Object.freeze({
                 model: model.id,

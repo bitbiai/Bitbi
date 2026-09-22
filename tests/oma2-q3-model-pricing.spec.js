@@ -56,6 +56,43 @@ for(const [locale,width]of [['en',1440],['de',390]])test.describe(`${locale} pri
 for(const gate of [401,403,428])test(`pricing ${gate} denial never loads protected economics`,async({page,baseURL})=>{
  const f=await setup(page,baseURL,{gate});try{await page.goto('/admin/index.html#model-pricing');await expect(page.locator('#adminDenied')).toBeVisible();expect(f.calls.some(c=>c.path==='/api/admin/ai/model-pricing')).toBe(false);expect(f.errors).toEqual([]);}finally{f.DB.close();}
 });
+for(const [locale,width]of [['en',1440],['de',390]])test(`GPT Image 2.5 pricing dimensions and reference tariff guard ${locale}`,async({page,baseURL},info)=>{
+ const f=await setup(page,baseURL);await page.setViewportSize({width,height:900});
+ try{await open(page);if(locale==='de')await root(page).getByLabel('Pricing language').selectOption('de');
+  for(const suffix of ['sunburst','flare']){
+   await root(page).getByRole('searchbox').fill(`gpt-image-2.5-${suffix}`);const row=root(page).locator('.model-pricing__row');await expect(row).toHaveCount(1);
+   await expect(row).toContainText(locale==='de'?'Werkspreis':'Factory');await row.focus();await page.keyboard.press('Enter');
+   const dialog=page.getByRole('dialog',{name:`GPT Image 2.5 ${suffix==='sunburst'?'Sunburst':'Flare'}`,exact:true});await expect(dialog).toBeVisible();
+   const options={quality:['low','medium','high','xhigh','max','auto'],size:['1024x1024','1024x1536','1536x1024','auto'],background:['transparent','opaque','auto'],outputFormat:['png','webp','jpeg']};
+   for(const [name,values]of Object.entries(options))expect(await dialog.locator(`[name=${name}] option`).evaluateAll(nodes=>nodes.map(node=>node.value))).toEqual(values);
+   await dialog.locator('[name=quality]').selectOption('max');await dialog.locator('[name=size]').selectOption('auto');await dialog.locator('[name=background]').selectOption('transparent');await dialog.locator('[name=outputFormat]').selectOption('webp');
+   await dialog.locator('[name=referenceImageCount]').fill('16');await dialog.locator('[name=referenceImageCount]').press('Tab');await expect(dialog.locator('[name=operation]')).toHaveValue('edit');
+   await expect(dialog.getByRole('status')).toContainText('reference editing pricing is unavailable');
+   expect(f.calls.filter(call=>call.path.endsWith('/model-pricing/quote')).at(-1).body).toMatchObject({modelId:`openai/gpt-image-2.5-${suffix}`,settings:{quality:'max',size:'auto',background:'transparent',outputFormat:'webp',operation:'edit',referenceImageCount:16}});
+   await expect(dialog.getByRole('button',{name:locale==='de'?'Tarif speichern':'Save tariff',exact:true})).toBeDisabled();
+   await dialog.locator('[name=outputFormat]').selectOption('jpeg');await expect(dialog.getByRole('status')).toContainText('Transparent background requires PNG or WebP');
+   await dialog.locator('[name=outputFormat]').selectOption('png');await dialog.locator('[name=operation]').selectOption('generate');await expect(dialog.locator('[name=referenceImageCount]')).toHaveValue('0');
+   await expect(dialog.locator('[role=status]')).toHaveText('');
+   for(const theme of ['dark','light','soft']){
+    await page.evaluate(value=>document.documentElement.dataset.theme=value,theme);await expect(dialog.locator('[name=background]')).toBeVisible();
+    expect(await dialog.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    if(suffix==='flare')await page.screenshot({path:path.join(info.outputDir,`${locale}-${width}-gpt25-${theme}.png`)});
+   }
+   if(suffix==='sunburst'){
+    await expect(dialog.locator('.model-pricing__rates input')).toHaveCount(2);
+    await dialog.locator('.model-pricing__rates input').nth(0).fill('7.25');await dialog.locator('.model-pricing__rates input').nth(1).fill('2.5');
+    await expect(dialog.locator('.model-pricing__preview')).toContainText('8');
+    await dialog.getByRole('button',{name:locale==='de'?'Tarif speichern':'Save tariff',exact:true}).click();await expect(dialog).toHaveCount(0);
+    await row.click();const reopened=page.getByRole('dialog',{name:'GPT Image 2.5 Sunburst',exact:true});
+    await reopened.getByLabel(locale==='de'?'Individuelle Konfigurationen':'Custom configurations').selectOption('0');
+    await expect(reopened.locator('[name=background]')).toHaveValue('transparent');await expect(reopened.locator('[name=outputFormat]')).toHaveValue('png');
+    await expect(reopened.locator('.model-pricing__breakdown')).toContainText('8');
+    await reopened.getByRole('button',{name:locale==='de'?'Konfiguration zurücksetzen':'Reset configuration',exact:true}).click();await expect(reopened).toHaveCount(0);
+   }else await dialog.getByRole('button',{name:locale==='de'?'Abbrechen':'Cancel',exact:true}).click();
+  }
+  expect(f.calls.filter(call=>call.method==='PATCH')).toHaveLength(2);expect(f.errors).toEqual([]);
+ }finally{f.DB.close();}
+});
 test('pricing conflict preserves editor; a new retail snapshot refreshes existing cross-surface estimators and request revision',async({page,baseURL})=>{
  const f=await setup(page,baseURL);try{
  await open(page);await root(page).getByRole('searchbox').fill('MiniMax H3');await root(page).locator('.model-pricing__row').click();const dialog=page.getByRole('dialog',{name:'MiniMax H3',exact:true});await expect(dialog.locator('.model-pricing__breakdown')).toContainText('262');await dialog.locator('input[step="0.00000001"]').fill('7.25');

@@ -1,3 +1,4 @@
+import { isGptImage25Model, normalizeGptImage25Options } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
 import { H3_MODEL, h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { createH3ReferenceControls } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { createGrokVideoControls } from './grok-video-controls.js?v=__ASSET_VERSION__';
@@ -186,6 +187,7 @@ function installHeaderStatusPanel() {
 }
 
 function formatCredits(credits) {
+    if (credits === null || credits === undefined) return getCurrentLocale() === 'de' ? 'Preis nicht verfügbar' : 'Price unavailable';
     const safe = Number.isFinite(Number(credits)) ? Number(credits) : 0;
     return localeText('generateLab.credits', { count: safe, plural: safe === 1 ? '' : 's' });
 }
@@ -242,11 +244,10 @@ function selectedImageReferenceLimit(model = selectedModel()) {
 function selectedImageReferences() {
     const limit = selectedImageReferenceLimit();
     if (limit <= 0) return [];
-    return state.imageReferenceImages
-        .slice(0, limit)
-        .filter(Boolean)
-        .map((entry) => entry.dataUrl)
-        .filter(Boolean);
+    const entries = state.imageReferenceImages.slice(0, limit).filter(Boolean);
+    // Retain legacy inline selections in the count after changing models;
+    // they must never become a silent prompt-only request.
+    return isGptImage25Model(state.modelId) ? entries.map(entry => entry.assetId || null) : entries.map(entry => entry.dataUrl).filter(Boolean);
 }
 
 function selectedImageReferenceInputs() {
@@ -307,6 +308,7 @@ function currentCreditEstimate() {
     }
     if (model.mediaType === 'image' && model.controls?.supportsQuality) {
         return calculateGenerateLabCredits(model.id, {
+            ...(isGptImage25Model(model.id) ? { prompt: refs.prompt?.value?.trim() || undefined } : {}),
             quality: refs.imageQuality?.value || model.defaults?.quality,
             size: refs.imageSize?.value || model.defaults?.size,
             outputFormat: refs.imageOutputFormat?.value || model.defaults?.outputFormat,
@@ -551,7 +553,12 @@ function updateActionState() {
 
     if (refs.cost) refs.cost.textContent = formatCredits(price);
     updateCostInsight(price, insufficient);
-    if (refs.imageReferenceCostHint) refs.imageReferenceCostHint.hidden = !(supportsImageReferences && referenceCount > 0);
+    if (refs.imageReferenceCostHint) {
+        refs.imageReferenceCostHint.hidden = !(supportsImageReferences && referenceCount > 0);
+        if (isGptImage25Model(state.modelId)) refs.imageReferenceCostHint.textContent = price === null
+            ? (getCurrentLocale() === 'de' ? 'Bearbeitung ist bis zur Prüfung der Referenzbild-Tokenpreise nicht verfügbar. Ihre Referenzen bleiben erhalten.' : 'Editing is unavailable until reference-image token pricing is verified. Your references are retained.')
+            : (getCurrentLocale() === 'de' ? 'Referenzanzahl und Einstellungen fließen in den Preis ein. Maximal 16 MiB insgesamt.' : 'Reference quantities and settings are included in the price. Maximum 16 MiB in total.');
+    }
     if (refs.imageAutoCostHint) refs.imageAutoCostHint.hidden = !usesAutoImageSetting;
     if (refs.balance) {
         if (!state.loggedIn) {
@@ -569,7 +576,7 @@ function updateActionState() {
         refs.generate.textContent = state.loggedIn
             ? (insufficient ? localeText('generateLab.insufficientCredits') : localeText('generateLab.generate'))
             : localeText('generateLab.signInToGenerate');
-        refs.generate.disabled = state.loggedIn && insufficient;
+        refs.generate.disabled = state.loggedIn && (insufficient || price === null);
         refs.generate.setAttribute('aria-label', localeText('generateLab.generateAria', { label: refs.generate.textContent, cost: formatCredits(price) }));
     }
 }
@@ -636,6 +643,7 @@ function renderPromptCopy() {
     if (refs.promptLabel) refs.promptLabel.textContent = media.promptLabel;
     if (refs.prompt) {
         refs.prompt.placeholder = media.promptPlaceholder;
+        refs.prompt.maxLength = selectedModel().controls?.maxPromptLength || (state.mediaType === 'image' ? 1000 : 7000);
         refs.prompt.setAttribute('aria-describedby', 'labPromptHelp');
     }
     if (refs.promptHelp) refs.promptHelp.textContent = media.promptHelp;
@@ -779,16 +787,25 @@ function syncImageOptionState() {
             setSelectOptions(control, model.options.outputFormat, control.value || model.defaults?.outputFormat, (value) => String(value).toUpperCase());
         }
         if (supported && control === refs.imageQuality && Array.isArray(model.options?.quality)) {
-            const labels = document.documentElement.lang === 'de' ? {low:'Niedrig',medium:'Mittel',high:'Hoch',auto:'Auto'} : {low:'Low',medium:'Medium',high:'High',auto:'Auto'};
+            const labels = document.documentElement.lang === 'de' ? {low:'Niedrig',medium:'Mittel',high:'Hoch',xhigh:'Sehr hoch',max:'Maximal',auto:'Auto'} : {low:'Low',medium:'Medium',high:'High',xhigh:'Extra high',max:'Maximum',auto:'Auto'};
             setSelectOptions(control, model.options.quality, modelChanged ? model.defaults.quality : control.value, value => labels[value] || value);
         }
         if (supported && control === refs.imageSize && Array.isArray(model.options?.size)) {
             setSelectOptions(control, model.options.size, modelChanged ? model.defaults.size : control.value);
         }
+        if (supported && control === refs.imageBackground && Array.isArray(model.options?.background)) {
+            const labels = getCurrentLocale() === 'de' ? {transparent:'Transparent',opaque:'Deckend',auto:'Auto'} : {transparent:'Transparent',opaque:'Opaque',auto:'Auto'};
+            setSelectOptions(control, model.options.background, modelChanged ? model.defaults.background : control.value, value => labels[value] || value);
+        }
         control.disabled = state.busy || !supported;
         control.setAttribute('aria-disabled', control.disabled ? 'true' : 'false');
     }
-    if (refs.imageGptBackgroundHelp) refs.imageGptBackgroundHelp.hidden = !supportsBackground;
+    if (refs.imageGptBackgroundHelp) {
+        refs.imageGptBackgroundHelp.hidden = !supportsBackground;
+        refs.imageGptBackgroundHelp.textContent = controls.supportsTransparentBackground
+            ? (getCurrentLocale() === 'de' ? 'Transparenz erfordert PNG oder WebP. Auto bleibt dem Modell überlassen.' : 'Transparency requires PNG or WebP. Auto is resolved by the model.')
+            : (getCurrentLocale() === 'de' ? 'Dieses Modell unterstützt keine transparenten Hintergründe.' : 'This model does not support transparent backgrounds.');
+    }
     renderImageReferenceSlots();
 }
 
@@ -898,6 +915,7 @@ function renderLoadingResult(text) {
 
 function renderAllForSelection({ keepResult = false } = {}) {
     document.body.dataset.labMode = state.mediaType;
+    document.body.dataset.labMobileImage = String(isGptImage25Model(state.modelId));
     for (const tab of document.querySelectorAll('.generate-lab__media-tab')) {
         const active = tab.dataset.mediaType === state.mediaType;
         tab.classList.toggle('is-active', active);
@@ -942,7 +960,13 @@ function clearImageReference(index) {
     updateActionState();
 }
 
+const imageReferenceUploads = new WeakMap();
 async function handleImageReferenceChange(index, input) {
+    const token = {}, modelId = state.modelId;
+    imageReferenceUploads.set(input, token);
+    const snapshot = JSON.stringify(state.imageReferenceImages);
+    const isCurrent = () => input.isConnected && imageReferenceUploads.get(input) === token
+        && state.modelId === modelId && JSON.stringify(state.imageReferenceImages) === snapshot;
     const file = input?.files?.[0] || null;
     const maxReferences = selectedImageReferenceLimit();
     if (index >= maxReferences) {
@@ -965,8 +989,18 @@ async function handleImageReferenceChange(index, input) {
     }
     try {
         const dataUrl = await readFileAsDataUri(file);
-        const dimensions = await readImageDimensions(dataUrl).catch(() => null);
+        const dimensions = await readImageDimensions(dataUrl);
+        if (!isCurrent()) return;
+        let assetId;
+        if (isGptImage25Model(state.modelId)) {
+            const saved = await apiAiSaveImage(dataUrl, file.name, 'uploaded-reference');
+            if (!saved.ok) throw new Error(saved.error);
+            assetId = saved.data?.data?.id || saved.data?.id;
+            if (!assetId) throw new Error('missing_asset_id');
+        }
+        if (!isCurrent()) return;
         state.imageReferenceImages[index] = {
+            assetId,
             dataUrl,
             name: file.name || getImageReferenceLabel(index),
             type: file.type,
@@ -978,6 +1012,7 @@ async function handleImageReferenceChange(index, input) {
         renderImageReferenceSlots();
         updateActionState();
     } catch {
+        if (!isCurrent()) return;
         input.value = '';
         setMessage(localeText('generateLab.referenceImageReadFailed'), 'error');
     }
@@ -1146,8 +1181,9 @@ async function applyImageAssetReferences(selection, startIndex = 0) {
     const maxReferences = selectedImageReferenceLimit();
     if (maxReferences <= 0 || startIndex >= maxReferences) return false;
     const entries = [];
-    for (const asset of selection.slice(0, maxReferences - startIndex)) {
-        entries.push(await fetchAssetAsDataUri(asset, IMAGE_REFERENCE_MIME_TYPES));
+    if (selection.length > maxReferences - startIndex) throw new Error('Too many reference images.');
+    for (const asset of selection) {
+        entries.push(isGptImage25Model(state.modelId) ? { assetId: asset.id, dataUrl: getReferenceAssetSourceUrl(asset), name: getReferenceAssetTitle(asset), width: asset.width, height: asset.height } : await fetchAssetAsDataUri(asset, IMAGE_REFERENCE_MIME_TYPES));
     }
     entries.forEach((entry, offset) => {
         state.imageReferenceImages[startIndex + offset] = entry;
@@ -1284,6 +1320,15 @@ function createImageReferenceSlot(index, disabled) {
         });
         remove.addEventListener('click', () => clearImageReference(index));
         slot.append(remove);
+        for (const [offset, arrow, label] of [[-1, '←', getCurrentLocale() === 'de' ? 'Referenz nach vorne' : 'Move reference earlier'], [1, '→', getCurrentLocale() === 'de' ? 'Referenz nach hinten' : 'Move reference later']]) {
+            const move = el('button', { className: 'generate-lab-ref-images__move', text: arrow, attrs: { type: 'button', disabled: disabled || index + offset < 0 || index + offset >= selectedImageReferenceLimit(), 'aria-label': label } });
+            move.addEventListener('click', () => {
+                [state.imageReferenceImages[index], state.imageReferenceImages[index + offset]] = [state.imageReferenceImages[index + offset], state.imageReferenceImages[index]];
+                renderImageReferenceSlots(); updateActionState();
+                byId(`labImageRefSlot${index + offset + 1}`)?.querySelector('.generate-lab-ref-images__move')?.focus();
+            });
+            slot.append(move);
+        }
     }
     return slot;
 }
@@ -1854,6 +1899,11 @@ async function generateImage(prompt, observation) {
         ? parseOptionalInteger(refs.imageSeed?.value, { min: 0 })
         : null;
     let res;
+    if (isGptImage25Model(model)) {
+        if (selectedImageReferences().some(value => !value)) return { ok: false, error: getCurrentLocale() === 'de' ? 'Bitte die Referenzen erneut als gespeicherte Assets auswählen oder hochladen.' : 'Please reselect the references as saved assets or upload them again.' };
+        try { normalizeGptImage25Options({ prompt, quality: refs.imageQuality?.value, size: refs.imageSize?.value, outputFormat: refs.imageOutputFormat?.value, background: refs.imageBackground?.value, referenceImageCount: selectedImageReferences().length }); }
+        catch (error) { return { ok: false, error: getCurrentLocale() === 'de' ? 'Bitte Einstellungen prüfen. Transparenz erfordert PNG oder WebP; maximal 16 Referenzen.' : error.message }; }
+    }
     if (isGpt) {
         res = await apiAiGenerateImage({
             model,
@@ -1862,7 +1912,7 @@ async function generateImage(prompt, observation) {
             size: refs.imageSize?.value || currentModel.defaults?.size || '1024x1024',
             ...(currentModel.controls?.supportsOutputFormat ? {outputFormat: refs.imageOutputFormat?.value || currentModel.defaults?.outputFormat || 'png'} : {}),
             ...(currentModel.controls?.supportsBackground ? {background: refs.imageBackground?.value || currentModel.defaults?.background || 'auto'} : {}),
-            referenceImages: selectedImageReferences(),
+            ...(isGptImage25Model(model) ? { source_images: selectedImageReferences().map(asset_id => ({ source_type: 'saved_asset', asset_id })) } : { referenceImages: selectedImageReferences() }),
         }, {durable:true,headers:{'X-BITBI-Workspace':'generate-lab'},...observation});
     } else if (isDimensionedProvider) {
         const dimensions = currentModel.options?.dimensions || {};
@@ -2009,6 +2059,7 @@ async function handleGenerate() {
     }
 
     const price = currentCreditEstimate();
+    if (price === null) { setMessage(getCurrentLocale() === 'de' ? 'Für diese Einstellungen ist kein gültiger Preis verfügbar. Transparenz erfordert PNG oder WebP.' : 'A valid price is unavailable for these settings. Transparency requires PNG or WebP.', 'error'); return; }
     if (state.creditBalance !== null && state.creditBalance < price) {
         setMessage(localeText('generateLab.needCredits', { cost: formatCredits(price) }), 'error');
         setWorkflowStatus('attention');
@@ -2349,6 +2400,16 @@ function cacheRefs() {
 }
 
 async function init() {
+    const mobileCard = document.querySelector('.generate-lab__mobile-card');
+    const available = getGenerateLabModelsByMediaType('image').filter(model => isGptImage25Model(model.id));
+    if (mobileCard && available.length) {
+        const label = el('label', { className: 'generate-lab__field', text: getCurrentLocale() === 'de' ? 'GPT Image 2.5 mobil öffnen' : 'Open GPT Image 2.5 on mobile' });
+        const select = el('select', { className: 'generate-lab__select' });
+        select.append(el('option', { text: getCurrentLocale() === 'de' ? 'Modell wählen' : 'Choose a model', attrs: { value: '' } }));
+        available.forEach(model => select.append(el('option', { text: model.displayName, attrs: { value: model.id } })));
+        select.addEventListener('change', () => { if (!select.value) return; state.mediaType = 'image'; state.modelId = select.value; renderAllForSelection(); refs.prompt?.focus(); });
+        label.append(select); mobileCard.append(label);
+    }
     document.documentElement.classList.add('generate-lab-ready');
     activateGenerateLabContext();
     try {

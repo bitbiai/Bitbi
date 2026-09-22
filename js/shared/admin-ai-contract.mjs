@@ -1,3 +1,4 @@
+import { GPT_IMAGE_25_MODELS, isGptImage25Model, normalizeGptImage25Options } from "./gpt-image-25-contract.mjs";
 import { H3_MODEL, H3_RESOLUTIONS, H3_RATIOS, H3_ROLES, normalizeH3Request } from './minimax-h3.mjs';
 import { GROK_IMAGE_2, calculateGrokImage2CreditCost } from './grok-imagine-image-2-pricing.mjs';
 import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens, normalizeGrokReasoningEffort, GROK_TEXT_PRICING } from "./grok-text-contract.mjs";
@@ -813,6 +814,7 @@ const IMAGE_MODELS = {
     defaultMimeType: "image/jpeg",
     description: "Admin-only FLUX.2 Max image generation and editing via Cloudflare AI Gateway.",
   },
+  ...Object.fromEntries(GPT_IMAGE_25_MODELS.map(model => [model.id, model])),
 };
 
 const EMBEDDING_MODELS = {
@@ -1870,6 +1872,7 @@ function toPublicModel(model) {
       supportsMaskImage: !!model.supportsMaskImage,
       supportsUserTag: !!model.supportsUserTag,
       maxReferenceImages: model.maxReferenceImages || 0,
+      maxPromptLength: model.maxPromptLength || ADMIN_AI_LIMITS.image.maxPromptLength,
       minOutputCount: model.minOutputCount ?? null,
       maxOutputCount: model.maxOutputCount ?? null,
       maxSteps: model.maxSteps || null,
@@ -2259,6 +2262,15 @@ export function validateAdminAiImageBody(body, options = {}) {
       if (source_mask) validated.source_mask = source_mask;
     }
     return validated;
+  }
+
+  if (isGptImage25Model(selectedModel.id)) {
+    assertOnlyAllowedFields(input, ['preset', 'model', 'prompt', 'quality', 'size', 'background', 'outputFormat', 'output_format', 'source_images', 'referenceImages'], 'image request');
+    if (input.referenceImages?.length && options.allowResolvedGptImage25References !== true) throw new AdminAiValidationError('Select or upload owned reference assets.', 400, 'validation_error');
+    const normalized = normalizeGptImage25Options(input, { requirePrompt: true });
+    const source_images = input.source_images === undefined ? [] : normalizeGrokPreviewSourceImageArray(input.source_images, 'source_images', selectedModel.maxReferenceImages);
+    if (source_images.length && input.referenceImages?.length) throw new AdminAiValidationError('Choose owned assets or inline references, not both.', 400, 'validation_error');
+    return { preset, model, ...normalized, source_images, referenceImages: validateReferenceImages(input.referenceImages, { maxItems: selectedModel.maxReferenceImages, allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp'] }) };
   }
 
   if (selectedModel.id === GPT_IMAGE_2_MODEL_ID) {

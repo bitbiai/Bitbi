@@ -1,3 +1,6 @@
+import { isGptImage25Model, normalizeGptImage25Options, GPT_IMAGE_25_MAX_PROMPT_LENGTH } from '../../../../../js/shared/gpt-image-25-contract.mjs';
+import { callImage25Provider, image25Output } from '../../../../shared/gpt-image-25.mjs';
+import { resolveImage25Sources } from '../../lib/gpt-image-25-sources.js';
 import { GROK_IMAGE_2, normalizeGrokImage2 } from '../../../../../js/shared/grok-imagine-image-2-pricing.mjs';
 import { promptAssetTitle } from '../../lib/asset-names.js';
 import { existingGenerationAsset, generationStorageReservation } from "../../lib/member-generation-storage.js";
@@ -163,7 +166,7 @@ function assertOnlyAllowedFields(body, allowedFields, modelId) {
   if (!body || typeof body !== "object") return;
   for (const key of Object.keys(body)) {
     if (!allowedFields.has(key)) {
-      throw new Error(`${key} is not supported by model "${modelId}".`);
+      throw Object.assign(new Error(`${key} is not supported by model "${modelId}".`), { status: 400 });
     }
   }
 }
@@ -613,6 +616,7 @@ async function resolveSaveImageInput(env, body, userId, correlationId) {
     return {
       imageBytes: new Uint8Array(tempBuffer),
       savedMimeType: tempObject.httpMetadata?.contentType || "image/png",
+      generationMetadata: tempObject.customMetadata?.generation || null,
       tempKey: reference.tempKey,
     };
   }
@@ -803,9 +807,10 @@ export async function handleGenerateImage(ctx) {
   }
 
   const prompt = String(body.prompt).trim();
-  if (prompt.length === 0 || prompt.length > MAX_PROMPT_LENGTH) {
+  const promptLimit = isGptImage25Model(body.model) ? GPT_IMAGE_25_MAX_PROMPT_LENGTH : MAX_PROMPT_LENGTH;
+  if (prompt.length === 0 || prompt.length > promptLimit) {
     return respond(
-      { ok: false, error: `Prompt must be 1–${MAX_PROMPT_LENGTH} characters.` },
+      { ok: false, error: `Prompt must be 1–${promptLimit} characters.` },
       { status: 400 }
     );
   }
@@ -827,7 +832,8 @@ export async function handleGenerateImage(ctx) {
     seed = Math.floor(Number(body.seed));
     if (isNaN(seed) || seed < 0) seed = null;
   }
-  const gptImage2 = isGptImage2Model(modelConfig);
+  const gptImage25 = isGptImage25Model(modelConfig.id);
+  const gptImage2 = isGptImage2Model(modelConfig) || gptImage25;
   const flux2Max = isFlux2MaxModel(modelConfig);
   const grokImage2 = modelConfig.id === GROK_IMAGE_2.id;
   let grokRequest = null;
@@ -842,7 +848,15 @@ export async function handleGenerateImage(ctx) {
       const {inputImageCount,...options}=grokRequest;
       aiRequest={payload:{prompt,...options,...(referenceImages.length?{images:referenceImages.map(url=>({url}))}:{})},steps:null,seed:null};
     } else if (gptImage2) {
-      gptRequest = normalizeGptImage2Request(body, prompt, modelConfig);
+      if (gptImage25) {
+        const allowed = new Set(['model', 'prompt', 'quality', 'size', 'background', 'outputFormat', 'output_format', 'source_images', 'referenceImageCount', 'operation', 'organization_id', 'organizationId']);
+        assertOnlyAllowedFields(body, allowed, modelConfig.id);
+        const options = normalizeGptImage25Options(body, { requirePrompt: true });
+        const references = await resolveImage25Sources(env, userId, body.source_images || []);
+        Object.assign(body, options, { source_images: references.identities, referenceImageCount: references.referenceImageCount, operation: references.operation });
+        gptRequest = { ...options, ...references, payload: { prompt, quality: options.quality, size: options.size,
+          background: options.background, output_format: options.outputFormat, ...(references.images.length ? { images: references.images } : {}) } };
+      } else gptRequest = normalizeGptImage2Request(body, prompt, modelConfig);
       aiRequest = {
         payload: gptRequest.payload,
         steps: null,
@@ -859,11 +873,13 @@ export async function handleGenerateImage(ctx) {
       aiRequest = buildAiImageInput(modelConfig, prompt, steps, seed);
     }
   } catch (error) {
+    if (gptImage25 && !(Number(error.status) < 500) && error.code !== 'images_binding_unavailable') return respond({ ok: false, error: 'Reference image inspection is unavailable.', code: 'reference_unavailable' }, { status: 503 });
     return respond({ ok: false, error: error.message || "Invalid image request." }, { status: error.status || 400 });
   }
   const imagePricing = calculateAiImageCreditCost(modelConfig.id, grokImage2 ? {...grokRequest,referenceImageCount:grokRequest.inputImageCount} : gptImage2
     ? {
         quality: gptRequest.quality,
+        ...(gptImage25 ? { prompt, operation: gptRequest.operation } : {}),
         size: gptRequest.size,
         outputFormat: gptRequest.outputFormat,
         background: gptRequest.background,
@@ -885,7 +901,7 @@ export async function handleGenerateImage(ctx) {
         steps: aiRequest.steps,
       });
   if (!imagePricing) {
-    return respond({ ok: false, error: "Image model pricing is unavailable." }, { status: 503 });
+    return respond({ ok: false, error: "Image model pricing is unavailable.", ...(gptImage25 ? { code: gptRequest.referenceImageCount ? "gpt_image_25_reference_pricing_unavailable" : "gpt_image_25_pricing_unavailable" } : {}) }, { status: 503 });
   }
   let usagePolicy = null;
   try {
@@ -918,7 +934,7 @@ export async function handleGenerateImage(ctx) {
     return respond(policyError.body, { status: policyError.status });
   }
   ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
-  const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: body, mediaType: 'image' });
+  const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: body, mediaType: 'image', sourceRefs: gptImage25 ? gptRequest.sourceRefs : [] });
   if (accepted) return accepted;
 
   if (usagePolicy.mode === "organization") {
@@ -949,7 +965,7 @@ export async function handleGenerateImage(ctx) {
     if (usagePolicy.attemptKind === "billing_failed") {
       return respond({
         ok: false,
-        error: "Image generation could not be finalized. Please use a new idempotency key to retry.",
+        error: gptImage25 ? "Image generation could not be finalized. Retain this operation for recovery; do not generate again." : "Image generation could not be finalized. Please use a new idempotency key to retry.",
         code: "ai_usage_billing_failed",
         billing: {
           organization_id: usagePolicy.organizationId,
@@ -987,7 +1003,7 @@ export async function handleGenerateImage(ctx) {
     if (usagePolicy.attemptKind === "billing_failed") {
       return respond({
         ok: false,
-        error: "Image generation could not be finalized. Please use a new idempotency key to retry.",
+        error: gptImage25 ? "Image generation could not be finalized. Retain this operation for recovery; do not generate again." : "Image generation could not be finalized. Please use a new idempotency key to retry.",
         code: "member_ai_usage_billing_failed",
         billing: {
           user_id: userId,
@@ -1082,14 +1098,17 @@ export async function handleGenerateImage(ctx) {
       });
     }
     const extracted = await runWithGenerationTimeout(async (signal) => {
-      const result = await env.AI.run(modelConfig.id, aiRequest.payload,
-        { ...((gptImage2 || flux2Max || grokImage2) ? runOptions : {}), signal });
+      const options = { ...((gptImage2 || flux2Max || grokImage2) ? runOptions : {}), signal };
+      const result = gptImage25
+        ? await callImage25Provider(env.AI, modelConfig.id, aiRequest.payload, options, correlationId)
+        : await env.AI.run(modelConfig.id, aiRequest.payload, options);
       if (signal.aborted) {
         const body = result instanceof Response ? result.body : result instanceof ReadableStream ? result : null;
         if (body && !body.locked) Promise.resolve(body.cancel()).catch(() => {});
         await usagePolicy.recordLateOutcome?.("succeeded");
         throw signal.reason;
       }
+      if (gptImage25) return image25Output(result, { fetcher: env.__TEST_FETCH || globalThis.fetch, signal, outputFormat: gptRequest.outputFormat });
       if(grokImage2) {
         const image=result?.result?.image ?? result?.image;
         if(typeof image!=='string' || !/^(https:\/\/|data:image\/)/.test(image))throw new Error('image_result_invalid');
@@ -1099,7 +1118,7 @@ export async function handleGenerateImage(ctx) {
     }, {
       signal: request.signal,
       onLateResult: () => usagePolicy.recordLateOutcome?.("succeeded"),
-      onLateError: (error) => usagePolicy.recordLateOutcome?.("failed", error?.code),
+      onLateError: (error) => usagePolicy.recordLateOutcome?.(gptImage25 && !error?.confirmedRejection ? "unknown" : "failed", error?.code),
     });
     if (extracted) {
       base64 = extracted.base64;
@@ -1110,7 +1129,8 @@ export async function handleGenerateImage(ctx) {
     if (typeof usagePolicy.markProviderFailed === "function") {
       try {
         await usagePolicy.markProviderFailed({
-          code: isGenerationTimeoutError(e) ? "generation_timeout" : "provider_failed",
+          confirmedOutcome: gptImage25 && e?.confirmedRejection === true,
+          code: gptImage25 ? e.code || "generation_provider_outcome_unknown" : isGenerationTimeoutError(e) ? "generation_timeout" : "provider_failed",
           message: isGenerationTimeoutError(e)
             ? "Image generation timed out."
             : "Image provider call failed.",
@@ -1127,8 +1147,10 @@ export async function handleGenerateImage(ctx) {
       model: modelConfig.id,
       request_mode: modelConfig.requestMode || "json",
       is_admin: isAdmin,
-      ...getErrorFields(e),
+      ...getErrorFields(e, { includeMessage: !gptImage25 }),
+      ...(gptImage25 && e.providerDiagnostic ? { providerDiagnostic: e.providerDiagnostic } : {}),
     });
+    if (gptImage25) return respond({ ok: false, error: e.providerDiagnostic ? e.message : "Image output could not be confirmed. Do not resubmit.", code: e.code || "generation_provider_outcome_unknown", providerDiagnostic: e.providerDiagnostic || null }, { status: e.status || 502 });
     if (isGenerationTimeoutError(e)) {
       return respond({
         ok: false,
@@ -1194,12 +1216,13 @@ export async function handleGenerateImage(ctx) {
 
   let tempSavePayload = {};
   let tempSaveResult = null;
-  if (flux2Max) {
+  if (flux2Max || gptImage25) {
     try {
       tempSaveResult = await createAiGeneratedSaveReferenceFromBase64(env, {
         userId,
         imageBase64: base64,
         mimeType,
+        generationMetadata: gptImage25 ? { model: modelConfig.id, quality: gptRequest.quality, size: gptRequest.size, background: gptRequest.background, outputFormat: gptRequest.outputFormat, referenceImageCount: gptRequest.referenceImageCount } : null,
       });
       tempSavePayload = {
         saveReference: tempSaveResult.saveReference,
@@ -1226,7 +1249,7 @@ export async function handleGenerateImage(ctx) {
       });
       return respond({
         ok: false,
-        error: "Generated image could not be stored. Please try again.",
+        error: gptImage25 ? "Generated image could not be stored. Retain this operation for recovery; do not generate again." : "Generated image could not be stored. Please try again.",
         code: "generated_image_temp_store_failed",
       }, { status: 500 });
     }
@@ -1237,6 +1260,7 @@ export async function handleGenerateImage(ctx) {
     if (typeof usagePolicy.markFinalizing === "function") {
       await usagePolicy.markFinalizing();
     }
+    if (gptImage25) await usagePolicy.checkpointImage({ ...tempSaveResult, mimeType, model: modelConfig.id });
     billingMetadata = await usagePolicy.chargeAfterSuccess({
       model: modelConfig.id,
       request_mode: modelConfig.requestMode || "json",
@@ -1313,6 +1337,7 @@ export async function handleGenerateImage(ctx) {
         userId,
         imageBase64: base64,
         mimeType,
+        generationMetadata: gptImage25 ? { model: modelConfig.id, quality: gptRequest.quality, size: gptRequest.size, background: gptRequest.background, outputFormat: gptRequest.outputFormat, referenceImageCount: gptRequest.referenceImageCount } : null,
       });
       tempSavePayload = {
         saveReference: tempSaveResult.saveReference,
@@ -1503,11 +1528,13 @@ export async function handleSaveImage(ctx) {
 
   let imageBytes;
   let savedMimeType = "image/png";
+  let generationMetadata = null;
   let tempKey = null;
   try {
     const resolved = await resolveSaveImageInput(env, body, session.user.id, correlationId);
     imageBytes = resolved.imageBytes;
     savedMimeType = resolved.savedMimeType;
+    generationMetadata = resolved.generationMetadata || null;
     tempKey = resolved.tempKey;
   } catch (error) {
     if (error instanceof AiGeneratedSaveReferenceError) {
@@ -1584,13 +1611,15 @@ export async function handleSaveImage(ctx) {
   const imageId = canvasImageId || generationExecution(env)?.job.id || randomTokenHex(16);
   const timestamp = Date.now();
   const random = randomTokenHex(4);
-  const r2Key = `users/${session.user.id}/folders/${folderSlug}/${timestamp}-${random}.png`;
+  const extension = generationMetadata ? savedMimeType.split("/")[1] : "png";
+  const r2Key = `users/${session.user.id}/folders/${folderSlug}/${timestamp}-${random}.${extension}`;
   const r2KeyLogFields = await storageKeyLogFields(r2Key, { fieldPrefix: "r2_key" });
   const now = nowIso();
 
   try {
     await putNewManagedR2Object(env, r2Key, imageBytes.buffer, {
       httpMetadata: { contentType: savedMimeType },
+      ...(generationMetadata ? { customMetadata: { generation: generationMetadata } } : {}),
     });
   } catch (error) {
     await releaseUserAssetStorage(env, {
@@ -1841,6 +1870,7 @@ export async function handleSaveImage(ctx) {
       steps,
       seed,
       size_bytes: imageBytes.byteLength,
+      ...(generationMetadata ? { mime_type: savedMimeType, width, height } : {}),
       created_at: now,
       derivatives_status: "pending",
       derivatives_version: AI_IMAGE_DERIVATIVE_VERSION,

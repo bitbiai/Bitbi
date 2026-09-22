@@ -1094,3 +1094,9 @@ test('Canvas asset picker preserves legacy references and cancels on a project c
   await expect(page.locator('#canvasAssetsOverlay')).toBeHidden();
   expect(assignments).toEqual([]);
 });
+
+for (const locale of ['en', 'de']) test(`Canvas GPT Image 2.5 ${locale} sixteen reference persistence`, ({ page }) => require('./helpers/gpt-image25-ui.cjs').canvas({ page, expect, locale, mockSharedAuth, createCanvasApiMock }));
+
+test('Canvas GPT Image 2.5 complete enum mapping, connected order and truthful edit gate', ({ page }) => require('./helpers/gpt-image25-ui.cjs').contract({ page, expect }));
+
+test('Canvas GPT Image 2.5 delayed uploads never assign after model or reference selection changes', ({ page }) => require('./helpers/gpt-image25-ui.cjs').canvasLateUpload({ page, expect, mockSharedAuth, createCanvasApiMock }));

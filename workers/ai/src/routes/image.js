@@ -1,3 +1,4 @@
+import { GPT_IMAGE_25_INTERNAL_JSON_BYTES } from '../../../shared/gpt-image-25.mjs';
 import { invokeImage } from "../lib/invoke-ai.js";
 import { getModelSummary, resolveModelSelection } from "../lib/model-registry.js";
 import { errorResponse, fromError, ok } from "../lib/responses.js";
@@ -12,7 +13,7 @@ import {
 export async function handleImage({ request, env, correlationId, pathname, method }) {
   const startedAt = Date.now();
   try {
-    const body = await readJsonBody(request);
+    const body = await readJsonBody(request, { maxBytes: GPT_IMAGE_25_INTERNAL_JSON_BYTES });
     if (!body) {
       return errorResponse("Invalid JSON body.", { status: 400, code: "bad_request" });
     }

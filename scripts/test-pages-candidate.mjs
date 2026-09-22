@@ -692,6 +692,58 @@ try{
 }finally{fs.rmSync(pricingTmp,{recursive:true,force:true});}
 console.log('Pricing: actual selected shell, both engines and missing/failed/skipped/empty report rejection.');
 
+// Discover the actual combined config. Synthetic result filling checks only
+// the acceptance validator; the protected browser job must execute these cases.
+{
+ const root=new URL('../',import.meta.url).pathname,dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-image-pricing-discovery-'));
+ try {
+  const output=path.join(dir,'discovery.json');
+  const result=spawnSync(process.execPath,[path.join(root,'node_modules/@playwright/test/cli.js'),'test','-c','playwright.model-pricing.config.js','--list','--reporter=json'],{cwd:root,env:{...process.env,CI_IMAGE_MODELS:'true',CI_APPEARANCE:'true',PLAYWRIGHT_JSON_OUTPUT_NAME:output},encoding:'utf8',timeout:30000});
+  assert.equal(result.status,0,result.stderr);
+  const discovery=JSON.parse(fs.readFileSync(output)),cases=[];
+  const collect=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests||[])cases.push({file:path.basename(spec.file),title:spec.title,project:test.projectName});(suite.suites||[]).forEach(collect);};discovery.suites.forEach(collect);
+  for(const engine of ['chromium','webkit']) {
+   const rows=cases.filter(c=>c.project===`${engine}-pricing`);
+   for(const file of ['oma2-q3-model-pricing.spec.js','oma2-q3-appearance.spec.js','auth-admin.spec.js','smoke.spec.js','canvas.spec.js'])assert(rows.some(c=>c.file===file),`Missing combined ${engine}/${file}`);
+   for(const locale of ['en','de'])for(const file of ['smoke.spec.js','canvas.spec.js'])assert(rows.some(c=>c.file===file&&c.title.includes('GPT Image 2.5')&&c.title.includes(` ${locale} `)),`Missing localized image acceptance ${engine}/${file}/${locale}`);
+   assert(rows.some(c=>c.file==='auth-admin.spec.js'&&c.title.includes('GPT Image 2.5 Admin')));
+   assert(rows.some(c=>c.file==='auth-admin.spec.js'&&c.title.includes('shows GPT Image 2 controls')),'Legacy GPT Image 2 still selected');
+   assert(rows.some(c=>c.title.includes('cold workspace exposes grouped tasks')),'Shared Admin appearance navigation selected');
+  }
+  const report=structuredClone(discovery),fill=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests)test.results=[{status:'passed'}];(suite.suites||[]).forEach(fill);};report.suites.forEach(fill);
+  const selection={modelPricing:true,imageModels:true,appearance:true};verifyModelPricingReport(report,discovery,selection);
+  for(const file of ['auth-admin.spec.js','smoke.spec.js','canvas.spec.js','oma2-q3-appearance.spec.js']) {
+   const missing=structuredClone(discovery),remove=suite=>{suite.specs=(suite.specs||[]).filter(spec=>path.basename(spec.file)!==file);(suite.suites||[]).forEach(remove);};missing.suites.forEach(remove);
+   assert.throws(()=>verifyModelPricingReport(report,missing,selection),`Missing ${file} discovery must block`);
+   const failed=structuredClone(report),fail=suite=>{for(const spec of suite.specs||[])if(path.basename(spec.file)===file)for(const test of spec.tests)test.results=[{status:'failed'}];(suite.suites||[]).forEach(fail);};failed.suites.forEach(fail);
+   assert.throws(()=>verifyModelPricingReport(failed,discovery,selection),`Failed ${file} must block`);
+  }
+  console.log(`Combined image/pricing/appearance discovery: ${cases.length} exact cases in both engines; missing or failed selected evidence blocks (discovery only).`);
+ } finally {fs.rmSync(dir,{recursive:true,force:true});}
+}
+
+// Run the real named Worker shell with inert executables. A failure in either
+// optional block must terminate the job before any following checks can run.
+{
+ const shell=block('worker-validation').split('      - name: Run worker route tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n')
+  .replaceAll('${{ needs.release-compatibility.outputs.appearance }}','true').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','true');
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-image-worker-shell-'));
+ try {
+  const executable='#!/bin/sh\nprintf "%s %s\\n" "$(basename "$0")" "$*" >> calls\ncount=$(wc -l < calls | tr -d " ")\nif [ "$count" = "${FAIL_AT:-0}" ]; then exit 37; fi\nexit 0\n';
+  for(const name of ['node','npx','npm'])fs.writeFileSync(path.join(dir,name),executable,{mode:0o755});
+  for(const [images,appearance,count] of [['false','false',4],['true','false',7],['false','true',6],['true','true',9]]) {
+   for(const fail of [0,...Array.from({length:count},(_,i)=>i+1)]) {
+    fs.rmSync(path.join(dir,'calls'),{force:true});
+    const result=spawnSync('/bin/bash',['-e','-c',shell],{cwd:dir,env:{...process.env,PATH:dir+':'+process.env.PATH,Q2_RUNTIME_ARTIFACTS:dir,CI_IMAGE_MODELS:images,CI_APPEARANCE:appearance,FAIL_AT:String(fail)},encoding:'utf8'});
+    assert.equal(result.status,fail?37:0,result.stderr);
+    const calls=fs.readFileSync(path.join(dir,'calls'),'utf8').trim().split('\n');assert.equal(calls.length,fail||count,'Failed Worker check must stop immediately');
+    if(!fail){assert.equal(calls.some(c=>c.includes('q2-gpt-image-25.spec.js')),images==='true');assert.equal(calls.some(c=>c.includes('--suite canvas')),images==='true');assert.equal(calls.some(c=>c.includes('--suite appearance')),appearance==='true');}
+   }
+  }
+  console.log('Actual named Worker step: base, image, appearance and combined paths stop at every failed check; optional unselected suites do not run.');
+ } finally {fs.rmSync(dir,{recursive:true,force:true});}
+}
+
 const {verifyAppearanceReport}=await import('./pages-candidate.mjs');
 const appearanceDiscovery={suites:[{specs:['chromium','webkit-appearance'].flatMap(projectName=>['oma2-q3-appearance.spec.js','auth-admin.spec.js'].map(file=>({id:projectName+file,file,tests:[{projectName,results:[]}]})))}]};
 const appearanceReport=structuredClone(appearanceDiscovery);for(const spec of appearanceReport.suites[0].specs)spec.tests[0].results=[{status:'passed'}];
@@ -719,7 +771,7 @@ for(const name of ['worker-validation','browser-validation'])for(const result of
 
 // Actual existing discovery -> execution shell with browser-free fixtures proves
 // fresh reports survive Playwright cleanup at the effective per-project paths.
-const appearanceShell=block('browser-validation').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.appearance }}','true');
+const appearanceShell=block('browser-validation').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.appearance }}','true').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false');
 const appearanceTmp=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-appearance-report-'))),appearanceRoot=new URL('../',import.meta.url).pathname;
 try {
  const discoveryCommands=appearanceShell.split('\n').map(line=>line.trim()).filter(line=>line.startsWith('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/appearance-discovery.json '));

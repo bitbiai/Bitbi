@@ -553,3 +553,29 @@ Ordinary Appearance publication now calls the same strict live verifier as
 reconciliation, including tokens.css. `test-pages-workflow.mjs` executes that
 publication caller and rejects changed palette bytes, unexpected HTML/redirects
 and enabled personal preferences before a success receipt can be returned.
+
+### GPT Image 2.5 adapter, bounded quotes and pending activation (2026-09-22)
+
+Sunburst/Flare reuse the existing image admission and private storage paths. Their
+Cloudflare contract uses ordered base64 references and one image URI; legacy GPT
+Image 2 options, token tables and reference surcharges are not transferable.
+Explicit generation quotes use the official 2.5 output calculator plus a UTF-8
+text-token bound, Cloudflare catalog rates and one Unified funding fee. Accepted
+quotes remain pinned. Reference editing stays blocked before reservation/dispatch
+until its input-image token quantities are evidenced; an override cannot bypass
+that guard. No provider inference is used as a health check.
+
+Actual callers: the existing model-pricing CI selection adds the image adapter
+spec, legacy image regressions and native Canvas D1/R2 checks; its two-browser
+configuration discovers the pricing editor and tagged Admin/Generate Lab/Canvas
+cases. Any unpublished Appearance bytes also retain their own browser/native
+checks. Unknown security/runtime paths remain outside this closed selection.
+Discovery/result identity and optional-block failure propagation are tested in
+`test-pages-candidate.mjs`; source-root/candidate-root checks stay before writes.
+
+An ordinary product release can fail public-byte acceptance after activation,
+just as a tooling repair can. Read-only historical attribution verifies original
+selected jobs, archive/proof digests and the exact protected failed upload while
+retaining the last accepted baseline. It does not authorize unchanged-byte reuse
+for new product code. `test-frontend-review.mjs` covers ordinary activation with
+newer product work, missing proofs, wrong versions and unchanged reuse guards.

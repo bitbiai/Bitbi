@@ -5,6 +5,8 @@ import { calculateAiModelCreditCost } from './ai-model-pricing.mjs';
 import { GROK_4_6_MODEL_ID, getGrokMaxCompletionTokens, GROK_TEXT_PRICING } from './grok-text-contract.mjs';
 import { calculateElevenLabsMusicV2ProviderCost } from './elevenlabs-music-v2-pricing.mjs';
 import { canonicalPricingModel, mediaTariffBasis, tariffConfiguration, textTariffBasis, FACTORY_TARIFF_VERSION } from './model-tariff.mjs';
+import { isGptImage25Model, normalizeGptImage25Options } from './gpt-image-25-contract.mjs';
+import { gptImage25FactoryPrice, isGptImage25PricingAvailable } from './gpt-image-25-pricing.mjs';
 
 export function modelPricingCatalog() {
     const canvas = listCanvasModels(), members = getMemberExposedModels(), byId = new Map();
@@ -14,7 +16,7 @@ export function modelPricingCatalog() {
             byId.set(id, { id, label: model.label, provider: model.providerLabel || model.vendor || 'Not specified', kind,
                 controls: { ...model.capabilities, ...c?.controls, ...(kind === 'text' && !c ? { maxTokens:{min:1,max:model.maxOutputTokens || model.maxTokens || 4096,default:model.defaultMaxTokens || 500} } : {}) }, tokenRates: model.pricingPerMillionTokens || null,
                 member: members.some(item => item.id === id) || c?.memberCanvasEnabled === true,
-                enabled: model.capabilities?.generationEnabled !== false, billingPaths: kind === 'image' ? ['member_credits','organization_credits','admin_organization_credits'] : ['member_credits','organization_credits','admin_platform_budget_reference'], factoryVersion: FACTORY_TARIFF_VERSION,
+                enabled: model.capabilities?.generationEnabled !== false && (!isGptImage25Model(id) || isGptImage25PricingAvailable(id)), billingPaths: kind === 'image' ? ['member_credits','organization_credits','admin_organization_credits'] : ['member_credits','organization_credits','admin_platform_budget_reference'], factoryVersion: FACTORY_TARIFF_VERSION,
                 exemption: id === '@cf/black-forest-labs/flux-2-dev' ? 'explicit_unmetered_admin' : null,
                 sourceUrl: id.startsWith('@cf/') ? `https://developers.cloudflare.com/workers-ai/models/${id.split('/').at(-1)}/` : `https://developers.cloudflare.com/ai/models/${id}/`,
             });
@@ -35,6 +37,10 @@ export function modelFactoryPrice(modelId, input = {}, { credits, context = 'can
     const model = modelPricingCatalog().find(item => item.id === canonicalPricingModel(modelId));
     if (!model) throw new TypeError('Unknown model.');
     input = { ...input };
+    if (isGptImage25Model(model.id)) {
+        const price = gptImage25FactoryPrice(model.id, input);
+        return { model, price, basis: mediaTariffBasis(price, 'image', input) };
+    }
     const c = model.controls;
     if (model.kind === 'video') {
         input.duration ??= c.duration?.default ?? c.defaultDuration ?? 5;
@@ -70,7 +76,8 @@ export function modelPricingControls(model) {
     const choice = (key, options, value) => { if (options?.length) fields.push({key,options,default:value ?? options[0]}); };
     const number = (key, min, max, value, step=1) => fields.push({key,min,max,step,default:value});
     for (const key of ['resolution','quality','size']) { const value=c['default'+key[0].toUpperCase()+key.slice(1)]; const options=c[key+'Options']; choice(key,key==='size' && options?.length && typeof value!=='string' ? ['',...options] : options,key==='size' && typeof value!=='string' ? '' : value); }
-    choice('operation',c.availableOperations?.length ? c.availableOperations : ['generate'],'generate');
+    if (isGptImage25Model(model.id)) for (const key of ['background','outputFormat']) choice(key,c[key+'Options'],c['default'+key[0].toUpperCase()+key.slice(1)]);
+    choice('operation',isGptImage25Model(model.id) ? ['generate','edit'] : c.availableOperations?.length ? c.availableOperations : ['generate'],'generate');
     if (model.kind === 'video') number('duration',c.duration?.min ?? c.minDuration ?? 1,c.duration?.max ?? c.maxDuration ?? 15,c.duration?.default ?? c.defaultDuration ?? 5);
     if (c.supportsAudioToggle) choice('generateAudio',[true,false],c.defaultGenerateAudio !== false);
     if (c.supportsDimensions) for (const key of ['width','height']) number(key,c.minDimension||64,c.maxDimension||2048,c.defaultSize?.[key]||1024);
@@ -94,6 +101,9 @@ export function validateModelPricingSettings(model, settings) {
         const field = fields.find(item=>item.key===key);
         if (!field) throw new TypeError('Unsupported pricing configuration field: '+key);
         if (field.options ? !field.options.includes(value) : typeof value !== 'number' || !Number.isFinite(value) || value<field.min || value>field.max || (field.step===1 && !Number.isInteger(value))) throw new TypeError('Unsupported pricing configuration: '+key);
+    }
+    if (isGptImage25Model(model.id)) {
+        try { normalizeGptImage25Options(settings); } catch (error) { throw new TypeError(error.message); }
     }
     return settings;
 }

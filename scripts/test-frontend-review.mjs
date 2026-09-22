@@ -289,16 +289,16 @@ try {
  function pendingOptions(state) {
   const api=async endpoint=>{
    if(endpoint.includes(`task=${RECEIPT_TASK}`))return [{id:6}];
-   if(endpoint===`deployments?environment=${policy.productionEnvironment}&per_page=100`)return [{id:2202,task:'deploy',sha:toolingSha,environment:policy.productionEnvironment}];
+   if(endpoint===`deployments?environment=${policy.productionEnvironment}&per_page=100`)return [{id:2202,task:'deploy',sha:state.failedRun.head_sha,environment:policy.productionEnvironment}];
    if(endpoint==='git/ref/heads/main')return {object:{sha:state.head}};
-   if(endpoint==='deployments/2202')return {id:2202,task:'deploy',sha:toolingSha,environment:policy.productionEnvironment};
-   if(endpoint==='deployments/2202/statuses')return [{state:'failure',log_url:'https://github.com/bitbiai/Bitbi/actions/runs/202/job/4202'}];
+   if(endpoint==='deployments/2202')return {id:2202,task:'deploy',sha:state.failedRun.head_sha,environment:policy.productionEnvironment};
+   if(endpoint==='deployments/2202/statuses')return [{state:'failure',log_url:`https://github.com/bitbiai/Bitbi/actions/runs/${state.failedRun.id}/job/${state.failedJob.id}`}];
    if(endpoint==='actions/runs/101')return state.source;
    if(endpoint==='actions/runs/101/attempts/1/jobs?per_page=100')return {jobs:state.sourceJobs};
    if(endpoint==='actions/runs/101/artifacts?per_page=100')return {artifacts:state.sourceArtifacts};
    if(endpoint===`actions/runs?head_sha=${sha}&per_page=100`)return {workflow_runs:[state.source]};
    if(endpoint==='actions/runs/202')return state.failedRun;
-   if(endpoint==='actions/jobs/4202')return state.failedJob;
+   if(endpoint===`actions/jobs/${state.failedJob.id}`)return state.failedJob;
    if(endpoint==='actions/runs/202/attempts/1/jobs?per_page=100')return {jobs:state.failedChecks};
    if(endpoint==='actions/runs/202/artifacts?per_page=100')return {artifacts:[state.failedArtifact]};
    assert(endpoint in db,'Unexpected reconciliation read '+endpoint);return structuredClone(db[endpoint]);
@@ -334,6 +334,37 @@ try {
  assert.equal((await loadDurableReceipt(7,pendingOptions(durableState).api)).publicationSha,reconciliationSha);
  durableState.failedJob.conclusion='success';await assert.rejects(loadDurableReceipt(7,pendingOptions(durableState).api));
  record('new protected success records unchanged activation durably; old failed job stays failed and archive expiry cannot erase acceptance');
+ // Ordinary product publication failed after activation, then main acquired
+ // new product bytes. Recognize history without accepting either revision.
+ fs.mkdirSync('js/shared',{recursive:true});fs.writeFileSync('js/shared/synthetic-new-product.mjs','export const changedProduct = true;\n');
+ git(['add','js/shared/synthetic-new-product.mjs']);git(['-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','Synthetic new product after failed activation']);
+ const newProductSha=git(['rev-parse','HEAD']),ordinary=structuredClone(pendingState);
+ ordinary.head=newProductSha;ordinary.failedRun={...ordinary.source,head_sha:sha,conclusion:'failure'};
+ ordinary.source=ordinary.failedRun;ordinary.failedJob={...ordinary.failedJob,id:4101,run_id:101,head_sha:sha};
+ ordinary.sourceJobs=ordinary.sourceJobs.filter(j=>j.name!=='deploy').concat(ordinary.failedJob);
+ ordinary.failedArtifact.name=`frontend-failed-upload-${sha}-101-1`;ordinary.failedArtifact.workflow_run={id:101,head_sha:sha};
+ ordinary.sourceArtifacts.push(ordinary.failedArtifact);
+ const ordinaryOptions=d=>({...pendingOptions(d),env:{...pendingEnv,GITHUB_SHA:newProductSha}});
+ const historical=await findPendingFrontendActivation(ordinaryOptions(ordinary));
+ assert.equal(historical.baseline.sha,base);assert.equal(historical.reconciliation.publicationSha,sha);assert.equal(historical.reconciliation.run,'101');
+ const gate=ordinaryOptions(ordinary),retained=await durableBaseline(gate.api,gate.read,gate);
+ assert.equal(retained.sha,base,'New product must cover complete unpublished range');
+ assert.equal(retained.pendingReconciliation.publicationSha,sha);
+ assert(gitSelection(base,newProductSha).files.includes('js/shared/synthetic-new-product.mjs'));
+ const {repairDelta}=await import('./lib/media-repair-source.mjs');
+ assert.throws(()=>repairDelta(sha,newProductSha,base),'Changed product is still forbidden from unchanged-source reuse');
+ record('ordinary failed activation plus new product retains old accepted baseline; unchanged-source reuse remains denied');
+ for(const [name,mutate] of [
+  ['failed original product suite',d=>d.sourceJobs[0].conclusion='failure'],
+  ['missing original selected suite',d=>d.sourceJobs.shift()],
+  ['wrong original protected job',d=>d.failedJob={...d.failedJob,id:9999}],
+  ['wrong original attempt',d=>d.failedJob.run_attempt=2],
+  ['foreign original artifact',d=>d.sourceArtifacts[0].workflow_run.head_sha=newProductSha],
+  ['invalid failed upload digest',d=>d.failedArtifact.digest='sha256:'+'0'.repeat(64)],
+  ['wrong active package',d=>d.version.annotations['workers/message']=annotation.replace(hash(JSON.stringify(manifest)),'0'.repeat(64))],
+  ['changed current main',d=>d.head=sha],['missing protected domain',d=>d.domains.pop()],
+ ]) {const state=structuredClone(ordinary);mutate(state);await assert.rejects(findPendingFrontendActivation(ordinaryOptions(state)));record('ordinary activation rejects '+name,'negative');}
+
 
 } finally {
  process.chdir(root);if(environment.CLOUDFLARE_ACCOUNT_ID===undefined)delete process.env.CLOUDFLARE_ACCOUNT_ID;else process.env.CLOUDFLARE_ACCOUNT_ID=environment.CLOUDFLARE_ACCOUNT_ID;

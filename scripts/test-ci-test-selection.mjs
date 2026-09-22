@@ -846,3 +846,26 @@ assert.equal(requiresPrivateMediaImage(appearanceDelta),false);
 for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/auth/src/routes/canvas.js','js/pages/canvas/main.js','js/pages/generate-lab/main.js','js/shared/saved-assets-browser.js','css/pages/index.css','unknown-theme.js','scripts/new-theme-tool.mjs'])assert.notEqual(selection([...appearanceDelta,extra]).policy,'appearance-v1',extra);
 assert.equal(selection(appearanceDelta,{forceFull:true}).full,true);
 assert.notEqual(selection(['css/base/tokens.css','js/shared/auth-api.js']).policy,'appearance-v1','Shared inputs alone cannot claim the bounded cross-segment theme implementation');
+
+// New image adapters extend the existing pricing admission path. Pending
+// appearance bytes remain in the full unpublished delta and keep their cases.
+const imagePricingDelta = [
+  'js/shared/gpt-image-25-contract.mjs','js/shared/gpt-image-25-pricing.mjs',
+  'js/shared/model-tariff.mjs','js/shared/ai-image-models.mjs',
+  'workers/shared/gpt-image-25.mjs','workers/ai/src/index.js',
+  'workers/ai/src/lib/invoke-ai.js','workers/ai/src/routes/image.js',
+  'workers/auth/src/lib/gpt-image-25-sources.js','workers/auth/src/routes/canvas.js',
+  'tests/q2-gpt-image-25.spec.js','tests/helpers/gpt-image25-ui.cjs',
+  'tests/helpers/q2-runtime/canvas.mjs','tests/canvas.spec.js',
+  'tests/smoke.spec.js','tests/auth-admin.spec.js',
+];
+for (const files of [imagePricingDelta,[...imagePricingDelta,...appearanceDelta]]) {
+ const result=selection(files);
+ assert.equal(result.policy,'model-pricing-v1');assert.equal(result.imageModels,true);
+ assert.equal(result.appearance,files.includes('js/shared/appearance.js'));
+ for(const key of ['workers','auth','runtime','static'])assert.equal(result[key],true);
+ for(const key of ['full','homepageMedia','carousel','canvasText'])assert(!result[key]);
+ assert.equal(requiresPrivateMediaImage(files),false);
+ for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/member-credit-ledger.js','workers/ai/src/routes/unknown.js','js/shared/auth.js','unknown.js'])assert.notEqual(selection([...files,extra]).policy,'model-pricing-v1');
+ assert.equal(selection(files,{forceFull:true}).full,true);
+}

@@ -25,6 +25,7 @@ export function createCanvasAssetPicker({ german, onApply }) {
         background = [];
         releaseFocus?.(); releaseFocus = null;
         // Assignment rerenders the Inspector, replacing the original trigger.
+        document.getElementById('canvasImageReferencesChoose')?.focus();
         document.getElementById('canvasAssetChoose')?.focus();
     }
 
@@ -63,13 +64,13 @@ export function createCanvasAssetPicker({ german, onApply }) {
             initialization ||= initialize();
             await initialization;
             if (target !== context || !context.isCurrent()) return;
-            await browser.startPickerMode({ max: 1, initialView: 'folders', fetchFailedMessage: failed,
+            await browser.startPickerMode({ max: context.max || 1, ...(context.references ? { mediaType: 'image', isAssetCompatible: asset => asset.asset_type === 'image' } : {}), initialView: 'folders', fetchFailedMessage: failed,
                 onCancel: () => close(),
-                onApply: async ([asset]) => {
+                onApply: async (assets) => {
                     if (applying || target !== context || !context.isCurrent()) { invalidate(); return false; }
                     busy(true);
                     try {
-                        const applied = await onApply(context, asset);
+                        const applied = await onApply(context, context.references ? assets : assets[0]);
                         if (!applied && target === context) error(failed);
                         return applied === true && target === context && context.isCurrent();
                     } catch { if (target === context) error(failed); return false; }

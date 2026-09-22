@@ -107,6 +107,22 @@ export async function confirmAiDispatchSuccess(env, table, id, { dispatchToken }
   }
 }
 
+// Persist an already stored image before charging. This records retrieval
+// identity without changing provider outcome or authorizing another dispatch.
+export async function checkpointAiDispatchImage(env, table, id, {
+  dispatchToken, tempKey, saveReference, mimeType, model,
+} = {}) {
+  tableName(table);
+  if (!dispatchToken || !tempKey || !saveReference || !mimeType || !model) throw unresolved('ai_usage_result_checkpoint_invalid');
+  const result = await env.DB.prepare(`UPDATE ${table}
+    SET result_status = 'stored', result_temp_key = ?, result_save_reference = ?,
+        result_mime_type = ?, result_model = ?, updated_at = ?
+    WHERE id = ? AND dispatch_token = ? AND provider_outcome IN ('dispatched','succeeded')
+      AND billing_status = 'reserved' AND reservation_released_at IS NULL`)
+    .bind(tempKey, saveReference, mimeType, model, nowIso(), id, dispatchToken).run();
+  if (!result?.meta?.changes) throw unresolved('ai_usage_result_checkpoint_failed');
+}
+
 export async function releaseExpiredAiDispatch(env, table, id, now = nowIso()) {
   tableName(table);
   const result = await env.DB.prepare(`UPDATE ${table}

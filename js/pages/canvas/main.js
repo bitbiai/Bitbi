@@ -1,3 +1,5 @@
+import { isGptImage25Model } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
+import { renderCanvasImageReferences } from './image-references.js?v=__ASSET_VERSION__';
 import { h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { H3_MODEL, H3_ROLES, h3MediaType } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { h3RoleLabel } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
@@ -518,7 +520,7 @@ function renderInspector() {
                 let estimate = model.estimatedCredits;
                 try {
                     if (capability === 'video' && model.runnable) estimate = calculateAiVideoCreditCost(model.id, { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, resolution: node.config?.resolution || model.controls.defaultResolution, aspect_ratio: node.config?.aspectRatio || model.controls.defaultAspectRatio, generateAudio: node.config?.generateAudio !== false })?.credits;
-                    if (capability === 'image' && model.runnable) estimate = calculateAiImageCreditCost(model.id, { ...node.config, referenceImageCount: workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0 })?.credits;
+                    if (capability === 'image' && model.runnable) estimate = calculateAiImageCreditCost(model.id, { ...node.config, ...(isGptImage25Model(model.id) ? { prompt: workflowAnalysis.byNode.get(node.id)?.effectivePrompt || undefined } : {}), source_images: undefined, referenceImageCount: (node.config?.source_images?.length || 0) + (workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0) })?.credits;
                     if (capability === 'music' && model.runnable) estimate = calculateAiModelCreditCost({ mediaType:'music', modelId:model.id, params:node.config || {} })?.credits;
                     if (capability === 'text' && model.runnable) estimate = estimateCanvasTextCredits(model.id, { ...node.config, systemPrompt: getCanvasTextInstructions(node.config), prompt: analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id)?.effectivePrompt || "" });
                 } catch { estimate = null; }
@@ -583,6 +585,15 @@ function renderInspector() {
                 bindConfig(node, control, key); grid.append(field(label, control));
             }
             dom.inspector.append(grid);
+            if (isGptImage25Model(model.id)) {
+                const referenceProject = store.state.project;
+                const referenceModelId = node.model_id;
+                dom.inspector.append(renderCanvasImageReferences({ node, sources: workflowAnalysis.byNode.get(node.id)?.compatible || [], german: isGerman,
+                isCurrent: () => store.state.project === referenceProject && selectedNode() === node && node.model_id === referenceModelId,
+                error: showToast, update: values => { const focusLabel = document.activeElement?.getAttribute('aria-label'); scheduleNode(node, { config: { ...node.config, ...values } }); renderInspector(); if (focusLabel) [...dom.inspector.querySelectorAll('[aria-label]')].find(element => element.getAttribute('aria-label') === focusLabel)?.focus(); },
+                choose: max => { const project = store.state.project; void assetPicker.open({ node, references: true, max, isCurrent: () => store.state.project === project && selectedNode() === node }); },
+                }));
+            }
         }
         if (capability === 'video') {
             const grid = el('div', 'canvas-field-grid');
@@ -823,6 +834,15 @@ async function deleteSelection() {
 async function assignAsset(context, asset) {
     const { node, isCurrent } = context;
     if (!isCurrent()) return false;
+    if (context.references) {
+        const references = Array.isArray(asset) ? asset : [asset];
+        if (references.some(item => item.asset_type !== 'image')) return false;
+        const existing = node.config?.source_images || [];
+        const connected = workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0;
+        if (existing.length + references.length + connected > 16) return false;
+        scheduleNode(node, { config: { ...node.config, source_images: [...existing, ...references.map(item => ({ source_type: 'saved_asset', asset_id: item.id, title: item.title || item.file_name || item.id, preview_url: item.thumb_url || item.file_url || '' }))] } });
+        const saved = await flushSaves(); if (isCurrent()) renderInspector(); return saved;
+    }
     return withProjectTransition(async () => {
         if (!isCurrent()) return false;
         const result = await canvasApi.setAssetReference(node.project_id, node.id, asset.id);
@@ -1010,7 +1030,7 @@ async function init() {
     const modelsResult = await canvasApi.listModels();
     if (!modelsResult.ok) showToast(errorMessage(modelsResult));
     else {
-        store.state.models = modelsResult.data.models || [];
+        store.state.models = (modelsResult.data.models || []).map(model => isGerman && isGptImage25Model(model.id) ? { ...model, description: 'Bildgenerierung mit transparentem PNG/WebP und automatischen Einstellungen. Bearbeitung mit bis zu 16 Referenzen wartet auf verifizierte Referenzpreise.', disabledReason: model.runnable ? null : 'Verifizierte Cloudflare-Preise und Kontozugriff stehen noch aus.' } : model);
         store.state.organizations = modelsResult.data.organizations || [];
         store.state.selectedOrganizationId = modelsResult.data.selected_organization_id || null;
         store.state.access = modelsResult.data.access || null;

@@ -3,7 +3,7 @@ import { repairDelta, repairKind, assertRepairAcceptance } from './media-repair-
 // evidence together with their protected Actions job and Cloudflare identity.
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {gitSelection,validateSource,isRequiredValidationRun} from '../pages-candidate.mjs';
+import {gitSelection,validateSource,isRequiredValidationRun,proofJobs,verifyProofs} from '../pages-candidate.mjs';
 import {hash,hostingPolicy,cloudflareRead,validateActivation,verifyDomains} from './frontend-hosting.mjs';
 export const RECEIPT_TASK='bitbi-static-receipt';
 const repo='bitbiai/Bitbi';
@@ -41,24 +41,34 @@ export async function findPendingFrontendActivation({api=githubRequest,read=clou
   assert.equal(active.versions?.length,1,'Unconfirmed mixed frontend activation');assert.equal(active.versions[0].percentage,100);
   const version=await read(`workers/scripts/${p.worker}/versions/${active.versions[0].version_id}`),message=version.annotations?.['workers/message'];
   const match=message?.match(/^bitbi:([a-f0-9]{40}):([1-9][0-9]*):([1-9][0-9]*):([a-f0-9]{64})$/);assert(match,'Unattributed active frontend');
-  const [,sha,run,attempt,packageDigest]=match,files=repairDelta(sha,env.GITHUB_SHA,previous.sha);assert.equal(repairKind(files),'tooling','Only unchanged frontend tooling repair can reconcile activation');
+  const [,sha,run,attempt,packageDigest]=match;
+  // New product work still starts at the last accepted baseline. Historical
+  // activation attribution is independent of permission to reuse its bytes.
+  execFileSync('git',['merge-base','--is-ancestor',previous.sha,sha],{stdio:'pipe'});
+  execFileSync('git',['merge-base','--is-ancestor',sha,env.GITHUB_SHA],{stdio:'pipe'});
   const source=await api(`actions/runs/${run}`);assert.equal(String(source.run_attempt),attempt,'Source attempt changed; review its evidence');
   const jobs=(await api(`actions/runs/${run}/attempts/${attempt}/jobs?per_page=100`)).jobs,artifacts=(await api(`actions/runs/${run}/artifacts?per_page=100`)).artifacts;
   const selection=gitSelection(previous.sha,sha),expected={repository:repo,sha,publicationSha:env.GITHUB_SHA,base:previous.sha,run,attempt,currentRun:env.GITHUB_RUN_ID,selection};
   const later=(await api(`actions/runs?head_sha=${sha}&per_page=100`)).workflow_runs.filter(r=>isRequiredValidationRun(r,selection));
   for(const r of later.filter(r=>Date.parse(r.created_at)>Date.parse(source.created_at)&&r.conclusion!=='success'))r.jobs=(await api(`actions/runs/${r.id}/attempts/${r.run_attempt}/jobs?per_page=100`)).jobs;
-  const selected=validateSource({run:source,jobs,artifacts,laterRuns:later,mainSha:env.GITHUB_SHA},expected,{mediaRepair:true});
+  const selected=validateSource({run:source,jobs,artifacts,laterRuns:later,mainSha:env.GITHUB_SHA},expected,{historicalActivation:true});
   assert(selected.every(a=>Date.parse(a.expires_at)>Date.now()),'Expired original candidate evidence');
   const candidate=JSON.parse(await artifactFile(selected[0],'manifest.json',{download,env,limit:4*1024*1024}));
   for(const key of ['sha','run','attempt','base'])assert.equal(candidate[key],expected[key],`Activated candidate ${key} mismatch`);
   assert.deepEqual(candidate.selection,selection);assert.equal(hash(JSON.stringify(candidate)),packageDigest,'Active version differs from accepted candidate');
+  const proofs=[];
+  for(const [index,job] of proofJobs(selection).entries())proofs.push(JSON.parse(await artifactFile(selected[index+1],`proof-${job}.json`,{download,env})));
+  if(candidate.hosting)proofs.push(JSON.parse(await artifactFile(selected[0],'proof-frontend-runtime.json',{download,env})));
+  verifyProofs(candidate,proofs);
   if(manifest)assert.deepEqual(candidate,manifest,'Reconciliation candidate differs from current verified archive');
   const receipt={sha,run,attempt,packageDigest,worker:p.worker,account:env.CLOUDFLARE_ACCOUNT_ID,provider:'cloudflare',target:'production',versionId:version.id,deploymentId:active.id};
   validateActivation({receipt,deployment:active,version},receipt);receipt.domains=verifyDomains(await read('workers/domains'),p);
   const deployments=await api(`deployments?environment=${p.productionEnvironment}&per_page=100`),matches=[];
   for(const d of deployments.filter(d=>d.task==='deploy')) {
-    let delta;try{delta=repairDelta(sha,d.sha,previous.sha);execFileSync('git',['merge-base','--is-ancestor',d.sha,env.GITHUB_SHA],{stdio:'pipe'});}catch{continue;}
-    if(repairKind(delta)!=='tooling')continue;
+    let delta;try{
+      execFileSync('git',['merge-base','--is-ancestor',d.sha,env.GITHUB_SHA],{stdio:'pipe'});
+      if(d.sha!==sha){delta=repairDelta(sha,d.sha,previous.sha);if(repairKind(delta)!=='tooling')continue;}
+    }catch{continue;}
     const statuses=await api(`deployments/${d.id}/statuses`),status=statuses[0],log=status?.log_url?.match(/^https:\/\/github\.com\/bitbiai\/Bitbi\/actions\/runs\/(\d+)\/job\/(\d+)$/);
     if(status?.state!=='failure'||!log)continue;
     assert.notEqual(log[1],String(env.GITHUB_RUN_ID),'Current failed run cannot reconcile its own activation');
@@ -68,7 +78,13 @@ export async function findPendingFrontendActivation({api=githubRequest,read=clou
     assert.equal(job.name,'deploy');assert.equal(job.head_sha,d.sha);assert.equal(String(job.run_id),log[1]);assert.equal(String(job.id),log[2]);assert.equal(job.run_attempt,failedRun.run_attempt);assert.equal(job.status,'completed');assert.equal(job.conclusion,'failure');
     for(const name of ['Validate candidate references before backend publication','Apply verified candidate backend prerequisites','Preserve backend activation evidence','Preserve failed frontend upload identity'])assert(job.steps.some(s=>s.name===name&&s.status==='completed'&&s.conclusion==='success'),`Missing protected activation step: ${name}`);
     assert(job.steps.some(s=>s.name==='Deploy and verify Cloudflare frontend'&&s.status==='completed'&&s.conclusion==='failure'),'Missing post-upload failure');assert(job.steps.some(s=>s.name==='Record durable frontend receipt'&&s.status==='completed'&&s.conclusion==='skipped'),'Prior failed job unexpectedly recorded acceptance');
-    assertRepairAcceptance((await api(`actions/runs/${log[1]}/attempts/${job.run_attempt}/jobs?per_page=100`)).jobs,d.sha,delta);
+    if(d.sha===sha) {
+      // Ordinary publication is authorized by the original selected suites,
+      // never by the narrower acceptance policy for a tooling repair.
+      assert.equal(log[1],run,'Ordinary activation used another source run');
+      assert.equal(String(job.run_attempt),attempt,'Ordinary activation used another source attempt');
+      assert(jobs.some(j=>j.id===job.id&&j.name==='deploy'&&j.conclusion==='failure'),'Source lacks this failed publication');
+    } else assertRepairAcceptance((await api(`actions/runs/${log[1]}/attempts/${job.run_attempt}/jobs?per_page=100`)).jobs,d.sha,delta);
     const uploads=(await api(`actions/runs/${log[1]}/artifacts?per_page=100`)).artifacts.filter(a=>a.name===`frontend-failed-upload-${d.sha}-${log[1]}-${job.run_attempt}`);assert.equal(uploads.length,1,'Missing exact failed upload evidence');const artifact=uploads[0];assert.equal(String(artifact.workflow_run?.id),log[1]);assert.equal(artifact.workflow_run?.head_sha,d.sha);
     const records=(await artifactFile(artifact,'frontend-upload.ndjson',{download,env})).toString().trim().split('\n').map(JSON.parse),uploadsFound=records.filter(r=>r.type==='deploy'),sessions=records.filter(r=>r.type==='wrangler-session');assert.equal(uploadsFound.length,1);assert.equal(sessions.length,1);
     const upload=uploadsFound[0],args=sessions[0].command_line_args;assert.equal(sessions[0].wrangler_version,p.wranglerVersion);assert.equal(args[0],'deploy');assert.equal(args[args.indexOf('--message')+1],message);assert.equal(upload.worker_name,p.worker);assert.equal(upload.version_id,version.id);assert.equal(upload.worker_name_overridden,false);

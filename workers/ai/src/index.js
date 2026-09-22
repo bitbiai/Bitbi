@@ -1,3 +1,4 @@
+import { GPT_IMAGE_25_INTERNAL_JSON_BYTES } from '../../shared/gpt-image-25.mjs';
 import { assertValidServiceRequest, ServiceAuthError } from "../../../js/shared/service-auth.mjs";
 import {
   AiWorkerConfigError,
@@ -64,7 +65,9 @@ export default {
         assertAiWorkerConfig(env);
         await assertValidServiceRequest(request, {
           secret: env.AI_SERVICE_AUTH_SECRET,
-          maxBodyBytes: pathname === "/internal/ai/chat/stream"
+          maxBodyBytes: pathname === "/internal/ai/test-image"
+            ? GPT_IMAGE_25_INTERNAL_JSON_BYTES
+            : pathname === "/internal/ai/chat/stream"
             ? GROK_INTERNAL_BODY_MAX_BYTES
             : pathname === "/internal/ai/fable-chat/memory"
             ? FABLE_CHAT_MEMORY_INTERNAL_MAX_BYTES

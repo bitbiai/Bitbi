@@ -1,3 +1,7 @@
+import { readImage25Bytes, image25Base64 } from '../../../shared/gpt-image-25.mjs';
+import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
+import { resolveImage25Sources } from '../lib/gpt-image-25-sources.js';
+import { checkpointAiDispatchImage } from '../lib/ai-dispatch-state.js';
 import { pinModelTariff } from '../lib/model-tariffs.js';
 import { fetchOrgAttemptByIdempotency, getAiUsageAttemptReplayMetadata } from '../lib/ai-usage-attempts.js';
 import { handleModelPricing } from './model-pricing.js';
@@ -1813,7 +1817,7 @@ async function adminImageRequestFingerprint({ organizationId, userId, payload, m
     outputFormat: payload.outputFormat || null,
     safetyTolerance: payload.safetyTolerance ?? null,
     background: payload.background || null,
-    credits: pricing.credits,
+    credits: isGptImage25Model(modelId) ? null : pricing.credits,
   }));
 }
 
@@ -3028,6 +3032,16 @@ export async function handleAdminAI(ctx) {
       const flux2MaxReferencePricing = await inspectFlux2MaxReferenceImagePricingDimensions(env, payload);
       const selection = resolveAdminAiModelSelection("image", payload);
       const modelId = selection.model.id;
+      let image25Sources = null;
+      if (isGptImage25Model(modelId)) {
+        try { image25Sources = await resolveImage25Sources(env, result.user.id, payload.source_images || []); }
+        catch (error) {
+          if (Number(error.status) < 500 || error.code === 'images_binding_unavailable') throw new InputError(error.message, error.status, error.code || 'reference_invalid');
+          throw new InputError('Reference image inspection is unavailable.', 503, 'reference_unavailable');
+        }
+      }
+      if (image25Sources) Object.assign(payload, { source_images: image25Sources.identities,
+        referenceImageCount: image25Sources.referenceImageCount, operation: image25Sources.operation });
       const branch = getAdminImageTestBranchClassification(modelId);
       if (branch.budgetClassification === ADMIN_IMAGE_TEST_BUDGET_CLASSIFICATIONS.BLOCKED_UNSUPPORTED) {
         return adminImageModelNotBudgetedResponse(branch, correlationId);
@@ -3155,6 +3169,15 @@ export async function handleAdminAI(ctx) {
       pricing = { ...pricing, credits: attemptState.attempt.creditCost };
       budgetPolicy.summary.estimated_credits = pricing.credits;
       if (attemptState.kind !== "reserved") {
+        if (isGptImage25Model(modelId) && attemptState.kind === "completed" && attemptState.attempt.resultTempKey && attemptState.attempt.resultSaveReference) {
+          const stored = await env.USER_IMAGES.get(attemptState.attempt.resultTempKey);
+          if (stored) {
+            const bytes = await readImage25Bytes(stored);
+            return withCorrelationId(json({ ok: true, model: { id: modelId }, result: {
+              imageBase64: image25Base64(bytes), mimeType: stored.httpMetadata?.contentType,
+              saveReference: attemptState.attempt.resultSaveReference }, billing: { credits_charged: attemptState.attempt.creditCost, idempotent_replay: true } }), correlationId);
+          }
+        }
         return adminImageAttemptResponse({
           usageKind: attemptState.kind,
           organizationId,
@@ -3167,7 +3190,11 @@ export async function handleAdminAI(ctx) {
 
       let providerPayload;
       try {
-        providerPayload = await resolveAdminAiGrokImagineImageSourcesForProvider(
+        if (isGptImage25Model(modelId)) {
+          providerPayload = { model: modelId, prompt: payload.prompt, quality: payload.quality,
+            size: payload.size, background: payload.background, outputFormat: payload.outputFormat,
+            referenceImages: image25Sources.images };
+        } else providerPayload = await resolveAdminAiGrokImagineImageSourcesForProvider(
           env,
           result.user,
           payload,
@@ -3230,13 +3257,23 @@ export async function handleAdminAI(ctx) {
         try {
           await markAiUsageAttemptProviderFailed(env, attemptState.attempt.id, {
             dispatchToken,
-            code: "provider_failed",
+            confirmedOutcome: isGptImage25Model(modelId) && providerBody?.providerDiagnostic?.noInference === true,
+            code: providerBody?.code || "provider_failed",
             message: "Admin image test provider failed.",
           });
         } catch {}
         return response;
       }
 
+      let image25Stored = null;
+      if (isGptImage25Model(modelId)) {
+        image25Stored = await createAiGeneratedSaveReferenceFromBase64(env, { userId: result.user.id,
+          imageBase64: providerBody.result.imageBase64, mimeType: providerBody.result.mimeType,
+          generationMetadata: { model: modelId, quality: payload.quality, size: payload.size,
+            background: payload.background, outputFormat: payload.outputFormat, referenceImageCount: payload.source_images?.length || 0 } });
+        await checkpointAiDispatchImage(env, 'ai_usage_attempts_v2', attemptState.attempt.id, {
+          dispatchToken, ...image25Stored, mimeType: providerBody.result.mimeType, model: modelId });
+      }
       await markAiUsageAttemptFinalizing(env, attemptState.attempt.id, { dispatchToken });
       let debit;
       try {
@@ -3305,7 +3342,8 @@ export async function handleAdminAI(ctx) {
         steps: pricing.normalized?.steps ?? payload.steps ?? null,
         seed: payload.seed ?? null,
         balanceAfter: debit.creditBalance,
-        resultStatus: "unavailable",
+        resultStatus: image25Stored ? "stored" : "unavailable",
+        ...(image25Stored ? { tempKey: image25Stored.tempKey, saveReference: image25Stored.saveReference, mimeType: providerBody.result.mimeType } : {}),
         metadata: {
           pricing: {
             model: modelId,
@@ -3316,8 +3354,8 @@ export async function handleAdminAI(ctx) {
           },
           budget_policy: budgetPolicy.summary,
           replay: {
-            available: false,
-            reason: "admin_image_test_result_not_replayed",
+            available: Boolean(image25Stored),
+            reason: image25Stored ? null : "admin_image_test_result_not_replayed",
           },
         },
       });
@@ -3342,6 +3380,10 @@ export async function handleAdminAI(ctx) {
         },
         budget_policy: budgetPolicy.summary,
       }, correlationId);
+      if (image25Stored) {
+        const billed = await billedResponse.json();
+        return withCorrelationId(json({ ...billed, result: { ...billed.result, saveReference: image25Stored.saveReference } }), correlationId);
+      }
       return attachAdminImageSaveReference(billedResponse, env, result.user, correlationId, requestInfo);
     } catch (error) {
       if (error instanceof InputError) return inputErrorResponse(error, correlationId);

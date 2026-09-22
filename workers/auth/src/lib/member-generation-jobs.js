@@ -204,7 +204,12 @@ async function encodeProviderResult(value) {
     if (bytes.length > 24 * 1024 * 1024) throw jobError('generation_receipt_too_large');
     let binary = '';
     for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
-    return { kind: value instanceof Response ? 'response' : 'bytes', body: btoa(binary), status: response.status, contentType: response.headers.get('Content-Type'), providerOutcome: response.headers.get('x-bitbi-provider-outcome') };
+    const correlationHeaders = {};
+    for (const name of ['cf-ai-req-id', 'cf-aig-log-id']) {
+      const id = response.headers.get(name);
+      if (/^[a-zA-Z0-9_-]{8,128}$/.test(id || '')) correlationHeaders[name] = id;
+    }
+    return { kind: value instanceof Response ? 'response' : 'bytes', body: btoa(binary), status: response.status, contentType: response.headers.get('Content-Type'), providerOutcome: response.headers.get('x-bitbi-provider-outcome'), correlationHeaders };
   }
   const text = JSON.stringify(value);
   if (!text || text.length > 32 * 1024 * 1024) throw jobError('generation_receipt_invalid');
@@ -213,7 +218,12 @@ async function encodeProviderResult(value) {
 function decodeProviderResult(value) {
   if (value.kind === 'json') return value.value;
   const bytes = Uint8Array.from(atob(value.body), c => c.charCodeAt(0));
-  return value.kind === 'response' ? new Response(bytes, { status: value.status, headers: { 'Content-Type': value.contentType || 'application/octet-stream', ...(['failed','succeeded'].includes(value.providerOutcome) ? {'x-bitbi-provider-outcome':value.providerOutcome} : {}) } }) : bytes;
+  const correlationHeaders = {};
+  for (const name of ['cf-ai-req-id', 'cf-aig-log-id']) {
+    const id = value.correlationHeaders?.[name];
+    if (/^[a-zA-Z0-9_-]{8,128}$/.test(id || '')) correlationHeaders[name] = id;
+  }
+  return value.kind === 'response' ? new Response(bytes, { status: value.status, headers: { 'Content-Type': value.contentType || 'application/octet-stream', ...correlationHeaders, ...(['failed','succeeded'].includes(value.providerOutcome) ? {'x-bitbi-provider-outcome':value.providerOutcome} : {}) } }) : bytes;
 }
 
 async function writeResult(env,job,key,result) {

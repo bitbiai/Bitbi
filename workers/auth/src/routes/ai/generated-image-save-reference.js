@@ -1,4 +1,5 @@
 import { sha256Hex } from "../../lib/tokens.js";
+import { image25Mime, GPT_IMAGE_25_IMAGE_BYTES } from '../../../../shared/gpt-image-25.mjs';
 import {
   getAiSaveReferenceSigningSecret,
   getAiSaveReferenceSigningSecretCandidates,
@@ -179,14 +180,27 @@ export async function createAiGeneratedSaveReferenceFromBase64(
     userId,
     imageBase64,
     mimeType = "image/png",
+    generationMetadata = null,
     expiresAt = Date.now() + AI_GENERATED_SAVE_REFERENCE_TTL_MS,
   } = {}
 ) {
   const tempId = crypto.randomUUID();
   const tempKey = buildAiGeneratedTempOriginalKey(userId, tempId);
   const imageBytes = decodeBase64ToBytes(imageBase64);
+  if (generationMetadata) {
+    if (imageBytes.byteLength > GPT_IMAGE_25_IMAGE_BYTES) throw new AiGeneratedSaveReferenceError('Generated image exceeds the application byte limit.', { status: 502, code: 'image_output_invalid' });
+    image25Mime(imageBytes, mimeType);
+    if (!env.IMAGES?.info) throw new AiGeneratedSaveReferenceError('Image inspection is unavailable.', { status: 503, code: 'images_binding_unavailable' });
+    let info;
+    try { info = await env.IMAGES.info(imageBytes); }
+    catch { throw new AiGeneratedSaveReferenceError('Generated image could not be decoded.', { status: 502, code: 'image_output_invalid' }); }
+    const width = Number(info?.width), height = Number(info?.height);
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * height > 40_000_000) throw new AiGeneratedSaveReferenceError('Generated image dimensions are invalid.', { status: 502, code: 'image_output_invalid' });
+    generationMetadata = { ...generationMetadata, width, height, mimeType };
+  }
   await env.USER_IMAGES.put(tempKey, imageBytes.buffer, {
     httpMetadata: { contentType: mimeType || "image/png" },
+    ...(generationMetadata ? { customMetadata: { generation: JSON.stringify(generationMetadata) } } : {}),
   });
   return {
     tempKey,

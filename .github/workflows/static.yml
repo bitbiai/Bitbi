@@ -72,6 +72,7 @@ jobs:
       public_media: ${{ steps.selection.outputs.public_media }}
       model_status: ${{ steps.selection.outputs.model_status }}
       model_pricing: ${{ steps.selection.outputs.model_pricing }}
+      image_models: ${{ steps.selection.outputs.image_models }}
       appearance: ${{ steps.selection.outputs.appearance }}
       canvas_text: ${{ steps.selection.outputs.canvas_text }}
       media_lifecycle: ${{ steps.selection.outputs.media_lifecycle }}
@@ -277,8 +278,10 @@ jobs:
         if: needs.release-compatibility.outputs.workers == 'true' && needs.release-compatibility.outputs.media_lifecycle != 'true'
         env:
           Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
+          CI_IMAGE_MODELS: ${{ needs.release-compatibility.outputs.image_models }}
+          CI_APPEARANCE: ${{ needs.release-compatibility.outputs.appearance }}
         run: |
-          if [ "${{ needs.release-compatibility.outputs.appearance }}" = 'true' ]; then
+          if [ "${{ needs.release-compatibility.outputs.appearance }}" = 'true' ] && [ "${{ needs.release-compatibility.outputs.model_pricing }}" != 'true' ]; then
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
             npx playwright test -c playwright.workers.config.js tests/appearance.spec.js --retries=0 &&
             node scripts/test-q2-runtime.mjs --suite appearance
@@ -286,7 +289,18 @@ jobs:
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
             npx playwright test -c playwright.workers.config.js tests/model-pricing.spec.js --retries=0 &&
             npx playwright test -c playwright.workers.config.js tests/workers.spec.js --grep 'Canvas Grok one-shot|Canvas Fable 5 run charges|admin Canvas resolves active organization|Canvas admin billing denies|member user-scoped image generation|member personal image gateway|central AI model pricing dispatch|member PixVerse V6 generation|member video gateway rejects|member HappyHorse T2V generation|member Seedance 2.0 Fast generation|member Grok Imagine Video rejects|member music generation charges|member music generation blocks|member music provider and storage failures|member music billing finalization|org owner, admin, and member roles can generate|insufficient org credits and provider failures|Phase 2-D active reservations|Phase 2-H text generation|charged BFL admin image tests|admin text durable idempotency|admin text duplicate in-progress|admin text, embeddings, compare, and live-agent|admin text and embeddings caller-policy|queues priced Seedance|queues Grok Imagine Video|runtime admin video job budget switch' --retries=0 &&
-            node scripts/test-q2-runtime.mjs --suite model-pricing
+            node scripts/test-q2-runtime.mjs --suite model-pricing || exit $?
+            if [ "$CI_IMAGE_MODELS" = 'true' ]; then
+              mkdir -p "$Q2_RUNTIME_ARTIFACTS/canvas"
+              npx playwright test -c playwright.workers.config.js tests/q2-gpt-image-25.spec.js --retries=0 &&
+              npx playwright test -c playwright.workers.config.js tests/workers.spec.js --grep 'GPT Image 2|GPT-Image-2|gpt-image-2' --retries=0 &&
+              Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/canvas" node scripts/test-q2-runtime.mjs --suite canvas || exit $?
+            fi
+            if [ "$CI_APPEARANCE" = 'true' ]; then
+              mkdir -p "$Q2_RUNTIME_ARTIFACTS/appearance"
+              npx playwright test -c playwright.workers.config.js tests/appearance.spec.js --retries=0 &&
+              Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/appearance" node scripts/test-q2-runtime.mjs --suite appearance || exit $?
+            fi
           elif [ "${{ needs.release-compatibility.outputs.canvas_text }}" = 'true' ]; then
             npm run check:ai-cost-policy && npm run test:ai-cost-policy && npm run test:ai-cost-operations &&
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
@@ -591,8 +605,11 @@ jobs:
           PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-assets.json npm run test:static -- --config playwright.assets.config.js --reporter=list,json
       - name: Run selected auth and admin tests
         if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.full != 'true' && needs.release-compatibility.outputs.admin_release != 'true'
+        env:
+          CI_IMAGE_MODELS: ${{ needs.release-compatibility.outputs.image_models }}
+          CI_APPEARANCE: ${{ needs.release-compatibility.outputs.appearance }}
         run: |
-          if [ "${{ needs.release-compatibility.outputs.appearance }}" = 'true' ]; then
+          if [ "${{ needs.release-compatibility.outputs.appearance }}" = 'true' ] && [ "${{ needs.release-compatibility.outputs.model_pricing }}" != 'true' ]; then
             rm -f test-results/appearance-discovery.json test-results/candidate-auth.json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/appearance-discovery.json npm run test:static -- tests/oma2-q3-appearance.spec.js tests/auth-admin.spec.js --project=chromium --project=webkit-appearance --grep 'oma2-q3-appearance\.spec\.js|cold workspace exposes grouped tasks' --workers=1 --retries=0 --output=test-results/appearance-artifacts --list --reporter=json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- tests/oma2-q3-appearance.spec.js tests/auth-admin.spec.js --project=chromium --project=webkit-appearance --grep 'oma2-q3-appearance\.spec\.js|cold workspace exposes grouped tasks' --workers=1 --retries=0 --output=test-results/appearance-artifacts --reporter=list,json

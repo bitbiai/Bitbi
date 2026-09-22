@@ -104,6 +104,18 @@ export async function createRuntime(build, name, { restricted = false, reference
   const deny = async () => { counters.outboundDenied += 1; throw new Error('Native test outbound denied'); };
   const denyService = async () => { counters.serviceDenied += 1; throw new Error('Native test provider service denied'); };
   const canvasProvider = { requests: [], fail: false };
+  if (name === 'canvas') {
+    const sharp = requireAuth('sharp');
+    const sample = { create: { width: 1024, height: 1024, channels: 4, background: { r: 20, g: 70, b: 100, alpha: 0.25 } } };
+    canvasProvider.image25Fixtures = { png: await sharp(sample).png().toBuffer(), webp: await sharp(sample).webp({lossless:true}).toBuffer() };
+  }
+  const canvasImage25Service = async request => {
+    const { inputs: payload } = await request.json(), model = request.headers.get('cf-consn-model-id');
+    canvasProvider.requests.push({ path: '/ai/run', body: { model, ...payload } });
+    const bytes = canvasProvider.image25Fixtures[payload.output_format];
+    assert.ok(['openai/gpt-image-2.5-sunburst','openai/gpt-image-2.5-flare'].includes(model) && bytes, 'Only exact synthetic image aliases/formats may dispatch');
+    return Response.json({state:'Completed',result:{image:`data:image/${payload.output_format};base64,${bytes.toString('base64')}`},gatewayMetadata:{keySource:'Unified'}});
+  };
   const canvasService = async request => {
     const body = await request.json(); canvasProvider.requests.push({ path: new URL(request.url).pathname, body });
     if (canvasProvider.fail) return Response.json({ ok: false, error: 'Synthetic provider failure', code: 'upstream_error' }, { status: 502 });
@@ -113,7 +125,8 @@ export async function createRuntime(build, name, { restricted = false, reference
   };
   const shared = { modules: true, ...(['member-generation','canvas'].includes(name) ? {images:{binding:'IMAGES'}} : {}), compatibilityDate: build.config.compatibility_date, bindings, d1Databases: { DB: `q2-${name}-db` },
     r2Buckets: { USER_IMAGES: `q2-${name}-images`, PRIVATE_MEDIA: `q2-${name}-private`, AUDIT_ARCHIVE: `q2-${name}-archive` },
-    outboundService: deny, serviceBindings: { AI_LAB: name === 'canvas' ? canvasService : denyService }, unsafeRegisterWorker: false };
+    outboundService: deny, serviceBindings: { AI_LAB: name === 'canvas' ? canvasService : denyService },
+    ...(name === 'canvas' ? { unsafeBindings: [{name:'AI',type:'q2-image25-ai',plugin:{name:'q2-image25-ai',package:fileURLToPath(new URL('./image25-ai-binding.mjs',import.meta.url))},options:{}}] } : {}), unsafeRegisterWorker: false };
   const limiterOwner = restricted ? 'q2-restricted' : 'q2-candidate';
   const limiter = owner => ({ PUBLIC_RATE_LIMITER: { className: 'AuthPublicRateLimiterDurableObject', useSQLite: true, ...(owner ? { scriptName: owner } : {}) } });
   const queues = { ACTIVITY_INGEST_QUEUE: `q2-${name}-activity`, AI_IMAGE_DERIVATIVES_QUEUE: `q2-${name}-derivatives`, AI_VIDEO_JOBS_QUEUE: `q2-${name}-videos` };
@@ -146,6 +159,8 @@ export async function createRuntime(build, name, { restricted = false, reference
       try { return (await env.IMAGES.input(request.body).transform({width: 3, height: 2, fit: 'fill'}).output({format: 'image/png'})).response(); }
       catch (error) { return Response.json({error: error.message}, {status: 422}); }
     }};` });
+  if (name === 'canvas') workers.push({name:'q2-image25-ai',modules:true,compatibilityDate:build.config.compatibility_date,outboundService:deny,serviceBindings:{SYNTHETIC:canvasImage25Service},
+    script:'export default {fetch(request,env){return env.SYNTHETIC.fetch(request);}};'});
   const mf = new Miniflare(convertV4MiniflareOptions({ rootPath: executionDir, host: '127.0.0.1', port: 0, cf: false,
     telemetry: { enabled: false }, logRequests: false, verbose: false, log: new Quiet(LogLevel.NONE), unsafeTriggerHandlers: true,
     unsafeLocalExplorer: false, unsafeObservability: false, unsafeInspectDurableObjects: false, handleStructuredLogs() { counters.structuredLogs += 1; },

@@ -550,7 +550,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  assert(backendContinuationSupported(plan));
  assert.equal(evaluateStaticDeploySafety(plan,{eventName:'push'}).allowed,false);
  assert.equal(evaluateStaticDeploySafety(plan,{eventName:'push',dependenciesVerified:true}).mode,'verified_backend_dependencies');
- for(const extra of ['workers/ai/src/index.js','workers/ai/wrangler.jsonc','unknown-backend-entry.js']) {
+ for(const extra of ['workers/ai/src/routes/unreviewed.js','workers/ai/wrangler.jsonc','unknown-backend-entry.js']) {
    const invalid=createReleasePlanFromRepo(repoRoot,{files:[...plan.changedFiles,extra]});assert(!backendContinuationSupported(invalid));assert(!evaluateStaticDeploySafety(invalid,{eventName:'push',dependenciesVerified:true}).allowed);
  }
  const receipt={sha:'a'.repeat(40),base:'b'.repeat(40),run:'123',attempt:'1',worker:'bitbi-auth',migration:'0088_add_canvas_video_processing.sql',version:'version-1',deployment:'deployment-1'};
@@ -800,6 +800,21 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  }
  const commands=[];await activateAuthVersion({sha,mediaSourceSha:previousMedia,secretFile:'/private/fixture.json',assertCurrent:async()=>{},command:args=>{commands.push(args);return `Worker Version ID: ${id}`;}});
  assert(commands[0].includes(`PRIVATE_MEDIA_SOURCE_SHA:${previousMedia}`));assert(!commands[0].includes(`PRIVATE_MEDIA_SOURCE_SHA:${sha}`));
+}
+
+// The additive Canvas lifecycle uses the existing ordered backend continuation.
+{
+ const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');
+ const files=['workers/ai/src/index.js','workers/ai/src/lib/validate.js','workers/ai/src/lib/responses.js','workers/ai/src/routes/image.js','workers/ai/src/lib/invoke-ai.js','workers/shared/gpt-image-25.mjs','js/shared/gpt-image-25-contract.mjs','js/shared/gpt-image-25-pricing.mjs','js/shared/ai-model-pricing.mjs','workers/auth/src/lib/gpt-image-25-sources.js','workers/auth/src/routes/ai/images-write.js','js/pages/generate-lab/main.js'];
+ const plan=createReleasePlanFromRepo(repoRoot,{files});
+ assert(backendContinuationSupported(plan));
+ assert.deepEqual(plan.workerDeploys.map(w=>w.worker),['ai','auth']);
+ assert.deepEqual(plan.deploySteps.map(s=>s.id),['ai-worker','auth-worker','static-site']);
+ assert.deepEqual(plan.schemaApplies,[]);assert.deepEqual(plan.impacts.uncategorizedFiles,[]);
+ for(const file of ['workers/shared/gpt-image-25.mjs','js/shared/gpt-image-25-contract.mjs'])assert.deepEqual(createReleasePlanFromRepo(repoRoot,{files:[file]}).workerDeploys.map(w=>w.worker),['ai','auth']);
+ for(const file of ['js/shared/gpt-image-25-pricing.mjs','js/shared/ai-model-pricing.mjs'])assert.deepEqual(createReleasePlanFromRepo(repoRoot,{files:[file]}).workerDeploys.map(w=>w.worker),['auth']);
+ for(const file of ['workers/ai/wrangler.jsonc','workers/ai/src/routes/unreviewed-image.js'])assert(!backendContinuationSupported(createReleasePlanFromRepo(repoRoot,{files:[...files,file]})));
+ console.log('GPT Image 2.5: mapped provider/contracts; existing AI → Auth → static continuation; no migration/media; unknown/config denial retained.');
 }
 
 // The additive Canvas lifecycle uses the existing ordered backend continuation.

@@ -191,6 +191,8 @@ test('@canvas-model-ui member model exposure is the sole Models overlay membersh
   expect(exposedIds).toContain('xai/grok-imagine-video');
   expect(exposedIds).toContain('xai/grok-imagine-video-1.5-preview');
   expect(exposedIds).toContain('xai/grok-imagine-image-2.0');
+  expect(exposedIds).toContain('openai/gpt-image-2.5-sunburst');
+  expect(exposedIds).toContain('openai/gpt-image-2.5-flare');
   for (const unavailableId of [
     'bytedance/seedance-2.0',
     'elevenlabs/music-v2',
@@ -10667,3 +10669,6 @@ for(const locale of ['en','de']) test(`@canvas-model-ui H3 Generate Lab ${locale
   expect(postCount).toBe(1);expect(errors).toEqual([]);
   await page.screenshot({path:testInfo.outputPath(`h3-status-${locale}.png`),fullPage:true});
 });
+
+for (const locale of ['en', 'de']) test(`@canvas-model-ui GPT Image 2.5 Generate Lab ${locale} decoded upload and controls`, ({ page }) => require('./helpers/gpt-image25-ui.cjs').member({ page, expect, locale, mockGenerateLabMemberSession }));
+for (const locale of ['en', 'de']) test(`@canvas-model-ui GPT Image 2.5 Generate Lab ${locale} actual factory generation price and edit gate`, ({ page }) => require('./helpers/gpt-image25-ui.cjs').memberPricingGate({ page, expect, locale, mockGenerateLabMemberSession }));

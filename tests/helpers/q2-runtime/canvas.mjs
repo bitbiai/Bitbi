@@ -14,6 +14,30 @@ export async function runCanvasTests(f) {
   await f.sql('INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,?,?,?,?)', project, adminId, 'Synthetic Canvas', 'en', now, now).run();
   await f.sql('INSERT INTO canvas_nodes(id,project_id,user_id,type,model_id,x,y,config_json,content_json,created_at,updated_at) VALUES(?,?,?,?,?,0,0,?,?,?,?)', node, project, adminId, 'text_generation', '@cf/meta/llama-3.1-8b-instruct-fast', JSON.stringify({ prompt: 'Synthetic native prompt', maxTokens: 300 }), '{}', now, now).run();
   const route = `/api/account/canvas/projects/${project}/nodes/${node}/run`;
+  await f.test('image25_native_owned_reference_boundary_and_unverified_tariff_blocks_dispatch', async () => {
+    const bytes = fs.readFileSync('tests/fixtures/media/member-image.png');
+    const sources = [];
+    for (let i = 0; i < 16; i++) {
+      const id = `image25-native-${i}`, key = `users/${memberId}/image25-${i}.png`;
+      await f.bucket.put(key, bytes, { httpMetadata: { contentType: 'image/png' } });
+      await f.sql('INSERT INTO ai_images(id,user_id,r2_key,prompt,model,size_bytes,created_at) VALUES(?,?,?,?,?,?,?)', id, memberId, key, 'Synthetic reference', 'uploaded', bytes.length, now).run();
+      sources.push({ source_type: 'saved_asset', asset_id: id });
+    }
+    for (const model of ['openai/gpt-image-2.5-sunburst', 'openai/gpt-image-2.5-flare']) {
+      const body = { model, prompt: 'x'.repeat(1001), quality: 'max', size: 'auto', background: 'transparent', outputFormat: 'png', source_images: sources };
+      const valid = await request('/api/ai/generate-image', body, `image25-${model}`, member);
+      assert.equal(valid.status, 503, await valid.clone().text()); assert.equal((await valid.json()).code, 'gpt_image_25_reference_pricing_unavailable');
+      const tooMany = await request('/api/ai/generate-image', { ...body, source_images: [...sources, sources[0]] }, 'image25-too-many', member);
+      assert.equal(tooMany.status, 400);
+      const foreign = await request('/api/ai/generate-image', body, 'image25-foreign', admin);
+      assert.equal(foreign.status, 404);
+    }
+    const body = { model: 'openai/gpt-image-2.5-flare', prompt: 'Synthetic reference', source_images: [sources[0]] };
+    await f.bucket.put(`users/${memberId}/image25-0.png`, 'not-an-image', { httpMetadata: { contentType: 'image/png' } });
+    assert.equal((await request('/api/ai/generate-image', body, 'image25-invalid-mime', member)).status, 400);
+    assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_ai_usage_attempts_v2'), 0);
+    assert.equal(f.canvasProvider.requests.length, 0);
+  });
   await f.test('canvas_native_MFA_and_ownership_deny_before_provider', async () => {
     assert.equal((await request(route, {})).status, 403);
     assert.equal((await request(route, {}, 'member-key', member)).status, 404);
@@ -176,6 +200,52 @@ export async function runCanvasTests(f) {
     assert.equal((await request(endpoint,{},'grok-run',member)).status,409);
     assert.equal(f.canvasProvider.requests.length,before+1);
     assert.equal((await request(endpoint,{},'foreign-grok',admin)).status,404);
+  });
+  await f.test('image25_native_completed_uri_preserves_alpha_format_model_and_single_paid_save_after_reload', async () => {
+    const { calculateAiImageCreditCost } = await import('../../../js/shared/ai-model-pricing.mjs');
+    const p='81'.repeat(16);
+    await f.sql('INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,?,?,?,?)',p,memberId,'Image 2.5 native','en',now,now).run();
+    await f.db.exec(`CREATE TRIGGER image25_native_checkpoint_before_debit BEFORE INSERT ON member_credit_ledger
+      WHEN NEW.entry_type='consume' AND NEW.user_id='q2-workerd-member'
+        AND NOT EXISTS(SELECT 1 FROM member_ai_usage_attempts_v2 a WHERE a.idempotency_key=NEW.idempotency_key AND a.user_id=NEW.user_id
+          AND a.result_status='stored' AND a.result_temp_key IS NOT NULL AND a.result_save_reference IS NOT NULL AND a.result_mime_type IN ('image/png','image/webp'))
+      BEGIN SELECT RAISE(ABORT,'image25 result must be durable before debit'); END;`.replace(/\s+/g,' '));
+    for(const [index,modelId] of ['openai/gpt-image-2.5-sunburst','openai/gpt-image-2.5-flare'].entries()){
+      const n=(index?'83':'82').repeat(16), format=index?'webp':'png';
+      const config={prompt:'Native transparent image 2.5 fixture',quality:'medium',size:'1024x1024',background:'transparent',outputFormat:format,source_images:[],referenceOrder:[]};
+      await f.sql('INSERT INTO canvas_nodes(id,project_id,user_id,type,model_id,x,y,config_json,content_json,created_at,updated_at) VALUES(?,?,?,?,?,0,0,?,?,?,?)',n,p,memberId,'image_generation',modelId,JSON.stringify(config),'{}',now,now).run();
+      const endpoint=`/api/account/canvas/projects/${p}/nodes/${n}/run`,key=`image25-native-run-${index}`;
+      const before=f.canvasProvider.requests.length, debitBefore=await f.scalar("SELECT COUNT(*) AS value FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'",memberId);
+      if(index){
+        await f.db.exec("CREATE TRIGGER image25_native_save_interrupted BEFORE INSERT ON ai_images WHEN NEW.model='openai/gpt-image-2.5-flare' BEGIN SELECT RAISE(ABORT,'synthetic image25 save interruption'); END;");
+        const interrupted=await request(endpoint,{},key,member);assert.equal((await interrupted.json()).code,'canvas_image_save_pending');
+        assert.equal(f.canvasProvider.requests.length,before+1);
+        await f.db.exec('DROP TRIGGER image25_native_save_interrupted;');
+      }
+      const result=await ok(await request(endpoint,{},key,member)),assetId=result.run.asset_id;
+      assert.equal(result.run.status,'completed');assert.equal(result.run.output.mimeType,`image/${format}`);
+      assert.equal(f.canvasProvider.requests.length,before+1);
+      assert.deepEqual(f.canvasProvider.requests.at(-1).body,{model:modelId,prompt:config.prompt,quality:'medium',size:'1024x1024',background:'transparent',output_format:format});
+      const image=await f.sql('SELECT model,r2_key,size_bytes FROM ai_images WHERE id=? AND user_id=?',assetId,memberId).first();
+      assert.ok(image);assert.equal(image.model,modelId);assert.ok(image.r2_key.endsWith('.'+format));
+      const stored=await f.bucket.get(image.r2_key),bytes=Buffer.from(await stored.arrayBuffer());
+      assert.equal(stored.httpMetadata.contentType,`image/${format}`);assert.deepEqual(bytes,f.canvasProvider.image25Fixtures[format]);
+      if(format==='png')assert.equal(bytes[25],6,'Original PNG retains RGBA color type');
+      assert.deepEqual(JSON.parse(stored.customMetadata.generation),{model:modelId,quality:'medium',size:'1024x1024',background:'transparent',outputFormat:format,referenceImageCount:0,width:1024,height:1024,mimeType:`image/${format}`});
+      assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'",memberId),debitBefore+1);
+      assert.equal(await f.scalar('SELECT a.credit_cost AS value FROM member_ai_usage_attempts_v2 a JOIN canvas_runs r ON r.usage_attempt_id=a.id WHERE r.id=?',result.run.id),calculateAiImageCreditCost(modelId,config).credits);
+      const reloaded=await ok(await request(`/api/account/canvas/projects/${p}`,undefined,'image25-reload',member));
+      const savedNode=reloaded.nodes.find(value=>value.id===n);assert.deepEqual(savedNode.config,config);assert.equal(savedNode.output.assetId,assetId);
+      assert.equal((await ok(await request(endpoint,{},key,member))).idempotent_replay,true);
+      const save=`/api/account/canvas/projects/${p}/runs/${result.run.id}/save-asset`;
+      for(let repeat=0;repeat<2;repeat++){const saved=await ok(await request(save,{},`image25-save-${index}`,member));assert.equal(saved.asset_id,assetId);assert.equal(saved.storage,'assets');}
+      assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM ai_images WHERE id=?',assetId),1);
+      assert.equal(f.canvasProvider.requests.length,before+1);assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'",memberId),debitBefore+1);
+      assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM member_credit_ledger l JOIN member_ai_usage_attempts_v2 a ON a.user_id=l.user_id AND a.idempotency_key=l.idempotency_key WHERE l.user_id=? AND l.entry_type='consume' AND a.result_model=?",memberId,modelId),1,'Checkpoint trigger must cover the actual debit');
+      assert.equal((await request(`/api/account/canvas/projects/${p}`,undefined,'image25-foreign-reload',admin)).status,404);
+      f.metrics.push({model:modelId,format,width:1024,height:1024,providerCalls:1,debits:1,credits:calculateAiImageCreditCost(modelId,config).credits,checkpointBeforeDebit:true,interruptedSaveRecovered:Boolean(index),reloadReplayAndSave:true});
+    }
+    await f.db.exec('DROP TRIGGER image25_native_checkpoint_before_debit;');
   });
   assert.equal(f.counters.outboundDenied, 0, 'No external provider or network call');
 }

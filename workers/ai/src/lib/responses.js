@@ -57,6 +57,8 @@ export function methodNotAllowed(allowed) {
 }
 
 export function fromError(error, fallbackMessage) {
+  if (error?.providerDiagnostic) return json({ ok: false, error: error.message, code: error.code,
+    providerDiagnostic: error.providerDiagnostic }, { status: 502 });
   if (error?.name === "ValidationError") {
     return errorResponse(error.message, {
       status: error.status || 400,

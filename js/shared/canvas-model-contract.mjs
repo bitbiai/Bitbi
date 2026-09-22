@@ -1,3 +1,4 @@
+import { GPT_IMAGE_25_MODEL_IDS, isGptImage25Model } from './gpt-image-25-contract.mjs';
 import { browserModelTariff, textTariffBasis } from './model-tariff.mjs';
 import { H3_MODEL, H3_ROLES } from './minimax-h3.mjs';
 import { GROK_4_6_MODEL_ID, GROK_REASONING_EFFORTS, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens, estimateGrokTextCostUsd } from "./grok-text-contract.mjs";
@@ -37,6 +38,7 @@ export function composeCanvasPrompt(nodeType, direct, connected) {
 }
 
 const RUNNABLE_IMAGE_MODELS = new Set([
+  ...GPT_IMAGE_25_MODEL_IDS,
   "@cf/black-forest-labs/flux-1-schnell",
   "@cf/black-forest-labs/flux-2-klein-9b",
   "black-forest-labs/flux-2-max",
@@ -150,7 +152,8 @@ function defaultEstimate(capability, modelId, controls) {
             generateAudio: controls.defaultGenerateAudio === true,
           }
         : {};
-    return Math.max(1, Number(calculateAiModelCreditCost({ mediaType: capability, modelId, params })?.credits || 0));
+    const credits = calculateAiModelCreditCost({ mediaType: capability, modelId, params })?.credits;
+    return Number.isFinite(credits) ? Math.max(1, credits) : null;
   } catch {
     return null;
   }
@@ -158,7 +161,7 @@ function defaultEstimate(capability, modelId, controls) {
 
 function buildImageModel(model) {
   const capabilities = model.capabilities || {};
-  const runnable = RUNNABLE_IMAGE_MODELS.has(model.id);
+  const runnable = RUNNABLE_IMAGE_MODELS.has(model.id) && capabilities.generationEnabled !== false;
   const controls = {
     supportsSafetyTolerance: capabilities.supportsSafetyTolerance === true,
     minSafetyTolerance: capabilities.minSafetyTolerance,
@@ -168,7 +171,7 @@ function buildImageModel(model) {
     supportsSteps: capabilities.supportsSteps === true,
     supportsDimensions: capabilities.supportsDimensions === true,
     supportsReferenceImages: capabilities.supportsReferenceImages === true,
-    maxReferenceImages: Math.min(Number(capabilities.maxReferenceImages || 0), model.id==='xai/grok-imagine-image-2.0'?5:4),
+    maxReferenceImages: Math.min(Number(capabilities.maxReferenceImages || 0), isGptImage25Model(model.id) ? 16 : model.id==='xai/grok-imagine-image-2.0'?5:4),
     qualityOptions: safeOptions(capabilities.qualityOptions),
     sizeOptions: safeOptions(capabilities.sizeOptions),
     resolutionOptions: safeOptions(capabilities.resolutionOptions),
@@ -185,7 +188,7 @@ function buildImageModel(model) {
     defaultQuality: capabilities.defaultQuality || null,
     defaultOutputFormat: capabilities.defaultOutputFormat || null,
     defaultBackground: capabilities.defaultBackground || null,
-    maxPromptLength: 1000,
+    maxPromptLength: isGptImage25Model(model.id) ? capabilities.maxPromptLength : 1000,
   };
   return {
     id: model.id,
@@ -201,7 +204,7 @@ function buildImageModel(model) {
     requiresPersonalCredits: runnable,
     requiresPlatformBudget: !runnable && model.adminOnly === true,
     runnable,
-    disabledReason: runnable ? null : (DISABLED_REASONS[model.id] || "No member-safe Canvas policy is available."),
+    disabledReason: runnable ? null : (DISABLED_REASONS[model.id] || (isGptImage25Model(model.id) ? "Verified Cloudflare pricing and account access are pending." : "No member-safe Canvas policy is available.")),
     route: runnable ? "/api/ai/generate-image" : null,
     pricingStatus: runnable ? "member_credit_priced" : "unavailable",
     estimatedCredits: runnable ? defaultEstimate("image", model.id, controls) : null,
@@ -338,7 +341,7 @@ export function listCanvasModelsForRole(role) {
   const isAdmin = String(role || "").trim().toLowerCase() === "admin";
   return CANVAS_MODELS.filter((model) => isAdmin || model.memberCanvasEnabled || model.capability !== "text").map((model) => {
     const adminText = isAdmin && model.capability === "text";
-    const adminImage = isAdmin && model.capability === "image" && RUNNABLE_IMAGE_MODELS.has(model.id);
+    const adminImage = isAdmin && model.capability === "image" && RUNNABLE_IMAGE_MODELS.has(model.id) && model.adminCanvasEnabled;
     return deepFreeze({
       ...model,
       runnable: isAdmin ? model.adminCanvasEnabled === true : model.memberCanvasEnabled === true,

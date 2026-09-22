@@ -1,3 +1,4 @@
+import { GPT_IMAGE_25_MODELS } from './gpt-image-25-contract.mjs';
 import { GROK_IMAGE_2 } from './grok-imagine-image-2-pricing.mjs';
 import {
     GPT_IMAGE_2_BACKGROUND_OPTIONS,
@@ -24,6 +25,7 @@ export const AI_IMAGE_MODELS = Object.freeze([
 ]);
 
 const GENERATE_LAB_ONLY_AI_IMAGE_MODELS = Object.freeze([
+    ...GPT_IMAGE_25_MODELS,
     Object.freeze({...GROK_IMAGE_2,requestMode:'grok-imagine-image-2',proxied:true,
         supportsSteps:false,supportsSeed:false,supportsDimensions:false,supportsReferenceImages:true,
         supportsQuality:true,supportsSize:true,sizeOptions:GROK_IMAGE_2.resolutionOptions,defaultSize:GROK_IMAGE_2.defaultResolution,
@@ -107,7 +109,7 @@ export function getAiImageModelOptions() {
 }
 
 export function getGenerateLabAiImageModelOptions() {
-    return SUPPORTED_AI_IMAGE_MODEL_CONFIGS.map(({ id, label }) => ({ id, label }));
+    return SUPPORTED_AI_IMAGE_MODEL_CONFIGS.filter(model => model.generationEnabled !== false).map(({ id, label }) => ({ id, label }));
 }
 
 export function getAiImageModelConfig(modelId) {
