@@ -1,5 +1,5 @@
 import os from 'node:os';
-import {captureImageDeliveryRecovery,verifyImageDeliveryRecovery} from './image-delivery-acceptance.mjs';
+import {captureImageDeliveryRecovery,verifyImageDeliveryRecovery,verifyImageDeliveryEvidence} from './image-delivery-acceptance.mjs';
 import {createHash} from 'node:crypto';
 import {publishMedia,mediaActive,mediaSmoke,assertMediaAuthConfig,verifyMediaEvidence} from './media-publication.mjs';
 import {requiresPrivateMediaImage} from './ci-test-selection.mjs';
@@ -208,7 +208,7 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
   assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Required schema not active');
   prerequisites(c.plan,state.version,c.config);
-  if(c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js'))assert(Array.isArray(receipt.imageDelivery),'Missing image recovery acceptance');
+  if(c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js'))verifyImageDeliveryEvidence(receipt.imageDelivery);
   await verifyAuthTriggers(c.config);
   await ensurePrivateVideoLogging({verifyOnly:true});
   await verifyAuthBundle(receipt.authBundleDigest);
@@ -295,7 +295,7 @@ export async function publishBackend() {
     });
   }finally{fs.rmSync(temporary,{recursive:true,force:true});}
   prerequisites(c.plan,state.version,c.config);
-  const imageDelivery=await verifyImageDeliveryRecovery(imageTargets,{query:(sql,params)=>query(c.db,sql,params),object:imageDeliveryObject,current:()=>current(c.sha)});
+  const imageDelivery=c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?await verifyImageDeliveryRecovery(imageTargets,{query:(sql,params)=>query(c.db,sql,params),object:imageDeliveryObject,current:()=>current(c.sha)}):undefined;
   const receipt={sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,migration,version:state.version.id,deployment:state.deployment.id,
     ...(media?{media,smoke}:{}),...(ai?{ai}:{}),...(c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?{imageDelivery}:{}),mediaSourceSha,authBundleDigest:c.authBundleDigest,processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
   verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});

@@ -894,20 +894,66 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
 }
 
 {
- const {captureImageDeliveryRecovery,verifyImageDeliveryRecovery}=await import('./lib/image-delivery-acceptance.mjs');
+ const {captureImageDeliveryRecovery,verifyImageDeliveryRecovery,verifyImageDeliveryEvidence,IMAGE_DELIVERY_INCIDENTS,IMAGE_DELIVERY_ACCEPTANCE_MS}=await import('./lib/image-delivery-acceptance.mjs');
+ const {BITBI_GENERATION_TIMEOUT_MS}=await import('../js/shared/generation-timeout.mjs');
+ const {IMAGE_DELIVERY_ATTEMPTS}=await import('../workers/auth/src/lib/image-delivery-recovery.js');
  const {createHash}=await import('node:crypto');const digest=v=>createHash('sha256').update(v).digest('hex');
- const owner='synthetic-owner',id='a'.repeat(32),key=`users/${owner}/generation-jobs/${id}/provider-ai-0.json`;
- const receipt={key,fingerprint:'b'.repeat(64),correlationId:'c'.repeat(32)};
- const original=Buffer.from('synthetic original bytes'),raw=Buffer.from(JSON.stringify({kind:'response',status:200,body:Buffer.from(JSON.stringify({state:'Completed',result:{image:'https://provider.example/private'}})).toString('base64')}));
- const base={id,user_id:owner,input_r2_key:`users/${owner}/generation-jobs/${id}/input.json`,asset_id:id,status:'outcome_unknown',attempt_count:8,provider_receipts_json:JSON.stringify({'ai-0':receipt}),billing_status:'released',reservation_released_at:'2026-09-22T11:10:00Z',debits:0};
- const targets=await captureImageDeliveryRecovery(async()=>[base],async key=>key.endsWith('/input.json')?Buffer.from(JSON.stringify({model:'openai/gpt-image-2.5-flare'})):raw);assert.equal(targets.length,1);
- const saved={...base,status:'succeeded',attempt_count:9,result_r2_key:'result',provider_receipts_json:JSON.stringify({'ai-0':{...receipt,delivery:{status:'saved',billing:'released_no_debit',attempts:1}}}),metadata_json:JSON.stringify({image_delivery_reconciliation:{receiptSha256:digest(raw),creditsCharged:0}})};
- const asset={id,user_id:owner,r2_key:'original',size_bytes:original.length,width:1024,height:1024};
- const object=async k=>k===key?raw:k==='original'?original:Buffer.from(JSON.stringify({billing:{credits_charged:0,billing_status:'released_no_debit'},data:{asset:{id},imageBase64:original.toString('base64')}}));
- const execute=row=>verifyImageDeliveryRecovery(targets,{query:async sql=>[sql.startsWith('SELECT id,user_id')?asset:row],object,current:async()=>{},pause:async()=>{}});
- assert.equal((await execute(saved))[0].creditsCharged,0);
- for(const patch of [{status:'failed'},{status:'outcome_unknown'},{debits:1},{billing_status:'finalized'},{user_id:'foreign'},{asset_id:'different'},{attempt_count:12}])await assert.rejects(execute({...saved,...patch}));
- await assert.rejects(verifyImageDeliveryRecovery(targets,{query:async sql=>[sql.startsWith('SELECT id,user_id')?asset:saved],object:async()=>Buffer.from('changed'),current:async()=>{},pause:async()=>{}}));
- const completedTargets=await captureImageDeliveryRecovery(async()=>[saved],async key=>key.endsWith('/input.json')?Buffer.from(JSON.stringify({model:'openai/gpt-image-2.5-flare'})):raw);assert.equal(completedTargets[0].attempts,8,'Partial deployment resumes exact completed recovery');
- console.log('Released image delivery acceptance: exact receipt/owner/bytes, no debit, bounded pending rejection and partial activation passed.');
+ assert.deepEqual(IMAGE_DELIVERY_INCIDENTS.map(r=>r.id),['6779ba33ae9043a715c68940387a2edf','404b60bbdd0863323a5db28124850515']);
+ assert(JSON.parse(fs.readFileSync('workers/auth/wrangler.jsonc')).triggers.crons.includes('*/5 * * * *'));
+ assert.equal(IMAGE_DELIVERY_ACCEPTANCE_MS,5*60_000+IMAGE_DELIVERY_ATTEMPTS*BITBI_GENERATION_TIMEOUT_MS+2*60_000+2*60_000);
+ const objects=new Map(),owner='synthetic-owner';
+ const fixtures=IMAGE_DELIVERY_INCIDENTS.map(({id,model},index)=>{
+  const prefix=`users/${owner}/generation-jobs/${id}/`,key=prefix+'provider-ai-0.json';
+  const receipt={key,fingerprint:String(index+1).repeat(64),correlationId:String(index+3).repeat(32)};
+  const original=Buffer.from(`synthetic original ${id}`),raw=Buffer.from(JSON.stringify({kind:'response',status:200,body:Buffer.from(JSON.stringify({state:'Completed',result:{image:`https://provider.example/${id}`}})).toString('base64')}));
+  const base={id,user_id:owner,usage_attempt_id:`synthetic-attempt-${index}`,media_type:'image',input_r2_key:prefix+'input.json',asset_id:id,status:'outcome_unknown',attempt_count:8,provider_receipts_json:JSON.stringify({'ai-0':receipt}),billing_status:'released',reservation_released_at:'2026-09-22T11:10:00Z',debits:0};
+  const saved={...base,status:'succeeded',attempt_count:9,result_r2_key:prefix+'result.json',provider_receipts_json:JSON.stringify({'ai-0':{...receipt,delivery:{status:'saved',billing:'released_no_debit',attempts:1}}}),metadata_json:JSON.stringify({image_delivery_reconciliation:{receiptSha256:digest(raw),creditsCharged:0}})};
+  const asset={id,user_id:owner,r2_key:`users/${owner}/folders/default/${id}.png`,size_bytes:original.length,width:1024,height:1024};
+  objects.set(key,raw);objects.set(base.input_r2_key,Buffer.from(JSON.stringify({model})));objects.set(asset.r2_key,original);
+  objects.set(saved.result_r2_key,Buffer.from(JSON.stringify({billing:{credits_charged:0,billing_status:'released_no_debit'},data:{asset:{id},imageBase64:original.toString('base64')}})));
+  return {base,saved,asset,receipt};
+ });
+ const object=async key=>{assert(objects.has(key),'Missing authenticated R2 object');return objects.get(key);};
+ const capture=(rows,reader=object)=>captureImageDeliveryRecovery(async(sql,params)=>{
+  assert(sql.endsWith('WHERE j.id IN (?,?)'));assert.deepEqual(params,IMAGE_DELIVERY_INCIDENTS.map(r=>r.id));return rows;
+ },reader);
+ const targets=await capture(fixtures.map(f=>f.base));
+ for(const rows of [[],[fixtures[0].base],[fixtures[0].base,fixtures[0].base],fixtures.map(f=>({...f.base,id:'unrelated'}))])await assert.rejects(capture(rows),/Both exact/);
+ await assert.rejects(capture(fixtures.map(f=>f.base),async key=>key.endsWith('/input.json')?Buffer.from('{"model":"unrelated"}'):object(key)),/Wrong incident model/);
+ await assert.rejects(capture(fixtures.map(f=>f.base),async key=>key.endsWith('provider-ai-0.json')?Buffer.from('{"kind":"response","status":400}'):object(key)),/authenticated completed/);
+ await assert.rejects(capture(fixtures.map(f=>f.base),async()=>{throw Error('R2 denied');}),/R2 denied/);
+ const execute=async({rows=fixtures.map(f=>f.saved),reader=object,inputs=targets,current=async()=>{},resolveRows,hidden=false}={})=>{
+  let elapsed=0,pauses=0;
+  const result=await verifyImageDeliveryRecovery(inputs,{current,object:reader,now:()=>elapsed,pause:async ms=>{elapsed+=ms;pauses++;},query:async(sql,params)=>{
+   assert(/^SELECT\b/.test(sql),'Acceptance must remain read-only');
+   if(sql.startsWith('SELECT id FROM member_generation_unready_assets'))return hidden?[{id:params[0]}]:[];
+   if(sql.startsWith('SELECT id,user_id')){assert.equal(params[1],owner);return fixtures.filter(f=>f.asset.id===params[0]).map(f=>f.asset);}
+   return (resolveRows?resolveRows(elapsed):rows).filter(row=>row.id===params[0]);
+  }});
+  return {result,elapsed,pauses};
+ };
+ const initial=await execute();assert.equal(initial.pauses,0);verifyImageDeliveryEvidence(initial.result);
+ for(const results of [undefined,[],[initial.result[0]],[initial.result[0],initial.result[0]],initial.result.map(r=>({...r,job:'other'}))])assert.throws(()=>verifyImageDeliveryEvidence(results));
+ for(const key of ['receiptSha256','assetSha256','resultSha256'])assert.throws(()=>verifyImageDeliveryEvidence(initial.result.map(r=>({...r,[key]:null}))));
+ for(const patch of [{status:'failed'},{status:'outcome_unknown'},{debits:1},{billing_status:'finalized'},{user_id:'foreign'},{usage_attempt_id:'changed'},{error_code:'generation_asset_removed'},{asset_id:'different'},{attempt_count:12},{result_r2_key:'foreign'},{metadata_json:'{}'}])await assert.rejects(execute({rows:[{...fixtures[0].saved,...patch},fixtures[1].saved]}));
+ await assert.rejects(execute({inputs:[]}),/Both exact/);
+ await assert.rejects(execute({hidden:true}),/unfinished-asset guard/);
+ await assert.rejects(execute({reader:async key=>key.endsWith('provider-ai-0.json')?Buffer.from('changed'):object(key)}));
+ await assert.rejects(execute({reader:async key=>key.endsWith('input.json')?Buffer.from('changed'):object(key)}),/Recovery input changed/);
+ await assert.rejects(execute({reader:async key=>key===fixtures[1].saved.result_r2_key?object(fixtures[0].saved.result_r2_key):object(key)}));
+ await assert.rejects(execute({reader:async key=>key===fixtures[1].asset.r2_key?Buffer.from('wrong original'):object(key)}));
+ await assert.rejects(execute({current:async()=>{throw Error('Superseded');}}),/Superseded/);
+ const completedTargets=await capture(fixtures.map(f=>f.saved));assert.deepEqual(completedTargets.map(t=>t.attempts),[8,8]);
+ assert.equal((await execute({inputs:completedTargets})).pauses,0,'Already recovered replay must not await cron or change billing');
+ const partial=await capture([fixtures[0].saved,{...fixtures[1].saved,status:'processing'}]);assert.deepEqual(partial.map(t=>t.attempts),[8,8]);
+ // Completion after the next cron plus processing (beyond the old 180s) passes.
+ const delayed=await execute({resolveRows:elapsed=>fixtures.map((f,i)=>elapsed<(5*60_000+(i+1)*30_000)?f.base:f.saved)});
+ assert.equal(delayed.elapsed,6*60_000);assert.equal(delayed.result.length,2);
+ const lastAttempt=await execute({resolveRows:elapsed=>fixtures.map(f=>elapsed<IMAGE_DELIVERY_ACCEPTANCE_MS-10_000?f.base:f.saved)});
+ assert.equal(lastAttempt.elapsed,IMAGE_DELIVERY_ACCEPTANCE_MS-10_000);
+ await assert.rejects(execute({resolveRows:elapsed=>fixtures.map(f=>elapsed<=IMAGE_DELIVERY_ACCEPTANCE_MS?f.base:f.saved)}),/deadline/);
+ let terminalPauses=0;
+ await assert.rejects(verifyImageDeliveryRecovery(targets,{object,current:async()=>{},pause:async()=>{terminalPauses++;},query:async(sql,[id])=>[id===fixtures[0].base.id?fixtures[0].base:{...fixtures[1].base,status:'failed'}]}),/terminal/);
+ assert.equal(terminalPauses,0,'Terminal second job must fail while first is still pending');
+ console.log('Released image acceptance: BOTH exact incidents, authenticated input/result/original, terminal failure, 5-minute cron + processing, absolute deadline, owner/billing/replay and receipt completeness passed.');
 }

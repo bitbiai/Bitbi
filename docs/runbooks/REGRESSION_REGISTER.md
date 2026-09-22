@@ -617,3 +617,18 @@ backend publication captures eligible retained jobs before deployment and checks
 cron recovery afterward before allowing the frontend; it invokes no model.
 Local success is not hosted Linux or production acceptance. Private originals,
 receipt hashes, native failures and final reports remain outside the repository.
+
+Run 35725851650 stopped before Worker/browser acceptance because the Admin
+schema label still named 0094. Keep this label aligned with the release manifest
+(0095), and run both `test:doc-currentness` and **`check:doc-currentness`** on final
+source: fixture tests alone do not check the checkout. The release acceptance
+also accepted an empty sample and allowed only 180 seconds before a five-minute
+cron. It now requires both exact incident jobs and authenticated input, provider
+receipt, result and original bytes; empty, unrelated, duplicate or incomplete
+receipt evidence fails. Both jobs share a 39-minute maximum: one cron interval,
+three existing ten-minute processing deadlines, two one-minute retry delays and
+two minutes for storage/readback. Normal completion returns immediately; terminal
+failure of either job aborts promptly. `test:release-plan` exercises this actual
+helper with simulated time, missing/foreign evidence, no debit, partial recovery,
+supersession and a hard deadline. Production remains the existing protected
+backend job; this observer never dispatches work or modifies reservations.
