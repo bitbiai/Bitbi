@@ -1151,7 +1151,7 @@ test.describe('Bilingual locale pages', () => {
     await expect(overlay.locator('.models-overlay__category').filter({ hasText: 'BILDGENERIERUNG' })).toHaveCount(0);
     await expect(overlay.getByRole('button', { name: 'Close models' })).toBeVisible();
     await expect(
-      overlay.locator('.models-overlay__card').filter({ hasText: 'GPT Image 2' }).locator('.models-overlay__status'),
+      overlay.locator('.models-overlay__card').filter({ has: page.getByText('GPT Image 2', { exact: true }) }).locator('.models-overlay__status'),
     ).toHaveText('LIVE');
     let publicModelNames = await overlay.locator('.models-overlay__name').evaluateAll((nodes) => (
       nodes.map((node) => node.textContent?.trim() || '')

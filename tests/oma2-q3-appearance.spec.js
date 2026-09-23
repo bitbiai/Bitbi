@@ -244,6 +244,9 @@ for (const [locale, width] of [['en', 1440], ['de', 390]]) test.describe(`${loca
         const state = await setupAppearance(page, baseURL, { role: 'user', media: true, segments: { account: 'light' } });
         await page.goto(`${locale === 'de' ? '/de' : ''}/account/assets-manager.html`);
         await expect(page.locator('#studioViewShowAll')).toBeVisible();
+        // Visibility does not imply painted opacity: the card has a 700ms reveal.
+        // Settle its ancestor before starting the transient notice's lifetime.
+        await expect(page.locator('#studioSavedAssetsCard')).toHaveCSS('opacity', '1');
         await page.locator('#studioViewShowAll').click();
         const cards = page.locator('.studio__image-item--visual');
         await expect(cards).toHaveCount(3);

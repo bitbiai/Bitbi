@@ -59,6 +59,35 @@ auth-ordering fixture now serves the existing GET `/api/model-pricing`; the
 baseline failed on that missing fixture, and unexpected requests still fail.
 No Worker/schema change; Auth checkpoint remains `0095_retained_image_delivery.sql`.
 
+Release follow-up to failed run `35884833389/1` (320 passed, 17 failed): the seven
+pre-existing families remain recorded, not recertified. `test:homepage-core`
+now checks exact GPT Image 2 identity, registry-derived image membership, explicit
+H3/PixVerse selection and unchanged prices, localized available operations and
+background capabilities, and the full visible save failure/retry/success flow
+(one generation, identical save payload, retained preview and balance). P13 and
+mobile swipe fixtures serve legitimate appearance/pricing GETs; unexpected
+requests/writes and console errors still fail. Decorative video fallback remains
+its existing curated subset; Preview and H3 stay in the global member contract.
+The mixed preflight/help range selects homepage core, Assets and Auth acceptance;
+the informational help module does not select native homepage decoders. Selector
+tests retain registry/shared/unknown-input countercontrols and required proof jobs.
+Executing the previously skipped `test:auth` also exposed the same substring
+selectors in `auth-admin.spec.js` and obsolete Lab save-success assertions in
+the EN/DE P03 cases. Those use exact identity and visible workflow/handoff feedback;
+immutable Alpha/Beta saves, explicit retry, folder, focus and reopen checks remain.
+The first full Auth execution recorded 600 passed/74 failed: the same GET fixture
+omissions also affected Q3 media/workflows. Their exact GET replies now preserve
+unexpected-request/write checks. Four private-media shell cases omitted the
+existing independent `thumbnailBackend` from the fixture and expected payload;
+the corrected exact contract verifies that changing full-video service leaves
+the stored thumbnail service unchanged across reload. No service/runtime change.
+An unchanged appearance case also sampled a notice during its ancestor card's
+700ms reveal (ratio 1; an unchanged isolated rerun passed). It now waits for that
+ancestor to finish before triggering the transient notice; actual composited
+contrast still must meet 4.5:1, and the media/focus assertions are unchanged.
+Admin guide keyboard coverage now awaits the existing scheduled title focus on
+every reopen before pressing a destination; two missing waits raced that focus.
+
 Member generation previously completed within the browser HTTP request; image
 saving and missing video posters additionally depended on browser callbacks.
 Durable acceptance now uses the existing queue/cron, private provider/download

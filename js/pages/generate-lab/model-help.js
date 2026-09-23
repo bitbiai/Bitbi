@@ -15,6 +15,7 @@ export function renderWorkspaceModelHelp() {
     const root = element('div', 'help-menu__items');
     root.dataset.helpModels = '';
     const optionLabels = {
+        operation: copy('Available operation', 'Verfügbare Aktion'),
         quality: copy('Quality', 'Qualität'), size: copy('Requested size', 'Angeforderte Größe'),
         outputFormat: copy('File format', 'Dateiformat'), background: copy('Background', 'Hintergrund'),
         resolution: copy('Requested resolution', 'Angeforderte Auflösung'),
@@ -61,8 +62,11 @@ export function renderWorkspaceModelHelp() {
                         `Angeforderte Breite und Höhe: ${value.min}–${value.max} px; insgesamt höchstens ${value.maxPixels} Pixel.`,
                     ));
                 } else if (optionLabels[key]) {
-                    const values = Array.isArray(value) ? value.join(', ') : `${value.min}–${value.max}`;
-                    paragraph(`${optionLabels[key]}: ${values}.`);
+                    const operationLabels = { generate: copy('Generate', 'Generieren'), edit: copy('Edit', 'Bearbeiten'), extend: copy('Extend', 'Verlängern') };
+                    const values = Array.isArray(value) ? value.map(option => key === 'operation' ? operationLabels[option] || option : option).join(', ') : `${value.min}–${value.max}`;
+                    const detail = element('p', 'help-menu__item-detail', `${optionLabels[key]}: ${values}.`);
+                    detail.dataset.helpOption = key;
+                    body.append(detail);
                 }
             }
             if (controls.supportsSteps) paragraph(copy('Steps can be selected in the form.', 'Steps können im Formular gewählt werden.'));
@@ -70,7 +74,7 @@ export function renderWorkspaceModelHelp() {
             if (controls.supportsNegativePrompt) paragraph(copy('Optional negative prompt to describe unwanted content.', 'Optionaler negativer Prompt für unerwünschte Inhalte.'));
             if (controls.supportsAudioToggle) paragraph(copy('Generated audio can be enabled or disabled.', 'Generierter Ton kann ein- oder ausgeschaltet werden.'));
             if (controls.supportsWatermark) paragraph(copy('Optional watermark setting.', 'Optionale Wasserzeichen-Einstellung.'));
-            if (controls.supportsBackground) paragraph(copy('Transparent background is not supported by this model here.', 'Transparenter Hintergrund wird von diesem Modell hier nicht unterstützt.'));
+            if (controls.supportsBackground && !model.options?.background?.includes('transparent')) paragraph(copy('Transparent background is not supported by this model here.', 'Transparenter Hintergrund wird von diesem Modell hier nicht unterstützt.'));
             if (controls.maxPromptLength) paragraph(copy(`Model prompt limit: ${controls.maxPromptLength} characters; the form may impose a smaller limit.`, `Modell-Promptlimit: ${controls.maxPromptLength} Zeichen; das Formular kann eine kleinere Grenze setzen.`));
             if (mode.id === 'music') {
                 paragraph(copy('Optional manual lyrics, instrumental mode or generated lyrics. Instrumental mode disables lyrics; manual and generated lyrics are alternatives. No audio reference, duration or output-format selector is offered here.', 'Optionale eigene Lyrics, Instrumentalmodus oder generierte Lyrics. Der Instrumentalmodus deaktiviert Lyrics; eigene und generierte Lyrics sind Alternativen. Hier gibt es keine Audioreferenz-, Dauer- oder Ausgabeformatauswahl.'));

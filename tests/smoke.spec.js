@@ -2,6 +2,7 @@ const { test, expect, devices } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { DEFAULT_SEGMENTS } = require('../js/shared/appearance-contract.js');
 
 const MODELS_OVERLAY_PATHS = [
   '/legal/privacy.html',
@@ -4505,12 +4506,10 @@ test.describe('Homepage', () => {
     await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeVisible();
     await expect(page.locator('#labImageModel')).toHaveValue('@cf/black-forest-labs/flux-1-schnell');
     await expect(page.locator('#labModelList')).toBeHidden();
-    await expect(page.locator('#labImageModel option')).toHaveText([
-      'FLUX.1 Schnell',
-      'FLUX.2 Klein 9B',
-      'FLUX.2 Max',
-      'GPT Image 2',
-    ]);
+    const { getGenerateLabAiImageModelOptions } = await import('../js/shared/ai-image-models.mjs');
+    const imageModels = getGenerateLabAiImageModelOptions();
+    await expect(page.locator('#labImageModel option')).toHaveText(imageModels.map(model => model.label));
+    expect(await page.locator('#labImageModel option').evaluateAll(nodes => nodes.map(node => node.value))).toEqual(imageModels.map(model => model.id));
     await expectLabAccent('192, 38, 211', '0, 240, 255');
 
     await page.selectOption('#labImageModel', 'openai/gpt-image-2');
@@ -4590,6 +4589,9 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labModelList').getByText('Seedance 2.0 Fast')).toBeVisible();
     await expect(page.locator('#labModelList').getByText('Grok Imagine Video', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Describe your video')).toBeVisible();
+    await expect(page.locator('#labModelList [aria-pressed="true"]')).toContainText('MiniMax H3');
+    await expect(page.locator('#labCost')).toHaveText('262 credits');
+    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'PixVerse V6' }).click();
     await expect(page.locator('#labCost')).toHaveText('185 credits');
     await expect(page.getByText('Vidu Q3 Pro')).toHaveCount(0);
     await expect(page.getByText('Seedance 2.0', { exact: true })).toHaveCount(0);
@@ -4808,6 +4810,8 @@ test.describe('Homepage', () => {
   test('Generate Lab shows generation status, save retry guidance, and Assets Manager handoff', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 980 });
     let saveAttempts = 0;
+    const savePayloads = [];
+    let generationPosts = 0;
     let assetListRequests = 0;
     let releaseGenerateResponse;
     let markGenerateRequestStarted;
@@ -4851,6 +4855,8 @@ test.describe('Homepage', () => {
       });
     });
     await page.route('**/api/ai/generate-image', async (route) => {
+      expect(route.request().method()).toBe('POST');
+      generationPosts += 1;
       markGenerateRequestStarted();
       await generateResponseGate;
       await route.fulfill({
@@ -4868,6 +4874,8 @@ test.describe('Homepage', () => {
       });
     });
     await page.route('**/api/ai/images/save', async (route) => {
+      expect(route.request().method()).toBe('POST');
+      savePayloads.push(route.request().postDataJSON());
       saveAttempts += 1;
       if (saveAttempts === 1) {
         await route.fulfill({
@@ -4899,7 +4907,9 @@ test.describe('Homepage', () => {
 
     await expect(page.locator('#labResultStage .generate-lab__image-output')).toBeVisible();
     await expect(page.locator('#labWorkflowStatus')).toContainText('Preview ready');
-    await expect(page.locator('#labMessage')).toContainText('Image generated. Save it when you are ready.');
+    await expect(page.locator('#labWorkflowStatus')).toContainText('Save it to Assets Manager before leaving this page.');
+    await expect(page.locator('#labMessage')).toBeHidden();
+    const previewSrc = await page.locator('#labResultStage .generate-lab__image-output').getAttribute('src');
     await expect(page.locator('#labCostInsight')).toBeHidden();
     await expect(page.locator('#labBalance')).toContainText('399 credits');
     await expect(page.getByRole('button', { name: 'Save to Assets Manager' })).toBeVisible();
@@ -4907,12 +4917,20 @@ test.describe('Homepage', () => {
     await page.getByRole('button', { name: 'Save to Assets Manager' }).click();
     await expect(page.locator('#labWorkflowStatus')).toContainText('Needs attention');
     await expect(page.locator('#labMessage')).toContainText('preview is still available');
+    await expect(page.locator('#labResultStage .generate-lab__image-output')).toHaveAttribute('src', previewSrc);
+    await expect(page.locator('#labPrompt')).toHaveValue('Neon library archive');
+    expect(saveAttempts).toBe(1);
     await page.screenshot({ path: testInfo.outputPath('lab-save-recovery.png'), fullPage: true });
     await expect(page.getByRole('button', { name: 'Save to Assets Manager' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Save to Assets Manager' }).click();
     await expect(page.locator('#labWorkflowStatus')).toContainText('Saved to Assets Manager');
-    await expect(page.locator('#labMessage')).toContainText('Image saved');
+    await expect(page.locator('#labWorkflowStatus')).toContainText('Open Assets Manager to publish, move, rename, or organize the output.');
+    await expect(page.locator('#labMessage')).toBeHidden();
+    expect(saveAttempts).toBe(2);
+    expect(savePayloads[1]).toEqual(savePayloads[0]);
+    expect(generationPosts).toBe(1);
+    await expect(page.locator('#labBalance')).toContainText('399 credits');
     await expect(page.locator('#labJumpToPreview')).toHaveCount(0);
     await expect(page.locator('#labResultCreditsLink')).toHaveCount(0);
     const handoffLink = page.getByRole('link', { name: 'View in Assets Manager' });
@@ -6420,7 +6438,12 @@ test.describe('Homepage', () => {
     expect(ghostState.gallery.names).not.toContain('Music 2.6');
     expect(ghostState.video.hidden).toBe(false);
     expect(ghostState.video.source).toBe('category-config');
-    expect(ghostState.video.names).toEqual(['PixVerse V6', 'HappyHorse 1.0 T2V', 'Seedance 2.0 Fast', 'Grok Imagine Video', 'Grok Imagine Video 1.5 Preview']);
+    // Decorative fallback is a curated subset, not the member availability catalog.
+    expect(ghostState.video.names).toEqual(['PixVerse V6', 'HappyHorse 1.0 T2V', 'Seedance 2.0 Fast', 'Grok Imagine Video']);
+    const videoCatalog = (await getExpectedModelCatalog()).find(category => category.category === 'VIDEO GENERATION').models.map(model => model.name);
+    expect(videoCatalog).toContain('Grok Imagine Video 1.5 Preview');
+    expect(videoCatalog).toContain('MiniMax H3');
+    expect(ghostState.video.names.every(name => videoCatalog.includes(name))).toBe(true);
     expect(ghostState.video.names).not.toContain('FLUX.1 Schnell');
     expect(ghostState.video.names).not.toContain('GPT Image 2');
     expect(ghostState.video.names).not.toContain('Music 2.6');
@@ -8915,10 +8938,22 @@ test.describe('Homepage', () => {
     await page.locator('.video-modal-close').click();
   });
 
-  test('mobile Video category uses the same swipe deck interaction pattern as Gallery and Sound Lab', async ({ page }) => {
+  test('mobile Video category uses the same swipe deck interaction pattern as Gallery and Sound Lab', async ({ page, baseURL }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     const consoleErrors = [];
+    const unexpectedRequests = [];
+    await page.route('**/*', async route => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (url.origin !== new URL(baseURL).origin) return route.abort();
+      if (!url.pathname.startsWith('/api/')) return route.continue();
+      if (request.method() === 'GET' && url.pathname === '/api/appearance') return route.fulfill({ json: { ok: true, appearance: { version: 1, revision: 0, segments: DEFAULT_SEGMENTS, personalEnabled: false } } });
+      if (request.method() === 'GET' && url.pathname === '/api/model-pricing') return route.fulfill({ json: { ok: true, revision: 0, rules: {} } });
+      if (request.method() === 'GET' && url.pathname === '/api/gallery/memtracks') return route.fulfill({ json: { ok: true, data: { items: [] } } });
+      unexpectedRequests.push({ method: request.method(), pathname: url.pathname });
+      return route.fulfill({ status: 404, json: { error: 'Unexpected fixture request' } });
+    });
     page.on('console', (message) => {
       if (message.type() === 'error') {
         consoleErrors.push(message.text());
@@ -9022,6 +9057,11 @@ test.describe('Homepage', () => {
       });
     });
 
+    await page.route('**/api/**', async route => {
+      if (route.request().method() === 'GET') return route.fallback();
+      unexpectedRequests.push({ method: route.request().method(), pathname: new URL(route.request().url()).pathname });
+      return route.fulfill({ status: 405, json: { error: 'Unexpected fixture write' } });
+    });
     await page.goto('/');
     await expectActiveHomepageCategory(page, 'video');
 
@@ -9073,6 +9113,7 @@ test.describe('Homepage', () => {
       })
     ));
     expect(resetActiveIndex).toBe(0);
+    expect(unexpectedRequests).toEqual([]);
     expect(consoleErrors).toEqual([]);
   });
 
@@ -10192,9 +10233,15 @@ test.describe('Global Help Menu', () => {
             const entry = section.locator(`[data-help-model="${model.id}"]`);
             await expect(entry.locator('.help-menu__item-title')).toHaveText(model.displayName);
             await entry.locator('summary').click();
-            for (const value of Object.values(model.options || {})) {
-              for (const option of Array.isArray(value) ? value : Object.values(value)) await expect(entry).toContainText(String(option));
+            for (const [key, value] of Object.entries(model.options || {})) {
+              if (key === 'operation') {
+                const labels = locale === 'de' ? { generate: 'Generieren', edit: 'Bearbeiten', extend: 'Verlängern' } : { generate: 'Generate', edit: 'Edit', extend: 'Extend' };
+                await expect(entry.locator('[data-help-option="operation"]')).toHaveText(`${locale === 'de' ? 'Verfügbare Aktion' : 'Available operation'}: ${value.map(option => labels[option]).join(', ')}.`);
+              } else {
+                for (const option of Array.isArray(value) ? value : Object.values(value)) await expect(entry).toContainText(String(option));
+              }
             }
+            if (model.options?.background?.includes('transparent')) await expect(entry).not.toContainText(locale === 'de' ? 'Transparenter Hintergrund wird von diesem Modell hier nicht unterstützt.' : 'Transparent background is not supported by this model here.');
             if (model.controls?.supportsReferenceImages) await expect(entry).toContainText(String(model.controls.maxReferenceImages));
             await entry.locator('summary').click();
           }

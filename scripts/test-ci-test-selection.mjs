@@ -598,6 +598,33 @@ for (const [file, impact] of [
 ]) assert(selection([...generateLabUiFiles, file])[impact], file);
 assert.equal(selection(generateLabUiFiles, {forceFull: true}).full, true);
 
+// Mixed session-preflight + informational help correction: the entire unpublished
+// runtime range needs core, Assets and Auth proof, not native homepage decoders.
+const sessionPreflightFiles = [
+ 'js/pages/generate-lab/main.js', 'js/pages/generate-lab/model-help.js',
+ 'js/pages/index/studio.js', 'js/pages/index/soundlab-create.js', 'js/pages/index/video-create.js',
+ 'js/shared/auth-api.js', 'js/shared/locale.js', 'js/shared/member-generation-client.js',
+ 'tests/oma2-q1-member.spec.js', 'tests/oma2-q3-auth-lifecycle.spec.js',
+ 'tests/oma2-q3-media.spec.js', 'tests/oma2-q3-workflows.spec.js', 'tests/oma2-q3-shell.spec.js',
+ 'tests/oma2-q3-appearance.spec.js',
+ 'tests/oma2-q1-canvas.spec.js', 'tests/smoke.spec.js', 'tests/locale.spec.js', 'tests/auth-admin.spec.js',
+ 'scripts/lib/ci-test-selection.mjs', 'scripts/test-ci-test-selection.mjs',
+ 'docs/runbooks/REGRESSION_REGISTER.md',
+];
+const sessionPreflightSelection = selection(sessionPreflightFiles);
+assert.equal(sessionPreflightSelection.policy, 'impact-v1');
+for (const key of ['homepage', 'assets', 'auth', 'static', 'runtime']) assert.equal(sessionPreflightSelection[key], true, key);
+for (const key of ['homepageMedia', 'carousel', 'workers', 'full']) assert.equal(sessionPreflightSelection[key], false, key);
+assert.deepEqual(requiredJobs(sessionPreflightSelection)['browser-validation'], [
+ 'Run selected homepage core tests', 'Run selected Assets Manager tests', 'Run selected auth and admin tests',
+ 'Confirm tested browser candidate bytes',
+]);
+assert.equal(requiredJobs(sessionPreflightSelection)['homepage-webkit-media'], undefined);
+for (const file of ['js/pages/generate-lab/model-registry.js', 'js/pages/index/category-carousel.js', 'unknown-runtime.mjs']) {
+ const result = selection([...sessionPreflightFiles, file]);
+ assert(result.homepageMedia || result.full, `${file}: retain native/broad countercontrol`);
+}
+
 const workspaceFiles = ['generate-lab/index.html','de/generate-lab/index.html','css/pages/generate-lab.css',
  'js/pages/generate-lab/main.js','js/pages/generate-lab/model-help.js','js/shared/help-menu.js','js/shared/locale.js',
  'tests/smoke.spec.js','tests/locale.spec.js','playwright.workspace.config.js',

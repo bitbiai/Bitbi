@@ -83,6 +83,7 @@ const AUTH_FRONTEND_FILES = new Set([
 const GENERATE_LAB_UI_FILES = new Set([
   "generate-lab/index.html", "de/generate-lab/index.html",
   "css/pages/generate-lab.css", "js/pages/generate-lab/main.js",
+  "js/pages/generate-lab/model-help.js",
 ]);
 
 const CANVAS_UI_FILES = new Set([

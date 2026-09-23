@@ -150,6 +150,18 @@ function controls(page, surface) {
   };
 }
 
+async function expectSavedFeedback(page, surface, locale) {
+  const ui = controls(page, surface);
+  if (surface === 'lab') {
+    await expect(page.locator('#labWorkflowStatus')).toContainText(locale === 'de' ? 'Im Assets Manager gespeichert' : 'Saved to Assets Manager');
+    await expect(ui.message).toBeHidden();
+    await expect(ui.save).toHaveCount(0);
+    await expect(page.locator('#labResultStage .generate-lab__result-actions a')).toHaveAttribute('href', `${locale === 'de' ? '/de' : ''}/account/assets-manager.html?source=generate-lab&recent=1#generate-lab-recent`);
+  } else {
+    await expect(ui.message).toContainText(locale === 'de' ? 'Bild gespeichert' : 'Image saved');
+  }
+}
+
 async function openSurface(page, surface, locale) {
   const prefix = locale === 'de' ? '/de' : '';
   await page.goto(surface === 'lab' ? `${prefix}/generate-lab/` : `${prefix}/`);
@@ -245,7 +257,7 @@ for (const locale of ['en', 'de']) {
             await expect.poll(() => state.saves.length).toBe(beforeBeta + 1);
             expectSave(state.saves.at(-1), 1);
             expect(state.saves.at(-1)).not.toHaveProperty('imageData');
-            await expect(ui.message).toContainText(locale === 'de' ? 'Bild gespeichert' : 'Image saved');
+            await expectSavedFeedback(page, surface, locale);
             await noHorizontalOverflow(page);
           });
         }
@@ -282,7 +294,7 @@ for (const locale of ['en', 'de']) {
             expectSave(body, 0, { reference: false });
             expect(body.imageData).toBe(state.images[0]);
           }
-          await expect(ui.message).toContainText(locale === 'de' ? 'Bild gespeichert' : 'Image saved');
+          await expectSavedFeedback(page, surface, locale);
           if (surface === 'lab') {
             const recent = page.locator('#labRecentAssets [data-asset-id="q1-saved-0"]');
             await expect(recent).toBeVisible();

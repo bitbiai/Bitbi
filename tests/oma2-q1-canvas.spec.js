@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { DEFAULT_SEGMENTS } = require('../js/shared/appearance-contract.js');
 test.use({ viewport: { width: 1440, height: 1000 } });
 
 // Frontend-only fixture. Every API request is intercepted; remote resources
@@ -54,6 +55,8 @@ async function fixture(page, baseURL) {
     const method = request.method();
     const pathname = url.pathname;
     state.requests.push({ method, pathname });
+    if (method === 'GET' && pathname === '/api/appearance') return route.fulfill({ json: { ok: true, appearance: { version: 1, revision: 0, segments: DEFAULT_SEGMENTS, personalEnabled: false } } });
+    if (method === 'GET' && pathname === '/api/model-pricing') return route.fulfill({ json: { ok: true, revision: 0, rules: {} } });
     if (pathname === '/api/me') return route.fulfill({ json: { loggedIn: true, user: { id: 'synthetic-canvas-member', email: 'canvas@example.invalid', role: 'user' } } });
     if (pathname === '/api/wallet/status') return route.fulfill({ json: { ok: true, linked: false } });
     if (pathname === '/api/account/credits-dashboard') return fulfill(route, { dashboard: { balance: { totalCredits: 500 } } });

@@ -11446,7 +11446,7 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(overlay).toContainText('FLUX.1 Schnell');
     const fluxKleinCard = overlay.locator('.models-overlay__card').filter({ hasText: 'FLUX.2 Klein 9B' });
     await expect(fluxKleinCard.locator('.models-overlay__status')).toHaveText('LIVE');
-    const gptImageCard = overlay.locator('.models-overlay__card').filter({ hasText: 'GPT Image 2' });
+    const gptImageCard = overlay.locator('.models-overlay__card').filter({ has: page.getByText('GPT Image 2', { exact: true }) });
     await expect(gptImageCard.locator('.models-overlay__status')).toHaveText('LIVE');
     const musicCard = overlay.locator('.models-overlay__card').filter({ hasText: 'MiniMax Music 2.6' });
     await expect(musicCard.locator('.models-overlay__status')).toHaveText('LIVE');
@@ -11462,7 +11462,7 @@ test.describe('Assets Manager (authenticated)', () => {
     expect(publicModelNames).not.toContain('Seedance 2.0');
     const happyHorseCard = overlay.locator('.models-overlay__card').filter({ hasText: 'HappyHorse 1.0 T2V' });
     await expect(happyHorseCard.locator('.models-overlay__status')).toHaveText('LIVE');
-    const grokImagineVideoCard = overlay.locator('.models-overlay__card').filter({ hasText: 'Grok Imagine Video' });
+    const grokImagineVideoCard = overlay.locator('.models-overlay__card').filter({ has: page.getByText('Grok Imagine Video', { exact: true }) });
     await expect(grokImagineVideoCard.locator('.models-overlay__status')).toHaveText('LIVE');
     await expect(overlay.locator('.models-overlay__status--coming-soon')).toHaveCount(0);
     await expect(overlay.locator('.models-overlay__status').first()).toContainText('LIVE');

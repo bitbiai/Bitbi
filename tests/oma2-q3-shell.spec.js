@@ -257,11 +257,11 @@ for (const viewport of [{width:1440,height:900},{width:390,height:844}]) test.de
     await budget.getByRole('link',{name:'Platform caps',exact:true}).press('Enter');
     await ready(page,'sectionAiBudgetSwitches');await expect(page).toHaveURL(/#platform-budget-caps$/);
     await expect(page.locator('#platformBudgetCapsPanel')).toBeVisible();await expect(panel).toBeHidden();
-    await trigger.press('Enter');await budget.getByRole('link',{name:'Reconciliation',exact:true}).press('Enter');
+    await trigger.press('Enter');await expect(page.locator('#bitbiHelpTitle')).toBeFocused();await budget.getByRole('link',{name:'Reconciliation',exact:true}).press('Enter');
     await ready(page,'sectionAiBudgetSwitches');await expect(page).toHaveURL(/#budget-reconciliation$/);
     const reconciliation=page.locator('#platformBudgetReconciliationPanel');await expect(reconciliation).toHaveAttribute('open','');
     await reconciliation.locator(':scope > summary').click();await expect(reconciliation).not.toHaveAttribute('open','');
-    await trigger.press('Enter');await budget.getByRole('link',{name:'Reconciliation',exact:true}).press('Enter');
+    await trigger.press('Enter');await expect(page.locator('#bitbiHelpTitle')).toBeFocused();await budget.getByRole('link',{name:'Reconciliation',exact:true}).press('Enter');
     await expect(page).toHaveURL(/#budget-reconciliation$/);await expect(reconciliation).toHaveAttribute('open','');
     await expect(reconciliation).toBeFocused();await expect(panel).toBeHidden();
     await trigger.press('Enter');await expect(panel).toBeVisible();await page.keyboard.press('Escape');
@@ -324,15 +324,16 @@ for(const engine of ['chromium','webkit'])for(const locale of ['en','de'])test.d
   test('private media choice persists and readiness blocks unavailable backend',async({playwright,baseURL},info)=>{
     const browser=await playwright[engine].launch();const context=await browser.newContext({baseURL,viewport:locale==='de'?{width:390,height:844}:{width:1440,height:900},hasTouch:locale==='de'});const page=await context.newPage();
     try {
-    let backend='github',available=false;const mutations=[];
+    let backend='github',thumbnailBackend='github',available=false;const mutations=[];
     const state=await fixture(page,baseURL,request=>{
       if(new URL(request.url()).pathname!=='/api/admin/private-media/service')return null;
-      if(request.method()==='POST'){const payload=request.postDataJSON();mutations.push(payload);backend=payload.backend;}
-      return {status:200,body:{ok:true,data:{backend,services:{github:{state:'ready'},cloudflare:{state:available?'ready':'not_configured'}},dispatch:[]}}};
+      if(request.method()==='POST'){const payload=request.postDataJSON();mutations.push(payload);backend=payload.backend;thumbnailBackend=payload.thumbnailBackend;}
+      return {status:200,body:{ok:true,data:{backend,thumbnailBackend,services:{github:{state:'ready'},cloudflare:{state:available?'ready':'not_configured'}},dispatch:[]}}};
     });
     await page.goto(`/admin?lang=${locale}#operations`);await ready(page,'sectionOperations');
     const panel=page.locator('#privateMediaServicePanel'),select=page.locator('#privateMediaServiceSelect');
     await expect(select).toHaveValue('github');await expect(select.locator('[value="cloudflare"]')).toHaveJSProperty('disabled',true);
+    await expect(page.locator('#thumbnailMediaServiceSelect')).toHaveValue('github');
     await select.focus();await select.press('End');await expect(select).toHaveValue('github');
     expect(mutations).toEqual([]);available=true;await page.locator('#operationsRefresh').click();await expect(select.locator('[value="cloudflare"]')).toHaveJSProperty('disabled',false);
     await select.focus();await expect(select).toBeFocused();await select.selectOption('cloudflare');
@@ -340,10 +341,11 @@ for(const engine of ['chromium','webkit'])for(const locale of ['en','de'])test.d
     page.once('dialog',d=>d.accept());
     if(locale==='de')await page.locator('#privateMediaServiceSave').tap();else await page.locator('#privateMediaServiceSave').press('Enter');
     await expect(select).toHaveValue('cloudflare');await expect(page.locator('#privateMediaServiceReason')).toHaveValue('');
-    expect(mutations).toEqual([{backend:'cloudflare',reason:'Synthetic operator service choice'}]);
+    expect(mutations).toEqual([{backend:'cloudflare',thumbnailBackend:'github',reason:'Synthetic operator service choice'}]);
     await page.reload();await ready(page,'sectionOperations');await expect(select).toHaveValue('cloudflare');
+    await expect(page.locator('#thumbnailMediaServiceSelect')).toHaveValue('github');
     await info.attach('service-locale',{body:JSON.stringify({locale,url:page.url(),language:await page.locator('html').getAttribute('lang')}),contentType:'application/json'});
-    await expect(panel).toContainText(locale==='de'?'Bestehende Aufträge':'Existing jobs');
+    await expect(panel.locator('#privateMediaServiceScope')).toContainText(locale==='de'?'Angenommene Aufträge behalten ihren Service.':'Accepted jobs keep their assigned service.');
     expect(await panel.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true);
     await panel.screenshot({path:info.outputPath(`private-media-${engine}-${locale}.png`)});
     expect(state.unexpected).toEqual([]);expect(state.requests.some(p=>/^\/api\/(?:ai\/.*generate|canvas\/.*\/run)(?:$|\/)/.test(p))).toBe(false);

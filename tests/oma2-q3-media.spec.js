@@ -13,6 +13,7 @@ async function mount(page, baseURL, kind, handler) {
     if (url.origin !== origin) { unexpected.push(url.origin); return route.abort(); }
     if (url.pathname === '/q3-media-fixture.html') return route.fulfill({ contentType: 'text/html', body: '<!doctype html><html lang="en"><body><main><div id="objectStorageExplorer"></div><div id="newsFeedAgentAdmin"></div><section id="heroSection"><div id="homepageHeroVideosAdmin"></div></section></main></body></html>' });
     if (!url.pathname.startsWith('/api/')) return route.continue();
+    if (request.method() === 'GET' && url.pathname === '/api/model-pricing') return route.fulfill({ json: { ok: true, revision: 0, rules: {} } });
     const response = await handler(request, url);
     if (!response) { unexpected.push(request.method() + ' ' + url.pathname); return route.fulfill({ status: 503, contentType: 'application/json', body: '{"ok":false,"error":"Unconfigured synthetic route"}' }); }
     if (response.abort) return route.abort('failed');
