@@ -3,7 +3,7 @@ import { modelPricingRequestHeaders, refreshModelPricing, modelPricingSession } 
    BITBI — Auth API: pure fetch wrappers for auth endpoints
    ============================================================ */
 
-import { runMemberGeneration, observeMemberGeneration } from './member-generation-client.js?v=__ASSET_VERSION__';
+import { runMemberGeneration, observeMemberGeneration, beginGenerationSessionChange } from './member-generation-client.js?v=__ASSET_VERSION__';
 import { BITBI_GENERATION_TIMEOUT_MS } from './generation-timeout.mjs?v=__ASSET_VERSION__';
 
 const BASE = '/api';
@@ -84,6 +84,8 @@ function normalizeAssetStorageUsage(value) {
 
 async function request(method, path, body, options = {}) {
     const signalState = buildRequestSignal(options);
+    const endSessionChange = method==='POST' && ['/login','/logout','/wallet/siwe/verify','/reset-password'].includes(path)
+        ? beginGenerationSessionChange() : null;
     try {
         const opts = {
             method,
@@ -142,6 +144,7 @@ async function request(method, path, body, options = {}) {
         return { ok: false, error: 'Network error. Please try again.', code: 'network_error' };
     } finally {
         signalState.cleanup();
+        endSessionChange?.();
     }
 }
 

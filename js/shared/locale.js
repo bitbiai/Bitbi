@@ -13,6 +13,14 @@ export const SUPPORTED_LOCALES = Object.freeze(['en', 'de']);
 const STRINGS = Object.freeze({
     en: Object.freeze({
         generation: Object.freeze({
+            checkingSession: 'Verifying session',
+            checkingSessionCopy: 'Checking your session before submitting. A temporary failure will be retried once.',
+            sessionStopped: 'Generation not submitted',
+            sessionStoppedCopy: 'Session verification did not complete. Your prompt and settings are preserved.',
+            sessionUnavailable: 'Session verification is temporarily unavailable. No generation request was sent. Your prompt and settings are preserved. Select Generate to try again.',
+            sessionRequired: 'Your session could not be authorized. No generation request was sent. Sign in again, then select Generate. Your prompt and settings are preserved.',
+            sessionChanged: 'The session changed or verification was cancelled. No generation request was sent. Check the signed-in account before selecting Generate again.',
+            submissionBusy: 'Another generation submission is still in progress. Wait for its status before submitting again.',
             deliveryPending: 'Image generated – delivery pending',
             deliveryPendingCopy: 'The existing result is being retrieved and saved. No new image is being generated. You can close the tab.',
             deliveryFailed: 'Image generated – delivery failed',
@@ -1007,6 +1015,14 @@ const STRINGS = Object.freeze({
     }),
     de: Object.freeze({
         generation: Object.freeze({
+            checkingSession: 'Sitzung wird geprüft',
+            checkingSessionCopy: 'Ihre Sitzung wird vor dem Absenden geprüft. Bei einem vorübergehenden Fehler wird die Prüfung einmal wiederholt.',
+            sessionStopped: 'Generierung nicht abgesendet',
+            sessionStoppedCopy: 'Die Sitzungsprüfung wurde nicht abgeschlossen. Ihr Prompt und Ihre Einstellungen bleiben erhalten.',
+            sessionUnavailable: 'Die Sitzungsprüfung ist vorübergehend nicht verfügbar. Es wurde keine Generierungsanfrage gesendet. Ihr Prompt und Ihre Einstellungen bleiben erhalten. Wählen Sie Generieren, um es erneut zu versuchen.',
+            sessionRequired: 'Ihre Sitzung konnte nicht autorisiert werden. Es wurde keine Generierungsanfrage gesendet. Melden Sie sich erneut an und wählen Sie dann Generieren. Ihr Prompt und Ihre Einstellungen bleiben erhalten.',
+            sessionChanged: 'Die Sitzung hat sich geändert oder die Prüfung wurde abgebrochen. Es wurde keine Generierungsanfrage gesendet. Prüfen Sie das angemeldete Konto, bevor Sie erneut Generieren wählen.',
+            submissionBusy: 'Eine andere Generierungsanfrage läuft noch. Warten Sie auf deren Status, bevor Sie erneut absenden.',
             deliveryPending: 'Bild erzeugt – Zustellung ausstehend',
             deliveryPendingCopy: 'Das vorhandene Ergebnis wird abgerufen und gespeichert. Es wird kein neues Bild erzeugt. Sie können den Tab schließen.',
             deliveryFailed: 'Bild erzeugt – Zustellung fehlgeschlagen',

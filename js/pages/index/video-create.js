@@ -505,7 +505,7 @@ async function handleGenerate() {
     }
 
     if (!res.ok) {
-        renderPreviewEmpty(localeText('studio.videoGenerationFailed'));
+        renderPreviewEmpty(localeText(res.phase==='preflight'?'generation.sessionStopped':'studio.videoGenerationFailed'));
         scrollPreviewIntoViewOnMobile({ focus: true });
         showMsg($msg, res.error || localeText('studio.generationFailed'), res.pending ? 'info' : 'error');
         if (res.code === 'insufficient_member_credits' && creditBalance !== null) {

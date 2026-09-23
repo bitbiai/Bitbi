@@ -319,7 +319,7 @@ async function handleGenerate() {
     }
 
     if (!res.ok) {
-        renderPreviewEmpty(localeText('studio.musicGenerationFailed'));
+        renderPreviewEmpty(localeText(res.phase==='preflight'?'generation.sessionStopped':'studio.musicGenerationFailed'));
         showMsg($msg, res.error || localeText('studio.generationFailed'), res.pending ? 'info' : 'error');
         if (res.code === 'insufficient_member_credits' && creditBalance !== null) {
             renderQuota();

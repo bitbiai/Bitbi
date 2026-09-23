@@ -41,7 +41,7 @@ async function fixture(page, { loggedIn = true } = {}) {
   const state = {
     images, saved: [], generates: [], saves: [], checkouts: [], dashboardRequests: [], memberDashboardRequests: 0,
     onSave: null, onGenerate: null, onDashboard: null, onCheckout: null, onMemberDashboard: null,
-    references: true,
+    references: true, onMe: null,
   };
   await page.addInitScript(() => {
     localStorage.setItem('bitbi_cookie_consent', JSON.stringify({ v: '1', necessary: true, analytics: false, marketing: false }));
@@ -52,7 +52,10 @@ async function fixture(page, { loggedIn = true } = {}) {
     if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return route.abort('blockedbyclient');
     if (!url.pathname.startsWith('/api/')) return route.continue();
     const path = url.pathname;
-    if (path === '/api/me') return json(route, { loggedIn, user: loggedIn ? { id: 'q1-member', email: 'q1@example.invalid', role: 'user' } : null });
+    if (path === '/api/me') {
+      const result=await state.onMe?.();
+      return json(route, result?.body || { loggedIn, user: loggedIn ? { id: 'q1-member', email: 'q1@example.invalid', role: 'user' } : null },result?.status || 200);
+    }
     if (path === '/api/ai/quota') return json(route, { data: { creditBalance: 1000 } });
     if (path === '/api/ai/folders') return json(route, { data: { folders: [{ id: 'folder-a', name: 'Folder A' }, { id: 'folder-b', name: 'Folder B' }], counts: {}, unfolderedCount: state.saved.length } });
     if (path === '/api/ai/assets' || path === '/api/ai/images') return json(route, { data: { assets: state.saved, images: state.saved, has_more: false, next_cursor: null } });
@@ -545,6 +548,202 @@ for (const locale of ['en', 'de']) {
     });
   }
 }
+
+// Session preflight uses the real page, shared API and auth lifecycle with only
+// network fixtures. These cases run through test:auth in static.yml.
+const sessionFailure={status:500,body:{error:'D1 internal error; synthetic reference'}};
+async function preflightLab(page,language='en') {
+  await page.setViewportSize({width:1440,height:980});
+  const state=await fixture(page);
+  await openSurface(page,'lab',language);
+  await page.waitForFunction(async()=>(await import('/js/shared/auth-state.js')).getAuthState().ready);
+  await expect(page.locator('#labCreditStatus')).toContainText('1000');
+  const ui=controls(page,'lab');
+  await ui.model.selectOption('openai/gpt-image-2.5-sunburst');
+  await page.selectOption('#labImageQuality','max');
+  await page.selectOption('#labImageSize','1024x1024');
+  await page.selectOption('#labImageOutputFormat','png');
+  await page.selectOption('#labImageBackground','auto');
+  await ui.prompt.fill('Alpha private sunburst fixture');
+  return {state,ui};
+}
+async function preservedPreflightInputs(page,ui) {
+  await expect(ui.prompt).toHaveValue('Alpha private sunburst fixture');
+  await expect(ui.model).toHaveValue('openai/gpt-image-2.5-sunburst');
+  for(const [field,value] of Object.entries({Quality:'max',Size:'1024x1024',OutputFormat:'png',Background:'auto'}))
+    await expect(page.locator(`#labImage${field}`)).toHaveValue(value);
+}
+
+for(const language of ['en','de']) {
+  test(`session preflight ${language}: transient recovery submits once and preserves Sunburst settings`,async({page})=>{
+    const {state,ui}=await preflightLab(page,language);
+    const recovery=gate();let reads=0;
+    state.onMe=async()=>{reads++;if(reads===1)return sessionFailure;await recovery.promise;return null;};
+    await ui.generate.click();
+    await expect.poll(()=>reads).toBe(2);
+    expect(state.generates).toHaveLength(0);
+    await expect(ui.generate).toBeDisabled();
+    await expect(page.locator('#labWorkflowStatus')).toContainText(language==='de'?'Sitzung wird geprüft':'Verifying session');
+    // A synthetic repeated DOM click must not start another preflight or POST.
+    await ui.generate.dispatchEvent('click');
+    expect(reads).toBe(2);
+    recovery.release();
+    await expect(ui.image).toHaveAttribute('src',state.images[0]);
+    expect(state.generates).toHaveLength(1);
+    expect(state.generates[0]).toMatchObject({model:'openai/gpt-image-2.5-sunburst',quality:'max',size:'1024x1024',outputFormat:'png',background:'auto'});
+    await preservedPreflightInputs(page,ui);
+  });
+
+  test(`session preflight ${language}: persistent failure allows explicit recovery without losing inputs`,async({page})=>{
+    const {state,ui}=await preflightLab(page,language);let reads=0;
+    state.onMe=async()=>{reads++;return sessionFailure;};
+    await ui.generate.click();
+    await expect(ui.message).toContainText(language==='de'?'Sitzungsprüfung ist vorübergehend':'Session verification is temporarily');
+    await expect(ui.generate).toBeEnabled();
+    expect(reads).toBe(2);expect(state.generates).toHaveLength(0);
+    await expect(ui.message).not.toContainText('D1');
+    await expect(ui.message).not.toContainText(language==='de'?'Prüfen Sie Prompt':'Check the prompt');
+    await expect(ui.message).toHaveAttribute('role','status');
+    await preservedPreflightInputs(page,ui);
+    for(const width of [1024,390]){await page.setViewportSize({width,height:900});await noHorizontalOverflow(page);}
+    await page.setViewportSize({width:1440,height:980});
+    state.onMe=async()=>{reads++;return null;};
+    await ui.generate.focus();await page.keyboard.press('Enter');
+    await expect(ui.image).toHaveAttribute('src',state.images[0]);
+    expect(reads).toBe(3);expect(state.generates).toHaveLength(1);
+    await preservedPreflightInputs(page,ui);
+  });
+
+  for(const status of [401,403])test(`session preflight ${language}: ${status} requires sign-in without retry or POST`,async({page})=>{
+    const {state,ui}=await preflightLab(page,language);let reads=0;
+    state.onMe=async()=>{reads++;return {status,body:{error:'Denied'}};};
+    await ui.generate.click();
+    await expect(ui.message).toContainText(language==='de'?'Sitzung konnte nicht autorisiert':'session could not be authorized');
+    expect(reads).toBe(1);expect(state.generates).toHaveLength(0);
+    await preservedPreflightInputs(page,ui);
+    await ui.generate.click();
+    await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
+    expect(state.generates).toHaveLength(0);expect(reads).toBe(1);
+  });
+}
+
+for(const change of ['logout','account-switch'])test(`session preflight: delayed old identity after ${change} cannot submit`,async({page})=>{
+  const {state,ui}=await preflightLab(page);
+  const old=gate();let reads=0;
+  state.onMe=async()=>{reads++;if(reads===1){await old.promise;return null;}
+    return {body:change==='logout'?{loggedIn:false,user:null}:{loggedIn:true,user:{id:'q1-other',email:'other@example.invalid',role:'user'}}};};
+  await ui.generate.click();await expect.poll(()=>reads).toBe(1);
+  if(change==='logout') {
+    await page.route('**/api/logout',route=>json(route,{ok:true}));
+    await page.evaluate(async()=>{const api=await import('/js/shared/auth-api.js');await api.apiLogout();});
+  }
+  await page.evaluate(async()=>{await (await import('/js/shared/auth-state.js')).initAuth();});
+  old.release();
+  await expect(ui.generate).toBeEnabled();
+  await preservedPreflightInputs(page,ui);
+  await expect(page.locator('#labWorkflowStatus')).not.toContainText('Verifying session');
+  expect(state.generates).toHaveLength(0);
+  const auth=await page.evaluate(async()=>(await import('/js/shared/auth-state.js')).getAuthState());
+  expect(auth.user?.id || null).toBe(change==='logout'?null:'q1-other');
+  if(change==='account-switch') {
+    await expect(page.locator('#labAccountStatus')).toContainText('other@example.invalid');
+    await ui.generate.click();await expect(ui.image).toHaveAttribute('src',state.images[0]);
+    expect(state.generates).toHaveLength(1);
+  }
+});
+
+for(const kind of ['image','music','video'])test(`session preflight shared ${kind}: bounded network failure, lock and recovery`,async({page})=>{
+  await fixture(page);await page.goto('/');
+  await page.waitForFunction(async()=>(await import('/js/shared/auth-state.js')).getAuthState().ready);
+  let reads=0,posts=0;const held=gate();
+  await page.route('**/api/me',async route=>{reads++;if(reads===1)await held.promise;await route.abort('connectionreset');});
+  await page.route(`**/api/ai/generate-${kind}`,route=>{posts++;return json(route,{error:'Synthetic admission failure'},503);});
+  await page.evaluate(async kind=>{
+    const api=await import('/js/shared/auth-api.js');
+    window.preflightInvoke=()=>api[{image:'apiAiGenerateImage',music:'apiAiGenerateMusic',video:'apiAiGenerateVideo'}[kind]]({prompt:'Synthetic shared caller'}, {durable:true});
+    window.firstPreflight=window.preflightInvoke();
+  },kind);
+  await expect.poll(()=>reads).toBe(1);
+  expect((await page.evaluate(()=>window.preflightInvoke())).code).toBe('submissionBusy');
+  held.release();
+  expect((await page.evaluate(()=>window.firstPreflight)).code).toBe('sessionUnavailable');
+  expect(reads).toBe(2);expect(posts).toBe(0);
+  await page.unroute('**/api/me');
+  const result=await page.evaluate(()=>window.preflightInvoke());
+  expect(result.status).toBe(503);expect(result.phase).toBeUndefined();expect(posts).toBe(1);
+});
+
+test('session preflight: stalled reads time out twice and release the real Generate Lab controls',async({page})=>{
+  const {state,ui}=await preflightLab(page);const held=gate();let reads=0;
+  state.onMe=async()=>{reads++;await held.promise;return null;};
+  await ui.generate.click();
+  await expect(ui.message).toContainText('Session verification is temporarily unavailable',{timeout:14000});
+  await expect(ui.generate).toBeEnabled();
+  expect(reads).toBe(2);expect(state.generates).toHaveLength(0);
+  await preservedPreflightInputs(page,ui);held.release();
+});
+
+for(const response of [
+  {name:'guest',body:{loggedIn:false,user:null},code:'sessionRequired'},
+  {name:'malformed',body:{user:{id:'q1-member'}},code:'sessionUnavailable'},
+  {name:'different owner',body:{loggedIn:true,user:{id:'q1-other',role:'user'}},code:'sessionChanged'},
+  {name:'different role',body:{loggedIn:true,user:{id:'q1-member',role:'admin'}},code:'sessionChanged'},
+])test(`session preflight: ${response.name} cannot authorize a submission`,async({page})=>{
+  const {state,ui}=await preflightLab(page);let reads=0;
+  state.onMe=async()=>{reads++;return {body:response.body};};
+  await ui.generate.click();
+  await expect(page.locator('#labWorkflowStatus')).toContainText('Generation not submitted');
+  await expect(ui.generate).toBeEnabled();
+  expect(reads).toBe(1);expect(state.generates).toHaveLength(0);
+  await preservedPreflightInputs(page,ui);
+});
+
+for(const language of ['en','de'])for(const kind of ['image','music','video'])test(`session preflight homepage ${kind} ${language}: recover without losing the prompt`,async({page})=>{
+  await page.setViewportSize({width:1440,height:980});
+  const state=await fixture(page);
+  await openSurface(page,'home',language);
+  const selectors={image:['galStudioPrompt','galStudioGenerate','galStudioGenMsg','galStudioPreview'],
+    music:['soundMusicPrompt','soundMusicGenerate','soundMusicMsg','soundLabCreate'],
+    video:['videoPrompt','videoGenerate','videoMsg','videoCreate']}[kind];
+  if(kind!=='image') {
+    await page.locator(`#navbar [data-category-link="${kind==='music'?'sound':'video'}"]`).click();
+    await page.locator(kind==='music'?'[data-sound-mode="create"]':'[data-video-mode="create"]').click();
+  }
+  const [prompt,button,message,preview]=selectors.map(id=>page.locator(`#${id}`));
+  await expect(button).toBeEnabled();await prompt.fill('Preserved shared prompt');
+  let reads=0,posts=0;
+  state.onMe=async()=>{reads++;return sessionFailure;};
+  await page.route(`**/api/ai/generate-${kind}`,route=>{posts++;return json(route,{error:'Synthetic admission rejection'},503);});
+  await button.click();
+  await expect(message).toContainText(language==='de'?'Sitzungsprüfung ist vorübergehend':'Session verification is temporarily');
+  await expect(preview).toContainText(language==='de'?'Generierung nicht abgesendet':'Generation not submitted');
+  await expect(prompt).toHaveValue('Preserved shared prompt');
+  expect(reads).toBe(2);expect(posts).toBe(0);
+  state.onMe=async()=>{reads++;return null;};
+  await button.click();await expect(message).toContainText('Synthetic admission rejection');
+  expect(reads).toBe(3);expect(posts).toBe(1);
+});
+
+test('session preflight: late transport success after account switch is rejected even if abort is ignored',async({page})=>{
+  const {state,ui}=await preflightLab(page);
+  await page.evaluate(()=>{
+    const original=window.fetch;let first=true;
+    window.fetch=(input,options)=>{
+      if(first && String(input)==='/api/me') {
+        first=false;window.heldPreflight=true;
+        return new Promise(resolve=>{window.releasePreflight=()=>resolve(new Response(JSON.stringify({loggedIn:true,user:{id:'q1-member',role:'user'}}),{status:200,headers:{'Content-Type':'application/json'}}));});
+      }
+      return original(input,options);
+    };
+  });
+  await ui.generate.click();await page.waitForFunction(()=>window.heldPreflight);
+  state.onMe=async()=>({body:{loggedIn:true,user:{id:'q1-other',email:'other@example.invalid',role:'user'}}});
+  await page.evaluate(async()=>{await (await import('/js/shared/auth-state.js')).initAuth();window.releasePreflight();});
+  await expect(ui.generate).toBeEnabled();
+  expect(state.generates).toHaveLength(0);await preservedPreflightInputs(page,ui);
+  await expect(page.locator('#labWorkflowStatus')).toContainText('Generation not submitted');
+  await expect(page.locator('#labAccountStatus')).toContainText('other@example.invalid');
+});
 
 // Native queue/D1/R2 completion is exercised by member-generation.cases.js through workers.spec.js and
 // the normal isolated runtime entry. These cases verify the connected UI only.

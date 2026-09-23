@@ -134,6 +134,12 @@ async function stateFixture(page, baseURL, handle) {
     if (url.origin !== new URL(baseURL).origin) { unexpected.push(url.origin); return route.abort(); }
     if (url.pathname === '/q3-auth-state-fixture.html') return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Synthetic auth ordering</title>' });
     if (!url.pathname.startsWith('/api/')) return route.continue();
+    // The shared API initializes the existing retail tariff reader on this
+    // non-Admin fixture page. Permit only that known read; mutations and all
+    // other unconfigured endpoints still fail the unexpected-request assertion.
+    if (request.method()==='GET' && url.pathname==='/api/model-pricing') return route.fulfill({
+      contentType:'application/json',body:JSON.stringify({revision:0,rules:{}}),
+    });
     const response = await handle(request, url);
     if (!response) { unexpected.push(request.method() + ' ' + url.pathname); return route.abort(); }
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(response) });

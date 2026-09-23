@@ -42,6 +42,23 @@ Required callers below apply to their selected impact scope; the bounded `admin-
 
 ### Browser-bound member generation and missing video posters
 
+Session preflight (2026-09-23): a failed `/api/me` returned before admission but
+Generate Lab blamed prompt/model/credits. The D1 internal cause remains unproven.
+The durable client now permits two five-second session reads with one 400ms delay,
+fences identity/credential changes, and serializes submissions; no generation POST
+is retried. EN/DE session feedback preserves inputs and the existing preview.
+`test:auth` in `static.yml` executes `oma2-q1-member.spec.js` preflight cases through
+Generate Lab and homepage image/music/video callers: transient/persistent/timeout,
+401/403/guest/malformed identity, account switch/logout, non-cooperative late
+responses, concurrent clicks, zero unverified POSTs and one post-recovery POST.
+Existing durable cases retain accepted-job observation and opaque-key reuse.
+The baseline browser countercontrol reproduced both the missing retry and false
+advice; controlled fixtures do not prove a live D1 repair or paid inference.
+`test:q3-integration` also exercises shared auth/MFA/save/Compare. Its isolated
+auth-ordering fixture now serves the existing GET `/api/model-pricing`; the
+baseline failed on that missing fixture, and unexpected requests still fail.
+No Worker/schema change; Auth checkpoint remains `0095_retained_image_delivery.sql`.
+
 Member generation previously completed within the browser HTTP request; image
 saving and missing video posters additionally depended on browser callbacks.
 Durable acceptance now uses the existing queue/cron, private provider/download

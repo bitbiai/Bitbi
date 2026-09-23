@@ -59,6 +59,8 @@ const COVER_POLL_TIMEOUT_MS = 30000;
 const refs = {};
 let generationView=0,acceptedStatusActive=false;
 let restoredObservation=null;
+let sessionLoadVersion=0;
+let preflightActive=false;
 let assetsBrowser = null;
 let releaseAssetsOverlayFocus = null;
 let assetsOverlayReturnFocus = null;
@@ -353,6 +355,8 @@ function jobWorkflowStatus(job) {
 }
 
 const workflowStatusConfig = Object.freeze({
+    verifying: {title:'generation.checkingSession',copy:'generation.checkingSessionCopy',tone:'busy'},
+    preflightStopped: {title:'generation.sessionStopped',copy:'generation.sessionStoppedCopy',tone:'error'},
     deliveryPending:{title:'generation.deliveryPending',copy:'generation.deliveryPendingCopy',tone:'busy'},
     deliveryFailed:{title:'generation.deliveryFailed',copy:'generation.deliveryFailedCopy',tone:'error'},
     reconciling: {title:"generateLab.workflowReconcilingTitle",copy:"generateLab.workflowReconcilingCopy",tone:"busy"},
@@ -435,7 +439,7 @@ function setBusy(nextBusy, label = '') {
 
 function requireMember() {
     const authState = getAuthState();
-    if (state.loggedIn || authState.loggedIn) return true;
+    if (!state.sessionExpired && (state.loggedIn || authState.loggedIn)) return true;
     try {
         const expired = state.sessionExpired;
         openAuthModal(expired ? 'login' : 'register', {
@@ -2082,14 +2086,18 @@ async function handleGenerate() {
     let acceptedJob=null;
     const onProgress=job=>{if(run!==generationView)return;acceptedJob=job;setWorkflowStatus(jobWorkflowStatus(job),submitted.modelLabel);};
     acceptedStatusActive=false;
-    const observation={onAccepted:job=>{acceptedStatusActive=true;onProgress(job);},onProgress,isCurrent:()=>run===generationView};
-    setWorkflowStatus('generating');
-    setCurrentResultSummary('generating');
-    setBusy(true, state.mediaType === 'music' ? localeText('generateLab.generatingMusic') : state.mediaType === 'video' ? localeText('generateLab.generatingVideo') : localeText('generateLab.generatingImage'));
-    state.currentImageData = null;
-    state.currentImageMeta = null;
-    syncDetachedImageSaves();
-    renderLoadingResult('');
+    const observation={expectedOwner:state.user?.id,onAccepted:job=>{acceptedStatusActive=true;onProgress(job);},onProgress,isCurrent:()=>run===generationView,
+        onPreflight:phase=>{
+            if(run!==generationView || phase!=='verified')return;
+            preflightActive=false;
+            setWorkflowStatus('generating');
+            setBusy(true, state.mediaType === 'music' ? localeText('generateLab.generatingMusic') : state.mediaType === 'video' ? localeText('generateLab.generatingVideo') : localeText('generateLab.generatingImage'));
+            state.currentImageData=null;state.currentImageMeta=null;
+            syncDetachedImageSaves();renderLoadingResult('');
+        }};
+    preflightActive=true;
+    setWorkflowStatus('verifying');
+    setBusy(true,localeText('generation.checkingSession'));
 
     let res;
     try {
@@ -2100,6 +2108,7 @@ async function handleGenerate() {
         console.warn('Generate Lab generation failed:', error);
         res = acceptedJob ? {ok:false,pending:true,job:acceptedJob} : {ok:false,error:localeText('studio.generationFailed')};
     } finally {
+        preflightActive=false;
         setBusy(false);
     }
 
@@ -2108,6 +2117,11 @@ async function handleGenerate() {
     acceptedStatusActive=false;
     if(res?.job?.delivery_status==='failed'){setMessage('');setWorkflowStatus('deliveryFailed',submitted.modelLabel);return;}
     if (!res?.ok) {
+        if(res?.phase==='preflight') {
+            setMessage(res.error,'error');setWorkflowStatus('preflightStopped');
+            if(isAuthFailure(res)){state.sessionExpired=true;state.loggedIn=false;state.user=null;updateAccountPanel();}
+            return;
+        }
         renderEmptyResult();
         setMessage(res?.pending ? res.error : localeText('generateLab.generationFailedRetry', { error: h3ReferenceError(res?.code,document.documentElement.lang==='de') || res?.error || localeText('studio.generationFailed') }), res?.pending ? 'info' : 'error');
         setWorkflowStatus('attention');
@@ -2252,12 +2266,15 @@ async function loadQuota() {
 }
 
 async function loadSession() {
+    const version=++sessionLoadVersion;
     try {
         const res = await apiGetMe();
+        if(version!==sessionLoadVersion)return;
         state.loggedIn = res.ok && res.data?.loggedIn === true;
         state.user = state.loggedIn ? (res.data?.user || null) : null;
         state.sessionExpired = !state.loggedIn && isAuthFailure(res);
     } catch (error) {
+        if(version!==sessionLoadVersion)return;
         console.warn('Generate Lab session load failed:', error);
         state.loggedIn = false;
         state.user = null;
@@ -2449,10 +2466,15 @@ async function init() {
     void restoreGeneration().catch(() => { /* The retained status remains unconfirmed; no paid resubmission. */ });
 }
 
-document.addEventListener('bitbi:auth-change', () => {
+document.addEventListener('bitbi:auth-change', event => {
+    const next=event.detail;
+    if(state.loggedIn===next?.loggedIn && state.user?.id===next?.user?.id && state.user?.role===next?.user?.role)return;
+    sessionLoadVersion++;
+    generationView++;acceptedStatusActive=false;restoredObservation?.abort();
+    if(preflightActive){setMessage(localeText('generation.sessionChanged'),'error');setWorkflowStatus('preflightStopped');}
+    state.loggedIn=next?.loggedIn===true;state.user=next?.user || null;
     window.setTimeout(() => {
         installHeaderStatusPanel();
-        generationView++;acceptedStatusActive=false;restoredObservation?.abort();
         loadSession().then(()=>restoreGeneration()).catch((error) => console.warn('Generate Lab auth refresh failed:', error));
     }, 0);
 });

@@ -221,7 +221,7 @@ async function handleGenerate() {
     }
 
     if (!res.ok) {
-        $preview.innerHTML = `<div class="studio__preview-empty">${escapeHtml(localeText('studio.generationFailedTitle'))}</div>`;
+        $preview.innerHTML = `<div class="studio__preview-empty">${escapeHtml(localeText(res.phase==='preflight'?'generation.sessionStopped':'studio.generationFailedTitle'))}</div>`;
         showMsg($genMsg, res.error, res.pending ? 'info' : 'error');
         if (res.data?.code === 'insufficient_member_credits' && creditBalance !== null) {
             creditBalance = 0;
