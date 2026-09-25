@@ -557,6 +557,11 @@ REST/error/credential/response limits; native member-generation crosses workerd
 fetch with a stubbed external boundary and real queue/D1/R2/callback/settlement.
 Its catalog fixture now supplies GPT Image 2.5's required data URI, not bare
 base64; product image behavior is unchanged. Local checks are not provider access.
+Run 36144872253/1 stopped at one stale Canvas catalog count (111/112 passed):
+the September 22 GPT Image 2.5 addition made 27 models, not 25. The countercheck
+now asserts the independent exact ID list and both aliases' runnable state;
+all existing authorization/disabled-model assertions remain. The selected 112
+Worker checks pass locally; downstream skipped CI checks still require execution.
 The existing protected release job also accepts backend-only candidates without
 publishing unchanged frontend bytes; actual gate/failure/resume conditions are
 exercised by test-pages-candidate and the Auth-only plan by test-release-plan.

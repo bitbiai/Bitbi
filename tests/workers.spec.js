@@ -6190,7 +6190,37 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     const modulePath = pathToFileURL(path.join(process.cwd(), 'js/shared/canvas-model-contract.mjs')).href;
     const { listCanvasModels, getCanvasModel, getCanvasModelForRole, CANVAS_FABLE_MAX_OUTPUT_TOKENS } = await import(modulePath);
     const models = listCanvasModels();
-    expect(models.length).toBe(25);
+    // Independent membership oracle: GPT Image 2.5 added both runnable aliases.
+    // Exact IDs also reject duplicate/substituted models, not only a stale count.
+    expect(models.map(({ id }) => id).sort()).toEqual([
+      'xai/grok-4.6',
+      '@cf/meta/llama-3.1-8b-instruct-fast',
+      '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+      '@cf/google/gemma-4-26b-a4b-it',
+      'anthropic/claude-fable-5',
+      '@cf/openai/gpt-oss-20b',
+      '@cf/openai/gpt-oss-120b',
+      '@cf/black-forest-labs/flux-1-schnell',
+      '@cf/black-forest-labs/flux-2-klein-9b',
+      '@cf/black-forest-labs/flux-2-dev',
+      'openai/gpt-image-2',
+      'xai/grok-imagine-image-2.0',
+      'xai/grok-imagine-image',
+      'black-forest-labs/flux-2-max',
+      'openai/gpt-image-2.5-sunburst',
+      'openai/gpt-image-2.5-flare',
+      'minimax/h3',
+      'pixverse/v6',
+      'vidu/q3-pro',
+      'alibaba/hh1-t2v',
+      'bytedance/seedance-2.0-fast',
+      'bytedance/seedance-2.0',
+      'xai/grok-imagine-video',
+      'xai/grok-imagine-video-1.5-preview',
+      'minimax/music-2.6',
+      '@cf/baai/bge-m3',
+      '@cf/google/embeddinggemma-300m',
+    ].sort());
     for (const model of models) {
       expect(model).toEqual(expect.objectContaining({ id: expect.any(String), label: expect.any(String), capability: expect.any(String), canvasEnabled: true, runnable: expect.any(Boolean) }));
       expect(JSON.stringify(model).replace('requiresPlatformBudget', '')).not.toMatch(/secret|budget|evidence|adminOnly/i);
@@ -6200,6 +6230,8 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
       '@cf/black-forest-labs/flux-2-klein-9b',
       'black-forest-labs/flux-2-max',
       'openai/gpt-image-2',
+      'openai/gpt-image-2.5-sunburst',
+      'openai/gpt-image-2.5-flare',
       'pixverse/v6',
       'alibaba/hh1-t2v',
       'bytedance/seedance-2.0-fast',
