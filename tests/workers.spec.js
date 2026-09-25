@@ -54724,7 +54724,11 @@ test('Canvas MiniMax H3 rejection diagnostics preserve response identity without
       expect(init.method).toBe('POST');expect(init.redirect).toBe('manual');
       expect(init.headers.Authorization).toBe('Bearer synthetic-only');
       expect(init.headers['cf-aig-max-attempts']).toBe('1');
-      expect(JSON.parse(init.body)).toEqual({model:'minimax/h3',input:{},options:{gateway:{id:'default',collectLog:false,skipCache:true,metadata:{bitbi_dispatch:correlation}}}});
+      expect(init.headers['cf-aig-gateway-id']).toBe('default');
+      expect(init.headers['cf-aig-skip-cache']).toBe('true');
+      expect(init.headers['cf-aig-collect-log']).toBe('false');
+      expect(JSON.parse(init.headers['cf-aig-metadata'])).toEqual({bitbi_dispatch:correlation});
+      expect(JSON.parse(init.body)).toEqual({model:'minimax/h3',input:{}});
       return Response.json(body,{status,headers:{'cf-ai-req-id':'synthetic-response-123','cf-aig-log-id':'synthetic-gateway-123'}});
     });
     const error=await callH3Provider(env,'minimax/h3',{}, {gateway:{id:'default'}},correlation).catch(e=>e);

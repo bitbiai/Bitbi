@@ -32,8 +32,9 @@ export async function canvasVideoCase(base, name, fixture) {
         check(init.method==='POST' && init.redirect==='manual','Canvas H3 fixed REST method and redirect refusal');
         check(init.headers.Authorization===`Bearer ${env.H3_CLOUDFLARE_API_TOKEN}` && init.headers['cf-aig-max-attempts']==='1','Canvas H3 credential and single attempt');
         const {model,input:body,options,...extra}=JSON.parse(init.body);
-        check(model==='minimax/h3' && !Object.keys(extra).length && Object.keys(options).join()==='gateway','Canvas H3 exact REST envelope');
-        check(options.gateway.id==='default' && options.gateway.collectLog===false && options.gateway.skipCache===true && /^[a-f0-9]{32}$/.test(options.gateway.metadata.bitbi_dispatch),'Canvas H3 private Gateway and dispatch correlation');
+        check(model==='minimax/h3' && !Object.keys(extra).length && options===undefined,'Canvas H3 exact REST envelope');
+        const headers=new Headers(init.headers);
+        check(options===undefined && headers.get('cf-aig-gateway-id')==='default' && headers.get('cf-aig-collect-log')==='false' && headers.get('cf-aig-skip-cache')==='true' && /^[a-f0-9]{32}$/.test(JSON.parse(headers.get('cf-aig-metadata')).bitbi_dispatch),'Canvas H3 REST private Gateway and dispatch correlation');
         requests.push({model,body});
         const content=body.content.filter(item=>item.type!=='text');
         check(JSON.stringify(content.map(item=>item.role))===JSON.stringify(continuation?['first_frame','last_frame']:['reference_video']),'H3 exact ordered roles; final decoded image is the START frame');

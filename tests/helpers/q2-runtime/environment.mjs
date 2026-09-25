@@ -144,8 +144,11 @@ export async function createRuntime(build, name, { restricted = false, reference
     assert(caseName,'Synthetic H3 credential required');
     assert.equal(request.headers.get('cf-aig-max-attempts'),'1');
     const {model,input,options}=await request.json();
-    assert.equal(model,'minimax/h3');assert.equal(options.gateway.id,'default');
-    assert.equal(options.gateway.collectLog,false);assert.equal(options.gateway.skipCache,true);
+    assert.equal(model,'minimax/h3');assert.equal(options,undefined,'No binding options in REST body');
+    assert.equal(request.headers.get('cf-aig-gateway-id'),'default');
+    assert.equal(request.headers.get('cf-aig-collect-log'),'false');
+    assert.equal(request.headers.get('cf-aig-skip-cache'),'true');
+    assert.match(JSON.parse(request.headers.get('cf-aig-metadata')).bitbi_dispatch,/^[a-f0-9]{32}$/);
     if(caseName.startsWith('h3-rejection-'))return Response.json({errors:[{code:caseName==='h3-rejection-unknown'?7003:3003,message:'Invalid input: private prompt https://bitbi.ai/api/internal/ai/media-source/secret-token'}]},{status:400,headers:{'cf-ai-req-id':'synthetic-request-123','cf-aig-log-id':'synthetic-gateway-123'}});
     return Response.json({success:true,result:{state:'Completed',result:{task:{id:'synthetic-h3-'+caseName,model:'MiniMax-H3',status:caseName.startsWith('h3-callback')?'queued':caseName==='h3-failed'?'failed':'succeeded',resolution:input.resolution,duration:input.duration,content:{url:caseName.startsWith('canvas-')?'https://fixture.invalid/result.mp4':'https://fixture.invalid/member.mp4'},usage:{output_seconds:caseName==='h3-output-usage'||caseName.startsWith('canvas-')?4:input.duration,input_seconds:99,total_seconds:104}}}}});
   };

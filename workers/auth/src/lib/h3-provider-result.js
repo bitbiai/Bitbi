@@ -46,11 +46,13 @@ export async function callH3Provider(env, model, payload, options, correlationId
     // not forward binding-only options or credentials to the model input.
     response = await (env.__TEST_FETCH || fetch)(`https://api.cloudflare.com/client/v4/accounts/${account}/ai/run`, {
       method: 'POST', redirect: 'manual', signal: options?.signal,
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'cf-aig-max-attempts': '1' },
-      body: JSON.stringify({ model, input: payload, options: { gateway: {
-        id: 'default', skipCache: true, collectLog: false,
-        metadata: { ...options?.gateway?.metadata, bitbi_dispatch: correlationId },
-      } } }),
+      // REST Gateway controls are headers, not the binding's options.gateway.
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json',
+        'cf-aig-gateway-id': 'default', 'cf-aig-skip-cache': 'true',
+        'cf-aig-collect-log': 'false', 'cf-aig-max-attempts': '1',
+        'cf-aig-metadata': JSON.stringify({ ...options?.gateway?.metadata, bitbi_dispatch: correlationId }),
+      },
+      body: JSON.stringify({ model, input: payload }),
     });
   } catch (error) {
     // No response-local proof of rejection: retain the no-replay fence.

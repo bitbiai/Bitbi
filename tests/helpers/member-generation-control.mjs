@@ -50,8 +50,9 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
         check(url===`https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/ai/run` && init.method==='POST' && init.redirect==='manual','H3 fixed REST target and no redirect');
         check(init.headers.Authorization===`Bearer synthetic-h3-${name}-not-live`,'H3 scoped runtime credential');
         const {model,input:payload,options,...extra}=JSON.parse(init.body);
-        check(model==='minimax/h3' && Object.keys(extra).length===0 && Object.keys(options).join()==='gateway','H3 exact REST envelope');
-        check(options.gateway.id==='default' && options.gateway.skipCache===true && options.gateway.collectLog===false && /^[a-f0-9]{32}$/.test(options.gateway.metadata.bitbi_dispatch),'H3 private uncached Gateway and dispatch identity');
+        check(model==='minimax/h3' && Object.keys(extra).length===0 && options===undefined,'H3 exact REST envelope');
+        const headers=new Headers(init.headers);
+        check(options===undefined && headers.get('cf-aig-gateway-id')==='default' && headers.get('cf-aig-skip-cache')==='true' && headers.get('cf-aig-collect-log')==='false' && /^[a-f0-9]{32}$/.test(JSON.parse(headers.get('cf-aig-metadata')).bitbi_dispatch),'H3 REST private uncached Gateway and dispatch identity');
         await duringProvider(model,payload);
         return globalThis.fetch(url,init);
       }

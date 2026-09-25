@@ -573,6 +573,17 @@ exercised by test-pages-candidate and the Auth-only plan by test-release-plan.
 Private execution/release evidence remains in diagnostic-20260923; publication
 and one fresh live acceptance must be recorded independently, not inferred here.
 
+Run36148344096/1 subsequently passed and published Auth only. Its single authorized
+live REST submission still returned400/7003; no task/output, reservation not debit.
+That is not a binding-root-cause or provider non-billing finding. Separately, REST
+Gateway controls must use `cf-aig-*` headers, not binding `options.gateway` in the
+body: the time-correlated Gateway record had null metadata and retained a request
+head. Corrected default Gateway, skip-cache, collect-log and metadata headers;
+single attempt/model callback/input remain unchanged. Unit and both native caller
+fixtures assert the actual wire headers and exact model/input-only envelope.
+Do not claim no payload logging for the first live REST candidate, or replay its
+uncertain job to test the correction. Prior media/edge findings remain unchanged.
+
 The durable video wrapper erased every thrown provider cause; the late-error handler also reported failure without proving non-acceptance. H3 now reads response-local Cloudflare request/Gateway IDs with content logging disabled, retains only allowlisted diagnostics, and records a terminal rejection only for documented pre-inference validation codes. HTTP 400 alone remains unknown. The existing receipt CAS fences racing callbacks; replay settles the same reservation without another inference. Failed settlement stays reconciliation, and Canvas reports released credits only after the owned usage row confirms it, including reload. The historical 06:33/06:43 jobs remain untouched: Gateway request/response bodies are unavailable and no independent correlation proves their 400 cause. This correction is not evidence that that live reference failure is repaired.
 
 Actual callers: selected Worker `Canvas MiniMax H3 rejection diagnostics`; native `--suite member-generation` known/unknown rejection, callback race, settlement retry, private status and replay controls; existing `Canvas durable video status` EN/DE in Chromium/WebKit. Selection keeps the existing Canvas/model path and rejects unknown/security neighbors; unchanged container bytes do not require another media image. No schema/provider/pricing change.
