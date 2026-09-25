@@ -214,6 +214,19 @@ const validationOnly={...normal,needs:{...normal.needs,'release-compatibility':{
 assert.equal(permits('deploy',{...normal,needs:{...normal.needs,'release-compatibility':{result:'success',outputs:{}}}}),false);
 assert.equal(permits('deploy',validationOnly),false,'Validation-only run must not acquire the production write lock');
 assert.equal(permits('release-compatibility',normal),true);assert.equal(permits('reuse-candidate',normal),false);assert.equal(permits('deploy',normal),true);
+const backendOnly={...normal,needs:{...normal.needs,'release-compatibility':{...normal.needs['release-compatibility'],outputs:{...normal.needs['release-compatibility'].outputs,pages_allowed:'false',pages_required:'false',backend_continuation:'true'}}}};
+assert.equal(permits('deploy',backendOnly),true,'Changed backend must enter the existing protected publication job without an unnecessary frontend deployment');
+for(const name of Object.keys(REQUIRED_JOBS))for(const result of ['failure','skipped','cancelled'])assert.equal(permits('deploy',{...backendOnly,needs:{...backendOnly.needs,[name]:{...backendOnly.needs[name],result}}}),false,'Backend-only publication preserves selected acceptance');
+assert.equal(permits('deploy',{...backendOnly,github:{...backendOnly.github,event:{inputs:{validation_only:'true'}}}}),false);
+const prepareCondition=block('deploy').split('- name: Prepare deployment')[1].match(/\n        if: (.+)/)[1];
+const preparesFrontend=(event,required,reused=false)=>vm.runInNewContext(prepareCondition.replace(/needs\.([\w-]+)/g,(_,key)=>`needs[${JSON.stringify(key)}]`),{
+  success:()=>true,github:{event_name:event},needs:{'release-compatibility':{outputs:{backend_continuation:reused?'':'true'}},'reuse-candidate':{outputs:{backend_continuation:reused?'true':''}}},
+  steps:{static_safety:{outcome:'success',outputs:{static_deploy_allowed:'true',static_deploy_skipped:'false',static_deploy_required:required?'true':'false'}}},
+});
+for(const event of ['push','workflow_dispatch'])for(const reused of [false,true]){
+  assert.equal(preparesFrontend(event,false,reused),false,'Backend-only continuation must not republish unchanged frontend');
+  assert.equal(preparesFrontend(event,true,reused),true,'Mixed continuation must still publish its tested frontend');
+}
 for(const name of Object.keys(REQUIRED_JOBS))assert.equal(permits('deploy',{...normal,needs:{...normal.needs,[name]:{...normal.needs[name],result:'failure'}}}),false);
 assert(!/^concurrency:/m.test(workflow));assert(block('deploy').includes('group: "pages"'));
 assert(block('browser-validation').includes('needs: [release-compatibility, homepage-validation, homepage-webkit-media, worker-validation]'));

@@ -544,6 +544,25 @@ Run35537162806 exposed inherited `REPAIR_SOURCE_SHA` in the candidate test's tem
 
 ### H3 rejected versus uncertain dispatch (2026-09-21)
 
+2026-09-25 REST workaround: Cloudflare support recommends REST after the retained
+official input succeeded directly (task 444983054504211) but failed in BITBI
+(dispatch ae92d9fd0945a07bab3291db88d83d1c, 400/7003). Source URL, callback and
+transport differed; a binding defect and provider non-billing remain unproven.
+The durable member/Canvas caller now uses account-scoped Workers AI Read REST,
+normalizes the retained double result envelope, and preserves the model callback,
+source lifetime, task identity and credit guards. No fallback/retry after ambiguity.
+Native fetch uses manual redirects with explicit refusal, as required by the
+retained HTTPS-delivery lesson below. Existing selected Worker H3 checks cover
+REST/error/credential/response limits; native member-generation crosses workerd
+fetch with a stubbed external boundary and real queue/D1/R2/callback/settlement.
+Its catalog fixture now supplies GPT Image 2.5's required data URI, not bare
+base64; product image behavior is unchanged. Local checks are not provider access.
+The existing protected release job also accepts backend-only candidates without
+publishing unchanged frontend bytes; actual gate/failure/resume conditions are
+exercised by test-pages-candidate and the Auth-only plan by test-release-plan.
+Private execution/release evidence remains in diagnostic-20260923; publication
+and one fresh live acceptance must be recorded independently, not inferred here.
+
 The durable video wrapper erased every thrown provider cause; the late-error handler also reported failure without proving non-acceptance. H3 now reads response-local Cloudflare request/Gateway IDs with content logging disabled, retains only allowlisted diagnostics, and records a terminal rejection only for documented pre-inference validation codes. HTTP 400 alone remains unknown. The existing receipt CAS fences racing callbacks; replay settles the same reservation without another inference. Failed settlement stays reconciliation, and Canvas reports released credits only after the owned usage row confirms it, including reload. The historical 06:33/06:43 jobs remain untouched: Gateway request/response bodies are unavailable and no independent correlation proves their 400 cause. This correction is not evidence that that live reference failure is repaired.
 
 Actual callers: selected Worker `Canvas MiniMax H3 rejection diagnostics`; native `--suite member-generation` known/unknown rejection, callback race, settlement retry, private status and replay controls; existing `Canvas durable video status` EN/DE in Chromium/WebKit. Selection keeps the existing Canvas/model path and rejects unknown/security neighbors; unchanged container bytes do not require another media image. No schema/provider/pricing change.

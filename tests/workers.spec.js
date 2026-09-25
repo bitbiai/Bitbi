@@ -54672,33 +54672,56 @@ test('Canvas MiniMax H3 task completion uses its own output and usage, never a G
 test('Canvas MiniMax H3 rejection diagnostics preserve response identity without promoting bare errors to certainty', async()=>{
   const {callH3Provider,h3Diagnostic,h3Failure,recordVideoLateError}=await import('../workers/auth/src/lib/h3-provider-result.js');
   const correlation='synthetic-dispatch-123';
+  const environment=fetcher=>({CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),H3_CLOUDFLARE_API_TOKEN:'synthetic-only',__TEST_FETCH:fetcher,
+    AI:{run(){throw new Error('H3 must not use binding fallback');}}});
   const cases=[
     [400,{errors:[{code:3003,message:'Missing required body: PRIVATE_PROMPT https://private.invalid/SECRET'}]},true],
     [400,{errors:[{code:9999,message:'Callback verification failed at https://private.invalid/SECRET'}]},false],
     [400,{error:'PRIVATE_PROMPT'},false],
     [500,{errors:[{code:3003,message:'Missing required body'}]},false],
     [400,{errors:[{code:3003,message:'Missing required body'}],task:{id:'accepted'}},false],
+    [400,{errors:[{code:7003,message:'Error'}]},false],
+    [401,{errors:[{code:10000,message:'Authentication error'}]},false],
+    [403,{errors:[{code:10000,message:'Forbidden'}]},false],
+    [400,{errors:[{code:3003}],result:{result:{task:{id:'accepted'}}}},false],
   ];
   for(const [status,body,known] of cases) {
     let calls=0;
-    const ai={run:async(model,input,options)=>{
-      calls++;expect(options.returnRawResponse).toBe(true);
-      expect(options.gateway).toMatchObject({collectLog:false,skipCache:true,metadata:{bitbi_dispatch:correlation}});
+    const env=environment(async(url,init)=>{
+      calls++;expect(url).toBe(`https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/ai/run`);
+      expect(init.method).toBe('POST');expect(init.redirect).toBe('manual');
+      expect(init.headers.Authorization).toBe('Bearer synthetic-only');
+      expect(init.headers['cf-aig-max-attempts']).toBe('1');
+      expect(JSON.parse(init.body)).toEqual({model:'minimax/h3',input:{},options:{gateway:{id:'default',collectLog:false,skipCache:true,metadata:{bitbi_dispatch:correlation}}}});
       return Response.json(body,{status,headers:{'cf-ai-req-id':'synthetic-response-123','cf-aig-log-id':'synthetic-gateway-123'}});
-    }};
-    const error=await callH3Provider(ai,'minimax/h3',{}, {gateway:{id:'default'}},correlation).catch(e=>e);
+    });
+    const error=await callH3Provider(env,'minimax/h3',{}, {gateway:{id:'default'}},correlation).catch(e=>e);
     expect(error.code).toBe('generation_provider_call_outcome_unknown'); // Not durable yet.
     expect(error.confirmedRejection).toBe(false);
     expect(error.providerDiagnostic).toMatchObject({noInference:known,requestId:'synthetic-response-123',gatewayId:'synthetic-gateway-123',correlationId:correlation});
     expect(JSON.stringify(error)).not.toMatch(/SECRET|PRIVATE_PROMPT|private\.invalid/);
     expect(calls).toBe(1);
   }
-  const transport=await callH3Provider({run:async()=>{throw Object.assign(new Error('3003: missing required'),{status:400});}},'minimax/h3',{}, {},correlation).catch(e=>e);
+  const transport=await callH3Provider(environment(async()=>{throw Object.assign(new Error('3003: missing required'),{status:400});}),'minimax/h3',{}, {},correlation).catch(e=>e);
   expect(transport.providerDiagnostic.noInference).toBe(false);
   expect(h3Diagnostic({code:3003,message:'Missing required'},{status:400}).noInference).toBe(true);
   const task={task:{id:'accepted',model:'MiniMax-H3',status:'queued'}};
-  expect(await callH3Provider({run:async()=>Response.json(task)},'minimax/h3',{}, {},correlation)).toEqual(task);
-  expect(await callH3Provider({run:async()=>Response.json({success:true,result:task})},'minimax/h3',{}, {},correlation)).toEqual(task);
+  for(const body of [task,{success:true,result:task},{success:true,result:{state:'Completed',result:task}}]) {
+    expect(await callH3Provider(environment(async()=>Response.json(body)),'minimax/h3',{}, {},correlation)).toEqual(task);
+  }
+  for(const response of [new Response('not json'),new Response('x'.repeat(131073)),Response.json({success:true,result:{state:'Failed',error:{code:7003}}}),Response.json({success:false,errors:[{code:7003}]}),new Response(null,{status:302,headers:{Location:'https://private.invalid/SECRET'}})]) {
+    let calls=0;
+    const error=await callH3Provider(environment(async()=>{calls++;return response;}),'minimax/h3',{}, {},correlation).catch(e=>e);
+    expect(error.code).toBe('generation_provider_call_outcome_unknown');expect(calls).toBe(1);
+  }
+  for(const overrides of [{H3_CLOUDFLARE_API_TOKEN:''},{CLOUDFLARE_ACCOUNT_ID:'../other-account'}]) {
+    let calls=0;
+    const error=await callH3Provider({...environment(async()=>{calls++;}),...overrides},'minimax/h3',{}, {},correlation).catch(e=>e);
+    expect(error.code).toBe('generation_provider_call_outcome_unknown');expect(calls).toBe(0);
+  }
+  const signal=new AbortController().signal;
+  const input={content:[{type:'video_url',role:'reference_video',video_url:{url:'https://fixture.invalid/private-source'}}],callback_url:'https://fixture.invalid/private-callback',duration:4,resolution:'768P',ratio:'16:9'};
+  await callH3Provider(environment(async(url,init)=>{expect(init.signal).toBe(signal);expect(JSON.parse(init.body).input).toEqual(input);return Response.json({success:true,result:{state:'Completed',result:task}});}), 'minimax/h3',input,{signal,returnRawResponse:true},correlation);
   const {runWithGenerationTimeout}=await import('../workers/auth/src/lib/generation-timeout.js');
   for(const durable of [false,true]) {
     const controller=new AbortController();let rejectProvider,started,completed;

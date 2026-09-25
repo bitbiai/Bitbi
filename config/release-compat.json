@@ -36,12 +36,13 @@
       "auth": {
         "name": "bitbi-auth",
         "wranglerPath": "workers/auth/wrangler.jsonc",
-        "vars": ["APP_BASE_URL", "APP_ALLOWED_ORIGINS", "RESEND_FROM_EMAIL", "BITBI_ENV", "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET", "ENABLE_GROK_4_6"],
+        "vars": ["APP_BASE_URL", "APP_ALLOWED_ORIGINS", "RESEND_FROM_EMAIL", "BITBI_ENV", "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET", "ENABLE_GROK_4_6", "CLOUDFLARE_ACCOUNT_ID"],
         "expectedVars": {
           "APP_BASE_URL": "https://bitbi.ai",
           "APP_ALLOWED_ORIGINS": "https://bitbi.ai,https://van-ark.com",
           "RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>",
           "BITBI_ENV": "production",
+          "CLOUDFLARE_ACCOUNT_ID": "37b7a2153840c4f1623b9fc39a2680f8",
           "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET": "true",
           "ENABLE_GROK_4_6": "true"
         },
@@ -392,6 +393,15 @@
       ]
     },
     "manualPrerequisites": [
+      {
+        "id": "auth-h3-cloudflare-api-token",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "H3_CLOUDFLARE_API_TOKEN",
+        "requiredForRelease": true,
+        "documentation": "workers/auth/CLAUDE.md",
+        "summary": "H3 REST only: account-restricted Cloudflare API token with Account > Workers AI > Read for CLOUDFLARE_ACCOUNT_ID. Never a Wrangler OAuth or deployment credential. Preserve default Gateway Unified Billing; no dispatch retry or binding fallback."
+      },
       {
         "id": "auth-session-secret",
         "kind": "secret",

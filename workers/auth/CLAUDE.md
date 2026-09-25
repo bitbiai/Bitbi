@@ -30,6 +30,15 @@ Current auth Worker resource classes:
 - Queues `ACTIVITY_INGEST_QUEUE`, `AI_IMAGE_DERIVATIVES_QUEUE`, `AI_VIDEO_JOBS_QUEUE`
 - auth/session/admin MFA/pagination/AI-save/service-auth/Resend secrets declared in release compatibility
 
+Durable member/Canvas H3 uses Cloudflare REST `/accounts/{account_id}/ai/run`,
+not the AI binding. `H3_CLOUDFLARE_API_TOKEN` must be a dedicated API token with
+Account > Workers AI > Read restricted to `CLOUDFLARE_ACCOUNT_ID`; never install
+Wrangler OAuth or a deployment credential. The release manifest requires the
+secret. Verify its policy/account and the published binding separately from
+provider acceptance. Default Gateway/Unified Billing, private signed sources,
+model callback, single-attempt dispatch and unknown-outcome fences remain binding.
+Other model transports and the separate Admin AI service are unchanged.
+
 ## Current Migration State
 
 Latest auth D1 migration: read `release.schemaCheckpoints.auth.latest` from `config/release-compat.json`.

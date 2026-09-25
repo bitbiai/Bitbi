@@ -713,7 +713,7 @@ jobs:
       pages: write
       id-token: write
     needs: [release-compatibility, worker-validation, browser-validation, homepage-validation, homepage-webkit-media, reuse-candidate]
-    if: ${{ !cancelled() && !github.event.inputs.frontend_recovery_receipt && github.ref == 'refs/heads/main' && github.event.inputs.validation_only != 'true' && ((needs.reuse-candidate.result == 'success' && github.event.inputs.candidate_run_id != '') || (!github.event.inputs.candidate_run_id && (github.event_name == 'workflow_dispatch' || ((needs.release-compatibility.outputs.pages_allowed == 'true' || needs.release-compatibility.outputs.backend_continuation == 'true') && needs.release-compatibility.outputs.pages_required == 'true')) && needs.release-compatibility.result == 'success' && (needs.release-compatibility.outputs.workers == 'false' || (needs.release-compatibility.outputs.workers == 'true' && needs.worker-validation.result == 'success')) && ((needs.release-compatibility.outputs.homepage == 'false' && needs.release-compatibility.outputs.carousel == 'false') || ((needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true') && needs.homepage-validation.result == 'success')) && (needs.release-compatibility.outputs.homepage_media == 'false' || (needs.release-compatibility.outputs.homepage_media == 'true' && needs.homepage-webkit-media.result == 'success')) && ((needs.release-compatibility.outputs.homepage == 'false' && needs.release-compatibility.outputs.carousel == 'false' && needs.release-compatibility.outputs.assets == 'false' && needs.release-compatibility.outputs.auth == 'false') || ((needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true') && needs.browser-validation.result == 'success')))) }}
+    if: ${{ !cancelled() && !github.event.inputs.frontend_recovery_receipt && github.ref == 'refs/heads/main' && github.event.inputs.validation_only != 'true' && ((needs.reuse-candidate.result == 'success' && github.event.inputs.candidate_run_id != '') || (!github.event.inputs.candidate_run_id && (github.event_name == 'workflow_dispatch' || (needs.release-compatibility.outputs.backend_continuation == 'true' || (needs.release-compatibility.outputs.pages_allowed == 'true' && needs.release-compatibility.outputs.pages_required == 'true'))) && needs.release-compatibility.result == 'success' && (needs.release-compatibility.outputs.workers == 'false' || (needs.release-compatibility.outputs.workers == 'true' && needs.worker-validation.result == 'success')) && ((needs.release-compatibility.outputs.homepage == 'false' && needs.release-compatibility.outputs.carousel == 'false') || ((needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true') && needs.homepage-validation.result == 'success')) && (needs.release-compatibility.outputs.homepage_media == 'false' || (needs.release-compatibility.outputs.homepage_media == 'true' && needs.homepage-webkit-media.result == 'success')) && ((needs.release-compatibility.outputs.homepage == 'false' && needs.release-compatibility.outputs.carousel == 'false' && needs.release-compatibility.outputs.assets == 'false' && needs.release-compatibility.outputs.auth == 'false') || ((needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true') && needs.browser-validation.result == 'success')))) }}
     concurrency:
       group: "pages"
       cancel-in-progress: false
@@ -826,10 +826,10 @@ jobs:
         if: steps.static_safety.outputs.static_deploy_skipped != 'true' && steps.static_safety.outputs.static_deploy_required != 'true' && github.event_name != 'workflow_dispatch'
         run: echo "Static deploy skipped because no GitHub Pages source changed."
       - name: Setup Pages
-        if: env.HOSTING_PROVIDER == 'github-pages' && success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
+        if: env.HOSTING_PROVIDER == 'github-pages' && success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || (github.event_name == 'workflow_dispatch' && needs.release-compatibility.outputs.backend_continuation != 'true' && needs.reuse-candidate.outputs.backend_continuation != 'true'))
         uses: actions/configure-pages@v6
       - name: Validate JS import paths
-        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
+        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || (github.event_name == 'workflow_dispatch' && needs.release-compatibility.outputs.backend_continuation != 'true' && needs.reuse-candidate.outputs.backend_continuation != 'true'))
         run: |
           errors=0
           grep -rn "from ['\"]\.\.*/.*['\"]" --include="*.js" --include="*.html" --exclude-dir=node_modules --exclude-dir=workers --exclude-dir=.wrangler . | while IFS= read -r line; do
@@ -856,7 +856,7 @@ jobs:
           fi
           echo "All JS import paths validated successfully"
       - name: Check target="_blank" links have rel="noopener"
-        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
+        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || (github.event_name == 'workflow_dispatch' && needs.release-compatibility.outputs.backend_continuation != 'true' && needs.reuse-candidate.outputs.backend_continuation != 'true'))
         run: |
           violations=$(grep -rn 'target="_blank"' --include="*.html" --include="*.js" --exclude-dir=node_modules --exclude-dir=workers --exclude-dir=_site --exclude-dir=.wrangler --exclude="*.min.js" . | grep -v 'noopener' || true)
           if [ -n "$violations" ]; then
@@ -868,10 +868,10 @@ jobs:
           fi
           echo "All target=\"_blank\" links include rel=\"noopener\" — OK"
       - name: Validate local CSS/JS references
-        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
+        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || (github.event_name == 'workflow_dispatch' && needs.release-compatibility.outputs.backend_continuation != 'true' && needs.reuse-candidate.outputs.backend_continuation != 'true'))
         run: node scripts/validate-site-references.mjs --root candidate/site
       - name: Validate page metadata
-        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
+        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || (github.event_name == 'workflow_dispatch' && needs.release-compatibility.outputs.backend_continuation != 'true' && needs.reuse-candidate.outputs.backend_continuation != 'true'))
         run: |
           errors=0
           for f in index.html; do
@@ -896,16 +896,16 @@ jobs:
           echo "Page metadata validated successfully"
       - name: Prepare deployment
         id: static_build
-        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
+        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || (github.event_name == 'workflow_dispatch' && needs.release-compatibility.outputs.backend_continuation != 'true' && needs.reuse-candidate.outputs.backend_continuation != 'true'))
         run: node scripts/pages-candidate.mjs publish
       - name: Upload artifact
         id: pages_artifact
-        if: env.HOSTING_PROVIDER == 'github-pages' && success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch')
+        if: env.HOSTING_PROVIDER == 'github-pages' && success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || (github.event_name == 'workflow_dispatch' && needs.release-compatibility.outputs.backend_continuation != 'true' && needs.reuse-candidate.outputs.backend_continuation != 'true'))
         uses: actions/upload-pages-artifact@v4
         with:
           path: '_site'
       - name: Refuse superseded or newly failed publication
-        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch') && steps.static_build.outcome == 'success' && (env.HOSTING_PROVIDER == 'cloudflare' || steps.pages_artifact.outcome == 'success')
+        if: success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || (github.event_name == 'workflow_dispatch' && needs.release-compatibility.outputs.backend_continuation != 'true' && needs.reuse-candidate.outputs.backend_continuation != 'true')) && steps.static_build.outcome == 'success' && (env.HOSTING_PROVIDER == 'cloudflare' || steps.pages_artifact.outcome == 'success')
         env:
           CF_BACKEND_DEPLOY_TOKEN: ${{ secrets.CF_BACKEND_DEPLOY_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_FRONTEND_DEPLOY_TOKEN }}
@@ -923,7 +923,7 @@ jobs:
             node scripts/pages-candidate.mjs current
           fi
       - name: Deploy to GitHub Pages
-        if: env.HOSTING_PROVIDER == 'github-pages' && success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || github.event_name == 'workflow_dispatch') && steps.static_build.outcome == 'success' && steps.pages_artifact.outcome == 'success'
+        if: env.HOSTING_PROVIDER == 'github-pages' && success() && steps.static_safety.outcome == 'success' && steps.static_safety.outputs.static_deploy_allowed == 'true' && steps.static_safety.outputs.static_deploy_skipped == 'false' && (steps.static_safety.outputs.static_deploy_required == 'true' || (github.event_name == 'workflow_dispatch' && needs.release-compatibility.outputs.backend_continuation != 'true' && needs.reuse-candidate.outputs.backend_continuation != 'true')) && steps.static_build.outcome == 'success' && steps.pages_artifact.outcome == 'success'
         id: deployment
         # The official action checks this run's created deployment; its failure remains fatal.
         uses: actions/deploy-pages@v5

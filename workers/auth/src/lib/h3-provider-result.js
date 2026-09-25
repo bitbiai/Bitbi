@@ -33,21 +33,35 @@ export function recordVideoLateError(usagePolicy, error) {
   return usagePolicy?.recordLateOutcome?.(error?.confirmedRejection === true ? 'failed' : 'unknown', error?.code);
 }
 
-export async function callH3Provider(ai, model, payload, options, correlationId) {
+export async function callH3Provider(env, model, payload, options, correlationId) {
   let response;
   try {
-    // Response-local IDs avoid mutable AI-binding lastRequestId state when
-    // different accepted jobs run concurrently. Content logging remains off.
-    response = await ai.run(model, payload, { ...options, returnRawResponse: true,
-      gateway: { ...options?.gateway, skipCache: true, collectLog: false,
-        metadata: { ...options?.gateway?.metadata, bitbi_dispatch: correlationId } } });
+    const account = env.CLOUDFLARE_ACCOUNT_ID;
+    const token = env.H3_CLOUDFLARE_API_TOKEN;
+    if (model !== 'minimax/h3' || !/^[a-f0-9]{32}$/.test(account || '')
+      || typeof token !== 'string' || !token.trim()) throw new Error('h3_transport_unavailable');
+    // Exactly one REST dispatch; never retry/fall back to the binding after an
+    // ambiguous response. The durable caller records intent before this call.
+    // Keep model callback_url (not Gateway background/webhook options), and do
+    // not forward binding-only options or credentials to the model input.
+    response = await (env.__TEST_FETCH || fetch)(`https://api.cloudflare.com/client/v4/accounts/${account}/ai/run`, {
+      method: 'POST', redirect: 'manual', signal: options?.signal,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'cf-aig-max-attempts': '1' },
+      body: JSON.stringify({ model, input: payload, options: { gateway: {
+        id: 'default', skipCache: true, collectLog: false,
+        metadata: { ...options?.gateway?.metadata, bitbi_dispatch: correlationId },
+      } } }),
+    });
   } catch (error) {
-    // A thrown binding/network error has no independently associated response.
+    // No response-local proof of rejection: retain the no-replay fence.
     throw h3Failure(h3Diagnostic(error, { correlationId }));
   }
-  if (!(response instanceof Response)) return response; // Synthetic binding / parsed adapter.
   const context = { status: response.status, requestId: response.headers.get('cf-ai-req-id'),
     gatewayId: response.headers.get('cf-aig-log-id'), correlationId };
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel();
+    throw h3Failure(h3Diagnostic(null, context));
+  }
   let body;
   try {
     const reader = response.body?.getReader();
@@ -63,11 +77,17 @@ export async function callH3Provider(ai, model, payload, options, correlationId)
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
     body = JSON.parse(new TextDecoder().decode(bytes));
   } catch { throw h3Failure(h3Diagnostic(null, context)); }
-  if (response.ok && body?.success !== false) return body?.result?.task ? body.result : body;
-  const error = body?.errors?.[0] || { code: body?.internalCode, message: body?.description };
+  // REST adds the Cloudflare envelope and a run result around the H3 task.
+  // Normalize only documented/retained shapes, preserving the task unchanged
+  // for the existing identity, callback, terminal-status and billing guards.
+  const run = body?.result;
+  const taskResult = run?.result?.task ? run.result : run?.task ? run : body;
+  if (response.ok && body?.success !== false && run?.success !== false
+    && !run?.error && (run?.state === undefined || run.state === 'Completed')) return taskResult;
+  const error = body?.errors?.[0] || run?.error || { code: body?.internalCode, message: body?.description };
   const diagnostic = h3Diagnostic(error, context);
   // A task identity contradicts rejection before inference, even with a known
   // validation code. Preserve the fence rather than releasing this reservation.
-  if (body?.task?.id || body?.result?.task?.id) diagnostic.noInference = false;
+  if (body?.task?.id || run?.task?.id || run?.result?.task?.id) diagnostic.noInference = false;
   throw h3Failure(diagnostic);
 }

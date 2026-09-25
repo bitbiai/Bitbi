@@ -272,7 +272,7 @@ export async function processMemberGeneration(env, body, execute) {
   let calls = 0;
   if (env.AI) scoped.AI = { run: async (...args) => providerCall(env,job,`ai-${calls++}`,await sha256Hex(JSON.stringify(args.slice(0,2))),correlation=>{
     if(retained)throw jobError('generation_provider_identity_mismatch');
-    if(args[0]==='minimax/h3')return callH3Provider(env.AI,args[0],args[1],args[2],correlation);
+    if(args[0]==='minimax/h3')return callH3Provider(env,args[0],args[1],args[2],correlation);
     if(isGptImage25Model(args[0]))args[2]={...args[2],gateway:{...args[2]?.gateway,metadata:{...args[2]?.gateway?.metadata,bitbi_dispatch:correlation}}};
     return env.AI.run(...args);
   }) };

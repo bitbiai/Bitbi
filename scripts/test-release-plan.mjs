@@ -851,6 +851,10 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const plan=createReleasePlanFromRepo(repoRoot,{files:['workers/ai/src/routes/video-task.js','workers/ai/src/lib/invoke-ai-video.js','workers/auth/src/lib/minimax-h3-callback.js','workers/auth/src/routes/ai/video-generate.js','js/shared/minimax-h3.mjs','js/pages/generate-lab/main.js']});
  assert(backendContinuationSupported(plan));assert.deepEqual(plan.workerDeploys.map(w=>w.worker),['ai','auth']);assert.equal(plan.schemaApplies.length,0);
  assert(!backendContinuationSupported(createReleasePlanFromRepo(repoRoot,{files:[...plan.changedFiles,'workers/ai/src/routes/unknown.js']})));
+ const rest=createReleasePlanFromRepo(repoRoot,{files:['workers/auth/src/lib/h3-provider-result.js','workers/auth/src/lib/member-generation-jobs.js','config/release-compat.json','.github/workflows/static.yml','scripts/test-pages-candidate.mjs','scripts/test-release-plan.mjs','tests/workers.spec.js','tests/helpers/member-generation-control.mjs','tests/helpers/q2-runtime/environment.mjs']});
+ assert(backendContinuationSupported(rest));assert.deepEqual(rest.workerDeploys.map(w=>w.worker),['auth']);
+ assert.equal(rest.schemaApplies.length,0);assert.equal(rest.impacts.static.required,false);
+ assert(rest.manualPrerequisites.required.some(p=>p.worker==='auth'&&p.kind==='secret'&&p.name==='H3_CLOUDFLARE_API_TOKEN'));
 }
 
 {
