@@ -562,6 +562,11 @@ the September 22 GPT Image 2.5 addition made 27 models, not 25. The countercheck
 now asserts the independent exact ID list and both aliases' runnable state;
 all existing authorization/disabled-model assertions remain. The selected 112
 Worker checks pass locally; downstream skipped CI checks still require execution.
+Run 36147088055/1 then passed the selected Worker/Grok/Fable/lifecycle commands,
+but native Canvas exposed a second binding-only H3 fixture. Canvas now crosses
+the same isolated workerd REST boundary, retaining signed-byte/role checks and
+rejecting H3 binding fallback. Native Canvas43 and member-generation53 pass
+locally; no product behavior was changed to accommodate either fixture repair.
 The existing protected release job also accepts backend-only candidates without
 publishing unchanged frontend bytes; actual gate/failure/resume conditions are
 exercised by test-pages-candidate and the Auth-only plan by test-release-plan.

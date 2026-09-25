@@ -118,6 +118,7 @@ export async function createRuntime(build, name, { restricted = false, reference
     return Response.json({state:'Completed',result:{image:canvasProvider.image25Https ? `https://image25-output.example/original.${payload.output_format}` : `data:image/${payload.output_format};base64,${bytes.toString('base64')}`},gatewayMetadata:{keySource:'Unified'}});
   };
   const canvasOutput = async request => {
+    if(request.url===`https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/ai/run`)return h3Rest(request);
     const url = new URL(request.url);
     const format = url.pathname.split('.').at(-1), bytes = canvasProvider.image25Fixtures[format];
     if (url.origin !== 'https://image25-output.example' || !bytes) return deny();
@@ -146,7 +147,7 @@ export async function createRuntime(build, name, { restricted = false, reference
     assert.equal(model,'minimax/h3');assert.equal(options.gateway.id,'default');
     assert.equal(options.gateway.collectLog,false);assert.equal(options.gateway.skipCache,true);
     if(caseName.startsWith('h3-rejection-'))return Response.json({errors:[{code:caseName==='h3-rejection-unknown'?7003:3003,message:'Invalid input: private prompt https://bitbi.ai/api/internal/ai/media-source/secret-token'}]},{status:400,headers:{'cf-ai-req-id':'synthetic-request-123','cf-aig-log-id':'synthetic-gateway-123'}});
-    return Response.json({success:true,result:{state:'Completed',result:{task:{id:'synthetic-h3-'+caseName,model:'MiniMax-H3',status:caseName.startsWith('h3-callback')?'queued':caseName==='h3-failed'?'failed':'succeeded',resolution:input.resolution,duration:input.duration,content:{url:'https://fixture.invalid/member.mp4'},usage:{output_seconds:caseName==='h3-output-usage'?4:input.duration,input_seconds:99,total_seconds:104}}}}});
+    return Response.json({success:true,result:{state:'Completed',result:{task:{id:'synthetic-h3-'+caseName,model:'MiniMax-H3',status:caseName.startsWith('h3-callback')?'queued':caseName==='h3-failed'?'failed':'succeeded',resolution:input.resolution,duration:input.duration,content:{url:caseName.startsWith('canvas-')?'https://fixture.invalid/result.mp4':'https://fixture.invalid/member.mp4'},usage:{output_seconds:caseName==='h3-output-usage'||caseName.startsWith('canvas-')?4:input.duration,input_seconds:99,total_seconds:104}}}}});
   };
   const shared = { modules: true, ...(['member-generation','canvas'].includes(name) ? {images:{binding:'IMAGES'}} : {}), compatibilityDate: build.config.compatibility_date, bindings, d1Databases: { DB: `q2-${name}-db` },
     r2Buckets: { USER_IMAGES: `q2-${name}-images`, PRIVATE_MEDIA: `q2-${name}-private`, AUDIT_ARCHIVE: `q2-${name}-archive` },

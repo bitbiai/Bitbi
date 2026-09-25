@@ -18,14 +18,23 @@ export async function canvasVideoCase(base, name, fixture) {
   const env = { ...base, BITBI_ENV: 'production', PIXVERSE_API_KEY: '',
     MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:'synthetic-poster', ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG: 'false', ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH: 'false',
     AI_VIDEO_JOBS_QUEUE: { async send(body) { messages.push(body); } }, AI_IMAGE_DERIVATIVES_QUEUE: { async send() {} },
-    AI: { async run(model, body) { requests.push({ model, body });
+    CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32), H3_CLOUDFLARE_API_TOKEN:`synthetic-h3-canvas-${name}-not-live`,
+    AI: { async run(model, body) { check(model!=='minimax/h3','Canvas H3 must use REST, never the binding');requests.push({ model, body });
       if(grok) for(const [url,expected] of [[body.video?.url,bytes],[body.reference_images?.[0]?.url,Uint8Array.from(atob(fixture.imageBase64),c=>c.charCodeAt(0))]]) {
         check(typeof url==='string','Source capability exists');
         const response=await worker.fetch(new Request(url),env,{waitUntil(p){waits.push(p);}});
         const actual=new Uint8Array(await response.arrayBuffer());
         check(response.ok && actual.length===expected.length && actual.every((b,i)=>b===expected[i]),'Provider receives exact authorized source bytes');
       }
-      if(h3) {
+      if (name === 'provider-interrupted') throw new Error('Synthetic lost provider response'); return { video: 'https://fixture.invalid/result.mp4' }; } },
+    __TEST_FETCH: async (url, init) => {
+      if(h3 && url===`https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/ai/run`) {
+        check(init.method==='POST' && init.redirect==='manual','Canvas H3 fixed REST method and redirect refusal');
+        check(init.headers.Authorization===`Bearer ${env.H3_CLOUDFLARE_API_TOKEN}` && init.headers['cf-aig-max-attempts']==='1','Canvas H3 credential and single attempt');
+        const {model,input:body,options,...extra}=JSON.parse(init.body);
+        check(model==='minimax/h3' && !Object.keys(extra).length && Object.keys(options).join()==='gateway','Canvas H3 exact REST envelope');
+        check(options.gateway.id==='default' && options.gateway.collectLog===false && options.gateway.skipCache===true && /^[a-f0-9]{32}$/.test(options.gateway.metadata.bitbi_dispatch),'Canvas H3 private Gateway and dispatch correlation');
+        requests.push({model,body});
         const content=body.content.filter(item=>item.type!=='text');
         check(JSON.stringify(content.map(item=>item.role))===JSON.stringify(continuation?['first_frame','last_frame']:['reference_video']),'H3 exact ordered roles; final decoded image is the START frame');
         for(const item of content) {
@@ -34,10 +43,8 @@ export async function canvasVideoCase(base, name, fixture) {
           const actual=new Uint8Array(await response.arrayBuffer()), expected=continuation?Uint8Array.from(atob(fixture.imageBase64),c=>c.charCodeAt(0)):overrun?Uint8Array.from(atob(fixture.preparedBase64),c=>c.charCodeAt(0)):bytes;
           check(response.ok && actual.length===expected.length && actual.every((b,i)=>b===expected[i]),'H3 receives exact authorized frame/reference bytes');
         }
-        return {task:{id:'canvas-h3',model:'MiniMax-H3',status:'succeeded',resolution:body.resolution,usage:{output_seconds:4},content:{url:'https://fixture.invalid/result.mp4'}}};
+        return globalThis.fetch(url,init);
       }
-      if (name === 'provider-interrupted') throw new Error('Synthetic lost provider response'); return { video: 'https://fixture.invalid/result.mp4' }; } },
-    __TEST_FETCH: async (url, init) => {
       if (url === 'https://fixture.invalid/result.mp4') return new Response(bytes, { headers: { 'Content-Type': 'video/mp4' } });
       throw new Error('Canvas must not contact the direct provider');
     },
