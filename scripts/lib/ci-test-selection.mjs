@@ -36,6 +36,8 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ["workers/shared/fable-chat-memory-contract.mjs", ["auth", "ai"]],
   ["js/shared/admin-ai-contract.mjs", ["auth", "ai"]],
   ["js/shared/ai-image-models.mjs", ["auth"]],
+  ["js/shared/generation-model-order.mjs", ["auth"]],
+  ["js/shared/image-dimensions.mjs", ["auth", "ai"]],
   ["js/shared/durable-rate-limit-do.mjs", ["auth", "contact"]],
   ["js/shared/generation-timeout.mjs", ["auth", "ai"]],
   ["js/shared/public-media-contract.mjs", ["auth"]],
@@ -95,6 +97,14 @@ const CANVAS_UI_FILES = new Set([
 // Closed Canvas generation/provider/storage integration scope. Unknown runtime/billing inputs
 // continue through ordinary impact selection; chat and native D1 are exercised.
 const CANVAS_TEXT_FILES = new Set([
+  // Shared generation controls + typed owner assets reuse BOTH existing
+  // acceptance jobs; no decorative carousel/provider execution is changed.
+  'js/shared/generation-model-order.mjs', 'js/shared/image-dimensions.mjs',
+  'js/shared/asset-type-view.js', 'js/shared/saved-assets-browser.js',
+  'js/shared/studio-deck.js', 'css/account/assets-manager.css',
+  'js/pages/index/studio.js', 'tests/assets-manager-focused.spec.js',
+  'generate-lab/index.html', 'de/generate-lab/index.html',
+  'tests/helpers/generation-selectors.cjs', 'tests/oma2-q3-model-pricing.spec.js',
   'workers/auth/src/lib/flux-schnell-provider.js', 'workers/auth/src/routes/ai/helpers.js',
   'tests/member-generation.cases.js',
   'scripts/check-route-policies.mjs','scripts/test-homepage-ffmpeg-processor.mjs',
@@ -785,12 +795,16 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     return selection;
   }
 
-  if (!forceFull && (changedFiles.some(f=>['workers/auth/src/lib/flux-schnell-provider.js','js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js','js/shared/canvas-video-input.mjs','workers/auth/src/lib/private-video-references.js','workers/auth/src/lib/h3-provider-result.js'].includes(f))
+  if (!forceFull && (changedFiles.some(f=>['js/shared/generation-model-order.mjs','js/shared/image-dimensions.mjs','js/shared/asset-type-view.js','workers/auth/src/lib/flux-schnell-provider.js','js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js','js/shared/canvas-video-input.mjs','workers/auth/src/lib/private-video-references.js','workers/auth/src/lib/h3-provider-result.js'].includes(f))
       || ['js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','js/pages/canvas/main.js'].every(f=>changedFiles.includes(f))
       || ['js/pages/generate-lab/main.js','workers/auth/src/routes/ai/quota.js','workers/auth/src/lib/member-generation-jobs.js'].every(f=>changedFiles.includes(f)))
       && changedFiles.every(f=>isDocumentation(f)||CANVAS_TEXT_FILES.has(f)||RELEASE_TOOLING_FILES.has(f)||(f===MEMBER_SPEC && isFluxReviewTestChange(memberTestSources)))) {
     selection.canvasText = true;
     selection.workers = selection.auth = selection.static = selection.runtime = true;
+    if (changedFiles.some(file => ['js/shared/asset-type-view.js', 'js/shared/saved-assets-browser.js', 'js/shared/studio-deck.js', 'css/account/assets-manager.css', 'tests/assets-manager-focused.spec.js'].includes(file))) {
+      selection.assets = true;
+      selection.reasons.assets.push('Independent typed pagination, default cards, picker/owner actions and mobile decks in both engines; native Canvas suite covers real D1 cursors');
+    }
     selection.reasons.workers.push('Canvas/Generate Lab provider and role accounting, Grok/chat compatibility, billing and replay; native D1/R2 storage, thumbnail/backend leases and Stream receipts, plus the tested Linux FFmpeg image');
     selection.reasons.auth.push('Both Canvas suites and tagged Admin/Generate Lab model controls on tested build in Chromium/WebKit; persisted inputs, estimates, output and explicit saving');
     selection.reasons.static.push('Exact candidate, release contracts, native frontend routing and security checks');

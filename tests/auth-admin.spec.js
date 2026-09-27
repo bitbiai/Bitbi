@@ -18820,7 +18820,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiMusicLyricsField')).toBeHidden();
   });
 
-  test('ElevenLabs Music v2 UI isolates prompt and plan payloads, enforces C2PA, and saves Opus safely', async ({
+  test('@canvas-model-ui ElevenLabs Music v2 UI isolates prompt and plan payloads, enforces C2PA, and saves Opus safely', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -18939,14 +18939,13 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await clickAiLabMode(page, 'music');
 
-    const minimaxTab = page.locator('#aiMusicModelMinimax');
-    const elevenLabsTab = page.locator('#aiMusicModelElevenLabs');
-    await expect(minimaxTab).toHaveAttribute('aria-selected', 'true');
+    const musicModel = page.getByRole('combobox', { name: 'Model', exact: true });
+    await expect(musicModel).toHaveValue('minimax/music-2.6');
     await expect(page.locator('#aiMusicMinimaxControls')).toBeVisible();
-    await minimaxTab.focus();
-    await minimaxTab.press('ArrowRight');
-    await expect(elevenLabsTab).toBeFocused();
-    await expect(elevenLabsTab).toHaveAttribute('aria-selected', 'true');
+    await musicModel.focus();
+    await musicModel.selectOption('elevenlabs/music-v2');
+    await expect(musicModel).toBeFocused();
+    await expect(musicModel).toHaveValue('elevenlabs/music-v2');
     await expect(page.locator('#aiMusicModelBadge')).toHaveText('elevenlabs/music-v2');
     await expect(page.locator('#aiMusicModelDesc')).toContainText('composition-plan');
     await expect(page.locator('#aiMusicMinimaxControls')).toBeHidden();
@@ -19104,9 +19103,10 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiMusicDownload')).toHaveText('Download Audio');
     expect(relayedDownloadRequests).toEqual([{ audioUrl: urlOnlyAudioUrl }]);
 
-    await elevenLabsTab.press('Home');
-    await expect(minimaxTab).toBeFocused();
-    await expect(minimaxTab).toHaveAttribute('aria-selected', 'true');
+    await musicModel.focus();
+    await musicModel.selectOption('minimax/music-2.6');
+    await expect(musicModel).toBeFocused();
+    await expect(musicModel).toHaveValue('minimax/music-2.6');
     await expect(page.locator('#aiMusicMinimaxControls')).toBeVisible();
     await expect(page.locator('#aiMusicElevenLabsControls')).toBeHidden();
   });
@@ -20227,28 +20227,24 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoImageClear')).toBeHidden();
   });
 
-  test('shows the admin-only Video AI model cards in the admin AI Lab', async ({
+  test('@canvas-model-ui shows every admin Video AI model in publisher/name dropdown order', async ({
     page,
   }) => {
+    const { listAdminAiCatalog } = await import('../js/shared/admin-ai-contract.mjs');
+    await mockAdminAiLab(page, { catalog: { ok: true, ...listAdminAiCatalog({ includeCanvas: true }) } });
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
     await clickAiLabMode(page, 'video');
-    await expect(page.locator('#aiVideoCardPixverse')).toBeVisible();
-    await expect(page.locator('#aiVideoCardVidu')).toBeVisible();
-    await expect(page.locator('#aiVideoCardVidu')).toContainText('vidu/q3-pro');
-    await expect(page.locator('#aiVideoCardHappyHorse')).toBeVisible();
-    await expect(page.locator('#aiVideoCardHappyHorse')).toContainText('alibaba/hh1-t2v');
-    await expect(page.locator('#aiVideoCardSeedanceFast')).toBeVisible();
-    await expect(page.locator('#aiVideoCardSeedanceFast')).toContainText('bytedance/seedance-2.0-fast');
-    await expect(page.locator('#aiVideoCardSeedance')).toBeVisible();
-    await expect(page.locator('#aiVideoCardSeedance')).toContainText('bytedance/seedance-2.0');
-    await expect(page.locator('#aiVideoCardGrokImagine')).toBeVisible();
-    await expect(page.locator('#aiVideoCardGrokImagine')).toContainText('xai/grok-imagine-video');
-    await expect(page.locator('#aiVideoCardGrokImagine15Preview')).toBeVisible();
-    await expect(page.locator('#aiVideoCardGrokImagine15Preview')).toContainText('xai/grok-imagine-video-1.5-preview');
+    const model = page.locator('#aiVideoModel');
+    await expect(model).toBeVisible();
+    await expect(model).toHaveValue('pixverse/v6');
+    expect(await model.locator('option').evaluateAll(options => options.map(option => option.value))).toEqual([
+      'alibaba/hh1-t2v', 'bytedance/seedance-2.0', 'bytedance/seedance-2.0-fast',
+      'minimax/h3', 'pixverse/v6', 'vidu/q3-pro', 'xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview',
+    ]);
   });
 
-  test('Seedance Video AI models show priced admin-only estimates and keep payloads bounded', async ({
+  test('@canvas-model-ui Seedance Video AI models show priced admin-only estimates and keep payloads bounded', async ({
     page,
   }) => {
     const requests = [];
@@ -20309,7 +20305,7 @@ test.describe('Admin AI Lab', () => {
     });
 
     await clickAiLabMode(page, 'video');
-    await page.locator('#aiVideoCardSeedanceFast').click();
+    await page.locator('#aiVideoModel').selectOption('bytedance/seedance-2.0-fast');
     await expect(page.locator('#aiVideoModelBadge')).toContainText('bytedance/seedance-2.0-fast');
     await expect(page.locator('#aiVideoNegativePromptField')).toBeHidden();
     await expect(page.locator('#aiVideoImageField')).toBeHidden();
@@ -20349,7 +20345,7 @@ test.describe('Admin AI Lab', () => {
     expect(requests[0].generate_audio).toBeUndefined();
     await expect.poll(() => statusPolls).toBeGreaterThan(0);
 
-    await page.locator('#aiVideoCardSeedance').click();
+    await page.locator('#aiVideoModel').selectOption('bytedance/seedance-2.0');
     await expect(page.locator('#aiVideoModelBadge')).toContainText('bytedance/seedance-2.0');
     await expect(page.locator('#aiVideoDuration')).toHaveAttribute('min', '4');
     await expect(page.locator('#aiVideoDuration')).toHaveAttribute('max', '12');
@@ -20372,7 +20368,7 @@ test.describe('Admin AI Lab', () => {
     expect(JSON.stringify(requests)).not.toContain('credits');
     expect(JSON.stringify(requests)).not.toContain('negative_prompt');
 
-    await page.locator('#aiVideoCardPixverse').click();
+    await page.locator('#aiVideoModel').selectOption('pixverse/v6');
     await expect(page.locator('#aiVideoModelBadge')).toContainText('pixverse/v6');
     await expect(page.locator('#aiVideoRun')).toBeEnabled();
     await expect(page.locator('#aiVideoImageField')).toBeVisible();
@@ -20470,7 +20466,7 @@ test.describe('Admin AI Lab', () => {
     });
 
     await clickAiLabMode(page, 'video');
-    await page.locator('#aiVideoCardGrokImagine').click();
+    await page.locator('#aiVideoModel').selectOption('xai/grok-imagine-video');
     await expect(page.locator('#aiVideoModelBadge')).toContainText('xai/grok-imagine-video');
     await expect(page.locator('#aiVideoModelDesc')).toContainText('Unified Billing');
     await expect(page.locator('#aiVideoNegativePromptField')).toBeHidden();
@@ -20685,7 +20681,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#adminPanel')).toBeVisible({ timeout: 10_000 });
 
     await clickAiLabMode(page, 'video');
-    await page.locator('#aiVideoCardGrokImagine15Preview').click();
+    await page.locator('#aiVideoModel').selectOption('xai/grok-imagine-video-1.5-preview');
     await expect(page.locator('#aiVideoModelBadge')).toContainText('xai/grok-imagine-video-1.5-preview');
     await expect(page.locator('#aiVideoModelDesc')).toContainText('generate, edit, and extend');
     await expect(page.locator('#aiVideoGrokPreviewControls')).toBeVisible();
@@ -20759,7 +20755,7 @@ test.describe('Admin AI Lab', () => {
     await expect(page.locator('#aiVideoOperation option:not([hidden])')).toHaveText(['Generate']);
   });
 
-  test('HappyHorse 1.0 T2V sends only supported Cloudflare fields and shows admin cost metadata', async ({
+  test('@canvas-model-ui HappyHorse 1.0 T2V sends only supported Cloudflare fields and shows admin cost metadata', async ({
     page,
   }) => {
     const catalog = createMockAiCatalog();
@@ -20795,7 +20791,7 @@ test.describe('Admin AI Lab', () => {
     });
 
     await clickAiLabMode(page, 'video');
-    await page.locator('#aiVideoCardHappyHorse').click();
+    await page.locator('#aiVideoModel').selectOption('alibaba/hh1-t2v');
 
     await expect(page.locator('#aiVideoModelBadge')).toContainText('alibaba/hh1-t2v');
     await expect(page.locator('#aiVideoNegativePromptField')).toBeHidden();
@@ -20845,7 +20841,7 @@ test.describe('Admin AI Lab', () => {
     expect(requests[0].minimal_mode).toBeUndefined();
   });
 
-  test('Vidu Q3 Pro sends supported text-to-video and start/end-frame payloads and renders the shared video preview', async ({
+  test('@canvas-model-ui Vidu Q3 Pro sends supported text-to-video and start/end-frame payloads and renders the shared video preview', async ({
     page,
   }) => {
     const catalog = createMockAiCatalog();
@@ -20893,7 +20889,7 @@ test.describe('Admin AI Lab', () => {
     });
 
     await clickAiLabMode(page, 'video');
-    await page.locator('#aiVideoCardVidu').click();
+    await page.locator('#aiVideoModel').selectOption('vidu/q3-pro');
     await expect(page.locator('#aiVideoModelBadge')).toContainText('vidu/q3-pro');
     await expect(page.locator('#aiVideoNegativePromptField')).toBeHidden();
     await expect(page.locator('#aiVideoStartImageField')).toBeVisible();
@@ -20999,7 +20995,7 @@ test.describe('Admin AI Lab', () => {
     });
 
     await clickAiLabMode(page, 'video');
-    await page.locator('#aiVideoCardVidu').click();
+    await page.locator('#aiVideoModel').selectOption('vidu/q3-pro');
 
     await expect(page.locator('#aiVideoMinimalMode')).toBeVisible();
     await expect(page.locator('label:has(#aiVideoMinimalMode)')).toContainText('Force Minimal Mode');
@@ -21156,7 +21152,7 @@ test.describe('Admin AI Lab', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('AI Lab Image capability controls', () => {
-  test('disables advanced controls for non-supporting models and enables them for flux-2-dev', async ({
+  test('@canvas-model-ui disables advanced controls for non-supporting models and enables them for flux-2-dev', async ({
     page,
   }) => {
     await seedCookieConsent(page);
@@ -21229,11 +21225,10 @@ test.describe('AI Lab Image capability controls', () => {
     await expect(page.locator('#aiImageRefCount')).toHaveText('0 / 8');
     await expect(page.locator('#aiImageOutputFormat')).toHaveValue('jpeg');
     await expect(page.locator('#aiImageSafetyTolerance')).toHaveValue('2');
-    await expect(page.locator('#aiImageWidth')).toHaveAttribute('min', '64');
-    await expect(page.locator('#aiImageWidth')).toHaveAttribute('max', '2048');
+    await expect(page.locator('#aiImageWidth option')).toHaveText(['256', '512', '768', '1024', '1280', '1536', '1792', '2048']);
   });
 
-  test('shows GPT Image 2 controls, 16 reference slots, and credit preview', async ({ page }) => {
+  test('@canvas-model-ui shows GPT Image 2 controls, 16 reference slots, and credit preview', async ({ page }) => {
     await seedCookieConsent(page);
     // Header and privileged API describe the same authenticated test actor.
     await page.route('**/api/me', async (route) => {
@@ -21301,7 +21296,7 @@ test.describe('AI Lab Image capability controls', () => {
 
   test('@canvas-model-ui Grok Imagine Image 2.0 controls and private references', ({page}) => require('./helpers/grok-image-controls.cjs').image2Controls({page,expect,mockAdminAiLab,clickAiLabMode}));
 
-  test('shows Grok Imagine Image controls and submits internal image source references', async ({ page }) => {
+  test('@canvas-model-ui shows Grok Imagine Image controls and submits internal image source references', async ({ page }) => {
     const imageTestRequests = [];
     await mockAdminAiLab(page, { imageTestRequests });
 
@@ -21578,7 +21573,7 @@ for (const browserName of ['chromium', 'webkit']) {
     await page.goto('/admin/index.html#ai-lab');
     await expect(page.locator('#adminPanel')).toBeVisible();
     await clickAiLabMode(page,'video');
-    await page.locator('#aiVideoCardPixverse').click();
+    await page.locator('#aiVideoModel').selectOption('pixverse/v6');
     await expect(page.locator('#aiVideoOperationField')).toContainText(configured?'Direct access configured':'Direct access not configured');
     await page.locator('#aiVideoOperation').selectOption('extend');
     await expect(page.locator('#aiVideoSourceScopeMemvids')).toBeHidden();

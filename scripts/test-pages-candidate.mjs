@@ -597,9 +597,14 @@ assert.throws(()=>verifyLaterAttempt({...run,conclusion:'failure'},[{name:'deplo
 }
 
 {
-  const {verifyCanvasTextReport,requiredJobs}=await import('./pages-candidate.mjs');
+  const {verifyCanvasTextReport,verifyCanvasCandidateReports,requiredJobs}=await import('./pages-candidate.mjs');
   const suite=(result=true)=>({suites:[{specs:['canvas.spec.js','oma2-q1-canvas.spec.js','auth-admin.spec.js','smoke.spec.js','oma2-q1-member.spec.js'].map((file,i)=>({id:String(i),file,tests:['chromium','webkit-canvas'].map(projectName=>({projectName,results:result?[{status:'passed'}]:[]}))}))}]});
   const report=suite(),discovery=suite(false);verifyCanvasTextReport(report,discovery);
+  const names=['test-results/candidate-assets.json','test-results/candidate-auth.json'];
+  verifyCanvasCandidateReports(names,[{suites:[]},report],discovery);
+  assert.throws(()=>verifyCanvasCandidateReports(names,[report,{suites:[]}],discovery));
+  assert.throws(()=>verifyCanvasCandidateReports([names[0]],[report],discovery));
+  assert.throws(()=>verifyCanvasCandidateReports([names[1],names[1]],[report,report],discovery));
   for(const status of ['skipped','failed','timedOut']){const bad=structuredClone(report);bad.suites[0].specs[0].tests[0].results=[{status}];assert.throws(()=>verifyCanvasTextReport(bad,discovery));}
   const missing=structuredClone(report);missing.suites[0].specs.pop();assert.throws(()=>verifyCanvasTextReport(missing,discovery));
   const jobs=requiredJobs({canvasText:true,workers:true,auth:true,static:true});assert(jobs['worker-validation']);assert(jobs['browser-validation']);assert(!jobs['homepage-webkit-media']);

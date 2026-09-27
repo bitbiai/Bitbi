@@ -290,16 +290,16 @@ export function buildCleanupQueueBindings(keys, createdAt) {
   return keys.flatMap((key) => [key, createdAt]);
 }
 
-export function buildAiImageInput(modelConfig, prompt, steps, seed) {
+export function buildAiImageInput(modelConfig, prompt, steps, seed, dimensions) {
   if (modelConfig.requestMode === "multipart") {
     const form = new FormData();
     form.append("prompt", prompt);
 
-    if (modelConfig.multipartDefaults?.width) {
-      form.append("width", String(modelConfig.multipartDefaults.width));
+    if (dimensions?.width || modelConfig.multipartDefaults?.width) {
+      form.append("width", String(dimensions?.width || modelConfig.multipartDefaults.width));
     }
-    if (modelConfig.multipartDefaults?.height) {
-      form.append("height", String(modelConfig.multipartDefaults.height));
+    if (dimensions?.height || modelConfig.multipartDefaults?.height) {
+      form.append("height", String(dimensions?.height || modelConfig.multipartDefaults.height));
     }
     if (modelConfig.supportsSteps && steps !== null) {
       form.append("steps", String(steps));
@@ -324,6 +324,8 @@ export function buildAiImageInput(modelConfig, prompt, steps, seed) {
       },
       steps: modelConfig.supportsSteps ? steps : null,
       seed: modelConfig.supportsSeed ? seed : null,
+      width: dimensions?.width || modelConfig.multipartDefaults?.width,
+      height: dimensions?.height || modelConfig.multipartDefaults?.height,
     };
   }
 

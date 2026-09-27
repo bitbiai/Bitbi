@@ -182,7 +182,7 @@ test('pricing conflict preserves editor; a new retail snapshot refreshes existin
  for(const route of ['/','/de/','/generate-lab/','/de/generate-lab/','/canvas/','/de/canvas/','/admin/index.html#ai-lab']){
   await page.goto(route);const result=await page.evaluate(async()=>{const client=await import('/js/shared/model-pricing-client.js');await client.refreshModelPricing();const {calculateAiVideoCreditCost}=await import('/js/shared/ai-model-pricing.mjs');return {credits:calculateAiVideoCreditCost('minimax/h3',{duration:5,resolution:'768P'}).credits,headers:client.modelPricingRequestHeaders()};});
   expect(result.credits,route).toBe(45);expect(result.headers['X-Bitbi-Tariff-Revision'],route).toBe('1');
-  if(route.includes('/generate-lab/')){await page.locator('[data-media-type=video]').click();await page.locator('[data-model-id="minimax/h3"]').click();await expect(page.locator('#labCost')).toContainText('45');await page.locator('#labVideoDuration').selectOption('6');await expect(page.locator('#labCost')).toContainText('54');}
+  if(route.includes('/generate-lab/')){await page.locator('[data-media-type=video]').click();await page.locator('#labImageModel').selectOption('minimax/h3');await expect(page.locator('#labCost')).toContainText('45');await page.locator('#labVideoDuration').selectOption('6');await expect(page.locator('#labCost')).toContainText('54');}
   if(route==='/generate-lab/'){await page.evaluate(async()=>{const api=await import('/js/shared/auth-api.js');return api.apiAiGenerateVideo({model:'minimax/h3',duration:5,resolution:'768P'});});expect(f.calls.find(c=>c.path==='/api/ai/generate-video').revision).toBe('1');}
   if(route==='/canvas/'||route==='/de/canvas/'){
    await page.locator(`.canvas-node[data-node-id="${f.node.id}"]`).click();

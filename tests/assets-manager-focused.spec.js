@@ -49,7 +49,7 @@ async function mockAssetsManagerApi(page, { authenticated = true, assets = [], r
   assets = structuredClone(assets);
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
-    requests.push({path:url.pathname,method:route.request().method()});
+    requests.push({path:url.pathname,method:route.request().method(),...(url.searchParams.has('asset_type') ? {type:url.searchParams.get('asset_type'),cursor:url.searchParams.get('cursor')} : {})});
     if(url.pathname.endsWith('/poster') || url.pathname.endsWith('/thumb')) return route.fulfill({status:200,contentType:'image/webp',body:require('node:fs').readFileSync(require('node:path').join(__dirname,'fixtures/media/member-video-poster.webp'))});
     if(url.pathname.endsWith('/file') && url.pathname.includes('/images/')) return route.fulfill({status:200,contentType:'image/png',body:require('node:fs').readFileSync(require('node:path').join(__dirname,'fixtures/media/member-image.png'))});
     if(url.pathname.includes('/card-music') && url.pathname.endsWith('/file')) return route.fulfill({status:200,contentType:'audio/wav',body:buildWavBuffer()});
@@ -80,12 +80,17 @@ async function mockAssetsManagerApi(page, { authenticated = true, assets = [], r
         },
       };
     } else if (url.pathname === '/api/ai/assets') {
+      const type = url.searchParams.get('asset_type');
+      const matching = type ? assets.filter(asset => asset.asset_type === type) : assets;
+      const offset = Number((url.searchParams.get('cursor') || '').split(':').at(-1)) || 0;
+      const limit = Number(url.searchParams.get('limit')) || 60;
+      const more = matching.length > offset + limit;
       body = {
         ok: true,
         data: {
-          assets,
-          next_cursor: null,
-          has_more: false,
+          assets: matching.slice(offset, offset + limit),
+          next_cursor: more ? `${type || 'all'}:${offset + limit}` : null,
+          has_more: more,
           applied_limit: 60,
           storageUsage: STORAGE_USAGE,
         },
@@ -122,6 +127,77 @@ const localeCases = [
 test.describe('Assets Manager focused validation', () => {
   test.beforeEach(async ({ page }) => {
     await seedCookieConsent(page);
+  });
+
+  for (const localeCase of localeCases) for (const width of [390, 1280]) {
+    test(`${localeCase.name} type groups independently paginate more than 60 interleaved assets at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      const requests = [];
+      const assets = [{ id: 'latest-text', asset_type: 'text', title: 'Retained text', preview_text: 'Still available', created_at: '2026-09-27T12:00:00Z' }];
+      for (let i = 0; i < 65; i++) for (const type of ['image', 'video', 'sound']) assets.push({
+        id: `${type}-${i}`, asset_type: type, title: `${type} ${i}`, prompt: `${type} ${i}`,
+        created_at: new Date(Date.UTC(2026, 8, 27, 11, 59 - i)).toISOString(),
+        mime_type: type === 'image' ? 'image/png' : type === 'video' ? 'video/mp4' : 'audio/wav',
+        derivatives_status: 'pending', visibility: 'private', size_bytes: 100,
+      });
+      await mockAssetsManagerApi(page, { assets, requests });
+      await page.goto(localeCase.path);
+      const toggle = page.locator('.studio__asset-type-toggle');
+      await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      await expect(page.locator('[data-asset-type-group]')).toHaveCount(0);
+      await toggle.click();
+      await expect(page.locator('[data-asset-type-group]')).toHaveCount(3);
+      expect(requests.filter(r => r.path === '/api/ai/assets')).toHaveLength(0);
+      for (const type of ['image', 'video', 'sound']) {
+        const group = page.locator(`[data-asset-type-group="${type}"]`);
+        await group.locator('summary').click();
+        await expect(group.locator('[data-asset-id]')).toHaveCount(60);
+        await expect(group.locator('[data-asset-id]').first()).toHaveAttribute('data-asset-id', `${type}-0`);
+        await group.locator('button.studio__pagination-btn').click();
+        await expect(group.locator('[data-asset-id]')).toHaveCount(65);
+        await expect(group.locator('[data-asset-id]').last()).toHaveAttribute('data-asset-id', `${type}-64`);
+        await expect(group).toHaveAttribute('open', '');
+      }
+      await expect(page.locator('[data-asset-type-group][open]')).toHaveCount(3);
+      await page.locator('[data-asset-type-group="video"] summary').click();
+      await expect(page.locator('[data-asset-type-group][open]')).toHaveCount(2);
+      expect(requests.filter(r => r.path === '/api/ai/assets').map(r => r.type)).toEqual(['image','image','video','video','sound','sound']);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      await expect(page.locator('[data-asset-type-group]')).toHaveCount(0);
+      await expect(page.locator('[data-asset-id="latest-text"]')).toBeAttached();
+    });
+  }
+
+  for (const localeCase of localeCases) test(`${localeCase.name} type groups recover independently and ignore an obsolete response`, async ({ page }) => {
+    await mockAssetsManagerApi(page);
+    let releaseImage;
+    const waitingImage = new Promise(resolve => { releaseImage = resolve; });
+    let videoCalls = 0;
+    await page.route('**/api/ai/assets?*', async route => {
+      const type = new URL(route.request().url()).searchParams.get('asset_type');
+      if (type === 'image') await waitingImage;
+      if (type === 'video' && ++videoCalls === 1) return route.fulfill({ status: 503, json: { ok: false, error: 'Synthetic read unavailable' } });
+      return route.fulfill({ json: { ok: true, data: { assets: type ? [{id:`delayed-${type}`,asset_type:type,prompt:'Synthetic',title:'Synthetic',mime_type:type==='image'?'image/png':'video/mp4'}] : [],has_more:false } } });
+    });
+    await page.goto(localeCase.path);
+    const toggle = page.locator('.studio__asset-type-toggle');
+    await toggle.click();
+    const images = page.locator('[data-asset-type-group="image"]'), videos = page.locator('[data-asset-type-group="video"]');
+    await images.locator('summary').click();
+    await expect(images).toHaveAttribute('aria-busy', 'true');
+    await videos.locator('summary').click();
+    await expect(videos.getByRole('status')).not.toBeEmpty();
+    await videos.locator('button').click();
+    await expect(videos.locator('[data-asset-id]')).toHaveCount(1);
+    await expect(images).toHaveAttribute('open', '');
+    await expect(images).toHaveAttribute('aria-busy', 'true');
+    await toggle.click();
+    releaseImage();
+    await expect(page.locator('[data-asset-type-group]')).toHaveCount(0);
+    await expect(page.locator('[data-asset-id="delayed-image"]')).toHaveCount(0);
+    expect(videoCalls).toBe(2);
   });
 
   for (const localeCase of localeCases) {
@@ -294,9 +370,11 @@ for(const locale of ['en','de']) test(`shared asset cards ${locale}: Generate La
   await video.focus();
   await page.keyboard.press('Escape');
   await page.locator('[data-media-type="video"]').click();
-  await page.locator('[data-model-id="pixverse/v6"]').click();
+  await page.locator('#labImageModel').selectOption('pixverse/v6');
   await page.locator('#labVideoReferenceTrigger').click();
   await page.locator('[data-reference-source-action="assets"]').click();
+  await page.locator('#labAssetsOverlay .studio__asset-type-toggle').click();
+  await page.locator('#labAssetsGrid [data-asset-type-group="image"] summary').click();
   const image=page.locator('#labAssetsGrid [data-asset-id="card-image"]');
   await expect(image).toBeVisible();
   await expect(image.locator('.studio__card-menu')).toBeHidden();
@@ -307,6 +385,25 @@ for(const locale of ['en','de']) test(`shared asset cards ${locale}: Generate La
   await expect(page.locator('#labVideoReferenceLabel')).toHaveText(CARD_ASSETS[0].title);
   expect(requests.filter(r=>r.method!=='GET')).toEqual([]);
   expect(requests.filter(r=>r.path.includes('/text-assets/')&&r.path.endsWith('/file'))).toEqual([]);
+});
+
+for (const locale of ['en','de']) test(`typed music cards ${locale}: mobile playback and keyboard owner action`, async ({ page }) => {
+  await page.setViewportSize({width:390,height:844}); await seedCookieConsent(page);
+  const requests=[]; await mockAssetsManagerApi(page,{assets:CARD_ASSETS,requests});
+  await page.goto(`${locale==='de'?'/de':''}/account/assets-manager.html`);
+  await page.locator('.studio__asset-type-toggle').click();
+  await page.locator('[data-asset-type-group="sound"] summary').click();
+  const music=page.locator('[data-asset-id="card-music-bare"]');
+  await music.locator('.studio__asset-video-trigger').click();
+  const dialog=page.locator('.mobile-media-detail-overlay');
+  await expect(dialog).toBeVisible();
+  await expect.poll(()=>dialog.locator('audio').evaluate(a=>!a.paused&&a.currentTime>0)).toBe(true);
+  await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
+  await music.locator('.studio__card-menu').click();
+  let confirmations=0; page.on('dialog',async dialog=>{confirmations++;await dialog.dismiss();});
+  await music.locator('.studio__image-delete').focus(); await page.keyboard.press('Enter');
+  expect(confirmations).toBe(1); expect(requests.filter(r=>r.method!=='GET')).toEqual([]);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth)).toBeLessThanOrEqual(1);
 });
 
 for (const [locale,narrow] of [['en',false],['de',true]]) test(`shared music cards ${locale}: cover, actions, native playback and cleanup`,async({browser},testInfo)=>{

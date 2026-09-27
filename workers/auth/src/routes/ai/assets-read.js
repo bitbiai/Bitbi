@@ -78,7 +78,13 @@ export async function handleGetAssets(ctx) {
     defaultValue: DEFAULT_MEMBER_ASSET_LIMIT,
     maxValue: MAX_MEMBER_ASSET_LIMIT,
   });
-  const scopeKey = onlyUnfoldered ? "unfoldered" : (folderId ? `folder:${folderId}` : "all");
+  const assetType = url.searchParams.get("asset_type") || null;
+  if (assetType && !["image", "video", "sound"].includes(assetType)) {
+    return json({ ok: false, error: "Invalid asset type.", code: "invalid_asset_type" }, { status: 400 });
+  }
+  const folderScope = onlyUnfoldered ? "unfoldered" : (folderId ? `folder:${folderId}` : "all");
+  // Keep legacy unfiltered cursors compatible; typed cursors bind type and owner.
+  const scopeKey = assetType ? `${folderScope}|type:${assetType}|user:${session.user.id}` : folderScope;
 
   let cursor = null;
   try {
@@ -105,6 +111,13 @@ export async function handleGetAssets(ctx) {
   const imageBindings = [session.user.id];
   const textConditions = ["user_id = ?", "NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_text_assets.id) AND NOT EXISTS(SELECT 1 FROM canvas_media_outputs canvas WHERE canvas.asset_id=ai_text_assets.id AND canvas.state<>'saved')"];
   const textBindings = [session.user.id];
+
+  if (assetType === "image") textConditions.push("0 = 1");
+  else if (assetType) {
+    imageConditions.push("0 = 1");
+    textConditions.push("LOWER(mime_type) LIKE ?");
+    textBindings.push(assetType === "sound" ? "audio/%" : "video/%");
+  }
 
   if (onlyUnfoldered) {
     imageConditions.push("folder_id IS NULL");

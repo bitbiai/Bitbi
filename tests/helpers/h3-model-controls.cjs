@@ -9,7 +9,8 @@ exports.adminControls=async({page,expect,mockAdminAiLab,clickAiLabMode})=>{
     await page.route('**/api/admin/ai/video-jobs',route=>{requests.push(route.request().postDataJSON());return route.fulfill({status:202,json:{ok:true,job:{jobId:'h3-admin-synthetic',status:'queued',model:'minimax/h3',statusUrl:'/api/admin/ai/video-jobs/h3-admin-synthetic'}}});});
     await page.route('**/api/admin/ai/video-jobs/h3-admin-synthetic',route=>route.fulfill({json:{ok:true,job:{jobId:'h3-admin-synthetic',status:'provider_pending',model:'minimax/h3'}}}));
     await page.goto('/admin/index.html#ai-lab');await clickAiLabMode(page,'video');
-    await expect(page.locator('#aiVideoCardH3')).toBeVisible();
+    await expect(page.locator('#aiVideoModel')).toBeVisible();
+    await expect(page.locator('#aiVideoModel')).toHaveValue('minimax/h3');
     await expect(page.locator('#aiVideoResolution')).toHaveValue('2K');
     await expect(page.locator('[data-h3-references]')).toContainText('Owned frame');
     const controls=page.locator('[data-h3-references]');

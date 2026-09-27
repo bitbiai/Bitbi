@@ -1455,11 +1455,11 @@
                             <div class="admin-ai__form-grid admin-ai__form-grid--5" id="aiImageAdvancedGrid">
                                 <label class="admin-ai__field" id="aiImageWidthField">
                                     <span class="admin-ai__label">Width</span>
-                                    <input id="aiImageWidth" class="admin-ai__input" type="number" min="256" max="1024" step="256">
+                                    <select id="aiImageWidth" class="admin-ai__input"></select>
                                 </label>
                                 <label class="admin-ai__field" id="aiImageHeightField">
                                     <span class="admin-ai__label">Height</span>
-                                    <input id="aiImageHeight" class="admin-ai__input" type="number" min="256" max="1024" step="256">
+                                    <select id="aiImageHeight" class="admin-ai__input"></select>
                                 </label>
                                 <label class="admin-ai__field" id="aiImageStepsField">
                                     <span class="admin-ai__label">Steps</span>
@@ -1874,20 +1874,12 @@
                             <span></span>
                         </div>
 
-                        <div id="aiMusicModelGrid" class="admin-ai__music-model-grid" role="tablist" aria-label="Music AI models">
-                            <button type="button" id="aiMusicModelMinimax" class="admin-ai__music-model-card admin-ai__music-model-card--active" role="tab" data-ai-music-option="minimax" aria-selected="true" aria-controls="aiMusicMinimaxControls" tabindex="0">
-                                <span class="admin-ai__music-model-card-title">MiniMax Music 2.6</span>
-                                <code class="admin-ai__music-model-card-id" data-ai-music-model-id></code>
-                                <span class="admin-ai__music-model-card-copy">Vocal and instrumental generation with custom or automatically optimized lyrics, BPM, and key guidance.</span>
-                            </button>
-                            <button type="button" id="aiMusicModelElevenLabs" class="admin-ai__music-model-card" role="tab" data-ai-music-option="elevenlabs" aria-selected="false" aria-controls="aiMusicElevenLabsControls" tabindex="-1">
-                                <span class="admin-ai__music-model-card-title">ElevenLabs Music v2</span>
-                                <code class="admin-ai__music-model-card-id" data-ai-music-model-id></code>
-                                <span class="admin-ai__music-model-card-copy">Prompt or composition-plan generation with explicit duration, seed, MP3 or Opus output, inpainting storage, and compatible C2PA signing.</span>
-                            </button>
-                        </div>
+                        <label class="admin-ai__field" for="aiMusicModel">
+                            <span class="admin-ai__label">Model</span>
+                            <select id="aiMusicModel" class="admin-ai__input"></select>
+                        </label>
 
-                        <div id="aiMusicMinimaxControls" class="admin-ai__music-provider-panel" role="tabpanel" aria-labelledby="aiMusicModelMinimax">
+                        <div id="aiMusicMinimaxControls" class="admin-ai__music-provider-panel" role="region" aria-label="MiniMax controls">
                             <label class="admin-ai__field">
                                 <span class="admin-ai__label-row">
                                     <span class="admin-ai__label">Prompt</span>
@@ -1938,7 +1930,7 @@
                             <p class="admin-ai__music-helper">Tempo and key are passed as structured guidance inside the generation prompt because the music model exposes prompt-first control plus lyric and instrumental flags.</p>
                         </div>
 
-                        <div id="aiMusicElevenLabsControls" class="admin-ai__music-provider-panel" role="tabpanel" aria-labelledby="aiMusicModelElevenLabs" hidden>
+                        <div id="aiMusicElevenLabsControls" class="admin-ai__music-provider-panel" role="region" aria-label="ElevenLabs controls" hidden>
                             <div class="admin-ai__form-grid admin-ai__form-grid--2">
                                 <label class="admin-ai__field">
                                     <span class="admin-ai__label">Input Mode</span>
@@ -2083,47 +2075,10 @@
                             <span></span>
                         </div>
 
-                        <div class="admin-ai__video-model-grid" role="tablist" aria-label="Video AI models">
-                            <button type="button" id="aiVideoCardPixverse" class="admin-ai__video-model-card admin-ai__video-model-card--active" data-ai-video-model="pixverse/v6" aria-selected="true">
-                                <span class="admin-ai__video-model-card-title">Pixverse V6</span>
-                                <code class="admin-ai__video-model-card-id">pixverse/v6</code>
-                                <span class="admin-ai__video-model-card-copy">Text-to-video and image-to-video with negative prompt, quality, seed, and audio controls.</span>
-                            </button>
-                            <button type="button" id="aiVideoCardVidu" class="admin-ai__video-model-card" data-ai-video-model="vidu/q3-pro" aria-selected="false">
-                                <span class="admin-ai__video-model-card-title">Vidu Q3 Pro</span>
-                                <code class="admin-ai__video-model-card-id">vidu/q3-pro</code>
-                                <span class="admin-ai__video-model-card-copy">Text-to-video, image-to-video, and start/end-frame workflows with resolution and audio controls.</span>
-                            </button>
-                            <button type="button" id="aiVideoCardHappyHorse" class="admin-ai__video-model-card" data-ai-video-model="alibaba/hh1-t2v" aria-selected="false">
-                                <span class="admin-ai__video-model-card-title">HappyHorse 1.0 T2V</span>
-                                <code class="admin-ai__video-model-card-id">alibaba/hh1-t2v</code>
-                                <span class="admin-ai__video-model-card-copy">Cloudflare Workers AI text-to-video with resolution, ratio, duration, seed, and watermark controls.</span>
-                            </button>
-                            <button type="button" id="aiVideoCardSeedanceFast" class="admin-ai__video-model-card" data-ai-video-model="bytedance/seedance-2.0-fast" aria-selected="false">
-                                <span class="admin-ai__video-model-card-title">Seedance 2.0 Fast</span>
-                                <code class="admin-ai__video-model-card-id">bytedance/seedance-2.0-fast</code>
-                                <span class="admin-ai__video-model-card-copy">Admin-only Cloudflare entry. Pricing configuration is required before generation.</span>
-                            </button>
-                            <button type="button" id="aiVideoCardSeedance" class="admin-ai__video-model-card" data-ai-video-model="bytedance/seedance-2.0" aria-selected="false">
-                                <span class="admin-ai__video-model-card-title">Seedance 2.0</span>
-                                <code class="admin-ai__video-model-card-id">bytedance/seedance-2.0</code>
-                                <span class="admin-ai__video-model-card-copy">Admin-only Cloudflare entry. Pricing configuration is required before generation.</span>
-                            </button>
-                            <button type="button" id="aiVideoCardGrokImagine" class="admin-ai__video-model-card" data-ai-video-model="xai/grok-imagine-video" aria-selected="false">
-                                <span class="admin-ai__video-model-card-title">Grok Imagine Video</span>
-                                <code class="admin-ai__video-model-card-id">xai/grok-imagine-video</code>
-                                <span class="admin-ai__video-model-card-copy">Admin-only xAI video via Cloudflare AI Gateway Unified Billing and platform budget controls.</span>
-                            </button>
-                            <button type="button" id="aiVideoCardH3" class="admin-ai__video-model-card" data-ai-video-model="minimax/h3" aria-selected="false">
-                                <span class="admin-ai__video-model-card-title">MiniMax H3</span>
-                                <span class="admin-ai__video-model-card-copy">Text, frames and media references</span>
-                            </button>
-                            <button type="button" id="aiVideoCardGrokImagine15Preview" class="admin-ai__video-model-card" data-ai-video-model="xai/grok-imagine-video-1.5-preview" aria-selected="false">
-                                <span class="admin-ai__video-model-card-title">Grok Imagine Video 1.5 Preview</span>
-                                <code class="admin-ai__video-model-card-id">xai/grok-imagine-video-1.5-preview</code>
-                                <span class="admin-ai__video-model-card-copy">Admin-only xAI preview via Cloudflare AI Gateway with generate, edit, and extend operations.</span>
-                            </button>
-                        </div>
+                        <label class="admin-ai__field" for="aiVideoModel">
+                            <span class="admin-ai__label">Model</span>
+                            <select id="aiVideoModel" class="admin-ai__input"></select>
+                        </label>
 
                         <label class="admin-ai__field">
                             <span class="admin-ai__label-row">

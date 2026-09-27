@@ -1,4 +1,6 @@
 import { H3_MODEL, H3_ROLES, H3_RESOLUTIONS, H3_RATIOS } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
+import { sortGenerationModels } from '../../shared/generation-model-order.mjs?v=__ASSET_VERSION__';
+import { imageDimensionChoices } from '../../shared/image-dimensions.mjs?v=__ASSET_VERSION__';
 import { getAdminAiVideoModelSpec } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI — Generate Lab model registry
@@ -118,9 +120,9 @@ const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
         id:model.id,displayName:model.label,mediaType:'image',provider:config.vendor,route:'/api/ai/generate-image',outputType:'image',status:'',
         summary:DE?'Bildgenerierung und Bearbeitung mit Referenzbildern.':'Image generation and editing with reference images.',
         capabilities:[DE?'Text zu Bild':'Text to image',DE?'Bis zu fünf Referenzbilder':'Up to five reference images','1k / 2k'],
-        controls:{supportsQuality:true,supportsSize:true,supportsReferenceImages:true,maxReferenceImages:config.maxReferenceImages},
-        defaults:{model:model.id,quality:config.defaultQuality,size:config.defaultResolution,referenceImages:[]},
-        options:{quality:config.qualityOptions,size:config.resolutionOptions},
+        controls:{supportsQuality:true,supportsSize:true,supportsAspectRatio:true,supportsReferenceImages:true,maxReferenceImages:config.maxReferenceImages},
+        defaults:{model:model.id,quality:config.defaultQuality,size:config.defaultResolution,aspectRatio:config.defaultAspectRatio,referenceImages:[]},
+        options:{quality:config.qualityOptions,size:config.resolutionOptions,aspectRatio:config.aspectRatioOptions},
         estimateCredits:(values={})=>estimateModelCredits('image',model.id,values),
     });
     if (['gpt-image-2', 'gpt-image-2.5'].includes(config?.requestMode) || model.id === GPT_IMAGE_2_MODEL_ID) {
@@ -249,12 +251,16 @@ const imageModels = getGenerateLabAiImageModelOptions().map((model) => {
         controls: Object.freeze({
             supportsSteps: config?.supportsSteps === true,
             supportsSeed: config?.supportsSeed === true,
+            supportsDimensions: config?.supportsDimensions === true,
         }),
         defaults: Object.freeze({
             model: model.id,
             steps: 4,
             seed: '',
+            width: config?.multipartDefaults?.width || 1024,
+            height: config?.multipartDefaults?.height || 1024,
         }),
+        options: Object.freeze({ dimensions: { values: imageDimensionChoices(model.id), min: 256, max: 1024 } }),
         estimateCredits: (values = {}) => estimateModelCredits('image', model.id, {
             width: values.width || config?.multipartDefaults?.width || 1024,
             height: values.height || config?.multipartDefaults?.height || 1024,
@@ -467,7 +473,7 @@ const models = Object.freeze(getMemberExposedModels().map((exposure) => {
     if (!model || model.mediaType !== exposure.mediaType) {
         throw new Error(`Member model exposure "${exposure.id}" has no matching Generate Lab definition.`);
     }
-    return model;
+    return Object.freeze({ ...model, vendor: exposure.vendor, provider: exposure.vendor });
 }));
 
 const mediaTypesById = new Map(GENERATE_LAB_MEDIA_TYPES.map((type) => [type.id, type]));
@@ -482,7 +488,7 @@ export function getGenerateLabModels() {
 }
 
 export function getGenerateLabModelsByMediaType(mediaType) {
-    return models.filter((model) => model.mediaType === mediaType);
+    return sortGenerationModels(models.filter((model) => model.mediaType === mediaType));
 }
 
 export function getGenerateLabModel(modelId) {
@@ -490,7 +496,8 @@ export function getGenerateLabModel(modelId) {
 }
 
 export function getDefaultGenerateLabModel(mediaType) {
-    return getGenerateLabModelsByMediaType(mediaType)[0] || getGenerateLabModel(DEFAULT_AI_IMAGE_MODEL);
+    const defaults = { image: DEFAULT_AI_IMAGE_MODEL, video: H3_MODEL, music: MUSIC_26_MODEL_ID };
+    return getGenerateLabModel(defaults[mediaType] || DEFAULT_AI_IMAGE_MODEL);
 }
 
 export function calculateGenerateLabCredits(modelId, values = {}) {

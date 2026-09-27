@@ -397,6 +397,34 @@ test.describe('BITBI Canvas static and protected workspace', () => {
   });
 });
 
+for (const locale of ['en', 'de']) test(`${locale}: Canvas dimension dropdowns normalize restored values and preserve outputs`, async ({ page }) => {
+  const { listCanvasModelsForRole } = await import('../js/shared/canvas-model-contract.mjs');
+  const { sortGenerationModels } = await import('../js/shared/generation-model-order.mjs');
+  const models = listCanvasModelsForRole('user');
+  await mockSharedAuth(page);
+  const state = createCanvasApiMock(page, { modelPayload: { models, organizations: [], access: { role: 'user' } } });
+  const project = { id: '1'.repeat(32), title: 'Dimension fixture', locale };
+  state.projects.push(project);
+  state.nodes.push({ id: '2'.repeat(32), project_id: project.id, type: 'image_generation', title: 'Retained image', x: 30, y: 30,
+    model_id: '@cf/black-forest-labs/flux-2-klein-9b', config: { prompt: 'Keep this prompt', width: 2048, height: 257 }, content: {}, output: { kind: 'image', url: '/assets/logo.png' } });
+  const originalOutput = structuredClone(state.nodes[0].output);
+  await page.goto(`${locale === 'de' ? '/de' : ''}/canvas/`);
+  await page.locator('[data-node-id="'+state.nodes[0].id+'"]').click();
+  const inspector = page.locator('#canvasInspectorBody');
+  const model = inspector.getByRole('combobox', { name: locale === 'de' ? 'Modell' : 'Model', exact: true });
+  expect(await model.locator('option').evaluateAll(options => options.map(o => o.value))).toEqual(sortGenerationModels(models.filter(m => m.capability === 'image')).map(m => m.id));
+  const width = inspector.getByRole('combobox', { name: locale === 'de' ? 'Breite' : 'Width', exact: true });
+  const height = inspector.getByRole('combobox', { name: locale === 'de' ? 'Höhe' : 'Height', exact: true });
+  await expect(width.locator('option')).toHaveText(['256','512','768','1024']);
+  await expect(width).toHaveValue('1024'); await expect(height).toHaveValue('1024');
+  await width.selectOption('768'); await height.selectOption('512');
+  await expect.poll(() => state.nodes[0].config).toMatchObject({ width: 768, height: 512, prompt: 'Keep this prompt' });
+  await page.reload(); await page.locator('[data-node-id="'+state.nodes[0].id+'"]').click();
+  await expect(width).toHaveValue('768'); await expect(height).toHaveValue('512');
+  expect(state.nodes[0].output).toEqual(originalOutput);
+  expect(state.runs).toEqual([]);
+});
+
 for (const locale of ['en', 'de']) test(`${locale}: admin Canvas uses registry options and clean estimates; token defaults preserve explicit edits and save retries keep identity`, async ({ page }, testInfo) => {
   const { listCanvasModelsForRole,estimateCanvasTextCredits,getCanvasTextInstructions } = await import('../js/shared/canvas-model-contract.mjs');
   const models = listCanvasModelsForRole('admin');

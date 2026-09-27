@@ -310,6 +310,7 @@ function _createDeck(grid, {
     const mql = window.matchMedia('(max-width: 639px)');
     let active = 0;
     let isDeck = false;
+    let enabled = true;
     let dotsEl = null;
     let swipeLock = false;
 
@@ -421,7 +422,7 @@ function _createDeck(grid, {
 
     /* ── Engage / Disengage ── */
     function engage() {
-        if (isDeck) return;
+        if (isDeck || !enabled) return;
         isDeck = true;
         active = 0;
         grid.classList.add(deckClass);
@@ -528,6 +529,10 @@ function _createDeck(grid, {
     if (mql.matches) engage();
 
     return {
+        setEnabled(value) {
+            enabled = value;
+            if (enabled && mql.matches) engage(); else disengage();
+        },
         refresh() { if (isDeck) renderDeck(); },
         setActive(index) {
             const cards = getCards();

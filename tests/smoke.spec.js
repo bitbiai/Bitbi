@@ -4409,7 +4409,9 @@ test.describe('Homepage', () => {
     await expect(page.locator('#authLoginMsg')).toContainText('Sign in again before generating, saving, or loading recent assets.');
   });
 
-  test('Generate Lab renders the desktop member workspace with supported models', async ({ page }) => {
+  for (const locale of ['en', 'de']) test(`@canvas-model-ui Generate Lab dimensions and publisher dropdowns ${locale}`, ({ page }) => require('./helpers/generation-selectors.cjs').memberDimensions({ page, expect, mockSession: mockGenerateLabMemberSession, locale }));
+
+  test('@canvas-model-ui Generate Lab renders the desktop member workspace with supported models', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 980 });
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -4577,26 +4579,26 @@ test.describe('Homepage', () => {
     await page.selectOption('#labImageModel', '@cf/black-forest-labs/flux-1-schnell');
     await expect(page.locator('#labCost')).toHaveText('1 credit');
     await expect(page.locator('#labImageSteps')).toBeEnabled();
-    await expect(page.locator('#labImageSeed')).toBeEnabled();
+    await expect(page.locator('#labImageSeed')).toBeDisabled();
 
     await page.getByRole('tab', { name: 'Video' }).click();
     await expect(page.locator('body')).toHaveAttribute('data-lab-mode', 'video');
     await expectLabAccent('0, 240, 255', '255, 179, 0');
     await expect(page.locator('#labWorkflowStatus')).toBeHidden();
     await expect(workspace).not.toContainText('Video remains in preview until you save it.');
-    await expect(page.locator('#labModelList').getByText('PixVerse V6')).toBeVisible();
-    await expect(page.locator('#labModelList').getByText('HappyHorse 1.0 T2V')).toBeVisible();
-    await expect(page.locator('#labModelList').getByText('Seedance 2.0 Fast')).toBeVisible();
-    await expect(page.locator('#labModelList').getByText('Grok Imagine Video', { exact: true })).toBeVisible();
+    await expect(page.locator('#labImageModel option[value="pixverse/v6"]')).toHaveText('PixVerse V6');
+    await expect(page.locator('#labImageModel option[value="alibaba/hh1-t2v"]')).toHaveText('HappyHorse 1.0 T2V');
+    await expect(page.locator('#labImageModel option[value="bytedance/seedance-2.0-fast"]')).toHaveText('Seedance 2.0 Fast');
+    await expect(page.locator('#labImageModel option[value="xai/grok-imagine-video"]')).toHaveText('Grok Imagine Video');
     await expect(page.getByLabel('Describe your video')).toBeVisible();
-    await expect(page.locator('#labModelList [aria-pressed="true"]')).toContainText('MiniMax H3');
+    await expect(page.locator('#labImageModel')).toHaveValue('minimax/h3');
     await expect(page.locator('#labCost')).toHaveText('262 credits');
-    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'PixVerse V6' }).click();
+    await page.locator('#labImageModel').selectOption('pixverse/v6');
     await expect(page.locator('#labCost')).toHaveText('185 credits');
     await expect(page.getByText('Vidu Q3 Pro')).toHaveCount(0);
     await expect(page.getByText('Seedance 2.0', { exact: true })).toHaveCount(0);
 
-    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'HappyHorse 1.0 T2V' }).click();
+    await page.locator('#labImageModel').selectOption('alibaba/hh1-t2v');
     await expect(page.locator('#labCost')).toHaveText('459 credits');
     await expect(page.locator('#labVideoNegativeField')).toBeHidden();
     await expect(page.locator('#labVideoReferenceField')).toBeHidden();
@@ -4611,7 +4613,7 @@ test.describe('Homepage', () => {
     await page.selectOption('#labVideoQuality', '1080P');
     await expect(page.locator('#labCost')).toHaveText('917 credits');
 
-    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'Seedance 2.0 Fast' }).click();
+    await page.locator('#labImageModel').selectOption('bytedance/seedance-2.0-fast');
     await expect(page.locator('#labCost')).toHaveText('252 credits');
     await expect(page.locator('#labVideoNegativeField')).toBeHidden();
     await expect(page.locator('#labVideoReferenceField')).toBeHidden();
@@ -4642,7 +4644,7 @@ test.describe('Homepage', () => {
     await page.selectOption('#labVideoDuration', '12');
     await expect(page.locator('#labCost')).toHaveText('604 credits');
 
-    await page.locator('#labModelList .generate-lab__model-card').filter({ has: page.getByText('Grok Imagine Video', { exact: true }) }).click();
+    await page.locator('#labImageModel').selectOption('xai/grok-imagine-video');
     await expect(page.locator('#labCost')).toHaveText('172 credits');
     await expect(page.locator('#labVideoNegativeField')).toBeHidden();
     await expect(page.locator('#labVideoReferenceField')).toBeHidden();
@@ -4658,7 +4660,7 @@ test.describe('Homepage', () => {
     await page.selectOption('#labVideoDuration', '10');
     await expect(page.locator('#labCost')).toHaveText('344 credits');
 
-    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'PixVerse V6' }).click();
+    await page.locator('#labImageModel').selectOption('pixverse/v6');
     await expect(page.locator('#labCost')).toHaveText('185 credits');
     await expect(page.locator('#labVideoNegativeField')).toBeVisible();
     await expect(page.locator('#labVideoReferenceField')).toBeVisible();
@@ -4673,7 +4675,7 @@ test.describe('Homepage', () => {
     await expectLabAccent('255, 179, 0', '0, 240, 255');
     await expect(page.locator('#labWorkflowStatus')).toBeHidden();
     await expect(workspace).not.toContainText('Music remains in preview until you save it.');
-    await expect(page.locator('#labModelList').getByText('MiniMax Music 2.6')).toBeVisible();
+    await expect(page.locator('#labImageModel option[value="minimax/music-2.6"]')).toHaveText('MiniMax Music 2.6');
     await expect(page.getByLabel('Describe your track')).toBeVisible();
     await expect(page.locator('#labCost')).toHaveText('150 credits');
   });
@@ -4785,7 +4787,7 @@ test.describe('Homepage', () => {
 
     await page.goto('/generate-lab/');
     await page.getByRole('tab', { name: 'Video' }).click();
-    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'PixVerse V6' }).click();
+    await page.locator('#labImageModel').selectOption('pixverse/v6');
     await expect(page.locator('#labVideoReferenceField')).toBeVisible();
     await page.locator('#labVideoReferenceTrigger').click();
     await expect(page.locator('#labReferenceSourceDialog')).toBeVisible();
@@ -5041,7 +5043,7 @@ test.describe('Homepage', () => {
     expect(imagePayloads[0]).not.toHaveProperty('guidance');
 
     await page.getByRole('tab', { name: 'Video' }).click();
-    await page.locator('#labModelList .generate-lab__model-card').filter({ has: page.getByText('Grok Imagine Video', { exact: true }) }).click();
+    await page.locator('#labImageModel').selectOption('xai/grok-imagine-video');
     await page.locator('#labPrompt').fill('Grok Imagine payload check');
     await page.locator('#labGenerate').click();
     await expect.poll(() => videoPayloads.length).toBe(1);
@@ -5109,9 +5111,9 @@ test.describe('Homepage', () => {
     await expect(page.locator('main')).not.toContainText('Alle gespeicherten anzeigen');
 
     await page.getByRole('tab', { name: 'Video' }).click();
-    await expect(page.locator('#labModelList').getByText('Seedance 2.0 Fast')).toBeVisible();
+    await expect(page.locator('#labImageModel option[value="bytedance/seedance-2.0-fast"]')).toHaveText('Seedance 2.0 Fast');
     await expect(page.getByText('Seedance 2.0', { exact: true })).toHaveCount(0);
-    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'HappyHorse 1.0 T2V' }).click();
+    await page.locator('#labImageModel').selectOption('alibaba/hh1-t2v');
     await expect(page.locator('#labVideoNegativeField')).toBeHidden();
     await expect(page.locator('#labVideoReferenceField')).toBeHidden();
     await expect(page.locator('#labVideoAudioField')).toBeHidden();
@@ -5122,7 +5124,7 @@ test.describe('Homepage', () => {
     await expect(page.locator('#labVideoQuality option')).toHaveText(['720P', '1080P']);
     await expect(page.locator('#labVideoAspect option')).toHaveText(['16:9', '9:16', '1:1', '4:3', '3:4']);
 
-    await page.locator('#labModelList .generate-lab__model-card').filter({ hasText: 'Seedance 2.0 Fast' }).click();
+    await page.locator('#labImageModel').selectOption('bytedance/seedance-2.0-fast');
     await expect(page.locator('#labCost')).toHaveText('252 Credits');
     await expect(page.locator('#labVideoNegativeField')).toBeHidden();
     await expect(page.locator('#labVideoReferenceField')).toBeHidden();
@@ -10629,7 +10631,7 @@ for (const locale of ['en', 'de']) test(`@canvas-model-ui Generate Lab Grok vide
   await page.goto(locale === 'de' ? '/de/generate-lab/' : '/generate-lab/');
   await page.getByRole('tab', { name: 'Video', exact: true }).click();
   for (const model of ['xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview']) {
-    await page.locator(`[data-model-id="${model}"]`).click();
+    await page.locator('#labImageModel').selectOption(model);
     await page.locator('#labPrompt').fill('Synthetic video request');
     await expect(page.locator('#labVideoOperation option')).toHaveCount(3);
     await page.locator('#labVideoDuration').selectOption('2');
@@ -10687,7 +10689,7 @@ for(const locale of ['en','de']) test(`@canvas-model-ui H3 Generate Lab ${locale
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.goto(locale==='de'?'/de/generate-lab/':'/generate-lab/');
   await page.getByRole('tab',{name:'Video',exact:true}).click();
-  await page.locator('[data-model-id="minimax/h3"]').click();
+  await page.locator('#labImageModel').selectOption('minimax/h3');
   await expect(page.locator('#labVideoQuality option')).toHaveText(['768P','2K']);
   const cost=await page.locator('#labCost').textContent();
   await page.locator('#labVideoQuality').selectOption('2K');await expect(page.locator('#labCost')).not.toHaveText(cost);
@@ -10707,7 +10709,7 @@ for(const locale of ['en','de']) test(`@canvas-model-ui H3 Generate Lab ${locale
   await expect(page.locator('#labMessage')).toBeEmpty();await expect(page.locator('#labGenerate')).toBeEnabled();
   expect(submitted).toMatchObject({model:'minimax/h3',resolution:'2K',aspect_ratio:'adaptive',references:[
     {role:'first_frame',source:{source_type:'saved_asset',asset_id:'asset-ref-1'}},{role:'last_frame',source:{source_type:'saved_asset',asset_id:'asset-ref-2'}}]});
-  await page.locator('[data-model-id="pixverse/v6"]').click();
+  await page.locator('#labImageModel').selectOption('pixverse/v6');
   await expect(page.locator('#labWorkflowStatus')).toContainText('MiniMax H3');
   await expect(page.locator('#labResultStage')).not.toContainText('PixVerse');
   restoring=true;await page.reload();

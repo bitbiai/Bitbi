@@ -1,5 +1,7 @@
 import { renderReferenceSlots, saveOwnedReference, showUnavailableImagePricing, updateSourceExplanation, referenceUploadGuard, invalidateReferenceUploads } from './gpt-image25-controls.js?v=__ASSET_VERSION__';
 import { isGptImage25Model, normalizeGptImage25Options } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
+import { sortGenerationModels } from '../../shared/generation-model-order.mjs?v=__ASSET_VERSION__';
+import { imageDimensionChoices } from '../../shared/image-dimensions.mjs?v=__ASSET_VERSION__';
 import { H3_MODEL, h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { createH3ReferenceControls } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { GROK_IMAGE_2 } from '../../shared/grok-imagine-image-2-pricing.mjs?v=__ASSET_VERSION__';
@@ -1209,7 +1211,7 @@ export function createAdminAiLab({ showToast } = {}) {
         music: {
             modelBadge: document.getElementById('aiMusicModelBadge'),
             modelDesc: document.getElementById('aiMusicModelDesc'),
-            modelCards: Array.from(root.querySelectorAll('[data-ai-music-option]')),
+            model: document.getElementById('aiMusicModel'),
             minimaxControls: document.getElementById('aiMusicMinimaxControls'),
             elevenLabsControls: document.getElementById('aiMusicElevenLabsControls'),
             prompt: document.getElementById('aiMusicPrompt'),
@@ -1266,7 +1268,7 @@ export function createAdminAiLab({ showToast } = {}) {
         video: {
             modelBadge: document.getElementById('aiVideoModelBadge'),
             modelDesc: document.getElementById('aiVideoModelDesc'),
-            modelCards: Array.from(root.querySelectorAll('[data-ai-video-model]')),
+            model: document.getElementById('aiVideoModel'),
             prompt: document.getElementById('aiVideoPrompt'),
             promptCount: document.getElementById('aiVideoPromptCount'),
             grokPreviewControls: document.getElementById('aiVideoGrokPreviewControls'),
@@ -2586,20 +2588,6 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.music.elevenLabsPlan.setAttribute('aria-invalid', message ? 'true' : 'false');
     }
 
-    function hydrateMusicModelOptions() {
-        const modelIds = {
-            minimax: ADMIN_AI_MUSIC_MODEL_ID,
-            elevenlabs: ELEVENLABS_MUSIC_V2_MODEL_ID,
-        };
-        refs.music.modelCards.forEach((button) => {
-            const modelId = modelIds[button.dataset.aiMusicOption];
-            if (!modelId) return;
-            button.dataset.aiMusicModel = modelId;
-            const modelIdLabel = button.querySelector('[data-ai-music-model-id]');
-            if (modelIdLabel) modelIdLabel.textContent = modelId;
-        });
-    }
-
     function normalizeMusicFormForModel(modelId = state.forms.music.model) {
         const selectedModel = modelId === ELEVENLABS_MUSIC_V2_MODEL_ID
             ? ELEVENLABS_MUSIC_V2_MODEL_ID
@@ -2718,13 +2706,9 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.music.modelDesc.textContent = model.description;
         refs.music.minimaxControls.hidden = isElevenLabs;
         refs.music.elevenLabsControls.hidden = !isElevenLabs;
-        refs.music.modelCards.forEach((button) => {
-            const active = button.dataset.aiMusicModel === state.forms.music.model;
-            button.classList.toggle('admin-ai__music-model-card--active', active);
-            button.setAttribute('aria-selected', active ? 'true' : 'false');
-            button.tabIndex = active ? 0 : -1;
-            button.disabled = isBusy;
-        });
+        setOptions(refs.music.model, sortGenerationModels(getCatalogModels(state.catalog.data, 'music')).map(model => ({ value: model.id, label: model.label })));
+        refs.music.model.value = state.forms.music.model;
+        refs.music.model.disabled = isBusy;
         return isElevenLabs;
     }
 
@@ -2860,7 +2844,7 @@ export function createAdminAiLab({ showToast } = {}) {
         renderMusicResult();
         if (persist) persistState();
         if (focus) {
-            refs.music.modelCards.find((button) => button.dataset.aiMusicModel === state.forms.music.model)?.focus();
+            refs.music.model?.focus();
         }
     }
 
@@ -2955,13 +2939,10 @@ export function createAdminAiLab({ showToast } = {}) {
             : 'generate';
 
         if (refs.video.modelBadge) refs.video.modelBadge.textContent = modelSummary.id;
+        setOptions(refs.video.model, sortGenerationModels(getCatalogModels(state.catalog.data, 'video')).map(model => ({ value: model.id, label: model.label })));
+        refs.video.model.value = spec.id;
+        refs.video.model.disabled = isBusy;
         if (refs.video.modelDesc) refs.video.modelDesc.textContent = modelSummary.description || spec.description || '';
-        refs.video.modelCards.forEach((button) => {
-            const isActive = button.dataset.aiVideoModel === spec.id;
-            button.classList.toggle('admin-ai__video-model-card--active', isActive);
-            button.setAttribute('aria-selected', String(isActive));
-            button.disabled = isBusy;
-        });
 
         h3Controls.sync(spec.id===H3_MODEL,isBusy);
         refs.video.prompt.maxLength = spec.maxPromptLength || ADMIN_AI_LIMITS.video.maxPromptLength;
@@ -3861,18 +3842,16 @@ export function createAdminAiLab({ showToast } = {}) {
         if (refs.image.widthField) refs.image.widthField.hidden = !supportsDimensions;
         if (refs.image.heightField) refs.image.heightField.hidden = !supportsDimensions;
         if (supportsDimensions) {
-            const minDimension = caps.minDimension || ADMIN_AI_LIMITS.image.allowedDimensions[0];
-            const maxDimension = caps.maxDimension || ADMIN_AI_LIMITS.image.allowedDimensions.at(-1);
-            const step = minDimension < 256 ? 64 : 256;
-            if (refs.image.width) {
-                refs.image.width.min = String(minDimension);
-                refs.image.width.max = String(maxDimension);
-                refs.image.width.step = String(step);
-            }
-            if (refs.image.height) {
-                refs.image.height.min = String(minDimension);
-                refs.image.height.max = String(maxDimension);
-                refs.image.height.step = String(step);
+            for (const key of ['width', 'height']) {
+                const choices = imageDimensionChoices(getSelectedImageModelIdForBilling(), state.forms.image[key]);
+                const control = refs.image[key];
+                if (!control) continue;
+                const value = Number(state.forms.image[key]);
+                state.forms.image[key] = choices.includes(value) ? value : Number(caps.defaultSize?.[key] || 1024);
+                setOptions(control, choices.map(value => ({ value, label: String(value) })));
+                control.value = String(state.forms.image[key]);
+                control.title = getSelectedImageModelIdForBilling() === FLUX_2_MAX_MODEL_ID ? 'Valid size presets; not the complete provider range.' : 'Validated application sizes';
+                control.closest('label').querySelector('.admin-ai__label').textContent = `${key === 'width' ? 'Width' : 'Height'}${getSelectedImageModelIdForBilling() === FLUX_2_MAX_MODEL_ID ? ' (preset)' : ''}`;
             }
         }
         if (refs.image.gptControls) refs.image.gptControls.hidden = !extraControlVisible;
@@ -4331,7 +4310,7 @@ export function createAdminAiLab({ showToast } = {}) {
         setOptions(
             refs.image.model,
             readyPlaceholder.concat(
-                getCatalogModels(catalog, 'image').map((model) => ({
+                sortGenerationModels(getCatalogModels(catalog, 'image')).map((model) => ({
                     value: model.id,
                     label: model.label || model.id,
                 }))
@@ -7504,26 +7483,8 @@ export function createAdminAiLab({ showToast } = {}) {
             syncMusicCostEstimate();
             persistState();
         });
-        refs.music.modelCards.forEach((button, index) => {
-            button.addEventListener('click', () => {
-                if (!button.disabled) setMusicModel(button.dataset.aiMusicModel);
-            });
-            button.addEventListener('keydown', (event) => {
-                const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
-                if (!keys.includes(event.key)) return;
-                event.preventDefault();
-                let nextIndex = index;
-                if (event.key === 'Home') nextIndex = 0;
-                else if (event.key === 'End') nextIndex = refs.music.modelCards.length - 1;
-                else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-                    nextIndex = (index + 1) % refs.music.modelCards.length;
-                } else {
-                    nextIndex = (index - 1 + refs.music.modelCards.length) % refs.music.modelCards.length;
-                }
-                const next = refs.music.modelCards[nextIndex];
-                if (next && !next.disabled) setMusicModel(next.dataset.aiMusicModel, { focus: true });
-            });
-        });
+        refs.music.model.addEventListener('change', () => setMusicModel(refs.music.model.value));
+        refs.video.model.addEventListener('change', () => { setVideoInlineError(''); setVideoModel(refs.video.model.value); });
 
         if (refs.video.prompt) {
             attachFieldSync(refs.video.prompt, 'video', 'prompt');
@@ -7600,13 +7561,6 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.video.startImageClear?.addEventListener('click', clearVideoStartImage);
             refs.video.endImageFile?.addEventListener('change', handleVideoEndImageFile);
             refs.video.endImageClear?.addEventListener('click', clearVideoEndImage);
-            refs.video.modelCards.forEach((button) => {
-                button.addEventListener('click', () => {
-                    if (button.disabled) return;
-                    setVideoInlineError('');
-                    setVideoModel(button.dataset.aiVideoModel);
-                });
-            });
         }
 
         attachFieldSync(refs.compare.modelA, 'compare', 'modelA');
@@ -7764,7 +7718,6 @@ export function createAdminAiLab({ showToast } = {}) {
         init() {
             if (state.initialized) return;
             state.initialized = true;
-            hydrateMusicModelOptions();
             bindEvents();
             window.addEventListener('bitbi:model-pricing', () => {
                 if (!state.active) return;

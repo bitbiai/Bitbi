@@ -5,6 +5,24 @@
    ============================================================ */
 
 @layer pages {
+    .studio__image-grid.studio__image-grid--by-type {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-4);
+    }
+    .studio__asset-type { min-inline-size: 0; inline-size: 100%; }
+    .studio__asset-type > summary {
+        cursor: pointer;
+        padding: var(--space-3);
+        border: 1px solid var(--border-color, #394453);
+        border-radius: 8px;
+    }
+    .studio__asset-type > summary:focus-visible { outline: 2px solid var(--color-primary, #00f0ff); }
+    .studio__asset-type-grid { margin-block: var(--space-3); }
+    .studio__asset-type-toggle[aria-pressed="true"] { outline: 2px solid var(--color-primary, #00f0ff); }
+    @media (max-width: 639px) {
+        .studio__asset-type-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
 
     /* ── Layout ── */
     .studio {

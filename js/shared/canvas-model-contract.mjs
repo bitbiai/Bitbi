@@ -193,7 +193,7 @@ function buildImageModel(model) {
   return {
     id: model.id,
     label: model.label,
-    vendor: model.providerLabel || model.vendor || "Image model",
+    vendor: model.vendor || "Image model",
     capability: "image",
     description: safeDescription(model.description, "Image generation model for member workflows."),
     outputType: "image",
@@ -247,7 +247,7 @@ function buildVideoModel(model) {
   return {
     id: model.id,
     label: model.label,
-    vendor: model.providerLabel || model.vendor || "Video model",
+    vendor: model.vendor || "Video model",
     capability: "video",
     description: safeDescription(model.description, "Video generation model for member workflows."),
     outputType: "video",
@@ -277,7 +277,7 @@ function buildMusicModel(model) {
   return {
     id: model.id,
     label: model.label === "Music 2.6" ? "MiniMax Music 2.6" : model.label,
-    vendor: model.providerLabel || model.vendor || "MiniMax",
+    vendor: model.vendor || "MiniMax",
     capability: "music",
     description: safeDescription(model.description, "Music generation model for member workflows."),
     outputType: "audio",

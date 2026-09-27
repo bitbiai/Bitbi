@@ -1,4 +1,5 @@
 import { GPT_IMAGE_25_MODELS, isGptImage25Model, normalizeGptImage25Options } from "./gpt-image-25-contract.mjs";
+import { MULTIPART_IMAGE_DIMENSIONS } from './image-dimensions.mjs';
 import { H3_MODEL, H3_RESOLUTIONS, H3_RATIOS, H3_ROLES, normalizeH3Request } from './minimax-h3.mjs';
 import { GROK_IMAGE_2, calculateGrokImage2CreditCost } from './grok-imagine-image-2-pricing.mjs';
 import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens, normalizeGrokReasoningEffort, GROK_TEXT_PRICING } from "./grok-text-contract.mjs";
@@ -285,7 +286,7 @@ export const ADMIN_AI_LIMITS = {
     maxSteps: 50,
     minGuidance: 1,
     maxGuidance: 20,
-    allowedDimensions: [256, 512, 768, 1024],
+    allowedDimensions: MULTIPART_IMAGE_DIMENSIONS,
     maxPixels: 1024 * 1024,
     maxSeed: 2147483647,
     maxReferenceImages: 4,

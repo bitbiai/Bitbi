@@ -1,6 +1,7 @@
 import { isGptImage25Model, normalizeGptImage25Options, GPT_IMAGE_25_MAX_PROMPT_LENGTH } from '../../../../../js/shared/gpt-image-25-contract.mjs';
 import { callImage25Provider, image25Output, image25DeliveryError } from '../../../../shared/gpt-image-25.mjs';
 import { FLUX_SCHNELL, callFluxSchnell } from '../../lib/flux-schnell-provider.js';
+import { normalizeMultipartImageDimensions } from '../../../../../js/shared/image-dimensions.mjs';
 import { resolveImage25Sources } from '../../lib/gpt-image-25-sources.js';
 import { GROK_IMAGE_2, normalizeGrokImage2 } from '../../../../../js/shared/grok-imagine-image-2-pricing.mjs';
 import { promptAssetTitle } from '../../lib/asset-names.js';
@@ -657,6 +658,7 @@ function buildImageAttemptMetadata({
       request_mode: modelConfig?.requestMode || "json",
       steps: aiRequest?.steps ?? null,
       seed_present: aiRequest?.seed != null,
+      ...(aiRequest?.width ? { width: aiRequest.width, height: aiRequest.height } : {}),
       pricing_credits: imagePricing?.credits ?? null,
       pricing_source: imagePricing?.formula?.pricingVersion || "ai-model-pricing",
       ...(gptRequest ? {
@@ -872,7 +874,8 @@ export async function handleGenerateImage(ctx) {
         seed: flux2MaxRequest.seed,
       };
     } else {
-      aiRequest = buildAiImageInput(modelConfig, prompt, steps, seed);
+      const dimensions = modelConfig.requestMode === 'multipart' ? normalizeMultipartImageDimensions(body) : undefined;
+      aiRequest = buildAiImageInput(modelConfig, prompt, steps, seed, dimensions);
     }
   } catch (error) {
     if (gptImage25 && !(Number(error.status) < 500) && error.code !== 'images_binding_unavailable') return respond({ ok: false, error: 'Reference image inspection is unavailable.', code: 'reference_unavailable' }, { status: 503 });
@@ -898,8 +901,8 @@ export async function handleGenerateImage(ctx) {
           inputImages: flux2MaxRequest.inputImages,
         }
     : {
-        width: 1024,
-        height: 1024,
+        width: aiRequest.width || 1024,
+        height: aiRequest.height || 1024,
         steps: aiRequest.steps,
       });
   if (!imagePricing) {
@@ -1415,6 +1418,7 @@ export async function handleGenerateImage(ctx) {
       steps: aiRequest.steps,
       seed: aiRequest.seed,
       model: modelConfig.id,
+      ...(aiRequest.width ? { width: aiRequest.width, height: aiRequest.height } : {}),
       ...(gptImage2 ? {
         quality: gptRequest.quality,
         size: gptRequest.size,

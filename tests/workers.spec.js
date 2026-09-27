@@ -40909,7 +40909,7 @@ test.describe('Worker routes', () => {
     });
   });
 
-  test('AI generate: member route allows FLUX.2 Klein 9B through the shared multipart image path', async () => {
+  for (const dimensions of [null, { width: 768, height: 512 }]) test(`AI generate: member route allows FLUX.2 Klein 9B through the shared multipart image path ${dimensions ? 'selected dimensions' : 'defaults'}`, async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     const { calculateAdminImageTestCreditCost } = await loadAdminImageCreditPricingModule();
     let aiCalls = 0;
@@ -40943,6 +40943,7 @@ test.describe('Worker routes', () => {
         model: '@cf/black-forest-labs/flux-2-klein-9b',
         steps: 8,
         seed: 42,
+        ...dimensions,
       }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${token}`,
@@ -40953,8 +40954,8 @@ test.describe('Worker routes', () => {
     );
 
     const expectedPricing = calculateAdminImageTestCreditCost('@cf/black-forest-labs/flux-2-klein-9b', {
-      width: 1024,
-      height: 1024,
+      width: dimensions?.width || 1024,
+      height: dimensions?.height || 1024,
     });
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({
@@ -40963,6 +40964,8 @@ test.describe('Worker routes', () => {
         model: '@cf/black-forest-labs/flux-2-klein-9b',
         steps: null,
         seed: null,
+        width: dimensions?.width || 1024,
+        height: dimensions?.height || 1024,
       },
       billing: {
         credits_charged: expectedPricing.credits,
@@ -40983,13 +40986,46 @@ test.describe('Worker routes', () => {
     );
     expect(fields).toEqual({
       prompt: 'public klein image attempt',
-      width: '1024',
-      height: '1024',
+      width: String(dimensions?.width || 1024),
+      height: String(dimensions?.height || 1024),
+    });
+    expect(JSON.parse(env.DB.state.memberAiUsageAttempts[0].metadata_json).image_request).toMatchObject({
+      width: dimensions?.width || 1024, height: dimensions?.height || 1024, pricing_credits: expectedPricing.credits,
     });
     expect(env.DB.state.memberCreditLedger.map((row) => row.amount)).toEqual([
       10,
       -expectedPricing.credits,
     ]);
+    for (const invalid of [{ width: 257, height: 512 }, { width: 512 }, { width: 2048, height: 2048 }]) {
+      const denied = await authWorker.fetch(authJsonRequest('/api/ai/generate-image', 'POST', {
+        model: '@cf/black-forest-labs/flux-2-klein-9b', prompt: 'Invalid dimensions', ...invalid,
+      }, { Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${token}`, 'Idempotency-Key': `invalid-${invalid.width}` }), env, createExecutionContext().execCtx);
+      expect(denied.status).toBe(400);
+    }
+    expect(aiCalls).toBe(1);
+    expect(env.DB.state.memberCreditLedger).toHaveLength(2);
+  });
+
+  test('AI generate: member publisher ordering is stable without changing model membership or dimension validation', async () => {
+    const { sortGenerationModels } = await import('../js/shared/generation-model-order.mjs');
+    const { listAdminAiCatalog, validateAdminAiImageBody: validateImageRequest } = await import('../js/shared/admin-ai-contract.mjs');
+    const { imageDimensionChoices } = await import('../js/shared/image-dimensions.mjs');
+    const catalog = listAdminAiCatalog({ includeCanvas: true }).models;
+    expect(catalog.image).toHaveLength(9); expect(catalog.video).toHaveLength(8); expect(catalog.music).toHaveLength(2);
+    for (const kind of ['image', 'video', 'music']) {
+      expect(catalog[kind].every(model => model.vendor && !/Cloudflare|Gateway/.test(model.vendor))).toBe(true);
+      const before = catalog[kind].map(model => model.id);
+      expect(sortGenerationModels(catalog[kind]).map(model => model.id).sort()).toEqual([...before].sort());
+      expect(catalog[kind].map(model => model.id)).toEqual(before);
+    }
+    expect(sortGenerationModels([{id:'b',vendor:'xAI',label:'Same'},{id:'a',vendor:'xAI',label:'Same'},{id:'c',vendor:'OpenAI',label:'Z'}]).map(m=>m.id)).toEqual(['c','a','b']);
+    for (const model of ['@cf/black-forest-labs/flux-2-klein-9b','@cf/black-forest-labs/flux-2-dev']) {
+      expect(imageDimensionChoices(model)).toEqual([256,512,768,1024]);
+      expect(validateImageRequest({model,prompt:'Synthetic',width:768,height:512})).toMatchObject({width:768,height:512});
+      expect(()=>validateImageRequest({model,prompt:'Synthetic',width:2048,height:512})).toThrow();
+    }
+    expect(imageDimensionChoices('@cf/black-forest-labs/flux-1-schnell')).toEqual([]);
+    expect(imageDimensionChoices('black-forest-labs/flux-2-max',1000)).toContain(1000);
   });
 
   test('AI generate: member image registry exposes FLUX.2 Max and GPT Image 2 for Generate Lab without changing the default Flux model', async () => {

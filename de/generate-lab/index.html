@@ -124,7 +124,7 @@
             <section class="generate-lab__composer generate-lab__panel" aria-label="Medien erstellen">
                 <div class="generate-lab__panel--left">
                     <h2 class="generate-lab__section-title">Modell</h2>
-                        <label class="generate-lab__field" data-settings-for="image" for="labImageModel">
+                        <label class="generate-lab__field" for="labImageModel">
                             <span class="generate-lab__label">Modell</span>
                             <select id="labImageModel" class="generate-lab__select"></select>
                         </label>
@@ -159,11 +159,11 @@
                             </label>
                             <label class="generate-lab__field" for="labImageWidth">
                                 <span class="generate-lab__label">Breite</span>
-                                <input id="labImageWidth" class="generate-lab__input" type="number" min="64" max="2048" value="1024" inputmode="numeric">
+                                <select id="labImageWidth" class="generate-lab__select"><option value="1024">1024</option></select>
                             </label>
                             <label class="generate-lab__field" for="labImageHeight">
                                 <span class="generate-lab__label">Höhe</span>
-                                <input id="labImageHeight" class="generate-lab__input" type="number" min="64" max="2048" value="1024" inputmode="numeric">
+                                <select id="labImageHeight" class="generate-lab__select"><option value="1024">1024</option></select>
                             </label>
                             <label class="generate-lab__field" for="labImageSafetyTolerance">
                                 <span class="generate-lab__label">Sicherheit</span>
@@ -204,6 +204,10 @@
                                         <option value="webp">WebP</option>
                                         <option value="jpeg">JPEG</option>
                                     </select>
+                                </label>
+                                <label class="generate-lab__field" for="labImageAspect" hidden>
+                                    <span class="generate-lab__label">Seitenverhältnis</span>
+                                    <select id="labImageAspect" class="generate-lab__select"></select>
                                 </label>
                                 <label class="generate-lab__field" for="labImageBackground">
                                     <span class="generate-lab__label">Hintergrund</span>

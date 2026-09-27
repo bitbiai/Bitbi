@@ -28,6 +28,22 @@ function selection(files, options) {
 }
 
 {
+  const files = ['js/shared/image-dimensions.mjs', 'js/shared/generation-model-order.mjs', 'js/shared/asset-type-view.js',
+    'js/shared/admin-ai-contract.mjs', 'js/shared/ai-image-models.mjs', 'js/shared/canvas-model-contract.mjs',
+    'js/shared/studio-deck.js', 'js/shared/saved-assets-browser.js', 'js/shared/auth-api.js',
+    'workers/auth/src/routes/ai/assets-read.js', 'workers/auth/src/routes/ai/images-write.js', 'workers/auth/src/routes/ai/helpers.js',
+    'tests/helpers/q2-runtime/canvas.mjs', 'tests/assets-manager-focused.spec.js', 'tests/helpers/generation-selectors.cjs'];
+  const result = selection(files);
+  assert(result.canvasText && result.assets && result.auth && result.workers && result.static);
+  assert(!result.full && !result.homepageMedia && !result.carousel);
+  const jobs = requiredJobs(result); assert(jobs['browser-validation'] && jobs['worker-validation']);
+  for (const file of ['workers/auth/src/lib/session.js', 'workers/auth/src/lib/billing.js', 'js/shared/unknown.js', 'package-lock.json']) {
+    assert(!selection([...files, file]).canvasText, file);
+  }
+  assert(selection(files, { forceFull: true }).full);
+}
+
+{
   const flux=['workers/auth/src/lib/flux-schnell-provider.js','workers/auth/src/routes/ai/helpers.js','workers/auth/src/routes/ai/images-write.js',
     'workers/auth/src/lib/member-generation-jobs.js','js/shared/ai-image-models.mjs','js/shared/locale.js','js/shared/member-generation-client.js',
     'js/pages/generate-lab/main.js','tests/member-generation.cases.js','tests/member-generation-runtime.mjs','tests/helpers/member-generation-control.mjs','tests/oma2-q1-member.spec.js','tests/workers.spec.js'];

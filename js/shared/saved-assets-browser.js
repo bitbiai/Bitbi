@@ -1,4 +1,5 @@
 import { createMemberGenerationStatus } from './member-generation-status.js?v=__ASSET_VERSION__';
+import { createAssetTypeView } from './asset-type-view.js?v=__ASSET_VERSION__';
 import {
     apiAiBulkDeleteAssets,
     apiAiBulkMoveAssets,
@@ -502,6 +503,26 @@ export function createSavedAssetsBrowser({
     let assetNextCursor = null;
     let assetHasMore = false;
     let assetLoadingMore = false;
+    let typeViewActive = false;
+    const typeView = createAssetTypeView({
+        grid: $assetGrid,
+        buildCard: asset => isImageAsset(asset) ? buildImageCard(asset) : buildFileCard(asset),
+        onAssets: assets => { currentAssets = assets; },
+        onStorage: updateStorageUsage,
+        onRendered: () => { refreshPickerCardDecorations(); syncSelectionItemStates(); },
+    });
+    const $typeViewToggle = document.createElement('button');
+    $typeViewToggle.type = 'button';
+    $typeViewToggle.className = 'studio__pagination-btn studio__asset-type-toggle';
+    $typeViewToggle.textContent = localeText('assets.sortByType');
+    $typeViewToggle.setAttribute('aria-pressed', 'false');
+    (root?.querySelector('.studio__gallery-header') || $galleryFilter.parentElement).append($typeViewToggle);
+    $typeViewToggle.addEventListener('click', () => {
+        typeViewActive = !typeViewActive;
+        $typeViewToggle.setAttribute('aria-pressed', String(typeViewActive));
+        if (folderViewActive) void openAllAssets();
+        else void loadGallery();
+    });
     const mobileMediaQuery = getMobileMediaGridQuery();
 
     const $assetPagination = document.createElement('div');
@@ -1486,7 +1507,7 @@ export function createSavedAssetsBrowser({
     }
 
     function updateAssetPaginationUi() {
-        const shouldShow = !folderViewActive && (currentAssets.length > 0 || assetLoadingMore || assetHasMore);
+        const shouldShow = !typeViewActive && !folderViewActive && (currentAssets.length > 0 || assetLoadingMore || assetHasMore);
         $assetPagination.style.display = shouldShow ? '' : 'none';
         if (!shouldShow) return;
 
@@ -1978,6 +1999,8 @@ export function createSavedAssetsBrowser({
     }
 
     function showFolderView() {
+        ++assetLoadSeq;
+        typeView.invalidate();
         exitSelectMode();
         hideNewFolderForm();
         hideDeleteFolderForm();
@@ -2157,7 +2180,7 @@ export function createSavedAssetsBrowser({
         item.tabIndex = 0;
         item.setAttribute('aria-label', localeText('assets.previewAssetWithTitle', { title }));
         item.addEventListener('keydown', (event) => {
-            if (event.target !== item && event.target.closest('button, a, audio, summary, details')) return;
+            if (event.target !== item && item.contains(event.target.closest('button, a, audio, summary, details'))) return;
             if (event.key !== 'Enter' && event.key !== ' ') return;
             event.preventDefault();
             if (pickerMode) {
@@ -2287,7 +2310,7 @@ export function createSavedAssetsBrowser({
         appendSelectionCheck(item);
         item.addEventListener('click', (event) => {
             if (event.defaultPrevented) return;
-            if (event.target.closest('button, a, audio, summary, details')) return;
+            if (item.contains(event.target.closest('button, a, audio, summary, details'))) return;
             if (pickerMode) {
                 event.preventDefault();
                 event.stopPropagation();
@@ -2499,14 +2522,14 @@ export function createSavedAssetsBrowser({
             item.addEventListener('click', (event) => {
                 if (event.defaultPrevented) return;
                 if (pickerMode) {
-                    if (event.target.closest('a, audio, button, summary, details, .studio__image-check')) return;
+                    if (item.contains(event.target.closest('a, audio, button, summary, details, .studio__image-check'))) return;
                     event.preventDefault();
                     event.stopPropagation();
                     togglePickerAsset(asset, item);
                     return;
                 }
                 if (selectMode) return;
-                if (event.target.closest('button, a, audio, summary, details, .studio__image-check')) return;
+                if (item.contains(event.target.closest('button, a, audio, summary, details, .studio__image-check'))) return;
                 if (isVideo) openVideoAsset(asset);
                 else openSoundAsset(asset, item);
             });
@@ -2532,14 +2555,14 @@ export function createSavedAssetsBrowser({
             item.addEventListener('click', (event) => {
                 if (event.defaultPrevented) return;
                 if (pickerMode) {
-                    if (event.target.closest('a, audio, summary, details, .studio__image-check')) return;
+                    if (item.contains(event.target.closest('a, audio, summary, details, .studio__image-check'))) return;
                     event.preventDefault();
                     event.stopPropagation();
                     togglePickerAsset(asset, item);
                     return;
                 }
                 if (selectMode) return;
-                if (event.target.closest('button, a, audio, summary, details, .studio__image-check')) return;
+                if (item.contains(event.target.closest('button, a, audio, summary, details, .studio__image-check'))) return;
                 openTextAsset(asset);
             });
             item.addEventListener('keydown', (event) => {
@@ -2572,6 +2595,20 @@ export function createSavedAssetsBrowser({
         const isAllAssets = filterValue === ALL_ASSETS || filterValue === '';
         const isUnfoldered = filterValue === UNFOLDERED;
         const folderId = (!isAllAssets && !isUnfoldered && filterValue) ? filterValue : null;
+
+        $assetGrid.classList.toggle('studio__image-grid--by-type', typeViewActive);
+        assetDeck?.setEnabled(!typeViewActive);
+        if (typeViewActive) {
+            assetLoadingMore = assetHasMore = false;
+            assetNextCursor = null;
+            $assetGrid.style.display = '';
+            typeView.reset({ folderId, onlyUnfoldered: isUnfoldered });
+            updateAssetPaginationUi();
+            setListStatus(localeText('assets.typeViewHint'), 'types');
+            updateViewContext();
+            return;
+        }
+        typeView.invalidate();
 
         $assetGrid.style.display = '';
         if (!append) {
@@ -3277,7 +3314,7 @@ export function createSavedAssetsBrowser({
             if (pickerMode) {
                 const item = event.target.closest('.studio__image-item[data-asset-id]');
                 if (!item) return;
-                if (event.target.closest('a, audio, summary, details')) return;
+                if (item.contains(event.target.closest('a, audio, summary, details'))) return;
                 event.preventDefault();
                 event.stopPropagation();
                 togglePickerAsset(getPickerAssetById(item.dataset.assetId), item);
@@ -3286,7 +3323,7 @@ export function createSavedAssetsBrowser({
             if (!selectMode) return;
             const item = event.target.closest('.studio__image-item[data-asset-id]');
             if (!item) return;
-            if (event.target.closest('a, button, audio, summary, details')) return;
+            if (item.contains(event.target.closest('a, button, audio, summary, details'))) return;
             toggleSelection(item);
         });
 

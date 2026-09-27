@@ -1,4 +1,5 @@
 import { isGptImage25Model, normalizeGptImage25Options } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
+import { imageDimensionChoices } from '../../shared/image-dimensions.mjs?v=__ASSET_VERSION__';
 import { H3_MODEL, h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { createH3ReferenceControls } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { createGrokVideoControls } from './grok-video-controls.js?v=__ASSET_VERSION__';
@@ -313,6 +314,7 @@ function currentCreditEstimate() {
             ...(isGptImage25Model(model.id) ? { prompt: refs.prompt?.value?.trim() || undefined } : {}),
             quality: refs.imageQuality?.value || model.defaults?.quality,
             size: refs.imageSize?.value || model.defaults?.size,
+            ...(model.controls?.supportsAspectRatio ? { aspectRatio: refs.imageAspect?.value || model.defaults?.aspectRatio } : {}),
             outputFormat: refs.imageOutputFormat?.value || model.defaults?.outputFormat,
             background: refs.imageBackground?.value || model.defaults?.background,
             referenceImageCount: selectedImageReferences().length,
@@ -610,7 +612,7 @@ function renderFolderOptions() {
 
 function renderImageModelOptions() {
     if (!refs.imageModel) return;
-    const models = getGenerateLabModelsByMediaType('image');
+    const models = getGenerateLabModelsByMediaType(state.mediaType);
     refs.imageModel.replaceChildren(
         ...models.map((model) => el('option', { text: model.displayName, attrs: { value: model.id } })),
     );
@@ -619,32 +621,9 @@ function renderImageModelOptions() {
 
 function renderModelList() {
     if (!refs.modelList) return;
-    // Images already use the native model select. Avoid a second model picker.
-    refs.modelList.hidden = state.mediaType === 'image';
-    const models = state.mediaType === 'image' ? [] : getGenerateLabModelsByMediaType(state.mediaType);
-    const cards = models.map((model) => {
-        const isSelected = model.id === state.modelId;
-        const button = el('button', {
-            className: `generate-lab__model-card${isSelected ? ' is-selected' : ''}`,
-            attrs: {
-                type: 'button',
-                'data-model-id': model.id,
-                'aria-pressed': isSelected ? 'true' : 'false',
-            },
-        });
-        const top = el('span', { className: 'generate-lab__model-card-top' },
-            el('strong', { text: model.displayName }),
-        );
-        const meta = el('span', { className: 'generate-lab__model-route', text: model.provider });
-        button.append(top, meta);
-        button.addEventListener('click', () => {
-            state.modelId = model.id;
-            if (state.mediaType === 'image' && refs.imageModel) refs.imageModel.value = model.id;
-            renderAllForSelection();
-        });
-        return button;
-    });
-    refs.modelList.replaceChildren(...cards);
+    // One native selector for every media type; selection is independent of order.
+    refs.modelList.hidden = true;
+    refs.modelList.replaceChildren();
 }
 
 function renderModelDetails() {
@@ -690,6 +669,7 @@ function durationOptions(duration = {}) {
 }
 
 function syncImageOptionState() {
+    const IS_DE = getCurrentLocale() === 'de';
     const model = selectedModel();
     const isImage = model.mediaType === 'image';
     const controls = model.controls || {};
@@ -721,6 +701,12 @@ function syncImageOptionState() {
     const backgroundField = refs.imageBackground?.closest('.generate-lab__field');
     const referenceSection = refs.imageReferenceCount?.closest('.generate-lab-ref-images');
     const modelChanged = refs.imageModel?.dataset.imageOptionsModelId !== model.id;
+    if (refs.imageAspect) {
+        const supported = isImage && controls.supportsAspectRatio;
+        refs.imageAspect.closest('.generate-lab__field').hidden = !supported;
+        refs.imageAspect.disabled = state.busy || !supported;
+        if (supported) setSelectOptions(refs.imageAspect, model.options.aspectRatio, modelChanged ? model.defaults.aspectRatio : refs.imageAspect.value);
+    }
 
     if (refs.imageFluxControls) refs.imageFluxControls.hidden = !supportsFluxControls;
     if (refs.imageGptControls) refs.imageGptControls.hidden = !supportsAdvancedControls;
@@ -745,21 +731,19 @@ function syncImageOptionState() {
         refs.imageSeed.setAttribute('aria-disabled', refs.imageSeed.disabled ? 'true' : 'false');
     }
     if (refs.imageWidth) {
-        const dimensions = model.options?.dimensions || {};
+        refs.imageWidth.closest('label').querySelector('span').textContent = `${IS_DE ? 'Breite' : 'Width'}${model.id === 'black-forest-labs/flux-2-max' ? (IS_DE ? ' (Vorgabe)' : ' (preset)') : ''}`;
         if (supportsDimensions) {
-            refs.imageWidth.min = String(dimensions.min || 64);
-            refs.imageWidth.max = String(dimensions.max || 2048);
-            refs.imageWidth.value = refs.imageWidth.value || String(model.defaults?.width || 1024);
+            const choices = imageDimensionChoices(model.id, refs.imageWidth.value);
+            setSelectOptions(refs.imageWidth, choices, choices.includes(Number(refs.imageWidth.value)) ? refs.imageWidth.value : model.defaults?.width || 1024);
         }
         refs.imageWidth.disabled = state.busy || !supportsDimensions;
         refs.imageWidth.setAttribute('aria-disabled', refs.imageWidth.disabled ? 'true' : 'false');
     }
     if (refs.imageHeight) {
-        const dimensions = model.options?.dimensions || {};
+        refs.imageHeight.closest('label').querySelector('span').textContent = `${IS_DE ? 'Höhe' : 'Height'}${model.id === 'black-forest-labs/flux-2-max' ? (IS_DE ? ' (Vorgabe)' : ' (preset)') : ''}`;
         if (supportsDimensions) {
-            refs.imageHeight.min = String(dimensions.min || 64);
-            refs.imageHeight.max = String(dimensions.max || 2048);
-            refs.imageHeight.value = refs.imageHeight.value || String(model.defaults?.height || 1024);
+            const choices = imageDimensionChoices(model.id, refs.imageHeight.value);
+            setSelectOptions(refs.imageHeight, choices, choices.includes(Number(refs.imageHeight.value)) ? refs.imageHeight.value : model.defaults?.height || 1024);
         }
         refs.imageHeight.disabled = state.busy || !supportsDimensions;
         refs.imageHeight.setAttribute('aria-disabled', refs.imageHeight.disabled ? 'true' : 'false');
@@ -1926,6 +1910,7 @@ async function generateImage(prompt, observation) {
             prompt,
             quality: refs.imageQuality?.value || currentModel.defaults?.quality || 'medium',
             size: refs.imageSize?.value || currentModel.defaults?.size || '1024x1024',
+            ...(currentModel.controls?.supportsAspectRatio ? { aspectRatio: refs.imageAspect?.value || currentModel.defaults?.aspectRatio } : {}),
             ...(currentModel.controls?.supportsOutputFormat ? {outputFormat: refs.imageOutputFormat?.value || currentModel.defaults?.outputFormat || 'png'} : {}),
             ...(currentModel.controls?.supportsBackground ? {background: refs.imageBackground?.value || currentModel.defaults?.background || 'auto'} : {}),
             ...(isGptImage25Model(model) ? { source_images: selectedImageReferences().map(asset_id => ({ source_type: 'saved_asset', asset_id })) } : { referenceImages: selectedImageReferences() }),
@@ -2319,6 +2304,7 @@ function bindEvents() {
     refs.imageSafetyTolerance?.addEventListener('change', updateActionState);
     refs.imageQuality?.addEventListener('change', updateActionState);
     refs.imageSize?.addEventListener('change', updateActionState);
+    refs.imageAspect?.addEventListener('change', updateActionState);
     refs.imageOutputFormat?.addEventListener('change', updateActionState);
     refs.imageBackground?.addEventListener('change', updateActionState);
     refs.imageRefToggle?.addEventListener('click', () => {
@@ -2366,6 +2352,7 @@ function cacheRefs() {
         creditStatus: byId('labCreditStatus'),
         mediaTabs: Array.from(document.querySelectorAll('.generate-lab__media-tab')),
         modelList: byId('labModelList'),
+        imageAspect: byId('labImageAspect'),
         modelDetails: byId('labModelDetails'),
         prompt: byId('labPrompt'),
         promptLabel: byId('labPromptLabel'),

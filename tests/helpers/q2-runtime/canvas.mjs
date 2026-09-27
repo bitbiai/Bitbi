@@ -343,5 +343,43 @@ export async function runCanvasTests(f) {
     }
     f.metrics.push({scenario,queue:true,https:true,nativeDecode:true,providerCalls:1,debits:expectedDebit,assets:1,receiptUnchanged:true});
   });
+  await f.test('assets_native_type_before_limit_owner_scope_and_cursor_isolation', async () => {
+    const folder = 'typed-assets-folder';
+    await f.sql('INSERT INTO ai_folders(id,user_id,name,slug,created_at) VALUES(?,?,?,?,?)', folder, memberId, 'Typed', 'typed', now).run();
+    const insert = async (type, id, owner, scope, created) => type === 'image'
+      ? f.sql('INSERT INTO ai_images(id,user_id,folder_id,r2_key,prompt,model,created_at) VALUES(?,?,?,?,?,?,?)', id, owner, scope, `synthetic/${id}`, id, 'uploaded', created).run()
+      : f.sql('INSERT INTO ai_text_assets(id,user_id,folder_id,r2_key,title,file_name,source_module,mime_type,size_bytes,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)', id, owner, scope, `synthetic/${id}`, id, id, type === 'sound' ? 'music' : type, type === 'sound' ? 'audio/mpeg' : type === 'video' ? 'video/mp4' : 'text/plain', 1, created).run();
+    // Interleaving plus timestamp ties exercises the real UNION ordering, not a JS fixture filter.
+    for (let i = 0; i < 65; i++) for (const type of ['image', 'video', 'sound']) {
+      await insert(type, `typed-${type}-${String(i).padStart(3, '0')}`, memberId, folder, '2030-01-01T00:00:00.000Z');
+    }
+    await insert('text', 'typed-text', memberId, folder, '2031-01-01T00:00:00.000Z');
+    await insert('video', 'typed-unfoldered', memberId, null, '2032-01-01T00:00:00.000Z');
+    await insert('video', 'typed-foreign', adminId, null, '2033-01-01T00:00:00.000Z');
+    const get = (query, auth = member) => request(`/api/ai/assets?${query}`, undefined, 'typed-read', auth);
+    const mixed = await ok(await get(`folder_id=${folder}`));
+    assert.equal(mixed.assets.length, 60); assert.equal(mixed.assets[0].id, 'typed-text');
+    for (const type of ['image', 'video', 'sound']) {
+      const query = `folder_id=${folder}&asset_type=${type}`;
+      const first = await ok(await get(query));
+      assert.equal(first.assets.length, 60); assert.equal(first.has_more, true);
+      assert.ok(first.assets.every(asset => asset.asset_type === type && asset.folder_id === folder));
+      const cursor = encodeURIComponent(first.next_cursor);
+      const second = await ok(await get(`${query}&cursor=${cursor}`));
+      assert.equal(second.assets.length, 5); assert.equal(second.has_more, false); assert.equal(second.next_cursor, null);
+      const ids = [...first.assets, ...second.assets].map(asset => asset.id);
+      assert.equal(new Set(ids).size, 65);
+      assert.deepEqual(ids, Array.from({ length: 65 }, (_, i) => `typed-${type}-${String(64-i).padStart(3, '0')}`));
+      for (const badScope of [`folder_id=${folder}&asset_type=${type === 'image' ? 'video' : 'image'}`, `asset_type=${type}`, `only_unfoldered=1&asset_type=${type}`, `folder_id=${folder}`]) {
+        assert.equal((await get(`${badScope}&cursor=${cursor}`)).status, 400);
+      }
+      assert.equal((await get(`${query}&cursor=${cursor}`, admin)).status, 400);
+    }
+    const unfoldered = await ok(await get('only_unfoldered=1&asset_type=video'));
+    assert.ok(unfoldered.assets.some(asset => asset.id === 'typed-unfoldered'));
+    assert.ok(unfoldered.assets.every(asset => !asset.folder_id && asset.id !== 'typed-foreign'));
+    assert.equal((await get('asset_type=music')).status, 400);
+    assert.equal((await get('asset_type=image', '')).status, 401);
+  });
   assert.equal(f.counters.outboundDenied, 0, 'No external provider or network call');
 }

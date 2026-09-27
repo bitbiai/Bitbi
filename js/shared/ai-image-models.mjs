@@ -1,4 +1,5 @@
 import { GPT_IMAGE_25_MODELS } from './gpt-image-25-contract.mjs';
+import { sortGenerationModels } from './generation-model-order.mjs';
 import { GROK_IMAGE_2 } from './grok-imagine-image-2-pricing.mjs';
 import {
     GPT_IMAGE_2_BACKGROUND_OPTIONS,
@@ -106,11 +107,11 @@ const SUPPORTED_AI_IMAGE_MODEL_CONFIGS = Object.freeze([
 const AI_IMAGE_MODEL_MAP = new Map(SUPPORTED_AI_IMAGE_MODEL_CONFIGS.map((model) => [model.id, model]));
 
 export function getAiImageModelOptions() {
-    return AI_IMAGE_MODELS.map(({ id, label }) => ({ id, label }));
+    return sortGenerationModels(AI_IMAGE_MODELS).map(({ id, label }) => ({ id, label }));
 }
 
 export function getGenerateLabAiImageModelOptions() {
-    return SUPPORTED_AI_IMAGE_MODEL_CONFIGS.filter(model => model.generationEnabled !== false).map(({ id, label }) => ({ id, label }));
+    return sortGenerationModels(SUPPORTED_AI_IMAGE_MODEL_CONFIGS.filter(model => model.generationEnabled !== false)).map(({ id, label }) => ({ id, label }));
 }
 
 export function getAiImageModelConfig(modelId) {

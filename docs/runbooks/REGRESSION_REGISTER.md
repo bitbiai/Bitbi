@@ -795,3 +795,22 @@ No production row/key/credit was reset: authoritative
 job-bound terminal evidence is still required for recovery. Full-regression run
 36309014115 remains historically red (Worker and homepage/media failures); this
 repair does not recertify that run. Synthetic checks are not live generation proof.
+
+### Generation selectors, dimensions and typed asset pagination (2026-09-27)
+
+Confirmed: Klein's member mapping omitted dimensions and its multipart builder
+fixed output size at 1024 square; Canvas exposed invalid arbitrary dimensions.
+Selected/default dimensions now share the validated application subset through
+the actual route, multipart request, pricing and usage/result metadata. Ordering
+uses publisher metadata, never Gateway labels or sort position as a default.
+See [capability audit and caller map](GENERATION_CONTROLS.md) for all exposed
+image/video families, preserved gates and unresolved provider-schema limits.
+
+Optional type filtering precedes the D1 UNION limit; native Canvas acceptance
+checks 65 assets per type and owner/type/folder cursor fences. Shared browser
+tests cover independent groups, late reads, manual read recovery, normal text,
+mobile playback and picker actions. The new disclosure exposed an ancestor
+`details` click guard: guards must exclude controls inside the card, not its
+containing group. Mixed Assets + Canvas proof must select the named auth report;
+wrong, duplicate, missing and failed reports remain fatal. Existing protected
+AI → Auth → frontend continuation and both-engine candidate proof remain required.

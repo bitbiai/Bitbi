@@ -1971,12 +1971,13 @@ export async function apiAiGetImages(folderId, { onlyUnfoldered } = {}) {
     return Array.isArray(res.data?.data?.images) ? res.data.data.images : [];
 }
 
-export async function apiAiGetAssets(folderId, { onlyUnfoldered, limit, cursor } = {}) {
+export async function apiAiGetAssets(folderId, { onlyUnfoldered, limit, cursor, assetType } = {}) {
     const params = new URLSearchParams();
     if (onlyUnfoldered) params.set('only_unfoldered', '1');
     else if (folderId) params.set('folder_id', folderId);
     if (limit) params.set('limit', String(limit));
     if (cursor) params.set('cursor', cursor);
+    if (assetType) params.set('asset_type', assetType);
     const qs = params.toString() ? `?${params}` : '';
     const res = await request('GET', `/ai/assets${qs}`);
     if (!res.ok) {

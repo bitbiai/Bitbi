@@ -513,6 +513,11 @@ const STRINGS = Object.freeze({
             rejectAll: 'Reject All',
         }),
         assets: Object.freeze({
+            sortByType: 'Sort by asset type',
+            typeGroup: Object.freeze({ image: 'Images', video: 'Video', sound: 'Music' }),
+            showRemainingType: 'Show remaining assets of this type',
+            retryType: 'Retry loading this type',
+            typeViewHint: 'Open a type to load its newest assets. Switch off type view to include text and other assets.',
             empty: 'No saved assets yet.',
             emptyDetailed: 'No saved assets yet. Generate images, videos, or music from the homepage Create tools, then manage them here.',
             emptyStateTitle: 'Your saved library is empty',
@@ -1518,6 +1523,11 @@ const STRINGS = Object.freeze({
             rejectAll: 'Alle ablehnen',
         }),
         assets: Object.freeze({
+            sortByType: 'Sortieren nach Assets-Typ',
+            typeGroup: Object.freeze({ image: 'Bilder', video: 'Video', sound: 'Musik' }),
+            showRemainingType: 'Übrige Assets dieses Typs anzeigen',
+            retryType: 'Diesen Typ erneut laden',
+            typeViewHint: 'Öffnen Sie einen Typ, um die neuesten Assets zu laden. Die gemischte Ansicht enthält auch Text und andere Assets.',
             empty: 'Noch keine gespeicherten Assets vorhanden.',
             emptyDetailed: 'Noch keine gespeicherten Assets vorhanden. Generieren Sie Bilder, Videos oder Musik mit den Create-Werkzeugen auf der Startseite und verwalten Sie sie anschließend hier.',
             emptyStateTitle: 'Ihre gespeicherte Bibliothek ist leer',

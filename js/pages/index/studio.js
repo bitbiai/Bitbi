@@ -97,10 +97,8 @@ function populateFolderOptions(selectEl) {
 function populateModelOptions(selectEl, currentValue = DEFAULT_AI_IMAGE_MODEL) {
     if (!selectEl) return;
 
-    const generateLabModels = new Map(getGenerateLabAiImageModelOptions().map((model) => [model.id, model]));
-    const homepageModels = HOMEPAGE_GALLERY_CREATE_MODEL_IDS
-        .map((id) => generateLabModels.get(id))
-        .filter(Boolean);
+    const homepageModels = getGenerateLabAiImageModelOptions()
+        .filter(model => HOMEPAGE_GALLERY_CREATE_MODEL_IDS.includes(model.id));
     const options = (homepageModels.length ? homepageModels : getAiImageModelOptions()).map(
         ({ id, label }) => `<option value="${id}">${escapeHtml(label)}</option>`
     );

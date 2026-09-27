@@ -1,4 +1,6 @@
 import { isGptImage25Model } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
+import { sortGenerationModels } from '../../shared/generation-model-order.mjs?v=__ASSET_VERSION__';
+import { imageDimensionChoices } from '../../shared/image-dimensions.mjs?v=__ASSET_VERSION__';
 import { renderCanvasImageReferences } from './image-references.js?v=__ASSET_VERSION__';
 import { h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { H3_MODEL, H3_ROLES, h3MediaType } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
@@ -502,7 +504,34 @@ function renderInspector() {
         workflowAnalysis = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy);
         const models = store.state.models.filter((model) => model.capability === capability);
         const model = models.find((item) => item.id === node.model_id) || models.find((item) => item.runnable) || null;
-        const modelSelect = selectControl(models.map((item) => ({ value: item.id, label: `${item.label}${item.runnable ? '' : ` — ${copy.disabled}`}` })), model?.id);
+        if (capability === 'image' && model) {
+            const c = model.controls || {}, config = { ...node.config };
+            for (const key of ['width', 'height']) {
+                if (!c.supportsDimensions) continue;
+                const choices = imageDimensionChoices(model.id, config[key]);
+                if (!choices.includes(Number(config[key]))) config[key] = c.defaultSize?.[key] || 1024;
+            }
+            for (const [key, options, fallback] of [
+                ['resolution', c.resolutionOptions, c.defaultResolution], ['aspectRatio', c.aspectRatioOptions, c.defaultAspectRatio],
+                ['quality', c.qualityOptions, c.defaultQuality], ['size', c.sizeOptions, c.defaultSize],
+                ['outputFormat', c.outputFormatOptions, c.defaultOutputFormat], ['background', c.backgroundOptions, c.defaultBackground],
+            ]) {
+                if (options?.length && !options.includes(config[key])) config[key] = options.includes(fallback) ? fallback : options[0];
+            }
+            if (JSON.stringify(config) !== JSON.stringify(node.config || {})) scheduleNode(node, { config });
+        }
+        if (capability === 'video' && model) {
+            const c = model.controls || {}, config = { ...node.config };
+            for (const [key, options, fallback] of [
+                ['resolution', c.resolutionOptions, c.defaultResolution], ['quality', c.qualityOptions, c.defaultQuality],
+                ['aspectRatio', c.aspectRatioOptions, c.defaultAspectRatio], ['size', c.sizeOptions, ''],
+            ]) {
+                if (options?.length && config[key] && !options.includes(config[key])) config[key] = fallback || options[0];
+            }
+            if (c.duration && config.duration != null && (!Number.isInteger(Number(config.duration)) || Number(config.duration) < c.duration.min || Number(config.duration) > c.duration.max)) config.duration = c.duration.default;
+            if (JSON.stringify(config) !== JSON.stringify(node.config || {})) scheduleNode(node, { config });
+        }
+        const modelSelect = selectControl(sortGenerationModels(models).map((item) => ({ value: item.id, label: `${item.label}${item.runnable ? '' : ` — ${copy.disabled}`}` })), model?.id);
         modelSelect.addEventListener('change', () => {
             // Only replace an unchanged model default. Explicit values survive
             // a switch and the selected model's validator checks their limits.
@@ -569,8 +598,13 @@ function renderInspector() {
             if (c.supportsSteps) numberOption('steps', isGerman ? 'Schritte' : 'Steps', c.defaultSteps, 1, c.maxSteps);
             if (c.supportsSeed) numberOption('seed', 'Seed', '', 0, 2147483647);
             if (c.supportsDimensions) {
-                numberOption('width', isGerman ? 'Breite' : 'Width', c.defaultSize?.width, c.minDimension, c.maxDimension, 64);
-                numberOption('height', isGerman ? 'Höhe' : 'Height', c.defaultSize?.height, c.minDimension, c.maxDimension, 64);
+                for (const [key, label] of [['width', isGerman ? 'Breite' : 'Width'], ['height', isGerman ? 'Höhe' : 'Height']]) {
+                    const choices = imageDimensionChoices(model.id, node.config?.[key]);
+                    const value = choices.includes(Number(node.config?.[key])) ? Number(node.config[key]) : c.defaultSize?.[key] || 1024;
+                    const control = selectControl(choices.map(value => ({ value, label: String(value) })), value);
+                    bindConfig(node, control, key, Number);
+                    grid.append(field(model.id === 'black-forest-labs/flux-2-max' ? `${label} (${isGerman ? 'Vorgabe' : 'preset'})` : label, control));
+                }
             }
             for (const [key, options, value, label] of [
                 ['resolution', c.resolutionOptions, c.defaultResolution, isGerman ? 'Auflösung' : 'Resolution'],
