@@ -9,7 +9,7 @@ export const HOMEPAGE_CORE_FILES = Object.freeze([
 // release also selects tagged Admin controls. Homepage-core keeps its own file
 // arguments, so it includes tagged smoke coverage, never the Admin spec.
 export const CANVAS_WEBKIT_FILES = Object.freeze([
-  'canvas.spec.js', 'oma2-q1-canvas.spec.js', 'auth-admin.spec.js', 'smoke.spec.js',
+  'canvas.spec.js', 'oma2-q1-canvas.spec.js', 'auth-admin.spec.js', 'smoke.spec.js', 'oma2-q1-member.spec.js',
 ]);
 export const HOMEPAGE_CORE_WEBKIT_FILES = Object.freeze(HOMEPAGE_CORE_FILES.filter(file => CANVAS_WEBKIT_FILES.includes(file)));
 

@@ -1,5 +1,6 @@
 import { isGptImage25Model, normalizeGptImage25Options, GPT_IMAGE_25_MAX_PROMPT_LENGTH } from '../../../../../js/shared/gpt-image-25-contract.mjs';
 import { callImage25Provider, image25Output, image25DeliveryError } from '../../../../shared/gpt-image-25.mjs';
+import { FLUX_SCHNELL, callFluxSchnell } from '../../lib/flux-schnell-provider.js';
 import { resolveImage25Sources } from '../../lib/gpt-image-25-sources.js';
 import { GROK_IMAGE_2, normalizeGrokImage2 } from '../../../../../js/shared/grok-imagine-image-2-pricing.mjs';
 import { promptAssetTitle } from '../../lib/asset-names.js';
@@ -833,6 +834,7 @@ export async function handleGenerateImage(ctx) {
     if (isNaN(seed) || seed < 0) seed = null;
   }
   const gptImage25 = isGptImage25Model(modelConfig.id);
+  const fluxSchnell = modelConfig.id === FLUX_SCHNELL;
   const gptImage2 = isGptImage2Model(modelConfig) || gptImage25;
   const flux2Max = isFlux2MaxModel(modelConfig);
   const grokImage2 = modelConfig.id === GROK_IMAGE_2.id;
@@ -1101,7 +1103,9 @@ export async function handleGenerateImage(ctx) {
       const options = { ...((gptImage2 || flux2Max || grokImage2) ? runOptions : {}), signal };
       const result = gptImage25
         ? await callImage25Provider(env.AI, modelConfig.id, aiRequest.payload, options, correlationId)
-        : await env.AI.run(modelConfig.id, aiRequest.payload, options);
+        : fluxSchnell && !generationExecution(env)
+          ? await callFluxSchnell(env.AI, modelConfig.id, aiRequest.payload, options)
+          : await env.AI.run(modelConfig.id, aiRequest.payload, options);
       if (signal.aborted) {
         const body = result instanceof Response ? result.body : result instanceof ReadableStream ? result : null;
         if (body && !body.locked) Promise.resolve(body.cancel()).catch(() => {});
@@ -1118,7 +1122,7 @@ export async function handleGenerateImage(ctx) {
     }, {
       signal: request.signal,
       onLateResult: () => usagePolicy.recordLateOutcome?.("succeeded"),
-      onLateError: (error) => usagePolicy.recordLateOutcome?.(error?.providerCompleted ? "succeeded" : gptImage25 && !error?.confirmedRejection ? "unknown" : "failed", error?.code),
+      onLateError: (error) => usagePolicy.recordLateOutcome?.(error?.providerCompleted ? "succeeded" : (gptImage25 || fluxSchnell) && !error?.confirmedRejection ? "unknown" : "failed", error?.code),
     });
     if (extracted) {
       base64 = extracted.base64;
@@ -1130,7 +1134,7 @@ export async function handleGenerateImage(ctx) {
       try {
         await usagePolicy.markProviderFailed({
           confirmedOutcome: gptImage25 && e?.confirmedRejection === true,
-          code: gptImage25 ? e.code || "generation_provider_outcome_unknown" : isGenerationTimeoutError(e) ? "generation_timeout" : "provider_failed",
+          code: gptImage25 || fluxSchnell ? e.code || "generation_provider_outcome_unknown" : isGenerationTimeoutError(e) ? "generation_timeout" : "provider_failed",
           message: isGenerationTimeoutError(e)
             ? "Image generation timed out."
             : "Image provider call failed.",
@@ -1148,10 +1152,11 @@ export async function handleGenerateImage(ctx) {
       model: modelConfig.id,
       request_mode: modelConfig.requestMode || "json",
       is_admin: isAdmin,
-      ...getErrorFields(e, { includeMessage: !gptImage25 }),
+      ...getErrorFields(e, { includeMessage: !gptImage25 && !fluxSchnell }),
       ...(gptImage25 && e.providerDiagnostic ? { providerDiagnostic: e.providerDiagnostic } : {}),
     });
     if (gptImage25) return respond({ ok: false, error: e.providerDiagnostic ? e.message : "Image output could not be confirmed. Do not resubmit.", code: e.code || "generation_provider_outcome_unknown", providerDiagnostic: e.providerDiagnostic || null }, { status: e.status || 502 });
+    if (fluxSchnell) return respond({ ok: false, error: 'Image provider outcome requires review. Do not resubmit.', code: e.code || 'generation_provider_outcome_unknown' }, { status: 502 });
     if (isGenerationTimeoutError(e)) {
       return respond({
         ok: false,

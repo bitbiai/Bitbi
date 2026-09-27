@@ -327,12 +327,15 @@ export function buildAiImageInput(modelConfig, prompt, steps, seed) {
     };
   }
 
-  const payload = { prompt, num_steps: steps };
-  if (seed !== null) payload.seed = seed;
+  // FLUX.1 Schnell's account-level schema allows only prompt and steps.
+  // Its seed-bearing documentation examples contradict additionalProperties:false.
+  const fluxSchnell = modelConfig.id === '@cf/black-forest-labs/flux-1-schnell';
+  const payload = fluxSchnell ? { prompt, steps } : { prompt, num_steps: steps };
+  if (!fluxSchnell && seed !== null) payload.seed = seed;
 
   return {
     payload,
     steps,
-    seed,
+    seed: fluxSchnell ? null : seed,
   };
 }

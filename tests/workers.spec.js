@@ -40852,7 +40852,7 @@ test.describe('Worker routes', () => {
     });
   });
 
-  test('AI generate: default model still uses the existing JSON path when no model is provided', async () => {
+  test('AI generate: default FLUX Schnell obeys the strict provider JSON schema when no model is provided', async () => {
     const authWorker = await loadWorker('workers/auth/src/index.js');
     let capturedModelId = null;
     let capturedPayload = null;
@@ -40872,6 +40872,8 @@ test.describe('Worker routes', () => {
       aiRun: async (modelId, payload) => {
         capturedModelId = modelId;
         capturedPayload = payload;
+        expect(Object.keys(payload).sort()).toEqual(['prompt', 'steps']);
+        expect(Number.isInteger(payload.steps) && payload.steps >= 1 && payload.steps <= 8).toBe(true);
         return { image: ONE_PIXEL_PNG_DATA_URI };
       },
     });
@@ -40897,14 +40899,13 @@ test.describe('Worker routes', () => {
       data: {
         model: '@cf/black-forest-labs/flux-1-schnell',
         steps: 6,
-        seed: 12345,
+        seed: null,
       },
     });
     expect(capturedModelId).toBe('@cf/black-forest-labs/flux-1-schnell');
     expect(capturedPayload).toEqual({
       prompt: 'default image path',
-      num_steps: 6,
-      seed: 12345,
+      steps: 6,
     });
   });
 

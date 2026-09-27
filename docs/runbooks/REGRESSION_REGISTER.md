@@ -763,3 +763,35 @@ type and safe cause code. Authorization, identity, archive digest and content
 failures remain immediate. `test-frontend-review.mjs` exercises recovery, exhausted
 transport diagnostics and a non-retried authorization countercontrol through the
 actual release helper; `test:static-deploy-safety` remains the final caller.
+
+### FLUX.1 Schnell request schema and unresolved-job feedback (2026-09-27)
+
+Auth's Generate Lab helper sent `num_steps`; the 09:31:36Z production log on
+Auth 95f569fd (source 14ba4afa) explicitly rejected that property. The account
+model-schema endpoint confirms only `prompt` and `steps` (maximum 8), with
+additional properties forbidden. Seed-bearing documentation examples contradict
+that schema; Auth omits seed and member controls no longer advertise it. The
+separate Admin AI adapter and adjacent models are unchanged.
+
+An exact allowlisted schema exception now retains a content-free reason in the
+existing dispatch receipt. It is not a no-inference receipt: arbitrary AiError,
+5006, HTTP400 and transport failures remain unknown, with no refund or redispatch
+authorization. Generate Lab shows EN/DE review-required feedback without a busy
+spinner and restores it read-only. Existing operation keys remain retained.
+
+Counterchecks: `workers.spec.js` strict default payload and adjacent Admin/model
+cases; `member-generation.cases.js` and native `--suite member-generation` exercise
+the actual queue/D1/R2 path, private status, schema versus ambiguous failures,
+reservation/no-debit and same-job/no-second-call fences. Tagged member browser
+cases run EN/DE Chromium/WebKit via the existing Canvas/model CI caller; discovery,
+execution and candidate proof require that file in both engines. Unknown paths,
+session/billing changes and dependencies cannot inherit this bounded selection.
+
+One unresolved FLUX image job was found in the incident window, without an asset,
+terminal rejection receipt or debit. Its retained private input reproduces the
+stored legacy `num_steps` dispatch fingerprint exactly (4 steps, no seed). The
+log has no job correlation, so timing alone still does not prove its attribution.
+No production row/key/credit was reset: authoritative
+job-bound terminal evidence is still required for recovery. Full-regression run
+36309014115 remains historically red (Worker and homepage/media failures); this
+repair does not recertify that run. Synthetic checks are not live generation proof.

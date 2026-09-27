@@ -35,6 +35,12 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const messages=[];
   let fail=true;
   let duringProvider=async()=>{};
+  if(name.startsWith('flux-'))duringProvider=async(model,payload)=>{
+    check(model==='@cf/black-forest-labs/flux-1-schnell','Exact Schnell model');
+    check(Object.keys(payload).sort().join(',')==='prompt,steps' && Number.isInteger(payload.steps) && payload.steps<=8,'Strict account schema rejects seed/num_steps and unchecked options');
+    if(name==='flux-success')return;
+    throw Object.assign(new Error(name==='flux-schema'?"5006: Error: Additional or unevaluated properties '/steps' at '/' not allowed":name==='flux-5006'?'5006: private prompt secret-token':name==='flux-http400'?'HTTP 400':'fetch failed'),{name:name==='flux-transport'?'TypeError':'AiError',status:400});
+  };
   const env={...nativeEnv, ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG:'false',
     MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:'synthetic-member-poster-secret-not-live',
     HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET:'synthetic-member-poster-secret-not-live',
@@ -249,6 +255,25 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check(messages.length===1,'Scheduled repair recovers durable acceptance without browser polling');
     await Promise.all([deliver(),deliver()]);
   } else await deliver();
+  if(name.startsWith('flux-') && name!=='flux-success') {
+    const current=await row(), receipts=JSON.parse(current.provider_receipts_json);
+    const code=name==='flux-schema'?'generation_schema_rejected_review':'generation_provider_outcome_unknown';
+    check(current.status==='outcome_unknown' && current.error_code===code,'Schema reason is distinct without inventing a terminal outcome');
+    check(receipts['ai-0'].diagnostic.noInference===false && !receipts['ai-0'].rejection,'Binding exceptions cannot authorize credit release');
+    check(!JSON.stringify(receipts).includes('secret-token') && !JSON.stringify(receipts).includes('private prompt'),'Bounded content-free reason persisted');
+    const usage=await db.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=?').bind(current.usage_attempt_id).first();
+    check(usage.provider_outcome==='unknown' && usage.billing_status==='reserved','Uncertain dispatch retains existing reservation fence');
+    const restored=(await (await fetch(`/api/ai/generation-jobs/${id}`,{headers})).json()).data.job;
+    check(restored.error_code===code && restored.status==='outcome_unknown' && !restored.rejection_settled,'Reload reports safe reason, not a claimed refund');
+    env.PUBLIC_RATE_LIMITER=browserLimiter;
+    const replay=await fetch('/api/ai/generate-image',{method:'POST',headers,body});
+    check(replay.status===202 && (await replay.json()).data.job.id===id,'Old intent keeps the same job after corrected input serialization');
+    await deliver();
+    check(calls.provider===1,'Repeated queue or browser observation cannot redispatch');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).n===0,'No debit for uncertain output');
+    check((await fetch(`/api/ai/generation-jobs/${id}`,{headers:{Cookie:`bitbi_session=${owner}-other`}})).status===404,'Review evidence remains owner-only');
+    return {name,calls,status:current.status};
+  }
   if(name.startsWith('h3-rejection-')) {
     const state=await row(), receipts=JSON.parse(state.provider_receipts_json);
     const uncertain=['h3-rejection-unknown','h3-rejection-callback-race'].includes(name);
@@ -479,7 +504,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
 export default {async fetch(request,env) {
   if(request.method!=='POST'||request.headers.get('x-q2-control')!==env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
   const {name,...fixture}=await request.json();
-  if(!/^admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})$/.test(name) && !['h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-references','h3-callback-failed','h3-callback','h3-failed','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
+  if(!/^(admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})|flux-(success|schema|5006|http400|transport))$/.test(name) && !['h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-references','h3-callback-failed','h3-callback','h3-failed','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
   return Response.json(await memberGenerationCase(env,name,fixture));
 }};
 

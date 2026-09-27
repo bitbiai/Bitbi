@@ -2,6 +2,7 @@ import { h3MemberReceipt, storedH3MemberTask } from './minimax-h3-callback.js';
 import { retainedImageDelivery, recordImageDelivery, IMAGE_DELIVERY_ATTEMPTS } from './image-delivery-recovery.js';
 import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
 import { callH3Provider, h3Failure } from './h3-provider-result.js';
+import { FLUX_SCHNELL, callFluxSchnell } from './flux-schnell-provider.js';
 import { reclaimCanvasMedia, canvasMediaRun } from './canvas-media-storage.js';
 import { THUMBNAIL_BACKEND_SQL, notifyPrivateMedia, recoverPrivateMedia } from './private-media-service.js';
 import { finishCanvasGeneration } from './canvas-video-output.js';
@@ -273,6 +274,7 @@ export async function processMemberGeneration(env, body, execute) {
   if (env.AI) scoped.AI = { run: async (...args) => providerCall(env,job,`ai-${calls++}`,await sha256Hex(JSON.stringify(args.slice(0,2))),correlation=>{
     if(retained)throw jobError('generation_provider_identity_mismatch');
     if(args[0]==='minimax/h3')return callH3Provider(env,args[0],args[1],args[2],correlation);
+    if(args[0]===FLUX_SCHNELL)return callFluxSchnell(env.AI,...args);
     if(isGptImage25Model(args[0]))args[2]={...args[2],gateway:{...args[2]?.gateway,metadata:{...args[2]?.gateway?.metadata,bitbi_dispatch:correlation}}};
     return env.AI.run(...args);
   }) };

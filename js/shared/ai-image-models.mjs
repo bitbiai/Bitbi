@@ -20,7 +20,8 @@ export const AI_IMAGE_MODELS = Object.freeze([
         vendor: 'Black Forest Labs',
         requestMode: 'json',
         supportsSteps: true,
-        supportsSeed: true,
+        // Account-level FLUX schema excludes seed despite older usage examples.
+        supportsSeed: false,
     }),
 ]);
 

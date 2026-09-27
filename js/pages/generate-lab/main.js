@@ -351,7 +351,9 @@ function isAuthFailure(result) {
 function jobWorkflowStatus(job) {
     if(job?.delivery_status==='failed')return 'deliveryFailed';
     if(['pending','processing'].includes(job?.delivery_status))return 'deliveryPending';
-    return job?.status==='outcome_unknown'?'reconciling':job?.status==='ingesting'?'saving':job?.status==='preview_pending'?'previewPending':job?.status==='succeeded'?'saved':'accepted';
+    if(job?.status==='outcome_unknown')return job.media_type==='image'?(job.error_code==='generation_schema_rejected_review'?'schemaReview':'reviewRequired'):'reconciling';
+    if(job?.status==='failed')return 'attention';
+    return job?.status==='ingesting'?'saving':job?.status==='preview_pending'?'previewPending':job?.status==='succeeded'?'saved':'accepted';
 }
 
 const workflowStatusConfig = Object.freeze({
@@ -359,7 +361,9 @@ const workflowStatusConfig = Object.freeze({
     preflightStopped: {title:'generation.sessionStopped',copy:'generation.sessionStoppedCopy',tone:'error'},
     deliveryPending:{title:'generation.deliveryPending',copy:'generation.deliveryPendingCopy',tone:'busy'},
     deliveryFailed:{title:'generation.deliveryFailed',copy:'generation.deliveryFailedCopy',tone:'error'},
-    reconciling: {title:"generateLab.workflowReconcilingTitle",copy:"generateLab.workflowReconcilingCopy",tone:"busy"},
+    reviewRequired: {title:'generateLab.workflowReviewTitle',copy:'generateLab.workflowReviewCopy',tone:'error'},
+    schemaReview: {title:'generateLab.workflowSchemaTitle',copy:'generateLab.workflowReviewCopy',tone:'error'},
+    reconciling: {title:'generateLab.workflowReconcilingTitle',copy:'generateLab.workflowReconcilingCopy',tone:'busy'},
     accepted: {title:"generateLab.workflowAcceptedTitle",copy:"generateLab.workflowAcceptedCopy",tone:"busy"},
     previewPending: {title:"generateLab.workflowPreviewTitle",copy:"generateLab.workflowPreviewCopy",tone:"busy"},
     generating: {
@@ -2113,7 +2117,7 @@ async function handleGenerate() {
     }
 
     if(run!==generationView)return;
-    if(res?.pending){acceptedStatusActive=true;setMessage('');setWorkflowStatus(jobWorkflowStatus(res.job),submitted.modelLabel);return;}
+    if(res?.pending){acceptedStatusActive=true;if(res.needsReview && res.job?.media_type==='image')renderEmptyResult();setMessage('');setWorkflowStatus(jobWorkflowStatus(res.job),submitted.modelLabel);return;}
     acceptedStatusActive=false;
     if(res?.job?.delivery_status==='failed'){setMessage('');setWorkflowStatus('deliveryFailed',submitted.modelLabel);return;}
     if (!res?.ok) {
@@ -2226,7 +2230,7 @@ async function restoreGeneration() {
     const own=++generationView,controller=new AbortController();restoredObservation=controller;
     const response=await apiAiGetGenerationJobs({signal:controller.signal});
     if(own!==generationView||!state.loggedIn)return;
-    const job=response.data?.data?.jobs?.find(job=>['queued','processing','ingesting','preview_pending','outcome_unknown'].includes(job.status) || job.delivery_status==='failed');
+    const job=response.data?.data?.jobs?.find(job=>['queued','processing','ingesting','preview_pending','outcome_unknown'].includes(job.status) || job.delivery_status==='failed' || (job.media_type==='image' && job.status==='failed'));
     if(!job)return;
     acceptedStatusActive=true;
     const onProgress=current=>{

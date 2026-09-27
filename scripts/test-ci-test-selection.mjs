@@ -7,7 +7,7 @@ import {
   FAST_DEPLOY_WORKFLOW_PATHS,
   isFastDeploySafePath,
 } from "./lib/fast-deploy-paths.mjs";
-import { selectCiTests, requiresPrivateMediaImage, isDurableImageTestChange } from "./lib/ci-test-selection.mjs";
+import { selectCiTests, requiresPrivateMediaImage, isDurableImageTestChange, isFluxReviewTestChange } from "./lib/ci-test-selection.mjs";
 import { requiredJobs } from "./pages-candidate.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,6 +25,25 @@ for (const file of ['playwright.homepage-linux-diagnostic.config.js', 'scripts/d
 
 function selection(files, options) {
   return selectCiTests(files, options);
+}
+
+{
+  const flux=['workers/auth/src/lib/flux-schnell-provider.js','workers/auth/src/routes/ai/helpers.js','workers/auth/src/routes/ai/images-write.js',
+    'workers/auth/src/lib/member-generation-jobs.js','js/shared/ai-image-models.mjs','js/shared/locale.js','js/shared/member-generation-client.js',
+    'js/pages/generate-lab/main.js','tests/member-generation.cases.js','tests/member-generation-runtime.mjs','tests/helpers/member-generation-control.mjs','tests/oma2-q1-member.spec.js','tests/workers.spec.js'];
+  const after=fs.readFileSync(path.join(repoRoot,'tests/oma2-q1-member.spec.js'),'utf8');
+  const before=after.replace(/\/\/ FLUX review acceptance begin[^\n]*\n[\s\S]*?\/\/ FLUX review acceptance end\.\n/,'');
+  const memberTestSources={before,after};
+  assert(isFluxReviewTestChange(memberTestSources));
+  assert(!isFluxReviewTestChange({before,after:after+'\n// unrelated fixture change'}));
+  assert(!selection(flux).canvasText,'Missing multipurpose-spec source context fails closed');
+  const result=selection(flux,{memberTestSources});
+  assert(result.canvasText && result.workers && result.auth && result.static);
+  assert(!result.full && !result.homepageMedia && !result.carousel);
+  for(const file of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','js/shared/unknown.js','package-lock.json'])assert(!selection([...flux,file],{memberTestSources}).canvasText,file);
+  const workflow=fs.readFileSync(path.join(repoRoot,'.github/workflows/static.yml'),'utf8');
+  assert(workflow.includes("--grep 'durable member generation: flux-|default FLUX Schnell|Canvas"));
+  assert(workflow.includes('tests/smoke.spec.js tests/oma2-q1-member.spec.js --project=chromium --project=webkit-canvas'));
 }
 
 for (const file of ['scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs']) {

@@ -3,6 +3,16 @@ const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');
 const {createAuthTestEnv}=require('./helpers/auth-worker-harness.js');
 const {pathToFileURL}=require('node:url');
 const path=require('node:path');
+for(const name of ['flux-success','flux-schema','flux-5006','flux-http400','flux-transport'])test(`durable member generation: ${name}`,async()=>{
+  const db=new SqliteD1Database();applyAuthMigrations(db);
+  try {
+    const {memberGenerationCase}=await import('./helpers/member-generation-control.mjs');
+    const result=await memberGenerationCase({...createAuthTestEnv(),DB:db},name,{kind:'image',input:{model:'@cf/black-forest-labs/flux-1-schnell',prompt:'Synthetic strict-schema image',steps:6,seed:12345}});
+    expect(result.calls.provider).toBe(1);
+    expect(result.status).toBe(name==='flux-success'?'succeeded':'outcome_unknown');
+    expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+  } finally {db.close();}
+});
 for(const name of ['asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart']) {
   test(`durable member generation: ${name}`,async()=>{
     const db=new SqliteD1Database();applyAuthMigrations(db);

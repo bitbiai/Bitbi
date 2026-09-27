@@ -759,6 +759,46 @@ test('session preflight: late transport success after account switch is rejected
 
 // Native queue/D1/R2 completion is exercised by member-generation.cases.js through workers.spec.js and
 // the normal isolated runtime entry. These cases verify the connected UI only.
+// FLUX review acceptance begin (both engines in the Canvas/model caller).
+for(const language of ['en','de'])for(const reason of ['generation_schema_rejected_review','generation_provider_outcome_unknown','generation_execution_failed']) {
+  test(`@canvas-model-ui durable generation FLUX review ${language} ${reason}: visible, non-spinning, preserved intent and read-only reload`,async({page})=>{
+    await page.setViewportSize({width:1440,height:980});
+    await fixture(page);
+    const id='f'.repeat(32),job={id,model_id:MODELS[0],media_type:'image',status:'outcome_unknown',error_code:reason};
+    let submitted=0,restored=false,submittedKey;
+    await page.route('**/api/ai/generation-jobs',route=>json(route,{ok:true,data:{jobs:restored?[job]:[]}}));
+    await page.route(`**/api/ai/generation-jobs/${id}`,route=>json(route,{ok:true,data:{job}}));
+    await page.route('**/api/ai/generate-image',async route=>{
+      submitted++;submittedKey=route.request().headers()['idempotency-key'];
+      expect(route.request().postDataJSON()).toMatchObject({model:MODELS[0],prompt:'Retain this FLUX prompt',steps:6});
+      expect(route.request().postDataJSON()).not.toHaveProperty('seed');
+      await json(route,{ok:true,data:{job:{...job,status:'queued'}}},202);
+    });
+    await openSurface(page,'lab',language);
+    const ui=controls(page,'lab');await ui.model.selectOption(MODELS[0]);
+    await ui.prompt.fill('Retain this FLUX prompt');await page.locator('#labImageSteps').selectOption('6');
+    await ui.generate.click();
+    const panel=page.locator('#labWorkflowStatus');
+    await expect(panel).toHaveClass(/is-error/);
+    await expect(panel).toContainText(reason==='generation_schema_rejected_review'?(language==='de'?'Anfrageformat abgelehnt':'rejected request format'):(language==='de'?'Ergebnis muss geprüft':'Result needs review'));
+    await expect(panel).toContainText(language==='de'?'bitte nicht erneut absenden':'do not submit it again');
+    await expect(page.locator('.generate-lab__spinner')).toHaveCount(0);
+    await expect(ui.prompt).toHaveValue('Retain this FLUX prompt');
+    await expect(page.locator('#labImageSteps')).toHaveValue('6');
+    await expect(ui.model).toHaveValue(MODELS[0]);
+    await expect(ui.generate).toBeEnabled();
+    await expect(ui.message).not.toContainText(language==='de'?'Prüfen Sie Prompt':'Check the prompt');
+    const intent=await page.evaluate(()=>Object.fromEntries(Object.entries(localStorage).filter(([key])=>key.startsWith('bitbi-generation:'))));
+    expect(Object.values(intent)).toEqual([submittedKey]);
+    restored=true;await page.reload();
+    await expect(panel).toHaveClass(/is-error/);
+    await expect(panel).toContainText(language==='de'?'bitte nicht erneut absenden':'do not submit it again');
+    await expect(page.locator('.generate-lab__spinner')).toHaveCount(0);
+    expect(await page.evaluate(()=>Object.fromEntries(Object.entries(localStorage).filter(([key])=>key.startsWith('bitbi-generation:'))))).toEqual(intent);
+    expect(submitted).toBe(1);await noHorizontalOverflow(page);
+  });
+}
+// FLUX review acceptance end.
 for (const language of ['en', 'de']) {
   test(`durable generation ${language}: accepted image is already saved without a browser save request`, async ({page}) => {
     await page.setViewportSize({width:1440,height:980});
