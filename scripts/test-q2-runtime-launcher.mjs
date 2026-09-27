@@ -368,7 +368,7 @@ test('default native runtime plan stages every actual suite and control input', 
   for (const filename of [
     ...expected.map(([, filename]) => filename), ...controls, 'tests/admin-model-status-runtime.mjs', 'tests/model-pricing-runtime.mjs', 'tests/appearance-runtime.mjs', 'tests/helpers/model-pricing-control.mjs', 'tests/asset-preview-details-runtime.mjs',
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-fixture.mjs',
-    'tests/helpers/q4-subscription-payloads.cjs', 'tests/helpers/canvas-video-control.mjs',
+    'tests/helpers/q4-subscription-payloads.cjs', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs',
   ]) {
     assert.ok(imports.includes(filename), `Actual resolved graph includes ${filename}`);
     assert.throws(() => checkClosure(plan.filter(item => !coveredBy(filename, [item]))), /Every resolved repository import/,

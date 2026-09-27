@@ -4,6 +4,7 @@ import { cleanupExpiredMemberAiUsageAttempts } from '../../../workers/auth/src/l
 import worker from '../../../workers/auth/src/index.js';
 import { privateMediaCase,privateMediaSmokeCase } from '../private-media-control.mjs';
 import { canvasProcessingCase } from '../canvas-processing-control.mjs';
+import { canvasMusicCase } from '../canvas-music-control.mjs';
 import { canvasVideoCase, adminPixverseCase } from '../canvas-video-control.mjs';
 // Native-runtime test control; never part of a deploy artifact.
 // Only synthetic fixtures. Normal API calls go to the separate byte-identical B worker.
@@ -45,6 +46,7 @@ export default {
     if (path==='/private-media-smoke') return Response.json(await privateMediaSmokeCase(env,body));
     if (path==='/private-media') return Response.json(await privateMediaCase(env,body));
     if (path==='/canvas-processing') return Response.json(await canvasProcessingCase(env,body));
+    if (path==='/canvas-music') return Response.json(await canvasMusicCase(env,body.name,body.role,body.imageBase64));
     if (path==='/canvas-video' && ['h3','h3-overrun','h3-overrun-failure','h3-last-frame','h3-stale','h3-deleted','h3-foreign','first','success','last-frame','foreign','changed','blocked','blocked-admin','provider-interrupted','receipt-write'].includes(body.name)) return Response.json(await canvasVideoCase(env, body.name, body));
     if (path==='/session' && [ADMIN,MEMBER].includes(body.userId)) {
       const session=await createSession(env,body.userId);

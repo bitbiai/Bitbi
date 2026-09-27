@@ -198,7 +198,7 @@ const CANVAS_TEXT_FILES = new Set([
   'config/release-compat.json',
   'workers/auth/src/routes/admin.js',
   'tests/helpers/auth-worker-harness.js',
-  'tests/helpers/canvas-processing-control.mjs', 'tests/helpers/canvas-video-control.mjs',
+  'tests/helpers/canvas-processing-control.mjs', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs',
   'tests/q2-lifecycle.spec.js',
   'tests/auth-admin.spec.js',
   'tests/helpers/private-media-ui.js', 'tests/helpers/grok-image-controls.cjs',
@@ -828,7 +828,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
   }
 
   if (!forceFull && (changedFiles.some(f=>['js/shared/generation-model-order.mjs','js/shared/image-dimensions.mjs','js/shared/asset-type-view.js','workers/auth/src/lib/flux-schnell-provider.js','js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js','js/shared/canvas-video-input.mjs','workers/auth/src/lib/private-video-references.js','workers/auth/src/lib/h3-provider-result.js'].includes(f))
-      || ['js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','js/pages/canvas/main.js'].every(f=>changedFiles.includes(f))
+      || changedFiles.includes('workers/auth/src/routes/canvas.js')
       || ['js/pages/generate-lab/main.js','workers/auth/src/routes/ai/quota.js','workers/auth/src/lib/member-generation-jobs.js'].every(f=>changedFiles.includes(f)))
       && changedFiles.every(f=>isDocumentation(f)||CANVAS_TEXT_FILES.has(f)||RELEASE_TOOLING_FILES.has(f)||(f===MEMBER_SPEC && isFluxReviewTestChange(memberTestSources)))) {
     selection.canvasText = true;

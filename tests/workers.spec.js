@@ -54636,6 +54636,19 @@ require('./helpers/admin-cap-replay-contract.js').registerAdminCapReplayContract
 // Durable member jobs use this existing Worker entry (including focused --grep runs).
 require("./member-generation.cases.js");
 
+for (const role of ['user','admin']) for (const name of ['instrumental','automatic','manual','generated','instrumental-manual','instrumental-generated','manual-generated','provider-failed']) {
+  test(`Canvas music contract: ${role} ${name}`, async () => {
+    const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');
+    const db=new SqliteD1Database(); applyAuthMigrations(db);
+    try {
+      const {canvasMusicCase}=await import('./helpers/canvas-music-control.mjs');
+      const result=await canvasMusicCase({...createAuthTestEnv(),DB:db},name,role,fs.readFileSync(path.join(__dirname,'fixtures/media/member-image.png')).toString('base64'));
+      await test.info().attach('canvas-music-result',{body:JSON.stringify(result),contentType:'application/json'});
+      expect((await db.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+    } finally {db.close();}
+  });
+}
+
 for (const name of ['first', 'success', 'last-frame', 'foreign', 'changed', 'blocked', 'blocked-admin', 'provider-interrupted', 'receipt-write']) {
   test(`Canvas video continuation: ${name}`, async () => {
     const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');

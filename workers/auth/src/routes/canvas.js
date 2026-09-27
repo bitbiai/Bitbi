@@ -909,6 +909,12 @@ async function callGenerationHandler(ctx, model, body, idempotencyKey, durableVi
       maxTokens: body.max_tokens ?? model.controls.maxTokens.default, temperature: body.temperature, ...(body.reasoningEffort ? { reasoningEffort: body.reasoningEffort } : {}) };
   }
   if (!target) throw Object.assign(new Error("Canvas node is not runnable."), { status: 400, code: "node_not_runnable" });
+  if (model.capability === "music") {
+    // The member music endpoint owns its fixed model. Keep Canvas's validated
+    // model in the original run identity, not in that endpoint's strict body.
+    body = { ...body };
+    delete body.model;
+  }
   const request = delegatedRequest(ctx, target[0], body, idempotencyKey);
   if (durableVideo) request.headers.set("Prefer", "respond-async");
   let usageAttemptId = null;

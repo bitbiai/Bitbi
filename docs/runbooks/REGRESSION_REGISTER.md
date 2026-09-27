@@ -855,3 +855,28 @@ copied member-suite import with/without it. The existing staging/launcher comman
 must run before delivery whenever a native suite gains imports (same cause family
 as the September 18 Canvas omission). Keep Appearance + Assets acceptance across
 the full unpublished range; no deployment-only reuse or relaxed Linux boundary.
+
+### Canvas → member music request contract (2026-09-27)
+
+Canvas's common body included `model`; the strict fixed-model member music
+validator rejects it as `unsupported_option` before usage/provider execution.
+Omit only that field from the delegated music copy, retaining the catalog-validated
+model in Canvas's original stored identity. Do not relax the member allowlist or
+revive old failed keys. Generate Lab already uses the fixed-model body contract.
+
+`tests/helpers/canvas-music-control.mjs` exercises the actual Canvas → music handler
+with a controlled AI-service boundary: member/Admin personal debits, owned audio
+storage, instrumental/automatic/manual/generated lyrics, invalid combinations and
+unknown fields without usage/provider calls, foreign ownership, successful/failed
+and pre-fix historical replay, and preserved prior owned bytes. Existing callers:
+`tests/workers.spec.js` (`Canvas music contract:`) and native `--suite canvas`.
+The staging closure checks the new helper; the existing Canvas/Auth/native CI
+branch now also recognizes a server-only Canvas adapter change, retaining broad
+unknown/shared-input and force-Full countercontrols. No new acceptance pipeline.
+
+Local red reproduced the owner's exact `400 unsupported_option`; final Node cases
+and macOS workerd/D1/R2 cases pass (private source/runtime reports retained). A
+Node mock lacked R2's `.text()` convenience method; byte-preservation assertions
+now read the common body stream, without relaxing equality. Synthetic audio/storage
+acceptance does not establish live MiniMax output or account-wide billing. No paid
+call, historical production mutation, schema, binding or frontend change.

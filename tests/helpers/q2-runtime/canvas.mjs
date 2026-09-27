@@ -381,5 +381,14 @@ export async function runCanvasTests(f) {
     assert.equal((await get('asset_type=music')).status, 400);
     assert.equal((await get('asset_type=image', '')).status, 401);
   });
+  for (const role of ['user', 'admin']) for (const name of ['instrumental', 'automatic', 'manual', 'generated', 'instrumental-manual', 'instrumental-generated', 'manual-generated', 'provider-failed']) {
+    await f.test(`canvas_native_music_${role}_${name}`, async () => {
+      const response = await f.control('/canvas-music', { role, name,
+        imageBase64: fs.readFileSync(new URL('../../fixtures/media/member-image.png', import.meta.url)).toString('base64') });
+      assert.equal(response.status, 200, await response.clone().text());
+      f.metrics.push(await response.json());
+      assert.deepEqual((await f.db.prepare('PRAGMA foreign_key_check').all()).results, []);
+    });
+  }
   assert.equal(f.counters.outboundDenied, 0, 'No external provider or network call');
 }

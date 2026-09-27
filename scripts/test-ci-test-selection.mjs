@@ -836,6 +836,16 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
 }
 
+// Canvas's server adapter alone still needs the existing Canvas/Auth/native branch.
+{
+ const files=['workers/auth/src/routes/canvas.js','tests/workers.spec.js','tests/helpers/canvas-music-control.mjs','tests/helpers/q2-runtime/canvas.mjs','tests/helpers/q2-runtime/control.mjs','tests/helpers/q2-runtime/linux-hosted.mjs','scripts/test-q2-runtime-launcher.mjs','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs','docs/runbooks/REGRESSION_REGISTER.md'];
+ const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);assert.equal(result.runtime,true);
+ assert.equal(selection(['workers/auth/src/routes/canvas.js']).canvasText,true);
+ assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
+ for(const flag of ['full','homepage','homepageMedia','carousel'])assert.equal(result[flag],false,flag);
+ for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','unknown-input.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
+}
+
 // H3 private reference preparation: real Canvas/worker/native and FFmpeg callers.
 {
  const files=['workers/auth/src/lib/private-video-references.js','workers/auth/src/routes/private-video-references.js',
