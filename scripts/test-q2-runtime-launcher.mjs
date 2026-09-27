@@ -366,7 +366,7 @@ test('default native runtime plan stages every actual suite and control input', 
   };
   checkClosure(plan);
   for (const filename of [
-    ...expected.map(([, filename]) => filename), ...controls, 'tests/admin-model-status-runtime.mjs', 'tests/model-pricing-runtime.mjs', 'tests/appearance-runtime.mjs', 'tests/helpers/model-pricing-control.mjs',
+    ...expected.map(([, filename]) => filename), ...controls, 'tests/admin-model-status-runtime.mjs', 'tests/model-pricing-runtime.mjs', 'tests/appearance-runtime.mjs', 'tests/helpers/model-pricing-control.mjs', 'tests/asset-preview-details-runtime.mjs',
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-fixture.mjs',
     'tests/helpers/q4-subscription-payloads.cjs', 'tests/helpers/canvas-video-control.mjs',
   ]) {
@@ -378,6 +378,21 @@ test('default native runtime plan stages every actual suite and control input', 
   const staged = stageRuntimeInputs(root, f.staged, plan);
   assert.ok(staged.files >= imports.length);
   for (const filename of imports) assert.deepEqual(fs.readFileSync(path.join(f.staged, filename)), fs.readFileSync(path.join(root, filename)), filename);
+  // Import the actual member suite from the copied tree, not the checkout.
+  // A fresh process also proves removal fails rather than hitting Node's cache.
+  const memberEntry = pathToFileURL(path.join(f.staged, 'tests/member-generation-runtime.mjs')).href;
+  const importMember = () => spawnSync(process.execPath, ['--input-type=module', '-e',
+    `const suite = await import(${JSON.stringify(memberEntry)}); if(typeof suite.runMemberGenerationTests !== 'function') process.exit(1);`],
+    { cwd: f.base, env: { PATH: path.dirname(process.execPath) }, encoding: 'utf8', timeout: 15000 });
+  const imported = importMember(); assert.equal(imported.status, 0, imported.stderr);
+  const detailsPath = path.join(f.staged, 'tests/asset-preview-details-runtime.mjs');
+  const detailsBytes = fs.readFileSync(detailsPath);
+  fs.unlinkSync(detailsPath);
+  const missingDetails = importMember();
+  assert.notEqual(missingDetails.status, 0);
+  assert.match(missingDetails.stderr, /ERR_MODULE_NOT_FOUND/);
+  assert.match(missingDetails.stderr, /asset-preview-details-runtime\.mjs/);
+  fs.writeFileSync(detailsPath, detailsBytes, { flag: 'wx' });
   // Miniflare loads this fixture by URL, outside the static import graph.
   // It must remain available with identical bytes in the isolated Linux tree.
   const imageBinding = 'tests/helpers/q2-runtime/image25-ai-binding.mjs';

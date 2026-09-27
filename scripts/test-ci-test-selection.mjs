@@ -36,6 +36,11 @@ function selection(files, options) {
   for(const flag of ['appearance','memberAssets','workers','assets','auth','static','runtime'])assert.equal(result[flag],true,flag);
   for(const flag of ['full','homepage','homepageMedia','carousel','canvasText'])assert(!result[flag],flag);
   assert.deepEqual(Object.keys(requiredJobs(result)),['release-compatibility','worker-validation','browser-validation']);
+  const withStaging = selection([...files, 'tests/helpers/q2-runtime/linux-hosted.mjs', 'scripts/test-q2-runtime-launcher.mjs']);
+  assert.equal(withStaging.policy, result.policy);
+  assert.deepEqual(requiredJobs(withStaging), requiredJobs(result), 'Packaging repair retains all previously skipped acceptance');
+  for (const file of ['tests/helpers/q2-runtime/linux-bootstrap.py', 'tests/helpers/q2-runtime/linux-isolation-contract.mjs'])
+    assert.notEqual(selection([...files,file]).policy, result.policy, 'Changed isolation boundary is not a staging-list repair');
   for(const file of ['workers/auth/src/lib/session.js','workers/auth/src/lib/member-generation-jobs.js','workers/auth/src/lib/billing.js','package-lock.json','js/shared/wallet/wallet-state.js','unknown.js']) {
     assert.notEqual(selection([...files,file]).policy,'workspace-presentation-v1',file);
   }

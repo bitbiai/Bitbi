@@ -845,3 +845,13 @@ Selected legacy tests required three evidenced fixture/assertion repairs: Admin
 dropdowns replace retired cards, read-only mocks initialize Canvas tables up front,
 and poster dispatch requires actual assigned durable backlog, not an admission hint.
 Earlier red results remain red; final source/run/artifacts belong to release evidence.
+
+Linux packaging follow-up (2026-09-27, run `36328788911/1`, source `476e87b8`):
+the launcher closure correctly rejected the newly imported details suite missing
+from `stageInputPlan`. Selected product/native suites, browser acceptance and deploy
+were consequently not executed; uploaded candidate artifacts are not acceptance.
+Add that exact file, retain the full import closure, and countercheck the actual
+copied member-suite import with/without it. The existing staging/launcher command
+must run before delivery whenever a native suite gains imports (same cause family
+as the September 18 Canvas omission). Keep Appearance + Assets acceptance across
+the full unpublished range; no deployment-only reuse or relaxed Linux boundary.

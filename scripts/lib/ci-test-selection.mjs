@@ -395,6 +395,7 @@ const WORKSPACE_PRESENTATION_FILES = new Set([
   'tests/helpers/appearance.js', 'tests/assets-manager-focused.spec.js', 'tests/asset-preview-details-runtime.mjs',
   'tests/member-generation-runtime.mjs', 'tests/oma2-q1-member.spec.js', 'playwright.assets.config.js',
   'tests/member-generation.cases.js', 'tests/helpers/auth-worker-harness.js',
+  'tests/helpers/q2-runtime/linux-hosted.mjs', 'scripts/test-q2-runtime-launcher.mjs',
 ]);
 
 const AUTH_SHARED_PATTERNS = [
