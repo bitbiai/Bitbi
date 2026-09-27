@@ -1,5 +1,52 @@
 // Synthetic UI acceptance only: these fixtures do not establish provider access,
 // provider pricing or live generation. Production editing stays blocked until reference pricing is verified.
+exports.memberRetainedDelivery=async function({page,testInfo,expect,locale,mockGenerateLabMemberSession,mockGenerateLabSavedImageAssets,buildGenerateLabImageAssets}) {
+  await page.setViewportSize({width:locale==='de'?1100:1440,height:900});
+  await mockGenerateLabMemberSession(page,{credits:3000});
+  const recent=[];await mockGenerateLabSavedImageAssets(page,recent);
+  const bytes=png;
+  const savedId='b'.repeat(32);
+  const job={id:'retained-image25',media_type:'image',model_id:'openai/gpt-image-2.5-flare',status:'ingesting',delivery_status:'pending'};
+  let phase='initial',calls=0;
+  await page.route('**/api/ai/generation-jobs',route=>route.fulfill({json:{ok:true,data:{jobs:phase==='initial'?[]:phase==='saved'?[{...job,status:'succeeded',delivery_status:'saved',asset_id:savedId}]:phase==='failed'?[{...job,status:'failed',delivery_status:'failed'}]:[job]}}}));
+  await page.route('**/api/ai/generation-jobs/*',route=>route.fulfill({json:{ok:true,data:{job:phase==='saved'?{...job,status:'succeeded',delivery_status:'saved',asset_id:savedId}:phase==='failed'?{...job,status:'failed',delivery_status:'failed'}:{...job,status:'outcome_unknown'},...(phase==='saved'?{result:{ok:true,billing:{credits_charged:0,billing_status:'released_no_debit'},data:{model:job.model_id,mimeType:'image/png',imageBase64:bytes.toString('base64'),asset:{id:savedId,file_url:'/api/ai/images/saved-image25/file'},prompt:'Synthetic retained image'}}}:{})}}}));
+  await page.route('**/api/ai/images/saved-image25/file*',route=>route.fulfill({contentType:'image/png',body:bytes}));
+  await page.route(`**/api/ai/images/${savedId}/details`,route=>route.fulfill({json:{ok:true,details:{model:job.model_id,prompt:'Synthetic retained image',mimeType:'image/png',width:32,height:32}}}));
+  await page.route('**/api/ai/generate-image',route=>{calls++;phase='pending';return route.fulfill({status:202,json:{ok:true,data:{job}}});});
+  const errors=[],writes=[];page.on('pageerror',error=>errors.push(error.message));
+  page.on('request',request=>{if(new URL(request.url()).pathname.startsWith('/api/')&&request.method()!=='GET')writes.push(new URL(request.url()).pathname);});
+  await page.goto(locale==='de'?'/de/generate-lab/':'/generate-lab/');
+  await page.locator('#labImageModel').selectOption('openai/gpt-image-2.5-flare');
+  await page.locator('#labPrompt').fill('Synthetic retained image');await page.locator('#labGenerate').click();
+  await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'Bild erzeugt – Zustellung ausstehend':'Image generated – delivery pending');
+  await expect(page.locator('#labMessage')).toBeEmpty();
+  const openHistory=async expected=>{
+    await page.reload();await expect(page.locator('#labWorkflowStatus')).toBeHidden();await expect(page.locator('#labMessage')).toBeEmpty();
+    await expect(page.locator('#labResultStage img')).toHaveCount(0);
+    await page.locator('#labAssetsOpen').click();const history=page.locator('[data-generation-jobs]');await history.locator('summary').click();
+    await expect(history.locator('li')).toHaveCount(1);await expect(history).toContainText(job.id.slice(0,8));await expect(history).toContainText(expected);
+    await expect(page.locator('#labWorkflowStatus')).toBeHidden();expect(calls).toBe(1);
+  };
+  await openHistory(locale==='de'?'Zustellung ausstehend':'delivery pending');
+  phase='failed';await openHistory(locale==='de'?'Zustellung fehlgeschlagen':'delivery failed');
+  recent.push({...buildGenerateLabImageAssets(1)[0],id:savedId,title:'Synthetic retained image',original_url:'/api/ai/images/saved-image25/file',medium_url:'/api/ai/images/saved-image25/file',thumb_url:'/api/ai/images/saved-image25/file'});
+  phase='saved';await openHistory(locale==='de'?'Gespeichert':'Saved');
+  await page.locator('#labAssetsFilter').selectOption('__all__');
+  await page.locator(`#labAssetsGrid [data-asset-id="${savedId}"]`).click();
+  const preview=page.locator('#studioImageModal.active'),image=preview.locator('.studio-modal__image img');
+  await expect(image).toHaveAttribute('src',/saved-image25\/file/);
+  await expect.poll(()=>image.evaluate(node=>node.complete&&node.naturalWidth>0)).toBe(true);
+  await expect(preview.locator('.studio-modal__open')).toHaveAttribute('href','/api/ai/images/saved-image25/file');
+  await preview.getByRole('button',{name:locale==='de'?'Mehr Informationen':'More information',exact:true}).click();
+  await expect(preview.locator('.asset-preview-details')).toContainText(job.model_id);
+  await expect(page.locator('#labWorkflowStatus')).toBeHidden();
+  await page.reload();await expect(page.locator('#labWorkflowStatus')).toBeHidden();
+  const card=page.locator(`#labRecentAssets [data-asset-id="${savedId}"]`);await expect(card).toBeVisible();
+  await expect.poll(()=>card.locator('img').evaluate(node=>node.complete&&node.naturalWidth>0)).toBe(true);
+  expect(calls).toBe(1);expect(writes).toEqual(['/api/ai/generate-image']);expect(errors).toEqual([]);
+  await page.screenshot({path:testInfo.outputPath(`image25-delivery-${locale}.png`),fullPage:true});
+};
+
 const { test } = require('@playwright/test');
 const fs = require('node:fs');
 const path = require('node:path');

@@ -880,3 +880,17 @@ Node mock lacked R2's `.text()` convenience method; byte-preservation assertions
 now read the common body stream, without relaxing equality. Synthetic audio/storage
 acceptance does not establish live MiniMax output or account-wide billing. No paid
 call, historical production mutation, schema, binding or frontend change.
+
+Selected-browser follow-up: run `36335849113/1` on `f7cd2480` passed Worker/native
+acceptance but failed 12 of 231 browser cases; proof/publication were skipped.
+The earlier focused repair missed stale smoke contracts: an absolute quota-read
+count crossed startup/auth-change lifecycles, and reload assertions expected
+historical jobs to repopulate the intentionally clean composer. Gate generation
+completion and its quota refresh (893, not stale 899), preserve `/me` preflight and
+one POST, and explicitly open Assets history for H3 identity/output and GPT pending,
+failed and saved delivery. Decode the saved original and prohibit extra writes
+across reloads. Existing `smoke.spec.js` entrypoints run both locales/engines in
+the selected Canvas acceptance; GPT delivery uses its existing UI helper to keep
+the smoke budget intact. The full unpublished range retains that selected suite,
+not a failed-candidate reuse certificate. No product change was needed for these
+contracts; synthetic browser success is not live provider acceptance.

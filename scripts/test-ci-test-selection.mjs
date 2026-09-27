@@ -842,6 +842,9 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);assert.equal(result.runtime,true);
  assert.equal(selection(['workers/auth/src/routes/canvas.js']).canvasText,true);
  assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
+ const browserRepair=[...files,'tests/smoke.spec.js','tests/helpers/gpt-image25-ui.cjs'];
+ assert.equal(selection(browserRepair).canvasText,true);
+ for(const extra of ['js/shared/auth.js','workers/auth/src/lib/billing.js','tests/helpers/unknown.js'])assert.notEqual(selection([...browserRepair,extra]).canvasText,true);
  for(const flag of ['full','homepage','homepageMedia','carousel'])assert.equal(result[flag],false,flag);
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','unknown-input.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
 }

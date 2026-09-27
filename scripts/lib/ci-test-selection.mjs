@@ -105,6 +105,7 @@ const CANVAS_TEXT_FILES = new Set([
   'js/pages/index/studio.js', 'tests/assets-manager-focused.spec.js',
   'generate-lab/index.html', 'de/generate-lab/index.html',
   'tests/helpers/generation-selectors.cjs', 'tests/oma2-q3-model-pricing.spec.js',
+  'tests/helpers/gpt-image25-ui.cjs',
   'workers/auth/src/lib/flux-schnell-provider.js', 'workers/auth/src/routes/ai/helpers.js',
   'tests/member-generation.cases.js',
   'scripts/check-route-policies.mjs','scripts/test-homepage-ffmpeg-processor.mjs',

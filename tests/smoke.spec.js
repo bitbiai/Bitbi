@@ -10592,23 +10592,37 @@ for(const locale of ['en','de']) test(`@canvas-model-ui Grok Imagine Image 2.0 G
 });
 
 for(const locale of ['en','de']) test(`@canvas-model-ui Generate Lab Admin ${locale} actual payer balance and refreshed generation`,async({page})=>{
-  await page.setViewportSize({width:1440,height:900});let balance=900,quotaReads=0;const requests=[];
+  await page.setViewportSize({width:1440,height:900});const requests=[],events=[],quotaReads=[];
+  let completed=false,releaseGeneration,releaseQuota;
+  const generationGate=new Promise(resolve=>{releaseGeneration=resolve;});
+  const quotaGate=new Promise(resolve=>{releaseQuota=resolve;});
   await page.route('**/api/**',async route=>{
     const request=route.request(),url=new URL(request.url());
     if(url.pathname==='/api/ai/quota'){
-      expect(url.searchParams.get('workspace')).toBe('generate-lab');quotaReads++;
-      return route.fulfill({json:{ok:true,data:{isAdmin:true,billingScope:'personal_credits',creditBalance:balance}}});
+      expect(request.method()).toBe('GET');expect(url.searchParams.get('workspace')).toBe('generate-lab');
+      const refresh=completed;quotaReads.push(refresh);events.push(refresh?'quota-refresh':'quota-startup');
+      if(refresh)await quotaGate;
+      return route.fulfill({json:{ok:true,data:{isAdmin:true,billingScope:'personal_credits',creditBalance:refresh?893:900}}});
     }
     if(url.pathname==='/api/ai/generate-image'){
-      expect(request.headers()['x-bitbi-workspace']).toBe('generate-lab');requests.push(request.postDataJSON());balance=893;
+      expect(request.method()).toBe('POST');expect(request.headers()['x-bitbi-workspace']).toBe('generate-lab');
+      requests.push(request.postDataJSON());events.push('generation');await generationGate;completed=true;
       return route.fulfill({json:{ok:true,data:{imageBase64:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uUAAAAASUVORK5CYII=',mimeType:'image/png',asset:{id:'admin-lab-synthetic'}},billing:{balance_after:899}}});
     }
+    if(url.pathname==='/api/me'){expect(request.method()).toBe('GET');events.push('session');}
     return route.fulfill({json:{ok:true,loggedIn:true,user:{id:'admin-lab-fixture',role:'admin',email:'fixture@example.invalid'},data:{folders:[],assets:[],has_more:false}}});
   });
   await page.goto(locale==='de'?'/de/generate-lab/':'/generate-lab/');
   await expect(page.locator('#labBalance')).toContainText('900');
-  await page.locator('#labPrompt').fill('Synthetic Admin fixture');await page.locator('#labGenerate').click();
-  await expect(page.locator('#labBalance')).toContainText('893');expect(quotaReads).toBe(2);expect(requests).toHaveLength(1);
+  await page.locator('#labPrompt').fill('Synthetic Admin fixture');events.length=0;await page.locator('#labGenerate').click();
+  await expect.poll(()=>requests.length).toBe(1);
+  expect(events.indexOf('session')).toBeGreaterThanOrEqual(0);expect(events.indexOf('session')).toBeLessThan(events.indexOf('generation'));
+  expect(quotaReads.filter(Boolean)).toHaveLength(0);expect(quotaReads.filter(value=>!value).length).toBeGreaterThan(0);
+  releaseGeneration();await expect.poll(()=>quotaReads.filter(Boolean).length).toBe(1);
+  // Startup/auth-change reads may overlap. The generation refresh is distinct,
+  // held here to prove stale response balance 899 cannot replace the payer balance.
+  await expect(page.locator('#labBalance')).toContainText('900');
+  releaseQuota();await expect(page.locator('#labBalance')).toContainText('893');expect(requests).toHaveLength(1);
   expect(requests[0].prompt).toBe('Synthetic Admin fixture');await expect(page.locator('#labGenerate')).toBeEnabled();
 });
 
@@ -10670,23 +10684,26 @@ for (const locale of ['en', 'de']) test(`@canvas-model-ui Generate Lab Grok vide
   await page.screenshot({ path: testInfo.outputPath(`grok-video-${locale}.png`), fullPage: true });
 });
 
-for(const locale of ['en','de']) test(`@canvas-model-ui H3 Generate Lab ${locale}: roles, durable single status and restored model identity`,async({page},testInfo)=>{
+for(const locale of ['en','de']) test(`@canvas-model-ui H3 Generate Lab ${locale}: roles, durable single status and explicit Assets recovery`,async({page},testInfo)=>{
   await page.setViewportSize({width:1440,height:900});
   await mockGenerateLabMemberSession(page,{credits:3000});
-  await mockGenerateLabSavedImageAssets(page,buildGenerateLabImageAssets(2));
+  const assets=buildGenerateLabImageAssets(2);await mockGenerateLabSavedImageAssets(page,assets);
   let releaseAcceptance,submitted,postCount=0,restoring=false;
   const accepted=new Promise(resolve=>{releaseAcceptance=resolve;});
+  const h3AssetId='a'.repeat(32);
   const job={id:'h3-synthetic-job',status:'processing',media_type:'video',model_id:'minimax/h3'};
-  await page.route('**/api/ai/generation-jobs',route=>route.fulfill({json:{ok:true,data:{jobs:restoring?[job]:[]}}}));
+  await page.route('**/api/ai/generation-jobs',route=>route.fulfill({json:{ok:true,data:{jobs:restoring?[{...job,status:'preview_pending',asset_id:h3AssetId}]:[]}}}));
   await page.route('**/api/ai/generation-jobs/*',route=>restoring
-    ?route.fulfill({json:{ok:true,data:{job:{...job,status:'preview_pending'},result:{ok:true,data:{videoUrl:'/api/ai/text-assets/h3-output/file',asset:{id:'h3-output',source_module:'video'}}}}}})
+    ?route.fulfill({json:{ok:true,data:{job:{...job,status:'preview_pending',asset_id:h3AssetId},result:{ok:true,data:{videoUrl:'/api/ai/text-assets/h3-output/file',asset:{id:h3AssetId,source_module:'video'}}}}}})
     :route.fulfill({status:503,json:{ok:false,code:'synthetic_observation_interruption'}}));
   await page.route('**/api/ai/text-assets/h3-output/file',route=>route.fulfill({contentType:'video/mp4',body:TEST_MP4_BYTES}));
+  await page.route(`**/api/ai/text-assets/${h3AssetId}/details`,route=>route.fulfill({json:{ok:true,details:{model:'minimax/h3',prompt:'Synthetic H3 request',mimeType:'video/mp4'}}}));
   await page.route('**/api/ai/generate-video',async route=>{
     postCount++;submitted=route.request().postDataJSON();await accepted;
     await route.fulfill({status:202,json:{ok:true,data:{job}}});
   });
-  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  const errors=[],writes=[];page.on('pageerror',error=>errors.push(error.message));
+  page.on('request',request=>{if(new URL(request.url()).pathname.startsWith('/api/')&&request.method()!=='GET')writes.push(new URL(request.url()).pathname);});
   await page.goto(locale==='de'?'/de/generate-lab/':'/generate-lab/');
   await page.getByRole('tab',{name:'Video',exact:true}).click();
   await page.locator('#labImageModel').selectOption('minimax/h3');
@@ -10712,44 +10729,26 @@ for(const locale of ['en','de']) test(`@canvas-model-ui H3 Generate Lab ${locale
   await page.locator('#labImageModel').selectOption('pixverse/v6');
   await expect(page.locator('#labWorkflowStatus')).toContainText('MiniMax H3');
   await expect(page.locator('#labResultStage')).not.toContainText('PixVerse');
+  assets.push({id:h3AssetId,asset_type:'video',source_module:'video',model:'minimax/h3',title:'Synthetic H3 request',file_url:'/api/ai/text-assets/h3-output/file',mime_type:'video/mp4',size_bytes:TEST_MP4_BYTES.length,visibility:'private'});
   restoring=true;await page.reload();
-  await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'Vorschau':'Preview');
-  await expect(page.locator('#labResultStage video')).toHaveAttribute('src',/h3-output\/file/);
-  expect(postCount).toBe(1);expect(errors).toEqual([]);
+  await expect(page.locator('#labWorkflowStatus')).toBeHidden();await expect(page.locator('#labMessage')).toBeEmpty();
+  await expect(page.locator('#labResultStage video')).toHaveCount(0);
+  await page.locator('#labAssetsOpen').click();const history=page.locator('[data-generation-jobs]');await history.locator('summary').click();
+  await expect(history.locator('li')).toHaveCount(1);await expect(history).toContainText(job.id.slice(0,8));
+  await expect(history).toContainText(locale==='de'?'Vorschau':'preview');
+  await page.locator('#labAssetsFilter').selectOption('__all__');
+  await page.locator(`#labAssetsGrid [data-asset-id="${h3AssetId}"] .studio__asset-video-trigger`).click();
+  const preview=page.locator('#studioImageModal.active');await expect(preview.locator('video')).toHaveAttribute('src',/h3-output\/file/);
+  await expect.poll(()=>preview.locator('video').evaluate(video=>video.videoWidth>0&&video.duration>0)).toBe(true);
+  await preview.getByRole('button',{name:locale==='de'?'Mehr Informationen':'More information',exact:true}).click();
+  await expect(preview.locator('.asset-preview-details')).toContainText('minimax/h3');
+  await expect(preview.locator('.asset-preview-details')).toContainText('Synthetic H3 request');
+  await expect(page.locator('#labWorkflowStatus')).toBeHidden();
+  expect(postCount).toBe(1);expect(writes).toEqual(['/api/ai/generate-video']);expect(errors).toEqual([]);
   await page.screenshot({path:testInfo.outputPath(`h3-status-${locale}.png`),fullPage:true});
 });
 
 for (const locale of ['en', 'de']) test(`@canvas-model-ui GPT Image 2.5 Generate Lab ${locale} decoded upload and controls`, ({ page }) => require('./helpers/gpt-image25-ui.cjs').member({ page, expect, locale, mockGenerateLabMemberSession }));
 for (const locale of ['en', 'de']) test(`@canvas-model-ui GPT Image 2.5 Generate Lab ${locale} actual factory generation price and edit gate`, ({ page }) => require('./helpers/gpt-image25-ui.cjs').memberPricingGate({ page, expect, locale, mockGenerateLabMemberSession }));
 
-for(const locale of ['en','de']) test(`@canvas-model-ui GPT Image 2.5 Generate Lab ${locale}: retained HTTPS delivery, reload and saved original`,async({page},testInfo)=>{
-  await page.setViewportSize({width:locale==='de'?1100:1440,height:900});
-  await mockGenerateLabMemberSession(page,{credits:3000});
-  const recent=[];await mockGenerateLabSavedImageAssets(page,recent);
-  const bytes=fs.readFileSync(path.join(__dirname,'fixtures/media/member-image.png'));
-  const job={id:'retained-image25',media_type:'image',model_id:'openai/gpt-image-2.5-flare',status:'ingesting',delivery_status:'pending'};
-  let phase='initial',calls=0;
-  await page.route('**/api/ai/generation-jobs',route=>route.fulfill({json:{ok:true,data:{jobs:phase==='initial'?[]:phase==='history'?[{...job,status:'succeeded',delivery_status:'saved',asset_id:'saved-image25'}]:[job]}}}));
-  await page.route('**/api/ai/generation-jobs/*',route=>route.fulfill({json:{ok:true,data:{job:phase==='saved'?{...job,status:'succeeded',delivery_status:'saved',asset_id:'saved-image25'}:phase==='failed'?{...job,status:'failed',delivery_status:'failed'}:{...job,status:'outcome_unknown'},...(phase==='saved'?{result:{ok:true,billing:{credits_charged:0,billing_status:'released_no_debit'},data:{model:job.model_id,mimeType:'image/png',imageBase64:bytes.toString('base64'),asset:{id:'saved-image25',file_url:'/api/ai/images/saved-image25/file'},prompt:'Synthetic retained image'}}}:{})}}}));
-  await page.route('**/api/ai/images/saved-image25/file*',route=>route.fulfill({contentType:'image/png',body:bytes}));
-  await page.route('**/api/ai/generate-image',route=>{calls++;phase='pending';return route.fulfill({status:202,json:{ok:true,data:{job}}});});
-  const errors=[];page.on('pageerror',error=>errors.push(error.message));
-  await page.goto(locale==='de'?'/de/generate-lab/':'/generate-lab/');
-  await page.locator('#labImageModel').selectOption('openai/gpt-image-2.5-flare');
-  await page.locator('#labPrompt').fill('Synthetic retained image');await page.locator('#labGenerate').click();
-  await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'Bild erzeugt – Zustellung ausstehend':'Image generated – delivery pending');
-  await expect(page.locator('#labMessage')).toBeEmpty();
-  await page.reload();await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'Zustellung ausstehend':'delivery pending');
-  phase='failed';await page.reload();await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'Zustellung fehlgeschlagen':'delivery failed');
-  await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'Nicht erneut generieren':'Do not generate again');
-  phase='saved';await page.reload();
-  const image=page.locator('#labResultStage img').first();await expect(image).toBeVisible();
-  await expect.poll(()=>image.evaluate(node=>node.complete&&node.naturalWidth>0)).toBe(true);
-  await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'Im Assets Manager gespeichert':'Saved');
-  recent.push({...buildGenerateLabImageAssets(1)[0],id:'saved-image25',title:'Synthetic retained image',thumb_url:'/api/ai/images/saved-image25/file'});
-  phase='history';await page.reload();
-  const card=page.locator('#labRecentAssets [data-asset-id="saved-image25"]');await expect(card).toBeVisible();
-  await expect.poll(()=>card.locator('img').evaluate(node=>node.complete&&node.naturalWidth>0)).toBe(true);
-  expect(calls).toBe(1);expect(errors).toEqual([]);
-  await page.screenshot({path:testInfo.outputPath(`image25-delivery-${locale}.png`),fullPage:true});
-});
+for(const locale of ['en','de']) test(`@canvas-model-ui GPT Image 2.5 Generate Lab ${locale}: retained HTTPS delivery, reload and saved original`, ({page},testInfo)=>require('./helpers/gpt-image25-ui.cjs').memberRetainedDelivery({page,testInfo,expect,locale,mockGenerateLabMemberSession,mockGenerateLabSavedImageAssets,buildGenerateLabImageAssets}));
