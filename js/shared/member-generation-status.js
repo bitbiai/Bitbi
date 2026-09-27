@@ -1,12 +1,14 @@
 import {apiAiGetGenerationJobs,apiAiRetryGenerationPreview} from './auth-api.js?v=__ASSET_VERSION__';
 import {localeText} from './locale.js?v=__ASSET_VERSION__';
+import {getAuthState} from './auth-state.js?v=__ASSET_VERSION__';
 
 export function createMemberGenerationStatus(root) {
-    let request=null, sequence=0, panel=null;
+    let request=null, sequence=0, panel=null, identity=getAuthState().user?.id;
     async function refresh() {
+        const owner=getAuthState().user?.id;
         request?.abort();const own=++sequence;request=new AbortController();
         const response=await apiAiGetGenerationJobs({signal:request.signal});
-        if(own!==sequence || !root?.isConnected || request.signal.aborted) return;
+        if(own!==sequence || owner!==getAuthState().user?.id || !root?.isConnected || request.signal.aborted) return;
         panel?.remove();panel=null;
         if(response.status===401 || response.status===403) return;
         const jobs=response.data?.data?.jobs;
@@ -42,5 +44,8 @@ export function createMemberGenerationStatus(root) {
     }
     function destroy(){sequence++;request?.abort();panel?.remove();panel=null;}
     window.addEventListener('pagehide',destroy,{once:true});
+    const changed=()=>{const next=getAuthState().user?.id;if(next!==identity){identity=next;destroy();}};
+    document.addEventListener('bitbi:auth-change',changed);
+    window.addEventListener('pagehide',()=>document.removeEventListener('bitbi:auth-change',changed),{once:true});
     return {refresh,destroy};
 }

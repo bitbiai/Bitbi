@@ -49,6 +49,7 @@ export function createAdminAppearance() {
     let locale = document.documentElement.lang === 'de' ? 'de' : 'en';
     let saved = null, draft = null, controller = null, busy = false, blocked = false;
     let status, saveButton, cancelButton, resetButton, language, controls, stateLabel, changes;
+    let walletDraft = true, walletInput, walletSave;
     const text = key => COPY[locale][key];
     const dirtyKeys = () => saved ? keys.filter(key => draft[key] !== saved.segments[key]) : [];
     const button = (label, action) => {
@@ -66,12 +67,16 @@ export function createAdminAppearance() {
     }
     function update() {
         const changed = dirtyKeys();
-        stateLabel.textContent = text(busy ? 'saving' : changed.length ? 'unsaved' : 'saved');
-        stateLabel.dataset.state = changed.length ? 'unsaved' : 'saved';
+        const dirty = changed.length || walletDraft !== (saved.walletEnabled !== false);
+        stateLabel.textContent = text(busy ? 'saving' : dirty ? 'unsaved' : 'saved');
+        stateLabel.dataset.state = dirty ? 'unsaved' : 'saved';
         saveButton.disabled = busy || blocked || !changed.length;
-        cancelButton.disabled = busy || (!changed.length && !blocked);
+        cancelButton.disabled = busy || (!changed.length && !blocked && walletDraft === (saved.walletEnabled !== false));
         resetButton.disabled = busy || blocked || keys.every(key => draft[key] === contract.DEFAULT_SEGMENTS[key]);
         language.disabled = busy;
+        walletInput.disabled = busy || blocked;
+        walletInput.checked = walletDraft;
+        walletSave.disabled = busy || blocked || walletDraft === (saved.walletEnabled !== false);
         for (const input of controls) { input.disabled = busy || blocked; input.checked = draft[input.name] === input.value; }
         changes.replaceChildren();
         if (changed.length) {
@@ -112,11 +117,20 @@ export function createAdminAppearance() {
             field.append(choices); form.append(field);
         }
         root.append(form, element('p', 'appearance__muted', text('scope')));
+        const wallet = element('fieldset', 'appearance__segment');
+        wallet.append(element('legend', '', 'Panel & Wallet'));
+        const walletLabel = element('label', 'appearance__choice');
+        walletInput = element('input'); walletInput.type = 'checkbox'; walletInput.id = 'appearanceWalletEnabled';
+        walletInput.addEventListener('change', () => { walletDraft = walletInput.checked; message(''); update(); });
+        walletLabel.append(walletInput, element('span', '', 'Show wallet Panel and wallet entry points'));
+        walletSave = button('Save wallet visibility', saveWallet);
+        wallet.append(walletLabel, element('p', 'appearance__muted', 'Applies to everyone. Hiding the wallet does not disconnect wallets, change sign-in sessions, or delete linked accounts and data. Theme settings are saved separately.'), walletSave);
+        root.append(wallet);
         changes = element('div', 'appearance__changes'); changes.setAttribute('aria-live', 'polite'); root.append(changes);
         status = element('p', 'appearance__notice'); status.setAttribute('role', 'status'); status.tabIndex = -1; root.append(status);
         const actions = element('div', 'appearance__actions');
         saveButton = button(text('save'), save); saveButton.classList.add('appearance__save');
-        cancelButton = button(text('cancel'), () => { if (blocked) load(); else { draft = { ...saved.segments }; message(''); update(); } });
+        cancelButton = button(text('cancel'), () => { if (blocked) load(); else { draft = { ...saved.segments }; walletDraft = saved.walletEnabled !== false; message(''); update(); } });
         resetButton = button(text('reset'), () => { draft = { ...contract.DEFAULT_SEGMENTS }; message(text('defaultNotice')); update(); });
         actions.append(saveButton, cancelButton, resetButton); root.append(actions);
         const metadata = [`${text('revision')} ${saved.revision}`];
@@ -127,7 +141,7 @@ export function createAdminAppearance() {
         update();
     }
     async function reload() {
-        if (busy || (dirtyKeys().length && !window.confirm(text('discard')))) return;
+        if (busy || ((dirtyKeys().length || walletDraft !== (saved?.walletEnabled !== false)) && !window.confirm(text('discard')))) return;
         await load();
     }
     async function load() {
@@ -140,7 +154,22 @@ export function createAdminAppearance() {
             const error = element('p', 'appearance__notice', text('error')); error.setAttribute('role', 'alert');
             root.replaceChildren(error, button(text('reload'), load)); return;
         }
-        saved = result.data.appearance; draft = { ...saved.segments }; render();
+        saved = result.data.appearance; draft = { ...saved.segments }; walletDraft = saved.walletEnabled !== false; render();
+    }
+    async function saveWallet() {
+        if (busy || blocked || !saved || walletDraft === (saved.walletEnabled !== false)) return;
+        busy = true; message(''); update();
+        const active = controller, submitted = walletDraft;
+        const result = await apiAdminAppearanceChange({ revision: saved.revision, walletEnabled: submitted }, { signal: active.signal });
+        if (active.signal.aborted) return;
+        busy = false;
+        const confirmed = result.data?.appearance;
+        if (!result.ok || result.data?.ok !== true || !valid(confirmed) || confirmed.revision <= saved.revision
+            || confirmed.walletEnabled !== submitted || keys.some(key => confirmed.segments[key] !== saved.segments[key])) {
+            blocked = result.status === 409 ? 'conflict' : 'saveError'; message(text(blocked), true); update(); return;
+        }
+        saved = confirmed; render(); message(text('saveSuccess'));
+        window.BitbiAppearance?.acceptConfirmed?.(confirmed); status.focus();
     }
     async function save() {
         if (busy || blocked || !saved || !dirtyKeys().length) return;
@@ -150,7 +179,8 @@ export function createAdminAppearance() {
         if (active.signal.aborted) return;
         busy = false;
         const confirmed = result.data?.appearance;
-        if (!result.ok || result.data?.ok !== true || !valid(confirmed) || confirmed.revision <= saved.revision || keys.some(key => confirmed.segments[key] !== submitted[key])) {
+        if (!result.ok || result.data?.ok !== true || !valid(confirmed) || confirmed.revision <= saved.revision
+            || (confirmed.walletEnabled !== false) !== (saved.walletEnabled !== false) || keys.some(key => confirmed.segments[key] !== submitted[key])) {
             blocked = result.status === 409 ? 'conflict' : 'saveError'; message(text(blocked), true); update(); return;
         }
         saved = confirmed; draft = { ...saved.segments }; render(); message(text('saveSuccess'));

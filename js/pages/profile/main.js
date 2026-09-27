@@ -16,6 +16,7 @@ import {
     refreshWalletStatus,
 } from '../../shared/wallet/wallet-controller.js?v=__ASSET_VERSION__';
 import { subscribeWalletState } from '../../shared/wallet/wallet-state.js?v=__ASSET_VERSION__';
+import { isWalletVisible } from '../../shared/wallet/wallet-visibility.js?v=__ASSET_VERSION__';
 import { localeText } from '../../shared/locale.js?v=__ASSET_VERSION__';
 import { renderPostAuthHint } from '../../shared/auth-post-auth-hint.js?v=__ASSET_VERSION__';
 
@@ -311,7 +312,7 @@ function renderProfileCompletion(profile = {}, account = {}, walletState = walle
         { ...emailState, el: $completionEmailStatus },
         { ...profileImageState, el: $completionProfileImageStatus },
         { ...displayNameState, el: $completionDisplayNameStatus },
-        { ...walletStateResult, el: $completionWalletStatus },
+        ...(isWalletVisible() ? [{ ...walletStateResult, el: $completionWalletStatus }] : []),
     ];
 
     checks.forEach((check) => setCompletionStatus(check.el, check.text, check.state));
@@ -1480,6 +1481,9 @@ function initProfileDashboard() {
 subscribeWalletState((state) => {
     walletViewState = state;
     renderWalletSection(state);
+});
+window.addEventListener('bitbi:appearance', () => {
+    if (profileCompletionContext) renderProfileCompletion(profileCompletionContext.profile, profileCompletionContext.account);
 });
 
 /* ── Init ── */

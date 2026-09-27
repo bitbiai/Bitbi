@@ -1636,7 +1636,9 @@ export async function handleSaveImage(ctx) {
   try {
     await putNewManagedR2Object(env, r2Key, imageBytes.buffer, {
       httpMetadata: { contentType: savedMimeType },
-      ...(generationMetadata ? { customMetadata: { generation: generationMetadata } } : {}),
+      customMetadata: { ...(generationMetadata ? { generation: generationMetadata } : {}),
+        original_width: String(width), original_height: String(height),
+        original_mime: isPng ? 'image/png' : isJpeg ? 'image/jpeg' : 'image/webp' },
     });
   } catch (error) {
     await releaseUserAssetStorage(env, {

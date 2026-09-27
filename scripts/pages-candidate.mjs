@@ -256,6 +256,12 @@ export function verifyAppearanceReport(report,discovery) {
   verifyAdminReport(report,discovery,[['appearance',['oma2-q3-appearance.spec.js','auth-admin.spec.js']]],engine=>engine==='chromium'?'chromium':'webkit-appearance');
 }
 
+export function verifyAppearanceCandidateReports(names, reports, discovery) {
+  const name = 'test-results/candidate-auth.json';
+  assert.equal(names.filter(value => value === name).length, 1, 'Exactly one appearance auth report required');
+  verifyAppearanceReport(reports[names.indexOf(name)], discovery);
+}
+
 export function verifyModelPricingReport(report,discovery,selection={}) {
   const files=['oma2-q3-model-pricing.spec.js'];
   if(selection.imageModels)files.push('auth-admin.spec.js','smoke.spec.js','canvas.spec.js');
@@ -368,7 +374,7 @@ async function main(command) {
       verifyHomepageReport(report, JSON.parse(fs.readFileSync('test-results/homepage-discovery.json')), manifest.selection.homepageMedia);
     if (manifest.selection?.assets && !manifest.selection.full && process.env.GITHUB_JOB === 'browser-validation') verifyAssetReport(reports[names.indexOf('test-results/candidate-assets.json')], JSON.parse(fs.readFileSync('test-results/assets-discovery.json')));
     if (manifest.selection?.canvasText) verifyCanvasCandidateReports(names, reports, JSON.parse(fs.readFileSync('test-results/canvas-discovery.json')));
-    if (manifest.selection?.appearance && !manifest.selection?.modelPricing) verifyAppearanceReport(report, JSON.parse(fs.readFileSync('test-results/appearance-discovery.json')));
+    if (manifest.selection?.appearance && !manifest.selection?.modelPricing) verifyAppearanceCandidateReports(names, reports, JSON.parse(fs.readFileSync('test-results/appearance-discovery.json')));
     if (manifest.selection?.modelPricing) verifyModelPricingReport(report, JSON.parse(fs.readFileSync('test-results/model-pricing-discovery.json')), manifest.selection);
     if (manifest.selection?.modelStatus) verifyModelStatusReport(report, JSON.parse(fs.readFileSync('test-results/model-status-discovery.json')));
     if (manifest.selection?.workspaceHelp) verifyWorkspaceHelpReport(report, JSON.parse(fs.readFileSync('test-results/workspace-discovery.json')));

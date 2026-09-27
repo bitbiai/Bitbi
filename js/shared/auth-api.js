@@ -1923,6 +1923,11 @@ export function apiAiGenerateVideo(payload, options = {}) {
 export function apiAiObserveGeneration(job,options={}) { return observeMemberGeneration(request,job,options); }
 
 export function apiAiGetGenerationJobs(options = {}) { return request('GET','/ai/generation-jobs',undefined,options); }
+export function apiAiGetAssetDetails(asset, options = {}) {
+    if (!/^[a-f0-9]{32}$/.test(asset?.id || '')) return Promise.resolve({ ok: false });
+    const kind = asset.asset_type === 'image' ? 'images' : 'text-assets';
+    return request('GET', `/ai/${kind}/${asset.id}/details`, undefined, { timeoutMs: 15000, ...options });
+}
 
 export async function apiAiGetFolders() {
     const res = await request('GET', '/ai/folders');

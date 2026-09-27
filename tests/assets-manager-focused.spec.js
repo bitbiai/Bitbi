@@ -1,4 +1,102 @@
 const { test, expect } = require('@playwright/test');
+const { setupAppearance } = require('./helpers/appearance');
+
+for (const locale of ['en','de']) for (const width of [1440,390]) test(`asset preview information ${locale} ${width}: original properties, collapsed lifecycle and media cleanup`, async ({page,baseURL},info)=>{
+  await page.setViewportSize({width,height:900});
+  const state=await setupAppearance(page,baseURL,{role:'user',media:true});
+  const reads=[];
+  await page.route('**/api/ai/*/*/details',route=>{
+    reads.push(route.request().url());
+    const image=route.request().url().includes('/images/');
+    return route.fulfill({json:{ok:true,details:{model:'Recorded model',prompt:'The original complete prompt, not the renamed title.',mimeType:image?'image/png':'audio/wav',
+      width:image?2048:null,height:image?1536:null,bitrate:image?null:128000,sampleRate:image?null:8000,channels:image?null:1,seed:0}}});
+  });
+  await page.goto(`${locale==='de'?'/de':''}/account/assets-manager.html`);
+  await page.locator('#studioViewShowAll').click();
+  const cards=page.locator('.studio__image-item--visual');await expect(cards).toHaveCount(3);
+  expect(reads).toEqual([]);expect(state.calls.filter(c=>c.pathname.endsWith('/file'))).toEqual([]);
+  for(let index=0;index<3;index++){
+    const card=cards.nth(index);
+    if(width<500) await page.locator('#studioImageGrid + .studio-deck-dots .studio-deck-dot').nth(index).click();
+    const opener=index===0?card:card.locator('.studio__asset-video-trigger');
+    // Keyboard activation establishes the focus-return target in both engines;
+    // Safari deliberately does not focus buttons on pointer activation.
+    await opener.focus();await opener.press('Enter');
+    const dialog=page.locator(width<500||index===2?'.mobile-media-detail-overlay':'#studioImageModal.active');
+    await expect(dialog).toBeVisible();
+    const toggle=dialog.getByRole('button',{name:locale==='de'?'Mehr Informationen':'More information',exact:true});
+    const details=dialog.locator('.asset-preview-details');
+    await expect(toggle).toHaveAttribute('aria-expanded','false');await expect(details).toBeHidden();
+    expect(reads).toHaveLength(index);
+    await toggle.click();
+    await expect(details).toContainText('The original complete prompt, not the renamed title.');
+    await expect(details).toContainText('Recorded model');
+    if(index===0) for(const theme of ['light','soft','dark']) {
+      state.change({account:theme});await page.evaluate(()=>window.BitbiAppearance.refresh({force:true}));
+      for(const paint of await require('./helpers/appearance').measureContrast(dialog.locator('.asset-preview-details__toggle,.asset-preview-details dt,.asset-preview-details dd')))
+        expect(paint.ratio,JSON.stringify(paint)).toBeGreaterThanOrEqual(4.5);
+    }
+    if(index===0) await expect(details).toContainText('2048 × 1536');
+    else {
+      const media=dialog.locator(index===1?'video':'audio');
+      await expect.poll(()=>media.evaluate(m=>Number.isFinite(m.duration)&&m.duration>0)).toBe(true);
+      const duration=await media.evaluate(m=>Number(m.duration.toFixed(3)));
+      await expect(details).toContainText(`${duration} s`);
+      if(index===1) {
+        const dimensions=await media.evaluate(m=>`${m.videoWidth} × ${m.videoHeight}`);
+        await expect(details).toContainText(dimensions);
+      } else {await expect(details).toContainText('128000 bit/s');await expect(details).toContainText('8000 Hz');}
+    }
+    const close=dialog.locator('.studio-modal__text-close,.asset-preview-details__close');
+    const geometry=await toggle.evaluate(el=>{const row=el.parentElement,close=row.querySelector('button');return {more:el.getBoundingClientRect().left,close:close.getBoundingClientRect().left};});
+    expect(geometry.more).toBeGreaterThan(geometry.close);
+    await toggle.click();await expect(details).toBeHidden();await toggle.click();
+    expect(reads).toHaveLength(index+1);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:info.outputPath(`details-${locale}-${width}-${index}.png`)});
+    const mediaElement=index?await dialog.locator(index===1?'video':'audio').elementHandle():null;
+    await close.click();await expect(dialog).toHaveCount(0);
+    if(mediaElement)expect(await mediaElement.evaluate(m=>m.paused&&!m.hasAttribute('src'))).toBe(true);
+    await expect(opener).toBeFocused();
+  }
+  expect(state.unexpectedWrites).toEqual([]);expect(state.errors).toEqual([]);
+});
+
+for(const locale of ['en','de']) test(`asset preview information ${locale}: Generate Lab typed view rejects late owner details and marks missing provenance unavailable`,async({page,baseURL})=>{
+  const state=await setupAppearance(page,baseURL,{role:'user',media:true});
+  let release,reached,first=true;
+  const held=new Promise(resolve=>release=resolve),requested=new Promise(resolve=>reached=resolve);
+  await page.route('**/api/ai/images/*/details',async route=>{
+    if(first){first=false;reached();await held;return route.fulfill({json:{ok:true,details:{prompt:'Old owner secret',model:'Old model'}}});}
+    return route.fulfill({json:{ok:true,details:{prompt:null,model:null,mimeType:null,width:null,height:null}}});
+  });
+  await page.goto(`${locale==='de'?'/de':''}/generate-lab/`);
+  await page.locator('#labAssetsOpen').click();
+  await page.locator('#labAssetsOverlay .studio__asset-type-toggle').click();
+  const group=page.locator('#labAssetsOverlay [data-asset-type-group="image"]');
+  await group.locator('summary').click();
+  const card=group.locator(`[data-asset-id="${'a'.repeat(32)}"]`);
+  await card.focus();await card.press('Enter');
+  const dialog=page.locator('#studioImageModal.active'),toggle=dialog.locator('.asset-preview-details__toggle');
+  await toggle.click();await requested;
+  await page.route('**/api/me',route=>route.fulfill({json:{loggedIn:true,user:{id:'new-owner',role:'user',email:'new@example.invalid'}}}));
+  await page.evaluate(async()=>{
+    const query=new URL(document.querySelector('script[src*="appearance.js"]').src).search;
+    await (await import('/js/shared/auth-state.js'+query)).initAuth();
+  });
+  release();await expect(toggle).toBeDisabled();
+  await expect(dialog.locator('.asset-preview-details')).toBeHidden();
+  await expect(page.locator('body')).not.toContainText('Old owner secret');
+  await page.keyboard.press('Escape');
+  // A new preview has no retained details, even when the server has no provenance.
+  await page.goto(`${locale==='de'?'/de':''}/account/assets-manager.html`);
+  await page.locator('#studioViewShowAll').click();
+  const fresh=page.locator(`[data-asset-id="${'a'.repeat(32)}"]`);await fresh.focus();await fresh.press('Enter');
+  await expect(toggle).toHaveAttribute('aria-expanded','false');await toggle.click();
+  await expect(dialog.locator('.asset-preview-details')).toContainText(locale==='de'?'Nicht verfügbar':'Unavailable');
+  await expect(dialog.locator('.asset-preview-details')).not.toContainText('Colour study');
+  expect(state.unexpectedWrites).toEqual([]);
+});
 
 const STORAGE_USAGE = Object.freeze({
   usedBytes: 12 * 1024 * 1024,

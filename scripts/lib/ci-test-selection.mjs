@@ -378,6 +378,25 @@ const APPEARANCE_FILES = new Set([
   'tests/helpers/q2-runtime/linux-bootstrap.py',
 ]);
 
+// Reviewed settings/composer/shared-preview path. Use the union of the existing
+// appearance and Assets acceptances, never let the first branch drop the other.
+// Session, pricing, provider, graph, dependency and unknown inputs stay broad.
+const WORKSPACE_PRESENTATION_FILES = new Set([
+  'account/wallet.html', 'de/account/wallet.html', 'css/account/assets-manager.css', 'css/base/appearance.css',
+  'js/pages/admin/appearance.js', 'js/pages/generate-lab/main.js', 'js/pages/profile/main.js',
+  'js/shared/appearance-contract.js', 'js/shared/appearance.js', 'js/shared/auth-api.js', 'js/shared/help-menu.js',
+  'js/shared/member-generation-status.js', 'js/shared/asset-preview-details.js',
+  'js/shared/mobile-media-grid-overlay.js', 'js/shared/saved-assets-browser.js', 'js/shared/studio-deck.js',
+  'js/shared/wallet/wallet-controller.js', 'js/shared/wallet/wallet-ui.js', 'js/shared/wallet/wallet-workspace.js',
+  'js/shared/wallet/wallet-visibility.js', 'workers/auth/src/lib/appearance-settings.js',
+  'workers/auth/src/lib/asset-preview-details.js', 'workers/auth/src/routes/ai/asset-details.js',
+  'workers/auth/src/routes/ai.js', 'workers/auth/src/routes/ai/images-write.js',
+  'tests/appearance-runtime.mjs', 'tests/appearance.spec.js', 'tests/oma2-q3-appearance.spec.js',
+  'tests/helpers/appearance.js', 'tests/assets-manager-focused.spec.js', 'tests/asset-preview-details-runtime.mjs',
+  'tests/member-generation-runtime.mjs', 'tests/oma2-q1-member.spec.js', 'playwright.assets.config.js',
+  'tests/member-generation.cases.js', 'tests/helpers/auth-worker-harness.js',
+]);
+
 const AUTH_SHARED_PATTERNS = [
   /(?:^|\/)auth(?:-|\/|\.)/,
   /(?:^|\/)session(?:-|\/|\.)/,
@@ -702,6 +721,18 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
   if (forceFull) selectFullRegression(selection, "<forced>", forceReason);
   if (changedFiles.length === 0) {
     selectFullRegression(selection, "", "empty or unresolved diff fails closed");
+  }
+
+  if (!forceFull && changedFiles.some(file => ['js/shared/asset-preview-details.js','js/shared/wallet/wallet-visibility.js'].includes(file))
+      && (!changedFiles.includes(MEMBER_SPEC) || isFluxReviewTestChange(memberTestSources))
+      && changedFiles.every(file => isDocumentation(file) || WORKSPACE_PRESENTATION_FILES.has(file) || RELEASE_TOOLING_FILES.has(file))) {
+    selection.policy = 'workspace-presentation-v1';
+    selection.appearance = selection.memberAssets = true;
+    selection.workers = selection.auth = selection.assets = selection.static = selection.runtime = true;
+    selection.reasons.auth.push('Cross-segment wallet visibility and settings, EN/DE Chromium/WebKit, current composer versus durable history and late identity responses');
+    selection.reasons.assets.push('Both engines: actual shared image/video/music preview callers, owner actions, Canvas and durable member jobs');
+    selection.reasons.workers.push('Existing guarded settings/native D1 plus affected image/video/music save routes and native queue/R2/private detail provenance; no provider dispatch changes');
+    return selection;
   }
 
   if (!forceFull && changedFiles.some(file => ['js/shared/appearance.js','js/shared/appearance-contract.js','js/pages/admin/appearance.js','workers/auth/src/lib/appearance-settings.js','tests/appearance.spec.js','tests/oma2-q3-appearance.spec.js'].includes(file))

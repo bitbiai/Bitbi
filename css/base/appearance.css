@@ -342,3 +342,11 @@ html:is([data-theme="light"],[data-theme="soft"]) :is(.browse-pagination__status
 html:is([data-theme="light"],[data-theme="soft"]) .browse-pagination__status--trigger { color: var(--theme-accent); background: var(--theme-accent-soft); border-color: var(--theme-accent); }
 html:is([data-theme="light"],[data-theme="soft"]) .admin-nav__group-chevron::before { border-color: var(--theme-muted); }
 html:is([data-theme="light"],[data-theme="soft"]) :is(.admin-nav__group--active,.admin-nav__group:has(.admin-nav__link--active),.admin-nav__group-toggle:hover) .admin-nav__group-chevron::before { border-color: var(--theme-accent); }
+/* Hide only wallet entry points until a fresh public setting confirms visibility.
+   This also fences delayed DOM insertion and state-driven control recreation. */
+html:not([data-wallet-visible="true"]) :is(
+    .wallet-nav__trigger, .mobile-nav__section--wallet, #walletModal, #walletWorkspace,
+    .auth-modal__wallet-actions, [data-open-wallet-workspace], #profileWalletCard,
+    [data-completion-item="wallet"], #walletSectionCard, [data-wallet-feature],
+    a[href*="/account/wallet.html"], a[href="#wallet-workspace"]
+) { display: none !important; }

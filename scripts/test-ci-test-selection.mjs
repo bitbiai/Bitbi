@@ -28,6 +28,27 @@ function selection(files, options) {
 }
 
 {
+  const files=['js/shared/wallet/wallet-visibility.js','js/shared/asset-preview-details.js','js/pages/generate-lab/main.js',
+    'workers/auth/src/routes/ai/asset-details.js','workers/auth/src/routes/ai/images-write.js','workers/auth/src/lib/appearance-settings.js',
+    'tests/asset-preview-details-runtime.mjs','tests/assets-manager-focused.spec.js','tests/oma2-q3-appearance.spec.js'];
+  const result=selection(files);
+  assert.equal(result.policy,'workspace-presentation-v1');
+  for(const flag of ['appearance','memberAssets','workers','assets','auth','static','runtime'])assert.equal(result[flag],true,flag);
+  for(const flag of ['full','homepage','homepageMedia','carousel','canvasText'])assert(!result[flag],flag);
+  assert.deepEqual(Object.keys(requiredJobs(result)),['release-compatibility','worker-validation','browser-validation']);
+  for(const file of ['workers/auth/src/lib/session.js','workers/auth/src/lib/member-generation-jobs.js','workers/auth/src/lib/billing.js','package-lock.json','js/shared/wallet/wallet-state.js','unknown.js']) {
+    assert.notEqual(selection([...files,file]).policy,'workspace-presentation-v1',file);
+  }
+  assert.notEqual(selection([...files,'tests/oma2-q1-member.spec.js']).policy,'workspace-presentation-v1','Multipurpose member spec requires source-bound changed test coverage');
+  assert(selection(files,{forceFull:true}).full);
+  const workflow=fs.readFileSync(path.join(repoRoot,'.github/workflows/static.yml'),'utf8');
+  assert(workflow.includes('CI_MEMBER_ASSETS: ${{ needs.release-compatibility.outputs.member_assets }}'));
+  assert(workflow.includes('if [ "$CI_MEMBER_ASSETS" = \'true\' ]; then'));
+  assert(workflow.includes('Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/member-generation" node scripts/test-q2-runtime.mjs --suite member-generation || exit $?'));
+  assert(fs.readFileSync(path.join(repoRoot,'tests/member-generation-runtime.mjs'),'utf8').includes('await runAssetPreviewDetailsTests(f)'));
+}
+
+{
   const files = ['js/shared/image-dimensions.mjs', 'js/shared/generation-model-order.mjs', 'js/shared/asset-type-view.js',
     'js/shared/admin-ai-contract.mjs', 'js/shared/ai-image-models.mjs', 'js/shared/canvas-model-contract.mjs',
     'js/shared/studio-deck.js', 'js/shared/saved-assets-browser.js', 'js/shared/auth-api.js',

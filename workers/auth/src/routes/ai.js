@@ -4,6 +4,7 @@ import { readMemberGenerationJobs } from "../lib/member-generation-jobs.js";
 import { handleQuota } from "./ai/quota.js";
 import { handleGetFolders } from "./ai/folders-read.js";
 import { handleGetAssets, handleGetImages } from "./ai/assets-read.js";
+import { handleAssetDetails } from './ai/asset-details.js';
 import {
   handleCreateFolder,
   handleDeleteFolder,
@@ -36,6 +37,8 @@ import { handleBulkDelete, handleBulkMove } from "./ai/bulk-images.js";
 // ── Main dispatcher ──
 export async function handleAI(ctx) {
   const { pathname, method } = ctx;
+  const detailsTarget = pathname.match(/^\/api\/ai\/(images|text-assets)\/([a-f0-9]{32})\/details$/);
+  if (method === 'GET' && detailsTarget) return handleAssetDetails(ctx, detailsTarget[1], detailsTarget[2]);
   const assetTarget = pathname.match(/^\/api\/ai\/(?:images|text-assets)\/([a-f0-9]{32})(?:\/(?:file|thumb|medium|poster|publication))?$/);
   if (assetTarget && method !== 'DELETE' && await ctx.env.DB.prepare('SELECT id FROM member_generation_unready_assets WHERE id=?').bind(assetTarget[1]).first()) {
     return json({ok:false,code:'not_found'},{status:404,headers:{'Cache-Control':'no-store'}});

@@ -89,7 +89,9 @@ async function setupAppearance(page, baseURL, { role = 'admin', adminGate = 0, s
             if (method === 'PATCH') {
                 if (state.saveFailure) return reply({ ok: false, error: 'Synthetic save failure' }, state.saveFailure);
                 if (body.revision !== state.appearance.revision) return reply({ ok: false, code: 'appearance_conflict', error: 'Newer settings exist' }, 409);
-                state.change(body.segments); return reply({ ok: true, appearance: clone(state.appearance) });
+                state.change(body.segments);
+                if (typeof body.walletEnabled === 'boolean') state.appearance.walletEnabled = body.walletEnabled;
+                return reply({ ok: true, appearance: clone(state.appearance) });
             }
         }
         if (pathname === '/api/admin/fable-chat-data/overview') return reply({ ok: true, statistics: { activeConversations: 0, deletedConversations: 0, visibleMessages: 0, completedTurns: 0, attempts: {} } });
@@ -112,7 +114,7 @@ async function setupAppearance(page, baseURL, { role = 'admin', adminGate = 0, s
             if (!node) return reply({ ok: false, error: 'Not found' }, 404);
             Object.assign(node, clone(body)); return nested({ node: clone(node) });
         }
-        if (pathname === '/api/profile') return reply({ ok: true, user, profile: user, data: { profile: user, user } });
+        if (pathname === '/api/profile') return reply({ ok: true, user, profile: { ...user, display_name: user?.displayName }, account: { ...user, email_verified: true, verification_method: 'email' }, data: { profile: user, user } });
         if (pathname === '/api/ai/folders') return nested({ folders: [{ id: 'folder-theme', name: 'Theme examples', asset_count: assets.length }], counts: { 'folder-theme': assets.length }, unfolderedCount: 0 });
         if (pathname === '/api/ai/assets' || pathname === '/api/ai/images') return nested({ assets: clone(assets), images: clone(assets.filter(a => a.asset_type === 'image')), has_more: false, next_cursor: null });
         if (pathname === '/api/ai/generation-jobs') return nested({ jobs: [] });
@@ -126,7 +128,15 @@ async function setupAppearance(page, baseURL, { role = 'admin', adminGate = 0, s
 // Callers deliberately use text/control surfaces, not images or gradient text.
 async function measureContrast(locator) {
     return locator.evaluateAll(elements => elements.filter(el => el.getClientRects().length).map(el => {
-        const rgba = value => { const n = value.match(/[\d.]+/g).map(Number); return [n[0], n[1], n[2], n[3] ?? 1]; };
+        // Computed colors can be oklch()/color(), not just rgb(). Let the native
+        // CSS color parser convert to sRGB; numeric regex parsing misreads .87
+        // lightness as .87/255 and reports a false dark-theme contrast failure.
+        const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        const rgba = value => {
+            context.clearRect(0, 0, 1, 1); context.fillStyle = value; context.fillRect(0, 0, 1, 1);
+            const n = context.getImageData(0, 0, 1, 1).data; return [n[0], n[1], n[2], n[3] / 255];
+        };
         const over = (fg, bg) => fg.slice(0, 3).map((v, i) => v * fg[3] + bg[i] * (1 - fg[3]));
         const luminance = rgb => rgb.map(v => v / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((n, v, i) => n + v * [.2126, .7152, .0722][i], 0);
         const ancestors = []; for (let node = el; node; node = node.parentElement) ancestors.unshift(node);

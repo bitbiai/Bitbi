@@ -32,6 +32,7 @@ import {
     updateWalletConnection,
 } from './wallet-state.js?v=__ASSET_VERSION__';
 import { initWalletUI } from './wallet-ui.js?v=__ASSET_VERSION__';
+import { isWalletVisible } from './wallet-visibility.js?v=__ASSET_VERSION__';
 
 let initialized = false;
 let activeProvider = null;
@@ -1269,6 +1270,7 @@ async function unlinkLinkedWallet() {
 }
 
 function openWalletPanel() {
+    if (!isWalletVisible()) return;
     const state = getWalletState();
     if (state.status !== 'connected') {
         refreshInjectedDiscovery();
@@ -1300,6 +1302,7 @@ async function ensureWalletWorkspaceLoaded() {
         walletWorkspaceModulePromise = import('./wallet-workspace.js?v=__ASSET_VERSION__');
     }
     const module = await walletWorkspaceModulePromise;
+    if (!isWalletVisible()) return;
     module.initWalletWorkspace(getWalletWorkspaceActions());
     walletWorkspaceInitialized = true;
 }
@@ -1313,6 +1316,7 @@ function loadWalletWorkspaceForOpen() {
 }
 
 function openWalletWorkspace(options = {}) {
+    if (!isWalletVisible()) return;
     const { fromHash = false } = options;
     workspaceHashRequested = fromHash || isWalletWorkspaceHashActive();
     patchWalletState({
@@ -1333,6 +1337,12 @@ function closeWalletWorkspace(options = {}) {
 }
 
 function syncWorkspaceHashRoute() {
+    if (!isWalletVisible()) {
+        // Preserve a cold enabled deep link until settings resolve; a confirmed
+        // disabled route returns to ordinary navigation without opening the UI.
+        if (window.BitbiAppearance?.snapshot().walletEnabled === false) closeWalletWorkspace();
+        return;
+    }
     const shouldOpen = isWalletWorkspaceHashActive();
     const state = getWalletState();
 
@@ -1370,6 +1380,10 @@ export function initWalletController() {
     if (!hasDesktopActions && !hasMobileNav) return;
 
     initialized = true;
+    window.addEventListener('bitbi:appearance', () => {
+        if (!isWalletVisible()) { closeWalletPanel(); closeWalletWorkspace(); }
+        else syncWorkspaceHashRoute();
+    });
     patchWalletState({
         authReady: !!getAuthState().ready,
         authLoggedIn: !!getAuthState().loggedIn,
@@ -1441,11 +1455,13 @@ export function initWalletController() {
 }
 
 export function requestWalletLogin() {
+    if (!isWalletVisible()) return Promise.resolve();
     openWalletPanel();
     return performSiweIntent('login');
 }
 
 export function requestWalletLink() {
+    if (!isWalletVisible()) return Promise.resolve();
     openWalletPanel();
     return performSiweIntent('link');
 }

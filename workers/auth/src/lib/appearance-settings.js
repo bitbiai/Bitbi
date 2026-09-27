@@ -4,7 +4,7 @@ import { buildActivitySearchRecord } from './activity-search.js';
 
 const { DEFAULT_SEGMENTS, normalizeAppearance } = appearanceContract;
 export const APPEARANCE_SETTING_KEY = 'appearance.global.v1';
-const initial = () => ({ version: 1, revision: 0, segments: { ...DEFAULT_SEGMENTS }, personalEnabled: false });
+const initial = () => ({ version: 1, revision: 0, segments: { ...DEFAULT_SEGMENTS }, personalEnabled: false, walletEnabled: true });
 
 export class AppearanceError extends Error {
     constructor(message, status = 400, code = 'appearance_invalid') {
@@ -37,14 +37,16 @@ export async function getAppearance(env, { admin = false } = {}) {
 export async function saveAppearance(env, actor, input) {
     if (!actor?.id || actor.role !== 'admin') throw new AppearanceError('Admin privileges required.', 403, 'appearance_forbidden');
     if (!input || typeof input !== 'object' || Array.isArray(input)
-        || Object.keys(input).some(key => !['revision', 'segments'].includes(key))
+        || Object.keys(input).some(key => !['revision', 'segments', 'walletEnabled'].includes(key))
+        || (!Object.hasOwn(input, 'segments') && !Object.hasOwn(input, 'walletEnabled'))
+        || (Object.hasOwn(input, 'walletEnabled') && typeof input.walletEnabled !== 'boolean')
         || !Number.isSafeInteger(input.revision) || input.revision < 0 || input.revision === Number.MAX_SAFE_INTEGER) {
-        throw new AppearanceError('Provide the current revision and all five segment themes.');
+        throw new AppearanceError('Provide the current revision and valid appearance changes.');
     }
-    let requested;
-    try { requested = normalizeAppearance({ version: 1, revision: input.revision, segments: input.segments, personalEnabled: false }); }
-    catch { throw new AppearanceError('Each of the five segments must use dark, light or soft.'); }
     const current = await readStored(env);
+    let requested;
+    try { requested = normalizeAppearance({ ...current.appearance, ...input }); }
+    catch { throw new AppearanceError('Each of the five segments must use dark, light or soft.'); }
     if (current.appearance.revision !== input.revision) throw new AppearanceError('Appearance was changed elsewhere. Reload before saving.', 409, 'appearance_conflict');
     const next = { ...requested, revision: requested.revision + 1 };
     const updatedAt = new Date().toISOString(), changeId = crypto.randomUUID();

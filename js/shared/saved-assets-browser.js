@@ -947,6 +947,7 @@ export function createSavedAssetsBrowser({
             imageErrorAlt: localeText('assets.previewLoadFailedAlt'),
             details: getAssetDetailRows(asset),
             statusText: localeText('assets.detailSafeStatus'),
+            assetDetails: { ...asset, asset_type: isImageAsset(asset) ? 'image' : asset.asset_type },
         };
     }
 
@@ -1150,6 +1151,7 @@ export function createSavedAssetsBrowser({
             closeTitle: localeText('assets.closePreview'),
             details: getAssetDetailRows(asset),
             statusText: localeText('assets.detailSafeStatus'),
+            assetDetails: asset,
         });
     }
 
@@ -1161,6 +1163,7 @@ export function createSavedAssetsBrowser({
         const rendered = renderAssetMobileDetailContent(asset, title);
         openMobileMediaDetail({
             standalone: true, title, returnFocus,
+            assetDetails: asset,
             className: 'mobile-media-detail-overlay--assets mobile-media-detail-overlay--media-first',
             renderContent: () => rendered,
         });
@@ -1285,6 +1288,7 @@ export function createSavedAssetsBrowser({
             : getFileTitle(asset));
         const detailOptions = {
             title: safeTitle,
+            assetDetails: { ...asset, asset_type: isImageAsset(asset) ? 'image' : asset.asset_type },
             className: 'mobile-media-detail-overlay--assets mobile-media-detail-overlay--media-first',
             renderContent() {
                 return renderAssetMobileDetailContent(asset, safeTitle);

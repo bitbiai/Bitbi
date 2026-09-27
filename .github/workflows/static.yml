@@ -280,11 +280,16 @@ jobs:
           Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence
           CI_IMAGE_MODELS: ${{ needs.release-compatibility.outputs.image_models }}
           CI_APPEARANCE: ${{ needs.release-compatibility.outputs.appearance }}
+          CI_MEMBER_ASSETS: ${{ needs.release-compatibility.outputs.member_assets }}
         run: |
           if [ "${{ needs.release-compatibility.outputs.appearance }}" = 'true' ] && [ "${{ needs.release-compatibility.outputs.model_pricing }}" != 'true' ]; then
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
             npx playwright test -c playwright.workers.config.js tests/appearance.spec.js --retries=0 &&
-            node scripts/test-q2-runtime.mjs --suite appearance
+            node scripts/test-q2-runtime.mjs --suite appearance || exit $?
+            if [ "$CI_MEMBER_ASSETS" = 'true' ]; then
+              npx playwright test -c playwright.workers.config.js tests/workers.spec.js tests/admin-ai-save-operations.spec.js --grep 'image|video|music|text asset|text-asset|durable member|asset naming' --retries=0 &&
+              Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/member-generation" node scripts/test-q2-runtime.mjs --suite member-generation || exit $?
+            fi
           elif [ "${{ needs.release-compatibility.outputs.model_pricing }}" = 'true' ]; then
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
             npx playwright test -c playwright.workers.config.js tests/model-pricing.spec.js --retries=0 &&

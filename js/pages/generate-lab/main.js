@@ -20,8 +20,6 @@ import {
     apiAiGenerateMusic,
     apiAiGenerateVideo,
     apiAiGetAssets,
-    apiAiGetGenerationJobs,
-    apiAiObserveGeneration,
     apiAiGetFolders,
     apiAiGetQuota,
     apiAiSaveImage,
@@ -59,7 +57,6 @@ const COVER_POLL_TIMEOUT_MS = 30000;
 
 const refs = {};
 let generationView=0,acceptedStatusActive=false;
-let restoredObservation=null;
 let sessionLoadVersion=0;
 let preflightActive=false;
 let assetsBrowser = null;
@@ -2069,13 +2066,12 @@ async function handleGenerate() {
     }
 
     setMessage('');
-    restoredObservation?.abort();
     const run=++generationView;
     const submitted=Object.freeze({modelId:selectedModel().id,modelLabel:selectedModel().displayName,mediaType:state.mediaType});
     let acceptedJob=null;
     const onProgress=job=>{if(run!==generationView)return;acceptedJob=job;setWorkflowStatus(jobWorkflowStatus(job),submitted.modelLabel);};
     acceptedStatusActive=false;
-    const observation={expectedOwner:state.user?.id,onAccepted:job=>{acceptedStatusActive=true;onProgress(job);},onProgress,isCurrent:()=>run===generationView,
+    const observation={expectedOwner:state.user?.id,onAccepted:job=>{if(run!==generationView)return;acceptedStatusActive=true;onProgress(job);},onProgress,isCurrent:()=>run===generationView,
         onPreflight:phase=>{
             if(run!==generationView || phase!=='verified')return;
             preflightActive=false;
@@ -2180,20 +2176,24 @@ function renderRecentAssets(assets) {
 }
 
 async function loadRecentAssets() {
+    const owner=state.user?.id, version=sessionLoadVersion;
     if (!state.loggedIn) {
         renderRecentAssets([]);
         return;
     }
     try {
         const result = await apiAiGetAssets(null, { limit: 6 });
+        if(owner!==state.user?.id || version!==sessionLoadVersion)return;
         renderRecentAssets(result.assets || []);
     } catch (error) {
         console.warn('Generate Lab recent asset load failed:', error);
+        if(owner!==state.user?.id || version!==sessionLoadVersion)return;
         refs.recentAssets?.replaceChildren(el('div', { className: 'generate-lab__recent-empty', text: localeText('generateLab.recentAssetsLoadFailed') }));
     }
 }
 
 async function loadFolders() {
+    const owner=state.user?.id, version=sessionLoadVersion;
     if (!state.loggedIn) {
         state.folders = [];
         renderFolderOptions();
@@ -2201,42 +2201,18 @@ async function loadFolders() {
     }
     try {
         const result = await apiAiGetFolders();
+        if(owner!==state.user?.id || version!==sessionLoadVersion)return;
         state.folders = Array.isArray(result.folders) ? result.folders : [];
     } catch (error) {
         console.warn('Generate Lab folder load failed:', error);
+        if(owner!==state.user?.id || version!==sessionLoadVersion)return;
         state.folders = [];
     }
     renderFolderOptions();
 }
 
-async function restoreGeneration() {
-    restoredObservation?.abort();
-    if(!state.loggedIn||state.busy)return;
-    const own=++generationView,controller=new AbortController();restoredObservation=controller;
-    const response=await apiAiGetGenerationJobs({signal:controller.signal});
-    if(own!==generationView||!state.loggedIn)return;
-    const job=response.data?.data?.jobs?.find(job=>['queued','processing','ingesting','preview_pending','outcome_unknown'].includes(job.status) || job.delivery_status==='failed' || (job.media_type==='image' && job.status==='failed'));
-    if(!job)return;
-    acceptedStatusActive=true;
-    const onProgress=current=>{
-        if(own!==generationView)return;
-        const model=getGenerateLabModels().find(model=>model.id===current.model_id);
-        setWorkflowStatus(jobWorkflowStatus(current),model?.displayName||current.model_id||'');
-    };
-    const result=await apiAiObserveGeneration(job,{signal:controller.signal,onProgress});
-    if(own!==generationView||!state.loggedIn)return;
-    if(result.ok){
-        acceptedStatusActive=false;
-        const data=result.data?.data;
-        if(job.media_type==='video')renderVideoResult(data);
-        else if(job.media_type==='music')renderMusicResult(data);
-        else if(data?.imageBase64){renderImageResult({imageData:`data:${data.mimeType||'image/png'};base64,${data.imageBase64}`,prompt:data.prompt||'',meta:data});if(data.asset?.id)renderImageSavedActions();}
-        setWorkflowStatus(data?.generationJob?.status==='preview_pending'?'previewPending':'saved',getGenerateLabModels().find(model=>model.id===data?.generationJob?.model_id)?.displayName||'');
-        await Promise.all([loadRecentAssets(),loadQuota()]);
-    } else if(!result.pending)setWorkflowStatus(result.job?.delivery_status==='failed'?'deliveryFailed':'attention');
-}
-
 async function loadQuota() {
+    const owner=state.user?.id, version=sessionLoadVersion;
     if (!state.loggedIn) {
         state.creditBalance = null;
         updateAccountPanel();
@@ -2245,9 +2221,11 @@ async function loadQuota() {
     }
     try {
         const quota = await apiAiGetQuota(state.user?.role==='admin'?{workspace:'generate-lab'}:{});
+        if(owner!==state.user?.id || version!==sessionLoadVersion)return;
         state.creditBalance = typeof quota?.creditBalance === 'number' ? quota.creditBalance : null;
     } catch (error) {
         console.warn('Generate Lab quota load failed:', error);
+        if(owner!==state.user?.id || version!==sessionLoadVersion)return;
         state.creditBalance = null;
     }
     updateAccountPanel();
@@ -2255,6 +2233,7 @@ async function loadQuota() {
 }
 
 async function loadSession() {
+    const hadSession=state.loggedIn;
     const version=++sessionLoadVersion;
     try {
         const res = await apiGetMe();
@@ -2276,7 +2255,7 @@ async function loadSession() {
         pageSource: 'generate-lab',
         signedIn: state.loggedIn,
     });
-    if (state.sessionExpired) {
+    if (state.sessionExpired && hadSession) {
         setWorkflowStatus('attention');
         setMessage(localeText('authRecovery.sessionExpiredGenerateCopy'), 'error');
     }
@@ -2287,6 +2266,9 @@ function bindEvents() {
         tab.addEventListener('click', () => {
             if(state.busy)return;
             const mediaType = tab.dataset.mediaType || 'image';
+            if(mediaType===state.mediaType)return;
+            generationView++;acceptedStatusActive=false;
+            setMessage('');setWorkflowStatus('ready');
             state.mediaType = mediaType;
             state.modelId = getDefaultGenerateLabModel(mediaType).id;
             renderAllForSelection();
@@ -2454,23 +2436,28 @@ async function init() {
     renderAllForSelection();
     await loadSession();
     await Promise.all([loadQuota(), loadFolders(), loadRecentAssets()]);
-    void restoreGeneration().catch(() => { /* The retained status remains unconfirmed; no paid resubmission. */ });
+    // Historical work remains in the shared Assets job-status surface. A fresh
+    // composer never selects an arbitrary account job or clears its durable intent.
 }
 
 document.addEventListener('bitbi:auth-change', event => {
     const next=event.detail;
     if(state.loggedIn===next?.loggedIn && state.user?.id===next?.user?.id && state.user?.role===next?.user?.role)return;
     sessionLoadVersion++;
-    generationView++;acceptedStatusActive=false;restoredObservation?.abort();
+    generationView++;acceptedStatusActive=false;
+    state.currentResult=null;state.currentImageData=null;state.currentImageMeta=null;
+    state.creditBalance=null;state.folders=[];
+    setMessage('');setWorkflowStatus('ready');renderEmptyResult();renderRecentAssets([]);
     if(preflightActive){setMessage(localeText('generation.sessionChanged'),'error');setWorkflowStatus('preflightStopped');}
     state.loggedIn=next?.loggedIn===true;state.user=next?.user || null;
     window.setTimeout(() => {
         installHeaderStatusPanel();
-        loadSession().then(()=>restoreGeneration()).catch((error) => console.warn('Generate Lab auth refresh failed:', error));
+        loadSession().then(()=>Promise.all([loadQuota(),loadFolders(),loadRecentAssets()]))
+            .catch((error) => console.warn('Generate Lab auth refresh failed:', error));
     }, 0);
 });
 
-window.addEventListener('pagehide',()=>{generationView++;acceptedStatusActive=false;restoredObservation?.abort();},{once:true});
+window.addEventListener('pagehide',()=>{generationView++;acceptedStatusActive=false;},{once:true});
 init();
 
 window.addEventListener('bitbi:model-pricing', updateActionState);

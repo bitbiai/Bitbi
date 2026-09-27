@@ -5,6 +5,8 @@
    ============================================================ */
 
 import { setupFocusTrap } from './focus-trap.js';
+import { createAssetPreviewDetails } from './asset-preview-details.js?v=__ASSET_VERSION__';
+let assetDetailsCleanup = null;
 
 export const MAX_MOBILE_DECK_DOTS = 10;
 
@@ -105,6 +107,9 @@ function applyModalOpenState() {
 
 function resetStudioModalContent() {
     const m = ensureModal();
+    assetDetailsCleanup?.(); assetDetailsCleanup = null;
+    modal?.querySelector('.studio-modal__footer-actions')?.append(modal.querySelector('.studio-modal__text-close'));
+    m.querySelectorAll('.asset-preview-details, .asset-preview-details__toggle').forEach(node => node.remove());
     const mediaContainer = m.querySelector('.studio-modal__image');
     const openLink = m.querySelector('.studio-modal__open');
     const textOpenLink = m.querySelector('.studio-modal__text-open');
@@ -160,6 +165,7 @@ function applyModalDetails(m, {
     eyebrow = '',
     details = [],
     statusText = '',
+    assetDetails = null,
 } = {}) {
     if (ariaLabel) {
         m.setAttribute('aria-label', ariaLabel);
@@ -185,6 +191,12 @@ function applyModalDetails(m, {
     const status = m.querySelector('.studio-modal__status');
     status.textContent = statusText || '';
     status.hidden = !statusText;
+    if (assetDetails) {
+        const extra = createAssetPreviewDetails(assetDetails, { media: () => m.querySelector('video') });
+        const footer = m.querySelector('.studio-modal__footer-actions');
+        footer.prepend(m.querySelector('.studio-modal__text-close'));
+        footer.before(extra.section); footer.append(extra.button); assetDetailsCleanup = extra.cleanup;
+    }
 }
 
 export function openStudioImageModal(imgSrc, title, originalUrl = imgSrc, options = {}) {
@@ -232,6 +244,7 @@ export function openStudioVideoModal({
     statusText = '',
     closeLabel = 'Close preview',
     closeTitle = closeLabel,
+    assetDetails = null,
 } = {}) {
     if (!videoUrl) return;
     const m = ensureModal();
@@ -257,7 +270,7 @@ export function openStudioVideoModal({
 
     m.querySelector('.studio-modal__title').textContent = title || 'Saved video';
     setActionLabels(m, { closeLabel, closeTitle });
-    applyModalDetails(m, { ariaLabel, eyebrow, details, statusText });
+    applyModalDetails(m, { ariaLabel, eyebrow, details, statusText, assetDetails });
     openLink.hidden = true;
     openLink.setAttribute('hidden', '');
     textOpenLink.hidden = true;

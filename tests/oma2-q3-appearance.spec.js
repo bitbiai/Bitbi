@@ -4,11 +4,152 @@ const { setupAppearance } = require('./helpers/appearance');
 
 const appearance = page => page.locator('#sectionAppearance');
 const choice = (page, segment, value) => appearance(page).locator(`input[name="${segment}"][value="${value}"]`);
+test('appearance contrast measurement uses native CSS color conversion and still rejects low contrast',async({page,baseURL})=>{
+    await setupAppearance(page,baseURL);await page.goto('/account/forgot-password.html');
+    await page.evaluate(()=>{
+        const control=document.createElement('div');control.id='contrast-countercontrol';
+        control.style.cssText='background:rgb(0,0,0);color:oklch(100% 0 0);opacity:1;position:fixed;inset:0;z-index:99999';
+        control.textContent='Contrast control';document.body.append(control);
+    });
+    const target=page.locator('#contrast-countercontrol');
+    expect((await require('./helpers/appearance').measureContrast(target))[0].ratio).toBe(21);
+    await target.evaluate(el=>el.style.color='rgb(0,0,0)');
+    expect((await require('./helpers/appearance').measureContrast(target))[0].ratio).toBe(1);
+});
 async function openAppearance(page) {
     await page.goto('/admin/index.html#appearance');
-    await expect(appearance(page).locator('fieldset')).toHaveCount(5);
+    await expect(appearance(page).locator('fieldset[data-segment]')).toHaveCount(5);
+    await expect(appearance(page).getByRole('group', { name: 'Panel & Wallet' })).toHaveCount(1);
     await expect(appearance(page).locator('.appearance__state')).toHaveText('Saved');
 }
+
+test('appearance wallet visibility saves independently, preserves theme drafts and rejects stale revisions', async ({ page, baseURL }) => {
+    const state = await setupAppearance(page, baseURL);
+    await openAppearance(page);
+    await choice(page, 'canvas', 'soft').check();
+    const toggle = page.getByLabel('Show wallet Panel and wallet entry points');
+    await toggle.uncheck();
+    await page.getByRole('button', { name: 'Save wallet visibility', exact: true }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-wallet-visible', 'false');
+    expect(state.appearance.walletEnabled).toBe(false);
+    expect(state.appearance.segments.canvas).toBe('dark');
+    await expect(choice(page, 'canvas', 'soft')).toBeChecked();
+    await appearance(page).getByRole('button', { name: 'Save changes', exact: true }).click();
+    expect(state.appearance).toMatchObject({ revision: 2, walletEnabled: false, segments: { canvas: 'soft' } });
+    await toggle.check(); state.change({ public: 'light' });
+    await page.getByRole('button', { name: 'Save wallet visibility', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Save wallet visibility', exact: true })).toBeDisabled();
+    expect(state.appearance.walletEnabled).toBe(false);
+    await expect(toggle).toBeChecked();
+    await appearance(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(toggle).not.toBeChecked();
+    expect(state.unexpectedWrites).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+for (const [locale, width] of [['en', 1440], ['de', 390]]) {
+    test(`appearance wallet visibility ${locale} hides stale cache, closes open Panel and restores once across member pages`, async ({ page, baseURL }) => {
+        await page.setViewportSize({ width, height: 850 });
+        const state = await setupAppearance(page, baseURL, { role: 'user' });
+        const prefix = locale === 'de' ? '/de' : '';
+        const trigger = page.locator(width < 500 ? '.wallet-nav__mobile-trigger:visible' : '.wallet-nav__trigger:visible');
+        const openPanel = async () => {
+            if (width < 500) await page.locator('#mobileMenuBtn').click();
+            await expect(trigger).toHaveCount(1); await trigger.click();
+        };
+        await page.goto(`${prefix}/generate-lab/`);
+        await openPanel();
+        await expect(page.locator('#walletModal')).toBeVisible();
+        state.appearance.walletEnabled = false; state.change({});
+        await page.evaluate(() => window.BitbiAppearance.refresh({ force: true }));
+        await expect(page.locator('#walletModal')).toBeHidden();
+        await expect(page.locator('.wallet-nav__trigger:visible')).toHaveCount(0);
+        expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).not.toBe('hidden');
+        // Existing enabled cache cannot flash controls before the fresh disabled response.
+        await page.evaluate(() => {
+            const key = Object.keys(localStorage).find(key => key.includes('appearance'));
+            const cached = JSON.parse(localStorage.getItem(key)); cached.walletEnabled = true; localStorage.setItem(key, JSON.stringify(cached));
+        });
+        const hold = state.holdPublic();
+        await page.reload(); await hold.requested;
+        await expect(width < 500 ? page.getByRole('region', { name: 'Für Desktop optimiert' }) : page.locator('#labPrompt')).toBeVisible();
+        await expect(page.locator('.wallet-nav__trigger:visible')).toHaveCount(0);
+        hold.release();
+        await expect(page.locator('html')).toHaveAttribute('data-wallet-visible', 'false');
+        for (const route of ['/account/assets-manager.html', '/canvas/', '/account/profile-settings.html', '/account/profile.html', '/account/wallet.html']) {
+            await page.goto(prefix + route);
+            await expect(page.locator('html')).toHaveAttribute('data-wallet-visible', 'false');
+            await expect(page.locator('.wallet-nav__trigger:visible, #walletWorkspace:visible, #profileWalletCard:visible, #walletSectionCard:visible, [data-completion-item="wallet"]:visible')).toHaveCount(0);
+            if (route === '/account/profile-settings.html') {
+                await expect(page.locator('#profileCompletionStatus')).toContainText(locale === 'de' ? 'von 4 Kontosignalen' : 'of 4 account signals');
+                state.appearance.walletEnabled = true; state.change({});
+                await page.evaluate(() => window.BitbiAppearance.refresh({ force: true }));
+                await expect(page.locator('#profileCompletionStatus')).toContainText(locale === 'de' ? 'von 5 Kontosignalen' : 'of 5 account signals');
+                await expect(page.locator('[data-completion-item="wallet"]')).toBeVisible();
+                state.appearance.walletEnabled = false; state.change({});
+                await page.evaluate(() => window.BitbiAppearance.refresh({ force: true }));
+                await expect(page.locator('#profileCompletionStatus')).toContainText(locale === 'de' ? 'von 4 Kontosignalen' : 'of 4 account signals');
+            }
+        }
+        await expect(page).not.toHaveURL(/#wallet-workspace/);
+        state.appearance.walletEnabled = true; state.change({});
+        await page.evaluate(() => window.BitbiAppearance.refresh({ force: true }));
+        await openPanel();
+        await expect(page.locator('#walletModal')).toBeVisible();
+        expect(state.calls.filter(call => call.method !== 'GET')).toEqual([]);
+        expect(state.errors).toEqual([]);
+    });
+}
+
+for (const locale of ['en','de']) test(`appearance wallet visibility ${locale} keeps email authentication usable on settings failure and rejects late enabled state`,async({page,baseURL})=>{
+    const state=await setupAppearance(page,baseURL,{role:'anonymous'});
+    state.publicFailure=503;
+    await page.goto(locale==='de'?'/de/':'/');
+    await page.locator('.site-nav__cta').click();
+    await expect(page.locator('#authLoginForm input[name="email"]')).toBeVisible();
+    await expect(page.locator('.auth-modal__wallet-actions')).toBeHidden();
+    state.publicFailure=0;state.change({});
+    await page.evaluate(()=>window.BitbiAppearance.refresh({force:true}));
+    await expect(page.locator('#authWalletLoginBtn')).toBeVisible();
+    const hold=state.holdPublic();
+    const oldRead=page.evaluate(()=>window.BitbiAppearance.refresh({force:true}));await hold.requested;
+    state.appearance.walletEnabled=false;state.change({});
+    await page.evaluate(value=>window.BitbiAppearance.acceptConfirmed(value),state.appearance);
+    hold.release();await oldRead;
+    await expect(page.locator('#authWalletLoginBtn')).toBeHidden();
+    await expect(page.locator('#authLoginForm input[name="email"]')).toBeVisible();
+    expect(await page.evaluate(()=>window.BitbiAppearance.snapshot().walletEnabled)).toBe(false);
+    expect(state.unexpectedWrites).toEqual([]);expect(state.errors).toEqual([]);
+});
+
+for(const locale of ['en','de']) test(`appearance composer ${locale} ignores historical jobs on entry and rejects late prior-account history`,async({page,baseURL})=>{
+    const state=await setupAppearance(page,baseURL,{role:'user'});
+    let reads=0,release,reached;
+    const held=new Promise(resolve=>release=resolve), requested=new Promise(resolve=>reached=resolve);
+    await page.route('**/api/ai/generation-jobs',async route=>{
+        reads++;reached();await held;
+        await route.fulfill({json:{ok:true,data:{jobs:[{id:'a'.repeat(32),status:'failed',error_code:'historical_failure',media_type:'image'},
+            {id:'b'.repeat(32),status:'outcome_unknown',error_code:'historical_unknown',media_type:'video'}]}}});
+    });
+    await page.goto(`${locale==='de'?'/de':''}/generate-lab/`);
+    await expect(page.locator('#labGenerate')).toBeEnabled();
+    await expect(page.locator('#labWorkflowStatus')).toBeHidden();await expect(page.locator('#labMessage')).toBeEmpty();
+    expect(reads).toBe(0);
+    for(const media of ['video','music','image']){
+        await page.locator(`[data-media-type="${media}"]`).click();
+        await expect(page.locator('#labWorkflowStatus')).toBeHidden();await expect(page.locator('#labMessage')).toBeEmpty();
+    }
+    await page.locator('#labAssetsOpen').click();await requested;
+    await page.route('**/api/me',route=>route.fulfill({json:{loggedIn:true,user:{id:'new-owner',role:'user',email:'new@example.invalid'}}}));
+    await page.evaluate(async()=>{
+        const query=new URL(document.querySelector('script[src*="appearance.js"]').src).search;
+        await (await import('/js/shared/auth-state.js'+query)).initAuth();
+    });
+    release();await expect(page.locator('#labAccountStatus')).toContainText('new@example.invalid');
+    await expect(page.locator('[data-generation-jobs]')).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText(/historical_failure|historical_unknown/);
+    await expect(page.locator('#labWorkflowStatus')).toBeHidden();
+    expect(state.calls.filter(call=>call.method!=='GET')).toEqual([]);
+});
 
 for (const [locale, width] of [['en', 1440], ['de', 390]]) test.describe(`${locale} appearance Admin controls`, () => {
     test.use({ hasTouch: width < 500 });
@@ -171,7 +312,7 @@ test('appearance propagates to another open session, ignores stale responses and
         const other = await otherContext.newPage();
         const remote = await setupAppearance(other, baseURL, { appearance: state.appearance });
         await other.goto('/admin/index.html#appearance');
-        await expect(appearance(other).locator('fieldset')).toHaveCount(5);
+        await expect(appearance(other).locator('fieldset[data-segment]')).toHaveCount(5);
         await choice(other, 'canvas', 'soft').check();
         await appearance(other).getByRole('button', { name: 'Save changes', exact: true }).click();
         await expect(appearance(other).locator('.appearance__state')).toHaveText('Saved');
@@ -324,18 +465,19 @@ test('appearance light variants render loaded Admin video choices with readable 
     const state = await setupAppearance(page, baseURL, { segments: { admin: 'light' } });
     await page.goto('/admin/index.html#ai-lab');
     await page.locator('[data-ai-mode="video"]').click();
-    const choices = page.locator('.admin-ai__video-model-card'); await expect(choices.first()).toBeVisible();
-    expect(await choices.count()).toBeGreaterThan(1);
+    const select = page.locator('#aiVideoModel'); await expect(select).toBeVisible();
+    const choices = await select.locator('option').evaluateAll(options=>options.filter(option=>!option.disabled).map(option=>option.value));
+    expect(choices.length).toBeGreaterThan(1);
     const metrics = [];
     for (const theme of ['light', 'soft']) {
         state.change({ admin: theme }); await page.evaluate(() => window.BitbiAppearance.refresh({ force: true }));
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-        const last = choices.last(); await last.focus(); await last.press('Enter');
-        await expect(last).toHaveClass(/admin-ai__video-model-card--active/);
+        await select.selectOption(choices.at(-1));await select.focus();
+        await expect(select).toHaveValue(choices.at(-1));await expect(select).toBeFocused();
         await expect(page.locator('#aiVideoPrompt')).toBeVisible();
         await page.locator('#aiVideoPrompt').fill('Do not submit this retained draft');
-        const text = await require('./helpers/appearance').measureContrast(page.locator('.admin-ai__video-model-card-title,.admin-ai__video-model-card-id,.admin-ai__video-model-card-copy,#aiVideoModelBadge,#aiVideoPrompt'));
-        expect(text.length).toBeGreaterThan(await choices.count());
+        const text = await require('./helpers/appearance').measureContrast(page.locator('#aiVideoModel,#aiVideoModelDesc,#aiVideoModelBadge,#aiVideoPrompt'));
+        expect(text.length).toBeGreaterThanOrEqual(3);
         for (const value of text) expect(value.ratio, JSON.stringify(value)).toBeGreaterThanOrEqual(4.5);
         metrics.push({ theme, text });
         await page.screenshot({ path: info.outputPath(`admin-video-${theme}.png`), fullPage: true });

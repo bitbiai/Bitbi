@@ -1265,6 +1265,7 @@ class MockD1 {
       canvasNodes: [],
       canvasEdges: [],
       canvasRuns: [],
+      canvasMediaOutputs: [],
       ...deepClone(seed),
     };
     // Seeded records represent accepted pre-switch work, as migrated by 0091.

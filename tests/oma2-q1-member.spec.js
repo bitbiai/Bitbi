@@ -790,9 +790,21 @@ for(const language of ['en','de'])for(const reason of ['generation_schema_reject
     await expect(ui.message).not.toContainText(language==='de'?'Prüfen Sie Prompt':'Check the prompt');
     const intent=await page.evaluate(()=>Object.fromEntries(Object.entries(localStorage).filter(([key])=>key.startsWith('bitbi-generation:'))));
     expect(Object.values(intent)).toEqual([submittedKey]);
+    for(const media of ['video','music','image']) {
+      await page.locator(`[data-media-type="${media}"]`).click();
+      await expect(panel).toBeHidden();await expect(ui.message).toBeEmpty();
+      await expect(page.locator('.generate-lab__spinner')).toHaveCount(0);
+    }
     restored=true;await page.reload();
-    await expect(panel).toHaveClass(/is-error/);
-    await expect(panel).toContainText(language==='de'?'bitte nicht erneut absenden':'do not submit it again');
+    await expect(panel).toBeHidden();
+    await expect(ui.message).toBeEmpty();
+    // History is explicit and read-only; it does not take over a new composer.
+    await page.locator('#labAssetsOpen').click();
+    const history=page.locator('[data-generation-jobs]');
+    await history.locator('summary').click();
+    await expect(history).toContainText(id.slice(0,8));
+    await expect(history).toContainText(reason);
+    await expect(panel).toBeHidden();
     await expect(page.locator('.generate-lab__spinner')).toHaveCount(0);
     expect(await page.evaluate(()=>Object.fromEntries(Object.entries(localStorage).filter(([key])=>key.startsWith('bitbi-generation:'))))).toEqual(intent);
     expect(submitted).toBe(1);await noHorizontalOverflow(page);

@@ -274,8 +274,8 @@ export const HELP_MENU_SECTIONS = Object.freeze([
         routes: Object.freeze(['profile']),
         title: Object.freeze({ en: 'Profile & security', de: 'Profil & Sicherheit' }),
         summary: Object.freeze({
-            en: 'Review account identity, recovery, wallet hints, credits, and workspace routes.',
-            de: 'Kontoidentität, Wiederherstellung, Wallet-Hinweise, Credits und Arbeitsbereich-Routen prüfen.',
+            en: 'Review account identity, recovery, credits, and workspace routes.',
+            de: 'Kontoidentität, Wiederherstellung, Credits und Arbeitsbereich-Routen prüfen.',
         }),
         items: Object.freeze([
             Object.freeze({
@@ -462,6 +462,7 @@ function renderSections(body, routeKey, locale) {
         const stack = createElement('div', 'help-menu__items');
         section.items.forEach((item) => {
             const details = createElement('details', 'help-menu__item');
+            if (item.id === 'wallet-safety') details.dataset.walletFeature = '';
 
             const itemSummary = createElement('summary', 'help-menu__item-summary');
             itemSummary.append(createElement('span', 'help-menu__item-title', textFor(item.title, locale)));

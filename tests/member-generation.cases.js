@@ -29,13 +29,22 @@ for(const name of ['asset-naming-video','asset-naming-manual','asset-naming-imag
 
 test('durable member generation: one pending poster dispatches the existing processor, with cooldown',async()=>{
   const {maybeDispatchMemvidStreamPreviewProcessor}=await import(pathToFileURL(path.resolve(__dirname,'../workers/auth/src/lib/memvid-stream-preview-dispatch.js')).href);
-  const env={...createAuthTestEnv(),ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH:'true',
+  const DB=new SqliteD1Database();applyAuthMigrations(DB);
+  const env={...createAuthTestEnv(),DB,ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH:'true',
     MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_THRESHOLD:'3',GITHUB_ACTIONS_DISPATCH_TOKEN:'synthetic-not-live',
     GITHUB_ACTIONS_DISPATCH_OWNER:'fixture',GITHUB_ACTIONS_DISPATCH_REPO:'fixture',GITHUB_ACTIONS_DISPATCH_REF:'main'};
   const requests=[],original=global.fetch;
   global.fetch=async(url,init)=>{requests.push({url,body:JSON.parse(init.body)});return new Response(null,{status:204});};
   try {
     const options={reason:'member_video_posters',queuedNewCount:1,memberGenerationPosters:true};
+    // Admission hints are not backlog. The current dispatcher reads durable,
+    // processor-assigned work before acquiring a lease or sending a request.
+    expect((await maybeDispatchMemvidStreamPreviewProcessor(env,options)).started).toBe(false);
+    expect(requests).toEqual([]);
+    const now=new Date().toISOString(),id='synthetic-poster-dispatch';
+    await DB.prepare('INSERT INTO users(id,email,password_hash,created_at) VALUES(?,?,?,?)').bind(id,id+'@example.invalid','synthetic',now).run();
+    await DB.prepare("INSERT INTO member_ai_usage_attempts_v2(id,user_id,feature_key,operation_key,route,idempotency_key,request_fingerprint,credit_cost,created_at,updated_at,expires_at) VALUES(?,?,'ai.video.generate','member.video.generate','/api/ai/generate-video',?,'synthetic',1,?,?,?)").bind(id,id,id,now,now,'2099-01-01').run();
+    await DB.prepare("INSERT INTO member_generation_jobs(id,user_id,usage_attempt_id,media_type,request_key,input_r2_key,next_attempt_at,created_at,updated_at,status,processing_backend) VALUES(?,?,?,'video',?,'synthetic/input',?,?,?,'preview_pending','github')").bind(id,id,id,id,now,now,now).run();
     expect((await maybeDispatchMemvidStreamPreviewProcessor(env,options)).started).toBe(true);
     expect(requests).toHaveLength(1);
     expect(requests[0].body.inputs).toMatchObject({member_generation_posters:'true',max_runs:'1',dry_run:'false'});
@@ -44,7 +53,7 @@ test('durable member generation: one pending poster dispatches the existing proc
     expect(requests).toHaveLength(1);
     env.ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH='false';
     expect((await maybeDispatchMemvidStreamPreviewProcessor(env,options)).dispatch_skipped_reason).toBe('auto_dispatch_disabled');
-  } finally {global.fetch=original;}
+  } finally {global.fetch=original;DB.close();}
 });
 
 

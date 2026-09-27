@@ -6,6 +6,7 @@
 import { setupFocusTrap } from '../focus-trap.js';
 import { ETHERSCAN_ADDRESS_BASE, walletConfig } from './wallet-config.js?v=__ASSET_VERSION__';
 import { subscribeWalletState } from './wallet-state.js?v=__ASSET_VERSION__';
+import { isWalletVisible } from './wallet-visibility.js?v=__ASSET_VERSION__';
 
 let initialized = false;
 let currentState = null;
@@ -295,6 +296,12 @@ function setModalOpen(open) {
     } else {
         removeFocusTrap?.();
         removeFocusTrap = null;
+        // Hiding the feature also hides its trigger: return to ordinary navigation.
+        if (!isWalletVisible() && modalRoot.contains(document.activeElement)) {
+            const navigation = [...document.querySelectorAll('#mobileMenuBtn, #navbar a, .site-nav a')]
+                .find(element => element.getClientRects().length > 0);
+            navigation?.focus();
+        }
     }
 
     syncBodyScrollLock();
@@ -694,6 +701,10 @@ function syncDesktopStatusDot(state) {
 
 function render(state) {
     currentState = state;
+    if (!isWalletVisible()) {
+        setModalOpen(false);
+        return;
+    }
     ensureDesktopTrigger();
     ensureMobileTrigger();
     ensureModal();
@@ -713,8 +724,6 @@ export function initWalletUI(actions) {
     initialized = true;
 
     ensureStyles();
-    ensureDesktopTrigger();
-    ensureMobileTrigger();
-    ensureModal();
+    window.addEventListener('bitbi:appearance', () => { if (currentState) render(currentState); });
     subscribeWalletState(render);
 }

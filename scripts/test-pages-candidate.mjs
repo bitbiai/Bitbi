@@ -771,10 +771,31 @@ console.log('Pricing: actual selected shell, both engines and missing/failed/ski
  } finally {fs.rmSync(dir,{recursive:true,force:true});}
 }
 
-const {verifyAppearanceReport}=await import('./pages-candidate.mjs');
+const {verifyAppearanceReport,verifyAppearanceCandidateReports}=await import('./pages-candidate.mjs');
+{
+ const shell=block('worker-validation').split('      - name: Run worker route tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n')
+  .replaceAll('${{ needs.release-compatibility.outputs.appearance }}','true').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false');
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-presentation-worker-shell-'));
+ try {
+  const executable='#!/bin/sh\nprintf "%s %s\\n" "$(basename "$0")" "$*" >> calls\ncount=$(wc -l < calls | tr -d " ")\nif [ "$count" = "${FAIL_AT:-0}" ]; then exit 37; fi\nexit 0\n';
+  for(const name of ['node','npx'])fs.writeFileSync(path.join(dir,name),executable,{mode:0o755});
+  for(const [member,count] of [['false',3],['true',5]])for(const fail of [0,...Array.from({length:count},(_,i)=>i+1)]){
+   fs.rmSync(path.join(dir,'calls'),{force:true});
+   const result=spawnSync('/bin/bash',['-e','-c',shell],{cwd:dir,env:{...process.env,PATH:dir+':'+process.env.PATH,Q2_RUNTIME_ARTIFACTS:dir,CI_MEMBER_ASSETS:member,FAIL_AT:String(fail)},encoding:'utf8'});
+   assert.equal(result.status,fail?37:0,result.stderr);
+   const calls=fs.readFileSync(path.join(dir,'calls'),'utf8').trim().split('\n');assert.equal(calls.length,fail||count);
+   if(!fail)assert.equal(calls.some(call=>call.includes('--suite member-generation')),member==='true');
+  }
+ } finally {fs.rmSync(dir,{recursive:true,force:true});}
+}
 const appearanceDiscovery={suites:[{specs:['chromium','webkit-appearance'].flatMap(projectName=>['oma2-q3-appearance.spec.js','auth-admin.spec.js'].map(file=>({id:projectName+file,file,tests:[{projectName,results:[]}]})))}]};
 const appearanceReport=structuredClone(appearanceDiscovery);for(const spec of appearanceReport.suites[0].specs)spec.tests[0].results=[{status:'passed'}];
 verifyAppearanceReport(appearanceReport,appearanceDiscovery);
+const presentationReports=['test-results/candidate-assets.json','test-results/candidate-auth.json'];
+verifyAppearanceCandidateReports(presentationReports,[{suites:[]},appearanceReport],appearanceDiscovery);
+assert.throws(()=>verifyAppearanceCandidateReports(presentationReports,[appearanceReport,{suites:[]}],appearanceDiscovery));
+assert.throws(()=>verifyAppearanceCandidateReports([presentationReports[0]],[appearanceReport],appearanceDiscovery));
+assert.throws(()=>verifyAppearanceCandidateReports([presentationReports[1],presentationReports[1]],[appearanceReport,appearanceReport],appearanceDiscovery));
 for(const status of ['failed','skipped','timedOut','interrupted']) {const bad=structuredClone(appearanceReport);bad.suites[0].specs[0].tests[0].results=[{status}];assert.throws(()=>verifyAppearanceReport(bad,appearanceDiscovery));}
 for(const fault of ['missing','wrong-project','retry']) {const bad=structuredClone(appearanceReport);if(fault==='missing')bad.suites[0].specs.pop();else if(fault==='wrong-project')bad.suites[0].specs[0].tests[0].projectName='foreign';else bad.suites[0].specs[0].tests[0].results.unshift({status:'failed'});assert.throws(()=>verifyAppearanceReport(bad,appearanceDiscovery),fault);}
 assert.throws(()=>verifyAppearanceReport({suites:[]},appearanceDiscovery));assert.throws(()=>verifyAppearanceReport(appearanceReport,{suites:[]}));

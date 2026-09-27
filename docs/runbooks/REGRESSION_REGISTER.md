@@ -814,3 +814,34 @@ mobile playback and picker actions. The new disclosure exposed an ancestor
 containing group. Mixed Assets + Canvas proof must select the named auth report;
 wrong, duplicate, missing and failed reports remain fatal. Existing protected
 AI → Auth → frontend continuation and both-engine candidate proof remain required.
+
+### Composer notices, wallet visibility and private preview details (2026-09-27)
+
+Fresh Generate Lab previously selected an arbitrary retained job and its accepted
+status blocked ready resets. Fresh entry now leaves those jobs in explicit Assets
+history; media/identity changes invalidate presentation, not jobs or durable intents.
+The earlier automatic-restoration description is superseded for this composer.
+`oma2-q1-member.spec.js` retains one submission, stable intent, current review and
+read-only history; `oma2-q3-appearance.spec.js` covers clean entry and stale identity.
+
+Wallet visibility shares audited Appearance revision/CAS, defaulting absent to on.
+Partial saves preserve themes/visibility independently. Cached enabled state cannot
+expose controls before fresh confirmation; hiding closes UI, never changes identity
+or wallet data. Native `--suite appearance` and both-engine Appearance cases cover
+guards, persistence, off/on, unavailable settings, stale reads and localized routes.
+
+Private on-demand preview details use an allowlist and owner-scoped durable image
+input: renameable titles and thumbnails are not original prompt/dimension evidence.
+Missing provenance remains unavailable. `asset-preview-details-runtime.mjs` executes
+after actual queue/save fixtures in `--suite member-generation`; shared Assets cases
+check both engines/locales/viewports, late owners, measured media and close cleanup.
+No inference, migration, bulk probe or public prompt exposure is needed.
+
+`workspace-presentation-v1` composes existing Appearance + Assets/native callers;
+named report selection prevents Assets evidence being mistaken for Appearance.
+Selector/proof and real selected-shell failure countercontrols preserve exact
+candidate identity and fail closed for unknown/session/billing/dependency changes.
+Selected legacy tests required three evidenced fixture/assertion repairs: Admin
+dropdowns replace retired cards, read-only mocks initialize Canvas tables up front,
+and poster dispatch requires actual assigned durable backlog, not an admission hint.
+Earlier red results remain red; final source/run/artifacts belong to release evidence.

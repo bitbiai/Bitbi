@@ -4,6 +4,7 @@
    ============================================================ */
 
 import { setupFocusTrap } from '../focus-trap.js';
+import { isWalletVisible } from './wallet-visibility.js?v=__ASSET_VERSION__';
 import { getAddressExplorerUrl, getChainExplorer, walletConfig } from './wallet-config.js?v=__ASSET_VERSION__';
 import { renderWalletQrSvg } from './wallet-qr.js?v=__ASSET_VERSION__';
 import { getWalletState, subscribeWalletState } from './wallet-state.js?v=__ASSET_VERSION__';
@@ -314,6 +315,10 @@ function syncWorkspaceOpen(open, panelOpen = false) {
     if (!open) {
         removeFocusTrap?.();
         removeFocusTrap = null;
+        if (!isWalletVisible() && root.contains(document.activeElement)) {
+            [...document.querySelectorAll('#mobileMenuBtn, #navbar a, .site-nav a')]
+                .find(element => element.getClientRects().length > 0)?.focus();
+        }
         return;
     }
 
@@ -832,7 +837,7 @@ function renderConnectedState(state) {
 function render(state) {
     walletState = state;
     ensureWorkspace();
-    syncWorkspaceOpen(!!state.workspaceOpen, !!state.isOpen);
+    syncWorkspaceOpen(isWalletVisible() && !!state.workspaceOpen, isWalletVisible() && !!state.isOpen);
     renderBanner(state);
 
     const connected = state.status === 'connected' && !!state.active.address;

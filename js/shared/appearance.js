@@ -15,6 +15,9 @@
         const theme = contract.resolvePreference({ globalTheme: state.segments[segment] });
         root.dataset.theme = theme;
         root.dataset.themeSegment = segment;
+        // Cached enabled state is not authority to expose optional wallet UI.
+        // Failed settings reads leave ordinary account/site work available.
+        root.dataset.walletVisible = String(hasConfirmed && state.walletEnabled !== false);
         root.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
         let meta = document.querySelector('meta[name="theme-color"]');
         if (!meta) { meta = document.createElement('meta'); meta.name = 'theme-color'; document.head.append(meta); }
@@ -30,7 +33,7 @@
         state = next; verifiedAt = Date.now(); hasConfirmed = true;
         try { localStorage.setItem(CACHE_KEY, JSON.stringify(state)); } catch { /* private/disabled storage */ }
         apply(); reveal();
-        window.dispatchEvent(new CustomEvent('bitbi:appearance', { detail: { revision: state.revision, segment: root.dataset.themeSegment, theme: root.dataset.theme } }));
+        window.dispatchEvent(new CustomEvent('bitbi:appearance', { detail: { revision: state.revision, segment: root.dataset.themeSegment, theme: root.dataset.theme, walletEnabled: state.walletEnabled } }));
         return true;
     }
     function schedule() {

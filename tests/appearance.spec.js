@@ -35,7 +35,7 @@ test('appearance extends stored Dark/Light settings to Soft without resetting re
     try {
         const previous = JSON.stringify({ ...legacy, changeId: 'previous-version-setting' });
         await DB.prepare('INSERT INTO app_settings(key,value_json,updated_at) VALUES(?,?,?)').bind(m.APPEARANCE_SETTING_KEY, previous, '2026-09-21T12:00:00.000Z').run();
-        expect(await m.getAppearance({ DB })).toEqual(legacy);
+        expect(await m.getAppearance({ DB })).toEqual({ ...legacy, walletEnabled: true });
         expect((await DB.prepare('SELECT value_json FROM app_settings WHERE key=?').bind(m.APPEARANCE_SETTING_KEY).first()).value_json).toBe(previous);
         const updated = await m.saveAppearance({ DB }, admin, { revision: legacy.revision, segments: { ...legacy.segments, canvas: 'soft' } });
         expect(updated).toMatchObject({ version: 1, revision: 19, segments: { ...legacy.segments, canvas: 'soft' }, personalEnabled: false });
@@ -43,7 +43,7 @@ test('appearance extends stored Dark/Light settings to Soft without resetting re
         await expect(m.saveAppearance({ DB }, admin, { revision: legacy.revision, segments: legacy.segments })).rejects.toMatchObject({ status: 409 });
         expect((await m.getAppearance({ DB })).segments.canvas).toBe('soft');
         const audit = JSON.parse((await DB.prepare('SELECT meta_json FROM admin_audit_log').first()).meta_json);
-        expect(audit.before).toEqual(legacy); expect(audit.after.segments).toEqual(updated.segments);
+        expect(audit.before).toEqual({ ...legacy, walletEnabled: true }); expect(audit.after.segments).toEqual(updated.segments);
         const unknown = JSON.stringify({ ...updated, segments: { ...updated.segments, canvas: 'future-unsupported-theme' } });
         await DB.prepare('UPDATE app_settings SET value_json=? WHERE key=?').bind(unknown, m.APPEARANCE_SETTING_KEY).run();
         await expect(m.getAppearance({ DB })).rejects.toMatchObject({ status: 503 });
@@ -76,7 +76,7 @@ test('appearance bootstrap paints cached Soft early and rejects stale or unknown
     const pending = context.BitbiAppearance.refresh({ force: true });
     requests.shift()({ ok: true, json: async () => ({ ok: true, appearance: { ...cached, revision: 8, segments: defaults } }) });
     await pending;
-    expect(context.BitbiAppearance.snapshot()).toEqual(confirmed); expect(documentRoot.dataset.theme).toBe('soft');
+    expect(context.BitbiAppearance.snapshot()).toEqual({ ...confirmed, walletEnabled: true }); expect(documentRoot.dataset.theme).toBe('soft');
     expect(context.BitbiAppearance.acceptConfirmed({ ...confirmed, revision: 10, segments: { ...defaults, canvas: 'sepia' } })).toBe(false);
     expect(context.BitbiAppearance.acceptConfirmed({ ...confirmed, revision: 10, personalEnabled: true })).toBe(false);
     expect(documentRoot.dataset.theme).toBe('soft'); expect(writes).toHaveLength(1);
@@ -91,13 +91,13 @@ test('appearance rollout is unchanged; persisted safe configuration survives ano
     let DB = new SqliteD1Database({ filename: path.join(directory, 'settings.db') });
     try {
         applyAuthMigrations(DB);
-        expect(await m.getAppearance({ DB })).toEqual({ version: 1, revision: 0, segments: defaults, personalEnabled: false });
+        expect(await m.getAppearance({ DB })).toEqual({ version: 1, revision: 0, segments: defaults, personalEnabled: false, walletEnabled: true });
         expect((await DB.prepare("SELECT COUNT(*) AS n FROM app_settings WHERE key='appearance.global.v1'").first()).n).toBe(0);
         const segments = { ...defaults, canvas: 'light' };
         const saved = await m.saveAppearance({ DB }, admin, { revision: 0, segments });
         expect(saved.revision).toBe(1);
         DB.close(); DB = new SqliteD1Database({ filename: path.join(directory, 'settings.db') });
-        expect(await m.getAppearance({ DB })).toEqual({ version: 1, revision: 1, segments, personalEnabled: false });
+        expect(await m.getAppearance({ DB })).toEqual({ version: 1, revision: 1, segments, personalEnabled: false, walletEnabled: true });
         const audit = await DB.prepare('SELECT * FROM admin_audit_log').first();
         expect(audit.admin_user_id).toBe(admin.id); expect(audit.created_at).toBe(saved.updatedAt);
         expect(JSON.parse(audit.meta_json)).toMatchObject({ before: { revision: 0, segments: defaults }, after: { revision: 1, segments } });

@@ -20,7 +20,7 @@ export async function runAppearanceTests(f) {
         return (await response.json()).appearance;
     };
     await f.test('appearance_public_defaults_do_not_expose_private_settings_or_mutate_storage', async () => {
-        for (const identity of ['', member, admin]) assert.deepEqual(await publicRead(identity), { version: 1, revision: 0, segments: defaults, personalEnabled: false });
+        for (const identity of ['', member, admin]) assert.deepEqual(await publicRead(identity), { version: 1, revision: 0, segments: defaults, personalEnabled: false, walletEnabled: true });
         assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM app_settings WHERE key='appearance.global.v1'"), 0);
         for (const [identity, status] of [['', 401], [member, 403], [admin, 403]]) {
             for (const method of ['GET', 'PATCH']) assert.equal((await call(identity, method, route, method === 'PATCH' ? { revision: 0, segments: defaults } : null)).status, status);
@@ -39,7 +39,7 @@ export async function runAppearanceTests(f) {
         assert.equal((await call(admin, 'PATCH', route, { revision: 0, segments: defaults }, 'https://untrusted.invalid')).status, 403);
         const segments = { ...defaults, public: 'light', canvas: 'soft' }, saved = await save(0, segments); assert.equal(saved.status, 200);
         const result = (await saved.json()).appearance; assert.equal(result.revision, 1); assert.equal(result.personalEnabled, false);
-        for (const identity of ['', member, admin]) assert.deepEqual(await publicRead(identity), { version: 1, revision: 1, segments, personalEnabled: false });
+        for (const identity of ['', member, admin]) assert.deepEqual(await publicRead(identity), { version: 1, revision: 1, segments, personalEnabled: false, walletEnabled: true });
         const read = await call(admin, 'GET', route); assert.equal(read.status, 200); assert.equal((await read.json()).appearance.updatedAt, result.updatedAt);
         const row = await f.sql("SELECT * FROM app_settings WHERE key='appearance.global.v1'").first(); assert.equal(JSON.parse(row.value_json).segments.canvas, 'soft');
         const audit = await f.sql("SELECT * FROM admin_audit_log WHERE action='appearance.updated'").first();
@@ -79,6 +79,31 @@ export async function runAppearanceTests(f) {
         await f.sql('DROP TRIGGER appearance_audit_failure').run();
         const reset = await save(2, defaults); assert.equal(reset.status, 200); assert.deepEqual((await publicRead()).segments, defaults);
         assert.equal((await publicRead()).revision, 3); assert.equal(await f.scalar('SELECT revision AS value FROM model_pricing_state'), 0);
+        assert.equal(f.counters.outboundDenied, 0); assert.equal(f.counters.serviceDenied, 0);
+    });
+    await f.test('wallet_visibility_native_partial_saves_preserve_themes_and_CAS_audit_without_wallet_mutation', async () => {
+        const before = await publicRead();
+        const walletRows = await f.scalar('SELECT COUNT(*) AS value FROM linked_wallets');
+        const disabled = await call(admin, 'PATCH', route, { revision: before.revision, walletEnabled: false });
+        assert.equal(disabled.status, 200);
+        const off = (await disabled.json()).appearance;
+        assert.equal(off.walletEnabled, false); assert.deepEqual(off.segments, before.segments);
+        assert.equal((await publicRead(member)).walletEnabled, false);
+        assert.equal((await save(before.revision, defaults)).status, 409);
+        const themed = await save(off.revision, { ...defaults, public: 'soft' });
+        assert.equal(themed.status, 200); assert.equal((await themed.json()).appearance.walletEnabled, false);
+        const current = await publicRead();
+        for (const walletEnabled of ['false', 0, null, {}]) {
+            assert.equal((await call(admin, 'PATCH', route, { revision: current.revision, walletEnabled })).status, 400);
+        }
+        const restored = await call(admin, 'PATCH', route, { revision: current.revision, walletEnabled: true });
+        assert.equal(restored.status, 200);
+        assert.deepEqual((await publicRead()).segments, current.segments);
+        assert.equal((await publicRead()).walletEnabled, true);
+        const audit = await f.sql("SELECT meta_json FROM admin_audit_log WHERE action='appearance.updated' ORDER BY rowid DESC LIMIT 1").first();
+        assert.equal(JSON.parse(audit.meta_json).before.walletEnabled, false);
+        assert.equal(JSON.parse(audit.meta_json).after.walletEnabled, true);
+        assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM linked_wallets'), walletRows);
         assert.equal(f.counters.outboundDenied, 0); assert.equal(f.counters.serviceDenied, 0);
     });
 }

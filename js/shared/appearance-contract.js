@@ -18,8 +18,9 @@
     }
     function normalizeAppearance(value) {
         if (!value || value.version !== 1 || !Number.isSafeInteger(value.revision) || value.revision < 0
-            || value.personalEnabled !== false) throw new TypeError('Unsupported appearance configuration.');
-        return { version: 1, revision: value.revision, segments: validateSegments(value.segments), personalEnabled: false };
+            || value.personalEnabled !== false
+            || (value.walletEnabled !== undefined && typeof value.walletEnabled !== 'boolean')) throw new TypeError('Unsupported appearance configuration.');
+        return { version: 1, revision: value.revision, segments: validateSegments(value.segments), personalEnabled: false, walletEnabled: value.walletEnabled !== false };
     }
     function resolveSegment(pathname) {
         let path;

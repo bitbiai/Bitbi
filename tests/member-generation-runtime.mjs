@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {expectNativeRejection} from './helpers/q2-runtime/assertions.mjs';
 import {getMemberExposedModels} from '../js/shared/member-model-exposure.mjs';
+import {runAssetPreviewDetailsTests} from './asset-preview-details-runtime.mjs';
 export async function runMemberGenerationTests(f) {
   for (const migration of f.migrations) {
     try {
@@ -45,4 +46,5 @@ export async function runMemberGenerationTests(f) {
       f.metrics.push(result);
     });
   }
+  await runAssetPreviewDetailsTests(f);
 }

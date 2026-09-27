@@ -120,6 +120,7 @@ export function openMobileMediaDetail({
     openOriginalLabel = '',
     hideTitle = false,
     hideOpenOriginal = false,
+    assetDetails = null,
     renderContent,
 } = {}) {
     if ((!activeOverlay && !standalone) || typeof renderContent !== 'function') return;
@@ -178,6 +179,16 @@ export function openMobileMediaDetail({
     shell.append(controls);
     if (heading) shell.appendChild(heading);
     shell.appendChild(body);
+    if (assetDetails) {
+        const extra = createAssetPreviewDetails(assetDetails, { media: () => body.querySelector('video, audio') });
+        const footer = document.createElement('div'); footer.className = 'asset-preview-details__actions';
+        const bottomClose = document.createElement('button'); bottomClose.type = 'button';
+        bottomClose.className = 'asset-preview-details__close'; bottomClose.textContent = localeText('assets.closePreview');
+        bottomClose.addEventListener('click', closeMobileMediaDetail);
+        footer.append(bottomClose, extra.button); body.append(extra.section, footer);
+        const cleanup = detailContentCleanup;
+        detailContentCleanup = () => { extra.cleanup(); cleanup?.(); };
+    }
     detail.appendChild(shell);
     detail.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
@@ -264,3 +275,4 @@ export function openMobileMediaGrid({
     activeOverlay = overlay;
     focusTrapCleanup = setupFocusTrap(overlay);
 }
+import { createAssetPreviewDetails } from './asset-preview-details.js?v=__ASSET_VERSION__';
