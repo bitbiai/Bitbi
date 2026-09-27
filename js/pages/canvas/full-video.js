@@ -58,8 +58,14 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
             createButton.hidden=false;createButton.textContent=status?copy.again:copy.create;
             createButton.disabled=['queued','processing'].includes(status?.status);
             const current=result.data.current||status;
+            if(current?.asset && current.storage==='assets')message.textContent+=' '+copy.saved;
             if(current?.asset) {
-                if(!resultVideo) {resultVideo=document.createElement('video');resultVideo.controls=true;resultVideo.preload='metadata';}
+                if(!resultVideo) {
+                    resultVideo=document.createElement('video');resultVideo.controls=true;resultVideo.preload='metadata';
+                    // Metadata must not move Save between pointer-down and up.
+                    // Existing object-fit:contain preserves every source ratio.
+                    resultVideo.style.aspectRatio='16 / 9';resultVideo.style.display='block';
+                }
                 if(resultVideo.getAttribute('src')!==current.asset.file_url){resultVideo.src=current.asset.file_url;resultVideo.removeAttribute('poster');}
                 if(current.asset.poster_url)resultVideo.poster=current.asset.poster_url;
                 fragment.append(resultVideo);

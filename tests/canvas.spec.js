@@ -735,7 +735,7 @@ for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable exp
   await page.screenshot({path:testInfo.outputPath(`canvas-full-video-${locale}.png`)});
 });
 
-for (const locale of ['en','de']) test(`Canvas full video music ${locale}: explicit versions, persisted gain and saved preview`,async({page})=>{
+for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) test(`Canvas full video music ${locale}: explicit versions, persisted gain and saved preview${delayedMetadata?' during metadata arrival':''}`,async({page,browserName},testInfo)=>{
   await page.setViewportSize(locale==='de'?{width:390,height:844}:{width:1024,height:768});
   await mockSharedAuth(page);
   const state=createCanvasApiMock(page),projectId='1'.repeat(32),nodeId='2'.repeat(32),runId='3'.repeat(32),musicId='4'.repeat(32),now=new Date().toISOString();
@@ -754,7 +754,15 @@ for (const locale of ['en','de']) test(`Canvas full video music ${locale}: expli
     }
     return route.fulfill({json:{ok:true,data:{eligible:true,export:task,current}}});
   });
-  await page.route('**/api/ai/text-assets/*/file',route=>route.fulfill({contentType:'video/mp4',body:fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'))}));
+  let releaseMetadata;const metadataGate=new Promise(resolve=>{releaseMetadata=resolve;});
+  // Open-codec 4:3 fixture for Linux Chromium metadata (its bundled H264 is
+  // unavailable). Generated: lavfi color=blue:s=160x120:r=10:d=0.2, libvpx/webm.
+  // WebKit and all ordinary-click cases retain the incident's MP4 fixture.
+  const vp8=Buffer.from('GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwH/////////EU2bdKtNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHNTbuMU6uEElTDZ1OsggEa7AEAAAAAAABoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmpyrXsYMPQkBNgI1MYXZmNjIuMTIuMTAxV0GNTGF2ZjYyLjEyLjEwMRZUrmvIrgEAAAAAAAA/14EBc8WIANGfhggE13icgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QF9eEA4JCwgaC6gXiagQJVsIRVuYEBElTDZ9hzc6BjwIBnyJpFo4dFTkNPREVSRIeNTGF2ZjYyLjEyLjEwMXNzsmPAi2PFiADRn4YIBNd4Z8ihRaOHRU5DT0RFUkSHlExhdmM2Mi4yOC4xMDEgbGlidnB4H0O2df3ngQCj3oEAAIDwBgCdASqgAHgAAEcIhYWIhYSIAgICdaoD+AIGk48FEJxS0qE4paVCcUtKhOKWlQnFLSoTilpUJxS0qE4paVCbAP7/TRL//FhX8WFfxYV/8WFf/PzO7cX85gCjmIEAZAARAgAFEKwAGAAYWC/0AAiAgQywAA==','base64');
+  await page.route('**/api/ai/text-assets/*/file',async route=>{
+    if(delayedMetadata && route.request().url().includes('/version-1/'))await metadataGate;
+    return route.fulfill(delayedMetadata && browserName==='chromium'?{contentType:'video/webm',body:vp8}:{contentType:'video/mp4',body:fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'))});
+  });
   await page.route('**/api/ai/text-assets/*/poster',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg"/>'}));
   const open=async()=>{await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${nodeId}"]`).first().click();if(locale==='de')await page.locator('#canvasInspectorToggle').click();};
   await open();const block=page.locator('.canvas-full-video'),inspector=page.locator('#canvasInspectorBody');
@@ -781,9 +789,32 @@ for (const locale of ['en','de']) test(`Canvas full video music ${locale}: expli
   expect(exports[0].body).toEqual({backgroundMusic:{enabled:true,gain:0.5}});expect(exports[0].key).toBeTruthy();
   await expect.poll(()=>state.nodes[0].config.backgroundMusic).toEqual({enabled:true,gain:0.5});
   current={...task,status:'ready',asset:{id:task.id,file_url:'/api/ai/text-assets/version-1/file'}};task=current;
+  await page.evaluate(()=>{
+    const records=window.canvasSaveTrace=[],ids=new WeakMap();let sequence=0;
+    const describe=element=>{if(!(element instanceof Element))return null;if(!ids.has(element))ids.set(element,++sequence);const r=element.getBoundingClientRect();return {id:ids.get(element),tag:element.tagName,text:element.tagName==='BUTTON'?element.textContent:null,connected:element.isConnected,rect:[r.x,r.y,r.width,r.height]};};
+    for(const type of ['pointerdown','pointerup','mousedown','mouseup','click','loadedmetadata','resize','abort','emptied'])document.addEventListener(type,event=>{if(event.target.closest?.('.canvas-output'))records.push({type,time:performance.now(),target:describe(event.target),save:describe(document.querySelector('.canvas-full-video video')?.parentElement.querySelector('button'))});},true);
+    new MutationObserver(changes=>{for(const change of changes)if(change.type==='childList')records.push({type:'mutation',time:performance.now(),removed:[...change.removedNodes].map(describe),added:[...change.addedNodes].map(describe)});}).observe(document.querySelector('.canvas-full-video'),{subtree:true,childList:true});
+  });
   await inspector.getByRole('button',{name:locale==='de'?'Status aktualisieren':'Refresh status'}).click();
   await expect(block.locator('video')).toHaveAttribute('src',current.asset.file_url);
-  await block.getByRole('button',{name:locale==='de'?'Gesamtvideo in Assets speichern':'Save full video to Assets'}).click();await expect.poll(()=>saved).toEqual(['version-1']);
+  try {
+    const save=block.getByRole('button',{name:locale==='de'?'Gesamtvideo in Assets speichern':'Save full video to Assets'});
+    if(delayedMetadata) {
+      await save.scrollIntoViewIfNeeded();const box=await save.boundingBox();
+      await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();
+      releaseMetadata();await expect.poll(()=>block.locator('video').evaluate(v=>v.videoWidth)).toBeGreaterThan(0);
+      await page.mouse.up();
+    } else await save.click();
+    await expect.poll(()=>saved).toEqual(['version-1']);
+  }
+  finally {releaseMetadata();await testInfo.attach('aggregate-save-interaction',{body:JSON.stringify({events:await page.evaluate(()=>window.canvasSaveTrace),saved}),contentType:'application/json'});}
+  const interaction=await page.evaluate(()=>window.canvasSaveTrace);
+  const down=interaction.find(event=>event.type==='pointerdown' && event.target?.text=== (locale==='de'?'Gesamtvideo in Assets speichern':'Save full video to Assets'));
+  const up=interaction.find(event=>event.type==='pointerup' && event.time>=down.time);
+  expect(up.target.id).toBe(down.target.id);
+  expect(Math.abs(up.save.rect[1]-down.save.rect[1])).toBeLessThan(1);
+  await expect(block.getByRole('status',{name:locale==='de'?'Exportstatus':'Export status',exact:true})).toContainText(locale==='de'?'Diese Version ist in Assets gespeichert.':'This version is saved to Assets.');
+  await expect(block.getByRole('button',{name:locale==='de'?'Gesamtvideo in Assets speichern':'Save full video to Assets'})).toHaveCount(0);
   await open();await expect(block.getByRole('slider')).toHaveValue('50');await expect(block.getByRole('checkbox')).toBeChecked();
   await block.getByRole('slider').fill('100');await block.getByRole('slider').dispatchEvent('input');expect(exports).toHaveLength(1);
   await block.getByRole('button',{name:locale==='de'?'Gesamtes Video erneut erstellen':'Create full video again'}).click();

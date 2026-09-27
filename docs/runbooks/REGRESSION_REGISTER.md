@@ -369,28 +369,6 @@ Narrow status/assets jobs remain unchanged. Shell controls are not Linux media
 acceptance: the real 2/5-clip test and subsequent native runtime remain CI gates.
 
 
-### Private media dispatch and backend assignment (2026-09-19)
-Private exports/posters previously depended on the public 600-second dispatcher
-cooldown and cron. Durable acceptance now wakes the existing video queue;
-atomic start fencing and finish/recheck cover duplicate delivery, lost response,
-crash and new work after a claim. Migration 0089 pins backend per job; completion,
-source and poster routes enforce it. Native `test:q2-runtime -- --suite canvas`
-executes the actual queue/fetch/D1 path, including Admin/MFA denials, persistent
-switching, cross-backend denial, stale token, poster retry and saved-result reuse.
-Both native Linux staging lists include the new helper/imports.
-Run35431293437 passed 1301 route cases and FFmpeg but stopped at the launcher
-self-test: it mistook the preceding media-image upload for native evidence.
-The existing launcher/staging test now uniquely identifies the native step and
-artifact in both normal and Full callers, then checks its path and runner context.
-An unrelated preceding upload passes; missing/duplicate native identity, wrong
-path and pre-runner context fail. Caller: `node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs`
-inside `test:q2-runtime`; neither upload ordering nor native acceptance is bypassed.
-Run35574133948 exposed a second fixture assumption: global first/last environment
-removal targeted the added repair-smoke step instead of the actual Worker caller.
-The same negative control now locates each unique preflight/Worker execution step
-inside its job before removing its artifact environment. Both callers must reject
-the mutation; unrelated steps and the production guard remain unchanged.
-`test:homepage-ffmpeg-processor` and the selected existing Worker job's
 ### Canvas versioned music exports (2026-09-27)
 
 The legacy empty-body export keyed only video sources, returned an existing
@@ -416,6 +394,52 @@ music output before frontend continuation. Local layered fixtures do not certify
 the live browser-to-container path; CI, activation and durable smoke receipts are
 separate evidence. No paid generation is involved.
 
+Save follow-up, 2026-09-27: `58e3adc3`, run `36345673640/1`, passed Worker/image
+acceptance and 250 Assets cases, then failed WebKit EN aggregate Save (234 Canvas
+cases passed; counts overlap). Browser proof/deployment skipped. Artifact
+`playwright-report-selected` / `10940593821` shows no Save request, not a backend
+rejection. Controlled macOS and Linux WebKit traces reproduce a concrete defect:
+metadata changes the unsized preview from 267×133.5 to 267×200.25 during a press;
+Save moves 66.75px, pointer-up hits video and click targets the parent. The original
+CI artifact has no pointer trace, so this is an evidenced matching mechanism, not
+proof excluding every alternative historical cause. Reserve the aggregate video
+box before metadata, retaining object-fit contain, and keep saved-version status
+visible after refresh. The same EN/DE test now keeps ordinary clicks plus a
+request-gated metadata-during-press countercheck, target/geometry evidence, exactly
+one Save, saved-state success and all later rerender/retention/H3 assertions.
+WebKit retains the incident MP4; Chromium's new metadata check uses synthetic VP8
+because the local Linux bundled browser cannot decode H264. Both existing selected
+Assets and Canvas CI callers discover these cases; no selector or retry change.
+Final local repaired-build acceptance: 254 Assets and 239 Canvas/Auth cases passed
+on macOS, no retries; eight focused cases passed in Playwright 1.58.2 Linux ARM64.
+The broader ARM run hit H264 decoder failures and was stopped; an overlapping
+local run lost its shared server and was replaced by the isolated passing run.
+Those retained failures are not passes. Final-SHA Linux CI and publication receipts
+remain required; unchanged Worker/image checks from the failed run are not a new
+candidate certificate.
+
+### Private media dispatch and backend assignment (2026-09-19)
+Private exports/posters previously depended on the public 600-second dispatcher
+cooldown and cron. Durable acceptance now wakes the existing video queue;
+atomic start fencing and finish/recheck cover duplicate delivery, lost response,
+crash and new work after a claim. Migration 0089 pins backend per job; completion,
+source and poster routes enforce it. Native `test:q2-runtime -- --suite canvas`
+executes the actual queue/fetch/D1 path, including Admin/MFA denials, persistent
+switching, cross-backend denial, stale token, poster retry and saved-result reuse.
+Both native Linux staging lists include the new helper/imports.
+Run35431293437 passed 1301 route cases and FFmpeg but stopped at the launcher
+self-test: it mistook the preceding media-image upload for native evidence.
+The existing launcher/staging test now uniquely identifies the native step and
+artifact in both normal and Full callers, then checks its path and runner context.
+An unrelated preceding upload passes; missing/duplicate native identity, wrong
+path and pre-runner context fail. Caller: `node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs`
+inside `test:q2-runtime`; neither upload ordering nor native acceptance is bypassed.
+Run35574133948 exposed a second fixture assumption: global first/last environment
+removal targeted the added repair-smoke step instead of the actual Worker caller.
+The same negative control now locates each unique preflight/Worker execution step
+inside its job before removing its artifact environment. Both callers must reject
+the mutation; unrelated steps and the production guard remain unchanged.
+`test:homepage-ffmpeg-processor` and the selected existing Worker job's
 `private-media-image.mjs` run shared FFmpeg tests; the latter kills/restarts the
 real Container HTTP/child process in the immutable Linux image. `test:auth` runs
 Admin service tests in Chromium/WebKit with synthetic responses (not live E2E).
