@@ -1,46 +1,77 @@
 import { canvasApi } from './api.js?v=__ASSET_VERSION__';
 
-export function renderCanvasFullVideo({section,output,projectId,german,signal,video}) {
+export function renderCanvasFullVideo({section,output,projectId,german,signal,video,music=[],settings,onSettings=()=>{},flush=async()=>true}) {
     if (!output.runId) return;
     const copy=german?{
         create:'Gesamtes Video erstellen',retry:'Verarbeitung wiederholen',queued:'Gesamtvideo wartet auf Verarbeitung.',processing:'Gesamtvideo wird zusammengefügt.',
         preview_pending:'Video gespeichert. Vorschau wird erstellt.',ready:'Gesamtvideo bereit.',failed:'Verarbeitung fehlgeschlagen.',
         unavailable:'Gesamtvideo nicht verfügbar. Quellen oder Herkunft prüfen.',download:'Gesamtvideo herunterladen',poster:'Vorschau wird erstellt.',posterFailed:'Video verfügbar. Vorschau konnte nicht erstellt werden.',
-        refresh:'Status aktualisieren',
-    }:{create:'Create full video',retry:'Retry processing',queued:'Full video is queued.',processing:'Joining full video.',preview_pending:'Video saved. Preparing preview.',ready:'Full video ready.',failed:'Processing failed.',unavailable:'Full video unavailable. Check sources and provenance.',download:'Download full video',poster:'Preparing preview.',posterFailed:'Video available. Preview could not be created.',refresh:'Refresh status'};
+        refresh:'Status aktualisieren',again:'Gesamtes Video erneut erstellen',music:'Musik als Hintergrund hinzufügen',volume:'Musiklautstärke',save:'Gesamtvideo in Assets speichern',saved:'Diese Version ist in Assets gespeichert.',ambiguous:'Genau eine fertige Musikquelle nur für den Export verbinden.',savingFailed:'Canvas-Einstellungen konnten nicht gespeichert werden.',
+    }:{create:'Create full video',retry:'Retry processing',queued:'Full video is queued.',processing:'Joining full video.',preview_pending:'Video stored. Preparing preview.',ready:'Full video ready.',failed:'Processing failed.',unavailable:'Full video unavailable. Check sources and provenance.',download:'Download full video',poster:'Preparing preview.',posterFailed:'Video available. Preview could not be created.',refresh:'Refresh status',again:'Create full video again',music:'Add music as background',volume:'Music volume',save:'Save full video to Assets',saved:'This version is saved to Assets.',ambiguous:'Connect exactly one completed music source for export only.',savingFailed:'Canvas settings could not be saved.'};
     const block=document.createElement('div');block.className='canvas-full-video';section.append(block);
+    const controls=document.createElement('div'),message=document.createElement('p'),preview=document.createElement('div');
+    message.setAttribute('role','status');message.setAttribute('aria-label',german?'Exportstatus':'Export status');block.append(controls,message,preview);
+    let selected={enabled:settings?.enabled===true,gain:Number.isFinite(settings?.gain)?Math.max(0,Math.min(1,settings.gain)):1};
+    const eligibleMusic=music.length===1 && music[0].kind==='audio_asset' && Boolean(music[0].assetId);
+    if(music.length || selected.enabled) {
+        const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.checked=selected.enabled;check.disabled=!eligibleMusic&&!selected.enabled;
+        label.className='canvas-field';
+        label.append(check,document.createTextNode(copy.music));controls.append(label);
+        const volume=document.createElement('label'),slider=document.createElement('input'),value=document.createElement('output');
+        slider.type='range';slider.min='0';slider.max='100';slider.step='1';slider.value=String(Math.round(selected.gain*100));
+        volume.className='canvas-field';slider.setAttribute('aria-valuetext',`${slider.value}%`);
+        value.textContent=`${slider.value}%`;volume.append(document.createTextNode(copy.volume+' '),slider,value);controls.append(volume);
+        const change=()=>{selected={enabled:check.checked,gain:Number(slider.value)/100};value.textContent=`${slider.value}%`;slider.setAttribute('aria-valuetext',value.textContent);onSettings(selected);};
+        check.addEventListener('change',change,{signal});slider.addEventListener('input',change,{signal});
+        if(!eligibleMusic){const warning=document.createElement('p');warning.textContent=copy.ambiguous;controls.append(warning);}
+        const help=document.createElement('p');help.className='canvas-muted';help.textContent=german?'100% = Originalpegel der Musik vor dem Übersteuerungsschutz. Der Videoton bleibt erhalten. Änderungen gelten erst beim nächsten Export.':'100% = original music level before peak protection. Original video sound is retained. Changes apply only on the next export.';controls.append(help);
+    }
+    const createButton=document.createElement('button');createButton.type='button';createButton.className='canvas-button canvas-button--primary';createButton.textContent=copy.create;createButton.hidden=true;controls.append(createButton);
+    createButton.addEventListener('click',()=>void update(true),{signal});
     const posterStatus=document.createElement('p');posterStatus.className='canvas-muted';section.append(posterStatus);
-    let timer,reads=0,busy=false,resultVideo=null,previous=null,posterRetry=null;
+    let timer,reads=0,busy=false,resultVideo=null,previous=null,posterRetry=null,requestKey=null,requestSettings=null;
     const originalId=output.assetId||output.asset?.id;
     signal.addEventListener('abort',()=>{clearTimeout(timer);resultVideo?.pause();},{once:true});
     async function update(create=false) {
         if(signal.aborted||busy)return;busy=true;clearTimeout(timer);
-        const result=await canvasApi.fullVideo(projectId,output.runId,create,signal);
+        createButton.disabled=true;
+        if(create) {
+            if(selected.enabled && !eligibleMusic){message.textContent=copy.ambiguous;busy=false;createButton.disabled=false;return;}
+            if(!await flush()){message.textContent=copy.savingFailed;busy=false;createButton.disabled=false;return;}
+            if(signal.aborted)return;
+            if(!requestKey){requestKey=crypto.randomUUID();requestSettings={...selected};}
+        }
+        const result=await canvasApi.fullVideo(projectId,output.runId,create,signal,{backgroundMusic:requestSettings||selected},requestKey);
         if(signal.aborted)return;
         busy=false;
+        if(create && (result.ok || (result.status>=400 && result.status<500))){requestKey=null;requestSettings=null;}
+        createButton.disabled=false;
         const status=result.data?.export;
         const signature=JSON.stringify([result.ok,result.code,result.data]);
         if(signature!==previous) {
         previous=signature;
         const fragment=document.createDocumentFragment();
         if(!result.ok) {
-            const message=document.createElement('p');message.textContent=`${copy.unavailable} (${result.code})`;fragment.append(message);
+            message.textContent=`${copy.unavailable} (${result.code})`;
         } else if(result.data.eligible) {
-            if(status) {const label=document.createElement('p');label.setAttribute('role','status');label.textContent=copy[status.status]||copy.failed;fragment.append(label);}
-            if(!status || status.status==='failed') {
-                const button=document.createElement('button');button.type='button';button.className='canvas-button canvas-button--primary';button.textContent=status?copy.retry:copy.create;
-                button.addEventListener('click',()=>{button.disabled=true;void update(true);},{signal});fragment.append(button);
-            }
-            if(status?.asset) {
+            message.textContent=status?(copy[status.status]||copy.failed):'';
+            createButton.hidden=false;createButton.textContent=status?copy.again:copy.create;
+            createButton.disabled=['queued','processing'].includes(status?.status);
+            const current=result.data.current||status;
+            if(current?.asset) {
                 if(!resultVideo) {resultVideo=document.createElement('video');resultVideo.controls=true;resultVideo.preload='metadata';}
-                if(resultVideo.getAttribute('src')!==status.asset.file_url)resultVideo.src=status.asset.file_url;
-                if(status.asset.poster_url)resultVideo.poster=status.asset.poster_url;
+                if(resultVideo.getAttribute('src')!==current.asset.file_url){resultVideo.src=current.asset.file_url;resultVideo.removeAttribute('poster');}
+                if(current.asset.poster_url)resultVideo.poster=current.asset.poster_url;
                 fragment.append(resultVideo);
-                const link=document.createElement('a');link.href=status.asset.file_url+'?download=1';link.textContent=copy.download;link.download='canvas-full-video.mp4';fragment.append(link);
+                const link=document.createElement('a');link.href=current.asset.file_url+'?download=1';link.textContent=copy.download;link.download='canvas-full-video.mp4';fragment.append(link);
+                if(current.storage==='canvas') {
+                    const save=document.createElement('button');save.type='button';save.className='canvas-button';save.textContent=copy.save;
+                    save.addEventListener('click',async()=>{save.disabled=true;const saved=await canvasApi.fullVideo(projectId,output.runId,true,signal,{saveExportId:current.id});if(signal.aborted)return;if(saved.ok){message.textContent=copy.saved;void update();}else{message.textContent=copy.unavailable;save.disabled=false;}},{signal});fragment.append(save);
+                }
+                preview.replaceChildren(fragment);
             }
         }
         // Only the processing section changes; form drafts/selection stay intact.
-        block.replaceChildren(fragment);
         }
         if(originalId && !output.previewUrl) {
             const project=await canvasApi.getProject(projectId,signal);

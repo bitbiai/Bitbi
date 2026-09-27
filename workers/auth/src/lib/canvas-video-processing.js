@@ -39,25 +39,27 @@ export async function canvasVideoChain(env,userId,projectId,runId) {
   return sources;
 }
 
-export async function enqueueCanvasProcessing(env,{userId,projectId,runId,kind,sources,assetId=null}) {
-  const id=(await sha256Hex(JSON.stringify(['canvas-processing-v1',userId,projectId,kind,assetId,sources]))).slice(0,32),now=nowIso();
+export async function enqueueCanvasProcessing(env,{userId,projectId,runId,kind,sources,assetId=null,recipe=null,requestKey=null}) {
+  const id=(await sha256Hex(JSON.stringify(recipe?['canvas-export-v2',userId,projectId,runId,requestKey]:['canvas-processing-v1',userId,projectId,kind,assetId,sources]))).slice(0,32),now=nowIso();
   await env.DB.prepare(`INSERT OR IGNORE INTO canvas_video_processing
-    (id,user_id,project_id,run_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at,processing_backend,thumbnail_backend) VALUES(?,?,?,?,?,?,?,?,?,?,${kind==='concat'?MEDIA_BACKEND_SQL:THUMBNAIL_BACKEND_SQL},${THUMBNAIL_BACKEND_SQL})`)
-    .bind(id,userId,projectId,runId,kind,JSON.stringify(sources),assetId,now,now,now).run();
+    (id,user_id,project_id,run_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at,processing_backend,thumbnail_backend,recipe_json) VALUES(?,?,?,?,?,?,?,?,?,?,${recipe?"'cloudflare'":kind==='concat'?MEDIA_BACKEND_SQL:THUMBNAIL_BACKEND_SQL},${THUMBNAIL_BACKEND_SQL},?)`)
+    .bind(id,userId,projectId,runId,kind,JSON.stringify(sources),assetId,now,now,now,recipe?JSON.stringify(recipe):null).run();
   const row=await env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=? AND user_id=?').bind(id,userId).first();
+  if(recipe && row.recipe_json!==JSON.stringify(recipe))throw canvasProcessingError('canvas_export_idempotency_conflict');
   if(row?.status==='queued')await notifyPrivateMedia(env,row.processing_backend);
   return row;
 }
 
 export function publicCanvasProcessing(row) {
-  return {id:row.id,run_id:row.run_id,status:row.status,error_code:row.error_code||null,
+  return {id:row.id,run_id:row.run_id,status:row.status,error_code:row.error_code||null,storage:row.recipe_json?(row.export_state==='saved'?'assets':'canvas'):'assets',recipe:row.recipe_json?JSON.parse(row.recipe_json):null,
     asset:row.asset_id?{id:row.asset_id,file_url:`/api/ai/text-assets/${row.asset_id}/file`,poster_url:row.status==='ready'?`/api/ai/text-assets/${row.asset_id}/poster`:null}:null};
 }
 
-export async function claimCanvasProcessing(env,kind,limit,backend='github') {
+export async function claimCanvasProcessing(env,kind,limit,backend='github',recipeProtocol=false) {
   const now=nowIso();
   const rows=await env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE
     ${kind==='poster'?"((kind='poster' AND status IN ('queued','processing')) OR status='preview_pending')":"kind='concat' AND status IN ('queued','processing')"}
+    AND ${kind==='poster'||recipeProtocol?'1=1':'recipe_json IS NULL'}
     AND ${kind==='poster'?"CASE WHEN status='preview_pending' THEN thumbnail_backend ELSE processing_backend END":'processing_backend'}=? AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?) AND attempt_count<8 ORDER BY next_attempt_at LIMIT ?`).bind(backend,now,now,limit).all();
   const claimed=[];
   for(const row of rows.results||[]) {

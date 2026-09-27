@@ -10,7 +10,7 @@ export async function handleAssetDetails(ctx, kind, id) {
   const table = kind === 'images' ? 'ai_images' : 'ai_text_assets';
   const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id=? AND user_id=?
     AND NOT EXISTS(SELECT 1 FROM member_generation_unready_assets WHERE id=?)
-    AND NOT EXISTS(SELECT 1 FROM canvas_media_outputs WHERE asset_id=? AND state<>'saved')`)
+    AND NOT EXISTS(SELECT 1 FROM canvas_asset_dispositions WHERE asset_id=? AND state<>'saved')`)
     .bind(id, session.user.id, id, id).first();
   const reply = (body, status = 200) => json(body, { status, headers: { 'Cache-Control': 'private, no-store' } });
   if (!row) return reply({ ok: false, code: 'not_found' }, 404);

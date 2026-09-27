@@ -1404,16 +1404,19 @@ class MockD1 {
     // folder/cursor parser, but apply the view's SQL semantics before LIMIT.
     const unreadyTables = new Set(), canvasTables = new Set();
     this.state.canvasMediaOutputs ||= [];
+    this.state.canvasExportVersions ||= [];
     for (const table of ['ai_images', 'ai_text_assets']) {
-      const canvasPredicate = `NOT EXISTS(SELECT 1 FROM canvas_media_outputs canvas WHERE canvas.asset_id=${table}.id AND canvas.state<>'saved')`;
-      if(query.includes(canvasPredicate)) {canvasTables.add(table);query=query.replace(`WHERE ${canvasPredicate} AND `,'WHERE ').replace(` AND ${canvasPredicate}`,'');}
+      for(const view of ['canvas_media_outputs','canvas_asset_dispositions']) {
+        const canvasPredicate = `NOT EXISTS(SELECT 1 FROM ${view} canvas WHERE canvas.asset_id=${table}.id AND canvas.state<>'saved')`;
+        if(query.includes(canvasPredicate)) {canvasTables.add(table);query=query.replace(`WHERE ${canvasPredicate} AND `,'WHERE ').replace(` AND ${canvasPredicate}`,'');}
+      }
       const predicate = `NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=${table}.id)`;
       if (query.includes(predicate)) {
         unreadyTables.add(table);
         query = query.replace(`WHERE ${predicate} AND `, 'WHERE ').replace(` AND ${predicate}`, '');
       }
     }
-    const visibleGeneration = (row, table) => (!canvasTables.has(table) || !this.state.canvasMediaOutputs.some(c=>c.asset_id===row.id&&c.state!=='saved')) && (!unreadyTables.has(table) || !this.state.memberGenerationJobs.some(job =>
+    const visibleGeneration = (row, table) => (!canvasTables.has(table) || ![...this.state.canvasMediaOutputs,...this.state.canvasExportVersions.map(v=>({...v,asset_id:v.id}))].some(c=>c.asset_id===row.id&&c.state!=='saved')) && (!unreadyTables.has(table) || !this.state.memberGenerationJobs.some(job =>
       job.id === row.id && this.state.memberAiUsageAttempts.some(attempt => attempt.id === job.usage_attempt_id
         && attempt.billing_status != null && attempt.billing_status !== 'finalized')));
 
@@ -13779,6 +13782,12 @@ class MockD1 {
       const exists=this.state.canvasMediaOutputs.some(row=>row.run_id===run_id);
       if(!exists)this.state.canvasMediaOutputs.push({run_id,user_id,project_id,node_id,asset_id,kind,role:'original',created_at,state:'canvas',saved_at:null});
       return {success:true,meta:{changes:exists?0:1}};
+    }
+    if(query.startsWith('SELECT id,user_id FROM canvas_export_reclaimable')) {
+      // Legacy contract fixtures contain no recipe exports. Their transactional
+      // lifecycle is deliberately exercised by real migrated SQLite/workerd.
+      if(this.state.canvasExportVersions.length)throw new Error('Recipe export cleanup requires native D1 fixture');
+      return {results:[]};
     }
     if(query.startsWith('SELECT') && query.includes('FROM canvas_media_reclaimable')) {
       const rows=this.state.canvasMediaOutputs.filter(c=>c.state==='canvas' && (!query.includes('user_id=? AND') || c.user_id===bindings[0])

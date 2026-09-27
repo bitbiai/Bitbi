@@ -88,6 +88,13 @@ export async function canvasVideoCase(base, name, fixture) {
       .bind(id,pid,owner,id===src?'Source':'Continue',model,JSON.stringify({prompt:'Continue this fixture',duration:h3?4:2,...(h3?{resolution:'768P',h3Roles:{[eid]:'reference_video'}}:grok?{resolution:'480p',size:'848x480'}:{quality:'720p',generateAudio:false})}),asset,output?JSON.stringify(output):null,now,now).run();
   }
   await db.prepare('INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,\'{}\',?,?)').bind(eid,pid,owner,src,dest,now,now).run();
+  if(h3) {
+    const musicNode=(await sha256Hex(name+'export-music')).slice(0,32),musicEdge=(await sha256Hex(name+'export-edge')).slice(0,32);
+    // Deliberately unresolved: export-only music must not even enter provider
+    // readiness/compatibility checks, including H3 first-frame continuation.
+    await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,x,y,created_at,updated_at) VALUES(?,?,?,'music_generation',0,0,?,?)").bind(musicNode,pid,owner,now,now).run();
+    await db.prepare("INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,'{\"purpose\":\"export_background_music\"}',?,?)").bind(musicEdge,pid,owner,musicNode,dest,now,now).run();
+  }
   const request = async (path, method='GET', body, user=owner, key=`canvas-video-${name}`) => {
     const response = await worker.fetch(new Request('https://bitbi.ai'+path, { method, headers: { Cookie:`__Host-bitbi_session=${user}${user===owner && env.testProof ? '; __Host-bitbi_admin_mfa='+env.testProof : ''}`,Origin:'https://bitbi.ai','Content-Type':'application/json','Idempotency-Key':key },body:body?JSON.stringify(body):undefined }),env,{ waitUntil(p){ waits.push(p); } });
     return { status:response.status, body:await response.json() };
@@ -201,6 +208,7 @@ export async function canvasVideoCase(base, name, fixture) {
   check(job.request_key.startsWith('canvas-video-'), 'Server-derived request identity');
   check(result.body.data.run.video_job_id === job.id && result.body.data.run.status === 'running' && result.body.data.run.retry_key, 'Acceptance returns durable UI run identity immediately');
   const pending = (await request(projectPath)).body.data.runs[0];
+  if(h3)check(!JSON.stringify((await db.prepare('SELECT input_json FROM canvas_runs WHERE id=?').bind(pending.id).first()).input_json).includes('export_background_music'),'Export purpose absent from inference snapshot');
   check(pending.video_job_status === 'queued' && pending.video_job_id === job.id, 'Reload restores actual job phase');
   if (name === 'success') {
     // Simulate process death after durable acceptance, before the Canvas write.

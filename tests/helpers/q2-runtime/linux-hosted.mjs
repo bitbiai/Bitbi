@@ -76,6 +76,7 @@ export function stageInputPlan() {
     'workers/auth/package.json', 'workers/auth/package-lock.json', 'workers/auth/wrangler.jsonc',
     'workers/auth/node_modules', 'workers/auth/src', 'workers/auth/migrations', 'workers/auth/recovery',
     'workers/shared', 'js/shared', 'config', 'scripts/lib/release-compat.mjs', 'scripts/lib/worker-sharp.mjs',
+    'scripts/lib/canvas-export-readiness.mjs',
     'tests/helpers/q2-runtime', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs', 'tests/helpers/canvas-processing-control.mjs', 'tests/helpers/private-media-control.mjs', 'tests/q2-runtime-native.mjs',
     'tests/q2-runtime-references.mjs', 'tests/q2-runtime-recovery.mjs',
     'tests/q4-runtime-public-video.mjs', 'tests/q4-runtime-stream.mjs', 'tests/q4-runtime-memory.mjs', 'tests/q4-runtime-video.mjs', 'tests/q4-runtime-subscription.mjs',

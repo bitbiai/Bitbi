@@ -28,6 +28,7 @@ const STATIC_BUILD_RELATED_FILES = new Set([
 
 // Keep this aligned with the shared Worker impact map in release-plan.mjs.
 const SHARED_WORKER_FILE_MAP = new Map([
+  ['js/shared/canvas-export.mjs', ['auth']],
   ["js/shared/appearance-contract.js", ["auth"]],
   ["js/shared/model-pricing-catalog.mjs", ["auth"]],
   ["js/shared/model-tariff.mjs", ["auth", "ai"]],
@@ -97,6 +98,11 @@ const CANVAS_UI_FILES = new Set([
 // Closed Canvas generation/provider/storage integration scope. Unknown runtime/billing inputs
 // continue through ordinary impact selection; chat and native D1 are exercised.
 const CANVAS_TEXT_FILES = new Set([
+  'services/homepage-ffmpeg-processor/canvas-full-video.mjs',
+  'services/homepage-ffmpeg-processor/canvas-full-video.test.mjs',
+  'js/shared/canvas-export.mjs', 'workers/auth/src/lib/canvas-export-recipes.js',
+  'workers/auth/migrations/0096_canvas_export_versions.sql',
+  'workers/auth/src/routes/ai/asset-details.js',
   // Shared generation controls + typed owner assets reuse BOTH existing
   // acceptance jobs; no decorative carousel/provider execution is changed.
   'js/shared/generation-model-order.mjs', 'js/shared/image-dimensions.mjs',
@@ -509,6 +515,7 @@ const RELEASE_TOOLING_FILES = new Set([
   'scripts/check-static-deploy-safety.mjs', 'scripts/release-apply.mjs', 'scripts/frontend-release.mjs',
   'scripts/lib/media-repair-source.mjs', 'scripts/lib/frontend-receipts.mjs', 'scripts/private-media-image.mjs',
   'scripts/lib/backend-continuation.mjs', 'scripts/lib/backend-publication.mjs', 'scripts/lib/image-delivery-acceptance.mjs', 'scripts/lib/media-publication.mjs',
+  'scripts/lib/canvas-export-readiness.mjs',
   'scripts/test-pages-candidate.mjs', 'scripts/test-pages-workflow.mjs', 'scripts/test-static-deploy-safety.mjs',
   'scripts/validate-site-references.mjs',
   'scripts/lib/frontend-hosting.mjs', 'scripts/lib/frontend-source.mjs', 'scripts/test-frontend-hosting.mjs',
@@ -834,7 +841,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       && changedFiles.every(f=>isDocumentation(f)||CANVAS_TEXT_FILES.has(f)||RELEASE_TOOLING_FILES.has(f)||(f===MEMBER_SPEC && isFluxReviewTestChange(memberTestSources)))) {
     selection.canvasText = true;
     selection.workers = selection.auth = selection.static = selection.runtime = true;
-    if (changedFiles.some(file => ['js/shared/asset-type-view.js', 'js/shared/saved-assets-browser.js', 'js/shared/studio-deck.js', 'css/account/assets-manager.css', 'tests/assets-manager-focused.spec.js'].includes(file))) {
+    if (changedFiles.some(file => ['js/shared/asset-type-view.js', 'js/shared/saved-assets-browser.js', 'js/shared/studio-deck.js', 'css/account/assets-manager.css', 'tests/assets-manager-focused.spec.js','workers/auth/src/routes/ai/assets-read.js','workers/auth/src/routes/ai/folders-read.js','workers/auth/src/routes/ai/asset-details.js'].includes(file))) {
       selection.assets = true;
       selection.reasons.assets.push('Independent typed pagination, default cards, picker/owner actions and mobile decks in both engines; native Canvas suite covers real D1 cursors');
     }

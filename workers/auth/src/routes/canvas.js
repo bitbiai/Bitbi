@@ -4,6 +4,8 @@ import { canvasMediaStatements, canvasMediaEnvironment, saveCanvasMedia, annotat
 import { composeCanvasPrompt } from '../../../../js/shared/canvas-model-contract.mjs';
 import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens } from "../../../../js/shared/grok-text-contract.mjs";
 import { canvasExport } from './canvas-video-processing.js';
+import { isExportMusic } from '../../../../js/shared/canvas-export.mjs';
+import { validateExportEdge } from '../lib/canvas-export-recipes.js';
 import { refreshCanvasVideoOutputs } from '../lib/canvas-video-output.js';
 import { pendingCanvasVideo, readCanvasVideoResult, restoreCanvasVideoJobs } from '../lib/canvas-video-jobs.js';
 import { resolveCanvasVideoInput, canvasVideoMethods } from '../../../../js/shared/canvas-video-input.mjs';
@@ -623,6 +625,7 @@ async function createEdge(ctx, userId, projectId) {
   if (!source || !target) return respond(ctx, { ok: false, error: "Edge nodes must belong to this Canvas project.", code: "node_not_found" }, { status: 404 });
   const label = normalizeText(parsed.body.label || "", { field: "Edge label", max: MAX_EDGE_LABEL });
   const proposed = safeJsonParse(normalizeJsonObject(parsed.body.config, { field: "config" }).encoded, {});
+  await validateExportEdge(ctx.env,userId,projectId,sourceNodeId,targetNodeId,proposed);
   if (proposed.videoInput) { proposed.videoInput = { ...proposed.videoInput }; delete proposed.videoInput.frame; }
   const config = normalizeJsonObject(proposed, { field: "config" });
   const id = randomTokenHex(16);
@@ -654,6 +657,7 @@ async function updateEdge(ctx, userId, projectId, edgeId) {
   const proposed = Object.prototype.hasOwnProperty.call(parsed.body, "config")
     ? safeJsonParse(normalizeJsonObject(parsed.body.config, { field: "config" }).encoded, {}) : safeJsonParse(edge.config_json, {});
   const config = normalizeJsonObject(await prepareCanvasVideoEdge(ctx, ctx.canvasUser, edge, proposed, parsed.body.frame_image), { field: "config" });
+  await validateExportEdge(ctx.env,userId,projectId,edge.source_node_id,edge.target_node_id,proposed);
   const now = nowIso();
   await ctx.env.DB.prepare("UPDATE canvas_edges SET label = ?, config_json = ?, updated_at = ? WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL").bind(label || null, config.encoded, now, edgeId, projectId, userId).run();
   return respond(ctx, { ok: true, data: { edge: edgeRecord({ ...edge, label, config_json: config.encoded, updated_at: now }) } });
@@ -792,6 +796,9 @@ async function resolveCanvasNodeInputs(env, userId, projectId, node, model) {
   const directPrompt = String(config.prompt || content.prompt || content.text || "").trim();
   const sources = [];
   for (const row of rows) {
+    // Exclude before resolving ownership/output/readiness: an export-only edge
+    // cannot block generation or participate in its persisted identity.
+    if (isExportMusic(safeJsonParse(row.edge_config_json, {}))) continue;
     const value = await sourceValue(env, userId, row);
     const kindForCompatibility = value.kind === CANVAS_DATA_KINDS.NONE ? value.expectedKind : value.kind;
     const compatibility = compatibilityForInput(node, model, kindForCompatibility);

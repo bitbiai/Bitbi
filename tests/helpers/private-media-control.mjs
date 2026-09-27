@@ -150,7 +150,8 @@ export async function privateMediaSmokeCase(base,fixture) {
     const token=backend==='github'?'synthetic-github':'synthetic-container';
     const fetch=async(url,body,extra={})=>worker.fetch(new Request('https://bitbi.ai'+url,{method:'POST',headers:{Authorization:`Bearer ${token}`,...(body instanceof FormData?{}:{'Content-Type':'application/json'}),...extra},body:body instanceof FormData?body:JSON.stringify(body)}),env,{waitUntil(){}});
     const baseUrl='/api/internal/homepage/hero-videos/canvas-exports/jobs';
-    const response=await fetch(baseUrl+'/claim',{protocol:1,limit:3});assert.equal(response.status,200);const job=(await response.json()).data.jobs.find(j=>j.sources.length===2);assert(job);
+    const response=await fetch(baseUrl+'/claim',{protocol:1,recipeProtocol:2,limit:3});assert.equal(response.status,200);const job=(await response.json()).data.jobs.find(j=>j.sources.filter(s=>s.kind==='video').length===2);assert(job);
+    if(backend==='cloudflare'){assert.equal(job.backgroundMusic.gain,0.5);assert.equal(job.sources.at(-1).kind,'music');}
     const form=new FormData();form.set('video',new Blob([video],{type:'video/mp4'}),'synthetic.mp4');form.set('duration','2');form.set('width','320');form.set('height','180');
     const completed=await fetch(job.completion.url,form,{'X-BITBI-Canvas-Claim':job.claim});assert.equal(completed.status,200);
     const posterResponse=await fetch('/api/internal/homepage/hero-videos/source-posters/jobs/claim?member_only=true',{member_only:true,limit:8});assert.equal(posterResponse.status,200);

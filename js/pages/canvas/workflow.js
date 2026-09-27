@@ -3,6 +3,7 @@ import { isGptImage25Model, normalizeGptImage25Options } from '../../shared/gpt-
 import { H3_MODEL, h3References } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { composeCanvasPrompt } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
 import { canvasVideoMethods, resolveCanvasVideoInput } from '../../shared/canvas-video-input.mjs?v=__ASSET_VERSION__';
+import { isExportMusic } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 const GENERATION_CAPABILITY = Object.freeze({
     text_generation: 'text',
     image_generation: 'image',
@@ -86,7 +87,7 @@ export function analyzeNodeInputs(target, nodes, edges, models, copy) {
         || models.find((item) => item.capability === GENERATION_CAPABILITY[target?.type] && item.runnable)
         || null;
     const incoming = edges
-        .filter((edge) => edge.target_node_id === target?.id)
+        .filter((edge) => edge.target_node_id === target?.id && !isExportMusic(edge.config))
         .map((edge, index) => ({ edge, index, source: nodes.find((node) => node.id === edge.source_node_id) }))
         .filter((item) => item.source);
     if (isGptImage25Model(model?.id)) {
@@ -159,7 +160,7 @@ export function upstreamDisplayNode(node, nodes, edges, visited = new Set()) {
     if (node.output || node.content?.asset) return node;
     if (node.type !== 'output_result') return node;
     const candidates = edges
-        .filter((edge) => edge.target_node_id === node.id)
+        .filter((edge) => edge.target_node_id === node.id && !isExportMusic(edge.config))
         .map((edge) => nodes.find((item) => item.id === edge.source_node_id))
         .filter(Boolean)
         .reverse();

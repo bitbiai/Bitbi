@@ -424,6 +424,7 @@ test('Canvas reference fixture reads the staged bytes from a non-repository cwd'
   const bytes = fs.readFileSync(path.join(root, fixtureName));
   const digest = createHash('sha256').update(bytes).digest('hex');
   f.put(moduleName, source);
+  f.put('scripts/lib/canvas-export-readiness.mjs',read('scripts/lib/canvas-export-readiness.mjs'));
   f.put(fixtureName, bytes);
   const child = `
     import assert from 'node:assert/strict';
@@ -432,9 +433,11 @@ test('Canvas reference fixture reads the staged bytes from a non-repository cwd'
     const reached = new Error('fixture read reached');
     const f = {
       migrations: [],
+      rows: async sql => sql.includes('sqlite_schema') ? Array.from({length:7},()=>({name:'synthetic-guard'})) : [],
       sql: () => ({ run: async () => {} }),
       control: async () => Response.json({ cookie: 'synthetic' }),
       test: async (name, operation) => {
+        if(name==='canvas_export_release_schema_queries'){await operation();return;}
         assert.equal(name, 'image25_native_owned_reference_boundary_and_unverified_tariff_blocks_dispatch');
         await operation();
       },

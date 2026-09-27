@@ -4,6 +4,7 @@ import { inspectH3TimeReference } from './h3-reference-metadata.js';
 import { enqueueAdminAuditEvent } from './activity.js';
 import { sha256Hex,nowIso } from './tokens.js';
 import { ownedCanvasVideo } from './canvas-video-input.js';
+import { ownedCanvasMusic } from './canvas-export-recipes.js';
 import { putNewManagedR2Object } from './r2-cleanup.js';
 import { notifyPrivateMedia,privateMediaStatus,setPrivateMediaService } from './private-media-service.js';
 const referenceFixtureHash='2c67d78cda7252be0cb6ef14396d92abb3b7193940ecc977a5c9fcc823bd1609';
@@ -90,9 +91,22 @@ export async function privateMediaSmoke(env,body) {
     }
     // Synthetic jobs alone select their test backend. The actual user setting
     // is never changed by a release smoke; native tests cover atomic switching.
+    let music=null;
+    if(backend==='cloudflare') {
+      // Fixed 40 ms, 1 kHz, quarter-scale PCM. No caller-selected media or AI.
+      const asset=await id(project+':music'),key=`users/${owner}/release/${asset}.wav`,wav=new Uint8Array(44+1920*2),view=new DataView(wav.buffer);
+      for(const [offset,text] of [[0,'RIFF'],[8,'WAVE'],[12,'fmt '],[36,'data']])for(let i=0;i<text.length;i++)wav[offset+i]=text.charCodeAt(i);
+      view.setUint32(4,wav.length-8,true);view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);view.setUint32(24,48000,true);view.setUint32(28,96000,true);view.setUint16(32,2,true);view.setUint16(34,16,true);view.setUint32(40,wav.length-44,true);
+      for(let i=0;i<1920;i++)view.setInt16(44+i*2,Math.round(8191*Math.sin(2*Math.PI*1000*i/48000)),true);
+      if(!await env.USER_IMAGES.head(key))await putNewManagedR2Object(env,key,wav,{httpMetadata:{contentType:'audio/wav'}});
+      const stored=await env.USER_IMAGES.get(key);if(!stored||await digest(await stored.arrayBuffer())!==await digest(wav))fail();
+      await env.DB.prepare("INSERT OR IGNORE INTO ai_text_assets(id,user_id,r2_key,title,file_name,source_module,mime_type,size_bytes,metadata_json,created_at) VALUES(?,?,?,'Synthetic export music','music.wav','music','audio/wav',?,'{}',?)").bind(asset,owner,key,wav.length,now).run();
+      const source=await ownedCanvasMusic(env,owner,asset);music={kind:'music',assetId:asset,version:source.version,size:source.size};
+    }
     const insert=(kind,chain,assetId=null)=>env.DB.prepare(`INSERT OR IGNORE INTO canvas_video_processing
-      (id,user_id,project_id,run_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at,processing_backend,thumbnail_backend)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).bind(kind==='concat'?project:chain[0].assetId,owner,project,chain.at(-1).runId,kind,JSON.stringify(chain),assetId,now,now,now,backend,backend);
+      (id,user_id,project_id,run_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at,processing_backend,thumbnail_backend,recipe_json)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(kind==='concat'?project:chain[0].assetId,owner,project,chain.at(-1).runId,kind,JSON.stringify([...chain,...(kind==='concat'&&music?[music]:[])]),assetId,now,now,now,backend,backend,
+        kind==='concat'&&music?JSON.stringify({version:1,videos:chain,music,backgroundMusic:{enabled:true,gain:0.5}}):null);
     await env.DB.batch([insert('concat',sources),...sources.map(s=>insert('poster',[s],s.assetId))]);
     // Exercise the public-preview producers without publishing a gallery asset
     // or assigning a live Hero slot. Originals remain owned by the disabled

@@ -760,6 +760,17 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
 }
 
 {
+ const files=['workers/auth/src/routes/canvas.js','js/shared/canvas-export.mjs','workers/auth/src/lib/canvas-export-recipes.js',
+ 'workers/auth/migrations/0096_canvas_export_versions.sql','workers/auth/src/routes/ai/assets-read.js',
+ 'services/homepage-ffmpeg-processor/canvas-full-video.mjs','services/homepage-ffmpeg-processor/canvas-full-video.test.mjs','scripts/lib/canvas-export-readiness.mjs'];
+ const selected=selection(files);assert(selected.canvasText&&selected.workers&&selected.auth&&selected.assets);
+ assert(!selected.full&&!selected.homepageMedia&&!selected.carousel);
+ assert(requiredJobs(selected)['worker-validation'].includes('Build and test private media Linux image'));
+ assert.notEqual(selection([...files,'workers/auth/src/lib/session.js']).canvasText,true);
+ assert.notEqual(selection([...files,'services/homepage-ffmpeg-processor/unknown.mjs']).canvasText,true);
+}
+
+{
  const files=['workers/media/src/index.js','workers/media/package-lock.json','scripts/private-media-image.mjs','tests/helpers/private-media-control.mjs','js/pages/admin/private-media-service.js'];
  const selected=selectCiTests(files);assert.equal(selected.workers,true);assert.equal(selected.auth,true);assert.equal(selected.full,false);
  assert.equal(selected.homepage,false);assert.equal(selected.carousel,false);

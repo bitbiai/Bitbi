@@ -1,4 +1,5 @@
 import os from 'node:os';
+import {verifyCanvasExportSchema} from './canvas-export-readiness.mjs';
 import {captureImageDeliveryRecovery,verifyImageDeliveryRecovery,verifyImageDeliveryEvidence} from './image-delivery-acceptance.mjs';
 import {createHash} from 'node:crypto';
 import {publishMedia,mediaActive,mediaSmoke,assertMediaAuthConfig,verifyMediaEvidence} from './media-publication.mjs';
@@ -331,13 +332,14 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
   assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Required schema not active');
   prerequisites(c.plan,state.version,c.config);
+  await verifyCanvasExportSchema(sql=>query(c.db,sql));
   if(c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js'))verifyImageDeliveryEvidence(receipt.imageDelivery);
   await verifyAuthTriggers(c.config);
   await ensurePrivateVideoLogging({verifyOnly:true});
   await verifyAuthBundle(receipt.authBundleDigest);
   if(c.plan.workerDeploys.some(s=>s.worker==='ai')) {assert(receipt.ai,'Missing AI prerequisite receipt');await verifyAiActivation(receipt.ai,c.sha);await verifyAuthBundle(receipt.ai.bundleDigest,undefined,'bitbi-ai');}
   if(requiresPrivateMediaImage(c.plan.changedFiles)) {
-    verifyMediaEvidence(receipt,{sha:c.sha,...mediaEvidenceRun(),lifecycle:true,publicPreviews:c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql'),videoReferences:true});
+    verifyMediaEvidence(receipt,{sha:c.sha,...mediaEvidenceRun(),lifecycle:true,publicPreviews:c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql'),videoReferences:true,exportMusic:c.plan.changedFiles.includes('workers/auth/migrations/0096_canvas_export_versions.sql')});
     await mediaActive(receipt.media,backendEnv());
     if(c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql')) {
       const activation=receipt.smoke.find(s=>s.backend==='cloudflare')?.thumbnailActivation;
@@ -389,7 +391,7 @@ export async function publishBackend() {
   const pending=fs.readdirSync('workers/auth/migrations').filter(f=>f.endsWith('.sql')&&!applied.has(f));
   // This authority covers the reviewed additive Canvas migration only. Future
   // schema changes need their own reviewed release support.
-  assert(pending.every(f=>['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql'].includes(f)),'Unexpected pending migrations');
+  assert(pending.every(f=>['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql','0096_canvas_export_versions.sql'].includes(f)),'Unexpected pending migrations');
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-backend-secret-'));
   const mediaSourceSha=mediaRequired?c.sha:before.version.resources.bindings.find(b=>b.name==='PRIVATE_MEDIA_SOURCE_SHA')?.text;
   assert(/^[a-f0-9]{40}$/.test(mediaSourceSha||''),'Missing existing media source identity');
@@ -409,7 +411,7 @@ export async function publishBackend() {
       assertCurrent:()=>current(c.sha),
       verifyConfiguration:async()=>{await verifyAuthTriggers(c.config);if(before.version.annotations?.['workers/message']===`bitbi-auth:${c.sha}`)await verifyAuthBundle(c.authBundleDigest);},
       applyMigration:()=>run(['d1','migrations','apply','bitbi-auth-db','--remote']),
-      assertSchema:async()=>assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Migration did not apply'),
+      assertSchema:async()=>{assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Migration did not apply');await verifyCanvasExportSchema(sql=>query(c.db,sql));},
       prepareAi:c.plan.workerDeploys.some(s=>s.worker==='ai')?async()=>{ai=await publishAi(c,path.join(temporary,'ai-bundle'));}:undefined,
       prepareMedia:mediaRequired?async()=>{media=await publishMedia(c,mediaSecretFile);}:undefined,
       deploy:()=>activateAuthVersion({sha:c.sha,mediaSourceSha,secretFile,assertCurrent:()=>current(c.sha)}),

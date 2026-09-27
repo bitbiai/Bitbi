@@ -79,6 +79,12 @@ function createCanvasApiMock(page, { authenticated = true, modelPayload = null }
       return fulfill(route, { edge }, 201);
     }
     const edgeMatch = pathname.match(/\/edges\/([a-f0-9]{32})$/);
+    if(edgeMatch && method==='PATCH' && pathname===`/api/account/canvas/projects/${projectId}/edges/${edgeMatch[1]}`) {
+      const edge=state.edges.find(item=>item.id===edgeMatch[1] && item.project_id===projectId);
+      if(!edge)return fulfill(route,{ok:false,code:'edge_not_found'},404);
+      Object.assign(edge,request.postDataJSON(),{updated_at:new Date().toISOString()});
+      return fulfill(route,{edge});
+    }
     if (edgeMatch && method === 'DELETE' && pathname === `/api/account/canvas/projects/${projectId}/edges/${edgeMatch[1]}` && state.edges.some((edge) => edge.id === edgeMatch[1] && edge.project_id === projectId)) {
       state.edges = state.edges.filter((edge) => edge.id !== edgeMatch[1]);
       return fulfill(route, { id: edgeMatch[1], deleted: true });
@@ -702,7 +708,7 @@ for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable exp
   state.runs=[{id:runId,node_id:nodeId,project_id:projectId,status:'completed',output,asset_id:'original',created_at:now,updated_at:now}];
   let posts=0, task=null;
   await page.route('**/api/account/canvas/**/full-video',route=>{
-    if(route.request().method()==='POST'){posts++;expect(route.request().postDataJSON()).toEqual({});task={id:'export',status:'queued'};}
+    if(route.request().method()==='POST'){posts++;expect(route.request().postDataJSON()).toEqual({backgroundMusic:{enabled:false,gain:1}});expect(route.request().headers()['idempotency-key']).toBeTruthy();task={id:'export',status:'queued'};}
     return route.fulfill({json:{ok:true,data:{eligible:true,export:task}}});
   });
   await page.route('**/api/ai/text-assets/*/file',route=>route.fulfill({contentType:'video/mp4',body:fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'))}));
@@ -727,6 +733,78 @@ for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable exp
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await inspector.locator('.canvas-full-video').scrollIntoViewIfNeeded();
   await page.screenshot({path:testInfo.outputPath(`canvas-full-video-${locale}.png`)});
+});
+
+for (const locale of ['en','de']) test(`Canvas full video music ${locale}: explicit versions, persisted gain and saved preview`,async({page})=>{
+  await page.setViewportSize(locale==='de'?{width:390,height:844}:{width:1024,height:768});
+  await mockSharedAuth(page);
+  const state=createCanvasApiMock(page),projectId='1'.repeat(32),nodeId='2'.repeat(32),runId='3'.repeat(32),musicId='4'.repeat(32),now=new Date().toISOString();
+  const output={kind:'video',runId,assetId:'original',previewUrl:'/api/ai/text-assets/original/poster',asset:{id:'original',file_url:'/api/ai/text-assets/original/file'}};
+  state.projects=[{id:projectId,title:'Synthetic music export',locale,created_at:now,updated_at:now}];
+  state.nodes=[{id:nodeId,project_id:projectId,type:'video_generation',model_id:'minimax/h3',title:'Clip 2',x:100,y:100,config:{prompt:'Synthetic clip'},content:{},output,asset_id:'original',created_at:now,updated_at:now},
+    {id:musicId,project_id:projectId,type:'music_generation',title:'Music',x:100,y:400,config:{},content:{},output:{kind:'audio',asset:{id:'music',asset_type:'music',mime_type:'audio/wav',file_url:'/api/ai/text-assets/music/file'}},created_at:now,updated_at:now}];
+  state.edges=[{id:'5'.repeat(32),project_id:projectId,source_node_id:musicId,target_node_id:nodeId,config:{},created_at:now}];
+  state.runs=[{id:runId,node_id:nodeId,project_id:projectId,status:'completed',output,asset_id:'original',created_at:now,updated_at:now}];
+  let task=null,current=null;const exports=[],saved=[];
+  await page.route('**/api/account/canvas/**/full-video',route=>{
+    if(route.request().method()==='POST') {
+      const body=route.request().postDataJSON();
+      if(body.saveExportId){saved.push(body.saveExportId);current.storage='assets';return route.fulfill({json:{ok:true,data:{asset_id:body.saveExportId,storage:'assets'}}});}
+      exports.push({body,key:route.request().headers()['idempotency-key']});task={id:`version-${exports.length}`,status:'queued',storage:'canvas'};
+    }
+    return route.fulfill({json:{ok:true,data:{eligible:true,export:task,current}}});
+  });
+  await page.route('**/api/ai/text-assets/*/file',route=>route.fulfill({contentType:'video/mp4',body:fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'))}));
+  await page.route('**/api/ai/text-assets/*/poster',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg"/>'}));
+  const open=async()=>{await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${nodeId}"]`).first().click();if(locale==='de')await page.locator('#canvasInspectorToggle').click();};
+  await open();const block=page.locator('.canvas-full-video'),inspector=page.locator('#canvasInspectorBody');
+  await expect(block.getByRole('checkbox')).toHaveCount(0);
+  if(locale==='de')await page.locator('#canvasInspectorToggle').click();
+  await page.locator('.canvas-edge-hit').press('Enter');
+  if(locale==='de')await page.locator('#canvasInspectorToggle').click();
+  const connectionPurpose=page.getByRole('combobox',{name:locale==='de'?'Verbindungszweck':'Connection purpose',exact:true});
+  await expect(connectionPurpose).toHaveValue('');
+  await connectionPurpose.selectOption('export_background_music');
+  await expect.poll(()=>state.edges[0].config.purpose).toBe('export_background_music');
+  await expect(connectionPurpose).toBeEnabled();
+  await expect(connectionPurpose).toBeFocused();
+  if(locale==='de')await page.locator('#canvasInspectorToggle').click();
+  await page.locator(`[data-node-id="${nodeId}"]`).first().click();
+  if(locale==='de')await page.locator('#canvasInspectorToggle').click();
+  const check=block.getByRole('checkbox',{name:locale==='de'?'Musik als Hintergrund hinzufügen':'Add music as background'});
+  await check.check();const slider=block.getByRole('slider');await slider.focus();await page.keyboard.press('Home');await page.keyboard.press('ArrowRight');
+  await expect(block.locator('output')).toHaveText('1%');
+  await slider.fill('50');await slider.dispatchEvent('input');await expect(block.locator('output')).toHaveText('50%');
+  expect(exports).toHaveLength(0);
+  await block.getByRole('button',{name:locale==='de'?'Gesamtes Video erstellen':'Create full video',exact:true}).click();
+  await expect.poll(()=>exports.length).toBe(1);
+  expect(exports[0].body).toEqual({backgroundMusic:{enabled:true,gain:0.5}});expect(exports[0].key).toBeTruthy();
+  await expect.poll(()=>state.nodes[0].config.backgroundMusic).toEqual({enabled:true,gain:0.5});
+  current={...task,status:'ready',asset:{id:task.id,file_url:'/api/ai/text-assets/version-1/file'}};task=current;
+  await inspector.getByRole('button',{name:locale==='de'?'Status aktualisieren':'Refresh status'}).click();
+  await expect(block.locator('video')).toHaveAttribute('src',current.asset.file_url);
+  await block.getByRole('button',{name:locale==='de'?'Gesamtvideo in Assets speichern':'Save full video to Assets'}).click();await expect.poll(()=>saved).toEqual(['version-1']);
+  await open();await expect(block.getByRole('slider')).toHaveValue('50');await expect(block.getByRole('checkbox')).toBeChecked();
+  await block.getByRole('slider').fill('100');await block.getByRole('slider').dispatchEvent('input');expect(exports).toHaveLength(1);
+  await block.getByRole('button',{name:locale==='de'?'Gesamtes Video erneut erstellen':'Create full video again'}).click();
+  await expect.poll(()=>exports.length).toBe(2);
+  expect(exports[1].body.backgroundMusic.gain).toBe(1);expect(exports[1].key).not.toBe(exports[0].key);
+  await expect(block.locator('video')).toHaveAttribute('src','/api/ai/text-assets/version-1/file');
+  task.status='failed';await inspector.getByRole('button',{name:locale==='de'?'Status aktualisieren':'Refresh status'}).click();
+  await expect(block.getByRole('status',{name:locale==='de'?'Exportstatus':'Export status',exact:true})).toContainText(locale==='de'?'fehlgeschlagen':'failed');
+  await expect(block.locator('video')).toHaveAttribute('src','/api/ai/text-assets/version-1/file');
+  expect(saved).toEqual(['version-1']);expect(exports).toHaveLength(2);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  // Actual frontend analyzer: export-only music is absent; ordinary H3 audio
+  // remains intentional provider input and is never silently reclassified.
+  const analysis=await page.evaluate(async({nodes,edges})=>{
+    const {analyzeNodeInputs}=await import('/js/pages/canvas/workflow.js');
+    const model={id:'minimax/h3',capability:'video',runnable:true,controls:{supportsAudioInput:true}};
+    const excluded=analyzeNodeInputs(nodes[0],nodes,edges,[model],{});
+    const ordinary=analyzeNodeInputs(nodes[0],nodes,edges.map(e=>({...e,config:{}})),[model],{});
+    return {excluded:excluded.sources.length,ordinary:ordinary.sources.map(s=>s.h3Role)};
+  },{nodes:state.nodes,edges:state.edges});
+  expect(analysis).toEqual({excluded:0,ordinary:['reference_audio']});
 });
 
 for (const locale of ['en', 'de']) for (const mobile of [false, true]) for(const role of ['user','admin']) {

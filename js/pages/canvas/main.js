@@ -6,6 +6,7 @@ import { h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION_
 import { H3_MODEL, H3_ROLES, h3MediaType } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { h3RoleLabel } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { renderCanvasFullVideo } from './full-video.js?v=__ASSET_VERSION__';
+import { EXPORT_MUSIC_PURPOSE, isExportMusic } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 import { videoInputCopy, renderVideoInput, awaitCanvasVideo, canvasVideoRunState } from './video-input.js?v=__ASSET_VERSION__';
 import { calculateAiImageCreditCost, calculateAiVideoCreditCost, calculateAiModelCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { estimateCanvasTextCredits, CANVAS_TEXT_PURPOSES, CANVAS_TEXT_DEFAULT_PURPOSE, getCanvasTextInstructions } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
@@ -15,7 +16,7 @@ import { canvasApi } from './api.js?v=__ASSET_VERSION__';
 import { createCanvasAssetPicker } from './asset-picker.js?v=__ASSET_VERSION__';
 import { createCanvasState, createCanvasSaveQueue } from './state.js?v=__ASSET_VERSION__';
 import { createCanvasGraph } from './graph.js?v=__ASSET_VERSION__';
-import { analyzeWorkflow, validationForNode, upstreamDisplayNode } from './workflow.js?v=__ASSET_VERSION__';
+import { analyzeWorkflow, validationForNode, upstreamDisplayNode, nodeOutputValue } from './workflow.js?v=__ASSET_VERSION__';
 
 const isGerman = document.documentElement.lang === 'de';
 const copy = isGerman ? {
@@ -387,7 +388,12 @@ function renderOutput(node) {
     } else if (output.kind === 'video' && output.asset?.file_url) {
         const video = el('video'); video.src = output.asset.file_url; video.controls = true; video.preload = 'metadata'; section.append(video);
         if (output.previewUrl || output.asset.preview_url) video.poster = output.previewUrl || output.asset.preview_url;
-        renderCanvasFullVideo({ section, output, projectId: store.state.project.id, german: isGerman, signal: inspectorAbort.signal, video });
+        const music=store.state.edges.filter(edge=>edge.target_node_id===node.id && isExportMusic(edge.config))
+            .map(edge=>nodeOutputValue(store.state.nodes.find(source=>source.id===edge.source_node_id)));
+        renderCanvasFullVideo({ section, output, projectId: store.state.project.id, german: isGerman, signal: inspectorAbort.signal, video,
+            music, settings:node.config?.backgroundMusic,
+            onSettings:backgroundMusic=>scheduleNode(node,{config:{...node.config,backgroundMusic}}),
+            flush:()=>nodeSave.flush() });
     } else if (output.kind === 'audio' && output.asset?.file_url) {
         const audio = el('audio'); audio.src = output.asset.file_url; audio.controls = true; audio.preload = 'metadata'; section.append(audio);
     } else if (output.kind === 'file' && output.asset?.file_url) {
@@ -478,6 +484,24 @@ function renderInspector() {
         dom.inspectorTitle.textContent = edge ? copy.selectedEdge : (isGerman ? 'Kein Node ausgewählt' : 'No node selected');
         if (edge) {
             dom.inspector.append(el('p', 'canvas-muted', `${edge.source_node_id.slice(0, 8)} → ${edge.target_node_id.slice(0, 8)}`));
+            const source=nodeOutputValue(store.state.nodes.find(item=>item.id===edge.source_node_id));
+            const target=store.state.nodes.find(item=>item.id===edge.target_node_id);
+            if((source.kind==='audio_asset' || source.expectedKind==='audio_asset') && target?.type==='video_generation') {
+                const purpose=el('select');purpose.dataset.exportPurpose=edge.id;
+                for(const [value,label] of [['',isGerman?'Audio-Referenz für Generierung':'Audio reference for generation'],[EXPORT_MUSIC_PURPOSE,isGerman?'Hintergrundmusik nur für Export':'Background music for export only']]) {
+                    const option=el('option','',label);option.value=value;purpose.append(option);
+                }
+                purpose.value=isExportMusic(edge.config)?EXPORT_MUSIC_PURPOSE:'';
+                const edgeSignal=inspectorAbort.signal;
+                purpose.addEventListener('change',async()=>{
+                    purpose.disabled=true;const config={...edge.config,purpose:purpose.value};
+                    const result=await canvasApi.updateEdge(store.state.project.id,edge.id,{config});
+                    if(edgeSignal.aborted)return;
+                    if(result.ok){Object.assign(edge,result.data.edge);renderGraph();renderInspector();dom.inspector.querySelector('[data-export-purpose]')?.focus({preventScroll:true});}
+                    else {purpose.disabled=false;purpose.value=edge.config?.purpose||'';showToast(errorMessage(result));}
+                });
+                dom.inspector.append(field(isGerman?'Verbindungszweck':'Connection purpose',purpose));
+            }
             const remove = el('button', 'canvas-button canvas-button--danger', isGerman ? 'Verbindung löschen' : 'Delete connection');
             remove.type = 'button'; remove.addEventListener('click', () => void deleteSelection()); dom.inspector.append(remove);
         } else dom.inspector.append(el('p', 'canvas-muted', isGerman ? 'Wähle einen Node, um Prompt, Modell, Einstellungen und Ausgabe zu bearbeiten.' : 'Select a node to edit its prompt, model, settings, and output.'));

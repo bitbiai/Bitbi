@@ -43,17 +43,17 @@ export async function handleGetImages(ctx) {
   let params;
   if (onlyUnfoldered) {
     query = `SELECT ${AI_IMAGE_LIST_COLUMNS}
-             FROM ai_images WHERE NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_images.id) AND NOT EXISTS(SELECT 1 FROM canvas_media_outputs canvas WHERE canvas.asset_id=ai_images.id AND canvas.state<>'saved') AND user_id = ? AND folder_id IS NULL
+             FROM ai_images WHERE NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_images.id) AND NOT EXISTS(SELECT 1 FROM canvas_asset_dispositions canvas WHERE canvas.asset_id=ai_images.id AND canvas.state<>'saved') AND user_id = ? AND folder_id IS NULL
              ORDER BY created_at DESC LIMIT 200`;
     params = [session.user.id];
   } else if (folderId) {
     query = `SELECT ${AI_IMAGE_LIST_COLUMNS}
-             FROM ai_images WHERE NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_images.id) AND NOT EXISTS(SELECT 1 FROM canvas_media_outputs canvas WHERE canvas.asset_id=ai_images.id AND canvas.state<>'saved') AND user_id = ? AND folder_id = ?
+             FROM ai_images WHERE NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_images.id) AND NOT EXISTS(SELECT 1 FROM canvas_asset_dispositions canvas WHERE canvas.asset_id=ai_images.id AND canvas.state<>'saved') AND user_id = ? AND folder_id = ?
              ORDER BY created_at DESC LIMIT 200`;
     params = [session.user.id, folderId];
   } else {
     query = `SELECT ${AI_IMAGE_LIST_COLUMNS}
-             FROM ai_images WHERE NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_images.id) AND NOT EXISTS(SELECT 1 FROM canvas_media_outputs canvas WHERE canvas.asset_id=ai_images.id AND canvas.state<>'saved') AND user_id = ?
+             FROM ai_images WHERE NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_images.id) AND NOT EXISTS(SELECT 1 FROM canvas_asset_dispositions canvas WHERE canvas.asset_id=ai_images.id AND canvas.state<>'saved') AND user_id = ?
              ORDER BY created_at DESC LIMIT 200`;
     params = [session.user.id];
   }
@@ -107,9 +107,9 @@ export async function handleGetAssets(ctx) {
     return paginationErrorResponse("Invalid cursor.");
   }
 
-  const imageConditions = ["user_id = ?", "NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_images.id) AND NOT EXISTS(SELECT 1 FROM canvas_media_outputs canvas WHERE canvas.asset_id=ai_images.id AND canvas.state<>'saved')"];
+  const imageConditions = ["user_id = ?", "NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_images.id) AND NOT EXISTS(SELECT 1 FROM canvas_asset_dispositions canvas WHERE canvas.asset_id=ai_images.id AND canvas.state<>'saved')"];
   const imageBindings = [session.user.id];
-  const textConditions = ["user_id = ?", "NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_text_assets.id) AND NOT EXISTS(SELECT 1 FROM canvas_media_outputs canvas WHERE canvas.asset_id=ai_text_assets.id AND canvas.state<>'saved')"];
+  const textConditions = ["user_id = ?", "NOT EXISTS(SELECT 1 FROM member_generation_unready_assets pending WHERE pending.id=ai_text_assets.id) AND NOT EXISTS(SELECT 1 FROM canvas_asset_dispositions canvas WHERE canvas.asset_id=ai_text_assets.id AND canvas.state<>'saved')"];
   const textBindings = [session.user.id];
 
   if (assetType === "image") textConditions.push("0 = 1");

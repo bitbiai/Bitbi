@@ -7,7 +7,7 @@ import { canvasVideoChain, catchUpCanvasPosters } from '../../workers/auth/src/l
 const check=(condition,message)=>{if(!condition)throw new Error(message);};
 export async function canvasProcessingCase(base,fixture) {
   const now=new Date().toISOString(),owner='canvas-processing-owner',other='canvas-processing-other',project='1'.repeat(32),node='2'.repeat(32);
-  const env={...base,MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:'synthetic-processor',ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG:'false'};
+  const env={...base,MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:'synthetic-processor',PRIVATE_MEDIA_PROCESSOR_SECRET:'synthetic-container',ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG:'false'};
   const db=env.DB,video=Uint8Array.from(atob(fixture.videoBase64),c=>c.charCodeAt(0));
   for(const id of [owner,other]) {
     await db.prepare("INSERT INTO users(id,email,password_hash,created_at,role,email_verified_at) VALUES(?,?,?,?,'user',?)").bind(id,id+'@example.invalid','synthetic',now,now).run();
@@ -27,8 +27,8 @@ export async function canvasProcessingCase(base,fixture) {
     await db.prepare('UPDATE canvas_media_outputs SET asset_id=? WHERE run_id=?').bind(asset.id,id).run();
     sources.push(original);runs.push(id);
   }
-  const request=(url,method='GET',body=null,{user=owner,token=null}={})=>worker.fetch(new Request('https://bitbi.ai'+url,{method,headers:{Origin:'https://bitbi.ai',Cookie:`__Host-bitbi_session=${user}`,
-    ...(url.startsWith('/api/internal/')?{Authorization:'Bearer synthetic-processor'}:{}),...(token?{'X-BITBI-Canvas-Claim':token}:{}),...(body && !(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body?(body instanceof FormData?body:JSON.stringify(body)):undefined}),env,{waitUntil(){}});
+  const request=(url,method='GET',body=null,{user=owner,token=null,key=null,container=false}={})=>worker.fetch(new Request('https://bitbi.ai'+url,{method,headers:{Origin:'https://bitbi.ai',Cookie:`__Host-bitbi_session=${user}`,
+    ...(url.startsWith('/api/internal/')?{Authorization:container?'Bearer synthetic-container':'Bearer synthetic-processor'}:{}),...(key?{'Idempotency-Key':key}:{}),...(token?{'X-BITBI-Canvas-Claim':token}:{}),...(body && !(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body?(body instanceof FormData?body:JSON.stringify(body)):undefined}),env,{waitUntil(){}});
   const payload=async response=>{const p=await response.json();check(response.ok,`${response.status}: ${JSON.stringify(p)}`);return p.data;};
   const api=`/api/account/canvas/projects/${project}/runs`,internal='/api/internal/homepage/hero-videos/canvas-exports/jobs';
   check(!(await payload(await request(`${api}/${runs[0]}/full-video`))).eligible,'First clip no export');
@@ -90,6 +90,7 @@ export async function canvasProcessingCase(base,fixture) {
   const posterForm=new FormData();posterForm.set('poster',new Blob([Uint8Array.from(atob(fixture.imageBase64),c=>c.charCodeAt(0))],{type:'image/png'}),'poster.png');
   await payload(await posterRequest(retry.completion.url,posterForm,retry.generation_claim));
   check((await payload(await request(`${api}/${runs[4]}/full-video`))).export.status==='ready','Export poster complete');
+  await recipeCases({env,owner,other,project,node,run:runs[3],request,payload,form,fixture});
   check(await catchUpCanvasPosters(env)>=5,'Existing Canvas missing posters queued');
   check(await catchUpCanvasPosters(env)>=5,'Catchup repeat safe');
   check((await db.prepare("SELECT COUNT(*) AS n FROM canvas_video_processing WHERE kind='poster'").first()).n===5,'No duplicate backfill');
@@ -109,6 +110,85 @@ export async function canvasProcessingCase(base,fixture) {
   check((await db.prepare('SELECT COUNT(*) AS n FROM canvas_media_outputs WHERE asset_id=?').bind(saved.asset.id).first()).n===0,'Combined output is never Canvas-only');
   const storage=await canvasStorageCases(env,fixture);
   return {clips:5,assetCount:6,providerCalls:0,creditDebits:0,exportId:saved.id,status:'ready',storage};
+}
+
+async function recipeCases({env,owner,other,project,node,run,request,payload,form,fixture}) {
+  const db=env.DB,now=new Date().toISOString(),musicNode=(await sha256Hex('export-music-node')).slice(0,32),edge=(await sha256Hex('export-music-edge')).slice(0,32);
+  const wav=new Uint8Array(46),view=new DataView(wav.buffer);
+  for(const [offset,text] of [[0,'RIFF'],[8,'WAVE'],[12,'fmt '],[36,'data']])for(let i=0;i<text.length;i++)wav[offset+i]=text.charCodeAt(i);
+  view.setUint32(4,38,true);view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);view.setUint32(24,48000,true);view.setUint32(28,96000,true);view.setUint16(32,2,true);view.setUint16(34,16,true);view.setUint32(40,2,true);
+  const music=await saveAdminAiTextAsset(env,{userId:owner,sourceModule:'music',title:'Synthetic music',payload:{audioBytes:wav,mimeType:'audio/wav'}});
+  await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,asset_id,x,y,created_at,updated_at) VALUES(?,?,?,'asset_reference',?,0,0,?,?)").bind(musicNode,project,owner,music.id,now,now).run();
+  await db.prepare("INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,'{\"purpose\":\"export_background_music\"}',?,?)").bind(edge,project,owner,musicNode,node,now,now).run();
+  const url=`/api/account/canvas/projects/${project}/runs/${run}/full-video`,internal='/api/internal/homepage/hero-videos/canvas-exports/jobs';
+  const submit=(gain,key)=>request(url,'POST',{backgroundMusic:{enabled:true,gain}},{key});
+  check((await submit(1.01,'invalid-gain-key-1')).status===400,'Gain cannot amplify');
+  check((await submit('0.5','invalid-gain-key-2')).status===400,'Gain coercion forbidden');
+  const extraNode=(await sha256Hex('export-extra-music-node')).slice(0,32),extraEdge=(await sha256Hex('export-extra-music-edge')).slice(0,32);
+  await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,asset_id,x,y,created_at,updated_at) VALUES(?,?,?,'asset_reference',?,0,0,?,?)").bind(extraNode,project,owner,music.id,now,now).run();
+  await db.prepare("INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,'{\"purpose\":\"export_background_music\"}',?,?)").bind(extraEdge,project,owner,extraNode,node,now,now).run();
+  const ambiguous=await submit(0.5,'ambiguous-music-key');
+  check(ambiguous.status===409 && (await ambiguous.json()).code==='canvas_music_ambiguous','Several music edges never silently choose a track');
+  await db.prepare('UPDATE canvas_edges SET deleted_at=? WHERE id=?').bind(now,extraEdge).run();
+  await db.prepare('UPDATE ai_text_assets SET user_id=? WHERE id=?').bind(other,music.id).run();
+  const foreignMusic=await submit(0.5,'foreign-music-key');
+  check(foreignMusic.status===409 && (await foreignMusic.json()).code==='canvas_music_unavailable','Foreign music cannot enter an export recipe');
+  await db.prepare('UPDATE ai_text_assets SET user_id=? WHERE id=?').bind(owner,music.id).run();
+  const a=(await payload(await submit(0.5,'recipe-first-key-1'))).export;
+  check((await payload(await submit(0.5,'recipe-first-key-1'))).export.id===a.id,'Duplicate recipe key reused');
+  check((await submit(0.8,'recipe-first-key-1')).status===409,'Key cannot change recipe');
+  check((await payload(await request(internal+'/claim','POST',{protocol:1,limit:3},{container:true}))).jobs.length===0,'Old container cannot consume a music recipe');
+  const claim=async()=> (await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:2,limit:1},{container:true}))).jobs[0];
+  const finish=async job=>{
+    await payload(await request(job.completion.url,'POST',form(),{token:job.claim,container:true}));
+    // Real existing poster completion entrypoint, not a fabricated ready flag.
+    const posterBase='/api/internal/homepage/hero-videos/source-posters/jobs';
+    const posters=await payload(await request(posterBase+'/claim?member_only=true','POST',{member_only:true,limit:8}));
+    const poster=posters.jobs.find(p=>p.id===job.id);check(poster,'Export poster claimed');
+    const data=new FormData();data.set('poster',new Blob([Uint8Array.from(atob(fixture.imageBase64),c=>c.charCodeAt(0))],{type:'image/png'}),'poster.png');
+    const response=await worker.fetch(new Request('https://bitbi.ai'+poster.completion.url,{method:'POST',headers:{Authorization:'Bearer synthetic-processor','X-BITBI-Generation-Claim':poster.generation_claim},body:data}),env,{waitUntil(){}});
+    check(response.ok,'Export poster completes');
+  };
+  const aj=await claim();check(aj.id===a.id && aj.sources.at(-1).kind==='music' && aj.backgroundMusic.gain===0.5,'Recipe reaches actual processor claim');
+  const source=await request(aj.sources.at(-1).url,'GET',null,{token:aj.claim,container:true});check(source.ok && (await source.arrayBuffer()).byteLength===wav.length,'Music protected download');
+  check((await request(aj.sources.at(-1).url,'GET',null,{token:aj.claim})).status===409,'Other processor credential rejected');
+  const musicKey=(await db.prepare('SELECT r2_key FROM ai_text_assets WHERE id=?').bind(music.id).first()).r2_key;
+  const replaced=new Uint8Array(wav.length+2);replaced.set(wav);replaced[44]=1;await env.USER_IMAGES.put(musicKey,replaced);
+  const changed=await request(aj.sources.at(-1).url,'GET',null,{token:aj.claim,container:true});
+  check(changed.status===409 && (await changed.json()).code==='canvas_music_changed','Actual protected source route rejects changed music bytes');
+  check((await request(aj.completion.url,'POST',form(),{token:aj.claim,container:true})).status===409,'Completion revalidates music version');
+  check(!await db.prepare('SELECT id FROM ai_text_assets WHERE id=?').bind(a.id).first(),'Changed source stores no export');
+  await env.USER_IMAGES.put(musicKey,wav,{httpMetadata:{contentType:'audio/wav'}});
+  let held=false;try{await db.prepare('DELETE FROM ai_text_assets WHERE id=?').bind(music.id).run();}catch(e){held=String(e).includes('canvas_export_in_use');}check(held,'In-flight source retained');
+  await finish(aj);
+  check(!(await payload(await request('/api/ai/assets?limit=60'))).assets.some(item=>item.id===a.id),'Unsaved aggregate hidden');
+  const b=(await payload(await submit(1,'recipe-second-key'))).export,bj=await claim();
+  check(b.id!==a.id,'Gain changes identity');
+  check((await payload(await request(url))).current.id===a.id,'Old preview remains during rendering');
+  const [savedWhileReplacing]=await Promise.all([request(url,'POST',{saveExportId:a.id}),finish(bj)]);
+  check(savedWhileReplacing.ok,'Save winning the replacement race is acknowledged');
+  check((await payload(await request(url))).current.id===b.id,'Successful replacement current');
+  await reclaimCanvasMedia(env,owner);
+  check(await db.prepare('SELECT id FROM ai_text_assets WHERE id=?').bind(a.id).first(),'Saved exact version survives replacement');
+  const c=(await payload(await submit(0,'recipe-late-key-1'))).export,cj=await claim();
+  const d=(await payload(await submit(0.25,'recipe-latest-key'))).export,dj=await claim();
+  await finish(dj);await finish(cj);
+  check((await payload(await request(url))).current.id===d.id,'Late older result never wins');
+  await reclaimCanvasMedia(env,owner);
+  check(!await db.prepare('SELECT id FROM ai_text_assets WHERE id=?').bind(b.id).first(),'Previous unsaved aggregate reclaimed');
+  check(!await db.prepare('SELECT id FROM ai_text_assets WHERE id=?').bind(c.id).first(),'Late unsaved aggregate reclaimed');
+  check((await request(url,'POST',{saveExportId:c.id})).status===409,'Delete wins: save cannot resurrect');
+  check((await request(url,'POST',{saveExportId:d.id},{user:other})).status===404,'Foreign save denied');
+  const e=(await payload(await submit(0.7,'recipe-failed-key'))).export,ej=await claim();
+  await db.prepare('UPDATE canvas_video_processing SET attempt_count=7 WHERE id=?').bind(e.id).run();
+  await payload(await request(ej.completion.failure_url,'POST',{code:'canvas_synthetic_failure'},{token:ej.claim,container:true}));
+  const state=await payload(await request(url));check(state.export.status==='failed' && state.current.id===d.id,'Failed render preserves successful preview');
+  check((await db.prepare('SELECT COUNT(*) n FROM member_credit_ledger WHERE user_id=?').bind(owner).first()).n===0,'Exports never debit');
+  // Saved exact version is protected even after it becomes eligible for cleanup.
+  await payload(await request(url,'POST',{saveExportId:d.id}));
+  await reclaimCanvasMedia(env,owner);
+  check(await db.prepare('SELECT id FROM ai_text_assets WHERE id=?').bind(d.id).first(),'Save wins: cleanup cannot delete');
+  let immutable=false;try{await db.prepare("UPDATE canvas_video_processing SET recipe_json='{}' WHERE id=?").bind(d.id).run();}catch(e){immutable=String(e).includes('canvas_export_recipe_immutable');}check(immutable,'Recipe cannot mutate after export');
 }
 
 // Exercised inside the same workerd control fixture: real route authorization,

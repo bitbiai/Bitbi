@@ -391,6 +391,31 @@ The same negative control now locates each unique preflight/Worker execution ste
 inside its job before removing its artifact environment. Both callers must reject
 the mutation; unrelated steps and the production guard remain unchanged.
 `test:homepage-ffmpeg-processor` and the selected existing Worker job's
+### Canvas versioned music exports (2026-09-27)
+
+The legacy empty-body export keyed only video sources, returned an existing
+permanent aggregate, and Canvas Save targeted the original clip. Migration
+`0096_canvas_export_versions.sql` adds immutable recipes and latest/current heads
+only for new exports; historical permanent exports are not reclassified. Explicit
+Save protects the concrete aggregate. Native D1 guards serialize save/cleanup,
+retain processing sources and prevent an older completion replacing latest intent.
+Export-only music edges are excluded before provider input resolution, including
+unresolved sources; ordinary H3 audio references retain their existing semantics.
+
+Counterchecks: the actual Auth callers in `canvas-processing-control.mjs` through
+`tests/workers.spec.js` and native `--suite canvas` cover duplicate/conflicting
+keys, changed music versions, foreign ownership, failed/late completion, saved
+survival and zero inference/debits. `tests/canvas.spec.js` exercises EN/DE purpose
+selection, keyboard gain, save/reload, explicit rerender and retained preview in
+Chromium/WebKit. The pinned Linux container's `canvas-full-video.test.mjs` decodes
+audio to measure original unity, 0/half/full music, looping, trim, silence, peaks
+and non-cumulative rerenders, including the real processor download/upload caller.
+The same migrated-schema queries run natively and in protected publication.
+Release requires the exact changed container image and decoded persisted synthetic
+music output before frontend continuation. Local layered fixtures do not certify
+the live browser-to-container path; CI, activation and durable smoke receipts are
+separate evidence. No paid generation is involved.
+
 `private-media-image.mjs` run shared FFmpeg tests; the latter kills/restarts the
 real Container HTTP/child process in the immutable Linux image. `test:auth` runs
 Admin service tests in Chromium/WebKit with synthetic responses (not live E2E).

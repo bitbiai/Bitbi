@@ -687,7 +687,9 @@ export async function deleteUserAiImage({ env, userId, imageId, canvasRunId=unde
   await releaseDeletedAssetStorage(env, userId, [row], []);
 }
 
-export async function deleteUserAiTextAsset({ env, userId, assetId, canvasRunId=undefined }) {
+export async function deleteUserAiTextAsset({ env, userId, assetId, canvasRunId=undefined, canvasExportId=undefined }) {
+  const exportGuard=()=>canvasExportId?[env.DB.prepare(`SELECT CASE WHEN EXISTS(
+    SELECT 1 FROM canvas_export_reclaimable WHERE id=? AND user_id=?) THEN 1 ELSE json_extract('[]','$[') END`).bind(canvasExportId,userId)]:[];
   let row;
   try {
     row = await env.DB.prepare(
@@ -737,6 +739,7 @@ export async function deleteUserAiTextAsset({ env, userId, assetId, canvasRunId=
   }
 
   const mutationStatements = [
+    ...exportGuard(),
     ...canvasCleanupGuard(env,canvasRunId,userId,assetId),
     ...buildHomepageHeroTextAssetCleanupStatements(env, { userId, assetId, links: heroLinks }),
     ...buildMemvidStreamPreviewCleanupStatements(env, { userId, assetId }),
@@ -765,6 +768,7 @@ export async function deleteUserAiTextAsset({ env, userId, assetId, canvasRunId=
       sourceRows: { userId, text: [row] },
       cleanupKeys: collectCleanupKeys([], [row]),
       mutationStatements: [
+        ...exportGuard(),
         ...canvasCleanupGuard(env,canvasRunId,userId,assetId),
         ...buildHomepageHeroTextAssetCleanupStatements(env, { userId, assetId, links: heroLinks }),
         ...buildPublicMediaCommentCleanupStatementsForTextAssets(env, [row]),

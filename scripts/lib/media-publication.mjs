@@ -19,12 +19,16 @@ export function assertMediaAuthConfig(before,after) {
   assert.deepEqual(next,previous,'Unreviewed Auth configuration change');
   assert.deepEqual(after.services.filter(s=>s.binding==='PRIVATE_MEDIA_PROCESSOR'),[{binding:'PRIVATE_MEDIA_PROCESSOR',service:'bitbi-private-media'}]);
 }
-export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false,publicPreviews=false,videoReferences=false}) {
+export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false,publicPreviews=false,videoReferences=false,exportMusic=false}) {
   assert(receipt.media,'Missing media activation evidence');
   assert.equal(receipt.media.sha,sha);assert.equal(receipt.media.sourceRun,run);assert.equal(receipt.media.sourceAttempt,attempt);
   assert(/^registry\.cloudflare\.com\/[a-f0-9]{32}\/bitbi-private-media@sha256:[a-f0-9]{64}$/.test(receipt.media.imageDigest),'Wrong image identity');
   assert(receipt.media.artifact?.id&&/^sha256:[a-f0-9]{64}$/.test(receipt.media.artifact.digest),'Missing CI image artifact');
   assert.deepEqual(receipt.smoke?.map(s=>s.backend).sort(),['cloudflare','github']);
+  if(exportMusic) {
+    const music=receipt.smoke.find(s=>s.backend==='cloudflare')?.exportMusic;
+    assert(music?.decoded===true&&music.gain===0.5&&/^[a-f0-9]{64}$/.test(music.videoDigest),'Missing decoded export music acceptance');
+  }
   if(lifecycle) {
     const cycle=receipt.smoke.find(s=>s.backend==='cloudflare')?.lifecycle;
     assert(cycle,'Missing production idle/wake evidence');
@@ -200,6 +204,7 @@ export async function mediaSmoke(c,secret,media) {
       assert(!result.failed,`Private smoke terminal failure: ${['media_smoke_reference_terminal','media_smoke_processing_terminal','media_smoke_preview_terminal'].includes(result.code)?result.code:'media_smoke_failed'}`);
       if(!result.ready)continue;
       assert.equal(result.outputs.length,3);assert.equal(result.publicPreviews?.length,2);const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-smoke-'));
+      let exportMusic;
       try {
         for(const [i,out] of [...result.outputs,...result.publicPreviews].entries()) {
           for(const kind of ['video','poster']) {
@@ -207,6 +212,15 @@ export async function mediaSmoke(c,secret,media) {
             const file=path.join(dir,`${i}-${kind}`);fs.writeFileSync(file,bytes);
             const probe=JSON.parse(run('ffprobe',['-v','error','-show_streams','-of','json',file]));assert(probe.streams.some(s=>s.codec_type==='video'&&s.width>0&&s.height>0));
           }
+        }
+        if(backend==='cloudflare'&&!process.env.REPAIR_SOURCE_SHA) {
+          const file=path.join(dir,'0-video');
+          const samples=run('ffmpeg',['-v','error','-i',file,'-vn','-ac','1','-ar','48000','-f','f32le','-'],{encoding:null});
+          assert(samples.length>=1920*4,'Music soundtrack missing');
+          let real=0,imaginary=0;const count=samples.length/4;
+          for(let i=0;i<count;i++){const value=samples.readFloatLE(i*4);assert(Number.isFinite(value));real+=value*Math.cos(2*Math.PI*1000*i/48000);imaginary+=value*Math.sin(2*Math.PI*1000*i/48000);}
+          assert(2*Math.hypot(real,imaginary)/count>0.04,'Persisted export does not contain the selected music');
+          exportMusic={decoded:true,gain:0.5,videoDigest:result.outputs[0].videoDigest};
         }
         const reference=result.videoReference;assert(reference,'Missing H3 reference processing acceptance');
         const bytes=Buffer.from(reference.video,'base64');assert.equal(hash(bytes),reference.videoDigest);assert.equal(reference.originalDigest,hash(Buffer.from(referenceFixture,'base64')));
@@ -219,7 +233,7 @@ export async function mediaSmoke(c,secret,media) {
         lifecycle.stoppedAfter=await waitMediaState(media.application,'stopped');
       }
       const digests=items=>items.map(o=>({videoDigest:o.videoDigest,posterDigest:o.posterDigest}));
-      results.push({backend,sha:c.sha,...(process.env.REPAIR_SOURCE_SHA?{fixtureSha:process.env.REPAIR_SOURCE_SHA,reusedOutputs:true,referenceRecoveryRequested:backend==='cloudflare'}:{}),completedMs:Date.now()-started,outputs:digests(result.outputs),publicPreviews:digests(result.publicPreviews),videoReference:{videoDigest:result.videoReference.videoDigest,originalDigest:result.videoReference.originalDigest,metadata:result.videoReference.metadata}});pending.delete(backend);
+      results.push({backend,sha:c.sha,...(exportMusic?{exportMusic}:{}),...(process.env.REPAIR_SOURCE_SHA?{fixtureSha:process.env.REPAIR_SOURCE_SHA,reusedOutputs:true,referenceRecoveryRequested:backend==='cloudflare'}:{}),completedMs:Date.now()-started,outputs:digests(result.outputs),publicPreviews:digests(result.publicPreviews),videoReference:{videoDigest:result.videoReference.videoDigest,originalDigest:result.videoReference.originalDigest,metadata:result.videoReference.metadata}});pending.delete(backend);
     }
     if(pending.size)await new Promise(resolve=>setTimeout(resolve,5000));
   }

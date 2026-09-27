@@ -47,6 +47,11 @@ export async function annotateCanvasMedia(env,userId,rows) {
   });
 }
 export async function reclaimCanvasMedia(env, userId=null) {
+  const exports=await env.DB.prepare(`SELECT id,user_id FROM canvas_export_reclaimable ${userId?'WHERE user_id=?':''} ORDER BY created_at LIMIT 20`);
+  for(const row of (await (userId?exports.bind(userId):exports).all()).results||[]) {
+    try { await deleteUserAiTextAsset({env,userId:row.user_id,assetId:row.id,canvasExportId:row.id}); }
+    catch(error) { if(!/canvas_export_in_use|JSON path/.test(String(error?.cause||error)) && error.status!==404)throw error; }
+  }
   const rows=await env.DB.prepare(`SELECT * FROM canvas_media_reclaimable c WHERE ${userId?'user_id=? AND ':''}
     (EXISTS(SELECT 1 FROM ai_images a WHERE a.id=c.asset_id) OR EXISTS(SELECT 1 FROM ai_text_assets a WHERE a.id=c.asset_id)) ORDER BY created_at LIMIT 20`);
   const result=await (userId?rows.bind(userId):rows).all();

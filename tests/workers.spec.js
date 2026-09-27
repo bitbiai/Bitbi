@@ -45016,7 +45016,7 @@ test.describe('Worker routes', () => {
     env.DB.state.memberGenerationJobs.push({id:'1ab100ce',usage_attempt_id:'pending-image'}, {id:'abe100ac',usage_attempt_id:'pending-video'}, {id:'abe100ab',usage_attempt_id:'ready-video'});
     env.DB.state.memberAiUsageAttempts.push({id:'pending-image',billing_status:'reserved'}, {id:'pending-video',billing_status:'released'}, {id:'ready-video',billing_status:'finalized'});
     try {
-      for (const [table,key] of [['ai_images','aiImages'],['ai_text_assets','aiTextAssets'],['member_generation_jobs','memberGenerationJobs'],['member_ai_usage_attempts_v2','memberAiUsageAttempts'],['canvas_media_outputs','canvasMediaOutputs']]) {
+      for (const [table,key] of [['ai_images','aiImages'],['ai_text_assets','aiTextAssets'],['member_generation_jobs','memberGenerationJobs'],['member_ai_usage_attempts_v2','memberAiUsageAttempts'],['canvas_media_outputs','canvasMediaOutputs'],['canvas_export_versions','canvasExportVersions']]) {
         const columns=(await schema.prepare(`PRAGMA table_info(${table})`).all()).results.map(row=>row.name);
         // Read-query parity fixture, not a claim to test insertion constraints.
         mirror.exec(`CREATE TABLE ${table} (${columns.map(name=>`"${name}"`).join(',')})`);
@@ -45027,6 +45027,8 @@ test.describe('Worker routes', () => {
       }
       const migration=fs.readFileSync(path.join(process.cwd(),'workers/auth/migrations/0087_add_member_generation_jobs.sql'),'utf8');
       mirror.exec(migration.match(/CREATE VIEW member_generation_unready_assets[\s\S]*?;/)[0]);
+      const exportMigration=fs.readFileSync(path.join(process.cwd(),'workers/auth/migrations/0096_canvas_export_versions.sql'),'utf8');
+      mirror.exec(exportMigration.match(/CREATE VIEW canvas_asset_dispositions[\s\S]*?;/)[0]);
       const execute=env.DB.execute.bind(env.DB);
       let compared=0;
       env.DB.execute=async(sql,bindings,mode)=>{

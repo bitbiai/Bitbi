@@ -598,6 +598,12 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const sha='a'.repeat(40),digest='b'.repeat(64),scope={sha,run:'123',attempt:'1'};
  const receipt={media:{sha,sourceRun:'123',sourceAttempt:'1',imageDigest:`registry.cloudflare.com/${'c'.repeat(32)}/bitbi-private-media@sha256:${digest}`,artifact:{id:123,digest:`sha256:${digest}`}},smoke:['github','cloudflare'].map(backend=>({backend,sha,completedMs:100,outputs:Array.from({length:3},()=>({videoDigest:digest,posterDigest:digest}))}))};
  verifyMediaEvidence(receipt,scope);
+ assert.throws(()=>verifyMediaEvidence(receipt,{...scope,exportMusic:true}),/export music/);
+ const music=structuredClone(receipt);music.smoke[1].exportMusic={decoded:true,gain:0.5,videoDigest:digest};
+ verifyMediaEvidence(music,{...scope,exportMusic:true});
+ for(const patch of [{decoded:false},{gain:1},{videoDigest:'wrong'}]) {
+   const bad=structuredClone(music);Object.assign(bad.smoke[1].exportMusic,patch);assert.throws(()=>verifyMediaEvidence(bad,{...scope,exportMusic:true}));
+ }
  assert.throws(()=>verifyMediaEvidence(receipt,{...scope,videoReferences:true}),/reference acceptance/);
  const references={...receipt,smoke:receipt.smoke.map(s=>({...s,videoReference:{videoDigest:digest,originalDigest:'2c67d78cda7252be0cb6ef14396d92abb3b7193940ecc977a5c9fcc823bd1609',metadata:{frames:360,duration:15,audioDuration:15}}}))};
  verifyMediaEvidence(references,{...scope,videoReferences:true});
@@ -658,7 +664,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'media-identity-')),archive=path.join(dir,'image.tar');fs.writeFileSync(archive,'synthetic archive bytes');
  try {
    const sha='a'.repeat(40),expected={sha,run:'123',attempt:'1',archive};
-   const record={sha,run:'123',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',ffmpeg:'synthetic-version',ffprobe:'synthetic-version',image:`sha256:${'b'.repeat(64)}`,archiveDigest:hash(fs.readFileSync(archive)),tests:['two-five-clips','copy-normalize-audio','private-drain-poster','container-process-restart','h3-video-reference']};
+   const record={sha,run:'123',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',ffmpeg:'synthetic-version',ffprobe:'synthetic-version',image:`sha256:${'b'.repeat(64)}`,archiveDigest:hash(fs.readFileSync(archive)),tests:['two-five-clips','copy-normalize-audio','background-music-decoded','private-drain-poster','container-process-restart','h3-video-reference']};
    verifyMediaImage(record,expected);
    for(const patch of [{sha:'wrong'},{run:'124'},{attempt:'2'},{dirty:true},{sourceFiles:{}},{archiveDigest:'wrong'},{platform:'linux/arm64'},{tests:[]}])assert.throws(()=>verifyMediaImage({...record,...patch},expected));
    fs.appendFileSync(archive,'changed');assert.throws(()=>verifyMediaImage(record,expected));

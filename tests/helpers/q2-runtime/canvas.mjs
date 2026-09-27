@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
+import {verifyCanvasExportSchema} from '../../../scripts/lib/canvas-export-readiness.mjs';
 
 // Real Auth bundle, native D1/R2/Images; only the AI service response is synthetic.
 export async function runCanvasTests(f) {
   for (const migration of f.migrations) await f.db.batch(migration.statements.map(s => f.db.prepare(s)));
+  await f.test('canvas_export_release_schema_queries',()=>verifyCanvasExportSchema(sql=>f.rows(sql)));
   const now = new Date().toISOString(), adminId = 'q2-workerd-admin', memberId = 'q2-workerd-member';
   for (const [id, role] of [[adminId, 'admin'], [memberId, 'user']]) await f.sql('INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at,verification_method) VALUES(?,?,?,?,?,?,?,?)', id, id+'@example.invalid', 'synthetic', now, role, 'active', now, 'email').run();
   const cookie = async id => (await (await f.control('/session', { userId: id })).json()).cookie;
