@@ -980,3 +980,23 @@ Stream 7 passed; Linux staging/launcher 26 passed. Private task artifacts bind r
 and source hashes. Local checks do not replace hosted candidate proofs or live
 receipts. Protected continuation is AI → Auth → exact frontend candidate; no new
 schema, container, secret or paid inference is required.
+
+Opus acceptance follow-up (`36444992508/1`, source `036e08d3`): selected Assets
+finished 272/274; WebKit EN/DE stopped at a metadata-only positive-duration check.
+Native Ubuntu 24.04 ARM64 / Playwright 1.58.2 reproduced zero duration with no media
+error, including over real HTTP; explicit playback then established finite duration
+and clock advancement. This supports a preload/readiness assertion defect, not an
+unsupported codec or provider failure. Keep both assertions after playback starts,
+exercise the actual Generate Lab result, and retain HTTP byte/range checks plus
+invalid-audio rejection and media/request attachments. Chromium and MP3 remain
+independent controls. The exact x64 hosted runner remains a required fresh CI gate:
+local x64 emulation failed browser launch, and the wider ARM64 run had unchanged
+video-decode failures (retained, not waived). The failed candidate has no browser
+proof and cannot be reused for publication. The existing Canvas selection includes
+this exact fixture-server change only with its reviewed Canvas anchor; standalone
+or unknown helper changes retain broader selection. AI → Auth → frontend and the
+previously skipped selected Auth/proof gates remain required.
+Local final checks: six focused native Linux audio cases and all 276 selected
+Assets cases on macOS passed without retries against the retained `036e08d3`
+candidate bytes. These results do not certify the fresh hosted candidate or live
+publication; retain exact run/attempt/artifact proof and protected continuation.

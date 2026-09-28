@@ -107,6 +107,7 @@ const CANVAS_TEXT_FILES = new Set([
   'js/pages/assets-manager/main.js', 'tests/q2-member-music.spec.js', 'tests/model-pricing.spec.js',
   'tests/helpers/elevenlabs-member-control.mjs', 'tests/helpers/canvas-contributors-control.mjs',
   'tests/fixtures/media/member-music.mp3', 'tests/fixtures/media/member-music.opus',
+  'tests/helpers/homepage-media-server.mjs',
   'tests/q4-stream-receipts.spec.js', 'tests/q4-stream-selection.spec.js', 'tests/helpers/q4-video-jobs.js',
   'tests/rel01/routes/workers.spec.js', 'tests/helpers/release-transition-legacy-contract.cjs',
   'services/homepage-ffmpeg-processor/canvas-full-video.mjs',

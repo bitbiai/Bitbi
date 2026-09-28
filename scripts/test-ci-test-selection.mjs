@@ -897,6 +897,11 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  for(const extra of ['workers/auth/src/lib/billing.js','workers/auth/src/lib/session.js','workers/ai/src/index.js','unknown.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
  const workflow=fs.readFileSync('.github/workflows/static.yml','utf8');
  for(const proof of ['tests/q2-member-music.spec.js','canvas-music-worker.json','canvas-music-adapter.json'])assert(workflow.includes(proof));
+ const opusRepair=[...files,'tests/canvas.spec.js','tests/helpers/homepage-media-server.mjs'];
+ const repaired=selection(opusRepair);assert(repaired.canvasText&&repaired.assets&&repaired.auth&&repaired.workers);
+ assert(!repaired.full&&!repaired.homepageMedia);assert.equal(requiresPrivateMediaImage(opusRepair),false);
+ assert.notEqual(selection(['tests/helpers/homepage-media-server.mjs']).canvasText,true);
+ assert.notEqual(selection([...opusRepair,'tests/helpers/unknown-http-server.mjs']).canvasText,true);
 }
 
 // Canvas hosts the existing Assets picker; its complete frontend suites join

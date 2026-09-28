@@ -126,25 +126,73 @@ for(const locale of ['en','de']) for(const width of [1440,390]) test(`Canvas Ele
   await page.screenshot({path:info.outputPath(`music-editor-${locale}-${width}.png`)});
 });
 
+const memberAudioRequests = new WeakMap();
+const musicMediaCase = title => title.startsWith('Canvas member music Generate Lab') || title.startsWith('Canvas music native HTTP control');
+test.beforeEach(async ({page}, info) => {
+  if (!musicMediaCase(info.title)) return;
+  const requests=[];memberAudioRequests.set(page,requests);
+  page.on('request',request=>{const url=new URL(request.url());if(url.pathname.startsWith('/api/plain/music/'))requests.push({event:'request',path:url.pathname,range:request.headers().range || null});});
+  page.on('response',response=>{const url=new URL(response.url());if(url.pathname.startsWith('/api/plain/music/'))requests.push({event:'response',path:url.pathname,status:response.status(),type:response.headers()['content-type'],range:response.headers()['content-range'],transport:response.headers()['x-test-media-transport']});});
+  await page.addInitScript(()=>{
+    window.memberAudioEvidence=[];
+    for(const name of ['loadstart','loadedmetadata','loadeddata','canplay','playing','timeupdate','ended','error','abort','emptied','stalled']) document.addEventListener(name,event=>{
+      const a=event.target;if(a.tagName!=='AUDIO')return;
+      window.memberAudioEvidence.push({event:name,path:a.currentSrc?new URL(a.currentSrc).pathname:null,duration:String(a.duration),time:a.currentTime,ready:a.readyState,network:a.networkState,error:a.error?{code:a.error.code,message:a.error.message}:null});
+    },true);
+  });
+});
+test.afterEach(async ({page}, info) => {
+  if (!musicMediaCase(info.title) || page.isClosed()) return;
+  await info.attach('native-audio-state', {contentType:'application/json',body:JSON.stringify(await page.evaluate(()=>({
+    userAgent:navigator.userAgent, opus:document.createElement('audio').canPlayType('audio/ogg; codecs="opus"'),
+    mp3:document.createElement('audio').canPlayType('audio/mpeg'),events:window.memberAudioEvidence || [],
+  }))) });
+  await info.attach('native-audio-requests',{contentType:'application/json',body:JSON.stringify(memberAudioRequests.get(page))});
+});
+
+test('Canvas music native HTTP control decodes and plays MP3 and Opus, rejects invalid audio', async ({page}, info) => {
+  await page.goto('/plain-video');
+  for(const format of ['mp3','opus']) {
+    const bytes=fs.readFileSync(path.join(__dirname,`fixtures/media/member-music.${format}`));
+    const full=await page.request.get(`/api/plain/music/${format}/file`);
+    expect(full.status()).toBe(200);expect(await full.body()).toEqual(bytes);
+    const tail=await page.request.get(`/api/plain/music/${format}/file`,{headers:{Range:'bytes=-10'}});
+    expect(tail.status()).toBe(206);expect(tail.headers()['content-range']).toBe(`bytes ${bytes.length-10}-${bytes.length-1}/${bytes.length}`);expect(await tail.body()).toEqual(bytes.subarray(-10));
+    expect((await page.request.get(`/api/plain/music/${format}/file`,{headers:{Range:`bytes=${bytes.length}-`}})).status()).toBe(416);
+  }
+  // This shared server must still deliver the unchanged existing video fixture.
+  const video=await page.request.get('/api/plain/file',{headers:{Range:'bytes=3-31'}});
+  expect(video.status()).toBe(206);expect(video.headers()['content-type']).toBe('video/mp4');
+  expect(await video.body()).toEqual(fs.readFileSync(path.join(__dirname,'fixtures/media/test-video.mp4')).subarray(3,32));
+  const results=[];
+  for(const format of ['mp3','opus','invalid']) {
+    const state=await page.evaluate(async format=>{
+      const audio=document.createElement('audio');audio.controls=true;document.body.append(audio);
+      const events=[];for(const name of ['loadedmetadata','loadeddata','playing','ended','error'])audio.addEventListener(name,()=>events.push({name,duration:String(audio.duration),time:audio.currentTime,error:audio.error?.code}));
+      audio.src=`/api/plain/music/${format}/file`;
+      try { await audio.play(); } catch (error) { events.push({name:'play-rejected',error:error.name}); }
+      await new Promise(resolve=>setTimeout(resolve,700));
+      const result={format,duration:audio.duration,time:audio.currentTime,error:audio.error?.code,events};audio.pause();audio.remove();return result;
+    },format);
+    results.push(state);
+  }
+  await info.attach('http-audio-control',{contentType:'application/json',body:JSON.stringify(results)});
+  for(const state of results.slice(0,2)) {expect(state.error).toBeUndefined();expect(state.duration).toBeGreaterThan(2.9);expect(state.time).toBeGreaterThan(.2);}
+  expect(results[2].error).toBe(4);
+});
+
 for(const locale of ['en','de']) for(const width of [1440,390]) test(`Canvas member music Generate Lab ${locale} ${width}: ElevenLabs prompt/plan, pricing and MP3/Opus`,async({page},info)=>{
   await page.setViewportSize({width,height:900});const calls=[];
   await page.addInitScript(()=>localStorage.setItem('bitbi_cookie_consent',JSON.stringify({v:'1',necessary:true,analytics:false,marketing:false})));
   await page.route('**/api/**',async route=>{
     const url=new URL(route.request().url());
     if(url.pathname==='/api/me') return route.fulfill({json:{loggedIn:true,user:{id:'music-browser',email:'music@example.invalid',role:locale==='de'?'admin':'user'}}});
-    if(/^\/api\/ai\/text-assets\/music-\d+\/file$/.test(url.pathname)) {
-      const opus=url.searchParams.get('format')==='opus';
-      const bytes=fs.readFileSync(path.join(__dirname,`fixtures/media/member-music.${opus?'opus':'mp3'}`));
-      const range=route.request().headers().range?.match(/^bytes=(\d+)-(\d*)$/);
-      const start=range?Number(range[1]):0,end=range?.[2]?Math.min(Number(range[2]),bytes.length-1):bytes.length-1;
-      const headers={'Content-Type':opus?'audio/ogg':'audio/mpeg','Accept-Ranges':'bytes'};
-      if(start>end||start>=bytes.length)return route.fulfill({status:416,headers:{...headers,'Content-Range':`bytes */${bytes.length}`},body:Buffer.alloc(0)});
-      return route.fulfill({status:range?206:200,headers:{...headers,'Content-Length':String(end-start+1),...(range?{'Content-Range':`bytes ${start}-${end}/${bytes.length}`}:{})},body:bytes.subarray(start,end+1)});
-    }
+    // Keep provider JSON controlled, but exercise the native HTTP media path.
+    if(/^\/api\/plain\/music\/(mp3|opus)\/file$/.test(url.pathname)) return route.continue();
     if(url.pathname==='/api/ai/generate-music') {
       const body=route.request().postDataJSON();calls.push(body);
       const opus=body.outputFormat==='opus_48000_128';
-      return route.fulfill({json:{ok:true,data:{model:{id:body.model},audioUrl:`/api/ai/text-assets/music-${calls.length}/file?format=${opus?'opus':'mp3'}`,mimeType:opus?'audio/ogg':'audio/mpeg',asset:{id:'music-'+calls.length,title:'Synthetic music'}},billing:{balance_after:995}}});
+      return route.fulfill({json:{ok:true,data:{model:{id:body.model},audioUrl:`/api/plain/music/${opus?'opus':'mp3'}/file`,mimeType:opus?'audio/ogg':'audio/mpeg',asset:{id:'music-'+calls.length,title:'Synthetic music'}},billing:{balance_after:995}}});
     }
     if(url.pathname==='/api/model-pricing')return route.fulfill({json:{ok:true,revision:0,rules:{}}});
     if(url.pathname==='/api/appearance')return route.fulfill({json:{ok:true,appearance:{version:1,revision:0,segments:{public:'dark',account:'dark',admin:'dark'},personalEnabled:false}}});
@@ -167,7 +215,9 @@ for(const locale of ['en','de']) for(const width of [1440,390]) test(`Canvas mem
   await expect.poll(()=>calls.length).toBe(1);expect(calls[0]).toMatchObject({model:'elevenlabs/music-v2',prompt:'Synthetic piano',musicLengthMs:3000,signWithC2pa:true});
   expect(calls[0]).not.toHaveProperty('generateLyrics');
   await expect(page.locator('#labGenerate')).toBeEnabled();
+  await page.locator('#labResultStage audio').evaluate(a=>a.play());
   await expect.poll(()=>page.locator('#labResultStage audio').evaluate(a=>Number.isFinite(a.duration)&&a.duration>0)).toBe(true);
+  await expect.poll(()=>page.locator('#labResultStage audio').evaluate(a=>a.currentTime)).toBeGreaterThan(.2);
   await page.locator('#labPrompt').fill('');await editor.locator('[data-music-option="inputMode"]').selectOption('composition_plan');
   const plan={chunks:[{text:'Piano',duration_ms:6000,positive_styles:['ambient']}]};await editor.locator('textarea').fill(JSON.stringify(plan));
   await editor.locator('[data-music-option="outputFormat"]').selectOption('opus_48000_128');
@@ -176,7 +226,12 @@ for(const locale of ['en','de']) for(const width of [1440,390]) test(`Canvas mem
   expect(calls[1]).not.toHaveProperty('prompt');expect(calls[1]).not.toHaveProperty('musicLengthMs');expect(calls[1].signWithC2pa).not.toBe(true);
   await expect(page.locator('#labGenerate')).toBeEnabled();
   const audio=page.locator('#labResultStage audio');await expect(audio).toHaveCount(1);
+  await audio.evaluate(a=>a.play());
   await expect.poll(()=>audio.evaluate(a=>Number.isFinite(a.duration)&&a.duration>0)).toBe(true);
+  await expect.poll(()=>audio.evaluate(a=>a.currentTime)).toBeGreaterThan(.2);
+  await audio.evaluate(a=>a.pause());
+  const audioResponses=memberAudioRequests.get(page).filter(event=>event.event==='response');
+  for(const format of ['mp3','opus'])expect(audioResponses.some(event=>event.path===`/api/plain/music/${format}/file`&&event.transport==='http'&&[200,206].includes(event.status))).toBe(true);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:info.outputPath(`member-music-${locale}-${width}.png`)});
 });

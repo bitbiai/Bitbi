@@ -27,6 +27,17 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost:3000');
     if (url.pathname === '/plain-video') { res.writeHead(200, { 'Content-Type':'text/html' });res.end('<!doctype html><title>Native transport fixture</title><body></body>');return; }
+    const musicMatch = url.pathname.match(/^\/api\/plain\/music\/(mp3|opus|invalid)\/file$/);
+    if (musicMatch && req.method === 'GET') {
+      const format=musicMatch[1], bytes=format==='invalid'?Buffer.alloc(16):fs.readFileSync(new URL(`../fixtures/media/member-music.${format}`, import.meta.url));
+      const response=await publicVideoResponse(new Request(url,{headers:req.headers}),fixtureBucket(bytes),'music',()=>new Headers({
+        'Content-Type':format==='mp3'?'audio/mpeg':'audio/ogg','Content-Length':String(bytes.length),
+        'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Test-Media-Transport':'http',
+      }));
+      res.writeHead(response.status,Object.fromEntries(response.headers));
+      if(response.body)await pipeline(Readable.fromWeb(response.body),res);else res.end();
+      return;
+    }
     if (/^\/api\/(homepage\/hero-videos|gallery\/memvids|plain)\/.*\/file$/.test(url.pathname) || url.pathname === '/api/plain/file') {
       if (req.method !== 'GET') { res.writeHead(404); res.end(); return; }
       if (url.searchParams.has('broken')) { res.writeHead(200, { 'Content-Type':'video/mp4', 'Content-Length':16 }); res.end(Buffer.alloc(16)); return; }
