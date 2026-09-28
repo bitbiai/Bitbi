@@ -888,7 +888,7 @@ for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable exp
   await open();const inspector=page.locator('#canvasInspectorBody');
   const create=inspector.getByRole('button',{name:locale==='de'?'Gesamtes Video erstellen':'Create full video',exact:true});
   await expect(create).toBeVisible();await create.focus();await page.keyboard.press('Enter');
-  await expect(inspector.locator('.canvas-full-video').getByRole('status')).toContainText(locale==='de'?'wartet':'queued');expect(posts).toBe(1);
+  await expect(inspector.locator('.canvas-full-video').getByRole('status', { name: locale === 'de' ? 'Exportstatus' : 'Export status', exact: true })).toContainText(locale==='de'?'wartet':'queued');expect(posts).toBe(1);
   task={id:'export',status:'preview_pending',asset:{id:'full',file_url:'/api/ai/text-assets/full/file',poster_url:null}};
   output.previewUrl='/api/ai/text-assets/original/poster';output.posterStatus='ready';
   await inspector.getByRole('button',{name:locale==='de'?'Status aktualisieren':'Refresh status',exact:true}).click();
