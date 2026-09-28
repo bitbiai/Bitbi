@@ -25,8 +25,13 @@ export async function testCanvasConcatenation() {
     const transport={baseUrl:'https://processor.invalid',limit:3,authHeaders:extra=>({Authorization:'Bearer synthetic',...extra}),
       requestJson:async(url,init={})=>{
         calls.push([url,init.method||'GET']);assert(init.signal);
-        if(url===prefix+'/claim' && !init.method)return {data:{protocol:1}};
+        if(url===prefix+'/claim' && !init.method)return {data:{protocol:1,previewBase:1}};
         if(url===prefix+'/claim'){assert.equal(JSON.parse(init.body).limit,1);assert.equal(JSON.parse(init.body).recipeProtocol,2);return {data:{jobs:[{id,claim,limits:{sourceBytes:400000000,outputBytes:80000000,durationSeconds:600},backgroundMusic:musicRecipe?{enabled:true,gain:0.5}:undefined,sources:bytes.map((b,i)=>({url:`${prefix}/${id}/source/${i}`,size:b.length,kind:i===2?'music':'video'}))}]}};}
+        if(url===`${prefix}/${id}/complete?part=preview-base`) {
+          assert.equal(init.headers['X-BITBI-Canvas-Claim'],claim);
+          assert.deepEqual(Buffer.from(await init.body.get('video').arrayBuffer()),await readFile(pair.output),'Preserve the byte-identical clean concatenation before mixing');
+          return {data:{base_stored:true}};
+        }
         assert.equal(url,`${prefix}/${id}/complete`);assert.equal(init.headers['X-BITBI-Canvas-Claim'],claim);
         assert.equal(init.body.get('video').type,'video/mp4');assert.deepEqual(Buffer.from(await init.body.get('video').arrayBuffer()),await readFile(expectedOutput));
         assert(Number(init.body.get('duration'))>=1.5);return {data:{status:'preview_pending'}};
@@ -38,7 +43,7 @@ export async function testCanvasConcatenation() {
     expectedOutput=(await mixBackgroundMusic(pair,callerMusic,0.5,dir)).output;
     bytes.push(await readFile(callerMusic));musicRecipe=true;calls.length=0;
     await processCanvasExports(transport);
-    assert.deepEqual(calls,[[prefix+'/claim','GET'],[prefix+'/claim','POST'],[`${prefix}/${id}/complete`,'POST']], 'Actual protected-source caller uploads the mixed result once');
+    assert.deepEqual(calls,[[prefix+'/claim','GET'],[prefix+'/claim','POST'],[`${prefix}/${id}/complete?part=preview-base`,'POST'],[`${prefix}/${id}/complete`,'POST']], 'One explicit job retains its clean base and uploads the mixed result once');
     const full=await concatenateClips(files,dir);assert.equal(full.mode,'normalized');
     assert(full.duration>=3.75 && full.duration<4.0);assert.equal(full.width,480);assert.equal(full.height,270);
     assert((await inspectClip(full.output)).audio,'Audio retained across silent input');

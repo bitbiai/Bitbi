@@ -145,6 +145,13 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
         if(isMusic)music=file;else files.push(file);
       }
       let result=await concatenateClips(files,dir,{ffmpeg,ffprobe,limits:job.limits,run:boundedRun});
+      // Reuse this job's already-created clean base. Never another render/job.
+      // Separate bounded upload keeps the existing completion body limit intact.
+      if(protocol.data.previewBase===1 && job.backgroundMusic?.enabled && job.backgroundMusic.gain>0) {
+        const clean=new FormData();clean.set('video',new Blob([await readFile(result.output)],{type:'video/mp4'}),'clean-base.mp4');
+        for(const key of ['duration','width','height'])clean.set(key,String(result[key]));
+        await json(`${base}/${job.id}/complete?part=preview-base`,{method:'POST',headers,body:clean,signal:AbortSignal.timeout(processingTimeout(deadline))});
+      }
       if(job.backgroundMusic?.enabled) {
         if(!music)throw failure('canvas_music_unavailable');
         result=await mixBackgroundMusic(result,music,job.backgroundMusic.gain,dir,{ffmpeg,ffprobe,limits:job.limits,run:boundedRun});

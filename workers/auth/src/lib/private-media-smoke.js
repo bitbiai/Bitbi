@@ -126,7 +126,7 @@ export async function privateMediaSmoke(env,body) {
   if(body.fixture!==undefined||body.referenceFixture!==undefined)fail();
   const reference=await env.DB.prepare('SELECT * FROM private_video_references WHERE id=? AND user_id=? AND processing_backend=?').bind(await id(project+':reference'),owner,backend).first();
   if(['failed','retired'].includes(reference?.status))return {ready:false,failed:true,sha,backend,code:'media_smoke_reference_terminal'};
-  const rows=(await env.DB.prepare('SELECT p.status,p.asset_id,a.r2_key,a.poster_r2_key,a.metadata_json FROM canvas_video_processing p LEFT JOIN ai_text_assets a ON a.id=p.asset_id AND a.user_id=p.user_id WHERE p.project_id=? AND p.user_id=? AND p.processing_backend=? ORDER BY p.kind').bind(project,owner,backend).all()).results||[];
+  const rows=(await env.DB.prepare('SELECT p.status,p.asset_id,p.preview_base_key,p.preview_base_etag,p.preview_base_bytes,a.r2_key,a.poster_r2_key,a.metadata_json FROM canvas_video_processing p LEFT JOIN ai_text_assets a ON a.id=p.asset_id AND a.user_id=p.user_id WHERE p.project_id=? AND p.user_id=? AND p.processing_backend=? ORDER BY p.kind').bind(project,owner,backend).all()).results||[];
   if(rows.some(r=>['failed','retired'].includes(r.status)))return {ready:false,failed:true,sha,backend,code:'media_smoke_processing_terminal'};
   if(rows.length!==3||rows.some(r=>r.status!=='ready'||!r.r2_key||!r.poster_r2_key))return {ready:false,sha,backend,states:rows.map(r=>r.status)};
   const preview=await env.DB.prepare('SELECT status,file_r2_key,poster_r2_key FROM homepage_hero_video_derivatives WHERE id=? AND source_user_id=? AND processing_backend=?')
@@ -143,7 +143,13 @@ export async function privateMediaSmoke(env,body) {
     const v=new Uint8Array(await video.arrayBuffer()),p=new Uint8Array(await poster.arrayBuffer());
     if(String.fromCharCode(...v.slice(4,8))!=='ftyp'||!p.length)fail();
     const base64=b=>{let s='';for(const x of b)s+=String.fromCharCode(x);return btoa(s);};
-    outputs.push({video:base64(v),poster:base64(p),videoDigest:await digest(v),posterDigest:await digest(p)});
+    let previewBase;
+    if(row.preview_base_key) {
+      const clean=await env.USER_IMAGES.get(row.preview_base_key,{onlyIf:{etagMatches:row.preview_base_etag}});
+      if(!clean?.body || clean.size!==row.preview_base_bytes || clean.size>1024*1024)fail();
+      const bytes=new Uint8Array(await clean.arrayBuffer());previewBase={video:base64(bytes),digest:await digest(bytes)};
+    }
+    outputs.push({video:base64(v),poster:base64(p),videoDigest:await digest(v),posterDigest:await digest(p),...(previewBase?{previewBase}:{})});
   }
   if(reference?.status!=='ready')return {ready:false,sha,backend,referencePending:true};
   const original=await env.USER_IMAGES.get(reference.source_r2_key),prepared=await env.USER_IMAGES.get(reference.output_r2_key);

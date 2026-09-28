@@ -434,7 +434,7 @@ test('Canvas reference fixture reads the staged bytes from a non-repository cwd'
     const reached = new Error('fixture read reached');
     const f = {
       migrations: [],
-      rows: async sql => sql.includes('sqlite_schema') ? Array.from({length:7},()=>({name:'synthetic-guard'})) : [],
+      rows: async sql => sql.includes('sqlite_schema') ? Array.from({length:sql.includes('canvas_preview_base_fence')?3:7},()=>({name:'synthetic-guard'})) : [],
       sql: () => ({ run: async () => {} }),
       control: async () => Response.json({ cookie: 'synthetic' }),
       test: async (name, operation) => {

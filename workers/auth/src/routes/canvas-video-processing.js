@@ -7,6 +7,7 @@ import { readJsonBodyOrResponse, readFormDataLimited, BODY_LIMITS } from '../lib
 import { nowIso } from '../lib/tokens.js';
 import { canvasExportRecipe, exportHead, ownedExportSource, saveCanvasExport } from '../lib/canvas-export-recipes.js';
 import { reclaimCanvasMedia } from '../lib/canvas-media-storage.js';
+import { readCanvasPreviewBase, storeCanvasPreviewBase } from '../lib/canvas-preview-base.js';
 
 const base='/api/internal/homepage/hero-videos/canvas-exports/jobs';
 const reply=(data,status=200)=>json({ok:true,data},{status,headers:{'Cache-Control':'no-store'}});
@@ -14,6 +15,8 @@ const reply=(data,status=200)=>json({ok:true,data},{status,headers:{'Cache-Contr
 export async function canvasExport(ctx,userId,projectId,runId) {
   const project=await ctx.env.DB.prepare('SELECT id FROM canvas_projects WHERE id=? AND user_id=? AND deleted_at IS NULL').bind(projectId,userId).first();
   if(!project) throw canvasProcessingError('project_not_found','Project not found.',404);
+  const previewId=new URL(ctx.request.url).searchParams.get('previewBase');
+  if(ctx.method==='GET' && previewId!==null)return readCanvasPreviewBase(ctx,userId,projectId,runId,previewId);
   const rows=await ctx.env.DB.prepare("SELECT * FROM canvas_video_processing WHERE user_id=? AND project_id=? AND run_id=? AND kind='concat' ORDER BY created_at DESC LIMIT 1").bind(userId,projectId,runId).all();
   let task=rows.results?.[0];
   const head=await exportHead(ctx.env,userId,runId);
@@ -80,7 +83,7 @@ export async function handleCanvasExportProcessor(ctx) {
   if(!backend) return json({ok:false,code:'processor_auth_failed'},{status:403});
   try {
     if(ctx.pathname===base+'/claim') {
-      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:2});
+      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:2,previewBase:1});
       // route-policy: internal.canvas-export.claim
       if (!(method === 'POST')) return null;
       const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.homepageHeroProcessorJson});
@@ -121,6 +124,10 @@ export async function handleCanvasExportProcessor(ctx) {
       if(!(duration>0 && duration<=CANVAS_VIDEO_LIMITS.durationSeconds && Number.isInteger(width) && width>0 && width<=4096 && Number.isInteger(height) && height>0 && height<=4096)) throw canvasProcessingError('canvas_export_metadata_invalid');
       const bytes=new Uint8Array(await file.arrayBuffer());
       if(String.fromCharCode(...bytes.slice(4,8))!=='ftyp') throw canvasProcessingError('canvas_export_file_invalid');
+      if(new URL(ctx.request.url).searchParams.get('part')==='preview-base') {
+        await storeCanvasPreviewBase(ctx.env,job,bytes);
+        return reply({base_stored:true});
+      }
       const asset=await saveGeneratedVideoAsset(ctx.env,{userId:job.user_id,title:'Canvas full video',videoBytes:bytes,mimeType:'video/mp4',
         processingClaim:{id:job.id,token},payload:{duration,width,height,canvas_export:job.id}});
       const written=await ctx.env.DB.prepare("UPDATE canvas_video_processing SET asset_id=?,status='preview_pending',attempt_count=0,locked_until=NULL,error_code=NULL,next_attempt_at=?,updated_at=? WHERE id=? AND processing_token=? AND status='processing' AND locked_until>?")

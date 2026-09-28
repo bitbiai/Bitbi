@@ -771,6 +771,19 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
 }
 
 {
+ const files=['js/pages/canvas/full-video.js','js/pages/canvas/music-preview.js','js/pages/canvas/music-preview-worklet.js',
+ 'js/shared/canvas-export.mjs','workers/auth/src/lib/canvas-preview-base.js','workers/auth/migrations/0097_canvas_preview_base.sql',
+ 'tests/helpers/canvas-music-preview.cjs','tests/fixtures/media/canvas-preview.mp4','tests/fixtures/media/canvas-preview.webm','tests/fixtures/media/canvas-preview-loud.wav',
+ 'tests/helpers/homepage-media-server.mjs','services/homepage-ffmpeg-processor/canvas-full-video.mjs','scripts/lib/media-publication.mjs'];
+ const selected=selection(files);assert(selected.canvasText&&selected.workers&&selected.auth&&selected.static);
+ assert(!selected.full&&!selected.homepageMedia&&!selected.carousel);
+ const jobs=requiredJobs(selected);assert(jobs['worker-validation'].includes('Build and test private media Linux image'));
+ assert(jobs['browser-validation'].includes('Run selected auth and admin tests'));
+ for(const file of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','services/homepage-ffmpeg-processor/unknown.mjs'])assert(!selection([...files,file]).canvasText);
+ const caller=fs.readFileSync(path.join(repoRoot,'tests/canvas.spec.js'),'utf8');assert(caller.includes("require('./helpers/canvas-music-preview.cjs')"));
+}
+
+{
  const files=['workers/media/src/index.js','workers/media/package-lock.json','scripts/private-media-image.mjs','tests/helpers/private-media-control.mjs','js/pages/admin/private-media-service.js'];
  const selected=selectCiTests(files);assert.equal(selected.workers,true);assert.equal(selected.auth,true);assert.equal(selected.full,false);
  assert.equal(selected.homepage,false);assert.equal(selected.carousel,false);

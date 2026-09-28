@@ -127,6 +127,7 @@ for(const locale of ['en','de']) for(const width of [1440,390]) test(`Canvas Ele
 });
 
 const memberAudioRequests = new WeakMap();
+require('./helpers/canvas-music-preview.cjs')({test,expect,mockSharedAuth,createCanvasApiMock});
 const musicMediaCase = title => title.startsWith('Canvas member music Generate Lab') || title.startsWith('Canvas music native HTTP control');
 test.beforeEach(async ({page}, info) => {
   if (!musicMediaCase(info.title)) return;
@@ -950,7 +951,7 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
   await expect(block.locator('output')).toHaveText('1%');
   await slider.fill('50');await slider.dispatchEvent('input');await expect(block.locator('output')).toHaveText('50%');
   expect(exports).toHaveLength(0);
-  await block.getByRole('button',{name:locale==='de'?'Gesamtes Video erstellen':'Create full video',exact:true}).click();
+  await block.getByRole('button',{name:locale==='de'?'Gesamtes Video mit Hintergrundmusik erstellen':'Create full video with background music',exact:true}).click();
   await expect.poll(()=>exports.length).toBe(1);
   expect(exports[0].body).toEqual({backgroundMusic:{enabled:true,gain:0.5}});expect(exports[0].key).toBeTruthy();
   await expect.poll(()=>state.nodes[0].config.backgroundMusic).toEqual({enabled:true,gain:0.5});
@@ -983,7 +984,7 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
   await expect(block.getByRole('button',{name:locale==='de'?'Gesamtvideo in Assets speichern':'Save full video to Assets'})).toHaveCount(0);
   await open();await expect(block.getByRole('slider')).toHaveValue('50');await expect(block.getByRole('checkbox')).toBeChecked();
   await block.getByRole('slider').fill('100');await block.getByRole('slider').dispatchEvent('input');expect(exports).toHaveLength(1);
-  await block.getByRole('button',{name:locale==='de'?'Gesamtes Video erneut erstellen':'Create full video again'}).click();
+  await block.getByRole('button',{name:locale==='de'?'Gesamtes Video mit Hintergrundmusik erstellen':'Create full video with background music'}).click();
   await expect.poll(()=>exports.length).toBe(2);
   expect(exports[1].body.backgroundMusic.gain).toBe(1);expect(exports[1].key).not.toBe(exports[0].key);
   await expect(block.locator('video')).toHaveAttribute('src','/api/ai/text-assets/version-1/file');

@@ -27,6 +27,12 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost:3000');
     if (url.pathname === '/plain-video') { res.writeHead(200, { 'Content-Type':'text/html' });res.end('<!doctype html><title>Native transport fixture</title><body></body>');return; }
+    const audition=url.pathname.match(/^\/api\/plain\/canvas-preview\/(video\.mp4|video\.webm|loud\.wav)$/);
+    if(audition && req.method==='GET') {
+      const kind=audition[1],bytes=fs.readFileSync(new URL(`../fixtures/media/${kind==='loud.wav'?'canvas-preview-loud.wav':'canvas-preview.'+kind.split('.')[1]}`,import.meta.url));
+      const response=await publicVideoResponse(new Request(url,{headers:req.headers}),fixtureBucket(bytes),'audition',()=>new Headers({'Content-Type':kind==='loud.wav'?'audio/wav':kind==='video.mp4'?'video/mp4':'video/webm','Content-Length':String(bytes.length),'Cache-Control':'no-store'}));
+      res.writeHead(response.status,Object.fromEntries(response.headers));if(response.body)await pipeline(Readable.fromWeb(response.body),res);else res.end();return;
+    }
     const musicMatch = url.pathname.match(/^\/api\/plain\/music\/(mp3|opus|invalid)\/file$/);
     if (musicMatch && req.method === 'GET') {
       const format=musicMatch[1], bytes=format==='invalid'?Buffer.alloc(16):fs.readFileSync(new URL(`../fixtures/media/member-music.${format}`, import.meta.url));

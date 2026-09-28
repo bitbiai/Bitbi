@@ -1774,6 +1774,7 @@ class MockD1 {
     if(query==="SELECT COALESCE(SUM(storage_reserved_bytes),0) AS bytes FROM private_video_references WHERE user_id=? AND status<>'retired'") {
       return {bytes:this.state.privateVideoReferences.filter(row=>row.user_id===bindings[0]&&row.status!=='retired').reduce((sum,row)=>sum+Number(row.storage_reserved_bytes||0),0)};
     }
+    if(query==='SELECT COALESCE(SUM(preview_base_bytes),0) AS bytes FROM canvas_video_processing WHERE user_id=?')return {bytes:this.state.canvasVideoProcessing.filter(row=>row.user_id===bindings[0]).reduce((sum,row)=>sum+Number(row.preview_base_bytes||0),0)};
     if(query==='SELECT backend,error_code,updated_at FROM private_media_dispatch')return {results:this.state.privateMediaDispatch};
     if(query.startsWith('SELECT (SELECT COUNT(*) FROM member_generation_jobs')){
       const [backend,now]=bindings;

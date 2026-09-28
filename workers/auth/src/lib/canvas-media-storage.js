@@ -1,6 +1,7 @@
 import { processR2CleanupQueue } from './r2-cleanup.js';
 import { nowIso } from './tokens.js';
 import { deleteUserAiImage, deleteUserAiTextAsset } from '../routes/ai/lifecycle.js';
+import { retireFailedCanvasPreviewBases } from './canvas-preview-base.js';
 
 const contexts = new WeakMap();
 export const canvasMediaRun = env => contexts.get(env) || null;
@@ -47,6 +48,7 @@ export async function annotateCanvasMedia(env,userId,rows) {
   });
 }
 export async function reclaimCanvasMedia(env, userId=null) {
+  await retireFailedCanvasPreviewBases(env,userId);
   const exports=await env.DB.prepare(`SELECT id,user_id FROM canvas_export_reclaimable ${userId?'WHERE user_id=?':''} ORDER BY created_at LIMIT 20`);
   for(const row of (await (userId?exports.bind(userId):exports).all()).results||[]) {
     try { await deleteUserAiTextAsset({env,userId:row.user_id,assetId:row.id,canvasExportId:row.id}); }

@@ -19,7 +19,7 @@ export function assertMediaAuthConfig(before,after) {
   assert.deepEqual(next,previous,'Unreviewed Auth configuration change');
   assert.deepEqual(after.services.filter(s=>s.binding==='PRIVATE_MEDIA_PROCESSOR'),[{binding:'PRIVATE_MEDIA_PROCESSOR',service:'bitbi-private-media'}]);
 }
-export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false,publicPreviews=false,videoReferences=false,exportMusic=false}) {
+export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false,publicPreviews=false,videoReferences=false,exportMusic=false,previewBase=false}) {
   assert(receipt.media,'Missing media activation evidence');
   assert.equal(receipt.media.sha,sha);assert.equal(receipt.media.sourceRun,run);assert.equal(receipt.media.sourceAttempt,attempt);
   assert(/^registry\.cloudflare\.com\/[a-f0-9]{32}\/bitbi-private-media@sha256:[a-f0-9]{64}$/.test(receipt.media.imageDigest),'Wrong image identity');
@@ -29,6 +29,7 @@ export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false,pub
     const music=receipt.smoke.find(s=>s.backend==='cloudflare')?.exportMusic;
     assert(music?.decoded===true&&music.gain===0.5&&/^[a-f0-9]{64}$/.test(music.videoDigest),'Missing decoded export music acceptance');
   }
+  if(previewBase)assert(/^[a-f0-9]{64}$/.test(receipt.smoke.find(s=>s.backend==='cloudflare')?.exportMusic?.previewBaseDigest),'Missing retained clean preview base acceptance');
   if(lifecycle) {
     const cycle=receipt.smoke.find(s=>s.backend==='cloudflare')?.lifecycle;
     assert(cycle,'Missing production idle/wake evidence');
@@ -221,6 +222,13 @@ export async function mediaSmoke(c,secret,media) {
           for(let i=0;i<count;i++){const value=samples.readFloatLE(i*4);assert(Number.isFinite(value));real+=value*Math.cos(2*Math.PI*1000*i/48000);imaginary+=value*Math.sin(2*Math.PI*1000*i/48000);}
           assert(2*Math.hypot(real,imaginary)/count>0.04,'Persisted export does not contain the selected music');
           exportMusic={decoded:true,gain:0.5,videoDigest:result.outputs[0].videoDigest};
+          const clean=result.outputs[0].previewBase;assert(clean,'Explicit synthetic export did not retain its clean base');
+          const bytes=Buffer.from(clean.video,'base64');assert.equal(hash(bytes),clean.digest);
+          const cleanFile=path.join(dir,'clean-base.mp4');fs.writeFileSync(cleanFile,bytes);
+          const probe=JSON.parse(run('ffprobe',['-v','error','-show_streams','-of','json',cleanFile]));
+          assert(probe.streams.some(s=>s.codec_type==='video'));assert(!probe.streams.some(s=>s.codec_type==='audio'),'Silent synthetic base unexpectedly contains mixed music');
+          const pixels=run('ffmpeg',['-v','error','-i',cleanFile,'-frames:v','1','-vf','scale=1:1','-f','rawvideo','-pix_fmt','rgb24','-'],{encoding:null});assert.equal(pixels.length,3,'Retained base must decode');
+          exportMusic.previewBaseDigest=clean.digest;
         }
         const reference=result.videoReference;assert(reference,'Missing H3 reference processing acceptance');
         const bytes=Buffer.from(reference.video,'base64');assert.equal(hash(bytes),reference.videoDigest);assert.equal(reference.originalDigest,hash(Buffer.from(referenceFixture,'base64')));

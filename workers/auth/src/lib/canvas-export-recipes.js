@@ -27,12 +27,12 @@ export const ownedExportSource=(env,userId,source)=>source.kind==='music'
   ? ownedCanvasMusic(env,userId,source.assetId,source.version)
   : ownedCanvasVideo(env,userId,source.assetId,source.version,80_000_000);
 
-export async function connectedExportMusic(env,userId,projectId,runId) {
+export async function connectedExportMusic(env,userId,projectId,runId,selectedId=null) {
   const rows=await env.DB.prepare(`SELECT e.config_json,n.asset_id,n.output_json FROM canvas_edges e
     JOIN canvas_runs r ON r.node_id=e.target_node_id AND r.id=? AND r.user_id=e.user_id AND r.project_id=e.project_id
     JOIN canvas_nodes n ON n.id=e.source_node_id AND n.user_id=e.user_id AND n.project_id=e.project_id
     WHERE e.user_id=? AND e.project_id=? AND e.deleted_at IS NULL AND n.deleted_at IS NULL`).bind(runId,userId,projectId).all();
-  const music=rows.results.filter(row=>isExportMusic(JSON.parse(row.config_json||'{}')));
+  const music=rows.results.filter(row=>isExportMusic(JSON.parse(row.config_json||'{}'))).filter(row=>!selectedId || (row.asset_id||JSON.parse(row.output_json||'{}').assetId||JSON.parse(row.output_json||'{}').asset?.id)===selectedId);
   if(!music.length)return null;
   if(music.length!==1)fail('canvas_music_ambiguous');
   const output=JSON.parse(music[0].output_json||'{}');
@@ -43,7 +43,7 @@ export async function connectedExportMusic(env,userId,projectId,runId) {
 }
 export async function canvasExportRecipe(env,userId,projectId,runId,videos,settings) {
   const backgroundMusic=exportMusicSettings(settings);
-  const music=backgroundMusic.enabled?await connectedExportMusic(env,userId,projectId,runId):null;
+  const music=backgroundMusic.enabled?await connectedExportMusic(env,userId,projectId,runId,backgroundMusic.musicAssetId):null;
   if(backgroundMusic.enabled && !music)fail('canvas_music_unavailable');
   const sources=[...videos,...(music?[music]:[])];
   if(sources.reduce((total,s)=>total+s.size,0)>400_000_000)fail('canvas_chain_size');

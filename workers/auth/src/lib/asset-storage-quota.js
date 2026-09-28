@@ -296,7 +296,7 @@ export async function reserveUserAssetStorage(env, { userId, uploadBytes, genera
     if (generationReservation) {
       const { id, token } = generationReservation;
       const table = ['canvas_video_processing','private_video_references'].includes(generationReservation.table) ? generationReservation.table : 'member_generation_jobs';
-      const column = generationReservation.kind === 'poster' ? 'poster_reserved_bytes' : 'storage_reserved_bytes';
+      const column = generationReservation.kind === 'canvas_base' && table === 'canvas_video_processing' ? 'preview_base_bytes' : generationReservation.kind === 'poster' ? 'poster_reserved_bytes' : 'storage_reserved_bytes';
       const job = await env.DB.prepare(`SELECT ${column} AS reserved_bytes FROM ${table} WHERE id=? AND user_id=? AND processing_token=? AND locked_until>?`)
         .bind(id,userId,token,nowIso()).first();
       if (!job) throw new Error('generation_claim_lost');
@@ -370,7 +370,7 @@ export async function releaseUserAssetStorage(env, { userId, bytes, generationRe
   if (generationReservation) {
     const {id,token}=generationReservation;
     const table = ['canvas_video_processing','private_video_references'].includes(generationReservation.table) ? generationReservation.table : 'member_generation_jobs';
-    const column = generationReservation.kind === 'poster' ? 'poster_reserved_bytes' : 'storage_reserved_bytes';
+    const column = generationReservation.kind === 'canvas_base' && table === 'canvas_video_processing' ? 'preview_base_bytes' : generationReservation.kind === 'poster' ? 'poster_reserved_bytes' : 'storage_reserved_bytes';
     await env.DB.batch([
       env.DB.prepare(`UPDATE user_asset_storage_usage SET used_bytes=MAX(0,used_bytes-?),updated_at=? WHERE user_id=?
         AND EXISTS(SELECT 1 FROM ${table} WHERE id=? AND user_id=? AND processing_token=? AND ${column}=?)`)
@@ -520,5 +520,6 @@ export async function buildUserAssetStorageReconciliation(env, userId) {
 
 async function referenceStorageBytes(env,userId) {
   const row=await env.DB.prepare("SELECT COALESCE(SUM(storage_reserved_bytes),0) AS bytes FROM private_video_references WHERE user_id=? AND status<>'retired'").bind(userId).first();
-  return Number(row?.bytes||0);
+  const bases=await env.DB.prepare('SELECT COALESCE(SUM(preview_base_bytes),0) AS bytes FROM canvas_video_processing WHERE user_id=?').bind(userId).first();
+  return Number(row?.bytes||0)+Number(bases?.bytes||0);
 }

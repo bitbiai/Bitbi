@@ -51,7 +51,10 @@ export async function enqueueCanvasProcessing(env,{userId,projectId,runId,kind,s
 }
 
 export function publicCanvasProcessing(row) {
+  const recipe=row.recipe_json?JSON.parse(row.recipe_json):null;
+  const clean=!recipe || recipe.backgroundMusic?.enabled===false || recipe.backgroundMusic?.gain===0;
   return {id:row.id,run_id:row.run_id,status:row.status,error_code:row.error_code||null,storage:row.recipe_json?(row.export_state==='saved'?'assets':'canvas'):'assets',recipe:row.recipe_json?JSON.parse(row.recipe_json):null,
+    preview_base:row.asset_id && (clean || row.preview_base_etag)?{export_id:row.id,file_url:clean?`/api/ai/text-assets/${row.asset_id}/file`:`/api/account/canvas/projects/${row.project_id}/runs/${row.run_id}/full-video?previewBase=${row.id}`}:null,
     asset:row.asset_id?{id:row.asset_id,file_url:`/api/ai/text-assets/${row.asset_id}/file`,poster_url:row.status==='ready'?`/api/ai/text-assets/${row.asset_id}/poster`:null}:null};
 }
 

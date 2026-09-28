@@ -601,6 +601,9 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  assert.throws(()=>verifyMediaEvidence(receipt,{...scope,exportMusic:true}),/export music/);
  const music=structuredClone(receipt);music.smoke[1].exportMusic={decoded:true,gain:0.5,videoDigest:digest};
  verifyMediaEvidence(music,{...scope,exportMusic:true});
+ assert.throws(()=>verifyMediaEvidence(music,{...scope,previewBase:true}),/clean preview base/);
+ const withBase=structuredClone(music);withBase.smoke[1].exportMusic.previewBaseDigest=digest;
+ verifyMediaEvidence(withBase,{...scope,previewBase:true});
  for(const patch of [{decoded:false},{gain:1},{videoDigest:'wrong'}]) {
    const bad=structuredClone(music);Object.assign(bad.smoke[1].exportMusic,patch);assert.throws(()=>verifyMediaEvidence(bad,{...scope,exportMusic:true}));
  }

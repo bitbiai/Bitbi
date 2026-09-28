@@ -114,6 +114,10 @@ const CANVAS_TEXT_FILES = new Set([
   'services/homepage-ffmpeg-processor/canvas-full-video.test.mjs',
   'js/shared/canvas-export.mjs', 'workers/auth/src/lib/canvas-export-recipes.js',
   'workers/auth/migrations/0096_canvas_export_versions.sql',
+  'workers/auth/migrations/0097_canvas_preview_base.sql', 'workers/auth/src/lib/canvas-preview-base.js',
+  'js/pages/canvas/music-preview.js', 'js/pages/canvas/music-preview-worklet.js',
+  'tests/helpers/canvas-music-preview.cjs', 'tests/fixtures/media/canvas-preview.mp4',
+  'tests/fixtures/media/canvas-preview.webm', 'tests/fixtures/media/canvas-preview-loud.wav',
   'workers/auth/src/routes/ai/asset-details.js',
   // Shared generation controls + typed owner assets reuse BOTH existing
   // acceptance jobs; no decorative carousel/provider execution is changed.
@@ -848,7 +852,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
   }
 
   if (!forceFull && (changedFiles.some(f=>['js/shared/generation-model-order.mjs','js/shared/image-dimensions.mjs','js/shared/asset-type-view.js','workers/auth/src/lib/flux-schnell-provider.js','js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js','js/shared/canvas-video-input.mjs','workers/auth/src/lib/private-video-references.js','workers/auth/src/lib/h3-provider-result.js'].includes(f))
-      || changedFiles.includes('workers/auth/src/routes/canvas.js')
+      || changedFiles.includes('workers/auth/src/routes/canvas.js') || changedFiles.includes('workers/auth/src/lib/canvas-preview-base.js')
       || ['js/pages/generate-lab/main.js','workers/auth/src/routes/ai/quota.js','workers/auth/src/lib/member-generation-jobs.js'].every(f=>changedFiles.includes(f)))
       && changedFiles.every(f=>isDocumentation(f)||CANVAS_TEXT_FILES.has(f)||RELEASE_TOOLING_FILES.has(f)||(f===MEMBER_SPEC && isFluxReviewTestChange(memberTestSources)))) {
     selection.canvasText = true;

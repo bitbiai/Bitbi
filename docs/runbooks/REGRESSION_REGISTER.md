@@ -394,6 +394,20 @@ music output before frontend continuation. Local layered fixtures do not certify
 the live browser-to-container path; CI, activation and durable smoke receipts are
 separate evidence. No paid generation is involved.
 
+Browser audition, 2026-09-28: preview is separate decoded music plus the existing
+aggregate player, never an export request. Migration `0097_canvas_preview_base.sql`
+retains a private, quota-counted clean base inside the same explicit export lease;
+legacy mixed versions without one remain playable but cannot be auditioned.
+Save/download still target the immutable completed version. The existing processor
+and protected smoke preserve/read/decode the clean base before frontend publication.
+`canvas-music-preview.cjs` is registered in the selected Canvas spec: EN/DE decoded
+0/30/100% gain, original sound, loop/seek, buffering, stale track reads, failed media,
+cleanup and zero preview submissions. Linux WebKit can advance at HAVE_CURRENT_DATA
+after seeking: waiting/playing events, not a HAVE_FUTURE_DATA-only gate, control
+music suspension. Keep actual audio assertions; macOS Playwright WebKit, Linux
+WebKit and native Safari are distinct evidence. Native Canvas controls additionally
+check clean-base ownership, lease fencing, duplicate quota and saved/failed cleanup.
+
 Save follow-up, 2026-09-27: `58e3adc3`, run `36345673640/1`, passed Worker/image
 acceptance and 250 Assets cases, then failed WebKit EN aggregate Save (234 Canvas
 cases passed; counts overlap). Browser proof/deployment skipped. Artifact
