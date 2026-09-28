@@ -127,7 +127,11 @@ for(const locale of ['en','de']) for(const width of [1440,390]) test(`Canvas Ele
 });
 
 const memberAudioRequests = new WeakMap();
-require('./helpers/canvas-music-preview.cjs')({test,expect,mockSharedAuth,createCanvasApiMock});
+const musicPreviewCase = require('./helpers/canvas-music-preview.cjs');
+for (const locale of ['en','de']) {
+  test(`Canvas music audition ${locale}: decoded gain, timeline, selection and no render`,
+    musicPreviewCase({expect,mockSharedAuth,createCanvasApiMock},locale));
+}
 const musicMediaCase = title => title.startsWith('Canvas member music Generate Lab') || title.startsWith('Canvas music native HTTP control');
 test.beforeEach(async ({page}, info) => {
   if (!musicMediaCase(info.title)) return;

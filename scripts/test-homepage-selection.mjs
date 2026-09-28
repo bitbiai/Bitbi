@@ -71,6 +71,15 @@ try {
   });
   assert.equal(result.status, 0, result.stderr || result.error?.message || result.stdout);
   const canvas = flattenHomepageDiscovery(JSON.parse(fs.readFileSync(output, 'utf8')));
+  // Imported bodies must retain their owning spec declaration. Check all four
+  // cases independently in each real caller, not just equal (possibly empty) sets.
+  for (const [name, collection] of Object.entries({standard, core, canvas})) {
+    const audition = collection.filter(test => test.title.startsWith('Canvas music audition '));
+    assert.deepEqual(audition.map(test => [test.file, test.project, test.title]).sort(),
+      ['chromium','webkit-canvas'].flatMap(project => ['en','de'].map(locale => [
+        'canvas.spec.js', project, `Canvas music audition ${locale}: decoded gain, timeline, selection and no render`,
+      ])).sort(), `${name}: imported preview bodies lost their owning spec or required cases`);
+  }
   // Playwright's plain-string CLI --grep is case-insensitive; the project's
   // RegExp above is not. Standard discovery already applied that project filter.
   const expected = standard.filter(test => ['chromium','webkit-canvas'].includes(test.project)

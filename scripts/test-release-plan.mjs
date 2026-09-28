@@ -8,6 +8,7 @@ import {
   createReleasePlan,
   createReleasePlanFromRepo,
   runReleaseApply,
+  runReleasePreflight,
 } from "./lib/release-plan.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,6 +18,27 @@ function createContext() {
   const context = loadReleaseCompatibilityContext(repoRoot);
   context.repoRoot = repoRoot;
   return context;
+}
+
+// The existing local preflight executes the cheap discovery dependency first,
+// including helper-only edits, and stops on its failure. No budget-hook change.
+for (const file of ['tests/canvas.spec.js', 'tests/helpers/canvas-music-preview.cjs',
+  'playwright.config.js', 'package.json', 'package-lock.json', '.github/workflows/static.yml',
+  'scripts/lib/homepage-test-selection.mjs', 'scripts/test-homepage-selection.mjs',
+  'scripts/check-homepage-selection.mjs', 'scripts/lib/ci-test-selection.mjs',
+  'scripts/test-ci-test-selection.mjs', 'scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs']) {
+  const executed = [];
+  const result = runReleasePreflight(repoRoot, {files: [file]}, {runCommand(command) {
+    executed.push(command);
+    return {ok: false, status: 1};
+  }});
+  assert.deepEqual(executed, [['npm', 'run', 'test:homepage-selection']], file);
+  assert.equal(result.ok, false);
+  assert.match(result.issues[0], /Preflight command failed: npm run test:homepage-selection/);
+}
+for (const file of ['docs/example.md', 'css/pages/canvas.css', 'workers/contact/src/index.js']) {
+  const plan = createReleasePlanFromRepo(repoRoot, {files: [file]});
+  assert(!plan.recommendedChecks.includes('npm run test:homepage-selection'), file);
 }
 
 for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/restriction-adapter.mjs"]) {

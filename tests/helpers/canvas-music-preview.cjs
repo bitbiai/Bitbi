@@ -1,6 +1,7 @@
 // Real Canvas caller and native decoded Web Audio; only API/owned-media fixtures.
-module.exports=({test,expect,mockSharedAuth,createCanvasApiMock})=>{
-for(const locale of ['en','de'])test(`Canvas music audition ${locale}: decoded gain, timeline, selection and no render`,async({page,browserName},info)=>{
+// Register in the owning spec: Playwright reports the test() declaration as
+// spec.file, which discovery and candidate evidence use as their identity.
+module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page,browserName},info)=>{
   await page.setViewportSize({width:locale==='de'?390:1440,height:900});await mockSharedAuth(page);
   await page.addInitScript(()=>{
     const Native=window.AudioWorkletNode;window.auditionContexts=[];window.auditionTrace=[];window.auditionSources=[];
@@ -26,11 +27,15 @@ for(const locale of ['en','de'])test(`Canvas music audition ${locale}: decoded g
   await open();const block=page.locator('.canvas-full-video'),video=block.locator('video'),slider=block.getByRole('slider');
   const start=()=>block.getByRole('button',{name:locale==='de'?'Vorschau mit Musik':'Preview with music',exact:true});
   const pause=()=>block.getByRole('button',{name:locale==='de'?'Vorschau pausieren':'Pause preview',exact:true});
-  const meter=(original=false)=>page.evaluate(original=>{
+  const meter=(original=false,calibration=null)=>page.evaluate(({original,calibration})=>{
     const {context,meter}=(original?window.auditionSources:window.auditionContexts).at(-1),samples=new Float32Array(meter.fftSize);meter.getFloatTimeDomainData(samples);
-    const magnitude=hz=>{let r=0,i=0;for(let n=0;n<samples.length;n++){r+=samples[n]*Math.cos(2*Math.PI*hz*n/context.sampleRate);i+=samples[n]*Math.sin(2*Math.PI*hz*n/context.sampleRate);}return 2*Math.hypot(r,i)/samples.length;};
+    if(calibration!==null)for(let n=0;n<samples.length;n++)samples[n]=Math.max(-.95,Math.min(.95,1.11*Math.sin(2*Math.PI*1000*n/context.sampleRate)))+calibration*Math.sin(2*Math.PI*440*n/context.sampleRate);
+    // A rectangular window leaks a loud 1 kHz signal into 440 Hz (~0.004 at
+    // 48 kHz/8192 samples). Hann weighting rejects that boundary discontinuity;
+    // coherent-gain correction preserves the measured source amplitudes.
+    const magnitude=hz=>{let r=0,i=0,weight=0;for(let n=0;n<samples.length;n++){const w=.5-.5*Math.cos(2*Math.PI*n/(samples.length-1));weight+=w;r+=w*samples[n]*Math.cos(2*Math.PI*hz*n/context.sampleRate);i+=w*samples[n]*Math.sin(2*Math.PI*hz*n/context.sampleRate);}return 2*Math.hypot(r,i)/weight;};
     return {original:magnitude(1000),music:magnitude(440),peak:Math.max(...samples.map(Math.abs))};
-  },original);
+  },{original,calibration});
   await expect(start()).toBeEnabled();await start().focus();await page.keyboard.press('Enter');await expect(pause()).toBeVisible();
   await expect(block.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toHaveText(locale==='de'?'Vorschau · noch nicht übernommen':'Preview · not exported');
   await expect(pause()).toBeFocused();
@@ -39,6 +44,10 @@ for(const locale of ['en','de'])test(`Canvas music audition ${locale}: decoded g
   expect(await video.evaluate(v=>v.videoWidth)).toBeGreaterThan(0);
   await expect.poll(async()=>(await meter()).music).toBeGreaterThan(.06);
   await expect.poll(async()=>(await meter()).original).toBeGreaterThan(.085);
+  const cleanControl=await meter(false,0),overlapControl=await meter(false,.02);
+  expect(cleanControl.music).toBeLessThan(.003);
+  expect(overlapControl.music).toBeGreaterThan(.019);
+  await info.attach('frequency-meter-countercontrols',{body:JSON.stringify({cleanControl,overlapControl}),contentType:'application/json'});
   const full=await meter();expect(full.original).toBeGreaterThan(.05);
   const levels=[];
   for(const percent of [0,30,100]) {
@@ -92,5 +101,4 @@ for(const locale of ['en','de'])test(`Canvas music audition ${locale}: decoded g
   await expect(block.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toContainText(locale==='de'?'nicht abgespielt':'could not play');
   await block.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();await expect(video).toHaveAttribute('src',completed.asset.file_url);
   expect(writes).toHaveLength(2);
-});
 };

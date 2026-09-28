@@ -554,6 +554,34 @@ Real callers: existing canvasText selection in static.yml executes Canvas/text/i
 
 Run 35466797029 stopped before candidate creation: the expanded WebKit project was still compared with the old two-file homepage-core contract. Local browser/candidate checks had passed, but the required `npm run test:homepage-selection` had been omitted. The project file set and the npm caller's intersection are now explicit: homepage-core includes tagged WebKit smoke coverage, not Admin. That same existing self-test executes real discovery from the npm caller and the exact Canvas CI line, checks discovery/execution argument parity, both engines and all four release files, and retains rejection of missing, extra or skipped cases. `npm run check:homepage-selection` checks the wider discovery union; neither discovery certifies execution. Candidate verification still requires new successful Worker/browser evidence and exact build identity; the failed run has no reusable artifact. No product or deployment gate changed in this repair.
 
+2026-09-28 recurrence: runs 36464782633/1 and 36464781440/1 at
+f3ed3c31 failed this discovery gate before candidate creation (zero artifacts).
+Four imported music-preview cases were collected, but their helper declaration
+location (`spec.file`) failed the owning-spec allowlist in both homepage-core
+and Canvas expected sets. Registration now stays in `canvas.spec.js`; the helper
+still supplies the test bodies. Report/candidate identity rules and strict
+equality remain unchanged. The actual `test:homepage-selection` passes with
+380 core / 265 Canvas cases, explicitly requiring all four EN/DE × engine
+preview cases in standard/core/Canvas discovery; `check:homepage-selection`
+also passes. Missing/duplicate/skipped/foreign controls remain mandatory.
+The existing impact-based `release:preflight` now executes this cheap check first
+for test/helper, Playwright or selection-contract changes, with executable
+failure-propagation and unrelated-change controls in `test:release-plan`.
+Discovery is not media execution: fresh selected CI and exact candidate evidence
+remain required for unpublished 0097 → media/container → Auth → synthetic
+durable clean-base acceptance → frontend. Neither failed run certifies release.
+
+The focused browser rerun also exposed a measurement false positive (3/4 passed):
+a rectangular 8192-sample frequency window reports ~0.004 at 440 Hz for a
+clipped 1 kHz-only signal at 48 kHz. The meter now uses coherent-gain-corrected
+Hann weighting; the unchanged 0.003 no-overlap limit rejects leakage, while a
+0.02-amplitude added 440 Hz countercontrol must still be detected above 0.019.
+Peak samples, decoded source/gain assertions and zero-submission checks remain
+independent and unchanged. The corrected four cases pass in both macOS and
+isolated Linux Chromium/Playwright WebKit against the static build; this is not
+native Safari or a CI release certificate. The first Linux attempt's missing
+static-build directory produced 404s; its failed setup evidence is retained.
+
 ### Generate Lab payer context, Grok video inputs and independent previews (2026-09-20)
 
 Generate Lab previously rejected an authenticated Admin without an organization and returned no usable balance. It now retains Admin identity and uses the existing charged personal-credit context (not platform-budget units), with authoritative quota refresh. The native member-generation caller derives coverage from the actual Generate Lab catalog; it checks every exposed model, both Grok Generate aliases and rejection of the four held Edit/Extend combinations, insufficient Admin credits, one debit, failure/unknown outcomes, ownership and replay. The generic no-context Admin guard remains. Existing provider source inventory now includes the durable member executor and Grok text helper; unknown sources remain failures.

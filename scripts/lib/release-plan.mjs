@@ -528,8 +528,18 @@ function buildManualPrerequisites(context, impactedWorkerIds, staticRequired) {
   };
 }
 
-function buildRecommendedChecks(impacts) {
-  const checks = [...ALWAYS_RECOMMENDED_CHECKS];
+function buildRecommendedChecks(impacts, changedFiles) {
+  // This is discovery only (no browsers/providers). Test registration may live
+  // in imported helpers; run the actual caller/equality checks before expensive
+  // acceptance whenever those inputs or their selection contract change.
+  const discoveryChanged = changedFiles.some(file =>
+    /^tests\/.*\.(?:[cm]?js|ts)$/.test(file)
+    || /^playwright\..*config\.[cm]?js$/.test(file)
+    || ['package.json', 'package-lock.json', '.github/workflows/static.yml',
+      'scripts/lib/homepage-test-selection.mjs', 'scripts/test-homepage-selection.mjs',
+      'scripts/check-homepage-selection.mjs', 'scripts/lib/ci-test-selection.mjs',
+      'scripts/test-ci-test-selection.mjs', 'scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs'].includes(file));
+  const checks = [...(discoveryChanged ? ['npm run test:homepage-selection'] : []), ...ALWAYS_RECOMMENDED_CHECKS];
   if (Object.keys(impacts.workers).length > 0 || Object.keys(impacts.schemaCheckpoints).length > 0) {
     checks.push(...WORKER_RECOMMENDED_CHECKS);
   }
@@ -613,7 +623,7 @@ export function createReleasePlan(context, { changedFiles, source = { mode: "exp
     impactedWorkerIds,
     impacts.static.changedFiles.length > 0
   );
-  const recommendedChecks = buildRecommendedChecks(impacts);
+  const recommendedChecks = buildRecommendedChecks(impacts, normalizedFiles);
   const consistencyIssues = buildConsistencyIssues(context, normalizedFiles, impacts);
   const compatibilityNotes = buildCompatibilityNotes(context, normalizedFiles, impacts);
 
