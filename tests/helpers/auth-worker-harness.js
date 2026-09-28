@@ -13783,6 +13783,16 @@ class MockD1 {
       if(!exists)this.state.canvasMediaOutputs.push({run_id,user_id,project_id,node_id,asset_id,kind,role:'original',created_at,state:'canvas',saved_at:null});
       return {success:true,meta:{changes:exists?0:1}};
     }
+    if(query==="SELECT id FROM canvas_video_processing WHERE asset_id IS NULL AND status='failed' AND preview_base_bytes>0 AND (locked_until IS NULL OR locked_until<?) AND (? IS NULL OR user_id=?) LIMIT 20") {
+      const [now,scope,userId]=bindings;
+      const eligible=this.state.canvasVideoProcessing.some(row=>row.asset_id==null && row.status==='failed'
+        && Number(row.preview_base_bytes)>0 && (row.locked_until==null || row.locked_until<now)
+        && (scope==null || row.user_id===userId));
+      // This legacy route fixture supports only the no-op boundary. Populated
+      // retirement/quota/R2 transactions belong to the native Canvas D1 tests.
+      if(eligible)throw new Error('Failed Canvas preview-base cleanup requires native D1 fixture');
+      return {results:[]};
+    }
     if(query.startsWith('SELECT id,user_id FROM canvas_export_reclaimable')) {
       // Legacy contract fixtures contain no recipe exports. Their transactional
       // lifecycle is deliberately exercised by real migrated SQLite/workerd.

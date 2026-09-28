@@ -408,6 +408,26 @@ music suspension. Keep actual audio assertions; macOS Playwright WebKit, Linux
 WebKit and native Safari are distinct evidence. Native Canvas controls additionally
 check clean-base ownership, lease fencing, duplicate quota and saved/failed cleanup.
 
+Fixture follow-up, 2026-09-28: `c77d8b6b`, run `36467657329/1`, worker job
+`109082515330`, passed discovery but failed 15 of 136 cases in the Canvas-selected
+`workers.spec.js` subcommand. The existing MockD1 array was initialized; its exact
+failed-preview-base SELECT was unhandled after successful generation and node
+deletion. Both representative routes reproduced HTTP500 locally. The fixture now
+recognizes only that guarded SELECT: no eligible row returns empty; eligible
+populated cleanup explicitly requires native D1, just like recipe reclamation.
+Production cleanup and accounting are unchanged. The CI-selected Canvas fixture
+regression covers status, retained asset, owner/global scope, positive bytes,
+live/equal/expired locks, no mutation and unknown/weakened SQL rejection.
+The 15 former failures plus this regression pass (16/16); the exact existing
+Canvas Worker grep also passes (137/137, zero retries). Retained native Linux
+Canvas evidence passes 84 cases, including populated failed-base cleanup and
+exact quota release; all 286 recorded production-source hashes still match and
+that native control does not import MockD1. Preview browser cases are unchanged.
+These local results do not certify a candidate: later selected Worker/native,
+container/lifecycle and browser CI acceptance were skipped after the old failure;
+its build-only artifact must not be published. Existing protected full-range
+backend/frontend continuation and fresh candidate proof remain required.
+
 Save follow-up, 2026-09-27: `58e3adc3`, run `36345673640/1`, passed Worker/image
 acceptance and 250 Assets cases, then failed WebKit EN aggregate Save (234 Canvas
 cases passed; counts overlap). Browser proof/deployment skipped. Artifact

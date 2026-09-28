@@ -6282,6 +6282,39 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     expect(getCanvasModel('@cf/qwen/qwen3-30b-a3b-fp8')).toMatchObject({ runnable: false, memberCanvasEnabled: false, adminCanvasEnabled: true });
   });
 
+  test('Canvas preview-base cleanup fixture preserves guarded no-op and rejects eligible native-only state', async () => {
+    const { retireFailedCanvasPreviewBases } = await import('../workers/auth/src/lib/canvas-preview-base.js');
+    const env = createAuthTestEnv();
+    const sql = "SELECT id FROM canvas_video_processing WHERE asset_id IS NULL AND status='failed' AND preview_base_bytes>0 AND (locked_until IS NULL OR locked_until<?) AND (? IS NULL OR user_id=?) LIMIT 20";
+    const cutoff = '2026-09-28T00:00:00.000Z';
+    const eligible = {id:'base', user_id:'owner', asset_id:null, status:'failed', preview_base_bytes:64, locked_until:null};
+    await expect(retireFailedCanvasPreviewBases(env, 'owner')).resolves.toBeUndefined();
+    const retained = [
+      {...eligible, user_id:'other'}, {...eligible, locked_until:'2999-01-01T00:00:00.000Z'},
+      {...eligible, asset_id:'saved'}, {...eligible, asset_id:''},
+      ...['queued','processing','preview_pending','ready','completed'].map(status=>({...eligible,status})),
+      ...[0,null,-1].map(preview_base_bytes=>({...eligible,preview_base_bytes})),
+    ];
+    env.DB.state.canvasVideoProcessing = structuredClone(retained);
+    await expect(retireFailedCanvasPreviewBases(env, 'owner')).resolves.toBeUndefined();
+    expect(env.DB.state.canvasVideoProcessing).toEqual(retained);
+    expect(env.DB.runCalls).toEqual([]);
+    // The global sweep must not silently hide the otherwise eligible other owner.
+    await expect(retireFailedCanvasPreviewBases(env)).rejects.toThrow('requires native D1 fixture');
+    for (const locked_until of [null, '2020-01-01T00:00:00.000Z']) {
+      env.DB.state.canvasVideoProcessing = [{...eligible,locked_until}];
+      await expect(retireFailedCanvasPreviewBases(env, 'owner')).rejects.toThrow('requires native D1 fixture');
+      expect(env.DB.state.canvasVideoProcessing).toEqual([{...eligible,locked_until}]);
+    }
+    env.DB.state.canvasVideoProcessing = [{...eligible,locked_until:cutoff}];
+    expect(await env.DB.prepare(sql).bind(cutoff,'owner','owner').all()).toEqual({results:[]});
+    await expect(env.DB.prepare(sql).bind('2026-09-28T00:00:00.001Z','owner','owner').all()).rejects.toThrow('requires native D1 fixture');
+    // Unrecognized SQL and a weakened predicate must still fail closed.
+    await expect(env.DB.prepare(sql.replace(" AND status='failed'", '')).bind(cutoff,'owner','owner').all()).rejects.toThrow('Unsupported query');
+    await expect(env.DB.prepare('SELECT invented_column FROM canvas_video_processing').all()).rejects.toThrow('Unsupported query');
+    expect(env.DB.runCalls).toEqual([]);
+  });
+
   test('Canvas APIs reject logged-out reads before returning projects or model metadata', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');
     const env = createAuthTestEnv();
