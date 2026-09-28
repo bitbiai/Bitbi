@@ -27,6 +27,8 @@ import { ORG_ROLE_RANK, listUserOrganizations, requireOrgRole } from "../lib/org
 import { handleGenerateImage, handleSaveImage } from "./ai/images-write.js";
 import { handleAdminAI } from "./admin-ai.js";
 import { handleGenerateMusic } from "./ai/music-generate.js";
+import { MEMBER_MUSIC_PLAN_BODY_BYTES, elevenLabsMemberBody } from '../../../../js/shared/member-music-contract.mjs';
+import { captureCanvasContributors, resolveCanvasContributors, sameCanvasInput } from '../lib/canvas-contributors.js';
 import { handleGenerateText } from "./ai/text-generate.js";
 import { handleGenerateVideo } from "./ai/video-generate.js";
 
@@ -270,8 +272,8 @@ async function enforceWriteLimit(ctx, userId, { run = false } = {}) {
   });
 }
 
-async function readBody(ctx) {
-  const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes: BODY_LIMITS.smallJson });
+async function readBody(ctx, maxBytes = BODY_LIMITS.smallJson) {
+  const parsed = await readJsonBodyOrResponse(ctx.request, { maxBytes });
   if (parsed.response) return { response: withCorrelationId(parsed.response, ctx.correlationId || null), body: null };
   return { response: null, body: parsed.body || {} };
 }
@@ -355,12 +357,14 @@ async function loadOwnedImageDataUri(env, userId, assetId) {
 }
 
 async function applyConnectedMediaInputs(env, userId, model, resolution, body) {
+  for (const source of resolution.videoReferences) source.used = true;
   if(model.id===H3_MODEL) {
     const continuations = resolution.videoReferences.filter(source => source.videoInput.method !== 'reference_video');
     await applyCanvasVideoInput(env, userId, { ...resolution, videoReferences: continuations }, body, loadOwnedImageDataUri);
     body.references=h3References([...(body.references || []), ...resolution.sources.filter(source=>source.status==='compatible'&&source.assetId && !continuations.includes(source)).map(source=>{
       const actual=source.kind===CANVAS_DATA_KINDS.VIDEO_ASSET?'video':source.kind===CANVAS_DATA_KINDS.AUDIO_ASSET?'audio':'image';
       if(h3MediaType(source.h3Role)!==actual)throw Object.assign(new Error('H3 reference role does not match the connected medium.'),{status:400,code:'h3_reference_role'});
+      source.used = true;
       return {role:source.h3Role,source:{source_type:'saved_asset',asset_id:source.assetId}};
     })]);return body;
   }
@@ -373,6 +377,8 @@ async function applyConnectedMediaInputs(env, userId, model, resolution, body) {
     delete body.referenceOrder;
   }
   const imageAssetIds = [...new Set(orderedReferences.map((input) => input.assetId).filter(Boolean))];
+  const usedImageIds = model.capability === 'video' && !model.id.startsWith('xai/grok-imagine-video') ? imageAssetIds.slice(0, 1) : imageAssetIds;
+  for (const source of orderedReferences) source.used = usedImageIds.includes(source.assetId);
   if (isGptImage25Model(model.id)) {
     const selected = body.source_images || [];
     const ids = [...selected.map(source => source.asset_id), ...orderedReferences.map(source => source.assetId).filter(Boolean)];
@@ -529,14 +535,14 @@ async function createNode(ctx, userId, projectId) {
   if (!await requireProject(ctx.env, userId, projectId)) return respond(ctx, { ok: false, error: "Canvas project not found.", code: "project_not_found" }, { status: 404 });
   const count = await ctx.env.DB.prepare("SELECT COUNT(*) AS count FROM canvas_nodes WHERE project_id = ? AND user_id = ? AND deleted_at IS NULL").bind(projectId, userId).first();
   if (Number(count?.count || 0) >= MAX_NODES_PER_PROJECT) return respond(ctx, { ok: false, error: `A Canvas project supports up to ${MAX_NODES_PER_PROJECT} active nodes.`, code: "node_limit_reached" }, { status: 409 });
-  const parsed = await readBody(ctx);
+  const parsed = await readBody(ctx, MEMBER_MUSIC_PLAN_BODY_BYTES);
   if (parsed.response) return parsed.response;
   const type = String(parsed.body.type || "").trim();
   if (!NODE_TYPES.has(type)) return respond(ctx, { ok: false, error: "Unsupported Canvas node type.", code: "invalid_node_type" }, { status: 400 });
   const title = normalizeText(parsed.body.title || "", { field: "Node title", max: MAX_NODE_TITLE });
   const x = normalizeNumber(parsed.body.x, { field: "x", fallback: 80 });
   const y = normalizeNumber(parsed.body.y, { field: "y", fallback: 80 });
-  const config = normalizeJsonObject(parsed.body.config, { field: "config" });
+  const config = normalizeJsonObject(parsed.body.config, { field: "config", maxBytes: parsed.body.model_id === 'elevenlabs/music-v2' ? MEMBER_MUSIC_PLAN_BODY_BYTES : MAX_NODE_JSON_BYTES });
   const content = normalizeJsonObject(parsed.body.content, { field: "content" });
   const modelId = parsed.body.model_id ? String(parsed.body.model_id).trim() : null;
   const expectedCapability = GENERATION_NODE_CAPABILITY[type];
@@ -565,14 +571,14 @@ async function updateNode(ctx, userId, projectId, nodeId) {
   if (limited) return limited;
   const current = await requireNode(ctx.env, userId, projectId, nodeId);
   if (!current) return respond(ctx, { ok: false, error: "Canvas node not found.", code: "node_not_found" }, { status: 404 });
-  const parsed = await readBody(ctx);
+  const parsed = await readBody(ctx, MEMBER_MUSIC_PLAN_BODY_BYTES);
   if (parsed.response) return parsed.response;
   const title = Object.prototype.hasOwnProperty.call(parsed.body, "title") ? normalizeText(parsed.body.title, { field: "Node title", max: MAX_NODE_TITLE }) : (current.title || "");
   const x = Object.prototype.hasOwnProperty.call(parsed.body, "x") ? normalizeNumber(parsed.body.x, { field: "x" }) : Number(current.x);
   const y = Object.prototype.hasOwnProperty.call(parsed.body, "y") ? normalizeNumber(parsed.body.y, { field: "y" }) : Number(current.y);
   const width = Object.prototype.hasOwnProperty.call(parsed.body, "width") ? normalizeNumber(parsed.body.width, { field: "width", min: 160, max: 1200 }) : current.width;
   const height = Object.prototype.hasOwnProperty.call(parsed.body, "height") ? normalizeNumber(parsed.body.height, { field: "height", min: 100, max: 1200 }) : current.height;
-  const config = Object.prototype.hasOwnProperty.call(parsed.body, "config") ? normalizeJsonObject(parsed.body.config, { field: "config" }) : { encoded: current.config_json };
+  const config = Object.prototype.hasOwnProperty.call(parsed.body, "config") ? normalizeJsonObject(parsed.body.config, { field: "config", maxBytes: (parsed.body.model_id ?? current.model_id) === 'elevenlabs/music-v2' ? MEMBER_MUSIC_PLAN_BODY_BYTES : MAX_NODE_JSON_BYTES }) : { encoded: current.config_json };
   const content = Object.prototype.hasOwnProperty.call(parsed.body, "content") ? normalizeJsonObject(parsed.body.content, { field: "content" }) : { encoded: current.content_json };
   const modelId = Object.prototype.hasOwnProperty.call(parsed.body, "model_id") ? (String(parsed.body.model_id || "").trim() || null) : current.model_id;
   const expectedCapability = GENERATION_NODE_CAPABILITY[current.type];
@@ -844,7 +850,7 @@ function buildGenerationBody(node, model, resolution) {
     throw error;
   }
   const prompt = resolution.effectivePrompt;
-  if (!prompt) {
+  if (!prompt && !(model.id === 'elevenlabs/music-v2' && config.inputMode === 'composition_plan')) {
     const error = new Error("Add a prompt to this node or connect a Text Prompt node before running.");
     error.status = 400;
     error.code = "prompt_required";
@@ -887,6 +893,7 @@ function buildGenerationBody(node, model, resolution) {
     if (model.controls?.supportsAudioToggle) body.generate_audio = config.generateAudio !== false;
     if (model.controls?.supportsWatermark) body.watermark = config.watermark === true;
   } else if (model.capability === "music") {
+    if (model.id === 'elevenlabs/music-v2') return elevenLabsMemberBody(config, prompt);
     body.instrumental = config.instrumental === true;
     body.generateLyrics = config.generateLyrics === true;
     if (config.lyrics) body.lyrics = config.lyrics;
@@ -916,7 +923,7 @@ async function callGenerationHandler(ctx, model, body, idempotencyKey, durableVi
       maxTokens: body.max_tokens ?? model.controls.maxTokens.default, temperature: body.temperature, ...(body.reasoningEffort ? { reasoningEffort: body.reasoningEffort } : {}) };
   }
   if (!target) throw Object.assign(new Error("Canvas node is not runnable."), { status: 400, code: "node_not_runnable" });
-  if (model.capability === "music") {
+  if (model.id === 'minimax/music-2.6') {
     // The member music endpoint owns its fixed model. Keep Canvas's validated
     // model in the original run identity, not in that endpoint's strict body.
     body = { ...body };
@@ -1056,13 +1063,14 @@ async function runNode(ctx, session, projectId, nodeId) {
     generation: storedGenerationInput(generationBody),
     organization_id: model.requiresOrganization ? organizationId : null,
     prompt_source: resolution.promptSource,
+    used_sources: await captureCanvasContributors(resolution, generationBody),
     connected_node_ids: resolution.sources.map((input) => input.sourceNodeId),
     connected_asset_ids: resolution.sources.map((input) => input.assetId).filter(Boolean),
     connected_input_kinds: resolution.sources.map((input) => input.inputKind),
     ...(resolution.videoReferences.some(source => source.videoInput.method !== 'reference_video') ? { connected_video_inputs: resolution.videoReferences.filter(source => source.videoInput.method !== 'reference_video').map(source => ({ edgeId: source.edgeId, ...source.videoInput.context, method: source.videoInput.method, sourceVersion:source.videoInput.sourceVersion, frame: source.videoInput.frame })) } : {}),
   };
   const inputJson = stableJson(requestInput);
-  if (new TextEncoder().encode(inputJson).byteLength > MAX_NODE_JSON_BYTES) {
+  if (new TextEncoder().encode(inputJson).byteLength > (model.id === 'elevenlabs/music-v2' ? MEMBER_MUSIC_PLAN_BODY_BYTES : MAX_NODE_JSON_BYTES)) {
     return respond(ctx, { ok: false, error: "Canvas run input is too large.", code: "run_input_too_large" }, { status: 413 });
   }
   let existing = await ctx.env.DB.prepare(
@@ -1070,7 +1078,7 @@ async function runNode(ctx, session, projectId, nodeId) {
             error_code, error_message, created_at, updated_at, completed_at
      FROM canvas_runs WHERE user_id = ? AND idempotency_key = ? AND deleted_at IS NULL LIMIT 1`
   ).bind(userId, idempotencyKey).first();
-  if (existing && existing.input_json !== inputJson) return respond(ctx, { ok: false, error: "Idempotency-Key conflicts with another Canvas run.", code: "idempotency_conflict" }, { status: 409 });
+  if (existing && !sameCanvasInput(existing.input_json, inputJson)) return respond(ctx, { ok: false, error: "Idempotency-Key conflicts with another Canvas run.", code: "idempotency_conflict" }, { status: 409 });
   if (existing && resolution.videoReferences.length && existing.status !== "completed") {
     const [recovered] = await restoreCanvasVideoJobs(ctx.env, userId, [existing]);
     if (recovered.error_code === "canvas_video_pending") {
@@ -1105,7 +1113,7 @@ async function runNode(ctx, session, projectId, nodeId) {
                 error_code, error_message, created_at, updated_at, completed_at
          FROM canvas_runs WHERE user_id = ? AND idempotency_key = ? AND deleted_at IS NULL LIMIT 1`
       ).bind(userId, idempotencyKey).first();
-      if (!existing || existing.input_json !== inputJson) {
+      if (!existing || !sameCanvasInput(existing.input_json, inputJson)) {
         return respond(ctx, { ok: false, error: "Idempotency-Key conflicts with another Canvas run.", code: "idempotency_conflict" }, { status: 409 });
       }
       if (existing.status === "completed") return respond(ctx, { ok: true, data: { run: runRecord((await annotateCanvasMedia(ctx.env,userId,[existing]))[0]), idempotent_replay: true } });
@@ -1308,6 +1316,11 @@ export async function handleCanvas(ctx) {
     if (edgeMatch && method === "DELETE") return await deleteEdge(ctx, userId, edgeMatch[1], edgeMatch[2]);
 
     const exportMatch = pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/runs\/([a-f0-9]{32})\/full-video$/);
+    const contributorsMatch = pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/runs\/([a-f0-9]{32})\/contributors$/);
+    if (contributorsMatch && method === 'GET') {
+      if (!await requireProject(ctx.env, userId, contributorsMatch[1])) return respond(ctx, { ok: false, code: 'project_not_found' }, { status: 404 });
+      return respond(ctx, { ok: true, data: await resolveCanvasContributors(ctx.env, userId, contributorsMatch[1], contributorsMatch[2]) });
+    }
     // route-policy: account.canvas.full-video.create
     if (exportMatch && ['GET','POST'].includes(method)) {
       if (method === 'POST') { const limited = await enforceWriteLimit(ctx,userId); if (limited) return limited; }

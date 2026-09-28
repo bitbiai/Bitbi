@@ -31,9 +31,9 @@ export async function quoteModelTariff(env, { modelId, input = {}, credits, cont
     }
     const basis = factory ? mediaTariffBasis(factory, model.kind, input) : resolved.basis;
     const priced = applyModelTariff(price, snapshot, basis);
-    // H3 alone currently settles authoritative output seconds. Freeze its
+    // Duration-settled adapters pin authoritative output-second pricing. Freeze
     // provider rate, conversion and margin, including under factory pricing.
-    const factorySettlement = model.id === 'minimax/h3' ? {
+    const factorySettlement = ['minimax/h3', 'elevenlabs/music-v2'].includes(model.id) ? {
         rateUsdPerSecond: price.formula.rateUsdPerSecond,
         usdToEur: BITBI_MODEL_PRICING_USD_TO_EUR,
         netEurPerCredit: BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,

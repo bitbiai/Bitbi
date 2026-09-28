@@ -83,6 +83,7 @@ export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSe
             group.append(hit, path);
             edgesRoot.append(group);
         }
+        contributors(data.contributors);
     }
 
     function createPort(node, direction) {
@@ -195,5 +196,13 @@ export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSe
         drawEdges();
     }
 
-    return { render, redrawEdges: drawEdges };
+    function contributors(evidence) {
+        const nodes = new Set(evidence?.nodeIds || []);
+        const edges = new Set((evidence?.edges || []).filter(entry => data.edges.some(edge => edge.id === entry.id
+            && edge.source_node_id === entry.sourceNodeId && edge.target_node_id === entry.targetNodeId)).map(entry => entry.id));
+        for (const card of nodesRoot.querySelectorAll('[data-node-id]')) card.classList.toggle('is-contributor', nodes.has(card.dataset.nodeId));
+        for (const group of edgesRoot.querySelectorAll('[data-edge-id]')) group.querySelector('.canvas-edge')?.classList.toggle('is-contributor', edges.has(group.dataset.edgeId));
+        data.contributors = evidence;
+    }
+    return { render, redrawEdges: drawEdges, contributors };
 }

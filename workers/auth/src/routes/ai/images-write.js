@@ -1159,7 +1159,6 @@ export async function handleGenerateImage(ctx) {
       ...(gptImage25 && e.providerDiagnostic ? { providerDiagnostic: e.providerDiagnostic } : {}),
     });
     if (gptImage25) return respond({ ok: false, error: e.providerDiagnostic ? e.message : "Image output could not be confirmed. Do not resubmit.", code: e.code || "generation_provider_outcome_unknown", providerDiagnostic: e.providerDiagnostic || null }, { status: e.status || 502 });
-    if (fluxSchnell) return respond({ ok: false, error: 'Image provider outcome requires review. Do not resubmit.', code: e.code || 'generation_provider_outcome_unknown' }, { status: 502 });
     if (isGenerationTimeoutError(e)) {
       return respond({
         ok: false,
@@ -1167,6 +1166,7 @@ export async function handleGenerateImage(ctx) {
         code: "generation_timeout",
       }, { status: 504 });
     }
+    if (fluxSchnell) return respond({ ok: false, error: 'Image provider outcome requires review. Do not resubmit.', code: e.code || 'generation_provider_outcome_unknown' }, { status: 502 });
     return respond({ ok: false, error: "Image generation failed." }, { status: 502 });
   }
 

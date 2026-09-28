@@ -943,3 +943,40 @@ the selected Canvas acceptance; GPT delivery uses its existing UI helper to keep
 the smoke budget intact. The full unpublished range retains that selected suite,
 not a failed-candidate reuse certificate. No product change was needed for these
 contracts; synthetic browser success is not live provider acceptance.
+
+### ElevenLabs member music and frozen Canvas contributors — 2026-09-28
+
+Source baseline `4a3cc3be`; Auth schema remains `0096_canvas_export_versions.sql`.
+ElevenLabs member admission now uses the existing signed Auth → AI music adapter,
+personal-credit reservation and revision-pinned output-second tariff, including
+Admin member surfaces and a selected organization. Authoritative duration settles
+within the reservation; invalid/overrun usage requires review. Missing usage settles
+the accepted quote with `usage_missing_accepted_quote`, not invented provider cost.
+No MiniMax cover/lyrics bundle is attached. Keep the separate Admin Lab policy.
+
+`q2-member-music.spec.js` and native `--suite canvas` execute the same real-caller
+fixtures (only the provider boundary is fake): full plans, MP3/Opus byte-preserving
+owned delivery, both roles, custom revision/replay, failure/no-debit, durable queue
+duplicates and background-export eligibility. Contributor records capture consumed
+sources, not every connection; the owner/project resolver follows frozen successful
+runs beyond the UI history, bounded at 200 runs/500 reads/500 edges. Legacy evidence
+is explicitly incomplete. `canvas.spec.js` checks branched/history highlights,
+EN/DE editors and actual MP3/Opus browser decoding; `assets-manager-focused.spec.js`
+retains independent sorting/pagination assertions with the new toolbar placement.
+
+Relevant Full failure `36406235710/1` is not recertified: harness read-side mutation
+of `canvasExportVersions`, stale Stream/current-candidate schema fixtures, old Admin
+catalog expectations and the usage-query fixture were repaired without weakening
+ownership/rollback assertions. A real FLUX response-order defect hid timeout 504
+behind generic 502; the timeout branch now wins while unknown-outcome reservation,
+late-success evidence and replay fencing remain. A bare late exception still does
+not prove provider rejection. Historical homepage failures remain separate.
+
+Existing `static.yml` Canvas selection executes these Worker/adapter cases, native
+Canvas/member/Stream and dual-engine browser acceptance; staged-input closure and
+selected-shell failure counterchecks include the new helpers/AI route. Reports use
+separate paths across chained runs. Local Linux workerd/D1/R2: Canvas 84, member 62,
+Stream 7 passed; Linux staging/launcher 26 passed. Private task artifacts bind runtime
+and source hashes. Local checks do not replace hosted candidate proofs or live
+receipts. Protected continuation is AI → Auth → exact frontend candidate; no new
+schema, container, secret or paid inference is required.

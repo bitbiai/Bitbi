@@ -45,6 +45,7 @@ const MEMBER_IMAGE_MODEL_EXPOSURE = Object.freeze(
 );
 
 const MEMBER_NON_IMAGE_MODEL_EXPOSURE = Object.freeze([
+    Object.freeze({ id: 'elevenlabs/music-v2', mediaType: 'music', label: 'ElevenLabs Music v2', vendor: 'ElevenLabs' }),
     Object.freeze({id:H3_MODEL,mediaType:'video',label:'MiniMax H3',vendor:'MiniMax'}),
     Object.freeze({
         id: PIXVERSE_V6_MODEL_ID,

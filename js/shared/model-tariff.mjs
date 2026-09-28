@@ -36,7 +36,8 @@ export function mediaTariffBasis(factory, mediaType, input = {}) {
         units = { image: Number(normalized.n ?? 1) };
         if (Object.hasOwn(normalized, 'inputImageMegapixels')) units.inputMegapixel = Number(normalized.inputImageMegapixels || 0);
         else if (Object.hasOwn(normalized, 'referenceImageCount') || Object.hasOwn(normalized, 'inputImageCount')) units.referenceImage = Number(normalized.inputImageCount ?? normalized.referenceImageCount ?? 0);
-    } else units = { request: 1 };
+    } else if (factory?.modelId === 'elevenlabs/music-v2') units = { second: normalized.durationMs / 1000 };
+    else units = { request: 1 };
     return { configuration, units };
 }
 export function validateTariffRates(rates, units) {

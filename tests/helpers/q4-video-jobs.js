@@ -47,7 +47,7 @@ function controlledClock() {
 
 async function videoFixture(provider, { download, filename } = {}) {
   const db = new SqliteD1Database(filename ? { filename } : undefined);
-  applyAuthMigrations(db, { through: '0083_add_r2_cleanup_reference_fence.sql' });
+  applyAuthMigrations(db);
   const now = new Date().toISOString();
   const admin = { id: 'q4-video-admin', email: 'q4-video@example.invalid', role: 'admin' };
   await db.prepare('INSERT INTO users(id,email,password_hash,created_at,role) VALUES(?,?,?,?,?)')

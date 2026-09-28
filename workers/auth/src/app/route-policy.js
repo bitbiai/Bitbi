@@ -410,11 +410,11 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB", "PUBLIC_RATE_LIMITER"],
     audit: { noneReason: "Soft-delete timestamps on the ownership-scoped graph are the durable deletion record; referenced assets are preserved." },
   }),
-  userJsonWrite("account.canvas.nodes.create", "POST", "/api/account/canvas/projects/:projectId/nodes", "canvas", "smallJson", "canvas-write-user", {
+  userJsonWrite("account.canvas.nodes.create", "POST", "/api/account/canvas/projects/:projectId/nodes", "canvas", "musicPlanJson", "canvas-write-user", {
     config: ["DB", "PUBLIC_RATE_LIMITER"],
     audit: { noneReason: "The created ownership-scoped node row is the durable state record." },
   }),
-  userJsonWrite("account.canvas.node.update", "PATCH", "/api/account/canvas/projects/:projectId/nodes/:nodeId", "canvas", "smallJson", "canvas-write-user", {
+  userJsonWrite("account.canvas.node.update", "PATCH", "/api/account/canvas/projects/:projectId/nodes/:nodeId", "canvas", "musicPlanJson", "canvas-write-user", {
     config: ["DB", "PUBLIC_RATE_LIMITER"],
     audit: { noneReason: "The updated ownership-scoped node row is the durable state record." },
   }),
@@ -437,6 +437,7 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { noneReason: "The edge soft-delete timestamp is the durable deletion record." },
   }),
   safeRead("account.canvas.full-video.read", "GET", "/api/account/canvas/projects/:projectId/runs/:runId/full-video", "canvas", {auth: "user", sensitivity: "high"}),
+  safeRead('account.canvas.contributors.read', 'GET', '/api/account/canvas/projects/:projectId/runs/:runId/contributors', 'canvas', { auth: 'user', sensitivity: 'high' }),
   userJsonWrite("account.canvas.output.save", "POST", "/api/account/canvas/projects/:projectId/runs/:runId/save-asset", "canvas", "smallJson", "canvas-write-user", {notes:"Owner-only promotion of existing private Canvas output; no inference or debit."}),
   userJsonWrite("account.canvas.full-video.create", "POST", "/api/account/canvas/projects/:projectId/runs/:runId/full-video", "canvas", "smallJson", "canvas-write-user", {notes: "Owner-only immutable original chain; postprocessing without inference or debit."}),
   userJsonWrite("account.canvas.node.run", "POST", "/api/account/canvas/projects/:projectId/nodes/:nodeId/run", "canvas", "smallJson", "canvas-run-user", {
@@ -1732,7 +1733,7 @@ export const ROUTE_POLICIES = Object.freeze([
       idempotency: "required; personal member requests use member_ai_usage_attempts and organization requests use ai_usage_attempts before provider execution",
     },
   }),
-  userJsonWrite("ai.generate-music", "POST", "/api/ai/generate-music", "ai-studio", "aiGenerateJson", "ai-generate-music-user", {
+  userJsonWrite("ai.generate-music", "POST", "/api/ai/generate-music", "ai-studio", "musicPlanJson", "ai-generate-music-user", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AI_LAB", "AI_SERVICE_AUTH_SECRET", "USER_IMAGES"],
     audit: { event: "ai_generate_music" },
     sensitivity: "high",

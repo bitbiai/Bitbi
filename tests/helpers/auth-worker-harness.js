@@ -1266,6 +1266,7 @@ class MockD1 {
       canvasEdges: [],
       canvasRuns: [],
       canvasMediaOutputs: [],
+      canvasExportVersions: [],
       ...deepClone(seed),
     };
     // Seeded records represent accepted pre-switch work, as migrated by 0091.
@@ -1403,8 +1404,6 @@ class MockD1 {
     // These correlated anti-joins consume no parameters. Keep the existing
     // folder/cursor parser, but apply the view's SQL semantics before LIMIT.
     const unreadyTables = new Set(), canvasTables = new Set();
-    this.state.canvasMediaOutputs ||= [];
-    this.state.canvasExportVersions ||= [];
     for (const table of ['ai_images', 'ai_text_assets']) {
       for(const view of ['canvas_media_outputs','canvas_asset_dispositions']) {
         const canvasPredicate = `NOT EXISTS(SELECT 1 FROM ${view} canvas WHERE canvas.asset_id=${table}.id AND canvas.state<>'saved')`;
@@ -2378,7 +2377,7 @@ class MockD1 {
       ) || null);
     }
 
-    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at FROM ai_usage_attempts WHERE (? IS NULL OR status = ?)')) {
+    if (query.startsWith('SELECT id, organization_id, user_id, feature_key, operation_key, route, idempotency_key, request_fingerprint, credit_cost, quantity, status, provider_status, billing_status, result_status, result_temp_key, result_save_reference, result_mime_type, result_model, result_prompt_length, result_steps, result_seed, balance_after, error_code, error_message, created_at, updated_at, completed_at, expires_at, provider_outcome, dispatch_token, reservation_released_at, metadata_json FROM ai_usage_attempts WHERE (? IS NULL OR status = ?)')) {
       const [
         statusFilter,
         statusValue,

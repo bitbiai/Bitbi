@@ -885,6 +885,21 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
 }
 
 // Canvas hosts the existing Assets picker; its complete frontend suites join
+{
+ const files=['workers/auth/src/routes/canvas.js','js/shared/member-music-contract.mjs','js/shared/member-music-controls.js',
+  'js/shared/model-tariff.mjs','workers/auth/src/lib/model-tariffs.js','workers/auth/src/lib/request.js','workers/ai/src/routes/music.js',
+  'workers/ai/src/lib/invoke-ai.js','workers/auth/src/lib/canvas-contributors.js','js/pages/canvas/graph.js','css/pages/canvas.css',
+  'js/pages/assets-manager/main.js','js/shared/saved-assets-browser.js','tests/q2-member-music.spec.js',
+  'tests/helpers/elevenlabs-member-control.mjs','tests/helpers/canvas-contributors-control.mjs','tests/fixtures/media/member-music.mp3','tests/fixtures/media/member-music.opus',
+  'tests/q4-stream-receipts.spec.js','tests/q4-stream-selection.spec.js','tests/helpers/q4-video-jobs.js'];
+ const result=selection(files);assert(result.canvasText&&result.workers&&result.auth&&result.assets&&result.runtime);
+ assert(!result.full&&!result.homepageMedia);assert.equal(requiresPrivateMediaImage(files),false);
+ for(const extra of ['workers/auth/src/lib/billing.js','workers/auth/src/lib/session.js','workers/ai/src/index.js','unknown.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
+ const workflow=fs.readFileSync('.github/workflows/static.yml','utf8');
+ for(const proof of ['tests/q2-member-music.spec.js','canvas-music-worker.json','canvas-music-adapter.json'])assert(workflow.includes(proof));
+}
+
+// Canvas hosts the existing Assets picker; its complete frontend suites join
 // the existing shared-card caller, without generation or native-media jobs.
 const canvasPickerFiles=['canvas/index.html','de/canvas/index.html','js/pages/canvas/main.js',
  'js/pages/canvas/asset-picker.js','css/pages/canvas.css','css/components/assets-picker.css',

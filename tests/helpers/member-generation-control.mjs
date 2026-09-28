@@ -48,7 +48,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     AI_IMAGE_DERIVATIVES_QUEUE:{async send(){}},
     AI:{async run(model,payload,options){check(model!=='minimax/h3','H3 must use REST, never binding');calls.provider++;await duringProvider(model,payload);if(model.startsWith('xai/grok-imagine-video'))try{await verifyGrokOutputUpload(env,payload,videoBytes);}catch(error){calls.fixtureFailure=error.message;throw error;}if(kind==='image'||kind==='music')return {image:(model==='xai/grok-imagine-image-2.0'||model.startsWith('openai/gpt-image-2.5-'))?`data:image/png;base64,${fixture.imageBase64||png}`:fixture.imageBase64||png};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');return {video_url:'https://fixture.invalid/member.mp4'};}},
     AI_SERVICE_AUTH_SECRET:'synthetic-service-secret-not-live',
-    AI_LAB:{async fetch(){calls.provider++;if(name==='music-failed')return Response.json({ok:false,code:'provider_rejected',error:'Synthetic confirmed rejection'},{status:422,headers:{'x-bitbi-provider-outcome':'failed'}});return Response.json({ok:true,result:{audioBase64:'SUQzBAAAAAAA',mimeType:'audio/mpeg',mode:'song',durationMs:1000},model:{id:'minimax/music-2.6'},preset:'music_studio'});}},
+    AI_LAB:{async fetch(request){calls.provider++;if(name==='music-failed')return Response.json({ok:false,code:'provider_rejected',error:'Synthetic confirmed rejection'},{status:422,headers:{'x-bitbi-provider-outcome':'failed'}});const input=await request.json();return Response.json({ok:true,result:{audioBase64:'SUQzBAAAAAAA',mimeType:'audio/mpeg',mode:'song',durationMs:1000},model:{id:input.model},preset:'music_studio'});}},
     CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),H3_CLOUDFLARE_API_TOKEN:`synthetic-h3-${name}-not-live`,
     __TEST_FETCH:async(url,init)=>{
       if(new URL(url).hostname==='api.cloudflare.com') {
@@ -376,10 +376,12 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     const asset=await db.prepare(`SELECT * FROM ${table} WHERE id=? AND user_id=?`).bind(id,owner).first();
     check(Boolean(asset?.r2_key && await nativeEnv.USER_IMAGES.get(asset.r2_key)),'Generated media automatically persisted');
     await checkName(asset,id);
-    if(kind==='music')check(Boolean(asset.poster_r2_key && await nativeEnv.USER_IMAGES.get(asset.poster_r2_key)),'Music cover persisted');
+    const bundledCover=kind==='music' && fixture.input?.model!=='elevenlabs/music-v2';
+    if(bundledCover)check(Boolean(asset.poster_r2_key && await nativeEnv.USER_IMAGES.get(asset.poster_r2_key)),'Music cover persisted');
+    else if(kind==='music')check(!asset.poster_r2_key,'ElevenLabs has no bundled cover');
     await deliver();
     const credits=await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
-    check(credits.n===1 && calls.provider===(kind==='image'?1:2),'One media debit and no repeated cover generation');
+    check(credits.n===1 && calls.provider===(bundledCover?2:1),'One media debit and no repeated cover generation');
     return {name,calls,status:(await row()).status,debits:credits.n};
   }
   if(['debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart','clock-finalization-expired'].includes(name)) {

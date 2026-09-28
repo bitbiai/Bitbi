@@ -392,5 +392,17 @@ export async function runCanvasTests(f) {
       assert.deepEqual((await f.db.prepare('PRAGMA foreign_key_check').all()).results, []);
     });
   }
+  for (const role of ['user', 'admin']) for (const name of ['prompt', 'plan-opus', 'plan-large', 'explicit-duration', 'selected-org', 'missing-usage', 'invalid-usage', 'overrun', 'failed', 'custom-revision', 'durable']) {
+    await f.test(`elevenlabs_native_${role}_${name}`, async () => {
+      const media = Object.fromEntries(['mp3', 'opus'].map(ext => [ext, fs.readFileSync(new URL(`../../fixtures/media/member-music.${ext}`, import.meta.url)).toString('base64')]));
+      const response = await f.control('/elevenlabs-member', { role, name, media });
+      assert.equal(response.status, 200, await response.clone().text()); f.metrics.push(await response.json());
+    });
+  }
   assert.equal(f.counters.outboundDenied, 0, 'No external provider or network call');
+  await f.test('canvas_native_contributors_frozen_branches_bounded_owner_project',async()=>{
+    const response=await f.control('/canvas-contributors',{});
+    assert.equal(response.status,200,await response.clone().text());
+    assert.deepEqual(await response.json(),{nodes:47,edges:47,legacyIncomplete:true});
+  });
 }

@@ -98,6 +98,17 @@ const CANVAS_UI_FILES = new Set([
 // Closed Canvas generation/provider/storage integration scope. Unknown runtime/billing inputs
 // continue through ordinary impact selection; chat and native D1 are exercised.
 const CANVAS_TEXT_FILES = new Set([
+  // Member music uses the existing Canvas/member native and dual-engine jobs.
+  // No media-container or decorative homepage inputs change in this slice.
+  'js/shared/member-music-contract.mjs', 'js/shared/member-music-controls.js',
+  'js/shared/model-tariff.mjs', 'workers/auth/src/lib/model-tariffs.js',
+  'workers/auth/src/lib/request.js', 'workers/ai/src/routes/music.js',
+  'workers/auth/src/lib/canvas-contributors.js', 'js/pages/canvas/graph.js', 'css/pages/canvas.css',
+  'js/pages/assets-manager/main.js', 'tests/q2-member-music.spec.js', 'tests/model-pricing.spec.js',
+  'tests/helpers/elevenlabs-member-control.mjs', 'tests/helpers/canvas-contributors-control.mjs',
+  'tests/fixtures/media/member-music.mp3', 'tests/fixtures/media/member-music.opus',
+  'tests/q4-stream-receipts.spec.js', 'tests/q4-stream-selection.spec.js', 'tests/helpers/q4-video-jobs.js',
+  'tests/rel01/routes/workers.spec.js', 'tests/helpers/release-transition-legacy-contract.cjs',
   'services/homepage-ffmpeg-processor/canvas-full-video.mjs',
   'services/homepage-ffmpeg-processor/canvas-full-video.test.mjs',
   'js/shared/canvas-export.mjs', 'workers/auth/src/lib/canvas-export-recipes.js',

@@ -7,7 +7,7 @@ const CURSOR = 'memvid.stream_repair_scan.v2';
 async function fixture(run) {
   const db=new SqliteD1Database();
   try {
-    applyAuthMigrations(db,{through:'0084_add_memvid_stream_upload_receipts.sql'});
+    applyAuthMigrations(db);
     const [source,helpers]=await Promise.all([load('workers/auth/src/lib/memvid-stream-upload-receipts.js'),load('tests/helpers/q4-stream-fixture.mjs')]);
     const env={DB:db};
     async function seed(number,{ready=false,healthy=false}={}) {

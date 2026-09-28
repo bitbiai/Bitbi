@@ -190,6 +190,10 @@ for (const scenario of scenarios) {
       const replay = await route.handleGenerateImage({ request: f.request(), env: f.env, correlationId: 'local-candidate-replay' });
       assert.equal(replay.status, 409);
       assert.equal(f.providerCalls(), 1, 'A replacement request for the old operation cannot call another provider.');
+      // Historical 0081 transition assertions above stay frozen. A request
+      // through today's candidate additionally needs today's additive schema.
+      for(const file of fs.readdirSync(path.join(REPO,'workers/auth/migrations')).filter(name=>/^\d{4}_.+\.sql$/.test(name)&&name.slice(0,4)>'0081').sort())
+        f.DB.exec(fs.readFileSync(path.join(REPO,'workers/auth/migrations',file),'utf8'));
       const fresh = await route.handleGenerateImage({ request: f.request('explicit-new-logical-operation'), env: f.env,
         correlationId: 'local-candidate-new-operation' });
       assert.equal(fresh.status, 200, 'Explicitly new work remains possible under the existing member policy.');

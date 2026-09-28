@@ -320,7 +320,7 @@ export async function processMemberGeneration(env, body, execute) {
         result.data.asset.derivatives_enqueued=true;
       }
     }
-    if (job.media_type === 'music') {
+    if (job.media_type === 'music' && bodyInput.model !== 'elevenlabs/music-v2') {
       scoped.AI = {run:async (...args)=>providerCall(env,job,'music-cover',await sha256Hex(JSON.stringify(args.slice(0,2))),()=>env.AI.run(...args))};
       await generateMemberMusicCover({env:scoped,userId:job.user_id,assetId:result.data.asset.id,
         attemptId:job.usage_attempt_id,styleInput:bodyInput.prompt});

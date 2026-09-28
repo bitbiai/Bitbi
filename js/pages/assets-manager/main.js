@@ -1338,6 +1338,7 @@ function createBrowser({ fromGenerateLab = false, enableAdminUpload = false } = 
             listStatus: document.getElementById('studioListStatus'),
             viewRefresh: document.getElementById('studioViewRefresh'),
             viewShowAll: document.getElementById('studioViewShowAll'),
+            typeSortAfter: document.getElementById('studioViewShowAll'),
             uploadVideoBtn: document.getElementById('studioAdminUploadVideoBtn'),
             newFolderBtn: document.getElementById('studioNewFolderBtn'),
             deleteFolderBtn: document.getElementById('studioDeleteFolderBtn'),

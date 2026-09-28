@@ -905,6 +905,16 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
 }
 
 {
+ const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');
+ const files=['workers/ai/src/routes/music.js','workers/ai/src/lib/invoke-ai.js','workers/auth/src/routes/ai/music-generate.js','workers/auth/src/lib/canvas-contributors.js','js/shared/member-music-contract.mjs','js/shared/member-music-controls.js','js/pages/assets-manager/main.js'];
+ const plan=createReleasePlanFromRepo(repoRoot,{files});
+ assert(backendContinuationSupported(plan));assert.deepEqual(plan.workerDeploys.map(w=>w.worker),['ai','auth']);
+ assert.deepEqual(plan.schemaApplies,[]);assert.equal(plan.deploySteps.at(-1).type,'static');
+ for(const extra of ['workers/ai/wrangler.jsonc','workers/ai/src/routes/unknown.js','workers/contact/src/index.js'])assert(!backendContinuationSupported(createReleasePlanFromRepo(repoRoot,{files:[...files,extra]})));
+ console.log('Member music: reviewed AI route then Auth then exact frontend; no schema/media or broader continuation.');
+}
+
+{
  const {captureImageDeliveryRecovery,verifyImageDeliveryRecovery,verifyImageDeliveryEvidence,decodeImageDeliveryOriginal,IMAGE_DELIVERY_INCIDENTS,IMAGE_DELIVERY_ACCEPTANCE_MS}=await import('./lib/image-delivery-acceptance.mjs');
  const {BITBI_GENERATION_TIMEOUT_MS}=await import('../js/shared/generation-timeout.mjs');
  const {IMAGE_DELIVERY_ATTEMPTS}=await import('../workers/auth/src/lib/image-delivery-recovery.js');

@@ -42,6 +42,7 @@ import {
   MINIMAX_MUSIC_2_6_MODEL_ID,
   calculateMinimaxMusic26CreditCost,
 } from "./music-2-6-pricing.mjs";
+import { elevenLabsCreditPrice } from './member-music-contract.mjs';
 
 export {
   GPT_IMAGE_25_MODEL_IDS,
@@ -294,6 +295,7 @@ export function calculateAiVideoCreditCost(modelId, params = {}) {
 
 export function calculateAiMusicCreditCost(modelId, params = {}) {
   const id = String(modelId || "").trim();
+  if (id === 'elevenlabs/music-v2') return elevenLabsCreditPrice(params);
   if (id === MINIMAX_MUSIC_2_6_MODEL_ID) {
     return calculateMinimaxMusic26CreditCost(params);
   }

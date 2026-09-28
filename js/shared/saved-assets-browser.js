@@ -516,7 +516,8 @@ export function createSavedAssetsBrowser({
     $typeViewToggle.className = 'studio__pagination-btn studio__asset-type-toggle';
     $typeViewToggle.textContent = localeText('assets.sortByType');
     $typeViewToggle.setAttribute('aria-pressed', 'false');
-    (root?.querySelector('.studio__gallery-header') || $galleryFilter.parentElement).append($typeViewToggle);
+    if (refs.typeSortAfter) refs.typeSortAfter.after($typeViewToggle);
+    else (root?.querySelector('.studio__gallery-header') || $galleryFilter.parentElement).append($typeViewToggle);
     $typeViewToggle.addEventListener('click', () => {
         typeViewActive = !typeViewActive;
         $typeViewToggle.setAttribute('aria-pressed', String(typeViewActive));

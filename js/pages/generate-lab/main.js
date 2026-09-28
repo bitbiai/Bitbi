@@ -66,7 +66,10 @@ let releaseReferenceSourceFocus = null;
 let referenceSourceDialog = null;
 let pendingReferenceRequest = null;
 const imageSaveOperations = new Map();
+import { createMemberMusicControls } from '../../shared/member-music-controls.js?v=__ASSET_VERSION__';
+import { elevenLabsMemberBody, validateElevenLabsMemberBody } from '../../shared/member-music-contract.mjs?v=__ASSET_VERSION__';
 const state = {
+    elevenLabsMusic: {},
     loggedIn: false,
     user: null,
     sessionExpired: false,
@@ -302,6 +305,9 @@ function currentCreditEstimate() {
         return calculateGenerateLabCredits(model.id, currentVideoEstimateValues(model));
     }
     if (model.mediaType === 'music') {
+        if (model.id === 'elevenlabs/music-v2') {
+            try { return calculateGenerateLabCredits(model.id, elevenLabsMemberBody(state.elevenLabsMusic)); } catch { return null; }
+        }
         return calculateGenerateLabCredits(model.id, {
             generateLyrics: refs.musicGenerateLyrics?.checked === true && !refs.musicGenerateLyrics.disabled,
         });
@@ -645,6 +651,14 @@ function renderSettingsGroups() {
     document.querySelectorAll('[data-settings-for]').forEach((group) => {
         group.hidden = group.dataset.settingsFor !== state.mediaType;
     });
+    const group = document.querySelector('[data-settings-for="music"]');
+    if (group) {
+        group.querySelector('.member-music-controls')?.remove();
+        const elevenLabs = state.modelId === 'elevenlabs/music-v2';
+        for (const child of group.children) child.hidden = elevenLabs;
+        if (elevenLabs) group.append(createMemberMusicControls({ config: state.elevenLabsMusic, german: getCurrentLocale() === 'de',
+            onChange(config) { state.elevenLabsMusic = config; updateActionState(); } }));
+    }
 }
 
 function setSelectOptions(select, values, selectedValue, format = (value) => String(value)) {
@@ -1613,7 +1627,7 @@ function renderMusicResult(data) {
     );
     result.append(cover, audio, meta, actions);
     refs.resultStage?.replaceChildren(result);
-    startAudioCoverPolling(data?.asset);
+    if (data.model?.id !== 'elevenlabs/music-v2') startAudioCoverPolling(data?.asset);
 }
 
 function getAssetTitle(asset) {
@@ -2022,13 +2036,13 @@ async function generateVideo(prompt, observation) {
 }
 
 async function generateMusic(prompt, observation) {
-    const payload = {
+    const payload = state.modelId === 'elevenlabs/music-v2' ? elevenLabsMemberBody(state.elevenLabsMusic, prompt) : {
         prompt,
         instrumental: refs.musicInstrumental?.checked === true,
         generateLyrics: refs.musicGenerateLyrics?.checked === true && !refs.musicGenerateLyrics.disabled,
     };
     const manualLyrics = refs.musicLyrics?.value.trim() || '';
-    if (manualLyrics && !payload.instrumental && !payload.generateLyrics) payload.lyrics = manualLyrics;
+    if (state.modelId !== 'elevenlabs/music-v2' && manualLyrics && !payload.instrumental && !payload.generateLyrics) payload.lyrics = manualLyrics;
     const folderId = refs.folderSelect?.value || '';
     if (folderId) payload.folder_id = folderId;
 
@@ -2048,7 +2062,7 @@ async function handleGenerate() {
     if (!requireMember()) return;
 
     const prompt = refs.prompt?.value.trim() || '';
-    if (!prompt) {
+    if (!prompt && !(state.modelId === 'elevenlabs/music-v2' && state.elevenLabsMusic.inputMode === 'composition_plan')) {
         setMessage(localeText('studio.promptRequired'), 'error');
         setWorkflowStatus('attention');
         setCurrentResultSummary('attention');
@@ -2056,6 +2070,10 @@ async function handleGenerate() {
         return;
     }
 
+    if (state.modelId === 'elevenlabs/music-v2') {
+        try { validateElevenLabsMemberBody(elevenLabsMemberBody(state.elevenLabsMusic, prompt)); }
+        catch { setMessage(getCurrentLocale() === 'de' ? 'Bitte Kompositionsplan und Musikeinstellungen prüfen.' : 'Check the composition plan and music settings.', 'error'); return; }
+    }
     const price = currentCreditEstimate();
     if (price === null) { setMessage(getCurrentLocale() === 'de' ? 'Für diese Einstellungen ist kein gültiger Preis verfügbar. Transparenz erfordert PNG oder WebP.' : 'A valid price is unavailable for these settings. Transparency requires PNG or WebP.', 'error'); return; }
     if (state.creditBalance !== null && state.creditBalance < price) {

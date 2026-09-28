@@ -1,4 +1,6 @@
 import { promptAssetTitle } from '../../lib/asset-names.js';
+import { ELEVENLABS_MUSIC_V2_MODEL_ID, ELEVENLABS_MUSIC_V2_AUTH_PROXY_TIMEOUT_MS } from '../../../../../js/shared/elevenlabs-music-v2-pricing.mjs';
+import { MEMBER_MUSIC_PLAN_BODY_BYTES, validateElevenLabsMemberBody, elevenLabsCreditPrice, elevenLabsDurationMs } from '../../../../../js/shared/member-music-contract.mjs';
 import { existingGenerationAsset, cacheGenerationDownload } from '../../lib/member-generation-storage.js';
 import { acceptMemberGeneration, generationUser, generationExecution, usesPersonalGenerationCredits } from "../../lib/member-generation-jobs.js";
 import { AdminAiValidationError, validateAdminAiMusicBody } from "../../../../../js/shared/admin-ai-contract.mjs";
@@ -97,6 +99,7 @@ function buildMemberMusicCallerPolicy({
   correlationId,
   idempotencyPolicy = "required",
   notes = null,
+  modelId = MINIMAX_MUSIC_2_6_MODEL_ID,
 } = {}) {
   return {
     policy_version: AI_CALLER_POLICY_VERSION,
@@ -107,7 +110,7 @@ function buildMemberMusicCallerPolicy({
     owner_domain: "member-music",
     provider_family: "ai_worker",
     model_id: operationId === "member.music.audio.generate"
-      ? MINIMAX_MUSIC_2_6_MODEL_ID
+      ? modelId
       : "@cf/google/gemma-4-26b-a4b-it",
     model_resolver_key: operationId === "member.music.audio.generate"
       ? "member.music.audio_model"
@@ -175,6 +178,17 @@ function normalizeMemberMusicBody(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw validationError("JSON body is required.", "bad_request");
   }
+  if (body.model === ELEVENLABS_MUSIC_V2_MODEL_ID) {
+    const { title: rawTitle, folder_id, folderId: alias, ...providerInput } = body;
+    const providerBody = validateElevenLabsMemberBody(providerInput);
+    const prompt = providerBody.prompt || '';
+    const folderId = normalizeFolderId({ folder_id, folderId: alias });
+    const title = normalizeOptionalString(rawTitle, MAX_TITLE_LENGTH, 'title') || titleFromPrompt(prompt);
+    const factory = elevenLabsCreditPrice(providerBody);
+    return { modelId: body.model, providerBody, prompt, lyrics: '', instrumental: providerBody.forceInstrumental,
+      separateLyricsGeneration: false, title, folderId, price: factory.credits, factory,
+      policyBody: { ...providerBody, title, folderId } };
+  }
   for (const key of Object.keys(body)) {
     if (!ALLOWED_BODY_FIELDS.has(key)) {
       throw validationError("Unsupported music generation option.", "unsupported_option");
@@ -202,6 +216,7 @@ function normalizeMemberMusicBody(body) {
   const lyricsMode = instrumental ? "auto" : lyrics ? "custom" : "auto";
 
   return {
+    modelId: MINIMAX_MUSIC_2_6_MODEL_ID,
     prompt,
     lyrics,
     instrumental,
@@ -310,6 +325,7 @@ async function signedAiLabJsonRequest({
       body: bodyText,
       signal: requestInfo?.request?.signal,
     }), undefined, {
+      ...(payload.model === ELEVENLABS_MUSIC_V2_MODEL_ID ? { timeoutMs: ELEVENLABS_MUSIC_V2_AUTH_PROXY_TIMEOUT_MS } : {}),
       consumeResponse: async (received, signal) => {
         try { body = await readGenerationResponseJson(received, signal); }
         catch (error) { if (signal.aborted) throw error; body = null; }
@@ -424,7 +440,7 @@ async function generateLyrics({ env, input, user, correlationId, requestInfo }) 
 }
 
 async function generateMusic({ env, input, lyrics, user, correlationId, requestInfo }) {
-  const providerBody = validateAdminAiMusicBody({
+  const providerBody = input.providerBody || validateAdminAiMusicBody({
     preset: "music_studio",
     prompt: input.prompt,
     mode: input.musicMode,
@@ -442,6 +458,7 @@ async function generateMusic({ env, input, lyrics, user, correlationId, requestI
     component: "ai-generate-music",
     callerPolicy: buildMemberMusicCallerPolicy({
       operationId: "member.music.audio.generate",
+      modelId: input.modelId,
       sourceComponent: "auth-worker-member-music-audio",
       correlationId,
       notes: "Included in member music gateway parent debit; no separate credit debit occurs.",
@@ -490,6 +507,18 @@ async function persistMusicResult({ env, userId, input, result, generatedLyrics,
       lyricsMode: result.lyricsMode || (input.instrumental ? "auto" : generatedLyrics || input.lyrics ? "custom" : "auto"),
       lyricsPreview: generatedLyrics || result.lyricsPreview || input.lyrics || null,
       durationMs: result.durationMs ?? null,
+      requestedDurationMs: result.requestedDurationMs ?? null,
+      actualDurationMs: result.actualDurationMs ?? null,
+      outputFormat: result.outputFormat ?? null,
+      downloadExtension: result.downloadExtension ?? null,
+      usageStatus: result.usageStatus ?? null,
+      inputMode: result.inputMode ?? null,
+      seed: result.seed ?? null,
+      forceInstrumental: result.forceInstrumental ?? null,
+      storeForInpainting: result.storeForInpainting ?? null,
+      signWithC2pa: result.signWithC2pa ?? null,
+      estimatedProviderCostUsd: result.estimatedProviderCostUsd ?? null,
+      actualProviderCostUsd: result.actualProviderCostUsd ?? null,
       sampleRate: result.sampleRate ?? null,
       channels: result.channels ?? null,
       bitrate: result.bitrate ?? null,
@@ -557,8 +586,8 @@ function buildMusicReplayMetadata({
   const replayAsset = safeMusicReplayAsset(savedAsset);
   return {
     gateway_result_type: "member_music",
-    cover_generation_policy: "included_in_parent_music_bundle",
-    cover_generation_status: "pending",
+    cover_generation_policy: input.modelId === ELEVENLABS_MUSIC_V2_MODEL_ID ? 'not_requested' : "included_in_parent_music_bundle",
+    cover_generation_status: input.modelId === ELEVENLABS_MUSIC_V2_MODEL_ID ? 'not_requested' : "pending",
     sub_operations: {
       lyrics: {
         operation_id: "member.music.lyrics.generate",
@@ -574,8 +603,8 @@ function buildMusicReplayMetadata({
       },
       cover: {
         operation_id: "member.music.cover.generate",
-        status: "pending",
-        billing_relationship: "included_in_parent_music_bundle",
+        status: input.modelId === ELEVENLABS_MUSIC_V2_MODEL_ID ? 'not_requested' : "pending",
+        billing_relationship: input.modelId === ELEVENLABS_MUSIC_V2_MODEL_ID ? 'none' : "included_in_parent_music_bundle",
       },
     },
     music_request: {
@@ -606,10 +635,11 @@ function buildMusicReplayMetadata({
       sizeBytes: savedAsset.size_bytes,
       traceId: musicBody?.traceId || null,
       asset: replayAsset,
-      coverStatus: "pending",
+      coverStatus: input.modelId === ELEVENLABS_MUSIC_V2_MODEL_ID ? 'not_requested' : "pending",
       posterAvailable: false,
       lyrics_generation: input.separateLyricsGeneration ? "separate_call" : "none",
       balance_after: billingMetadata?.balance_after ?? null,
+      credits_charged: billingMetadata?.credits_charged ?? null,
     },
   };
 }
@@ -679,8 +709,8 @@ async function replayGeneratedMusicAttempt({ usagePolicy, input, respond }) {
     data: buildMusicReplayData({ input, replay }),
     billing: {
       ...usagePolicy.billingMetadata({ replay: true }),
-      credits_charged: usagePolicy.credits,
-      price: usagePolicy.credits,
+      credits_charged: replay.credits_charged ?? usagePolicy.credits,
+      price: replay.credits_charged ?? usagePolicy.credits,
       lyrics_generation: replay.lyrics_generation || (input.separateLyricsGeneration ? "separate_call" : "none"),
     },
   });
@@ -724,7 +754,7 @@ export async function handleGenerateMusic(ctx) {
   if (limit.unavailable) return rateLimitUnavailableResponse(correlationId);
   if (limit.limited) return rateLimitResponse();
 
-  const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.aiGenerateJson });
+  const parsed = await readJsonBodyOrResponse(request, { maxBytes: MEMBER_MUSIC_PLAN_BODY_BYTES });
   if (parsed.response) return withCorrelationId(parsed.response, correlationId);
 
   let input;
@@ -746,7 +776,8 @@ export async function handleGenerateMusic(ctx) {
       operation: {
         ...AI_USAGE_OPERATIONS.MEMBER_MUSIC_GENERATE,
         credits: input.price,
-        modelId: MINIMAX_MUSIC_2_6_MODEL_ID,
+        modelId: input.modelId,
+        ...(input.factory ? { pricingFactory: input.factory } : {}),
       },
       route: ROUTE_PATH,
       allowAdminMemberCredits: usesPersonalGenerationCredits(ctx, session.user),
@@ -984,17 +1015,27 @@ export async function handleGenerateMusic(ctx) {
 
   let billingMetadata = null;
   try {
+    const elevenLabs = input.modelId === ELEVENLABS_MUSIC_V2_MODEL_ID;
+    if (elevenLabs && (result.usageStatus === 'invalid' || (result.actualDurationMs != null
+      && (!Number.isSafeInteger(result.actualDurationMs) || result.actualDurationMs < 3000 || result.actualDurationMs > elevenLabsDurationMs(input.providerBody))))) {
+      throw validationError('Output usage requires credit review. Do not resubmit.', 'generation_result_requires_credit_review', 409);
+    }
+    // The public adapter may omit usage. In that case the accepted requested-
+    // duration quote is final, explicitly unreconciled, never invented usage.
+    const units = elevenLabs && result.actualDurationMs != null ? { second: result.actualDurationMs / 1000 } : undefined;
     billingMetadata = await usagePolicy.chargeAfterSuccess({
-      model: musicResponse.body?.model?.id || MINIMAX_MUSIC_2_6_MODEL_ID,
+      model: input.modelId,
       preset: musicResponse.body?.preset || "music_studio",
       request_mode: "service-binding",
-      pricing_source: "minimax-music-2.6-shared-pricing",
+      pricing_source: input.modelId,
+      ...(elevenLabs ? { requested_duration_ms: elevenLabsDurationMs(input.providerBody), actual_duration_ms: result.actualDurationMs ?? null,
+        usage_reconciliation: units ? 'authoritative_output_duration' : 'usage_missing_accepted_quote', provider_cost_usd_actual: result.actualProviderCostUsd ?? null } : {}),
       lyrics_generation: input.separateLyricsGeneration ? "separate_call" : "none",
       lyrics_model_id: lyricsModel?.id || null,
       lyrics_elapsed_ms: lyricsElapsedMs,
       asset_id: savedAsset.id,
       source_module: "music",
-    });
+    }, { units });
   } catch (error) {
     if (generationExecution(env)) throw error;
     await cleanupSavedAsset(env, userId, savedAsset?.id || null);
@@ -1063,7 +1104,7 @@ export async function handleGenerateMusic(ctx) {
     }
   }
 
-  if (!generationExecution(env)) scheduleMemberMusicCoverGeneration(ctx, {
+  if (!generationExecution(env) && input.modelId === MINIMAX_MUSIC_2_6_MODEL_ID) scheduleMemberMusicCoverGeneration(ctx, {
     env,
     userId,
     assetId: savedAsset.id,
@@ -1095,8 +1136,8 @@ export async function handleGenerateMusic(ctx) {
     ...(billingMetadata ? {
       billing: {
         ...billingMetadata,
-        credits_charged: input.price,
-        price: input.price,
+        credits_charged: billingMetadata.credits_charged,
+        price: billingMetadata.credits_charged,
         lyrics_generation: input.separateLyricsGeneration ? "separate_call" : "none",
       },
     } : {}),

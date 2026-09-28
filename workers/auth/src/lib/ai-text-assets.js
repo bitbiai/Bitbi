@@ -385,6 +385,7 @@ function buildMusicMetadata(payload, savedAt) {
       duration_ms: payload.durationMs ?? null,
       requested_duration_ms: payload.requestedDurationMs ?? null,
       actual_duration_ms: payload.actualDurationMs ?? null,
+      usage_status: payload.usageStatus ?? null,
       sample_rate: payload.sampleRate ?? null,
       channels: payload.channels ?? null,
       bitrate: payload.bitrate ?? null,

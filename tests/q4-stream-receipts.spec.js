@@ -7,7 +7,7 @@ const load = name => import(pathToFileURL(path.join(process.cwd(), name)).href);
 async function fixture(run) {
   const db = new SqliteD1Database();
   try {
-    applyAuthMigrations(db, { through: '0084_add_memvid_stream_upload_receipts.sql' });
+    applyAuthMigrations(db);
     const [{ default: worker }, helpers, flow] = await Promise.all([
       load('workers/auth/src/index.js'), load('tests/helpers/q4-stream-fixture.mjs'),
       load('services/homepage-ffmpeg-processor/memvid-preview-flow.mjs'),

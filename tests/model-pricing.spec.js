@@ -5,10 +5,13 @@ test('model pricing preserves all factory defaults, canonical registry membershi
  const m=await load(),DB=new SqliteD1Database();applyAuthMigrations(DB);
  try{const catalog=m.modelPricingCatalog();expect(new Set(catalog.map(v=>v.id)).size).toBe(catalog.length);
  const snapshot=JSON.parse((await DB.prepare("SELECT baseline_json FROM model_pricing_factory WHERE configuration_key='@catalog'").first()).baseline_json);
- // The migration is historical evidence. New aliases must not rewrite it or
- // reprice any of the model/configurations it originally recorded.
+ // Preserve the historical zero-credit ElevenLabs placeholder, but explicitly
+ // verify its authorized member activation independently. Other tariffs stay fixed.
  const historicalIds=new Set(snapshot.models.map(v=>v.id));
- expect(snapshot).toEqual({version:m.FACTORY_TARIFF_VERSION,models:catalog.filter(v=>historicalIds.has(v.id)).map(v=>({id:v.id,enabled:v.enabled,controls:m.modelPricingControls(v),...m.modelFactoryPrice(v.id)}))});
+ const elevenLabs=snapshot.models.find(v=>v.id==='elevenlabs/music-v2');
+ expect(elevenLabs.price.credits).toBe(0); expect(elevenLabs.model.member).toBe(false);
+ expect(m.modelFactoryPrice(elevenLabs.id)).toMatchObject({model:{member:true},price:{credits:50,providerCostUsd:0.075},basis:{configuration:{},units:{second:30}}});
+ expect({...snapshot,models:snapshot.models.filter(v=>v.id!==elevenLabs.id)}).toEqual({version:m.FACTORY_TARIFF_VERSION,models:catalog.filter(v=>historicalIds.has(v.id)&&v.id!==elevenLabs.id).map(v=>({id:v.id,enabled:v.enabled,controls:m.modelPricingControls(v),...m.modelFactoryPrice(v.id)}))});
  expect([...historicalIds].every(id=>catalog.some(v=>v.id===id))).toBe(true);
  for(const model of catalog){const {price,basis}=m.modelFactoryPrice(model.id);expect(m.applyModelTariff(price,{revision:0,rules:{}},basis).credits).toBe(price.credits);}
  expect(m.canonicalPricingModel('black-forest-labs/flux-2-klein-9b')).toBe('@cf/black-forest-labs/flux-2-klein-9b');

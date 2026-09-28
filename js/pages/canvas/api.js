@@ -44,6 +44,7 @@ export const canvasApi = Object.freeze({
     listProjects: () => request('/projects'),
     createProject: (body) => request('/projects', { method: 'POST', body }),
     getProject: (projectId, signal) => request(`/projects/${id(projectId)}`, { signal }),
+    contributors: (projectId, runId, signal) => request(`/projects/${id(projectId)}/runs/${id(runId)}/contributors`, { signal }),
     updateProject: (projectId, body) => request(`/projects/${id(projectId)}`, { method: 'PATCH', body }),
     deleteProject: (projectId) => request(`/projects/${id(projectId)}`, { method: 'DELETE' }),
     listModels: () => request('/models'),

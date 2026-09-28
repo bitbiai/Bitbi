@@ -40,8 +40,12 @@ export async function handleMusic({
     if (
       selection.model.id === ELEVENLABS_MUSIC_V2_MODEL_ID
       && callerPolicy.operation_id !== "admin.music.test"
+      && !(callerPolicy.operation_id === 'member.music.audio.generate'
+        && callerPolicy.caller_class === 'member'
+        && callerPolicy.budget_scope === 'member_credit_account'
+        && callerPolicy.enforcement_status === 'gateway_enforced')
     ) {
-      return errorResponse("ElevenLabs Music v2 is restricted to the Admin AI Lab.", {
+      return errorResponse("The music operation is not authorized.", {
         status: 403,
         code: "ai_caller_policy_operation_mismatch",
       });
@@ -69,6 +73,7 @@ export async function handleMusic({
           compositionPlanSerializedLength: output.compositionPlanSerializedLength,
           requestedDurationMs: output.requestedDurationMs,
           actualDurationMs: output.actualDurationMs,
+          usageStatus: output.usageStatus,
           durationMs: output.durationMs,
           durationMode: output.durationMode,
           outputFormat: output.outputFormat,

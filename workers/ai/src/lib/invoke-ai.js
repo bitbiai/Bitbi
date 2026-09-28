@@ -1412,11 +1412,11 @@ function readTrustedElevenLabsDurationMs(result) {
     "audio_duration_ms",
   ]);
   const durationMs = Number(candidate);
-  return Number.isSafeInteger(durationMs)
+  const valid = typeof candidate === 'number' && Number.isSafeInteger(durationMs)
     && durationMs >= ELEVENLABS_MUSIC_V2_MIN_DURATION_MS
     && durationMs <= ELEVENLABS_MUSIC_V2_MAX_DURATION_MS
-    ? durationMs
-    : null;
+    ;
+  return { durationMs: valid ? durationMs : null, status: candidate == null ? 'missing' : valid ? 'authoritative' : 'invalid' };
 }
 
 async function extractElevenLabsMusicResponse(result, formatInfo, deadlineAt) {
@@ -2416,7 +2416,8 @@ export async function invokeMusic(env, model, input) {
     const providerCostEstimate = calculateElevenLabsMusicV2ProviderCost(
       providerCostEstimateDurationMs
     );
-    const actualDurationMs = readTrustedElevenLabsDurationMs(raw);
+    const usage = readTrustedElevenLabsDurationMs(raw);
+    const actualDurationMs = usage.durationMs;
     const actualProviderCost = actualDurationMs === null
       ? null
       : calculateElevenLabsMusicV2ProviderCost(actualDurationMs);
@@ -2439,6 +2440,7 @@ export async function invokeMusic(env, model, input) {
       compositionPlanSerializedLength: compositionPlanSummary?.serializedLength ?? 0,
       requestedDurationMs,
       actualDurationMs,
+      usageStatus: usage.status,
       durationMs: actualDurationMs,
       durationMode: input.inputMode === "composition_plan" ? "composition_plan" : "explicit",
       outputFormat: input.outputFormat,

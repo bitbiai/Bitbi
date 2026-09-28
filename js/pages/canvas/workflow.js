@@ -4,6 +4,7 @@ import { H3_MODEL, h3References } from '../../shared/minimax-h3.mjs?v=__ASSET_VE
 import { composeCanvasPrompt } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
 import { canvasVideoMethods, resolveCanvasVideoInput } from '../../shared/canvas-video-input.mjs?v=__ASSET_VERSION__';
 import { isExportMusic } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
+import { elevenLabsMemberBody, validateElevenLabsMemberBody } from '../../shared/member-music-contract.mjs?v=__ASSET_VERSION__';
 const GENERATION_CAPABILITY = Object.freeze({
     text_generation: 'text',
     image_generation: 'image',
@@ -150,7 +151,10 @@ export function validationForNode(node, analysis, copy) {
     if (videos.length > 1 || (videos.length && analysis.compatible.some(source => source.inputKind === 'image_reference' && !(analysis.model?.id === H3_MODEL && source.h3Role === 'last_frame')))) return copy.videoAmbiguous;
     if (videos.some(source => !source.videoInput.method)) return copy.videoMethodRequired;
     if (videos.some(source => source.videoInput.method === 'last_frame' && !source.videoInput.frame)) return copy.videoPreparing;
-    if (!analysis?.effectivePrompt) return copy.promptRequired;
+    if (analysis?.model?.id === 'elevenlabs/music-v2') {
+        try { validateElevenLabsMemberBody(elevenLabsMemberBody(node.config || {}, analysis.effectivePrompt)); }
+        catch { return copy.promptRequired?.startsWith('Füge') ? 'Bitte Kompositionsplan und Musikeinstellungen prüfen.' : 'Check the composition plan and music settings.'; }
+    } else if (!analysis?.effectivePrompt) return copy.promptRequired;
     return null;
 }
 

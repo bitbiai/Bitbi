@@ -7,6 +7,8 @@ import { H3_MODEL, H3_ROLES, h3MediaType } from '../../shared/minimax-h3.mjs?v=_
 import { h3RoleLabel } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { renderCanvasFullVideo } from './full-video.js?v=__ASSET_VERSION__';
 import { EXPORT_MUSIC_PURPOSE, isExportMusic } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
+import { createMemberMusicControls } from '../../shared/member-music-controls.js?v=__ASSET_VERSION__';
+import { elevenLabsMemberBody } from '../../shared/member-music-contract.mjs?v=__ASSET_VERSION__';
 import { videoInputCopy, renderVideoInput, awaitCanvasVideo, canvasVideoRunState } from './video-input.js?v=__ASSET_VERSION__';
 import { calculateAiImageCreditCost, calculateAiVideoCreditCost, calculateAiModelCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { estimateCanvasTextCredits, CANVAS_TEXT_PURPOSES, CANVAS_TEXT_DEFAULT_PURPOSE, getCanvasTextInstructions } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
@@ -300,6 +302,22 @@ function renderGraph() {
     dom.hint.textContent = store.state.selected?.kind === 'node' ? copy.selectedNode : store.state.selected?.kind === 'edge' ? copy.selectedEdge : copy.selectNode;
     dom.connect.classList.toggle('is-active', store.state.connecting);
     dom.connect.setAttribute('aria-pressed', String(store.state.connecting));
+    updateContributors();
+}
+
+let contributorProject = null, contributorRequest = null, contributorEvidence = new Map();
+function updateContributors() {
+    const project = store.state.project;
+    if (contributorProject !== project) { contributorRequest?.abort(); contributorRequest = null; contributorEvidence.clear(); contributorProject = project; }
+    const node = selectedNode(), runId = node?.type === 'video_generation' ? node.output?.runId : null;
+    graph.contributors(runId ? contributorEvidence.get(runId) : null);
+    contributorRequest?.abort(); contributorRequest = null;
+    if (!runId || !project || contributorEvidence.has(runId)) return;
+    const controller = new AbortController(); contributorRequest = controller;
+    void canvasApi.contributors(project.id, runId, controller.signal).then(result => {
+        if (controller.signal.aborted || store.state.project !== project || selectedNode()?.output?.runId !== runId) return;
+        if (result.ok && result.data.runId === runId) { contributorEvidence.set(runId, result.data); graph.contributors(result.data); }
+    });
 }
 
 function renderHistory() {
@@ -316,7 +334,7 @@ function renderHistory() {
         item.append(top, el('small', '', `${run.model_id}${kind} · ${new Date(run.updated_at).toLocaleString(isGerman ? 'de-DE' : 'en-US')}`));
         item.addEventListener('click', () => {
             if (!node) return;
-            node.output = run.output || node.output;
+            if (run.status === 'completed' && run.output) node.output = { ...run.output, runId: run.id };
             store.state.selected = { kind: 'node', id: node.id };
             renderGraph(); renderInspector();
             showPanel('inspector');
@@ -574,7 +592,7 @@ function renderInspector() {
                 try {
                     if (capability === 'video' && model.runnable) estimate = calculateAiVideoCreditCost(model.id, { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, resolution: node.config?.resolution || model.controls.defaultResolution, aspect_ratio: node.config?.aspectRatio || model.controls.defaultAspectRatio, generateAudio: node.config?.generateAudio !== false })?.credits;
                     if (capability === 'image' && model.runnable) estimate = calculateAiImageCreditCost(model.id, { ...node.config, ...(isGptImage25Model(model.id) ? { prompt: workflowAnalysis.byNode.get(node.id)?.effectivePrompt || undefined } : {}), source_images: undefined, referenceImageCount: (node.config?.source_images?.length || 0) + (workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0) })?.credits;
-                    if (capability === 'music' && model.runnable) estimate = calculateAiModelCreditCost({ mediaType:'music', modelId:model.id, params:node.config || {} })?.credits;
+                    if (capability === 'music' && model.runnable) estimate = calculateAiModelCreditCost({ mediaType:'music', modelId:model.id, params:model.id === 'elevenlabs/music-v2' ? elevenLabsMemberBody(node.config || {}) : node.config || {} })?.credits;
                     if (capability === 'text' && model.runnable) estimate = estimateCanvasTextCredits(model.id, { ...node.config, systemPrompt: getCanvasTextInstructions(node.config), prompt: analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id)?.effectivePrompt || "" });
                 } catch { estimate = null; }
                 cost.textContent = `${copy.estimated}: ${estimate ?? '—'}`;
@@ -672,7 +690,10 @@ function renderInspector() {
             }
             dom.inspector.append(grid);
         }
-        if (capability === 'music') {
+        if (model?.id === 'elevenlabs/music-v2') {
+            dom.inspector.append(createMemberMusicControls({ config: node.config, german: isGerman,
+                onChange(config) { scheduleNode(node, { config }); prompt.dispatchEvent(new Event('input', { bubbles: true })); } }));
+        } else if (capability === 'music') {
             const lyrics = textareaControl(node.config?.lyrics || ''); lyrics.maxLength = 3500; bindConfig(node, lyrics, 'lyrics'); dom.inspector.append(field(copy.lyrics, lyrics));
             for (const [key, label] of [['instrumental', copy.instrumental], ['generateLyrics', copy.generateLyrics]]) {
                 const checkbox = inputControl('', 'checkbox'); checkbox.checked = node.config?.[key] === true; bindConfig(node, checkbox, key, Boolean); dom.inspector.append(field(label, checkbox));
@@ -727,6 +748,7 @@ const graph = createCanvasGraph({
             else {
                 dom.deleteSelection.disabled = false;
                 dom.hint.textContent = copy.selectedNode;
+                updateContributors();
             }
             renderInspector();
         }

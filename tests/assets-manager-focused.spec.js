@@ -72,6 +72,9 @@ for(const locale of ['en','de']) test(`asset preview information ${locale}: Gene
   });
   await page.goto(`${locale==='de'?'/de':''}/generate-lab/`);
   await page.locator('#labAssetsOpen').click();
+  // Finish the browser's initial folder view before exercising a different view;
+  // its pending load otherwise replaces the just-clicked type groups.
+  await expect(page.locator('#labAssetsOverlay [data-folder-id="folder-theme"]')).toBeVisible();
   await page.locator('#labAssetsOverlay .studio__asset-type-toggle').click();
   const group=page.locator('#labAssetsOverlay [data-asset-type-group="image"]');
   await group.locator('summary').click();
@@ -241,6 +244,12 @@ test.describe('Assets Manager focused validation', () => {
       await mockAssetsManagerApi(page, { assets, requests });
       await page.goto(localeCase.path);
       const toggle = page.locator('.studio__asset-type-toggle');
+      const placement=await toggle.evaluate(button=>{
+        const show=document.getElementById('studioViewShowAll'),a=show.getBoundingClientRect(),b=button.getBoundingClientRect();
+        return {sameGroup:button.parentElement===show.parentElement,next:show.nextElementSibling===button,right:b.left>=a.right,aligned:Math.abs(b.top-a.top)<2};
+      });
+      expect(placement.sameGroup && placement.next).toBe(true);
+      if(width>=1280) expect(placement.right && placement.aligned).toBe(true);
       await expect(toggle).toHaveAttribute('aria-pressed', 'false');
       await expect(page.locator('[data-asset-type-group]')).toHaveCount(0);
       await toggle.click();

@@ -194,9 +194,9 @@ test('@canvas-model-ui member model exposure is the sole Models overlay membersh
   expect(exposedIds).toContain('xai/grok-imagine-image-2.0');
   expect(exposedIds).toContain('openai/gpt-image-2.5-sunburst');
   expect(exposedIds).toContain('openai/gpt-image-2.5-flare');
+  expect(exposedIds).toContain('elevenlabs/music-v2');
   for (const unavailableId of [
     'bytedance/seedance-2.0',
-    'elevenlabs/music-v2',
     'xai/grok-imagine-image',
   ]) {
     expect(exposedIds).not.toContain(unavailableId);

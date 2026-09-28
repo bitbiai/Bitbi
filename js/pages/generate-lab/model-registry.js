@@ -442,6 +442,15 @@ const music26Model = Object.freeze({
     estimateCredits: ({ generateLyrics }) => estimateModelCredits('music', MUSIC_26_MODEL_ID, { generateLyrics }),
 });
 
+const elevenLabsMusicModel = Object.freeze({
+    id: 'elevenlabs/music-v2', displayName: 'ElevenLabs Music v2', mediaType: 'music', provider: 'ElevenLabs',
+    route: '/api/ai/generate-music', outputType: 'audio', status: 'LIVE', controls: { maxPromptLength: 4100 },
+    summary: DE ? 'Musik aus Prompt oder strukturiertem Kompositionsplan; Abrechnung nach bestätigter Dauer.' : 'Music from a prompt or structured composition plan; priced for the accepted duration.',
+    capabilities: DE ? ['Prompt oder Kompositionsplan', '3–600 Sekunden', 'MP3 / Opus, Seed und C2PA', 'Private Audio-Assets'] : ['Prompt or composition plan', '3–600 seconds', 'MP3 / Opus, seed and C2PA', 'Private audio assets'],
+    defaults: { inputMode: 'prompt', outputFormat: 'auto' },
+    estimateCredits: values => estimateModelCredits('music', 'elevenlabs/music-v2', values),
+});
+
 const h3Model = Object.freeze({
     id:H3_MODEL,displayName:'MiniMax H3',mediaType:'video',provider:'MiniMax / Cloudflare',route:'/api/ai/generate-video',outputType:'video',status:'LIVE',
     summary:DE?'Video aus Text, Anfangs-/Endbild oder Bild-, Video- und Audioreferenzen.':'Video from text, first/last frames or image, video and audio references.',
@@ -459,6 +468,7 @@ const modelDefinitions = Object.freeze([
     seedance2FastModel,
     ...grokVideoModels,
     music26Model,
+    elevenLabsMusicModel,
 ]);
 
 const modelDefinitionsById = new Map(modelDefinitions.map((model) => [model.id, model]));

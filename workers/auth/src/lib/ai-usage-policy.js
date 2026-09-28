@@ -293,7 +293,7 @@ async function prepareMemberGatewayPolicy({
       operation_id: gatewayPlan.operationId,
       route,
       replay_policy: gatewayPlan.replayPolicy,
-      ...(resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_MUSIC_GENERATE.id ? {
+      ...(resolvedOperation.id === AI_USAGE_OPERATIONS.MEMBER_MUSIC_GENERATE.id && resolvedOperation.modelId !== 'elevenlabs/music-v2' ? {
         bundled_sub_operations: [
           "member.music.lyrics.generate",
           "member.music.audio.generate",

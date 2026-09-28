@@ -267,7 +267,10 @@ function buildVideoModel(model) {
 }
 
 function buildMusicModel(model) {
-  const controls = {
+  const elevenLabs = model.id === 'elevenlabs/music-v2';
+  const runnable = elevenLabs || model.id === 'minimax/music-2.6';
+  const { adminOnly: _adminOnly, ...musicCapabilities } = model.capabilities || {};
+  const controls = elevenLabs ? { ...musicCapabilities, maxPromptLength: 4100, supportsCompositionPlan: true } : {
     instrumental: true,
     manualLyrics: true,
     generatedLyrics: true,
@@ -282,15 +285,15 @@ function buildMusicModel(model) {
     description: safeDescription(model.description, "Music generation model for member workflows."),
     outputType: "audio",
     canvasEnabled: true,
-    memberCanvasEnabled: model.id === "minimax/music-2.6",
-    adminCanvasEnabled: model.id === "minimax/music-2.6",
+    memberCanvasEnabled: runnable,
+    adminCanvasEnabled: runnable,
     requiresOrganization: false,
-    requiresPersonalCredits: model.id === "minimax/music-2.6",
+    requiresPersonalCredits: runnable,
     requiresPlatformBudget: false,
-    runnable: model.id === "minimax/music-2.6",
-    disabledReason: model.id === "minimax/music-2.6" ? null : "No member-safe music policy is available.",
-    route: model.id === "minimax/music-2.6" ? "/api/ai/generate-music" : null,
-    pricingStatus: "fixed_member_credit",
+    runnable,
+    disabledReason: runnable ? null : "No member-safe music policy is available.",
+    route: runnable ? "/api/ai/generate-music" : null,
+    pricingStatus: elevenLabs ? 'output_seconds' : 'fixed_member_credit',
     estimatedCredits: defaultEstimate("music", model.id, controls),
     controls,
   };

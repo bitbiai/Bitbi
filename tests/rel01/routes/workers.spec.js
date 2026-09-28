@@ -16,7 +16,7 @@ async function fixture(aiRun) {
 }
 
 for (const late of ['success', 'failure']) {
-  test(`REL-01 actual member image route: unknown timeout blocks replay and records late ${late}`, async () => {
+  test(`REL-01 actual member image route: unknown timeout blocks replay with late ${late}`, async () => {
     const started = deferred(), provider = deferred();
     let calls = 0, signal;
     const { env, send } = await fixture(async (_model, _payload, options) => {
@@ -45,7 +45,9 @@ for (const late of ['success', 'failure']) {
       if (late === 'success') provider.resolve({ image: PNG });
       else provider.reject(Object.assign(new Error('Local late failure'), { code: 'local_late_failure' }));
       await new Promise(resolve => setImmediate(resolve));
-      expect(attempt.late_outcome).toBe(late === 'success' ? 'succeeded' : 'failed');
+      // A thrown binding error does not establish provider rejection. The late
+      // success is authoritative, while both paths retain the unknown fence.
+      expect(attempt.late_outcome ?? null).toBe(late === 'success' ? 'succeeded' : null);
       expect(attempt).toMatchObject({ provider_outcome: 'unknown', billing_status: 'reserved' });
       expect(env.DB.state.memberCreditLedger.filter(row => row.amount < 0)).toHaveLength(0);
       expect(env.USER_IMAGES.objects.size).toBe(0);

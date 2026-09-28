@@ -6218,6 +6218,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
       'xai/grok-imagine-video',
       'xai/grok-imagine-video-1.5-preview',
       'minimax/music-2.6',
+      'elevenlabs/music-v2',
       '@cf/baai/bge-m3',
       '@cf/google/embeddinggemma-300m',
     ].sort());
@@ -23307,8 +23308,8 @@ test.describe('Worker routes', () => {
           adminOnly: true,
           pricingRequired: false,
           generationEnabled: true,
-          supportsImageInput: false,
-          supportsReferenceImages: false,
+          supportsImageInput: true,
+          supportsReferenceImages: true,
           supportsEndImage: false,
           supportsNegativePrompt: false,
           supportsSeed: false,
@@ -23322,7 +23323,7 @@ test.describe('Worker routes', () => {
           defaultAspectRatio: '16:9',
           defaultResolution: '720p',
           defaultPreset: 'video_grok_imagine',
-          supportedOperations: ['generate'],
+          supportedOperations: ['generate', 'edit', 'extend'],
         }),
       });
       const grokImagine15Preview = body.models.video.find((model) => model.id === 'xai/grok-imagine-video-1.5-preview');
@@ -23338,7 +23339,7 @@ test.describe('Worker routes', () => {
           supportsVideoInput: true,
           supportsReferenceImages: true,
           maxReferenceImages: 10,
-          supportsOutputUploadUrl: true,
+          supportsOutputUploadUrl: false,
           supportsSize: true,
           supportsNegativePrompt: false,
           supportsSeed: false,
@@ -28598,7 +28599,7 @@ test.describe('Worker routes', () => {
       expect(JSON.stringify(aiRunCalls[1].payload.messages)).toContain('live-agent caller policy is stripped before provider payload');
     });
 
-    test('AI worker binds Music caller policy to the selected model and keeps ElevenLabs admin-only', async () => {
+    test('AI worker binds Music caller policy to the selected model and rejects an unreserved ElevenLabs member operation', async () => {
       const aiWorker = await loadWorker('workers/ai/src/index.js');
       const secret = 'test-ai-service-auth-secret';
       const aiRunCalls = [];
@@ -28668,7 +28669,7 @@ test.describe('Worker routes', () => {
             ...adminPolicy,
             operation_id: 'member.music.audio.generate',
             budget_scope: 'member_credit_account',
-            enforcement_status: 'gateway_enforced',
+            enforcement_status: 'budget_metadata_only',
             caller_class: 'member',
             owner_domain: 'member-music',
             model_resolver_key: 'member.music.audio_model',
@@ -49451,6 +49452,7 @@ test.describe('Worker routes', () => {
     }));
     const env = createAuthTestEnv({
       users: [user],
+      appSettings: [{key:'private_media_service',value_json:JSON.stringify({backend:'github',thumbnailBackend:'github'}),updated_at:new Date().toISOString()}],
       ENABLE_MEMVID_STREAM_PREVIEWS: 'true',
       ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH: 'true',
       MEMVID_STREAM_PREVIEW_AUTO_DISPATCH_THRESHOLD: '3',
@@ -51273,7 +51275,8 @@ test.describe('Worker routes', () => {
     expect(res.headers.get('x-bitbi-correlation-id')).toMatch(/^[A-Za-z0-9._:-]{8,128}$/);
     await expect(res.json()).resolves.toMatchObject({
       ok: false,
-      error: 'Image generation failed.',
+      error: 'Image provider outcome requires review. Do not resubmit.',
+      code: 'generation_provider_outcome_unknown',
     });
     expect(env.DB.state.memberCreditLedger.filter((row) => row.user_id === 'quota-fail-user')).toHaveLength(1);
     expect(env.DB.state.memberCreditLedger.at(-1)).toEqual(expect.objectContaining({

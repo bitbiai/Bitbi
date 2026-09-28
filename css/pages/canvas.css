@@ -107,6 +107,8 @@
   .canvas-node { position: absolute; width: 230px; min-height: 126px; border: 1px solid #475865; border-radius: 10px; background: #1c2732; box-shadow: 0 4px 12px #0003; color: #e9f1f4; touch-action: none; user-select: none; pointer-events: auto; }
   .canvas-node:hover { border-color: #7e98a5; }
   .canvas-node.is-selected { border-color: var(--canvas-accent); box-shadow: 0 0 0 2px #a3e7df22; }
+  .canvas-node.is-contributor:not(.is-selected) { border-color: #78a6d0; box-shadow: 0 0 0 2px #78a6d018; }
+  .canvas-edge.is-contributor:not(.is-selected) { stroke: #82b5e1; stroke-width: 2.5; }
   .canvas-node.is-source { border-color: #e5c181; box-shadow: 0 0 0 2px #e5c18122; }
   .canvas-node.is-dragging { z-index: 4; box-shadow: 0 12px 24px #0005; }
   .canvas-node__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; min-height: 42px; padding: 10px 12px; border-bottom: 1px solid #ffffff12; cursor: grab; }

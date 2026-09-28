@@ -92,8 +92,119 @@ function createCanvasApiMock(page, { authenticated = true, modelPayload = null }
     return fulfill(route, { ok: false, error: 'Not mocked', code: 'not_mocked' }, 404);
   });
   page.route('**/api/account/credits-dashboard**', (route) => fulfill(route, { dashboard: { balance: { totalCredits: 500 } } }));
+  page.route('**/api/model-pricing',route=>route.fulfill({json:{ok:true,revision:0,rules:{}}}));
+  page.route('**/api/appearance',route=>route.fulfill({json:{ok:true,appearance:{version:1,revision:0,segments:{public:'dark',account:'dark',admin:'dark'},personalEnabled:false}}}));
   return state;
 }
+
+for(const locale of ['en','de']) for(const width of [1440,390]) test(`Canvas ElevenLabs editor ${locale} ${width}: complete plan options persist without processing`,async({page},info)=>{
+  await page.setViewportSize({width,height:900});await mockSharedAuth(page);
+  const {listCanvasModelsForRole}=await import('../js/shared/canvas-model-contract.mjs');
+  const state=createCanvasApiMock(page,{modelPayload:{models:listCanvasModelsForRole('user'),organizations:[],selected_organization_id:null,access:{role:'user'}}});
+  const now=new Date().toISOString(),pid='1'.repeat(32),nid='2'.repeat(32);
+  state.projects=[{id:pid,title:'Music plan',locale,created_at:now,updated_at:now}];
+  state.nodes=[{id:nid,project_id:pid,type:'music_generation',title:'ElevenLabs',model_id:'elevenlabs/music-v2',x:0,y:0,config:{},content:{},created_at:now,updated_at:now}];
+  await page.goto(`${locale==='de'?'/de':''}/canvas/`);await page.locator(`[data-node-id="${nid}"]`).press('Enter');
+  if(width<600)await page.locator('#canvasInspectorToggle').click();
+  const editor=page.locator('#canvasInspectorBody .member-music-controls');await expect(editor).toBeVisible();
+  await editor.locator('[data-music-option="inputMode"]').selectOption('composition_plan');
+  const plan={chunks:[{text:'Synthetic piano',duration_ms:6000,positive_styles:['piano'],negative_styles:['drums'],context_adherence:'high',condition_strength:'xhigh',conditioning_ref:{song_id:'synthetic-song',range:{start_ms:0,end_ms:3000}}}]};
+  await editor.locator('textarea').fill(JSON.stringify(plan));await editor.locator('[data-music-option="outputFormat"]').selectOption('opus_48000_128');
+  await editor.locator('[data-music-option="storeForInpainting"]').check();
+  await editor.locator('[data-music-option="seed"]').fill('4294967295');
+  await expect(editor.locator('[data-music-option="signWithC2pa"]')).toBeDisabled();
+  await expect.poll(()=>state.nodes[0].config.compositionPlan).toEqual(plan);
+  await expect.poll(()=>state.nodes[0].config.seed).toBe(4294967295);
+  expect(state.requests.filter(r=>r.pathname.endsWith('/run'))).toEqual([]);
+  await page.reload();await page.locator(`[data-node-id="${nid}"]`).press('Enter');
+  if(width<600)await page.locator('#canvasInspectorToggle').click();
+  await expect(editor.locator('textarea')).toHaveValue(JSON.stringify(plan,null,2));
+  await expect(editor.locator('[data-music-option="outputFormat"]')).toHaveValue('opus_48000_128');
+  await expect(editor.locator('[data-music-option="storeForInpainting"]')).toBeChecked();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  expect(await editor.locator('input,textarea,select').evaluateAll(inputs=>inputs.every(input=>input.labels.length>0))).toBe(true);
+  await page.screenshot({path:info.outputPath(`music-editor-${locale}-${width}.png`)});
+});
+
+for(const locale of ['en','de']) for(const width of [1440,390]) test(`Canvas member music Generate Lab ${locale} ${width}: ElevenLabs prompt/plan, pricing and MP3/Opus`,async({page},info)=>{
+  await page.setViewportSize({width,height:900});const calls=[];
+  await page.addInitScript(()=>localStorage.setItem('bitbi_cookie_consent',JSON.stringify({v:'1',necessary:true,analytics:false,marketing:false})));
+  await page.route('**/api/**',async route=>{
+    const url=new URL(route.request().url());
+    if(url.pathname==='/api/me') return route.fulfill({json:{loggedIn:true,user:{id:'music-browser',email:'music@example.invalid',role:locale==='de'?'admin':'user'}}});
+    if(/^\/api\/ai\/text-assets\/music-\d+\/file$/.test(url.pathname)) {
+      const opus=url.searchParams.get('format')==='opus';
+      const bytes=fs.readFileSync(path.join(__dirname,`fixtures/media/member-music.${opus?'opus':'mp3'}`));
+      const range=route.request().headers().range?.match(/^bytes=(\d+)-(\d*)$/);
+      const start=range?Number(range[1]):0,end=range?.[2]?Math.min(Number(range[2]),bytes.length-1):bytes.length-1;
+      const headers={'Content-Type':opus?'audio/ogg':'audio/mpeg','Accept-Ranges':'bytes'};
+      if(start>end||start>=bytes.length)return route.fulfill({status:416,headers:{...headers,'Content-Range':`bytes */${bytes.length}`},body:Buffer.alloc(0)});
+      return route.fulfill({status:range?206:200,headers:{...headers,'Content-Length':String(end-start+1),...(range?{'Content-Range':`bytes ${start}-${end}/${bytes.length}`}:{})},body:bytes.subarray(start,end+1)});
+    }
+    if(url.pathname==='/api/ai/generate-music') {
+      const body=route.request().postDataJSON();calls.push(body);
+      const opus=body.outputFormat==='opus_48000_128';
+      return route.fulfill({json:{ok:true,data:{model:{id:body.model},audioUrl:`/api/ai/text-assets/music-${calls.length}/file?format=${opus?'opus':'mp3'}`,mimeType:opus?'audio/ogg':'audio/mpeg',asset:{id:'music-'+calls.length,title:'Synthetic music'}},billing:{balance_after:995}}});
+    }
+    if(url.pathname==='/api/model-pricing')return route.fulfill({json:{ok:true,revision:0,rules:{}}});
+    if(url.pathname==='/api/appearance')return route.fulfill({json:{ok:true,appearance:{version:1,revision:0,segments:{public:'dark',account:'dark',admin:'dark'},personalEnabled:false}}});
+    if(['/api/ai/quota','/api/ai/folders','/api/ai/assets','/api/account/credits-dashboard'].includes(url.pathname))return route.fulfill({json:{ok:true,data:{creditBalance:1000,folders:[],assets:[],has_more:false,dashboard:{balance:{totalCredits:1000}}}}});
+    return route.fulfill({status:404,json:{ok:false,code:'unmocked_request'}});
+  });
+  await page.goto(`${locale==='de'?'/de':''}/generate-lab/`);
+  if(width<600) {
+    await expect(page.locator('#labGenerate')).toBeHidden();
+    await expect(page.getByRole('heading',{name:locale==='de'?'Für Desktop optimiert':'Optimized for desktop'})).toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect(calls).toEqual([]);return;
+  }
+  await page.locator('[data-media-type="music"]').click();
+  await page.locator('#labImageModel').selectOption('elevenlabs/music-v2');
+  const editor=page.locator('.member-music-controls');await expect(editor).toBeVisible();
+  await expect(page.locator('#labCost')).toContainText('50');
+  await page.locator('#labPrompt').fill('Synthetic piano');await editor.locator('[data-music-option="musicLengthMs"]').fill('3000');
+  await editor.locator('[data-music-option="outputFormat"]').selectOption('mp3_48000_192');
+  await editor.locator('[data-music-option="signWithC2pa"]').check();await page.locator('#labGenerate').click();
+  await expect.poll(()=>calls.length).toBe(1);expect(calls[0]).toMatchObject({model:'elevenlabs/music-v2',prompt:'Synthetic piano',musicLengthMs:3000,signWithC2pa:true});
+  expect(calls[0]).not.toHaveProperty('generateLyrics');
+  await expect(page.locator('#labGenerate')).toBeEnabled();
+  await expect.poll(()=>page.locator('#labResultStage audio').evaluate(a=>Number.isFinite(a.duration)&&a.duration>0)).toBe(true);
+  await page.locator('#labPrompt').fill('');await editor.locator('[data-music-option="inputMode"]').selectOption('composition_plan');
+  const plan={chunks:[{text:'Piano',duration_ms:6000,positive_styles:['ambient']}]};await editor.locator('textarea').fill(JSON.stringify(plan));
+  await editor.locator('[data-music-option="outputFormat"]').selectOption('opus_48000_128');
+  await editor.locator('[data-music-option="storeForInpainting"]').check();await page.locator('#labGenerate').click();
+  await expect.poll(()=>calls.length).toBe(2);expect(calls[1]).toMatchObject({model:'elevenlabs/music-v2',compositionPlan:plan,storeForInpainting:true});
+  expect(calls[1]).not.toHaveProperty('prompt');expect(calls[1]).not.toHaveProperty('musicLengthMs');expect(calls[1].signWithC2pa).not.toBe(true);
+  await expect(page.locator('#labGenerate')).toBeEnabled();
+  const audio=page.locator('#labResultStage audio');await expect(audio).toHaveCount(1);
+  await expect.poll(()=>audio.evaluate(a=>Number.isFinite(a.duration)&&a.duration>0)).toBe(true);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`member-music-${locale}-${width}.png`)});
+});
+
+for(const locale of ['en','de']) test(`Canvas contributors ${locale}: displayed History output, branches and keyboard selection`,async({page},info)=>{
+  await page.setViewportSize({width:1600,height:1000});await mockSharedAuth(page);
+  const state=createCanvasApiMock(page),pid='1'.repeat(32),now=new Date().toISOString(),run='a'.repeat(32),old='b'.repeat(32),failed='c'.repeat(32);
+  const id=n=>String(n).repeat(32),node=(n,type,x,y)=>({id:id(n),project_id:pid,type,title:'Node '+n,model_id:type==='video_generation'?'pixverse/v6':null,x,y,config:{prompt:'Own prompt'},content:{text:'Connected but unused'},created_at:now,updated_at:now});
+  state.projects=[{id:pid,title:'Branched contributors',locale,created_at:now,updated_at:now}];
+  state.nodes=[node(2,'text_prompt',10,20),node(3,'asset_reference',10,200),node(4,'asset_reference',270,200),node(5,'video_generation',530,100),node(6,'text_prompt',270,390)];
+  const output={kind:'video',runId:run,assetId:'synthetic',fileUrl:'/tests/fixtures/media/test-video-changing.mp4'};
+  state.nodes[3].output=output;
+  state.edges=[[2,3],[3,5],[4,5],[6,5]].map(([a,b],i)=>({id:id(i+2),source_node_id:id(a),target_node_id:id(b),config:{}}));
+  state.runs=[{id:failed,node_id:id(5),status:'failed',model_id:'pixverse/v6',updated_at:now},{id:run,node_id:id(5),status:'completed',output,model_id:'pixverse/v6',updated_at:now},{id:old,node_id:id(5),status:'completed',output:{...output,runId:old},model_id:'pixverse/v6',updated_at:now}];
+  const reads=[];await page.route('**/runs/*/contributors',route=>{const selected=route.request().url().split('/').at(-2);reads.push(selected);const included=selected===old?[state.edges[2]]:state.edges.slice(0,3);return route.fulfill({json:{ok:true,data:{runId:selected,nodeIds:included.map(e=>e.source_node_id),edges:included.map(e=>({id:e.id,sourceNodeId:e.source_node_id,targetNodeId:e.target_node_id})),incomplete:false}}});});
+  await page.goto(`${locale==='de'?'/de':''}/canvas/`);await page.locator(`[data-node-id="${id(5)}"]`).press('Enter');
+  await expect(page.locator('.canvas-node.is-contributor')).toHaveCount(3);await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(3);
+  await expect(page.locator(`[data-node-id="${id(6)}"]`)).not.toHaveClass(/is-contributor/);
+  await expect(page.locator(`[data-node-id="${id(5)}"]`)).toHaveClass(/is-selected/);
+  await page.screenshot({path:info.outputPath(`contributors-${locale}.png`)});
+  await page.locator('#canvasHistoryToggle').click();await page.locator('.canvas-run-item').first().click();
+  await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(3);expect(reads).not.toContain(failed);
+  await page.locator('#canvasHistoryToggle').click();await page.locator('.canvas-run-item').last().click();
+  await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(1);expect(reads).toContain(old);
+  await page.locator(`[data-node-id="${id(5)}"]`).press('ArrowRight');
+  await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(1);
+  await page.locator(`[data-node-id="${id(6)}"]`).press('Enter');await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(0);
+});
 
 test.describe('BITBI Canvas static and protected workspace', () => {
   test('English and German pages keep noindex, canonical, hreflang, and navigation parity', () => {
