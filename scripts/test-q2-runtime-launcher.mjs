@@ -184,15 +184,20 @@ test('staging refuses source symlinks and escaping dependency links', t => {
 
 test('staging refuses set-ID metadata before copying a file', t => {
   const f = fixture(t), setId = f.put('set-id');
+  const canonicalSetId = fs.realpathSync(setId);
+  const alias = path.join(f.base, 'repo-alias'); fs.symlinkSync(f.repo, alias);
   // The macOS execution sandbox strips set-ID bits on chmod. Inject only the
   // reported stat mode here; this policy unit is not a kernel-isolation test.
+  // Staging resolves its source root, including macOS's /var -> /private/var.
   const lstat = fs.lstatSync;
+  let injected = 0;
   t.mock.method(fs, 'lstatSync', function (file, ...args) {
     const info = lstat.call(fs, file, ...args);
-    if (file === setId) info.mode |= 0o4000;
+    if (file === canonicalSetId) { info.mode |= 0o4000; injected++; }
     return info;
   });
-  assert.throws(() => stageRuntimeInputs(f.repo, f.staged, ['set-id']), /Set-ID/);
+  assert.throws(() => stageRuntimeInputs(alias, f.staged, ['set-id']), /Set-ID/);
+  assert.equal(injected, 1, 'The real staging caller inspected the synthetic set-ID metadata');
   assert.equal(fs.existsSync(path.join(f.staged, 'set-id')), false);
 });
 
@@ -204,7 +209,10 @@ test('artifact paths are checked through existing symlink ancestors before creat
   const alias = path.join(f.base, 'repo-alias'); fs.symlinkSync(f.repo, alias);
   assert.throws(() => resolveArtifactParent(f.repo, path.join(alias, 'missing')), /outside/);
   const external = path.join(f.staged, 'new', 'artifacts');
-  assert.equal(resolveArtifactParent(f.repo, external), path.resolve(external));
+  const canonicalExternal = path.join(fs.realpathSync(f.staged), 'new', 'artifacts');
+  assert.equal(resolveArtifactParent(f.repo, external), canonicalExternal);
+  const externalAlias = path.join(f.base, 'staged-alias'); fs.symlinkSync(f.staged, externalAlias);
+  assert.equal(resolveArtifactParent(f.repo, path.join(externalAlias, 'new', 'artifacts')), canonicalExternal);
   assert.equal(fs.existsSync(external), false);
 });
 

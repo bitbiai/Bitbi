@@ -1,8 +1,132 @@
 const { test, expect } = require('@playwright/test');
-const { installHeroNativeProbe, createProgressWindow, recordNativeOutput } = require('./helpers/homepage-hero-native-probe');
+const { installHeroNativeProbe, createProgressWindow, recordNativeOutput, selectCapturedTargets } = require('./helpers/homepage-hero-native-probe');
 
 const SLOTS = '#hero [data-latest-models-slot]';
 const VIDEOS = `${SLOTS} video`;
+
+test('probe replay: fallback phase follows captured faces through a lawful turn, with own output required', () => {
+  const recorded = require('./fixtures/media/hero-fallback-phase-targets.json');
+  for (const platform of ['linux', 'macos']) {
+    const phase = recorded[platform];
+    const baseline = phase.samples[0].filter(v => v.active);
+    const captured = createProgressWindow({ resume: phase.actionAt !== null });
+    const currentTargets = createProgressWindow({ resume: phase.actionAt !== null });
+    const floor = phase.actionAt ?? phase.startedAt;
+    const check = row => {
+      const { videos, issues } = selectCapturedTargets(row, baseline);
+      expect(issues).toEqual([]);
+      return captured(videos) && videos.every(v => v.outputPair
+        && v.outputPair.from >= floor && v.outputPair.to <= phase.startedAt + phase.timeout);
+    };
+    for (const [index, row] of phase.samples.entries()) {
+      expect(currentTargets(row)).toBe(false);
+      expect(check(row), `${platform} sample ${index}`).toBe(platform === 'macos' && index === 24);
+    }
+    if (platform === 'linux') {
+      // The failing observation stopped at +472 ms. Independently attached
+      // native events contain the original fourth video's output at +938 ms.
+      // Incoming-face output cannot supply that missing proof.
+      const row = structuredClone(phase.samples.at(-1));
+      for (const event of phase.continuation) {
+        const index = row.findIndex(v => v.id === event.id);
+        row[index] = event;
+        expect(check(row)).toBe(event.id === 4);
+      }
+    }
+    const outgoing = phase.samples.find(row => row.some(v => !v.active));
+    for (const fault of ['missing', 'source', 'epoch', 'slot', 'detached', 'inactive', 'retired']) {
+      const row = structuredClone(outgoing);
+      const index = row.findIndex(v => v.id === baseline[1].id);
+      if (fault === 'missing') row.splice(index, 1);
+      if (fault === 'source') row[index].src = '/replacement';
+      if (fault === 'epoch') row[index].epoch++;
+      if (fault === 'slot') row[index].slot = 'right_top';
+      if (fault === 'detached') row[index].connected = false;
+      if (['inactive', 'retired'].includes(fault)) row[index].role = fault;
+      expect(selectCapturedTargets(row, baseline).issues, fault).toHaveLength(1);
+    }
+  }
+});
+
+test('browser captured fallback phase rejects replacement output, stale frames and late completion', async ({ page }) => {
+  await installHeroNativeProbe(page);
+  await page.goto('/plain-video');
+  const results = await page.evaluate(async () => {
+    const results = [];
+    for (const action of [false, true]) for (const fault of ['none', 'frozen', 'source', 'epoch', 'removed', 'paused', 'stale', 'inactive', 'retired', 'deadline']) {
+      const current = ['left_top','left_bottom','right_top','right_bottom'].map((slot,id) => ({
+        id, slot, src:`/${id}`, epoch:7, active:true, connected:true, paused:action,
+        readyState:4, error:null, seeking:false, outputAdvances:9, outputPair:null, completedLoops:0,
+      }));
+      window.__heroNativeProbe.sample = () => structuredClone(current);
+      let timer;
+      const transition = () => {
+        const now = performance.now();
+        current.forEach(v => { v.paused=false; });
+        current[3].active = false;
+        current[3].role = 'outgoing';
+        current.push({ ...current[3], id:99, active:true, src:'/incoming', outputAdvances:100,
+          outputPair:{from:now,to:now+1} });
+        timer = setTimeout(() => {
+          const now = performance.now();
+          for (const v of current.slice(0,4)) {
+            if (fault === 'frozen' && v.id === 3) continue;
+            v.outputAdvances++;
+            v.outputPair = {from:now-1,to:now};
+          }
+          if (fault === 'source') current[3].src='/changed';
+          if (fault === 'epoch') current[3].epoch++;
+          if (fault === 'removed') current.splice(3,1);
+          if (fault === 'paused') current[3].paused=true;
+          if (fault === 'stale') current[3].outputPair={from:0,to:1};
+          if (['inactive', 'retired'].includes(fault)) current[3].role=fault;
+        }, fault === 'deadline' ? 160 : 30);
+      };
+      const pending = window.__heroNativeProbe.waitForProgress({captureTargets:true,timeout:120,
+        action:action ? transition : null});
+      if (!action) transition();
+      const proof = await pending;
+      clearTimeout(timer);
+      results.push({action,fault,proof});
+    }
+    return results;
+  });
+  for (const {action,fault,proof} of results) {
+    expect(proof.passed, `${action ? 'resume' : 'initial'}: ${fault}`).toBe(fault === 'none');
+    expect(proof.targetBaseline.map(v=>v.id)).toEqual([0,1,2,3]);
+    if (proof.passed) expect(proof.targets.map(v=>v.id)).toEqual([0,1,2,3]);
+    expect(proof.timeout).toBe(120);
+  }
+});
+
+test('browser captured fallback face must belong to the current cube and its live turn', async ({ page }) => {
+  await installHeroNativeProbe(page);
+  await page.goto('/plain-video');
+  const roles = await page.evaluate(() => {
+    const module = document.createElement('div');
+    module.dataset.latestModelsVideoModule = '';
+    module.dataset.latestModelsVideoModuleSide = 'left';
+    const slot = document.createElement('div'); slot.dataset.latestModelsSlot = 'top';
+    const cube = document.createElement('div'); cube.className = 'latest-models-video-module__cube';
+    const face = document.createElement('div'); face.className = 'latest-models-video-module__face';
+    const incoming = face.cloneNode();
+    const video = document.createElement('video'); face.append(video);
+    cube.append(face, incoming); slot.append(cube); module.append(slot); document.body.append(module);
+    const read = () => {
+      const {id,slot,role,active,connected} = window.__heroNativeProbe.observe(video);
+      return {id,slot,role,active,connected};
+    };
+    const inactive = read();
+    slot.classList.add('is-turning'); const outgoing = read();
+    slot.append(face); const outsideCube = read();
+    const retiredCube = cube.cloneNode(); retiredCube.append(face); slot.append(retiredCube);
+    const oldCube = read();
+    return {inactive,outgoing,outsideCube,oldCube};
+  });
+  expect(roles.outgoing).toMatchObject({role:'outgoing',active:false,connected:true});
+  expect(roles.inactive).toMatchObject({role:'inactive',active:false,connected:true});
+  for (const key of ['outsideCube','oldCube']) expect(roles[key]).toEqual({...roles.outgoing,role:'retired'});
+});
 
 test('raw rVFC replay: delayed callback preserves resume output but cannot certify the following seek', async ({}, testInfo) => {
   // Original34776760807 left_top, relative to actionAt28724. These are raw

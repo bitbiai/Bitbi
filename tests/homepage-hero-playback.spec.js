@@ -102,22 +102,23 @@ async function openHome(page, locale, options) {
   return state;
 }
 
-async function expectPlaying(page, resume = null) {
-  const result = await page.evaluate(resume => window.__heroNativeProbe.waitForProgress({
+async function expectPlaying(page, resume = null, captureTargets = false) {
+  const result = await page.evaluate(({ resume, captureTargets }) => window.__heroNativeProbe.waitForProgress({
+    captureTargets,
     action: resume === null ? null : () => {
       if (resume === 'visible') window.__setHeroDocumentHidden(false);
       else if (resume === 'onscreen') window.scrollTo(0, 0);
       else if (resume === 'pageshow') window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
       else throw new Error('Unknown native resume action');
     },
-  }), resume);
+  }), { resume, captureTargets });
   await test.info().attach('native-active-slot-progress', {
     body: JSON.stringify(result), contentType: 'application/json',
   });
   expect(result.passed, `${result.phase}: ${JSON.stringify(result.issues)}`).toBe(true);
   if (resume) {
     expect(result.actionBaseline).toHaveLength(4);
-    for (const video of result.samples.at(-1).filter(v => v.active)) {
+    for (const video of result.targets ?? result.samples.at(-1).filter(v => v.active)) {
       expect(video.lastNativeOutput?.observedAt, `${resume}: own post-action output for ${video.slot}`).toBeGreaterThan(result.actionAt);
       expect(video.lastNativeOutput?.epoch).toBe(video.epoch);
     }
@@ -332,7 +333,10 @@ for (const locale of ['en', 'de']) {
 
   test(`${locale}: fallback freezes media and its staggered cycle while suspended`, { tag: '@homepage-extended' }, async ({ page }, testInfo) => {
     const state = await openHome(page, locale, { configured: false });
-    await expectPlaying(page);
+    // This phase proves output from its four captured videos. A lawful cycle
+    // can select a successor while the original face still visibly plays.
+    // Current-target loading and loop/seek behavior have independent cases.
+    await expectPlaying(page, null, true);
     await scrollHeroOffscreen(page);
     await expect.poll(() => page.locator(HERO_VIDEOS).evaluateAll(videos => videos.every(video => video.paused))).toBe(true);
     // The offscreen observer is asynchronous. The frozen interval begins at
@@ -342,7 +346,7 @@ for (const locale of ['en', 'de']) {
     await expectFrozen(page, testInfo, 'fallback-offscreen-native-playback', 2400);
     expect(await page.locator(HERO_SLOTS).evaluateAll(slots => slots.map(slot => slot.dataset.transitionCount))).toEqual(cyclesBefore);
     await expectContinuity(page);
-    await expectPlaying(page, 'onscreen');
+    await expectPlaying(page, 'onscreen', true);
     await expectNativeResumeContinuity(page, testInfo, 'fallback-native-resume');
 
     // Suspension during an actual cube turn retains both faces and resumes it.

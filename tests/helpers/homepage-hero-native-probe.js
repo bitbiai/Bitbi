@@ -19,7 +19,23 @@ function recordNativeOutput(state, output, { now, epoch, source, since, paused }
   state.lastOutput = { mediaTime: output.mediaTime, presentationTime: output.presentationTime };
   return true;
 }
-function installBrowserProbe(createProgressWindow, observeProgress, recordNativeOutput) {
+function selectCapturedTargets(current, baseline) {
+  const videos = [], issues = [];
+  for (const before of baseline) {
+    const video = current.find(video => video.id === before.id);
+    if (!video || !video.connected || (!video.active && video.role !== 'outgoing')
+        || video.slot !== before.slot || video.src !== before.src
+        || (video.epoch ?? 0) !== (before.epoch ?? 0)) {
+      issues.push({ slot: before.slot, condition: 'captured-identity-source-or-epoch-changed', before, current: video ?? null });
+    } else {
+      // A cube turn retains the original visible face while selecting its next
+      // target. This phase follows the captured element, never its replacement.
+      videos.push({ ...video, active: true });
+    }
+  }
+  return { videos, issues };
+}
+function installBrowserProbe(createProgressWindow, observeProgress, recordNativeOutput, selectCapturedTargets) {
     const ids = new WeakMap();
     const observations = new WeakMap();
     let sequence = 0, eventSequence = 0;
@@ -100,7 +116,9 @@ function installBrowserProbe(createProgressWindow, observeProgress, recordNative
       const slot = video.closest('[data-latest-models-slot]');
       const module = slot?.closest('[data-latest-models-video-module]');
       const face = video.closest('.latest-models-video-module__face');
-      const faces = slot?.querySelectorAll(':scope > .latest-models-video-module__cube > .latest-models-video-module__face');
+      const cube = slot?.firstElementChild;
+      const faces = cube?.classList.contains('latest-models-video-module__cube')
+        ? Array.from(cube.children).filter(face => face.classList.contains('latest-models-video-module__face')) : [];
       // advance() appends the incoming target after the outgoing face, including
       // reduced-motion's front-class face. This identifies the controller target,
       // not which rotated pixels are visually foremost midway through a turn.
@@ -113,7 +131,8 @@ function installBrowserProbe(createProgressWindow, observeProgress, recordNative
       return {
         id: ids.get(video),
         slot: slot ? `${module?.dataset.latestModelsVideoModuleSide}_${slot.dataset.latestModelsSlot}` : null,
-        role: !slot ? 'detached' : turning ? (target ? 'selected-target' : 'outgoing') : 'active',
+        role: !slot ? 'detached' : !faces.includes(face) ? 'retired'
+          : turning ? (target ? 'selected-target' : 'outgoing') : target ? 'active' : 'inactive',
         active: target,
         visibility: details ? {
           documentHidden: document.hidden,
@@ -275,32 +294,32 @@ function installBrowserProbe(createProgressWindow, observeProgress, recordNative
       diagnostics: () => Array.from(document.querySelectorAll('#hero [data-latest-models-video-module] video'), video => sample(video,true)),
       waitForProgress: options => observeProgress(window.__heroNativeProbe.sample, options, createProgressWindow, notify => {
         outputObservers.add(notify); return () => outputObservers.delete(notify);
-      }),
+      }, selectCapturedTargets),
     };
 }
 
 async function installHeroNativeProbe(page) {
   // Install the exact exported functions together, without an additional loader
   // or a second copy of the identity contract in the browser.
-  await page.addInitScript({ content: `(${installBrowserProbe})(${createProgressWindow}, ${observeProgress}, ${recordNativeOutput});` });
+  await page.addInitScript({ content: `(${installBrowserProbe})(${createProgressWindow}, ${observeProgress}, ${recordNativeOutput}, ${selectCapturedTargets});` });
 }
 
 // Observe inside one browser call. Transport delays must not discard output
 // already seen before a normal source transition. Each invocation starts fresh.
-function observeProgress(sample, { loops = 0, timeout = 5000, action = null } = {}, factory = createProgressWindow, subscribe = null) {
+function observeProgress(sample, { loops = 0, timeout = 5000, action = null, captureTargets = false } = {}, factory = createProgressWindow, subscribe = null, selectTargets = selectCapturedTargets) {
   const progress = factory({ loops, resume: action !== null });
   return new Promise((resolve, reject) => {
     const start = performance.now();
     const samples = [], decisions = [];
     let timer, deadline, unsubscribe, sampleCount = 0, settled = false;
-    let actionAt = null, actionBaseline = null, actionIssues = [];
+    let actionAt = null, actionBaseline = null, actionIssues = [], targetBaseline = null, targets = null;
     const finish = (passed, error) => {
       if (settled) return;
       settled = true; clearTimeout(timer); clearTimeout(deadline); unsubscribe?.();
       if (error) reject(error);
       else resolve({ passed, phase: loops ? 'loop' : 'play-or-resume',
         issues: actionIssues.length ? actionIssues : progress.issues?.() || [],
-        actionAt, actionBaseline, elapsed: performance.now() - start, sampleCount, samples, decisions, timeout,
+        actionAt, actionBaseline, targetBaseline, targets, elapsed: performance.now() - start, sampleCount, samples, decisions, timeout,
         startedAt: start, deadlineAt: start + timeout });
     };
     const tick = () => {
@@ -309,14 +328,21 @@ function observeProgress(sample, { loops = 0, timeout = 5000, action = null } = 
       try {
         const at = performance.now() - start;
         const current = sample(); sampleCount++;
+        let observed = current;
+        if (captureTargets) {
+          targetBaseline ||= current.filter(video => video.active);
+          const captured = selectTargets(current, targetBaseline);
+          observed = targets = captured.videos;
+          actionIssues = captured.issues;
+        }
         const sampledAt = performance.now() - start;
-        const passed = progress(current, { index: sampleCount, at: sampledAt });
+        const passed = progress(observed, { index: sampleCount, at: sampledAt });
         // A delayed callback must not import a pair submitted before this
         // observation/action. Undefined belongs only to synthetic/fallback rows;
         // native browser samples always carry outputPair (null until proved).
-        const hasOwnOutput = current.filter(v=>v.active).every(v =>
+        const hasOwnOutput = observed.filter(v=>v.active).every(v =>
           v.outputPair === undefined || (v.outputPair && v.outputPair.from >= (actionAt ?? start) && v.outputPair.to <= start + timeout));
-        if (actionBaseline) {
+        if (actionBaseline && !captureTargets) {
           const active = current.filter(video => video.active);
           actionIssues = actionBaseline.flatMap(before => {
             const video = active.find(video => video.slot === before.slot);
@@ -413,4 +439,4 @@ function createProgressWindow({ loops=0, resume=false }={}) {
     output:s.current.outputAdvances,seeking:s.current.seeking,time:s.current.time}));
   return observe;
 }
-module.exports = { installHeroNativeProbe, createProgressWindow, observeProgress, recordNativeOutput };
+module.exports = { installHeroNativeProbe, createProgressWindow, observeProgress, recordNativeOutput, selectCapturedTargets };
