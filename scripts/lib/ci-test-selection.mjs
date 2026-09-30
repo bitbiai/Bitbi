@@ -117,6 +117,7 @@ const CANVAS_TEXT_FILES = new Set([
   'workers/auth/migrations/0097_canvas_preview_base.sql', 'workers/auth/src/lib/canvas-preview-base.js',
   'js/pages/canvas/music-preview.js', 'js/pages/canvas/music-preview-worklet.js',
   'tests/helpers/canvas-music-preview.cjs', 'tests/fixtures/media/canvas-preview.mp4',
+  'tests/fixtures/media/canvas-audition-native-input.json',
   'tests/fixtures/media/canvas-preview.webm', 'tests/fixtures/media/canvas-preview-loud.wav',
   'workers/auth/src/routes/ai/asset-details.js',
   // Shared generation controls + typed owner assets reuse BOTH existing
@@ -438,6 +439,8 @@ const HOMEPAGE_CORE_TEST_FILES = new Set([
 // These homepage-only consumers do not own shared Auth/Admin behavior.
 // Functional coverage runs in Linux Chromium/WebKit; native output is separate.
 const HOMEPAGE_FUNCTIONAL_FILES = new Set([
+  'tests/helpers/model-help-contract.cjs',
+  'tests/helpers/generate-lab-session.cjs',
   'css/components/news-pulse.css', 'js/shared/news-pulse.js',
   'tests/homepage-carousel-focused.spec.js', 'tests/homepage-creation-stream-anchor.spec.js',
   'tests/homepage-hero-state.spec.js', 'tests/homepage-media-loading.spec.js',
@@ -527,7 +530,7 @@ const RELEASE_TOOLING_FILES = new Set([
   '.github/workflows/static.yml', '.github/workflows/ui-fast-deploy.yml',
   'scripts/lib/ci-test-selection.mjs', 'scripts/select-ci-tests.mjs',
   'scripts/test-ci-test-selection.mjs', 'scripts/test-release-compat.mjs', 'scripts/pages-candidate.mjs',
-  'scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs',
+  'scripts/lib/release-plan.mjs', 'scripts/lib/worker-tooling-impact.mjs', 'scripts/test-release-plan.mjs',
   'scripts/check-static-deploy-safety.mjs', 'scripts/release-apply.mjs', 'scripts/frontend-release.mjs',
   'scripts/lib/media-repair-source.mjs', 'scripts/lib/frontend-receipts.mjs', 'scripts/private-media-image.mjs',
   'scripts/lib/backend-continuation.mjs', 'scripts/lib/backend-publication.mjs', 'scripts/lib/image-delivery-acceptance.mjs', 'scripts/lib/media-publication.mjs',
@@ -635,7 +638,8 @@ function isStaticSource(file) {
 }
 
 function isWorkerTest(file) {
-  if (['scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs'].includes(file)) return true;
+  if (['scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs',
+    'scripts/setup-media-tools.sh', 'scripts/check-media-tools.mjs'].includes(file)) return true;
   return WORKER_TEST_PREFIXES.some((entry) => (
     entry.endsWith("/") ? file.startsWith(entry) : file === entry || file.startsWith(entry)
   ));

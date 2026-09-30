@@ -1,12 +1,13 @@
 # Main-Only Release Runbook
 
-Last updated: 2026-05-20
+CI acceptance and protected-continuation procedure updated: 2026-09-30.
+The broader operator readiness checklist below retains its original scope.
 
-Status: **operator-run release discipline only**. This runbook does not deploy, approve production readiness, approve live billing, run remote migrations, call Stripe APIs, mutate Cloudflare, mutate GitHub settings, change secrets, or perform rollback actions.
+Status: **release procedure, not authorization**. Only the current assignment authorizes its scoped operations. This runbook does not itself approve production readiness, live billing, remote migrations, paid calls, settings/secret changes or rollback.
 
 ## Purpose
 
-The project owner deploys directly from `main` and does not use a separate staging environment. That is riskier than a staging-first release model because the first deployed environment is live. Direct-main deployment is allowed only with strict preflight, clean-commit discipline, migration evidence, live smoke evidence, and rollback readiness.
+Delivery uses `main` and the existing protected release path; no separate staging environment is mandatory. Verify the task commit, affected prerequisites, tested candidate and required live evidence. Preserve unrelated working drafts; they do not belong in the task commit or candidate.
 
 Production readiness remains **BLOCKED** unless all evidence gates are satisfied and reviewed by a human operator. Live billing readiness remains **BLOCKED**. Current readiness tooling includes a final RC validation matrix, Release Candidate Go/No-Go manifest, local-only production execution dossier, Cloudflare resource model, live-read-only verification plan, and rollback drill. These artifacts help collect evidence; they do not deploy, run remote migrations, call Cloudflare/Stripe/providers, change secrets, execute rollback, or approve readiness.
 
@@ -18,7 +19,84 @@ Use `npm run release:plan` and `config/release-compat.json` as the current deplo
 
 Static/pages, Auth Worker, AI Worker, Contact Worker, and remote auth migration requirements are release-plan dependent. Repo-supported readiness is not live readiness; Cloudflare resource declarations and Wrangler parity still require operator live evidence.
 
-The GitHub Pages static workflow is release-plan guarded. Automatic static deploy is allowed only when the release plan is validation-only or static/pages-only. Push runs compare `github.event.before` to `github.sha`; manual `workflow_dispatch` runs compare the supplied `release_plan_base_ref` to the current workflow SHA. If the base/head range is missing, unavailable in checkout, or has no merge base, the workflow fails closed before artifact upload unless a manual `workflow_dispatch` acknowledgement is supplied after the operator has handled dependencies. The workflow never deploys Workers or runs migrations.
+`.github/workflows/static.yml` owns immutable tested frontend candidates and protected
+publication; `config/static-hosting.json` selects the Cloudflare frontend Worker.
+Selection uses the whole unpublished range from the last verified successful
+publication. Missing/ambiguous provenance fails closed. Its existing protected
+continuation may apply supported affected backend/schema prerequisites before the
+tested frontend. Preserve owner review, candidate/source guards and the shared
+write lock; an acknowledgement is neither authority nor evidence. See
+`scripts/lib/backend-continuation.mjs`, `scripts/pages-candidate.mjs` and the current
+workflow before execution. Do not redeploy unchanged components.
+
+The following CI procedure governs ordinary delivery and explicitly requested
+acceptance; the numbered operator readiness checklist is for a separately scoped
+broad readiness review, not a blanket suite or deployment authorization for every edit.
+
+## CI repair and required acceptance
+
+Use this procedure when the assignment explicitly requires CI repair through final
+acceptance or publication. Ordinary commit/push still ends after local checks and a
+confirmed foreground push, with at most one immediate CI snapshot and unverified
+status reported. Explicit acceptance instead includes the requested terminal results;
+it does not authorize new production operations, paid calls or protection changes.
+
+1. Read the matching [regression entry](../runbooks/REGRESSION_REGISTER.md). Record
+   failing source SHA, run/attempt, job, command and artifacts. Reproduce against the
+   actual candidate/runtime. Distinguish product defects from stale fixtures,
+   measurements or synchronization using intended user behavior and source contracts.
+   A test repair must accept that contract and reject a meaningful broken case;
+   preserve coverage, independent assertions, unexpected-request checks and limits.
+2. Inspect `package.json`, `scripts/lib/ci-test-selection.mjs` and the consuming
+   workflows against the entire unpublished range from the last verified publication.
+   Check discovered cases, runtime prerequisites and downstream jobs. Discovery,
+   helper mocks and a green prefix of an `&&` chain are not complete acceptance.
+3. For full Worker acceptance, install locked root/Auth dependencies and execute
+   `bash scripts/setup-media-tools.sh` on Ubuntu; it installs and executes both
+   FFmpeg and ffprobe. Run `node scripts/test-q2-runtime.mjs --preflight` before
+   expensive Worker cases. `npm run test:workers` must finish the media-tool check,
+   Q4 selection, Playwright routes, real `test:homepage-ffmpeg-processor` 2/5-clip
+   exports, then staging/launcher self-tests and native `test:q2-runtime`. A local
+   macOS pass does not certify Linux namespace/workerd/D1/R2 acceptance. Narrow
+   jobs keep their actual selected callers; do not require this chain for every edit.
+4. Browser repairs run the existing selected collection on the built candidate.
+   `test:homepage-core` executes audio-player, canvas, oma2-q1-canvas, locale and smoke
+   in Chromium/`webkit-canvas`; static.yml restores `_site` via `STATIC_TEST_ROOT`
+   and retains `candidate-homepage.json` plus browser artifacts. Focused EN/DE and
+   broken-case checks precede that collection; they do not replace it. Full's
+   downstream browser job runs `HOMEPAGE_EXTENDED=true npm run test:static` after
+   security, Worker and required Linux/macOS homepage jobs succeed.
+5. A main push starts the static workflow, not Full regression. When Full is an
+   explicit acceptance requirement, first inspect runs for the exact SHA, then use
+   the existing `full-regression.yml` `workflow_dispatch` if no matching requested
+   run exists. Record the dispatched run's resolved SHA; do not duplicate a matching
+   run or dispatch a second validation pipeline merely to publish.
+6. Observe required runs with bounded status checks and regular progress updates;
+   inspect newly completed failures and continue scoped repairs. Do not hand off at
+   queued/running jobs or partial success. Keep source/run/attempt, case reports and
+   candidate identity together. A failed/skipped required downstream gate is not a
+   pass. Report an evidenced review/rights/runner blocker instead of claiming success.
+   For explicit publication, finish the existing protected affected-backend/frontend
+   continuation, durable receipt and authorized live verification. Reuse matching
+   candidate evidence where supported; never redeploy unchanged components for a green run.
+
+The reviewed Undici exception changes deployment classification only. For Auth,
+AI and Contact, `scripts/lib/worker-tooling-impact.mjs` requires immutable Git
+base/head evidence of only a forward compatible Undici development-leaf patch,
+unchanged runtime/compiler inputs, and no application imports of that tool chain
+or custom build/resolution path. Unknown or missing evidence retains normal
+deployment requirements. Audits and affected Worker tests still run. Existing
+`test:release-plan` real-Git controls cover mixed product changes, missing evidence,
+runtime/tool imports, custom builds and unsafe fallback; this is not a general
+development-dependency exemption.
+
+Executable prevention stays in existing callers: `test:static-deploy-safety`
+checks media setup/order and real missing-tool failures across workflow callers;
+staging/launcher tests check native admission and chain order; `test:ci-selection`
+and `test:release-plan` check affected selection plus unknown-input countercontrols.
+Merge confirmed cause, smallest countercheck and remaining uncertainty into the
+matching regression entry. Do not replace functional acceptance with prose or add
+blanket suites for documentation/cosmetic edits.
 
 ## Non-Negotiable Safety Rules
 
@@ -31,11 +109,11 @@ The GitHub Pages static workflow is release-plan guarded. Automatic static deplo
 
 ## Main-Only Deploy Order
 
-1. Verify clean commit/worktree.
+1. Verify the intended commit/candidate and preserve unrelated working drafts.
 2. Run local preflight.
-3. Apply and verify production D1 migration status through the latest auth schema checkpoint reported by `config/release-compat.json` and `npm run release:plan`.
-4. Deploy auth Worker by the approved operator process.
-5. Deploy static/pages by the approved operator process only when the reviewed release plan requires it.
+3. If selected and authorized, verify/apply required D1 prerequisites from `config/release-compat.json` and `npm run release:plan` before dependent backend code.
+4. Deploy only required affected backend units in the contract order through the authorized protected process (AI/media before dependent Auth).
+5. Publish the same tested frontend candidate through protected continuation only when required by the reviewed release plan.
 6. Run the live readiness evidence collector against explicit live URLs.
 7. Perform manual admin and member smoke checks required by the reviewed release plan.
 8. Record evidence in `docs/production-readiness/EVIDENCE_TEMPLATE.md`.
@@ -50,7 +128,7 @@ git status --short
 npm run check:main-release-readiness
 ```
 
-If the worktree is dirty, stop before release. `--allow-dirty` is only for local planning evidence, not for approving a direct-main deployment:
+Do not publish dirty or unverified candidate bytes. Preserve unrelated work and validate the intended Git/candidate inputs; this broad readiness helper's dirty-worktree result is not permission to discard user drafts. `--allow-dirty` is planning evidence only:
 
 ```bash
 npm run check:main-release-readiness -- --allow-dirty --markdown
@@ -113,7 +191,7 @@ This runbook does not provide or authorize a remote migration command. If produc
 
 ## 5. Deploy Auth Worker
 
-Operator action only. Deploy the reviewed `main` commit using the existing approved auth Worker release process. Record:
+Task-specific deployment authority is required. Use the existing protected continuation for supported affected Auth changes; preserve review and dependency guards. Record:
 
 - operator
 - date/time
@@ -124,29 +202,22 @@ Operator action only. Deploy the reviewed `main` commit using the existing appro
 
 Do not change secrets, bindings, dashboard settings, or live billing flags as part of this checklist unless a separate approved change exists.
 
-## 6. Deploy Static/Pages, If Required
+## 6. Publish the Tested Frontend, If Required
 
-Operator action only. Deploy the reviewed `main` commit using the existing static/pages process only if `npm run release:plan` requires static/pages. On push to `main`, the GitHub Pages workflow checks the release plan before upload/deploy:
+Use the existing protected `static.yml` path selected by the complete release plan.
+Supported affected backend prerequisites precede frontend continuation; unresolved
+unsupported prerequisites fail closed. A skipped mixed push does not complete an
+explicit publication task. Dependency acknowledgement must reflect handled
+prerequisites and never substitutes for authority, proof or owner review.
 
-- validation-only changes: static workflow may continue;
-- static/pages-only changes: static workflow may continue;
-- push with Worker, schema, migration, binding/config, required manual prerequisite, or other classified non-static deploy steps: static workflow skips Pages artifact upload/deploy cleanly and records the required deploy order;
-- manual `workflow_dispatch` with those same dependencies but without exact acknowledgement: static workflow blocks/fails before Pages artifact upload;
-- malformed or unparseable release-plan state: static workflow fails closed.
-
-If static deploy skips or blocks, inspect the guard output, run `npm run release:plan`, deploy affected units in the reported order through the approved operator process, and record evidence. A manual `workflow_dispatch` rerun may acknowledge handled dependencies only with the exact phrase `I_CONFIRM_RELEASE_PLAN_DEPENDENCIES_HANDLED`; that acknowledgement is accepted only on `workflow_dispatch`, is ignored on push, is operator-owned, and is not production readiness, live billing readiness, deploy approval, or proof that live evidence exists.
-
-The workflow uses `npm run check:static-deploy-safety:github -- ...` so push runs can emit `allowed`, `skipped`, or `blocked` outputs. Local `npm run check:static-deploy-safety` remains strict and may exit non-zero for mixed release plans that the GitHub push workflow would report as a clean skip.
-
-Record:
-
-- operator
-- date/time
-- deployed commit
-- Pages build/deployment id if available
-- rollback target
-- Admin Control Plane asset version or cache evidence if available
-- release-plan guard result and whether any manual acknowledgement was used
+Preserve exact candidate bytes and selected successful reports, final dependency
+guards and the shared publication lock. When supported, `candidate_run_id` /
+`candidate_run_attempt` reuse the accepted source candidate without rebuilding or
+duplicate validation. Record source and publication run/attempt, active frontend
+version/readback and durable deployment receipt. If activation preceded a later
+failure, reconcile actual versions and receipts before any continuation; do not
+redeploy unchanged backends to obtain new annotations. Hosting/recovery details
+remain in [Static hosting migration](../runbooks/STATIC_HOSTING_MIGRATION.md).
 
 ## 7. Run Live Readiness Evidence Collector
 

@@ -12,12 +12,15 @@ export function processingTimeout(deadline,now=Date.now()) {
 // No shell, no source URL in diagnostics, finite subprocess and byte limits.
 export function mediaCommand(command,args,{cwd,timeout=600000}={}) {
   return new Promise((resolve,reject)=>{
+    const tool=['ffmpeg','ffprobe'].includes(path.basename(command))?path.basename(command):'media-tool';
+    const osCodes=new Set(['ENOENT','EACCES','EPERM','ENOEXEC','EAGAIN','ENOMEM','E2BIG','EMFILE','ENFILE','ENOTDIR','EINVAL']);
     const child=spawn(command,args,{cwd,stdio:['ignore','pipe','pipe']}),timer=setTimeout(()=>child.kill('SIGKILL'),timeout);
     let stdout='';child.stdout.on('data',b=>{stdout+=b;if(stdout.length>1000000) child.kill('SIGKILL');});
     // Retain only bounded, known tool diagnostics. Never echo paths, URLs,
     // media metadata or arbitrary stderr (which can contain private content).
     let stderr='';child.stderr.on('data',b=>{stderr=(stderr+b).slice(-4096);});
-    child.on('error',()=>{clearTimeout(timer);reject(failure('canvas_media_tool_failed'));});
+    child.on('error',error=>{clearTimeout(timer);reject(Object.assign(failure('canvas_media_tool_failed'),{diagnostic:{tool,
+      osCode:osCodes.has(error.code)?error.code:'unknown'}}));});
     child.on('close',(code,signal)=>{clearTimeout(timer);code===0?resolve(stdout):reject(Object.assign(failure('canvas_media_tool_failed'),{diagnostic:{exit:code,signal,
       stderr:['Invalid data found','No such file or directory','Unknown encoder','Error initializing output stream','Conversion failed','Cannot allocate memory','No space left on device'].filter(text=>stderr.includes(text))}}));});
   });

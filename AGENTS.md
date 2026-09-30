@@ -15,8 +15,8 @@ It applies to the whole repository unless a deeper `AGENTS.md` overrides it (for
   - `workers/ai` (AI service worker used by auth/admin flows)
   - `workers/contact` (contact form endpoint)
 - Persistent/cloud resources in use: Cloudflare D1, R2, Queues, Durable Objects, Workers AI, Cloudflare Images.
-- Static deployment is GitHub Pages via `.github/workflows/static.yml`.
-- Workers deploy separately from static Pages deploy.
+- `.github/workflows/static.yml` owns tested frontend candidates and protected publication; `config/static-hosting.json` selects the Cloudflare frontend Worker.
+- Supported affected backend prerequisites can precede frontend continuation in that protected workflow; deploy only selected components.
 
 Treat this architecture as intentional. Do not replace it with framework rewrites or cross-stack refactors unless explicitly required.
 
@@ -113,19 +113,13 @@ Do not invent commands/scripts that are not present in this repo.
 - A repair is complete only when its evidenced cause, executable regression/countercontrol, actual local/CI caller and final tested inputs are linked. Tie tests to protected behavior and risk; replace false or redundant proxies with an evidenced equivalent contract, not another blanket gate. Maintain the compact `docs/runbooks/REGRESSION_REGISTER.md`; discovery is not execution, a replay is not native acceptance, and an unexplained historical failure must not be relabelled as fixed.
 - Map every new spec to its real CI execution entrypoint. Pages selection and candidate evidence must cover the complete unpublished range from the last verified successful deployment, not a completed historical release or the last push. Preserve exact tested artifact identity, selected job evidence, final dependency guard and shared write lock; use the existing source run/attempt reuse path only when needed, without a duplicate full run merely to publish.
 - For the reviewed Admin-reader production surface plus its closed release/test-tooling path set, `admin-reader-v1` requires all News, Admin navigation/session/MFA and short homepage smoke checks in Chromium/WebKit against the candidate build, plus release/security/tooling checks. Unchanged decorative-video failures remain unresolved in Full/extended regression, not Admin release prerequisites. Inspect the entire unpublished production diff first; shared/runtime/backend/dependency or unknown inputs cannot use this bounded scope. Unselected suites are not passes, and no old failed candidate is re-certified under a new policy.
-- Complete authorized commit/push tasks under the no-wait rule below; CI or deployment completion is not a task-completion requirement.
+- Before a CI repair, search the affected signature/caller in [the regression register](docs/runbooks/REGRESSION_REGISTER.md) and read the [main-only release runbook](docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md). Apply their focused checks through the actual caller.
 
-## Commit/push completion: no CI waiting
+## Completion modes
 
-- Before an authorized commit/push, complete the required local checks and review the integrated diff. Preserve unrelated work and existing CI/security gates.
-- For an explicitly approved CI-infrastructure repair whose target is the existing Linux CI runner, complete the available local checks and review before commit/push; real Linux acceptance may occur in that CI run. A local Linux installation is not a prerequisite for this narrow delivery. Report the acceptance as pending and retain the actual CI pass as a production-release gate.
-- Run `git push` in the foreground until Git returns, and confirm the transfer result. A rejected or unclear push is not successful; do not fire and forget a background push.
-- After a confirmed push, do not wait for CI, Pages or deployment completion: no `gh run watch`, `gh pr checks --watch`, sleep/poll/refresh loops, status/log/build-token/live-asset polling, or five-minute monitoring window.
-- Do not delegate monitoring to subagents, background processes or automations, or start unrelated work to fill pipeline time.
-- No CI query is required. At most one optional immediate status snapshot without a wait flag is allowed after each push, including workflow and individual job states. If no completed failure is available to diagnose and the decisive required job is queued/running or absent, hand off and stop; use `https://github.com/bitbiai/Bitbi/actions` if needed. Do not wait for a run or job to appear or finish.
-- A completed failed CI job may be inspected and repaired within the authorized task even while its overall workflow is still running, including at the immediate post-push snapshot. Read that job's completed logs, make the related fix, validate and push without a new internal approval loop. This is diagnosis of a finished job, not permission to monitor remaining jobs or its replacement; apply the same handoff rule after the repair push.
-- At handoff, report commit SHA(s), confirmed push, the available run or Actions link, and any observed completed result or once-observed status. Mark unverified CI/deployment and live functionality explicitly as not verified. Stefan handles subsequent CI/live verification; do not promise later automatic monitoring.
-- Only a later explicit user instruction to monitor a named task changes this default. Words such as commit, push, publish or deploy alone do not authorize waiting. This rule expands no write/deployment permissions and does not override audit-only or no-push restrictions.
+- Ordinary commit/push tasks end after required local checks, integrated review and a confirmed foreground push. At most one immediate CI snapshot; report unverified CI/publication and hand off without waiting. Completed failures may be diagnosed within scope.
+- Explicit CI-repair acceptance or end-to-end publication requires observing the requested final results on the final source/candidate. Continue authorized repairs and required downstream acceptance; a push, queued job, partial suite or unarranged owner handoff is not completion. Use bounded status checks, report progress and stop for an evidenced external blocker; preserve review gates and write locks.
+- Use the [main-only release runbook](docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md#ci-repair-and-required-acceptance) for actual commands, selection, Full dispatch, complete caller chains and evidence. This exception adds no deployment, paid-call or settings authority. Do not start background monitoring for an ordinary push.
 
 ---
 
@@ -165,6 +159,8 @@ selected execution and wrong artifacts remain fatal. Scheduled/extended Full
 regression remains available and blocks reuse when the candidate selects full
 acceptance; it is not an unrelated narrow-release prerequisite.
 
+When repairing browser tests, establish intended behavior from product contracts and the actual candidate before changing fixtures, synchronization or expectations. Corrected checks must accept that behavior and reject a meaningful broken case independently; do not copy implementation output, drop coverage or loosen retries/timeouts/thresholds to obtain green.
+
 Reuse valid evidence for unchanged inputs; repeat checks only for a concrete reason. Do not duplicate all CI locally by default. State what was not run and why, and preserve failures and skipped coverage.
 
 ---
@@ -173,12 +169,12 @@ Reuse valid evidence for unchanged inputs; repeat checks only for a concrete rea
 
 - Static-hosting migration preparation is documented in `docs/runbooks/STATIC_HOSTING_MIGRATION.md`. `config/static-hosting.json` selects the reviewed hosting target; production authority still requires the matching verified deployment receipt. No preview/upload/domain change follows from local tests alone. Preserve candidate bytes, independent active-version evidence, and the shared publication lock.
 
-- Static Pages deploy (`.github/workflows/static.yml`) does **not** deploy workers.
+- The protected static workflow may apply supported affected backend prerequisites before the tested frontend; preserve its dependency checks and exact candidate identity.
 - Keep worker routes/bindings consistent with `config/release-compat.json`.
 - Apply auth migrations before deploying auth code that depends on them.
 - Do not assume secrets/bindings/dashboard rules exist; verify in repo docs/config and call out manual requirements.
 - Preserve current deploy ordering expectations (migrations, workers, then static) unless task explicitly changes release design.
-- Follow “Commit/push completion: no CI waiting”, including permitted diagnosis of completed failures. Do not wait for running CI or live-release acceptance to finish an authorized commit/push task; subsequent verification belongs to Stefan.
+- Follow “Completion modes”: ordinary push is a handoff; explicitly required CI/release acceptance remains part of the authorized task.
 
 ---
 
@@ -210,7 +206,7 @@ Reuse valid evidence for unchanged inputs; repeat checks only for a concrete rea
 
 ## Output/reporting requirements for Codex changes
 
-At handoff, give a short factual summary of changed files and purpose, local checks and limitations, commit SHA(s), push result, and a run or Actions link. Follow “Commit/push completion: no CI waiting”: completed failed jobs may be diagnosed and repaired even in running workflows; otherwise queued/running or absent decisive jobs require handoff without waiting. Report unverified status accurately. Never equate pushed, CI-passed and actually deployed.
+At handoff, report changed files/purpose, actual checks and limitations, commit SHA(s), confirmed push and run/attempt links. Apply the appropriate completion mode; explicit acceptance reports required terminal results or the evidenced blocker. Never equate pushed, CI-passed, published and live-verified.
 
 For substantial changes, also identify relevant schema/config/binding impact, deploy order, and manual Cloudflare follow-up. No new audit report is required by default.
 
@@ -231,6 +227,6 @@ When the current task explicitly includes publication, complete its supported
 backend prerequisites and automatic frontend continuation in the existing
 protected release job before handing off. This does not authorize deployment
 for other tasks. Keep exact candidate evidence, owner environment review and
-publication lock. Do not actively wait/poll for CI; report the automatic path
-and any evidenced external rights/review blocker. A mixed push skipped without
+publication lock. Observe required results under “Completion modes” and report
+any evidenced external rights/review blocker. A mixed push skipped without
 continuation is not a completed publication assignment.

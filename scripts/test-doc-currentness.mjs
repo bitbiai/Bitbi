@@ -19,6 +19,9 @@ function makeRepo(latestMigration = latest) {
       },
     },
   }));
+  const references = ['docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md', 'docs/runbooks/REGRESSION_REGISTER.md'];
+  writeFile(repo, 'AGENTS.md', references.map(reference => `[Guide](${reference})`).join('\n'));
+  for (const reference of references) writeFile(repo, reference, 'Scoped operating guidance.\n');
   return repo;
 }
 
@@ -443,7 +446,7 @@ function writeFile(repo, relativePath, text) {
     currentDocs: ["README.md"],
   });
   assert.deepEqual(result.violations, []);
-  assert.equal(result.categoryCounts.active_runbook_policy, 1);
+  assert.equal(result.markdownInventory.find(entry => entry.path === 'CLAUDE.md')?.category, 'active_runbook_policy');
 }
 
 {
@@ -565,6 +568,29 @@ function writeFile(repo, relativePath, text) {
     currentDocs: ["README.md"],
   });
   assert(!result.violations.some((violation) => violation.file === "js/pages/admin/control-plane.js"));
+}
+
+// Exercise the actual instruction entrypoint, including removed links and moved
+// targets. Wording can evolve without creating a second prose-policy checklist.
+{
+  const repo = makeRepo();
+  const references = ['docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md', 'docs/runbooks/REGRESSION_REGISTER.md'];
+  const entrypoint = references.map(reference => `[Responsible reference](${reference})`).join('\n');
+  const scan = () => scanDocCurrentness(repo, {currentDocs: [], checkMarkdownInventory: false}).violations;
+  writeFile(repo, 'AGENTS.md', entrypoint);
+  for (const reference of references) writeFile(repo, reference, 'Scoped operating guidance.\n');
+  assert.deepEqual(scan(), []);
+  for (const reference of references) {
+    writeFile(repo, 'AGENTS.md', entrypoint.replace(reference, 'missing-guide.md'));
+    assert(scan().some(violation => violation.rule === 'active-guidance-reachable'));
+    writeFile(repo, 'AGENTS.md', entrypoint);
+    fs.unlinkSync(path.join(repo, reference));
+    assert(scan().some(violation => violation.rule === 'active-guidance-reachable'));
+    writeFile(repo, reference, 'Scoped operating guidance.\n');
+  }
+  fs.unlinkSync(path.join(repo, 'AGENTS.md'));
+  assert(scan().some(violation => violation.type === 'active-guidance-entrypoint-missing'));
+  fs.rmSync(repo, {recursive: true, force: true});
 }
 
 console.log("Doc currentness tests passed.");

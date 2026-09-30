@@ -112,6 +112,17 @@ function buildNewsPulseItems(prefix = 'mobile-pulse') {
   }));
 }
 
+// Wallet entry points require a fresh successful public appearance response.
+// Scope this to tests that exercise an enabled Panel; unresolved settings remain hidden.
+async function mockEnabledWalletAppearance(page) {
+  await page.route('**/api/appearance', route => {
+    expect(route.request().method()).toBe('GET');
+    return route.fulfill({ json: { ok: true, appearance: {
+      version: 1, revision: 0, segments: DEFAULT_SEGMENTS, personalEnabled: false, walletEnabled: true,
+    } } });
+  });
+}
+
 async function mockHomepageAuthState(page, { loggedIn }) {
   await page.route('**/api/me', async (route) => {
     await route.fulfill({
@@ -1831,6 +1842,7 @@ test.describe('Homepage', () => {
   });
 
   test('desktop homepage header aligns the public nav group and removes the mood pill', async ({ page }) => {
+    await mockEnabledWalletAppearance(page);
     await page.setViewportSize({ width: 1440, height: 1200 });
     for (const { path, labels, removedPricingLabel } of [
       { path: '/', labels: ['Gallery', 'Video', 'Sound Lab'], removedPricingLabel: 'Pricing' },
@@ -1869,7 +1881,8 @@ test.describe('Homepage', () => {
         const pulse = document.querySelector('#hero > #newsPulse');
         const pulseStyle = pulse ? window.getComputedStyle(pulse) : null;
         return {
-          viewportWidth: window.innerWidth,
+          // Fixed header edges follow the layout viewport, excluding native scrollbars.
+          viewportWidth: document.documentElement.clientWidth,
           logo: rect('#navbar .site-nav__logo'),
           pulse: rect('#hero > #newsPulse'),
           pulseDisplay: pulseStyle?.display || null,
@@ -1905,6 +1918,7 @@ test.describe('Homepage', () => {
   });
 
   test('shared public and member headers place the language selector before Panel and Sign In', async ({ page }) => {
+    await mockEnabledWalletAppearance(page);
     await page.setViewportSize({ width: 1440, height: 980 });
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -1931,6 +1945,7 @@ test.describe('Homepage', () => {
   });
 
   test('mobile homepage menu keeps Panel and sign-in while account creation sits below the header', async ({ page }) => {
+    await mockEnabledWalletAppearance(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -4262,6 +4277,7 @@ test.describe('Homepage', () => {
   });
 
   test('English Generate Lab header uses public outer insets and disables the current-page brand link', async ({ page }) => {
+    await mockEnabledWalletAppearance(page);
     await page.setViewportSize({ width: 1440, height: 980 });
     const session = await mockGenerateLabMemberSession(page, {
       email: 'align@bitbi.ai',
@@ -4297,6 +4313,7 @@ test.describe('Homepage', () => {
   });
 
   test('German Generate Lab header uses public outer insets and disables the current-page brand link', async ({ page }) => {
+    await mockEnabledWalletAppearance(page);
     await page.setViewportSize({ width: 1440, height: 980 });
     const session = await mockGenerateLabMemberSession(page, {
       email: 'ausrichtung@bitbi.ai',
@@ -4384,30 +4401,11 @@ test.describe('Homepage', () => {
     expect(hasOverflow).toBe(false);
   });
 
-  test('Generate Lab shows session-expired recovery after account API failure', async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 980 });
-    await page.route('**/api/me', async (route) => {
-      await route.fulfill({
-        status: 401,
-        contentType: 'application/json',
-        body: JSON.stringify({ ok: false, error: 'raw generate session detail' }),
-      });
+  for (const locale of ['en', 'de']) for (const initiallyAuthenticated of [false, true]) {
+    test(`Generate Lab ${locale} ${initiallyAuthenticated ? 'expired authenticated session' : 'cold unauthorized entry'} preserves drafts and offers sign-in recovery`, async ({ page }) => {
+      await require('./helpers/generate-lab-session.cjs')({page, expect, mockGenerateLabMemberSession, locale, initiallyAuthenticated});
     });
-
-    await page.goto('/generate-lab/');
-
-    await expect(page.locator('#labAccountStatus')).toContainText('Session expired. Sign in again.');
-    await expect(page.locator('#labCreditStatus')).toContainText('Your prompt stays on this page.');
-    await expect(page.locator('#labCostInsight')).toBeHidden();
-    await expect(page.locator('#labWorkflowGuide')).toHaveCount(0);
-    await expect(page.locator('#labMessage')).toContainText('Your prompt stays on this page.');
-    await expect(page.locator('#labMessage')).not.toContainText('raw generate');
-
-    await page.locator('#labGenerate').click();
-    await expect(page.locator('.auth-modal__overlay.active')).toBeVisible();
-    await expect(page.locator('.auth-modal__tab.active')).toHaveText('Sign In');
-    await expect(page.locator('#authLoginMsg')).toContainText('Sign in again before generating, saving, or loading recent assets.');
-  });
+  }
 
   for (const locale of ['en', 'de']) test(`@canvas-model-ui Generate Lab dimensions and publisher dropdowns ${locale}`, ({ page }) => require('./helpers/generation-selectors.cjs').memberDimensions({ page, expect, mockSession: mockGenerateLabMemberSession, locale }));
 
@@ -9158,6 +9156,7 @@ test.describe('Homepage', () => {
   });
 
   test('mobile Wallet nav action closes the menu, opens wallet workspace, and does not click-through into gallery media', async ({ page }) => {
+    await mockEnabledWalletAppearance(page);
     await page.setViewportSize({ width: 390, height: 844 });
 
     const popupUrls = [];
@@ -10202,7 +10201,7 @@ test.describe('Homepage', () => {
 test.describe('Global Help Menu', () => {
   for (const locale of ['en', 'de']) {
     for (const mobile of [false, true]) {
-      test(`Creation Workspace model help uses available registry models: ${locale} ${mobile ? 'touch' : 'desktop'}`, async ({ browser }, testInfo) => {
+      test(`Creation Workspace model help uses available registry models: ${locale} ${mobile ? 'touch' : 'desktop'}`, async ({ browser, baseURL }, testInfo) => {
         const context = await browser.newContext({ viewport: mobile ? { width: 390, height: 700 } : { width: 1440, height: 1000 }, hasTouch: mobile });
         const page = await context.newPage();
         const errors = [];
@@ -10214,7 +10213,7 @@ test.describe('Global Help Menu', () => {
         });
         await page.addInitScript(() => localStorage.setItem('bitbi_cookie_consent', JSON.stringify({ v: '1', ts: Date.now(), necessary: true, analytics: false, marketing: false })));
         try {
-          await page.goto(`http://localhost:3000/${locale === 'de' ? 'de/' : ''}generate-lab/`);
+          await page.goto(new URL(`/${locale === 'de' ? 'de/' : ''}generate-lab/`, baseURL).href);
           await expect(page.locator('#labWorkflowGuide, .generate-lab__workflow-guide')).toHaveCount(0);
           await expect(page.locator('#labImageModel option')).not.toHaveCount(0);
           await page.screenshot({ path: testInfo.outputPath('workspace.png'), fullPage: true, animations: 'disabled' });
@@ -10223,30 +10222,8 @@ test.describe('Global Help Menu', () => {
           else { await trigger.focus(); await page.keyboard.press('Enter'); }
           const section = page.locator('[data-help-section="generate"]');
           await section.locator(':scope > summary').click();
-          const registry = await page.evaluate(async () => {
-            const url = [...performance.getEntriesByType('resource')].map(entry => entry.name).find(name => name.includes('/generate-lab/model-registry.js'));
-            const { getGenerateLabModels } = await import(url);
-            return getGenerateLabModels().map(({ id, displayName, options, controls }) => ({ id, displayName, options, controls }));
-          });
+          await require('./helpers/model-help-contract.cjs').assertWorkspaceModelHelp({page, section, expect, locale});
           const entries = section.locator('[data-help-model]');
-          await expect(entries).toHaveCount(registry.length);
-          expect(await entries.evaluateAll(nodes => nodes.map(node => node.dataset.helpModel))).toEqual(registry.map(model => model.id));
-          for (const model of registry) {
-            const entry = section.locator(`[data-help-model="${model.id}"]`);
-            await expect(entry.locator('.help-menu__item-title')).toHaveText(model.displayName);
-            await entry.locator('summary').click();
-            for (const [key, value] of Object.entries(model.options || {})) {
-              if (key === 'operation') {
-                const labels = locale === 'de' ? { generate: 'Generieren', edit: 'Bearbeiten', extend: 'Verlängern' } : { generate: 'Generate', edit: 'Edit', extend: 'Extend' };
-                await expect(entry.locator('[data-help-option="operation"]')).toHaveText(`${locale === 'de' ? 'Verfügbare Aktion' : 'Available operation'}: ${value.map(option => labels[option]).join(', ')}.`);
-              } else {
-                for (const option of Array.isArray(value) ? value : Object.values(value)) await expect(entry).toContainText(String(option));
-              }
-            }
-            if (model.options?.background?.includes('transparent')) await expect(entry).not.toContainText(locale === 'de' ? 'Transparenter Hintergrund wird von diesem Modell hier nicht unterstützt.' : 'Transparent background is not supported by this model here.');
-            if (model.controls?.supportsReferenceImages) await expect(entry).toContainText(String(model.controls.maxReferenceImages));
-            await entry.locator('summary').click();
-          }
           await section.locator('.help-menu__item-summary').filter({ hasText: locale === 'de' ? 'Erster Generate-Lab-Lauf' : 'First Generate Lab run' }).click();
           await expect(section).toContainText(locale === 'de' ? 'ohne Browser weiter' : 'continue without the browser');
           await expect(section).not.toContainText('Save only outputs');

@@ -1,4 +1,5 @@
 import {testPrivateMediaRunner} from '../services/homepage-ffmpeg-processor/private-media-runner.test.mjs';
+import {checkMediaTools} from './check-media-tools.mjs';
 import {readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import vm from 'node:vm';
@@ -13,6 +14,8 @@ import {
   ensureStreamDownloadReady,
   ensureStreamVideoReady,
 } from "../services/homepage-ffmpeg-processor/processor.mjs";
+
+await checkMediaTools();
 
 function jsonResponse(body, { status = 200 } = {}) {
   return {

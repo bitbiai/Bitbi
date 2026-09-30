@@ -57,10 +57,18 @@ export function renderWorkspaceModelHelp() {
             if (controls.supportsImageInput) paragraph(localeText('studio.referenceImageTooLarge'));
             for (const [key, value] of Object.entries(model.options || {})) {
                 if (key === 'dimensions') {
-                    paragraph(copy(
-                        `Requested width and height: ${value.min}–${value.max} px; at most ${value.maxPixels} pixels in total.`,
-                        `Angeforderte Breite und Höhe: ${value.min}–${value.max} px; insgesamt höchstens ${value.maxPixels} Pixel.`,
-                    ));
+                    if (!controls.supportsDimensions) continue;
+                    const dimensions = value.values?.length
+                        ? copy(`Requested width and height (px): ${value.values.join(', ')}.`,
+                            `Angeforderte Breite und Höhe (px): ${value.values.join(', ')}.`)
+                        : copy(`Requested width and height: ${value.min}–${value.max} px.`,
+                            `Angeforderte Breite und Höhe: ${value.min}–${value.max} px.`);
+                    const cap = Number.isFinite(value.maxPixels)
+                        ? copy(` At most ${value.maxPixels} pixels in total.`, ` Insgesamt höchstens ${value.maxPixels} Pixel.`)
+                        : '';
+                    const detail = element('p', 'help-menu__item-detail', dimensions + cap);
+                    detail.dataset.helpOption = key;
+                    body.append(detail);
                 } else if (optionLabels[key]) {
                     const operationLabels = { generate: copy('Generate', 'Generieren'), edit: copy('Edit', 'Bearbeiten'), extend: copy('Extend', 'Verlängern') };
                     const values = Array.isArray(value) ? value.map(option => key === 'operation' ? operationLabels[option] || option : option).join(', ') : `${value.min}–${value.max}`;

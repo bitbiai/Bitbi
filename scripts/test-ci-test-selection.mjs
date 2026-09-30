@@ -88,7 +88,8 @@ function selection(files, options) {
   assert(workflow.includes('tests/smoke.spec.js tests/oma2-q1-member.spec.js --project=chromium --project=webkit-canvas'));
 }
 
-for (const file of ['scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs']) {
+for (const file of ['scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs',
+  'scripts/setup-media-tools.sh', 'scripts/check-media-tools.mjs']) {
   const result = selection([file]);
   assert.equal(result.workers, true, file);
   assert.equal(result.full, false, file);
@@ -96,6 +97,11 @@ for (const file of ['scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-laun
   assert.equal(result.static, false, file);
 }
 assert.equal(selection(['scripts/test-q2-runtime-launcher-unknown.mjs']).full, true);
+for (const file of ['tests/helpers/model-help-contract.cjs', 'tests/helpers/generate-lab-session.cjs']) {
+  const result = selection([file]);
+  assert(result.homepage && !result.full && !result.workers && !result.homepageMedia);
+  assert(selection(['tests/helpers/model-help-contract-unknown.cjs']).full);
+}
 
 {
   for (const area of ["shell", "workflows", "context", "media", "ai", "ai-compare-view", "registration", "auth-lifecycle"]) {
@@ -774,6 +780,7 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  const files=['js/pages/canvas/full-video.js','js/pages/canvas/music-preview.js','js/pages/canvas/music-preview-worklet.js',
  'js/shared/canvas-export.mjs','workers/auth/src/lib/canvas-preview-base.js','workers/auth/migrations/0097_canvas_preview_base.sql',
  'tests/helpers/canvas-music-preview.cjs','tests/fixtures/media/canvas-preview.mp4','tests/fixtures/media/canvas-preview.webm','tests/fixtures/media/canvas-preview-loud.wav',
+ 'tests/fixtures/media/canvas-audition-native-input.json',
  'tests/helpers/homepage-media-server.mjs','services/homepage-ffmpeg-processor/canvas-full-video.mjs','scripts/lib/media-publication.mjs'];
  const selected=selection(files);assert(selected.canvasText&&selected.workers&&selected.auth&&selected.static);
  assert(!selected.full&&!selected.homepageMedia&&!selected.carousel);

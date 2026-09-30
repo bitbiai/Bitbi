@@ -1,11 +1,37 @@
 import assert from 'node:assert/strict';
-import {mkdtemp,rm,readFile} from 'node:fs/promises';
+import {mkdtemp,rm,readFile,writeFile,chmod} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {concatenateClips,mediaCommand,inspectClip,processingTimeout,processCanvasExports,mixBackgroundMusic,loopMusicPcm} from './canvas-full-video.mjs';
 
+export async function testMediaCommandDiagnostics() {
+  const dir=await mkdtemp(path.join(tmpdir(),'media-tool-private-fixture-'));
+  try {
+    for(const [tool,osCode] of [['ffmpeg','ENOENT'],['ffprobe','EACCES']]) {
+      const command=path.join(dir,tool);
+      if(osCode==='EACCES') {await writeFile(command,'private invalid executable');await chmod(command,0o600);}
+      await assert.rejects(mediaCommand(command,['private-argument','https://private.invalid/signed-token']),error=>{
+        assert.equal(error.code,'canvas_media_tool_failed');
+        assert.deepEqual(error.diagnostic,{tool,osCode});
+        const detail=String(error.stack)+JSON.stringify(error);
+        for(const privateValue of [dir,'private-argument','private.invalid','signed-token'])assert(!detail.includes(privateValue));
+        return true;
+      });
+    }
+    await assert.rejects(mediaCommand(process.execPath,['-e',"console.error('private-token https://private.invalid/secret Invalid data found');process.exit(7)"]),error=>{
+      assert.deepEqual(error.diagnostic,{exit:7,signal:null,stderr:['Invalid data found']});
+      assert(!JSON.stringify(error).includes('private-token'));assert(!JSON.stringify(error).includes('private.invalid'));return true;
+    });
+    await assert.rejects(mediaCommand(process.execPath,['-e','setTimeout(()=>{},10000)'],{timeout:50}),error=>{
+      assert.deepEqual(error.diagnostic,{exit:null,signal:'SIGKILL',stderr:[]});return true;
+    });
+    console.log('Media child diagnostics: actual missing/denied executable, redacted exit and bounded termination passed.');
+  } finally {await rm(dir,{recursive:true,force:true});}
+}
+
 export async function testCanvasConcatenation() {
+  await testMediaCommandDiagnostics();
   assert.equal(processingTimeout(720000,0),120000);
   assert.equal(processingTimeout(720000,719000),1000);
   assert.throws(()=>processingTimeout(720000,720000),/canvas_processing_deadline/);

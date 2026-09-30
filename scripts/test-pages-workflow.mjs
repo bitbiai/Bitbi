@@ -50,16 +50,82 @@ for(const media_lifecycle of ['true','false',undefined]) for(const required of [
  assert.equal(permits(step,context),media_lifecycle==='true'||required==='true');
  assert.equal(permits(step,{...context,success:()=>false}),false);
 }
-const setupScript=mediaTools.source.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n');
-assert.equal(spawnSync('/bin/bash',['-n'],{input:setupScript,encoding:'utf8'}).status,0);
-// Execute the actual shell with harmless tool functions: order and fail-fast,
-// not an Ubuntu install or a substitute for the required native Linux job.
-for(const installFails of [false,true]) {
-  const functions=`sudo() { printf '%s\\n' "$*"; if [ "$2" = install ]; then return ${installFails?9:0}; fi; }; ffmpeg() { printf 'ffmpeg %s\\n' "$*"; }; ffprobe() { printf 'ffprobe %s\\n' "$*"; };`;
-  const result=spawnSync('/bin/bash',['--noprofile','--norc','-e','-c',functions+'\n'+setupScript],{env:{PATH:process.env.PATH},encoding:'utf8',timeout:5000});
-  assert.equal(result.status,installFails?9:0);
-  assert.deepEqual(result.stdout.trim().split('\n'),installFails?['apt-get update','apt-get install -y ffmpeg']:['apt-get update','apt-get install -y ffmpeg','ffmpeg','ffprobe','ffmpeg -version','ffprobe -version']);
+const setupCommand='bash scripts/setup-media-tools.sh';
+function requiresMediaSetup(source,jobName,setupName,callerNames) {
+  const list=steps(job(source,jobName)),setup=list.find(s=>s.name===setupName);
+  assert(setup?.source.includes(`run: ${setupCommand}`),`${jobName}: shared media setup is required`);
+  for(const name of callerNames) {
+    const caller=list.find(s=>s.name===name);
+    assert(caller && list.indexOf(setup)<list.indexOf(caller),`${jobName}: setup precedes ${name}`);
+  }
+  return setup;
 }
+const full=read('full-regression'),processor=read('memvid-stream-preview-processor');
+for(const [source,jobName,setupName,callers] of [
+  [standard,'worker-validation','Install Worker media test tools',['Verify native Linux isolation before Worker tests','Run worker route tests']],
+  [full,'worker-tests','Install Worker media test tools',['Verify native Linux isolation before Worker tests','Run full Worker regression']],
+  [processor,'process','Install ffmpeg',['Verify processor configuration','Run Memvid Stream preview processor']],
+]) {
+  const setup=requiresMediaSetup(source,jobName,setupName,callers);
+  assert.throws(()=>requiresMediaSetup(source.replace(setup.source,setup.source.replace(setupCommand,'')),jobName,setupName,callers),/shared media setup is required/);
+  if(jobName!=='worker-validation')for(const success of [true,false])assert.equal(permits(setup,{success:()=>success}),success);
+}
+function requiresBackendMediaSetup(source) {
+  const step=steps(job(source,'deploy')).find(s=>s.name==='Apply verified candidate backend prerequisites');
+  const setup=step.source.indexOf(setupCommand),apply=step.source.indexOf('node scripts/release-apply.mjs --ci-verified-candidate');
+  assert(setup>=0 && setup<apply,'Backend continuation requires media setup before execution');
+}
+requiresBackendMediaSetup(standard);
+const backendStep=steps(job(standard,'deploy')).find(s=>s.name==='Apply verified candidate backend prerequisites');
+assert.throws(()=>requiresBackendMediaSetup(standard.replace(backendStep.source,backendStep.source.replace(setupCommand,''))),/requires media setup/);
+for(const source of [standard,full,processor])assert(!source.includes('apt-get install -y ffmpeg'),'Ubuntu media setup has one shared definition');
+
+const setupScript=fs.readFileSync(new URL('./setup-media-tools.sh',import.meta.url),'utf8');
+assert.equal(spawnSync('/bin/bash',['-n'],{input:setupScript,encoding:'utf8'}).status,0);
+// Execute the shared install shell with harmless tool functions. The same script
+// is called by release, Full, the processor and guarded backend continuation.
+for(const failing of ['none','update','install','preflight']) {
+  const functions=`sudo() { printf '%s\\n' "$*"; [ "$2" != "${failing}" ] || return 9; }; node() { printf 'node %s\\n' "$*"; [ "${failing}" != preflight ] || return 8; };`;
+  const result=spawnSync('/bin/bash',['--noprofile','--norc','-e','-c',functions+'\n'+setupScript],{env:{PATH:process.env.PATH},encoding:'utf8',timeout:5000});
+  assert.equal(result.status,failing==='none'?0:failing==='preflight'?8:9);
+  const expected=['apt-get update',...(failing==='update'?[]:['apt-get install -y ffmpeg',...(failing==='install'?[]:['node scripts/check-media-tools.mjs'])])];
+  assert.deepEqual(result.stdout.trim().split('\n'),expected);
+}
+
+// Exercise the real preflight with a private PATH. A missing executable's OS
+// code is retained, and an expensive sibling command must never be reached.
+const mediaBin=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-preflight-'));
+try {
+  const preflightFile=fileURLToPath(new URL('./check-media-tools.mjs',import.meta.url));
+  const run=()=>spawnSync(process.execPath,[preflightFile],{env:{PATH:mediaBin},encoding:'utf8',timeout:15000});
+  const writeTool=(name,body)=>fs.writeFileSync(path.join(mediaBin,name),'#!/bin/sh\n'+body+'\n',{mode:0o700});
+  const absentFfmpeg=run();assert.equal(absentFfmpeg.status,1);
+  assert.deepEqual(JSON.parse(absentFfmpeg.stderr),{code:'canvas_media_tool_failed',diagnostic:{tool:'ffmpeg',osCode:'ENOENT'}});
+  writeTool('ffmpeg',"printf 'ffmpeg version fixture-1\\n'");
+  const absentFfprobe=run();assert.equal(absentFfprobe.status,1);
+  assert.deepEqual(JSON.parse(absentFfprobe.stderr),{code:'canvas_media_tool_failed',diagnostic:{tool:'ffprobe',osCode:'ENOENT'}});
+  writeTool('ffprobe',"printf 'private-token https://private.invalid/secret Invalid data found' >&2; exit 7");
+  const failedProbe=run();assert.equal(failedProbe.status,1);
+  assert.deepEqual(JSON.parse(failedProbe.stderr),{code:'canvas_media_tool_failed',diagnostic:{exit:7,signal:null,stderr:['Invalid data found']}});
+  writeTool('ffprobe',"printf 'ffprobe version fixture-2\\n'");
+  const healthy=run();assert.equal(healthy.status,0,healthy.stderr);
+  assert.deepEqual(JSON.parse(healthy.stdout),{mediaTools:{ffmpeg:'fixture-1',ffprobe:'fixture-2'}});
+  fs.unlinkSync(path.join(mediaBin,'ffmpeg'));
+  const quote=value=>"'"+value.replaceAll("'","'\\''")+"'";
+  const trace=path.join(mediaBin,'unexpected-caller');
+  writeTool('node',`if [ "$1" = scripts/check-media-tools.mjs ]; then exec ${quote(process.execPath)} "$@"; fi\nprintf '%s\\n' "$*" > ${quote(trace)}\nexit 97`);
+  const pkg=JSON.parse(fs.readFileSync(new URL('../package.json',import.meta.url),'utf8'));
+  for(const name of ['test:workers','test:q4-integration']) {
+    const command=pkg.scripts[name];
+    assert(command.startsWith('node scripts/check-media-tools.mjs && '),`${name}: media preflight must lead the actual chain`);
+    const failed=spawnSync('/bin/sh',['-c',command],{cwd:fileURLToPath(new URL('..',import.meta.url)),env:{PATH:mediaBin},encoding:'utf8',timeout:15000});
+    assert.equal(failed.status,1,failed.stderr);assert(!fs.existsSync(trace),`${name}: no downstream selection/test starts after missing media tools`);
+    assert.equal(JSON.parse(failed.stderr).diagnostic.osCode,'ENOENT');
+  }
+  const standalone=spawnSync(process.execPath,[fileURLToPath(new URL('./test-homepage-ffmpeg-processor.mjs',import.meta.url))],{env:{PATH:mediaBin},encoding:'utf8',timeout:15000});
+  assert.equal(standalone.status,1);assert.match(standalone.stderr,/ENOENT/);
+  assert.equal(standalone.stdout,'','Standalone caller rejects missing media tools before its fixture suites');
+} finally {fs.rmSync(mediaBin,{recursive:true,force:true});}
 
 const early = steps(job(standard, 'release-compatibility'));
 const late = steps(job(standard, 'deploy'));

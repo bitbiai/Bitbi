@@ -10,7 +10,7 @@ Required callers below apply to their selected impact scope; the bounded `admin-
 | Fourth active slot has no new output while seeking; run 34312435904, artifact 10089641378 | Actual missing-output interval is retained, but its engine/controller/observer attribution is not established. Local plain-four/Hero-four controls did not reproduce it. Remove avoidable synchronous layout/decoder reads from the observer; close the separate stale pre-seek proof gap. Do not change the clip, HTTP handler or controller on speculation. | `hero-stalled-slot.json` replays all 13 original samples and stays red. A seek needs subsequent own output; three neighbours, an old phase/source or a seeked event alone cannot pass. Hot-path layout/decoder queries throw in the focused observer regression. `homepage-native-control.spec.js` independently exercises one/four concurrent videos, original/changing short sources, two genuine loops, seek, pause and resume over HTTP. | The four named independent scenarios now remain in explicit `test:homepage-functional:extended` / `test:homepage-webkit:extended` (Full regression), including discovery countercases removing a required extended scenario. Core retains stale/frozen-slot and corrupt-media controls. Linux Chromium extended runs them; Linux WebKit records them only through `diagnose:homepage-linux-media`. | Native results and bounded coldstarts belong to the final private Q4 handoff. The earlier red run is not replaced by the earlier green push run. This row does not declare the historical seek stall fixed or approve missing output. |
 | Linux UID mapping/bootstrap and ambient host-interface postcheck failures, latest ambient example run 34250807973 | Own namespace/privilege/egress boundaries must be proved directly; host inventory changes alone do not prove a child escape. Fixed bootstrap checks its private namespaces before privileged operations, drops rights and reports ambient identity-based differences separately. | `scripts/test-q2-runtime-launcher.mjs`, `tests/q2-recovery-staging.test.mjs`, native runner entry/exit checks: missing boundary, remaining privileges or real outside connectivity fail. Primary and postcheck errors remain distinct. | `npm run test:q2-runtime`, reached by `npm run test:workers`; hosted Linux preflight and complete Worker/Q4 native suite remain required. | 2026-09-30 full-chain local execution exposed two launcher-test path assumptions on macOS: /var resolves to /private/var, so the synthetic set-ID matcher never injected and the expected artifact path was lexical. Canonical matcher/output assertions plus explicit repository/external symlink aliases now exercise real staging, require the injection and preserve no-copy/repository-escape guards; 26 launcher/staging checks pass under the local OS network boundary. No launcher isolation policy changed. Worker/Linux job 102347580613 passed in 34312435904. No new isolation implementation or native Linux claim from local Mac tests. |
 | Unknown diagnostic config and reconciliation without a deployment, run 34276520093 | Exact validation-only classification was missing; unconditional follow-up ran after a blocked deploy. Classify the exact file, keep unknown paths blocked, perform the full-range guard early and immediately before deploy, and use the actual official deployment action. | `scripts/test-release-plan.mjs`, `scripts/test-static-deploy-safety.mjs`, `scripts/test-ci-test-selection.mjs`: full mixed Q4 range, valid/invalid acknowledgements, unknown paths, blocked/skipped/failed/cancelled/no deployment. | `npm run test:release-plan`, `test:static-deploy-safety`, `test:ci-selection`; real `check:static-deploy-safety` with base/head/event/ack in the release job and deploy job. | Release job 102347444479 passed; Pages was correctly skipped after the later media failure. Plan prerequisites are not evidence of missing live resources. |
-| sharp GHSA-rgj7-g3m4-5g8c and npm10 `Missing sharp@0.35.2`, runs 34307277787 / 34310987440 | Three independent Worker projects need patched sharp. Nested override installed under npm12 but failed npm10 cold ci; direct `sharp:0.35.4` override and npm10-generated locks retain undici/ws and platform entries. | Existing dependency/toolchain validators reject old sharp/unsupported native chain. `check-worker-dependency-audits.mjs --install` performs real ci/ls, verifies unchanged package/lock bytes and installed sharp/libheif, then runtime and dev audits for all three projects. | `npm run check:worker-dependency-audits -- --install` in standard/full early release steps; native Images smoke via `test:workers`. Reinstall when package/installation inputs change, not for every unrelated test edit. | 2026-09-30: Full runs [36698235836/1](https://github.com/bitbiai/Bitbi/actions/runs/36698235836) and [36552156288/1](https://github.com/bitbiai/Bitbi/actions/runs/36552156288) exposed obsolete exact overrides and a stale compatible lock: root brace-expansion 1.1.18 → 1.1.21, fast-uri 3.1.7 → 3.1.8, all three Wrangler projects undici 7.29.0 → 7.29.1. [Brace advisory](https://github.com/juliangruber/brace-expansion/security/advisories/GHSA-q2hr-2g5m-vwhr), [fast-uri patch](https://github.com/fastify/fast-uri/releases/tag/v3.1.8), [Undici security release](https://github.com/nodejs/undici/releases/tag/v7.29.1). Node22/npm10 cold installs, root low audit, every Worker runtime/dev audit, installed/locked native Sharp and toolchain checks pass without changed package/lock bytes; no allowlist/threshold change. Wrangler/Miniflare/Sharp and application runtime dependencies remain unchanged. These are tooling findings, not evidence of live compromise. The complete Linux cold-install/audit and native Worker chain passed in 34312435904. Root-only or omit-dev audit is insufficient. These development-tool patches introduce no audit exception or runtime deployment. |
+| sharp GHSA-rgj7-g3m4-5g8c and npm10 `Missing sharp@0.35.2`, runs 34307277787 / 34310987440 | Three independent Worker projects need patched sharp. Nested override installed under npm12 but failed npm10 cold ci; direct `sharp:0.35.4` override and npm10-generated locks retain undici/ws and platform entries. | Existing dependency/toolchain validators reject old sharp/unsupported native chain. `check-worker-dependency-audits.mjs --install` performs real ci/ls, verifies unchanged package/lock bytes and installed sharp/libheif, then runtime and dev audits for all three projects. | `npm run check:worker-dependency-audits -- --install` in standard/full early release steps; native Images smoke via `test:workers`. Reinstall when package/installation inputs change, not for every unrelated test edit. | 2026-09-30: Full runs [36698235836/1](https://github.com/bitbiai/Bitbi/actions/runs/36698235836) and [36552156288/1](https://github.com/bitbiai/Bitbi/actions/runs/36552156288) exposed obsolete exact overrides and a stale compatible lock: root brace-expansion 1.1.18 → 1.1.21, fast-uri 3.1.7 → 3.1.8, all three Wrangler projects undici 7.29.0 → 7.29.1. [Brace advisory](https://github.com/juliangruber/brace-expansion/security/advisories/GHSA-q2hr-2g5m-vwhr), [fast-uri patch](https://github.com/fastify/fast-uri/releases/tag/v3.1.8), [Undici security release](https://github.com/nodejs/undici/releases/tag/v7.29.1). Node22/npm10 cold installs, root low audit, every Worker runtime/dev audit, installed/locked native Sharp and toolchain checks pass without changed package/lock bytes; no allowlist/threshold change. Wrangler/Miniflare/Sharp and application runtime dependencies remain unchanged. These are tooling findings, not evidence of live compromise. The complete Linux cold-install/audit and native Worker chain passed in 34312435904. Root-only or omit-dev audit is insufficient. These development-tool patches introduce no audit exception. The reviewed deployment-only Undici exception now uses immutable Git base/head evidence of the compatible dev-leaf patch, unchanged runtime/compiler graph and absence of app/tool imports or custom builds. Missing/unknown evidence retains deployment; affected audits/tests remain selected. Existing `test-release-plan.mjs` real-Git mixed/fallback and unsafe-import/build controls prevent unrelated runtime changes inheriting that exception. |
 | Hidden Video generation not ready after Gallery switch, run 34347675542 / artifact 10103665965 | The test demanded visible-layout readiness from an inert, zero-width wall and then never returned to Video. No product fault reproduced. `waitForPublicWall` now verifies the active category, current measured/container width, generation and card/column geometry across frames. Hidden cards/structure survive; the test actually reopens Video and verifies original cards, focus and current layout without requests/rebuilds. | `public-wall-readiness.cjs` plus `homepage-carousel-focused.spec.js`: stale ready/second generation, hide before completion, reopening, stuck layout and wrong/missing cards. The full EN/DE responsive browser path tests the actual product module/build. | `test:homepage-functional`, `test:homepage-carousel` and broad static entrypoints; full homepage group finishes all cases before the long browser job. | Original hidden ready=false is legitimate, not rewritten to true. Local synthetic window controls supplement Chromium/WebKit execution; CI remains required on final workflow inputs. |
 | Full push validation followed by a queued duplicate full dispatch, runs 34347645021 / 34347675542 | Workflow-wide production lock and unconditional manual full regression. Static validation builds once; after confirmed Q4 publication, schema-2 scope follows the complete unpublished range and selected browser jobs verify that artifact. A selected completed run/attempt can publish it through the existing workflow without repeating suites. Only real eligible deploy jobs take the shared Pages lock. After34362121716, long standard/full browser jobs also wait for the native WebKit and Worker jobs; a failed short prerequisite must not start another35-minute suite. | `scripts/test-pages-candidate.mjs`, imported by `test-pages-workflow.mjs`: exact own repo/SHA/attempt, executed suites, missing/expired artifacts, altered bytes/OS proof, later failed validation, old main, missing outputs and cancelled jobs. Real local record/proof/publish CLI roundtrip preserves bytes. Existing full-diff/unknown-path/ack countercases remain. | `npm run test:static-deploy-safety` and the early Release/Quality job; live reuse uses `pages-candidate.mjs source` plus immediate final source/current-ref check under the write lock. | Candidate artifact transfer and Linux consumption worked in34362121716, but its failed Mac acceptance blocks reuse. Actual dependency-list countercases reject failed/missing/skipped prerequisites; successful selected or deliberately unselected/reporting jobs preserve selection semantics. Local orchestration controls are not publication evidence. |
 
@@ -360,13 +360,26 @@ and active-version receipt before frontend. `test:release-plan` and
 Local native results are not Linux CI or live processor acceptance; those remain
 separate release evidence. No paid generation is used for these checks.
 
-Linux run35389905932 passed 1,301 Worker routes, then could not start FFmpeg;
-the full `test:workers` caller had no media-tool installation. Its existing
-Worker job now installs Ubuntu ffmpeg and verifies both ffmpeg/ffprobe before
-execution. `test:static-deploy-safety` → `test-pages-workflow.mjs` rejects missing
-setup and exercises the real selection expression and shell order/fail-fast.
-Narrow status/assets jobs remain unchanged. Shell controls are not Linux media
-acceptance: the real 2/5-clip test and subsequent native runtime remain CI gates.
+Linux media-tool caller lesson (updated 2026-09-30): run `35389905932`
+passed 1,301 Worker routes before FFmpeg could not start; the static workflow's
+full Worker caller lacked installation. Full run `36720467950/1`, Worker job
+`109904868384`, source `c540a323`, repeated the caller-coverage gap: 1,386 routes
+passed, then the first Canvas FFmpeg export reported `canvas_media_tool_failed`. The wrapper
+discarded the OS error, so ENOENT is not proven from that historical log; subsequent
+native Q2 acceptance was not reached.
+
+Ubuntu static, Full, processor and backend callers now share
+`scripts/setup-media-tools.sh`; `check-media-tools.mjs` executes both FFmpeg and
+ffprobe before expensive routes/media. The real media command preserves bounded
+tool/OS-code diagnostics without arguments or private payloads. Full also runs
+native `--preflight` before routes. Existing `test:static-deploy-safety` →
+`test-pages-workflow.mjs` checks all consuming workflows and the real missing-tool
+entrypoint/fail-fast; staging/launcher tests retain complete chain order.
+`test:ci-selection`/`test:release-plan` cover those helpers and unknown neighbors.
+Shell/route success is not full acceptance: the same `test:workers` invocation
+must finish real 2/5-clip exports and native Q2. Local counterchecks pass; hosted
+Linux acceptance requires its own exact candidate/run/attempt evidence. No
+historical red run is recertified.
 
 
 ### Canvas versioned music exports (2026-09-27)
@@ -407,6 +420,37 @@ after seeking: waiting/playing events, not a HAVE_FUTURE_DATA-only gate, control
 music suspension. Keep actual audio assertions; macOS Playwright WebKit, Linux
 WebKit and native Safari are distinct evidence. Native Canvas controls additionally
 check clean-base ownership, lease fencing, duplicate quota and saved/failed cleanup.
+
+Browser pointer failure follow-up (2026-09-30, release `36720433227/1`,
+source `c540a323`): the historical blank idle feedback is consistent with a lost
+click, but its CI trace alone does not prove that cause. A deterministic reproduction
+against the exact original candidate released video metadata during the pointer
+gesture: the Preview button moved 116.5 px between pointer-down and pointer-up,
+and no click reached its handler. The product now reserves 16:9 space for the
+original player, matching the aggregate player; object-fit preserves proportions.
+The EN/DE countercheck in `tests/canvas.spec.js` requires stable control geometry,
+404 feedback, return to the playable completed video and no mutation/render request.
+It rejects the original candidate. Callers remain `test:homepage-core` and Full's
+`test:static`.
+
+Separate audio observation: during the completed-source → clean-base switch,
+matched AudioContext samples measured Hann-windowed 1000 Hz magnitudes of
+`0.0720608` at input and `0.0720930` at output (unity ratio `1.000446`), both below
+the old fixed `0.085` cutoff. Native input peaks were also lower. The upstream
+native amplitude cause remains unresolved; neither mixer attenuation nor FFT
+detuning is established. The repaired measurement checks preservation of the actual
+incoming original with paired source/output unity within ±5%, an audible floor,
+440 Hz leakage checks, and volume 1/unmuted assertions. Retained raw PCM replay
+and synthetic missing-source / 0.5 / 0.8 / 1.2 original-level controls reject
+meaningful audio failures without changing product mixing, retries or timeouts.
+
+Local Playwright 1.58.2 evidence: Linux ARM64 / Node 22.23.2 passed all 10 focused
+Chromium/WebKit cases with zero retries, plus six bounded WebKit repetitions
+(three per locale). The final helper added only the volume 1/unmuted assertions;
+macOS ARM64 / Node 22.23.1 then passed all 10 focused Chromium/WebKit cases with
+zero retries. Product and meter were identical across those runs. These local
+results require independent hosted Full/release acceptance for the final candidate
+SHA and exact run/attempt; they do not certify hosted Linux or publication.
 
 Fixture follow-up, 2026-09-28: `c77d8b6b`, run `36467657329/1`, worker job
 `109082515330`, passed discovery but failed 15 of 136 cases in the Canvas-selected
@@ -940,6 +984,37 @@ Partial saves preserve themes/visibility independently. Cached enabled state can
 expose controls before fresh confirmation; hiding closes UI, never changes identity
 or wallet data. Native `--suite appearance` and both-engine Appearance cases cover
 guards, persistence, off/on, unavailable settings, stale reads and localized routes.
+
+Browser acceptance follow-up (2026-09-30): release `36720433227/1`, browser
+job `109908986456`, source `c540a323`, recorded 12 failures and 368 passes in
+`candidate-homepage.json`/browser traces. Six Wallet/Panel/header tests assumed
+visibility without fresh `/api/appearance` confirmation; controlled enabled
+fixtures now establish that precondition. Existing Appearance cases still reject
+disabled, unavailable and stale cached enabled state. Desktop geometry measures
+the layout viewport (`clientWidth`), excluding native WebKit's scrollbar; the
+original pixel tolerance is unchanged.
+
+The Lab fixture began with 401 but expected the lower message reserved for a
+previously authenticated session. EN/DE cases now distinguish cold unauthorized
+entry from an authenticated session expiring at the actual generation preflight,
+then verify login recovery, retained prompt/model and no generation mutation.
+Four Models Help cases incorrectly compared grouped/sorted rendering with raw
+registry order. Their independent contract checks complete unique membership,
+image/video/music groups, vendor/name/id order and localized headings/options;
+missing, duplicate, misgrouped, misordered and wrong-locale controls must fail.
+This exposed a product defect: Schnell advertised unsupported dimensions and
+Klein rendered a continuous range with an undefined pixel cap. Help now honors
+dimension support, the discrete 256/512/768/1024 sizes and finite caps, matching
+[generation controls](GENERATION_CONTROLS.md). The corrected test fails against
+the original candidate. These are contract/fixture/measurement repairs, not
+expectations copied from implementation output.
+
+Local focused Chromium/WebKit checks cover those paths and negative controls;
+the existing actual candidate `test:homepage-core` collection and Full's
+downstream `test:static` require independent evidence for the final candidate SHA
+and exact run/attempt. The separate Canvas pointer finding is recorded under
+versioned music exports; neither local checks nor historical reports establish
+hosted CI/publication success.
 
 Private on-demand preview details use an allowlist and owner-scoped durable image
 input: renameable titles and thumbnails are not original prompt/dimension evidence.

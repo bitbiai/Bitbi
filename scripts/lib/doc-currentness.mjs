@@ -193,6 +193,14 @@ const CURRENT_AUTH_MIGRATION_CLAIM_PATTERNS = Object.freeze([
 
 const ACTIVE_GUIDANCE_DOC_RULES = Object.freeze([
   {
+    file: 'AGENTS.md',
+    required: true,
+    requiredReferences: [
+      'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md',
+      'docs/runbooks/REGRESSION_REGISTER.md',
+    ],
+  },
+  {
     file: "CLAUDE.md",
     requiredText: [
       "Cloudflare Workers",
@@ -408,10 +416,25 @@ function scanActiveGuidanceDocs(repoRoot, violations, scannedDocs) {
   for (const rule of ACTIVE_GUIDANCE_DOC_RULES) {
     const relativePath = normalizePathname(rule.file);
     const absolutePath = path.join(repoRoot, relativePath);
-    if (!fs.existsSync(absolutePath)) continue;
+    if (!fs.existsSync(absolutePath)) {
+      if (rule.required) violations.push({
+        type: 'active-guidance-entrypoint-missing', file: relativePath, line: null,
+        rule: 'active-guidance-reachable', message: 'Required operating instruction entrypoint is missing.',
+      });
+      continue;
+    }
     const text = fs.readFileSync(absolutePath, "utf8");
     if (!scannedDocs.includes(relativePath)) scannedDocs.push(relativePath);
     const lines = text.split(/\r?\n/);
+
+    for (const reference of rule.requiredReferences || []) {
+      if (text.includes(reference) && fs.existsSync(path.resolve(path.dirname(absolutePath), reference))) continue;
+      violations.push({
+        type: 'active-guidance-reference-unreachable', file: relativePath, line: null,
+        rule: 'active-guidance-reachable',
+        message: `Active entrypoint must reference an existing responsible guide: ${reference}`,
+      });
+    }
 
     for (const required of rule.requiredText || []) {
       if (text.includes(required)) continue;

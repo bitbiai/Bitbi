@@ -262,13 +262,7 @@ jobs:
         run: npm --prefix workers/auth ci
       - name: Install Worker media test tools
         if: needs.release-compatibility.outputs.workers == 'true' && needs.release-compatibility.outputs.appearance != 'true' && needs.release-compatibility.outputs.model_pricing != 'true' && needs.release-compatibility.outputs.model_status != 'true' && needs.release-compatibility.outputs.member_assets != 'true' && needs.release-compatibility.outputs.canvas_text != 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          command -v ffmpeg
-          command -v ffprobe
-          ffmpeg -version
-          ffprobe -version
+        run: bash scripts/setup-media-tools.sh
       - name: Verify native Linux isolation before Worker tests
         if: needs.release-compatibility.outputs.workers == 'true' && needs.release-compatibility.outputs.media_lifecycle != 'true'
         env:
@@ -791,8 +785,7 @@ jobs:
           npm --prefix workers/media ci
           npm --prefix workers/ai ci
           npm --prefix workers/contact ci
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          bash scripts/setup-media-tools.sh
           node scripts/release-apply.mjs --ci-verified-candidate
       - name: Preserve redacted backend failure diagnostics
         if: failure()

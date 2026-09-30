@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import assert from "node:assert/strict";
 import path from "node:path";
+import os from 'node:os';
 import { fileURLToPath } from "node:url";
 import { loadReleaseCompatibilityContext } from "./lib/release-compat.mjs";
 import {
@@ -10,6 +11,7 @@ import {
   runReleaseApply,
   runReleasePreflight,
 } from "./lib/release-plan.mjs";
+import { isUndiciToolingPatch, toolingOnlyWorkerPackages } from './lib/worker-tooling-impact.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -39,6 +41,156 @@ for (const file of ['tests/canvas.spec.js', 'tests/helpers/canvas-music-preview.
 for (const file of ['docs/example.md', 'css/pages/canvas.css', 'workers/contact/src/index.js']) {
   const plan = createReleasePlanFromRepo(repoRoot, {files: [file]});
   assert(!plan.recommendedChecks.includes('npm run test:homepage-selection'), file);
+}
+
+// Local preflight and CI use the same impact selection, including test/setup-only
+// changes. A missing prerequisite stops this actual preflight caller immediately.
+for (const file of ['scripts/setup-media-tools.sh', 'scripts/check-media-tools.mjs',
+  'scripts/test-q2-runtime.mjs', 'tests/workers.spec.js', 'workers/auth/package-lock.json']) {
+  const executed = [];
+  const result = runReleasePreflight(repoRoot, {files: [file]}, {runCommand(command) {
+    executed.push(command.join(' '));
+    return {ok: command.join(' ') !== 'node scripts/check-media-tools.mjs', status: 1};
+  }});
+  assert.equal(result.ok, false, file);
+  assert.equal(executed.at(-1), 'node scripts/check-media-tools.mjs', file);
+  assert(result.plan.recommendedChecks.includes('npm run test:workers'), file);
+  assert(!executed.includes('npm run test:workers'), file);
+}
+for (const file of ['docs/example.md', 'css/pages/generate-lab.css']) {
+  const plan = createReleasePlanFromRepo(repoRoot, {files: [file]});
+  assert(!plan.recommendedChecks.includes('node scripts/check-media-tools.mjs'), file);
+  assert(!plan.recommendedChecks.includes('npm run test:workers'), file);
+}
+
+// Real Git blobs across the full release range, not latest-push filenames or
+// dirty files, establish the one reviewed tool-only dependency exception.
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bitbi-worker-tooling-'));
+  const git = args => execFileSync('git', args, {cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();
+  const write = (file, value) => {fs.mkdirSync(path.dirname(path.join(root, file)), {recursive: true}); fs.writeFileSync(path.join(root, file), typeof value === 'string' ? value : JSON.stringify(value));};
+  const version = number => ({manifest: {devDependencies: {wrangler: '4.129.0'}, overrides: {undici: number}},
+    lock: {lockfileVersion: 3, packages: {'': {devDependencies: {wrangler: '4.129.0'}},
+      'node_modules/undici': {version: number, dev: true, resolved: `https://registry.npmjs.org/undici/-/undici-${number}.tgz`, integrity: 'sha512-YWJjZA=='},
+      'node_modules/miniflare': {version: '5.20260903.0-alpha.0', dev: true, dependencies: {undici: '7.29.0'}},
+      'node_modules/wrangler': {version: '4.129.0', dev: true, dependencies: {miniflare: '5.20260903.0-alpha.0'}}}}});
+  const before = version('7.29.0'), after = version('7.29.1');
+  const files = ['workers/auth/package.json', 'workers/auth/package-lock.json'];
+  const allFiles = ['auth', 'ai', 'contact'].flatMap(worker => [`workers/${worker}/package.json`, `workers/${worker}/package-lock.json`]);
+  const writePair = (value, worker = 'auth') => {write(`workers/${worker}/package.json`, value.manifest); write(`workers/${worker}/package-lock.json`, value.lock);};
+  const commit = message => {git(['add', '.']);git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', message]);return git(['rev-parse', 'HEAD']);};
+  try {
+    git(['init', '-q']);
+    write('package-lock.json', {packages: {'': {}, 'node_modules/runtime': {version: '1.0.0'}}});
+    for (const worker of ['auth', 'ai', 'contact']) {
+      write(`workers/${worker}/src/index.js`, 'export default {};\n');
+      write(`workers/${worker}/wrangler.jsonc`, '// Existing direct source build\n{"main":"src/index.js"}\n');
+      writePair(before, worker);
+    }
+    const base = commit('base');
+    for (const worker of ['auth', 'ai', 'contact']) writePair(after, worker);
+    commit('reviewed tool patch');
+    write('docs/fixture.md', 'Later validation-only input\n');
+    write('js/pages/canvas/music-preview.js', 'export const fixture = true;\n');
+    write('services/homepage-ffmpeg-processor/canvas-full-video.mjs', 'export const diagnostic = true;\n');
+    const head = commit('later product and validation inputs');
+    const source = {mode: 'git-diff', base, head};
+    assert.deepEqual(toolingOnlyWorkerPackages(root, source, files), files);
+    const context = {...createContext(), repoRoot: root};
+    const plan = createReleasePlan(context, {changedFiles: files, source});
+    assert.deepEqual(plan.workerDeploys, []);
+    assert.deepEqual(plan.impacts.validationOnlyFiles, [...files].sort());
+    assert(plan.recommendedChecks.includes('npm run test:workers'));
+    const {backendContinuationSupported} = await import('./lib/backend-continuation.mjs');
+    const {evaluateStaticDeploySafety} = await import('./lib/release-plan.mjs');
+    const mixedFiles = git(['diff', '--name-only', `${base}...${head}`]).split('\n');
+    const mixed = createReleasePlan(context, {changedFiles: mixedFiles, source});
+    assert.deepEqual(mixed.toolingOnlyWorkerPackageFiles.sort(), allFiles.sort());
+    assert.deepEqual(mixed.workerDeploys.map(step => step.worker), ['media', 'auth']);
+    assert.equal(mixed.impacts.static.required, true);
+    assert(backendContinuationSupported(mixed));
+    assert.equal(evaluateStaticDeploySafety(mixed, {eventName: 'push'}).allowed, false);
+    assert.equal(evaluateStaticDeploySafety(mixed, {eventName: 'push', dependenciesVerified: true}).mode, 'verified_backend_dependencies');
+    assert.deepEqual(toolingOnlyWorkerPackages(root, {mode: 'explicit'}, files), []);
+    assert.deepEqual(toolingOnlyWorkerPackages(root, {...source, base: 'missing-ref'}, files), []);
+    assert.equal(createReleasePlan(context, {changedFiles: files}).workerDeploys[0].worker, 'auth');
+    // Dirty manifest cannot replace immutable source evidence.
+    writePair(version('8.0.0'));
+    assert.deepEqual(toolingOnlyWorkerPackages(root, source, files), files);
+    writePair(after);
+    write('workers/auth/src/index.js', "import {fetch} from 'undici'; export default {fetch};\n");
+    const runtimeHead = commit('runtime change');
+    assert.deepEqual(toolingOnlyWorkerPackages(root, {...source, head: runtimeHead}, files), []);
+    // Even unchanged direct runtime use denies the exception for a later patch.
+    writePair(version('7.29.2'));const directUse = commit('later patch with runtime use');
+    assert.deepEqual(toolingOnlyWorkerPackages(root, {mode: 'git-diff', base: runtimeHead, head: directUse}, files), []);
+    git(['checkout', '-q', head]);
+    write('package-lock.json', {packages: {'': {}, 'node_modules/runtime': {version: '1.0.1'}}});
+    const dependencyHead = commit('root production dependency');
+    assert.deepEqual(toolingOnlyWorkerPackages(root, {...source, head: dependencyHead}, files), []);
+    // Existing transitive imports and build hooks are unsafe even when they did
+    // not change during the dependency-only range under consideration.
+    for (const [label, configure] of [
+      ['Miniflare import', () => write('workers/auth/src/index.js', "import {Miniflare} from 'miniflare'; export default {Miniflare};\n")],
+      ['Miniflare subpath', () => write('workers/auth/src/index.js', "export {fetch} from 'miniflare/shared';\n")],
+      ['explicit node_modules path', () => write('workers/auth/src/index.js', "import client from '../node_modules/miniflare/index.js'; export default client;\n")],
+      ['transitive wrapper', value => {
+        value.lock.packages['node_modules/runtime-wrapper'] = {version: '1.0.0', dev: true, dependencies: {miniflare: '5.20260903.0-alpha.0'}};
+        write('workers/auth/src/index.js', "import client from 'runtime-wrapper'; export default client;\n");
+      }],
+      ['other dev import', value => {
+        value.manifest.devDependencies['custom-tool'] = '1.0.0';
+        value.lock.packages['node_modules/custom-tool'] = {version: '1.0.0', dev: true};
+        write('workers/auth/src/index.js', "import client from 'custom-tool'; export default client;\n");
+      }],
+      ['alternate entry', () => {
+        write('workers/auth/wrangler.jsonc', {main: 'generated.js'});
+        write('workers/auth/generated.js', "import {fetch} from 'undici'; export default {fetch};\n");
+      }],
+      ['sibling module outside source roots', () => {
+        write('workers/auth/src/index.js', "export {default} from '../generated.js';\n");
+        write('workers/auth/generated.js', "import {Miniflare} from 'miniflare'; export default {Miniflare};\n");
+      }],
+      ['shared module escape', () => {
+        write('workers/auth/src/index.js', "export {default} from '../../shared/bridge.mjs';\n");
+        write('workers/shared/bridge.mjs', "export {default} from '../auth/generated.js';\n");
+        write('workers/auth/generated.js', "import {Miniflare} from 'miniflare'; export default {Miniflare};\n");
+      }],
+      ['computed import', () => write('workers/auth/src/index.js', "const moduleName = '../generated.js'; export default await import(moduleName);\n")],
+      ...['build', 'alias', 'tsconfig', 'rules'].map(key => [`custom ${key}`, () => write('workers/auth/wrangler.jsonc',
+        {main: 'src/index.js', [key]: key === 'build' ? {command: 'node generate.js'} : key === 'tsconfig' ? 'custom.json' : {}})]),
+      ['implicit tsconfig', () => write('tsconfig.json', {compilerOptions: {paths: {client: ['node_modules/miniflare']}}})],
+      ['npm build hook', value => {value.manifest.scripts = {prepare: 'node generate.js'};}],
+    ]) {
+      git(['checkout', '-q', head]);
+      const previous = structuredClone(after);configure(previous);writePair(previous);
+      const unsafeBase = commit(`preexisting ${label}`);
+      const next = version('7.29.2');
+      next.manifest = {...previous.manifest, overrides: {...previous.manifest.overrides, undici: '7.29.2'}};
+      next.lock = {...previous.lock, packages: {...previous.lock.packages, 'node_modules/undici': next.lock.packages['node_modules/undici']}};
+      writePair(next);const unsafeHead = commit(`patch with ${label}`);
+      assert.deepEqual(toolingOnlyWorkerPackages(root, {mode: 'git-diff', base: unsafeBase, head: unsafeHead}, files), [], label);
+    }
+    git(['checkout', '-q', head]);
+    const unknownPackage = structuredClone(after);unknownPackage.manifest.devDependencies.wrangler = '4.130.0';
+    writePair(unknownPackage, 'contact');const unknownHead = commit('unreviewed package update');
+    const fallback = createReleasePlan(context, {changedFiles: mixedFiles, source: {...source, head: unknownHead}});
+    assert(fallback.workerDeploys.some(step => step.worker === 'contact'));
+    assert(!fallback.toolingOnlyWorkerPackageFiles.some(file => file.startsWith('workers/contact/')));
+    assert(!backendContinuationSupported(fallback));
+    assert.equal(evaluateStaticDeploySafety(fallback, {eventName: 'push', dependenciesVerified: true}).allowed, false);
+    for (const mutate of [
+      value => {value.lock.packages['node_modules/undici'].dev = false;},
+      value => {value.manifest.dependencies = {undici: '7.29.1'};},
+      value => {value.lock.packages['node_modules/wrangler'].version = '4.130.0';},
+      value => {value.manifest.scripts = {build: 'different-build'};},
+      value => {value.lock.packages['node_modules/undici'].resolved = 'https://untrusted.invalid/package.tgz';},
+    ]) {
+      const changed = structuredClone(after);mutate(changed);assert.equal(isUndiciToolingPatch(before, changed), false);
+    }
+    assert.equal(isUndiciToolingPatch(before, version('7.30.0')), false);
+    assert.equal(isUndiciToolingPatch(before, version('7.28.9')), false);
+  } finally {fs.rmSync(root, {recursive: true, force: true});}
 }
 
 for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/restriction-adapter.mjs"]) {
@@ -479,6 +631,7 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
       execute: entry.execute,
     })),
     [
+      { command: "node scripts/check-media-tools.mjs", cwd: null, execute: true },
       { command: "npm run check:toolchain", cwd: null, execute: true },
       { command: "npm run test:quality-gates", cwd: null, execute: true },
       { command: "npm run check:secrets", cwd: null, execute: true },

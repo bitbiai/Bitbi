@@ -220,7 +220,7 @@ test('existing Worker gates retain native suite, fail early and upload only afte
   const pkg = JSON.parse(read('package.json'));
   const command = pkg.scripts['test:workers'];
   const steps = command.split(/\s*&&\s*/);
-  const required = ['node scripts/check-q4-selection.mjs',
+  const required = ['node scripts/check-media-tools.mjs', 'node scripts/check-q4-selection.mjs',
     'playwright test -c playwright.workers.config.js',
     'npm run test:homepage-ffmpeg-processor', 'npm run test:q2-runtime'];
   let previous = -1;

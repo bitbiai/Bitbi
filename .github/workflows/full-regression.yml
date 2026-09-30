@@ -128,6 +128,8 @@ jobs:
         run: npm ci
       - name: Install pinned Auth target-runtime test dependencies
         run: npm --prefix workers/auth ci
+      - name: Install Worker media test tools
+        run: bash scripts/setup-media-tools.sh
       - name: Verify native Linux isolation before Worker tests
         env:
           Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence

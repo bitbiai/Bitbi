@@ -1,4 +1,6 @@
 import {backendContinuationSupported} from './backend-continuation.mjs';
+import { toolingOnlyWorkerPackages } from './worker-tooling-impact.mjs';
+import { selectCiTests } from './ci-test-selection.mjs';
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -308,7 +310,7 @@ function addImpact(target, key, relativePath, reason) {
   if (reason) target[key].reasons.push(reason);
 }
 
-export function classifyChangedFiles(context, changedFiles) {
+export function classifyChangedFiles(context, changedFiles, toolingOnlyFiles = []) {
   const units = buildUnitModel(context);
   const impacts = {
     workers: {},
@@ -323,6 +325,11 @@ export function classifyChangedFiles(context, changedFiles) {
   for (const input of normalizeUnique(changedFiles)) {
     if (isIgnoredChange(input)) {
       impacts.ignoredFiles.push(input);
+      continue;
+    }
+
+    if (toolingOnlyFiles.includes(input)) {
+      impacts.validationOnlyFiles.push(input);
       continue;
     }
 
@@ -539,8 +546,13 @@ function buildRecommendedChecks(impacts, changedFiles) {
       'scripts/lib/homepage-test-selection.mjs', 'scripts/test-homepage-selection.mjs',
       'scripts/check-homepage-selection.mjs', 'scripts/lib/ci-test-selection.mjs',
       'scripts/test-ci-test-selection.mjs', 'scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs'].includes(file));
-  const checks = [...(discoveryChanged ? ['npm run test:homepage-selection'] : []), ...ALWAYS_RECOMMENDED_CHECKS];
-  if (Object.keys(impacts.workers).length > 0 || Object.keys(impacts.schemaCheckpoints).length > 0) {
+  // Validation-only fixtures/setup can select the Worker chain without a deploy.
+  // Share CI's impact decision; preparation must fail before expensive suites.
+  const workersRequired = selectCiTests(changedFiles).workers
+    || Object.keys(impacts.workers).length > 0 || Object.keys(impacts.schemaCheckpoints).length > 0;
+  const checks = [...(discoveryChanged ? ['npm run test:homepage-selection'] : []),
+    ...(workersRequired ? ['node scripts/check-media-tools.mjs'] : []), ...ALWAYS_RECOMMENDED_CHECKS];
+  if (workersRequired) {
     checks.push(...WORKER_RECOMMENDED_CHECKS);
   }
   if (impacts.static.changedFiles.length > 0) {
@@ -614,7 +626,8 @@ function buildCompatibilityNotes(context, changedFiles, impacts) {
 
 export function createReleasePlan(context, { changedFiles, source = { mode: "explicit" } } = {}) {
   const normalizedFiles = normalizeUnique(changedFiles);
-  const impacts = classifyChangedFiles(context, normalizedFiles);
+  const toolingOnlyWorkerPackageFiles = toolingOnlyWorkerPackages(context.repoRoot, source, normalizedFiles);
+  const impacts = classifyChangedFiles(context, normalizedFiles, toolingOnlyWorkerPackageFiles);
   const deploySteps = buildDeploySteps(context, impacts);
   const impactedWorkerIds = new Set(Object.keys(impacts.workers));
   const impactedServiceIds = new Set(Object.keys(impacts.services));
@@ -630,6 +643,7 @@ export function createReleasePlan(context, { changedFiles, source = { mode: "exp
   return {
     source,
     changedFiles: normalizedFiles,
+    toolingOnlyWorkerPackageFiles,
     impacts: {
       workers: Object.fromEntries(
         Object.entries(impacts.workers).map(([workerId, data]) => [

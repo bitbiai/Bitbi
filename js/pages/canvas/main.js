@@ -405,6 +405,9 @@ function renderOutput(node) {
         const image = el('img'); image.src = output.asset.preview_url; image.alt = node.title || copy.output; image.loading = 'lazy'; section.append(image);
     } else if (output.kind === 'video' && output.asset?.file_url) {
         const video = el('video'); video.src = output.asset.file_url; video.controls = true; video.preload = 'metadata'; section.append(video);
+        // Keep the controls below this player stationary while metadata or a
+        // differently shaped poster arrives. object-fit preserves the source.
+        video.style.aspectRatio = '16 / 9';
         if (output.previewUrl || output.asset.preview_url) video.poster = output.previewUrl || output.asset.preview_url;
         const music=store.state.edges.filter(edge=>edge.target_node_id===node.id && isExportMusic(edge.config))
             .map(edge=>nodeOutputValue(store.state.nodes.find(source=>source.id===edge.source_node_id)));

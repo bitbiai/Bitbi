@@ -128,10 +128,67 @@ for(const locale of ['en','de']) for(const width of [1440,390]) test(`Canvas Ele
 
 const memberAudioRequests = new WeakMap();
 const musicPreviewCase = require('./helpers/canvas-music-preview.cjs');
+test('Canvas music decoded input reference rejects missing and attenuated originals',()=>{
+  const recorded=require('./fixtures/media/canvas-audition-native-input.json');
+  const read=entry=>{const bytes=Buffer.from(entry.float32LE,'base64');return Float32Array.from({length:bytes.length/4},(_,index)=>bytes.readFloatLE(index*4));};
+  const source=musicPreviewCase.measureDecodedSignal(read(recorded.input),recorded.input.sampleRate);
+  const mixed=musicPreviewCase.measureDecodedSignal(read(recorded.output),recorded.output.sampleRate);
+  expect(recorded.input.contextTime).toBe(recorded.output.contextTime);
+  expect(source.original).toBeGreaterThan(.07);expect(mixed.original).toBeLessThan(.085);
+  expect(mixed.music).toBeGreaterThan(.06);
+  expect(musicPreviewCase.preservesOriginalSignal({...mixed,sourceOriginal:source.original})).toBe(true);
+  for(const gain of [0,.5,.8,1,1.2]) {
+    const samples=Float32Array.from({length:8192},(_,i)=>source.original*gain*Math.sin(2*Math.PI*1000*i/48000)+.084*Math.sin(2*Math.PI*440*i/48000));
+    const output=musicPreviewCase.measureDecodedSignal(samples,48000);
+    expect(output.music).toBeGreaterThan(.08);
+    expect(musicPreviewCase.preservesOriginalSignal({...output,sourceOriginal:source.original}),`original gain ${gain}`).toBe(gain===1);
+  }
+  for(const sourceOriginal of [0,.001,.03,NaN])expect(musicPreviewCase.preservesOriginalSignal({original:sourceOriginal,sourceOriginal})).toBe(false);
+});
 for (const locale of ['en','de']) {
   test(`Canvas music audition ${locale}: decoded gain, timeline, selection and no render`,
     musicPreviewCase({expect,mockSharedAuth,createCanvasApiMock},locale));
 }
+for (const locale of ['en','de']) test(`Canvas music preview ${locale}: metadata arrival preserves the start click and failed-media recovery`,async({page,browserName},info)=>{
+  await page.setViewportSize({width:locale==='de'?390:1440,height:900});await mockSharedAuth(page);
+  const state=createCanvasApiMock(page),project='1'.repeat(32),node='2'.repeat(32),run='3'.repeat(32),music='4'.repeat(32),now=new Date().toISOString();
+  const media=`/api/plain/canvas-preview/video.${browserName==='chromium'?'webm':'mp4'}`;
+  const output={kind:'video',runId:run,assetId:'original',previewUrl:'/tests/fixtures/media/member-video-poster.webp',asset:{id:'original',file_url:media}};
+  state.projects=[{id:project,title:'Preview metadata',locale,created_at:now,updated_at:now}];
+  state.nodes=[{id:node,project_id:project,type:'video_generation',title:'Video',x:100,y:100,config:{backgroundMusic:{enabled:true,gain:1,musicAssetId:music}},output,created_at:now,updated_at:now},
+    {id:music,project_id:project,type:'music_generation',title:'Music',x:100,y:400,config:{},output:{kind:'audio',asset:{id:music,asset_type:'music',mime_type:'audio/mpeg',file_url:'/api/plain/music/mp3/file'}},created_at:now,updated_at:now}];
+  state.edges=[{id:'5'.repeat(32),project_id:project,source_node_id:music,target_node_id:node,config:{purpose:'export_background_music'},created_at:now}];
+  state.runs=[{id:run,node_id:node,status:'completed',output,created_at:now}];
+  const completed={id:'a'.repeat(32),status:'ready',storage:'canvas',asset:{id:'a'.repeat(32),file_url:media+'?completed=1'},preview_base:{file_url:'/api/plain/canvas-preview/missing.mp4'}};
+  const writes=[],missing=[];page.on('request',request=>{if(request.method()!=='GET')writes.push({method:request.method(),path:new URL(request.url()).pathname});});
+  await page.route('**/full-video',route=>route.fulfill({json:{ok:true,data:{eligible:true,export:completed,current:completed}}}));
+  await page.route('**/api/plain/canvas-preview/missing.mp4',route=>{missing.push(route.request().url());return route.fulfill({status:404,body:''});});
+  // Cover both the failed candidate's unavailable fixture poster and a real
+  // square poster, whose intrinsic ratio differs from the decoded video.
+  await page.route('**/tests/fixtures/media/member-video-poster.webp',route=>route.fulfill(locale==='en'?{status:404,body:''}:{contentType:'image/webp',body:fs.readFileSync(path.join(__dirname,'fixtures/media/member-video-poster.webp'))}));
+  let release;const gate=new Promise(resolve=>{release=resolve;});
+  await page.route(`**${media}`,async route=>{await gate;await route.continue();});
+  try {
+    await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${node}"]`).press('Enter');
+    if(locale==='de')await page.locator('#canvasInspectorToggle').click();
+    const block=page.locator('.canvas-full-video'),original=page.locator('.canvas-output > video');
+    const start=block.getByRole('button',{name:locale==='de'?'Vorschau mit Musik':'Preview with music',exact:true});
+    await expect(start).toBeEnabled();await start.scrollIntoViewIfNeeded();
+    await expect(original).toHaveJSProperty('videoWidth',0);
+    const before=await start.boundingBox();
+    await page.mouse.move(before.x+before.width/2,before.y+3);await page.mouse.down();
+    release();await expect.poll(()=>original.evaluate(v=>v.videoWidth)).toBeGreaterThan(0);
+    const after=await start.boundingBox();await page.mouse.up();
+    await info.attach('metadata-pointer-geometry',{contentType:'application/json',body:JSON.stringify({before,after})});
+    expect(after.y).toBeCloseTo(before.y,1);
+    await expect.poll(()=>missing.length).toBeGreaterThan(0);
+    await expect(block.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toContainText(locale==='de'?'nicht abgespielt':'could not play');
+    await block.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();
+    const result=block.locator('video');await expect(result).toHaveAttribute('src',completed.asset.file_url);
+    await result.evaluate(v=>v.play());await expect.poll(()=>result.evaluate(v=>v.currentTime)).toBeGreaterThan(.2);
+    expect(writes).toEqual([]);expect(state.requests.filter(request=>request.pathname.endsWith('/run'))).toEqual([]);
+  } finally {release();}
+});
 const musicMediaCase = title => title.startsWith('Canvas member music Generate Lab') || title.startsWith('Canvas music native HTTP control');
 test.beforeEach(async ({page}, info) => {
   if (!musicMediaCase(info.title)) return;

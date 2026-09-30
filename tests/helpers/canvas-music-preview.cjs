@@ -1,10 +1,28 @@
 // Real Canvas caller and native decoded Web Audio; only API/owned-media fixtures.
 // Register in the owning spec: Playwright reports the test() declaration as
 // spec.file, which discovery and candidate evidence use as their identity.
+function measureDecodedSignal(samples,sampleRate) {
+  // Hann weighting rejects leakage from the loud 1 kHz signal into 440 Hz.
+  const magnitude=hz=>{let r=0,i=0,weight=0;for(let n=0;n<samples.length;n++){const w=.5-.5*Math.cos(2*Math.PI*n/(samples.length-1));weight+=w;r+=w*samples[n]*Math.cos(2*Math.PI*hz*n/sampleRate);i+=w*samples[n]*Math.sin(2*Math.PI*hz*n/sampleRate);}return 2*Math.hypot(r,i)/weight;};
+  return {original:magnitude(1000),music:magnitude(440),peak:Math.max(...samples.map(Math.abs))};
+}
+function preservesOriginalSignal({original,sourceOriginal}) {
+  // Compare with this video's decoded input, not an assumed decoder amplitude.
+  // The source floor independently rejects silence/underflow; the tighter unity
+  // bound rejects an original that the mixer drops or attenuates.
+  return Number.isFinite(original)&&sourceOriginal>.05&&Math.abs(original/sourceOriginal-1)<.05;
+}
 module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page,browserName},info)=>{
   await page.setViewportSize({width:locale==='de'?390:1440,height:900});await mockSharedAuth(page);
+  await page.addInitScript({content:`window.__canvasAudioMeter=(${measureDecodedSignal});`});
   await page.addInitScript(()=>{
-    const Native=window.AudioWorkletNode;window.auditionContexts=[];window.auditionTrace=[];window.auditionSources=[];
+    const Native=window.AudioWorkletNode;window.auditionContexts=[];window.auditionTrace=[];window.auditionSources=[];window.auditionLifecycle=[];
+    for(const type of ['click','play','pause','error','loadedmetadata','emptied']) document.addEventListener(type,event=>{
+      const target=event.target,block=target.closest?.('.canvas-full-video');if(!block)return;
+      window.auditionLifecycle.push({type,at:performance.now(),tag:target.tagName,text:target.tagName==='BUTTON'?target.textContent:null,
+        status:block.querySelector('[aria-label="Music preview"],[aria-label="Musikvorschau"]')?.textContent,
+        source:target.currentSrc,error:target.error?.code});
+    },true);
     const Audio=window.AudioContext||window.webkitAudioContext,create=Audio.prototype.createMediaElementSource;
     Audio.prototype.createMediaElementSource=function(video){const source=create.call(this,video),connect=source.connect.bind(source),meter=this.createAnalyser();meter.fftSize=8192;source.connect=(target,...args)=>{connect(meter);return connect(target,...args);};window.auditionSources.push({context:this,meter});return source;};
     window.AudioWorkletNode=class extends Native {constructor(context,...args){super(context,...args);const meter=context.createAnalyser();meter.fftSize=8192;meter.smoothingTimeConstant=0;this.connect(meter);const send=this.port.postMessage.bind(this.port);this.port.postMessage=(data,...rest)=>{window.auditionTrace.push({...data,channels:data.channels?.map(c=>c.length)});return send(data,...rest);};window.auditionContexts.push({context,meter,node:this});}};
@@ -30,11 +48,14 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   const meter=(original=false,calibration=null)=>page.evaluate(({original,calibration})=>{
     const {context,meter}=(original?window.auditionSources:window.auditionContexts).at(-1),samples=new Float32Array(meter.fftSize);meter.getFloatTimeDomainData(samples);
     if(calibration!==null)for(let n=0;n<samples.length;n++)samples[n]=Math.max(-.95,Math.min(.95,1.11*Math.sin(2*Math.PI*1000*n/context.sampleRate)))+calibration*Math.sin(2*Math.PI*440*n/context.sampleRate);
-    // A rectangular window leaks a loud 1 kHz signal into 440 Hz (~0.004 at
-    // 48 kHz/8192 samples). Hann weighting rejects that boundary discontinuity;
-    // coherent-gain correction preserves the measured source amplitudes.
-    const magnitude=hz=>{let r=0,i=0,weight=0;for(let n=0;n<samples.length;n++){const w=.5-.5*Math.cos(2*Math.PI*n/(samples.length-1));weight+=w;r+=w*samples[n]*Math.cos(2*Math.PI*hz*n/context.sampleRate);i+=w*samples[n]*Math.sin(2*Math.PI*hz*n/context.sampleRate);}return 2*Math.hypot(r,i)/weight;};
-    return {original:magnitude(1000),music:magnitude(440),peak:Math.max(...samples.map(Math.abs))};
+    const reading=window.__canvasAudioMeter(samples,context.sampleRate);
+    if(!original && calibration===null) {
+      const input=window.auditionSources.at(-1),sourceSamples=new Float32Array(input.meter.fftSize);
+      if(input.context!==context)throw new Error('Foreign original-audio context');
+      input.meter.getFloatTimeDomainData(sourceSamples);
+      reading.sourceOriginal=window.__canvasAudioMeter(sourceSamples,context.sampleRate).original;
+    }
+    return reading;
   },{original,calibration});
   await expect(start()).toBeEnabled();await start().focus();await page.keyboard.press('Enter');await expect(pause()).toBeVisible();
   await expect(block.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toHaveText(locale==='de'?'Vorschau · noch nicht übernommen':'Preview · not exported');
@@ -42,8 +63,18 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   await block.screenshot({path:info.outputPath(`canvas-audition-${locale}.png`)});
   await expect.poll(()=>video.evaluate(v=>v.currentTime)).toBeGreaterThan(.3);
   expect(await video.evaluate(v=>v.videoWidth)).toBeGreaterThan(0);
+  await expect(video).toHaveJSProperty('volume',1);
+  await expect(video).toHaveJSProperty('muted',false);
   await expect.poll(async()=>(await meter()).music).toBeGreaterThan(.06);
-  await expect.poll(async()=>(await meter()).original).toBeGreaterThan(.085);
+  try { await expect.poll(async()=>preservesOriginalSignal(await meter())).toBe(true); }
+  catch(error) {
+    await info.attach('original-audio-waveform',{contentType:'application/json',body:JSON.stringify(await page.evaluate(()=>({
+      input:window.auditionSources.map(({context,meter})=>{const samples=new Float32Array(meter.fftSize);meter.getFloatTimeDomainData(samples);return {sampleRate:context.sampleRate,state:context.state,time:context.currentTime,samples:[...samples]};}),
+      output:window.auditionContexts.map(({context,meter})=>{const samples=new Float32Array(meter.fftSize);meter.getFloatTimeDomainData(samples);return {sampleRate:context.sampleRate,state:context.state,time:context.currentTime,samples:[...samples]};}),
+      video:[...document.querySelectorAll('.canvas-full-video video')].map(v=>({time:v.currentTime,rate:v.playbackRate,ready:v.readyState,paused:v.paused,volume:v.volume,muted:v.muted,source:v.currentSrc,error:v.error?.code})),
+    })))});
+    throw error;
+  }
   const cleanControl=await meter(false,0),overlapControl=await meter(false,.02);
   expect(cleanControl.music).toBeLessThan(.003);
   expect(overlapControl.music).toBeGreaterThan(.019);
@@ -53,6 +84,7 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   for(const percent of [0,30,100]) {
     await slider.fill(String(percent));await slider.dispatchEvent('input');
     await expect.poll(async()=>Math.abs((await meter()).music/full.music-percent/100)).toBeLessThan(.09);
+    await expect.poll(async()=>preservesOriginalSignal(await meter())).toBe(true);
     await expect.poll(async()=>Math.abs((await meter()).original/full.original-1)).toBeLessThan(.15);
     const level=await meter();expect(Math.abs(level.original/full.original-1)).toBeLessThan(.15);levels.push(level);
   }
@@ -74,7 +106,7 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   await expect(block.getByRole('link')).toHaveAttribute('href',completed.asset.file_url+'?download=1');
   expect(writes).toEqual([]);expect(state.requests.filter(r=>r.pathname.endsWith('/run'))).toEqual([]);
   await block.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();await expect(video).toHaveAttribute('src',completed.asset.file_url);
-  await video.evaluate(v=>v.play());await expect.poll(async()=>(await meter(true)).original).toBeGreaterThan(.08);
+  await video.evaluate(v=>v.play());await expect.poll(async()=>(await meter(true)).original).toBeGreaterThan(.05);
   expect((await meter(true)).music).toBeLessThan(.003);await video.evaluate(v=>v.pause());
   await block.getByRole('button',{name:locale==='de'?'Gesamtvideo in Assets speichern':'Save full video to Assets'}).click();
   expect(writes[0].body).toEqual({saveExportId:completed.id});
@@ -98,7 +130,15 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   await page.unroute('**/api/plain/music/mp3/file');
   completed={...completed,preview_base:{file_url:'/api/plain/canvas-preview/missing.mp4'}};await open();
   await page.route('**/api/plain/canvas-preview/missing.mp4',route=>route.fulfill({status:404,body:''}));await start().click();
-  await expect(block.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toContainText(locale==='de'?'nicht abgespielt':'could not play');
+  try {await expect(block.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toContainText(locale==='de'?'nicht abgespielt':'could not play');}
+  catch(error) {
+    await info.attach('missing-preview-lifecycle',{contentType:'application/json',body:JSON.stringify(await page.evaluate(()=>({
+      events:window.auditionLifecycle,trace:window.auditionTrace,contexts:window.auditionContexts.map(({context})=>context.state),
+      video:[...document.querySelectorAll('.canvas-full-video video')].map(v=>({src:v.getAttribute('src'),time:v.currentTime,ready:v.readyState,paused:v.paused,error:v.error?.code})),
+    })))});throw error;
+  }
   await block.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();await expect(video).toHaveAttribute('src',completed.asset.file_url);
   expect(writes).toHaveLength(2);
 };
+module.exports.measureDecodedSignal=measureDecodedSignal;
+module.exports.preservesOriginalSignal=preservesOriginalSignal;
