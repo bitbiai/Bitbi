@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { DEFAULT_SEGMENTS } = require('../js/shared/appearance-contract.js');
-const { mockPublicAppearance: mockEnabledWalletAppearance } = require('./helpers/appearance.js');
+const { mockPublicAppearance: mockEnabledWalletAppearance, setupAppearance } = require('./helpers/appearance.js');
 
 const MODELS_OVERLAY_PATHS = [
   '/legal/privacy.html',
@@ -174,14 +174,16 @@ async function getExpectedModelCatalog({ homepage = false } = {}) {
 
 test('@canvas-model-ui member model exposure is the sole Models overlay membership contract', async ({ page }) => {
   await page.goto('/');
-  const { exposedIds, generateLabIds } = await page.evaluate(async () => {
-    const [memberExposureModule, generateLabRegistry] = await Promise.all([
+  const { exposedIds, generateLabIds, pricingFluxMaxId } = await page.evaluate(async () => {
+    const [memberExposureModule, generateLabRegistry, pricing] = await Promise.all([
       import('/js/shared/member-model-exposure.mjs?v=member-model-exposure-contract-test'),
       import('/js/pages/generate-lab/model-registry.js?v=member-model-exposure-contract-test'),
+      import('/js/shared/ai-model-pricing.mjs'),
     ]);
     return {
       exposedIds: memberExposureModule.getMemberExposedModels().map((model) => model.id),
       generateLabIds: generateLabRegistry.getGenerateLabModels().map((model) => model.id),
+      pricingFluxMaxId: pricing.FLUX_2_MAX_IMAGE_MODEL_ID,
     };
   });
   const overlaySource = fs.readFileSync(
@@ -190,6 +192,8 @@ test('@canvas-model-ui member model exposure is the sole Models overlay membersh
   );
 
   expect(generateLabIds).toEqual(exposedIds);
+  expect(pricingFluxMaxId).toBe('black-forest-labs/flux-2-max');
+  expect(exposedIds).toContain(pricingFluxMaxId);
   expect(exposedIds).toContain('xai/grok-imagine-video');
   expect(exposedIds).toContain('xai/grok-imagine-video-1.5-preview');
   expect(exposedIds).toContain('xai/grok-imagine-image-2.0');
@@ -2614,6 +2618,46 @@ test.describe('Homepage', () => {
       }
     }
   });
+
+  for (const [locale, width, dependency] of [['en', 1440, 'held'], ['de', 1440, 'failed'], ['en', 390, 'failed'], ['de', 390, 'held']]) {
+    test(`@canvas-model-ui MODELS cold ${locale} ${width} opens independently of ${dependency} Admin validation imports`, async ({ page, baseURL }) => {
+      const state = await setupAppearance(page, baseURL, { role: 'anonymous' });
+      await page.setViewportSize({ width, height: 900 });
+      const blocked = [], overlayRequests = [];
+      let release;
+      const gate = new Promise(resolve => { release = resolve; });
+      page.on('request', request => {
+        if (new URL(request.url()).pathname === '/js/shared/models-overlay.js') overlayRequests.push(request.url());
+      });
+      await page.route(/\/js\/shared\/admin-ai-contract\.mjs(?:[?#]|$)/, async route => {
+        blocked.push(route.request().url());
+        if (dependency === 'held') { await gate; return route.continue(); }
+        return route.abort('failed');
+      });
+      try {
+        const pathname = locale === 'de' ? '/de/' : '/';
+        await page.goto(pathname);
+        const trigger = page.locator(width < 500 ? '#mobileNav [data-models-link]' : '#hero .hero__models-cta--left');
+        await expect(trigger).toHaveAttribute('data-models-overlay-lazy-bound', 'true');
+        expect(overlayRequests).toEqual([]);
+        if (width < 500) await page.locator('#mobileMenuBtn').click();
+        await trigger.click();
+        await expectModelsOverlayOpenState(page, { homepage: true });
+        const overlay = page.locator('.models-overlay');
+        await expect(overlay).toHaveAttribute('role', 'dialog');
+        await expect(overlay).toHaveAttribute('aria-modal', 'true');
+        const close = overlay.getByRole('button', { name: locale === 'de' ? 'Modelle schließen' : 'Close models' });
+        await expect(close).toBeFocused();
+        await page.keyboard.press('Escape');
+        await expect(overlay).not.toHaveClass(/is-active/);
+        await expectPathUnchanged(page, pathname);
+        expect(overlayRequests).toHaveLength(1);
+        expect(blocked).toEqual([]);
+        expect(state.calls.filter(call => call.method !== 'GET')).toEqual([]);
+        expect(state.errors).toEqual([]);
+      } finally { release(); }
+    });
+  }
 
   test('MODELS opens the homepage models overlay from the hero CTA without navigation', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1200 });

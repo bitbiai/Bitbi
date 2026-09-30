@@ -1,5 +1,7 @@
 import { browserModelTariff, mediaTariffBasis } from './model-tariff.mjs';
 import { H3_MODEL, calculateH3CreditPricing } from './minimax-h3.mjs';
+import { FLUX_2_MAX_IMAGE_MODEL_ID } from './flux-2-max-identity.mjs';
+export { FLUX_2_MAX_IMAGE_MODEL_ID } from './flux-2-max-identity.mjs';
 import { GROK_IMAGE_2, calculateGrokImage2CreditCost } from './grok-imagine-image-2-pricing.mjs';
 import { GPT_IMAGE_25_MODEL_IDS, isGptImage25Model } from './gpt-image-25-contract.mjs';
 import { calculateGptImage25CreditCost, isGptImage25PricingAvailable } from './gpt-image-25-pricing.mjs';
@@ -71,7 +73,6 @@ export const FLUX_2_KLEIN_IMAGE_MODEL_IDS = Object.freeze([
   "@cf/black-forest-labs/flux-2-klein-9b",
   "black-forest-labs/flux-2-klein-9b",
 ]);
-export const FLUX_2_MAX_IMAGE_MODEL_ID = "black-forest-labs/flux-2-max";
 
 const DEFAULT_WIDTH = 1024;
 const DEFAULT_HEIGHT = 1024;

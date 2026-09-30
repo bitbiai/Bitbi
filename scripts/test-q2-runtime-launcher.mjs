@@ -378,6 +378,7 @@ test('default native runtime plan stages every actual suite and control input', 
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-fixture.mjs',
     'tests/helpers/q4-subscription-payloads.cjs', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs',
     'tests/helpers/elevenlabs-member-control.mjs', 'tests/helpers/canvas-contributors-control.mjs', 'workers/ai/src/routes/music.js',
+    'js/shared/flux-2-max-identity.mjs',
   ]) {
     assert.ok(imports.includes(filename), `Actual resolved graph includes ${filename}`);
     assert.throws(() => checkClosure(plan.filter(item => !coveredBy(filename, [item]))), /Every resolved repository import/,
@@ -394,14 +395,15 @@ test('default native runtime plan stages every actual suite and control input', 
     `const suite = await import(${JSON.stringify(memberEntry)}); if(typeof suite.runMemberGenerationTests !== 'function') process.exit(1);`],
     { cwd: f.base, env: { PATH: path.dirname(process.execPath) }, encoding: 'utf8', timeout: 15000 });
   const imported = importMember(); assert.equal(imported.status, 0, imported.stderr);
-  const detailsPath = path.join(f.staged, 'tests/asset-preview-details-runtime.mjs');
-  const detailsBytes = fs.readFileSync(detailsPath);
-  fs.unlinkSync(detailsPath);
-  const missingDetails = importMember();
-  assert.notEqual(missingDetails.status, 0);
-  assert.match(missingDetails.stderr, /ERR_MODULE_NOT_FOUND/);
-  assert.match(missingDetails.stderr, /asset-preview-details-runtime\.mjs/);
-  fs.writeFileSync(detailsPath, detailsBytes, { flag: 'wx' });
+  for (const filename of ['tests/asset-preview-details-runtime.mjs', 'js/shared/flux-2-max-identity.mjs']) {
+    const stagedPath = path.join(f.staged, filename), bytes = fs.readFileSync(stagedPath);
+    fs.unlinkSync(stagedPath);
+    const missing = importMember();
+    assert.notEqual(missing.status, 0, `Removing ${filename} must break the actual staged import`);
+    assert.match(missing.stderr, /ERR_MODULE_NOT_FOUND/);
+    assert.ok(missing.stderr.includes(path.basename(filename)), `Missing module diagnostic identifies ${filename}`);
+    fs.writeFileSync(stagedPath, bytes, { flag: 'wx' });
+  }
   // Miniflare loads this fixture by URL, outside the static import graph.
   // It must remain available with identical bytes in the isolated Linux tree.
   const imageBinding = 'tests/helpers/q2-runtime/image25-ai-binding.mjs';

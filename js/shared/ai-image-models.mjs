@@ -10,7 +10,7 @@ import {
 } from './gpt-image-2-pricing.mjs';
 import {
     FLUX_2_MAX_IMAGE_MODEL_ID,
-} from './ai-model-pricing.mjs';
+} from './flux-2-max-identity.mjs';
 
 export const DEFAULT_AI_IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
 
