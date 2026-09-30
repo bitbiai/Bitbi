@@ -357,7 +357,8 @@ jobs:
           if-no-files-found: error
 
   # Short homepage feedback runs independently of the long browser regression.
-  # Only native WebKit video moves to macOS; all other Linux gates remain.
+  # Native WebKit runs on macOS. Functional checks block; bounded decorative
+  # observations follow the versioned candidate policy and retain warnings.
   homepage-webkit-media:
     needs: release-compatibility
     if: ${{ needs.release-compatibility.outputs.homepage_media == 'true' }}
@@ -424,6 +425,7 @@ jobs:
           path: |
             test-results/homepage-runtime.json
             test-results/homepage-webkit.json
+            test-results/homepage-webkit-decorative.json
             test-results/homepage-webkit/
           retention-days: 7
           if-no-files-found: error

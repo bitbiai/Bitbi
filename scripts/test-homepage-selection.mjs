@@ -5,7 +5,8 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_NATIVE_CONTROLS_REQUIRED, HOMEPAGE_EXTENDED_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
+import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_NATIVE_CONTROLS_REQUIRED, HOMEPAGE_EXTENDED_REQUIRED, HOMEPAGE_DECORATIVE_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport, verifyHomepageMediaExecution, MEDIA_POLICY } from './lib/homepage-test-selection.mjs';
+import mediaPolicy from './lib/homepage-media-policy.cjs';
 import { validateHomepageMacRuntime, validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
@@ -96,7 +97,8 @@ try {
 }
 const allFunctional = ['chromium', 'webkit'].flatMap((project) => Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)
   .flatMap(([file, count]) => Array.from({ length: count }, (_, index) => fixture(file, project, index))));
-const functional = [...allFunctional, ...HOMEPAGE_WEBKIT_REQUIRED.map(title => ({ ...fixture('homepage-hero-playback.spec.js', 'chromium', 0), title }))];
+const decorativeTags = title => HOMEPAGE_DECORATIVE_REQUIRED.includes(title) ? ['decorative-playback'] : [];
+const functional = [...allFunctional, ...HOMEPAGE_WEBKIT_REQUIRED.map(title => ({ ...fixture('homepage-hero-playback.spec.js', 'chromium', 0), title, tags: decorativeTags(title) }))];
 const standard = functional.filter(test => test.project === 'chromium' && !['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js'].includes(test.file));
 const carousel = ['chromium', 'firefox', 'webkit'].flatMap((project) => Array.from({ length: 5 }, (_, index) => fixture('homepage-carousel-focused.spec.js', project, index)));
 const performance = Object.entries(HOMEPAGE_PERFORMANCE_REQUIRED).flatMap(([file, titles]) => titles.map((title) => ({
@@ -111,12 +113,18 @@ for (const project of ['chromium', 'webkit']) {
 }
 const webkit = functional.filter(test => test.project === 'chromium' && ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js'].includes(test.file))
   .map(test => ({ ...test, project: 'webkit' }));
-const extended = [...webkit, ...HOMEPAGE_EXTENDED_REQUIRED.map(title => ({ ...fixture(HOMEPAGE_NATIVE_CONTROLS_REQUIRED.includes(title) ? 'homepage-native-control.spec.js' : 'homepage-hero-playback.spec.js', 'webkit', 0), title, tags: ['homepage-extended'] }))];
+const extended = [...webkit, ...HOMEPAGE_EXTENDED_REQUIRED.map(title => ({ ...fixture(HOMEPAGE_NATIVE_CONTROLS_REQUIRED.includes(title) ? 'homepage-native-control.spec.js' : 'homepage-hero-playback.spec.js', 'webkit', 0), title, tags: ['homepage-extended', ...decorativeTags(title)] }))];
 const diagnostic = extended.filter(test => test.file === 'homepage-native-control.spec.js');
 const valid = { standard, carousel, functional, webkit, extended, performance, diagnostic };
 assert.throws(() => verifyHomepageDiscovery({ ...valid, diagnostic: [] }), /no tests/);
 assert.throws(() => verifyHomepageDiscovery({ ...valid, diagnostic: diagnostic.slice(1) }), /lost an independent/);
 assert.equal(verifyHomepageDiscovery(valid).existingCommandUnion, standard.length + 10);
+for (const tags of [[], ['decorative-playback']]) {
+  const wrong = structuredClone(valid);
+  const target = wrong.webkit.find(test => tags.length ? !HOMEPAGE_DECORATIVE_REQUIRED.includes(test.title) : HOMEPAGE_DECORATIVE_REQUIRED.includes(test.title));
+  target.tags = tags;
+  assert.throws(() => verifyHomepageDiscovery(wrong), /Decorative policy tag/);
+}
 for (const file of ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js']) {
   assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: [...functional, fixture(file, 'webkit', 0)] }), /must not duplicate/);
   if (file === 'homepage-hero-playback.spec.js') assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: functional.filter(t => t.file !== file) }), /scenario union/);
@@ -151,6 +159,69 @@ assert.throws(() => flattenHomepageDiscovery({ suites: [], errors: [{ message: '
 assert.deepEqual(flattenHomepageDiscovery({ suites: [{ title: 'file.spec.js', file: 'file.spec.js', suites: [{ title: 'group', specs: [{ file: 'file.spec.js', title: 'case', tags: ['@homepage-performance'], tests: [{ projectName: 'chromium', expectedStatus: 'passed' }] }] }] }] }), [
   { file: 'file.spec.js', title: 'group > case', project: 'chromium', expectedStatus: 'passed', tags: ['@homepage-performance'] },
 ]);
+
+// The actual Full caller validates execution, not merely discovery. A warning
+// is evidence about decorative output; every functional case must still pass.
+function mediaExecutionFixture(engine, extended = false) {
+  const titles = [...HOMEPAGE_WEBKIT_REQUIRED, ...(extended ? HOMEPAGE_EXTENDED_REQUIRED : [])];
+  const slots = ['left_top', 'left_bottom', 'right_top', 'right_bottom'];
+  return { stats: { expected: titles.length, unexpected: 0, flaky: 0, skipped: 0 }, errors: [], suites: [{ specs: titles.map(title => {
+    const decorative = HOMEPAGE_DECORATIVE_REQUIRED.includes(title);
+    const control = title.includes('decorative frozen media warns');
+    const observation = { schema: 1, policy: MEDIA_POLICY, kind: 'decorative-playback',
+      check: control ? 'frozen-control' : 'initial-play', status: control ? 'warning' : 'observed',
+      ...(control ? { control: true } : {}),
+      result: { passed: !control, phase: 'play-or-resume', elapsed: 200, timeout: 200,
+        ownOutputObserved: !control,
+        samples: [slots.map((slot, i) => ({ id: i + 1, slot, active: true, connected: true,
+          src: '/api/plain/file', epoch: 0, paused: control, seeking: false, readyState: 4,
+          error: null, outputAdvances: control ? 0 : 2, completedLoops: 0 }))],
+        issues: control ? [{ slot: 'left_top', condition: 'paused' }] : [] },
+      fallback: { slots: slots.map(slot => ({ slot, visible: true, decoded: true })) },
+    };
+    return { title, file: HOMEPAGE_NATIVE_CONTROLS_REQUIRED.includes(title) ? 'homepage-native-control.spec.js' : 'homepage-hero-playback.spec.js',
+      tags: decorativeTags(title), tests: [{ projectName: engine, expectedStatus: 'passed',
+        results: [{ status: 'passed', retry: 0, errors: [], attachments: decorative ? [{
+          name: mediaPolicy.DECORATIVE_OBSERVATION_ATTACHMENT, contentType: 'application/json',
+          body: Buffer.from(JSON.stringify(observation)).toString('base64'),
+        }] : [] }] }] };
+  }) }] };
+}
+const executionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'bitbi-media-execution-'));
+try {
+  for (const engine of ['chromium', 'webkit']) for (const extended of [false, true]) {
+    const report = mediaExecutionFixture(engine, extended);
+    const summary = verifyHomepageMediaExecution(report, { engine, extended });
+    assert.equal(summary.policy, MEDIA_POLICY);
+    assert.equal(summary.controlWarnings, 2);
+    const filename = path.join(executionDirectory, `${engine}-${extended}.json`);
+    fs.writeFileSync(filename, JSON.stringify(report));
+    const args = ['scripts/check-homepage-selection.mjs', '--verify-execution-report', filename,
+      '--engine', engine, ...(extended ? ['--extended'] : [])];
+    const execute = () => spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8' });
+    const accepted = execute(); assert.equal(accepted.status, 0, accepted.stderr);
+    assert.match(accepted.stdout, /controlWarnings/);
+    assert.equal(JSON.parse(fs.readFileSync(filename.replace(/\.json$/, '-decorative.json'))).controlWarnings, 2);
+    for (const fault of ['missing-case', 'skipped', 'failed', 'retry', 'missing-result', 'missing-observation', 'missing-tag-and-observation', 'malformed-observation', 'report-error']) {
+      const broken = structuredClone(report), specs = broken.suites[0].specs;
+      const spec = specs.find(spec => spec.tags.includes('decorative-playback'));
+      const result = spec.tests[0].results[0];
+      if (fault === 'missing-case') specs.pop();
+      else if (fault === 'missing-result') spec.tests[0].results = [];
+      else if (fault === 'retry') spec.tests[0].results.push(structuredClone(result));
+      else if (fault === 'missing-observation') result.attachments = [];
+      else if (fault === 'missing-tag-and-observation') { spec.tags = []; result.attachments = []; }
+      else if (fault === 'malformed-observation') result.attachments[0].body = Buffer.from('{').toString('base64');
+      else if (fault === 'report-error') broken.errors.push({ message: 'Observer failed' });
+      else result.status = fault;
+      assert.throws(() => verifyHomepageMediaExecution(broken, { engine, extended }), undefined, fault);
+      if (engine === 'webkit' && extended) {
+        fs.writeFileSync(filename, JSON.stringify(broken));
+        assert.notEqual(execute().status, 0, `Actual execution verifier must reject ${fault}`);
+      }
+    }
+  }
+} finally { fs.rmSync(executionDirectory, { recursive: true, force: true }); }
 
 const scripts = JSON.parse(read('package.json')).scripts;
 assert.equal(scripts['test:static'], 'playwright test -c playwright.config.js');

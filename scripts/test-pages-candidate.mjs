@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
-import { HOMEPAGE_WEBKIT_REQUIRED, flattenHomepageDiscovery } from './lib/homepage-test-selection.mjs';
+import { HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_DECORATIVE_REQUIRED, flattenHomepageDiscovery } from './lib/homepage-test-selection.mjs';
+import { DECORATIVE_OBSERVATION_ATTACHMENT } from './lib/homepage-media-policy.cjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -87,7 +88,7 @@ try {
  fs.mkdirSync(path.join(dir,'_site'));fs.writeFileSync(path.join(dir,'_site/index.html'),'<main>synthetic candidate</main>');
  const cli=new URL('./pages-candidate.mjs',import.meta.url).pathname;
  const env={...fixtureProcessEnv,GITHUB_REPOSITORY:REPOSITORY,GITHUB_SHA:candidateSha,GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1',CANDIDATE_BASE:base,CANDIDATE_FULL:'true'};
- const invoke=(command,extra={})=>{const r=spawnSync(process.execPath,[cli,command],{cwd:dir,env:{...env,...extra},encoding:'utf8'});assert.equal(r.status,0,r.stderr);};
+ const invoke=(command,extra={})=>{const r=spawnSync(process.execPath,[cli,command],{cwd:dir,env:{...env,...extra},encoding:'utf8'});assert.equal(r.status,0,r.stderr);return r;};
  assert.throws(()=>invoke('record',{REPAIR_SOURCE_SHA:parentEnv.REPAIR_SOURCE_SHA}),/Not a valid commit name/,'The production CLI must still reject a foreign repair identity');
  invoke('record');
  const manifest=JSON.parse(fs.readFileSync(path.join(dir,'candidate/manifest.json')));
@@ -97,11 +98,24 @@ try {
  verifyManifest(manifest,candidateExpected,path.join(dir,'_site'));
  assert.throws(()=>verifyManifest({...manifest,full:false},candidateExpected,path.join(dir,'_site')));
  assert.throws(()=>verifyManifest({...manifest,full:false},candidateExpected,path.join(dir,'_site'),{allowPartial:true}));
- assert.throws(()=>verifyManifest({...manifest,mediaPolicy:'retired'},candidateExpected,path.join(dir,'_site')));
- fs.writeFileSync(path.join(dir,'report.json'),JSON.stringify({stats:{expected:2*HOMEPAGE_WEBKIT_REQUIRED.length,unexpected:0,flaky:0,skipped:0},suites:[{specs:HOMEPAGE_WEBKIT_REQUIRED.map(title=>({file:'homepage-hero-playback.spec.js',title,tests:['webkit','chromium'].map(projectName=>({projectName,expectedStatus:'passed',results:[{status:'passed'}]}))}))}]}));
+ for(const policy of ['retired','decorative-core-v1'])assert.throws(()=>verifyManifest({...manifest,mediaPolicy:policy},candidateExpected,path.join(dir,'_site')));
+ const fallback={slots:['left_top','left_bottom','right_top','right_bottom'].map(slot=>({slot,visible:true,decoded:true}))};
+ const attachment=envelope=>({name:DECORATIVE_OBSERVATION_ATTACHMENT,contentType:'application/json',body:Buffer.from(JSON.stringify(envelope)).toString('base64')});
+ const mediaReport=engine=>({errors:[],stats:{expected:HOMEPAGE_WEBKIT_REQUIRED.length,unexpected:0,flaky:0,skipped:0},suites:[{specs:HOMEPAGE_WEBKIT_REQUIRED.map(title=>{
+   const decorative=HOMEPAGE_DECORATIVE_REQUIRED.includes(title),control=title.includes(': decorative frozen media warns');
+   const envelope={schema:1,policy:MEDIA_POLICY,kind:'decorative-playback',status:control?'warning':'observed',check:control?'frozen-control':'initial-play',...(control?{control:true}:{}),fallback,
+     result:{passed:!control,phase:'play-or-resume',elapsed:control?(engine==='webkit'?5008:5000):100,timeout:5000,
+       samples:[fallback.slots.map(({slot},i)=>({id:i+1,slot,src:`/api/fixture/${slot}`,epoch:0,outputAdvances:0,paused:control}))],
+       ownOutputObserved:!control,issues:control?[engine==='webkit'?{condition:'observation-deadline',observedAt:5008}:{condition:'paused'}]:[]}};
+   return {file:'homepage-hero-playback.spec.js',title,tags:decorative?['decorative-playback']:[],tests:[{projectName:engine,expectedStatus:'passed',results:[{status:'passed',attachments:decorative?[attachment(envelope)]:[]}]}]};
+ })}]});
  fs.mkdirSync(path.join(dir,'test-results'));
- fs.writeFileSync(path.join(dir,'test-results/homepage-discovery.json'),JSON.stringify({status:'passed',collections:{functional:flattenHomepageDiscovery(JSON.parse(fs.readFileSync(path.join(dir,'report.json'))))}}));
- for(const job of ['homepage-validation','homepage-webkit-media'])invoke('proof',{GITHUB_JOB:job,CANDIDATE_REPORT:'report.json'});
+ for(const [job,engine] of [['homepage-validation','chromium'],['homepage-webkit-media','webkit']]) {
+   const report=mediaReport(engine);
+   fs.writeFileSync(path.join(dir,'report.json'),JSON.stringify(report));
+   if(engine==='chromium')fs.writeFileSync(path.join(dir,'test-results/homepage-discovery.json'),JSON.stringify({status:'passed',collections:{functional:flattenHomepageDiscovery(report)}}));
+   invoke('proof',{GITHUB_JOB:job,CANDIDATE_REPORT:'report.json'});
+ }
  const goodReport=JSON.parse(fs.readFileSync(path.join(dir,'report.json')));
  for(const name of ['static','carousel'])fs.copyFileSync(path.join(dir,'report.json'),path.join(dir,`test-results/candidate-${name}.json`));
  invoke('proof',{GITHUB_JOB:'browser-validation'});
@@ -113,8 +127,42 @@ try {
    fs.writeFileSync(path.join(dir,'bad-report.json'),JSON.stringify(bad));
    assert.throws(()=>invoke('proof',{GITHUB_JOB:'homepage-webkit-media',CANDIDATE_REPORT:'bad-report.json'}));
  }
+ // The production proof CLI accepts a quality warning while preserving the
+ // functional result, then rejects every malformed/missing/failing variant.
+ const warning=structuredClone(goodReport);
+ const warningSpec=warning.suites[0].specs.find(spec=>spec.tags.length && !spec.title.includes('decorative frozen media'));
+ const warningEnvelope=JSON.parse(Buffer.from(warningSpec.tests[0].results[0].attachments[0].body,'base64'));
+ Object.assign(warningEnvelope,{status:'warning',result:{...warningEnvelope.result,passed:false,elapsed:5000,issues:[{condition:'no-new-output'}]}});
+ warningSpec.tests[0].results[0].attachments=[attachment(warningEnvelope)];
+ fs.writeFileSync(path.join(dir,'warning.json'),JSON.stringify(warning));
+ assert.match(invoke('proof',{GITHUB_JOB:'homepage-webkit-media',CANDIDATE_REPORT:'warning.json'}).stdout,/::warning title=Accepted decorative playback limitation/);
+ for(const fault of ['missing-report','invalid-json','missing-attachment','removed-tag-and-attachment','unknown-policy','unknown-reason','empty-sample','missing-fallback','invisible-fallback','wrong-slot','failed-functional','global-error','retried','malformed-body','unobserved-frozen-control']) {
+   const bad=structuredClone(warning),spec=bad.suites[0].specs.find(spec=>spec.title===warningSpec.title),result=spec.tests[0].results[0];
+   const envelope=structuredClone(warningEnvelope);
+   if(fault==='missing-attachment'||fault==='removed-tag-and-attachment')result.attachments=[];
+   if(fault==='removed-tag-and-attachment')spec.tags=[];
+   if(fault==='unknown-policy')envelope.policy='decorative-core-v1';
+   if(fault==='unknown-reason')envelope.result.issues=[{condition:'observer-internal-error'}];
+   if(fault==='empty-sample')envelope.result.samples=[[]];
+   if(fault==='missing-fallback')delete envelope.fallback;
+   if(fault==='invisible-fallback')envelope.fallback.slots[0].visible=false;
+   if(fault==='wrong-slot')envelope.fallback.slots[0].slot='foreign';
+   if(fault==='failed-functional'){result.status='failed';result.errors=[{message:'Models navigation failed'}];}
+   if(fault==='global-error')bad.errors=[{message:'Native environment failed'}];
+   if(fault==='retried')spec.tests[0].results.unshift({...result,status:'failed'});
+   if(result.attachments.length)result.attachments=[fault==='malformed-body'?{...attachment(envelope),body:'not JSON'}:attachment(envelope)];
+   if(fault==='unobserved-frozen-control') {
+     const result=bad.suites[0].specs.find(spec=>spec.title.includes(': decorative frozen media warns')).tests[0].results[0];
+     const envelope=JSON.parse(Buffer.from(result.attachments[0].body,'base64'));
+     envelope.result={passed:false,phase:'observation-budget',reason:'quality-budget-exhausted',elapsed:0,timeout:0};
+     result.attachments=[attachment(envelope)];
+   }
+   fs.writeFileSync(path.join(dir,'bad-report.json'),fault==='invalid-json'?'not JSON':JSON.stringify(bad));
+   assert.throws(()=>invoke('proof',{GITHUB_JOB:'homepage-webkit-media',CANDIDATE_REPORT:fault==='missing-report'?'absent.json':'bad-report.json'}),undefined,fault);
+ }
  const proofs=fs.readdirSync(path.join(dir,'candidate-proofs')).map(f=>JSON.parse(fs.readFileSync(path.join(dir,'candidate-proofs',f))));
  verifyProofs(manifest,proofs);assert.throws(()=>verifyProofs(manifest,proofs.slice(1)));assert.throws(()=>verifyProofs(manifest,proofs.map(p=>({...p,manifestHash:'foreign'}))));
+ assert.throws(()=>verifyProofs(manifest,proofs.map(p=>({...p,decorativeMedia:undefined}))),/decorative policy proof/);
  for(const file of fs.readdirSync(path.join(dir,'candidate-proofs')))fs.copyFileSync(path.join(dir,'candidate-proofs',file),path.join(dir,'candidate',file));
  const before=tree(path.join(dir,'_site'));fs.renameSync(path.join(dir,'_site'),path.join(dir,'tested-site'));
  invoke('publish');assert.deepEqual(tree(path.join(dir,'_site')),before);

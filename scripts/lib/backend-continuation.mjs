@@ -8,6 +8,8 @@ export function backendContinuationSupported(plan) {
     'workers/ai/src/index.js','workers/ai/src/lib/validate.js','workers/ai/src/lib/responses.js','workers/ai/src/routes/image.js','workers/ai/src/routes/music.js'].includes(f)))return false;
   if(plan.schemaApplies?.some(s=>s.checkpoint!=='auth')) return false;
   if(plan.deploySteps.some(s=>!['static','worker','schema-checkpoint','service'].includes(s.type) || s.type==='service'&&s.service!=='homepage-ffmpeg-processor'))return false;
-  if(runtimeFiles.some(f=>/^workers\/.*\/(wrangler\.jsonc|package(?:-lock)?\.json)$/.test(f)&&f!=='workers/auth/wrangler.jsonc'&&!f.startsWith('workers/media/')))return false;
+  const reviewedAuthTooling = file => /^workers\/auth\/package(?:-lock)?\.json$/.test(file)
+    && plan.workerDeploys.some(step => step.worker === 'auth') && plan.reviewedToolingPatchFiles?.includes(file);
+  if(runtimeFiles.some(f=>/^workers\/.*\/(wrangler\.jsonc|package(?:-lock)?\.json)$/.test(f)&&f!=='workers/auth/wrangler.jsonc'&&!f.startsWith('workers/media/')&&!reviewedAuthTooling(f)))return false;
   return (plan.manualPrerequisites?.required||[]).every(p=>(p.worker==='auth'&&['secret','cloudflare_feature','cloudflare_queue','cloudflare_r2_bucket'].includes(p.kind)) || (p.worker==='ai'&&p.kind==='secret'));
 }

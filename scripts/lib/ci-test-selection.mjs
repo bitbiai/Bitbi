@@ -37,6 +37,7 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ["workers/shared/fable-chat-memory-contract.mjs", ["auth", "ai"]],
   ["js/shared/admin-ai-contract.mjs", ["auth", "ai"]],
   ["js/shared/ai-image-models.mjs", ["auth"]],
+  ["js/shared/flux-2-max-identity.mjs", ["auth"]],
   ["js/shared/generation-model-order.mjs", ["auth"]],
   ["js/shared/image-dimensions.mjs", ["auth", "ai"]],
   ["js/shared/durable-rate-limit-do.mjs", ["auth", "contact"]],

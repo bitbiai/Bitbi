@@ -21,7 +21,7 @@ const job = (source, name) => {
 const steps = source => [...source.matchAll(/^      - name: (.+)\n([\s\S]*?)(?=^      - name:|$(?![\s\S]))/gm)]
   .map(m => ({name: m[1], source: m[2], condition: m[2].match(/^        if: (.+)$/m)?.[1]}));
 const permits = (step, context) => {
-  const expression = step.condition || 'success()';
+  const expression = (step.condition || 'success()').replace(/^\$\{\{ (.*) \}\}$/, '$1');
   assert(!/always\(|failure\(|cancelled\(/.test(expression), 'no post-failure deployment/reconciliation');
   // These production conditions explicitly use success(), or GitHub supplies it.
   return context.success() && Boolean(vm.runInNewContext(expression.replaceAll('needs.release-compatibility', "needs['release-compatibility']").replaceAll('needs.reuse-candidate', "needs['reuse-candidate']"), context, {timeout: 100}));
@@ -61,6 +61,34 @@ function requiresMediaSetup(source,jobName,setupName,callerNames) {
   return setup;
 }
 const full=read('full-regression'),processor=read('memvid-stream-preview-processor');
+// The actual homepage callers must verify machine-readable policy evidence
+// after successful tests. A missing verifier cannot become a publishable job.
+function requiresHomepageReportVerification(source, jobName, { candidate, extended, engine }) {
+  const body=job(source,jobName),list=steps(body);
+  const caller=list.find(step=>step.name===(engine==='webkit'
+    ? 'Run required native WebKit media with private HOME and loopback only' : 'Run Linux homepage functional acceptance'));
+  const check=list.find(step=>step.name===(candidate?'Confirm tested candidate bytes':'Verify functional acceptance and decorative observations'));
+  assert(caller && check && list.indexOf(check)>list.indexOf(caller),'Homepage execution requires subsequent report verification');
+  const filename=`test-results/homepage-${engine==='webkit'?'webkit':'functional'}.json`;
+  const command=candidate?'node scripts/pages-candidate.mjs proof'
+    : `node scripts/check-homepage-selection.mjs --verify-execution-report ${filename} --engine ${engine}${extended?' --extended':''}`;
+  assert(check.source.includes(`run: ${command}\n`),'Homepage report verifier is missing or uses a different scope');
+  if(candidate)assert(check.source.includes(`CANDIDATE_REPORT: ${filename}`));
+  assert(!body.includes('continue-on-error') && !check.source.includes('|| true'),'Homepage functional and report errors must remain blocking');
+  const context={success:()=>true,needs:{guard:{outputs:{homepage_media:'true',homepage:'true',carousel:'true'}},'release-compatibility':{outputs:{homepage_media:'true',homepage:'true',carousel:'true'}}},steps:{homepage_discovery:{outcome:'success'}}};
+  assert(permits(check,context),'Selected homepage report verification would be skipped');
+  assert(!permits(check,{...context,success:()=>false}),'Failed functional execution cannot acquire a passing report');
+  return check;
+}
+for(const [source,candidate,extended] of [[standard,true,false],[full,false,true],[fast,false,false]]) {
+  for(const [jobName,engine] of [['homepage-webkit-media','webkit'],['homepage-validation','chromium']]) {
+    const options={candidate,extended,engine};
+    const check=requiresHomepageReportVerification(source,jobName,options);
+    assert.throws(()=>requiresHomepageReportVerification(source.replace(check.source,check.source.replace(/run: .+/, 'run: echo missing report verifier')),jobName,options),/verifier is missing/);
+    assert.throws(()=>requiresHomepageReportVerification(source.replace(check.source,check.source.replace(/^        if: .+\n/m,'').replace(/        run:/,"        if: needs.guard.outputs.homepage_media == 'false'\n        run:")),jobName,options),/would be skipped/);
+  }
+  assert(job(source,'homepage-webkit-media').includes('test-results/homepage-webkit-decorative.json'),'Native decorative summary must be retained');
+}
 for(const [source,jobName,setupName,callers] of [
   [standard,'worker-validation','Install Worker media test tools',['Verify native Linux isolation before Worker tests','Run worker route tests']],
   [full,'worker-tests','Install Worker media test tools',['Verify native Linux isolation before Worker tests','Run full Worker regression']],

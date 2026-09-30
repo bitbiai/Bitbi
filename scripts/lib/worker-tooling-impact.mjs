@@ -28,7 +28,7 @@ export function isUndiciToolingPatch(before, after) {
     && /^sha512-[A-Za-z0-9+/]+=*$/.test(b.entry.integrity || '');
 }
 
-function relativeSourcesStayReviewed(root, base, head, prefix) {
+function relativeSourcesStayReviewed(root, base, head, prefix, { allowSourceChanges = false } = {}) {
   const roots = [`${prefix}/src`, 'workers/shared', 'js/shared'];
   const modes = new Map(git(root, ['ls-tree', '-r', '--format=%(objectmode) %(path)', head, '--', ...roots])
     .split('\n').map(line => {const at = line.indexOf(' ');return [line.slice(at + 1), line.slice(0, at)];}));
@@ -37,6 +37,10 @@ function relativeSourcesStayReviewed(root, base, head, prefix) {
     const file = pending.pop();
     if (visited.has(file)) continue;
     visited.add(file);
+    // Compare exact Git blobs in this Worker's reachable graph. A neighboring
+    // frontend-only shared module is not an input, but changed/new reachable
+    // modules (including whitespace-only edits) cannot inherit the exception.
+    if (!allowSourceChanges && git(root, ['rev-parse', '--verify', `${base}:${file}`]) !== git(root, ['rev-parse', '--verify', `${head}:${file}`])) return false;
     // JSON imports are inert data. The existing Auth baseline is outside src,
     // so require its parsed value to remain unchanged across the release range.
     if (file.endsWith('.json')) {
@@ -77,7 +81,7 @@ function runtimeUsesTooling(root, base, head, prefix, { manifest, lock }, runtim
   const configs = git(root, ['ls-tree', '-r', '--name-only', head, '--', 'tsconfig.json',
     'workers/tsconfig.json', `${prefix}/tsconfig.json`, `${prefix}/src`]);
   if (configs.split('\n').some(file => /(^|\/)tsconfig\.json$/.test(file))) return true;
-  if (!relativeSourcesStayReviewed(root, base, head, prefix)) return true;
+  if (!relativeSourcesStayReviewed(root, base, head, prefix, { allowSourceChanges: true })) return true;
 
   // dev:true alone is insufficient: application code can import Miniflare (or
   // another ancestor) and bring the patched HTTP client into its runtime graph.
@@ -103,30 +107,44 @@ function runtimeUsesTooling(root, base, head, prefix, { manifest, lock }, runtim
   return usage.status !== 1;
 }
 
-export function toolingOnlyWorkerPackages(root, source, changedFiles) {
-  if (!root || source?.mode !== 'git-diff' || !source.base) return [];
-  const result = [];
+export function workerToolingPatchEvidence(root, source, changedFiles) {
+  const empty = () => ({ toolingOnlyWorkerPackageFiles: [], reviewedToolingPatchFiles: [] });
+  if (!root || source?.mode !== 'git-diff' || !source.base) return empty();
+  const result = empty();
   try {
     const head = git(root, ['rev-parse', '--verify', `${source.head || 'HEAD'}^{commit}`]);
     const base = git(root, ['merge-base', source.base, head]);
     const runtimeLock = ref => Object.fromEntries(Object.entries(read(root, ref, 'package-lock.json').packages)
       .filter(([name, entry]) => name && !entry.dev));
-    if (!isDeepStrictEqual(runtimeLock(base), runtimeLock(head))) return [];
+    if (!isDeepStrictEqual(runtimeLock(base), runtimeLock(head))) return empty();
     for (const worker of ['auth', 'ai', 'contact']) {
       const prefix = `workers/${worker}`;
       const files = [`${prefix}/package.json`, `${prefix}/package-lock.json`];
       if (!files.some(file => changedFiles.includes(file))) continue;
       const runtimePaths = [`${prefix}/src`, `${prefix}/wrangler.jsonc`, 'workers/shared', 'js/shared'];
-      if (git(root, ['diff', '--name-only', base, head, '--', ...runtimePaths])) continue;
+      if (git(root, ['diff', '--name-only', base, head, '--', `${prefix}/wrangler.jsonc`])) continue;
       const at = ref => ({ manifest: read(root, ref, files[0]), lock: read(root, ref, files[1]) });
       const before = at(base), after = at(head);
       if (isUndiciToolingPatch(before, after) && !runtimeUsesTooling(root, base, head, prefix, after, runtimePaths)) {
-        result.push(...files.filter(file => changedFiles.includes(file)));
+        const changedPackages = files.filter(file => changedFiles.includes(file));
+        // This proof concerns only the compatible development leaf. It does
+        // not remove runtime deployment impact when application sources changed.
+        result.reviewedToolingPatchFiles.push(...changedPackages);
+        let unchanged = false;
+        try {
+          unchanged = !git(root, ['diff', '--name-only', base, head, '--', `${prefix}/src`])
+            && relativeSourcesStayReviewed(root, base, head, prefix);
+        } catch { /* New or missing base module cannot prove unchanged input. */ }
+        if (unchanged) result.toolingOnlyWorkerPackageFiles.push(...changedPackages);
       }
     }
   } catch {
     // Missing/invalid source evidence must not narrow a deployment plan.
-    return [];
+    return empty();
   }
   return result;
+}
+
+export function toolingOnlyWorkerPackages(root, source, changedFiles) {
+  return workerToolingPatchEvidence(root, source, changedFiles).toolingOnlyWorkerPackageFiles;
 }

@@ -3,8 +3,9 @@ import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests, requiresPrivateMediaImage, memberSpecSources } from './lib/ci-test-selection.mjs';
-import { HOMEPAGE_WEBKIT_REQUIRED, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
-export const MEDIA_POLICY = 'decorative-core-v1';
+import { verifyHomepageMediaExecution, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
+import { MEDIA_POLICY, printDecorativeSummary } from './lib/homepage-media-policy.cjs';
+export { MEDIA_POLICY };
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -216,6 +217,12 @@ export function verifyProofs(manifest,proofs) {
     const p=proofs.find(p=>p.job===job); assert(p,`Missing tested build proof ${job}`);
     assert.equal(p.manifestHash,digest(JSON.stringify(manifest)),'Different OS build inputs');
     assert.equal(p.status,'passed');assert(p.reportHash&&p.tests>0,'No executed browser report');
+    if (['homepage-webkit-media','homepage-validation'].includes(job) && (manifest.selection?.homepageMedia ?? true)) {
+      assert.equal(p.decorativeMedia?.policy, MEDIA_POLICY, 'Missing current decorative policy proof');
+      assert.equal(p.decorativeMedia.engine, job === 'homepage-webkit-media' ? 'webkit' : 'chromium');
+      assert(Number.isInteger(p.decorativeMedia.observations) && p.decorativeMedia.observations > 0,
+        'Missing decorative observation proof');
+    }
   }
 }
 // Bind each discovered required case to its executed result in the same job.
@@ -360,6 +367,7 @@ async function main(command) {
     const reports=names.map(name=>JSON.parse(fs.readFileSync(name)));
     for(const report of reports) {
       const broad = process.env.GITHUB_JOB === 'browser-validation';
+      assert(Array.isArray(report.errors || []) && (report.errors || []).length === 0, 'Browser execution reported errors');
       assert((report.stats.expected + (broad ? report.stats.flaky : 0))>0&&report.stats.unexpected===0&&(broad||report.stats.flaky===0),'Browser acceptance missing or failed');
       let executed=0;
       const visit=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests||[]) {
@@ -380,19 +388,15 @@ async function main(command) {
     if (manifest.selection?.workspaceHelp) verifyWorkspaceHelpReport(report, JSON.parse(fs.readFileSync('test-results/workspace-discovery.json')));
     if (manifest.selection?.publicMedia) verifyPublicMediaReport(report, JSON.parse(fs.readFileSync('test-results/public-media-discovery.json')));
     if (manifest.selection?.adminRelease) verifyAdminReport(report, JSON.parse(fs.readFileSync('test-results/admin-discovery.json')));
+    let decorativeMedia;
     if(['homepage-webkit-media','homepage-validation'].includes(process.env.GITHUB_JOB) && (manifest.selection?.homepageMedia ?? true)) {
       const engine=process.env.GITHUB_JOB==='homepage-webkit-media'?'webkit':'chromium';
-      if(engine==='webkit') assert.equal(report.stats.skipped,0,'Native core cases skipped');
-      const passed=new Set();
-      const visit=suite=>{
-        for(const spec of suite.specs||[]) for(const test of spec.tests||[])
-          if(test.projectName===engine && test.results?.length===1 && test.results[0].status==='passed') passed.add(spec.title);
-        (suite.suites||[]).forEach(visit);
-      };
-      (report.suites||[]).forEach(visit);
-      for(const title of HOMEPAGE_WEBKIT_REQUIRED) assert(passed.has(title),'Missing executed core media scenario: '+title);
+      decorativeMedia=verifyHomepageMediaExecution(report,{engine,extended:false});
+      assert(/\.json$/.test(names[0]), 'Expected JSON homepage report');
+      fs.writeFileSync(names[0].replace(/\.json$/, '-decorative.json'), JSON.stringify(decorativeMedia, null, 2)+'\n');
+      printDecorativeSummary(decorativeMedia);
     }
-    fs.mkdirSync('candidate-proofs',{recursive:true});fs.writeFileSync(`candidate-proofs/proof-${process.env.GITHUB_JOB}.json`,JSON.stringify({job:process.env.GITHUB_JOB,status:'passed',manifestHash:hash,reportHash:digest(JSON.stringify(reports)),tests:reports.reduce((n,r)=>n+r.stats.expected+r.stats.flaky,0)}));return;
+    fs.mkdirSync('candidate-proofs',{recursive:true});fs.writeFileSync(`candidate-proofs/proof-${process.env.GITHUB_JOB}.json`,JSON.stringify({job:process.env.GITHUB_JOB,status:'passed',manifestHash:hash,reportHash:digest(JSON.stringify(reports)),tests:reports.reduce((n,r)=>n+r.stats.expected+r.stats.flaky,0),...(decorativeMedia?{decorativeMedia}:{})}));return;
   }
   if(command==='publish') {
     const proofs=fs.readdirSync(dir).filter(f=>f.startsWith('proof-')&&f.endsWith('.json')).map(f=>JSON.parse(fs.readFileSync(path.join(dir,f))));verifyProofs(manifest,proofs);

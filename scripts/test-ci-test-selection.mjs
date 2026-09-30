@@ -28,6 +28,15 @@ function selection(files, options) {
 }
 
 {
+  const file = 'js/shared/flux-2-max-identity.mjs';
+  const selected = selection([file]);
+  assert(selected.workers && selected.auth && selected.homepage && selected.static,
+    'The identity leaf is consumed by Auth and the frontend catalog');
+  assert(selected.reasons.workers.some(reason => reason.includes(file) && reason.includes('shared Worker code used by auth')));
+  assert.equal(isFastDeploySafePath(file), false, 'Auth runtime cannot use frontend-only fast deployment');
+}
+
+{
   const files=['js/shared/wallet/wallet-visibility.js','js/shared/asset-preview-details.js','js/pages/generate-lab/main.js',
     'workers/auth/src/routes/ai/asset-details.js','workers/auth/src/routes/ai/images-write.js','workers/auth/src/lib/appearance-settings.js',
     'tests/asset-preview-details-runtime.mjs','tests/assets-manager-focused.spec.js','tests/oma2-q3-appearance.spec.js'];

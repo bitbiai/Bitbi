@@ -1,5 +1,5 @@
 import {backendContinuationSupported} from './backend-continuation.mjs';
-import { toolingOnlyWorkerPackages } from './worker-tooling-impact.mjs';
+import { workerToolingPatchEvidence } from './worker-tooling-impact.mjs';
 import { selectCiTests } from './ci-test-selection.mjs';
 import fs from "node:fs";
 import path from "node:path";
@@ -56,6 +56,7 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "js/shared/gpt-image-25-contract.mjs": ["auth", "ai"],
   "js/shared/gpt-image-25-pricing.mjs": ["auth"],
   "js/shared/ai-model-pricing.mjs": ["auth"],
+  "js/shared/flux-2-max-identity.mjs": ["auth"],
   "js/shared/admin-ai-contract.mjs": ["auth", "ai"],
   "js/shared/canvas-model-contract.mjs": ["auth"],
   "js/shared/appearance-contract.js": ["auth"],
@@ -626,7 +627,7 @@ function buildCompatibilityNotes(context, changedFiles, impacts) {
 
 export function createReleasePlan(context, { changedFiles, source = { mode: "explicit" } } = {}) {
   const normalizedFiles = normalizeUnique(changedFiles);
-  const toolingOnlyWorkerPackageFiles = toolingOnlyWorkerPackages(context.repoRoot, source, normalizedFiles);
+  const { toolingOnlyWorkerPackageFiles, reviewedToolingPatchFiles } = workerToolingPatchEvidence(context.repoRoot, source, normalizedFiles);
   const impacts = classifyChangedFiles(context, normalizedFiles, toolingOnlyWorkerPackageFiles);
   const deploySteps = buildDeploySteps(context, impacts);
   const impactedWorkerIds = new Set(Object.keys(impacts.workers));
@@ -644,6 +645,7 @@ export function createReleasePlan(context, { changedFiles, source = { mode: "exp
     source,
     changedFiles: normalizedFiles,
     toolingOnlyWorkerPackageFiles,
+    reviewedToolingPatchFiles,
     impacts: {
       workers: Object.fromEntries(
         Object.entries(impacts.workers).map(([workerId, data]) => [

@@ -4,7 +4,28 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, homepageCoreArguments, verifyHomepageCoreDiscovery, verifyHomepageDiscovery } from './lib/homepage-test-selection.mjs';
+import { flattenHomepageDiscovery, homepageCoreArguments, verifyHomepageCoreDiscovery, verifyHomepageDiscovery, verifyHomepageMediaExecution } from './lib/homepage-test-selection.mjs';
+import mediaPolicy from './lib/homepage-media-policy.cjs';
+
+if (process.argv.length > 2) {
+  try {
+    const args = process.argv.slice(2);
+    const [flag, filename, engineFlag, engine, extendedFlag] = args;
+    assert([4, 5].includes(args.length) && flag === '--verify-execution-report'
+      && engineFlag === '--engine' && (extendedFlag === undefined || extendedFlag === '--extended'),
+    'Expected --verify-execution-report report.json --engine chromium|webkit [--extended]');
+    assert(/\.json$/.test(filename), 'Expected a JSON execution report');
+    const summary = verifyHomepageMediaExecution(JSON.parse(fs.readFileSync(filename, 'utf8')), {
+      engine, extended: extendedFlag === '--extended',
+    });
+    fs.writeFileSync(filename.replace(/\.json$/, '-decorative.json'), JSON.stringify(summary, null, 2) + '\n');
+    mediaPolicy.printDecorativeSummary(summary);
+    process.exit(0);
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
+}
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL('../', import.meta.url));

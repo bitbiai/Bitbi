@@ -11,7 +11,7 @@ import {
   runReleaseApply,
   runReleasePreflight,
 } from "./lib/release-plan.mjs";
-import { isUndiciToolingPatch, toolingOnlyWorkerPackages } from './lib/worker-tooling-impact.mjs';
+import { isUndiciToolingPatch, toolingOnlyWorkerPackages, workerToolingPatchEvidence } from './lib/worker-tooling-impact.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -82,8 +82,10 @@ for (const file of ['docs/example.md', 'css/pages/generate-lab.css']) {
   try {
     git(['init', '-q']);
     write('package-lock.json', {packages: {'': {}, 'node_modules/runtime': {version: '1.0.0'}}});
+    write('workers/shared/tooling-fixture.mjs', "export {runtime} from '../../js/shared/tooling-runtime.mjs';\n");
+    write('js/shared/tooling-runtime.mjs', 'export const runtime = 1;\n');
     for (const worker of ['auth', 'ai', 'contact']) {
-      write(`workers/${worker}/src/index.js`, 'export default {};\n');
+      write(`workers/${worker}/src/index.js`, "export {runtime} from '../../shared/tooling-fixture.mjs';\n");
       write(`workers/${worker}/wrangler.jsonc`, '// Existing direct source build\n{"main":"src/index.js"}\n');
       writePair(before, worker);
     }
@@ -92,6 +94,7 @@ for (const file of ['docs/example.md', 'css/pages/generate-lab.css']) {
     commit('reviewed tool patch');
     write('docs/fixture.md', 'Later validation-only input\n');
     write('js/pages/canvas/music-preview.js', 'export const fixture = true;\n');
+    write('js/shared/frontend-only-fixture.mjs', 'export const presentation = true;\n');
     write('services/homepage-ffmpeg-processor/canvas-full-video.mjs', 'export const diagnostic = true;\n');
     const head = commit('later product and validation inputs');
     const source = {mode: 'git-diff', base, head};
@@ -106,6 +109,7 @@ for (const file of ['docs/example.md', 'css/pages/generate-lab.css']) {
     const mixedFiles = git(['diff', '--name-only', `${base}...${head}`]).split('\n');
     const mixed = createReleasePlan(context, {changedFiles: mixedFiles, source});
     assert.deepEqual(mixed.toolingOnlyWorkerPackageFiles.sort(), allFiles.sort());
+    assert.deepEqual(mixed.reviewedToolingPatchFiles.sort(), allFiles.sort());
     assert.deepEqual(mixed.workerDeploys.map(step => step.worker), ['media', 'auth']);
     assert.equal(mixed.impacts.static.required, true);
     assert(backendContinuationSupported(mixed));
@@ -113,7 +117,42 @@ for (const file of ['docs/example.md', 'css/pages/generate-lab.css']) {
     assert.equal(evaluateStaticDeploySafety(mixed, {eventName: 'push', dependenciesVerified: true}).mode, 'verified_backend_dependencies');
     assert.deepEqual(toolingOnlyWorkerPackages(root, {mode: 'explicit'}, files), []);
     assert.deepEqual(toolingOnlyWorkerPackages(root, {...source, base: 'missing-ref'}, files), []);
+    for (const unavailable of [{mode: 'explicit'}, {...source, base: 'missing-ref'}])
+      assert.deepEqual(workerToolingPatchEvidence(root, unavailable, files).reviewedToolingPatchFiles, []);
     assert.equal(createReleasePlan(context, {changedFiles: files}).workerDeploys[0].worker, 'auth');
+    // Unreferenced shared frontend input above is accepted, while exact source
+    // evidence for every reached module and the Worker's own runtime stays strict.
+    for (const [file, value] of [
+      ['js/shared/tooling-runtime.mjs', 'export const runtime = 2;\n'],
+      ['js/shared/tooling-runtime.mjs', 'export const runtime = 1;\n\n'],
+      ['workers/shared/tooling-fixture.mjs', "export {runtime} from '../../js/shared/frontend-only-fixture.mjs';\n"],
+      ['workers/auth/src/index.js', 'export default {};\n'],
+      ['workers/auth/src/unused-runtime.js', 'export const changed = true;\n'],
+      ['workers/auth/wrangler.jsonc', '{"main":"src/index.js","compatibility_date":"2026-09-30"}\n'],
+    ]) {
+      git(['checkout', '-q', head]);write(file, value);
+      const changedHead = commit(`changed runtime input ${file}`);
+      assert.deepEqual(toolingOnlyWorkerPackages(root, {...source, head: changedHead}, files), [], file);
+      if (file.endsWith('wrangler.jsonc'))
+        assert.deepEqual(workerToolingPatchEvidence(root, {...source, head: changedHead}, files).reviewedToolingPatchFiles, []);
+    }
+    git(['checkout', '-q', head]);
+    // An affected Auth graph must still deploy. Its independently reviewed
+    // Undici leaf can coexist with that deployment through the existing path;
+    // unchanged AI/Contact graphs do not acquire deployments from a sibling edit.
+    write('js/shared/flux-2-max-identity.mjs', 'export const model = "fixture";\n');
+    write('workers/auth/src/index.js', "export {model} from '../../../js/shared/flux-2-max-identity.mjs';\n");
+    const authRuntimeHead = commit('Auth runtime and reviewed dependency patch');
+    const authRuntimeFiles = git(['diff', '--name-only', `${base}...${authRuntimeHead}`]).split('\n');
+    const authRuntime = createReleasePlan(context, {changedFiles: authRuntimeFiles, source: {...source, head: authRuntimeHead}});
+    assert.deepEqual(authRuntime.workerDeploys.map(step => step.worker), ['media', 'auth']);
+    assert.deepEqual(authRuntime.toolingOnlyWorkerPackageFiles.sort(), allFiles.filter(file => !file.startsWith('workers/auth/')).sort());
+    assert.deepEqual(authRuntime.reviewedToolingPatchFiles.sort(), allFiles.sort());
+    assert(backendContinuationSupported(authRuntime));
+    assert(!backendContinuationSupported({...authRuntime, reviewedToolingPatchFiles: []}), 'Runtime impact does not prove the package patch');
+    assert.equal(evaluateStaticDeploySafety(authRuntime, {eventName: 'push'}).allowed, false);
+    assert.equal(evaluateStaticDeploySafety(authRuntime, {eventName: 'push', dependenciesVerified: true}).mode, 'verified_backend_dependencies');
+    git(['checkout', '-q', head]);
     // Dirty manifest cannot replace immutable source evidence.
     writePair(version('8.0.0'));
     assert.deepEqual(toolingOnlyWorkerPackages(root, source, files), files);
@@ -121,6 +160,7 @@ for (const file of ['docs/example.md', 'css/pages/generate-lab.css']) {
     write('workers/auth/src/index.js', "import {fetch} from 'undici'; export default {fetch};\n");
     const runtimeHead = commit('runtime change');
     assert.deepEqual(toolingOnlyWorkerPackages(root, {...source, head: runtimeHead}, files), []);
+    assert.deepEqual(workerToolingPatchEvidence(root, {...source, head: runtimeHead}, files).reviewedToolingPatchFiles, []);
     // Even unchanged direct runtime use denies the exception for a later patch.
     writePair(version('7.29.2'));const directUse = commit('later patch with runtime use');
     assert.deepEqual(toolingOnlyWorkerPackages(root, {mode: 'git-diff', base: runtimeHead, head: directUse}, files), []);
@@ -128,6 +168,7 @@ for (const file of ['docs/example.md', 'css/pages/generate-lab.css']) {
     write('package-lock.json', {packages: {'': {}, 'node_modules/runtime': {version: '1.0.1'}}});
     const dependencyHead = commit('root production dependency');
     assert.deepEqual(toolingOnlyWorkerPackages(root, {...source, head: dependencyHead}, files), []);
+    assert.deepEqual(workerToolingPatchEvidence(root, {...source, head: dependencyHead}, files).reviewedToolingPatchFiles, []);
     // Existing transitive imports and build hooks are unsafe even when they did
     // not change during the dependency-only range under consideration.
     for (const [label, configure] of [
@@ -176,6 +217,7 @@ for (const file of ['docs/example.md', 'css/pages/generate-lab.css']) {
       next.lock = {...previous.lock, packages: {...previous.lock.packages, 'node_modules/undici': next.lock.packages['node_modules/undici']}};
       writePair(next);const unsafeHead = commit(`patch with ${label}`);
       assert.deepEqual(toolingOnlyWorkerPackages(root, {mode: 'git-diff', base: unsafeBase, head: unsafeHead}, files), [], label);
+      assert.deepEqual(workerToolingPatchEvidence(root, {mode: 'git-diff', base: unsafeBase, head: unsafeHead}, files).reviewedToolingPatchFiles, [], label);
     }
     git(['checkout', '-q', head]);
     const unknownPackage = structuredClone(after);unknownPackage.manifest.devDependencies.wrangler = '4.130.0';
@@ -196,7 +238,18 @@ for (const file of ['docs/example.md', 'css/pages/generate-lab.css']) {
     }
     assert.equal(isUndiciToolingPatch(before, version('7.30.0')), false);
     assert.equal(isUndiciToolingPatch(before, version('7.28.9')), false);
+    console.log('Immutable Worker tooling proof: unreferenced shared input, exact reachable blobs, affected Auth continuation and unsafe import/build/config/compiler counterchecks passed.');
   } finally {fs.rmSync(root, {recursive: true, force: true});}
+}
+
+{
+  const file = 'js/shared/flux-2-max-identity.mjs';
+  assert(fs.readFileSync(path.join(repoRoot, 'js/shared/ai-image-models.mjs'), 'utf8').includes("from './flux-2-max-identity.mjs'"));
+  assert(fs.readFileSync(path.join(repoRoot, 'workers/auth/src/routes/ai/images-write.js'), 'utf8').includes('js/shared/ai-image-models.mjs'));
+  const plan = createReleasePlanFromRepo(repoRoot, {files: [file]});
+  assert.deepEqual(plan.workerDeploys.map(step => step.worker), ['auth']);
+  assert(plan.impacts.static.required);
+  assert.equal(plan.schemaApplies.length, 0);
 }
 
 for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/restriction-adapter.mjs"]) {

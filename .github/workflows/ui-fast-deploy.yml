@@ -254,6 +254,8 @@ jobs:
           test "$(id -u)" -gt 0
           mkdir -p "$RUNNER_TEMP/homepage-home" "$RUNNER_TEMP/homepage-tmp"
           env -i PATH="$PATH" HOME="$RUNNER_TEMP/homepage-home" TMPDIR="$RUNNER_TEMP/homepage-tmp" CI=true GITHUB_SHA="$GITHUB_SHA" PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/homepage-browsers" /usr/bin/sandbox-exec -f tests/helpers/homepage-macos.sb /bin/sh -c 'node scripts/check-homepage-runtime.mjs --macos && npm run test:homepage-webkit'
+      - name: Verify functional acceptance and decorative observations
+        run: node scripts/check-homepage-selection.mjs --verify-execution-report test-results/homepage-webkit.json --engine webkit
       - name: Upload mandatory macOS media evidence
         if: always()
         uses: actions/upload-artifact@v6
@@ -262,6 +264,7 @@ jobs:
           path: |
             test-results/homepage-runtime.json
             test-results/homepage-webkit.json
+            test-results/homepage-webkit-decorative.json
             test-results/homepage-webkit/
           retention-days: 7
           if-no-files-found: error
@@ -324,6 +327,9 @@ jobs:
         env:
           HOMEPAGE_MEDIA: ${{ needs.guard.outputs.homepage_media }}
         run: npm run test:homepage-functional
+      - name: Verify functional acceptance and decorative observations
+        if: ${{ success() && needs.guard.outputs.homepage_media == 'true' && steps.homepage_discovery.outcome == 'success' }}
+        run: node scripts/check-homepage-selection.mjs --verify-execution-report test-results/homepage-functional.json --engine chromium
       - name: Record controlled homepage performance diagnostics
         if: ${{ success() && needs.guard.outputs.carousel == 'true' && steps.homepage_discovery.outcome == 'success' }}
         run: npm run test:homepage-performance

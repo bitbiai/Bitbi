@@ -112,7 +112,7 @@ Do not invent commands/scripts that are not present in this repo.
 - Complete an approved implementation package coherently: reproduce the relevant failure, make the scoped fix, update regressions/docs, validate, then commit/push without asking again for each internal step. The user's goals, acceptance criteria and security constraints are binding; choose the technical solution autonomously, including alternatives that meet them at least as well and the necessary related fixes/tests/docs. Reuse authorization already given; new product semantics, scope expansion or production operations outside that authorization still need a separate decision. Preserve unrelated user work, keep credentials out of logs and commits, and retain private evidence outside the public repository.
 - A repair is complete only when its evidenced cause, executable regression/countercontrol, actual local/CI caller and final tested inputs are linked. Tie tests to protected behavior and risk; replace false or redundant proxies with an evidenced equivalent contract, not another blanket gate. Maintain the compact `docs/runbooks/REGRESSION_REGISTER.md`; discovery is not execution, a replay is not native acceptance, and an unexplained historical failure must not be relabelled as fixed.
 - Map every new spec to its real CI execution entrypoint. Pages selection and candidate evidence must cover the complete unpublished range from the last verified successful deployment, not a completed historical release or the last push. Preserve exact tested artifact identity, selected job evidence, final dependency guard and shared write lock; use the existing source run/attempt reuse path only when needed, without a duplicate full run merely to publish.
-- For the reviewed Admin-reader production surface plus its closed release/test-tooling path set, `admin-reader-v1` requires all News, Admin navigation/session/MFA and short homepage smoke checks in Chromium/WebKit against the candidate build, plus release/security/tooling checks. Unchanged decorative-video failures remain unresolved in Full/extended regression, not Admin release prerequisites. Inspect the entire unpublished production diff first; shared/runtime/backend/dependency or unknown inputs cannot use this bounded scope. Unselected suites are not passes, and no old failed candidate is re-certified under a new policy.
+- For the reviewed Admin-reader production surface plus its closed release/test-tooling path set, `admin-reader-v1` requires all News, Admin navigation/session/MFA and short homepage smoke checks in Chromium/WebKit against the candidate build, plus release/security/tooling checks. Decorative quality findings remain unresolved diagnostics under the owner-approved fallback policy; functional failures still block selected acceptance. Inspect the entire unpublished production diff first; shared/runtime/backend/dependency or unknown inputs cannot use this bounded scope. Unselected suites are not passes, and no old failed candidate is re-certified under a new policy.
 - Before a CI repair, search the affected signature/caller in [the regression register](docs/runbooks/REGRESSION_REGISTER.md) and read the [main-only release runbook](docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md). Apply their focused checks through the actual caller.
 
 ## Completion modes
@@ -147,7 +147,7 @@ Run the smallest set that truly covers changed surfaces. Routine UI, documentati
 - Release/config/migration/binding changes: `npm run test:release-compat`, `npm run validate:release`
 - Asset version/build-pipeline changes: `npm run test:asset-version`, `npm run validate:asset-version`, `npm run build:static`
 
-Carousel laboratory timing thresholds (including 50 ms tasks, 100 ms first motion and the historical transition-duration range) are diagnostics, not release vetoes. Preserve visible warnings and valid native measurement/countercontrols; missing or broken measurements are not performance passes. Functional completion, geometry, media/audio behavior, finite liveness timeouts, security and data-integrity gates remain mandatory. Do not relabel historical failures.
+Carousel laboratory timing thresholds (including 50 ms tasks, 100 ms first motion and the historical transition-duration range) are diagnostics, not release vetoes. Preserve visible warnings and valid native measurement/countercontrols; missing or broken measurements are not performance passes. Functional completion, geometry, primary media/audio behavior, finite functional liveness timeouts, security and data-integrity gates remain mandatory. Do not relabel historical failures.
 
 The static frontend Worker (`frontend/index.mjs`, `frontend/wrangler.jsonc`)
 and explicitly mapped release-only tooling use the existing release/build and
@@ -217,9 +217,14 @@ For substantial changes, also identify relevant schema/config/binding impact, de
 - Preserve historical detail in `docs/audits/ALPHA_AUDIT_PHASE_CHANGELOG.md`, `docs/audits/archive/`, `docs/audits/archive/root-phase-reports/`, or dedicated evidence files.
 - Do not claim production readiness, live billing readiness, tenant isolation, access-switch readiness, ownership backfill readiness, confirmed legacy media reset readiness, or deployment completion without evidence.
 
-## Q4 native media acceptance
+## Decorative homepage media acceptance
 
-For the authorized Q4 release, native WebKit core acceptance runs on standard macOS CI; Linux keeps Worker/runtime/security, Chromium media and non-decoder WebKit homepage checks. Required core scenarios cover available playback, visible poster/retained content on failed or delayed decorative loading, navigation, suspension/manual pause, EN/DE and existing responsive policy. Decorative exact-cycle/multi-loop stress belongs to the explicit extended commands in Full regression; scenario discovery verifies both scopes. Do not promote historical failures to passes. Missing/failed core evidence or wrong build bytes blocks release. Narrow Carousel timing budgets remain diagnostic; safety, accounting, authorization and primary media functionality remain binding.
+Decorative homepage Hero playback follows the owner-approved
+[decorative media policy](docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md#decorative-hero-acceptance):
+bounded output/loop/resume findings remain visible diagnostics when a valid visible
+poster/still and usable page remain. Navigation, pause/cleanup/isolation and primary
+media, Canvas, audio, auth, ownership and credits stay blocking. Never claim a stall
+was repaired or reinterpret an old failed run under the new policy.
 
 ## Explicit production-release continuation
 

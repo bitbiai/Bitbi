@@ -33,6 +33,42 @@ The following CI procedure governs ordinary delivery and explicitly requested
 acceptance; the numbered operator readiness checklist is for a separately scoped
 broad readiness review, not a blanket suite or deployment authorization for every edit.
 
+## Decorative Hero acceptance
+
+Owner decision, 2026-09-30: `decorative-fallback-v2` accepts delayed, uneven or
+stalled **decorative homepage Hero** playback while a valid decoded poster/still
+remains visible and the page remains usable. The native stall is unresolved, not
+repaired; its bounded observation proves neither permanent failure nor eventual
+recovery. Fixtures use local HTTP and loopback isolation, not Cloudflare delivery.
+
+The existing Linux/macOS jobs still execute all selected functional scenarios.
+Bounded frame, loop/seek and transition-resume observations are inline structured
+`decorative-media-observation` evidence, tagged only in the allowlisted Hero cases;
+missing progress is a warning, never successful playback. A finite per-case quality
+budget leaves time for required checks without enlarging any observation deadline.
+Visible decoded fallback/layout, Models navigation, pause/reduced-motion/cleanup
+and isolation from independent players stay blocking and run despite quality
+warnings. Independent media controls, Canvas preview/export, audio, generation,
+save, auth, ownership and credits do not inherit this exception.
+
+`homepage-test-selection.mjs` checks named cases and exact diagnostic classification;
+`check-homepage-selection.mjs --verify-execution-report` validates the actual Full
+reports. `pages-candidate.mjs` uses the same execution/diagnostic verifier before
+candidate proof. The shared `homepage-media-policy.cjs` owns the version, bounded
+observation schema and visible warning summary. All required cases must execute;
+unknown/malformed/missing evidence, retries or genuine functional failures remain
+red. Missing tags/observations, wrong policy and failed Models/fallback controls
+cannot be accepted by adding a warning. Deliberately frozen media exercises the
+accepted warning path separately from observed quality findings.
+
+Keep protected jobs, environment preparation, report/artifact uploads, candidate
+hashes and run/attempt identity. No whole-job exception, swallowed command failure,
+retry-to-green or old-run recertification. Existing Full/release callers provide
+fresh final-source functional evidence; do not repeat unrelated broad suites or
+investigate accepted decorative stalls merely to remove warnings. Report completed
+acceptance as “Functional acceptance passed; decorative playback limitation
+accepted.” Publication still requires its own matching protected evidence.
+
 ## CI repair and required acceptance
 
 Use this procedure when the assignment explicitly requires CI repair through final
@@ -90,7 +126,12 @@ The reviewed Undici exception changes deployment classification only. For Auth,
 AI and Contact, `scripts/lib/worker-tooling-impact.mjs` requires immutable Git
 base/head evidence of only a forward compatible Undici development-leaf patch,
 unchanged runtime/compiler inputs, and no application imports of that tool chain
-or custom build/resolution path. Unknown or missing evidence retains normal
+or custom build/resolution path. The existing literal import traversal requires
+every reached source to remain byte-identical across base/head; an unrelated
+frontend-only shared module does not force an unchanged Worker deployment.
+A separate proof of that same reviewed package patch can accompany an already
+selected Auth runtime deployment; it never removes that deployment or admits an
+unreviewed package/compiler/config change. Unknown or missing evidence retains normal
 deployment requirements. Audits and affected Worker tests still run. Existing
 `test:release-plan` real-Git controls cover mixed product changes, missing evidence,
 runtime/tool imports, custom builds and unsafe fallback; this is not a general

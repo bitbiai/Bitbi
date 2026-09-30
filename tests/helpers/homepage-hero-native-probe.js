@@ -207,7 +207,7 @@ function installBrowserProbe(createProgressWindow, observeProgress, recordNative
         const finish = (passed, reason) => {
           if (finished) return;
           finished = true; observer?.disconnect(); clearTimeout(deadline); clearInterval(progressTimer);
-          resolve({ passed, reason, elapsed: performance.now() - start, targets: targets.map(describe),
+          resolve({ passed, reason, elapsed: performance.now() - start, timeout, targets: targets.map(describe),
             scope: requireOutput ? 'Exact paused targets: settled destination and own post-resume output; later cycles are separate.' : 'Exact paused transition geometry; no native output claim.' });
         };
         if (!targets.length) return finish(false, 'no-paused-transition');
@@ -312,7 +312,7 @@ function observeProgress(sample, { loops = 0, timeout = 5000, action = null, cap
     const start = performance.now();
     const samples = [], decisions = [];
     let timer, deadline, unsubscribe, sampleCount = 0, settled = false;
-    let actionAt = null, actionBaseline = null, actionIssues = [], targetBaseline = null, targets = null;
+    let actionAt = null, actionBaseline = null, actionIssues = [], targetBaseline = null, targets = null, ownOutputObserved = false;
     const finish = (passed, error) => {
       if (settled) return;
       settled = true; clearTimeout(timer); clearTimeout(deadline); unsubscribe?.();
@@ -320,7 +320,7 @@ function observeProgress(sample, { loops = 0, timeout = 5000, action = null, cap
       else resolve({ passed, phase: loops ? 'loop' : 'play-or-resume',
         issues: actionIssues.length ? actionIssues : progress.issues?.() || [],
         actionAt, actionBaseline, targetBaseline, targets, elapsed: performance.now() - start, sampleCount, samples, decisions, timeout,
-        startedAt: start, deadlineAt: start + timeout });
+        startedAt: start, deadlineAt: start + timeout, ownOutputObserved });
     };
     const tick = () => {
       if (settled) return;
@@ -342,6 +342,7 @@ function observeProgress(sample, { loops = 0, timeout = 5000, action = null, cap
         // native browser samples always carry outputPair (null until proved).
         const hasOwnOutput = observed.filter(v=>v.active).every(v =>
           v.outputPair === undefined || (v.outputPair && v.outputPair.from >= (actionAt ?? start) && v.outputPair.to <= start + timeout));
+        ownOutputObserved = hasOwnOutput;
         if (actionBaseline && !captureTargets) {
           const active = current.filter(video => video.active);
           actionIssues = actionBaseline.flatMap(before => {

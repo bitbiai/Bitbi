@@ -2,6 +2,8 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const { installHeroNativeProbe } = require('./helpers/homepage-hero-native-probe');
+const { readHeroFallback, expectHeroFallback, expectModelsUsable, expectDecorativeUsable,
+  observeDecorative, observeDecorativeProgress } = require('./helpers/homepage-decorative-media.cjs');
 
 const VIDEO = fs.readFileSync(path.join(__dirname, 'fixtures/media/test-video.mp4'));
 const POSTER = fs.readFileSync(path.join(__dirname, 'fixtures/media/favorite-thumb.jpg'));
@@ -99,30 +101,25 @@ async function openHome(page, locale, options) {
   await expect(page.locator('#hero [data-video-module-state="ready"]')).toHaveCount(2);
   await expect(page.locator('#hero .latest-models-video-module__label').first())
     .toHaveText(locale === 'de' ? 'Plattform Modelle' : 'Platform Models');
+  await expectDecorativeUsable(page);
   return state;
 }
 
-async function expectPlaying(page, resume = null, captureTargets = false) {
-  const result = await page.evaluate(({ resume, captureTargets }) => window.__heroNativeProbe.waitForProgress({
-    captureTargets,
-    action: resume === null ? null : () => {
-      if (resume === 'visible') window.__setHeroDocumentHidden(false);
-      else if (resume === 'onscreen') window.scrollTo(0, 0);
-      else if (resume === 'pageshow') window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
-      else throw new Error('Unknown native resume action');
-    },
-  }), { resume, captureTargets });
-  await test.info().attach('native-active-slot-progress', {
-    body: JSON.stringify(result), contentType: 'application/json',
-  });
-  expect(result.passed, `${result.phase}: ${JSON.stringify(result.issues)}`).toBe(true);
-  if (resume) {
-    expect(result.actionBaseline).toHaveLength(4);
-    for (const video of result.targets ?? result.samples.at(-1).filter(v => v.active)) {
-      expect(video.lastNativeOutput?.observedAt, `${resume}: own post-action output for ${video.slot}`).toBeGreaterThan(result.actionAt);
-      expect(video.lastNativeOutput?.epoch).toBe(video.epoch);
+async function observePlaying(page, resume = null, captureTargets = false) {
+  return observeDecorativeProgress(page, test.info(), { resume, captureTargets });
+}
+
+async function observeDecorativeCondition(page, testInfo, check, read) {
+  return observeDecorative(page, testInfo, check, async timeout => {
+    const start = performance.now();
+    let observed = await read();
+    while (!observed.passed && performance.now() - start < timeout) {
+      await new Promise(resolve => setTimeout(resolve, 40));
+      observed = await read();
     }
-  }
+    const elapsed = performance.now() - start;
+    return { passed: observed.passed && elapsed <= timeout, phase: check, observed, elapsed, timeout };
+  });
 }
 
 async function startContinuityProbe(page) {
@@ -149,20 +146,28 @@ async function expectNativeResumeContinuity(page, testInfo, label) {
   await testInfo.attach(label, { body: JSON.stringify(resumes), contentType: 'application/json' });
 }
 
-async function suspendAtNativeTurn(page) {
-  await page.evaluate(selector => {
-    const observer = new MutationObserver(suspend);
-    function suspend() {
+async function suspendAtNativeTurn(page, testInfo) {
+  return observeDecorative(page, testInfo, 'turn-acquisition', timeout => page.evaluate(({ selector, timeout }) => new Promise(resolve => {
+    const start = performance.now();
+    let timer;
+    const observer = new MutationObserver(inspect);
+    const finish = passed => {
+      observer.disconnect(); clearTimeout(timer);
+      const elapsed = performance.now() - start;
+      resolve({ passed: passed && elapsed <= timeout, phase: 'turn-acquisition', elapsed, timeout,
+        observed: { turning: !!document.querySelector(`${selector}.is-turning`) } });
+    };
+    function inspect() {
       if (!document.querySelector(`${selector}.is-turning`)) return;
-      observer.disconnect();
-      // Capture the actual turn in the same DOM update, not a later driver task
-      // which might already be beyond animationend or its fallback deadline.
+      // Freeze the exact turn in the same DOM update. A missing decorative
+      // turn is a quality observation; the pause/nav checks still run below.
       window.__setHeroDocumentHidden(true);
+      finish(true);
     }
     observer.observe(document.querySelector('#hero'), { attributes: true, attributeFilter: ['class'], subtree: true });
-    suspend();
-  }, HERO_SLOTS);
-  await expect(page.locator(`${HERO_SLOTS}.is-turning`).first()).toBeAttached({ timeout: 3000 });
+    timer = setTimeout(() => finish(false), timeout);
+    inspect();
+  }), { selector: HERO_SLOTS, timeout }), { max: 3000 });
 }
 
 async function expectContinuity(page) {
@@ -279,27 +284,25 @@ test('decorative unavailable video retains visible poster and usable Models navi
 });
 
 for (const locale of ['en', 'de']) {
-  test(`${locale}: configured native media loops in every slot with the public range file contract`, { tag: '@homepage-extended' }, async ({ page }, testInfo) => {
+  test(`${locale}: configured native media loops in every slot with the public range file contract`, { tag: ['@homepage-extended', '@decorative-playback'] }, async ({ page }, testInfo) => {
     await openHome(page, locale);
-    await expectPlaying(page);
-    const result = await page.evaluate(() => window.__heroNativeProbe.waitForProgress({ loops: 2 }));
-    await testInfo.attach('native-range-response-loop', { body: JSON.stringify(result), contentType: 'application/json' });
-    expect(result.samples.flat().every(video => video.duration === 1)).toBe(true);
-    expect(result.passed, `${result.phase}: ${JSON.stringify(result.issues)}`).toBe(true);
+    await observePlaying(page);
+    await observeDecorativeProgress(page, testInfo, { loops: 2, check: 'range-loop' });
     await page.evaluate(() => window.__setHeroDocumentHidden(true));
     await expectFrozen(page, testInfo, 'native-loop-suspended', 200);
-    await expectPlaying(page, 'visible');
+    await observePlaying(page, 'visible');
+    await expectDecorativeUsable(page);
   });
 
-  test(`${locale}: configured hero pauses offscreen and hidden, resumes existing media and respects an existing pause`, async ({ page }, testInfo) => {
+  test(`${locale}: configured hero pauses offscreen and hidden, resumes existing media and respects an existing pause`, { tag: '@decorative-playback' }, async ({ page }, testInfo) => {
     const state = await openHome(page, locale);
-    await expectPlaying(page);
+    await observePlaying(page);
     await startContinuityProbe(page);
-    // expectPlaying already proves each identity's new native output. Two
-    // external currentTime snapshots can match after a legitimate loop.
+    // Record quality independently; source/DOM continuity and suspension below
+    // remain required even when no fresh decorative frames were observed.
     await scrollHeroOffscreen(page);
     await expectFrozen(page, testInfo, 'offscreen-native-playback');
-    await expectPlaying(page, 'onscreen');
+    await observePlaying(page, 'onscreen');
     await expectContinuity(page);
 
     // A separate controlled player stays outside the decorative hero lifecycle.
@@ -318,7 +321,7 @@ for (const locale of ['en', 'de']) {
     await page.evaluate(() => window.__setHeroDocumentHidden(true));
     await expectFrozen(page, testInfo, 'synthetic-hidden-native-playback');
     expect(await page.locator('#independent-controlled-video').evaluate(video => video.paused)).toBe(false);
-    await expectPlaying(page, 'visible');
+    await observePlaying(page, 'visible');
     await expectContinuity(page);
 
     await page.locator(HERO_VIDEOS).first().evaluate(video => video.pause());
@@ -329,14 +332,15 @@ for (const locale of ['en', 'de']) {
       .toEqual([true, false, false, false]);
     await expectContinuity(page);
     expect(state.errors).toEqual([]);
+    await expectDecorativeUsable(page);
   });
 
-  test(`${locale}: fallback freezes media and its staggered cycle while suspended`, { tag: '@homepage-extended' }, async ({ page }, testInfo) => {
+  test(`${locale}: fallback freezes media and its staggered cycle while suspended`, { tag: ['@homepage-extended', '@decorative-playback'] }, async ({ page }, testInfo) => {
     const state = await openHome(page, locale, { configured: false });
-    // This phase proves output from its four captured videos. A lawful cycle
+    // This phase observes output from its four captured videos. A lawful cycle
     // can select a successor while the original face still visibly plays.
     // Current-target loading and loop/seek behavior have independent cases.
-    await expectPlaying(page, null, true);
+    await observePlaying(page, null, true);
     await scrollHeroOffscreen(page);
     await expect.poll(() => page.locator(HERO_VIDEOS).evaluateAll(videos => videos.every(video => video.paused))).toBe(true);
     // The offscreen observer is asynchronous. The frozen interval begins at
@@ -346,31 +350,32 @@ for (const locale of ['en', 'de']) {
     await expectFrozen(page, testInfo, 'fallback-offscreen-native-playback', 2400);
     expect(await page.locator(HERO_SLOTS).evaluateAll(slots => slots.map(slot => slot.dataset.transitionCount))).toEqual(cyclesBefore);
     await expectContinuity(page);
-    await expectPlaying(page, 'onscreen', true);
+    await observePlaying(page, 'onscreen', true);
     await expectNativeResumeContinuity(page, testInfo, 'fallback-native-resume');
 
     // Suspension during an actual cube turn retains both faces and resumes it.
-    await suspendAtNativeTurn(page);
-    expect(await page.locator(HERO_SLOTS).evaluateAll(slots => slots.some(slot => Number(slot.dataset.transitionCount) > 0))).toBe(true);
+    const turn = await suspendAtNativeTurn(page, testInfo);
+    if (!turn.passed) await page.evaluate(() => window.__setHeroDocumentHidden(true));
     await startContinuityProbe(page);
     const duringTurn = await page.locator(HERO_SLOTS).evaluateAll(slots => slots.map(slot => slot.dataset.transitionCount));
     await expectFrozen(page, testInfo, 'fallback-hidden-during-transition', 1250);
     expect(await page.locator(HERO_SLOTS).evaluateAll(slots => slots.map(slot => slot.dataset.transitionCount))).toEqual(duringTurn);
     await expectContinuity(page);
-    await page.evaluate(() => {
-      window.__heroTurnCompletion = window.__heroNativeProbe.observePausedTransitions({ requireOutput: true });
-      window.__setHeroDocumentHidden(false); // Observe and resume in the same task.
-    });
-    // This is the paused transition's resume, not an open-ended requirement
-    // that every later fallback target finish loading in the same interval.
-    const completion = await page.evaluate(() => window.__heroTurnCompletion);
-    await testInfo.attach('resumed-transition-targets', { body: JSON.stringify(completion), contentType: 'application/json' });
-    expect(completion.passed, `${completion.reason}: ${JSON.stringify(completion.targets)}`).toBe(true);
+    if (turn.passed) {
+      await observeDecorative(page, testInfo, 'paused-transition', timeout => page.evaluate(timeout => {
+        const completion = window.__heroNativeProbe.observePausedTransitions({ requireOutput: true, timeout });
+        window.__setHeroDocumentHidden(false);
+        return completion;
+      }, timeout), { max: 2000, onBudget: () => page.evaluate(() => window.__setHeroDocumentHidden(false)) });
+    } else {
+      await observePlaying(page, 'visible', true);
+    }
     await expectNativeResumeContinuity(page, testInfo, 'fallback-native-turn-resume');
     expect(state.errors).toEqual([]);
+    await expectDecorativeUsable(page);
   });
 
-  test(`${locale}: decorative fallback retains playable content while next media loads`, async ({ page }, testInfo) => {
+  test(`${locale}: decorative fallback retains playable content while next media loads`, { tag: '@decorative-playback' }, async ({ page }, testInfo) => {
     let release;
     const gate = new Promise(resolve => { release = resolve; });
     const pending = [];
@@ -384,77 +389,74 @@ for (const locale of ['en', 'de']) {
       // this loading contract from one-second loop-seek scheduling. Short-clip
       // loop checks and the old-controller readiness countercontrol remain.
       await openHome(page, locale, { configured: false, loadingFixture: true });
-      await expectPlaying(page);
+      await observePlaying(page);
       const bottoms = page.locator(`${HERO_SLOTS}[data-latest-models-slot="bottom"]`);
       // Each real successor request must occur; unrelated slots need not enter
       // speculation in the same driver sample. No request is not an adoption pass.
-      for (const id of ['playback-2','playback-7']) {
-        await expect.poll(() => pending.some(url => url.includes(`/${id}/`)), { message: `Expected held successor request for ${id}` }).toBe(true);
-      }
+      await observeDecorativeCondition(page, testInfo, 'next-preview-requests', () => ({
+        passed: ['playback-2', 'playback-7'].every(id => pending.some(url => url.includes(`/${id}/`))),
+        requests: pending.slice(),
+      }));
       const kept = await bottoms.evaluateAll(slots => slots.map(s => ({ id: s.dataset.activeVideoId, src: s.querySelector('video').getAttribute('src') })));
       expect(kept.map(s => s.id).sort()).toEqual(['playback-1','playback-6']);
-      await expectPlaying(page); // Each visible identity outputs while next bytes are held.
-      expect(pending.length).toBeGreaterThanOrEqual(2);
+      await observePlaying(page); // Observe retained identities while next bytes are held.
       if (locale === 'en') {
         release();
-        await expect.poll(() => bottoms.evaluateAll(slots => slots.map(s => s.dataset.activeVideoId).sort())).toEqual(['playback-2','playback-7']);
-        await expectPlaying(page); // Adopted sources must supply their own output.
+        await observeDecorativeCondition(page, testInfo, 'next-preview-adoption', async () => {
+          const targets = await bottoms.evaluateAll(slots => slots.map(s => s.dataset.activeVideoId).sort());
+          return { passed: JSON.stringify(targets) === JSON.stringify(['playback-2', 'playback-7']), targets };
+        });
+        await observePlaying(page); // Keep adopted-source output as explicit quality evidence.
       } else {
         await page.evaluate(() => window.__setHeroDocumentHidden(true));
         await expectFrozen(page, testInfo, 'decorative-loading-suspended', 200);
         // Suspension cancels speculation; late responses cannot win after resume.
         release();
-        const resumed = await page.evaluate(() => {
-          const retained = window.__heroNativeProbe.sample().filter(v => v.active && v.slot.endsWith('_bottom'));
+        const retained = await page.evaluate(() => window.__heroNativeProbe.sample().filter(v => v.active && v.slot.endsWith('_bottom')));
+        const resumed = await observeDecorative(page, testInfo, 'cancelled-preparation-output', timeout => page.evaluate(timeout => {
           window.__setHeroDocumentHidden(false);
           // Observe current output in the same browser task. Upper slots may
           // legally advance; only the two cancelled preparations must retain
           // their original identities. The native probe still requires fresh
           // submitted-frame pairs for all four current slots within its deadline.
-          return window.__heroNativeProbe.waitForProgress().then(result => ({ ...result, retained }));
-        });
-        await testInfo.attach('cancelled-preparation-output', { body: JSON.stringify(resumed), contentType: 'application/json' });
-        expect(resumed.retained.map(v => v.slot).sort()).toEqual(['left_bottom','right_bottom']);
-        expect(resumed.passed, JSON.stringify(resumed.issues)).toBe(true);
-        for (const sample of resumed.samples) for (const before of resumed.retained) {
+          return window.__heroNativeProbe.waitForProgress({ timeout });
+        }, timeout), { onBudget: () => page.evaluate(() => window.__setHeroDocumentHidden(false)) });
+        expect(retained.map(v => v.slot).sort()).toEqual(['left_bottom','right_bottom']);
+        for (const sample of resumed.samples || []) for (const before of retained) {
           const current = sample.find(v => v.active && v.slot === before.slot);
           expect(current, `Cancelled preparation retained ${before.slot}`).toMatchObject({ id: before.id, src: before.src, epoch: before.epoch, connected: true });
         }
         expect(await bottoms.evaluateAll(slots => slots.map(s => ({ id: s.dataset.activeVideoId, src: s.querySelector('video').getAttribute('src') })))).toEqual(kept);
       }
-      await page.locator('#hero [data-models-link]').first().click();
-      await expect(page.locator('.models-overlay')).toBeVisible();
+      await expectDecorativeUsable(page);
     } finally { release(); }
   });
 
-  test(`${locale}: hidden initialization and bfcache restore preserve media; ordinary pagehide cleans up`, async ({ page }, testInfo) => {
+  test(`${locale}: hidden initialization and bfcache restore preserve media; ordinary pagehide cleans up`, { tag: '@decorative-playback' }, async ({ page }, testInfo) => {
     const state = await openHome(page, locale, { initiallyHidden: true });
     await startContinuityProbe(page);
     await expectFrozen(page, testInfo, 'initial-hidden-native-playback', 200);
-    await expectPlaying(page, 'visible');
+    await observePlaying(page, 'visible');
     await expectContinuity(page);
 
     for (let cycle = 0; cycle < 2; cycle += 1) {
       await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
       await expectFrozen(page, testInfo, `bfcache-hidden-${cycle}`, 200);
-      await expectPlaying(page, 'pageshow');
+      await observePlaying(page, 'pageshow');
       await expectContinuity(page);
     }
     // A first resumed frame does not certify subsequent looping. Keep the
-    // post-bfcache seek/output phase separate, with the existing finite bound.
-    const continuation = await page.evaluate(() => window.__heroNativeProbe.waitForProgress({ loops: 1 }));
-    await testInfo.attach('post-bfcache-loop-output', { body: JSON.stringify(continuation), contentType: 'application/json' });
-    expect(continuation.passed, JSON.stringify(continuation.issues)).toBe(true);
+    // post-bfcache seek/output observation separate and bounded.
+    await observeDecorativeProgress(page, testInfo, { loops: 1, check: 'post-bfcache-loop' });
     await expectContinuity(page);
     // Listener reattachment is observable after the bfcache round trips.
     await page.evaluate(() => window.__setHeroDocumentHidden(true));
     await expectFrozen(page, testInfo, 'hidden-after-bfcache', 200);
-    await expectPlaying(page, 'visible');
-    // Resume evidence must not hide a subsequent stuck loop/seek, including
-    // this final visibility cycle. New window, same existing functional bound.
-    const visibleContinuation = await page.evaluate(() => window.__heroNativeProbe.waitForProgress({ loops: 1 }));
-    await testInfo.attach('post-visibility-loop-output', { body: JSON.stringify(visibleContinuation), contentType: 'application/json' });
-    expect(visibleContinuation.passed, JSON.stringify(visibleContinuation.issues)).toBe(true);
+    await observePlaying(page, 'visible');
+    // Keep a subsequent stuck loop/seek visible as its own quality warning,
+    // including this final visibility cycle. Cleanup does not depend on it.
+    await observeDecorativeProgress(page, testInfo, { loops: 1, check: 'post-visibility-loop' });
+    await expectDecorativeUsable(page);
     await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false })));
     await expect(page.locator(HERO_VIDEOS)).toHaveCount(0);
     expect(await page.evaluate(() => window.__heroContinuityProbe.videos.every(video => video.paused && !video.hasAttribute('src')))).toBe(true);
@@ -467,7 +469,7 @@ for (const locale of ['en', 'de']) {
     expect(state.errors).toEqual([]);
   });
 
-  test(`${locale}: phone and tablet breakpoints retain existing policy with reduced motion`, async ({ page }, testInfo) => {
+  test(`${locale}: phone and tablet breakpoints retain existing policy with reduced motion`, { tag: '@decorative-playback' }, async ({ page }, testInfo) => {
     await fixture(page, { configured: false });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -476,26 +478,109 @@ for (const locale of ['en', 'de']) {
     await expect(page.locator(HERO_VIDEOS)).toHaveCount(0);
     await page.setViewportSize({ width: 820, height: 1180 });
     await expect(page.locator(HERO_VIDEOS)).toHaveCount(4);
-    await expectPlaying(page);
+    await expectDecorativeUsable(page);
+    await observePlaying(page);
     await expect(page.locator(`${HERO_SLOTS}.is-turning`)).toHaveCount(0);
     await scrollHeroOffscreen(page);
     await expect.poll(() => page.locator(HERO_VIDEOS).evaluateAll(videos => videos.every(video => video.paused))).toBe(true);
     await startContinuityProbe(page);
     await expectFrozen(page, testInfo, 'tablet-reduced-motion-offscreen');
-    await expectPlaying(page, 'onscreen');
+    await observePlaying(page, 'onscreen');
     await expectNativeResumeContinuity(page, testInfo, 'reduced-motion-native-resume');
     await page.setViewportSize({ width: 820, height: 650 });
     await expect(page.locator(HERO_VIDEOS)).toHaveCount(0);
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(page.locator(HERO_VIDEOS)).toHaveCount(4);
-    await expectPlaying(page);
+    await observePlaying(page);
+    await expectDecorativeUsable(page);
+  });
+
+  test(`${locale}: decorative frozen media warns while fallback and Models remain required`, { tag: '@decorative-playback' }, async ({ page }, testInfo) => {
+    await openHome(page, locale);
+    // Genuine native pause is a deterministic frozen-output control. No clock,
+    // decoder, frame callback or successful play result is manufactured.
+    await page.locator(HERO_VIDEOS).evaluateAll(videos => videos.forEach(video => video.pause()));
+    await expect.poll(() => page.locator(HERO_VIDEOS).evaluateAll(videos => videos.every(video => video.paused))).toBe(true);
+    const frozenBaseline = await page.evaluate(() => window.__heroNativeProbe.sample());
+    const frozen = await observeDecorativeProgress(page, testInfo, { check: 'frozen-control', control: true });
+    expect(frozen.passed).toBe(false);
+    expect(frozen.phase).toBe('play-or-resume');
+    expect(frozen.ownOutputObserved).toBe(false);
+    expect(frozenBaseline).toHaveLength(4);
+    expect(frozen.samples.flat().every(video => {
+      const before = frozenBaseline.find(item => item.id === video.id);
+      return before && video.paused && video.src === before.src && video.outputAdvances === before.outputAdvances;
+    })).toBe(true);
+    // Deterministically finish a real short frozen observation without calling
+    // its supplied action. Only observer orchestration is controlled here;
+    // native media and the returned failed samples remain untouched.
+    await page.evaluate(() => {
+      window.__setHeroDocumentHidden(true);
+      const probe = window.__heroNativeProbe;
+      window.__originalHeroProgress = probe.waitForProgress;
+      probe.waitForProgress = options => window.__originalHeroProgress({ ...options, action: null, timeout: 1 });
+    });
+    try {
+      const early = await observeDecorativeProgress(page, testInfo, { resume: 'visible', control: true });
+      expect(early.passed).toBe(false);
+      expect(early.actionAt).toBeNull();
+      expect(early.actionAfterObservation).toBe(true);
+      expect(await page.evaluate(() => document.hidden)).toBe(false);
+    } finally {
+      await page.evaluate(() => { window.__heroNativeProbe.waitForProgress = window.__originalHeroProgress; });
+    }
+    // Consume the remaining optional budget with another real frozen window.
+    // The next functional visibility action must still run, without inventing
+    // a successful playback observation when no observation time remains.
+    await observeDecorativeProgress(page, testInfo, { check: 'frozen-control', control: true });
+    await page.evaluate(() => window.__setHeroDocumentHidden(true));
+    const exhausted = await observeDecorativeProgress(page, testInfo, { resume: 'visible', control: true });
+    expect(exhausted).toMatchObject({ passed: false, phase: 'observation-budget', reason: 'quality-budget-exhausted' });
+    expect(await page.evaluate(() => document.hidden)).toBe(false);
+    expect(await page.locator(HERO_VIDEOS).evaluateAll(videos => videos.every(video => video.paused))).toBe(true);
+    await expectDecorativeUsable(page);
+
+    // Both permitted visual paths are hidden. A poster node or decoded frame
+    // alone cannot turn this genuinely invisible fallback into acceptance.
+    await page.locator(`${HERO_SLOTS} video, ${HERO_SLOTS} img`).evaluateAll(media => media.forEach(item => item.style.visibility = 'hidden'));
+    const hidden = await readHeroFallback(page);
+    expect(hidden.passed).toBe(false);
+    await expect(expectHeroFallback(page)).rejects.toThrow('visible decoded poster or still');
+    await page.locator(`${HERO_SLOTS} video, ${HERO_SLOTS} img`).evaluateAll(media => media.forEach(item => item.style.removeProperty('visibility')));
+    await expectHeroFallback(page);
+
+    // Cover valid media with an opaque, non-interactive layer: DOM visibility
+    // and decoded pixels still exist, but none is exposed to the user.
+    await page.locator(HERO_SLOTS).evaluateAll(slots => slots.forEach(slot => {
+      const cover = document.createElement('span'); cover.dataset.testHeroCover = '';
+      cover.style.cssText = 'position:absolute;inset:0;background:#000;z-index:999;pointer-events:none';
+      slot.append(cover);
+    }));
+    const covered = await readHeroFallback(page);
+    expect(covered.passed).toBe(false);
+    await page.locator('[data-test-hero-cover]').evaluateAll(covers => covers.forEach(cover => cover.remove()));
+    await expectHeroFallback(page);
+
+    await page.locator('#hero [data-models-link]').first().evaluate(trigger => {
+      window.__blockModelsControl = event => { event.preventDefault(); event.stopImmediatePropagation(); };
+      trigger.addEventListener('click', window.__blockModelsControl, true);
+    });
+    await expect(expectModelsUsable(page)).rejects.toThrow();
+    await page.locator('#hero [data-models-link]').first().evaluate(trigger => trigger.removeEventListener('click', window.__blockModelsControl, true));
+    await expectDecorativeUsable(page);
+    await testInfo.attach('decorative-functional-countercontrols', {
+      body: JSON.stringify({ frozenWarning: true, hiddenFallbackRejected: !hidden.passed,
+        coveredFallbackRejected: !covered.passed, brokenModelsRejected: true, recoveredModels: true,
+        budgetExhaustionStillResumesVisibility: true, earlyObservationStillResumesVisibility: true }),
+      contentType: 'application/json',
+    });
   });
 }
 
 
-test('native pause contract rejects ignored pause, transient source changes and stale resume proof', async ({ page }, testInfo) => {
+test('native pause contract rejects ignored pause, transient source changes and stale resume proof', { tag: '@decorative-playback' }, async ({ page }, testInfo) => {
   await openHome(page, 'en');
-  await expectPlaying(page);
+  await observePlaying(page);
   const ignored = await page.evaluate(() => window.__heroNativeProbe.observeFrozen(200));
   await testInfo.attach('negative-ignored-pause', { body: JSON.stringify(ignored), contentType: 'application/json' });
   expect(ignored.passed).toBe(false); expect(ignored.issues).toContain('not-paused');
@@ -512,5 +597,6 @@ test('native pause contract rejects ignored pause, transient source changes and 
   // Prior successful playing evidence cannot pass a fresh paused interval.
   const stale = await page.evaluate(() => window.__heroNativeProbe.waitForProgress({ timeout: 200 }));
   expect(stale.passed).toBe(false);
-  await expectPlaying(page, 'visible'); // Real native output after the invalidated source.
+  await observePlaying(page, 'visible'); // Observe output after the invalidated source.
+  await expectDecorativeUsable(page);
 });

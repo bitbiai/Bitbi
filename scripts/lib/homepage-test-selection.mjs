@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import mediaPolicy from './homepage-media-policy.cjs';
+
+export const { MEDIA_POLICY } = mediaPolicy;
 
 export const HOMEPAGE_CORE_FILES = Object.freeze([
   'audio-player.spec.js', 'canvas.spec.js', 'oma2-q1-canvas.spec.js',
@@ -66,6 +69,7 @@ export const HOMEPAGE_WEBKIT_REQUIRED = Object.freeze([
     `${locale}: hidden initialization and bfcache restore preserve media; ordinary pagehide cleans up`,
     `${locale}: decorative fallback retains playable content while next media loads`,
     `${locale}: phone and tablet breakpoints retain existing policy with reduced motion`,
+    `${locale}: decorative frozen media warns while fallback and Models remain required`,
   ]),
 ]);
 export const HOMEPAGE_EXTENDED_REQUIRED = Object.freeze([
@@ -77,6 +81,55 @@ export const HOMEPAGE_EXTENDED_REQUIRED = Object.freeze([
   ]),
   ...HOMEPAGE_NATIVE_CONTROLS_REQUIRED,
 ]);
+
+// These cases retain blocking UI/lifecycle assertions. Only their bounded Hero
+// playback observations use the owner-approved visual-quality exception.
+export const HOMEPAGE_DECORATIVE_REQUIRED = Object.freeze([
+  ...HOMEPAGE_WEBKIT_REQUIRED.filter(title => title.startsWith('en:') || title.startsWith('de:')
+    || title === 'native pause contract rejects ignored pause, transient source changes and stale resume proof'),
+  ...HOMEPAGE_EXTENDED_REQUIRED.filter(title => title.startsWith('en:') || title.startsWith('de:')),
+]);
+
+export function verifyHomepageMediaExecution(report, { engine, extended = false } = {}) {
+  assert(['chromium', 'webkit'].includes(engine), 'Expected native homepage engine');
+  assert.equal(typeof extended, 'boolean', 'Expected explicit extended scope');
+  assert(report?.stats && ['expected', 'unexpected', 'flaky', 'skipped'].every(name => Number.isInteger(report.stats[name]) && report.stats[name] >= 0)
+    && report.stats.unexpected === 0 && report.stats.flaky === 0 && report.stats.expected > 0,
+  'Missing, malformed or failed homepage functional report');
+  const actual = flattenHomepageDiscovery(report);
+  assert.equal(new Set(actual.map(key)).size, actual.length, 'Duplicate homepage execution cases');
+  assert(actual.every(test => ['passed', 'skipped'].includes(test.resultStatus)), 'Missing or failed homepage execution result');
+  assert.equal(actual.filter(test => test.resultStatus === 'passed').length, report.stats.expected, 'Inconsistent passed homepage statistics');
+  assert.equal(actual.filter(test => test.resultStatus === 'skipped').length, report.stats.skipped, 'Inconsistent skipped homepage statistics');
+  const nativeFiles = ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js'];
+  const required = [...HOMEPAGE_WEBKIT_REQUIRED, ...(extended ? HOMEPAGE_EXTENDED_REQUIRED : [])];
+  const native = actual.filter(test => nativeFiles.includes(test.file));
+  assert(native.every(test => test.project === engine), 'Foreign native homepage engine');
+  assert.deepEqual(native.map(test => test.title).sort(), [...required].sort(), 'Missing or foreign native homepage cases');
+  for (const test of native) {
+    assert.equal(test.expectedStatus, 'passed', 'Native homepage case must be required');
+    assert.equal(test.resultStatus, 'passed', 'Native homepage functional case failed or skipped: ' + key(test));
+    assert.equal(test.tags.some(tag => tag.replace(/^@/, '') === 'decorative-playback'),
+      HOMEPAGE_DECORATIVE_REQUIRED.includes(test.title), 'Missing or foreign decorative case classification');
+  }
+  const visit = suite => {
+    for (const spec of suite.specs || []) for (const test of spec.tests || []) {
+      assert((test.results || []).every(result => !result.error && (result.errors || []).length === 0),
+        'Execution errors cannot be accepted as decorative warnings');
+      assert(!test.results?.some(result => ['failed', 'timedOut', 'interrupted'].includes(result.status)),
+        'Failed functional result cannot be accepted as a decorative warning');
+      if (nativeFiles.includes(path.basename(spec.file))) {
+        assert.equal(test.results?.length, 1, 'Native homepage result must have one executed attempt');
+        assert.equal(test.results[0].retry ?? 0, 0, 'Retried native homepage result');
+      }
+    }
+    (suite.suites || []).forEach(visit);
+  };
+  report.suites.forEach(visit);
+  return mediaPolicy.verifyDecorativeObservations(report, {
+    engine, requiredTitles: required.filter(title => HOMEPAGE_DECORATIVE_REQUIRED.includes(title)),
+  });
+}
 
 export function flattenHomepageDiscovery(report) {
   assert.ok(Array.isArray(report?.suites), 'Missing Playwright discovery suites');
@@ -137,6 +190,11 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, webkit
     `Required macOS WebKit scenario missing: ${title}`);
   for (const title of [...HOMEPAGE_WEBKIT_REQUIRED, ...HOMEPAGE_EXTENDED_REQUIRED]) assert.ok(extended.some(test => test.title === title && test.project === 'webkit' && test.expectedStatus !== 'skipped'),
     `Required extended scenario missing: ${title}`);
+  for (const collection of [functional, webkit, extended]) for (const test of collection) {
+    const diagnostic = test.tags.some(tag => tag.replace(/^@/, '') === 'decorative-playback');
+    const expected = test.file === nativeFiles[0] && HOMEPAGE_DECORATIVE_REQUIRED.includes(test.title);
+    assert.equal(diagnostic, expected, 'Decorative policy tag missing or applied outside approved Hero scenarios: ' + key(test));
+  }
   assert.ok(webkit.every(test => HOMEPAGE_WEBKIT_REQUIRED.includes(test.title)), 'Extended decoder/timing diagnosis leaked into core');
   assert.ok(functional.every(test => !test.tags.some(tag => tag.replace(/^@/,'') === 'homepage-extended')), 'Extended case leaked into Linux core');
   assert.equal(functional.filter(test => test.project === 'webkit' && nativeFiles.includes(test.file)).length, 0, 'Linux must not duplicate the moved native WebKit cases');
@@ -196,7 +254,8 @@ export function verifyHomepageDiscovery({ standard, carousel, functional, webkit
     carousel: { total: carousel.length, files: counts(carousel) },
     functional: { total: functional.length, files: counts(functional) },
     webkit: { total: webkit.length, files: counts(webkit) },
-    extended: { total: extended.length, files: counts(extended), acceptance: 'Full-regression only' },
+    mediaPolicy: MEDIA_POLICY,
+    extended: { total: extended.length, files: counts(extended), acceptance: 'Functional cases required; decorative playback observations diagnostic' },
     performance: { total: performance.length, files: counts(performance) },
     diagnostic: { total: diagnostic.length, files: counts(diagnostic), acceptance: false },
     existingCommandUnion: oldUnion.size,
