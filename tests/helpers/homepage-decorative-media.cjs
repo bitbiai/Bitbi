@@ -92,8 +92,7 @@ async function expectHeroFallback(page) {
 async function expectModelsUsable(page) {
   await page.locator('#hero [data-models-link]').first().click();
   const overlay = page.locator('.models-overlay');
-  await expect(overlay).toBeVisible();
-  await expect(overlay).toHaveAttribute('role', 'dialog');
+  await expect(overlay.and(page.getByRole('dialog'))).toBeVisible();
   await page.locator('.models-overlay__close').click();
   await expect(overlay).toBeHidden();
 }
@@ -118,9 +117,13 @@ async function observeDecorative(page, testInfo, check, observe, { max = 5000, c
     await onBudget?.();
     result = { passed: false, phase: 'observation-budget', reason: 'quality-budget-exhausted', elapsed: 0, timeout: 0 };
   }
-  const fallback = await expectHeroFallback(page);
+  // Every warning needs fresh independently measured fallback. Successful
+  // observations retain the case's required initial/final fallback checks;
+  // repeating four canvas readbacks after each success adds no new contract.
+  const fallback = result.passed ? undefined : await expectHeroFallback(page);
   const envelope = { schema: 1, policy: MEDIA_POLICY, kind: 'decorative-playback',
-    status: result.passed ? 'observed' : 'warning', check, result, fallback, ...(control ? { control: true } : {}) };
+    status: result.passed ? 'observed' : 'warning', check, result,
+    ...(fallback ? { fallback } : {}), ...(control ? { control: true } : {}) };
   validateDecorativeObservation(envelope);
   await testInfo.attach(DECORATIVE_OBSERVATION_ATTACHMENT, { body: JSON.stringify(envelope), contentType: 'application/json' });
   return result;

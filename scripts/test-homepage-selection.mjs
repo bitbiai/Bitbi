@@ -125,6 +125,14 @@ for (const tags of [[], ['decorative-playback']]) {
   target.tags = tags;
   assert.throws(() => verifyHomepageDiscovery(wrong), /Decorative policy tag/);
 }
+for (const locale of ['en', 'de']) {
+  const title = `${locale}: visible fallback and Models reject deterministic breakage`;
+  assert(HOMEPAGE_WEBKIT_REQUIRED.includes(title));
+  assert(!HOMEPAGE_DECORATIVE_REQUIRED.includes(title), 'Functional countercontrols cannot inherit the quality exception');
+  const wrong = structuredClone(valid);
+  wrong.webkit.find(test => test.title === title).tags = ['decorative-playback'];
+  assert.throws(() => verifyHomepageDiscovery(wrong), /Decorative policy tag/);
+}
 for (const file of ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js']) {
   assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: [...functional, fixture(file, 'webkit', 0)] }), /must not duplicate/);
   if (file === 'homepage-hero-playback.spec.js') assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: functional.filter(t => t.file !== file) }), /scenario union/);

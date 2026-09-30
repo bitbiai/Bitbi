@@ -70,6 +70,7 @@ export const HOMEPAGE_WEBKIT_REQUIRED = Object.freeze([
     `${locale}: decorative fallback retains playable content while next media loads`,
     `${locale}: phone and tablet breakpoints retain existing policy with reduced motion`,
     `${locale}: decorative frozen media warns while fallback and Models remain required`,
+    `${locale}: visible fallback and Models reject deterministic breakage`,
   ]),
 ]);
 export const HOMEPAGE_EXTENDED_REQUIRED = Object.freeze([
@@ -85,7 +86,8 @@ export const HOMEPAGE_EXTENDED_REQUIRED = Object.freeze([
 // These cases retain blocking UI/lifecycle assertions. Only their bounded Hero
 // playback observations use the owner-approved visual-quality exception.
 export const HOMEPAGE_DECORATIVE_REQUIRED = Object.freeze([
-  ...HOMEPAGE_WEBKIT_REQUIRED.filter(title => title.startsWith('en:') || title.startsWith('de:')
+  ...HOMEPAGE_WEBKIT_REQUIRED.filter(title => ((title.startsWith('en:') || title.startsWith('de:'))
+    && !title.endsWith(': visible fallback and Models reject deterministic breakage'))
     || title === 'native pause contract rejects ignored pause, transient source changes and stale resume proof'),
   ...HOMEPAGE_EXTENDED_REQUIRED.filter(title => title.startsWith('en:') || title.startsWith('de:')),
 ]);

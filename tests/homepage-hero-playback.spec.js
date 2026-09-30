@@ -101,7 +101,10 @@ async function openHome(page, locale, options) {
   await expect(page.locator('#hero [data-video-module-state="ready"]')).toHaveCount(2);
   await expect(page.locator('#hero .latest-models-video-module__label').first())
     .toHaveText(locale === 'de' ? 'Plattform Modelle' : 'Platform Models');
-  await expectDecorativeUsable(page);
+  // Require the actual painted fallback before any optional diagnostics.
+  // Each case exercises Models after its lifecycle/quality phases, while
+  // bounded warnings cannot prevent that required functional path.
+  await expectHeroFallback(page);
   return state;
 }
 
@@ -539,6 +542,19 @@ for (const locale of ['en', 'de']) {
     expect(await page.evaluate(() => document.hidden)).toBe(false);
     expect(await page.locator(HERO_VIDEOS).evaluateAll(videos => videos.every(video => video.paused))).toBe(true);
     await expectDecorativeUsable(page);
+    await testInfo.attach('decorative-resume-countercontrols', {
+      body: JSON.stringify({ frozenWarning: true, budgetExhaustionStillResumesVisibility: true,
+        earlyObservationStillResumesVisibility: true }), contentType: 'application/json',
+    });
+  });
+
+  test(`${locale}: visible fallback and Models reject deterministic breakage`, async ({ page }, testInfo) => {
+    await openHome(page, locale);
+    // These independent functional negatives retain their normal assertion
+    // deadlines. Their own case keeps deliberate failed polls from consuming
+    // the frozen-output/resume observation case's 45-second execution budget.
+    await page.locator(HERO_VIDEOS).evaluateAll(videos => videos.forEach(video => video.pause()));
+    await expect.poll(() => page.locator(HERO_VIDEOS).evaluateAll(videos => videos.every(video => video.paused))).toBe(true);
 
     // Both permitted visual paths are hidden. A poster node or decoded frame
     // alone cannot turn this genuinely invisible fallback into acceptance.
@@ -569,9 +585,8 @@ for (const locale of ['en', 'de']) {
     await page.locator('#hero [data-models-link]').first().evaluate(trigger => trigger.removeEventListener('click', window.__blockModelsControl, true));
     await expectDecorativeUsable(page);
     await testInfo.attach('decorative-functional-countercontrols', {
-      body: JSON.stringify({ frozenWarning: true, hiddenFallbackRejected: !hidden.passed,
-        coveredFallbackRejected: !covered.passed, brokenModelsRejected: true, recoveredModels: true,
-        budgetExhaustionStillResumesVisibility: true, earlyObservationStillResumesVisibility: true }),
+      body: JSON.stringify({ hiddenFallbackRejected: !hidden.passed,
+        coveredFallbackRejected: !covered.passed, brokenModelsRejected: true, recoveredModels: true }),
       contentType: 'application/json',
     });
   });

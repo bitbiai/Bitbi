@@ -1334,19 +1334,52 @@ test.describe('Populated homepage carousel', () => {
     await waitForPublicWall(page, 'gallery');
     await selectCategory(page, 'video');
     await waitForPublicWall(page, 'video');
-    // Deliberately block the real input task BEFORE the link capture timestamp.
-    // The previous startTime-only filter could drop exactly this relevant work.
-    await page.evaluate(() => document.addEventListener('pointerdown', () => {
-      const end = performance.now() + 90;
-      while (performance.now() < end) { /* local negative control, not product code */ }
-    }, { capture: true, once: true }));
+    // Deliberately straddle the link capture timestamp within the same real
+    // input event. All 90ms before that marker relied on incidental later work:
+    // an integer-duration Long Task can otherwise end at/before the window.
+    await page.evaluate(() => {
+      const block = ms => {
+        const end = performance.now() + ms;
+        while (performance.now() < end) { /* local negative control, not product code */ }
+      };
+      let capturedEvent;
+      document.addEventListener('pointerdown', event => {
+        capturedEvent = event;
+        const captureStartedAt = performance.now();
+        block(30);
+        window.__carouselBlockingControl = { captureStartedAt, captureEndedAt: performance.now(),
+          targetCategory: event.target.closest('[data-category-link]')?.dataset.categoryLink || null };
+      }, { capture: true, once: true });
+      document.addEventListener('pointerdown', event => {
+        const control = window.__carouselBlockingControl;
+        control.sameEvent = event === capturedEvent;
+        control.bubbleStartedAt = performance.now();
+        block(60);
+        control.bubbleEndedAt = performance.now();
+      }, { once: true });
+    });
     const result = await measureWarmSwitch(page, 'gallery');
+    const control = await page.evaluate(() => ({ ...window.__carouselBlockingControl, probe: window.__homepageWorkProbe.flush() }));
+    await testInfo.attach('carousel-blocking-countercontrol', { body: JSON.stringify({ ...result, control }), contentType: 'application/json' });
+    expect(control.targetCategory).toBe('gallery');
+    expect(control.sameEvent).toBe(true);
+    expect(control.captureEndedAt - control.captureStartedAt).toBeGreaterThanOrEqual(30);
+    expect(control.captureEndedAt).toBeLessThanOrEqual(result.inputDispatchedAt);
+    expect(control.bubbleStartedAt).toBeGreaterThanOrEqual(result.inputDispatchedAt);
+    expect(control.bubbleEndedAt - control.bubbleStartedAt).toBeGreaterThanOrEqual(60);
     const diagnosis = assessHomepageWork(result.pageWork);
     expect(diagnosis.budget).toBe('exceeded');
     expect(diagnosis.warnings).toHaveLength(1);
-    expect(result.pageWork.entries.some(entry => entry.startTime < result.inputDispatchedAt)).toBe(true);
+    const blocker = result.pageWork.entries.find(entry => entry.startTime <= control.captureStartedAt
+      && entry.startTime + entry.duration > control.bubbleStartedAt);
+    expect(blocker, 'The real task spans both sides of the input marker').toBeTruthy();
+    expect(blocker.duration).toBeGreaterThanOrEqual(90);
+    expect(blocker.startTime).toBeLessThan(result.inputDispatchedAt);
+    const isolated = { ...control.probe, entries: [blocker] };
+    expect(assessHomepageWork(summarizeTaskWindow(isolated, result.inputDispatchedAt, result.pageWork.endTime)).budget).toBe('exceeded');
+    const startOnly = { ...isolated, entries: isolated.entries.filter(entry => entry.startTime >= result.inputDispatchedAt) };
+    expect(assessHomepageWork(summarizeTaskWindow(startOnly, result.inputDispatchedAt, result.pageWork.endTime)).budget).toBe('within');
     await expectSingleInteractivePanel(page, 'gallery');
-    await testInfo.attach('carousel-blocking-countercontrol', { body: JSON.stringify(result), contentType: 'application/json' });
   });
 
   test('WebKit switches categories instantly with one precise scroll and no settling corrections', async ({ page, browserName }) => {
