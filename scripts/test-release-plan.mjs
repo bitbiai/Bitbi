@@ -157,6 +157,12 @@ for (const file of ['docs/example.md', 'css/pages/generate-lab.css']) {
         write('workers/auth/generated.js', "import {Miniflare} from 'miniflare'; export default {Miniflare};\n");
       }],
       ['computed import', () => write('workers/auth/src/index.js', "const moduleName = '../generated.js'; export default await import(moduleName);\n")],
+      ['concatenated import argument', () => write('workers/auth/src/index.js', "const client = await import('mini' + 'flare'); export default client;\n")],
+      ['concatenated require argument', () => write('workers/auth/src/index.js', "const client = require('mini' + 'flare'); export default client;\n")],
+      ['interpolated import argument', () => write('workers/auth/src/index.js', 'const suffix="flare"; const client = await import(`mini${suffix}`); export default client;\n')],
+      ['interpolated require argument', () => write('workers/auth/src/index.js', 'const suffix="flare"; const client = require(`mini${suffix}`); export default client;\n')],
+      ['escaped import argument', () => write('workers/auth/src/index.js', String.raw`const client = await import('minif\u006care'); export default client;`)],
+      ['commented expression suffix', () => write('workers/auth/src/index.js', "const client = await import('mini' /* computed */ + 'flare'); export default client;\n")],
       ...['build', 'alias', 'tsconfig', 'rules'].map(key => [`custom ${key}`, () => write('workers/auth/wrangler.jsonc',
         {main: 'src/index.js', [key]: key === 'build' ? {command: 'node generate.js'} : key === 'tsconfig' ? 'custom.json' : {}})]),
       ['implicit tsconfig', () => write('tsconfig.json', {compilerOptions: {paths: {client: ['node_modules/miniflare']}}})],

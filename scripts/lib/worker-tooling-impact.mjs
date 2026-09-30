@@ -48,7 +48,12 @@ function relativeSourcesStayReviewed(root, base, head, prefix) {
     const source = git(root, ['show', `${head}:${file}`]);
     // Limit the exception to the repository's literal module layout. Computed
     // module imports cannot be proven by this small source check.
-    if (/\b(?:import|require)\s*\(\s*[^\s'"`]/.test(source)) return false;
+    for (const call of source.matchAll(/\b(?:import|require)\s*\(/g)) {
+      // Inspect the whole argument through its closing parenthesis: a leading
+      // quote alone does not prove that concatenation/interpolation is absent.
+      // Escapes, templates and extra arguments stay outside this narrow proof.
+      if (!/^\s*(['"])[^'"\\\r\n]*\1\s*\)/.test(source.slice(call.index + call[0].length))) return false;
+    }
     for (const [, , relative] of source.matchAll(/(['"`])(\.\.?\/[^'"`\r\n]*)\1/g)) {
       if (relative.includes('\\') || relative.includes('${')) return false;
       pending.push(path.posix.normalize(path.posix.join(path.posix.dirname(file), relative.split(/[?#]/)[0])));
