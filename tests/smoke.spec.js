@@ -2659,269 +2659,49 @@ test.describe('Homepage', () => {
     });
   }
 
-  test('MODELS opens the homepage models overlay from the hero CTA without navigation', async ({ page }) => {
+  test('@canvas-model-ui MODELS opens the homepage models overlay from the hero CTA without navigation', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1200 });
-    const videoRequests = [];
-    await routeHomepageVideoHoverFixtures(page, {
-      videoRequests,
-      items: Array.from({ length: 10 }, (_, index) => {
-        const rank = index + 1;
-        const id = `models-module-${rank.toString().padStart(2, '0')}`;
-        return {
-          id,
-          slug: id,
-          published_at: `2026-05-${(12 - index).toString().padStart(2, '0')}T08:00:00.000Z`,
-          category: 'memvids',
-          file: { url: `/api/gallery/memvids/${id}/vpub/file` },
-          poster: { url: `/api/gallery/memvids/${id}/vpub/poster`, w: 1280, h: 720 },
-        };
-      }),
-    });
     await page.goto('/');
-
     await expect(page.locator('#navbar .site-nav__links').getByRole('button', { name: 'Models' })).toHaveCount(0);
     const modelsButtons = page.locator('#hero .hero__models-cta');
-    const rightModelsButton = page.locator('#hero .hero__models-cta--right');
-    const leftModelsButton = page.locator('#hero .hero__models-cta--left');
-    const rightModelsModule = rightModelsButton.locator('.latest-models-video-module');
-    const leftModelsModule = leftModelsButton.locator('.latest-models-video-module');
-    const topSlot = rightModelsModule.locator('[data-latest-models-slot="top"]');
-    const bottomSlot = rightModelsModule.locator('[data-latest-models-slot="bottom"]');
-    const leftTopSlot = leftModelsModule.locator('[data-latest-models-slot="top"]');
-    const leftBottomSlot = leftModelsModule.locator('[data-latest-models-slot="bottom"]');
     await expect(modelsButtons).toHaveCount(2);
-    await expect(rightModelsButton).toBeVisible();
-    await expect(leftModelsButton).toBeVisible();
-    await expect(rightModelsButton).toHaveAccessibleName('Open Models');
-    await expect(leftModelsButton).toHaveAccessibleName('Open Models');
-    await expect(rightModelsButton).not.toContainText('NEW MODELS');
-    await expect(leftModelsButton).not.toContainText('NEW MODELS');
-    await expect(modelsButtons.locator('img.hero__models-cta-image')).toHaveCount(0);
-    await expect(rightModelsModule).toBeVisible();
-    await expect(leftModelsModule).toBeVisible();
-    await expect(rightModelsModule.locator('.latest-models-video-module__label')).toHaveText('Platform Models');
-    await expect(leftModelsModule.locator('.latest-models-video-module__label')).toHaveText('Platform Models');
-    await expect(page.locator('#hero')).not.toContainText('Platform Modelle');
-    await expect(rightModelsModule).toHaveAttribute('data-video-module-state', 'ready');
-    await expect(leftModelsModule).toHaveAttribute('data-video-module-state', 'ready');
-    await expect(topSlot).toHaveAttribute('data-active-video-id', 'models-module-01');
-    await expect(bottomSlot).toHaveAttribute('data-active-video-id', 'models-module-02');
-    await expect(leftTopSlot).toHaveAttribute('data-active-video-id', 'models-module-06');
-    await expect(leftBottomSlot).toHaveAttribute('data-active-video-id', 'models-module-07');
-    await expect(topSlot.locator('video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/models-module-01\/vpub\/file$/);
-    await expect(leftTopSlot.locator('video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/models-module-06\/vpub\/file$/);
-    await expect(leftBottomSlot.locator('video')).toHaveAttribute('src', /\/api\/gallery\/memvids\/models-module-07\/vpub\/file$/);
-
-    // This fixture deliberately returns non-decodable mock-video bytes.
-    // Navigation must remain usable with the existing posters, not require
-    // timer-driven swaps into further broken sources. Actual output/controlled
-    // source adoption is covered by the built native core and controller tests.
-    const posters = modelsButtons.locator('.latest-models-video-module__poster');
-    await expect(posters).toHaveCount(4);
-    await expect.poll(() => posters.evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0))).toBe(true);
-    for (const poster of await posters.all()) await expect(poster).toBeVisible();
-    expect(await modelsButtons.locator('[data-latest-models-slot]').evaluateAll(slots => slots.map(s => s.dataset.transitionCount))).toEqual(['0','0','0','0']);
-    expect(videoRequests).toEqual(expect.arrayContaining([
-      '/api/gallery/memvids/models-module-01/vpub/file',
-      '/api/gallery/memvids/models-module-02/vpub/file',
-      '/api/gallery/memvids/models-module-06/vpub/file',
-      '/api/gallery/memvids/models-module-07/vpub/file',
-    ]));
-
-    await rightModelsButton.click();
-
-    await expectPathUnchanged(page, '/');
-    await expectModelsOverlayOpenState(page, { homepage: true });
-
-    await page.getByRole('button', { name: 'Close models' }).click();
-    await expect(page.locator('.models-overlay')).not.toHaveClass(/is-active/);
-    await expectPathUnchanged(page, '/');
-
-    await leftModelsButton.click();
-    await expectPathUnchanged(page, '/');
-    await expectModelsOverlayOpenState(page, { homepage: true });
+    for (const side of ['right', 'left']) {
+      const trigger = page.locator(`#hero .hero__models-cta--${side}`);
+      await expect(trigger).toBeVisible();
+      await expect(trigger).toHaveAccessibleName('Open Models');
+      await trigger.click();
+      await expectPathUnchanged(page, '/');
+      await expectModelsOverlayOpenState(page, { homepage: true });
+      await page.getByRole('button', { name: 'Close models' }).click();
+      await expect(page.locator('.models-overlay')).not.toHaveClass(/is-active/);
+      await expectPathUnchanged(page, '/');
+    }
   });
 
-  test('homepage Models video module prefers configured hero derivative slots before Memvid fallback', async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 1200 });
-    const videoRequests = [];
-    const heroSlots = ['right_top', 'right_bottom', 'left_top', 'left_bottom'].map((slot, index) => ({
-      slot,
-      version: `vhero${index + 1}`,
-      title: `Configured ${slot}`,
-      source_type: 'admin_asset',
-      file: {
-        url: `/api/homepage/hero-videos/${slot}/vhero${index + 1}/file`,
-        mime_type: 'video/mp4',
-        width: 720,
-        height: 405,
-        size_bytes: 1400000,
-        duration_seconds: 6,
-      },
-      poster: {
-        url: `/api/homepage/hero-videos/${slot}/vhero${index + 1}/poster`,
-        mime_type: 'image/webp',
-        width: 720,
-        height: 405,
-        size_bytes: 90000,
-      },
-    }));
-    await routeHomepageVideoHoverFixtures(page, {
-      videoRequests,
-      homepageHeroVideos: {
-        ok: true,
-        data: {
-          configured: true,
-          slots: heroSlots,
-          slot_order: ['right_top', 'right_bottom', 'left_top', 'left_bottom'],
-        },
-      },
-      items: Array.from({ length: 10 }, (_, index) => {
-        const id = `fallback-module-${index + 1}`;
-        return {
-          id,
-          slug: id,
-          published_at: `2026-05-${(12 - index).toString().padStart(2, '0')}T08:00:00.000Z`,
-          category: 'memvids',
-          file: { url: `/api/gallery/memvids/${id}/vpub/file` },
-          poster: { url: `/api/gallery/memvids/${id}/vpub/poster`, w: 1280, h: 720 },
-        };
-      }),
-    });
-    await page.goto('/');
-
-    const rightModule = page.locator('#hero .hero__models-cta--right .latest-models-video-module');
-    const leftModule = page.locator('#hero .hero__models-cta--left .latest-models-video-module');
-    const rightTop = rightModule.locator('[data-latest-models-slot="top"]');
-    const rightBottom = rightModule.locator('[data-latest-models-slot="bottom"]');
-    const leftTop = leftModule.locator('[data-latest-models-slot="top"]');
-    const leftBottom = leftModule.locator('[data-latest-models-slot="bottom"]');
-
-    await expect(rightModule).toHaveAttribute('data-video-module-state', 'ready');
-    await expect(leftModule).toHaveAttribute('data-video-module-state', 'ready');
-    await expect(rightTop.locator('video')).toHaveAttribute('src', /\/api\/homepage\/hero-videos\/right_top\/vhero1\/file$/);
-    await expect(rightBottom.locator('video')).toHaveAttribute('src', /\/api\/homepage\/hero-videos\/right_bottom\/vhero2\/file$/);
-    await expect(leftTop.locator('video')).toHaveAttribute('src', /\/api\/homepage\/hero-videos\/left_top\/vhero3\/file$/);
-    await expect(leftBottom.locator('video')).toHaveAttribute('src', /\/api\/homepage\/hero-videos\/left_bottom\/vhero4\/file$/);
-    await expect(rightTop).toHaveAttribute('data-active-video-id', /homepage-hero-right_top-vhero1/);
-    await expect(leftBottom).toHaveAttribute('data-active-video-id', /homepage-hero-left_bottom-vhero4/);
-    expect(videoRequests).toEqual(expect.arrayContaining([
-      '/api/homepage/hero-videos/right_top/vhero1/file',
-      '/api/homepage/hero-videos/right_bottom/vhero2/file',
-      '/api/homepage/hero-videos/left_top/vhero3/file',
-      '/api/homepage/hero-videos/left_bottom/vhero4/file',
-    ]));
-  });
-
-  test('tablet homepage hero shows Models videos and creation streams while phones stay lightweight', async ({ browser }) => {
-    const buildHeroSlots = () => ['right_top', 'right_bottom', 'left_top', 'left_bottom'].map((slot, index) => ({
-      slot,
-      version: `tabletv${index + 1}`,
-      title: `Tablet ${slot}`,
-      source_type: 'admin_asset',
-      file: {
-        url: `/api/homepage/hero-videos/${slot}/tabletv${index + 1}/file`,
-        mime_type: 'video/mp4',
-        width: 720,
-        height: 405,
-        size_bytes: 1400000,
-        duration_seconds: 6,
-      },
-      poster: {
-        url: `/api/homepage/hero-videos/${slot}/tabletv${index + 1}/poster`,
-        mime_type: 'image/webp',
-        width: 720,
-        height: 405,
-        size_bytes: 90000,
-      },
-    }));
-    const homepageHeroVideos = {
-      ok: true,
-      data: {
-        configured: true,
-        slots: buildHeroSlots(),
-        slot_order: ['right_top', 'right_bottom', 'left_top', 'left_bottom'],
-      },
-    };
-
-    const openTouchPage = async (viewport) => {
-      const context = await browser.newContext({
-        baseURL: 'http://localhost:3000',
-        viewport,
-        hasTouch: true,
-        isMobile: true,
-      });
+  test('@canvas-model-ui tablet and phone Models navigation remains usable', async ({ browser }) => {
+    for (const viewport of [
+      { width: 1366, height: 1024 },
+      { width: 820, height: 1180 },
+      { width: 390, height: 844 },
+    ]) {
+      const context = await browser.newContext({ baseURL: 'http://localhost:3000', viewport, hasTouch: true, isMobile: true });
       const page = await context.newPage();
-      const videoRequests = [];
-      await routeHomepageVideoHoverFixtures(page, {
-        videoRequests,
-        homepageHeroVideos,
-        items: [],
-      });
-      await page.goto('/', { waitUntil: 'domcontentloaded' });
-      return { context, page, videoRequests };
-    };
-
-    const assertTabletHeroVisuals = async (viewport, label) => {
-      const { context, page, videoRequests } = await openTouchPage(viewport);
       try {
-        await expect(page.locator('#hero .hero__models-cta')).toHaveCount(2);
-        await expect(page.locator('#hero .hero__models-cta--left')).toBeVisible();
-        await expect(page.locator('#hero .hero__models-cta--right')).toBeVisible();
-        await expect(page.locator('#hero .latest-models-video-module__slot')).toHaveCount(4);
-        await expect(page.locator('#hero .latest-models-video-module__slot video')).toHaveCount(4);
-        await expect(page.locator('#hero .latest-models-video-module[data-video-module-state="ready"]')).toHaveCount(2);
-        await expect(page.locator('#hero .hero__creation-stream[data-creation-stream-anchored="true"]')).toHaveCount(2);
-
-        const metrics = await page.evaluate(() => {
-          const stream = document.querySelector('#hero .hero__creation-stream');
-          const slots = Array.from(document.querySelectorAll('#hero .latest-models-video-module__slot'));
-          return {
-            legacyDesktopVideoGate: window.matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine)').matches,
-            heroVisualMedia: window.matchMedia('(min-width: 1024px), (min-width: 768px) and (max-width: 1023px) and (min-height: 700px)').matches,
-            streamDisplay: stream ? window.getComputedStyle(stream).display : '',
-            visibleSlotCount: slots.filter((slot) => {
-              const rect = slot.getBoundingClientRect();
-              const style = window.getComputedStyle(slot);
-              return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
-            }).length,
-          };
-        });
-        expect(metrics.heroVisualMedia, `${label} hero visual media`).toBe(true);
-        expect(metrics.streamDisplay, `${label} stream display`).not.toBe('none');
-        expect(metrics.visibleSlotCount, `${label} visible hero video slots`).toBe(4);
-        expect(videoRequests, `${label} configured hero videos requested`).toEqual(expect.arrayContaining([
-          '/api/homepage/hero-videos/right_top/tabletv1/file',
-          '/api/homepage/hero-videos/right_bottom/tabletv2/file',
-          '/api/homepage/hero-videos/left_top/tabletv3/file',
-          '/api/homepage/hero-videos/left_bottom/tabletv4/file',
-        ]));
-        return metrics;
-      } finally {
-        await context.close();
-      }
-    };
-
-    const iPadProLike = await assertTabletHeroVisuals({ width: 1366, height: 1024 }, 'iPad Pro landscape');
-    expect(iPadProLike.legacyDesktopVideoGate, 'touch tablet should not depend on hover/fine media').toBe(false);
-    await assertTabletHeroVisuals({ width: 820, height: 1180 }, 'tablet portrait');
-
-    const { context: phoneContext, page: phonePage, videoRequests: phoneVideoRequests } = await openTouchPage({ width: 390, height: 844 });
-    try {
-      await expect(phonePage.locator('#hero .hero__models-cta')).toHaveCount(2);
-      await expect(phonePage.locator('#hero .hero__models-cta--left')).toBeHidden();
-      await expect(phonePage.locator('#hero .hero__models-cta--right')).toBeHidden();
-      await expect(phonePage.locator('#hero .latest-models-video-module__slot video')).toHaveCount(0);
-      const phoneMetrics = await phonePage.evaluate(() => ({
-        heroVisualMedia: window.matchMedia('(min-width: 1024px), (min-width: 768px) and (max-width: 1023px) and (min-height: 700px)').matches,
-        streamDisplays: Array.from(document.querySelectorAll('#hero .hero__creation-stream'))
-          .map((stream) => window.getComputedStyle(stream).display),
-      }));
-      expect(phoneMetrics.heroVisualMedia).toBe(false);
-      expect(phoneMetrics.streamDisplays.every((display) => display === 'none')).toBe(true);
-      expect(phoneVideoRequests).toEqual([]);
-    } finally {
-      await phoneContext.close();
+        await page.goto('/', { waitUntil: 'domcontentloaded' });
+        if (viewport.width >= 768) {
+          for (const side of ['left', 'right']) await expect(page.locator(`#hero .hero__models-cta--${side}`)).toBeVisible();
+          await page.locator('#hero .hero__models-cta--left').click();
+        } else {
+          await expect(page.locator('#hero .hero__models-cta--left')).toBeHidden();
+          await expect(page.locator('#hero .hero__models-cta--right')).toBeHidden();
+          await page.locator('#mobileMenuBtn').click();
+          await page.locator('#mobileNav [data-models-link]').click();
+        }
+        await expectModelsOverlayOpenState(page, { homepage: true });
+        await expectPathUnchanged(page, '/');
+        await page.getByRole('button', { name: 'Close models' }).click();
+        await expect(page.locator('.models-overlay')).not.toHaveClass(/is-active/);
+      } finally { await context.close(); }
     }
   });
 
@@ -2929,350 +2709,54 @@ test.describe('Homepage', () => {
     { path: '/', galleryLabel: 'Gallery' },
     { path: '/de/', galleryLabel: 'Galerie' },
   ]) {
-    test(`homepage Models video module sits flush right below the header without crowding ${galleryLabel} on ${path}`, async ({ page }) => {
+    test(`@canvas-model-ui homepage Models buttons sit below the header without crowding ${galleryLabel} on ${path}`, async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 720 });
       await mockHomepageAuthState(page, { loggedIn: true });
-      await page.route('**/api/public/news-pulse**', async (route) => {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ items: [], updated_at: '2026-05-09T08:00:00.000Z' }),
-        });
-      });
-
+      await page.route('**/api/public/news-pulse**', route => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ items: [], updated_at: '2026-05-09T08:00:00.000Z' }) }));
       await page.goto(path, { waitUntil: 'domcontentloaded' });
-      const modelsButtons = page.locator('#hero .hero__models-cta');
-      const modelsButton = page.locator('#hero .hero__models-cta--right');
-      const leftModelsButton = page.locator('#hero .hero__models-cta--left');
-      await expect(modelsButtons).toHaveCount(2);
-      await expect(modelsButton).toBeVisible();
-      await expect(leftModelsButton).toBeVisible();
-      await expect(modelsButton.locator('.latest-models-video-module')).toBeVisible();
-      await expect(leftModelsButton.locator('.latest-models-video-module')).toBeVisible();
-      const expectedModuleLabel = path === '/de/' ? 'Plattform Modelle' : 'Platform Models';
-      await expect(modelsButton.locator('.latest-models-video-module__label')).toHaveText(expectedModuleLabel);
-      await expect(leftModelsButton.locator('.latest-models-video-module__label')).toHaveText(expectedModuleLabel);
-      await expect(page.locator('#hero')).not.toContainText('Plattform-Modelle');
-      await expect(page.locator('#hero')).not.toContainText('Platform-Models');
-      await expect(page.locator('#hero')).not.toContainText('Plattform-Models');
-      await expect(modelsButtons.locator('img.hero__models-cta-image')).toHaveCount(0);
-
-      const readLayout = async () => page.evaluate(() => {
-        const ctaNode = document.querySelector('#hero .hero__models-cta--right');
-        const leftCtaNode = document.querySelector('#hero .hero__models-cta--left');
-        const moduleNode = ctaNode.querySelector('.latest-models-video-module');
-        const leftModuleNode = leftCtaNode.querySelector('.latest-models-video-module');
-        const topSlotNode = moduleNode.querySelector('[data-latest-models-slot="top"]');
-        const bottomSlotNode = moduleNode.querySelector('[data-latest-models-slot="bottom"]');
-        const edgeGlowNode = moduleNode.querySelector('.latest-models-video-module__edge-glow');
-        const leftEdgeGlowNode = leftModuleNode.querySelector('.latest-models-video-module__edge-glow');
-        const edgeGlowHaloNode = edgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--halo');
-        const edgeGlowPathNode = edgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--core');
-        const edgeGlowHighlightNode = edgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--highlight');
-        const leftEdgeGlowHaloNode = leftEdgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--halo');
-        const leftEdgeGlowPathNode = leftModuleNode.querySelector('.latest-models-video-module__edge-glow-path--core');
-        const leftEdgeGlowHighlightNode = leftEdgeGlowNode?.querySelector('.latest-models-video-module__edge-glow-path--highlight');
-        const edgeGlowFilterNode = edgeGlowNode?.querySelector('#latestModelsEdgeGlowSoft');
-        const leftEdgeGlowFilterNode = leftEdgeGlowNode?.querySelector('#latestModelsLeftEdgeGlowSoft');
-        const leftEdgeGlowGradientNode = leftEdgeGlowNode?.querySelector('#latestModelsLeftEdgeGlowGradient');
-        const leftEdgeHighlightGradientNode = leftEdgeGlowNode?.querySelector('#latestModelsLeftEdgeHighlightGradient');
-        const topClipPathNode = document.querySelector('#latestModelsTopClip path');
-        const bottomClipPathNode = document.querySelector('#latestModelsBottomClip path');
-        const moduleClipPathNode = document.querySelector('#latestModelsModuleClip path');
-        const leftTopClipPathNode = document.querySelector('#latestModelsLeftTopClip path');
-        const leftBottomClipPathNode = document.querySelector('#latestModelsLeftBottomClip path');
-        const leftModuleClipPathNode = document.querySelector('#latestModelsLeftModuleClip path');
-        const labTeaserNode = document.querySelector('#hero .hero__lab-teaser');
-        const labelNode = moduleNode.querySelector('.latest-models-video-module__label');
-        const leftLabelNode = leftModuleNode.querySelector('.latest-models-video-module__label');
-        const topMediaNode = topSlotNode.querySelector('.latest-models-video-module__cube, .latest-models-video-module__fallback');
-        const bottomMediaNode = bottomSlotNode.querySelector('.latest-models-video-module__cube, .latest-models-video-module__fallback');
-        const cta = ctaNode.getBoundingClientRect();
-        const leftCta = leftCtaNode.getBoundingClientRect();
-        const module = moduleNode.getBoundingClientRect();
-        const leftModule = leftModuleNode.getBoundingClientRect();
-        const edgeGlow = edgeGlowNode.getBoundingClientRect();
-        const label = labelNode.getBoundingClientRect();
-        const leftLabel = leftLabelNode.getBoundingClientRect();
-        const topSlot = topSlotNode.getBoundingClientRect();
-        const bottomSlot = bottomSlotNode.getBoundingClientRect();
-        const topMedia = topMediaNode.getBoundingClientRect();
-        const bottomMedia = bottomMediaNode.getBoundingClientRect();
-        const title = document.querySelector('#hero .hero__title-img').getBoundingClientRect();
-        const pulseNode = document.querySelector('#newsPulse');
-        const pulse = pulseNode.getBoundingClientRect();
-        const hero = document.querySelector('#hero').getBoundingClientRect();
-        const nav = document.querySelector('#navbar').getBoundingClientRect();
-        const guest = document.querySelector('#mobileGuestBanner')?.getBoundingClientRect();
-        const ctaStyle = getComputedStyle(ctaNode);
-        const ctaBeforeStyle = getComputedStyle(ctaNode, '::before');
-        const edgeGlowStyle = getComputedStyle(edgeGlowNode);
-        const edgeGlowHaloStyle = getComputedStyle(edgeGlowHaloNode);
-        const edgeGlowPathStyle = getComputedStyle(edgeGlowPathNode);
-        const edgeGlowHighlightStyle = getComputedStyle(edgeGlowHighlightNode);
-        const leftEdgeGlowHaloStyle = getComputedStyle(leftEdgeGlowHaloNode);
-        const leftEdgeGlowPathStyle = getComputedStyle(leftEdgeGlowPathNode);
-        const leftEdgeGlowHighlightStyle = getComputedStyle(leftEdgeGlowHighlightNode);
-        const labTeaserAfterStyle = getComputedStyle(labTeaserNode, '::after');
-        const moduleBeforeStyle = getComputedStyle(moduleNode, '::before');
-        const moduleAfterStyle = getComputedStyle(moduleNode, '::after');
-        const labelStyle = getComputedStyle(labelNode);
-        const leftLabelStyle = getComputedStyle(leftLabelNode);
-        const pulseStyle = getComputedStyle(pulseNode);
-        const topSlotStyle = getComputedStyle(topSlotNode);
-        const bottomSlotStyle = getComputedStyle(bottomSlotNode);
-        const topSlotBeforeStyle = getComputedStyle(topSlotNode, '::before');
-        const bottomSlotBeforeStyle = getComputedStyle(bottomSlotNode, '::before');
-        const topSlotAfterStyle = getComputedStyle(topSlotNode, '::after');
-        const bottomSlotAfterStyle = getComputedStyle(bottomSlotNode, '::after');
-        const ids = [...document.querySelectorAll('[id]')].map((node) => node.id).filter(Boolean);
-        const duplicateIds = ids.filter((id, index) => ids.indexOf(id) !== index);
-        const guestClear = !guest?.width || !guest?.height || (
-          guest.right <= cta.left - 8 ||
-          guest.left >= cta.right + 8 ||
-          guest.bottom <= cta.top - 8 ||
-          guest.top >= cta.bottom + 8
-        );
-        return {
-          ctaRightInset: hero.right - cta.right,
-          leftCtaLeftInset: leftCta.left - hero.left,
-          ctaTop: cta.top,
-          ctaLeft: cta.left,
-          ctaRight: cta.right,
-          ctaCenterX: cta.left + cta.width / 2,
-          leftCtaTop: leftCta.top,
-          leftCtaLeft: leftCta.left,
-          leftCtaRight: leftCta.right,
-          leftCtaCenterX: leftCta.left + leftCta.width / 2,
-          moduleTop: module.top,
-          moduleBottom: module.bottom,
-          moduleLeft: module.left,
-          moduleWidth: module.width,
-          moduleHeight: module.height,
-          leftModuleTop: leftModule.top,
-          leftModuleBottom: leftModule.bottom,
-          leftModuleLeft: leftModule.left,
-          leftModuleWidth: leftModule.width,
-          leftModuleHeight: leftModule.height,
-          labelTop: label.top,
-          labelBottom: label.bottom,
-          labelCenterX: label.left + label.width / 2,
-          labelTransform: labelStyle.transform,
-          leftLabelCenterX: leftLabel.left + leftLabel.width / 2,
-          leftLabelTransform: leftLabelStyle.transform,
-          topSlotTop: topSlot.top,
-          topSlotBottom: topSlot.bottom,
-          topSlotHeight: topSlot.height,
-          bottomSlotBottom: bottomSlot.bottom,
-          topSlotRight: topSlot.right,
-          bottomSlotTop: bottomSlot.top,
-          bottomSlotRight: bottomSlot.right,
-          topMediaTop: topMedia.top,
-          topMediaBottom: topMedia.bottom,
-          topMediaHeight: topMedia.height,
-          bottomMediaTop: bottomMedia.top,
-          bottomMediaBottom: bottomMedia.bottom,
-          bottomMediaHeight: bottomMedia.height,
-          titleTop: title.top,
-          titleRight: title.right,
-          titleLeft: title.left,
-          heroLeft: hero.left,
-          heroRight: hero.right,
-          heroTop: hero.top,
-          heroWidth: hero.width,
-          heroCenterX: hero.left + hero.width / 2,
-          navBottom: nav.bottom,
-          pulseDisplay: pulseStyle.display,
-          pulseVisibility: pulseStyle.visibility,
-          pulseHidden: pulseNode.hasAttribute('hidden'),
-          pulseWidth: pulse.width,
-          pulseHeight: pulse.height,
-          ctaBoxShadow: ctaStyle.boxShadow,
-          ctaBeforeContent: ctaBeforeStyle.content,
-          edgeGlowTop: edgeGlow.top,
-          edgeGlowBottom: edgeGlow.bottom,
-          edgeGlowLeft: edgeGlow.left,
-          edgeGlowRight: edgeGlow.right,
-          edgeGlowPointerEvents: edgeGlowStyle.pointerEvents,
-          edgeGlowZIndex: Number.parseInt(edgeGlowStyle.zIndex || '0', 10),
-          edgeGlowPathD: edgeGlowPathNode?.getAttribute('d') || '',
-          leftEdgeGlowPathD: leftEdgeGlowPathNode?.getAttribute('d') || '',
-          edgeGlowPathStroke: edgeGlowPathStyle.stroke,
-          edgeGlowHaloFilter: edgeGlowHaloStyle.filter,
-          leftEdgeGlowHaloStroke: leftEdgeGlowHaloStyle.stroke,
-          leftEdgeGlowHaloFilter: leftEdgeGlowHaloStyle.filter,
-          leftEdgeGlowHaloStrokeWidth: Number.parseFloat(leftEdgeGlowHaloStyle.strokeWidth || '0'),
-          leftEdgeGlowHaloOpacity: Number.parseFloat(leftEdgeGlowHaloStyle.opacity || '0'),
-          leftEdgeGlowPathStroke: leftEdgeGlowPathStyle.stroke,
-          leftEdgeGlowHighlightStroke: leftEdgeGlowHighlightStyle.stroke,
-          edgeGlowFilterX: edgeGlowFilterNode?.getAttribute('x') || '',
-          edgeGlowFilterWidth: edgeGlowFilterNode?.getAttribute('width') || '',
-          leftEdgeGlowFilterUnits: leftEdgeGlowFilterNode?.getAttribute('filterUnits') || '',
-          leftEdgeGlowFilterX: Number.parseFloat(leftEdgeGlowFilterNode?.getAttribute('x') || '0'),
-          leftEdgeGlowFilterY: Number.parseFloat(leftEdgeGlowFilterNode?.getAttribute('y') || '0'),
-          leftEdgeGlowFilterWidth: Number.parseFloat(leftEdgeGlowFilterNode?.getAttribute('width') || '0'),
-          leftEdgeGlowFilterHeight: Number.parseFloat(leftEdgeGlowFilterNode?.getAttribute('height') || '0'),
-          leftEdgeGlowGradientX1: leftEdgeGlowGradientNode?.getAttribute('x1') || '',
-          leftEdgeGlowGradientX2: leftEdgeGlowGradientNode?.getAttribute('x2') || '',
-          leftEdgeHighlightGradientX1: leftEdgeHighlightGradientNode?.getAttribute('x1') || '',
-          leftEdgeHighlightGradientX2: leftEdgeHighlightGradientNode?.getAttribute('x2') || '',
-          topClipPathD: topClipPathNode?.getAttribute('d') || '',
-          bottomClipPathD: bottomClipPathNode?.getAttribute('d') || '',
-          moduleClipPathD: moduleClipPathNode?.getAttribute('d') || '',
-          leftTopClipPathD: leftTopClipPathNode?.getAttribute('d') || '',
-          leftBottomClipPathD: leftBottomClipPathNode?.getAttribute('d') || '',
-          leftModuleClipPathD: leftModuleClipPathNode?.getAttribute('d') || '',
-          edgeGlowHaloStrokeWidth: Number.parseFloat(edgeGlowHaloStyle.strokeWidth || '0'),
-          edgeGlowHaloOpacity: Number.parseFloat(edgeGlowHaloStyle.opacity || '0'),
-          edgeGlowCoreStrokeWidth: Number.parseFloat(edgeGlowPathStyle.strokeWidth || '0'),
-          edgeGlowCoreOpacity: Number.parseFloat(edgeGlowPathStyle.opacity || '0'),
-          edgeGlowHighlightStrokeWidth: Number.parseFloat(edgeGlowHighlightStyle.strokeWidth || '0'),
-          edgeGlowHighlightOpacity: Number.parseFloat(edgeGlowHighlightStyle.opacity || '0'),
-          labTeaserAfterContent: labTeaserAfterStyle.content,
-          labTeaserAfterInsetInlineStart: labTeaserAfterStyle.insetInlineStart,
-          labTeaserAfterInsetInlineEnd: labTeaserAfterStyle.insetInlineEnd,
-          labTeaserAfterBackgroundPositionX: labTeaserAfterStyle.backgroundPositionX,
-          labTeaserAfterClipPath: labTeaserAfterStyle.clipPath,
-          moduleBeforeContent: moduleBeforeStyle.content,
-          moduleAfterContent: moduleAfterStyle.content,
-          topSlotBoxShadow: topSlotStyle.boxShadow,
-          bottomSlotBoxShadow: bottomSlotStyle.boxShadow,
-          topSlotZIndex: Number.parseInt(topSlotStyle.zIndex || '0', 10),
-          bottomSlotZIndex: Number.parseInt(bottomSlotStyle.zIndex || '0', 10),
-          topSlotClipPath: topSlotStyle.clipPath,
-          bottomSlotClipPath: bottomSlotStyle.clipPath,
-          topSlotBeforeContent: topSlotBeforeStyle.content,
-          bottomSlotBeforeContent: bottomSlotBeforeStyle.content,
-          topSlotAfterContent: topSlotAfterStyle.content,
-          bottomSlotAfterContent: bottomSlotAfterStyle.content,
-          duplicateIds,
-          guestClear,
-        };
-      });
-
-      const assertLayout = (layout) => {
-        expect(layout.ctaRightInset).toBeLessThanOrEqual(1);
-        expect(layout.leftCtaLeftInset).toBeGreaterThanOrEqual(-1);
-        expect(layout.ctaLeft).toBeGreaterThanOrEqual(layout.heroLeft + layout.heroWidth * 0.76);
-        expect(layout.ctaRight).toBeLessThanOrEqual(layout.heroRight + 1);
-        expect(layout.leftCtaLeft).toBeGreaterThanOrEqual(layout.heroLeft - 1);
-        expect(layout.leftCtaRight).toBeLessThanOrEqual(layout.heroLeft + layout.heroWidth * 0.24);
-        expectWithinPx(layout.ctaTop, layout.leftCtaTop, 'left/right Models top alignment', 1.5);
-        expectWithinPx(layout.moduleWidth, layout.leftModuleWidth, 'left/right Models width', 1);
-        expectWithinPx(layout.moduleHeight, layout.leftModuleHeight, 'left/right Models height', 1);
-        expectWithinPx(layout.moduleTop, layout.leftModuleTop, 'left/right Models module top', 1.5);
-        expectWithinPx(layout.moduleBottom, layout.leftModuleBottom, 'left/right Models module bottom', 1.5);
-        expectWithinPx(
-          layout.ctaCenterX - layout.heroCenterX,
-          layout.heroCenterX - layout.leftCtaCenterX,
-          'left/right Models center mirror',
-          2,
-        );
-        expect(Math.abs(layout.topSlotTop - layout.navBottom)).toBeLessThanOrEqual(2);
-        expect(layout.topSlotRight).toBeLessThanOrEqual(layout.heroRight + 1);
-        expect(layout.bottomSlotRight).toBeLessThanOrEqual(layout.heroRight + 1);
-        expect(Math.abs(layout.bottomSlotTop - layout.topSlotTop)).toBeLessThanOrEqual(1);
-        expect(Math.abs(layout.bottomSlotBottom - layout.topSlotBottom)).toBeLessThanOrEqual(1);
-        const seamY = layout.topSlotTop + layout.topSlotHeight * 0.5;
-        expect(layout.labelTop).toBeGreaterThanOrEqual(layout.bottomSlotBottom + 4);
-        expect(layout.labelBottom).toBeLessThan(layout.moduleBottom - 8);
-        expect(layout.labelCenterX).toBeGreaterThan(layout.moduleLeft + layout.moduleWidth * 0.48);
-        expect(layout.labelCenterX).toBeLessThan(layout.moduleLeft + layout.moduleWidth * 0.78);
-        expect(layout.leftLabelCenterX).toBeGreaterThan(layout.leftModuleLeft + layout.leftModuleWidth * 0.22);
-        expect(layout.leftLabelCenterX).toBeLessThan(layout.leftModuleLeft + layout.leftModuleWidth * 0.52);
-        expect(layout.labelTransform).not.toBe('none');
-        expect(layout.leftLabelTransform).not.toContain('-1, 0');
-        // This fixture has no news. It must not reserve a visible empty box.
-        expect(layout.pulseDisplay).toBe('none');
-        expect(layout.pulseWidth).toBe(0);
-        expect(layout.pulseHeight).toBe(0);
-        expect(Math.abs(layout.topMediaTop - layout.moduleTop)).toBeLessThanOrEqual(1);
-        expect(layout.topMediaBottom).toBeGreaterThanOrEqual(seamY);
-        expect(layout.topMediaBottom).toBeLessThanOrEqual(seamY + 9);
-        expect(layout.bottomMediaTop).toBeLessThanOrEqual(seamY);
-        expect(layout.bottomMediaTop).toBeGreaterThanOrEqual(seamY - 9);
-        expect(layout.bottomMediaBottom).toBeLessThanOrEqual(layout.bottomSlotBottom + 1);
-        expect(layout.bottomMediaBottom).toBeGreaterThanOrEqual(layout.bottomSlotBottom - 1);
-        expect(layout.topMediaHeight).toBeGreaterThan(layout.topSlotHeight * 0.5);
-        expect(layout.bottomMediaHeight).toBeGreaterThan(layout.topSlotHeight * 0.5);
-        expect(layout.bottomMediaTop - layout.topMediaBottom).toBeLessThanOrEqual(-4);
-        expect(layout.ctaBoxShadow).toBe('none');
-        expect(layout.ctaBeforeContent).toBe('none');
-        expect(Math.abs(layout.edgeGlowTop - layout.moduleTop)).toBeLessThanOrEqual(1);
-        expect(layout.edgeGlowBottom).toBeLessThan(layout.labelTop);
-        expect(Math.abs(layout.edgeGlowLeft - layout.moduleLeft)).toBeLessThanOrEqual(1);
-        expect(layout.edgeGlowRight).toBeLessThanOrEqual(layout.moduleLeft + layout.moduleWidth + 1);
-        expect(layout.edgeGlowPointerEvents).toBe('none');
-        expect(layout.edgeGlowZIndex).toBeLessThan(layout.topSlotZIndex);
-        expect(layout.edgeGlowZIndex).toBeLessThan(layout.bottomSlotZIndex);
-        expect(layout.edgeGlowPathD).toBe('M 34 0 C 16 2 4 18 4 34 C 4 48 18 56 14 64 C 8 76 3 86 20 100');
-        expect(layout.leftEdgeGlowPathD).toBe('M 66 0 C 84 2 96 18 96 34 C 96 48 82 56 86 64 C 92 76 97 86 80 100');
-        expect(layout.moduleClipPathD).toBe('M 1 0 L 0.34 0 C 0.16 0.02 0.04 0.18 0.04 0.34 C 0.04 0.48 0.18 0.56 0.14 0.64 C 0.08 0.76 0.03 0.86 0.2 1 L 1 1 Z');
-        expect(layout.topClipPathD).toBe('M 1 0 L 0.34 0 C 0.16 0.02 0.04 0.18 0.04 0.34 C 0.04 0.403945 0.069207 0.455372 0.097128 0.5 C 0.31 0.545 0.58 0.47 1 0.5 Z');
-        expect(layout.bottomClipPathD).toBe('M 1 0.486 C 0.58 0.456 0.31 0.531 0.088501 0.486 C 0.124508 0.545559 0.16361 0.59278 0.14 0.64 C 0.08 0.76 0.03 0.86 0.2 1 L 1 1 Z');
-        expect(layout.leftModuleClipPathD).toBe('M 0 0 L 0.66 0 C 0.84 0.02 0.96 0.18 0.96 0.34 C 0.96 0.48 0.82 0.56 0.86 0.64 C 0.92 0.76 0.97 0.86 0.8 1 L 0 1 Z');
-        expect(layout.leftTopClipPathD).toBe('M 0 0 L 0.66 0 C 0.84 0.02 0.96 0.18 0.96 0.34 C 0.96 0.403945 0.930793 0.455372 0.902872 0.5 C 0.69 0.545 0.42 0.47 0 0.5 Z');
-        expect(layout.leftBottomClipPathD).toBe('M 0 0.486 C 0.42 0.456 0.69 0.531 0.911499 0.486 C 0.875492 0.545559 0.83639 0.59278 0.86 0.64 C 0.92 0.76 0.97 0.86 0.8 1 L 0 1 Z');
-        expect(layout.edgeGlowPathStroke).toContain('latestModelsEdgeGlowGradient');
-        expect(layout.leftEdgeGlowHaloStroke).toContain('latestModelsLeftEdgeGlowGradient');
-        expect(layout.leftEdgeGlowPathStroke).toContain('latestModelsLeftEdgeGlowGradient');
-        expect(layout.leftEdgeGlowHighlightStroke).toContain('latestModelsLeftEdgeHighlightGradient');
-        expect(layout.edgeGlowHaloFilter).toBe('none');
-        expect(layout.leftEdgeGlowHaloFilter).toBe('none');
-        expect(layout.edgeGlowFilterX).toBe('-80%');
-        expect(layout.edgeGlowFilterWidth).toBe('190%');
-        expect(layout.leftEdgeGlowFilterUnits).toBe('userSpaceOnUse');
-        expect(layout.leftEdgeGlowFilterX).toBeLessThanOrEqual(-70);
-        expect(layout.leftEdgeGlowFilterY).toBeLessThanOrEqual(-20);
-        expect(layout.leftEdgeGlowFilterWidth).toBeGreaterThanOrEqual(240);
-        expect(layout.leftEdgeGlowFilterHeight).toBeGreaterThanOrEqual(140);
-        expect(layout.leftEdgeGlowGradientX1).toBe('90');
-        expect(layout.leftEdgeGlowGradientX2).toBe('80');
-        expect(layout.leftEdgeHighlightGradientX1).toBe('90');
-        expect(layout.leftEdgeHighlightGradientX2).toBe('80');
-        expect(layout.edgeGlowHaloStrokeWidth).toBeLessThanOrEqual(0.01);
-        expect(layout.edgeGlowHaloOpacity).toBe(0);
-        expect(layout.leftEdgeGlowHaloStrokeWidth).toBeLessThanOrEqual(0.01);
-        expect(layout.leftEdgeGlowHaloOpacity).toBe(0);
-        expect(layout.edgeGlowCoreStrokeWidth).toBeGreaterThanOrEqual(16.8);
-        expect(layout.edgeGlowCoreOpacity).toBeGreaterThanOrEqual(0.99);
-        expect(layout.edgeGlowHighlightStrokeWidth).toBeGreaterThanOrEqual(6);
-        expect(layout.edgeGlowHighlightOpacity).toBeGreaterThanOrEqual(0.99);
-        expect(layout.labTeaserAfterContent).not.toBe('none');
-        expect(layout.labTeaserAfterInsetInlineStart).toBe('1px');
-        expect(layout.labTeaserAfterInsetInlineEnd).toBe('1px');
-        expect(layout.labTeaserAfterBackgroundPositionX).not.toBe('');
-        expect(layout.labTeaserAfterClipPath).not.toBe('none');
-        expect(layout.moduleBeforeContent).toBe('none');
-        expect(layout.moduleAfterContent).toBe('none');
-        expect(layout.topSlotBoxShadow).toBe('none');
-        expect(layout.bottomSlotBoxShadow).toBe('none');
-        expect(layout.topSlotClipPath).not.toBe('none');
-        expect(layout.bottomSlotClipPath).not.toBe('none');
-        expect(layout.topSlotBeforeContent).toBe('none');
-        expect(layout.bottomSlotBeforeContent).toBe('none');
-        expect(layout.topSlotAfterContent).toBe('none');
-        expect(layout.bottomSlotAfterContent).toBe('none');
-        expect(layout.duplicateIds).toEqual([]);
-        expect(layout.titleLeft).toBeLessThan(layout.ctaLeft - 8);
-        expect(layout.titleRight).toBeLessThan(layout.ctaLeft + 16);
-        expect(layout.titleTop).toBeGreaterThanOrEqual(layout.navBottom + 2);
-        expect(Math.abs((layout.titleTop - layout.navBottom) - (layout.ctaTop - layout.navBottom))).toBeLessThanOrEqual(18);
-        expect(layout.guestClear).toBe(true);
-      };
-
-      assertLayout(await readLayout());
-      await modelsButton.hover();
-      await expect
-        .poll(() => modelsButton.evaluate((node) => window.getComputedStyle(node).boxShadow))
-        .toBe('none');
+      const buttons = page.locator('#hero .hero__models-cta');
+      await expect(buttons).toHaveCount(2);
+      for (const button of await buttons.all()) {
+        await expect(button).toBeVisible();
+        await expect(button).toHaveAccessibleName(path === '/de/' ? 'Modelle öffnen' : 'Open Models');
+        await expect(button).toContainText(path === '/de/' ? 'Plattform Modelle' : 'Platform Models');
+      }
       for (const viewport of [
+        { width: 1280, height: 720 },
         { width: 1100, height: 760 },
         { width: 1600, height: 900 },
       ]) {
         await page.setViewportSize(viewport);
-        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-        assertLayout(await readLayout());
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const layout = await page.evaluate(() => {
+          const rect = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
+          const ids = [...document.querySelectorAll('[id]')].map(node => node.id).filter(Boolean);
+          return { right: rect('#hero .hero__models-cta--right'), left: rect('#hero .hero__models-cta--left'),
+            title: rect('#hero .hero__title-img'), hero: rect('#hero'), nav: rect('#navbar'),
+            pulse: rect('#newsPulse'), pulseDisplay: getComputedStyle(document.querySelector('#newsPulse')).display,
+            guest: document.querySelector('#mobileGuestBanner')?.getBoundingClientRect().toJSON(),
+            duplicateIds: ids.filter((id, index) => ids.indexOf(id) !== index) };
+        });
+        const { right, left, hero, title, nav, guest } = layout;
+        expect(hero.right - right.right).toBeLessThanOrEqual(1);
+        expect(left.left - hero.left).toBeGreaterThanOrEqual(-1);
+        expect(right.left).toBeGreaterThanOrEqual(hero.left + hero.width * 0.76);
+        expect(right.right).toBeLessThanOrEqual(hero.right + 1);
+        expect(left.right).toBeLessThanOrEqual(hero.left + hero.width * 0.24);
+        expectWithinPx(right.top, left.top, 'Models button top alignment', 1.5);
+        expectWithinPx(right.left + right.width / 2 - (hero.left + hero.width / 2),
+          hero.left + hero.width / 2 - (left.left + left.width / 2), 'Models button center mirror', 2);
+        expect(title.left).toBeLessThan(right.left - 8);
+        expect(title.right).toBeLessThan(right.left + 16);
+        expect(title.top).toBeGreaterThanOrEqual(nav.bottom + 2);
+        expect(Math.abs(title.top - right.top)).toBeLessThanOrEqual(18);
+        expect(layout.pulseDisplay).toBe('none');
+        expect(layout.pulse.width).toBe(0);
+        expect(layout.pulse.height).toBe(0);
+        expect(layout.duplicateIds).toEqual([]);
+        expect(!guest?.width || !guest?.height || guest.right <= right.left - 8 || guest.left >= right.right + 8
+          || guest.bottom <= right.top - 8 || guest.top >= right.bottom + 8).toBe(true);
       }
     });
   }

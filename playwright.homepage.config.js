@@ -3,15 +3,11 @@ const { defineConfig } = require('@playwright/test');
 // Short, mandatory functional feedback. The existing full suites remain intact.
 module.exports = defineConfig({
   testDir: './tests',
-  grepInvert: process.env.HOMEPAGE_EXTENDED === 'true' ? undefined : /@homepage-extended/,
   testMatch: [
     'homepage-carousel-focused.spec.js',
     'homepage-creation-stream-anchor.spec.js',
-    'homepage-hero-playback.spec.js',
-    'homepage-native-control.spec.js',
-    'homepage-hero-state.spec.js',
     'homepage-media-loading.spec.js',
-  ].filter(file => process.env.HOMEPAGE_MEDIA !== 'false' || !['homepage-hero-playback.spec.js','homepage-native-control.spec.js'].includes(file)),
+  ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
@@ -31,7 +27,7 @@ module.exports = defineConfig({
   },
   projects: [
     { name: 'chromium', use: { browserName: 'chromium' } },
-    { name: 'webkit', testIgnore: ['**/homepage-hero-playback.spec.js', '**/homepage-native-control.spec.js'], use: { browserName: 'webkit' } },
+    { name: 'webkit', use: { browserName: 'webkit' } },
   ],
   webServer: {
     command: 'node tests/helpers/homepage-media-server.mjs _site',

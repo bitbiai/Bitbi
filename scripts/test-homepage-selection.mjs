@@ -5,9 +5,8 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, HOMEPAGE_WEBKIT_REQUIRED, HOMEPAGE_NATIVE_CONTROLS_REQUIRED, HOMEPAGE_EXTENDED_REQUIRED, HOMEPAGE_DECORATIVE_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport, verifyHomepageMediaExecution, MEDIA_POLICY } from './lib/homepage-test-selection.mjs';
-import mediaPolicy from './lib/homepage-media-policy.cjs';
-import { validateHomepageMacRuntime, validateHomepageRuntime } from './check-homepage-runtime.mjs';
+import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
+import { validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -95,72 +94,36 @@ try {
 } finally {
   fs.rmSync(discoveryDirectory, {recursive: true, force: true});
 }
-const allFunctional = ['chromium', 'webkit'].flatMap((project) => Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)
+const functional = ['chromium', 'webkit'].flatMap(project => Object.entries(HOMEPAGE_FUNCTIONAL_MINIMUMS)
   .flatMap(([file, count]) => Array.from({ length: count }, (_, index) => fixture(file, project, index))));
-const decorativeTags = title => HOMEPAGE_DECORATIVE_REQUIRED.includes(title) ? ['decorative-playback'] : [];
-const functional = [...allFunctional, ...HOMEPAGE_WEBKIT_REQUIRED.map(title => ({ ...fixture('homepage-hero-playback.spec.js', 'chromium', 0), title, tags: decorativeTags(title) }))];
-const standard = functional.filter(test => test.project === 'chromium' && !['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js'].includes(test.file));
-const carousel = ['chromium', 'firefox', 'webkit'].flatMap((project) => Array.from({ length: 5 }, (_, index) => fixture('homepage-carousel-focused.spec.js', project, index)));
-const performance = Object.entries(HOMEPAGE_PERFORMANCE_REQUIRED).flatMap(([file, titles]) => titles.map((title) => ({
+const standard = functional.filter(test => test.project === 'chromium');
+const carousel = ['chromium', 'firefox', 'webkit'].flatMap(project => Array.from({ length: 5 }, (_, index) => fixture('homepage-carousel-focused.spec.js', project, index)));
+const performance = Object.entries(HOMEPAGE_PERFORMANCE_REQUIRED).flatMap(([file, titles]) => titles.map(title => ({
   ...fixture(file, 'chromium-performance', 0), title, tags: ['homepage-performance'],
 })));
-// Real titles are shared by both engines; discovery still reads actual specs.
-for (const project of ['chromium', 'webkit']) {
-  const cases = functional.filter(test => test.project === project && test.file === 'homepage-hero-playback.spec.js');
-  cases.forEach((test, index) => { test.title = HOMEPAGE_WEBKIT_REQUIRED[index]; });
-  functional.filter(test => test.project === project && test.file === 'homepage-native-control.spec.js')
-    .forEach((test, index) => { test.title = HOMEPAGE_NATIVE_CONTROLS_REQUIRED[index]; });
-}
-const webkit = functional.filter(test => test.project === 'chromium' && ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js'].includes(test.file))
-  .map(test => ({ ...test, project: 'webkit' }));
-const extended = [...webkit, ...HOMEPAGE_EXTENDED_REQUIRED.map(title => ({ ...fixture(HOMEPAGE_NATIVE_CONTROLS_REQUIRED.includes(title) ? 'homepage-native-control.spec.js' : 'homepage-hero-playback.spec.js', 'webkit', 0), title, tags: ['homepage-extended', ...decorativeTags(title)] }))];
-const diagnostic = extended.filter(test => test.file === 'homepage-native-control.spec.js');
-const valid = { standard, carousel, functional, webkit, extended, performance, diagnostic };
-assert.throws(() => verifyHomepageDiscovery({ ...valid, diagnostic: [] }), /no tests/);
-assert.throws(() => verifyHomepageDiscovery({ ...valid, diagnostic: diagnostic.slice(1) }), /lost an independent/);
+const valid = { standard, carousel, functional, performance };
 assert.equal(verifyHomepageDiscovery(valid).existingCommandUnion, standard.length + 10);
-for (const tags of [[], ['decorative-playback']]) {
-  const wrong = structuredClone(valid);
-  const target = wrong.webkit.find(test => tags.length ? !HOMEPAGE_DECORATIVE_REQUIRED.includes(test.title) : HOMEPAGE_DECORATIVE_REQUIRED.includes(test.title));
-  target.tags = tags;
-  assert.throws(() => verifyHomepageDiscovery(wrong), /Decorative policy tag/);
+for (const name of Object.keys(valid)) {
+  for (const file of ['homepage-hero-playback.spec.js', 'homepage-hero-state.spec.js', 'homepage-native-control.spec.js']) {
+    assert.throws(() => verifyHomepageDiscovery({ ...valid, [name]: [...valid[name], fixture(file, 'chromium', 0)] }), /retired decorative Hero/);
+  }
+  for (const tag of ['decorative-playback', '@decorative-playback']) {
+    const tagged = valid[name].map((test, index) => index === 0 ? { ...test, tags: [...test.tags, tag] } : test);
+    assert.throws(() => verifyHomepageDiscovery({ ...valid, [name]: tagged }), /retired decorative Hero/);
+  }
 }
-for (const locale of ['en', 'de']) {
-  const title = `${locale}: visible fallback and Models reject deterministic breakage`;
-  assert(HOMEPAGE_WEBKIT_REQUIRED.includes(title));
-  assert(!HOMEPAGE_DECORATIVE_REQUIRED.includes(title), 'Functional countercontrols cannot inherit the quality exception');
-  const wrong = structuredClone(valid);
-  wrong.webkit.find(test => test.title === title).tags = ['decorative-playback'];
-  assert.throws(() => verifyHomepageDiscovery(wrong), /Decorative policy tag/);
+for (const name of Object.keys(valid)) assert.throws(() => verifyHomepageDiscovery({ ...valid, [name]: [] }), /no tests/);
+for (const file of Object.keys(HOMEPAGE_FUNCTIONAL_MINIMUMS)) {
+  assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: functional.filter(test => !(test.project === 'webkit' && test.file === file)) }), /require at least/);
 }
-for (const file of ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js']) {
-  assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: [...functional, fixture(file, 'webkit', 0)] }), /must not duplicate/);
-  if (file === 'homepage-hero-playback.spec.js') assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: functional.filter(t => t.file !== file) }), /scenario union/);
-}
-for (const file of ['homepage-hero-state.spec.js', 'homepage-media-loading.spec.js']) {
-  assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: functional.filter(t => !(t.project === 'webkit' && t.file === file)) }), /require at least/);
-}
-assert.throws(() => verifyHomepageDiscovery({ ...valid, performance: [] }), /no tests/);
-assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: [] }), /no tests/);
-for (let missing = 0; missing < webkit.length; missing += 1) {
-  assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.filter((_, index) => index !== missing) }), /scenario missing|scenario union/);
-}
-// Matching OS unions alone cannot detect removal/renaming on every platform.
-for (const title of HOMEPAGE_EXTENDED_REQUIRED) {
-  const renamed = Object.fromEntries(Object.entries(valid).map(([name, tests]) => [name,
-    tests.map(test => test.title === title ? { ...test, title: 'unrelated replacement' } : test)]));
-  assert.throws(() => verifyHomepageDiscovery(renamed), /Required extended scenario missing/);
-}
-assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.map(test => ({ ...test, project: 'chromium' })) }), /replacement/);
-assert.throws(() => verifyHomepageDiscovery({ ...valid, webkit: webkit.map(test => ({ ...test, expectedStatus: 'skipped' })) }), /replacement/);
 for (let missing = 0; missing < performance.length; missing += 1) {
   assert.throws(() => verifyHomepageDiscovery({ ...valid, performance: performance.filter((_, index) => index !== missing) }), /required marked scenario/);
 }
-assert.throws(() => verifyHomepageDiscovery({ ...valid, performance: performance.map((test) => ({ ...test, tags: [] })) }), /required marked scenario/);
-assert.ok(verifyHomepageDiscovery({ ...valid, performance: performance.map((test) => ({ ...test, tags: ['@homepage-performance'] })) }));
-assert.throws(() => verifyHomepageDiscovery({ ...valid, performance: performance.map((test) => ({ ...test, project: 'chromium' })) }), /controlled Chromium/);
-assert.throws(() => verifyHomepageDiscovery({ ...valid, performance: performance.map((test) => ({ ...test, expectedStatus: 'skipped' })) }), /statically skipped/);
-assert.throws(() => verifyHomepageDiscovery({ ...valid, carousel: carousel.filter((test) => test.project !== 'firefox') }), /Firefox|firefox/);
+assert.throws(() => verifyHomepageDiscovery({ ...valid, performance: performance.map(test => ({ ...test, tags: [] })) }), /required marked scenario/);
+assert.ok(verifyHomepageDiscovery({ ...valid, performance: performance.map(test => ({ ...test, tags: ['@homepage-performance'] })) }));
+assert.throws(() => verifyHomepageDiscovery({ ...valid, performance: performance.map(test => ({ ...test, project: 'chromium' })) }), /controlled Chromium/);
+assert.throws(() => verifyHomepageDiscovery({ ...valid, performance: performance.map(test => ({ ...test, expectedStatus: 'skipped' })) }), /statically skipped/);
+assert.throws(() => verifyHomepageDiscovery({ ...valid, carousel: carousel.filter(test => test.project !== 'firefox') }), /firefox/);
 assert.throws(() => verifyHomepageDiscovery({ ...valid, functional: functional.slice(1) }), /require at least/);
 assert.throws(() => verifyHomepageDiscovery({ ...valid, standard: [...standard, fixture('homepage-media-loading.spec.js', 'chromium', 'new uncovered case')] }), /Early functional selection omits/);
 assert.throws(() => flattenHomepageDiscovery({ suites: [], errors: [{ message: 'import failed' }] }), /discovery reported errors/);
@@ -168,78 +131,24 @@ assert.deepEqual(flattenHomepageDiscovery({ suites: [{ title: 'file.spec.js', fi
   { file: 'file.spec.js', title: 'group > case', project: 'chromium', expectedStatus: 'passed', tags: ['@homepage-performance'] },
 ]);
 
-// The actual Full caller validates execution, not merely discovery. A warning
-// is evidence about decorative output; every functional case must still pass.
-function mediaExecutionFixture(engine, extended = false) {
-  const titles = [...HOMEPAGE_WEBKIT_REQUIRED, ...(extended ? HOMEPAGE_EXTENDED_REQUIRED : [])];
-  const slots = ['left_top', 'left_bottom', 'right_top', 'right_bottom'];
-  return { stats: { expected: titles.length, unexpected: 0, flaky: 0, skipped: 0 }, errors: [], suites: [{ specs: titles.map(title => {
-    const decorative = HOMEPAGE_DECORATIVE_REQUIRED.includes(title);
-    const control = title.includes('decorative frozen media warns');
-    const observation = { schema: 1, policy: MEDIA_POLICY, kind: 'decorative-playback',
-      check: control ? 'frozen-control' : 'initial-play', status: control ? 'warning' : 'observed',
-      ...(control ? { control: true } : {}),
-      result: { passed: !control, phase: 'play-or-resume', elapsed: 200, timeout: 200,
-        ownOutputObserved: !control,
-        samples: [slots.map((slot, i) => ({ id: i + 1, slot, active: true, connected: true,
-          src: '/api/plain/file', epoch: 0, paused: control, seeking: false, readyState: 4,
-          error: null, outputAdvances: control ? 0 : 2, completedLoops: 0 }))],
-        issues: control ? [{ slot: 'left_top', condition: 'paused' }] : [] },
-      fallback: { slots: slots.map(slot => ({ slot, visible: true, decoded: true })) },
-    };
-    return { title, file: HOMEPAGE_NATIVE_CONTROLS_REQUIRED.includes(title) ? 'homepage-native-control.spec.js' : 'homepage-hero-playback.spec.js',
-      tags: decorativeTags(title), tests: [{ projectName: engine, expectedStatus: 'passed',
-        results: [{ status: 'passed', retry: 0, errors: [], attachments: decorative ? [{
-          name: mediaPolicy.DECORATIVE_OBSERVATION_ATTACHMENT, contentType: 'application/json',
-          body: Buffer.from(JSON.stringify(observation)).toString('base64'),
-        }] : [] }] }] };
-  }) }] };
-}
-const executionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'bitbi-media-execution-'));
-try {
-  for (const engine of ['chromium', 'webkit']) for (const extended of [false, true]) {
-    const report = mediaExecutionFixture(engine, extended);
-    const summary = verifyHomepageMediaExecution(report, { engine, extended });
-    assert.equal(summary.policy, MEDIA_POLICY);
-    assert.equal(summary.controlWarnings, 2);
-    const filename = path.join(executionDirectory, `${engine}-${extended}.json`);
-    fs.writeFileSync(filename, JSON.stringify(report));
-    const args = ['scripts/check-homepage-selection.mjs', '--verify-execution-report', filename,
-      '--engine', engine, ...(extended ? ['--extended'] : [])];
-    const execute = () => spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8' });
-    const accepted = execute(); assert.equal(accepted.status, 0, accepted.stderr);
-    assert.match(accepted.stdout, /controlWarnings/);
-    assert.equal(JSON.parse(fs.readFileSync(filename.replace(/\.json$/, '-decorative.json'))).controlWarnings, 2);
-    for (const fault of ['missing-case', 'skipped', 'failed', 'retry', 'missing-result', 'missing-observation', 'missing-tag-and-observation', 'malformed-observation', 'report-error']) {
-      const broken = structuredClone(report), specs = broken.suites[0].specs;
-      const spec = specs.find(spec => spec.tags.includes('decorative-playback'));
-      const result = spec.tests[0].results[0];
-      if (fault === 'missing-case') specs.pop();
-      else if (fault === 'missing-result') spec.tests[0].results = [];
-      else if (fault === 'retry') spec.tests[0].results.push(structuredClone(result));
-      else if (fault === 'missing-observation') result.attachments = [];
-      else if (fault === 'missing-tag-and-observation') { spec.tags = []; result.attachments = []; }
-      else if (fault === 'malformed-observation') result.attachments[0].body = Buffer.from('{').toString('base64');
-      else if (fault === 'report-error') broken.errors.push({ message: 'Observer failed' });
-      else result.status = fault;
-      assert.throws(() => verifyHomepageMediaExecution(broken, { engine, extended }), undefined, fault);
-      if (engine === 'webkit' && extended) {
-        fs.writeFileSync(filename, JSON.stringify(broken));
-        assert.notEqual(execute().status, 0, `Actual execution verifier must reject ${fault}`);
-      }
-    }
-  }
-} finally { fs.rmSync(executionDirectory, { recursive: true, force: true }); }
-
 const scripts = JSON.parse(read('package.json')).scripts;
+for (const script of ['test:homepage-webkit', 'test:homepage-webkit:extended', 'test:homepage-functional:extended', 'diagnose:homepage-linux-media']) {
+  assert.equal(scripts[script], undefined, `Retired command remains: ${script}`);
+}
+for (const file of ['tests/homepage-hero-playback.spec.js', 'tests/homepage-hero-state.spec.js', 'tests/homepage-native-control.spec.js',
+  'tests/helpers/homepage-hero-native-probe.js', 'tests/helpers/homepage-decorative-media.cjs', 'tests/helpers/homepage-macos.sb',
+  'tests/fixtures/media/hero-stalled-slot.json', 'tests/fixtures/media/hero-fallback-phase-targets.json', 'tests/fixtures/media/hero-bfcache-seek-window.json',
+  'tests/fixtures/media/test-video-loading.mp4', 'playwright.homepage-webkit.config.js', 'playwright.homepage-linux-diagnostic.config.js',
+  'scripts/diagnose-homepage-linux-media.mjs', 'scripts/lib/homepage-media-policy.cjs']) {
+  assert.equal(fs.existsSync(path.join(root, file)), false, `Retired video automation remains: ${file}`);
+}
 assert.equal(scripts['test:static'], 'playwright test -c playwright.config.js');
 assert.equal(scripts['test:homepage-carousel'], 'playwright test -c playwright.carousel.config.js');
 assert.equal(scripts['test:homepage-functional'], 'playwright test -c playwright.homepage.config.js');
-assert.equal(scripts['test:homepage-webkit'], 'playwright test -c playwright.homepage-webkit.config.js');
 assert.equal(scripts['check:homepage-runtime'], 'node scripts/check-homepage-runtime.mjs');
 assert.equal(scripts['test:homepage-performance'], 'playwright test -c playwright.homepage-performance.config.js');
 assert.equal(scripts['check:homepage-selection'], 'node scripts/check-homepage-selection.mjs');
-for (const file of ['playwright.homepage.config.js', 'playwright.homepage-webkit.config.js', 'playwright.homepage-performance.config.js']) {
+for (const file of ['playwright.homepage.config.js', 'playwright.homepage-performance.config.js']) {
   const config = require(path.join(root, file));
   assert.equal(config.workers, 1);
   assert.equal(config.retries, 0);
@@ -247,7 +156,7 @@ for (const file of ['playwright.homepage.config.js', 'playwright.homepage-webkit
   assert.equal(config.use.serviceWorkers, 'block');
   assert.equal(config.use.trace, file.includes('-performance.') ? 'off' : 'retain-on-failure');
 }
-for (const file of ['playwright.homepage.config.js', 'playwright.homepage-webkit.config.js', 'playwright.homepage-performance.config.js', 'playwright.homepage-linux-diagnostic.config.js']) {
+for (const file of ['playwright.homepage.config.js', 'playwright.homepage-performance.config.js']) {
   const server = require(path.join(root, file)).webServer;
   assert.equal(server.command, 'node tests/helpers/homepage-media-server.mjs _site');
   assert.equal(server.reuseExistingServer, false, 'Acceptance cannot reuse a stale source/build server');
@@ -259,17 +168,6 @@ assert.equal(performanceConfig.projects[0].use.browserName, 'chromium');
 assert.equal(performanceConfig.projects[0].metadata.homepagePerformanceMeasurement, true);
 assert.equal(performanceConfig.projects[0].metadata.homepagePerformanceGate, undefined);
 assert.ok(performanceConfig.grep.test('@homepage-performance'));
-const linux = require(path.join(root, 'playwright.homepage.config.js'));
-assert.deepEqual(linux.projects.find(p => p.name === 'webkit').testIgnore, ['**/homepage-hero-playback.spec.js', '**/homepage-native-control.spec.js']);
-assert.equal(linux.projects.find(p => p.name === 'chromium').testIgnore, undefined);
-const diagnosis = require(path.join(root, 'playwright.homepage-linux-diagnostic.config.js'));
-assert.deepEqual(diagnosis.testMatch, ['homepage-native-control.spec.js']);
-assert.equal(diagnosis.projects[0].metadata.nativeMediaDiagnostic, true);
-const earlyWebKit = require(path.join(root, 'playwright.homepage-webkit.config.js'));
-assert.deepEqual(earlyWebKit.projects.map(p => [p.name, p.use.browserName]), [['webkit', 'webkit']]);
-assert.notEqual(earlyWebKit.projects[0].metadata?.nativeMediaDiagnostic, true);
-assert.deepEqual(earlyWebKit.testMatch, ['homepage-hero-playback.spec.js', 'homepage-native-control.spec.js']);
-
 // Synthetic checks exercise fail-closed conditions. They do not constitute a
 // Linux/container/browser execution; that evidence is produced in the CI job.
 const lockVersion = JSON.parse(read('package-lock.json')).packages['node_modules/@playwright/test'].version;
@@ -288,13 +186,6 @@ for (const invalid of [{ uid: 0 }, { gid: 0 }, { node: 'v24.0.0' }, { platform: 
 }
 for (const field of Object.keys(runtime.privileges)) {
   assert.throws(() => validateHomepageRuntime({ ...runtime, privileges: { ...runtime.privileges, [field]: field === 'NoNewPrivs' ? '0' : '0001' } }));
-}
-
-const macRuntime = { platform: 'darwin', node: 'v22.23.2', uid: 501, gid: 20,
-  playwright: lockVersion, lockVersion, browserRoot: '/private/browsers', browsers: { webkit: '/private/browsers/webkit/pw_run.sh' } };
-validateHomepageMacRuntime(macRuntime);
-for (const change of [{ platform: 'linux' }, { uid: 0 }, { gid: 0 }, { playwright: '0.0.0' }, { browsers: { webkit: '/other/pw_run.sh' } }]) {
-  assert.throws(() => validateHomepageMacRuntime({ ...macRuntime, ...change }));
 }
 
 function job(source, name) {
@@ -336,21 +227,10 @@ for (const workflow of ['static.yml', 'full-regression.yml', 'ui-fast-deploy.yml
     assert.notEqual(wrong, install);
     assert.throws(() => verifyBrowserInstall(wrong, owner, browsers), /deep-equal/);
   }
-  const mac = job(text, 'homepage-webkit-media');
-  assert.ok(mac.includes('runs-on: macos-15'));
-  assert.ok(mac.includes('node-version: 22.23.2'));
-  assert.ok(mac.includes('persist-credentials: false'));
-  assert.ok(mac.includes('npx playwright install webkit') && !mac.includes('--with-deps'));
-  assert.ok(mac.includes('env -i ') && mac.includes('/usr/bin/sandbox-exec'));
-  assert.ok(mac.includes('check-homepage-runtime.mjs --macos && npm run test:homepage-webkit'));
-  assert.ok(!mac.includes('--max-failures'), 'Final native media acceptance must execute the complete group');
-  assert.ok(mac.includes('if: always()') && mac.includes('if-no-files-found: error'));
-  assert.ok(!mac.includes('continue-on-error') && !mac.includes('secrets.'));
   const early = job(text, 'homepage-validation');
   assert.ok(early.includes('npm run check:homepage-selection'));
-  assert.ok(early.includes(workflow === 'full-regression.yml' ? 'run: npm run test:homepage-functional:extended\n' : 'run: npm run test:homepage-functional\n'));
+  assert.ok(early.includes('run: npm run test:homepage-functional\n'));
   assert.ok(!early.includes('--max-failures'), 'Complete homepage acceptance must not leave the remaining scenarios unexecuted');
-  assert.ok(!early.includes('npm run test:homepage-webkit'), 'Do not repeat a failed native preflight in the longer sequence');
   assert.ok(early.includes('npm run check:homepage-runtime'));
   assert.match(early, new RegExp(`image: mcr\\.microsoft\\.com/playwright:v${lockVersion.replace(/\./g, '\\.')}\-noble@sha256:[a-f0-9]{64}`));
   assert.ok(early.includes('--user 1001:1001'));
@@ -364,15 +244,11 @@ for (const workflow of ['static.yml', 'full-regression.yml', 'ui-fast-deploy.yml
   assert.ok(!early.includes('pages: write') && !early.includes('secrets.'));
   assert.ok(!early.includes('playwright install') && !early.includes('apt-get') && !early.includes('sudo'));
   assert.ok(early.includes('npm run test:homepage-performance'));
-  assert.ok(early.includes('npm run diagnose:homepage-linux-media'));
-  assert.ok(early.indexOf('npm run diagnose:homepage-linux-media') > early.indexOf('npm run test:homepage-functional'));
-  assert.ok(early.includes('test-results/homepage-linux-diagnostic.log'));
   assert.ok(early.includes("success() && steps.homepage_discovery.outcome == 'success'"));
   assert.ok(!early.includes('!cancelled()'), 'Earlier setup/function failure must stop subsequent test steps');
   assert.ok(early.includes('if: always()'));
   assert.ok(early.includes('actions/upload-artifact@v6'));
   assert.ok(early.includes('test-results/homepage-*.json'));
-  assert.ok(early.includes('test-results/homepage-webkit/'));
   assert.ok(early.includes('persist-credentials: false'));
   assert.ok(!early.includes('continue-on-error'));
   assert.ok(!early.match(/needs:.*(?:browser-|worker-)/));
@@ -381,25 +257,82 @@ for (const workflow of ['static.yml', 'full-regression.yml', 'ui-fast-deploy.yml
   else assert.ok(text.includes('npm run test:homepage-core'));
   if (workflow !== 'full-regression.yml') {
     assert.match(job(text, 'deploy'), /needs: \[[^\]]*homepage-validation/);
-    assert.match(job(text, 'deploy'), /needs: \[[^\]]*homepage-webkit-media/);
   } else assert.ok(!text.includes('actions/deploy-pages'));
 }
 console.log('Homepage selection, no-zero, preserved commands and mandatory early workflow gates passed.');
 
-const report={suites:[{specs:[{file:'homepage-carousel-focused.spec.js',title:'homepage news geometry',tests:[{projectName:'webkit',results:[{status:'passed'}]}]},{file:'homepage-hero-playback.spec.js',title:'native media',tests:[{projectName:'chromium',results:[{status:'passed'}]}]}]}]};
-const discovery={status:'passed',collections:{functional:flattenHomepageDiscovery(report)}};
-verifyHomepageReport(report,discovery,true);
-const layoutReport=structuredClone(report);layoutReport.suites[0].specs.pop();
-verifyHomepageReport(layoutReport,discovery,false);
-assert.throws(()=>verifyHomepageReport(layoutReport,discovery,true),/Missing/);
-assert.throws(()=>verifyHomepageReport(report,discovery,false),/foreign/);
-for(const status of ['skipped','failed',undefined]) {
- const broken=structuredClone(layoutReport);broken.suites[0].specs[0].tests[0].results=[{status}];
- assert.throws(()=>verifyHomepageReport(broken,discovery,false));
-}
-const layoutConfigPath=require.resolve('../playwright.homepage.config.js');
-process.env.HOMEPAGE_MEDIA='false';delete require.cache[layoutConfigPath];
-assert(!require(layoutConfigPath).testMatch.includes('homepage-hero-playback.spec.js'));
-assert(require(layoutConfigPath).testMatch.includes('homepage-carousel-focused.spec.js'));
-delete process.env.HOMEPAGE_MEDIA;delete require.cache[layoutConfigPath];
-assert(require(layoutConfigPath).testMatch.includes('homepage-hero-playback.spec.js'));
+// Missing, failed or skipped mandatory functional execution cannot be
+// replaced by discovery alone. Exercise the real report CLI as well.
+const report = { stats: { expected: 1, unexpected: 0, flaky: 0, skipped: 0 }, suites: [{ specs: [{ file: 'homepage-carousel-focused.spec.js', title: 'homepage news geometry',
+  tests: [{ projectName: 'webkit', expectedStatus: 'passed', results: [{ status: 'passed', retry: 0, errors: [] }] }] }] }] };
+const discovery = { status: 'passed', collections: { functional: flattenHomepageDiscovery(report) } };
+verifyHomepageReport(report, discovery);
+const executionDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'bitbi-homepage-execution-'));
+try {
+  const filename = path.join(executionDirectory, 'execution.json');
+  const discoveryFile = path.join(executionDirectory, 'discovery.json');
+  fs.writeFileSync(discoveryFile, JSON.stringify(discovery));
+  const execute = (data, discovered = discovery) => {
+    fs.writeFileSync(filename, JSON.stringify(data));
+    fs.writeFileSync(discoveryFile, JSON.stringify(discovered));
+    return spawnSync(process.execPath, ['scripts/check-homepage-selection.mjs', '--verify-execution-report', filename,
+      '--discovery', discoveryFile], { cwd: root, encoding: 'utf8' });
+  };
+  assert.equal(execute(report).status, 0);
+  const allowedSkips = [
+    ['homepage-carousel-focused.spec.js', 'Populated homepage carousel > settles exact transitions, keeps populated walls warm, and honors the latest rapid choice', 'webkit'],
+    ['homepage-carousel-focused.spec.js', 'Populated homepage carousel > page-work measurement detects deliberately blocking work on a real carousel input', 'webkit'],
+    ['homepage-carousel-focused.spec.js', 'Populated homepage carousel > WebKit switches categories instantly with one precise scroll and no settling corrections', 'chromium'],
+    ...['/', '/de/'].map(route => ['homepage-media-loading.spec.js', `${route} tablet resize during category preparation releases distant media loading`, 'webkit']),
+  ];
+  for (const [file, title, projectName] of allowedSkips) {
+    const skipReport = { stats: { expected: 1, unexpected: 0, flaky: 0, skipped: 1 }, suites: [{ specs: [
+      { file, title, tests: [{ projectName, results: [{ status: 'skipped' }] }] },
+      { file, title: 'Required peer still executes', tests: [{ projectName, results: [{ status: 'passed' }] }] },
+    ] }] };
+    const discover = data => ({ status: 'passed', collections: { functional: flattenHomepageDiscovery(data) } });
+    verifyHomepageReport(skipReport, discover(skipReport));
+    assert.equal(execute(skipReport, discover(skipReport)).status, 0);
+    for (const fault of ['wrong-engine', 'wrong-title', 'wrong-file', 'peer-skipped']) {
+      const broken = structuredClone(skipReport), specs = broken.suites[0].specs;
+      if (fault === 'wrong-engine') for (const spec of specs) spec.tests[0].projectName = projectName === 'webkit' ? 'chromium' : 'webkit';
+      if (fault === 'wrong-title') specs[0].title = 'Other functional case';
+      if (fault === 'wrong-file') for (const spec of specs) spec.file = 'homepage-creation-stream-anchor.spec.js';
+      if (fault === 'peer-skipped') specs[1].tests[0].results[0].status = 'skipped';
+      assert.throws(() => verifyHomepageReport(broken, discover(broken)));
+      assert.notEqual(execute(broken, discover(broken)).status, 0);
+    }
+  }
+  for (const fault of ['missing', 'wrong-type', 'negative', 'fractional', 'failed', 'flaky', 'passed-count', 'skipped-count']) {
+    const broken = structuredClone(report);
+    if (fault === 'missing') delete broken.stats;
+    if (fault === 'wrong-type') broken.stats.expected = '1';
+    if (fault === 'negative') broken.stats.skipped = -1;
+    if (fault === 'fractional') broken.stats.expected = 1.5;
+    if (fault === 'failed') broken.stats.unexpected = 1;
+    if (fault === 'flaky') broken.stats.flaky = 1;
+    if (fault === 'passed-count') broken.stats.expected = 2;
+    if (fault === 'skipped-count') broken.stats.skipped = 1;
+    assert.throws(() => verifyHomepageReport(broken, discovery), /statistics/);
+    assert.notEqual(execute(broken).status, 0);
+  }
+  for (const fault of ['retry', 'result-error', 'global-error']) {
+    const broken = structuredClone(report), test = broken.suites[0].specs[0].tests[0];
+    if (fault === 'retry') test.results.unshift({ status: 'failed' });
+    if (fault === 'result-error') test.results[0].errors = [{ message: 'Navigation failed' }];
+    if (fault === 'global-error') broken.errors = [{ message: 'Browser failed' }];
+    assert.throws(() => verifyHomepageReport(broken, discovery));
+    assert.notEqual(execute(broken).status, 0);
+  }
+  for (const status of ['skipped', 'failed', undefined]) {
+    const broken = structuredClone(report); broken.suites[0].specs[0].tests[0].results = [{ status }];
+    assert.throws(() => verifyHomepageReport(broken, discovery));
+    assert.notEqual(execute(broken).status, 0);
+  }
+  const missing = { suites: [] };
+  assert.throws(() => verifyHomepageReport(missing, discovery), /Missing/);
+  assert.notEqual(execute(missing).status, 0);
+  const foreign = structuredClone(report); foreign.suites[0].specs[0].title = 'foreign';
+  assert.throws(() => verifyHomepageReport(foreign, discovery), /foreign/);
+  assert.notEqual(execute(foreign).status, 0);
+} finally { fs.rmSync(executionDirectory, { recursive: true, force: true }); }

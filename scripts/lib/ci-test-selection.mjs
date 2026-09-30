@@ -438,18 +438,13 @@ const HOMEPAGE_CORE_TEST_FILES = new Set([
 ]);
 
 // These homepage-only consumers do not own shared Auth/Admin behavior.
-// Functional coverage runs in Linux Chromium/WebKit; native output is separate.
+// Functional coverage runs in Linux Chromium/WebKit.
 const HOMEPAGE_FUNCTIONAL_FILES = new Set([
   'tests/helpers/model-help-contract.cjs',
   'tests/helpers/generate-lab-session.cjs',
   'css/components/news-pulse.css', 'js/shared/news-pulse.js',
   'tests/homepage-carousel-focused.spec.js', 'tests/homepage-creation-stream-anchor.spec.js',
-  'tests/homepage-hero-state.spec.js', 'tests/homepage-media-loading.spec.js',
-]);
-const HOMEPAGE_MEDIA_FILES = new Set([
-  'tests/homepage-hero-playback.spec.js', 'tests/homepage-native-control.spec.js',
-  'tests/helpers/homepage-hero-native-probe.js', 'playwright.homepage.config.js',
-  'playwright.homepage-webkit.config.js',
+  'tests/homepage-media-loading.spec.js', 'playwright.homepage.config.js',
 ]);
 
 const CAROUSEL_FILES = new Set([
@@ -466,8 +461,6 @@ const CAROUSEL_FILES = new Set([
   "js/pages/index/video-gallery.js",
   "playwright.carousel.config.js",
   "playwright.homepage-performance.config.js",
-  "playwright.homepage-linux-diagnostic.config.js",
-  "scripts/diagnose-homepage-linux-media.mjs",
   "tests/homepage-performance-contract.spec.js",
 ]);
 
@@ -557,8 +550,7 @@ const ADMIN_READER_VALIDATION = new Set([
   'scripts/test-ci-test-selection.mjs', 'scripts/test-pages-candidate.mjs',
   'scripts/test-pages-workflow.mjs', 'scripts/lib/release-plan.mjs',
   'scripts/test-release-plan.mjs', 'tests/oma2-q3-newsfeed.spec.js',
-  'tests/fixtures/media/test-video-loading.mp4', 'tests/helpers/homepage-media-server.mjs',
-  'tests/homepage-hero-playback.spec.js',
+  'tests/helpers/homepage-media-server.mjs',
 ]);
 
 // Member storage/card domain: real route security + durable queue tests and the
@@ -722,7 +714,6 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     adminRelease: false,
     docsOnly: false,
     homepage: false,
-    homepageMedia: false,
     memberModels: false,
     carousel: false,
     assets: false,
@@ -735,7 +726,6 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     runtime: false,
     reasons: {
       homepage: [],
-      homepageMedia: [],
       memberModels: [],
       carousel: [],
       assets: [],
@@ -945,9 +935,8 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       continue;
     }
 
-    if (HOMEPAGE_FUNCTIONAL_FILES.has(file) || HOMEPAGE_MEDIA_FILES.has(file)) {
+    if (HOMEPAGE_FUNCTIONAL_FILES.has(file)) {
       addReason(selection, 'homepage', file, 'homepage functional and core coverage; no unrelated Auth/Admin ownership');
-      if (HOMEPAGE_MEDIA_FILES.has(file)) addReason(selection, 'homepageMedia', file, 'native media contract or its execution configuration');
       if (isStaticSource(file)) addReason(selection, 'static', file, 'homepage source');
       continue;
     }
@@ -1057,8 +1046,6 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     }
 
     if (isStaticSource(file)) {
-      if (!hasPrefix(file, AUTH_FRONTEND_PREFIXES) && !AUTH_FRONTEND_FILES.has(file))
-        addReason(selection, 'homepageMedia', file, 'homepage/shared runtime may affect native media');
       addReason(selection, "static", file, "changes a GitHub Pages source or asset");
       if (AUTH_FRONTEND_FILES.has(file)
         || hasPrefix(file, AUTH_FRONTEND_PREFIXES)
@@ -1098,7 +1085,6 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selection.workerDependencies = true;
     selection.docsOnly = false;
   }
-  if (selection.carousel) addReason(selection, 'homepageMedia', '<carousel>', 'connected media/layout acceptance');
   selection.runtime = selection.homepage
     || selection.memberModels
     || selection.carousel
@@ -1113,7 +1099,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 }
 
 export function formatCiTestSelection(selection) {
-  const suites = ["homepage", "homepageMedia", "memberModels", "carousel", "assets", "workers", "auth", "dependencies"]
+  const suites = ["homepage", "memberModels", "carousel", "assets", "workers", "auth", "dependencies"]
     .filter((suite) => selection[suite]);
   return [
     `Changed files: ${selection.files.length}`,

@@ -112,13 +112,13 @@ Do not invent commands/scripts that are not present in this repo.
 - Complete an approved implementation package coherently: reproduce the relevant failure, make the scoped fix, update regressions/docs, validate, then commit/push without asking again for each internal step. The user's goals, acceptance criteria and security constraints are binding; choose the technical solution autonomously, including alternatives that meet them at least as well and the necessary related fixes/tests/docs. Reuse authorization already given; new product semantics, scope expansion or production operations outside that authorization still need a separate decision. Preserve unrelated user work, keep credentials out of logs and commits, and retain private evidence outside the public repository.
 - A repair is complete only when its evidenced cause, executable regression/countercontrol, actual local/CI caller and final tested inputs are linked. Tie tests to protected behavior and risk; replace false or redundant proxies with an evidenced equivalent contract, not another blanket gate. Maintain the compact `docs/runbooks/REGRESSION_REGISTER.md`; discovery is not execution, a replay is not native acceptance, and an unexplained historical failure must not be relabelled as fixed.
 - Map every new spec to its real CI execution entrypoint. Pages selection and candidate evidence must cover the complete unpublished range from the last verified successful deployment, not a completed historical release or the last push. Preserve exact tested artifact identity, selected job evidence, final dependency guard and shared write lock; use the existing source run/attempt reuse path only when needed, without a duplicate full run merely to publish.
-- For the reviewed Admin-reader production surface plus its closed release/test-tooling path set, `admin-reader-v1` requires all News, Admin navigation/session/MFA and short homepage smoke checks in Chromium/WebKit against the candidate build, plus release/security/tooling checks. Decorative quality findings remain unresolved diagnostics under the owner-approved fallback policy; functional failures still block selected acceptance. Inspect the entire unpublished production diff first; shared/runtime/backend/dependency or unknown inputs cannot use this bounded scope. Unselected suites are not passes, and no old failed candidate is re-certified under a new policy.
+- For the reviewed Admin-reader production surface plus its closed release/test-tooling path set, `admin-reader-v1` requires all News, Admin navigation/session/MFA and short homepage smoke checks in Chromium/WebKit against the candidate build, plus release/security/tooling checks. Dedicated decorative Hero coverage is removed by explicit owner decision; functional failures still block selected acceptance. Inspect the entire unpublished production diff first; shared/runtime/backend/dependency or unknown inputs cannot use this bounded scope. Unselected suites are not passes, and no old failed candidate is re-certified under a new policy.
 - Before a CI repair, search the affected signature/caller in [the regression register](docs/runbooks/REGRESSION_REGISTER.md) and read the [main-only release runbook](docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md). Apply their focused checks through the actual caller.
 
 ## Completion modes
 
 - Ordinary commit/push tasks end after required local checks, integrated review and a confirmed foreground push. At most one immediate CI snapshot; report unverified CI/publication and hand off without waiting. Completed failures may be diagnosed within scope.
-- Explicit CI-repair acceptance or end-to-end publication requires observing the requested final results on the final source/candidate. Continue authorized repairs and required downstream acceptance; a push, queued job, partial suite or unarranged owner handoff is not completion. Use bounded status checks, report progress and stop for an evidenced external blocker; preserve review gates and write locks.
+- Explicit CI-repair acceptance or end-to-end publication requires the requested final results on the final source/candidate. If the owner requests asynchronous handoff, initiate required existing workflows once, retain links/checkpoint and stop active waiting. Otherwise observe bounded status and continue scoped repairs. Pending CI is not acceptance or publication; preserve review gates and write locks.
 - Use the [main-only release runbook](docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md#ci-repair-and-required-acceptance) for actual commands, selection, Full dispatch, complete caller chains and evidence. This exception adds no deployment, paid-call or settings authority. Do not start background monitoring for an ordinary push.
 
 ---
@@ -219,18 +219,17 @@ For substantial changes, also identify relevant schema/config/binding impact, de
 
 ## Decorative homepage media acceptance
 
-Decorative homepage Hero playback follows the owner-approved
-[decorative media policy](docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md#decorative-hero-acceptance):
-bounded output/loop/resume findings remain visible diagnostics when a valid visible
-poster/still and usable page remain. Navigation, pause/cleanup/isolation and primary
-media, Canvas, audio, auth, ownership and credits stay blocking. Never claim a stall
-was repaired or reinterpret an old failed run under the new policy.
+Owner decision: dedicated decorative homepage Hero video tests and diagnostics
+are removed from all automated paths; see the [coverage contract](docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md#decorative-hero-acceptance).
+Preserve independent Models/navigation, ordinary UI/accessibility and user-media,
+Canvas, audio, generation, saving, auth, ownership, credits and security checks.
+Do not change the videos or describe coverage removal as a stall repair.
 
 ## Explicit production-release continuation
 
 When the current task explicitly includes publication, complete its supported
 backend prerequisites and automatic frontend continuation in the existing
-protected release job before handing off. This does not authorize deployment
+protected release job unless the owner requests an asynchronous checkpoint while CI runs. This does not authorize deployment
 for other tasks. Keep exact candidate evidence, owner environment review and
 publication lock. Observe required results under “Completion modes” and report
 any evidenced external rights/review blocker. A mixed push skipped without

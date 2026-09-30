@@ -514,10 +514,11 @@ console.log("Static deploy safety tests passed.");
 {
   const fixture = JSON.parse(fs.readFileSync(path.join(repoRoot, "scripts/fixtures/release-plan/q4-448bde6.json")));
   assert.equal(fixture.files.length, 104, "frozen full Q4 release path fixture");
-  const diagnostic = "playwright.homepage-linux-diagnostic.config.js";
-  assert(fixture.files.includes(diagnostic));
-  const only = safetyFor([diagnostic], { eventName: "push" });
-  assert.deepEqual(only.plan.impacts.validationOnlyFiles, [diagnostic]);
+  // Frozen historical paths still classify as validation after their callers retire.
+  const retiredConfig = fixture.files.find(file => /^playwright\.[a-z-]+\.config\.js$/.test(file));
+  assert(retiredConfig);
+  const only = safetyFor([retiredConfig], { eventName: "push" });
+  assert.deepEqual(only.plan.impacts.validationOnlyFiles, [retiredConfig]);
   assert.deepEqual(only.plan.deploySteps, []);
   assert.equal(only.safety.mode, "validation_only");
   assert.equal(only.safety.staticRequired, false);
@@ -534,10 +535,10 @@ console.log("Static deploy safety tests passed.");
   const push = evaluateStaticDeploySafety(plan, {...options, eventName: "push"});
   assert.equal(push.ok, false);
   assert.equal(push.skipped, true, "push may validate but must not acknowledge mixed dependencies");
-  const unknown = safetyFor([...fixture.files, "playwright.homepage-unknown.config.js"], options);
+  const unknown = safetyFor([...fixture.files, "unknown-homepage.config.js"], options);
   assert.equal(unknown.safety.ok, false);
   assert.equal(unknown.safety.skipped, false);
-  assert.deepEqual(unknown.plan.impacts.uncategorizedFiles, ["playwright.homepage-unknown.config.js"]);
+  assert.deepEqual(unknown.plan.impacts.uncategorizedFiles, ["unknown-homepage.config.js"]);
   assert.equal(evaluateStaticDeploySafety(null, options).ok, false);
   assert.equal(evaluateStaticDeploySafety({...plan, consistencyIssues: ["invalid fixture plan"]}, options).ok, false);
   console.log("Full Q4 path/acknowledgement and exact diagnostic classification controls passed.");

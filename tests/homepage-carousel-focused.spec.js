@@ -1240,7 +1240,7 @@ test.describe('Populated homepage carousel', () => {
     const metrics = {
       browserName, maxFirstMotionMs, warmMeasurements,
       scope: 'Whole-document task overlap from real pointer capture through stable post-settle observation; no function attribution or field INP',
-      conditions: { viewport: page.viewportSize(), media: 'synthetic populated walls; playback mocked here, native Hero suite separate', requiredPerformanceMeasurement: testInfo.project.metadata.homepagePerformanceMeasurement === true, retry: testInfo.retry },
+      conditions: { viewport: page.viewportSize(), media: 'synthetic populated walls; user-controlled playback mocked for layout measurement', requiredPerformanceMeasurement: testInfo.project.metadata.homepagePerformanceMeasurement === true, retry: testInfo.retry },
     };
     await testInfo.attach('carousel-metrics', {
       body: Buffer.from(JSON.stringify(metrics, null, 2)),

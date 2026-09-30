@@ -11,8 +11,6 @@ const require = createRequire(import.meta.url);
 const serve = require('serve-handler');
 const compression = require('compression')();
 const video = fs.readFileSync(new URL('../fixtures/media/test-video.mp4', import.meta.url));
-const loadingVideo = fs.readFileSync(new URL('../fixtures/media/test-video-loading.mp4', import.meta.url));
-const changingVideo = fs.readFileSync(new URL('../fixtures/media/test-video-changing.mp4', import.meta.url));
 const root = path.resolve(process.argv[2] || '.');
 function fixtureBucket(bytes) {
 const metadata = { size: bytes.length, etag: 'fixture-video', httpEtag: '"fixture-video"', uploaded: new Date('2026-09-07T00:00:00Z') };
@@ -44,10 +42,9 @@ const server = http.createServer(async (req, res) => {
       if(response.body)await pipeline(Readable.fromWeb(response.body),res);else res.end();
       return;
     }
-    if (/^\/api\/(homepage\/hero-videos|gallery\/memvids|plain)\/.*\/file$/.test(url.pathname) || url.pathname === '/api/plain/file') {
+    if (url.pathname === '/api/plain/file') {
       if (req.method !== 'GET') { res.writeHead(404); res.end(); return; }
-      if (url.searchParams.has('broken')) { res.writeHead(200, { 'Content-Type':'video/mp4', 'Content-Length':16 }); res.end(Buffer.alloc(16)); return; }
-      const bytes = url.searchParams.has('loading-fixture') ? loadingVideo : url.searchParams.has('changing') ? changingVideo : video;
+      const bytes = video;
       const response = await publicVideoResponse(new Request(url, { headers:req.headers }), fixtureBucket(bytes), 'fixture', () => new Headers({
         'Content-Type':'video/mp4', 'Content-Length':String(bytes.length), 'Cache-Control':'public, max-age=31536000, immutable', 'X-Content-Type-Options':'nosniff', 'X-Test-Media-Transport':'http',
       }));
@@ -58,7 +55,7 @@ const server = http.createServer(async (req, res) => {
     await new Promise((resolve,reject)=>compression(req,res,error=>error?reject(error):resolve()));
     await serve(req, res, { public:root });
   } catch (error) {
-    // Browser cancellation of an outgoing media face is a normal HTTP close.
+    // Browser cancellation of a media request is a normal HTTP close.
     if (req.destroyed || res.destroyed) return;
     res.writeHead(500); res.end('Synthetic media server error'); console.error(error);
   }

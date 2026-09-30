@@ -66,7 +66,7 @@ export function repairDelta(source,head,base) {
 }
 export function repairSelection(full,files) {
   const media=repairKind(files)==='media';
-  return {...full,policy:media?'media-repair-v1':'release-tooling-repair-v1',docsOnly:false,memberModels:false,full:false,homepage:false,homepageMedia:false,carousel:false,assets:false,auth:false,
+  return {...full,policy:media?'media-repair-v1':'release-tooling-repair-v1',docsOnly:false,memberModels:false,full:false,homepage:false,carousel:false,assets:false,auth:false,
     adminRelease:false,memberAssets:false,publicMedia:false,modelStatus:false,canvasText:false,workspaceHelp:false,
     appearance:false,modelPricing:false,imageModels:false,workers:media,mediaLifecycle:media,runtime:media,static:true,mediaRepair:media,dependencies:false,workerDependencies:false,
     reasons:{...Object.fromEntries(Object.keys(full.reasons).map(k=>[k,[]])),workers:media?['Fresh processor Linux image, native D1/R2 smoke and SDK lifecycle']:[],static:['Authenticated unchanged frontend source; no new browser execution claimed'],dependencies:[],workerDependencies:[]}};

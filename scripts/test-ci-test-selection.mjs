@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -19,12 +21,40 @@ for (const file of ["tests/q4-stream-receipts.spec.js", "tests/q4-runtime-memory
   assert.equal(selected.full, false);
 }
 
-for (const file of ['playwright.homepage-linux-diagnostic.config.js', 'scripts/diagnose-homepage-linux-media.mjs']) {
-  assert.equal(selectCiTests([file]).carousel, true, `${file} must retain Linux and macOS media coverage`);
+function selection(files, options) {
+  const selected = selectCiTests(files, options);
+  assert.equal(Object.hasOwn(selected, 'homepageMedia'), false, 'Retired decorative selection is absent');
+  assert.equal(Object.hasOwn(selected.reasons, 'homepageMedia'), false);
+  assert.equal(requiredJobs(selected)['homepage-webkit-media'], undefined);
+  return selected;
 }
 
-function selection(files, options) {
-  return selectCiTests(files, options);
+// Unknown validation configuration still executes the complete retained matrix.
+assert.equal(selection(['playwright.retired.config.js']).full, true);
+assert.equal(selection(['playwright.config.js'], {forceFull: true}).full, true);
+
+// Exercise the actual GitHub output writer: no retired flag survives either
+// a narrow functional selection or the full retained acceptance matrix.
+const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'bitbi-ci-selection-output-'));
+try {
+  for (const args of [['--file', 'playwright.homepage.config.js'], ['--file', 'playwright.retired.config.js']]) {
+    const outputPath = path.join(outputDirectory, 'github-output');
+    fs.writeFileSync(outputPath, '');
+    const result = spawnSync(process.execPath, ['scripts/select-ci-tests.mjs', ...args, '--github-output'], {
+      cwd: repoRoot, encoding: 'utf8', timeout: 10000,
+      env: {...process.env, GITHUB_ACTIONS: 'false', GITHUB_OUTPUT: outputPath, GITHUB_STEP_SUMMARY: ''},
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const outputs = Object.fromEntries(fs.readFileSync(outputPath, 'utf8').trim().split('\n').map(line => {
+      const split = line.indexOf('='); return [line.slice(0, split), line.slice(split + 1)];
+    }));
+    assert.equal(Object.hasOwn(outputs, 'homepage_media'), false);
+    assert.equal(outputs.homepage, 'true');
+    assert.equal(outputs.full, String(args[1].includes('retired')));
+    if (outputs.full === 'true') for (const flag of ['workers', 'auth', 'assets', 'carousel']) assert.equal(outputs[flag], 'true');
+  }
+} finally {
+  fs.rmSync(outputDirectory, {recursive: true, force: true});
 }
 
 {
@@ -43,7 +73,7 @@ function selection(files, options) {
   const result=selection(files);
   assert.equal(result.policy,'workspace-presentation-v1');
   for(const flag of ['appearance','memberAssets','workers','assets','auth','static','runtime'])assert.equal(result[flag],true,flag);
-  for(const flag of ['full','homepage','homepageMedia','carousel','canvasText'])assert(!result[flag],flag);
+  for(const flag of ['full','homepage','carousel','canvasText'])assert(!result[flag],flag);
   assert.deepEqual(Object.keys(requiredJobs(result)),['release-compatibility','worker-validation','browser-validation']);
   const withStaging = selection([...files, 'tests/helpers/q2-runtime/linux-hosted.mjs', 'scripts/test-q2-runtime-launcher.mjs']);
   assert.equal(withStaging.policy, result.policy);
@@ -70,7 +100,7 @@ function selection(files, options) {
     'tests/helpers/q2-runtime/canvas.mjs', 'tests/assets-manager-focused.spec.js', 'tests/helpers/generation-selectors.cjs'];
   const result = selection(files);
   assert(result.canvasText && result.assets && result.auth && result.workers && result.static);
-  assert(!result.full && !result.homepageMedia && !result.carousel);
+  assert(!result.full && !result.carousel);
   const jobs = requiredJobs(result); assert(jobs['browser-validation'] && jobs['worker-validation']);
   for (const file of ['workers/auth/src/lib/session.js', 'workers/auth/src/lib/billing.js', 'js/shared/unknown.js', 'package-lock.json']) {
     assert(!selection([...files, file]).canvasText, file);
@@ -90,7 +120,7 @@ function selection(files, options) {
   assert(!selection(flux).canvasText,'Missing multipurpose-spec source context fails closed');
   const result=selection(flux,{memberTestSources});
   assert(result.canvasText && result.workers && result.auth && result.static);
-  assert(!result.full && !result.homepageMedia && !result.carousel);
+  assert(!result.full && !result.carousel);
   for(const file of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','js/shared/unknown.js','package-lock.json'])assert(!selection([...flux,file],{memberTestSources}).canvasText,file);
   const workflow=fs.readFileSync(path.join(repoRoot,'.github/workflows/static.yml'),'utf8');
   assert(workflow.includes("--grep 'durable member generation: flux-|default FLUX Schnell|Canvas"));
@@ -108,7 +138,7 @@ for (const file of ['scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-laun
 assert.equal(selection(['scripts/test-q2-runtime-launcher-unknown.mjs']).full, true);
 for (const file of ['tests/helpers/model-help-contract.cjs', 'tests/helpers/generate-lab-session.cjs']) {
   const result = selection([file]);
-  assert(result.homepage && !result.full && !result.workers && !result.homepageMedia);
+  assert(result.homepage && !result.full && !result.workers);
   assert(selection(['tests/helpers/model-help-contract-unknown.cjs']).full);
 }
 
@@ -358,11 +388,7 @@ for (const file of ['tests/helpers/model-help-contract.cjs', 'tests/helpers/gene
 for (const file of [
   "playwright.homepage.config.js",
   "playwright.homepage-performance.config.js",
-  "playwright.homepage-webkit.config.js",
   "tests/homepage-creation-stream-anchor.spec.js",
-  "tests/homepage-hero-playback.spec.js",
-  "tests/homepage-hero-state.spec.js",
-  "tests/helpers/homepage-hero-native-probe.js",
   "tests/homepage-media-loading.spec.js",
   "tests/homepage-performance-contract.spec.js",
 ]) {
@@ -375,12 +401,11 @@ for (const file of [
 {
   const files = ['css/components/news-pulse.css', 'js/shared/news-pulse.js',
     'tests/homepage-carousel-focused.spec.js', 'tests/locale.spec.js',
-    'tests/homepage-hero-playback.spec.js', 'tests/homepage-hero-state.spec.js',
-    'tests/helpers/homepage-hero-native-probe.js', 'docs/runbooks/REGRESSION_REGISTER.md',
+    'docs/runbooks/REGRESSION_REGISTER.md',
     'scripts/lib/ci-test-selection.mjs', 'scripts/test-ci-test-selection.mjs'];
   const result = selection(files), jobs = requiredJobs(result);
   assert.equal(result.full, false); assert.equal(result.workers, false);
-  assert(jobs['homepage-webkit-media'].includes('Run required native WebKit media with private HOME and loopback only'));
+  assert.equal(jobs['homepage-webkit-media'], undefined);
   assert(jobs['homepage-validation']); assert(jobs['browser-validation']);
   assert.equal(selection([...files,'tests/helpers/homepage-unknown-probe.js']).full, true);
   assert.equal(selection([...files,'workers/auth/src/routes/auth.js']).workers, true);
@@ -534,7 +559,7 @@ const adminDelivery=[
  'tests/oma2-q3-newsfeed.spec.js','.github/workflows/static.yml','playwright.config.js','playwright.carousel.config.js',
  'playwright.admin-release.config.js','scripts/lib/ci-test-selection.mjs','scripts/select-ci-tests.mjs',
  'scripts/pages-candidate.mjs','scripts/test-ci-test-selection.mjs','scripts/test-pages-candidate.mjs','scripts/test-pages-workflow.mjs',
- 'scripts/lib/release-plan.mjs','tests/helpers/homepage-media-server.mjs','tests/homepage-hero-playback.spec.js','tests/fixtures/media/test-video-loading.mp4',
+ 'scripts/lib/release-plan.mjs','tests/helpers/homepage-media-server.mjs',
 ];
 const scoped=selection(adminDelivery);
 assert.equal(scoped.policy,'admin-reader-v1');assert(scoped.adminRelease&&scoped.auth&&scoped.static);
@@ -571,7 +596,7 @@ const generationChange=['workers/auth/src/lib/member-generation-storage.js',
  'tests/fixtures/media/member-video-poster.webp','tests/oma2-q1-member.spec.js'];
 const generation=selection(generationChange);
 for(const key of ['workers','auth','assets','static','homepage'])assert.equal(generation[key],true,key);
-for(const key of ['homepageMedia','carousel','full'])assert.equal(generation[key],false,key);
+for(const key of ['carousel','full'])assert.equal(generation[key],false,key);
 assert.equal(selection([...generationChange,'unknown-runtime.js']).full,true);
 assert.equal(selection([...generationChange,'js/pages/index/latest-models-video-module.js']).homepage,true);
 assert.equal(selection([...generationChange,'js/pages/index/category-carousel.js']).carousel,true);
@@ -639,10 +664,10 @@ for (const files of [...canvasUiFiles.map(file => [file]), ['tests/canvas.spec.j
  const result = selection(files);
  assert.equal(result.policy, 'impact-v1');
  assert.equal(result.homepage, true, `${files}: real Canvas browser caller`);
- for (const key of ['homepageMedia', 'carousel', 'workers', 'assets', 'auth', 'full']) assert.equal(result[key], false, `${files}: ${key}`);
+ for (const key of ['carousel', 'workers', 'assets', 'auth', 'full']) assert.equal(result[key], false, `${files}: ${key}`);
  assert(requiredJobs(result)['browser-validation'].includes('Run selected homepage core tests'));
 }
-for (const [file, impact] of [['js/pages/canvas/state.js', 'homepageMedia'], ['js/pages/canvas/api.js', 'auth'],
+for (const [file, impact] of [['js/pages/canvas/state.js', 'homepage'], ['js/pages/canvas/api.js', 'auth'],
  ['js/shared/auth-api.js', 'assets'], ['workers/auth/src/routes/canvas.js', 'workers'],
  ['js/shared/member-model-exposure.mjs', 'memberModels'], ['unknown-canvas-runtime.mjs', 'full']]) {
  assert(selection([...canvasUiFiles, file])[impact], file);
@@ -657,7 +682,7 @@ for (const files of [...generateLabUiFiles.map(file => [file]), [...generateLabU
  const result = selection(files);
  assert.equal(result.policy, 'impact-v1');
  for (const key of ['homepage', 'auth', 'static', 'runtime']) assert.equal(result[key], true, `${files}: ${key}`);
- for (const key of ['homepageMedia', 'carousel', 'workers', 'assets', 'full', 'dependencies']) assert.equal(result[key], false, `${files}: ${key}`);
+ for (const key of ['carousel', 'workers', 'assets', 'full', 'dependencies']) assert.equal(result[key], false, `${files}: ${key}`);
  assert.notEqual(result.workspaceHelp, true);
  const jobs = requiredJobs(result);
  assert(jobs['homepage-validation']);
@@ -667,7 +692,7 @@ for (const files of [...generateLabUiFiles.map(file => [file]), [...generateLabU
  assert.equal(jobs['worker-validation'], undefined);
 }
 for (const [file, impact] of [
- ['js/pages/generate-lab/model-registry.js', 'homepageMedia'],
+ ['js/pages/generate-lab/model-registry.js', 'homepage'],
  ['js/shared/auth-api.js', 'assets'], ['js/shared/admin-ai-contract.mjs', 'workers'],
  ['js/pages/index/category-carousel.js', 'carousel'],
  ['workers/auth/src/index.js', 'workers'], ['unknown-runtime.mjs', 'full'],
@@ -690,7 +715,7 @@ const sessionPreflightFiles = [
 const sessionPreflightSelection = selection(sessionPreflightFiles);
 assert.equal(sessionPreflightSelection.policy, 'impact-v1');
 for (const key of ['homepage', 'assets', 'auth', 'static', 'runtime']) assert.equal(sessionPreflightSelection[key], true, key);
-for (const key of ['homepageMedia', 'carousel', 'workers', 'full']) assert.equal(sessionPreflightSelection[key], false, key);
+for (const key of ['carousel', 'workers', 'full']) assert.equal(sessionPreflightSelection[key], false, key);
 assert.deepEqual(requiredJobs(sessionPreflightSelection)['browser-validation'], [
  'Run selected homepage core tests', 'Run selected Assets Manager tests', 'Run selected auth and admin tests',
  'Confirm tested browser candidate bytes',
@@ -698,7 +723,7 @@ assert.deepEqual(requiredJobs(sessionPreflightSelection)['browser-validation'], 
 assert.equal(requiredJobs(sessionPreflightSelection)['homepage-webkit-media'], undefined);
 for (const file of ['js/pages/generate-lab/model-registry.js', 'js/pages/index/category-carousel.js', 'unknown-runtime.mjs']) {
  const result = selection([...sessionPreflightFiles, file]);
- assert(result.homepageMedia || result.full, `${file}: retain native/broad countercontrol`);
+ assert(result.homepage || result.full, `${file}: retain functional/broad countercontrol`);
 }
 
 const workspaceFiles = ['generate-lab/index.html','de/generate-lab/index.html','css/pages/generate-lab.css',
@@ -731,21 +756,19 @@ assert.notEqual(selectCiTests(statusFiles,{forceFull:true}).modelStatus,true);
 const layoutFiles=['css/components/news-pulse.css','js/shared/news-pulse.js','tests/homepage-carousel-focused.spec.js','tests/smoke.spec.js'];
 const layoutSelection=selection(layoutFiles);
 assert.equal(layoutSelection.policy,'impact-v1'); assert(layoutSelection.homepage);
-for(const key of ['auth','memberModels','carousel','homepageMedia','workers','full'])assert.equal(layoutSelection[key],false,key);
+for(const key of ['auth','memberModels','carousel','workers','full'])assert.equal(layoutSelection[key],false,key);
 assert(!requiredJobs(layoutSelection)['homepage-webkit-media']);
-const mediaSelection=selection([...layoutFiles,'tests/homepage-hero-playback.spec.js','tests/homepage-hero-state.spec.js']);
-assert(mediaSelection.homepageMedia);assert(requiredJobs(mediaSelection)['homepage-webkit-media']);
-for(const [file,key] of [['js/pages/index/latest-models-video-module.js','homepageMedia'],['js/shared/auth.js','auth'],['js/shared/member-model-exposure.mjs','memberModels'],['js/pages/index/category-carousel.js','carousel'],['workers/auth/src/index.js','workers'],['tests/unknown-news.spec.js','full'],['.github/workflows/unknown.yml','full']])assert(selection([...layoutFiles,file])[key],file);
+for(const [file,key] of [['js/pages/index/latest-models-video-module.js','homepage'],['js/shared/auth.js','auth'],['js/shared/member-model-exposure.mjs','memberModels'],['js/pages/index/category-carousel.js','carousel'],['workers/auth/src/index.js','workers'],['tests/unknown-news.spec.js','full'],['.github/workflows/unknown.yml','full']])assert(selection([...layoutFiles,file])[key],file);
 
 // This specific contract is consumed by Canvas + Auth, not decorative media.
 for (const files of [['js/shared/canvas-model-contract.mjs'], ['js/shared/canvas-model-contract.mjs', 'js/pages/canvas/main.js', 'workers/auth/src/routes/canvas.js', 'workers/ai/src/lib/invoke-ai.js', 'scripts/lib/ci-test-selection.mjs', 'scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs']]) {
  const result = selection(files);
  for (const key of ['auth', 'workers', 'static']) assert.equal(result[key], true, key);
  assert.equal(result.homepage, files.length===1);
- for (const key of ['homepageMedia', 'carousel', 'full']) assert.equal(result[key], false, key);
+ for (const key of ['carousel', 'full']) assert.equal(result[key], false, key);
  assert(requiredJobs(result)['browser-validation'].includes(files.length===1?'Run selected homepage core tests':'Run selected auth and admin tests'));
 }
-assert(selection(['js/shared/canvas-model-contract.mjs', 'js/pages/index/latest-models-video-module.js']).homepageMedia);
+assert(selection(['js/shared/canvas-model-contract.mjs', 'js/pages/index/latest-models-video-module.js']).homepage);
 assert(selection(['js/shared/canvas-model-contract.mjs', 'unknown-runtime.mjs']).full);
 
 for (const file of ['scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs']) {
@@ -755,7 +778,7 @@ assert(selection(['scripts/lib/unknown-release-policy.mjs']).full);
 
 for (const file of ['js/pages/canvas/api.js', 'js/pages/canvas/video-frame.js', 'js/pages/canvas/video-input.js', 'js/pages/canvas/workflow.js', 'js/shared/canvas-video-input.mjs', 'tests/fixtures/media/canvas-end-frame.mp4', 'tests/helpers/canvas-video-control.mjs']) {
  const result = selection([file]);
- assert.equal(result.full, false, file); assert.equal(result.homepageMedia, false, file); assert.equal(result.carousel, false, file);
+ assert.equal(result.full, false, file); assert.equal(result.carousel, false, file);
  if (file==='js/shared/canvas-video-input.mjs') {
    assert.equal(result.canvasText,true);assert.equal(result.homepage,false);assert(result.auth);
    assert(requiredJobs(result)['browser-validation'].includes('Run selected auth and admin tests'));
@@ -763,14 +786,14 @@ for (const file of ['js/pages/canvas/api.js', 'js/pages/canvas/video-frame.js', 
  if (file.includes('/helpers/') || file.includes('/shared/') || file.endsWith('.mp4')) assert(result.workers, file);
 }
 assert(selection(['js/shared/canvas-video-input.mjs', 'unknown-video-adapter.mjs']).full);
-assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-models-video-module.js']).homepageMedia);
+assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-models-video-module.js']).homepage);
 
 {
  const selection=selectCiTests(['js/pages/canvas/full-video.js','workers/auth/src/routes/canvas-video-processing.js',
  'services/homepage-ffmpeg-processor/canvas-full-video.mjs','services/homepage-ffmpeg-processor/canvas-full-video.test.mjs',
  'scripts/lib/backend-publication.mjs','scripts/lib/backend-continuation.mjs','scripts/release-apply.mjs','scripts/check-static-deploy-safety.mjs','scripts/check-route-policies.mjs','tests/helpers/canvas-processing-control.mjs']);
  assert.equal(selection.workers,true);assert.equal(selection.auth,true);assert.equal(selection.homepage,true);
- assert.equal(selection.static,true);assert.equal(selection.full,false);assert.equal(selection.homepageMedia,false);
+ assert.equal(selection.static,true);assert.equal(selection.full,false);
  assert.equal(selectCiTests(['services/homepage-ffmpeg-processor/unknown.mjs']).full,true);
 }
 
@@ -779,7 +802,7 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  'workers/auth/migrations/0096_canvas_export_versions.sql','workers/auth/src/routes/ai/assets-read.js',
  'services/homepage-ffmpeg-processor/canvas-full-video.mjs','services/homepage-ffmpeg-processor/canvas-full-video.test.mjs','scripts/lib/canvas-export-readiness.mjs'];
  const selected=selection(files);assert(selected.canvasText&&selected.workers&&selected.auth&&selected.assets);
- assert(!selected.full&&!selected.homepageMedia&&!selected.carousel);
+ assert(!selected.full&&!selected.carousel);
  assert(requiredJobs(selected)['worker-validation'].includes('Build and test private media Linux image'));
  assert.notEqual(selection([...files,'workers/auth/src/lib/session.js']).canvasText,true);
  assert.notEqual(selection([...files,'services/homepage-ffmpeg-processor/unknown.mjs']).canvasText,true);
@@ -792,7 +815,7 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  'tests/fixtures/media/canvas-audition-native-input.json',
  'tests/helpers/homepage-media-server.mjs','services/homepage-ffmpeg-processor/canvas-full-video.mjs','scripts/lib/media-publication.mjs'];
  const selected=selection(files);assert(selected.canvasText&&selected.workers&&selected.auth&&selected.static);
- assert(!selected.full&&!selected.homepageMedia&&!selected.carousel);
+ assert(!selected.full&&!selected.carousel);
  const jobs=requiredJobs(selected);assert(jobs['worker-validation'].includes('Build and test private media Linux image'));
  assert(jobs['browser-validation'].includes('Run selected auth and admin tests'));
  for(const file of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','services/homepage-ffmpeg-processor/unknown.mjs'])assert(!selection([...files,file]).canvasText);
@@ -811,7 +834,7 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  const files=['workers/media/src/index.js','scripts/test-private-media-lifecycle.mjs','.github/workflows/static.yml','scripts/lib/media-publication.mjs'];
  const selected=selection(files);
  assert.equal(selected.mediaLifecycle,true);
- for(const key of ['full','auth','homepage','homepageMedia','assets'])assert.equal(selected[key],false,key);
+ for(const key of ['full','auth','homepage','assets'])assert.equal(selected[key],false,key);
  assert.equal(selected.workers,true);
  assert.deepEqual(requiredJobs(selected)['worker-validation'],['Run private media lifecycle tests','Build and test private media Linux image','Preserve tested private media image']);
  for(const file of ['workers/auth/src/index.js','workers/media/wrangler.jsonc','workers/media/package-lock.json','services/homepage-ffmpeg-processor/container-server.mjs','unknown-input.mjs'])assert.notEqual(selection([...files,file]).mediaLifecycle,true,file);
@@ -821,19 +844,18 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
 {
   const files=['js/shared/grok-text-contract.mjs','js/shared/admin-ai-contract.mjs','workers/shared/grok-chat-contract.mjs','workers/shared/chat-model-contract.mjs','workers/ai/src/routes/text.js','workers/ai/src/lib/grok-chat.js','workers/auth/src/routes/canvas.js','workers/auth/src/routes/ai/text-generate.js','workers/auth/src/routes/admin-ai.js','js/pages/canvas/main.js','js/shared/canvas-model-contract.mjs','tests/workers.spec.js','tests/grok-chat-workers.spec.js','tests/canvas.spec.js','tests/helpers/q2-runtime/canvas.mjs','tests/helpers/q2-runtime/environment.mjs','.github/workflows/static.yml','scripts/lib/backend-publication.mjs'];
   const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);
-  for(const key of ['full','homepage','homepageMedia','carousel','assets'])assert.equal(result[key],false);
+  for(const key of ['full','homepage','carousel','assets'])assert.equal(result[key],false);
   for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/member-credit-ledger.js','workers/ai/src/index.js','js/shared/auth.js','unknown-runtime.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
   assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
   const purposes=['js/pages/canvas/main.js','js/shared/canvas-model-contract.mjs','js/shared/help-menu.js','workers/auth/src/routes/canvas.js','tests/canvas.spec.js','tests/workers.spec.js','tests/helpers/q2-runtime/canvas.mjs','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs'];
   assert.equal(selection(purposes).canvasText,true);
-  assert.equal(selection(purposes).homepageMedia,false);
   assert.notEqual(selection(['js/shared/help-menu.js']).canvasText,true);
   assert.notEqual(selection([...purposes,'js/shared/auth.js']).canvasText,true);
 }
 
 {
  const files=['js/pages/canvas/main.js','js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','js/shared/grok-imagine-image-2-pricing.mjs','workers/ai/src/lib/invoke-ai.js','workers/auth/src/lib/canvas-media-storage.js','workers/auth/migrations/0090_add_canvas_private_outputs.sql','tests/helpers/canvas-processing-control.mjs','tests/q2-lifecycle.spec.js','tests/auth-admin.spec.js','tests/smoke.spec.js','playwright.config.js'];
- const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);assert.equal(result.homepageMedia,false);assert.equal(result.full,false);
+ const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);assert.equal(result.full,false);
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/migrations/0091_unknown.sql','workers/auth/src/lib/billing.js','unknown.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
 }
 
@@ -851,7 +873,7 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  'workers/media/src/index.js','workers/media/wrangler.jsonc','services/homepage-ffmpeg-processor/processor.mjs',
  'tests/helpers/private-media-control.mjs','tests/helpers/member-generation-control.mjs','tests/member-generation-runtime.mjs','tests/smoke.spec.js'];
  const selected=selection(files);assert.equal(selected.canvasText,true);assert.equal(selected.workers,true);assert.equal(selected.auth,true);
- for(const flag of ['full','homepage','homepageMedia','carousel','mediaLifecycle'])assert(!selected[flag],flag);
+ for(const flag of ['full','homepage','carousel','mediaLifecycle'])assert(!selected[flag],flag);
  const jobs=requiredJobs({...selected,files})['worker-validation'];
  for(const name of ['Run worker route tests','Run private media lifecycle tests','Build and test private media Linux image','Preserve tested private media image'])assert(jobs.includes(name),name);
  for(const unknown of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/ai/src/index.js','workers/auth/migrations/0092_unknown.sql','unknown.js'])assert.notEqual(selection([...files,unknown]).canvasText,true,unknown);
@@ -862,7 +884,7 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
 {
  const files=['js/pages/generate-lab/main.js','js/pages/canvas/main.js','js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','js/shared/minimax-h3.mjs','js/shared/h3-reference-controls.js','js/shared/member-generation-client.js','js/shared/locale.js','workers/auth/src/lib/ai-usage-policy.js','workers/auth/src/lib/h3-reference-metadata.js','workers/auth/src/lib/minimax-h3-callback.js','workers/ai/src/routes/video-task.js','tests/helpers/h3-model-controls.cjs','tests/fixtures/media/h3-reference.mp4','tests/fixtures/media/h3-frame.png','tests/helpers/q2-runtime/linux-hosted.mjs'];
  const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);
- for(const flag of ['full','homepage','homepageMedia','carousel'])assert.equal(result[flag],false,flag);
+ for(const flag of ['full','homepage','carousel'])assert.equal(result[flag],false,flag);
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','unknown-input.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
 }
 
@@ -871,7 +893,7 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
 {
  const files=['js/pages/canvas/main.js','js/pages/canvas/workflow.js','js/pages/canvas/video-input.js','js/shared/canvas-video-input.mjs','workers/auth/src/lib/canvas-video-input.js','workers/auth/src/routes/canvas.js','tests/canvas.spec.js','tests/helpers/canvas-video-control.mjs','tests/helpers/q2-runtime/canvas.mjs','tests/helpers/q2-runtime/control.mjs','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs','docs/runbooks/REGRESSION_REGISTER.md'];
  const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);assert.equal(result.runtime,true);
- for(const flag of ['full','homepage','homepageMedia','carousel'])assert.equal(result[flag],false,flag);
+ for(const flag of ['full','homepage','carousel'])assert.equal(result[flag],false,flag);
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','js/shared/auth.js','unknown-input.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
  assert.notEqual(selection(files,{forceFull:true}).canvasText,true);
 }
@@ -885,7 +907,7 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  const browserRepair=[...files,'tests/smoke.spec.js','tests/helpers/gpt-image25-ui.cjs'];
  assert.equal(selection(browserRepair).canvasText,true);
  for(const extra of ['js/shared/auth.js','workers/auth/src/lib/billing.js','tests/helpers/unknown.js'])assert.notEqual(selection([...browserRepair,extra]).canvasText,true);
- for(const flag of ['full','homepage','homepageMedia','carousel'])assert.equal(result[flag],false,flag);
+ for(const flag of ['full','homepage','carousel'])assert.equal(result[flag],false,flag);
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','unknown-input.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
 }
 
@@ -895,7 +917,7 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
   'workers/auth/src/lib/h3-reference-metadata.js','workers/auth/src/lib/admin-ai-video-sources.js',
   'workers/auth/migrations/0093_add_private_video_references.sql','services/homepage-ffmpeg-processor/video-reference.mjs',
   'services/homepage-ffmpeg-processor/video-reference.test.mjs','services/homepage-ffmpeg-processor/Dockerfile','scripts/check-route-policies.mjs','scripts/test-homepage-ffmpeg-processor.mjs','workers/auth/src/lib/asset-storage-quota.js','tests/helpers/canvas-video-control.mjs','tests/helpers/q2-runtime/canvas.mjs'];
- const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);assert.equal(result.runtime,true);assert.equal(result.homepageMedia,false);
+ const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);assert.equal(result.runtime,true);
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/auth/migrations/0094_unknown.sql','unknown.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
 }
 
@@ -906,7 +928,7 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
   'js/pages/canvas/main.js','js/pages/canvas/video-input.js','tests/canvas.spec.js','tests/workers.spec.js',
   'tests/member-generation-runtime.mjs','tests/helpers/member-generation-control.mjs','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs'];
  const result=selection(files);assert.equal(result.canvasText,true);assert.equal(result.workers,true);assert.equal(result.auth,true);
- for(const flag of ['full','homepage','homepageMedia','carousel'])assert.equal(result[flag],false,flag);
+ for(const flag of ['full','homepage','carousel'])assert.equal(result[flag],false,flag);
  assert.notEqual(result.mediaLifecycle,true);
  assert.equal(requiresPrivateMediaImage(files),false,'No changed media processor/container bytes');
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','unknown.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
@@ -922,13 +944,13 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
   'tests/helpers/elevenlabs-member-control.mjs','tests/helpers/canvas-contributors-control.mjs','tests/fixtures/media/member-music.mp3','tests/fixtures/media/member-music.opus',
   'tests/q4-stream-receipts.spec.js','tests/q4-stream-selection.spec.js','tests/helpers/q4-video-jobs.js'];
  const result=selection(files);assert(result.canvasText&&result.workers&&result.auth&&result.assets&&result.runtime);
- assert(!result.full&&!result.homepageMedia);assert.equal(requiresPrivateMediaImage(files),false);
+ assert(!result.full);assert.equal(requiresPrivateMediaImage(files),false);
  for(const extra of ['workers/auth/src/lib/billing.js','workers/auth/src/lib/session.js','workers/ai/src/index.js','unknown.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
  const workflow=fs.readFileSync('.github/workflows/static.yml','utf8');
  for(const proof of ['tests/q2-member-music.spec.js','canvas-music-worker.json','canvas-music-adapter.json'])assert(workflow.includes(proof));
  const opusRepair=[...files,'tests/canvas.spec.js','tests/helpers/homepage-media-server.mjs'];
  const repaired=selection(opusRepair);assert(repaired.canvasText&&repaired.assets&&repaired.auth&&repaired.workers);
- assert(!repaired.full&&!repaired.homepageMedia);assert.equal(requiresPrivateMediaImage(opusRepair),false);
+ assert(!repaired.full);assert.equal(requiresPrivateMediaImage(opusRepair),false);
  assert.notEqual(selection(['tests/helpers/homepage-media-server.mjs']).canvasText,true);
  assert.notEqual(selection([...opusRepair,'tests/helpers/unknown-http-server.mjs']).canvasText,true);
 }
@@ -943,7 +965,7 @@ const canvasPickerFiles=['canvas/index.html','de/canvas/index.html','js/pages/ca
 const canvasPickerSelection=selection(canvasPickerFiles);
 assert.equal(canvasPickerSelection.policy,'member-assets-v1');
 assert.equal(canvasPickerSelection.assets,true);assert.equal(canvasPickerSelection.static,true);
-for(const flag of ['workers','auth','homepage','homepageMedia','carousel','full'])assert.equal(canvasPickerSelection[flag],false,flag);
+for(const flag of ['workers','auth','homepage','carousel','full'])assert.equal(canvasPickerSelection[flag],false,flag);
 for(const extra of ['js/pages/canvas/api.js','js/pages/canvas/workflow.js','js/shared/canvas-model-contract.mjs','workers/auth/src/routes/canvas.js','unknown-picker.js'])assert.notEqual(selection([...canvasPickerFiles,extra]).policy,'member-assets-v1',extra);
 const pickerFollowup=[...canvasPickerFiles,'tests/oma2-q1-member.spec.js'];
 const memberBefore=fs.readFileSync(path.join(repoRoot,'tests/oma2-q1-member.spec.js'),'utf8');
@@ -951,7 +973,7 @@ const memberAfter=memberBefore.replace('expect(accepted).toBe(1);','expect(accep
 const memberTestSources={before:memberBefore,after:memberAfter};
 assert(isDurableImageTestChange(memberTestSources));
 assert.equal(selection(pickerFollowup,{memberTestSources}).policy,'member-assets-v1');
-for(const flag of ['workers','auth','homepage','homepageMedia','carousel','full'])assert.equal(selection(pickerFollowup,{memberTestSources})[flag],false,flag);
+for(const flag of ['workers','auth','homepage','carousel','full'])assert.equal(selection(pickerFollowup,{memberTestSources})[flag],false,flag);
 assert.notEqual(selection(pickerFollowup).policy,'member-assets-v1','Path names alone cannot narrow this multipurpose spec');
 for(const after of [memberBefore,memberAfter.replace('creditBalance: 1000','creditBalance: 900'),memberAfter.replace('restored jobs, preview pending','renamed jobs, preview pending'),memberAfter+'\ntest("new checkout case",()=>{});',memberAfter.replace('// case-body edit','test("unselected case",()=>{});')]) {
  const sources={before:memberBefore,after};
@@ -980,7 +1002,7 @@ const pricingDelta=['js/pages/admin/model-pricing.js','js/shared/model-tariff.mj
 const pricing=selection(pricingDelta);
 assert.equal(pricing.policy,'model-pricing-v1');
 for(const key of ['workers','auth','static','runtime'])assert.equal(pricing[key],true,key);
-for(const key of ['homepage','homepageMedia','carousel','full'])assert.equal(pricing[key],false,key);
+for(const key of ['homepage','carousel','full'])assert.equal(pricing[key],false,key);
 assert.deepEqual(Object.keys(requiredJobs(pricing)),['release-compatibility','worker-validation','browser-validation']);
 for(const neighbor of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/auth/src/lib/unknown-pricing.js','workers/media/src/index.js','js/pages/index/hero-controller.js'])assert.notEqual(selection([...pricingDelta,neighbor]).policy,'model-pricing-v1',neighbor);
 assert.equal(selection(pricingDelta,{forceFull:true}).full,true);
@@ -1001,7 +1023,7 @@ const appearanceDelta = [
 const appearanceSelection=selection(appearanceDelta);
 assert.equal(appearanceSelection.policy,'appearance-v1');assert.equal(appearanceSelection.appearance,true);
 for(const key of ['workers','auth','static','runtime'])assert.equal(appearanceSelection[key],true,key);
-for(const key of ['adminRelease','homepage','homepageMedia','carousel','assets','full'])assert.equal(appearanceSelection[key],false,key);
+for(const key of ['adminRelease','homepage','carousel','assets','full'])assert.equal(appearanceSelection[key],false,key);
 assert.deepEqual(Object.keys(requiredJobs(appearanceSelection)),['release-compatibility','worker-validation','browser-validation']);
 assert.equal(requiresPrivateMediaImage(appearanceDelta),false);
 for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/auth/src/routes/canvas.js','js/pages/canvas/main.js','js/pages/generate-lab/main.js','js/shared/saved-assets-browser.js','css/pages/index.css','unknown-theme.js','scripts/new-theme-tool.mjs'])assert.notEqual(selection([...appearanceDelta,extra]).policy,'appearance-v1',extra);
@@ -1025,7 +1047,7 @@ for (const files of [imagePricingDelta,[...imagePricingDelta,...appearanceDelta]
  assert.equal(result.policy,'model-pricing-v1');assert.equal(result.imageModels,true);
  assert.equal(result.appearance,files.includes('js/shared/appearance.js'));
  for(const key of ['workers','auth','runtime','static'])assert.equal(result[key],true);
- for(const key of ['full','homepageMedia','carousel','canvasText'])assert(!result[key]);
+ for(const key of ['full','carousel','canvasText'])assert(!result[key]);
  assert.equal(requiresPrivateMediaImage(files),false);
  for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/member-credit-ledger.js','workers/ai/src/routes/unknown.js','js/shared/auth.js','unknown.js'])assert.notEqual(selection([...files,extra]).policy,'model-pricing-v1');
  assert.equal(selection(files,{forceFull:true}).full,true);
@@ -1040,6 +1062,6 @@ const imageDeliveryDelta=['workers/auth/migrations/0095_retained_image_delivery.
 const deliverySelection=selection(imageDeliveryDelta);
 assert.equal(deliverySelection.policy,'model-pricing-v1');assert.equal(deliverySelection.imageModels,true);
 for(const key of ['workers','auth','runtime','static'])assert.equal(deliverySelection[key],true,key);
-for(const key of ['full','homepageMedia','carousel','appearance'])assert.equal(Boolean(deliverySelection[key]),false,key);
+for(const key of ['full','carousel','appearance'])assert.equal(Boolean(deliverySelection[key]),false,key);
 assert.equal(requiresPrivateMediaImage(imageDeliveryDelta),false);
 for(const file of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/ai/src/routes/unknown.js'])assert.notEqual(selection([...imageDeliveryDelta,file]).policy,'model-pricing-v1');

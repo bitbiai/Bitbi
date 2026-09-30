@@ -462,7 +462,6 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
       "playwright.carousel.config.js",
       "playwright.homepage.config.js",
       "playwright.homepage-performance.config.js",
-      "playwright.homepage-webkit.config.js",
       "playwright.workers.config.js",
     ],
   });
@@ -471,7 +470,6 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
     "playwright.carousel.config.js",
     "playwright.config.js",
     "playwright.homepage-performance.config.js",
-    "playwright.homepage-webkit.config.js",
     "playwright.homepage.config.js",
     "playwright.workers.config.js",
   ]);
@@ -763,8 +761,15 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
   assert.equal(plan.impacts.static.required, false);
   assert.deepEqual(plan.workerDeploys, []);
   assert.deepEqual(plan.schemaApplies, []);
-  const unknown = createReleasePlanFromRepo(repoRoot, { files: ['playwright.admin-unknown.config.js'] });
-  assert.deepEqual(unknown.impacts.uncategorizedFiles, ['playwright.admin-unknown.config.js']);
+  // Root Playwright configurations remain validation-only even after retirement.
+  // CI independently sends any unknown configuration through full acceptance.
+  const validation = createReleasePlanFromRepo(repoRoot, { files: ['playwright.retired.config.js'] });
+  assert.deepEqual(validation.impacts.validationOnlyFiles, ['playwright.retired.config.js']);
+  assert.deepEqual(validation.impacts.uncategorizedFiles, []);
+  assert.deepEqual(validation.deploySteps, []);
+  for (const file of ['playwright.runtime.js', 'runtime/playwright.retired.config.js']) {
+    assert.deepEqual(createReleasePlanFromRepo(repoRoot, {files: [file]}).impacts.uncategorizedFiles, [file]);
+  }
 }
 
 console.log("Release planner tests passed.");

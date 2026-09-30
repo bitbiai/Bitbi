@@ -3,9 +3,10 @@ import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests, requiresPrivateMediaImage, memberSpecSources } from './lib/ci-test-selection.mjs';
-import { verifyHomepageMediaExecution, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
-import { MEDIA_POLICY, printDecorativeSummary } from './lib/homepage-media-policy.cjs';
-export { MEDIA_POLICY };
+import { verifyHomepageReport } from './lib/homepage-test-selection.mjs';
+// A changed acceptance scope requires fresh candidate evidence. Earlier Hero
+// reports cannot be recertified by removing their former required job.
+export const MEDIA_POLICY = 'homepage-functional-v3';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -17,7 +18,6 @@ export const REQUIRED_JOBS = {
   'release-compatibility': ['Preflight complete static release plan', 'Audit root dependencies', 'Validate worker package dependencies', 'Run quality gate tests', 'Record candidate build'],
   'worker-validation': ['Verify native Linux isolation before Worker tests', 'Run worker route tests'],
   'homepage-validation': ['Run Linux homepage functional acceptance', 'Record controlled homepage performance diagnostics', 'Confirm tested candidate bytes'],
-  'homepage-webkit-media': ['Run required native WebKit media with private HOME and loopback only', 'Confirm tested candidate bytes'],
   'browser-validation': ['Run full static browser regression'],
 };
 // One selection contract for recording, executing and accepting the unpublished range.
@@ -40,7 +40,6 @@ export function requiredJobs(selection) {
   if (selection.homepage || selection.carousel) {
     jobs['homepage-validation'] = REQUIRED_JOBS['homepage-validation'].filter(step => selection.carousel || step !== 'Record controlled homepage performance diagnostics');
   }
-  if (selection.homepageMedia ?? (selection.homepage || selection.carousel)) jobs['homepage-webkit-media'] = REQUIRED_JOBS['homepage-webkit-media'];
   const browser = [];
   if (selection.adminRelease) browser.push('Run selected Admin release acceptance');
   else if (selection.full) browser.push('Run full static browser regression');
@@ -217,12 +216,6 @@ export function verifyProofs(manifest,proofs) {
     const p=proofs.find(p=>p.job===job); assert(p,`Missing tested build proof ${job}`);
     assert.equal(p.manifestHash,digest(JSON.stringify(manifest)),'Different OS build inputs');
     assert.equal(p.status,'passed');assert(p.reportHash&&p.tests>0,'No executed browser report');
-    if (['homepage-webkit-media','homepage-validation'].includes(job) && (manifest.selection?.homepageMedia ?? true)) {
-      assert.equal(p.decorativeMedia?.policy, MEDIA_POLICY, 'Missing current decorative policy proof');
-      assert.equal(p.decorativeMedia.engine, job === 'homepage-webkit-media' ? 'webkit' : 'chromium');
-      assert(Number.isInteger(p.decorativeMedia.observations) && p.decorativeMedia.observations > 0,
-        'Missing decorative observation proof');
-    }
   }
 }
 // Bind each discovered required case to its executed result in the same job.
@@ -368,18 +361,22 @@ async function main(command) {
     for(const report of reports) {
       const broad = process.env.GITHUB_JOB === 'browser-validation';
       assert(Array.isArray(report.errors || []) && (report.errors || []).length === 0, 'Browser execution reported errors');
+      assert(['expected','unexpected','flaky'].every(key => Number.isInteger(report.stats?.[key]) && report.stats[key] >= 0), 'Malformed browser statistics');
       assert((report.stats.expected + (broad ? report.stats.flaky : 0))>0&&report.stats.unexpected===0&&(broad||report.stats.flaky===0),'Browser acceptance missing or failed');
       let executed=0;
       const visit=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests||[]) {
         const final = test.results?.at(-1);
         assert(!['failed','timedOut','interrupted'].includes(final?.status),'Failed browser result');
+        assert(!final?.error && (final?.errors || []).length === 0, 'Browser result contains an execution error');
+        if (!broad) assert(test.results?.length === 1 && (final.retry ?? 0) === 0, 'Homepage case missing or retried');
         if(final?.status==='passed')executed++;
       }(suite.suites||[]).forEach(visit);};(report.suites||[]).forEach(visit);
       assert(executed>0,'No executed cases');
+      if (!broad) assert.equal(executed, report.stats.expected, 'Inconsistent homepage execution statistics');
     }
     const report=reports[0];
-    if(process.env.GITHUB_JOB==='homepage-validation' && manifest.selection && 'homepageMedia' in manifest.selection)
-      verifyHomepageReport(report, JSON.parse(fs.readFileSync('test-results/homepage-discovery.json')), manifest.selection.homepageMedia);
+    if(process.env.GITHUB_JOB==='homepage-validation')
+      verifyHomepageReport(report, JSON.parse(fs.readFileSync('test-results/homepage-discovery.json')));
     if (manifest.selection?.assets && !manifest.selection.full && process.env.GITHUB_JOB === 'browser-validation') verifyAssetReport(reports[names.indexOf('test-results/candidate-assets.json')], JSON.parse(fs.readFileSync('test-results/assets-discovery.json')));
     if (manifest.selection?.canvasText) verifyCanvasCandidateReports(names, reports, JSON.parse(fs.readFileSync('test-results/canvas-discovery.json')));
     if (manifest.selection?.appearance && !manifest.selection?.modelPricing) verifyAppearanceCandidateReports(names, reports, JSON.parse(fs.readFileSync('test-results/appearance-discovery.json')));
@@ -388,15 +385,7 @@ async function main(command) {
     if (manifest.selection?.workspaceHelp) verifyWorkspaceHelpReport(report, JSON.parse(fs.readFileSync('test-results/workspace-discovery.json')));
     if (manifest.selection?.publicMedia) verifyPublicMediaReport(report, JSON.parse(fs.readFileSync('test-results/public-media-discovery.json')));
     if (manifest.selection?.adminRelease) verifyAdminReport(report, JSON.parse(fs.readFileSync('test-results/admin-discovery.json')));
-    let decorativeMedia;
-    if(['homepage-webkit-media','homepage-validation'].includes(process.env.GITHUB_JOB) && (manifest.selection?.homepageMedia ?? true)) {
-      const engine=process.env.GITHUB_JOB==='homepage-webkit-media'?'webkit':'chromium';
-      decorativeMedia=verifyHomepageMediaExecution(report,{engine,extended:false});
-      assert(/\.json$/.test(names[0]), 'Expected JSON homepage report');
-      fs.writeFileSync(names[0].replace(/\.json$/, '-decorative.json'), JSON.stringify(decorativeMedia, null, 2)+'\n');
-      printDecorativeSummary(decorativeMedia);
-    }
-    fs.mkdirSync('candidate-proofs',{recursive:true});fs.writeFileSync(`candidate-proofs/proof-${process.env.GITHUB_JOB}.json`,JSON.stringify({job:process.env.GITHUB_JOB,status:'passed',manifestHash:hash,reportHash:digest(JSON.stringify(reports)),tests:reports.reduce((n,r)=>n+r.stats.expected+r.stats.flaky,0),...(decorativeMedia?{decorativeMedia}:{})}));return;
+    fs.mkdirSync('candidate-proofs',{recursive:true});fs.writeFileSync(`candidate-proofs/proof-${process.env.GITHUB_JOB}.json`,JSON.stringify({job:process.env.GITHUB_JOB,status:'passed',manifestHash:hash,reportHash:digest(JSON.stringify(reports)),tests:reports.reduce((n,r)=>n+r.stats.expected+r.stats.flaky,0)}));return;
   }
   if(command==='publish') {
     const proofs=fs.readdirSync(dir).filter(f=>f.startsWith('proof-')&&f.endsWith('.json')).map(f=>JSON.parse(fs.readFileSync(path.join(dir,f))));verifyProofs(manifest,proofs);

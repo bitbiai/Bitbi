@@ -1145,20 +1145,15 @@ function createValidContext() {
   worker-validation:
     needs: release-compatibility
   browser-validation:
-    needs: [release-compatibility, homepage-validation, homepage-webkit-media, worker-validation]
+    needs: [release-compatibility, homepage-validation, worker-validation]
   homepage-validation:
     needs: release-compatibility
     steps:
       - run: npm run check:homepage-selection
       - run: npm run test:homepage-functional
       - run: npm run test:homepage-performance
-  homepage-webkit-media:
-    needs: release-compatibility
-    runs-on: macos-15
-    steps:
-      - run: npm run test:homepage-webkit
   deploy:
-    needs: [release-compatibility, worker-validation, browser-validation, homepage-validation, homepage-webkit-media, reuse-candidate]
+    needs: [release-compatibility, worker-validation, browser-validation, homepage-validation, reuse-candidate]
     steps:
       - run: npm run build:static
     `,
@@ -1186,9 +1181,9 @@ function createValidContext() {
   assert.deepEqual(issues, []);
 }
 
-for (const missing of ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "homepage-webkit-media", "reuse-candidate"]) {
+for (const missing of ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "reuse-candidate"]) {
   const context = createValidContext();
-  const gates = ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "homepage-webkit-media", "reuse-candidate"];
+  const gates = ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "reuse-candidate"];
   context.workflowSource = context.workflowSource.replace(
     `needs: [${gates.join(", ")}]`,
     `needs: [${gates.filter((gate) => gate !== missing).join(", ")}]`,
@@ -1208,18 +1203,24 @@ for (const missing of ["release-compatibility", "worker-validation", "browser-va
 
 for (const needs of ['release-compatibility', 'homepage-validation', 'unrelated-job']) {
   const context = createValidContext();
-  context.workflowSource = context.workflowSource.replace('  browser-validation:\n    needs: [release-compatibility, homepage-validation, homepage-webkit-media, worker-validation]', `  browser-validation:\n    needs: ${needs}`);
+  context.workflowSource = context.workflowSource.replace('  browser-validation:\n    needs: [release-compatibility, homepage-validation, worker-validation]', `  browser-validation:\n    needs: ${needs}`);
   assert.ok(validateReleaseCompatibility(context).some(issue => issue.startsWith('Browser validation job must depend')));
 }
 
-for (const [before, after] of [
-  ['runs-on: macos-15', 'runs-on: ubuntu-latest'],
-  ['npm run test:homepage-webkit', 'echo omitted'],
-  ['  homepage-webkit-media:\n    needs: release-compatibility', '  homepage-webkit-media:\n    needs: unrelated-job'],
+for (const retired of [
+  '  homepage-webkit-media:\n    runs-on: macos-15',
+  '      - run: npm run test:homepage-webkit',
+  '      - run: node scripts/diagnose-homepage-linux-media.mjs',
+  '      - run: npx playwright test tests/homepage-hero-playback.spec.js',
+  '      - run: npx playwright test tests/homepage-hero-state.spec.js',
+  '      - run: npx playwright test tests/homepage-native-control.spec.js',
+  '      - run: npx playwright test --config playwright.homepage-linux-diagnostic.config.js',
+  '      - run: npx playwright test --config playwright.homepage-webkit.config.js',
+  '      - run: echo homepage_media=true',
 ]) {
   const context = createValidContext();
-  context.workflowSource = context.workflowSource.replace(before, after);
-  assert.ok(validateReleaseCompatibility(context).some(issue => issue.startsWith('Native WebKit media job')));
+  context.workflowSource += `\n${retired}\n`;
+  assert.ok(validateReleaseCompatibility(context).some(issue => issue.includes('retired decorative Hero automation')), retired);
 }
 
 for (const command of ["check:homepage-selection", "test:homepage-functional", "test:homepage-performance"]) {

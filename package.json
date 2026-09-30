@@ -14,8 +14,6 @@
     "check:homepage-selection": "node scripts/check-homepage-selection.mjs",
     "test:homepage-selection": "node scripts/test-homepage-selection.mjs",
     "check:homepage-runtime": "node scripts/check-homepage-runtime.mjs",
-    "test:homepage-webkit": "playwright test -c playwright.homepage-webkit.config.js",
-    "diagnose:homepage-linux-media": "node scripts/diagnose-homepage-linux-media.mjs",
     "test:homepage-functional": "playwright test -c playwright.homepage.config.js",
     "test:homepage-performance": "playwright test -c playwright.homepage-performance.config.js",
     "test:homepage": "npm run test:homepage-core && npm run test:homepage-carousel",
@@ -113,8 +111,6 @@
     "release:rollback-drill": "node scripts/rollback-drill.mjs",
     "release:preflight": "node scripts/release-preflight.mjs",
     "release:apply": "node scripts/release-apply.mjs",
-    "test:homepage-webkit:extended": "HOMEPAGE_EXTENDED=true playwright test -c playwright.homepage-webkit.config.js",
-    "test:homepage-functional:extended": "HOMEPAGE_EXTENDED=true playwright test -c playwright.homepage.config.js",
     "test:frontend-hosting": "node scripts/test-frontend-hosting.mjs"
   },
   "devDependencies": {

@@ -7,6 +7,7 @@ import vm from 'node:vm';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {verifyPublishedAppearance,appearanceHtmlBytes,publishFrontend} from './frontend-release.mjs';
+import {hasRetiredDecorativeHeroAutomation} from './lib/release-compat.mjs';
 
 // Execute the actual, deliberately simple workflow conditions with synthetic
 // GitHub step states. This is orchestration acceptance, not a live Pages test.
@@ -61,33 +62,40 @@ function requiresMediaSetup(source,jobName,setupName,callerNames) {
   return setup;
 }
 const full=read('full-regression'),processor=read('memvid-stream-preview-processor');
-// The actual homepage callers must verify machine-readable policy evidence
-// after successful tests. A missing verifier cannot become a publishable job.
-function requiresHomepageReportVerification(source, jobName, { candidate, extended, engine }) {
-  const body=job(source,jobName),list=steps(body);
-  const caller=list.find(step=>step.name===(engine==='webkit'
-    ? 'Run required native WebKit media with private HOME and loopback only' : 'Run Linux homepage functional acceptance'));
-  const check=list.find(step=>step.name===(candidate?'Confirm tested candidate bytes':'Verify functional acceptance and decorative observations'));
+// Every retained functional caller validates the executed report against its
+// discovery. Missing reports or functional failures cannot become candidate proof.
+function requiresHomepageReportVerification(source, { candidate }) {
+  const body=job(source,'homepage-validation'),list=steps(body);
+  const caller=list.find(step=>step.name==='Run Linux homepage functional acceptance');
+  const check=list.find(step=>step.name===(candidate?'Confirm tested candidate bytes':'Verify executed homepage functional coverage'));
   assert(caller && check && list.indexOf(check)>list.indexOf(caller),'Homepage execution requires subsequent report verification');
-  const filename=`test-results/homepage-${engine==='webkit'?'webkit':'functional'}.json`;
+  const filename='test-results/homepage-functional.json';
   const command=candidate?'node scripts/pages-candidate.mjs proof'
-    : `node scripts/check-homepage-selection.mjs --verify-execution-report ${filename} --engine ${engine}${extended?' --extended':''}`;
+    : `node scripts/check-homepage-selection.mjs --verify-execution-report ${filename} --discovery test-results/homepage-discovery.json`;
   assert(check.source.includes(`run: ${command}\n`),'Homepage report verifier is missing or uses a different scope');
   if(candidate)assert(check.source.includes(`CANDIDATE_REPORT: ${filename}`));
   assert(!body.includes('continue-on-error') && !check.source.includes('|| true'),'Homepage functional and report errors must remain blocking');
-  const context={success:()=>true,needs:{guard:{outputs:{homepage_media:'true',homepage:'true',carousel:'true'}},'release-compatibility':{outputs:{homepage_media:'true',homepage:'true',carousel:'true'}}},steps:{homepage_discovery:{outcome:'success'}}};
+  const context={success:()=>true,needs:{guard:{outputs:{homepage:'true',carousel:'true'}},'release-compatibility':{outputs:{homepage:'true',carousel:'true'}}},steps:{homepage_discovery:{outcome:'success'}}};
   assert(permits(check,context),'Selected homepage report verification would be skipped');
   assert(!permits(check,{...context,success:()=>false}),'Failed functional execution cannot acquire a passing report');
   return check;
 }
-for(const [source,candidate,extended] of [[standard,true,false],[full,false,true],[fast,false,false]]) {
-  for(const [jobName,engine] of [['homepage-webkit-media','webkit'],['homepage-validation','chromium']]) {
-    const options={candidate,extended,engine};
-    const check=requiresHomepageReportVerification(source,jobName,options);
-    assert.throws(()=>requiresHomepageReportVerification(source.replace(check.source,check.source.replace(/run: .+/, 'run: echo missing report verifier')),jobName,options),/verifier is missing/);
-    assert.throws(()=>requiresHomepageReportVerification(source.replace(check.source,check.source.replace(/^        if: .+\n/m,'').replace(/        run:/,"        if: needs.guard.outputs.homepage_media == 'false'\n        run:")),jobName,options),/would be skipped/);
-  }
-  assert(job(source,'homepage-webkit-media').includes('test-results/homepage-webkit-decorative.json'),'Native decorative summary must be retained');
+for(const [source,candidate] of [[standard,true],[full,false],[fast,false]]) {
+  const options={candidate};
+  const check=requiresHomepageReportVerification(source,options);
+  assert.throws(()=>requiresHomepageReportVerification(source.replace(check.source,check.source.replace(/run: .+/, 'run: echo missing report verifier')),options),/verifier is missing/);
+  assert.throws(()=>requiresHomepageReportVerification(source.replace(check.source,check.source.replace(/^        if: .+\n/m,'').replace(/        run:/,"        if: needs.guard.outputs.homepage == 'false'\n        run:")),options),/would be skipped/);
+  assert.equal(hasRetiredDecorativeHeroAutomation(source),false,'Decorative jobs, scripts and reports are retired in every frontend workflow');
+  for(const retired of [
+    '  homepage-webkit-media:\n    runs-on: macos-15',
+    'npm run test:homepage-webkit', 'npm run test:homepage-functional:extended',
+    'node scripts/diagnose-homepage-linux-media.mjs',
+    'npx playwright test tests/homepage-hero-playback.spec.js',
+    'npx playwright test tests/homepage-hero-state.spec.js',
+    'npx playwright test tests/homepage-native-control.spec.js',
+    'npx playwright test -c playwright.homepage-webkit.config.js',
+    'npx playwright test -c playwright.homepage-linux-diagnostic.config.js',
+  ]) assert.equal(hasRetiredDecorativeHeroAutomation(`${source}\n${retired}\n`),true,retired);
 }
 for(const [source,jobName,setupName,callers] of [
   [standard,'worker-validation','Install Worker media test tools',['Verify native Linux isolation before Worker tests','Run worker route tests']],
@@ -176,8 +184,8 @@ for (const source of [standard, fast]) {
   }
   assert(!/pages\/deployments\/|Reconcile authoritative|DEPLOY_PAGES_OUTCOME|deadline=/.test(source), 'no independent SHA-based or ambient reconciliation');
 }
-for (const name of ['worker-validation', 'browser-validation', 'homepage-validation', 'homepage-webkit-media']) {
-  assert(job(standard, name).includes(name==='browser-validation' ? 'needs: [release-compatibility, homepage-validation, homepage-webkit-media, worker-validation]' : 'needs: release-compatibility'), `${name} waits for actual preflight`);
+for (const name of ['worker-validation', 'browser-validation', 'homepage-validation']) {
+  assert(job(standard, name).includes(name==='browser-validation' ? 'needs: [release-compatibility, homepage-validation, worker-validation]' : 'needs: release-compatibility'), `${name} waits for actual preflight`);
 }
 
 for (const [name, source] of [['standard', standard], ['fast', fast]]) {

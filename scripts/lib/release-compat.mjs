@@ -12,6 +12,12 @@ const MANUAL_PREREQUISITE_KINDS = new Set([
 ]);
 const DEPLOY_STEP_TYPES = new Set(["schema-checkpoint", "worker", "service", "static"]);
 
+// Retired decorative playback callers must not silently return as a release gate.
+// User-controlled media and the Linux functional homepage caller remain required.
+export function hasRetiredDecorativeHeroAutomation(source) {
+  return /homepage-webkit-media|test:homepage-webkit|test:homepage-functional:extended|test:homepage-native-control|diagnose:homepage-linux-media|diagnose-homepage-linux-media|playwright\.homepage-(?:webkit|linux-diagnostic)\.config|homepage-hero-(?:playback|state)\.spec|homepage-native-control\.spec|homepage-decorative-media|homepage-hero-native-probe|homepage_media/.test(source);
+}
+
 function stripJsonComments(source) {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, "")
@@ -1208,18 +1214,14 @@ function validateWorkflowCompatibility(context) {
   if (!workflowRequiresJob(workflowSource, "worker-validation", /needs:\s*release-compatibility/)) {
     issues.push('Worker validation job must depend on "release-compatibility".');
   }
-  if (!workflowRequiresJob(workflowSource, "browser-validation", /needs:\s*\[\s*release-compatibility\s*,\s*homepage-validation\s*,\s*homepage-webkit-media\s*,\s*worker-validation\s*\]/)) {
-    issues.push('Browser validation job must depend on release, Linux homepage, native WebKit and Worker validation.');
+  if (!workflowRequiresJob(workflowSource, "browser-validation", /needs:\s*\[\s*release-compatibility\s*,\s*homepage-validation\s*,\s*worker-validation\s*\]/)) {
+    issues.push('Browser validation job must depend on release, homepage and Worker validation.');
   }
   if (!workflowRequiresJob(workflowSource, "homepage-validation", /needs:\s*release-compatibility/)) {
     issues.push('Homepage validation job must depend on "release-compatibility".');
   }
-  if (!workflowRequiresJob(workflowSource, "homepage-webkit-media", /needs:\s*release-compatibility/)) {
-    issues.push('Native WebKit media job must depend on "release-compatibility".');
-  }
-  if (!workflowRequiresJob(workflowSource, "homepage-webkit-media", /runs-on:\s*macos-15/)
-      || !workflowRequiresJob(workflowSource, "homepage-webkit-media", /npm run test:homepage-webkit/)) {
-    issues.push('Native WebKit media job must execute "npm run test:homepage-webkit" on macos-15.');
+  if (hasRetiredDecorativeHeroAutomation(workflowSource)) {
+    issues.push('Static workflow must not invoke retired decorative Hero automation.');
   }
   for (const command of ["npm run check:homepage-selection", "npm run test:homepage-functional", "npm run test:homepage-performance"]) {
     if (!includesRouteLiteral(workflowSource, command)) {
@@ -1230,10 +1232,10 @@ function validateWorkflowCompatibility(context) {
     !workflowRequiresJob(
       workflowSource,
       "deploy",
-      /needs:\s*\[\s*release-compatibility\s*,\s*worker-validation\s*,\s*browser-validation\s*,\s*homepage-validation\s*,\s*homepage-webkit-media\s*,\s*reuse-candidate\s*\]/
+      /needs:\s*\[\s*release-compatibility\s*,\s*worker-validation\s*,\s*browser-validation\s*,\s*homepage-validation\s*,\s*reuse-candidate\s*\]/
     )
   ) {
-    issues.push('Deploy job must depend on ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "homepage-webkit-media", "reuse-candidate"].');
+    issues.push('Deploy job must depend on ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "reuse-candidate"].');
   }
   if (!includesRouteLiteral(workflowSource, "npm run build:static")) {
     issues.push('Static workflow must build deploy assets via "npm run build:static".');

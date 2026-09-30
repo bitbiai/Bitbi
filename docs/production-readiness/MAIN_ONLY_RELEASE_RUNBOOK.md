@@ -35,39 +35,29 @@ broad readiness review, not a blanket suite or deployment authorization for ever
 
 ## Decorative Hero acceptance
 
-Owner decision, 2026-09-30: `decorative-fallback-v2` accepts delayed, uneven or
-stalled **decorative homepage Hero** playback while a valid decoded poster/still
-remains visible and the page remains usable. The native stall is unresolved, not
-repaired; its bounded observation proves neither permanent failure nor eventual
-recovery. Fixtures use local HTTP and loopback isolation, not Cloudflare delivery.
+Owner decision, 2026-09-30, supersedes the warning-only policy: remove all
+**dedicated decorative homepage Hero video** automated tests, state/decoder/timing
+probes, synthetic controls and diagnostics from every engine, local/default
+collection, scheduled Full and release. No warning-only run, skipped placeholder,
+poster/freeze replacement or native Hero job remains. The actual videos are
+unchanged; the unresolved stall is accepted without further investigation. This
+coverage decision is not a playback repair and does not recertify failed runs.
 
-The existing Linux/macOS jobs still execute all selected functional scenarios.
-Bounded frame, loop/seek and transition-resume observations are inline structured
-`decorative-media-observation` evidence, tagged only in the allowlisted Hero cases;
-missing progress is a warning, never successful playback. A finite per-case quality
-budget leaves time for required checks without enlarging any observation deadline.
-Visible decoded fallback/layout, Models navigation, pause/reduced-motion/cleanup
-and isolation from independent players stay blocking and run despite quality
-warnings. Independent media controls, Canvas preview/export, audio, generation,
-save, auth, ownership and credits do not inherit this exception.
+Existing functional suites retain independent EN/DE Models navigation, cold
+loading, responsive layout and accessibility. Canvas, user-controlled players,
+audio, generation, saving, authentication, ownership, credits and security remain
+required under their existing selection. Mixed navigation tests have no Hero
+playback, poster, video-ready or decoder prerequisites.
 
-`homepage-test-selection.mjs` checks named cases and exact diagnostic classification;
-`check-homepage-selection.mjs --verify-execution-report` validates the actual Full
-reports. `pages-candidate.mjs` uses the same execution/diagnostic verifier before
-candidate proof. The shared `homepage-media-policy.cjs` owns the version, bounded
-observation schema and visible warning summary. All required cases must execute;
-unknown/malformed/missing evidence, retries or genuine functional failures remain
-red. Missing tags/observations, wrong policy and failed Models/fallback controls
-cannot be accepted by adding a warning. Deliberately frozen media exercises the
-accepted warning path separately from observed quality findings.
-
-Keep protected jobs, environment preparation, report/artifact uploads, candidate
-hashes and run/attempt identity. No whole-job exception, swallowed command failure,
-retry-to-green or old-run recertification. Existing Full/release callers provide
-fresh final-source functional evidence; do not repeat unrelated broad suites or
-investigate accepted decorative stalls merely to remove warnings. Report completed
-acceptance as “Functional acceptance passed; decorative playback limitation
-accepted.” Publication still requires its own matching protected evidence.
+`check:homepage-selection` checks actual retained discovery and rejects retired
+Hero scenarios in every configured/default collection. Required execution reports
+must match functional discovery; missing, malformed, failed, skipped or retried
+required cases fail. Full and Fast invoke the report verifier; static candidate
+proof uses the same contract. `MEDIA_POLICY=homepage-functional-v3` versions the
+manifest boundary and rejects old candidate policies; no `decorativeMedia` proof
+or native-Hero artifact is required. Source/run/attempt identity, selected-job
+success, candidate bytes, backend prerequisites and protected publication remain
+unchanged. Old failed artifacts are historical evidence only.
 
 ## CI repair and required acceptance
 
@@ -102,20 +92,21 @@ it does not authorize new production operations, paid calls or protection change
    static.yml runs `test:static` and retains `candidate-static.json`, including the
    core scope. Focused EN/DE and broken-case checks precede the selected collection;
    they do not replace it. Full's
-   downstream browser job runs `HOMEPAGE_EXTENDED=true npm run test:static` after
-   security, Worker and required Linux/macOS homepage jobs succeed.
+   downstream browser job runs `npm run test:static` after
+   security, Worker and selected Linux homepage jobs succeed.
    Shared fixtures must establish fresh feature settings for every affected sibling
-   caller. After changing native media assertions, check the final measurement in
-   each affected runtime; an earlier Linux pass followed by macOS-only edits is not
-   Linux evidence. Use decoded output and broken-signal controls for audio.
+   caller. For retained user-media assertions, check the final measurement in each affected
+   runtime; local macOS success is not Linux evidence. Use decoded output and broken-signal controls for audio.
 5. A main push starts the static workflow, not Full regression. When Full is an
    explicit acceptance requirement, first inspect runs for the exact SHA, then use
    the existing `full-regression.yml` `workflow_dispatch` if no matching requested
    run exists. Record the dispatched run's resolved SHA; do not duplicate a matching
    run or dispatch a second validation pipeline merely to publish.
-6. Observe required runs with bounded status checks and regular progress updates;
-   inspect newly completed failures and continue scoped repairs. Do not hand off at
-   queued/running jobs or partial success. Keep source/run/attempt, case reports and
+6. Observe required runs with bounded status checks unless the owner explicitly
+   requests asynchronous handoff. In that mode, initiate each required existing
+   workflow once for the exact SHA, record links/checkpoint and stop active waiting;
+   pending CI/publication remains open. Otherwise inspect completed failures and
+   continue scoped repairs. Never report queued/running jobs as acceptance. Keep source/run/attempt, case reports and
    candidate identity together. A failed/skipped required downstream gate is not a
    pass. Report an evidenced review/rights/runner blocker instead of claiming success.
    For explicit publication, finish the existing protected affected-backend/frontend

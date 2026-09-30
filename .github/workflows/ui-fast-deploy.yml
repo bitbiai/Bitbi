@@ -59,7 +59,6 @@ jobs:
       head_ref: ${{ steps.changed-files.outputs.head_ref }}
       empty_deploy: ${{ steps.changed-files.outputs.empty_deploy }}
       homepage: ${{ steps.selection.outputs.homepage }}
-      homepage_media: ${{ steps.selection.outputs.homepage_media }}
       member_models: ${{ steps.selection.outputs.member_models }}
       carousel: ${{ steps.selection.outputs.carousel }}
     steps:
@@ -222,53 +221,6 @@ jobs:
         run: node scripts/select-ci-tests.mjs --base "$FAST_UI_BASE_REF" --head "$FAST_UI_HEAD_REF" --github-output
 
   # Short homepage feedback runs independently of the long browser regression.
-  # Only native WebKit video moves to macOS; all other Linux gates remain.
-  homepage-webkit-media:
-    needs: guard
-    if: ${{ needs.guard.outputs.homepage_media == 'true' }}
-    runs-on: macos-15
-    permissions:
-      contents: read
-    env:
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22.23.2
-          cache: npm
-      - name: Install locked test dependencies and WebKit
-        run: |
-          npm ci
-          PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/homepage-browsers" npx playwright install webkit
-      - name: Build the candidate static site
-        run: npm run build:static
-      - name: Run required native WebKit media with private HOME and loopback only
-        run: |
-          set -eu
-          test "$(id -u)" -gt 0
-          mkdir -p "$RUNNER_TEMP/homepage-home" "$RUNNER_TEMP/homepage-tmp"
-          env -i PATH="$PATH" HOME="$RUNNER_TEMP/homepage-home" TMPDIR="$RUNNER_TEMP/homepage-tmp" CI=true GITHUB_SHA="$GITHUB_SHA" PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/homepage-browsers" /usr/bin/sandbox-exec -f tests/helpers/homepage-macos.sb /bin/sh -c 'node scripts/check-homepage-runtime.mjs --macos && npm run test:homepage-webkit'
-      - name: Verify functional acceptance and decorative observations
-        run: node scripts/check-homepage-selection.mjs --verify-execution-report test-results/homepage-webkit.json --engine webkit
-      - name: Upload mandatory macOS media evidence
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: homepage-macos-media-${{ github.sha }}
-          path: |
-            test-results/homepage-runtime.json
-            test-results/homepage-webkit.json
-            test-results/homepage-webkit-decorative.json
-            test-results/homepage-webkit/
-          retention-days: 7
-          if-no-files-found: error
-
   homepage-validation:
     needs: guard
     runs-on: ubuntu-latest
@@ -324,18 +276,13 @@ jobs:
         run: npm run check:homepage-selection
       - name: Run Linux homepage functional acceptance
         if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
-        env:
-          HOMEPAGE_MEDIA: ${{ needs.guard.outputs.homepage_media }}
         run: npm run test:homepage-functional
-      - name: Verify functional acceptance and decorative observations
-        if: ${{ success() && needs.guard.outputs.homepage_media == 'true' && steps.homepage_discovery.outcome == 'success' }}
-        run: node scripts/check-homepage-selection.mjs --verify-execution-report test-results/homepage-functional.json --engine chromium
+      - name: Verify executed homepage functional coverage
+        if: ${{ success() && steps.homepage_discovery.outcome == 'success' }}
+        run: node scripts/check-homepage-selection.mjs --verify-execution-report test-results/homepage-functional.json --discovery test-results/homepage-discovery.json
       - name: Record controlled homepage performance diagnostics
         if: ${{ success() && needs.guard.outputs.carousel == 'true' && steps.homepage_discovery.outcome == 'success' }}
         run: npm run test:homepage-performance
-      - name: Record bounded Linux WebKit media divergence (not acceptance)
-        if: ${{ success() && needs.guard.outputs.homepage_media == 'true' && steps.homepage_discovery.outcome == 'success' }}
-        run: npm run diagnose:homepage-linux-media
       - name: Upload short homepage evidence
         if: always() && (needs.guard.outputs.homepage == 'true' || needs.guard.outputs.carousel == 'true')
         uses: actions/upload-artifact@v6
@@ -344,12 +291,8 @@ jobs:
           path: |
             test-results/homepage-*.json
             test-results/homepage-discovery-*/
-            test-results/homepage-webkit/
             test-results/homepage-functional/
-            test-results/homepage-linux-diagnostic/
-            test-results/homepage-linux-diagnostic.log
             test-results/homepage-performance/
-            playwright-report/homepage-webkit/
             playwright-report/homepage-functional/
             playwright-report/homepage-performance/
           retention-days: 7
@@ -357,8 +300,8 @@ jobs:
 
   deploy:
     name: Validate and deploy fast-safe change
-    needs: [guard, homepage-validation, homepage-webkit-media]
-    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.guard.outputs.ui_only == 'true' && needs.homepage-validation.result == 'success' && (needs.guard.outputs.homepage_media == 'false' || (needs.guard.outputs.homepage_media == 'true' && needs.homepage-webkit-media.result == 'success')) }}
+    needs: [guard, homepage-validation]
+    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.guard.outputs.ui_only == 'true' && needs.homepage-validation.result == 'success' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages

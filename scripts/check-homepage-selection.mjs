@@ -4,22 +4,17 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, homepageCoreArguments, verifyHomepageCoreDiscovery, verifyHomepageDiscovery, verifyHomepageMediaExecution } from './lib/homepage-test-selection.mjs';
-import mediaPolicy from './lib/homepage-media-policy.cjs';
+import { flattenHomepageDiscovery, homepageCoreArguments, verifyHomepageCoreDiscovery, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
 
 if (process.argv.length > 2) {
   try {
     const args = process.argv.slice(2);
-    const [flag, filename, engineFlag, engine, extendedFlag] = args;
-    assert([4, 5].includes(args.length) && flag === '--verify-execution-report'
-      && engineFlag === '--engine' && (extendedFlag === undefined || extendedFlag === '--extended'),
-    'Expected --verify-execution-report report.json --engine chromium|webkit [--extended]');
-    assert(/\.json$/.test(filename), 'Expected a JSON execution report');
-    const summary = verifyHomepageMediaExecution(JSON.parse(fs.readFileSync(filename, 'utf8')), {
-      engine, extended: extendedFlag === '--extended',
-    });
-    fs.writeFileSync(filename.replace(/\.json$/, '-decorative.json'), JSON.stringify(summary, null, 2) + '\n');
-    mediaPolicy.printDecorativeSummary(summary);
+    const [flag, filename, discoveryFlag, discoveryFile] = args;
+    assert(args.length === 4 && flag === '--verify-execution-report' && discoveryFlag === '--discovery',
+      'Expected --verify-execution-report report.json --discovery discovery.json');
+    assert(/\.json$/.test(filename) && /\.json$/.test(discoveryFile), 'Expected JSON execution and discovery reports');
+    verifyHomepageReport(JSON.parse(fs.readFileSync(filename, 'utf8')), JSON.parse(fs.readFileSync(discoveryFile, 'utf8')));
+    console.log('Selected homepage functional execution matches discovery.');
     process.exit(0);
   } catch (error) {
     console.error(error.message);
@@ -48,10 +43,7 @@ try {
       standard: 'playwright.config.js',
       carousel: 'playwright.carousel.config.js',
       functional: 'playwright.homepage.config.js',
-      webkit: 'playwright.homepage-webkit.config.js',
-      extended: 'playwright.homepage-webkit.config.js',
       performance: 'playwright.homepage-performance.config.js',
-      diagnostic: 'playwright.homepage-linux-diagnostic.config.js',
     }).map(([name, config]) => [name, ['test', '-c', config]])),
   })) {
     // Discovery does not start browsers, the web server or Playwright bodies.
@@ -60,7 +52,7 @@ try {
     const rawOutput = path.join(rawDirectory, `${name}.json`);
     const result = spawnSync(process.execPath, [cli, ...args, '--list', '--reporter=json'], {
       cwd: root,
-      env: { ...process.env, HOMEPAGE_EXTENDED: name === 'extended' ? 'true' : 'false', PLAYWRIGHT_JSON_OUTPUT_FILE: rawOutput },
+      env: { ...process.env, PLAYWRIGHT_JSON_OUTPUT_FILE: rawOutput },
       encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
     });
     fs.writeFileSync(path.join(rawDirectory, `${name}.log`), `${result.stdout || ''}${result.stderr || ''}`);
