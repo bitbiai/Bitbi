@@ -1,6 +1,8 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('node:fs');
 const path = require('node:path');
+const { mockPublicAppearance } = require('./helpers/appearance.js');
+const { readHomepageImageCapabilities } = require('./helpers/generation-selectors.cjs');
 
 const ONE_PX_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==';
@@ -6400,11 +6402,13 @@ async function mockAuthenticatedProfile(page, {
   avatarRequests = [],
   initialAvatar = hasAvatar,
   linkedWallet = null,
+  walletEnabled = true,
   profilePatchStatus = 200,
   profilePatchBody = { ok: true },
   publishedMediaItems = null,
   likedMediaItems = null,
 } = {}) {
+  await mockPublicAppearance(page, { walletEnabled });
   const assetStore = createSavedAssetsStore(folderPayload, assetsPayload);
   const avatarState = {
     hasAvatar: initialAvatar,
@@ -11154,18 +11158,7 @@ test.describe('Assets Manager (authenticated)', () => {
     await expect(page.locator('#galStudioCreditEstimate')).toHaveText('10 credits');
     await expect(page.locator('#galStudioGenerate')).toHaveText('Generate · 10 credits');
 
-    const flux2CapabilityState = await page.locator('#galleryStudio').evaluate((studio) => {
-      const steps = studio.querySelector('#galStudioSteps');
-      const seed = studio.querySelector('#galStudioSeed');
-      const randomize = studio.querySelector('#galStudioRandomize');
-      return {
-        stepsDisabled: steps.disabled,
-        stepsHidden: steps.closest('.creator-create__field').hidden,
-        seedDisabled: seed.disabled,
-        seedHidden: seed.closest('.creator-create__field').hidden,
-        randomizeDisabled: randomize.disabled,
-      };
-    });
+    const flux2CapabilityState = await readHomepageImageCapabilities(page);
     expect(flux2CapabilityState).toEqual({
       stepsDisabled: true,
       stepsHidden: true,
@@ -11187,25 +11180,27 @@ test.describe('Assets Manager (authenticated)', () => {
     await page.selectOption('#galStudioModel', '@cf/black-forest-labs/flux-1-schnell');
     await expect(page.locator('#galleryCreateTitle')).toHaveText('FLUX.1 Schnell');
     await expect(page.locator('#galStudioCreditEstimate')).toHaveText('1 credit');
-    const flux1CapabilityState = await page.locator('#galleryStudio').evaluate((studio) => {
-      const steps = studio.querySelector('#galStudioSteps');
-      const seed = studio.querySelector('#galStudioSeed');
-      const randomize = studio.querySelector('#galStudioRandomize');
-      return {
-        stepsDisabled: steps.disabled,
-        stepsHidden: steps.closest('.creator-create__field').hidden,
-        seedDisabled: seed.disabled,
-        seedHidden: seed.closest('.creator-create__field').hidden,
-        randomizeDisabled: randomize.disabled,
-      };
-    });
+    const flux1CapabilityState = await readHomepageImageCapabilities(page);
     expect(flux1CapabilityState).toEqual({
       stepsDisabled: false,
       stepsHidden: false,
-      seedDisabled: false,
-      seedHidden: false,
-      randomizeDisabled: false,
+      seedDisabled: true,
+      seedHidden: true,
+      randomizeDisabled: true,
     });
+    // The account provider schema accepts steps, never seed. A retained hidden
+    // seed must not leak into the request after switching from another model.
+    await page.locator('#galStudioSteps').selectOption('6');
+    await page.locator('#galStudioSeed').evaluate(input => { input.value = '314159'; });
+    await page.locator('#galStudioPrompt').fill('homepage schnell supported controls');
+    await page.locator('#galStudioGenerate').click();
+    await expect.poll(() => requests.length).toBe(2);
+    expect(requests[1]).toEqual(expect.objectContaining({
+      prompt: 'homepage schnell supported controls',
+      model: '@cf/black-forest-labs/flux-1-schnell',
+      steps: 6,
+    }));
+    expect(requests[1]).not.toHaveProperty('seed');
   });
 
   test('homepage create studio sends a fresh idempotency key for each image generation click', async ({
@@ -12323,12 +12318,18 @@ test.describe('Assets Manager (authenticated)', () => {
     await page.locator('#studioFolderGrid .studio__folder-card').first().click();
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(60);
     await expect(page.locator('.studio__pagination')).toContainText('Showing 60 saved assets.');
-    await expect(page.locator('.studio__pagination-btn')).toBeVisible();
+    const loadMore = page.getByRole('button', { name: 'Load More', exact: true });
+    const sortByType = page.getByRole('button', { name: 'Sort by asset type', exact: true });
+    await expect(loadMore).toBeVisible();
+    await expect(sortByType).toBeVisible();
 
-    await page.locator('.studio__pagination-btn').click();
+    await loadMore.click();
     await expect(page.locator('#studioImageGrid .studio__image-item')).toHaveCount(61);
+    expect(await page.locator('#studioImageGrid .studio__image-item').evaluateAll(items => items.map(item => item.dataset.assetId)))
+      .toEqual(manyAssets.map(asset => asset.id));
     await expect(page.locator('.studio__pagination')).toContainText('Showing all 61 saved assets.');
-    await expect(page.locator('.studio__pagination-btn')).toBeHidden();
+    await expect(loadMore).toBeHidden();
+    await expect(sortByType).toBeVisible();
   });
 
   test('mobile account Assets Manager opens saved assets in the shared media grid with grouped dots', async ({

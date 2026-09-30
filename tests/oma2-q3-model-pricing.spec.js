@@ -23,7 +23,7 @@ async function setup(page,baseURL,{gate=0}={}){
    else if(url.pathname==='/api/account/canvas/models')data={ok:true,data:{models:canvasModels,organizations:[],access:{role:'admin',is_admin:true}}};
    else if(url.pathname===`/api/account/canvas/projects/${project.id}`)data={ok:true,data:{project,nodes:[node],edges:[],runs:[]}};
    else if(url.pathname===`/api/account/canvas/projects/${project.id}/nodes/${node.id}/run`)data={ok:true,data:{run:{id:'c'.repeat(32),node_id:node.id,status:'succeeded',output:null}}};
-   else if(url.pathname.startsWith('/api/account/credits-dashboard'))data={ok:true,data:{dashboard:{balance:{totalCredits:1000}}}};
+   else if(url.pathname.startsWith('/api/account/credits-dashboard'))data={ok:true,dashboard:{balance:{totalCredits:1000}}};
    else if(url.pathname==='/api/admin/ai/model-pricing'&&req.method()==='GET')data={ok:true,...await response()};
    else if(url.pathname==='/api/admin/ai/model-pricing'&&req.method()==='PATCH')data={ok:true,...await tariff.changeModelTariff(env,user,req.postDataJSON())};
    else if(url.pathname==='/api/admin/ai/model-pricing/quote'){const {modelId,settings}=req.postDataJSON();data={ok:true,price:await tariff.quoteModelTariff(env,{modelId,input:settings})};}

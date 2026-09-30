@@ -4,6 +4,20 @@ const { setupAppearance } = require('./helpers/appearance');
 
 const appearance = page => page.locator('#sectionAppearance');
 const choice = (page, segment, value) => appearance(page).locator(`input[name="${segment}"][value="${value}"]`);
+
+async function visitWalletMemberPage(page, prefix, route) {
+    // Appearance resolves before these pages finish their member initialization.
+    // Require the rendered read result so the next visit cannot cancel it.
+    await page.goto(prefix + route);
+    if (route === '/account/assets-manager.html') await expect(page.locator('[data-folder-id="folder-theme"]')).toContainText('Theme examples');
+    if (route === '/canvas/') await expect(page.locator('#canvasProjectTitle')).toHaveValue('Theme fixture');
+    if (route === '/account/profile.html') await expect(page.locator('#profileContent')).toBeVisible();
+    if (route === '/account/profile-settings.html') await expect(page.locator('#profileCompletionStatus')).toBeVisible();
+    if (route === '/account/wallet.html') await expect(page).toHaveURL(new RegExp(`${prefix}/$`));
+    if (route === '/canvas/') await expect(page.locator('#canvasCredits')).toHaveText(prefix ? '500 persönliche Credits' : '500 personal credits');
+    if (route === '/account/profile.html') await expect(page.locator('#profileCreditsBalance')).toContainText('500');
+}
+
 test('appearance contrast measurement uses native CSS color conversion and still rejects low contrast',async({page,baseURL})=>{
     await setupAppearance(page,baseURL);await page.goto('/account/forgot-password.html');
     await page.evaluate(()=>{
@@ -76,7 +90,7 @@ for (const [locale, width] of [['en', 1440], ['de', 390]]) {
         hold.release();
         await expect(page.locator('html')).toHaveAttribute('data-wallet-visible', 'false');
         for (const route of ['/account/assets-manager.html', '/canvas/', '/account/profile-settings.html', '/account/profile.html', '/account/wallet.html']) {
-            await page.goto(prefix + route);
+            await visitWalletMemberPage(page, prefix, route);
             await expect(page.locator('html')).toHaveAttribute('data-wallet-visible', 'false');
             await expect(page.locator('.wallet-nav__trigger:visible, #walletWorkspace:visible, #profileWalletCard:visible, #walletSectionCard:visible, [data-completion-item="wallet"]:visible')).toHaveCount(0);
             if (route === '/account/profile-settings.html') {
@@ -99,6 +113,56 @@ for (const [locale, width] of [['en', 1440], ['de', 390]]) {
         expect(state.errors).toEqual([]);
     });
 }
+
+for (const locale of ['en', 'de']) test(`appearance wallet visibility ${locale} waits for member initialization after settings resolve`, async ({ page, baseURL }) => {
+    const state = await setupAppearance(page, baseURL, { role: 'user' });
+    state.appearance.walletEnabled = false;
+    for (const route of ['/canvas/', '/account/profile.html']) {
+        const hold = state.holdCredits();
+        let ready = false;
+        const visit = visitWalletMemberPage(page, locale === 'de' ? '/de' : '', route).then(() => { ready = true; });
+        try {
+            await hold.requested;
+            await expect(page.locator('html')).toHaveAttribute('data-wallet-visible', 'false');
+            await expect(page.locator(route === '/canvas/' ? '#canvasProjectTitle' : '#profileContent')).toBeVisible();
+            if (route === '/canvas/') await expect(page.locator('#canvasProjectTitle')).toHaveValue('Theme fixture');
+            expect(ready).toBe(false);
+        } finally { hold.release(); }
+        await visit;
+        expect(ready).toBe(true);
+    }
+    expect(state.calls.filter(call => call.pathname === '/api/account/credits-dashboard')).toHaveLength(2);
+    expect(state.unexpectedWrites).toEqual([]);
+    expect(state.errors).toEqual([]);
+});
+
+for (const locale of ['en', 'de']) test(`appearance Canvas credits ${locale} requires the dashboard contract and preserves zero and unavailable state`, async ({ page, baseURL }) => {
+    const state = await setupAppearance(page, baseURL, { role: 'user' });
+    for (const [status, payload] of [
+        [200, { ok: true, dashboard: { balance: { totalCredits: 0 } } }],
+        [200, { ok: true }],
+        [200, { ok: false, error: 'Synthetic rejected read', dashboard: { balance: { totalCredits: 999 } } }],
+        [401, { ok: false, error: 'Synthetic unauthenticated read', dashboard: { balance: { totalCredits: 999 } } }],
+        [403, { ok: true, dashboard: { balance: { totalCredits: 999 } } }],
+    ]) {
+        state.creditsStatus = status; state.creditsResponse = payload;
+        const response = page.waitForResponse(response => new URL(response.url()).pathname === '/api/account/credits-dashboard');
+        await page.goto(locale === 'de' ? '/de/canvas/' : '/canvas/');
+        const received = await response;
+        expect(received.status()).toBe(status);
+        expect(await received.finished()).toBeNull();
+        await expect(page.locator('#canvasProjectTitle')).toHaveValue('Theme fixture');
+        const result = await page.evaluate(async () => (await import('/js/pages/canvas/api.js')).canvasApi.getCredits());
+        const succeeded = status === 200 && payload.ok;
+        expect(result).toMatchObject({ ok: succeeded, status });
+        expect(result.data).toEqual(succeeded ? payload.dashboard : null);
+        await expect(page.locator('#canvasCredits')).toHaveText(succeeded && payload.dashboard
+            ? (locale === 'de' ? '0 persönliche Credits' : '0 personal credits') : 'Credits');
+        await expect(page.locator('#canvasCredits')).toHaveAttribute('href', `${locale === 'de' ? '/de' : ''}/account/credits.html?scope=member`);
+    }
+    expect(state.calls.filter(call => call.method !== 'GET')).toEqual([]);
+    expect(state.errors).toEqual([]);
+});
 
 for (const locale of ['en','de']) test(`appearance wallet visibility ${locale} keeps email authentication usable on settings failure and rejects late enabled state`,async({page,baseURL})=>{
     const state=await setupAppearance(page,baseURL,{role:'anonymous'});

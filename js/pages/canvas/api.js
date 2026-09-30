@@ -1,7 +1,7 @@
 import { modelPricingRequestHeaders, refreshModelPricing } from '../../shared/model-pricing-client.js';
 const BASE = '/api/account/canvas';
 
-async function requestUrl(url, { method = 'GET', body, idempotencyKey, signal } = {}) {
+async function requestUrl(url, { method = 'GET', body, idempotencyKey, signal, responseKey = 'data' } = {}) {
     const headers = { Accept: 'application/json', ...modelPricingRequestHeaders() };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
@@ -21,7 +21,7 @@ async function requestUrl(url, { method = 'GET', body, idempotencyKey, signal } 
                 ? 'Preise wurden geändert. Prüfen Sie die aktualisierte Schätzung und bestätigen Sie erneut.'
                 : 'Prices changed. Review the updated estimate and confirm again.';
         }
-        if (response.ok && payload?.ok) return { ok: true, status: response.status, data: payload.data };
+        if (response.ok && payload?.ok) return { ok: true, status: response.status, data: payload[responseKey] };
         return {
             ok: false,
             status: response.status,
@@ -72,5 +72,5 @@ export const canvasApi = Object.freeze({
     fullVideo: (projectId, runId, create, signal, body = {}, idempotencyKey) => request(`/projects/${id(projectId)}/runs/${id(runId)}/full-video`, { method: create ? 'POST' : 'GET', ...(create ? {body,idempotencyKey} : {}), signal }),
     retryPoster: (assetId, signal) => requestUrl(`/api/ai/generation-jobs/${id(assetId)}/retry-preview`, {method:'POST',body:{},signal}),
     getGenerationJob: (jobId, signal) => requestUrl(`/api/ai/generation-jobs/${id(jobId)}`, { signal }),
-    getCredits: () => requestUrl('/api/account/credits-dashboard?limit=1'),
+    getCredits: () => requestUrl('/api/account/credits-dashboard?limit=1', { responseKey: 'dashboard' }),
 });

@@ -43,6 +43,7 @@ for (const locale of ['en', 'de']) {
     test('UI-01 auth keyboard containment, form switching and repeated close/restore', async ({ page }) => {
       const state = await home(page, locale);
       const trigger = page.locator('#navbar [data-category-link="video"]');
+      await expect(page.locator('html')).toHaveAttribute('data-wallet-visible', 'true');
       for (let cycle = 0; cycle < 2; cycle++) {
         await trigger.focus();
         await openAuth(page);
@@ -84,6 +85,33 @@ for (const locale of ['en', 'de']) {
         await expect(page.locator('#authRegisterForm')).toHaveCount(0);
       }
       expect(state.mutations).toEqual([]);
+      expect(state.appearance.calls).toContainEqual({ method: 'GET', pathname: '/api/appearance' });
+      expect(state.appearance.unexpectedRequests).toEqual([]);
+      expect(state.errors).toEqual([]);
+    });
+
+    test('UI-01 disabled wallet keeps email login keyboard order and close restoration', async ({ page }) => {
+      const state = await home(page, locale, { walletEnabled: false });
+      await expect(page.locator('html')).toHaveAttribute('data-wallet-visible', 'false');
+      const trigger = page.locator('#navbar [data-category-link="video"]');
+      await trigger.focus();
+      await openAuth(page);
+      await expect(page.locator('#authWalletLoginBtn')).toBeHidden();
+      for (const selector of [
+        '.auth-modal__tab[data-tab="login"]', '.auth-modal__tab[data-tab="register"]',
+        '#authLoginForm input[type="email"]', '#authLoginForm input[type="password"]',
+        '#authLoginForm button[type="submit"]', '#authLoginForm a', '.auth-modal__close',
+      ]) {
+        await page.keyboard.press('Tab');
+        await expect(page.locator(selector)).toBeFocused();
+      }
+      await page.keyboard.press('Shift+Tab');
+      await expect(page.locator('#authLoginForm a')).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(trigger).toBeFocused();
+      expect(state.appearance.calls).toContainEqual({ method: 'GET', pathname: '/api/appearance' });
+      expect(state.appearance.unexpectedRequests).toEqual([]);
+      expect(state.mutations).toEqual([]);
       expect(state.errors).toEqual([]);
     });
 
@@ -109,6 +137,7 @@ for (const locale of ['en', 'de']) {
 
     test('UI-01 pending login disables submission and dynamic errors remain keyboard reachable', async ({ page }) => {
       const state = await home(page, locale);
+      await expect(page.locator('html')).toHaveAttribute('data-wallet-visible', 'true');
       const expectedCalls = [];
       let release;
       const gate = new Promise(resolve => { release = resolve; });
@@ -141,6 +170,8 @@ for (const locale of ['en', 'de']) {
       await page.keyboard.press('Escape');
       expect(expectedCalls).toEqual(['POST']);
       expect(state.mutations).toEqual([]);
+      expect(state.appearance.calls).toContainEqual({ method: 'GET', pathname: '/api/appearance' });
+      expect(state.appearance.unexpectedRequests).toEqual([]);
       expect(state.errors).toEqual([]);
     });
 

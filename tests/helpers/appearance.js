@@ -2,6 +2,38 @@ const { DEFAULT_SEGMENTS } = require('../../js/shared/appearance-contract.js');
 const fs = require('node:fs'), path = require('node:path');
 const clone = value => JSON.parse(JSON.stringify(value));
 
+// Wallet controls require a fresh public response; cached settings alone do not
+// authorize them. Keep that precondition explicit in fixtures exercising wallets.
+async function mockPublicAppearance(page, { walletEnabled = true } = {}) {
+    const pending = [];
+    const state = {
+        appearance: { version: 1, revision: 0, segments: { ...DEFAULT_SEGMENTS }, personalEnabled: false, walletEnabled },
+        calls: [], unexpectedRequests: [],
+        holdNextRead() {
+            let reached, release;
+            const requested = new Promise(resolve => { reached = resolve; });
+            const completed = new Promise(resolve => { release = resolve; });
+            pending.push({ reached, completed });
+            return { requested, release };
+        },
+    };
+    await page.route(url => url.pathname === '/api/appearance', async route => {
+        const request = route.request();
+        const call = { method: request.method(), pathname: new URL(request.url()).pathname };
+        state.calls.push(call);
+        if (call.method !== 'GET') {
+            state.unexpectedRequests.push(call);
+            await route.fulfill({ status: 405, json: { ok: false, error: 'Unexpected appearance mutation in local fixture' } });
+            require('@playwright/test').expect(call.method, 'Public Appearance fixture only permits reads').toBe('GET');
+            return;
+        }
+        const snapshot = clone(state.appearance), hold = pending.shift();
+        if (hold) { hold.reached(); await hold.completed; }
+        return route.fulfill({ json: { ok: true, appearance: snapshot } });
+    });
+    return state;
+}
+
 function buildWavBuffer({ durationSeconds = 4, sampleRate = 8000 } = {}) {
   const samples = Math.max(1, Math.floor(durationSeconds * sampleRate));
   const bytesPerSample = 2;
@@ -47,6 +79,7 @@ async function setupAppearance(page, baseURL, { role = 'admin', adminGate = 0, s
         assets,
         appearance: appearance || { version: 1, revision: 0, segments: { ...DEFAULT_SEGMENTS, ...segments }, personalEnabled: false },
         calls: [], errors: [], saveFailure: 0, publicFailure: 0, unexpectedWrites: [], publicHolds: [],
+        creditsResponse: { ok: true, dashboard: { balance: { totalCredits: 500 } } }, creditsStatus: 200, creditsHold: null,
         project: { id: projectId, title: 'Theme fixture', locale: 'en', created_at: now, updated_at: now },
         nodes: [
             { id: nodeId, project_id: projectId, type: 'text_prompt', title: 'Creative brief', x: 80, y: 80, config: {}, content: { text: 'A calm landscape' }, asset_id: null, output: null },
@@ -60,6 +93,13 @@ async function setupAppearance(page, baseURL, { role = 'admin', adminGate = 0, s
         const completed = new Promise(resolve => { release = resolve; });
         const requested = new Promise(resolve => { reached = resolve; });
         state.publicHolds.push({ completed, reached });
+        return { requested, release };
+    };
+    state.holdCredits = () => {
+        let release, reached;
+        const completed = new Promise(resolve => { release = resolve; });
+        const requested = new Promise(resolve => { reached = resolve; });
+        state.creditsHold = { completed, reached };
         return { requested, release };
     };
     page.on('pageerror', error => state.errors.push(error.message));
@@ -104,7 +144,11 @@ async function setupAppearance(page, baseURL, { role = 'admin', adminGate = 0, s
         if (pathname === '/api/model-pricing') return reply({ ok: true, revision: 0, rules: {} });
         if (pathname === '/api/wallet/status') return reply({ ok: true, linked: false });
         if (pathname === '/api/ai/quota') return reply({ ok: true, data: { isAdmin: role === 'admin', credits: 500, totalCredits: 500, remaining: 500, dailyLimit: 500, storage: { usedBytes: 0, limitBytes: 104857600, isUnlimited: false } } });
-        if (pathname === '/api/account/credits-dashboard') return nested({ dashboard: { balance: { totalCredits: 500 } } });
+        if (pathname === '/api/account/credits-dashboard' && method === 'GET') {
+            const hold = state.creditsHold; state.creditsHold = null;
+            if (hold) { hold.reached(); await hold.completed; }
+            return reply(state.creditsResponse, state.creditsStatus);
+        }
         if (pathname === '/api/account/canvas/models') return nested({ models: listCanvasModelsForRole(role), organizations: [], selected_organization_id: null, access: { role, is_admin: role === 'admin' } });
         if (pathname === '/api/account/canvas/projects') return nested({ projects: [state.project], applied_limit: 50 });
         if (pathname === `/api/account/canvas/projects/${projectId}` && method === 'GET') return nested({ project: state.project, nodes: clone(state.nodes), edges: state.edges, runs: [] });
@@ -147,4 +191,4 @@ async function measureContrast(locator) {
         return { selector: el.id || el.className, text: el.textContent.trim().slice(0, 90), ratio: (Math.max(ink, paper) + .05) / (Math.min(ink, paper) + .05), color: style.color, background, opacity };
     }));
 }
-module.exports = { setupAppearance, measureContrast };
+module.exports = { setupAppearance, mockPublicAppearance, measureContrast };

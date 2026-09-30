@@ -1,4 +1,23 @@
-const { test, expect } = require('@playwright/test');
+const { test: base, expect } = require('@playwright/test');
+const { mockPublicAppearance } = require('./helpers/appearance');
+
+// Wallet interactions require fresh enabled public settings, independently of
+// injected-provider connection state. A disk cache alone never grants visibility.
+const test = base.extend({
+  walletAppearance: [async ({ page }, use) => {
+    const unexpectedMutations = [];
+    await page.route('**/api/**', route => {
+      if (['GET', 'HEAD'].includes(route.request().method())) return route.fallback();
+      unexpectedMutations.push({ method: route.request().method(), path: new URL(route.request().url()).pathname });
+      return route.fulfill({ status: 400, json: { ok: false, code: 'unexpected_wallet_test_mutation' } });
+    });
+    const state = await mockPublicAppearance(page, { walletEnabled: true });
+    await use(state);
+    expect(state.calls.filter(call => call.method === 'GET').length).toBeGreaterThan(0);
+    expect(state.unexpectedRequests).toEqual([]);
+    expect(unexpectedMutations).toEqual([]);
+  }, { auto: true }],
+});
 
 function injectMockInjectedWallet(page) {
   return page.addInitScript(() => {
@@ -288,6 +307,46 @@ async function activateProfileWalletAction(page, action) {
   });
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await action.evaluate((element) => element.click());
+}
+
+for (const [locale, width] of [['en', 1440], ['de', 390]]) {
+  test(`Wallet appearance ${locale} requires fresh authority and preserves a connected selection while hidden`, async ({ page, walletAppearance }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await injectPersistentMockInjectedWallet(page, { persistedSelection: true });
+    await page.addInitScript(value => localStorage.setItem('bitbi.appearance.global.v1', JSON.stringify(value)), walletAppearance.appearance);
+    walletAppearance.appearance = { ...walletAppearance.appearance, revision: 1, walletEnabled: false };
+    const held = walletAppearance.holdNextRead();
+    try {
+      await page.goto(`${locale === 'de' ? '/de' : ''}/#wallet-workspace`, { waitUntil: 'domcontentloaded' });
+      await held.requested;
+      // A real provider reconciliation proves the wallet controller has started.
+      await expect.poll(() => page.evaluate(() => window.__bitbiMockWalletStats.read().accounts)).toBeGreaterThan(0);
+      const selection = await page.evaluate(() => window.__bitbiMockWalletControl.readPersistedSelection());
+      expect(selection.address).toBe('0x1234567890abcdef1234567890abcdef12345678');
+      await expect(page.locator('html')).toHaveAttribute('data-wallet-visible', 'false');
+      await expect(page.locator('[data-wallet-open]:visible, #walletWorkspace:visible')).toHaveCount(0);
+      await expect(page).toHaveURL(/#wallet-workspace$/);
+
+      held.release();
+      await expect.poll(() => page.evaluate(() => window.BitbiAppearance.snapshot().walletEnabled)).toBe(false);
+      await expect(page).not.toHaveURL(/#wallet-workspace$/);
+      await expect(page.locator('[data-wallet-open]:visible, #walletWorkspace:visible')).toHaveCount(0);
+
+      walletAppearance.appearance = { ...walletAppearance.appearance, revision: 2, walletEnabled: true };
+      await page.evaluate(() => window.BitbiAppearance.refresh({ force: true }));
+      await expect(page.locator('html')).toHaveAttribute('data-wallet-visible', 'true');
+      if (width < 500) await openMobileWalletWorkspace(page);
+      else await openDesktopWalletWorkspace(page);
+      await expect(page.locator('#walletPageAddressFull')).toHaveText(selection.address);
+
+      walletAppearance.appearance = { ...walletAppearance.appearance, revision: 3, walletEnabled: false };
+      await page.evaluate(() => window.BitbiAppearance.refresh({ force: true }));
+      await expect(page.locator('#walletWorkspace')).toBeHidden();
+      await expect(page.locator('[data-wallet-open]:visible')).toHaveCount(0);
+      expect(await page.evaluate(() => window.__bitbiMockWalletControl.readPersistedSelection())).toEqual(selection);
+      expect((await page.evaluate(() => window.__bitbiMockWalletStats.read())).requestAccounts).toBe(0);
+    } finally { held.release(); }
+  });
 }
 
 test.describe('Wallet navigation', () => {

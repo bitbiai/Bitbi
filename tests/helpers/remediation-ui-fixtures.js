@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
+const { mockPublicAppearance } = require('./appearance');
 
 // Local fixtures only. No authentication, generation, wallet or billing request
 // in this suite is sent to a production service.
@@ -11,7 +12,7 @@ const MODES = [
   { name: 'Sound Lab', category: 'sound', attr: 'data-sound-mode', explore: 'soundLabExplore', create: 'soundLabCreate', module: '/js/pages/index/soundlab-create.js' },
 ];
 
-async function fixture(page, { member = false } = {}) {
+async function fixture(page, { member = false, walletEnabled = true } = {}) {
   const mutations = [];
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -44,7 +45,8 @@ async function fixture(page, { member = false } = {}) {
     if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return route.abort('blockedbyclient');
     return route.continue();
   });
-  return { mutations, errors };
+  const appearance = await mockPublicAppearance(page, { walletEnabled });
+  return { mutations, errors, appearance };
 }
 
 async function home(page, locale, options) {

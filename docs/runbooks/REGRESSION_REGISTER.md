@@ -377,9 +377,14 @@ native `--preflight` before routes. Existing `test:static-deploy-safety` →
 entrypoint/fail-fast; staging/launcher tests retain complete chain order.
 `test:ci-selection`/`test:release-plan` cover those helpers and unknown neighbors.
 Shell/route success is not full acceptance: the same `test:workers` invocation
-must finish real 2/5-clip exports and native Q2. Local counterchecks pass; hosted
-Linux acceptance requires its own exact candidate/run/attempt evidence. No
-historical red run is recertified.
+must finish real 2/5-clip exports and native Q2. Source `a3dd944c` passed the
+entire Ubuntu chain in Full `36735789410/1` (job `109958050998`, artifact
+`11108025592`) and release `36735751622/1` (job `109957974420`, artifact
+`11110800675`): 1,386 routes, real FFmpeg integration, 26 launcher checks and 231
+native cases across 13 suites, with isolation checks and no unexpected outbound
+requests. Release also passed private-media image/lifecycle tests. Its 21-minute
+setup delay was a slow 94.8 MB apt download, not a test failure. Both surrounding
+runs later failed browser acceptance; component evidence is not publication proof.
 
 
 ### Canvas versioned music exports (2026-09-27)
@@ -440,17 +445,30 @@ the old fixed `0.085` cutoff. Native input peaks were also lower. The upstream
 native amplitude cause remains unresolved; neither mixer attenuation nor FFT
 detuning is established. The repaired measurement checks preservation of the actual
 incoming original with paired source/output unity within ±5%, an audible floor,
-440 Hz leakage checks, and volume 1/unmuted assertions. Retained raw PCM replay
+440 Hz leakage checks, volume 1 and actual AudioContext destination samples. Retained raw PCM replay
 and synthetic missing-source / 0.5 / 0.8 / 1.2 original-level controls reject
 meaningful audio failures without changing product mixing, retries or timeouts.
 
-Local Playwright 1.58.2 evidence: Linux ARM64 / Node 22.23.2 passed all 10 focused
-Chromium/WebKit cases with zero retries, plus six bounded WebKit repetitions
-(three per locale). The final helper added only the volume 1/unmuted assertions;
-macOS ARM64 / Node 22.23.1 then passed all 10 focused Chromium/WebKit cases with
-zero retries. Product and meter were identical across those runs. These local
-results require independent hosted Full/release acceptance for the final candidate
-SHA and exact run/attempt; they do not certify hosted Linux or publication.
+Final-input correction, 2026-09-30: source `a3dd944c`, Full
+[`36735789410/1`](https://github.com/bitbiai/Bitbi/actions/runs/36735789410)
+and release [`36735751622/1`](https://github.com/bitbiai/Bitbi/actions/runs/36735751622)
+failed both EN/DE WebKit auditions at the added `muted === false` assertion.
+That assertion had been checked only on macOS after the earlier Linux run. The
+unchanged candidate reproduces both failures on Linux. Pinned
+[WebKit/GStreamer source](https://github.com/WebKit/WebKit/blob/486de399887bc8fa8a69e2f194ebc9476589a08a/Source/WebCore/platform/audio/gstreamer/AudioSourceProviderGStreamer.cpp#L281)
+intentionally mutes the native sink when Web Audio owns playback. The verifier now
+samples the actual destination instead of a parallel worklet tap. Disconnecting
+the mixer must produce silence, and reconnecting must restore both decoded signals;
+returning to the completed video must restore original-only destination audio.
+Original/missing/attenuated/amplified signal, gain, leakage, peak, playback and
+no-extra-write controls remain mandatory; retries and thresholds are unchanged.
+
+Local Playwright 1.58.2 checks: Linux ARM64 / Node 22.23.2 passed 10 focused
+cases. After strengthening completed-video recovery, the final helper passed eight
+bounded Linux audition repetitions (two per locale/engine) and four macOS ARM64 /
+Node 22.23.1 auditions. All retries were disabled. These
+checks establish the measurement and its countercontrols; hosted Full/release
+acceptance still belongs to the exact final candidate SHA and run/attempt.
 
 Fixture follow-up, 2026-09-28: `c77d8b6b`, run `36467657329/1`, worker job
 `109082515330`, passed discovery but failed 15 of 136 cases in the Canvas-selected
@@ -1015,6 +1033,52 @@ downstream `test:static` require independent evidence for the final candidate SH
 and exact run/attempt. The separate Canvas pointer finding is recorded under
 versioned music exports; neither local checks nor historical reports establish
 hosted CI/publication success.
+
+Full-scope fixture correction, 2026-09-30: the same `a3dd944c` Full/release
+runs above each recorded 40 browser failures; release artifact `11113402939`
+retains `candidate-static.json`, and Full artifact `11112079859` retains its traces.
+The enabled-Wallet precondition was also absent from 28 wallet-navigation cases,
+four profile assertions and four authentication keyboard cases. Shared
+`mockPublicAppearance` now supplies fresh controlled settings at those fixture
+boundaries, including the earlier smoke callers, and fails unexpected mutations.
+EN/DE controls retain unresolved, disabled, cached-enabled and connected-identity
+behavior. Removing the fresh-authority gate is rejected by the browser check.
+The full Wallet file passed 30 cases; its new state controls passed both engines.
+The profile/studio/pagination scope passed 32 cases and shared smoke callers six.
+
+Two other assertions were stale: Schnell's retired seed support contradicted the
+confirmed schema incident above, and the pagination CSS class also matched the
+new sort control. The tests now require supported steps and omitted seed, and
+address Load More by accessible name while retaining the sort control and exact
+asset identity/order checks. Candidate mutants re-enabling seed or duplicating the
+first asset on the next page both fail their intended assertions. Existing
+`test:static` in Full and the selected static workflow execute these sibling
+callers; focused results do not replace that complete candidate acceptance.
+
+The Full-only WebKit retry at `oma2-q3-appearance.spec.js` recorded a credits-read
+access-control page error while the test rapidly changed routes. Inspection and
+held-read countercontrols prove the previous wallet-visibility assertion could
+finish before member initialization. The test now requires rendered fixture
+content and completed credits presentation before moving on; removing those waits
+is rejected in both engines/locales. The precise historical access-control cause
+and a separate local ResizeObserver warning remain unconfirmed; no error filter,
+retry increase or speculative particle change is used.
+
+Truthful credits fixtures exposed a product defect: the
+[Auth route](../../workers/auth/src/routes/account-credits.js) returns top-level
+`dashboard`, while [Canvas](../../js/pages/canvas/api.js) discarded everything
+except `data`. Only `getCredits` now selects `dashboard`; HTTP/ok checks and all
+other response contracts remain unchanged. Existing Appearance cases require the
+rendered EN/DE balance, zero and unavailable states, including rejected responses
+containing a misleading balance. The old consumer fails the truthful 500-credit
+fixture in both engines. Shared Canvas/pricing fixtures use the same API shape.
+Local checks passed 22 authentication remediation cases, 32 bounded Appearance
+repetitions without retry/browser errors, and 12 final credits/pricing/Canvas
+callers. Separate mutants removing only Canvas readiness or only Profile readiness
+also fail. Four final native Linux Chromium/WebKit EN/DE auditions passed with the
+corrected API/fixtures and exact destination disconnect/reconnect controls. These
+results do not certify the final hosted candidate or establish the unconfirmed
+historical browser-error causes.
 
 Private on-demand preview details use an allowlist and owner-scoped durable image
 input: renameable titles and thumbnails are not original prompt/dimension evidence.

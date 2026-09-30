@@ -62,10 +62,16 @@ it does not authorize new production operations, paid calls or protection change
 4. Browser repairs run the existing selected collection on the built candidate.
    `test:homepage-core` executes audio-player, canvas, oma2-q1-canvas, locale and smoke
    in Chromium/`webkit-canvas`; static.yml restores `_site` via `STATIC_TEST_ROOT`
-   and retains `candidate-homepage.json` plus browser artifacts. Focused EN/DE and
-   broken-case checks precede that collection; they do not replace it. Full's
+   and retains `candidate-homepage.json` plus browser artifacts. Full selection in
+   static.yml runs `test:static` and retains `candidate-static.json`, including the
+   core scope. Focused EN/DE and broken-case checks precede the selected collection;
+   they do not replace it. Full's
    downstream browser job runs `HOMEPAGE_EXTENDED=true npm run test:static` after
    security, Worker and required Linux/macOS homepage jobs succeed.
+   Shared fixtures must establish fresh feature settings for every affected sibling
+   caller. After changing native media assertions, check the final measurement in
+   each affected runtime; an earlier Linux pass followed by macOS-only edits is not
+   Linux evidence. Use decoded output and broken-signal controls for audio.
 5. A main push starts the static workflow, not Full regression. When Full is an
    explicit acceptance requirement, first inspect runs for the exact SHA, then use
    the existing `full-regression.yml` `workflow_dispatch` if no matching requested

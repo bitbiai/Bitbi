@@ -17,6 +17,24 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   await page.addInitScript({content:`window.__canvasAudioMeter=(${measureDecodedSignal});`});
   await page.addInitScript(()=>{
     const Native=window.AudioWorkletNode;window.auditionContexts=[];window.auditionTrace=[];window.auditionSources=[];window.auditionLifecycle=[];
+    // Observe the signal actually routed to the audio destination. A parallel
+    // worklet tap would still report audio if the speaker route were missing.
+    const outputs=new WeakMap(),connect=AudioNode.prototype.connect,disconnect=AudioNode.prototype.disconnect;
+    const destinationMeter=context=>{
+      if(!outputs.has(context)){
+        const meter=context.createAnalyser();meter.fftSize=8192;meter.smoothingTimeConstant=0;
+        connect.call(meter,context.destination);outputs.set(context,meter);
+      }
+      return outputs.get(context);
+    };
+    AudioNode.prototype.connect=function(target,...args){
+      if(target===this.context.destination){connect.call(this,destinationMeter(this.context),...args);return target;}
+      return connect.call(this,target,...args);
+    };
+    AudioNode.prototype.disconnect=function(...args){
+      if(args[0]===this.context.destination)args[0]=destinationMeter(this.context);
+      return disconnect.apply(this,args);
+    };
     for(const type of ['click','play','pause','error','loadedmetadata','emptied']) document.addEventListener(type,event=>{
       const target=event.target,block=target.closest?.('.canvas-full-video');if(!block)return;
       window.auditionLifecycle.push({type,at:performance.now(),tag:target.tagName,text:target.tagName==='BUTTON'?target.textContent:null,
@@ -25,7 +43,7 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
     },true);
     const Audio=window.AudioContext||window.webkitAudioContext,create=Audio.prototype.createMediaElementSource;
     Audio.prototype.createMediaElementSource=function(video){const source=create.call(this,video),connect=source.connect.bind(source),meter=this.createAnalyser();meter.fftSize=8192;source.connect=(target,...args)=>{connect(meter);return connect(target,...args);};window.auditionSources.push({context:this,meter});return source;};
-    window.AudioWorkletNode=class extends Native {constructor(context,...args){super(context,...args);const meter=context.createAnalyser();meter.fftSize=8192;meter.smoothingTimeConstant=0;this.connect(meter);const send=this.port.postMessage.bind(this.port);this.port.postMessage=(data,...rest)=>{window.auditionTrace.push({...data,channels:data.channels?.map(c=>c.length)});return send(data,...rest);};window.auditionContexts.push({context,meter,node:this});}};
+    window.AudioWorkletNode=class extends Native {constructor(context,...args){super(context,...args);const meter=destinationMeter(context);const send=this.port.postMessage.bind(this.port);this.port.postMessage=(data,...rest)=>{window.auditionTrace.push({...data,channels:data.channels?.map(c=>c.length)});return send(data,...rest);};window.auditionContexts.push({context,meter,node:this});}};
   });
   const state=createCanvasApiMock(page),pid='1'.repeat(32),nid='2'.repeat(32),rid='3'.repeat(32),mid='4'.repeat(32),second='5'.repeat(32),now=new Date().toISOString();
   // Existing changing-video imagery, 20 s at 160x90; native H264/AAC and VP8/Opus
@@ -64,7 +82,8 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   await expect.poll(()=>video.evaluate(v=>v.currentTime)).toBeGreaterThan(.3);
   expect(await video.evaluate(v=>v.videoWidth)).toBeGreaterThan(0);
   await expect(video).toHaveJSProperty('volume',1);
-  await expect(video).toHaveJSProperty('muted',false);
+  // WebKit/GStreamer mutes the native sink when Web Audio takes ownership;
+  // the actual destination signal below, not HTMLMediaElement.muted, owns sound.
   await expect.poll(async()=>(await meter()).music).toBeGreaterThan(.06);
   try { await expect.poll(async()=>preservesOriginalSignal(await meter())).toBe(true); }
   catch(error) {
@@ -75,6 +94,14 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
     })))});
     throw error;
   }
+  const connected=await meter(),native=await video.evaluate(v=>({muted:v.muted,volume:v.volume}));
+  await page.evaluate(()=>{const {node,context}=window.auditionContexts.at(-1);node.disconnect(context.destination);});
+  await expect.poll(async()=>(await meter()).peak).toBeLessThan(.001);
+  const disconnected=await meter();
+  await page.evaluate(()=>{const {node,context}=window.auditionContexts.at(-1);node.connect(context.destination);});
+  await expect.poll(async()=>(await meter()).music).toBeGreaterThan(.06);
+  await expect.poll(async()=>preservesOriginalSignal(await meter())).toBe(true);
+  await info.attach('audio-destination-countercontrol',{contentType:'application/json',body:JSON.stringify({native,connected,disconnected,restored:await meter()})});
   const cleanControl=await meter(false,0),overlapControl=await meter(false,.02);
   expect(cleanControl.music).toBeLessThan(.003);
   expect(overlapControl.music).toBeGreaterThan(.019);
@@ -106,8 +133,8 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   await expect(block.getByRole('link')).toHaveAttribute('href',completed.asset.file_url+'?download=1');
   expect(writes).toEqual([]);expect(state.requests.filter(r=>r.pathname.endsWith('/run'))).toEqual([]);
   await block.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();await expect(video).toHaveAttribute('src',completed.asset.file_url);
-  await video.evaluate(v=>v.play());await expect.poll(async()=>(await meter(true)).original).toBeGreaterThan(.05);
-  expect((await meter(true)).music).toBeLessThan(.003);await video.evaluate(v=>v.pause());
+  await video.evaluate(v=>v.play());await expect.poll(async()=>preservesOriginalSignal(await meter())).toBe(true);
+  expect((await meter()).music).toBeLessThan(.003);await video.evaluate(v=>v.pause());
   await block.getByRole('button',{name:locale==='de'?'Gesamtvideo in Assets speichern':'Save full video to Assets'}).click();
   expect(writes[0].body).toEqual({saveExportId:completed.id});
   await block.getByRole('button',{name:locale==='de'?'Gesamtes Video mit Hintergrundmusik erstellen':'Create full video with background music',exact:true}).click();

@@ -59,7 +59,7 @@ async function fixture(page, baseURL) {
     if (method === 'GET' && pathname === '/api/model-pricing') return route.fulfill({ json: { ok: true, revision: 0, rules: {} } });
     if (pathname === '/api/me') return route.fulfill({ json: { loggedIn: true, user: { id: 'synthetic-canvas-member', email: 'canvas@example.invalid', role: 'user' } } });
     if (pathname === '/api/wallet/status') return route.fulfill({ json: { ok: true, linked: false } });
-    if (pathname === '/api/account/credits-dashboard') return fulfill(route, { dashboard: { balance: { totalCredits: 500 } } });
+    if (pathname === '/api/account/credits-dashboard') return route.fulfill({ json: { ok: true, dashboard: { balance: { totalCredits: 500 } } } });
     const base = '/api/account/canvas';
     if (pathname === `${base}/models`) return fulfill(route, {
       models: [

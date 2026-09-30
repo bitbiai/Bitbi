@@ -1,3 +1,16 @@
+exports.readHomepageImageCapabilities = page => page.locator('#galleryStudio').evaluate(studio => {
+  const steps = studio.querySelector('#galStudioSteps');
+  const seed = studio.querySelector('#galStudioSeed');
+  const randomize = studio.querySelector('#galStudioRandomize');
+  return {
+    stepsDisabled: steps.disabled,
+    stepsHidden: steps.closest('.creator-create__field').hidden,
+    seedDisabled: seed.disabled,
+    seedHidden: seed.closest('.creator-create__field').hidden,
+    randomizeDisabled: randomize.disabled,
+  };
+});
+
 exports.memberDimensions = async ({ page, expect, mockSession, locale }) => {
   await mockSession(page, { credits: 1000 });
   const requests = [];

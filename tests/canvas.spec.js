@@ -91,7 +91,7 @@ function createCanvasApiMock(page, { authenticated = true, modelPayload = null }
     }
     return fulfill(route, { ok: false, error: 'Not mocked', code: 'not_mocked' }, 404);
   });
-  page.route('**/api/account/credits-dashboard**', (route) => fulfill(route, { dashboard: { balance: { totalCredits: 500 } } }));
+  page.route('**/api/account/credits-dashboard**', (route) => route.fulfill({ json: { ok: true, dashboard: { balance: { totalCredits: 500 } } } }));
   page.route('**/api/model-pricing',route=>route.fulfill({json:{ok:true,revision:0,rules:{}}}));
   page.route('**/api/appearance',route=>route.fulfill({json:{ok:true,appearance:{version:1,revision:0,segments:{public:'dark',account:'dark',admin:'dark'},personalEnabled:false}}}));
   return state;
@@ -258,7 +258,8 @@ for(const locale of ['en','de']) for(const width of [1440,390]) test(`Canvas mem
     }
     if(url.pathname==='/api/model-pricing')return route.fulfill({json:{ok:true,revision:0,rules:{}}});
     if(url.pathname==='/api/appearance')return route.fulfill({json:{ok:true,appearance:{version:1,revision:0,segments:{public:'dark',account:'dark',admin:'dark'},personalEnabled:false}}});
-    if(['/api/ai/quota','/api/ai/folders','/api/ai/assets','/api/account/credits-dashboard'].includes(url.pathname))return route.fulfill({json:{ok:true,data:{creditBalance:1000,folders:[],assets:[],has_more:false,dashboard:{balance:{totalCredits:1000}}}}});
+    if(url.pathname==='/api/account/credits-dashboard')return route.fulfill({json:{ok:true,dashboard:{balance:{totalCredits:1000}}}});
+    if(['/api/ai/quota','/api/ai/folders','/api/ai/assets'].includes(url.pathname))return route.fulfill({json:{ok:true,data:{creditBalance:1000,folders:[],assets:[],has_more:false}}});
     return route.fulfill({status:404,json:{ok:false,code:'unmocked_request'}});
   });
   await page.goto(`${locale==='de'?'/de':''}/generate-lab/`);

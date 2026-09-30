@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { DEFAULT_SEGMENTS } = require('../js/shared/appearance-contract.js');
+const { mockPublicAppearance: mockEnabledWalletAppearance } = require('./helpers/appearance.js');
 
 const MODELS_OVERLAY_PATHS = [
   '/legal/privacy.html',
@@ -110,17 +111,6 @@ function buildNewsPulseItems(prefix = 'mobile-pulse') {
     visual_thumb_url: index === 0 ? `/api/public/news-pulse/thumbs/${prefix}-${index + 1}` : null,
     visual_alt: index === 0 ? `Generated abstract thumbnail for ${prefix} headline ${index + 1}` : undefined,
   }));
-}
-
-// Wallet entry points require a fresh successful public appearance response.
-// Scope this to tests that exercise an enabled Panel; unresolved settings remain hidden.
-async function mockEnabledWalletAppearance(page) {
-  await page.route('**/api/appearance', route => {
-    expect(route.request().method()).toBe('GET');
-    return route.fulfill({ json: { ok: true, appearance: {
-      version: 1, revision: 0, segments: DEFAULT_SEGMENTS, personalEnabled: false, walletEnabled: true,
-    } } });
-  });
 }
 
 async function mockHomepageAuthState(page, { loggedIn }) {
