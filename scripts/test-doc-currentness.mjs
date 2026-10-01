@@ -33,6 +33,20 @@ function writeFile(repo, relativePath, text) {
 
 {
   const repo = makeRepo();
+  const assistantGuide = 'docs/production-readiness/WEBSITE_ASSISTANT.md';
+  writeFile(repo, assistantGuide, 'Publish the disabled assistant through the existing guarded release. Public activation requires separate real acceptance.\n');
+  const result = scanDocCurrentness(repo);
+  assert.equal(result.markdownInventory.find(entry => entry.path === assistantGuide)?.category, 'active_runbook_policy');
+  assert.equal(result.violations.some(issue => issue.file === assistantGuide), false);
+  const index = fs.readFileSync(new URL('../docs/audits/README.md', import.meta.url), 'utf8');
+  assert(index.includes('`' + assistantGuide + '`'), 'The assistant guide must also be reachable in the maintained document index');
+  writeFile(repo, 'docs/production-readiness/UNREVIEWED_ASSISTANT_NOTE.md', 'Unreviewed adjacent note.\n');
+  assert(scanDocCurrentness(repo).violations.some(issue => issue.rule === 'markdown-inventory-classified'
+    && issue.file.endsWith('UNREVIEWED_ASSISTANT_NOTE.md')), 'Classification must not blanket-accept new readiness documents');
+}
+
+{
+  const repo = makeRepo();
   writeFile(repo, "README.md", `Current release truth: latest auth D1 migration is ${latest}.\nStart at docs/audits/NEXT_AUDIT_BASELINE.md.\n`);
   writeFile(repo, "docs/audits/NEXT_AUDIT_BASELINE.md", `Latest auth D1 migration: \`${latest}\`\n`);
   writeFile(repo, "CURRENT_IMPLEMENTATION_HANDOFF.md", `Latest auth D1 migration: \`${latest}\`\nActive baseline: docs/audits/NEXT_AUDIT_BASELINE.md\n`);

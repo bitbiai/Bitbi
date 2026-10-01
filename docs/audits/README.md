@@ -64,6 +64,7 @@ These files must stay aligned with `config/release-compat.json` and must not cla
 | `docs/production-readiness/LIVE_BILLING_RUNBOOK.md` | Live billing operator canary/evidence runbook; not proof of production readiness or live billing readiness. |
 | `docs/production-readiness/MAIN_ONLY_RELEASE_CHECKLIST.md`, `docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md` | Current release/evidence checklist and runbook. |
 | `docs/ai-image-derivatives-runbook.md` | AI derivative operational runbook. |
+| `docs/production-readiness/WEBSITE_ASSISTANT.md` | Website assistant/Admin operation, approved knowledge maintenance, disabled release and separately gated model activation. |
 
 ## Historical / Frozen Evidence
 
