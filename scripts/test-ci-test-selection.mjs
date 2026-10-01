@@ -67,6 +67,7 @@ try {
       const split = line.indexOf('='); return [line.slice(0, split), line.slice(split + 1)];
     }));
     assert.equal(Object.hasOwn(outputs, 'homepage_media'), false);
+    assert.equal(outputs.browser_repair, 'false', 'Ordinary selection cannot claim authenticated repair reuse');
     assert.equal(outputs.homepage, 'true');
     assert.equal(outputs.full, String(args[1].includes('retired')));
     if (outputs.full === 'true') for (const flag of ['workers', 'auth', 'assets', 'carousel']) assert.equal(outputs[flag], 'true');

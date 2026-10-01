@@ -1,4 +1,5 @@
-import { repairDelta } from './lib/media-repair-source.mjs';
+import { repairDelta, repairKind } from './lib/media-repair-source.mjs';
+import { assertBrowserSourceIdentity, assertBrowserReportArtifact, assertOriginalBrowserJob, verifyBrowserRepairProof, runBrowserRepair } from './lib/browser-fixture-repair.mjs';
 import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase } from './lib/frontend-hosting.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -41,7 +42,8 @@ export function requiredJobs(selection) {
     jobs['homepage-validation'] = REQUIRED_JOBS['homepage-validation'].filter(step => selection.carousel || step !== 'Record controlled homepage performance diagnostics');
   }
   const browser = [];
-  if (selection.adminRelease) browser.push('Run selected Admin release acceptance');
+  if (selection.browserRepair) browser.push('Run repaired browser acceptance');
+  else if (selection.adminRelease) browser.push('Run selected Admin release acceptance');
   else if (selection.full) browser.push('Run full static browser regression');
   else for (const [key,step] of [['homepage','Run selected homepage core tests'],['carousel','Run selected homepage carousel tests'],['assets','Run selected Assets Manager tests'],['auth','Run selected auth and admin tests']]) if (selection[key]) browser.push(step);
   if (browser.length) jobs['browser-validation'] = [...browser,'Confirm tested browser candidate bytes'];
@@ -153,10 +155,15 @@ export async function sourceAttempt(runId,attempt,selection) {
   }
   return Number(attempt)===latest.run_attempt?latest:api(`actions/runs/${runId}/attempts/${attempt}`);
 }
-export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected, {previewBranch, currentPublication=false, mediaRepair=false, historicalActivation=false}={}) {
+export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected, {previewBranch, currentPublication=false, mediaRepair=false, browserRepair=false, historicalActivation=false}={}) {
   assert.equal(expected.repository,REPOSITORY,'Foreign repository');
   if (!expected.selection) assert.equal(expected.base,Q4_BASE,'Incomplete legacy Q4 release scope');
   if(mediaRepair){assert(!previewBranch&&!currentPublication);repairDelta(expected.sha,expected.publicationSha,expected.base);}
+  if(browserRepair) {
+    assert(mediaRepair,'Browser continuation requires verified repair ancestry');
+    assert.equal(repairKind(repairDelta(expected.sha,expected.publicationSha,expected.base)),'browser-fixture');
+    assertBrowserSourceIdentity(expected);assertBrowserReportArtifact(artifacts);
+  }
   if(historicalActivation) {
     // Read-only attribution of an already activated version. This grants no
     // publication/reuse authority and cannot certify the intervening product.
@@ -182,12 +189,22 @@ export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected,
   }
   if(previewBranch) {assert.equal(run.conclusion,'success');assert(jobs.some(j=>j.name==='deploy'&&j.conclusion==='skipped'),'Preview unexpectedly published');}
   if(run.conclusion==='failure') {
-    assert(jobs.some(j=>j.name==='deploy'&&j.conclusion==='failure'),'Unexplained source failure');
-    assert(jobs.filter(j=>j.name!=='deploy').every(j=>['success','skipped'].includes(j.conclusion)),'Source validation failed');
+    if(browserRepair) {
+      assert(jobs.some(j=>j.name==='deploy'&&j.conclusion==='skipped'),'Partial browser source must not have published');
+      assert(jobs.filter(j=>j.name!=='browser-validation').every(j=>['success','skipped'].includes(j.conclusion)),'Unrelated source failure blocks browser repair');
+    } else {
+      assert(jobs.some(j=>j.name==='deploy'&&j.conclusion==='failure'),'Unexplained source failure');
+      assert(jobs.filter(j=>j.name!=='deploy').every(j=>['success','skipped'].includes(j.conclusion)),'Source validation failed');
+    }
   }
   for(const [name,steps] of Object.entries(requiredJobs(expected.selection))) {
     const found=jobs.filter(j=>j.name===name); assert.equal(found.length,1,`Missing/duplicate suite ${name}`);
-    const j=found[0]; assert.equal(j.head_sha,expected.sha); assert.equal(j.status,'completed'); assert.equal(j.conclusion,'success',`Suite ${name} did not pass`);
+    const j=found[0]; assert.equal(j.head_sha,expected.sha); assert.equal(j.status,'completed');
+    if(browserRepair&&name==='browser-validation') {
+      assertOriginalBrowserJob(j);
+      continue;
+    }
+    assert.equal(j.conclusion,'success',`Suite ${name} did not pass`);
     for(const name of steps) assert(j.steps?.some(s=>s.name===name&&s.status==='completed'&&s.conclusion==='success'),`Required step did not execute: ${name}`);
   }
   // Never select an older green run around a known later failure or pending
@@ -203,7 +220,7 @@ export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected,
     assert.equal(later.conclusion,'success','Later candidate failure blocks reuse');
   }
   const suffix=`${expected.sha}-${expected.run}-${expected.attempt}`;
-  const names=[`pages-candidate-${suffix}`,...proofJobs(expected.selection).map(job=>`pages-proof-${job}-${suffix}`)];
+  const names=[`pages-candidate-${suffix}`,...proofJobs(expected.selection).filter(job=>!(browserRepair&&job==='browser-validation')).map(job=>`pages-proof-${job}-${suffix}`)];
   return names.map(name=>{
     const found=artifacts.filter(a=>a.name===name); assert.equal(found.length,1,`Missing/ambiguous artifact ${name}`);
     const a=found[0];assert.equal(a.expired,false,'Expired candidate artifact');assert(a.size_in_bytes>0);
@@ -216,6 +233,7 @@ export function verifyProofs(manifest,proofs) {
     const p=proofs.find(p=>p.job===job); assert(p,`Missing tested build proof ${job}`);
     assert.equal(p.manifestHash,digest(JSON.stringify(manifest)),'Different OS build inputs');
     assert.equal(p.status,'passed');assert(p.reportHash&&p.tests>0,'No executed browser report');
+    if(p.browserRepair)verifyBrowserRepairProof(p,manifest);
   }
 }
 // Bind each discovered required case to its executed result in the same job.
@@ -351,9 +369,15 @@ async function main(command) {
   if(manifest.schema===1)delete e.selection;
   const hash=verifyManifest(manifest,e,path.join(dir,'site'),{allowPartial:command!=='publish'});
   if(command==='restore') {assert(!fs.existsSync('_site'),'Refuse to replace an existing test/build server input');fs.cpSync(path.join(dir,'site'),'_site',{recursive:true});return;}
+  if(command==='repair-browser') {verifyManifest(manifest,e,'_site');await runBrowserRepair(manifest);return;}
   if(command==='proof') {
     verifyManifest(manifest,e,'_site',{allowPartial:true});
     assert(proofJobs(manifest.selection).includes(process.env.GITHUB_JOB),'Unselected browser proof');
+    if(process.env.GITHUB_JOB==='browser-validation'&&process.env.REPAIR_SOURCE_SHA&&repairKind(repairDelta(process.env.REPAIR_SOURCE_SHA,process.env.GITHUB_SHA,e.base))==='browser-fixture') {
+      const proof=JSON.parse(fs.readFileSync('test-results/browser-repair-proof.json'));
+      verifyBrowserRepairProof(proof,manifest,{publicationSha:process.env.GITHUB_SHA,run:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT});
+      fs.mkdirSync('candidate-proofs',{recursive:true});fs.writeFileSync('candidate-proofs/proof-browser-validation.json',JSON.stringify(proof));return;
+    }
     const names=process.env.GITHUB_JOB==='browser-validation'
       ? (manifest.selection.adminRelease ? ['admin-release'] : manifest.selection.full ? ['static','carousel'] : ['homepage','carousel','assets','auth'].filter(key=>manifest.selection[key])).map(key=>`test-results/candidate-${key}.json`)
       : [process.env.CANDIDATE_REPORT];

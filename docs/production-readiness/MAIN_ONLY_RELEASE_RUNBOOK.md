@@ -271,6 +271,16 @@ failure, reconcile actual versions and receipts before any continuation; do not
 redeploy unchanged backends to obtain new annotations. Hosting/recovery details
 remain in [Static hosting migration](../runbooks/STATIC_HOSTING_MIGRATION.md).
 
+For an explicitly reviewed browser-fixture correction, the existing closed repair
+continuation can preserve successful source cases and completed upstream jobs. It
+requires exact source/run/attempt and artifact digests, unchanged product/build/
+backend inputs, reviewed before/after test hashes, complete fresh discovery and
+fresh execution of every changed, failed or flaky case plus unexecuted command
+tails. Its composite proof names the original and new evidence separately; the
+old failed run remains failed. Unknown deltas, missing cases, new failures, stale
+artifacts or incomplete proof block publication. This is not general permission
+to reuse failed candidates or to repeat a failed job until it turns green.
+
 Private-media release admission is checked through the authenticated smoke route
 before seeding fixed synthetic jobs. Its write-free preflight validates the serving
 media source, protocol marker and exact fixtures. Only explicit source mismatch or

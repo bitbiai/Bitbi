@@ -1,4 +1,5 @@
-import { repairDelta, verifyRepairSource } from './media-repair-source.mjs';
+import { repairDelta, repairKind, verifyRepairSource } from './media-repair-source.mjs';
+import { verifyBrowserRepairProof } from './browser-fixture-repair.mjs';
 // Read-only GitHub provenance and archive verification shared by preparation
 // and the immediately-before-upload boundary. No local JSON grants CI trust.
 import assert from 'node:assert/strict';
@@ -22,6 +23,8 @@ export function sourceExpectation(preview, env=process.env) {
 }
 export async function sourceArchives(preview, env=process.env) {
   const e=sourceExpectation(preview,env);
+  const browserRepair=Boolean(env.REPAIR_SOURCE_SHA&&repairKind(repairDelta(env.REPAIR_SOURCE_SHA,env.GITHUB_SHA,env.CANDIDATE_BASE))==='browser-fixture');
+  const preparation=browserRepair&&['release-compatibility','browser-validation'].includes(env.GITHUB_JOB);
   if(env.REPAIR_SOURCE_SHA)await verifyRepairSource(env,{complete:env.GITHUB_JOB==='deploy'});
   const [run,jobs,artifacts,laterRuns,ref]=await Promise.all([
     sourceAttempt(e.run,e.attempt,e.selection),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),
@@ -31,7 +34,16 @@ export async function sourceArchives(preview, env=process.env) {
   const relevant=laterRuns.filter(r=>isRequiredValidationRun(r,e.selection));
   for(const later of relevant.filter(r=>String(r.id)!==String(e.currentRun)&&Date.parse(r.created_at)>Date.parse(run.created_at)&&r.conclusion!=='success'))later.jobs=await collection(`actions/runs/${later.id}/attempts/${later.run_attempt}/jobs`,'jobs');
   const currentPublication=!preview && env.GITHUB_ACTIONS==='true' && env.GITHUB_JOB==='deploy' && env.GITHUB_REF==='refs/heads/main' && e.run===env.GITHUB_RUN_ID;
-  const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{previewBranch:preview?e.branch:undefined,currentPublication,mediaRepair:Boolean(env.REPAIR_SOURCE_SHA)});
+  const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{previewBranch:preview?e.branch:undefined,currentPublication,mediaRepair:Boolean(env.REPAIR_SOURCE_SHA),browserRepair});
+  if(browserRepair&&!preparation) {
+    assert.equal(env.GITHUB_JOB,'deploy','Composite repair source is publication-only');
+    const fresh=await collection(`actions/runs/${env.GITHUB_RUN_ID}/artifacts`,'artifacts');
+    const name=`pages-proof-browser-validation-${env.GITHUB_SHA}-${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}`;
+    const found=fresh.filter(a=>a.name===name);assert.equal(found.length,1,'Missing/ambiguous current repaired browser proof');
+    const a=found[0];assert.equal(a.expired,false);assert(a.size_in_bytes>0);assert(/^sha256:[a-f0-9]{64}$/.test(a.digest));
+    assert.equal(a.workflow_run?.id,Number(env.GITHUB_RUN_ID));assert.equal(a.workflow_run?.head_sha,env.GITHUB_SHA);
+    selected.push(a);
+  }
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-source-'));
   const unpack=path.join(temporary,'package');fs.mkdirSync(unpack);
   try {
@@ -59,7 +71,7 @@ with zipfile.ZipFile(sys.argv[1]) as z:
    with target.open('xb') as f:f.write(z.read(e))
 `,file,unpack],{stdio:'pipe',timeout:30000});
     }
-    return {expected:e,selected,temporary,unpack};
+    return {expected:e,selected,temporary,unpack,browserRepair,preparation};
   }catch(error){fs.rmSync(temporary,{recursive:true,force:true});throw error;}
 }
 export async function verifyUploadSource({preview=false,download=false}={}) {
@@ -70,7 +82,20 @@ export async function verifyUploadSource({preview=false,download=false}={}) {
     assert.deepEqual(tree('candidate'),tree(source.unpack),'Local package/proofs differ from authenticated CI archives');
     const manifest=readJson('candidate/manifest.json');
     verifyManifest(manifest,source.expected,'candidate/site');verifyFrontend(manifest,tree);
-    const proofs=fs.readdirSync('candidate').filter(f=>/^proof-.*\.json$/.test(f)).map(f=>readJson(`candidate/${f}`));verifyProofs(manifest,proofs);
+    const proofs=fs.readdirSync('candidate').filter(f=>/^proof-.*\.json$/.test(f)).map(f=>readJson(`candidate/${f}`));
+    if(source.preparation) {
+      assert(download,'Partial browser evidence is download preparation only, never upload authorization');
+      assert(!proofs.some(p=>p.job==='browser-validation'),'Unexpected original browser proof');
+      // Preserve and validate all existing independent proofs without claiming
+      // acceptance for the original failed browser command.
+      for(const job of ['homepage-validation','frontend-runtime']) {
+        const p=proofs.filter(p=>p.job===job);assert.equal(p.length,1,`Missing original ${job} proof`);
+        assert.equal(p[0].status,'passed');assert.equal(p[0].manifestHash,hash(JSON.stringify(manifest)));assert(p[0].tests>0&&p[0].reportHash);
+      }
+    } else {
+      verifyProofs(manifest,proofs);
+      if(source.browserRepair)verifyBrowserRepairProof(proofs.find(p=>p.job==='browser-validation'),manifest,{publicationSha:process.env.GITHUB_SHA,run:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT});
+    }
     assert.equal((await api(`git/ref/heads/${source.expected.branch.split('/').map(encodeURIComponent).join('/')}`)).object.sha,source.expected.publicationSha||source.expected.sha,'Branch advanced during archive verification');
     assert.deepEqual(sourceExpectation(preview),source.expected,'Local source changed during verification');
     return {manifest,proofs,source:{scope:preview?'preview':'production',branch:source.expected.branch,sha:manifest.sha,run:manifest.run,attempt:manifest.attempt,artifacts:source.selected.map(({id,digest})=>({id,digest}))}};

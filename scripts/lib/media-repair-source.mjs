@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {api,collection,sourceAttempt,validateSource,gitSelection,isRequiredValidationRun,requiredJobs,REPOSITORY} from '../pages-candidate.mjs';
+import {BROWSER_REPAIR,BROWSER_REPAIR_FILES,assertBrowserRepairTrees} from './browser-fixture-repair.mjs';
 export const MEDIA_REPAIR_FILES=new Set([
   'services/homepage-ffmpeg-processor/video-reference.mjs',
   'services/homepage-ffmpeg-processor/video-reference.test.mjs',
@@ -34,6 +35,11 @@ export const TOOLING_REPAIR_FILES=new Set([
 ]);
 const git=args=>execFileSync('git',args,{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 export function repairKind(files) {
+  if(files.includes('tests/auth-admin.spec.js')||files.includes('tests/website-assistant.spec.js')) {
+    assert(['tests/auth-admin.spec.js','tests/website-assistant.spec.js','.github/workflows/static.yml','scripts/lib/browser-fixture-repair.mjs','scripts/test-browser-fixture-repair.mjs'].every(f=>files.includes(f)),'Incomplete reviewed browser fixture repair');
+    assert(files.every(f=>BROWSER_REPAIR_FILES.has(f)),'Changed input is outside browser fixture equivalence');
+    return 'browser-fixture';
+  }
   if(files.includes('scripts/validate-site-references.mjs')||files.includes('scripts/lib/image-delivery-acceptance.mjs')) {
     assert(files.includes('.github/workflows/static.yml'),'Reference repair lacks its real workflow caller');
     if(files.includes('scripts/lib/image-delivery-acceptance.mjs'))assert(['scripts/lib/backend-publication.mjs','scripts/test-release-plan.mjs'].every(f=>files.includes(f)),'Recovery acceptance repair lacks its caller/regression');
@@ -62,18 +68,19 @@ export function repairDelta(source,head,base) {
   git(['merge-base','--is-ancestor',base,source]);git(['merge-base','--is-ancestor',source,head]);
   const files=git(['diff','--name-only','--no-renames',source,head]).split('\n').filter(Boolean);assertRepairFiles(files);
   if(repairKind(files)==='tooling')assertUnchangedReleaseInputs(source,head);
+  if(repairKind(files)==='browser-fixture')assertBrowserRepairTrees(source,head);
   return files;
 }
 export function repairSelection(full,files) {
-  const media=repairKind(files)==='media';
-  return {...full,policy:media?'media-repair-v1':'release-tooling-repair-v1',docsOnly:false,memberModels:false,full:false,homepage:false,carousel:false,assets:false,auth:false,
+  const kind=repairKind(files),media=kind==='media',browser=kind==='browser-fixture';
+  return {...full,policy:browser?BROWSER_REPAIR.policy:media?'media-repair-v1':'release-tooling-repair-v1',docsOnly:false,memberModels:false,full:false,homepage:false,carousel:false,assets:false,auth:browser,browserRepair:browser,
     adminRelease:false,memberAssets:false,publicMedia:false,modelStatus:false,canvasText:false,workspaceHelp:false,
     appearance:false,modelPricing:false,imageModels:false,workers:media,mediaLifecycle:media,runtime:media,static:true,mediaRepair:media,dependencies:false,workerDependencies:false,
-    reasons:{...Object.fromEntries(Object.keys(full.reasons).map(k=>[k,[]])),workers:media?['Fresh processor Linux image, native D1/R2 smoke and SDK lifecycle']:[],static:['Authenticated unchanged frontend source; no new browser execution claimed'],dependencies:[],workerDependencies:[]}};
+    reasons:{...Object.fromEntries(Object.keys(full.reasons).map(k=>[k,[]])),workers:media?['Fresh processor Linux image, native D1/R2 smoke and SDK lifecycle']:[],auth:browser?['Execute exact repaired Admin/assistant definitions and new controls; complete the previously unexecuted carousel tail']:[],static:[browser?'Preserve authenticated unchanged source cases; require fresh repaired/control/tail browser execution':'Authenticated unchanged frontend source; no new browser execution claimed'],dependencies:[],workerDependencies:[]}};
 }
 export function assertRepairAcceptance(jobs,sha,files=['services/homepage-ffmpeg-processor/video-reference.mjs']) {
-  const media=repairKind(files)==='media';
-  const requirements=requiredJobs({workers:media,mediaLifecycle:media,files});
+  const kind=repairKind(files),media=kind==='media',browser=kind==='browser-fixture';
+  const requirements=requiredJobs({workers:media,mediaLifecycle:media,browserRepair:browser,files});
   requirements['release-compatibility']=requirements['release-compatibility'].filter(s=>s!=='Record candidate build');
   requirements['release-compatibility'].push('Select tests from changed files');
   if(media)requirements['worker-validation'].push('Verify repaired native media smoke');
@@ -92,7 +99,7 @@ export async function verifyRepairSource(env=process.env,{complete=false}={}) {
   const [run,jobs,artifacts,later,ref]=await Promise.all([sourceAttempt(e.run,e.attempt,e.selection),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),collection(`actions/runs/${e.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${sha}`,'workflow_runs'),api('git/ref/heads/main')]);
   const relevant=later.filter(r=>isRequiredValidationRun(r,e.selection));
   for(const r of relevant.filter(r=>Date.parse(r.created_at)>Date.parse(run.created_at)&&r.conclusion!=='success'))r.jobs=await collection(`actions/runs/${r.id}/attempts/${r.run_attempt}/jobs`,'jobs');
-  const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{mediaRepair:true});
+  const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{mediaRepair:true,browserRepair:repairKind(files)==='browser-fixture'});
   assert(selected.every(a=>Date.parse(a.expires_at)>Date.now()),'Expired repair source');
   // Any newer attempt at the repair head must also be accounted for.
   const currentRuns=await collection(`actions/runs?head_sha=${head}`,'workflow_runs');
@@ -108,6 +115,16 @@ export async function discoverRepairSource(env=process.env) {
   // Only main's own completed run, still within the unpublished range. No
   // stale success, PR source, changing UI bytes or missing cases qualifies.
   if(env.GITHUB_REF!=='refs/heads/main')return null;
+  // This incident cannot silently fall back to the already completed broad
+  // suite when its intended continuation has invalid files/evidence.
+  const intended=(()=>{try {
+    git(['merge-base','--is-ancestor',env.CANDIDATE_BASE,BROWSER_REPAIR.sha]);
+    return git(['show',`${env.GITHUB_SHA}:scripts/lib/browser-fixture-repair.mjs`]).includes(BROWSER_REPAIR.sha);
+  }catch{return false;}})();
+  if(intended) {
+    const inputs={REPAIR_SOURCE_SHA:BROWSER_REPAIR.sha,REPAIR_SOURCE_RUN:BROWSER_REPAIR.run,REPAIR_SOURCE_ATTEMPT:BROWSER_REPAIR.attempt};
+    return {...inputs,...await verifyRepairSource({...env,...inputs})};
+  }
   const runs=await api('actions/workflows/static.yml/runs?branch=main&per_page=20');
   for(const r of runs.workflow_runs.filter(r=>r.status==='completed'&&['success','failure'].includes(r.conclusion))) {
     try {repairDelta(r.head_sha,env.GITHUB_SHA,env.CANDIDATE_BASE);}catch{continue;}

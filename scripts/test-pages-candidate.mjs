@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import './test-browser-fixture-repair.mjs';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
 import { flattenHomepageDiscovery } from './lib/homepage-test-selection.mjs';
 import fs from 'node:fs';

@@ -188,6 +188,41 @@ for (const name of ['worker-validation', 'browser-validation', 'homepage-validat
   assert(job(standard, name).includes(name==='browser-validation' ? 'needs: [release-compatibility, homepage-validation, worker-validation]' : 'needs: release-compatibility'), `${name} waits for actual preflight`);
 }
 
+// A closed browser-fixture continuation reuses authenticated unchanged evidence;
+// the actual caller still executes repaired cases and the unexecuted chain tail.
+function requiresBrowserRepairContinuation(source) {
+  const list=steps(job(source,'browser-validation'));
+  const outputs={homepage:'false',carousel:'false',assets:'false',workers:'false',auth:'true',full:'false',browser_repair:'true',backend_continuation:'true'};
+  const context={success:()=>true,needs:{'release-compatibility':{outputs}}};
+  const step=name=>{const found=list.find(item=>item.name===name);assert(found,`Missing repair caller ${name}`);return found;};
+  const repair=step('Run repaired browser acceptance');
+  assert(repair.source.includes('run: node scripts/pages-candidate.mjs repair-browser'), 'Repair must execute its verified report/discovery continuation');
+  assert(permits(repair,context),'Repaired browser cases must execute');
+  for(const name of ['Run full static browser regression','Run selected auth and admin tests','Download candidate build'])
+    assert(!permits(step(name),context),`Repair must not repeat unchanged acceptance: ${name}`);
+  for(const name of ['Install carousel browser matrix','Restore unchanged browser repair candidate','Restore exact candidate static site','Confirm tested browser candidate bytes','Upload tested browser candidate identity']) {
+    assert(permits(step(name),context),`Missing repair preparation/proof ${name}`);
+    assert(!permits(step(name),{...context,success:()=>false}),`Failed repair cannot advance ${name}`);
+  }
+  assert(step('Install carousel browser matrix').source.includes('chromium firefox webkit'),'Unexecuted carousel tail requires all existing engines');
+  assert(list.indexOf(step('Restore unchanged browser repair candidate'))<list.indexOf(repair));
+  assert(list.indexOf(step('Confirm tested browser candidate bytes'))>list.indexOf(repair));
+  const body=job(source,'browser-validation');
+  for(const key of ['SHA','RUN','ATTEMPT'])assert(body.includes('REPAIR_SOURCE_'+key+': ${{ needs.release-compatibility.outputs.repair_source_'+key.toLowerCase()+' }}'),'Repair source identity must reach the real browser caller');
+  const ordinary={success:()=>true,needs:{'release-compatibility':{outputs:{...outputs,browser_repair:'false'}}}};
+  assert(!permits(repair,ordinary));assert(permits(step('Run selected auth and admin tests'),ordinary),'Ordinary auth selection stays binding');
+  const condition=job(source,'deploy').match(/^    if: \$\{\{ (.+) \}\}$/m)[1].replace(/needs\.([a-z][\w-]*)/g,(_,name)=>`needs['${name}']`);
+  for(const result of ['success','failure','skipped','cancelled','']) {
+    const ctx={cancelled:()=>false,github:{ref:'refs/heads/main',event_name:'push',event:{inputs:{}}},needs:{'release-compatibility':{result:'success',outputs},'worker-validation':{result:'skipped'},'homepage-validation':{result:'skipped'},'browser-validation':{result},'reuse-candidate':{result:'skipped'}}};
+    assert.equal(Boolean(vm.runInNewContext(condition,ctx,{timeout:100})),result==='success','Fresh repaired browser failure/missing execution must block publication');
+  }
+  return repair;
+}
+const repairCaller=requiresBrowserRepairContinuation(standard);
+assert.throws(()=>requiresBrowserRepairContinuation(standard.replace(repairCaller.source,repairCaller.source.replace('node scripts/pages-candidate.mjs repair-browser','echo missing repair'))),/must execute/);
+const browserAuthStep=steps(job(standard,'browser-validation')).find(step=>step.name==='Run selected auth and admin tests');
+assert.throws(()=>requiresBrowserRepairContinuation(standard.replace(browserAuthStep.source,browserAuthStep.source.replace("needs.release-compatibility.outputs.browser_repair != 'true' && ",''))),/must not repeat/);
+
 for (const [name, source] of [['standard', standard], ['fast', fast]]) {
   const deploySteps = steps(job(source, 'deploy'));
   const action = deploySteps.find(s => s.name === 'Deploy to GitHub Pages');

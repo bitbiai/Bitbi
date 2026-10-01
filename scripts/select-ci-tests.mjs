@@ -77,6 +77,7 @@ function writeGithubOutput(selection) {
   const outputs = {
     docs_only: selection.docsOnly,
     admin_release: selection.adminRelease,
+    browser_repair: selection.browserRepair === true,
     member_assets: selection.memberAssets === true,
     public_media: selection.publicMedia === true,
     model_status: selection.modelStatus === true,

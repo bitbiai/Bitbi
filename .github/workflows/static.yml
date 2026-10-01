@@ -52,6 +52,7 @@ jobs:
     if: ${{ !github.event.inputs.candidate_run_id && !github.event.inputs.frontend_recovery_receipt }}
     runs-on: ubuntu-latest
     outputs:
+      browser_repair: ${{ steps.selection.outputs.browser_repair }}
       repair_source_sha: ${{ steps.selection.outputs.repair_source_sha }}
       repair_source_run: ${{ steps.selection.outputs.repair_source_run }}
       repair_source_attempt: ${{ steps.selection.outputs.repair_source_attempt }}
@@ -457,6 +458,11 @@ jobs:
     env:
       CANDIDATE_BASE: ${{ needs.release-compatibility.outputs.candidate_base }}
       STATIC_TEST_ROOT: _site
+      REPAIR_SOURCE_SHA: ${{ needs.release-compatibility.outputs.repair_source_sha }}
+      REPAIR_SOURCE_RUN: ${{ needs.release-compatibility.outputs.repair_source_run }}
+      REPAIR_SOURCE_ATTEMPT: ${{ needs.release-compatibility.outputs.repair_source_attempt }}
+      CANDIDATE_RUN: ${{ needs.release-compatibility.outputs.repair_source_run || github.run_id }}
+      CANDIDATE_ATTEMPT: ${{ needs.release-compatibility.outputs.repair_source_attempt || github.run_attempt }}
     steps:
       - name: Checkout
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
@@ -475,10 +481,10 @@ jobs:
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
         run: npm ci
       - name: Install carousel browser matrix
-        if: needs.release-compatibility.outputs.carousel == 'true'
+        if: needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.browser_repair == 'true'
         run: npx playwright install --with-deps chromium firefox webkit
       - name: Install browsers for selected frontend tests
-        if: needs.release-compatibility.outputs.model_status != 'true' && needs.release-compatibility.outputs.workspace_help != 'true' && needs.release-compatibility.outputs.public_media != 'true' && needs.release-compatibility.outputs.assets != 'true' && needs.release-compatibility.outputs.admin_release != 'true' && needs.release-compatibility.outputs.carousel != 'true' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true')
+        if: needs.release-compatibility.outputs.browser_repair != 'true' && needs.release-compatibility.outputs.model_status != 'true' && needs.release-compatibility.outputs.workspace_help != 'true' && needs.release-compatibility.outputs.public_media != 'true' && needs.release-compatibility.outputs.assets != 'true' && needs.release-compatibility.outputs.admin_release != 'true' && needs.release-compatibility.outputs.carousel != 'true' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true')
         run: |
           if [ "${{ needs.release-compatibility.outputs.homepage }}" = 'true' ]; then
             npx playwright install --with-deps chromium webkit
@@ -489,12 +495,17 @@ jobs:
         if: needs.release-compatibility.outputs.model_status == 'true' || needs.release-compatibility.outputs.admin_release == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.public_media == 'true' || needs.release-compatibility.outputs.workspace_help == 'true'
         run: npx playwright install --with-deps chromium webkit
       - name: Download candidate build
-        if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
+        if: needs.release-compatibility.outputs.browser_repair != 'true' && (needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true')
         uses: actions/download-artifact@v8
         with:
           name: pages-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: candidate
           digest-mismatch: error
+      - name: Restore unchanged browser repair candidate
+        if: needs.release-compatibility.outputs.browser_repair == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/frontend-release.mjs production-source
       - name: Restore exact candidate static site
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
         run: |
@@ -506,6 +517,11 @@ jobs:
           rm -f test-results/admin-discovery.json test-results/candidate-admin-release.json
           PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/admin-discovery.json npm run test:static -- --config playwright.admin-release.config.js --list --reporter=json
           PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-admin-release.json npm run test:static -- --config playwright.admin-release.config.js --reporter=list,json
+      - name: Run repaired browser acceptance
+        if: needs.release-compatibility.outputs.browser_repair == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/pages-candidate.mjs repair-browser
       - name: Run full static browser regression
         if: needs.release-compatibility.outputs.full == 'true'
         run: |
@@ -524,7 +540,7 @@ jobs:
           PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/assets-discovery.json npm run test:static -- --config playwright.assets.config.js --list --reporter=json
           PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-assets.json npm run test:static -- --config playwright.assets.config.js --reporter=list,json
       - name: Run selected auth and admin tests
-        if: needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.full != 'true' && needs.release-compatibility.outputs.admin_release != 'true'
+        if: needs.release-compatibility.outputs.browser_repair != 'true' && needs.release-compatibility.outputs.auth == 'true' && needs.release-compatibility.outputs.full != 'true' && needs.release-compatibility.outputs.admin_release != 'true'
         env:
           CI_IMAGE_MODELS: ${{ needs.release-compatibility.outputs.image_models }}
           CI_APPEARANCE: ${{ needs.release-compatibility.outputs.appearance }}
@@ -558,6 +574,8 @@ jobs:
           fi
       - name: Confirm tested browser candidate bytes
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/pages-candidate.mjs proof
       - name: Upload tested browser candidate identity
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'

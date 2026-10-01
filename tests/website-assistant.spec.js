@@ -48,6 +48,55 @@ async function fixtures(page, options = {}) {
 }
 
 for (const language of languages) {
+    test(`website assistant ${language.locale}: keyboard chat waits for initial Help focus and a blocked submit cannot report completion`, async ({ page }) => {
+        const state = await fixtures(page);
+        await page.goto(`${language.prefix}/pricing.html`);
+        // Exercise the real ordering that failed in CI: suggestions may arrive
+        // before the Help dialog's initial focus frame. No elapsed-time sleep or
+        // provider retry establishes readiness.
+        await page.evaluate(() => {
+            const schedule = window.requestAnimationFrame;
+            const pending = [];
+            window.requestAnimationFrame = callback => { pending.push(callback); return 0; };
+            window.__releaseAssistantTestFrames = () => {
+                window.requestAnimationFrame = schedule;
+                const callbacks = pending.splice(0);
+                delete window.__releaseAssistantTestFrames;
+                callbacks.forEach(callback => callback(performance.now()));
+                return callbacks.length;
+            };
+        });
+        await page.getByRole('button', { name: language.open }).press('Enter');
+        await expect(page.locator('.website-assistant__suggestion')).toHaveCount(3);
+        const heading = page.locator('#bitbiHelpTitle');
+        await expect(heading).not.toBeFocused();
+        expect(state.requests).toHaveLength(0);
+        expect(await page.evaluate(() => window.__releaseAssistantTestFrames())).toBeGreaterThan(0);
+        await expect(heading).toBeFocused();
+        const input = page.getByLabel(language.input);
+        const question = language.locale === 'de' ? 'Wie funktionieren Credits?' : 'How do credits work?';
+        await input.fill(question);
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+        await expect(input).toBeFocused();
+        // A meaningful broken-case control: a swallowed keyboard submit must
+        // leave no answer, completed status or inference. Removing this one-shot
+        // fault then exercises the same real composer and completion assertions.
+        await page.locator('.website-assistant__form').evaluate(form => form.addEventListener('submit', event => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }, { capture: true, once: true }));
+        await input.press('Enter');
+        await expect(page.locator('#websiteAssistantStatus')).toHaveText('');
+        await expect(page.locator('.website-assistant__message')).toHaveCount(0);
+        await expect(input).toHaveValue(question);
+        expect(state.requests).toHaveLength(0);
+        await input.press('Enter');
+        await expect(page.locator('#websiteAssistantStatus')).toHaveText(language.complete);
+        await expect(page.locator('.website-assistant__message--assistant')).toContainText('current balance');
+        expect(state.requests).toHaveLength(1);
+        expect(state.unexpected).toEqual([]);
+    });
+
     test(`website assistant ${language.locale}: actual Help entry, scoped requests, sources and keyboard recovery`, async ({ page }) => {
         const state = await fixtures(page);
         await page.goto(`${language.prefix}/pricing.html?privateDraft=never-send-this`);
@@ -292,6 +341,9 @@ for (const language of languages) {
         await page.addInitScript(() => localStorage.setItem('bitbi_cookie_consent', JSON.stringify({ v: '1', ts: Date.now(), necessary: true, analytics: false, marketing: false })));
         await page.goto(`${language.prefix}/pricing.html`);
         await page.getByRole('button', { name: language.open }).press('Enter');
+        // Match the existing Help keyboard contract: the scheduled initial
+        // dialog focus must finish before the composer receives input.
+        await expect(page.locator('#bitbiHelpTitle')).toBeFocused();
         await expect(page.locator('.website-assistant__suggestion')).toHaveCount(3);
         const input = page.getByLabel(language.input);
         await input.fill(language.locale === 'de' ? 'Wie prüfe ich Credits vor dem Generieren?' : 'How do I check credits before generation?');
