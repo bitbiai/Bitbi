@@ -1,4 +1,4 @@
-import { privateMediaSmoke } from '../lib/private-media-smoke.js';
+import { privateMediaSmoke,PRIVATE_MEDIA_SMOKE_ERROR_CODES } from '../lib/private-media-smoke.js';
 import { privateMediaStatus,setPrivateMediaService,processorBackend,mediaRunner } from '../lib/private-media-service.js';
 import { requireAdmin } from '../lib/session.js';
 import { json } from '../lib/response.js';
@@ -39,5 +39,5 @@ export async function handlePrivateMediaService(ctx) {
     const data=await setPrivateMediaService(ctx.env,{backend:body.backend,thumbnailBackend:body.thumbnailBackend,actor:actor.user.id,reason:body.reason.trim()});
     await enqueueAdminAuditEvent(ctx.env,{adminUserId:actor.user.id,action:'private_media_service_updated',targetUserId:null,meta:{backend:data.backend,thumbnailBackend:data.thumbnailBackend,existingJobsUnchanged:true}},{correlationId:ctx.correlationId,requestInfo:ctx,allowDirectFallback:true});
     return reply({ok:true,data});
-  } catch(error){return reply({ok:false,code:['media_backend_invalid','media_service_not_ready','media_runner_invalid','media_runner_claim_lost'].includes(error.code)?error.code:'media_service_unavailable'},error.status||503);}
+  } catch(error){return reply({ok:false,code:['media_backend_invalid','media_service_not_ready','media_runner_invalid','media_runner_claim_lost'].includes(error.code)||(smoke&&PRIVATE_MEDIA_SMOKE_ERROR_CODES.includes(error.code))?error.code:'media_service_unavailable'},error.status||503);}
 }

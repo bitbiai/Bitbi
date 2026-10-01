@@ -132,18 +132,19 @@ export async function activateMedia(expected,{currentVersion,deploy,verify}) {
   return verify();
 }
 export function mediaEvidenceRun(env=process.env) {return {run:env.REPAIR_SOURCE_SHA?env.GITHUB_RUN_ID:env.CANDIDATE_RUN,attempt:env.REPAIR_SOURCE_SHA?env.GITHUB_RUN_ATTEMPT:env.CANDIDATE_ATTEMPT};}
-export async function publishMedia(c,secretFile) {
-  const source=mediaEvidenceRun();
+export async function publishMedia(c,secretFile,{reuse,listArtifacts=collection,fetchArtifact=fetch,command=run,verifyActive=mediaActive}={}) {
+  const source=reuse||mediaEvidenceRun(),sha=reuse?.sha||c.sha;
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-release-'));
   try {
-    const name=`private-media-image-${c.sha}-${source.run}-${source.attempt}`;
-    const candidates=(await collection(`actions/runs/${source.run}/artifacts`,'artifacts')).filter(a=>a.name===name);
+    const name=`private-media-image-${sha}-${source.run}-${source.attempt}`;
+    const candidates=(await listArtifacts(`actions/runs/${source.run}/artifacts`,'artifacts')).filter(a=>a.name===name);
     assert.equal(candidates.length,1,'Missing exact tested media image');const a=candidates[0];
-    assert(!a.expired&&Date.parse(a.expires_at)>Date.now()&&a.workflow_run.head_sha===c.sha,'Expired/wrong media image');
-    const response=await fetch(`https://api.github.com/repos/bitbiai/Bitbi/actions/artifacts/${a.id}/zip`,{headers:{Authorization:`Bearer ${process.env.GH_TOKEN}`},signal:AbortSignal.timeout(120000)});assert(response.ok,'Image artifact unavailable');
+    assert(!a.expired&&Date.parse(a.expires_at)>Date.now()&&a.workflow_run.head_sha===sha,'Expired/wrong media image');
+    if(reuse)assert.deepEqual({id:a.id,digest:a.digest},reuse.artifact,'Original media artifact changed');
+    const response=await fetchArtifact(`https://api.github.com/repos/bitbiai/Bitbi/actions/artifacts/${a.id}/zip`,{headers:{Authorization:`Bearer ${process.env.GH_TOKEN}`},signal:AbortSignal.timeout(120000)});assert(response.ok,'Image artifact unavailable');
     const bytes=Buffer.from(await response.arrayBuffer());assert.equal(`sha256:${hash(bytes)}`,a.digest,'Image archive identity mismatch');
     fs.writeFileSync(path.join(dir,'image.zip'),bytes);
-    run('python3',['-I','-c',`import sys,zipfile,pathlib,stat
+    command('python3',['-I','-c',`import sys,zipfile,pathlib,stat
 p=pathlib.Path(sys.argv[1])
 with zipfile.ZipFile(p/'image.zip') as z:
  assert sorted(z.namelist())==['image.json','image.tar','test.log']
@@ -152,12 +153,20 @@ with zipfile.ZipFile(p/'image.zip') as z:
   assert stat.S_IFMT(e.external_attr>>16) in (0,stat.S_IFREG)
   with (p/e.filename).open('xb') as f:f.write(z.read(e))`,dir]);
     const record=JSON.parse(fs.readFileSync(path.join(dir,'image.json')));
-    verifyMediaImage(record,{sha:c.sha,run:source.run,attempt:source.attempt,archive:path.join(dir,'image.tar')});
-    run('docker',['load','--input',path.join(dir,'image.tar')]);
-    const image=JSON.parse(run('docker',['image','inspect',record.tag]))[0];assert.equal(image.Id,record.image);assert.equal(image.Config.Labels['org.opencontainers.image.revision'],c.sha);
+    verifyMediaImage(record,{sha,run:source.run,attempt:source.attempt,archive:path.join(dir,'image.tar')});
+    command('docker',['load','--input',path.join(dir,'image.tar')]);
+    const image=JSON.parse(command('docker',['image','inspect',record.tag]))[0];assert.equal(image.Id,record.image);assert.equal(image.Config.Labels['org.opencontainers.image.revision'],sha);
+    if(reuse) {
+      const expected={sha,imageDigest:reuse.imageDigest,image:record.image,artifact:reuse.artifact,
+        sourceRun:source.run,sourceAttempt:source.attempt,reusedActivation:reuse.activation};
+      const active=await verifyActive(expected);
+      assert.equal(active.workerVersion,reuse.activation.workerVersion,'Original media version changed');
+      assert.equal(active.deployment,reuse.activation.deployment,'Original media deployment changed');
+      return active; // No push, Worker deployment or container rollout for unchanged inputs.
+    }
     const pushed=wrangler(['containers','push',record.tag,'--config','workers/media/wrangler.jsonc']);
     const tag=pushed.match(/Pushed image: (\S+)/)?.[1];assert(tag?.startsWith(`registry.cloudflare.com/${process.env.CLOUDFLARE_ACCOUNT_ID}/bitbi-private-media:`),'Unexpected registry target');
-    const digests=JSON.parse(run('docker',['image','inspect',tag]))[0].RepoDigests;
+    const digests=JSON.parse(command('docker',['image','inspect',tag]))[0].RepoDigests;
     const imageDigest=digests.find(d=>d.startsWith(tag.split(':')[0]+'@sha256:'));assert(imageDigest,'No immutable registry digest');
     const config=JSON.parse(fs.readFileSync('workers/media/wrangler.jsonc'));
     config.main=path.resolve('workers/media/src/index.js');config.vars.SOURCE_SHA=c.sha;config.vars.CLOUDFLARE_ACCOUNT_ID=process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -186,13 +195,65 @@ export async function waitMediaState(application,state,{read=cloudflareRead,now=
   }while(now()-started<timeout);
   throw Error(`Media container did not become ${state} within bounded production verification`);
 }
-export async function mediaSmoke(c,secret,media) {
+const smokeErrorCodes=new Set([
+  'media_smoke_source_mismatch','media_smoke_request_invalid','media_smoke_fixture_invalid',
+  'media_smoke_reference_invalid','media_smoke_output_invalid','media_smoke_processor_unverified',
+  'media_smoke_activation_invalid','media_smoke_reference_terminal','media_smoke_processing_terminal',
+  'media_smoke_preview_terminal','processor_auth_failed','media_service_not_ready','media_service_unavailable',
+  'media_smoke_response_invalid','media_smoke_transport_failed','media_smoke_source_not_ready',
+]);
+const recordSmokeDiagnostic=diagnostic=>{
+  fs.mkdirSync('test-results',{recursive:true});
+  fs.appendFileSync('test-results/backend-diagnostics.jsonl',JSON.stringify(diagnostic)+'\n');
+  console.error(JSON.stringify({privateMediaSmokeDiagnostic:diagnostic}));
+};
+export async function mediaSmoke(c,secret,media,{record=recordSmokeDiagnostic,now=Date.now,pause=ms=>new Promise(resolve=>setTimeout(resolve,ms)),request:fetchRequest=fetch}={}) {
+  const smokeSha=media.sha||c.sha;
+  assert(/^[a-f0-9]{40}$/.test(smokeSha||''),'Missing exact smoke media source');
   const fixture=fs.readFileSync('tests/fixtures/media/canvas-end-frame.mp4').toString('base64'),referenceFixture=fs.readFileSync('tests/fixtures/media/h3-overrun.mp4').toString('base64'),results=[];
-  const request=async body=>{
-    const r=await fetch('https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke',{method:'POST',headers:{Authorization:`Bearer ${secret}`,'Content-Type':'application/json'},body:JSON.stringify({...body,sha:c.sha,...(process.env.REPAIR_SOURCE_SHA?{fixtureSha:process.env.REPAIR_SOURCE_SHA}:{})}),redirect:'error',signal:AbortSignal.timeout(30000)});
-    const b=await r.json();assert(r.ok&&b.ok,`Private smoke HTTP ${r.status}: ${['media_smoke_reference_terminal','media_smoke_processing_terminal','media_smoke_preview_terminal'].includes(b.code)?b.code:'media_smoke_failed'}`);return b.data;
+  const fail=(body,status,code,terminal=false,lastCode)=>{
+    const diagnostic={operation:'private-media-smoke',action:['preflight','start','result','retry-reference','activate-thumbnails'].includes(body.action)?body.action:'unknown',
+      backend:['github','cloudflare'].includes(body.backend)?body.backend:'unknown',status:Number.isInteger(status)?status:null,
+      code:smokeErrorCodes.has(code)?code:'media_smoke_failed',...(smokeErrorCodes.has(lastCode)?{lastCode}:{})};
+    record(diagnostic);
+    throw Object.assign(new Error(`Private smoke ${terminal?'terminal failure':`HTTP ${diagnostic.status??'unavailable'}`}: ${diagnostic.code} (${diagnostic.action}/${diagnostic.backend})`),{diagnostic});
+  };
+  const request=async(body,timeoutMs=30000)=>{
+    let r,b;
+    try {r=await fetchRequest('https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke',{method:'POST',headers:{Authorization:`Bearer ${secret}`,'Content-Type':'application/json'},body:JSON.stringify({...body,sha:smokeSha,...(process.env.REPAIR_SOURCE_SHA?{fixtureSha:process.env.REPAIR_SOURCE_SHA}:{})}),redirect:'error',signal:AbortSignal.timeout(timeoutMs)});}
+    catch {fail(body,null,'media_smoke_transport_failed');}
+    try {b=await r.json();}catch {fail(body,r.status,'media_smoke_response_invalid');}
+    if(!r.ok||b?.ok!==true)fail(body,r.status,b?.code);
+    if(!b.data||typeof b.data!=='object'||Array.isArray(b.data))fail(body,r.status,'media_smoke_response_invalid');
+    if(b.data.sha!==smokeSha||(['preflight','start','result','retry-reference'].includes(body.action)&&b.data.backend!==body.backend))fail(body,r.status,'media_smoke_response_invalid');
+    if(b.data.failed)fail(body,r.status,b.data.code,true);
+    return b.data;
   };
   const lifecycle={stoppedBefore:await waitMediaState(media.application,'stopped')};
+  // Source propagation is observed without seeding or dispatching work. Both
+  // exact start bodies must pass before the first mutation. A legacy handler
+  // rejects this unknown action with 409/media_service_unavailable; that and
+  // explicit source mismatch may be observed until the fixed deadline, never
+  // accepted. No start/result/repair is replayed.
+  const preflightDeadline=now()+120000;
+  for(const backend of ['github','cloudflare']) {
+    const body={action:'preflight',backend,fixture,referenceFixture};
+    let lastCode;
+    while(true) {
+      const remaining=preflightDeadline-now();
+      if(remaining<=0)fail(body,null,'media_smoke_source_not_ready',false,lastCode);
+      try {
+        const ready=await request(body,Math.min(30000,remaining));
+        if(now()>=preflightDeadline)fail(body,null,'media_smoke_source_not_ready',false,lastCode);
+        if(ready.ready!==true||ready.admission!=='private-media-smoke-v1'||ready.sha!==smokeSha||ready.backend!==backend)fail(body,200,'media_smoke_response_invalid');
+        break;
+      }catch(error) {
+        if(!['media_smoke_source_mismatch','media_service_unavailable'].includes(error.diagnostic?.code)||error.diagnostic.status!==409)throw error;
+        lastCode=error.diagnostic.code;
+        await pause(Math.min(5000,Math.max(0,preflightDeadline-now())));
+      }
+    }
+  }
   if(process.env.REPAIR_SOURCE_SHA)await request({action:'retry-reference',backend:'cloudflare'});
   else for(const backend of ['github','cloudflare'])await request({action:'start',backend,fixture,referenceFixture});
   lifecycle.running=await waitMediaState(media.application,'running');
@@ -202,7 +263,6 @@ export async function mediaSmoke(c,secret,media) {
   while(pending.size&&Date.now()-started<12*60_000) {
     for(const backend of pending) {
       const result=await request({action:'result',backend});
-      assert(!result.failed,`Private smoke terminal failure: ${['media_smoke_reference_terminal','media_smoke_processing_terminal','media_smoke_preview_terminal'].includes(result.code)?result.code:'media_smoke_failed'}`);
       if(!result.ready)continue;
       assert.equal(result.outputs.length,3);assert.equal(result.publicPreviews?.length,2);const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-smoke-'));
       let exportMusic;
@@ -241,7 +301,7 @@ export async function mediaSmoke(c,secret,media) {
         lifecycle.stoppedAfter=await waitMediaState(media.application,'stopped');
       }
       const digests=items=>items.map(o=>({videoDigest:o.videoDigest,posterDigest:o.posterDigest}));
-      results.push({backend,sha:c.sha,...(exportMusic?{exportMusic}:{}),...(process.env.REPAIR_SOURCE_SHA?{fixtureSha:process.env.REPAIR_SOURCE_SHA,reusedOutputs:true,referenceRecoveryRequested:backend==='cloudflare'}:{}),completedMs:Date.now()-started,outputs:digests(result.outputs),publicPreviews:digests(result.publicPreviews),videoReference:{videoDigest:result.videoReference.videoDigest,originalDigest:result.videoReference.originalDigest,metadata:result.videoReference.metadata}});pending.delete(backend);
+      results.push({backend,sha:smokeSha,...(exportMusic?{exportMusic}:{}),...(process.env.REPAIR_SOURCE_SHA?{fixtureSha:process.env.REPAIR_SOURCE_SHA,reusedOutputs:true,referenceRecoveryRequested:backend==='cloudflare'}:{}),completedMs:Date.now()-started,outputs:digests(result.outputs),publicPreviews:digests(result.publicPreviews),videoReference:{videoDigest:result.videoReference.videoDigest,originalDigest:result.videoReference.originalDigest,metadata:result.videoReference.metadata}});pending.delete(backend);
     }
     if(pending.size)await new Promise(resolve=>setTimeout(resolve,5000));
   }
@@ -249,7 +309,7 @@ export async function mediaSmoke(c,secret,media) {
   const cloudflare=results.find(r=>r.backend==='cloudflare');cloudflare.lifecycle=lifecycle;
   if(c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql')) {
     const activation=await request({action:'activate-thumbnails',backend:'cloudflare'});
-    assert.equal(activation.sha,c.sha);assert.equal(activation.thumbnailBackend,'cloudflare');assert.equal(activation.verified,true);
+    assert.equal(activation.sha,smokeSha);assert.equal(activation.thumbnailBackend,'cloudflare');assert.equal(activation.verified,true);
     cloudflare.thumbnailActivation=activation;
   }
   console.log(JSON.stringify({privateMediaLifecycle:lifecycle}));return results;

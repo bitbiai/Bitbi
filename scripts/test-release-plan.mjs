@@ -1115,13 +1115,107 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
    if(String(url).endsWith('/instances')){reads++;return Response.json({success:true,result:{instances:[{id:'instance',status:{state:reads===1?'inactive':'running',exit_code:0}}]}});}
    assert.equal(url,'https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke');
    const body=JSON.parse(init.body);calls.push(body);assert.equal(body.fixtureSha,'a'.repeat(40));assert.equal(body.sha,'b'.repeat(40));
-   return Response.json({ok:true,data:body.action==='retry-reference'?{accepted:true}:{ready:false,failed:true,code:'media_smoke_reference_terminal'}});
+   if(body.action==='preflight')return Response.json({ok:true,data:{ready:true,admission:'private-media-smoke-v1',sha:body.sha,backend:body.backend}});
+   return Response.json({ok:true,data:{sha:body.sha,backend:body.backend,...(body.action==='retry-reference'?{accepted:true}:{ready:false,failed:true,code:'media_smoke_reference_terminal'})}});
   };
-  await assert.rejects(mediaSmoke({sha:'b'.repeat(40),plan:{changedFiles:[]}},'synthetic',{application:'app'}),/media_smoke_reference_terminal/);
-  assert.deepEqual(calls.map(c=>c.action),['retry-reference','result'],'Terminal failure exits immediately, no reseeding or polling');
+  const diagnostics=[];
+  await assert.rejects(mediaSmoke({sha:'b'.repeat(40),plan:{changedFiles:[]}},'synthetic',{application:'app'},{record:d=>diagnostics.push(d)}),/media_smoke_reference_terminal/);
+  assert.deepEqual(calls.map(c=>c.action),['preflight','preflight','retry-reference','result'],'Terminal failure exits immediately, no reseeding or polling');
+  assert.deepEqual(diagnostics,[{operation:'private-media-smoke',action:'result',backend:'github',status:200,code:'media_smoke_reference_terminal'}]);
   assert.deepEqual(mediaEvidenceRun({REPAIR_SOURCE_SHA:'old',GITHUB_RUN_ID:'new-run',GITHUB_RUN_ATTEMPT:'2',CANDIDATE_RUN:'old-run',CANDIDATE_ATTEMPT:'1'}),{run:'new-run',attempt:'2'});
  }finally{globalThis.fetch=originalFetch;for(const k of keys)if(previous[k]===undefined)delete process.env[k];else process.env[k]=previous[k];}
  console.log('Repair smoke: exact existing fixture, no reseeding, terminal fail-fast and fresh image run/attempt passed.');
+}
+
+// Exercise protected route admission through the actual release caller. Only
+// read-only preflight may wait; arbitrary payloads never become diagnostics.
+{
+ const {mediaSmoke}=await import('./lib/media-publication.mjs');
+ const {handlePrivateMediaService}=await import('../workers/auth/src/routes/private-media-service.js');
+ const {PRIVATE_MEDIA_SMOKE_ERROR_CODES}=await import('../workers/auth/src/lib/private-media-smoke.js');
+ const originalFetch=globalThis.fetch,keys=['REPAIR_SOURCE_SHA','CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID'];
+ const previous=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
+ const sha='b'.repeat(40),secret='synthetic-sensitive-secret',sensitive='synthetic-private-url-token-body';
+ const route=(body,envSha=sha)=>handlePrivateMediaService({method:'POST',pathname:'/api/internal/homepage/hero-videos/private-media/smoke',
+   request:new Request('https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke',{method:'POST',headers:{Authorization:`Bearer ${secret}`,'Content-Type':'application/json'},body:JSON.stringify(body)}),
+   env:{PRIVATE_MEDIA_SOURCE_SHA:envSha,PRIVATE_MEDIA_PROCESSOR_SECRET:secret,
+     DB:{prepare(){assert.fail('Preflight must not read or mutate D1');}},USER_IMAGES:{get(){assert.fail('Preflight must not read R2');},head(){assert.fail('Preflight must not read R2');}},
+     PRIVATE_MEDIA_PROCESSOR:{fetch(){assert.fail('Preflight must not wake or verify the processor');}}}});
+ const exercise=async(reply,{repair=false,persist=false}={})=>{
+   if(repair)process.env.REPAIR_SOURCE_SHA='a'.repeat(40);else delete process.env.REPAIR_SOURCE_SHA;
+   let time=0;const calls=[],diagnostics=[],pauses=[];
+   const request=async(url,init)=>{
+     assert.equal(url,'https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke');
+     assert.equal(init.method,'POST');assert.equal(init.redirect,'error');
+     const body=JSON.parse(init.body);calls.push(body);
+     return reply(body,calls.length);
+   };
+   let failure;
+   try {await mediaSmoke({sha,plan:{changedFiles:[]}},secret,{application:'app'},
+     {request,now:()=>time,pause:async ms=>{pauses.push(ms);time+=ms;},...(persist?{}:{record:d=>diagnostics.push(d)})});}
+   catch(error){failure=error;}
+   assert(failure,'The synthetic failing branch must stop publication');
+   assert(!JSON.stringify({diagnostics,message:failure.message}).includes(secret));
+   assert(!JSON.stringify({diagnostics,message:failure.message}).includes(sensitive));
+   return {calls,diagnostics,pauses,time,failure};
+ };
+ try {
+  process.env.CLOUDFLARE_API_TOKEN='synthetic';process.env.CLOUDFLARE_ACCOUNT_ID='c'.repeat(32);
+  globalThis.fetch=async url=>{
+   assert(String(url).endsWith('/instances'),'No unmocked network call');
+   return Response.json({success:true,result:{instances:[{id:'instance',status:{state:'inactive',exit_code:0}}]}});
+  };
+  for(const first of ['source','legacy']) {
+   const result=await exercise((body,n)=>body.action==='preflight'
+     ? n===1?(first==='source'?route(body,'a'.repeat(40)):Response.json({ok:false,code:'media_service_unavailable',message:sensitive},{status:409})):route(body)
+     :Response.json({ok:false,code:'media_smoke_output_invalid',message:sensitive},{status:409}));
+   assert.deepEqual(result.calls.map(c=>[c.action,c.backend]),[['preflight','github'],['preflight','github'],['preflight','cloudflare'],['start','github']]);
+   assert.deepEqual(result.pauses,[5000]);
+   assert.equal(result.diagnostics[0].code,first==='source'?'media_smoke_source_mismatch':'media_service_unavailable');
+   assert.equal(result.diagnostics.at(-1).code,'media_smoke_output_invalid');
+  }
+  for(const code of ['media_smoke_source_mismatch','media_service_unavailable']) {
+   const result=await exercise(()=>Response.json({ok:false,code,message:sensitive},{status:409}));
+   assert.equal(result.time,120000);assert.equal(result.calls.length,24);assert(result.calls.every(c=>c.action==='preflight'));
+   assert.deepEqual(result.pauses,Array(24).fill(5000));
+   assert.deepEqual(result.diagnostics.at(-1),{operation:'private-media-smoke',action:'preflight',backend:'github',status:null,code:'media_smoke_source_not_ready',lastCode:code});
+  }
+  const failures=[
+   [body=>route({...body,fixture:btoa('not-media')}),'media_smoke_fixture_invalid'],
+   [()=>Response.json({ok:false,code:'processor_auth_failed',message:sensitive},{status:403}),'processor_auth_failed'],
+   [()=>Response.json({ok:false,code:'media_service_unavailable'},{status:503}),'media_service_unavailable'],
+   [()=>Response.json({ok:false,code:'media_smoke_source_mismatch'},{status:500}),'media_smoke_source_mismatch'],
+   [()=>new Response(sensitive,{status:409}),'media_smoke_response_invalid'],
+   [()=>{throw Error(sensitive);},'media_smoke_transport_failed'],
+   [()=>Response.json({ok:false,code:sensitive,message:sensitive},{status:409}),'media_smoke_failed'],
+   [body=>Response.json({ok:true,data:{ready:true,sha,backend:body.backend}}),'media_smoke_response_invalid'],
+   [body=>Response.json({ok:true,data:{ready:true,admission:'wrong',sha,backend:body.backend}}),'media_smoke_response_invalid'],
+   [body=>Response.json({ok:true,data:{ready:true,admission:'private-media-smoke-v1',sha:'a'.repeat(40),backend:body.backend}}),'media_smoke_response_invalid'],
+   [()=>Response.json({ok:true,data:{ready:true,admission:'private-media-smoke-v1',sha,backend:'cloudflare'}}),'media_smoke_response_invalid'],
+  ];
+  for(const [reply,code]of failures) {
+   const result=await exercise(reply);assert.equal(result.calls.length,1);assert.deepEqual(result.pauses,[]);assert.equal(result.diagnostics[0].code,code);
+  }
+  for(const code of PRIVATE_MEDIA_SMOKE_ERROR_CODES) {
+   const result=await exercise(body=>body.action==='preflight'?route(body):Response.json({ok:false,code,message:sensitive},{status:409}));
+   assert.deepEqual(result.calls.map(c=>c.action),['preflight','preflight','start']);assert.deepEqual(result.pauses,[]);
+   assert.equal(result.diagnostics.at(-1).code,code,'Every fixed Worker code survives the caller, but start never retries');
+  }
+  const repair=await exercise(body=>body.action==='preflight'?route(body):Response.json({ok:false,code:'media_smoke_source_mismatch'},{status:409}),{repair:true});
+  assert.deepEqual(repair.calls.map(c=>c.action),['preflight','preflight','retry-reference']);assert.deepEqual(repair.pauses,[]);
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-smoke-diagnostic-')),cwd=process.cwd(),consoleError=console.error,logs=[];
+  try {
+   fs.mkdirSync(path.join(temp,'tests/fixtures/media'),{recursive:true});
+   for(const file of ['canvas-end-frame.mp4','h3-overrun.mp4'])fs.copyFileSync(path.join(repoRoot,'tests/fixtures/media',file),path.join(temp,'tests/fixtures/media',file));
+   process.chdir(temp);console.error=value=>logs.push(value);
+   const result=await exercise(()=>Response.json({ok:false,code:sensitive,message:sensitive},{status:409}),{persist:true});
+   assert.equal(result.calls.length,1);
+   const records=fs.readFileSync('test-results/backend-diagnostics.jsonl','utf8');
+   assert.deepEqual(JSON.parse(records),{operation:'private-media-smoke',action:'preflight',backend:'github',status:409,code:'media_smoke_failed'});
+   assert(!records.includes(sensitive));assert(!records.includes(secret));assert.equal(logs.length,1);assert(!logs[0].includes(sensitive));
+  }finally{process.chdir(cwd);console.error=consoleError;fs.rmSync(temp,{recursive:true,force:true});}
+ }finally{globalThis.fetch=originalFetch;for(const k of keys)if(previous[k]===undefined)delete process.env[k];else process.env[k]=previous[k];}
+ console.log('Protected smoke admission: actual route, both backends before mutation, bounded source/legacy convergence, strict failure/redaction and persisted diagnostics passed.');
 }
 
 {
@@ -1261,3 +1355,5 @@ print(json.dumps([dict(r) for r in c.execute(sys.argv[1],json.loads(sys.argv[3])
  assert.throws(()=>verifyImageAcceptanceReceipt({...receipt,imageDelivery:[]},context,publication,activation));
  console.log('Image acceptance reconciliation: protected failed activation without receipt, exact original components, fresh acceptance identity, SQL/authorization diagnostics and rejection controls passed.');
 }
+
+await import('./test-media-activation-reuse.mjs');

@@ -3,6 +3,7 @@ import {verifyCanvasExportSchema} from './canvas-export-readiness.mjs';
 import {captureImageDeliveryRecovery,verifyImageDeliveryRecovery,verifyImageDeliveryEvidence} from './image-delivery-acceptance.mjs';
 import {createHash} from 'node:crypto';
 import {publishMedia,mediaActive,mediaSmoke,assertMediaAuthConfig,verifyMediaEvidence} from './media-publication.mjs';
+import {resolveActiveMediaSource,verifyReusedMediaReceipt} from './media-activation-reuse.mjs';
 import {requiresPrivateMediaImage} from './ci-test-selection.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -339,11 +340,14 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   await verifyAuthBundle(receipt.authBundleDigest);
   if(c.plan.workerDeploys.some(s=>s.worker==='ai')) {assert(receipt.ai,'Missing AI prerequisite receipt');await verifyAiActivation(receipt.ai,c.sha);await verifyAuthBundle(receipt.ai.bundleDigest,undefined,'bitbi-ai');}
   if(requiresPrivateMediaImage(c.plan.changedFiles)) {
-    verifyMediaEvidence(receipt,{sha:c.sha,...mediaEvidenceRun(),lifecycle:true,previewBase:c.plan.changedFiles.includes('workers/auth/migrations/0097_canvas_preview_base.sql'),publicPreviews:c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql'),videoReferences:true,exportMusic:c.plan.changedFiles.some(f=>['workers/auth/migrations/0096_canvas_export_versions.sql','workers/auth/migrations/0097_canvas_preview_base.sql'].includes(f))});
+    const reuse=receipt.media?.reusedActivation?await resolveActiveMediaSource(c,{readCloudflare:readBackend}):null;
+    if(receipt.media?.reusedActivation)verifyReusedMediaReceipt(receipt,c,reuse);
+    else assert.equal(receipt.mediaSourceSha,c.sha,'Unproven cross-source media receipt');
+    verifyMediaEvidence(receipt,{sha:reuse?.sha||c.sha,...(reuse?{run:reuse.run,attempt:reuse.attempt}:mediaEvidenceRun()),lifecycle:true,previewBase:c.plan.changedFiles.includes('workers/auth/migrations/0097_canvas_preview_base.sql'),publicPreviews:c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql'),videoReferences:true,exportMusic:c.plan.changedFiles.some(f=>['workers/auth/migrations/0096_canvas_export_versions.sql','workers/auth/migrations/0097_canvas_preview_base.sql'].includes(f))});
     await mediaActive(receipt.media,backendEnv());
     if(c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql')) {
       const activation=receipt.smoke.find(s=>s.backend==='cloudflare')?.thumbnailActivation;
-      assert.equal(activation?.sha,c.sha,'Missing thumbnail rollout evidence');
+      assert.equal(activation?.sha,reuse?.sha||c.sha,'Missing thumbnail rollout evidence');
       assert.equal(activation?.thumbnailBackend,'cloudflare');assert.equal(activation?.verified,true);
       const rows=await query(c.db,"SELECT value_json FROM app_settings WHERE key='private_media_service'",[]);
       assert.equal(JSON.parse(rows[0]?.value_json||'{}').thumbnailBackend,'cloudflare','Thumbnail default is not active');
@@ -392,8 +396,9 @@ export async function publishBackend() {
   // This authority covers the reviewed additive Canvas migration only. Future
   // schema changes need their own reviewed release support.
   assert(pending.every(f=>['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql','0096_canvas_export_versions.sql','0097_canvas_preview_base.sql'].includes(f)),'Unexpected pending migrations');
+  const mediaReuse=mediaRequired?await resolveActiveMediaSource(c,{readCloudflare:readBackend}):null;
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-backend-secret-'));
-  const mediaSourceSha=mediaRequired?c.sha:before.version.resources.bindings.find(b=>b.name==='PRIVATE_MEDIA_SOURCE_SHA')?.text;
+  const mediaSourceSha=mediaRequired?(mediaReuse?.sha||c.sha):before.version.resources.bindings.find(b=>b.name==='PRIVATE_MEDIA_SOURCE_SHA')?.text;
   assert(/^[a-f0-9]{40}$/.test(mediaSourceSha||''),'Missing existing media source identity');
   let state,media,smoke,ai;
   try {
@@ -413,7 +418,7 @@ export async function publishBackend() {
       applyMigration:()=>run(['d1','migrations','apply','bitbi-auth-db','--remote']),
       assertSchema:async()=>{assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Migration did not apply');await verifyCanvasExportSchema(sql=>query(c.db,sql));},
       prepareAi:c.plan.workerDeploys.some(s=>s.worker==='ai')?async()=>{ai=await publishAi(c,path.join(temporary,'ai-bundle'));}:undefined,
-      prepareMedia:mediaRequired?async()=>{media=await publishMedia(c,mediaSecretFile);}:undefined,
+      prepareMedia:mediaRequired?async()=>{media=await publishMedia(c,mediaSecretFile,{reuse:mediaReuse});}:undefined,
       deploy:()=>activateAuthVersion({sha:c.sha,mediaSourceSha,secretFile,assertCurrent:()=>current(c.sha)}),
       readActive:async()=>{const result=await active();await verifyAuthBundle(c.authBundleDigest);return result;},
       verifyMedia:mediaRequired?async()=>{smoke=await mediaSmoke(c,secret,media);}:undefined,
@@ -422,7 +427,7 @@ export async function publishBackend() {
   prerequisites(c.plan,state.version,c.config);
   const imageDelivery=c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?await verifyImageDeliveryRecovery(imageTargets,{query:(sql,params)=>query(c.db,sql,params),object:imageDeliveryObject,current:()=>current(c.sha)}):undefined;
   const receipt={sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,migration,version:state.version.id,deployment:state.deployment.id,
-    ...(media?{media,smoke}:{}),...(ai?{ai}:{}),...(c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?{imageDelivery}:{}),mediaSourceSha,authBundleDigest:c.authBundleDigest,processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
+    ...(media?{media,smoke,...(mediaReuse?{mediaAcceptance:{publicationSha:c.sha,run:c.runId,attempt:c.attempt}}:{})}:{}),...(ai?{ai}:{}),...(c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?{imageDelivery}:{}),mediaSourceSha,authBundleDigest:c.authBundleDigest,processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
   verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});
   storeBackendReceipt(receipt);
   await verifyBackendReceipt('test-results/backend-release.json');

@@ -137,13 +137,33 @@ export async function privateMediaSmokeCase(base,fixture) {
   const env={...base,ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG:'true',HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET:'synthetic-github',PRIVATE_MEDIA_SOURCE_SHA:sha,MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:'synthetic-github',PRIVATE_MEDIA_PROCESSOR_SECRET:'synthetic-container',
     AI_VIDEO_JOBS_QUEUE:{send:async()=>{}},PRIVATE_MEDIA_PROCESSOR:{fetch:async()=>{verified++;return Response.json({verified:true});}}};
   const video=Uint8Array.from(atob(fixture.videoBase64),c=>c.charCodeAt(0)),image=Uint8Array.from(atob(fixture.imageBase64),c=>c.charCodeAt(0));
-  const smokeRequest=(body,secret='synthetic-container')=>worker.fetch(new Request('https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke',{
+  const smokeRequest=(body,secret='synthetic-container',requestEnv=env)=>worker.fetch(new Request('https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke',{
     method:'POST',headers:{Authorization:`Bearer ${secret}`,'Content-Type':'application/json'},body:JSON.stringify(body),
-  }),env,{waitUntil(){}});
+  }),requestEnv,{waitUntil(){}});
+  const rejection=async(body,code,requestEnv=env)=>{
+    const response=await smokeRequest(body,'synthetic-container',requestEnv);assert.equal(response.status,409);
+    assert.deepEqual(await response.json(),{ok:false,code});
+  };
   for(const secret of ['invalid','synthetic-github'])assert.equal((await smokeRequest({sha,backend:'cloudflare',action:'start',fixture:fixture.videoBase64},secret)).status,403);
   const smoke=async body=>{const response=await smokeRequest(body);assert.equal(response.status,200);return (await response.json()).data;};
-  await assert.rejects(privateMediaSmoke(env,{sha:'a'.repeat(40),backend:'cloudflare',action:'start',fixture:fixture.videoBase64}),/media_smoke_invalid/);
-  await assert.rejects(privateMediaSmoke(env,{sha,backend:'cloudflare',action:'start',fixture:btoa('not-media')}),/media_smoke_invalid/);
+  const preflight={sha,backend:'github',action:'preflight',fixture:fixture.videoBase64,referenceFixture:fixture.referenceBase64};
+  let sideEffects=0;
+  const noIo={...env};
+  for(const binding of ['DB','USER_IMAGES','PRIVATE_MEDIA_PROCESSOR','AI_VIDEO_JOBS_QUEUE'])noIo[binding]=new Proxy({}, {get(){sideEffects++;throw Error('Preflight must not access a service binding');}});
+  for(const backend of ['github','cloudflare']) {
+    const response=await smokeRequest({...preflight,backend},'synthetic-container',noIo);assert.equal(response.status,200);
+    assert.deepEqual((await response.json()).data,{ready:true,sha,backend,admission:'private-media-smoke-v1'});
+  }
+  for(const secret of ['invalid','synthetic-github'])assert.equal((await smokeRequest(preflight,secret,noIo)).status,403);
+  await rejection(preflight,'media_smoke_source_mismatch',{...noIo,PRIVATE_MEDIA_SOURCE_SHA:'a'.repeat(40)});
+  await rejection({...preflight,unexpected:'private-value'},'media_smoke_request_invalid',noIo);
+  await rejection({...preflight,fixtureSha:'invalid'},'media_smoke_request_invalid',noIo);
+  for(const field of ['fixture','referenceFixture'])for(const value of [undefined,'%%%',btoa('not-media')])await rejection({...preflight,[field]:value},'media_smoke_fixture_invalid',noIo);
+  const repairPreflight=await smokeRequest({...preflight,fixtureSha:'a'.repeat(40)},'synthetic-container',noIo);assert.equal(repairPreflight.status,200);
+  assert.equal((await repairPreflight.json()).data.sha,sha,'Readiness identifies publication source, not reused fixture');
+  assert.equal(sideEffects,0);
+  await rejection({...preflight,action:'start',sha:'a'.repeat(40)},'media_smoke_source_mismatch');
+  await rejection({...preflight,action:'start',fixture:btoa('not-media')},'media_smoke_fixture_invalid');
   for(const backend of ['github','cloudflare']) {
     const body={sha,backend,action:'start',fixture:fixture.videoBase64,referenceFixture:fixture.referenceBase64};await smoke(body);await smoke(body);
     assert.equal((await smoke({sha,backend,action:'result'})).ready,false);
@@ -198,17 +218,27 @@ export async function privateMediaSmokeCase(base,fixture) {
     assert.equal((await fetch(reference.completion.url,referenceForm,{'X-BITBI-Canvas-Claim':reference.claim})).status,200);
     const result=await smoke({sha,backend,action:'result'});assert.equal(result.ready,true);assert.equal(result.videoReference.metadata.frames,360);assert.equal(result.outputs.length,3);assert.equal(result.publicPreviews.length,2);
     if(backend==='cloudflare')assert.equal(result.outputs[0].previewBase.video,fixture.videoBase64,'Actual release reader returns the retained clean bytes');
+    const resultBody={sha,backend,action:'result'};
+    const output=await env.DB.prepare('SELECT a.poster_r2_key FROM canvas_video_processing p JOIN ai_text_assets a ON a.id=p.asset_id WHERE p.processing_backend=? AND p.kind=\'concat\' AND p.user_id=\'bitbi-private-media-release-smoke\'').bind(backend).first();
+    const brokenOutput={...env,USER_IMAGES:{get:async(key,...args)=>key===output.poster_r2_key?{size:0,arrayBuffer:async()=>new ArrayBuffer(0)}:env.USER_IMAGES.get(key,...args)}};
+    await rejection(resultBody,'media_smoke_output_invalid',brokenOutput);
+    const referenceRow=await env.DB.prepare('SELECT output_r2_key FROM private_video_references WHERE id=?').bind(reference.id).first();
+    const brokenReference={...env,USER_IMAGES:{get:async(key,...args)=>key===referenceRow.output_r2_key?{size:100001}:env.USER_IMAGES.get(key,...args)}};
+    await rejection(resultBody,'media_smoke_reference_invalid',brokenReference);
+    const unknownFailure={...env,USER_IMAGES:{get:async()=>{throw Object.assign(Error('private-input'),{code:'private-input',status:409});}}};
+    await rejection(resultBody,'media_service_unavailable',unknownFailure);
+    if(backend==='cloudflare')await rejection(resultBody,'media_smoke_processor_unverified',{...env,PRIVATE_MEDIA_PROCESSOR:{fetch:async()=>new Response(null,{status:409})}});
   }
   assert.equal(verified,1);
   const activate={sha,backend:'cloudflare',action:'activate-thumbnails'};
-  await assert.rejects(privateMediaSmoke(env,activate),/media_smoke_invalid/);
+  await rejection(activate,'media_smoke_activation_invalid');
   env.GITHUB_ACTIONS_DISPATCH_TOKEN='synthetic';env.GITHUB_ACTIONS_DISPATCH_OWNER='synthetic';env.GITHUB_ACTIONS_DISPATCH_REPO='synthetic';
   env.PRIVATE_MEDIA_PROCESSOR.fetch=async()=>Response.json({protocol:1,functional_verified:true,preview_configured:true,version:sha});
   const activation=await privateMediaSmoke(env,activate);assert.equal(activation.thumbnailBackend,'cloudflare');
   assert.equal(activation.backend,'github','The assembly choice is independent');
   assert.equal((await privateMediaSmoke(env,activate)).reused,true);
   await setPrivateMediaService(env,{backend:'github',thumbnailBackend:'github',actor:null,reason:'Owner explicitly selects alternative'});
-  await assert.rejects(privateMediaSmoke(env,activate),/media_smoke_invalid/);
+  await rejection(activate,'media_smoke_activation_invalid');
   assert.equal((await privateMediaStatus(env)).thumbnailBackend,'github','Retry must preserve later owner choice');
-  return {bothBackends:true,firstAndContinuationAndExportPosters:true,repeatSeedSafe:true,noAI:true};
+  return {bothBackends:true,firstAndContinuationAndExportPosters:true,repeatSeedSafe:true,noAI:true,preflightNoSideEffects:sideEffects===0,sourceMismatchBlocked:true,resultInvariantCodesBlocked:true};
 }

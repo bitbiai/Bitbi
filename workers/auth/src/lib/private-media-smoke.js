@@ -10,23 +10,40 @@ import { notifyPrivateMedia,privateMediaStatus,setPrivateMediaService } from './
 const referenceFixtureHash='2c67d78cda7252be0cb6ef14396d92abb3b7193940ecc977a5c9fcc823bd1609';
 const fixtureHash='5dec3abce278a6eb44db0506986d68da202fa3703c0ef8a0e07e423fc2b5095e';
 const owner='bitbi-private-media-release-smoke';
-const fail=()=>{throw Object.assign(new Error('media_smoke_invalid'),{code:'media_smoke_invalid',status:409});};
+export const PRIVATE_MEDIA_SMOKE_ERROR_CODES=Object.freeze([
+  'media_smoke_source_mismatch','media_smoke_request_invalid','media_smoke_fixture_invalid',
+  'media_smoke_reference_invalid','media_smoke_output_invalid','media_smoke_processor_unverified','media_smoke_activation_invalid',
+]);
+const fail=code=>{throw Object.assign(new Error(code),{code,status:409});};
 const digest=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
 const id=async value=>(await sha256Hex(value)).slice(0,32);
 export async function privateMediaSmoke(env,body) {
-  if(!body||Object.keys(body).some(k=>!['sha','backend','action','fixture','referenceFixture','fixtureSha'].includes(k))||body.sha!==env.PRIVATE_MEDIA_SOURCE_SHA||!/^[a-f0-9]{40}$/.test(body.sha||'')||!['github','cloudflare'].includes(body.backend)||!['start','result','activate-thumbnails','retry-reference'].includes(body.action))fail();
+  if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(k=>!['sha','backend','action','fixture','referenceFixture','fixtureSha'].includes(k))||!/^[a-f0-9]{40}$/.test(body.sha||'')||!['github','cloudflare'].includes(body.backend)||!['preflight','start','result','activate-thumbnails','retry-reference'].includes(body.action))fail('media_smoke_request_invalid');
+  if(body.sha!==env.PRIVATE_MEDIA_SOURCE_SHA)fail('media_smoke_source_mismatch');
   const {sha,backend}=body,fixtureSha=body.fixtureSha||sha;
-  if(!/^[a-f0-9]{40}$/.test(fixtureSha))fail();
+  if(!/^[a-f0-9]{40}$/.test(fixtureSha))fail('media_smoke_request_invalid');
+  let referenceBytes,bytes;
+  if(['preflight','start'].includes(body.action)) {
+    if(typeof body.referenceFixture!=='string'||body.referenceFixture.length>29000||typeof body.fixture!=='string'||body.fixture.length>4096)fail('media_smoke_fixture_invalid');
+    try {
+      referenceBytes=Uint8Array.from(atob(body.referenceFixture),c=>c.charCodeAt(0));
+      bytes=Uint8Array.from(atob(body.fixture),c=>c.charCodeAt(0));
+    } catch {fail('media_smoke_fixture_invalid');}
+    if(await digest(referenceBytes)!==referenceFixtureHash||await digest(bytes)!==fixtureHash)fail('media_smoke_fixture_invalid');
+    // Verify the actual serving Auth version and exact fixed request before any
+    // release mutation. This branch must not touch D1, R2, queues or processors.
+    if(body.action==='preflight')return {ready:true,sha,backend,admission:'private-media-smoke-v1'};
+  }
   const project=await id(`media-smoke:${fixtureSha}:${backend}`),node=await id(project+':node'),now=nowIso();
   if(body.action==='activate-thumbnails'){
-    if(backend!=='cloudflare'||body.fixture!==undefined)fail();
+    if(backend!=='cloudflare'||body.fixture!==undefined)fail('media_smoke_request_invalid');
     const current=await privateMediaStatus(env);
-    if(current.services.cloudflare.state!=='ready')fail();
+    if(current.services.cloudflare.state!=='ready')fail('media_smoke_activation_invalid');
     const row=await env.DB.prepare("SELECT value_json FROM app_settings WHERE key='private_media_service'").first();
     const previous=JSON.parse(row?.value_json||'{}');
     // A resumed release must never undo a later explicit owner selection.
     if(previous.thumbnailRolloutSha){
-      if(current.thumbnailBackend!=='cloudflare')fail();
+      if(current.thumbnailBackend!=='cloudflare')fail('media_smoke_activation_invalid');
       return {sha,backend:current.backend,thumbnailBackend:current.thumbnailBackend,verified:true,reused:true};
     }
     const result=await setPrivateMediaService(env,{backend:current.backend,thumbnailBackend:'cloudflare',thumbnailRolloutSha:sha,actor:null,reason:`Protected release ${sha}: verified thumbnail rollout`});
@@ -36,31 +53,26 @@ export async function privateMediaSmoke(env,body) {
   if(body.action==='retry-reference') {
     // Only this fixed synthetic source under the disabled smoke owner. Preserve
     // identity, attempts and quota; never resurrect a retired/active/user job.
-    if(backend!=='cloudflare'||body.fixture!==undefined||body.referenceFixture!==undefined)fail();
+    if(backend!=='cloudflare'||body.fixture!==undefined||body.referenceFixture!==undefined)fail('media_smoke_request_invalid');
     const reference=await id(project+':reference');
     const row=await env.DB.prepare('SELECT * FROM private_video_references WHERE id=? AND user_id=? AND processing_backend=?').bind(reference,owner,backend).first();
-    if(!row||row.source_asset_id!==reference||row.source_r2_key!==`users/${owner}/release/${reference}-source.mp4`||row.output_r2_key!==`users/${owner}/video-references/${reference}.mp4`)fail();
+    if(!row||row.source_asset_id!==reference||row.source_r2_key!==`users/${owner}/release/${reference}-source.mp4`||row.output_r2_key!==`users/${owner}/video-references/${reference}.mp4`)fail('media_smoke_reference_invalid');
     const account=await env.DB.prepare('SELECT status FROM users WHERE id=?').bind(owner).first();
     const source=await env.USER_IMAGES.get(row.source_r2_key);
-    if(account?.status!=='disabled'||!source||source.etag!==row.source_etag||source.size!==row.source_bytes||await digest(await source.arrayBuffer())!==referenceFixtureHash)fail();
+    if(account?.status!=='disabled'||!source||source.etag!==row.source_etag||source.size!==row.source_bytes||await digest(await source.arrayBuffer())!==referenceFixtureHash)fail('media_smoke_reference_invalid');
     if(row.status==='failed') {
-      if(row.attempt_count!==1||row.error_code!=='h3_reference_preparation_failed'||row.locked_until||row.storage_reserved_bytes||await env.USER_IMAGES.head(row.output_r2_key))fail();
+      if(row.attempt_count!==1||row.error_code!=='h3_reference_preparation_failed'||row.locked_until||row.storage_reserved_bytes||await env.USER_IMAGES.head(row.output_r2_key))fail('media_smoke_reference_invalid');
       const changed=await env.DB.prepare(`UPDATE private_video_references SET status='queued',error_code=NULL,processing_token=NULL,next_attempt_at=?,updated_at=?
         WHERE id=? AND user_id=? AND processing_backend='cloudflare' AND status='failed' AND attempt_count=1
         AND error_code='h3_reference_preparation_failed' AND processing_token IS ? AND locked_until IS NULL AND storage_reserved_bytes=0
         AND NOT EXISTS(SELECT 1 FROM r2_object_tombstones WHERE r2_key IN (private_video_references.source_r2_key,private_video_references.output_r2_key))`)
         .bind(now,now,reference,owner,row.processing_token).run();
-      if(changed.meta?.changes!==1)fail();
+      if(changed.meta?.changes!==1)fail('media_smoke_reference_invalid');
       await enqueueAdminAuditEvent(env,{id:await id('reference-retry:'+reference),adminUserId:'system:protected-release',action:'synthetic_reference_retry',meta:{sha,fixtureSha,reference,backend}},{allowDirectFallback:true});
-    } else if(!['queued','processing','ready'].includes(row.status)||row.attempt_count>2)fail();
+    } else if(!['queued','processing','ready'].includes(row.status)||row.attempt_count>2)fail('media_smoke_reference_invalid');
     await notifyPrivateMedia(env,backend);return {accepted:true,sha,fixtureSha,backend};
   }
   if(body.action==='start') {
-    if(typeof body.referenceFixture!=='string'||body.referenceFixture.length>29000)fail();
-    const referenceBytes=Uint8Array.from(atob(body.referenceFixture),c=>c.charCodeAt(0));
-    if(await digest(referenceBytes)!==referenceFixtureHash)fail();
-    if(typeof body.fixture!=='string'||body.fixture.length>4096)fail();
-    const bytes=Uint8Array.from(atob(body.fixture),c=>c.charCodeAt(0));if(await digest(bytes)!==fixtureHash)fail();
     await env.DB.batch([
       env.DB.prepare("INSERT OR IGNORE INTO users(id,email,password_hash,created_at,role,status) VALUES(?,?,?,?,'user','disabled')").bind(owner,'private-media-release-smoke@example.invalid','no-login',now),
       env.DB.prepare('INSERT OR IGNORE INTO canvas_projects(id,user_id,title,created_at,updated_at) VALUES(?,?,?,?,?)').bind(project,owner,'Private media release verification',now,now),
@@ -68,7 +80,7 @@ export async function privateMediaSmoke(env,body) {
     ]);
     const reference=await id(project+':reference'),sourceKey=`users/${owner}/release/${reference}-source.mp4`,outputKey=`users/${owner}/video-references/${reference}.mp4`;
     if(!await env.USER_IMAGES.head(sourceKey))await putNewManagedR2Object(env,sourceKey,referenceBytes,{httpMetadata:{contentType:'video/mp4'}});
-    const sourceObject=await env.USER_IMAGES.get(sourceKey);if(!sourceObject||await digest(await sourceObject.arrayBuffer())!==referenceFixtureHash)fail();
+    const sourceObject=await env.USER_IMAGES.get(sourceKey);if(!sourceObject||await digest(await sourceObject.arrayBuffer())!==referenceFixtureHash)fail('media_smoke_fixture_invalid');
     const head=await env.USER_IMAGES.head(sourceKey),metadata=inspectH3TimeReference(referenceBytes,'video','video/mp4',{inspectOverrun:true});
     await env.DB.batch([
       env.DB.prepare("INSERT OR IGNORE INTO ai_text_assets(id,user_id,r2_key,title,file_name,source_module,mime_type,size_bytes,metadata_json,created_at) VALUES(?,?,?,'Synthetic reference','reference.mp4','video','video/mp4',?,'{}',?)").bind(reference,owner,sourceKey,referenceBytes.length,now),
@@ -80,7 +92,7 @@ export async function privateMediaSmoke(env,body) {
     for(let i=0;i<2;i++) {
       const asset=await id(project+':asset:'+i),run=await id(project+':run:'+i),key=`users/${owner}/release/${asset}.mp4`;
       if(!await env.USER_IMAGES.head(key))await putNewManagedR2Object(env,key,bytes,{httpMetadata:{contentType:'video/mp4'}});
-      const stored=await env.USER_IMAGES.get(key);if(!stored||await digest(await stored.arrayBuffer())!==fixtureHash)fail();
+      const stored=await env.USER_IMAGES.get(key);if(!stored||await digest(await stored.arrayBuffer())!==fixtureHash)fail('media_smoke_fixture_invalid');
       await env.DB.prepare("INSERT OR IGNORE INTO ai_text_assets(id,user_id,r2_key,title,file_name,source_module,mime_type,size_bytes,metadata_json,created_at) VALUES(?,?,?,'Synthetic clip','synthetic.mp4','video','video/mp4',?,?,?)")
         .bind(asset,owner,key,bytes.length,JSON.stringify({private_media_release_smoke:sha}),now).run();
       const original=await ownedCanvasVideo(env,owner,asset),parent=sources.at(-1);
@@ -99,7 +111,7 @@ export async function privateMediaSmoke(env,body) {
       view.setUint32(4,wav.length-8,true);view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);view.setUint32(24,48000,true);view.setUint32(28,96000,true);view.setUint16(32,2,true);view.setUint16(34,16,true);view.setUint32(40,wav.length-44,true);
       for(let i=0;i<1920;i++)view.setInt16(44+i*2,Math.round(8191*Math.sin(2*Math.PI*1000*i/48000)),true);
       if(!await env.USER_IMAGES.head(key))await putNewManagedR2Object(env,key,wav,{httpMetadata:{contentType:'audio/wav'}});
-      const stored=await env.USER_IMAGES.get(key);if(!stored||await digest(await stored.arrayBuffer())!==await digest(wav))fail();
+      const stored=await env.USER_IMAGES.get(key);if(!stored||await digest(await stored.arrayBuffer())!==await digest(wav))fail('media_smoke_fixture_invalid');
       await env.DB.prepare("INSERT OR IGNORE INTO ai_text_assets(id,user_id,r2_key,title,file_name,source_module,mime_type,size_bytes,metadata_json,created_at) VALUES(?,?,?,'Synthetic export music','music.wav','music','audio/wav',?,'{}',?)").bind(asset,owner,key,wav.length,now).run();
       const source=await ownedCanvasMusic(env,owner,asset);music={kind:'music',assetId:asset,version:source.version,size:source.size};
     }
@@ -123,7 +135,7 @@ export async function privateMediaSmoke(env,body) {
     ]);
     await notifyPrivateMedia(env,backend);return {accepted:true,sha,backend};
   }
-  if(body.fixture!==undefined||body.referenceFixture!==undefined)fail();
+  if(body.fixture!==undefined||body.referenceFixture!==undefined)fail('media_smoke_request_invalid');
   const reference=await env.DB.prepare('SELECT * FROM private_video_references WHERE id=? AND user_id=? AND processing_backend=?').bind(await id(project+':reference'),owner,backend).first();
   if(['failed','retired'].includes(reference?.status))return {ready:false,failed:true,sha,backend,code:'media_smoke_reference_terminal'};
   const rows=(await env.DB.prepare('SELECT p.status,p.asset_id,p.preview_base_key,p.preview_base_etag,p.preview_base_bytes,a.r2_key,a.poster_r2_key,a.metadata_json FROM canvas_video_processing p LEFT JOIN ai_text_assets a ON a.id=p.asset_id AND a.user_id=p.user_id WHERE p.project_id=? AND p.user_id=? AND p.processing_backend=? ORDER BY p.kind').bind(project,owner,backend).all()).results||[];
@@ -139,28 +151,31 @@ export async function privateMediaSmoke(env,body) {
   const outputs=[];
   for(const row of [...rows,...publicRows]) {
     const [video,poster]=await Promise.all([env.USER_IMAGES.get(row.r2_key),env.USER_IMAGES.get(row.poster_r2_key)]);
-    if(!video||!poster||video.size>1024*1024||poster.size>128*1024)fail();
+    if(!video||!poster||video.size>1024*1024||poster.size>128*1024)fail('media_smoke_output_invalid');
     const v=new Uint8Array(await video.arrayBuffer()),p=new Uint8Array(await poster.arrayBuffer());
-    if(String.fromCharCode(...v.slice(4,8))!=='ftyp'||!p.length)fail();
+    if(String.fromCharCode(...v.slice(4,8))!=='ftyp'||!p.length)fail('media_smoke_output_invalid');
     const base64=b=>{let s='';for(const x of b)s+=String.fromCharCode(x);return btoa(s);};
     let previewBase;
     if(row.preview_base_key) {
       const clean=await env.USER_IMAGES.get(row.preview_base_key,{onlyIf:{etagMatches:row.preview_base_etag}});
-      if(!clean?.body || clean.size!==row.preview_base_bytes || clean.size>1024*1024)fail();
+      if(!clean?.body || clean.size!==row.preview_base_bytes || clean.size>1024*1024)fail('media_smoke_output_invalid');
       const bytes=new Uint8Array(await clean.arrayBuffer());previewBase={video:base64(bytes),digest:await digest(bytes)};
     }
     outputs.push({video:base64(v),poster:base64(p),videoDigest:await digest(v),posterDigest:await digest(p),...(previewBase?{previewBase}:{})});
   }
   if(reference?.status!=='ready')return {ready:false,sha,backend,referencePending:true};
   const original=await env.USER_IMAGES.get(reference.source_r2_key),prepared=await env.USER_IMAGES.get(reference.output_r2_key);
-  if(!original||!prepared||await digest(await original.arrayBuffer())!==referenceFixtureHash||prepared.size>100000)fail();
-  const referenceBytes=new Uint8Array(await prepared.arrayBuffer()),referenceMetadata=inspectH3TimeReference(referenceBytes,'video','video/mp4');
-  if(!referenceMetadata.audioDuration||referenceMetadata.frames!==360)fail();
-  let encoded='';for(const byte of referenceBytes)encoded+=String.fromCharCode(byte);
-  const videoReference={video:btoa(encoded),videoDigest:await digest(referenceBytes),originalDigest:referenceFixtureHash,metadata:referenceMetadata};
+  if(!original||!prepared||await digest(await original.arrayBuffer())!==referenceFixtureHash||prepared.size>100000)fail('media_smoke_reference_invalid');
+  const preparedBytes=new Uint8Array(await prepared.arrayBuffer());
+  let referenceMetadata;
+  try {referenceMetadata=inspectH3TimeReference(preparedBytes,'video','video/mp4');}
+  catch {fail('media_smoke_reference_invalid');}
+  if(!referenceMetadata.audioDuration||referenceMetadata.frames!==360)fail('media_smoke_reference_invalid');
+  let encoded='';for(const byte of preparedBytes)encoded+=String.fromCharCode(byte);
+  const videoReference={video:btoa(encoded),videoDigest:await digest(preparedBytes),originalDigest:referenceFixtureHash,metadata:referenceMetadata};
   if(backend==='cloudflare') {
     const verified=await env.PRIVATE_MEDIA_PROCESSOR.fetch('https://private-media/verified',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sha,job:project})});
-    if(!verified.ok)fail();
+    if(!verified.ok)fail('media_smoke_processor_unverified');
   }
   return {ready:true,sha,backend,outputs:outputs.slice(0,3),publicPreviews:outputs.slice(3),videoReference};
 }

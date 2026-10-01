@@ -575,11 +575,15 @@ const loggingFiles=['frontend/index.mjs','frontend/wrangler.jsonc','scripts/lib/
  'scripts/test-frontend-hosting.mjs','scripts/test-frontend-review.mjs','docs/runbooks/STATIC_HOSTING_MIGRATION.md',
  'docs/runbooks/REGRESSION_REGISTER.md','.github/workflows/static.yml','scripts/lib/ci-test-selection.mjs',
  'scripts/pages-candidate.mjs','scripts/test-ci-test-selection.mjs','scripts/test-pages-candidate.mjs'];
-for(const files of [loggingFiles,['frontend/index.mjs'],['frontend/wrangler.jsonc']]) {
+const mediaReuseTooling=['scripts/lib/media-activation-reuse.mjs','scripts/test-media-activation-reuse.mjs'];
+for(const files of [loggingFiles,['frontend/index.mjs'],['frontend/wrangler.jsonc'],mediaReuseTooling]) {
  const selected=selection(files);assert(selected.static);
  for(const key of ['full','workers','auth','homepage','carousel','assets','dependencies'])assert.equal(selected[key],false,key);
 }
 assert(selection(loggingFiles,{forceFull:true}).full);
+assert(selection(mediaReuseTooling,{forceFull:true}).full);
+assert(selection([...mediaReuseTooling,'scripts/lib/unknown-media-reuse.mjs']).full);
+assert(selection([...mediaReuseTooling,'workers/auth/src/lib/private-media-smoke.js']).workers);
 for(const file of ['config/static-hosting.json','scripts/unknown.mjs','.github/workflows/unknown.yml','unknown.config'])assert(selection([...loggingFiles,file]).full,file);
 for(const [file,impact] of [['workers/auth/src/index.js','workers'],['js/shared/auth.js','auth'],['js/pages/index/latest-models-video-module.js','homepage'],['js/pages/index/category-carousel.js','carousel'],['workers/contact/package-lock.json','workerDependencies']])assert(selection([...loggingFiles,file])[impact],file);
 for(const file of ['frontend/index.mjs','frontend/wrangler.jsonc','config/static-hosting.json'])assert(!isFastDeploySafePath(file));

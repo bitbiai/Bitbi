@@ -257,6 +257,19 @@ failure, reconcile actual versions and receipts before any continuation; do not
 redeploy unchanged backends to obtain new annotations. Hosting/recovery details
 remain in [Static hosting migration](../runbooks/STATIC_HOSTING_MIGRATION.md).
 
+Private-media release admission is checked through the authenticated smoke route
+before seeding fixed synthetic jobs. Its write-free preflight validates the serving
+media source, protocol marker and exact fixtures. Only explicit source mismatch or
+the prior handler's exact legacy rejection can be observed within the bounded
+readiness window; neither is acceptance. Invalid credentials, fixtures, responses
+and output proofs fail closed. Mutating smoke actions are never retried by this
+readiness check. Persist fixed action/backend/status/reason diagnostics without
+request bodies, private media or credentials. After partial activation, preserve
+the original media source/artifact and active-version identity when unchanged
+inputs and protected activation provenance are verified; require fresh backend
+functional acceptance before frontend continuation. See the `8c0cb42a` incident in
+the [regression register](../runbooks/REGRESSION_REGISTER.md).
+
 ## 7. Run Live Readiness Evidence Collector
 
 Use explicit URLs only. Do not include credentials in URLs.
