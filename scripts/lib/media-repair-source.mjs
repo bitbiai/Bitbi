@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {api,collection,sourceAttempt,validateSource,gitSelection,isRequiredValidationRun,requiredJobs,REPOSITORY} from '../pages-candidate.mjs';
-import {BROWSER_REPAIR,BROWSER_REPAIR_FILES,assertBrowserRepairTrees} from './browser-fixture-repair.mjs';
+import {BROWSER_REPAIR,BROWSER_REPAIR_ACCEPTANCE,BROWSER_REPAIR_FILES,assertBrowserRepairTrees,assertBrowserPublicationTree,assertCompletedBrowserRepair} from './browser-fixture-repair.mjs';
 export const MEDIA_REPAIR_FILES=new Set([
   'services/homepage-ffmpeg-processor/video-reference.mjs',
   'services/homepage-ffmpeg-processor/video-reference.test.mjs',
@@ -38,6 +38,10 @@ export function repairKind(files) {
   if(files.includes('tests/auth-admin.spec.js')||files.includes('tests/website-assistant.spec.js')) {
     assert(['tests/auth-admin.spec.js','tests/website-assistant.spec.js','.github/workflows/static.yml','scripts/lib/browser-fixture-repair.mjs','scripts/test-browser-fixture-repair.mjs'].every(f=>files.includes(f)),'Incomplete reviewed browser fixture repair');
     assert(files.every(f=>BROWSER_REPAIR_FILES.has(f)),'Changed input is outside browser fixture equivalence');
+    if(files.includes('scripts/lib/media-publication.mjs')) {
+      assert(['scripts/test-release-plan.mjs','scripts/test-media-auth-config.mjs'].every(f=>files.includes(f)),'Publication guard repair lacks its focused regression/caller');
+      return 'browser-publication';
+    }
     return 'browser-fixture';
   }
   if(files.includes('scripts/validate-site-references.mjs')||files.includes('scripts/lib/image-delivery-acceptance.mjs')) {
@@ -68,12 +72,13 @@ export function repairDelta(source,head,base) {
   git(['merge-base','--is-ancestor',base,source]);git(['merge-base','--is-ancestor',source,head]);
   const files=git(['diff','--name-only','--no-renames',source,head]).split('\n').filter(Boolean);assertRepairFiles(files);
   if(repairKind(files)==='tooling')assertUnchangedReleaseInputs(source,head);
-  if(repairKind(files)==='browser-fixture')assertBrowserRepairTrees(source,head);
+  if(['browser-fixture','browser-publication'].includes(repairKind(files)))assertBrowserRepairTrees(source,head);
+  if(repairKind(files)==='browser-publication')assertBrowserPublicationTree(head);
   return files;
 }
 export function repairSelection(full,files) {
   const kind=repairKind(files),media=kind==='media',browser=kind==='browser-fixture';
-  return {...full,policy:browser?BROWSER_REPAIR.policy:media?'media-repair-v1':'release-tooling-repair-v1',docsOnly:false,memberModels:false,full:false,homepage:false,carousel:false,assets:false,auth:browser,browserRepair:browser,
+  return {...full,policy:browser?BROWSER_REPAIR.policy:kind==='browser-publication'?'browser-fixture-publication-v1':media?'media-repair-v1':'release-tooling-repair-v1',docsOnly:false,memberModels:false,full:false,homepage:false,carousel:false,assets:false,auth:browser,browserRepair:browser,
     adminRelease:false,memberAssets:false,publicMedia:false,modelStatus:false,canvasText:false,workspaceHelp:false,
     appearance:false,modelPricing:false,imageModels:false,workers:media,mediaLifecycle:media,runtime:media,static:true,mediaRepair:media,dependencies:false,workerDependencies:false,
     reasons:{...Object.fromEntries(Object.keys(full.reasons).map(k=>[k,[]])),workers:media?['Fresh processor Linux image, native D1/R2 smoke and SDK lifecycle']:[],auth:browser?['Execute exact repaired Admin/assistant definitions and new controls; complete the previously unexecuted carousel tail']:[],static:[browser?'Preserve authenticated unchanged source cases; require fresh repaired/control/tail browser execution':'Authenticated unchanged frontend source; no new browser execution claimed'],dependencies:[],workerDependencies:[]}};
@@ -99,7 +104,21 @@ export async function verifyRepairSource(env=process.env,{complete=false}={}) {
   const [run,jobs,artifacts,later,ref]=await Promise.all([sourceAttempt(e.run,e.attempt,e.selection),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),collection(`actions/runs/${e.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${sha}`,'workflow_runs'),api('git/ref/heads/main')]);
   const relevant=later.filter(r=>isRequiredValidationRun(r,e.selection));
   for(const r of relevant.filter(r=>Date.parse(r.created_at)>Date.parse(run.created_at)&&r.conclusion!=='success'))r.jobs=await collection(`actions/runs/${r.id}/attempts/${r.run_attempt}/jobs`,'jobs');
-  const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{mediaRepair:true,browserRepair:repairKind(files)==='browser-fixture'});
+  const kind=repairKind(files);
+  const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{mediaRepair:true,browserRepair:['browser-fixture','browser-publication'].includes(kind)});
+  let completedBrowserArtifact;
+  if(kind==='browser-publication') {
+    const accepted=BROWSER_REPAIR_ACCEPTANCE,selection={browserRepair:true};
+    const [acceptedRun,acceptedJobs,acceptedArtifacts,acceptedLater]=await Promise.all([
+      sourceAttempt(accepted.run,accepted.attempt,selection),collection(`actions/runs/${accepted.run}/attempts/${accepted.attempt}/jobs`,'jobs'),
+      collection(`actions/runs/${accepted.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${accepted.publicationSha}`,'workflow_runs'),
+    ]);
+    completedBrowserArtifact=assertCompletedBrowserRepair({run:acceptedRun,jobs:acceptedJobs,artifacts:acceptedArtifacts});
+    assertRepairAcceptance(acceptedJobs,accepted.publicationSha,repairDelta(sha,accepted.publicationSha,base));
+    for(const later of acceptedLater.filter(r=>String(r.id)!==accepted.run&&isRequiredValidationRun(r,selection)&&Date.parse(r.created_at)>Date.parse(acceptedRun.created_at))) {
+      assert.equal(later.status,'completed','Later repaired browser validation is unresolved');assert.equal(later.conclusion,'success','Later repaired browser failure blocks publication');
+    }
+  }
   assert(selected.every(a=>Date.parse(a.expires_at)>Date.now()),'Expired repair source');
   // Any newer attempt at the repair head must also be accounted for.
   const currentRuns=await collection(`actions/runs?head_sha=${head}`,'workflow_runs');
@@ -109,7 +128,7 @@ export async function verifyRepairSource(env=process.env,{complete=false}={}) {
     assertRepairAcceptance(rs,head,files);
   }
   if(complete)assertRepairAcceptance(await collection(`actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs`,'jobs'),head,files);
-  return {expected:e,files,artifacts:selected};
+  return {expected:e,files,artifacts:selected,completedBrowserArtifact};
 }
 export async function discoverRepairSource(env=process.env) {
   // Only main's own completed run, still within the unpublished range. No

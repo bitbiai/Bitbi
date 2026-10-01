@@ -15,6 +15,19 @@ export const BROWSER_REPAIR = Object.freeze({
   reportHash:'77dc56899e75f19a0f404471471b4dbd0dd4d626c6e12b4a1d84ac1ca05aaeaa',
   casesHash:'045ae4436a774d504b4dad44a41bdb784b45c649d484a77ff5356b0205a2dcda',
 });
+// The next failure was deployment admission, after all remaining browser cases
+// passed. Reuse that immutable proof for the closed, tooling-only correction.
+export const BROWSER_REPAIR_ACCEPTANCE=Object.freeze({
+  publicationSha:'db158dfebc4b7ee88059f2a83a74737766efebbf',run:'36919040626',attempt:'1',
+  artifact:11190838786,archiveHash:'721a3c6e815bdd8726710ddd5480c612ac18195be2b52a340218390411e5da3b',
+});
+export const BROWSER_PUBLICATION_FILES=new Set([
+  'scripts/lib/media-publication.mjs','scripts/test-media-auth-config.mjs','scripts/test-release-plan.mjs',
+  'scripts/lib/browser-fixture-repair.mjs','scripts/test-browser-fixture-repair.mjs',
+  'scripts/lib/media-repair-source.mjs','scripts/lib/frontend-source.mjs','scripts/pages-candidate.mjs',
+  'scripts/test-pages-workflow.mjs','scripts/test-pages-candidate.mjs',
+  'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md',
+]);
 export const BROWSER_REPAIR_SPECS=Object.freeze({
   'tests/auth-admin.spec.js':[
     'ff1f46fd2c3f1945eb9684d93dc28fc7988a99d362a380c6d42ea3fe4fff5c10',
@@ -26,6 +39,7 @@ export const BROWSER_REPAIR_SPECS=Object.freeze({
   ],
 });
 export const BROWSER_REPAIR_FILES=new Set([
+  ...BROWSER_PUBLICATION_FILES,
   ...Object.keys(BROWSER_REPAIR_SPECS),'.github/workflows/static.yml',
   'scripts/lib/browser-fixture-repair.mjs','scripts/test-browser-fixture-repair.mjs',
   'scripts/lib/media-repair-source.mjs','scripts/lib/frontend-source.mjs',
@@ -47,6 +61,38 @@ export function assertBrowserRepairTrees(source,head) {
     assert.equal(browserHash(git(['show',`${source}:${file}`])),hashes[0],`Unreviewed original spec: ${file}`);
     assert.equal(browserHash(git(['show',`${head}:${file}`])),hashes[1],`Unreviewed repaired spec: ${file}`);
   }
+}
+export function assertBrowserPublicationTree(head) {
+  const source=BROWSER_REPAIR_ACCEPTANCE.publicationSha;
+  git(['merge-base','--is-ancestor',source,head]);
+  const entries=sha=>git(['ls-tree','-rz',sha]).toString().split('\0').filter(Boolean).map(line=>{const [identity,file]=line.split('\t');return{identity,file};});
+  const before=entries(source),after=entries(head);
+  assert.deepEqual(after.filter(r=>!BROWSER_PUBLICATION_FILES.has(r.file)),before.filter(r=>!BROWSER_PUBLICATION_FILES.has(r.file)),'Completed browser acceptance inputs changed');
+  for(const row of after.filter(r=>BROWSER_PUBLICATION_FILES.has(r.file)))assert(/^100(?:644|755) blob [a-f0-9]{40}$/.test(row.identity),'Publication repair requires regular Git files');
+}
+export function assertCompletedBrowserRepair({run,jobs,artifacts}) {
+  const expected=BROWSER_REPAIR_ACCEPTANCE;
+  assert.equal(run.repository?.full_name,'bitbiai/Bitbi');assert.equal(run.head_repository?.full_name,'bitbiai/Bitbi');
+  assert.equal(String(run.id),expected.run);assert.equal(String(run.run_attempt),expected.attempt);assert.equal(run.head_sha,expected.publicationSha);
+  assert.equal(run.head_branch,'main');assert.equal(run.path,'.github/workflows/static.yml');assert.equal(run.event,'push');
+  assert.equal(run.status,'completed');assert.equal(run.conclusion,'failure','Original deployment failure must remain failed');
+  const byName=name=>{const matches=jobs.filter(j=>j.name===name);assert.equal(matches.length,1,`Missing/ambiguous completed repair job ${name}`);const job=matches[0];assert.equal(job.head_sha,expected.publicationSha);assert.equal(job.status,'completed');return job;};
+  assert.equal(byName('release-compatibility').conclusion,'success');
+  for(const name of ['worker-validation','homepage-validation'])assert.equal(byName(name).conclusion,'skipped','Upstream evidence comes from the original source');
+  const browser=byName('browser-validation');assert.equal(browser.conclusion,'success');let prior=-1;
+  for(const name of ['Install carousel browser matrix','Restore unchanged browser repair candidate','Restore exact candidate static site','Run repaired browser acceptance','Confirm tested browser candidate bytes','Upload tested browser candidate identity']) {
+    const matches=browser.steps.filter(s=>s.name===name);assert.equal(matches.length,1,`Missing completed browser step ${name}`);
+    const step=matches[0];assert.equal(step.status,'completed');assert.equal(step.conclusion,'success');const index=browser.steps.indexOf(step);assert(index>prior,'Completed browser preparation/proof order changed');prior=index;
+  }
+  const deploy=byName('deploy');assert.equal(deploy.conclusion,'failure');
+  assert.deepEqual(deploy.steps.filter(s=>s.conclusion==='failure').map(s=>s.name),['Apply verified candidate backend prerequisites']);
+  for(const name of ['Preserve backend activation evidence','Deploy and verify Cloudflare frontend','Record durable frontend receipt'])assert(deploy.steps.some(s=>s.name===name&&s.status==='completed'&&s.conclusion==='skipped'),'Unexpected prior activation evidence');
+  assert(jobs.filter(j=>j.name!=='deploy').every(j=>['success','skipped'].includes(j.conclusion)),'Unrelated completed-source failure');
+  const name=`pages-proof-browser-validation-${expected.publicationSha}-${expected.run}-${expected.attempt}`;
+  const found=artifacts.filter(a=>a.name===name);assert.equal(found.length,1,'Missing/ambiguous completed browser proof');
+  const a=found[0];assert.equal(a.id,expected.artifact);assert.equal(a.digest,`sha256:${expected.archiveHash}`);assert.equal(a.expired,false);assert(Date.parse(a.expires_at)>Date.now());assert(a.size_in_bytes>0);
+  assert.equal(a.workflow_run?.id,Number(expected.run));assert.equal(a.workflow_run?.head_sha,expected.publicationSha);
+  return a;
 }
 export function assertBrowserSourceIdentity(expected) {
   for(const key of ['sha','run','attempt'])assert.equal(String(expected[key]),BROWSER_REPAIR[key],`Different browser repair ${key}`);

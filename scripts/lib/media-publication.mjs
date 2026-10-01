@@ -16,6 +16,14 @@ export function assertMediaAuthConfig(before,after) {
   // Only the reviewed privacy reduction is permitted; no other logging/config drift.
   assert.equal(next.observability?.logs?.invocation_logs,false,'Private media requires invocation logs disabled');
   previous.observability.logs.invocation_logs=false;
+  // The reviewed assistant release adds an explicit off switch only. Existing
+  // disabled releases remain valid; activation, removal and unknown values do not.
+  const assistantGate='WEBSITE_ASSISTANT_ENABLED';
+  if(Object.hasOwn(previous.vars,assistantGate)||Object.hasOwn(next.vars,assistantGate)) {
+    assert.equal(next.vars[assistantGate],'false','Website assistant publication requires explicitly disabled inference');
+    assert(!Object.hasOwn(previous.vars,assistantGate)||previous.vars[assistantGate]==='false','Unreviewed previous website assistant configuration');
+    previous.vars[assistantGate]='false';
+  }
   assert.deepEqual(next,previous,'Unreviewed Auth configuration change');
   assert.deepEqual(after.services.filter(s=>s.binding==='PRIVATE_MEDIA_PROCESSOR'),[{binding:'PRIVATE_MEDIA_PROCESSOR',service:'bitbi-private-media'}]);
 }

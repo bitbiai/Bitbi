@@ -1,5 +1,5 @@
 import { repairDelta, repairKind, verifyRepairSource } from './media-repair-source.mjs';
-import { verifyBrowserRepairProof } from './browser-fixture-repair.mjs';
+import { BROWSER_REPAIR_ACCEPTANCE, verifyBrowserRepairProof } from './browser-fixture-repair.mjs';
 // Read-only GitHub provenance and archive verification shared by preparation
 // and the immediately-before-upload boundary. No local JSON grants CI trust.
 import assert from 'node:assert/strict';
@@ -23,9 +23,10 @@ export function sourceExpectation(preview, env=process.env) {
 }
 export async function sourceArchives(preview, env=process.env) {
   const e=sourceExpectation(preview,env);
-  const browserRepair=Boolean(env.REPAIR_SOURCE_SHA&&repairKind(repairDelta(env.REPAIR_SOURCE_SHA,env.GITHUB_SHA,env.CANDIDATE_BASE))==='browser-fixture');
-  const preparation=browserRepair&&['release-compatibility','browser-validation'].includes(env.GITHUB_JOB);
-  if(env.REPAIR_SOURCE_SHA)await verifyRepairSource(env,{complete:env.GITHUB_JOB==='deploy'});
+  const kind=env.REPAIR_SOURCE_SHA&&repairKind(repairDelta(env.REPAIR_SOURCE_SHA,env.GITHUB_SHA,env.CANDIDATE_BASE));
+  const browserRepair=['browser-fixture','browser-publication'].includes(kind),completedBrowser=kind==='browser-publication';
+  const preparation=browserRepair&&!completedBrowser&&['release-compatibility','browser-validation'].includes(env.GITHUB_JOB);
+  const repairSource=env.REPAIR_SOURCE_SHA?await verifyRepairSource(env,{complete:env.GITHUB_JOB==='deploy'}):null;
   const [run,jobs,artifacts,laterRuns,ref]=await Promise.all([
     sourceAttempt(e.run,e.attempt,e.selection),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),
     collection(`actions/runs/${e.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${e.sha}`,'workflow_runs'),
@@ -35,7 +36,10 @@ export async function sourceArchives(preview, env=process.env) {
   for(const later of relevant.filter(r=>String(r.id)!==String(e.currentRun)&&Date.parse(r.created_at)>Date.parse(run.created_at)&&r.conclusion!=='success'))later.jobs=await collection(`actions/runs/${later.id}/attempts/${later.run_attempt}/jobs`,'jobs');
   const currentPublication=!preview && env.GITHUB_ACTIONS==='true' && env.GITHUB_JOB==='deploy' && env.GITHUB_REF==='refs/heads/main' && e.run===env.GITHUB_RUN_ID;
   const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{previewBranch:preview?e.branch:undefined,currentPublication,mediaRepair:Boolean(env.REPAIR_SOURCE_SHA),browserRepair});
-  if(browserRepair&&!preparation) {
+  if(completedBrowser) {
+    assert(repairSource.completedBrowserArtifact,'Missing authenticated completed browser acceptance');
+    selected.push(repairSource.completedBrowserArtifact);
+  } else if(browserRepair&&!preparation) {
     assert.equal(env.GITHUB_JOB,'deploy','Composite repair source is publication-only');
     const fresh=await collection(`actions/runs/${env.GITHUB_RUN_ID}/artifacts`,'artifacts');
     const name=`pages-proof-browser-validation-${env.GITHUB_SHA}-${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}`;
@@ -71,7 +75,7 @@ with zipfile.ZipFile(sys.argv[1]) as z:
    with target.open('xb') as f:f.write(z.read(e))
 `,file,unpack],{stdio:'pipe',timeout:30000});
     }
-    return {expected:e,selected,temporary,unpack,browserRepair,preparation};
+    return {expected:e,selected,temporary,unpack,browserRepair,preparation,completedBrowser};
   }catch(error){fs.rmSync(temporary,{recursive:true,force:true});throw error;}
 }
 export async function verifyUploadSource({preview=false,download=false}={}) {
@@ -94,7 +98,7 @@ export async function verifyUploadSource({preview=false,download=false}={}) {
       }
     } else {
       verifyProofs(manifest,proofs);
-      if(source.browserRepair)verifyBrowserRepairProof(proofs.find(p=>p.job==='browser-validation'),manifest,{publicationSha:process.env.GITHUB_SHA,run:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT});
+      if(source.browserRepair)verifyBrowserRepairProof(proofs.find(p=>p.job==='browser-validation'),manifest,source.completedBrowser?BROWSER_REPAIR_ACCEPTANCE:{publicationSha:process.env.GITHUB_SHA,run:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT});
     }
     assert.equal((await api(`git/ref/heads/${source.expected.branch.split('/').map(encodeURIComponent).join('/')}`)).object.sha,source.expected.publicationSha||source.expected.sha,'Branch advanced during archive verification');
     assert.deepEqual(sourceExpectation(preview),source.expected,'Local source changed during verification');

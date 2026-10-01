@@ -161,7 +161,7 @@ export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected,
   if(mediaRepair){assert(!previewBranch&&!currentPublication);repairDelta(expected.sha,expected.publicationSha,expected.base);}
   if(browserRepair) {
     assert(mediaRepair,'Browser continuation requires verified repair ancestry');
-    assert.equal(repairKind(repairDelta(expected.sha,expected.publicationSha,expected.base)),'browser-fixture');
+    assert(['browser-fixture','browser-publication'].includes(repairKind(repairDelta(expected.sha,expected.publicationSha,expected.base))));
     assertBrowserSourceIdentity(expected);assertBrowserReportArtifact(artifacts);
   }
   if(historicalActivation) {

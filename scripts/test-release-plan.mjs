@@ -827,22 +827,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  assert.deepEqual(actions,['current','schema-read','current','active-read'],'Repeated same candidate verifies without another migration/Auth deploy');
 }
 
-{
- const {assertMediaAuthConfig}=await import('./lib/media-publication.mjs');
- const before=JSON.parse(fs.readFileSync(path.join(repoRoot,'workers/auth/wrangler.jsonc')));
- const after=structuredClone(before);delete before.vars.PRIVATE_MEDIA_SOURCE_SHA;before.services=before.services.filter(s=>s.binding!=='PRIVATE_MEDIA_PROCESSOR');before.secrets.required=before.secrets.required.filter(s=>s!=='PRIVATE_MEDIA_PROCESSOR_SECRET');
- assertMediaAuthConfig(before,after);
- const loggingBefore=structuredClone(before);loggingBefore.observability.logs.invocation_logs=true;
- assertMediaAuthConfig(loggingBefore,after);
- const unsafeLogs=structuredClone(after);unsafeLogs.observability.logs.invocation_logs=true;
- assert.throws(()=>assertMediaAuthConfig(before,unsafeLogs),/invocation logs disabled/);
- const alteredLogs=structuredClone(after);alteredLogs.observability.logs.enabled=false;
- assert.throws(()=>assertMediaAuthConfig(before,alteredLogs),/Unreviewed Auth/);
- const invalid=structuredClone(after);invalid.routes=[];assert.throws(()=>assertMediaAuthConfig(before,invalid),/Unreviewed Auth/);
- const media=createReleasePlanFromRepo(repoRoot,{files:['workers/media/src/index.js','workers/auth/wrangler.jsonc','workers/auth/migrations/0089_add_private_media_services.sql','admin/index.html']});
- const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');assert(backendContinuationSupported(media));
- assert.equal(media.schemaApplies[0].checkpoint,'auth');
-}
+await import('./test-media-auth-config.mjs');
 
 {
  const {verifyMediaEvidence}=await import('./lib/media-publication.mjs');

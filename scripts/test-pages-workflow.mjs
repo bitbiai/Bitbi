@@ -219,6 +219,16 @@ function requiresBrowserRepairContinuation(source) {
   return repair;
 }
 const repairCaller=requiresBrowserRepairContinuation(standard);
+// A publication-only correction has complete original + repaired browser proof.
+// The existing job conditions must not execute any completed product suite.
+{
+  const outputs={homepage:'false',carousel:'false',assets:'false',workers:'false',auth:'false',full:'false',browser_repair:'false',backend_continuation:'true'};
+  const condition=name=>job(standard,name).match(/^    if: \$\{\{ (.+) \}\}$/m)[1].replace(/needs\.([a-z][\w-]*)/g,(_,name)=>`needs['${name}']`);
+  const context={cancelled:()=>false,github:{ref:'refs/heads/main',event_name:'push',event:{inputs:{}}},needs:{'release-compatibility':{result:'success',outputs},'worker-validation':{result:'skipped'},'homepage-validation':{result:'skipped'},'browser-validation':{result:'skipped'},'reuse-candidate':{result:'skipped'}}};
+  for(const name of ['worker-validation','homepage-validation','browser-validation'])assert.equal(Boolean(vm.runInNewContext(condition(name),context,{timeout:100})),false,`Completed ${name} must not repeat`);
+  assert.equal(Boolean(vm.runInNewContext(condition('deploy'),context,{timeout:100})),true,'Verified complete evidence must reach protected publication');
+  context.needs['release-compatibility'].result='failure';assert.equal(Boolean(vm.runInNewContext(condition('deploy'),context,{timeout:100})),false,'Changed release guard failure still blocks publication');
+}
 assert.throws(()=>requiresBrowserRepairContinuation(standard.replace(repairCaller.source,repairCaller.source.replace('node scripts/pages-candidate.mjs repair-browser','echo missing repair'))),/must execute/);
 const browserAuthStep=steps(job(standard,'browser-validation')).find(step=>step.name==='Run selected auth and admin tests');
 assert.throws(()=>requiresBrowserRepairContinuation(standard.replace(browserAuthStep.source,browserAuthStep.source.replace("needs.release-compatibility.outputs.browser_repair != 'true' && ",''))),/must not repeat/);
