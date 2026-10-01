@@ -28,6 +28,12 @@ const STATIC_BUILD_RELATED_FILES = new Set([
 
 // Keep this aligned with the shared Worker impact map in release-plan.mjs.
 const SHARED_WORKER_FILE_MAP = new Map([
+  ['config/website-assistant.json', ['auth']],
+  ['workers/shared/website-assistant-knowledge.mjs', ['auth']],
+  ['workers/shared/website-assistant-content.mjs', ['auth']],
+  ['workers/shared/website-assistant-version.mjs', ['auth']],
+  ['workers/shared/website-assistant-contract-version.mjs', ['auth']],
+  ['js/shared/website-assistant-context.mjs', ['auth']],
   ['js/shared/canvas-export.mjs', ['auth']],
   ["js/shared/appearance-contract.js", ["auth"]],
   ["js/shared/model-pricing-catalog.mjs", ["auth"]],
@@ -46,6 +52,26 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ["js/shared/remote-media-policy.mjs", ["auth"]],
   ["js/shared/request-body.mjs", ["auth", "ai", "contact"]],
   ["js/shared/worker-observability.mjs", ["auth", "ai", "contact"]],
+]);
+
+const WEBSITE_ASSISTANT_FILES = new Set([
+  'config/website-assistant.json', 'config/website-assistant-sources.json',
+  'workers/shared/website-assistant-knowledge.mjs', 'workers/shared/website-assistant-version.mjs',
+  'workers/shared/website-assistant-content.mjs',
+  'workers/shared/website-assistant-contract-version.mjs', 'js/shared/website-assistant-context.mjs',
+  'js/shared/website-assistant.js', 'css/components/website-assistant.css', 'tests/website-assistant.spec.js',
+  'workers/auth/src/routes/website-assistant.js', 'workers/auth/src/lib/website-assistant-policy.js',
+  'workers/auth/src/lib/website-assistant-provider.js', 'workers/auth/src/lib/website-assistant-budget.js',
+  'workers/auth/src/lib/website-assistant-control.js', 'tests/website-assistant-control.test.mjs',
+  'js/pages/admin/website-assistant.js', 'css/admin/website-assistant.css', 'tests/admin-website-assistant.spec.js',
+  'tests/website-assistant-budget.test.mjs', 'tests/website-assistant-knowledge.test.mjs',
+  'tests/website-assistant-build.test.mjs',
+  'tests/website-assistant-provider.test.mjs', 'tests/website-assistant-route.test.mjs',
+  'tests/website-assistant-runtime.mjs', 'tests/helpers/website-assistant-control.mjs',
+  'tests/helpers/website-assistant-fixture.mjs', 'tests/helpers/website-assistant-policy.mjs',
+  'tests/helpers/website-assistant-http-fixture.mjs',
+  'tests/fixtures/website-assistant/questions.json', 'scripts/check-website-assistant-knowledge.mjs',
+  'scripts/check-website-assistant-contract.mjs',
 ]);
 
 const STATIC_PREFIXES = [
@@ -927,6 +953,16 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       if (sharedWorkerIds.includes("auth")) {
         addReason(selection, "auth", file, "changes a shared auth Worker contract");
       }
+    }
+
+    if (WEBSITE_ASSISTANT_FILES.has(file)) {
+      addReason(selection, 'homepage', file, 'executes public assistant UI through the existing homepage core command');
+      if (!['js/shared/website-assistant.js', 'css/components/website-assistant.css', 'tests/website-assistant.spec.js',
+        'js/pages/admin/website-assistant.js', 'css/admin/website-assistant.css', 'tests/admin-website-assistant.spec.js'].includes(file)) {
+        addReason(selection, 'workers', file, 'executes assistant admission, knowledge and native durable limits through the existing Worker chain');
+      }
+      if (isStaticSource(file)) addReason(selection, 'static', file, 'public assistant source');
+      continue;
     }
 
     if (isMemberModelFastDeployPath(file)) {

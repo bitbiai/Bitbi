@@ -68,6 +68,13 @@ path, line and rule. Keep the independent CI secret step and its detection rules
 
 ## CI repair and required acceptance
 
+The website assistant and `/admin/#website-assistant` publish through this same
+Auth → frontend path with inference off. Model access does not block the disabled
+release; activation still requires genuine access, pricing/terms, explicit spending
+approval and EN/DE acceptance. Settings never reset its durable budget. See
+[Website assistant](WEBSITE_ASSISTANT.md) for knowledge preview/recovery, scoped
+disable and focused checks; fixture success does not authorize activation.
+
 Use this procedure when the assignment explicitly requires CI repair through final
 acceptance or publication. Ordinary commit/push still ends after local checks and a
 confirmed foreground push, with at most one immediate CI snapshot and unverified

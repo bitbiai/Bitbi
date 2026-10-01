@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "model": "@cf/swiss-ai/apertus-v1.5-8b",
+  "accessConfirmed": false,
+  "processingTermsReviewed": false,
+  "euOnlyRequired": false,
+  "pricing": null,
+  "spendingApproval": null,
+  "acceptance": null,
+  "limits": {
+    "inputChars": 2000,
+    "historyMessages": 6,
+    "historyChars": 6000,
+    "outputTokens": 512,
+    "outputChars": 8000,
+    "requestsPerMinute": 6,
+    "dailyRequests": 100,
+    "concurrentRequests": 2,
+    "timeoutMs": 30000
+  }
+}

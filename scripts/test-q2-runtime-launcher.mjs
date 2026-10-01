@@ -355,6 +355,8 @@ test('default native runtime plan stages every actual suite and control input', 
   }
   assert.equal(runtimeSuites.find(([name])=>name==='model-status')[1],
     (await import('../tests/admin-model-status-runtime.mjs')).runModelStatusTests);
+  assert.equal(runtimeSuites.find(([name])=>name==='website-assistant')[1],
+    (await import('../tests/website-assistant-runtime.mjs')).runWebsiteAssistantTests);
   const controls = [...new Set(runtimeSuites.filter(([, , options]) => !options.referenceOnly)
     .map(([, , options]) => options.q4Control
       ? `tests/helpers/${options.q4Control}` : 'tests/helpers/q2-runtime/control.mjs'))];
@@ -378,6 +380,7 @@ test('default native runtime plan stages every actual suite and control input', 
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-fixture.mjs',
     'tests/helpers/q4-subscription-payloads.cjs', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs',
     'tests/helpers/elevenlabs-member-control.mjs', 'tests/helpers/canvas-contributors-control.mjs', 'workers/ai/src/routes/music.js',
+    'tests/website-assistant-runtime.mjs', 'tests/helpers/website-assistant-policy.mjs',
     'js/shared/flux-2-max-identity.mjs',
   ]) {
     assert.ok(imports.includes(filename), `Actual resolved graph includes ${filename}`);
@@ -562,9 +565,12 @@ test('focused native scopes dispatch through the actual child and preserve bound
   assert.equal(parseRuntimeArgs(['--suite','canvas'],{}).suite,'canvas');
   assert.deepEqual(selectedRuntimeSuites('q4-stream').map(([name])=>name),['q4-stream']);
   assert.equal(parseRuntimeArgs(['--suite','q4-stream'],{}).suite,'q4-stream');
+  assert.deepEqual(selectedRuntimeSuites('website-assistant').map(([name])=>name),['website-assistant']);
+  assert.equal(parseRuntimeArgs(['--suite','website-assistant'],{}).suite,'website-assistant');
   assert.throws(()=>selectedRuntimeSuites('unknown'));
   const bootstrap=read('tests/helpers/q2-runtime/linux-bootstrap.py');
-  assert.match(bootstrap,/choices=\["member-generation", "model-status", "model-pricing", "appearance", "canvas", "q4-stream"\]/);
+  assert.match(bootstrap,/choices=\["member-generation", "model-status", "model-pricing", "appearance", "canvas", "q4-stream", "website-assistant"\]/);
+  assert.match(bootstrap,/"website-assistant-result.json"/);
   // Execute the unchanged child module with synthetic process/import boundaries.
   // This checks dispatch ordering, not Linux kernel isolation (required in CI).
   const child = spawnSync(process.execPath, ['--experimental-vm-modules', '--input-type=module', '-e', `
@@ -572,7 +578,7 @@ test('focused native scopes dispatch through the actual child and preserve bound
     import {readFileSync} from 'node:fs';
     import {SourceTextModule,SyntheticModule,createContext} from 'node:vm';
     const source=readFileSync('tests/helpers/q2-runtime/linux-runtime-child.mjs','utf8');
-    for(const suite of [undefined,'member-generation','model-status','model-pricing','appearance','canvas','q4-stream','unknown','',null,false]) {
+    for(const suite of [undefined,'member-generation','model-status','model-pricing','appearance','canvas','q4-stream','website-assistant','unknown','',null,false]) {
       for(const fault of [null,'platform','uid','gid']) {
         const calls=[], context=createContext({process:{platform:fault==='platform'?'darwin':'linux',
           getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
@@ -585,7 +591,7 @@ test('focused native scopes dispatch through the actual child and preserve bound
           const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [k,v]of Object.entries(modules[name]))this.setExport(k,v);},{context});
           await m.link(()=>{});await m.evaluate();return m;};
         const m=new SourceTextModule(source,{context,importModuleDynamically:load});await m.link(load);
-        if(!fault && [undefined,null,'member-generation','model-status','model-pricing','appearance','canvas','q4-stream'].includes(suite)) {
+        if(!fault && [undefined,null,'member-generation','model-status','model-pricing','appearance','canvas','q4-stream','website-assistant'].includes(suite)) {
           await m.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);
         } else {
           await assert.rejects(m.evaluate());assert.ok(!calls.includes('./runner.mjs'));

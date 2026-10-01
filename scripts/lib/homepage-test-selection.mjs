@@ -3,11 +3,11 @@ import path from 'node:path';
 
 export const HOMEPAGE_CORE_FILES = Object.freeze([
   'audio-player.spec.js', 'canvas.spec.js', 'oma2-q1-canvas.spec.js',
-  'locale.spec.js', 'smoke.spec.js',
+  'locale.spec.js', 'smoke.spec.js', 'website-assistant.spec.js', 'admin-website-assistant.spec.js',
 ]);
 // Project capability is wider than the homepage-core caller: the Canvas/model
 // release also selects tagged Admin controls. Homepage-core keeps its own file
-// arguments, so it includes tagged smoke coverage, never the Admin spec.
+// arguments: tagged smoke plus the assistant control centre, not general Admin tests.
 export const CANVAS_WEBKIT_FILES = Object.freeze([
   'canvas.spec.js', 'oma2-q1-canvas.spec.js', 'auth-admin.spec.js', 'smoke.spec.js', 'oma2-q1-member.spec.js',
 ]);
@@ -23,7 +23,8 @@ export function homepageCoreArguments(scripts) {
 
 export function verifyHomepageCoreDiscovery(core, standard) {
   assert(Array.isArray(core) && core.length > 0, 'homepage-core: no tests discovered');
-  const projects = {chromium: HOMEPAGE_CORE_FILES, 'webkit-canvas': HOMEPAGE_CORE_WEBKIT_FILES};
+  const projects = {chromium: HOMEPAGE_CORE_FILES, 'webkit-canvas': HOMEPAGE_CORE_WEBKIT_FILES,
+    'webkit-assistant': ['website-assistant.spec.js', 'admin-website-assistant.spec.js']};
   const expected = standard.filter(test => projects[test.project]?.includes(test.file));
   for (const [project, files] of Object.entries(projects)) {
     for (const file of files) {

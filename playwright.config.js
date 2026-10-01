@@ -17,6 +17,7 @@ module.exports = defineConfig({
     trace: 'on-first-retry',
   },
   projects: [
+    { name: 'webkit-assistant', testMatch: ['**/website-assistant.spec.js', '**/admin-website-assistant.spec.js'], use: { browserName: 'webkit' } },
     {
       name: 'chromium',
       use: { browserName: 'chromium' },

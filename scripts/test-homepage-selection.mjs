@@ -13,7 +13,8 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 const fixture = (file, project, index) => ({ file, project, title: `case ${index}`, expectedStatus: 'passed', tags: [] });
 const coreFixtures = [...HOMEPAGE_CORE_FILES.map(file => fixture(file, 'chromium', 0)),
-  ...HOMEPAGE_CORE_WEBKIT_FILES.map(file => fixture(file, 'webkit-canvas', 0))];
+  ...HOMEPAGE_CORE_WEBKIT_FILES.map(file => fixture(file, 'webkit-canvas', 0)),
+  ...['website-assistant.spec.js', 'admin-website-assistant.spec.js'].map(file => fixture(file, 'webkit-assistant', 0))];
 assert.deepEqual(HOMEPAGE_CORE_WEBKIT_FILES, ['canvas.spec.js', 'oma2-q1-canvas.spec.js', 'smoke.spec.js']);
 const adminFixture = fixture('auth-admin.spec.js', 'webkit-canvas', 0);
 assert.throws(() => verifyHomepageCoreDiscovery([...coreFixtures, adminFixture], [...coreFixtures, adminFixture]), /lost or added/);
@@ -32,6 +33,9 @@ for (const script of ['', 'npm run test:static', coreScript + ' && echo hidden',
   assert.throws(() => homepageCoreArguments({'test:homepage-core': script}), /direct homepage-core/);
 }
 const standardConfig = require(path.join(root, 'playwright.config.js'));
+const assistantProject = standardConfig.projects.find(project => project.name === 'webkit-assistant');
+assert.equal(assistantProject?.use.browserName, 'webkit');
+assert.deepEqual(assistantProject.testMatch, ['**/website-assistant.spec.js', '**/admin-website-assistant.spec.js']);
 const canvasProject = standardConfig.projects.find(project => project.name === 'webkit-canvas');
 assert.equal(canvasProject?.use.browserName, 'webkit');
 assert.deepEqual(canvasProject.testMatch, CANVAS_WEBKIT_FILES.map(file => '**/' + file));

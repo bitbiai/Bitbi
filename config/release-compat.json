@@ -36,8 +36,9 @@
       "auth": {
         "name": "bitbi-auth",
         "wranglerPath": "workers/auth/wrangler.jsonc",
-        "vars": ["APP_BASE_URL", "APP_ALLOWED_ORIGINS", "RESEND_FROM_EMAIL", "BITBI_ENV", "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET", "ENABLE_GROK_4_6", "CLOUDFLARE_ACCOUNT_ID"],
+        "vars": ["APP_BASE_URL", "APP_ALLOWED_ORIGINS", "RESEND_FROM_EMAIL", "BITBI_ENV", "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET", "ENABLE_GROK_4_6", "CLOUDFLARE_ACCOUNT_ID", "WEBSITE_ASSISTANT_ENABLED"],
         "expectedVars": {
+          "WEBSITE_ASSISTANT_ENABLED": "false",
           "APP_BASE_URL": "https://bitbi.ai",
           "APP_ALLOWED_ORIGINS": "https://bitbi.ai,https://van-ark.com",
           "RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>",

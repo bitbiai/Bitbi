@@ -1,0 +1,45 @@
+/* Assistant stays inside the existing nonmodal Help panel. */
+.website-assistant {
+    color: var(--theme-ink);
+    background: var(--theme-surface);
+    border: 1px solid var(--theme-line-strong);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    margin-block-end: 1rem;
+    font: 0.875rem/1.5 var(--font-body);
+    overflow-wrap: anywhere;
+    min-inline-size: 0;
+}
+.website-assistant[hidden], .website-assistant [hidden] { display: none !important; }
+.website-assistant__title { margin: 0; font-size: 1.2rem; color: var(--theme-ink); }
+.website-assistant__badge { color: var(--theme-accent); font-size: 0.75rem; font-weight: 700; }
+.website-assistant__greeting { margin-block: 0.65rem 0.25rem; }
+.website-assistant__notice { margin-block: 0.65rem 0.25rem; color: var(--theme-muted); font-size: 0.8rem; }
+.website-assistant a { color: var(--theme-accent); text-decoration: underline; text-underline-offset: 0.15em; }
+.website-assistant__privacy { display: inline-flex; align-items: center; min-block-size: 2.75rem; font-size: 0.8rem; }
+.website-assistant__suggestions { display: grid; gap: 0.45rem; margin-block: 0.5rem 1rem; }
+.website-assistant button { min-block-size: 2.75rem; border: 1px solid var(--theme-line-strong); border-radius: var(--radius-sm); padding: 0.5rem 0.7rem; font: inherit; cursor: pointer; background: var(--theme-raised); color: var(--theme-ink); }
+.website-assistant button:hover { border-color: var(--theme-accent); }
+.website-assistant button:disabled { opacity: 0.65; cursor: wait; }
+.website-assistant__suggestion { text-align: start; inline-size: 100%; }
+.website-assistant__messages { list-style: none; margin: 0; padding: 0; }
+.website-assistant__message { padding: 0.7rem; margin-block-end: 0.6rem; border-radius: var(--radius-sm); background: var(--theme-inset); }
+.website-assistant__message--assistant { border-inline-start: 2px solid var(--theme-accent); }
+.website-assistant__speaker { font-size: 0.75rem; color: var(--theme-muted); }
+.website-assistant__copy { margin-block: 0.3rem 0; white-space: pre-wrap; }
+.website-assistant__sources { display: flex; flex-direction: column; gap: 0.4rem; margin-block-start: 0.65rem; font-size: 0.8rem; }
+.website-assistant__sources a { min-block-size: 2.75rem; display: flex; align-items: center; }
+.website-assistant__label { display: block; font-weight: 600; margin-block: 0.6rem 0.35rem; }
+.website-assistant__input { display: block; inline-size: 100%; min-block-size: 5rem; max-block-size: 12rem; resize: vertical; border: 1px solid var(--theme-line-strong); border-radius: var(--radius-sm); background: var(--theme-inset); color: var(--theme-ink); padding: 0.65rem; font: 1rem/1.5 var(--font-body); }
+.website-assistant__input::placeholder { color: var(--theme-muted); }
+.website-assistant__actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-block-start: 0.5rem; }
+.website-assistant .website-assistant__send { background: var(--theme-accent); color: var(--theme-on-accent); border-color: var(--theme-accent); }
+.website-assistant__clear { margin-inline-start: auto; }
+.website-assistant__status { min-block-size: 1.5em; margin-block: 0.5rem 0; color: var(--theme-muted); font-size: 0.8rem; }
+.website-assistant :is(button, a, textarea):focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 3px; }
+@supports (height: 100dvh) { .help-menu__panel:has(.website-assistant:not([hidden])) { max-block-size: min(74dvh, 42rem); } }
+@media (max-width: 640px) {
+    .website-assistant { padding: 0.8rem; }
+    .website-assistant__clear { margin-inline-start: 0; }
+    @supports (height: 100dvh) { .help-menu__panel:has(.website-assistant:not([hidden])) { max-block-size: calc(100dvh - 6rem); } }
+}

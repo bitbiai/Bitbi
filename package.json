@@ -9,7 +9,7 @@
     "dev": "npx serve -l 3000",
     "test": "playwright test -c playwright.config.js && npm run test:workers",
     "test:static": "playwright test -c playwright.config.js",
-    "test:homepage-core": "playwright test -c playwright.config.js tests/audio-player.spec.js tests/canvas.spec.js tests/oma2-q1-canvas.spec.js tests/locale.spec.js tests/smoke.spec.js --project=chromium --project=webkit-canvas",
+    "test:homepage-core": "playwright test -c playwright.config.js tests/audio-player.spec.js tests/canvas.spec.js tests/oma2-q1-canvas.spec.js tests/locale.spec.js tests/smoke.spec.js tests/website-assistant.spec.js tests/admin-website-assistant.spec.js --project=chromium --project=webkit-canvas --project=webkit-assistant",
     "test:homepage-carousel": "playwright test -c playwright.carousel.config.js",
     "check:homepage-selection": "node scripts/check-homepage-selection.mjs",
     "test:homepage-selection": "node scripts/test-homepage-selection.mjs",
@@ -21,7 +21,7 @@
     "test:auth": "playwright test -c playwright.config.js tests/auth-admin.spec.js tests/wallet-nav.spec.js tests/locale.spec.js tests/oma2-q1-member.spec.js tests/oma2-q3- --project=chromium",
     "test:q3-integration": "playwright test -c playwright.workers.config.js tests/workers.spec.js tests/admin-ai-save-operations.spec.js --grep \"admin AI (save|image save|saves)\" --retries=0 && playwright test -c playwright.q3-integration.config.js",
     "test:q4-integration": "node scripts/check-media-tools.mjs && node scripts/check-q4-selection.mjs && playwright test -c playwright.workers.config.js tests/q4- --retries=0 && npm run test:homepage-ffmpeg-processor && npm run test:q2-runtime",
-    "test:workers": "node scripts/check-media-tools.mjs && node scripts/check-q4-selection.mjs && playwright test -c playwright.workers.config.js && npm run test:homepage-ffmpeg-processor && npm run test:q2-runtime",
+    "test:workers": "node scripts/check-media-tools.mjs && npm run test:website-assistant && node scripts/check-q4-selection.mjs && playwright test -c playwright.workers.config.js && npm run test:homepage-ffmpeg-processor && npm run test:q2-runtime",
     "test:q2-runtime": "node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs && node scripts/test-q2-runtime.mjs",
     "test:headed": "playwright test -c playwright.config.js --headed",
     "test:release-compat": "node scripts/test-release-compat.mjs",
@@ -111,7 +111,8 @@
     "release:rollback-drill": "node scripts/rollback-drill.mjs",
     "release:preflight": "node scripts/release-preflight.mjs",
     "release:apply": "node scripts/release-apply.mjs",
-    "test:frontend-hosting": "node scripts/test-frontend-hosting.mjs"
+    "test:frontend-hosting": "node scripts/test-frontend-hosting.mjs",
+    "test:website-assistant": "node scripts/check-website-assistant-knowledge.mjs && node scripts/check-website-assistant-contract.mjs && node --test tests/website-assistant*.test.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

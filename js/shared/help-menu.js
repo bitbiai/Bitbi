@@ -560,6 +560,21 @@ export function initHelpMenu() {
     document.body.append(root);
 
     let lastFocused = null;
+    let assistant = null;
+    let assistantLoading = null;
+
+    function openAssistant() {
+        if (routeKey === 'admin') return;
+        if (assistant) { assistant.open(); return; }
+        if (assistantLoading) return;
+        assistantLoading = import('./website-assistant.js?v=__ASSET_VERSION__')
+            .then(({ initWebsiteAssistant }) => {
+                if (!isOpen()) return;
+                assistant = initWebsiteAssistant({ container: body });
+            })
+            .catch(() => { /* Static public help remains available. */ })
+            .finally(() => { assistantLoading = null; });
+    }
 
     function isOpen() {
         return root.classList.contains('is-open') && !panel.hidden;
@@ -571,6 +586,7 @@ export function initHelpMenu() {
         panel.hidden = false;
         root.classList.add('is-open');
         trigger.setAttribute('aria-expanded', 'true');
+        openAssistant();
         requestAnimationFrame(() => title.focus({ preventScroll: true }));
     }
 
@@ -579,6 +595,7 @@ export function initHelpMenu() {
         root.classList.remove('is-open');
         panel.hidden = true;
         trigger.setAttribute('aria-expanded', 'false');
+        assistant?.close();
         if (restoreFocus) {
             const focusTarget = lastFocused?.isConnected ? lastFocused : trigger;
             focusTarget.focus({ preventScroll: true });

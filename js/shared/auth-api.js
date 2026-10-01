@@ -2204,3 +2204,8 @@ export const apiAdminModelPricingChange = (body, options) => request('PATCH', '/
 export const apiAdminModelPricingSource = (body, options) => request('POST', '/admin/ai/model-pricing/source', body, options);
 export const apiAdminAppearance = options => request('GET', '/admin/appearance', undefined, options);
 export const apiAdminAppearanceChange = (body, options) => request('PATCH', '/admin/appearance', body, options);
+
+export const apiAdminWebsiteAssistant = options => request('GET', '/admin/website-assistant', undefined, options);
+export const apiAdminWebsiteAssistantSave = (body, options) => request('PUT', '/admin/website-assistant/config', body, options);
+export const apiAdminWebsiteAssistantRestore = (body, options) => request('POST', '/admin/website-assistant/restore', body, options);
+export const apiAdminWebsiteAssistantCheck = options => request('POST', '/admin/website-assistant/check', {}, options);

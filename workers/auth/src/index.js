@@ -1,4 +1,5 @@
 import { handleAppearance } from './routes/appearance.js';
+import { handleWebsiteAssistant } from './routes/website-assistant.js';
 import { handleModelPricing } from './routes/model-pricing.js';
 import { handleH3Callback } from './lib/minimax-h3-callback.js';
 import { handlePrivateMediaService } from './routes/private-media-service.js';
@@ -355,6 +356,20 @@ export default {
     const privateMedia=await handlePrivateMediaService(ctx);
     if(privateMedia)return privateMedia;
     if (pathname === "/api/health" && method === "GET") return handleHealth();
+    // route-policy: public.assistant.config
+    if (pathname === '/api/public/assistant/config' && method === 'GET') return handleWebsiteAssistant(ctx);
+    // route-policy: public.assistant.chat
+    if (pathname === '/api/public/assistant/chat' && method === 'POST') return handleWebsiteAssistant(ctx);
+    // route-policy: admin.website-assistant.acceptance
+    if (pathname === '/api/admin/website-assistant/acceptance' && method === 'POST') return handleWebsiteAssistant(ctx);
+    // route-policy: admin.website-assistant.read
+    if (pathname === '/api/admin/website-assistant' && method === 'GET') return handleWebsiteAssistant(ctx);
+    // route-policy: admin.website-assistant.update
+    if (pathname === '/api/admin/website-assistant/config' && method === 'PUT') return handleWebsiteAssistant(ctx);
+    // route-policy: admin.website-assistant.restore
+    if (pathname === '/api/admin/website-assistant/restore' && method === 'POST') return handleWebsiteAssistant(ctx);
+    // route-policy: admin.website-assistant.check
+    if (pathname === '/api/admin/website-assistant/check' && method === 'POST') return handleWebsiteAssistant(ctx);
     if (pathname.startsWith("/api/public/news-pulse/thumbs/") && method === "GET") return handlePublicNewsPulseThumb(ctx);
     if (pathname === "/api/public/news-pulse" && method === "GET") return handlePublicNewsPulse(ctx);
     if (pathname.startsWith("/api/homepage/hero-videos") && method === "GET") {

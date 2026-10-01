@@ -47,6 +47,12 @@ const AGENT_INSTRUCTION_FILES = new Set([
 ]);
 
 const SHARED_WORKER_FILE_MAP = Object.freeze({
+  'config/website-assistant.json': ['auth'],
+  'workers/shared/website-assistant-knowledge.mjs': ['auth'],
+  'workers/shared/website-assistant-content.mjs': ['auth'],
+  'workers/shared/website-assistant-version.mjs': ['auth'],
+  'workers/shared/website-assistant-contract-version.mjs': ['auth'],
+  'js/shared/website-assistant-context.mjs': ['auth'],
   "workers/shared/ai-caller-policy.mjs": ["auth", "ai"],
   "workers/shared/chat-model-contract.mjs": ["auth", "ai"],
   "workers/shared/fable-chat-contract.mjs": ["auth", "ai"],

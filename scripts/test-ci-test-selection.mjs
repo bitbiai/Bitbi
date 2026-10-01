@@ -15,6 +15,24 @@ import { requiredJobs } from "./pages-candidate.mjs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
+for (const file of ['config/website-assistant.json', 'workers/shared/website-assistant-knowledge.mjs', 'workers/shared/website-assistant-content.mjs',
+  'js/shared/website-assistant-context.mjs', 'tests/website-assistant-runtime.mjs', 'workers/auth/src/lib/website-assistant-control.js', 'tests/website-assistant-control.test.mjs']) {
+  const selected = selectCiTests([file]);
+  assert.equal(selected.workers, true, `${file}: admission/knowledge must execute the Worker chain`);
+  assert.equal(selected.homepage, true, `${file}: actual browser caller must exercise the public API contract`);
+  assert.equal(selected.full, false, `${file}: no whole-platform regression for the closed assistant scope`);
+}
+for (const file of ['css/components/website-assistant.css', 'js/shared/website-assistant.js', 'tests/website-assistant.spec.js', 'js/pages/admin/website-assistant.js', 'css/admin/website-assistant.css', 'tests/admin-website-assistant.spec.js']) {
+  const selected = selectCiTests([file]);
+  assert.equal(selected.homepage, true);
+  assert.equal(selected.workers, false, 'Cosmetic/isolated UI changes must not force backend acceptance');
+}
+const assistantCommands = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).scripts;
+assert.match(assistantCommands['test:homepage-core'], /tests\/website-assistant\.spec\.js/);
+assert.match(assistantCommands['test:homepage-core'], /--project=webkit-assistant/);
+assert.match(assistantCommands['test:homepage-core'], /tests\/admin-website-assistant\.spec\.js/);
+assert.match(assistantCommands['test:workers'], /npm run test:website-assistant/);
+
 for (const file of ["tests/q4-stream-receipts.spec.js", "tests/q4-runtime-memory.mjs", "tests/helpers/q4-video-control.mjs"]) {
   const selected = selectCiTests([file]);
   assert.equal(selected.workers, true, `${file} must reach the real Worker/native command`);

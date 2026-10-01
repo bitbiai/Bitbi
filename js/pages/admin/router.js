@@ -1,4 +1,5 @@
 const SECTION_DOM_IDS = {
+    'website-assistant': 'sectionWebsiteAssistant',
     dashboard: 'sectionDashboard',
     security: 'sectionSecurity',
     orgs: 'sectionOrgs',
@@ -23,6 +24,7 @@ const SECTION_DOM_IDS = {
 };
 
 const SECTION_META = {
+    'website-assistant': { title: 'AI Assistant', desc: 'Grounded website help, with clear controls and accountable limits.' },
     dashboard: { title: 'Workspace', desc: 'People, creative work and operations — with the evidence behind each decision.' },
     security: { title: 'Security & Policy', desc: 'Route policy, MFA, service auth, and fail-closed guardrails' },
     orgs: { title: 'Organizations', desc: 'Organization, tenant, and membership inspection' },

@@ -4,6 +4,7 @@
 	"compatibility_date": "2026-03-08",
 	"keep_vars": true,
 	"vars": {
+		"WEBSITE_ASSISTANT_ENABLED": "false",
 		"APP_NAME": "bitbi",
 		"PRIVATE_MEDIA_SOURCE_SHA": "UNRELEASED",
 		"APP_BASE_URL": "https://bitbi.ai",

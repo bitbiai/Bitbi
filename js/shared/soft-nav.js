@@ -107,6 +107,7 @@ async function navigate(targetUrl, isPop) {
 
         /* Reinit page visuals for new content */
         if (onAfterSwap) onAfterSwap();
+        window.dispatchEvent(new Event('bitbi:page-change'));
 
     } catch (err) {
         console.warn('soft-nav fallback:', err);

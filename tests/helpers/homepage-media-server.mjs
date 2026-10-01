@@ -24,6 +24,10 @@ return bucket;
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost:3000');
+    if (req.headers['x-bitbi-assistant-fixture'] === 'test-only') {
+      const { serveAssistantFixture } = await import('./website-assistant-http-fixture.mjs');
+      if (await serveAssistantFixture(req, res, url)) return;
+    }
     if (url.pathname === '/plain-video') { res.writeHead(200, { 'Content-Type':'text/html' });res.end('<!doctype html><title>Native transport fixture</title><body></body>');return; }
     const audition=url.pathname.match(/^\/api\/plain\/canvas-preview\/(video\.mp4|video\.webm|loud\.wav)$/);
     if(audition && req.method==='GET') {

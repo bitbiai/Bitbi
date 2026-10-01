@@ -22,6 +22,18 @@ function createContext() {
   return context;
 }
 
+for (const file of ['config/website-assistant.json', 'workers/shared/website-assistant-content.mjs',
+  'workers/shared/website-assistant-knowledge.mjs', 'workers/shared/website-assistant-version.mjs',
+  'workers/shared/website-assistant-contract-version.mjs', 'js/shared/website-assistant-context.mjs']) {
+  const plan = createReleasePlan(createContext(), { changedFiles: [file] });
+  assert.deepEqual(plan.workerDeploys.map(step => step.worker), ['auth'], `${file}: existing Auth continuation owns assistant knowledge and admission`);
+  assert.deepEqual(plan.schemaApplies, []);
+  assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+}
+for (const file of ['js/shared/website-assistant.js', 'css/components/website-assistant.css']) {
+  assert.deepEqual(createReleasePlan(createContext(), { changedFiles: [file] }).workerDeploys, [], 'Assistant UI-only edits retain proportionate frontend deployment');
+}
+
 // The existing local preflight executes the cheap discovery dependency first,
 // including helper-only edits, and stops on its failure. No budget-hook change.
 for (const file of ['tests/canvas.spec.js', 'tests/helpers/canvas-music-preview.cjs',
