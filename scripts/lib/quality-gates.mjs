@@ -143,10 +143,18 @@ export function scanSecretText(source, file = "(inline)") {
   return violations;
 }
 
+// Filesystem CI and the committed-tree push guard share one path policy.
+export function isSecretScanPath(file) {
+  const parts = String(file).split("/");
+  return TEXT_FILE_EXTENSIONS.has(path.posix.extname(file))
+    && !parts.slice(0, -1).some((part) => DEFAULT_EXCLUDED_DIRS.has(part));
+}
+
 export function scanRepoForSecrets(repoRoot) {
   const violations = [];
   for (const absolutePath of walkRepoFiles(repoRoot)) {
     const file = normalizeRepoPath(repoRoot, absolutePath);
+    if (!isSecretScanPath(file)) continue;
     const source = fs.readFileSync(absolutePath, "utf8");
     violations.push(...scanSecretText(source, file));
   }

@@ -1135,7 +1135,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  const {PRIVATE_MEDIA_SMOKE_ERROR_CODES}=await import('../workers/auth/src/lib/private-media-smoke.js');
  const originalFetch=globalThis.fetch,keys=['REPAIR_SOURCE_SHA','CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID'];
  const previous=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
- const sha='b'.repeat(40),secret='synthetic-sensitive-secret',sensitive='synthetic-private-url-token-body';
+ const sha='b'.repeat(40),secret='test-sensitive-secret-fixture-only',sensitive='test-private-url-token-body-sentinel';
  const route=(body,envSha=sha)=>handlePrivateMediaService({method:'POST',pathname:'/api/internal/homepage/hero-videos/private-media/smoke',
    request:new Request('https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke',{method:'POST',headers:{Authorization:`Bearer ${secret}`,'Content-Type':'application/json'},body:JSON.stringify(body)}),
    env:{PRIVATE_MEDIA_SOURCE_SHA:envSha,PRIVATE_MEDIA_PROCESSOR_SECRET:secret,

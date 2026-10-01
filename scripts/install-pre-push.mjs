@@ -42,12 +42,12 @@ try {
     }
   }
   if (process.argv.includes("--check")) {
-    if (effective !== hooksPath || local !== hooksPath) throw new Error("Pre-push budgets are not installed here. Run npm run hooks:install.");
+    if (effective !== hooksPath || local !== hooksPath) throw new Error("Pre-push quality guards are not installed here. Run npm run hooks:install.");
   } else if (effective === null) {
     git("config", "--local", "core.hooksPath", hooksPath);
   }
   if (config("--get", "core.hooksPath") !== hooksPath) throw new Error("Hook activation could not be verified.");
-  console.log(`Pre-push budgets active in ${root}. Other clones/worktrees are not certified; run hooks:check in each intended checkout.`);
+  console.log(`Pre-push budgets and secret scan active in ${root}. Other clones/worktrees are not certified; run hooks:check in each intended checkout.`);
 } catch (error) {
   console.error(`Pre-push installation failed: ${error.message}`); process.exitCode = 1;
 }

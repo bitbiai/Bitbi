@@ -44,7 +44,7 @@
     "test:homepage-ffmpeg-processor": "node scripts/test-homepage-ffmpeg-processor.mjs",
     "test:live-canary": "node scripts/test-live-runtime-canary.mjs",
     "test:asset-version": "node scripts/test-asset-version.mjs",
-    "test:quality-gates": "node scripts/test-quality-gates.mjs && node scripts/test-pre-push.mjs",
+    "test:quality-gates": "node scripts/check-secrets.mjs && node scripts/test-quality-gates.mjs && node scripts/test-pre-push.mjs",
     "test:pre-push": "node scripts/test-pre-push.mjs",
     "hooks:install": "node scripts/install-pre-push.mjs",
     "hooks:check": "node scripts/install-pre-push.mjs --check",

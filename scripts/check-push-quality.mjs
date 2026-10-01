@@ -2,16 +2,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { evaluateMaintainabilityFileBudgets, MAINTAINABILITY_FILE_BUDGETS } from "./lib/quality-gates.mjs";
+import { evaluateMaintainabilityFileBudgets, MAINTAINABILITY_FILE_BUDGETS, isSecretScanPath, scanSecretText } from "./lib/quality-gates.mjs";
 
 const policyFiles = [".githooks/pre-push", "scripts/check-push-quality.mjs", "scripts/lib/quality-gates.mjs"];
 const oidPattern = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
-const git = (args) => execFileSync("git", args, {
-  maxBuffer: 2 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
-  env: { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_NO_REPLACE_OBJECTS: "1" },
-});
+const git = (args, maxBuffer = 2 * 1024 * 1024) => {
+  try {
+    return execFileSync("git", args, {
+      maxBuffer, stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_NO_REPLACE_OBJECTS: "1" },
+    });
+  } catch {
+    // Never include Git's captured streams: blob contents may contain credentials.
+    throw new Error("Cannot read committed Git inputs; no quality approval.");
+  }
+};
 
-// No checkout, archive, package execution, network or mutation: sizes come from Git objects.
+// No checkout, archive, package execution, network or mutation: scan Git objects.
 export function checkPushInput(input) {
   const root = git(["rev-parse", "--show-toplevel"]).toString().trim();
   const checked = new Set();
@@ -51,7 +58,24 @@ export function checkPushInput(input) {
     if (issues.length) {
       throw new Error(issues.map((issue) => `${issue.path}: ${issue.bytes} bytes; budget ${issue.maxBytes}; over by ${issue.bytes - issue.maxBytes} bytes`).join("\n"));
     }
+    const tree = git(["ls-tree", "-r", "-l", "-z", commit]).toString().split("\0").filter(Boolean);
+    let scanned = 0;
+    const violations = [];
+    for (const entry of tree) {
+      const match = /^(100644|100755) blob ([a-f0-9]+)\s+(\d+)\t([\s\S]+)$/.exec(entry);
+      if (!match || !isSecretScanPath(match[4])) continue; // CI scans regular text files only.
+      const bytes = Number(match[3]);
+      if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error("Invalid committed text size; no quality approval.");
+      const blob = git(["cat-file", "blob", match[2]], bytes + 1);
+      if (blob.length !== bytes) throw new Error("Committed text size mismatch; no quality approval.");
+      violations.push(...scanSecretText(blob.toString("utf8"), match[4]));
+      scanned += 1;
+    }
+    if (violations.length) {
+      throw new Error(`Potential committed secrets found:\n${violations.map(({ file, line, rule }) => `${file}:${line}: ${rule}`).join("\n")}`);
+    }
     console.log(`Pre-push budgets passed: ${remoteRef} ${commit.slice(0, 12)} (${MAINTAINABILITY_FILE_BUDGETS.length} budgets).`);
+    console.log(`Pre-push secret scan passed: ${remoteRef} ${commit.slice(0, 12)} (${scanned} committed text files).`);
   }
 }
 

@@ -59,6 +59,13 @@ or native-Hero artifact is required. Source/run/attempt identity, selected-job
 success, candidate bytes, backend prerequisites and protected publication remain
 unchanged. Old failed artifacts are historical evidence only.
 
+Before every task push, `npm run test:quality-gates` executes the actual repository
+secret scan as well as guard tests. The installed push hook scans each proposed
+branch-tip Git tree with the same CI secret rules and file selection, alongside
+the existing budgets. Guard unit tests alone are not a repository scan. A clean
+working file cannot hide a failing committed blob; diagnostics contain only
+path, line and rule. Keep the independent CI secret step and its detection rules.
+
 ## CI repair and required acceptance
 
 Use this procedure when the assignment explicitly requires CI repair through final
