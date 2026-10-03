@@ -782,7 +782,7 @@ source `4cc47085`, passed staging guards and 72 Worker cases, then exposed the
 same zero-revision assumption in the shared ElevenLabs caller and today's request
 in the frozen legacy-transition fixture. Inspecting the still-unexecuted selected
 commands also exposed the MiniMax music caller and stale catalog membership.
-All current-client fixtures now read the migrated tariff revision; explicit stale
+The corrected current-client fixtures read the migrated tariff revision; explicit stale
 quotes still reject without provider/debit, legacy accepted operations retain
 frozen evidence, and custom music cases preserve unrelated migrated rules without
 resetting the global revision. Appearance compares the complete unchanged pricing
@@ -795,6 +795,16 @@ Appearance/model-area preservation checks, with missing-command and failure-stop
 countercontrols in its actual shell guard. Review every consumer of changed
 schema/defaults before push, not just the newly added model's tests; keep fresh
 hosted candidate acceptance distinct from these local results.
+Run [37130098354/1](https://github.com/bitbiai/Bitbi/actions/runs/37130098354),
+source `9a62f8f3`, passed all 315 selected Worker cases before native Canvas found
+a second Admin request builder missing that revision. Complete local native
+execution then caught the separate asynchronous image-queue request too. Both
+now send the current fixture tariff, preserving their existing owned-input,
+provider-failure, replay, receipt and exact-debit assertions. Final native Canvas
+86/86, member-generation 71/71 and Stream 7/7 passed under loopback-only macOS
+sandboxing; earlier pricing 11/11, Appearance 6/6 and model-area 7/7 evidence is
+unchanged. A partial native prefix cannot certify the remaining request builders.
+Hosted Linux and the downstream browser/publication gates still require success.
 
 Executable Seedance checks in `q2-seedance-25.spec.js` exercise actual migrated
 SQLite/R2/Admin queue and manual recovery, all 52 owned sources, foreign-owner

@@ -426,7 +426,7 @@ export async function adminPixverseCase(base, name, fixture) {
   const body={model:'pixverse/v6',prompt:'Continue synthetic video',duration:2,quality:'720p',generate_audio:false,operation:'extend',source_asset_id:asset.id};
   const path='/api/admin/ai/video-jobs'; let requestNumber=0;
   const request=async(payload=body,{actor=user,proof=true,origin='https://bitbi.ai',route=path,method='POST'}={})=>{
-    const res=await worker.fetch(new Request('https://bitbi.ai'+route,{method,headers:{Cookie:`__Host-bitbi_session=${actor}${proof?'; __Host-bitbi_admin_mfa='+env.testProof:''}`,Origin:origin,'Content-Type':'application/json','Idempotency-Key':`direct-${name}`,'CF-Connecting-IP':`192.0.2.${++requestNumber}`},body:method==='POST'?JSON.stringify(payload):undefined}),env,{waitUntil(p){waits.push(p);}});
+    const res=await worker.fetch(new Request('https://bitbi.ai'+route,{method,headers:{Cookie:`__Host-bitbi_session=${actor}${proof?'; __Host-bitbi_admin_mfa='+env.testProof:''}`,Origin:origin,'Content-Type':'application/json','Idempotency-Key':`direct-${name}`,'X-Bitbi-Tariff-Revision':String((await getModelTariff(env)).revision),'CF-Connecting-IP':`192.0.2.${++requestNumber}`},body:method==='POST'?JSON.stringify(payload):undefined}),env,{waitUntil(p){waits.push(p);}});
     return {status:res.status,body:await res.json()};
   };
   check((await request(body,{actor:other})).status===403,'Member denied');

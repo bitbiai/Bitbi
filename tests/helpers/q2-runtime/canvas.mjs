@@ -263,7 +263,7 @@ export async function runCanvasTests(f) {
   ]) await f.test(`image25_native_generate_lab_queue_https_${scenario}`,async()=>{
     const before=f.canvasProvider.requests.length, key=`image25-queue-${scenario}`;
     const payload={model,prompt:'Synthetic queued image',quality:'medium',size:'1024x1024',background:'transparent',outputFormat:format};
-    const accepted=await f.mf.dispatchFetch('https://bitbi.ai/api/ai/generate-image',{method:'POST',headers:{Cookie:member,Origin:'https://bitbi.ai','Content-Type':'application/json','Idempotency-Key':key,Prefer:'respond-async','CF-Connecting-IP':`192.0.2.${++count}`},body:JSON.stringify(payload)});
+    const accepted=await f.mf.dispatchFetch('https://bitbi.ai/api/ai/generate-image',{method:'POST',headers:{Cookie:member,Origin:'https://bitbi.ai','Content-Type':'application/json','Idempotency-Key':key,'X-Bitbi-Tariff-Revision':String(tariffRevision),Prefer:'respond-async','CF-Connecting-IP':`192.0.2.${++count}`},body:JSON.stringify(payload)});
     assert.equal(accepted.status,202,await accepted.clone().text());
     const id=(await accepted.json()).data.job.id;
     const row=()=>f.sql('SELECT * FROM member_generation_jobs WHERE id=?',id).first();
