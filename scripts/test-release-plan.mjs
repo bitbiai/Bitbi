@@ -93,6 +93,12 @@ for (const file of ['docs/example.md', 'css/pages/generate-lab.css']) {
 
 // Real Git blobs across the full release range, not latest-push filenames or
 // dirty files, establish the one reviewed tool-only dependency exception.
+for(const file of ['js/shared/member-model-exposure.mjs','workers/shared/website-assistant-version.mjs']) {
+  const executed=[];
+  const result=runReleasePreflight(repoRoot,{files:[file]},{runCommand(command){const text=command.join(' ');executed.push(text);return {ok:text!=='node scripts/check-website-assistant-knowledge.mjs',status:1};}});
+  assert.equal(result.ok,false);assert.equal(executed.at(-1),'node scripts/check-website-assistant-knowledge.mjs');
+  assert(!executed.includes('npm run test:workers'),'Stale corpus stops before product suites');
+}
 {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bitbi-worker-tooling-'));
   const git = args => execFileSync('git', args, {cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();

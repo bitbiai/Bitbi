@@ -141,6 +141,7 @@ const CANVAS_TEXT_FILES = new Set([
   'js/shared/model-pricing-catalog.mjs', 'js/shared/model-pricing-client.js',
   'js/shared/models-overlay.js', 'workers/auth/src/routes/ai.js',
   'workers/shared/website-assistant-content.mjs', 'tests/website-assistant-knowledge.test.mjs',
+  'workers/shared/website-assistant-version.mjs',
   // Omni shares the existing Canvas/Admin/member generation and pricing callers.
   'js/shared/gemini-omni-contract.mjs', 'js/shared/gemini-omni-pricing.mjs',
   'js/shared/omni-reference-upload.js', 'js/pages/admin/gemini-omni-controls.js', 'js/pages/admin/gemini-omni-lab.js',

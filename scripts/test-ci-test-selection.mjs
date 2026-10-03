@@ -1116,6 +1116,7 @@ assert.notEqual(selectCiTests(areaFiles,{forceFull:true}).modelAreas,true);
 
 const seedanceDelta=['js/pages/admin/video-input-controls.js','tests/fixtures/model-availability.json','tests/helpers/model-pricing-control.mjs','workers/auth/src/lib/model-provider-prices.js','js/shared/seedance-25-contract.mjs','js/shared/seedance-25-pricing.mjs','js/shared/seedance-25-controls.js','workers/auth/src/lib/seedance-25-output.js','workers/auth/migrations/0099_seedance_25_custom_tariffs.sql','tests/q2-seedance-25.spec.js','tests/helpers/seedance25-model-controls.cjs','tests/fixtures/media/seedance-output.mov',...omniDelta];
 const seedanceSelection=selection(seedanceDelta);assert.equal(seedanceSelection.canvasText,true);assert.equal(seedanceSelection.workers,true);assert.equal(seedanceSelection.full,false);
+assert.equal(selection([...seedanceDelta,'workers/shared/website-assistant-version.mjs']).canvasText,true,'Registry-derived corpus refresh retains actual selected knowledge and product execution');
 assert.match(omniWorkflow,/PLAYWRIGHT_JSON_OUTPUT_NAME=test-results\/canvas-music-worker\.json[^\n]*tests\/q2-seedance-25\.spec\.js[^\n]*--retries=0/);
 for(const neighbor of ['workers/auth/src/lib/session.js','workers/ai/src/routes/unknown.js'])assert.notEqual(selection([...seedanceDelta,neighbor]).canvasText,true);
 console.log('Seedance: real durable Worker/native and workspace/pricing callers remain selected.');

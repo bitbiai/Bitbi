@@ -791,6 +791,17 @@ AI/Auth ordering and rejection of unreviewed siblings. Pricing basis and unresol
 provider-only evidence are documented in the release runbook; publication requires
 fresh candidate evidence, never the previous model-area repair exception.
 
+Run [37127836822/1](https://github.com/bitbiai/Bitbi/actions/runs/37127836822)
+passed release guards but stopped at the candidate build: adding Seedance to the
+public member registry changed generated help text without its reviewed knowledge
+version. Refreshing the existing corpus version after reviewing the derived EN/DE
+model list repairs that mismatch; all 23 knowledge checks and the actual static
+build passed locally. The existing change-aware preflight now runs the same cheap
+knowledge guard before selected product suites, including registry-only edits;
+its failure countercheck prevents execution from continuing. Corpus refresh stays
+in the existing Canvas/model scope and keeps Main inference off. Run the final
+build as well as guard fixtures before push; no old artifact is relabelled.
+
 Omni extension (2026-10-03, owner-revised scope): unknown provider metering is not
 a guessed retail tariff. Exact `google/gemini-omni-flash` uses manual fixed
 operation/resolution credits in this same ledger, pins admission and settles that

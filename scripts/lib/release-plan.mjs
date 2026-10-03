@@ -549,7 +549,12 @@ function buildRecommendedChecks(impacts, changedFiles) {
   // Share CI's impact decision; preparation must fail before expensive suites.
   const workersRequired = selectCiTests(changedFiles).workers
     || Object.keys(impacts.workers).length > 0 || Object.keys(impacts.schemaCheckpoints).length > 0;
+  // The real static build checks the public corpus, including registry-derived
+  // text. Surface a stale reviewed version before expensive selected suites.
+  const knowledgeRequired = impacts.static.changedFiles.length > 0
+    || changedFiles.some(file => file.startsWith('workers/shared/website-assistant-'));
   const checks = [...(discoveryChanged ? ['npm run test:homepage-selection'] : []),
+    ...(knowledgeRequired ? ['node scripts/check-website-assistant-knowledge.mjs'] : []),
     ...(workersRequired ? ['node scripts/check-media-tools.mjs'] : []), ...ALWAYS_RECOMMENDED_CHECKS];
   if (workersRequired) {
     checks.push(...WORKER_RECOMMENDED_CHECKS);
