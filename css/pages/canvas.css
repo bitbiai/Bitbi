@@ -137,6 +137,11 @@
 
   .canvas-inspector__body { display: grid; gap: 18px; }
   .canvas-field { display: grid; gap: 7px; }
+  .canvas-clip-sequence { min-width: 0; margin: 12px 0; padding: 10px; border: 1px solid var(--canvas-line); border-radius: 7px; }
+  .canvas-clip-sequence ol { padding-left: 24px; }
+  .canvas-clip-sequence li { margin-block: 12px; }
+  .canvas-clip-sequence select { width: 100%; min-width: 0; margin-bottom: 6px; }
+  .canvas-clip-sequence li button { margin: 2px; }
   .canvas-field > span { color: #c2cfd9; font-size: .75rem; font-weight: 500; }
   .canvas-field .canvas-input[type="checkbox"] { width: 20px; min-height: 20px; accent-color: var(--canvas-accent); }
   .canvas-field-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }

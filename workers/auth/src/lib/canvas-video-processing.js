@@ -39,6 +39,56 @@ export async function canvasVideoChain(env,userId,projectId,runId) {
   return sources;
 }
 
+// A reference is not a continuation. Let the owner explicitly order completed
+// originals without rewriting their immutable generation inputs or graph.
+export async function canvasExportClips(env,userId,projectId) {
+  const rows=await env.DB.prepare(`SELECT id,model_id,asset_id,output_json,created_at FROM canvas_runs
+    WHERE user_id=? AND project_id=? AND deleted_at IS NULL AND status='completed'
+    AND operation_type='canvas.video.generate' AND asset_id IS NOT NULL
+    ORDER BY created_at DESC,id LIMIT 120`).bind(userId,projectId).all();
+  return (rows.results||[]).flatMap(row=>{
+    const version=parseCanvasJson(row.output_json).sourceVersion;
+    return /^[a-f0-9]{64}$/.test(version||'')?[{runId:row.id,assetId:row.asset_id,version,modelId:row.model_id,createdAt:row.created_at}]:[];
+  });
+}
+
+export async function canvasVideoSelection(env,userId,projectId,runId,selection) {
+  if(!Array.isArray(selection)||selection.length<2||selection.length>120
+    ||!selection.some(s=>s?.runId===runId))throw canvasProcessingError('canvas_sequence_invalid');
+  const sources=[],seen=new Set(),assets=new Set();let total=0;
+  for(const selected of selection) {
+    if(!selected || Object.keys(selected).sort().join(',')!=='assetId,runId,version'
+      || !/^[a-f0-9]{32}$/.test(selected.runId||'') || !/^[a-f0-9]{64}$/.test(selected.version||'')
+      ||seen.has(selected.runId)||assets.has(selected.assetId))throw canvasProcessingError('canvas_sequence_invalid');
+    seen.add(selected.runId);assets.add(selected.assetId);
+    const run=await env.DB.prepare(`SELECT * FROM canvas_runs WHERE id=? AND user_id=? AND project_id=? AND deleted_at IS NULL`)
+      .bind(selected.runId,userId,projectId).first();
+    if(!run || run.status!=='completed'||run.operation_type!=='canvas.video.generate'||run.asset_id!==selected.assetId)
+      throw canvasProcessingError('canvas_chain_unavailable');
+    const asset=await ownedCanvasVideo(env,userId,run.asset_id,selected.version,80_000_000);
+    if(parseCanvasJson(run.output_json).sourceVersion!==asset.version)throw canvasProcessingError('video_source_changed');
+    sources.push({runId:run.id,assetId:asset.id,version:asset.version,size:asset.size});total+=asset.size;
+    if(total>CANVAS_VIDEO_LIMITS.sourceBytes)throw canvasProcessingError('canvas_chain_size');
+    // Native edit/extend outputs already contain their input. Reject explicitly
+    // selecting that segment twice, including a chain of native extensions.
+    let input=parseCanvasJson(run.input_json);const ancestors=new Set([run.id]);
+    while(input.connected_video_inputs?.length===1 && ['edit','extend'].includes(input.connected_video_inputs[0].method)) {
+      const parent=input.connected_video_inputs[0];
+      if(ancestors.has(parent.runId)||ancestors.size>=120)throw canvasProcessingError('canvas_chain_cycle');
+      ancestors.add(parent.runId);
+      if(selection.some(s=>s?.runId===parent.runId))throw canvasProcessingError('canvas_sequence_included');
+      const prior=await env.DB.prepare('SELECT asset_id,input_json FROM canvas_runs WHERE id=? AND user_id=? AND project_id=? AND deleted_at IS NULL')
+        .bind(parent.runId,userId,projectId).first();
+      if(!prior||prior.asset_id!==parent.assetId||!parent.sourceVersion)throw canvasProcessingError('canvas_chain_provenance');
+      await ownedCanvasVideo(env,userId,parent.assetId,parent.sourceVersion,80_000_000);
+      input=parseCanvasJson(prior.input_json);
+    }
+  }
+  return sources;
+}
+
+export const canvasExportId=async(userId,projectId,runId,requestKey)=>(await sha256Hex(JSON.stringify(['canvas-export-v2',userId,projectId,runId,requestKey]))).slice(0,32);
+
 export async function enqueueCanvasProcessing(env,{userId,projectId,runId,kind,sources,assetId=null,recipe=null,requestKey=null}) {
   const id=(await sha256Hex(JSON.stringify(recipe?['canvas-export-v2',userId,projectId,runId,requestKey]:['canvas-processing-v1',userId,projectId,kind,assetId,sources]))).slice(0,32),now=nowIso();
   await env.DB.prepare(`INSERT OR IGNORE INTO canvas_video_processing
@@ -58,11 +108,11 @@ export function publicCanvasProcessing(row) {
     asset:row.asset_id?{id:row.asset_id,file_url:`/api/ai/text-assets/${row.asset_id}/file`,poster_url:row.status==='ready'?`/api/ai/text-assets/${row.asset_id}/poster`:null}:null};
 }
 
-export async function claimCanvasProcessing(env,kind,limit,backend='github',recipeProtocol=false) {
+export async function claimCanvasProcessing(env,kind,limit,backend='github',recipeProtocol=0) {
   const now=nowIso();
   const rows=await env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE
     ${kind==='poster'?"((kind='poster' AND status IN ('queued','processing')) OR status='preview_pending')":"kind='concat' AND status IN ('queued','processing')"}
-    AND ${kind==='poster'||recipeProtocol?'1=1':'recipe_json IS NULL'}
+    AND ${kind==='poster'?'1=1':recipeProtocol===3?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2))":recipeProtocol===2?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version')=1)":'recipe_json IS NULL'}
     AND ${kind==='poster'?"CASE WHEN status='preview_pending' THEN thumbnail_backend ELSE processing_backend END":'processing_backend'}=? AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?) AND attempt_count<8 ORDER BY next_attempt_at LIMIT ?`).bind(backend,now,now,limit).all();
   const claimed=[];
   for(const row of rows.results||[]) {

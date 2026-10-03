@@ -401,6 +401,40 @@ music output before frontend continuation. Local layered fixtures do not certify
 the live browser-to-container path; CI, activation and durable smoke receipts are
 separate evidence. No paid generation is involved.
 
+Center-crop and reference-only sequence correction, 2026-10-03 (baseline
+`030f70b6`): an owned completed Seedance run used H3 as `reference_video` and
+retained its source/run/version in `used_sources`, but had no continuation
+`connected_video_inputs`. The live export GET returned 200, `eligible:false`,
+`clips:1`; the H3 export was eligible. Actual originals probed 1344×768 and
+1280×720. Resolution was not the visibility cause. Private incident evidence is
+outside Git in the task checkpoint; no prompts, footage or owner IDs are logged.
+
+The existing panel now accepts an explicit ordered sequence of owned completed
+originals, without inventing last-frame ancestry. Auth validates each immutable
+identity/version and rejects native included-segment duplication. New recipe v2
+pins `center-crop-v1`; capability-3 claims exclude old processors, while prior
+queued recipes/keys and saved exports retain their policy/identity. New intent
+cannot return an old padded aggregate. The common raster is the even-rounded
+minimum of display-oriented dimensions; exact central crop preserves chroma
+origin, rotation, equal SAR, sound and existing music/clean-base handling.
+Incompatible SAR is rejected instead of stretched.
+
+Counterchecks/callers: `canvas-processing-control.mjs` through the existing
+Worker case and native Canvas suite covers reference-only eligibility, explicit
+order, foreign/missing/changed sources, native inclusion, no charges, old/new
+claims, replay and stale leases. `canvas-full-video.test.mjs`, called inside the
+existing private-media Linux image, decodes coordinate markers for exact odd
+1343×768→1280×720, reverse/middle/equal/odd cases, rotation/SAR, and rejects
+scaled/corner-cropped controls; original bytes and prior audio/music checks remain.
+Existing EN/DE Canvas browser cases cover keyboard/mobile, failed submission,
+immutable graph and reload. The selector maps this exact export boundary into
+existing Canvas acceptance plus the required image, retaining broader handling
+for unknown/security neighbors. Focused local crop, Worker and four browser cases
+passed; final Linux/candidate execution and protected media→Auth→frontend/live
+receipts remain required. A separate broad local preflight exposed the unchanged
+Admin image-budget evidence count (9 versus stale 6); it is outside this export
+scope and is not a selected static release check.
+
 Browser audition, 2026-09-28: preview is separate decoded music plus the existing
 aggregate player, never an export request. Migration `0097_canvas_preview_base.sql`
 retains a private, quota-counted clean base inside the same explicit export lease;

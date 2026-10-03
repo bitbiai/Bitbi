@@ -41,13 +41,13 @@ export async function connectedExportMusic(env,userId,projectId,runId,selectedId
   const asset=await ownedCanvasMusic(env,userId,assetId);
   return {kind:'music',assetId:asset.id,version:asset.version,size:asset.size};
 }
-export async function canvasExportRecipe(env,userId,projectId,runId,videos,settings) {
+export async function canvasExportRecipe(env,userId,projectId,runId,videos,settings,explicit=false) {
   const backgroundMusic=exportMusicSettings(settings);
   const music=backgroundMusic.enabled?await connectedExportMusic(env,userId,projectId,runId,backgroundMusic.musicAssetId):null;
   if(backgroundMusic.enabled && !music)fail('canvas_music_unavailable');
   const sources=[...videos,...(music?[music]:[])];
   if(sources.reduce((total,s)=>total+s.size,0)>400_000_000)fail('canvas_chain_size');
-  return {version:1,videos,music,backgroundMusic};
+  return {version:2,spatialPolicy:'center-crop-v1',...(explicit?{sequence:'explicit'}:{}),videos,music,backgroundMusic};
 }
 export async function exportHead(env,userId,runId) {
   const rows=await env.DB.prepare(`SELECT p.*,v.state AS export_state,h.latest_id,h.current_id

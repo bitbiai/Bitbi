@@ -40,11 +40,28 @@ The existing scheduled catch-up queues at most 25 clearly associated historical
 Canvas originals per pass. Existing posters and unknown provider jobs are kept.
 
 Create full video follows immutable completed run inputs, not current edges.
-Each predecessor's owned original/version is checked. Identical ordered sources
-reuse one job and asset. Existing FFmpeg private mode handles concat then poster;
-no inference or generation charge is made. Originals remain private and intact.
-Compatible H.264/AAC clips use stream copy; other supported clips are letterboxed
-and normalized with original audio or silence. Limits: 80 MB per original,
+Reference-only inputs (including Seedance) do not establish continuation ancestry.
+The existing export panel also accepts an explicit ordered selection of completed
+originals from that project. Auth checks owner, run, asset/version, duplicate
+segments and native edit/extend inclusion; selection never rewrites generation
+provenance, graph edges or settings. No inference or generation charge is made.
+
+New exports use immutable recipe v2, `center-crop-v1`, and a request key. Identical
+keys observe the same job; new keys create a new version, never a cached padded
+export. Previous exports and in-flight recipe v1 keep their original policy.
+Processor claim capability 3 handles both; capability 2 cannot claim v2. Empty
+legacy requests only recover existing in-flight/failed processing, not create a
+fresh render or present a completed old export as new. Keep a capability-3
+processor available until v2 jobs finish when rolling back.
+
+Compatible H.264/AAC clips retain stream copy. Normalization probes actual
+display-oriented dimensions, takes the minimum width/height across all clips,
+rounds down to even dimensions, and crops centrally without scale or padding.
+Exact cropping after full chroma conversion preserves odd-pixel centering.
+Equal non-square sample aspect ratios are retained; incompatible ratios or
+non-orthogonal display transforms fail explicitly instead of distorting footage.
+Original audio/silence and the existing music/clean-preview path remain intact.
+Limits: 80 MB per original,
 400 MB sources, 10 minutes, 80 MB output, 120 historical clips, one concat per
 processor pass. Size/format failures are explicit; no shortened export is passed.
 
@@ -60,7 +77,10 @@ No arbitrary old Auth rollback is compatible with these durable jobs.
 
 Checks: focused Canvas Worker cases and `test-q2-runtime.mjs --suite canvas`
 share the actual fetch/queue/poster control. `test:homepage-ffmpeg-processor`
-executes real 2/5-clip FFmpeg tests (order, sound/silence, duration, normalization).
+executes real 2/5-clip FFmpeg tests (order, sound/silence, duration, normalization),
+plus decoded coordinate markers for 1343×768 + 1280×720, reversed order, smallest
+middle, equal/odd sizes, rotation and SAR, with scale/corner-crop countercontrols.
+The same checks run inside the existing tested private-media Linux image.
 `tests/canvas.spec.js` covers export/reload/poster in Chromium and webkit-canvas.
 Live inference is not part of automated acceptance.
 

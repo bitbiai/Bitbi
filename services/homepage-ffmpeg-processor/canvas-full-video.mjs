@@ -36,16 +36,44 @@ export async function inspectClip(file,{ffprobe='ffprobe',run=mediaCommand}={}) 
   return {video:v,audio:a,duration,fingerprint};
 }
 
-export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,limits={durationSeconds:600,outputBytes:80000000}}={}) {
+function displayGeometry(video) {
+  const display=video.side_data_list?.find(s=>s.side_data_type==='Display Matrix');
+  const rotation=Number(display?.rotation??video.tags?.rotate??0);
+  if(!Number.isFinite(rotation)||Math.abs(rotation/90-Math.round(rotation/90))>0.00001)throw failure('canvas_orientation_unsupported');
+  let transformed=rotation%360!==0;
+  if(display?.displaymatrix) {
+    const m=display.displaymatrix.trim().split('\n').flatMap(line=>line.split(':')[1]?.trim().split(/\s+/).map(Number)||[]);
+    if(m.length!==9 || ![m[0],m[1],m[3],m[4]].every(n=>[0,-65536,65536].includes(n))
+      ||Math.abs(m[0])+Math.abs(m[1])!==65536||Math.abs(m[3])+Math.abs(m[4])!==65536
+      ||Math.abs(m[0]*m[4]-m[1]*m[3])!==65536**2||m[2]!==0||m[5]!==0||m[6]!==0||m[7]!==0||m[8]!==1073741824)
+      throw failure('canvas_orientation_unsupported');
+    transformed=m.some((n,i)=>n!==[65536,0,0,0,65536,0,0,0,1073741824][i]);
+  }
+  let [n,d]=String(video.sample_aspect_ratio||'1:1').split(':').map(Number);
+  if(n===0 && d===1){n=1;d=1;} // Unspecified square pixels, per FFmpeg.
+  if(!Number.isInteger(n)||!Number.isInteger(d)||n<=0||d<=0||n>65535||d>65535)throw failure('canvas_sample_aspect_ratio_unsupported');
+  const swapped=Math.abs(Math.round(rotation/90))%2===1;
+  if(swapped)[n,d]=[d,n];
+  const gcd=(a,b)=>b?gcd(b,a%b):a,g=gcd(n,d);
+  return {width:swapped?video.height:video.width,height:swapped?video.width:video.height,sar:`${n/g}/${d/g}`,transformed};
+}
+
+export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,spatialPolicy='center-crop-v1',limits={durationSeconds:600,outputBytes:80000000}}={}) {
   if(files.length<2 || files.some(f=>path.dirname(f)!==dir)) throw failure('canvas_sources_invalid');
+  if(!['center-crop-v1','legacy-pad-v1'].includes(spatialPolicy))throw failure('canvas_spatial_policy_unsupported');
   const clips=[];for(const file of files) clips.push(await inspectClip(file,{ffprobe,run}));
   const duration=clips.reduce((s,c)=>s+c.duration,0);
   if(duration>limits.durationSeconds) throw failure('canvas_duration_limit');
-  const compatible=clips.every(c=>c.fingerprint===clips[0].fingerprint) && clips.every(c=>c.video.codec_name==='h264' && (!c.audio || c.audio.codec_name==='aac'));
+  const crop=spatialPolicy==='center-crop-v1',geometry=crop?clips.map(c=>displayGeometry(c.video)):[];
+  if(crop && geometry.some(g=>g.sar!==geometry[0].sar))throw failure('canvas_sample_aspect_ratio_unsupported');
+  const width=crop?Math.floor(Math.min(...geometry.map(g=>g.width))/2)*2:Math.ceil(Math.max(...clips.map(c=>c.video.width))/2)*2;
+  const height=crop?Math.floor(Math.min(...geometry.map(g=>g.height))/2)*2:Math.ceil(Math.max(...clips.map(c=>c.video.height))/2)*2;
+  if(width<2||height<2)throw failure('canvas_media_limits');
+  const compatible=clips.every(c=>c.fingerprint===clips[0].fingerprint) && clips.every(c=>c.video.codec_name==='h264' && (!c.audio || c.audio.codec_name==='aac'))
+    &&(!crop||geometry.every(g=>!g.transformed&&g.width===width&&g.height===height));
   const hasAudio=clips.some(c=>c.audio);
   let inputs=files;
   if(!compatible) {
-    const width=Math.ceil(Math.max(...clips.map(c=>c.video.width))/2)*2,height=Math.ceil(Math.max(...clips.map(c=>c.video.height))/2)*2;
     const fps=Math.max(...clips.map(c=>{const [n,d]=String(c.video.r_frame_rate).split('/').map(Number);return d?n/d:30;}));
     if(!Number.isFinite(fps) || fps>60 || fps<=0) throw failure('canvas_frame_rate_unsupported');
     inputs=[];let temporaryBytes=0;
@@ -55,7 +83,13 @@ export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffpro
       if(hasAudio && !c.audio) args.push('-f','lavfi','-i','anullsrc=r=48000:cl=stereo');
       args.push('-map','0:v:0');
       if(hasAudio) args.push('-map',c.audio?'0:a:0':'1:a:0','-af','aresample=48000,apad','-c:a','aac','-b:a','192k','-ac','2');
-      args.push('-vf',`scale=${width}:${height}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},tpad=stop_mode=clone:stop_duration=${c.duration}`,
+      // FFmpeg applies display rotation before this filter. Full chroma before
+      // the exact crop keeps an odd origin from being rounded to a chroma grid.
+      // Equal non-square SAR is retained; incompatible SAR cannot be reconciled
+      // without forbidden spatial resampling, so admission above rejects it.
+      const spatial=crop?`format=yuv444p,crop=${width}:${height}:floor((iw-ow)/2):floor((ih-oh)/2):exact=1,setsar=${geometry[0].sar}:max=65535`
+        :`scale=${width}:${height}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+      args.push('-vf',`${spatial},fps=${fps},tpad=stop_mode=clone:stop_duration=${c.duration}`,
         '-t',String(c.duration),'-c:v','libx264','-preset','veryfast','-crf','18','-pix_fmt','yuv420p','-threads','2','-fs',String(limits.outputBytes+1),'-movflags','+faststart',output);
       await run(ffmpeg,args,{cwd:dir});temporaryBytes+=(await stat(output)).size;
       if(temporaryBytes>400000000 || (await stat(output)).size>limits.outputBytes)throw failure('canvas_temporary_size_limit');
@@ -125,7 +159,7 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
   const protocol=await json(base+'/claim');
   if(protocol?.data?.protocol!==1) throw failure('canvas_processor_protocol');
   if(dryRun) return; // A dry run must not acquire a processing lease.
-  const jobs=(await json(base+'/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:1,recipeProtocol:2,limit:Math.min(1,limit)})})).data.jobs;
+  const jobs=(await json(base+'/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:1,recipeProtocol:3,limit:Math.min(1,limit)})})).data.jobs;
   for(const job of jobs) {
     const deadline=Date.now()+12*60_000;
     const boundedRun=(cmd,args,options={})=>{const remaining=deadline-Date.now();if(remaining<=0)throw failure('canvas_processing_deadline');return mediaCommand(cmd,args,{...options,timeout:remaining});};
@@ -147,7 +181,7 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
         const file=path.join(dir,isMusic?'music-input.bin':`clip-${i}.mp4`);await writeFile(file,Buffer.concat(chunks));
         if(isMusic)music=file;else files.push(file);
       }
-      let result=await concatenateClips(files,dir,{ffmpeg,ffprobe,limits:job.limits,run:boundedRun});
+      let result=await concatenateClips(files,dir,{ffmpeg,ffprobe,limits:job.limits,run:boundedRun,spatialPolicy:job.spatialPolicy||'legacy-pad-v1'});
       // Reuse this job's already-created clean base. Never another render/job.
       // Separate bounded upload keeps the existing completion body limit intact.
       if(protocol.data.previewBase===1 && job.backgroundMusic?.enabled && job.backgroundMusic.gain>0) {

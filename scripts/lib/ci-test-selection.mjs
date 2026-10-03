@@ -973,6 +973,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 
   if (!forceFull && (changedFiles.some(f=>['js/shared/generation-model-order.mjs','js/shared/image-dimensions.mjs','js/shared/asset-type-view.js','workers/auth/src/lib/flux-schnell-provider.js','js/shared/grok-text-contract.mjs','workers/ai/src/routes/text.js','js/shared/canvas-video-input.mjs','workers/auth/src/lib/private-video-references.js','workers/auth/src/lib/h3-provider-result.js'].includes(f))
       || changedFiles.includes('workers/auth/src/routes/canvas.js') || changedFiles.includes('workers/auth/src/lib/canvas-preview-base.js')
+      || changedFiles.includes('workers/auth/src/routes/canvas-video-processing.js')
       || ['js/pages/generate-lab/main.js','workers/auth/src/routes/ai/quota.js','workers/auth/src/lib/member-generation-jobs.js'].every(f=>changedFiles.includes(f)))
       && changedFiles.every(f=>isDocumentation(f)||CANVAS_TEXT_FILES.has(f)||RELEASE_TOOLING_FILES.has(f)||(f===MEMBER_SPEC && isFluxReviewTestChange(memberTestSources)))) {
     selection.canvasText = true;

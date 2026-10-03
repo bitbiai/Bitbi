@@ -822,7 +822,7 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  const selection=selectCiTests(['js/pages/canvas/full-video.js','workers/auth/src/routes/canvas-video-processing.js',
  'services/homepage-ffmpeg-processor/canvas-full-video.mjs','services/homepage-ffmpeg-processor/canvas-full-video.test.mjs',
  'scripts/lib/backend-publication.mjs','scripts/lib/backend-continuation.mjs','scripts/release-apply.mjs','scripts/check-static-deploy-safety.mjs','scripts/check-route-policies.mjs','tests/helpers/canvas-processing-control.mjs']);
- assert.equal(selection.workers,true);assert.equal(selection.auth,true);assert.equal(selection.homepage,true);
+ assert.equal(selection.workers,true);assert.equal(selection.auth,true);assert.equal(selection.canvasText,true);assert.equal(selection.homepage,false);
  assert.equal(selection.static,true);assert.equal(selection.full,false);
  assert.equal(selectCiTests(['services/homepage-ffmpeg-processor/unknown.mjs']).full,true);
 }
@@ -839,6 +839,14 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
 }
 
 {
+ const cropFiles=['js/pages/canvas/full-video.js','css/pages/canvas.css','workers/auth/src/routes/canvas-video-processing.js',
+   'workers/auth/src/lib/canvas-video-processing.js','workers/auth/src/lib/canvas-export-recipes.js',
+   'services/homepage-ffmpeg-processor/canvas-full-video.mjs','services/homepage-ffmpeg-processor/canvas-full-video.test.mjs',
+   'tests/helpers/canvas-processing-control.mjs','tests/canvas.spec.js'];
+ const crop=selection(cropFiles);assert(crop.canvasText&&crop.workers&&crop.auth&&!crop.full&&!crop.homepage);
+ assert(requiredJobs(crop)['worker-validation'].includes('Build and test private media Linux image'));
+ assert(requiredJobs(crop)['browser-validation'].includes('Run selected auth and admin tests'));
+ for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','services/homepage-ffmpeg-processor/unknown.mjs'])assert(!selection([...cropFiles,extra]).canvasText);
  const files=['js/pages/canvas/full-video.js','js/pages/canvas/music-preview.js','js/pages/canvas/music-preview-worklet.js',
  'js/shared/canvas-export.mjs','workers/auth/src/lib/canvas-preview-base.js','workers/auth/migrations/0097_canvas_preview_base.sql',
  'tests/helpers/canvas-music-preview.cjs','tests/fixtures/media/canvas-preview.mp4','tests/fixtures/media/canvas-preview.webm','tests/fixtures/media/canvas-preview-loud.wav',

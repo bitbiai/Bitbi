@@ -52,7 +52,7 @@ export async function testCanvasConcatenation() {
       requestJson:async(url,init={})=>{
         calls.push([url,init.method||'GET']);assert(init.signal);
         if(url===prefix+'/claim' && !init.method)return {data:{protocol:1,previewBase:1}};
-        if(url===prefix+'/claim'){assert.equal(JSON.parse(init.body).limit,1);assert.equal(JSON.parse(init.body).recipeProtocol,2);return {data:{jobs:[{id,claim,limits:{sourceBytes:400000000,outputBytes:80000000,durationSeconds:600},backgroundMusic:musicRecipe?{enabled:true,gain:0.5}:undefined,sources:bytes.map((b,i)=>({url:`${prefix}/${id}/source/${i}`,size:b.length,kind:i===2?'music':'video'}))}]}};}
+        if(url===prefix+'/claim'){assert.equal(JSON.parse(init.body).limit,1);assert.equal(JSON.parse(init.body).recipeProtocol,3);return {data:{jobs:[{id,claim,limits:{sourceBytes:400000000,outputBytes:80000000,durationSeconds:600},backgroundMusic:musicRecipe?{enabled:true,gain:0.5}:undefined,sources:bytes.map((b,i)=>({url:`${prefix}/${id}/source/${i}`,size:b.length,kind:i===2?'music':'video'}))}]}};}
         if(url===`${prefix}/${id}/complete?part=preview-base`) {
           assert.equal(init.headers['X-BITBI-Canvas-Claim'],claim);
           assert.deepEqual(Buffer.from(await init.body.get('video').arrayBuffer()),await readFile(pair.output),'Preserve the byte-identical clean concatenation before mixing');
@@ -71,7 +71,7 @@ export async function testCanvasConcatenation() {
     await processCanvasExports(transport);
     assert.deepEqual(calls,[[prefix+'/claim','GET'],[prefix+'/claim','POST'],[`${prefix}/${id}/complete?part=preview-base`,'POST'],[`${prefix}/${id}/complete`,'POST']], 'One explicit job retains its clean base and uploads the mixed result once');
     const full=await concatenateClips(files,dir);assert.equal(full.mode,'normalized');
-    assert(full.duration>=3.75 && full.duration<4.0);assert.equal(full.width,480);assert.equal(full.height,270);
+    assert(full.duration>=3.75 && full.duration<4.0);assert.equal(full.width,320);assert.equal(full.height,180);
     assert((await inspectClip(full.output)).audio,'Audio retained across silent input');
     // Decode representative output pixels: actual order, not merely command text.
     const pixel=t=>{
@@ -83,10 +83,75 @@ export async function testCanvasConcatenation() {
     const audio=t=>{const r=spawnSync('ffmpeg',['-v','error','-ss',String(t),'-i',full.output,'-t','0.2','-vn','-f','s16le','-ac','1','-'],{maxBuffer:100000});assert.equal(r.status,0);let total=0;for(let i=0;i+1<r.stdout.length;i+=2)total+=Math.abs(r.stdout.readInt16LE(i));return total/(r.stdout.length/2);};
     assert(audio(0.2)>100,'First audio retained');assert(audio(1.8)<20,'Silent segment retained');assert(audio(3.3)>100,'Final audio retained');
     await testBackgroundMusic(full,dir);
+    await testCenterCrop();
     await assert.rejects(concatenateClips(files,dir,{limits:{durationSeconds:1,outputBytes:80000000}}),/canvas_duration_limit/);
     await assert.rejects(concatenateClips(files.slice(0,1),dir),/canvas_sources_invalid/);
     assert((await readFile(full.output)).byteLength>1000);
     console.log(JSON.stringify({test:'canvas-full-video-native-ffmpeg',two:pair.mode,five:full.mode,duration:full.duration,pixelOrder:'PASS',audioAndSilence:'PASS'}));
+  } finally {await rm(dir,{recursive:true,force:true});}
+}
+
+export async function testCenterCrop() {
+  const dir=await mkdtemp(path.join(tmpdir(),'canvas-center-crop-'));
+  const decode=(file,time=0)=>{
+    const r=spawnSync('ffmpeg',['-v','error','-ss',String(time),'-i',file,'-frames:v','1','-f','rawvideo','-pix_fmt','rgb24','-'],{maxBuffer:20_000_000});assert.equal(r.status,0);return r.stdout;
+  };
+  const marker=async(name,width,height)=>{
+    const rgb=Buffer.alloc(width*height*3);
+    for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+      const i=(y*width+x)*3;
+      const level=35+((Math.floor(x/17)+2*Math.floor(y/19))%5)*45;
+      rgb[i]=rgb[i+1]=rgb[i+2]=level;
+    }
+    const ppm=path.join(dir,name+'.ppm'),file=path.join(dir,name+'.mp4');
+    await writeFile(ppm,Buffer.concat([Buffer.from(`P6\n${width} ${height}\n255\n`),rgb]));
+    await mediaCommand('ffmpeg',['-v','error','-y','-loop','1','-i',ppm,'-t','0.5','-r','24','-c:v','libx264','-crf','0','-pix_fmt','yuv444p','-threads','1',file]);return file;
+  };
+  // Independent pixel-coordinate oracle: compare decoded originals at the
+  // explicitly expected integer offsets, never derive expectations from filters.
+  const error=(actual,original,w,h,sourceW,left,top)=>{
+    let sum=0,count=0;
+    for(const y of [2,17,Math.floor(h/2),h-19,h-3])for(const x of [2,21,57,Math.floor(w/2),w-37,w-3])for(let c=0;c<3;c++){
+      sum+=Math.abs(actual[(y*w+x)*3+c]-original[((y+top)*sourceW+x+left)*3+c]);count++;
+    }
+    return sum/count;
+  };
+  try {
+    const large=await marker('large',1343,768),small=await marker('small',1280,720),third=await marker('third',1300,740);
+    const odd=await marker('odd',321,181),oddLarge=await marker('odd-large',333,193);
+    const originals=new Map(await Promise.all([large,small,third,odd,oddLarge].map(async f=>[f,await readFile(f)])));
+    for(const [files,w,h,positions] of [
+      [[large,small],1280,720,[[1343,31,24],[1280,0,0]]],
+      [[small,large],1280,720,[[1280,0,0],[1343,31,24]]],
+      [[large,small,third],1280,720,[[1343,31,24],[1280,0,0],[1300,10,10]]],
+      [[small,small],1280,720,[[1280,0,0],[1280,0,0]]],
+      [[odd,oddLarge],320,180,[[321,0,0],[333,6,6]]],
+    ]){
+      const result=await concatenateClips(files,dir);assert.equal(result.width,w);assert.equal(result.height,h);
+      for(let i=0;i<files.length;i++){const measured=error(decode(result.output,i*0.5+0.2),decode(files[i]),w,h,...positions[i]);assert(measured<13,`Decoded spatial markers: ${path.basename(files[i])}, segment ${i}, mean error ${measured}`);}
+    }
+    const broken=path.join(dir,'broken.mp4');
+    for(const filter of ['scale=1280:720','crop=1280:720:0:0']){
+      await mediaCommand('ffmpeg',['-v','error','-y','-i',large,'-vf',filter,'-c:v','libx264','-pix_fmt','yuv420p','-threads','1',broken]);
+      assert(error(decode(broken),decode(large),1280,720,1343,31,24)>25,'Pixel oracle rejects stretching and corner cropping');
+    }
+    const rotated=path.join(dir,'rotated.mp4'),portrait=await marker('portrait',720,1280);
+    // Write the standard MP4 track display matrix directly: FFmpeg 5 and 8
+    // differ in whether metadata:s rotate still creates it. No image transform.
+    const rotatedBytes=Buffer.from(await readFile(portrait)),track=rotatedBytes.indexOf(Buffer.from('tkhd'));
+    assert(track>0);const matrix=track+44+(rotatedBytes[track+4]===1?12:0);
+    [0,-65536,0,65536,0,0,0,0,1073741824].forEach((n,i)=>rotatedBytes.writeInt32BE(n,matrix+i*4));await writeFile(rotated,rotatedBytes);
+    assert.equal(Math.abs((await inspectClip(rotated)).video.side_data_list.find(s=>s.rotation!==undefined).rotation),90);
+    const rotatedResult=await concatenateClips([large,rotated],dir);assert.equal(rotatedResult.width,1280);assert.equal(rotatedResult.height,720);
+    assert(error(decode(rotatedResult.output,0.7),decode(rotated),1280,720,1280,0,0)<13,'Display rotation precedes centered crop');
+    const wide=path.join(dir,'wide.mp4');
+    await mediaCommand('ffmpeg',['-v','error','-y','-i',small,'-vf','setsar=2','-c:v','libx264','-pix_fmt','yuv420p','-threads','1',wide]);
+    const sar=await concatenateClips([wide,wide],dir);assert.equal((await inspectClip(sar.output)).video.sample_aspect_ratio,'2:1');
+    await assert.rejects(concatenateClips([small,wide],dir),/canvas_sample_aspect_ratio_unsupported/);
+    await assert.rejects(concatenateClips([small,large],dir,{spatialPolicy:'unknown'}),/canvas_spatial_policy_unsupported/);
+    const legacy=await concatenateClips([small,third],dir,{spatialPolicy:'legacy-pad-v1'});assert.equal(legacy.width,1300);assert.equal(legacy.height,740,'Previously queued recipe keeps old raster');
+    for(const [file,bytes]of originals)assert.deepEqual(await readFile(file),bytes,'Original bytes never change');
+    console.log('Canvas center crop: decoded exact/odd/reversed/middle/same-size/orientation/SAR, broken framing controls and legacy compatibility passed.');
   } finally {await rm(dir,{recursive:true,force:true});}
 }
 

@@ -1,6 +1,45 @@
 import { canvasApi } from './api.js?v=__ASSET_VERSION__';
 import { createMusicPreview } from './music-preview.js?v=__ASSET_VERSION__';
 
+function clipSequence(controls,runId,german,signal,onChange) {
+    const box=document.createElement('fieldset');box.className='canvas-clip-sequence';box.hidden=true;
+    const legend=document.createElement('legend');legend.textContent=german?'Clips zusammenfügen':'Merge clips';box.append(legend);
+    const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';label.append(check,document.createTextNode(german?'Clips und Reihenfolge auswählen':'Choose clips and order'));box.append(label);
+    const body=document.createElement('div'),help=document.createElement('p'),list=document.createElement('ol'),add=document.createElement('button');
+    help.className='canvas-muted';help.textContent=german?'Nur fertige Clips. Die Auswahl ändert keine Verbindungen und startet keine Generierung. Größere Clips werden mittig auf das kleinste gemeinsame Format zugeschnitten.':'Completed clips only. Selection changes no connections and starts no generation. Larger clips are center-cropped to the smallest common size.';
+    add.type='button';add.className='canvas-button';add.textContent=german?'Clip hinzufügen':'Add clip';body.append(help,list,add);box.append(body);controls.append(box);
+    let choices=[],selected=[],initialized=false,automatic=false;
+    const identity=c=>({runId:c.runId,assetId:c.assetId,version:c.version});
+    const render=(focusIndex=null)=>{
+        body.hidden=!check.checked;list.replaceChildren();
+        selected.forEach((id,index)=>{
+            const row=document.createElement('li'),field=document.createElement('label'),select=document.createElement('select');select.className='canvas-select';select.setAttribute('aria-label',`Clip ${index+1}`);
+            field.className='canvas-field';field.append(document.createTextNode(`${german?'Clip':'Clip'} ${index+1}`),select);
+            const empty=document.createElement('option');empty.value='';empty.textContent=german?'Clip auswählen':'Choose clip';select.append(empty);
+            for(const c of choices){const option=document.createElement('option');option.value=c.runId;option.textContent=`${c.modelId} · ${new Date(c.createdAt).toLocaleString(german?'de-DE':'en-GB')}`;option.disabled=selected.includes(c.runId)&&c.runId!==id;select.append(option);}select.value=id;
+            select.addEventListener('change',()=>{selected[index]=select.value;render(index);},{signal});row.append(field);
+            for(const [text,delta] of [[german?'Nach oben':'Move up',-1],[german?'Nach unten':'Move down',1],[german?'Entfernen':'Remove',0]]){
+                const button=document.createElement('button');button.type='button';button.className='canvas-button';button.textContent=text;button.setAttribute('aria-label',`${text}: Clip ${index+1}`);button.disabled=delta<0&&index===0||delta>0&&index===selected.length-1;
+                button.addEventListener('click',()=>{if(delta)[selected[index],selected[index+delta]]=[selected[index+delta],selected[index]];else selected.splice(index,1);render(Math.max(0,Math.min(selected.length-1,index+delta)));},{signal});row.append(button);
+            }
+            list.append(row);
+        });
+        add.disabled=selected.length>=Math.min(120,choices.length);if(focusIndex!==null)list.children[focusIndex]?.querySelector('select')?.focus();onChange();
+    };
+    check.addEventListener('change',()=>render(),{signal});add.addEventListener('click',()=>{selected.push('');render(selected.length-1);},{signal});
+    return {
+        update(data){
+            automatic=data.eligible===true;if(!Array.isArray(data.availableClips))return;
+            choices=data.availableClips;box.hidden=choices.length<2;
+            if(!initialized){initialized=true;const recipe=data.export?.recipe;check.checked=recipe?.sequence==='explicit'||!automatic;selected=recipe?.sequence==='explicit'?recipe.videos.map(c=>c.runId):['',runId];render();}
+        },
+        get available(){return !box.hidden;},
+        get valid(){return check.checked?selected.length>=2&&selected.includes(runId)&&new Set(selected).size===selected.length&&selected.every(id=>choices.some(c=>c.runId===id)):automatic;},
+        get value(){return check.checked?selected.map(id=>identity(choices.find(c=>c.runId===id))):undefined;},
+        lock(value){box.disabled=value;},
+    };
+}
+
 export function renderCanvasFullVideo({section,output,projectId,german,signal,video,music=[],settings,onSettings=()=>{},flush=async()=>true}) {
     if (!output.runId) return;
     const copy=german?{
@@ -56,28 +95,34 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         if(!tracks.length){const warning=document.createElement('p');warning.textContent=copy.ambiguous;controls.append(warning);}
         const help=document.createElement('p');help.className='canvas-muted';help.textContent=german?'100% = Originalpegel der Musik vor dem Übersteuerungsschutz. Der Videoton bleibt erhalten. Die Vorschau ändert kein gespeichertes Video und kann etwas anders klingen als der Export.':'100% = original music level before peak protection. Original video sound is retained. Preview does not change a saved video and may sound slightly different from the export.';controls.append(help);
     }
-    const createButton=document.createElement('button');createButton.type='button';createButton.className='canvas-button canvas-button--primary';createButton.textContent=copy.create;createButton.hidden=true;controls.append(createButton);
+    const createButton=document.createElement('button');createButton.type='button';createButton.className='canvas-button canvas-button--primary';createButton.textContent=copy.create;createButton.hidden=true;
+    let sequenceBlocked=true;
+    const sequence=clipSequence(controls,output.runId,german,signal,()=>{createButton.disabled=sequenceBlocked||!sequence.valid;});controls.append(createButton);
     createButton.addEventListener('click',()=>void update(true),{signal});
     controls.append(previewButton,returnButton,previewStatus,previewNote);updateButtons();
     const posterStatus=document.createElement('p');posterStatus.className='canvas-muted';section.append(posterStatus);
-    let timer,reads=0,busy=false,resultVideo=null,previous=null,posterRetry=null,requestKey=null,requestSettings=null;
+    let timer,reads=0,busy=false,resultVideo=null,previous=null,posterRetry=null,requestKey=null,requestSettings=null,requestSequence;
     const originalId=output.assetId||output.asset?.id;
     signal.addEventListener('abort',()=>{clearTimeout(timer);resultVideo?.pause();},{once:true});
     async function update(create=false) {
         if(signal.aborted||busy)return;busy=true;clearTimeout(timer);
         createButton.disabled=true;
         if(create) {
+            if(!sequence.valid){busy=false;return;}
             if(selected.enabled && !chosen()){message.textContent=copy.ambiguous;busy=false;createButton.disabled=false;return;}
             if(!await flush()){message.textContent=copy.savingFailed;busy=false;createButton.disabled=false;return;}
             if(signal.aborted)return;
-            if(!requestKey){requestKey=crypto.randomUUID();requestSettings={...selected};}
+            if(!requestKey){requestKey=crypto.randomUUID();requestSettings={...selected};requestSequence=sequence.value;}
         }
-        const result=await canvasApi.fullVideo(projectId,output.runId,create,signal,{backgroundMusic:requestSettings||selected},requestKey);
+        sequence.lock(true);
+        const result=await canvasApi.fullVideo(projectId,output.runId,create,signal,{backgroundMusic:requestSettings||selected,...(requestSequence?{orderedClips:requestSequence}:{})},requestKey);
         if(signal.aborted)return;
         busy=false;
-        if(create && (result.ok || (result.status>=400 && result.status<500))){requestKey=null;requestSettings=null;}
+        if(create && (result.ok || (result.status>=400 && result.status<500))){requestKey=null;requestSettings=null;requestSequence=undefined;}
+        sequence.lock(Boolean(requestKey));
         createButton.disabled=false;
         const status=result.data?.export;
+        if(result.ok)sequence.update(result.data);
         const signature=JSON.stringify([result.ok,result.code,result.data]);
         if(signature!==previous) {
         previous=signature;
@@ -116,6 +161,7 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         }
         // Only the processing section changes; form drafts/selection stay intact.
         }
+        if(result.ok){sequenceBlocked=['queued','processing'].includes(status?.status);sequence.lock(sequenceBlocked||Boolean(requestKey));createButton.hidden=!result.data.eligible&&!sequence.available;createButton.disabled=!sequence.valid||sequenceBlocked;}
         if(originalId && !output.previewUrl) {
             const project=await canvasApi.getProject(projectId,signal);
             if(signal.aborted)return;
