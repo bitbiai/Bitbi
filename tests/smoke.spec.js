@@ -278,6 +278,7 @@ async function mockGenerateLabMemberSession(page, {
   userId = 'generate-lab-member',
   credits = 900,
 } = {}) {
+  await require('./helpers/generation-selectors.cjs').mockAvailability(page);
   let logoutRequests = 0;
   let loggedIn = true;
 
@@ -2662,6 +2663,7 @@ test.describe('Homepage', () => {
 
   test('@canvas-model-ui MODELS opens the homepage models overlay from the hero CTA without navigation', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1200 });
+    await require('./helpers/generation-selectors.cjs').mockAvailability(page);
     await page.goto('/');
     await expect(page.locator('#navbar .site-nav__links').getByRole('button', { name: 'Models' })).toHaveCount(0);
     const modelsButtons = page.locator('#hero .hero__models-cta');
@@ -2688,6 +2690,7 @@ test.describe('Homepage', () => {
       const context = await browser.newContext({ baseURL: 'http://localhost:3000', viewport, hasTouch: true, isMobile: true });
       const page = await context.newPage();
       try {
+        await require('./helpers/generation-selectors.cjs').mockAvailability(page);
         await page.goto('/', { waitUntil: 'domcontentloaded' });
         if (viewport.width >= 768) {
           for (const side of ['left', 'right']) await expect(page.locator(`#hero .hero__models-cta--${side}`)).toBeVisible();
@@ -3961,6 +3964,7 @@ test.describe('Homepage', () => {
         body: JSON.stringify({ data: { assets: [], next_cursor: null, has_more: false, applied_limit: 6 } }),
       });
     });
+    await require('./helpers/generation-selectors.cjs').mockAvailability(page);
     await page.goto('/generate-lab/');
 
     const workspace = page.locator('.generate-lab__desktop');
@@ -10075,6 +10079,7 @@ test.describe('Static assets', () => {
 for(const locale of ['en','de']) test(`@canvas-model-ui Grok Imagine Image 2.0 Generate Lab ${locale} registry controls and responsive price`,async({page})=>{
   await page.setViewportSize({width:1440,height:900});
   await page.route('**/api/**',route=>route.fulfill({json:{ok:true,loggedIn:true,user:{id:'synthetic-image2',role:'user',email:'fixture@example.invalid'},data:{folders:[],assets:[],creditBalance:1000,has_more:false,dashboard:{balance:{totalCredits:1000}}}}}));
+  await require('./helpers/generation-selectors.cjs').mockAvailability(page);
   await page.goto(locale==='de'?'/de/generate-lab/':'/generate-lab/');
   await page.locator('#labImageModel').selectOption('xai/grok-imagine-image-2.0');
   await expect(page.locator('#labImageQuality option')).toHaveCount(2);
@@ -10108,6 +10113,7 @@ for(const locale of ['en','de']) test(`@canvas-model-ui Generate Lab Admin ${loc
     if(url.pathname==='/api/me'){expect(request.method()).toBe('GET');events.push('session');}
     return route.fulfill({json:{ok:true,loggedIn:true,user:{id:'admin-lab-fixture',role:'admin',email:'fixture@example.invalid'},data:{folders:[],assets:[],has_more:false}}});
   });
+  await require('./helpers/generation-selectors.cjs').mockAvailability(page);
   await page.goto(locale==='de'?'/de/generate-lab/':'/generate-lab/');
   await expect(page.locator('#labBalance')).toContainText('900');
   await page.locator('#labPrompt').fill('Synthetic Admin fixture');events.length=0;await page.locator('#labGenerate').click();

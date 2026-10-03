@@ -376,7 +376,13 @@ for (const locale of ['en', 'de']) {
     await expect(page.locator('#canvasProjectTitle')).toHaveValue('Project A');
     expect(state.requests.some((request) => request.method === 'GET' && request.pathname.endsWith(`/projects/${PROJECT_B}`))).toBe(false);
     await card(page, GENERATOR).click();
+    // Availability refresh precedes the save flush; its initial inert=false
+    // does not prove the rejected flush finished. Keep the failure injected.
+    const failedFlush = page.waitForResponse(response => response.request().method() === 'PATCH'
+      && new URL(response.url()).pathname.endsWith(`/nodes/${NODE_A}`) && response.status() === 503);
     await inspector(page).getByRole('button', { name: labels.run, exact: true }).click();
+    await (await failedFlush).finished();
+    await expect(page.locator('#canvasSaveState')).toHaveAttribute('data-state', 'error');
     await expect(page.locator('#canvasApp')).toHaveJSProperty('inert', false);
     expect(state.runs).toHaveLength(0);
     // Test the actual unload listener, without claiming browser exit can await

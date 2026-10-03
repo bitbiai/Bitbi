@@ -70,20 +70,80 @@ export const OMNI_BROWSER_REPAIR_FILES=new Set([
   'scripts/lib/media-repair-source.mjs','scripts/lib/frontend-source.mjs','scripts/pages-candidate.mjs',
   'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md',
 ]);
+// Seedance's unchanged product candidate: 315 Worker + 188 native checks passed.
+// 59 browser failures: missing availability fixtures, catalog drift, save-flush
+// synchronization and one WebKit navigation internal error before media setup.
+// Fresh scope includes both engines of each repaired definition (62 cases).
+export const SEEDANCE_BROWSER_REPAIR=Object.freeze({
+  policy:'browser-fixture-repair-v1',
+  sha:'22bfa3bea68847f4a4defa11d4b328224f25344e',run:'37130840933',attempt:'1',
+  artifact:11276754743,artifactName:'playwright-report-selected',
+  archiveHash:'81dfe191a08e021a16a46674f65041afabe1b2d6869f868e4ee9f3782841c47e',
+  reportHash:'56a7dcead054cac7c81d2c17b84be6294ecdad542d5442cb3bf74165ef1ee860',
+  casesHash:'3cffd4fd147b11bde044432f8b7ba4b64cf8c9249d5587abc9ab9e00a95debbb',
+});
+export const SEEDANCE_BROWSER_REPAIR_SPECS=Object.freeze({
+  "tests/auth-admin.spec.js":["a5e7ca1357c44e39962a83e8634445af014cde62d176ca67ee48eb4836686a31", "b659b8001ba0af775373ca53ec9815150deb7285edd26bb336f51d9798b6d547"],
+  "tests/canvas.spec.js":["b1386c43c32be4e386e66ea933a6dfaf72aa316d06c8213aeb570ad3a4d77ab1", "812f4877caa470a62fe009081a8ac55d83d1bb0a211d9308059d3a74591cf410"],
+  "tests/oma2-q1-canvas.spec.js":["f14c590766f4537ce706a8c9cebfb7f550887adae6fe80d19caa15bd8a5379d0", "ea87da66f7a6503319b34b1afd064473247d41f8f6d7aa55ae7714b4067cb0bc"],
+  "tests/oma2-q1-member.spec.js":["4c38dd6a7b7d47a4dff68c7e4b0b6433ae90f5e71aa45075d31780f95c4dd26c", "11b2ba3b84bdc80567d0f246c6d5fb273609db2af365430dd72b294e5b388539"],
+  "tests/smoke.spec.js":["bf114a2564b3c1b704b1dc1fc785cfa718cbb565bd11ee386e1b1cc42912b45c", "fa30ed853180a23d1df3efb9113eac671ab5b422541cb297b44ffe80ab6dedf2"],
+  "tests/helpers/generation-selectors.cjs":["64a8225b2e3876d82aacb3cd8d95635ad37070e680618c829eb0cae8ebdc64b2", "193e555c649a22926a3280bf5f9251d8fed38d26dd84d65eaca16153b732c317"],
+});
+export const SEEDANCE_BROWSER_REPAIR_CASES=Object.freeze([
+  ["auth-admin.spec.js", "@canvas-model-ui shows every admin Video AI model in publisher/name dropdown order"],
+  ["canvas.spec.js", "Canvas music audition en: decoded gain, timeline, selection and no render"],
+  ["canvas.spec.js", "de: Canvas dimension dropdowns normalize restored values and preserve outputs"],
+  ["canvas.spec.js", "en: Canvas dimension dropdowns normalize restored values and preserve outputs"],
+  ["oma2-q1-canvas.spec.js", "P13 de: failure remains through unrelated success, blocks switch/run, retries original identity"],
+  ["oma2-q1-canvas.spec.js", "P13 en: failure remains through unrelated success, blocks switch/run, retries original identity"],
+  ["oma2-q1-member.spec.js", "@canvas-model-ui durable generation FLUX review de generation_execution_failed: visible, non-spinning, preserved intent and read-only reload"],
+  ["oma2-q1-member.spec.js", "@canvas-model-ui durable generation FLUX review de generation_provider_outcome_unknown: visible, non-spinning, preserved intent and read-only reload"],
+  ["oma2-q1-member.spec.js", "@canvas-model-ui durable generation FLUX review de generation_schema_rejected_review: visible, non-spinning, preserved intent and read-only reload"],
+  ["oma2-q1-member.spec.js", "@canvas-model-ui durable generation FLUX review en generation_execution_failed: visible, non-spinning, preserved intent and read-only reload"],
+  ["oma2-q1-member.spec.js", "@canvas-model-ui durable generation FLUX review en generation_provider_outcome_unknown: visible, non-spinning, preserved intent and read-only reload"],
+  ["oma2-q1-member.spec.js", "@canvas-model-ui durable generation FLUX review en generation_schema_rejected_review: visible, non-spinning, preserved intent and read-only reload"],
+  ["smoke.spec.js", "@canvas-model-ui GPT Image 2.5 Generate Lab de actual factory generation price and edit gate"],
+  ["smoke.spec.js", "@canvas-model-ui GPT Image 2.5 Generate Lab de decoded upload and controls"],
+  ["smoke.spec.js", "@canvas-model-ui GPT Image 2.5 Generate Lab de: retained HTTPS delivery, reload and saved original"],
+  ["smoke.spec.js", "@canvas-model-ui GPT Image 2.5 Generate Lab en actual factory generation price and edit gate"],
+  ["smoke.spec.js", "@canvas-model-ui GPT Image 2.5 Generate Lab en decoded upload and controls"],
+  ["smoke.spec.js", "@canvas-model-ui GPT Image 2.5 Generate Lab en: retained HTTPS delivery, reload and saved original"],
+  ["smoke.spec.js", "@canvas-model-ui Generate Lab Admin de actual payer balance and refreshed generation"],
+  ["smoke.spec.js", "@canvas-model-ui Generate Lab Admin en actual payer balance and refreshed generation"],
+  ["smoke.spec.js", "@canvas-model-ui Generate Lab Grok video de operations use owned inputs and responsive pricing"],
+  ["smoke.spec.js", "@canvas-model-ui Generate Lab Grok video en operations use owned inputs and responsive pricing"],
+  ["smoke.spec.js", "@canvas-model-ui Generate Lab dimensions and publisher dropdowns de"],
+  ["smoke.spec.js", "@canvas-model-ui Generate Lab dimensions and publisher dropdowns en"],
+  ["smoke.spec.js", "@canvas-model-ui Generate Lab renders the desktop member workspace with supported models"],
+  ["smoke.spec.js", "@canvas-model-ui Grok Imagine Image 2.0 Generate Lab de registry controls and responsive price"],
+  ["smoke.spec.js", "@canvas-model-ui Grok Imagine Image 2.0 Generate Lab en registry controls and responsive price"],
+  ["smoke.spec.js", "@canvas-model-ui H3 Generate Lab de: roles, durable single status and explicit Assets recovery"],
+  ["smoke.spec.js", "@canvas-model-ui H3 Generate Lab en: roles, durable single status and explicit Assets recovery"],
+  ["smoke.spec.js", "@canvas-model-ui MODELS opens the homepage models overlay from the hero CTA without navigation"],
+  ["smoke.spec.js", "@canvas-model-ui tablet and phone Models navigation remains usable"],
+]);
+export const SEEDANCE_BROWSER_REPAIR_FILES=new Set([
+  ...Object.keys(SEEDANCE_BROWSER_REPAIR_SPECS),
+  'scripts/lib/browser-fixture-repair.mjs','scripts/test-browser-fixture-repair.mjs',
+  'scripts/lib/media-repair-source.mjs',
+  'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md',
+]);
 export function browserRepairIncident(sha) {
-  const incident=[BROWSER_REPAIR,OMNI_BROWSER_REPAIR].find(p=>p.sha===sha);
+  const incident=[BROWSER_REPAIR,OMNI_BROWSER_REPAIR,SEEDANCE_BROWSER_REPAIR].find(p=>p.sha===sha);
   assert(incident,'Different browser repair source');return incident;
 }
 export const browserHash=value=>crypto.createHash('sha256').update(value).digest('hex');
 const git=args=>execFileSync('git',args,{stdio:['ignore','pipe','pipe']});
 export function assertBrowserRepairTrees(source,head) {
   const incident=browserRepairIncident(source),omni=incident===OMNI_BROWSER_REPAIR;
-  const allowed=omni?OMNI_BROWSER_REPAIR_FILES:BROWSER_REPAIR_FILES;
+  const seedance=incident===SEEDANCE_BROWSER_REPAIR;
+  const allowed=seedance?SEEDANCE_BROWSER_REPAIR_FILES:omni?OMNI_BROWSER_REPAIR_FILES:BROWSER_REPAIR_FILES;
   const entries=sha=>git(['ls-tree','-rz',sha]).toString().split('\0').filter(Boolean).map(line=>{const [identity,file]=line.split('\t');return{identity,file};});
   const before=entries(source),after=entries(head);
   assert.deepEqual(after.filter(r=>!allowed.has(r.file)),before.filter(r=>!allowed.has(r.file)),'Browser repair changed protected product/build/backend/dependency/test inputs');
   for(const row of after.filter(r=>allowed.has(r.file)))assert(/^100(?:644|755) blob [a-f0-9]{40}$/.test(row.identity),'Browser repair requires regular Git files');
-  for(const [file,hashes] of Object.entries(omni?OMNI_BROWSER_REPAIR_SPECS:BROWSER_REPAIR_SPECS)) {
+  for(const [file,hashes] of Object.entries(seedance?SEEDANCE_BROWSER_REPAIR_SPECS:omni?OMNI_BROWSER_REPAIR_SPECS:BROWSER_REPAIR_SPECS)) {
     assert.equal(browserHash(git(['show',`${source}:${file}`])),hashes[0],`Unreviewed original spec: ${file}`);
     assert.equal(browserHash(git(['show',`${head}:${file}`])),hashes[1],`Unreviewed repaired spec: ${file}`);
   }
@@ -134,7 +194,7 @@ export function assertBrowserReportArtifact(artifacts,source=BROWSER_REPAIR.sha)
   return a;
 }
 export function assertOriginalBrowserJob(job) {
-  const omni=browserRepairIncident(job.head_sha)===OMNI_BROWSER_REPAIR;
+  const omni=browserRepairIncident(job.head_sha)!==BROWSER_REPAIR;
   assert.equal(job.status,'completed');assert.equal(job.conclusion,'failure');
   const expected=[[omni?'Install browsers for selected frontend tests':'Install carousel browser matrix','success'],['Download candidate build','success'],['Restore exact candidate static site','success'],[omni?'Run selected auth and admin tests':'Run full static browser regression','failure'],['Confirm tested browser candidate bytes','skipped']];
   assert.deepEqual((job.steps||[]).filter(s=>s.conclusion==='failure').map(s=>s.name),[expected[3][0]],'Unrelated original browser failure');
@@ -172,6 +232,7 @@ const controlSuffix=': keyboard chat waits for initial Help focus and a blocked 
 const omniAdminTitle='@canvas-model-ui shows every admin Video AI model in publisher/name dropdown order';
 const omniMemberTitle='@canvas-model-ui Generate Lab dimensions and publisher dropdowns';
 export function repairedCase(row,source=BROWSER_REPAIR.sha) {
+  if(browserRepairIncident(source)===SEEDANCE_BROWSER_REPAIR)return ['chromium','webkit-canvas'].includes(row.project)&&SEEDANCE_BROWSER_REPAIR_CASES.some(([file,title])=>row.file===file&&row.title===title);
   if(browserRepairIncident(source)===OMNI_BROWSER_REPAIR)return ['chromium','webkit-canvas'].includes(row.project)&&(
     row.file==='auth-admin.spec.js'&&row.title===omniAdminTitle
     ||row.file==='smoke.spec.js'&&['en','de'].some(locale=>row.title===`${omniMemberTitle} ${locale}`));
@@ -193,22 +254,25 @@ export function verifyBrowserRepairCoverage(evidence,source=BROWSER_REPAIR.sha) 
 // Pure case-union check, separately counterchecked with synthetic reports. Only
 // verifyBrowserRepairCoverage grants incident acceptance after the pinned hash.
 export function verifyBrowserCaseCoverage({previous,discovery,scoped,carouselDiscovery,carousel},source=BROWSER_REPAIR.sha) {
-  if(browserRepairIncident(source)===OMNI_BROWSER_REPAIR) {
-    assert.equal(previous.length,303);assert.equal(discovery.length,303,'Required Canvas discovery changed');
+  const seedance=browserRepairIncident(source)===SEEDANCE_BROWSER_REPAIR;
+  if(seedance||browserRepairIncident(source)===OMNI_BROWSER_REPAIR) {
+    const total=seedance?317:303,freshCount=seedance?62:6,reusedCount=total-freshCount;
+    assert.equal(previous.length,total);assert.equal(discovery.length,total,'Required Canvas discovery changed');
     for(const rows of [previous,discovery,scoped])assert.equal(new Set(keys(rows)).size,rows.length,'Duplicate repair case');
     assert.deepEqual(carouselDiscovery,[]);assert.deepEqual(carousel,[],'This source has no unexecuted browser tail');
     assert.deepEqual(keys(discovery),keys(previous),'Original required cases changed');
-    const fresh=discovery.filter(row=>repairedCase(row,source));assert.equal(fresh.length,6);
-    assert.deepEqual(keys(scoped),keys(fresh),'All six repaired EN/DE/engine cases and their DOM controls are required');
+    const fresh=discovery.filter(row=>repairedCase(row,source));assert.equal(fresh.length,freshCount);
+    assert.deepEqual(keys(scoped),keys(fresh),'All repaired EN/DE/engine cases and their controls are required');
     for(const row of scoped){assert.deepEqual(identity(row),identity(fresh.find(r=>r.key===row.key)));assert(passed(row),'Repaired case failed/skipped/retried');}
     const reused=[];
     for(const row of discovery) {
       const old=previous.find(r=>r.key===row.key);assert.deepEqual(identity(old),identity(row),'Original case identity changed');
-      if(repairedCase(row,source)){assert.equal(old.status,'unexpected');assert.equal(old.results.length,1);assert.equal(old.results[0].status,'failed');}
+      if(repairedCase(row,source)){if(!seedance||!passed(old)){assert.equal(old.status,'unexpected');assert.equal(old.results.length,1);assert((seedance?['failed','timedOut']:['failed']).includes(old.results[0].status),'Original failure shape changed');}}
       else {assert(passed(old),'Old failure cannot be reused');reused.push(row.key);}
     }
-    assert.equal(reused.length,297);
-    return {reused:reused.sort(),fresh:keys(scoped),carousel:[],reusedPassed:297,reusedSkipped:0,freshPassed:6,carouselPassed:0,carouselSkipped:0};
+    assert.equal(reused.length,reusedCount);
+    assert.equal(previous.filter(r=>!passed(r)).length,seedance?59:6);
+    return {reused:reused.sort(),fresh:keys(scoped),carousel:[],reusedPassed:reusedCount,reusedSkipped:0,freshPassed:freshCount,carouselPassed:0,carouselSkipped:0};
   }
   assert.equal(previous.length,1600);assert.equal(discovery.length,1604,'Required final discovery changed');
   for(const rows of [previous,discovery,scoped,carouselDiscovery,carousel])assert.equal(new Set(keys(rows)).size,rows.length,'Duplicate repair case');
@@ -261,13 +325,13 @@ export async function originalBrowserRows(env=process.env) {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-browser-source-'));
   try {
     const archive=path.join(dir,'source.zip');fs.writeFileSync(archive,bytes);
-    const report=execFileSync('python3',['-I','-c',"import sys,zipfile\nwith zipfile.ZipFile(sys.argv[1]) as z:\n n=sys.argv[2]\n assert sum(x.filename==n for x in z.infolist())==1\n assert z.getinfo(n).file_size<16*1024*1024\n sys.stdout.buffer.write(z.read(n))",archive,incident===OMNI_BROWSER_REPAIR?'test-results/candidate-auth.json':'test-results/candidate-static.json'],{maxBuffer:16*1024*1024,timeout:30000});
+    const report=execFileSync('python3',['-I','-c',"import sys,zipfile\nwith zipfile.ZipFile(sys.argv[1]) as z:\n n=sys.argv[2]\n assert sum(x.filename==n for x in z.infolist())==1\n assert z.getinfo(n).file_size<16*1024*1024\n sys.stdout.buffer.write(z.read(n))",archive,incident!==BROWSER_REPAIR?'test-results/candidate-auth.json':'test-results/candidate-static.json'],{maxBuffer:16*1024*1024,timeout:30000});
     assert.equal(browserHash(report),incident.reportHash,'Original browser JSON changed');
     const rows=browserRows(JSON.parse(report));assert.equal(browserHash(JSON.stringify(rows)),incident.casesHash);return rows;
   } finally{fs.rmSync(dir,{recursive:true,force:true});}
 }
 export async function runBrowserRepair(manifest,env=process.env) {
-  const incident=browserRepairIncident(env.REPAIR_SOURCE_SHA),omni=incident===OMNI_BROWSER_REPAIR;
+  const incident=browserRepairIncident(env.REPAIR_SOURCE_SHA),omni=incident!==BROWSER_REPAIR,seedance=incident===SEEDANCE_BROWSER_REPAIR;
   assert.equal(env.GITHUB_JOB,'browser-validation');
   assertBrowserRepairTrees(env.REPAIR_SOURCE_SHA,env.GITHUB_SHA);assertBrowserSourceIdentity(manifest);
   const previous=await originalBrowserRows(env);fs.mkdirSync('test-results',{recursive:true});
@@ -278,7 +342,8 @@ export async function runBrowserRepair(manifest,env=process.env) {
   };
   const canvasArgs=[...CANVAS_RELEASE_SCOPES.flatMap(([,files])=>files.map(f=>`tests/${f}`)),...new Set(CANVAS_RELEASE_SCOPES.flatMap(([scope])=>['chromium','webkit'].map(engine=>`--project=${canvasReleaseProject(engine,scope)}`))),'--grep','Canvas|P13|@canvas-model-ui'];
   const discovery=run('discovery',['-c','playwright.config.js',...(omni?canvasArgs:[])],{discovery:true});
-  const args=['-c','playwright.config.js',...(omni?['tests/auth-admin.spec.js','tests/smoke.spec.js','--project=chromium','--project=webkit-canvas','--grep',`${omniAdminTitle}|${omniMemberTitle}`]:['tests/auth-admin.spec.js','tests/website-assistant.spec.js','--project=chromium','--project=webkit-appearance','--project=webkit-assistant','--grep',`${navTitle}|website assistant (en|de)(${httpSuffix}|${controlSuffix})`]),'--output=test-results/browser-repair-artifacts'];
+  const seedanceGrep=SEEDANCE_BROWSER_REPAIR_CASES.map(([,title])=>title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$').join('|');
+  const args=['-c','playwright.config.js',...(seedance?[...new Set(SEEDANCE_BROWSER_REPAIR_CASES.map(([file])=>'tests/'+file)),'--project=chromium','--project=webkit-canvas','--grep',seedanceGrep]:omni?['tests/auth-admin.spec.js','tests/smoke.spec.js','--project=chromium','--project=webkit-canvas','--grep',`${omniAdminTitle}|${omniMemberTitle}`]:['tests/auth-admin.spec.js','tests/website-assistant.spec.js','--project=chromium','--project=webkit-appearance','--project=webkit-assistant','--grep',`${navTitle}|website assistant (en|de)(${httpSuffix}|${controlSuffix})`]),'--output=test-results/browser-repair-artifacts'];
   const scopedDiscovery=run('scoped-discovery',args,{discovery:true});
   assert.deepEqual(scopedDiscovery,discovery.filter(row=>repairedCase(row,incident.sha)),'Scoped command differs from reviewed repaired cases');
   const scoped=run('scoped',args);

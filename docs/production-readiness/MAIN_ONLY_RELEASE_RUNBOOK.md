@@ -375,6 +375,8 @@ Do not use `PRODUCTION READY` as an automatic result. Production/live billing re
 
 ## Seedance 2.5 custom output-duration pricing
 
+The existing closed browser continuation pins `22bfa3be` / `37130840933/1`: retain 315 Worker, 188 native and 255 unaffected browser passes; require 62 fresh Chromium/WebKit cases and complete 317-case discovery. Public availability must be present in authenticated fixtures. Exact catalog membership retains missing/duplicate/substitution controls; malformed policy still blocks. Save-retry tests await the actual rejected flush before clearing injected errors. One WebKit internal navigation error preceded music assertions: preserve the failed evidence and require fresh execution without retries or relaxed audio limits. Original candidate bytes and protected backend/frontend publication remain mandatory.
+
 Owner decision, 2026-10-03: exact `bytedance/seedance-2.5` uses BITBI's custom
 stored-output-duration rule. The four owner rates are USD 0.1028/0.4304 per second
 at 480p and 0.2312/0.9676 at 720p (non-video/video input). The unmapped average is

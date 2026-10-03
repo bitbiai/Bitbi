@@ -647,7 +647,13 @@ for (const locale of ['en', 'de']) test(`${locale}: Canvas dimension dropdowns n
   await page.locator('[data-node-id="'+state.nodes[0].id+'"]').click();
   const inspector = page.locator('#canvasInspectorBody');
   const model = inspector.getByRole('combobox', { name: locale === 'de' ? 'Modell' : 'Model', exact: true });
-  expect(await model.locator('option').evaluateAll(options => options.map(o => o.value))).toEqual(sortGenerationModels(models.filter(m => m.capability === 'image')).map(m => m.id));
+  // Public availability excludes the retired Flux 2 Dev and original Grok Image.
+  // Verify membership independently, including missing/duplicate/substitution controls.
+  await require('./helpers/generation-selectors.cjs').assertModelOptions(model, expect, [
+    '@cf/black-forest-labs/flux-1-schnell', '@cf/black-forest-labs/flux-2-klein-9b',
+    'black-forest-labs/flux-2-max', 'openai/gpt-image-2', 'openai/gpt-image-2.5-flare',
+    'openai/gpt-image-2.5-sunburst', 'xai/grok-imagine-image-2.0',
+  ]);
   const width = inspector.getByRole('combobox', { name: locale === 'de' ? 'Breite' : 'Width', exact: true });
   const height = inspector.getByRole('combobox', { name: locale === 'de' ? 'Höhe' : 'Height', exact: true });
   await expect(width.locator('option')).toHaveText(['256','512','768','1024']);

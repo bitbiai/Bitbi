@@ -109,3 +109,30 @@ for(const homepage of [false,true]) {
  for(const mutate of [p=>p.pop(),p=>p.push(p[0]),p=>p[0].status='failed',p=>p[0].manifestHash='wrong',p=>p[0].tests=0,p=>p[0].reportHash='',p=>p.push({...p[0],job:'browser-validation'})]){const bad=structuredClone(prepared);mutate(bad);assert.throws(()=>verifyPreparedBrowserProofs(preparedManifest,bad));}
 }
 console.log('Omni browser repair: 297 unchanged + 6 fresh cases; exact source/artifact/profile, selected preparation proofs and missing/failed/retried/tampered countercontrols passed.');
+
+const {SEEDANCE_BROWSER_REPAIR:seedance,SEEDANCE_BROWSER_REPAIR_FILES:seedanceFiles,SEEDANCE_BROWSER_REPAIR_CASES:seedanceCases}=await import('./lib/browser-fixture-repair.mjs');
+const seedanceFresh=['chromium','webkit-canvas'].flatMap(project=>seedanceCases.map(([file,title],i)=>pass(project+'-seedance-'+i,file,title,project)));
+const seedancePrevious=[...Array.from({length:255},(_,i)=>pass('unchanged-seedance-'+i)),...seedanceFresh.map((row,i)=>i<59?{...structuredClone(row),status:'unexpected',results:[{status:'failed',retry:0,error:true}]}:structuredClone(row))];
+const seedanceEvidence={previous:seedancePrevious,discovery:seedancePrevious.map(identity),scoped:seedanceFresh,carouselDiscovery:[],carousel:[]};
+const seedanceCoverage=verifyBrowserCaseCoverage(seedanceEvidence,seedance.sha);
+assert.equal(seedanceCoverage.reusedPassed,255);assert.equal(seedanceCoverage.freshPassed,62);
+for(const mutate of [
+ e=>e.previous.pop(),e=>e.discovery.pop(),e=>e.discovery.push(e.discovery[0]),e=>e.scoped.pop(),e=>e.scoped.push(e.scoped[0]),
+ e=>e.scoped[0].results[0].status='failed',e=>e.scoped[0].results[0].retry=1,e=>e.scoped[0].status='flaky',
+ e=>e.scoped[0].expectedStatus='skipped',e=>e.scoped[0].results[0].error=true,e=>e.scoped[0].title='substituted',
+ e=>e.previous[0].status='unexpected',e=>e.previous[0].results[0].status='failed',e=>e.discovery[0].project='foreign',
+ e=>e.carousel.push(pass('unrequested')),e=>e.carouselDiscovery.push(identity(pass('unrequested'))),
+]){const bad=structuredClone(seedanceEvidence);mutate(bad);assert.throws(()=>verifyBrowserCaseCoverage(bad,seedance.sha));}
+assert.throws(()=>verifyBrowserRepairCoverage(seedanceEvidence,seedance.sha),/Original failed case evidence changed/);
+assert.equal(repairKind([...seedanceFiles]),'browser-fixture');
+for(const file of [...seedanceFiles].filter(f=>!f.startsWith('docs/')))assert.throws(()=>repairKind([...seedanceFiles].filter(f=>f!==file)));
+for(const file of ['js/pages/canvas/main.js','workers/auth/src/index.js','tests/fixtures/model-availability.json','playwright.config.js','.github/workflows/static.yml','package-lock.json'])assert.throws(()=>repairKind([...seedanceFiles,file]));
+const seedanceArtifact={...artifact,id:seedance.artifact,digest:`sha256:${seedance.archiveHash}`,workflow_run:{id:Number(seedance.run),head_sha:seedance.sha}};
+assertBrowserReportArtifact([seedanceArtifact],seedance.sha);assert.throws(()=>assertBrowserReportArtifact([omniArtifact],seedance.sha));
+assertBrowserSourceIdentity(seedance);assert.throws(()=>assertBrowserSourceIdentity({...seedance,run:omni.run}));
+assertOriginalBrowserJob({...omniJob,head_sha:seedance.sha});
+const seedanceSelection=repairSelection({reasons:{auth:[],static:[]},files:[...seedanceFiles]},[...seedanceFiles]);
+assert.equal(seedanceSelection.browserRepair,true);assert.equal(seedanceSelection.workers,false);
+console.log('Seedance browser repair: 255 unchanged + 62 fresh; exact fixture-only trees, complete cases, immutable evidence and missing/failed/retried/tampered counterchecks passed.');
+
+const seedanceTimeout=structuredClone(seedanceEvidence);seedanceTimeout.previous[255].results[0].status='timedOut';assert.equal(verifyBrowserCaseCoverage(seedanceTimeout,seedance.sha).freshPassed,62);seedanceTimeout.scoped[0].results[0].status='timedOut';assert.throws(()=>verifyBrowserCaseCoverage(seedanceTimeout,seedance.sha));

@@ -1,3 +1,7 @@
+// Auth alone cannot establish model eligibility. Keep unknown policy fail-closed.
+exports.mockAvailability = async target => target.route(url => url.pathname === '/api/model-pricing', route =>
+  route.request().method() === 'GET' ? route.fulfill({json:{ok:true,revision:0,rules:{},availability:require('../fixtures/model-availability.json')}}) : route.abort());
+
 exports.readHomepageImageCapabilities = page => page.locator('#galleryStudio').evaluate(studio => {
   const steps = studio.querySelector('#galStudioSteps');
   const seed = studio.querySelector('#galStudioSeed');
@@ -11,24 +15,26 @@ exports.readHomepageImageCapabilities = page => page.locator('#galleryStudio').e
   };
 });
 
-exports.assertVideoOptions = async (model, expect, expected) => {
+exports.assertModelOptions = async (model, expect, expected, controlId = expected[0]) => {
   const check = async () => expect(await model.locator('option').evaluateAll(options => options.map(o => o.value))).toEqual(expected);
   await check();
   const original = await model.evaluate(select => ({ html: select.innerHTML, value: select.value }));
   // Real DOM countercontrols: the independent membership oracle must reject a
   // missing, duplicated or substituted model, without triggering a request.
   for (const fault of ['missing', 'duplicate', 'substituted']) {
-    await model.evaluate((select, fault) => {
-      const option = Array.from(select.options).find(o => o.value === 'google/gemini-omni-flash');
+    await model.evaluate((select, {fault,controlId}) => {
+      const option = Array.from(select.options).find(o => o.value === controlId);
       if (fault === 'missing') option.remove();
       else if (fault === 'duplicate') option.after(option.cloneNode(true));
       else option.value = 'google/gemini-1.1-flash';
-    }, fault);
+    }, {fault,controlId});
     await expect(check()).rejects.toThrow();
     await model.evaluate((select, original) => { select.innerHTML = original.html; select.value = original.value; }, original);
     await check();
   }
 };
+
+exports.assertVideoOptions = (model, expect, expected) => exports.assertModelOptions(model, expect, expected, 'google/gemini-omni-flash');
 
 exports.memberDimensions = async ({ page, expect, mockSession, locale }) => {
   await mockSession(page, { credits: 1000 });
@@ -40,6 +46,18 @@ exports.memberDimensions = async ({ page, expect, mockSession, locale }) => {
   await page.goto(`${locale === 'de' ? '/de' : ''}/generate-lab/`);
   const model = page.locator('#labImageModel');
   await expect(model).toHaveValue('@cf/black-forest-labs/flux-1-schnell');
+  // Countercontrol: an authenticated session plus a malformed public policy
+  // must not expose models or permit generation. Restore the valid fixture.
+  const pricingRoute = url => url.pathname === '/api/model-pricing';
+  const missingPolicy = route => route.fulfill({json:{ok:true,revision:0,rules:{}}});
+  await page.route(pricingRoute, missingPolicy);
+  const refresh = () => page.evaluate(async () => (await import('/js/shared/model-pricing-client.js')).refreshModelPricing());
+  await refresh();
+  await expect(model.locator('option[value]:not([value=""])')).toHaveCount(0);
+  await expect(page.locator('#labGenerate')).toBeDisabled();
+  await page.unroute(pricingRoute, missingPolicy);
+  await refresh();
+  await expect(model.locator('option[value="black-forest-labs/flux-2-max"]')).toHaveCount(1);
   await model.selectOption('black-forest-labs/flux-2-max');
   await page.locator('#labImageWidth').selectOption('2048');
   await model.selectOption('@cf/black-forest-labs/flux-2-klein-9b');
@@ -67,7 +85,7 @@ exports.memberDimensions = async ({ page, expect, mockSession, locale }) => {
   await page.locator('[data-media-type="video"]').click();
   await expect(model).toHaveValue('minimax/h3');
   await exports.assertVideoOptions(model, expect, [
-    'alibaba/hh1-t2v', 'bytedance/seedance-2.0-fast', 'google/gemini-omni-flash', 'minimax/h3', 'pixverse/v6', 'xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview',
+    'alibaba/hh1-t2v', 'bytedance/seedance-2.0-fast', 'bytedance/seedance-2.5', 'google/gemini-omni-flash', 'minimax/h3', 'pixverse/v6', 'xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview',
   ]);
   await model.selectOption('alibaba/hh1-t2v');
   await expect(page.locator('#labVideoQuality option')).toHaveText(['720P', '1080P']);

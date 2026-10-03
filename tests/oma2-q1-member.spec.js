@@ -52,6 +52,7 @@ async function fixture(page, { loggedIn = true } = {}) {
     if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return route.abort('blockedbyclient');
     if (!url.pathname.startsWith('/api/')) return route.continue();
     const path = url.pathname;
+    if (path === '/api/model-pricing' && route.request().method() === 'GET') return json(route, {ok:true,revision:0,rules:{},availability:require('./fixtures/model-availability.json')});
     if (path === '/api/me') {
       const result=await state.onMe?.();
       return json(route, result?.body || { loggedIn, user: loggedIn ? { id: 'q1-member', email: 'q1@example.invalid', role: 'user' } : null },result?.status || 200);
