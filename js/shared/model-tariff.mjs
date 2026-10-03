@@ -5,7 +5,7 @@ import { isGptImage25Model } from './gpt-image-25-contract.mjs';
 export const MODEL_TARIFF_VERSION = 'model-tariff-v1';
 export const FACTORY_TARIFF_VERSION = 'factory-2026-09-21';
 export const TARIFF_HEADER = 'X-Bitbi-Tariff-Revision';
-const DIMENSIONS = ['resolution', 'quality', 'size', 'background', 'outputFormat', 'width', 'height', 'steps', 'operation', 'generateAudio', 'reasoningEffort', 'separateLyricsGeneration'];
+const DIMENSIONS = ['resolution', 'quality', 'size', 'background', 'outputFormat', 'width', 'height', 'steps', 'operation', 'generateAudio', 'reasoningEffort', 'separateLyricsGeneration', 'inputTier'];
 export const TARIFF_UNITS = ['request', 'second', 'image', 'referenceImage', 'inputMegapixel', 'inputToken', 'cachedInputToken', 'outputToken', 'cacheWriteToken'];
 export const stablePricingJson = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v)
     ? Object.fromEntries(Object.keys(v).sort().map(key => [key, v[key]])) : v);

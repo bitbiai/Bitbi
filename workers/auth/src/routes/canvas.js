@@ -1,3 +1,4 @@
+import { SEEDANCE_25_MODEL, seedance25References, seedance25MediaType, seedance25Settings } from '../../../../js/shared/seedance-25-contract.mjs';
 import { areaCatalog, modelAreaEnvironment, assertModelArea, publicModelAvailability } from '../lib/model-availability.js';
 import { OMNI_MODEL, omniReferences, omniMediaType, omniOperation } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
@@ -360,16 +361,17 @@ async function loadOwnedImageDataUri(env, userId, assetId) {
 
 async function applyConnectedMediaInputs(env, userId, model, resolution, body) {
   for (const source of resolution.videoReferences) source.used = true;
-  if(model.id===OMNI_MODEL) {
+  if([OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id)) {
+    const seedance=model.id===SEEDANCE_25_MODEL;
     const ordered=resolution.sources.filter(source=>source.status==='compatible'&&source.assetId);
     const order=body.referenceOrder||[];
     ordered.sort((a,b)=>{const rank=id=>{const i=order.indexOf(id);return i<0?order.length:i;};return rank(a.edgeId)-rank(b.edgeId);});
-    body.references=omniReferences(ordered.map(source=>{
+    body.references=(seedance?seedance25References:omniReferences)(ordered.map(source=>{
       const actual=source.kind===CANVAS_DATA_KINDS.VIDEO_ASSET?'video':source.kind===CANVAS_DATA_KINDS.AUDIO_ASSET?'audio':'image';
       if(omniMediaType(source.h3Role)!==actual)throw Object.assign(new Error('Omni reference role does not match the connected medium.'),{status:400,code:'omni_reference_role'});
       source.used=true;return {role:source.h3Role,source:{source_type:'saved_asset',asset_id:source.assetId}};
     }));
-    body.operation=omniOperation(body.references);delete body.referenceOrder;return body;
+    if(seedance)Object.assign(body,seedance25Settings(body,body.references));else body.operation=omniOperation(body.references);delete body.referenceOrder;return body;
   }
   if(model.id===H3_MODEL) {
     const continuations = resolution.videoReferences.filter(source => source.videoInput && source.videoInput.method !== 'reference_video');
@@ -755,12 +757,12 @@ function compatibilityForInput(targetNode, model, kind) {
     return { compatible: false, inputKind: CANVAS_DATA_KINDS.IMAGE_REFERENCE, reason: `${model.label} does not support image input in Canvas.` };
   }
   if (kind === CANVAS_DATA_KINDS.VIDEO_ASSET || kind === CANVAS_DATA_KINDS.VIDEO_REFERENCE) {
-    if (targetNode.type === "video_generation" && ([H3_MODEL,OMNI_MODEL].includes(model.id) || canvasVideoMethods(model, { kind: "video_asset", assetId: "pending" }).length)) {
+    if (targetNode.type === "video_generation" && ([H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id) || canvasVideoMethods(model, { kind: "video_asset", assetId: "pending" }).length)) {
       return { compatible: true, inputKind: CANVAS_DATA_KINDS.VIDEO_REFERENCE, reason: null };
     }
     return { compatible: false, inputKind: CANVAS_DATA_KINDS.VIDEO_REFERENCE, reason: `${model.label} does not support video input, continuation, or extension in Canvas.` };
   }
-  if (kind === CANVAS_DATA_KINDS.AUDIO_ASSET && targetNode.type==="video_generation" && [H3_MODEL,OMNI_MODEL].includes(model.id)) return {compatible:true,inputKind:"audio_reference",reason:null};
+  if (kind === CANVAS_DATA_KINDS.AUDIO_ASSET && targetNode.type==="video_generation" && [H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id)) return {compatible:true,inputKind:"audio_reference",reason:null};
   if (kind === CANVAS_DATA_KINDS.AUDIO_ASSET) {
     return { compatible: false, inputKind: CANVAS_DATA_KINDS.AUDIO_ASSET, reason: `${model.label} does not accept an audio asset input in Canvas.` };
   }
@@ -824,8 +826,8 @@ async function resolveCanvasNodeInputs(env, userId, projectId, node, model) {
     const status = value.kind === CANVAS_DATA_KINDS.NONE
       ? (compatibility.compatible ? "unresolved" : "incompatible")
       : (compatibility.compatible ? "compatible" : "incompatible");
-    const videoInput = kindForCompatibility === CANVAS_DATA_KINDS.VIDEO_ASSET && model.id!==OMNI_MODEL ? resolveCanvasVideoInput(model, value, safeJsonParse(row.edge_config_json, {})) : null;
-    sources.push({ ...value, videoInput, h3Role:videoInput?.method === 'last_frame' ? 'first_frame' : (model.id===OMNI_MODEL?config.omniRoles:config.h3Roles)?.[row.edge_id] || (kindForCompatibility===CANVAS_DATA_KINDS.VIDEO_ASSET?"reference_video":kindForCompatibility===CANVAS_DATA_KINDS.AUDIO_ASSET?"reference_audio":"reference_image"), inputKind: compatibility.inputKind, status, reason: status === "unresolved" ? "Run the upstream node first." : compatibility.reason });
+    const videoInput = kindForCompatibility === CANVAS_DATA_KINDS.VIDEO_ASSET && ![OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id) ? resolveCanvasVideoInput(model, value, safeJsonParse(row.edge_config_json, {})) : null;
+    sources.push({ ...value, videoInput, h3Role:videoInput?.method === 'last_frame' ? 'first_frame' : (model.id===SEEDANCE_25_MODEL?config.seedance25Roles:model.id===OMNI_MODEL?config.omniRoles:config.h3Roles)?.[row.edge_id] || (kindForCompatibility===CANVAS_DATA_KINDS.VIDEO_ASSET?"reference_video":kindForCompatibility===CANVAS_DATA_KINDS.AUDIO_ASSET?"reference_audio":"reference_image"), inputKind: compatibility.inputKind, status, reason: status === "unresolved" ? "Run the upstream node first." : compatibility.reason });
   }
   const compatible = sources.filter((source) => source.status === "compatible");
   const connectedPrompt = compatible
@@ -863,7 +865,7 @@ function buildGenerationBody(node, model, resolution) {
     throw error;
   }
   const prompt = resolution.effectivePrompt;
-  if (!prompt && !(model.id === 'elevenlabs/music-v2' && config.inputMode === 'composition_plan')) {
+  if (!prompt && !(model.id===SEEDANCE_25_MODEL && resolution.sources.some(source=>source.status==='compatible'&&source.assetId)) && !(model.id === 'elevenlabs/music-v2' && config.inputMode === 'composition_plan')) {
     const error = new Error("Add a prompt to this node or connect a Text Prompt node before running.");
     error.status = 400;
     error.code = "prompt_required";
@@ -894,6 +896,8 @@ function buildGenerationBody(node, model, resolution) {
     for (const [field, supported] of Object.entries(fields)) {
       if (supported && config[field] !== undefined && config[field] !== "") body[field] = config[field];
     }
+  } else if (model.id === SEEDANCE_25_MODEL) {
+    Object.assign(body,seedance25Settings(config.seedance25 || {}),{workflow:config.seedance25?.workflow || 'generate',referenceOrder:Array.isArray(config.seedance25Order)?config.seedance25Order:[]});
   } else if (model.capability === "video") {
     if(model.id===OMNI_MODEL)body.referenceOrder=Array.isArray(config.omniOrder)?config.omniOrder:[];
     else body.duration = config.duration || model.controls?.duration?.default || 5;

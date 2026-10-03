@@ -1,4 +1,5 @@
 import { OMNI_MODEL } from '../../../../js/shared/gemini-omni-contract.mjs';
+import { SEEDANCE_25_MODEL } from '../../../../js/shared/seedance-25-contract.mjs';
 import { BITBI_MODEL_PRICING_USD_TO_EUR, BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING, BITBI_TARGET_PROFIT_MARGIN, creditsForProviderCostUsd } from '../../../../js/shared/model-credit-pricing.mjs';
 import { applyModelTariff, mediaTariffBasis, canonicalPricingModel, tariffKey, validateTariffRates, FACTORY_TARIFF_VERSION, TARIFF_HEADER, stablePricingJson } from '../../../../js/shared/model-tariff.mjs';
 import { modelFactoryPrice, modelPricingCatalog, validateModelPricingSettings } from '../../../../js/shared/model-pricing-catalog.mjs';
@@ -34,7 +35,7 @@ export async function quoteModelTariff(env, { modelId, input = {}, credits, cont
     const priced = applyModelTariff(price, snapshot, basis);
     // Duration-settled adapters pin authoritative output-second pricing. Freeze
     // provider rate, conversion and margin, including under factory pricing.
-    const factorySettlement = ['minimax/h3', 'elevenlabs/music-v2'].includes(model.id) ? {
+    const factorySettlement = ['minimax/h3', 'elevenlabs/music-v2', SEEDANCE_25_MODEL].includes(model.id) ? {
         rateUsdPerSecond: price.formula.rateUsdPerSecond,
         usdToEur: BITBI_MODEL_PRICING_USD_TO_EUR,
         netEurPerCredit: BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
@@ -65,6 +66,10 @@ export async function pinModelTariff(env, { modelId, input, credits, request, ex
     };
 }
 export function settlePinnedModelTariff(pinned, fallbackCredits, actualUnits) {
+    if (pinned?.tariff?.key?.startsWith(SEEDANCE_25_MODEL + ':')) {
+        if (!actualUnits || Object.keys(actualUnits).length !== 1 || !Number.isFinite(actualUnits.second) || actualUnits.second <= 0 || actualUnits.second > pinned.tariff.units.second)
+            fail('Stored video duration needs credit review.', 'generation_result_requires_credit_review', 409);
+    }
     // This adapter promises an image URI, not metering or resolved auto values.
     // Its accepted image/reference quote is final; missing usage cannot zero a
     // charge and later factory/Admin changes cannot reprice successful work.

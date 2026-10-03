@@ -1496,3 +1496,26 @@ for(const locale of ['en','de']) test(`Canvas Omni ${locale}: connected roles, f
   await page.screenshot({path:testInfo.outputPath(`omni-canvas-${locale}-mobile.png`)});
   enabled=false;await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(run).toBeDisabled();
 });
+
+for(const locale of ['en','de'])test(`Canvas Seedance 2.5 ${locale} ordered references and independent settings persist`,async({page})=>{
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));await mockSharedAuth(page);
+ const {listCanvasModelsForRole}=await import('../js/shared/canvas-model-contract.mjs');
+ const state=createCanvasApiMock(page,{modelPayload:{models:listCanvasModelsForRole('user'),organizations:[],access:{role:'user'}}});
+ await page.route('**/api/model-pricing',async route=>route.fulfill({json:await require('./helpers/seedance25-model-controls.cjs').snapshot()}));
+ const project='1'.repeat(32),node='a'.repeat(32),now=new Date().toISOString(),de=locale==='de';
+ state.projects.push({id:project,title:'Seedance inputs',locale,created_at:now,updated_at:now});
+ state.nodes.push({id:node,project_id:project,type:'video_generation',title:'Seedance target',model_id:'bytedance/seedance-2.5',x:30,y:30,config:{prompt:'Synthetic motion'},content:{}});
+ for(const [i,kind] of ['image','video','audio'].entries()){
+  const id=String(i+2).repeat(32);state.nodes.push({id,project_id:project,type:'asset_reference',title:kind,x:340,y:30+i*160,content:{asset:{id:'reference-'+kind,asset_type:kind,mime_type:kind==='image'?'image/png':kind==='video'?'video/mp4':'audio/wav'}},config:{}});
+  state.edges.push({id:String(i+4).repeat(32),project_id:project,source_node_id:id,target_node_id:node,config:{}});
+ }
+ await page.goto(de?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${node}"]`).first().press('Enter');
+ const inspector=page.locator('#canvasInspectorBody'),root=inspector.locator('[data-seedance25-controls]'),roles=inspector.getByRole('combobox',{name:de?'Eingaberolle':'Input role',exact:true});
+ await expect(roles).toHaveCount(3);await expect(root).toBeVisible();await root.locator('[data-seedance25-setting=workflow]').selectOption('edit');await expect(root.locator('[data-seedance25-setting=duration]')).toHaveValue('-1');await expect(root.locator('[data-seedance25-setting=duration]')).toBeDisabled();
+ await roles.first().selectOption('first_frame');await expect(root.locator('[data-seedance25-setting=aspect_ratio]')).toHaveValue('adaptive');
+ await root.locator('[data-seedance25-setting=output_format]').selectOption('mov');await expect.poll(()=>state.nodes[0].config.seedance25?.output_format).toBe('mov');
+ await inspector.getByRole('button',{name:de?'Nach oben':'Move up',exact:true}).last().click();await expect.poll(()=>state.nodes[0].config.seedance25Order).toEqual([state.edges[0].id,state.edges[2].id,state.edges[1].id]);
+ await page.reload();await page.locator(`[data-node-id="${node}"]`).first().press('Enter');await expect(root.locator('[data-seedance25-setting=workflow]')).toHaveValue('edit');expect(await roles.evaluateAll(list=>list.map(s=>s.value))).toEqual(['first_frame','reference_audio','reference_video']);
+ await page.setViewportSize({width:390,height:844});await page.locator('#canvasInspectorToggle').click();await expect(root).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ expect(state.requests.filter(r=>r.pathname.endsWith('/run'))).toEqual([]);expect(errors).toEqual([]);
+});

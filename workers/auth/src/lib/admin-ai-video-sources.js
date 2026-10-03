@@ -1,3 +1,5 @@
+import { SEEDANCE_25_MODEL, SEEDANCE_25_WORKFLOWS, seedance25References, seedance25MediaType, validateSeedance25ReferenceDurations } from '../../../../js/shared/seedance-25-contract.mjs';
+import { inspectOwnedTimeReference } from './h3-reference-metadata.js';
 import { assertOmniMediaSignature } from './gemini-omni-media.js';
 import { OMNI_MODEL, OMNI_OPERATIONS, omniReferences, omniMediaType } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { generatedReferencePlan, prepareVideoReferences, readyVideoReference } from './private-video-references.js';
@@ -590,15 +592,17 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
   const modelId = String(payload.model || "").trim();
   const isH3 = modelId===H3_MODEL;
   const isOmni = modelId===OMNI_MODEL;
+  const isSeedance25 = modelId===SEEDANCE_25_MODEL;
   const isGrokVideoModel = [ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID, ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].includes(modelId);
   const isGrokImageModel = [ADMIN_AI_IMAGE_GROK_IMAGINE_MODEL_ID,GROK_IMAGE_2.id].includes(modelId);
   const isGrokImageOperation = operation === "image_generate" || operation === "generate";
   if (
     payload.v !== ADMIN_AI_VIDEO_SOURCE_TOKEN_VERSION ||
     (payload.purpose !== ADMIN_AI_MEDIA_SOURCE_TOKEN_PURPOSE && !isLegacyVideoToken) ||
-    (!isGrokVideoModel && !isGrokImageModel && !isH3 && !isOmni) ||
-    !["image", "video", ...((isH3||isOmni)?["audio"]:[])].includes(mediaType) ||
+    (!isGrokVideoModel && !isGrokImageModel && !isH3 && !isOmni && !isSeedance25) ||
+    !["image", "video", ...((isH3||isOmni||isSeedance25)?["audio"]:[])].includes(mediaType) ||
     (isOmni && (!OMNI_OPERATIONS.includes(operation) || !payload.job_id || payload.source_type!=="saved_asset")) ||
+    (isSeedance25 && (!SEEDANCE_25_WORKFLOWS.includes(operation) || !payload.job_id || payload.source_type!=="saved_asset")) ||
     (isH3 && (operation!=="generate" || !payload.job_id || payload.source_type!=="saved_asset")) ||
     (isGrokVideoModel && !["generate", "edit", "extend"].includes(operation)) ||
     (isGrokVideoModel && operation === "generate" && mediaType !== "image") ||
@@ -612,7 +616,7 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
   if (isLegacyVideoToken && operation !== "extend") {
     throw new AdminAiVideoSourceError("Invalid media source token.", { status: 403, code: "invalid_media_source_token" });
   }
-  if (!((isGrokVideoModel || isH3 || isOmni) && payload.job_id && payload.exp === 0) && (!Number.isFinite(Number(payload.exp)) || Number(payload.exp) <= now)) {
+  if (!((isGrokVideoModel || isH3 || isOmni || isSeedance25) && payload.job_id && payload.exp === 0) && (!Number.isFinite(Number(payload.exp)) || Number(payload.exp) <= now)) {
     throw new AdminAiVideoSourceError("Media source token expired.", { status: 410, code: "media_source_token_expired" });
   }
   return {
@@ -623,7 +627,7 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
     source_role: typeof payload.source_role === "string" && payload.source_role ? payload.source_role : null,
     model: modelId,
     user_id: typeof payload.user_id === "string" && payload.user_id ? payload.user_id : null,
-    pinned_job: (isGrokVideoModel || isH3 || isOmni) && payload.exp === 0,
+    pinned_job: (isGrokVideoModel || isH3 || isOmni || isSeedance25) && payload.exp === 0,
     job_id: typeof payload.job_id === "string" && payload.job_id ? payload.job_id : null,
   };
 }
@@ -743,6 +747,7 @@ export function isGrokVideo(model) {
 }
 
 function grokSourceReferences(payload) {
+  if(payload.model===SEEDANCE_25_MODEL)return seedance25References(payload.references).map((ref,i)=>[`seedance25.${i}.${ref.role}`,{...ref.source,media_type:seedance25MediaType(ref.role)}]);
   if(payload.model===OMNI_MODEL)return omniReferences(payload.references).map((ref,i)=>[`omni.${i}.${ref.role}`,{...ref.source,media_type:omniMediaType(ref.role)}]);
   if(payload.model===H3_MODEL)return h3References(payload.references).map((ref,i)=>[`h3.${i}.${ref.role}`,{...ref.source,media_type:h3MediaType(ref.role)}]);
   const refs = [];
@@ -755,25 +760,35 @@ function grokSourceReferences(payload) {
 // Authorize before accepting/reserving; snapshots are server-owned and pin the
 // exact existing bytes while the accepted job needs them, even after deletion.
 export async function snapshotGrokVideoSources(env, user, payload) {
-  if (!isGrokVideo(payload.model) && payload.model!==H3_MODEL && payload.model!==OMNI_MODEL) return [];
-  if (payload.model!==OMNI_MODEL && !getAdminAiVideoModelSpec(payload.model).availableOperations.includes(payload._operation || 'generate')) {
+  if (!isGrokVideo(payload.model) && payload.model!==H3_MODEL && payload.model!==OMNI_MODEL && payload.model!==SEEDANCE_25_MODEL) return [];
+  if (payload.model!==OMNI_MODEL && payload.model!==SEEDANCE_25_MODEL && !getAdminAiVideoModelSpec(payload.model).availableOperations.includes(payload._operation || 'generate')) {
     throw new AdminAiVideoSourceError('Edit and Extend are temporarily unavailable pending exact-route billing verification.', {status:409,code:'video_operation_billing_unverified'});
   }
   const snapshots = [];
+  const seedanceDurations = [];
   const h3Totals={video:0,audio:0};
   for (const [role, ref] of grokSourceReferences(payload)) {
     const row = await getSourceRow(env, ref, user.id);
     const head = await env.USER_IMAGES.head(row.r2_key);
-    if (!head || !head.etag || head.size > (payload.model===H3_MODEL ? {video:50_000_000,audio:15_000_000,image:30_000_000}[ref.media_type] : payload.model===OMNI_MODEL ? {video:80_000_000,audio:15*1024*1024,image:10*1024*1024}[ref.media_type] : ref.media_type === 'video' ? 80_000_000 : 10_000_000)) {
+    if (!head || !head.etag || head.size > (payload.model===H3_MODEL ? {video:50_000_000,audio:15_000_000,image:30_000_000}[ref.media_type] : [OMNI_MODEL,SEEDANCE_25_MODEL].includes(payload.model) ? {video:80_000_000,audio:15*1024*1024,image:10*1024*1024}[ref.media_type] : ref.media_type === 'video' ? 80_000_000 : 10_000_000)) {
       throw new AdminAiVideoSourceError('Source media is unavailable or too large.', {code:'media_source_unavailable'});
     }
     const mime = head.httpMetadata?.contentType || row.mime_type || 'image/png';
     assertSupportedObjectContentType(ref.media_type, mime);
-    if(payload.model===OMNI_MODEL) {
+    if(payload.model===OMNI_MODEL || payload.model===SEEDANCE_25_MODEL) {
       if(await env.DB.prepare('SELECT id FROM member_generation_unready_assets WHERE id=?').bind(row.id).first())throw new AdminAiVideoSourceError('Source is not ready.',{status:409,code:'omni_source_not_ready'});
       const object=await env.USER_IMAGES.get(row.r2_key,{range:{offset:0,length:32},onlyIf:{etagMatches:head.etag}});
       if(!object?.body)throw new AdminAiVideoSourceError('Source changed.',{code:'media_source_changed'});
       assertOmniMediaSignature(new Uint8Array(await new Response(object.body).arrayBuffer()),mime);
+    }
+    if(payload.model===SEEDANCE_25_MODEL) {
+      if(ref.media_type==='image')seedanceDurations.push(null);
+      else {
+        const object=await env.USER_IMAGES.get(row.r2_key,{onlyIf:{etagMatches:head.etag}});
+        if(!object?.body)throw new AdminAiVideoSourceError('Source changed.',{code:'media_source_changed'});
+        const metadata=inspectOwnedTimeReference(new Uint8Array(await new Response(object.body).arrayBuffer()),ref.media_type,mime);
+        seedanceDurations.push(metadata.duration);
+      }
     }
     let prepared={};
     if(payload.model===H3_MODEL) {
@@ -791,12 +806,22 @@ export async function snapshotGrokVideoSources(env, user, payload) {
     }
     snapshots.push({...ref, ...prepared, role, r2_key:row.r2_key, etag:head.etag, size_bytes:head.size, mime_type:mime});
   }
+  if(payload.model===SEEDANCE_25_MODEL)validateSeedance25ReferenceDurations(payload.references,seedanceDurations);
   return snapshots;
 }
 
 export async function resolveAdminAiGrokPreviewMediaSourcesForProvider(env, adminUser, payload, {
   jobId = null, origin = null, prepareOutput = false,
 } = {}) {
+  if(payload?.model===SEEDANCE_25_MODEL) {
+    if(!jobId)throw new AdminAiVideoSourceError('A durable Seedance job is required.',{code:'seedance_25_durable_job_required'});
+    const seedance25_sources=[];
+    for(const [role,ref] of grokSourceReferences(payload)) {
+      const token=await createMediaSourceToken(env,ref,{model:SEEDANCE_25_MODEL,operation:payload.workflow,sourceRole:role,userId:adminUser.id,jobId,expiresAt:0});
+      seedance25_sources.push({role:role.split('.')[2],url:`${getProviderOrigin(env,origin)}/api/internal/ai/media-source/${encodeURIComponent(token)}`});
+    }
+    return {...stripPreviewMediaSourceFields(payload),seedance25_sources};
+  }
   if(payload?.model===OMNI_MODEL) {
     if(!jobId)throw new AdminAiVideoSourceError('A durable Omni job is required.',{code:'omni_durable_job_required'});
     const omni_sources=[];

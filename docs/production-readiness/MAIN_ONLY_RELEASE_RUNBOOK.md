@@ -367,6 +367,35 @@ Allowed direct-main release verdicts:
 
 Do not use `PRODUCTION READY` as an automatic result. Production/live billing readiness remains blocked until all production, Stripe, restore, alert, WAF/RUM, legal/accounting, and remediation evidence gates are complete and reviewed.
 
+## Seedance 2.5 custom output-duration pricing
+
+Owner decision, 2026-10-03: exact `bytedance/seedance-2.5` uses BITBI's custom
+stored-output-duration rule. The four owner rates are USD 0.1028/0.4304 per second
+at 480p and 0.2312/0.9676 at 720p (non-video/video input). The unmapped average is
+0.4330; the duplicate default does not enter that average. Apply the approved 5%
+funding factor once, the central 20% margin, configured FX/net-credit value and
+final upward credit rounding. These are owner-supplied rates, not independently
+verified Cloudflare metering. No paid provider acceptance was performed.
+
+Forward migration 0099 adds six **Custom configurations**, preserves previous
+rules and accepted tariff pins, and advances the pricing revision. Native fixtures
+must read that revision; they must not assume a new migrated database starts at
+zero. Actual validated video references determine the execution tier. Every run
+shows a 30-second reservation ceiling; settlement measures the stored original,
+releases unused credits and fails closed for unknown duration/format. Recovery
+uses the same pinned price without another inference. Use existing area switches
+to stop new work; preserve already-dispatched results and holds for reconciliation.
+Do not roll back applied migrations or restore old prices over later Admin edits.
+
+The existing Canvas/model release selection executes Seedance Worker boundaries,
+member-generation/model-pricing/Canvas native suites and tagged Chromium/WebKit
+controls. `test:ci-selection`, the actual shell countercheck in the runtime launcher,
+`test:release-plan` and `test:static-deploy-safety` guard discovery, execution and
+0099 → AI → Auth → exact frontend publication. Unchanged media and Contact stay
+out of deployment. Local fixture acceptance includes 52 owned references, Auto/
+fixed output settlement, queued OFF/running completion, storage recovery and MOV
+playback/native audio; it does not establish provider quality or production state.
+
 ## Gemini Omni Flash: publication and owner activation
 
 The owner-approved integration targets only `google/gemini-omni-flash` through the

@@ -1,4 +1,5 @@
 import { OMNI_MODEL, OMNI_PRESET, OMNI_RESOLUTIONS, OMNI_RATIOS, OMNI_ROLES, normalizeOmniRequest } from './gemini-omni-contract.mjs';
+import { SEEDANCE_25_MODEL, SEEDANCE_25_PRESET, SEEDANCE_25_RESOLUTIONS, SEEDANCE_25_RATIOS, SEEDANCE_25_ROLES, normalizeSeedance25Request } from './seedance-25-contract.mjs';
 import { GPT_IMAGE_25_MODELS, isGptImage25Model, normalizeGptImage25Options } from "./gpt-image-25-contract.mjs";
 import { MULTIPART_IMAGE_DIMENSIONS } from './image-dimensions.mjs';
 import { H3_MODEL, H3_RESOLUTIONS, H3_RATIOS, H3_ROLES, normalizeH3Request } from './minimax-h3.mjs';
@@ -891,6 +892,19 @@ const MUSIC_MODELS = {
 };
 
 const VIDEO_MODELS = {
+  [SEEDANCE_25_MODEL]: {
+    id: SEEDANCE_25_MODEL, task: 'video', label: 'Seedance 2.5', vendor: 'ByteDance', providerLabel: 'Cloudflare AI Gateway',
+    inputFormat: 'seedance-25', proxied: true, generationEnabled: true, pricingRequired: false,
+    supportsImageInput: true, supportsEndImage: true, supportsVideoInput: true, supportsAudioInput: true,
+    supportsReferenceImages: true, maxReferenceImages: 30, referenceRoles: SEEDANCE_25_ROLES,
+    supportsNegativePrompt: false, supportsSeed: true, supportsAudioToggle: true, supportsWatermark: true,
+    resolutionField: 'resolution', aspectRatioMode: 'always', maxPromptLength: 2000,
+    minDuration: 4, maxDuration: 30, defaultDuration: 5,
+    allowedAspectRatios: SEEDANCE_25_RATIOS, allowedResolutions: SEEDANCE_25_RESOLUTIONS,
+    defaultResolution: '720p', defaultAspectRatio: 'adaptive',
+    supportedOperations: ['generate'], availableOperations: ['generate'], defaultPreset: SEEDANCE_25_PRESET,
+    description: 'Text, first/last frames and ordered image/video/audio references, including audio-only input. Auto, editing and extension; MP4/MOV at 24 fps. Custom retail pricing uses measured stored output duration, with a 30-second reservation. Provider billable quantities are unverified.',
+  },
   [OMNI_MODEL]: {
     id: OMNI_MODEL, task: 'video', label: 'Gemini Omni Flash', vendor: 'Google', providerLabel: 'Cloudflare AI Gateway',
     inputFormat: 'gemini-omni', proxied: true, generationEnabled: true, pricingRequired: false,
@@ -1161,6 +1175,7 @@ const VIDEO_MODELS = {
 };
 
 const PRESETS = {
+  [SEEDANCE_25_PRESET]: { name:SEEDANCE_25_PRESET, task:'video', label:'Seedance 2.5', model:SEEDANCE_25_MODEL, description:'Ordered multimodal video generation, editing and extension.' },
   [OMNI_PRESET]: { name: OMNI_PRESET, task: 'video', label: 'Gemini Omni Flash', model: OMNI_MODEL, description: 'Cloudflare video preview with manual retail pricing.' },
   video_minimax_h3: {name:'video_minimax_h3',task:'video',label:'MiniMax H3',model:H3_MODEL,description:'Multimodal video generation.'},
   fast: {
@@ -1993,7 +2008,7 @@ function toPublicModel(model) {
       defaultAspectRatio: model.defaultAspectRatio || "16:9",
       defaultQuality: model.defaultQuality || "720p",
       defaultResolution: model.defaultResolution || null,
-      defaultGenerateAudio: model.defaultGenerateAudio !== false,
+      defaultGenerateAudio: model.id === SEEDANCE_25_MODEL ? null : model.defaultGenerateAudio !== false,
       defaultWatermark: model.defaultWatermark === true,
       defaultPreset: model.defaultPreset || null,
       adminOnly: model.adminOnly === true,
@@ -2983,6 +2998,11 @@ export function validateAdminAiVideoBody(body, options = {}) {
     const { omni_sources, ...publicInput } = input;
     if (omni_sources !== undefined && !allowResolvedGrokPreviewMediaUrls) throw new AdminAiValidationError('Internal Omni sources are not accepted.', 400, 'validation_error');
     return { ...normalizeOmniRequest(publicInput), ...(allowResolvedGrokPreviewMediaUrls ? { omni_sources } : {}) };
+  }
+  if (selectedModel.id === SEEDANCE_25_MODEL) {
+    const { seedance25_sources, ...publicInput } = input;
+    if (seedance25_sources !== undefined && !allowResolvedGrokPreviewMediaUrls) throw new AdminAiValidationError('Internal Seedance sources are not accepted.', 400, 'validation_error');
+    return { ...normalizeSeedance25Request(publicInput), ...(allowResolvedGrokPreviewMediaUrls ? { seedance25_sources } : {}) };
   }
   if (selectedModel.id === H3_MODEL) {
     // Only the authenticated AI service caller may carry resolved internal media.

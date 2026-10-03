@@ -6,7 +6,7 @@ import { settlePinnedModelTariff } from '../../workers/auth/src/lib/model-tariff
 export async function modelPricingCase(env, body) {
     if(body.area==='canvas')env=modelAreaEnvironment(env,'canvas');
     const image = isGptImage25Model(body.modelId), route=image?'/api/ai/generate-image':'/api/ai/generate-video';
-    const payload = { ...(image ? {model:body.modelId} : {model:'minimax/h3', duration:5, resolution:'768P'}), prompt:'Synthetic pricing fixture', ...body.settings, ...(body.organization ? {organization_id:body.organization} : {}) };
+    const payload = { ...(image ? {model:body.modelId} : {model:body.modelId||'minimax/h3', duration:5, resolution:body.modelId==='bytedance/seedance-2.5'?'480p':'768P'}), prompt:'Synthetic pricing fixture', ...body.settings, ...(body.organization ? {organization_id:body.organization} : {}) };
     const request = new Request('https://bitbi.ai'+route, { method:'POST', headers:{ 'Idempotency-Key':body.key, 'X-Bitbi-Tariff-Revision':String(body.revision ?? 0) } });
     const price = (image?calculateAiImageCreditCost:calculateAiVideoCreditCost)(payload.model,payload);
     const policy = await prepareAiUsagePolicy({ env, request, user:{id:'q2-workerd-member',role:'user'}, body:payload,

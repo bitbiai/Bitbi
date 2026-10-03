@@ -88,6 +88,10 @@
     },
     "bytedance/seedance-2.0": {
       "canvas": true
+    },
+    "bytedance/seedance-2.5": {
+      "generation": true,
+      "canvas": true
     }
   }
 }

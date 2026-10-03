@@ -1,4 +1,5 @@
 import { OMNI_MODEL, OMNI_ROLES } from './gemini-omni-contract.mjs';
+import { SEEDANCE_25_MODEL, SEEDANCE_25_ROLES } from './seedance-25-contract.mjs';
 import { GPT_IMAGE_25_MODEL_IDS, isGptImage25Model } from './gpt-image-25-contract.mjs';
 import { browserModelTariff, textTariffBasis } from './model-tariff.mjs';
 import { H3_MODEL, H3_ROLES } from './minimax-h3.mjs';
@@ -49,6 +50,7 @@ const RUNNABLE_IMAGE_MODELS = new Set([
 
 const RUNNABLE_VIDEO_MODELS = new Set([
   OMNI_MODEL,
+  SEEDANCE_25_MODEL,
   H3_MODEL,
   "pixverse/v6",
   "alibaba/hh1-t2v",
@@ -229,7 +231,7 @@ function buildVideoModel(model) {
     supportsImageInput: capabilities.supportsImageInput === true,
     supportsVideoInput: capabilities.supportsVideoInput === true,
     supportsAudioInput: capabilities.supportsAudioInput === true,
-    referenceRoles: model.id === OMNI_MODEL ? OMNI_ROLES : model.id === H3_MODEL ? H3_ROLES : [],
+    referenceRoles: model.id === SEEDANCE_25_MODEL ? SEEDANCE_25_ROLES : model.id === OMNI_MODEL ? OMNI_ROLES : model.id === H3_MODEL ? H3_ROLES : [],
     ...(model.id === OMNI_MODEL ? {supportsDuration:false} : {}),
     nativeVideoInput: ["xai/grok-imagine-video","xai/grok-imagine-video-1.5-preview"].includes(model.id),
     supportedOperations: safeOptions(capabilities.supportedOperations),
@@ -244,7 +246,7 @@ function buildVideoModel(model) {
     defaultAspectRatio: capabilities.defaultAspectRatio || "16:9",
     defaultQuality: capabilities.defaultQuality || null,
     defaultResolution: capabilities.defaultResolution || null,
-    defaultGenerateAudio: capabilities.defaultGenerateAudio === true,
+    defaultGenerateAudio: model.id === SEEDANCE_25_MODEL ? null : capabilities.defaultGenerateAudio === true,
     maxPromptLength: Number(capabilities.maxPromptLength || 5000),
   };
   return {

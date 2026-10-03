@@ -1,6 +1,9 @@
 import { OMNI_MODEL, normalizeOmniRequest, buildOmniProviderInput, parseOmniResult } from '../../../../../js/shared/gemini-omni-contract.mjs';
 import { assertOmniReady } from '../../lib/gemini-omni-readiness.js';
 import { quoteModelTariff } from '../../lib/model-tariffs.js';
+import { seedance25StoredOutputSeconds } from '../../lib/seedance-25-output.js';
+import { SEEDANCE_25_MODEL, normalizeSeedance25Request, buildSeedance25ProviderInput, parseSeedance25Result } from '../../../../../js/shared/seedance-25-contract.mjs';
+import { calculateSeedance25CreditPricing } from '../../../../../js/shared/seedance-25-pricing.mjs';
 import { prepareVideoReferences } from '../../lib/private-video-references.js';
 import { H3_MODEL, normalizeH3Request, buildH3ProviderInput, parseH3Task, calculateH3CreditPricing } from '../../../../../js/shared/minimax-h3.mjs';
 import { recordVideoLateError } from '../../lib/h3-provider-result.js';
@@ -225,7 +228,7 @@ function normalizeModelId(value) {
     ? PIXVERSE_V6_MODEL_ID
     : String(value).trim();
   if (
-    modelId === OMNI_MODEL || modelId === H3_MODEL ||
+    modelId === SEEDANCE_25_MODEL || modelId === OMNI_MODEL || modelId === H3_MODEL ||
     modelId === PIXVERSE_V6_MODEL_ID ||
     modelId === HAPPYHORSE_T2V_MODEL_ID ||
     modelId === SEEDANCE_2_FAST_MODEL_ID ||
@@ -533,6 +536,15 @@ async function normalizeMemberVideoBody(body) {
     throw validationError("JSON body is required.", "bad_request");
   }
   const modelId = normalizeModelId(body.model);
+  if (modelId === SEEDANCE_25_MODEL) {
+    const { folder_id, folderId, title, ...request } = body;
+    const validated = normalizeSeedance25Request(request), pricing = calculateSeedance25CreditPricing(validated);
+    return { modelId, modelLabel: 'Seedance 2.5', vendor: 'ByteDance', provider: 'ai_gateway_bytedance', preset: validated.preset,
+      pricingSource: pricing.formula.pricingSource, prompt: validated.prompt, duration: validated.duration, resolution: validated.resolution, aspectRatio: validated.aspect_ratio,
+      operation: 'generate', price: pricing.credits, seed: validated.seed, generateAudio: validated.generate_audio, watermark: validated.watermark, workflow: validated.workflow,
+      title: normalizeOptionalString(title, MAX_TITLE_LENGTH, 'title') || titleFromPrompt(validated.prompt, 'Seedance 2.5 video'),
+      folderId: normalizeFolderId({ folder_id, folderId }), policyBody: validated };
+  }
   if (modelId === HAPPYHORSE_T2V_MODEL_ID) {
     return normalizeHappyHorseBody(body);
   }
@@ -954,7 +966,7 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
 async function persistVideoResult({ env, userId, input, providerResult, elapsedMs, correlationId }) {
   const existing = await existingGenerationAsset(env,userId,'video');
   if(existing) return existing;
-  const videoUrl = input.modelId===OMNI_MODEL?parseOmniResult(providerResult).video:input.modelId===H3_MODEL?parseH3Task(providerResult).videoUrl:extractProviderVideoUrl(providerResult);
+  const videoUrl = input.modelId===SEEDANCE_25_MODEL?parseSeedance25Result(providerResult).video:input.modelId===OMNI_MODEL?parseOmniResult(providerResult).video:input.modelId===H3_MODEL?parseH3Task(providerResult).videoUrl:extractProviderVideoUrl(providerResult);
   if (!videoUrl) {
     const error = new Error("Video provider returned no savable video.");
     error.status = 502;
@@ -1019,6 +1031,7 @@ async function persistVideoResult({ env, userId, input, providerResult, elapsedM
       generate_audio: input.generateAudio,
       watermark: input.watermark,
       hasImageInput: Boolean(input.imageInput),
+      ...(input.modelId===SEEDANCE_25_MODEL ? {seedance25_input:input.policyBody,provider_cost_usd:null} : {}),
       ...(input.modelId===OMNI_MODEL ? {provider_interaction_id:parseOmniResult(providerResult).interactionId,provider_cost_usd:null} : {}),
       workflow: input.workflow || (input.imageInput ? "image-to-video" : "text-to-video"),
       operation:input.operation || "generate",
@@ -1078,7 +1091,7 @@ export async function handleGenerateVideo(ctx) {
   let input;
   try {
     input = await normalizeMemberVideoBody(parsed.body);
-    if (isGrokVideo(input.modelId) || [H3_MODEL,OMNI_MODEL].includes(input.modelId)) {
+    if (isGrokVideo(input.modelId) || [H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(input.modelId)) {
       const existing = generationExecution(env)?.job || await env.DB.prepare("SELECT source_refs_json FROM member_generation_jobs WHERE user_id=? AND media_type='video' AND request_key=?")
         .bind(userId,request.headers.get('Idempotency-Key') || '').first();
       if (input.modelId===OMNI_MODEL) {
@@ -1215,14 +1228,14 @@ export async function handleGenerateVideo(ctx) {
   }
 
   let providerPayload = buildProviderPayload(input);
-  if (isGrokVideo(input.modelId) || [H3_MODEL,OMNI_MODEL].includes(input.modelId)) {
+  if (isGrokVideo(input.modelId) || [H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(input.modelId)) {
     let resolved;
     try { resolved = await resolveAdminAiGrokPreviewMediaSourcesForProvider(env,session.user,input.policyBody,{jobId:generationExecution(env)?.job.id,origin:new URL(request.url).origin,prepareOutput:Boolean(generationExecution(env))}); }
     catch(error) {
       if(error.code!=='h3_reference_preparing')await markVideoProviderFailed(usagePolicy,{code:error.code||'video_source_resolution_failed',message:'Video reference preparation failed.'});
       throw error;
     }
-    const {model, preset, ...parameters} = resolved; providerPayload = input.modelId===OMNI_MODEL?buildOmniProviderInput(resolved):input.modelId===H3_MODEL?buildH3ProviderInput(resolved):parameters;
+    const {model, preset, ...parameters} = resolved; providerPayload = input.modelId===SEEDANCE_25_MODEL?buildSeedance25ProviderInput(resolved):input.modelId===OMNI_MODEL?buildOmniProviderInput(resolved):input.modelId===H3_MODEL?buildH3ProviderInput(resolved):parameters;
   }
   const providerResponse = await invokeMemberVideoModel(env, input.modelId, providerPayload, { correlationId, userId, signal: request.signal, usagePolicy });
   if (!providerResponse.ok) {
@@ -1306,6 +1319,11 @@ export async function handleGenerateVideo(ctx) {
 
   let billingMetadata = null;
   try {
+    if(input.modelId===SEEDANCE_25_MODEL) {
+      const row=await env.DB.prepare('SELECT r2_key FROM ai_text_assets WHERE id=? AND user_id=?').bind(savedAsset.id,userId).first();
+      const seconds=await seedance25StoredOutputSeconds(env,row?.r2_key,input.policyBody.output_format);
+      h3Usage={...calculateSeedance25CreditPricing(input.policyBody),formula:{outputSeconds:seconds}};
+    }
     if(h3UsageReview)throw Object.assign(new Error('H3 output usage needs reconciliation.'),{code:'generation_result_requires_credit_review'});
     billingMetadata = await usagePolicy.chargeAfterSuccess({
       model: input.modelId,
@@ -1321,7 +1339,7 @@ export async function handleGenerateVideo(ctx) {
       watermark: input.watermark,
       asset_id: savedAsset.id,
       source_module: "video",
-      ...(h3Usage?{h3_output_seconds:h3Usage.formula.outputSeconds}:{}),
+      ...(h3Usage?{[input.modelId===SEEDANCE_25_MODEL?"custom_output_seconds":"h3_output_seconds"]:h3Usage.formula.outputSeconds}:{}),
     }, h3Usage?{credits:h3Usage.credits,units:{second:h3Usage.formula.outputSeconds}}:{});
   } catch (error) {
     if (generationExecution(env)) throw error;

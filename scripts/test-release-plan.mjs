@@ -22,6 +22,22 @@ function createContext() {
   return context;
 }
 
+{
+  const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');
+  const {assertSupportedBackendMigrations}=await import('./lib/backend-publication.mjs');
+  const migration='0099_seedance_25_custom_tariffs.sql';
+  const files=['js/shared/seedance-25-contract.mjs','js/shared/seedance-25-pricing.mjs',
+    'workers/auth/src/lib/seedance-25-output.js','workers/ai/src/lib/invoke-ai-video.js',
+    `workers/auth/migrations/${migration}`,'config/release-compat.json','js/pages/admin/video-input-controls.js'];
+  const plan=createReleasePlanFromRepo(repoRoot,{files});
+  assert(backendContinuationSupported(plan));assertSupportedBackendMigrations([migration]);
+  assert.deepEqual(plan.workerDeploys.map(step=>step.worker),['ai','auth']);
+  assert.equal(plan.schemaApplies[0].latestMigration,JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest);
+  assert.equal(plan.deploySteps[0].type,'schema-checkpoint');assert.equal(plan.deploySteps.at(-1).type,'static');
+  for(const file of ['workers/contact/src/index.js','workers/ai/src/routes/unreviewed.js'])assert(!backendContinuationSupported(createReleasePlanFromRepo(repoRoot,{files:[...files,file]})));
+  console.log('Seedance: reviewed custom tariff migration, AI then Auth then frontend; unchanged media/contact excluded.');
+}
+
 for (const file of ['config/website-assistant.json', 'workers/shared/website-assistant-content.mjs',
   'workers/shared/website-assistant-knowledge.mjs', 'workers/shared/website-assistant-version.mjs',
   'workers/shared/website-assistant-contract-version.mjs', 'js/shared/website-assistant-context.mjs']) {

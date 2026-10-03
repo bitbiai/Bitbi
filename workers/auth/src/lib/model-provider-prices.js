@@ -2,6 +2,8 @@
 // Exact Workers AI aliases checked against Cloudflare's public pricing table.
 import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
 import { GPT_IMAGE_25_PROVIDER_PRICING } from '../../../../js/shared/gpt-image-25-pricing.mjs';
+import { SEEDANCE_25_MODEL } from '../../../../js/shared/seedance-25-contract.mjs';
+import { SEEDANCE_25_PRICING_EVIDENCE, SEEDANCE_25_RATES, SEEDANCE_25_FALLBACK_RATE } from '../../../../js/shared/seedance-25-pricing.mjs';
 const SOURCE = 'https://developers.cloudflare.com/workers-ai/platform/pricing/';
 const checkedAt = '2026-09-21';
 const tokenRates = {
@@ -13,6 +15,8 @@ const tokenRates = {
     '@cf/baai/bge-m3': { input:0.012 },
 };
 function evidence(model, factory) {
+    if (model.id === SEEDANCE_25_MODEL) return { ...SEEDANCE_25_PRICING_EVIDENCE, ratesUsd: SEEDANCE_25_RATES, fallbackRateUsd: SEEDANCE_25_FALLBACK_RATE,
+        unit: 'custom_stored_output_second', providerMeteringVerified: false };
     if (isGptImage25Model(model.id)) return { status:'verified', ...GPT_IMAGE_25_PROVIDER_PRICING,
         acquisitionMultiplier:GPT_IMAGE_25_PROVIDER_PRICING.fundingMultiplier,
         quantityEvidenceStatus:'generation_verified_reference_images_not_verified' };

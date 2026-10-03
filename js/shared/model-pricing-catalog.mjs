@@ -1,4 +1,6 @@
 import { OMNI_MODEL, OMNI_OPERATIONS } from './gemini-omni-contract.mjs';
+import { SEEDANCE_25_MODEL } from './seedance-25-contract.mjs';
+import { seedance25FactoryPrice, seedance25FactoryPriceForTier } from './seedance-25-pricing.mjs';
 import { omniFactoryPrice } from './gemini-omni-pricing.mjs';
 import { listAdminAiCatalog } from './admin-ai-contract.mjs';
 import { listCanvasModels, estimateCanvasTextCredits } from './canvas-model-contract.mjs';
@@ -39,6 +41,10 @@ export function modelFactoryPrice(modelId, input = {}, { credits, context = 'can
     const model = modelPricingCatalog().find(item => item.id === canonicalPricingModel(modelId));
     if (!model) throw new TypeError('Unknown model.');
     input = { ...input };
+    if (model.id === SEEDANCE_25_MODEL) {
+        const price = input.inputTier === undefined ? seedance25FactoryPrice(input) : seedance25FactoryPriceForTier(input, input.inputTier);
+        return { model, price, basis: mediaTariffBasis(price, 'video', input) };
+    }
     if (isGptImage25Model(model.id)) {
         const price = gptImage25FactoryPrice(model.id, input);
         return { model, price, basis: mediaTariffBasis(price, 'image', input) };
@@ -78,6 +84,12 @@ export function modelPricingControls(model) {
     const c = model.controls || {}, fields = [];
     const choice = (key, options, value) => { if (options?.length) fields.push({key,options,default:value ?? options[0]}); };
     const number = (key, min, max, value, step=1) => fields.push({key,min,max,step,default:value});
+    if (model.id === SEEDANCE_25_MODEL) {
+        choice('resolution', ['480p', '720p'], '720p');
+        choice('inputTier', ['non_video', 'video', 'unmapped'], 'non_video');
+        choice('duration', [-1, ...Array.from({length:27}, (_,i)=>i+4)], 5);
+        return fields;
+    }
     for (const key of ['resolution','quality','size']) { const value=c['default'+key[0].toUpperCase()+key.slice(1)]; const options=c[key+'Options']; choice(key,key==='size' && options?.length && typeof value!=='string' ? ['',...options] : options,key==='size' && typeof value!=='string' ? '' : value); }
     if (isGptImage25Model(model.id)) for (const key of ['background','outputFormat']) choice(key,c[key+'Options'],c['default'+key[0].toUpperCase()+key.slice(1)]);
     choice('operation',isGptImage25Model(model.id) ? ['generate','edit'] : model.id === OMNI_MODEL ? OMNI_OPERATIONS : c.availableOperations?.length ? c.availableOperations : ['generate'],model.id === OMNI_MODEL ? 'text' : 'generate');

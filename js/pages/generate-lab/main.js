@@ -1,3 +1,5 @@
+import { SEEDANCE_25_MODEL, normalizeSeedance25Request } from '../../shared/seedance-25-contract.mjs';
+import { createSeedance25Controls } from '../../shared/seedance-25-controls.js';
 import { modelAreaEnabled } from '../../shared/model-availability.js';
 import { refreshModelPricing } from '../../shared/model-pricing-client.js';
 import { OMNI_MODEL, omniReferences as validateOmniReferences, omniSettings } from '../../shared/gemini-omni-contract.mjs';
@@ -295,7 +297,17 @@ function saveOmniDraft() {
 }
 
 let h3References=[];
+let seedance25Controls, seedance25Draft={}, seedance25Owner;
+function syncSeedance25Draft(){
+    const owner=state.user?.id || null;if(owner===seedance25Owner)return;seedance25Owner=owner;seedance25Draft={};
+    if(owner)try{const saved=JSON.parse(sessionStorage.getItem('bitbi_seedance25:'+owner));if(saved)seedance25Draft=normalizeSeedance25Request({...saved,prompt:'draft'});}catch{}
+}
+function saveSeedance25Draft(){
+    if(state.user?.id && state.user.id===seedance25Owner)try{sessionStorage.setItem('bitbi_seedance25:'+seedance25Owner,JSON.stringify(seedance25Controls.values()));}catch{}
+    updateActionState();
+}
 function currentVideoEstimateValues(model = selectedModel()) {
+    if(model.id===SEEDANCE_25_MODEL)return seedance25Controls?.values() || {};
     const controls = model.controls || {};
     const values = {
         ...(model.id.startsWith("xai/grok-imagine-video") ? grokVideoControls?.values() : {}),
@@ -864,6 +876,15 @@ function syncVideoOptionState({ reset = false } = {}) {
     readOmniDraft();
     if(!omniControls)omniControls=createH3ReferenceControls({omni:true,anchor:referenceField,de:document.documentElement.lang==='de',pick:openGrokSources,read:()=>omniReferences,write:value=>{omniReferences=value;},changed:()=>{saveOmniDraft();updateActionState();}});
     omniControls.sync(model.id===OMNI_MODEL,state.busy);
+    syncSeedance25Draft();
+    if(!seedance25Controls)seedance25Controls=createSeedance25Controls({anchor:referenceField,de:document.documentElement.lang==='de',pick:openGrokSources,read:()=>seedance25Draft,write:value=>{seedance25Draft=value;},changed:()=>{saveSeedance25Draft();updateActionState();}});
+    seedance25Controls.sync(model.id===SEEDANCE_25_MODEL,state.busy);
+    if(model.id===SEEDANCE_25_MODEL){
+        for(const input of [refs.videoDuration,refs.videoQuality,refs.videoAspect]){const label=input?.closest('label');if(label)label.hidden=true;}
+        for(const field of [negativeField,referenceField,seedField,audioToggle,watermarkToggle])if(field)field.hidden=true;
+        return;
+    }
+    for(const input of [refs.videoQuality,refs.videoAspect]){const label=input?.closest('label');if(label)label.hidden=false;}
     if(refs.videoDuration?.closest('label'))refs.videoDuration.closest('label').hidden=model.id===OMNI_MODEL;
 
     const supportsNegative = controls.supportsNegativePrompt === true;
@@ -2050,6 +2071,7 @@ async function generateVideo(prompt, observation) {
     } else if(model.id===OMNI_MODEL)payload.references=omniControls.values();
     else if(model.id===H3_MODEL)payload.references=h3Controls.values();
     else if (controls.supportsImageInput && state.videoReferenceDataUri) payload.image_input = state.videoReferenceDataUri;
+    if(model.id===SEEDANCE_25_MODEL){for(const key of Object.keys(payload))delete payload[key];Object.assign(payload,normalizeSeedance25Request({model:model.id,prompt,...seedance25Controls.values()}));}
     const folderId = refs.folderSelect?.value || '';
     if (folderId) payload.folder_id = folderId;
 
@@ -2093,7 +2115,7 @@ async function handleGenerate() {
     if (!modelAreaEnabled(state.modelId,'generation')) { renderImageModelOptions(); updateActionState(); return; }
 
     const prompt = refs.prompt?.value.trim() || '';
-    if (!prompt && !(state.modelId === 'elevenlabs/music-v2' && state.elevenLabsMusic.inputMode === 'composition_plan')) {
+    if (!prompt && !(state.modelId===SEEDANCE_25_MODEL && seedance25Controls.values().references.length) && !(state.modelId === 'elevenlabs/music-v2' && state.elevenLabsMusic.inputMode === 'composition_plan')) {
         setMessage(localeText('studio.promptRequired'), 'error');
         setWorkflowStatus('attention');
         setCurrentResultSummary('attention');
@@ -2101,6 +2123,7 @@ async function handleGenerate() {
         return;
     }
 
+    if(state.modelId===SEEDANCE_25_MODEL){try{normalizeSeedance25Request({model:state.modelId,prompt,...seedance25Controls.values()});}catch(error){setMessage(getCurrentLocale()==='de'?'Bitte Eingaben, Referenzen und Einstellungen prüfen.':error.message,'error');return;}}
     if (state.modelId === 'elevenlabs/music-v2') {
         try { validateElevenLabsMemberBody(elevenLabsMemberBody(state.elevenLabsMusic, prompt)); }
         catch { setMessage(getCurrentLocale() === 'de' ? 'Bitte Kompositionsplan und Musikeinstellungen prüfen.' : 'Check the composition plan and music settings.', 'error'); return; }

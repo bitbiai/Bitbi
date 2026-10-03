@@ -1,4 +1,5 @@
 import { OMNI_MODEL, buildOmniProviderInput, parseOmniResult } from '../../../../js/shared/gemini-omni-contract.mjs';
+import { SEEDANCE_25_MODEL, buildSeedance25ProviderInput, parseSeedance25Result } from '../../../../js/shared/seedance-25-contract.mjs';
 import { H3_MODEL, buildH3ProviderInput, parseH3Task } from '../../../../js/shared/minimax-h3.mjs';
 // @ts-check
 
@@ -740,11 +741,12 @@ function buildVideoRunOptions(env, model) {
   if (
     model.id === H3_MODEL
     || model.id === OMNI_MODEL
+    || model.id === SEEDANCE_25_MODEL
     || model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID
     || model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID
   ) {
     // Private source/output capabilities must never enter Gateway request logs.
-    return { gateway: { id: getAiGatewayId(env), collectLog: false, ...([H3_MODEL,OMNI_MODEL].includes(model.id)?{skipCache:true}:{}) } };
+    return { gateway: { id: getAiGatewayId(env), collectLog: false, ...([H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id)?{skipCache:true}:{}) } };
   }
   return { gateway: { id: DEFAULT_AI_GATEWAY_ID } };
 }
@@ -1094,6 +1096,7 @@ function buildGrokImagineVideo15PreviewPayload(input) {
  */
 export function buildVideoPayload(model, input) {
   if(model.id===OMNI_MODEL) { const {correlationId,...body}=input; return {payload:buildOmniProviderInput(body),normalized:{...body,workflow:'omni-'+body.operation}}; }
+  if(model.id===SEEDANCE_25_MODEL) { const {correlationId,...body}=input; return {payload:buildSeedance25ProviderInput(body),normalized:body}; }
   if(model.id===H3_MODEL)return {payload:buildH3ProviderInput(input),normalized:{...input,hasImageInput:(input.references||[]).some(r=>r.role.includes('frame')||r.role==='reference_image'),hasVideoInput:(input.references||[]).some(r=>r.role==='reference_video'),workflow:'h3-generation'}};
   if (model.id === ADMIN_AI_VIDEO_MODEL_ID) {
     const payload = {
@@ -1226,6 +1229,10 @@ async function runWorkersAiVideoOnce(env, model, input, request, startedAt, runO
   if(model.id===OMNI_MODEL) {
     const result=parseOmniResult(raw);
     return {...buildVideoTaskResult({status:'succeeded',request,startedAt,videoUrl:result.video,providerTaskId:null,providerState:'Completed'}),providerInteractionId:result.interactionId};
+  }
+  if(model.id===SEEDANCE_25_MODEL) {
+    const result=parseSeedance25Result(raw);
+    return {...buildVideoTaskResult({status:'succeeded',request,startedAt,videoUrl:result.video,providerTaskId:null,providerState:'Completed'}),providerCostUsd:null};
   }
   if(model.id===H3_MODEL) {
     const task=parseH3Task(raw);

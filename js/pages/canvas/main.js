@@ -1,3 +1,5 @@
+import { SEEDANCE_25_MODEL, SEEDANCE_25_ROLES } from '../../shared/seedance-25-contract.mjs';
+import { createSeedance25Controls } from '../../shared/seedance-25-controls.js';
 import { modelAreaState } from '../../shared/model-availability.js';
 import { refreshModelPricing } from '../../shared/model-pricing-client.js';
 import { uploadOmniReference } from '../../shared/omni-reference-upload.js';
@@ -477,21 +479,22 @@ function renderInputContext(node, analysis) {
                 ? `${source.sourceTitle}: ${source.inputKind}`
                 : `${source.sourceTitle}: ${source.reason}`;
             section.append(el('p', '', message));
-            if([H3_MODEL,OMNI_MODEL].includes(analysis.model?.id) && source.assetId && (analysis.model?.id===OMNI_MODEL || source.kind !== 'video_asset')) {
+            if([H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(analysis.model?.id) && source.assetId && ([OMNI_MODEL,SEEDANCE_25_MODEL].includes(analysis.model?.id) || source.kind !== 'video_asset')) {
                 const select=el('select','canvas-select');select.dataset.h3Role=source.edgeId;
                 const media=source.kind==='video_asset'?'video':source.kind==='audio_asset'?'audio':'image';
-                for(const role of (analysis.model?.id===OMNI_MODEL?OMNI_ROLES:H3_ROLES).filter(role=>h3MediaType(role)===media)){const option=el('option');option.value=role;option.textContent=h3RoleLabel(role,isGerman);select.append(option);}
+                for(const role of (analysis.model?.id===SEEDANCE_25_MODEL?SEEDANCE_25_ROLES:analysis.model?.id===OMNI_MODEL?OMNI_ROLES:H3_ROLES).filter(role=>h3MediaType(role)===media)){const option=el('option');option.value=role;option.textContent=h3RoleLabel(role,isGerman);select.append(option);}
                 select.value=source.h3Role;section.append(field(isGerman?'Eingaberolle':'Input role',select));
-                if(analysis.model.id===OMNI_MODEL){
+                if([OMNI_MODEL,SEEDANCE_25_MODEL].includes(analysis.model.id)){
                     const order=analysis.sources.filter(item=>item.assetId).map(item=>item.edgeId),index=order.indexOf(source.edgeId);
                     const up=el('button','canvas-button',isGerman?'Nach oben':'Move up');up.type='button';up.disabled=index<=0;
-                    up.addEventListener('click',()=>{[order[index-1],order[index]]=[order[index],order[index-1]];scheduleNode(node,{config:{...node.config,omniOrder:order}});renderGraph();renderInspector();});section.append(up);
+                    up.addEventListener('click',()=>{[order[index-1],order[index]]=[order[index],order[index-1]];scheduleNode(node,{config:{...node.config,[analysis.model.id===SEEDANCE_25_MODEL?'seedance25Order':'omniOrder']:order}});renderGraph();renderInspector();});section.append(up);
                 }
 
                 select.addEventListener('change',()=>{
-                    const roleKey=analysis.model.id===OMNI_MODEL?'omniRoles':'h3Roles';
+                    const roleKey=analysis.model.id===SEEDANCE_25_MODEL?'seedance25Roles':analysis.model.id===OMNI_MODEL?'omniRoles':'h3Roles';
                     const config={...node.config,[roleKey]:{...node.config[roleKey],[source.edgeId]:select.value}};
                     if(analysis.model.id===H3_MODEL&&['first_frame','last_frame'].includes(select.value))config.aspectRatio='adaptive';
+                    if(analysis.model.id===SEEDANCE_25_MODEL&&['first_frame','last_frame'].includes(select.value))config.seedance25={...config.seedance25,aspect_ratio:'adaptive'};
                     scheduleNode(node,{config});renderGraph();renderInspector();
                     dom.inspector.querySelector(`[data-h3-role="${source.edgeId}"]`)?.focus({preventScroll:true});
                 });
@@ -617,7 +620,7 @@ function renderInspector() {
             const updateCost = () => {
                 let estimate = model.estimatedCredits;
                 try {
-                    if (capability === 'video' && model.runnable && model.areaEnabled!==false) estimate = calculateAiVideoCreditCost(model.id, model.id === OMNI_MODEL ? omniCanvasInput(node) : { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, resolution: node.config?.resolution || model.controls.defaultResolution, aspect_ratio: node.config?.aspectRatio || model.controls.defaultAspectRatio, generateAudio: node.config?.generateAudio !== false })?.credits;
+                    if (capability === 'video' && model.runnable && model.areaEnabled!==false) estimate = calculateAiVideoCreditCost(model.id, model.id === SEEDANCE_25_MODEL ? {...node.config?.seedance25,references:omniCanvasInput(node).references} : model.id === OMNI_MODEL ? omniCanvasInput(node) : { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, resolution: node.config?.resolution || model.controls.defaultResolution, aspect_ratio: node.config?.aspectRatio || model.controls.defaultAspectRatio, generateAudio: node.config?.generateAudio !== false })?.credits;
                     if (capability === 'image' && model.runnable && model.areaEnabled!==false) estimate = calculateAiImageCreditCost(model.id, { ...node.config, ...(isGptImage25Model(model.id) ? { prompt: workflowAnalysis.byNode.get(node.id)?.effectivePrompt || undefined } : {}), source_images: undefined, referenceImageCount: (node.config?.source_images?.length || 0) + (workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0) })?.credits;
                     if (capability === 'music' && model.runnable && model.areaEnabled!==false) estimate = calculateAiModelCreditCost({ mediaType:'music', modelId:model.id, params:model.id === 'elevenlabs/music-v2' ? elevenLabsMemberBody(node.config || {}) : node.config || {} })?.credits;
                     if (capability === 'text' && model.runnable && model.areaEnabled!==false) estimate = estimateCanvasTextCredits(model.id, { ...node.config, systemPrompt: getCanvasTextInstructions(node.config), prompt: analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id)?.effectivePrompt || "" });
@@ -698,7 +701,12 @@ function renderInspector() {
                 }));
             }
         }
-        if (capability === 'video') {
+        if (capability === 'video' && model?.id===SEEDANCE_25_MODEL) {
+            const controls=createSeedance25Controls({anchor:prompt.closest('label')||prompt,de:isGerman,classes:{root:'canvas-settings-grid',select:'canvas-select'},
+                read:()=>node.config?.seedance25 || {},write:settings=>scheduleNode(node,{config:{...node.config,seedance25:settings}}),
+                connectedReferences:()=>omniCanvasInput(node).references,changed:()=>prompt.dispatchEvent(new Event('input',{bubbles:true}))});
+            controls.sync(true,runningNodeId===node.id);
+        } else if (capability === 'video') {
             const grid = el('div', 'canvas-field-grid');
             const duration = inputControl(node.config?.duration ?? model?.controls?.duration?.default ?? 5, 'number'); duration.min = String(model?.controls?.duration?.min || 1); duration.max = String(model?.controls?.duration?.max || 15); bindConfig(node, duration, 'duration', Number);
             const ratios = model?.controls?.aspectRatioOptions?.length ? model.controls.aspectRatioOptions : ['16:9', '9:16', '1:1'];

@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0098_model_area_availability.sql",
+        "latest": "0099_seedance_25_custom_tariffs.sql",
         "databaseName": "bitbi-auth-db"
       }
     },

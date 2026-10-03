@@ -767,6 +767,30 @@ All charged member/organization paths, Admin organization-image admission and Ad
 
 Actual callers: static.yml model-pricing selection runs the four pricing/SQL cases, selected existing member/org/Admin accounting cases and isolated native `--suite model-pricing`; the existing browser job discovers/executes pricing controls, MFA/access denial, cross-surface estimates, real Canvas/member request headers, conflict and logout fences in Chromium/WebKit against the candidate. Reports are siblings of disposable Playwright artifacts and candidate proof rejects missing/failed/skipped/zero-case execution. Launcher/staging, selector, release-plan and candidate counterchecks retain unknown/security breadth, exact bytes and protected 0094 → AI → Auth → frontend continuation. No media image is selected for unchanged processor inputs. Local macOS workerd acceptance is not Linux CI or production acceptance.
 
+Seedance extension (2026-10-03, owner-approved output-duration rule): migration
+0099 legitimately advances the initial tariff revision. Native pricing and
+pre-grant insufficient-balance fixtures previously assumed revision zero, causing
+a stale-quote rejection before their intended boundary. Fixtures now read the
+actual revision and retain stale-edit/no-dispatch counterchecks. Native
+`--suite model-pricing` passed all 11 cases; focused member-generation fixed/Auto,
+storage recovery, queued OFF/running completion and Canvas edit cases passed.
+The focused member wrapper's unrelated image-preview tail had no seeded image;
+it is not whole-suite acceptance. Final integrated CI remains separately required.
+
+Executable Seedance checks in `q2-seedance-25.spec.js` exercise actual migrated
+SQLite/R2/Admin queue and manual recovery, all 52 owned sources, foreign-owner
+rejection, four independent rate calculations, pinned settlement and missing
+usage failure. Existing EN/DE workspace tests cover controls/persistence; the
+saved MOV test measures the actual media element's decoded audio, with a zero-gain
+countercontrol, twice in Chromium and native macOS WebKit without retries. MOV
+playability does not imply support in WebKit's separate `decodeAudioData` API;
+paused analyser buffers are not a silence measurement. No decorative tests return.
+The actual selected Worker shell guard requires the Seedance file and rejects its
+removal before downstream commands. Planner/guard tests exercise supported 0099,
+AI/Auth ordering and rejection of unreviewed siblings. Pricing basis and unresolved
+provider-only evidence are documented in the release runbook; publication requires
+fresh candidate evidence, never the previous model-area repair exception.
+
 Omni extension (2026-10-03, owner-revised scope): unknown provider metering is not
 a guessed retail tariff. Exact `google/gemini-omni-flash` uses manual fixed
 operation/resolution credits in this same ledger, pins admission and settles that

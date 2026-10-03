@@ -1,3 +1,5 @@
+import { SEEDANCE_25_MODEL } from '../../../../js/shared/seedance-25-contract.mjs';
+import { seedance25StoredOutputSeconds } from './seedance-25-output.js';
 import { decodeOmniInlineVideo } from './gemini-omni-media.js';
 import { OMNI_MODEL } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { assertOmniReady } from './gemini-omni-readiness.js';
@@ -235,6 +237,7 @@ function sanitizePublicError(value, fallback = "Video job failed.") {
 }
 
 function resolveProvider(modelId) {
+  if(modelId===SEEDANCE_25_MODEL)return "workers-ai";
   if(modelId===OMNI_MODEL)return 'google';
   if(modelId===H3_MODEL)return "minimax";
   if (modelId === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) return "vidu";
@@ -259,6 +262,7 @@ function adminVideoBudgetProviderFamily(modelId) {
 }
 
 function calculateAdminVideoBudgetPricing(modelId, payload = {}) {
+  if(modelId===SEEDANCE_25_MODEL)return calculateAiVideoCreditCost(modelId,payload);
   return calculateAiVideoCreditCost(modelId, {
     _operation: payload._operation,
     operation: payload.operation,
@@ -456,6 +460,7 @@ export async function buildAdminVideoJobBudgetPolicyContext({
   const pinnedPricing = omni ? { credits: omni.adminTestCredits, tariff: null, adminTest: true, readinessRevision: omni.revision, providerCostUsd: null }
     : await pinModelTariff(env, { modelId, input: payload, credits: operation.estimatedCredits, request, context: 'admin' });
   if (omni) operation.estimatedCostUnits = omni.adminTestCredits;
+  if (modelId===SEEDANCE_25_MODEL) operation.estimatedCostUnits = pinnedPricing.credits;
   operation.estimatedCredits = pinnedPricing.credits;
   // Preserve provider-budget exposure independently of retail credit overrides.
   const plan = classifyAdminPlatformBudgetPlan({
@@ -710,6 +715,7 @@ export function serializeAiVideoJob(job) {
 
   if (job.status === "succeeded" && job.output_url) {
     serialized.outputUrl = job.output_url;
+    if(job.model===SEEDANCE_25_MODEL)serialized.outputFormat=job.output_content_type==='video/quicktime'?'mov':'mp4';
   }
   if (job.status === "succeeded" && job.poster_url) {
     serialized.posterUrl = job.poster_url;
@@ -1868,6 +1874,7 @@ export async function recoverAdminAiVideoJobFromProviderResponse({
     );
   }
 
+  if (job.model === SEEDANCE_25_MODEL) await recordJobBudgetUsage(env, {...job, output_r2_key: ingested.outputR2Key}, validateJobBudgetPolicy(job, ADMIN_VIDEO_TASK_POLL_BUDGET_OPERATION_ID));
   await updateJobSucceeded(env, job, {
     ...ingested,
     providerTaskId: job.provider_task_id || null,
@@ -2018,8 +2025,8 @@ export async function fetchRemoteAsset(env, urlValue, {
   });
 }
 
-function videoOutputKey(jobId, userId, processingToken) {
-  return `users/${userId}/video-jobs/${jobId}/attempts/${processingToken}/output.mp4`;
+function videoOutputKey(jobId, userId, processingToken, extension = "mp4") {
+  return `users/${userId}/video-jobs/${jobId}/attempts/${processingToken}/output.${extension}`;
 }
 
 function videoPosterKey(jobId, userId, contentType, processingToken) {
@@ -2046,7 +2053,7 @@ async function ingestProviderVideoOutput(env, job, providerResult) {
     label: "video_output",
   });
   if (job.processing_token) await assertJobClaim(env, job);
-  const outputKey = uploaded?.key || inlineOutput?.key || videoOutputKey(job.id, job.user_id, job.processing_token);
+  const outputKey = uploaded?.key || inlineOutput?.key || videoOutputKey(job.id, job.user_id, job.processing_token, job.model===SEEDANCE_25_MODEL && output.contentType==="video/quicktime" ? "mov" : "mp4");
   if (!uploaded && !inlineOutput) await env.USER_IMAGES.put(outputKey, output.body, {
     httpMetadata: { contentType: output.contentType },
   });
@@ -2146,6 +2153,11 @@ function getProviderTaskResult(responseBody) {
 
 async function recordJobBudgetUsage(env, job, budgetPolicy) {
   let units=platformBudgetUnitsFromBudgetPolicy(budgetPolicy);
+  if(job.model===SEEDANCE_25_MODEL) {
+    const input=JSON.parse(job.input_json),pinned=budgetPolicy.model_tariff;
+    const seconds=await seedance25StoredOutputSeconds(env,job.output_r2_key,input.output_format);
+    units=settlePinnedModelTariff(pinned,units,{second:seconds});
+  }
   if(job.model===H3_MODEL) {
     const receipt=JSON.parse(job.provider_result_json||'{}'),input=JSON.parse(job.input_json);
     if(receipt.outputSeconds==null || receipt.resolution!==input.resolution)throw Object.assign(new Error('H3 output usage needs reconciliation.'),{code:'h3_usage_unverified'});
@@ -2457,12 +2469,13 @@ async function processClaimedAiVideoJob(env, body, { messageAttempts, startedAt,
     }
 
     if(job.model===H3_MODEL)await recordJobBudgetUsage(env,job,budgetPolicy);
+    if(job.model===SEEDANCE_25_MODEL)await recordJobBudgetUsage(env,{...job,output_r2_key:ingested.outputR2Key},budgetPolicy);
     await updateJobSucceeded(env, job, {
       ...ingested,
       providerTaskId: providerResult.providerTaskId || job.provider_task_id || null,
       providerState: providerResult.providerState || "success",
     }, nowIso());
-    if(job.model!==H3_MODEL)await recordJobBudgetUsage(env, job, budgetPolicy);
+    if(![H3_MODEL,SEEDANCE_25_MODEL].includes(job.model))await recordJobBudgetUsage(env, job, budgetPolicy);
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-video-jobs-queue",

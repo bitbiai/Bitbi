@@ -50,6 +50,8 @@ exports.member=async({page,expect,locale,mockGenerateLabMemberSession})=>{
 };
 
 exports.registerAdmin=(register,fixtures)=>{
+ register('@canvas-model-ui Seedance 2.5 Admin complete durable controls',({page})=>require('./seedance25-model-controls.cjs').admin({page,...fixtures}));
+ register('@canvas-model-ui Seedance 2.5 Admin recovery preserves original MOV download',({page})=>require('./seedance25-model-controls.cjs').adminRecovery({page,...fixtures}));
  register('@canvas-model-ui H3 Admin roles and durable controls',({page})=>require('./h3-model-controls.cjs').adminControls({page,...fixtures}));
  register('@canvas-model-ui Omni Admin budget gate and exact controls',({page})=>exports.admin({page,...fixtures}));
 };

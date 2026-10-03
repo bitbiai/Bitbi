@@ -9,10 +9,11 @@ import { saveGeneratedVideoAsset } from '../../workers/auth/src/lib/ai-text-asse
 
 const check = (value, message) => { if (!value) throw new Error(message); };
 export async function canvasVideoCase(base, name, fixture) {
+  const seedance=name==='seedance-edit';
   const omni = name==='omni';
   const grok = fixture.model?.startsWith('xai/grok-imagine-video');
   const h3=name.startsWith('h3'), overrun=name.startsWith('h3-overrun'), continuation=h3 && name!=='h3' && !overrun;
-  const model = omni?'google/gemini-omni-flash':h3?'minimax/h3':grok ? fixture.model : 'pixverse/v6';
+  const model = seedance?'bytedance/seedance-2.5':omni?'google/gemini-omni-flash':h3?'minimax/h3':grok ? fixture.model : 'pixverse/v6';
   if (grok) name = `grok-${model.endsWith('preview')?'preview':'base'}-${fixture.operation}`;
   const owner = `canvas-video-${name}`, other = `${owner}-other`, now = new Date().toISOString();
   const db = base.DB, messages = [], requests = [], waits = [];
@@ -28,6 +29,7 @@ export async function canvasVideoCase(base, name, fixture) {
         const actual=new Uint8Array(await response.arrayBuffer());
         check(response.ok && actual.length===expected.length && actual.every((b,i)=>b===expected[i]),'Provider receives exact authorized source bytes');
       }
+      if(seedance){check(body.duration===-1 && body.reference_videos.length===1 && !('workflow' in body) && !('mode' in body),'Seedance editing uses Auto and exact fields');const source=await worker.fetch(new Request(body.reference_videos[0]),env,{});check(source.ok && (await source.arrayBuffer()).byteLength===bytes.length,'Original private reference reaches Seedance');}
       if(omni) {check(typeof body.video==='string' && !('duration' in body) && body.resolution==='720p','Independent Omni video editing uses the exact schema');const source=await worker.fetch(new Request(body.video),env,{});check(source.ok && (await source.arrayBuffer()).byteLength===bytes.length,'Owned original bytes reach Omni');}
       if (name === 'provider-interrupted') throw new Error('Synthetic lost provider response'); return { video: 'https://fixture.invalid/result.mp4' }; } },
     __TEST_FETCH: async (url, init) => {
@@ -66,7 +68,7 @@ export async function canvasVideoCase(base, name, fixture) {
       .bind(id,id,await sha256Hex(`${id}:${env.SESSION_HASH_SECRET}`),now,new Date(Date.now()+3600000).toISOString(),now).run();
   }
   await topUpMemberDailyCredits({ env, userId: owner });
-  await grantMemberCredits({ env, userId: owner, amount: 2000, createdByUserId: owner, idempotencyKey: `grant-${name}` });
+  await grantMemberCredits({ env, userId: owner, amount: seedance?50000:2000, createdByUserId: owner, idempotencyKey: `grant-${name}` });
   const original = await saveGeneratedVideoAsset(env, { userId: ['foreign','h3-foreign'].includes(name) ? other : owner, title: 'Source original', videoBytes: bytes, mimeType: 'video/mp4', payload: { duration: overrun?15:1 } });
   if(overrun) {
     const source=await db.prepare('SELECT r2_key FROM ai_text_assets WHERE id=?').bind(original.id).first();
@@ -88,7 +90,7 @@ export async function canvasVideoCase(base, name, fixture) {
   await db.prepare('INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,?,\'en\',?,?)').bind(pid,owner,'Video continuation',now,now).run();
   for (const [id, asset, output] of [[src,original.id,{ kind:'video',assetId:original.id,runId:'source-run' }],[dest,null,null]]) {
     await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,title,model_id,x,y,config_json,content_json,asset_id,output_json,created_at,updated_at) VALUES(?,?,?,'video_generation',?,?,0,0,?,'{}',?,?,?,?)")
-      .bind(id,pid,owner,id===src?'Source':'Continue',model,JSON.stringify({prompt:'Continue this fixture',duration:h3?4:2,...(h3?{resolution:'768P',h3Roles:{[eid]:'reference_video'}}:grok?{resolution:'480p',size:'848x480'}:{quality:'720p',generateAudio:false})}),asset,output?JSON.stringify(output):null,now,now).run();
+      .bind(id,pid,owner,id===src?'Source':'Continue',model,JSON.stringify({prompt:'Continue this fixture',...(seedance?{seedance25:{workflow:'edit',duration:-1,resolution:'480p',output_format:'mp4'},seedance25Roles:{[eid]:'reference_video'}}:{}),duration:h3?4:2,...(h3?{resolution:'768P',h3Roles:{[eid]:'reference_video'}}:grok?{resolution:'480p',size:'848x480'}:{quality:'720p',generateAudio:false})}),asset,output?JSON.stringify(output):null,now,now).run();
   }
   await db.prepare('INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,\'{}\',?,?)').bind(eid,pid,owner,src,dest,now,now).run();
   if(h3) {
@@ -110,7 +112,7 @@ export async function canvasVideoCase(base, name, fixture) {
   check((await request(projectPath,'GET',null,other)).status===404,'Foreign project denied');
   let result,method;
   if(name==='first') await db.prepare('DELETE FROM canvas_edges WHERE id=?').bind(eid).run();
-  else if(!omni && (!h3 || continuation)) {
+  else if(!omni && !seedance && (!h3 || continuation)) {
   if (continuation) {
     const selected=await request(edgePath,'PATCH',{config:{videoInput:{modelId:model,assetId:original.id,runId:'source-run',method:'last_frame'}}});
     if(name==='h3-foreign'){check(selected.status===404 && !requests.length,'Foreign H3 predecessor denied');return {name,status:'denied'};}
@@ -301,7 +303,7 @@ export async function canvasVideoCase(base, name, fixture) {
   {
     check(['succeeded','preview_pending'].includes(finalJob.status),`Background completion ${finalJob.status}/${finalJob.error_code}`);
     check(debits.n===1,'Exactly one credit debit');
-    const expectedCredits=omni?53:h3?calculateAiVideoCreditCost(model,{duration:4,resolution:'768P'}).credits:grok?calculateAiVideoCreditCost(model,{_operation:method,duration:2,resolution:'480p',size:'848x480'}).credits:56;
+    const expectedCredits=seedance?Math.ceil(0.4*JSON.parse((await db.prepare('SELECT metadata_json FROM member_ai_usage_attempts_v2 WHERE id=?').bind(job.usage_attempt_id).first()).metadata_json).model_tariff.tariff.rates.second):omni?53:h3?calculateAiVideoCreditCost(model,{duration:4,resolution:'768P'}).credits:grok?calculateAiVideoCreditCost(model,{_operation:method,duration:2,resolution:'480p',size:'848x480'}).credits:56;
     check((await db.prepare("SELECT amount FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'").bind(owner).first()).amount===-expectedCredits,'One exact central estimate debit; Pixverse price unchanged');
     if(grok) {
       check(requests.length===1 && requests[0].model===model && requests[0].body._operation===method,'One exact native model/operation');

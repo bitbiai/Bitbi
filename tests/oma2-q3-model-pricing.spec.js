@@ -140,7 +140,7 @@ for(const [locale,width]of [['en',1440],['de',390]])test.describe(`${locale} pri
   await dialog.getByRole('button',{name:locale==='de'?'Abbrechen':'Cancel',exact:true}).click();await expect(dialog).toHaveCount(0);expect(f.calls.filter(c=>c.method==='PATCH')).toHaveLength(0);
   await row.click();await expect(dialog.locator('.model-pricing__breakdown')).toContainText('262');await dialog.locator('input[step="0.00000001"]').fill('7.25');
   await dialog.getByRole('button',{name:locale==='de'?'Tarif speichern':'Save tariff',exact:true}).click();await expect(dialog).toHaveCount(0);await expect(row).toContainText('37');
-  expect(f.calls.filter(c=>c.method==='PATCH')[0].body).toMatchObject({revision:0,action:'save',modelId:'minimax/h3',settings:{resolution:'768P'},rates:{second:7.25}});
+  expect(f.calls.filter(c=>c.method==='PATCH')[0].body).toMatchObject({revision:(await f.tariff.getModelTariff(f.env)).revision,action:'save',modelId:'minimax/h3',settings:{resolution:'768P'},rates:{second:7.25}});
   await page.reload();await expect(root(page).locator('.model-pricing__row').first()).toBeVisible();if(locale==='de')await root(page).getByLabel('Pricing language').selectOption('de');
   await root(page).getByRole('searchbox').fill('MiniMax H3');await root(page).locator('.model-pricing__row').click();await expect(dialog.locator('.model-pricing__breakdown')).toContainText('37');
   await dialog.locator('[name=resolution]').selectOption('2K');await expect(dialog.locator('.model-pricing__breakdown')).toContainText('426');await expect(dialog.locator('.model-pricing__breakdown')).not.toContainText('37');
@@ -198,21 +198,22 @@ test('pricing conflict preserves editor; a new retail snapshot refreshes existin
  const f=await setup(page,baseURL);try{
  await pricingLifecycle(page);
  await open(page);await root(page).getByRole('searchbox').fill('MiniMax H3');await root(page).locator('.model-pricing__row').click();const dialog=page.getByRole('dialog',{name:'MiniMax H3',exact:true});await expect(dialog.locator('.model-pricing__breakdown')).toContainText('262');await dialog.locator('input[step="0.00000001"]').fill('7.25');
- await f.tariff.changeModelTariff(f.env,{id:'other-admin'},{revision:0,action:'save',modelId:'minimax/h3',settings:{duration:5,resolution:'768P'},rates:{second:9}});
+ await f.tariff.changeModelTariff(f.env,{id:'other-admin'},{revision:(await f.tariff.getModelTariff(f.env)).revision,action:'save',modelId:'minimax/h3',settings:{duration:5,resolution:'768P'},rates:{second:9}});
+ const activeRevision=String((await f.tariff.getModelTariff(f.env)).revision);
  await dialog.getByRole('button',{name:'Save tariff',exact:true}).click();await expect(dialog).toBeVisible();await expect(dialog.getByRole('status')).toContainText('Another administrator');
  await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
  for(const route of ['/','/de/','/generate-lab/','/de/generate-lab/','/canvas/','/de/canvas/','/admin/index.html#ai-lab']){
   await page.goto(route);const result=await page.evaluate(async()=>{const client=await import('/js/shared/model-pricing-client.js');await client.refreshModelPricing();const {calculateAiVideoCreditCost}=await import('/js/shared/ai-model-pricing.mjs');return {credits:calculateAiVideoCreditCost('minimax/h3',{duration:5,resolution:'768P'}).credits,headers:client.modelPricingRequestHeaders()};});
-  expect(result.credits,route).toBe(45);expect(result.headers['X-Bitbi-Tariff-Revision'],route).toBe('1');
+  expect(result.credits,route).toBe(45);expect(result.headers['X-Bitbi-Tariff-Revision'],route).toBe(activeRevision);
   if(route.includes('/generate-lab/')){await page.locator('[data-media-type=video]').click();await page.locator('#labImageModel').selectOption('minimax/h3');await expect(page.locator('#labCost')).toContainText('45');await page.locator('#labVideoDuration').selectOption('6');await expect(page.locator('#labCost')).toContainText('54');}
-  if(route==='/generate-lab/'){await page.evaluate(async()=>{const api=await import('/js/shared/auth-api.js');return api.apiAiGenerateVideo({model:'minimax/h3',duration:5,resolution:'768P'});});expect(f.calls.find(c=>c.path==='/api/ai/generate-video').revision).toBe('1');}
+  if(route==='/generate-lab/'){await page.evaluate(async()=>{const api=await import('/js/shared/auth-api.js');return api.apiAiGenerateVideo({model:'minimax/h3',duration:5,resolution:'768P'});});expect(f.calls.find(c=>c.path==='/api/ai/generate-video').revision).toBe(activeRevision);}
   if(route==='/canvas/'||route==='/de/canvas/'){
    await page.locator(`.canvas-node[data-node-id="${f.node.id}"]`).click();
    await expect(page.locator('#canvasInspectorBody .canvas-cost-note')).toHaveText(route.startsWith('/de/')?'Geschätzte Credits: 45':'Estimated credits: 45');
    const before=f.calls.filter(c=>c.path.endsWith(`/${f.node.id}/run`)).length;
    await page.locator('#canvasInspectorBody').getByRole('button',{name:route.startsWith('/de/')?'Ausführen':'Run',exact:true}).click();
    await expect.poll(()=>f.calls.filter(c=>c.path.endsWith(`/${f.node.id}/run`)).length).toBe(before+1);
-   expect(f.calls.filter(c=>c.path.endsWith(`/${f.node.id}/run`)).at(-1)).toMatchObject({revision:'1',method:'POST',body:{}});
+   expect(f.calls.filter(c=>c.path.endsWith(`/${f.node.id}/run`)).at(-1)).toMatchObject({revision:activeRevision,method:'POST',body:{}});
   }
  }
  const cleared=await page.evaluate(async()=>{const client=await import('/js/shared/model-pricing-client.js'),math=await import('/js/shared/model-tariff.mjs');await client.refreshModelPricing();const original=window.fetch;let finish;window.fetch=()=>new Promise(resolve=>{finish=resolve;});try{const pending=client.refreshModelPricing();client.modelPricingSession('/logout',{ok:true},{});finish(new Response(JSON.stringify({revision:99,rules:{private:{modelId:'private-admin'}}}),{status:200}));await pending;return math.getBrowserTariff();}finally{window.fetch=original;}});expect(cleared).toBe(null);
@@ -255,4 +256,18 @@ test('@canvas-model-ui Omni Model Status persists explicit Admin test settings w
   expect(f.calls.filter(c=>c.method!=='GET').map(c=>c.path)).toEqual(['/api/admin/ai/model-pricing','/api/admin/ai/model-pricing']);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect(f.errors).toEqual([]);
  } finally {f.DB.close();}
+});
+
+test('Seedance 2.5 custom configurations keep input tiers distinct and disclose the owner output rule',async({page,baseURL})=>{
+ const f=await setup(page,baseURL);try{
+  await open(page);await root(page).getByRole('searchbox').fill('Seedance 2.5');await expect(root(page).locator('.model-pricing__row')).toHaveCount(1);
+  await expect(root(page).locator('.model-pricing__row')).toContainText('Custom cost basis');await root(page).locator('.model-pricing__row').click();
+  const dialog=page.getByRole('dialog',{name:'Seedance 2.5',exact:true});await expect(dialog).toContainText('not a verified Cloudflare bill');
+  await expect(dialog.getByLabel('Custom configurations').locator('option')).toHaveCount(7);
+  await dialog.locator('[name=resolution]').selectOption('480p');await dialog.locator('[name=inputTier]').selectOption('video');
+  await expect(dialog.locator('.model-pricing__rates input')).toHaveValue(/\d/);await dialog.locator('.model-pricing__rates input').fill('2.01');await dialog.getByRole('button',{name:'Save tariff',exact:true}).click();
+  await expect(dialog).toHaveCount(0);const tariff=await f.tariff.getModelTariff(f.env);
+  expect(tariff.rules['bytedance/seedance-2.5:{"inputTier":"video","operation":"generate","resolution":"480p"}'].rates.second).toBe(2.01);
+  expect(tariff.rules['bytedance/seedance-2.5:{"inputTier":"non_video","operation":"generate","resolution":"480p"}'].rates.second).not.toBe(2.01);expect(f.errors).toEqual([]);
+ }finally{f.DB.close();}
 });

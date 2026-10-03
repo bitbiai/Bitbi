@@ -1,3 +1,4 @@
+import { SEEDANCE_25_MODEL } from '../../js/shared/seedance-25-contract.mjs';
 import {changeModelAvailability,readModelArea} from '../../workers/auth/src/lib/model-availability.js';
 import { changeModelTariff, getModelTariff } from '../../workers/auth/src/lib/model-tariffs.js';
 import { OMNI_MODEL } from '../../js/shared/gemini-omni-contract.mjs';
@@ -49,7 +50,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET:'synthetic-member-poster-secret-not-live',
     AI_VIDEO_JOBS_QUEUE:{async send(body){messages.push(body);}},
     AI_IMAGE_DERIVATIVES_QUEUE:{async send(){}},
-    AI:{async run(model,payload,options){check(model!=='minimax/h3','H3 must use REST, never binding');calls.provider++;await duringProvider(model,payload);if(model.startsWith('xai/grok-imagine-video'))try{await verifyGrokOutputUpload(env,payload,videoBytes);}catch(error){calls.fixtureFailure=error.message;throw error;}if(kind==='image'||kind==='music')return {image:(model==='xai/grok-imagine-image-2.0'||model.startsWith('openai/gpt-image-2.5-'))?`data:image/png;base64,${fixture.imageBase64||png}`:fixture.imageBase64||png};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');if(model===OMNI_MODEL)return {state:'Completed',result:{video:name.startsWith('omni-')?'data:video/mp4;base64,'+fixture.videoBase64:'https://fixture.invalid/member.mp4'},interaction_id:'synthetic-explicit-interaction'};return {video_url:'https://fixture.invalid/member.mp4'};}},
+    AI:{async run(model,payload,options){check(model!=='minimax/h3','H3 must use REST, never binding');calls.provider++;await duringProvider(model,payload);if(model.startsWith('xai/grok-imagine-video'))try{await verifyGrokOutputUpload(env,payload,videoBytes);}catch(error){calls.fixtureFailure=error.message;throw error;}if(kind==='image'||kind==='music')return {image:(model==='xai/grok-imagine-image-2.0'||model.startsWith('openai/gpt-image-2.5-'))?`data:image/png;base64,${fixture.imageBase64||png}`:fixture.imageBase64||png};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');if(model===SEEDANCE_25_MODEL)return {state:'Completed',result:{video:'https://fixture.invalid/member.mp4'}};if(model===OMNI_MODEL)return {state:'Completed',result:{video:name.startsWith('omni-')?'data:video/mp4;base64,'+fixture.videoBase64:'https://fixture.invalid/member.mp4'},interaction_id:'synthetic-explicit-interaction'};return {video_url:'https://fixture.invalid/member.mp4'};}},
     AI_SERVICE_AUTH_SECRET:'synthetic-service-secret-not-live',
     AI_LAB:{async fetch(request){calls.provider++;if(name==='music-failed')return Response.json({ok:false,code:'provider_rejected',error:'Synthetic confirmed rejection'},{status:422,headers:{'x-bitbi-provider-outcome':'failed'}});const input=await request.json();return Response.json({ok:true,result:{audioBase64:'SUQzBAAAAAAA',mimeType:'audio/mpeg',mode:'song',durationMs:1000},model:{id:input.model},preset:'music_studio'});}},
     CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),H3_CLOUDFLARE_API_TOKEN:`synthetic-h3-${name}-not-live`,
@@ -66,7 +67,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
         return globalThis.fetch(url,init);
       }
       check(url==='https://fixture.invalid/member.mp4','Only fixture output download allowed');
-      calls.download++;return new Response(videoBytes,{headers:{'Content-Type':'video/mp4'}});
+      calls.download++;return new Response(videoBytes,{headers:{'Content-Type':fixture.input?.output_format==='mov'?'video/quicktime':'video/mp4'}});
     },
   };
   if(name==='insert-response-lost') env.DB=interceptDb(db,async(sql,execute)=>{
@@ -82,8 +83,8 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     }
     return execute();
   });
-  if(['finalization-response-lost','storage-restart','omni-storage-restart','clock-finalization-expired'].includes(name)) env.DB=interceptDb(db,async(sql,execute)=>{
-    if(fail && ['storage-restart','omni-storage-restart','clock-finalization-expired'].includes(name) && sql.includes('INSERT INTO ai_text_assets')) {fail=false;throw new Error('synthetic database unavailable before asset insertion');}
+  if(['finalization-response-lost','storage-restart','omni-storage-restart','seedance-storage-restart','clock-finalization-expired'].includes(name)) env.DB=interceptDb(db,async(sql,execute)=>{
+    if(fail && ['storage-restart','omni-storage-restart','seedance-storage-restart','clock-finalization-expired'].includes(name) && sql.includes('INSERT INTO ai_text_assets')) {fail=false;throw new Error('synthetic database unavailable before asset insertion');}
     const result=await execute();
     if(fail && name==='finalization-response-lost' && sql.includes("SET status = 'succeeded'") && sql.includes("result_save_reference = ?")) {fail=false;throw new Error('synthetic finalized reply lost');}
     return result;
@@ -111,11 +112,11 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   if(name.startsWith('admin-lab-'))await db.prepare("UPDATE users SET role='admin' WHERE id=?").bind(owner).run();
   await topUpMemberDailyCredits({env,userId:owner});
   if(name==='admin-lab-grok-preview-generate') {
-    const denied=await worker.fetch(new Request('https://bitbi.ai/api/ai/generate-video',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:`bitbi_session=${owner}`,'Idempotency-Key':'insufficient-admin-grok','X-BITBI-Workspace':'generate-lab',Prefer:'respond-async'},body:JSON.stringify({model:'xai/grok-imagine-video-1.5-preview',prompt:'Synthetic budget rejection',duration:15,resolution:'720p'})}),env,{});
+    const denied=await worker.fetch(new Request('https://bitbi.ai/api/ai/generate-video',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:`bitbi_session=${owner}`,'Idempotency-Key':'insufficient-admin-grok','X-Bitbi-Tariff-Revision':String((await getModelTariff(env)).revision),'X-BITBI-Workspace':'generate-lab',Prefer:'respond-async'},body:JSON.stringify({model:'xai/grok-imagine-video-1.5-preview',prompt:'Synthetic budget rejection',duration:15,resolution:'720p'})}),env,{});
     check(denied.status===402,'Admin identity cannot bypass the selected personal credit balance');
     check(calls.provider===0 && messages.length===0,'Insufficient balance dispatches no provider or durable queue work');
   }
-  await grantMemberCredits({env,userId:owner,amount:2000,createdByUserId:owner,idempotencyKey:`grant-${name}-synthetic`});
+  await grantMemberCredits({env,userId:owner,amount:fixture.input?.model===SEEDANCE_25_MODEL?50000:2000,createdByUserId:owner,idempotencyKey:`grant-${name}-synthetic`});
   const fetch = (path,options={})=>worker.fetch(new Request('https://bitbi.ai'+path,options),env,{waitUntil(){throw new Error('No detached HTTP work allowed');}});
   const headers={'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:`bitbi_session=${owner}`,'Idempotency-Key':`member-${name}-idempotency`,Prefer:'respond-async'};
   headers['X-Bitbi-Tariff-Revision']=String((await getModelTariff(env)).revision);
@@ -125,7 +126,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check(denied.status===403,'The generic Admin no-context guard is retained');
     headers['X-BITBI-Workspace']='generate-lab';
     const quota=await (await fetch('/api/ai/quota?workspace=generate-lab',{headers})).json();
-    check(quota.data.isAdmin===true&&quota.data.billingScope==='personal_credits'&&quota.data.creditBalance===2010,'Admin sees actual payer credits, not platform units');
+    check(quota.data.isAdmin===true&&quota.data.billingScope==='personal_credits'&&quota.data.creditBalance===(fixture.input?.model===SEEDANCE_25_MODEL?50010:2010),'Admin sees actual payer credits, not platform units');
   }
   const abort=new AbortController();
   const input=fixture.input || (kind==='video'?{prompt:'Synthetic backend-only fixture',duration:5,quality:'720p',generate_audio:true}:kind==='image'?{prompt:'Synthetic backend-only image'}:{prompt:'Synthetic instrumental track',instrumental:true});
@@ -144,6 +145,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
       check(model===OMNI_MODEL && JSON.stringify(payload)===JSON.stringify({text:input.prompt,aspect_ratio:'16:9',resolution:'720p'}),'Exact Omni binding payload, no duration or seed');
     };
   }
+  if(input.model===SEEDANCE_25_MODEL) duringProvider=async(model,payload,options)=>{check(model===SEEDANCE_25_MODEL && payload.output_format===(input.output_format||'mp4') && payload.duration===(input.duration??5) && payload.fps===24 && !('workflow' in payload) && !('references' in payload),'Exact Seedance outbound schema');};
   if(name.startsWith('asset-naming-')) input.prompt='a  little worm in a pile of leaves';
   if(name.startsWith('asset-naming-') && name.includes('manual')) input.title='My deliberately long manual video name';
   let sourceUrl=null,callbackUrl=null;
@@ -212,7 +214,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   };
   const areaModel=input.model || '@cf/black-forest-labs/flux-1-schnell';
   const toggleArea=async enabled=>{const state=await readModelArea(env,areaModel,'generation');return changeModelAvailability(env,{id:owner},{modelId:areaModel,area:'generation',enabled,revision:state.revision});};
-  if(name.startsWith('area-')) {
+  if(name.startsWith('area-')||['seedance-queued','seedance-running'].includes(name)) {
     await toggleArea(false);
     const blocked=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers:{...headers,'X-BITBI-Workspace':'canvas','X-Bitbi-Area':'canvas'},body});
     const rejection=await blocked.json();check(blocked.status===409&&rejection.code==='model_area_disabled','Spoofed client area cannot bypass OFF');
@@ -252,14 +254,14 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const row=()=>db.prepare('SELECT * FROM member_generation_jobs WHERE id=?').bind(id).first();
   const deliver=()=>worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body:messages[0],attempts:1,
     ack(){calls.ack++;},retry(){calls.retry++;}}]},env,{waitUntil(){throw new Error('No detached queue work allowed');}});
-  if(name==='area-queued') {
+  if(['area-queued','seedance-queued'].includes(name)) {
     await toggleArea(false);await deliver();
     const current=await row(),attempt=await db.prepare('SELECT * FROM member_ai_usage_attempts_v2 WHERE id=?').bind(current.usage_attempt_id).first();
     check(calls.provider===0&&attempt.provider_outcome==='not_dispatched'&&attempt.billing_status==='released','Queued OFF releases the undispatched hold without provider dispatch');
     check(current.status==='failed'&&current.error_code==='model_area_disabled','Queue exposes a final actionable disabled result');
     await toggleArea(true);return {name,calls,status:current.status};
   }
-  if(name==='area-running') duringProvider=async()=>{await toggleArea(false);};
+  if(['area-running','seedance-running'].includes(name)) duringProvider=async()=>{await toggleArea(false);};
   if(['clock-lease-expired','clock-credit-expired'].includes(name)) {
     const usage=await db.prepare('SELECT expires_at FROM member_ai_usage_attempts_v2 WHERE id=?').bind((await row()).usage_attempt_id).first();
     check(Math.abs(Date.parse(usage.expires_at)-Date.now()-30*60_000)<5000,'Credit reservation starts at 30 minutes');
@@ -277,7 +279,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     await deliver();await deliver();
     check((await row()).status==='failed' && (await row()).error_code==='generation_retry_exhausted','Killed executions cannot retry forever');
     check(calls.provider===0,'Exhaustion never creates another provider request');
-    if(name==='area-running')await toggleArea(true);
+    if(['area-running','seedance-running'].includes(name))await toggleArea(true);
     return {name,calls,status:(await row()).status};
   }
   if(name==='h3-rejection-callback-race') {
@@ -423,7 +425,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check(credits.n===1 && calls.provider===(bundledCover?2:1),'One media debit and no repeated cover generation');
     return {name,calls,status:(await row()).status,debits:credits.n};
   }
-  if(['debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart','omni-storage-restart','clock-finalization-expired'].includes(name)) {
+  if(['debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart','omni-storage-restart','seedance-storage-restart','clock-finalization-expired'].includes(name)) {
     check(!fail,'The requested interruption was actually injected');
     check((await row()).status==='queued',`Retryable checkpoint: ${(await row()).status} ${(await row()).error_code}`);
     if(name==='unpublished-asset') {
@@ -448,7 +450,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check(calls.provider===1,'Unknown provider receipt must never generate again');
     check((await row()).status==='outcome_unknown','Unknown outcome remains visible');
     check((await row()).next_attempt_at>new Date().toISOString(),'Missing receipts rotate behind other due recovery rows');
-    if(name==='area-running')await toggleArea(true);
+    if(['area-running','seedance-running'].includes(name))await toggleArea(true);
     return {name,calls,status:(await row()).status};
   }
   if(name==='insert-response-lost') check(!fail,'Lost insert reply was actually injected');
@@ -530,6 +532,14 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   if(input.model?.startsWith('xai/grok-imagine-video')){const debit=await db.prepare('SELECT amount FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();check(debit.amount===-calculateAiVideoCreditCost(input.model,input).credits,'Admin personal payer is charged the central model estimate once');}
   check((await db.prepare('SELECT COUNT(*) AS n FROM ai_text_assets WHERE user_id=?').bind(owner).first()).n===(['h3-references','omni-references'].includes(name)?3:1),'One generated owner asset plus the explicitly seeded reference assets');
   await checkName(await db.prepare('SELECT * FROM ai_text_assets WHERE id=?').bind(id).first(),id);
+  if(input.model===SEEDANCE_25_MODEL){
+    const attempt=await db.prepare('SELECT metadata_json,credit_cost FROM member_ai_usage_attempts_v2 WHERE user_id=?').bind(owner).first();
+    const pinned=JSON.parse(attempt.metadata_json).model_tariff;
+    const debit=await db.prepare('SELECT amount FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
+    check(debit.amount===-Math.ceil(fixture.expectedSeconds*pinned.tariff.rates.second) && -debit.amount<attempt.credit_cost,'Stored duration settles custom pinned credits and releases unused hold');
+    check(finished.mime_type===(input.output_format==='mov'?'video/quicktime':'video/mp4'),'Original requested container retained');
+    check(JSON.parse(JSON.parse(finished.metadata_json).seedance25_input || '{}').model===SEEDANCE_25_MODEL,'Exact saved Seedance inputs retained');
+  }
   if(input.model===OMNI_MODEL) {
     check((await db.prepare('SELECT amount FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).amount===-37,'Fixed accepted retail price without inferred duration');
     const stored=await nativeEnv.USER_IMAGES.get(finished.r2_key);check(new Uint8Array(await stored.arrayBuffer()).every((v,i)=>v===videoBytes[i]),'Omni durable decoded fixture bytes');
@@ -550,7 +560,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
 export default {async fetch(request,env) {
   if(request.method!=='POST'||request.headers.get('x-q2-control')!==env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
   const {name,...fixture}=await request.json();
-  if(!/^(admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})|flux-(success|schema|5006|http400|transport))$/.test(name) && !['area-queued','area-running','omni-inline','omni-storage-restart','omni-references','h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-references','h3-callback-failed','h3-callback','h3-failed','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
+  if(!/^(admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})|flux-(success|schema|5006|http400|transport))$/.test(name) && !['seedance-fixed','seedance-auto','seedance-storage-restart','seedance-queued','seedance-running','area-queued','area-running','omni-inline','omni-storage-restart','omni-references','h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-references','h3-callback-failed','h3-callback','h3-failed','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
   return Response.json(await memberGenerationCase(env,name,fixture));
 }};
 

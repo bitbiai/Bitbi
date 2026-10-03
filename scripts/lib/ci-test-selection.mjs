@@ -38,6 +38,8 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ["js/shared/appearance-contract.js", ["auth"]],
   ["js/shared/model-pricing-catalog.mjs", ["auth"]],
   ["js/shared/model-tariff.mjs", ["auth", "ai"]],
+  ["js/shared/seedance-25-contract.mjs", ["auth", "ai"]],
+  ["js/shared/seedance-25-pricing.mjs", ["auth"]],
   ["js/shared/gemini-omni-contract.mjs", ["auth", "ai"]],
   ["js/shared/gemini-omni-pricing.mjs", ["auth"]],
   ["workers/shared/ai-caller-policy.mjs", ["auth", "ai"]],
@@ -127,6 +129,15 @@ const CANVAS_UI_FILES = new Set([
 // Closed Canvas generation/provider/storage integration scope. Unknown runtime/billing inputs
 // continue through ordinary impact selection; chat and native D1 are exercised.
 const CANVAS_TEXT_FILES = new Set([
+  'js/pages/admin/video-input-controls.js', 'tests/fixtures/model-availability.json',
+  'tests/helpers/model-pricing-control.mjs', 'workers/auth/src/lib/model-provider-prices.js',
+  // Seedance 2.5 uses the existing durable generation / Canvas acceptance.
+  'js/shared/seedance-25-contract.mjs', 'js/shared/seedance-25-pricing.mjs',
+  'js/shared/seedance-25-controls.js', 'workers/auth/src/lib/seedance-25-output.js',
+  'workers/auth/migrations/0099_seedance_25_custom_tariffs.sql',
+  'tests/q2-seedance-25.spec.js', 'tests/helpers/seedance25-model-controls.cjs',
+  'tests/fixtures/media/seedance-output.mov',
+
   'js/shared/model-pricing-catalog.mjs', 'js/shared/model-pricing-client.js',
   'js/shared/models-overlay.js', 'workers/auth/src/routes/ai.js',
   'workers/shared/website-assistant-content.mjs', 'tests/website-assistant-knowledge.test.mjs',

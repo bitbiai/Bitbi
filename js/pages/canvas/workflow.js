@@ -1,3 +1,4 @@
+import { SEEDANCE_25_MODEL, normalizeSeedance25Request } from '../../shared/seedance-25-contract.mjs';
 import { OMNI_MODEL, omniReferences } from '../../shared/gemini-omni-contract.mjs';
 import { calculateAiImageCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { isGptImage25Model, normalizeGptImage25Options } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
@@ -75,10 +76,10 @@ function compatibility(target, model, kind, copy) {
         return { compatible: false, inputKind: 'image_reference', reason: copy.imageInputUnsupported.replace('{model}', model?.label || copy.selectedModel) };
     }
     if (kind === 'video_asset' || kind === 'video_reference') {
-        if (target.type === 'video_generation' && ([H3_MODEL,OMNI_MODEL].includes(model?.id) || canvasVideoMethods(model, { kind: 'video_asset', assetId: 'pending' }).length)) return { compatible: true, inputKind: 'video_reference' };
+        if (target.type === 'video_generation' && ([H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id) || canvasVideoMethods(model, { kind: 'video_asset', assetId: 'pending' }).length)) return { compatible: true, inputKind: 'video_reference' };
         return { compatible: false, inputKind: 'video_reference', reason: copy.videoInputUnsupported.replace('{model}', model?.label || copy.selectedModel) };
     }
-    if (kind === 'audio_asset' && target.type==='video_generation' && [H3_MODEL,OMNI_MODEL].includes(model?.id)) return {compatible:true,inputKind:'audio_reference'};
+    if (kind === 'audio_asset' && target.type==='video_generation' && [H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id)) return {compatible:true,inputKind:'audio_reference'};
     if (kind === 'audio_asset') return { compatible: false, inputKind: 'audio_asset', reason: copy.audioInputUnsupported };
     if (kind === 'json') return { compatible: false, inputKind: 'json', reason: copy.jsonInputUnsupported };
     return { compatible: false, inputKind: 'none', reason: copy.noUsableOutput };
@@ -92,8 +93,8 @@ export function analyzeNodeInputs(target, nodes, edges, models, copy) {
         .filter((edge) => edge.target_node_id === target?.id && !isExportMusic(edge.config))
         .map((edge, index) => ({ edge, index, source: nodes.find((node) => node.id === edge.source_node_id) }))
         .filter((item) => item.source);
-    if (isGptImage25Model(model?.id) || model?.id===OMNI_MODEL) {
-        const order = (model?.id===OMNI_MODEL?target.config?.omniOrder:target.config?.referenceOrder) || [];
+    if (isGptImage25Model(model?.id) || [OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id)) {
+        const order = (model?.id===SEEDANCE_25_MODEL?target.config?.seedance25Order:model?.id===OMNI_MODEL?target.config?.omniOrder:target.config?.referenceOrder) || [];
         const rank = edge => order.includes(edge.id) ? order.indexOf(edge.id) : order.length;
         incoming.sort((a, b) => rank(a.edge) - rank(b.edge) || String(a.edge.created_at || '').localeCompare(String(b.edge.created_at || '')) || String(a.edge.id).localeCompare(String(b.edge.id)));
     }
@@ -102,8 +103,8 @@ export function analyzeNodeInputs(target, nodes, edges, models, copy) {
         const kind = value.kind === 'none' ? value.expectedKind : value.kind;
         const accepted = compatibility(target, model, kind, copy);
         const status = value.kind === 'none' ? (accepted.compatible ? 'unresolved' : 'incompatible') : (accepted.compatible ? 'compatible' : 'incompatible');
-        const videoInput = kind === 'video_asset' && model?.id!==OMNI_MODEL ? resolveCanvasVideoInput(model, value, edge.config) : null;
-        return { ...value, videoInput, h3Role:videoInput?.method === 'last_frame' ? 'first_frame' : (model?.id===OMNI_MODEL?target.config?.omniRoles:target.config?.h3Roles)?.[edge.id] || (kind==='video_asset'?'reference_video':kind==='audio_asset'?'reference_audio':'reference_image'), edgeId: edge.id, inputKind: accepted.inputKind, status, reason: status === 'unresolved' ? copy.runUpstream : accepted.reason || '' };
+        const videoInput = kind === 'video_asset' && ![OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id) ? resolveCanvasVideoInput(model, value, edge.config) : null;
+        return { ...value, videoInput, h3Role:videoInput?.method === 'last_frame' ? 'first_frame' : (model?.id===SEEDANCE_25_MODEL?target.config?.seedance25Roles:model?.id===OMNI_MODEL?target.config?.omniRoles:target.config?.h3Roles)?.[edge.id] || (kind==='video_asset'?'reference_video':kind==='audio_asset'?'reference_audio':'reference_image'), edgeId: edge.id, inputKind: accepted.inputKind, status, reason: status === 'unresolved' ? copy.runUpstream : accepted.reason || '' };
     });
     const compatible = sources.filter((item) => item.status === 'compatible');
     const connectedPrompt = compatible.filter((item) => item.inputKind === 'prompt' && item.text).map((item) => item.text).join('\n\n').trim();
@@ -157,6 +158,9 @@ export function validationForNode(node, analysis, copy) {
     if (analysis?.model?.id === 'elevenlabs/music-v2') {
         try { validateElevenLabsMemberBody(elevenLabsMemberBody(node.config || {}, analysis.effectivePrompt)); }
         catch { return copy.promptRequired?.startsWith('Füge') ? 'Bitte Kompositionsplan und Musikeinstellungen prüfen.' : 'Check the composition plan and music settings.'; }
+    } else if(analysis?.model?.id===SEEDANCE_25_MODEL) {
+        try { normalizeSeedance25Request({...node.config?.seedance25,prompt:analysis.effectivePrompt,references:analysis.compatible.filter(source=>source.assetId).map(source=>({role:source.h3Role,source:{source_type:'saved_asset',asset_id:source.assetId}}))}); }
+        catch(error){return error.message;}
     } else if (!analysis?.effectivePrompt) return copy.promptRequired;
     return null;
 }

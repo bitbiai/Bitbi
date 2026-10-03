@@ -60,7 +60,7 @@ test('GPT Image 2.5 generation prices use verified bounds while reference editin
   expect(p.calculateAiImageCreditCost(id,{referenceImageCount:1})).toBe(null);expect(p.isPricedAiImageModel(id)).toBe(true);
   expect(p.calculateAiImageCreditCost(id,{prompt:'x'}).credits).toBe(10);
   await expect(m.pinModelTariff(env,{modelId:id,input:{referenceImageCount:1},credits:1})).rejects.toMatchObject({code:'gpt_image_25_reference_pricing_unavailable',status:503});
-  await expect(m.changeModelTariff(env,{id:'synthetic-admin'},{modelId:id,revision:0,action:'save',settings:{referenceImageCount:1},rates:{image:1,referenceImage:1}})).rejects.toThrow(/unavailable/);
+  await expect(m.changeModelTariff(env,{id:'synthetic-admin'},{modelId:id,revision:(await m.getModelTariff(env)).revision,action:'save',settings:{referenceImageCount:1},rates:{image:1,referenceImage:1}})).rejects.toThrow(/unavailable/);
  }}finally{DB.close();}
 });
 
@@ -118,19 +118,19 @@ test('model pricing pins factory output settlement and custom rates independent 
  }finally{DB.close();}
 });
 test('model pricing persistence is compare-and-swap, rejects capability bypass and never changes provider economics',async()=>{
- const m=await load(),DB=new SqliteD1Database();applyAuthMigrations(DB);const env={DB},input={revision:0,action:'save',modelId:'minimax/h3',settings:{resolution:'768P',duration:5},rates:{second:7.25}};
+ const m=await load(),DB=new SqliteD1Database();applyAuthMigrations(DB);const env={DB},base=(await m.getModelTariff(env)).revision,input={revision:base,action:'save',modelId:'minimax/h3',settings:{resolution:'768P',duration:5},rates:{second:7.25}};
  try{await m.changeModelTariff(env,{id:'synthetic-admin'},input);
  await expect(m.changeModelTariff(env,{id:'synthetic-admin'},input)).rejects.toMatchObject({code:'model_pricing_conflict'});
  const quote=await m.quoteModelTariff(env,{modelId:input.modelId,input:input.settings});expect(quote.credits).toBe(37);expect(quote.providerCostUsd).toBe(.4);
  expect((await m.quoteModelTariff(env,{modelId:input.modelId,input:{resolution:'2K',duration:5}})).credits).toBe(426);
  const {buildAdminVideoJobBudgetPolicyContext}=await import('../workers/auth/src/lib/ai-video-jobs.js');
- const admin=await buildAdminVideoJobBudgetPolicyContext({env,request:new Request('https://bitbi.ai/api/admin/ai/video-jobs',{headers:{'X-Bitbi-Tariff-Revision':'1'}}),adminUser:{id:'synthetic-admin',role:'admin'},modelId:input.modelId,payload:{...input.settings,model:input.modelId},createdAt:new Date().toISOString()});
- expect(admin.summary.estimated_credits).toBe(37);expect(admin.summary.estimated_cost_units).toBe(262);expect(admin.summary.model_tariff.tariff.revision).toBe(1);
- await expect(m.changeModelTariff(env,{id:'synthetic-admin'},{...input,revision:1,rates:{second:1000000}})).rejects.toThrow(/credit limit/);
+ const admin=await buildAdminVideoJobBudgetPolicyContext({env,request:new Request('https://bitbi.ai/api/admin/ai/video-jobs',{headers:{'X-Bitbi-Tariff-Revision':String(base+1)}}),adminUser:{id:'synthetic-admin',role:'admin'},modelId:input.modelId,payload:{...input.settings,model:input.modelId},createdAt:new Date().toISOString()});
+ expect(admin.summary.estimated_credits).toBe(37);expect(admin.summary.estimated_cost_units).toBe(262);expect(admin.summary.model_tariff.tariff.revision).toBe(base+1);
+ await expect(m.changeModelTariff(env,{id:'synthetic-admin'},{...input,revision:base+1,rates:{second:1000000}})).rejects.toThrow(/credit limit/);
  const {providerPriceEvidence}=await import('../workers/auth/src/lib/model-provider-prices.js');expect(providerPriceEvidence(m.modelPricingCatalog().find(v=>v.id===input.modelId),null,Date.parse('2026-11-21')).status).toBe('stale');
- await m.changeModelTariff(env,{id:'synthetic-admin'},{...input,revision:1,action:'reset_model'});
+ await m.changeModelTariff(env,{id:'synthetic-admin'},{...input,revision:base+1,action:'reset_model'});
  expect((await m.quoteModelTariff(env,{modelId:input.modelId,input:input.settings})).credits).toBe(262);
- expect((await DB.prepare('SELECT COUNT(*) AS n FROM model_pricing_changes').first()).n).toBe(2);
+ expect((await DB.prepare("SELECT COUNT(*) AS n FROM model_pricing_changes WHERE model_id='minimax/h3'").first()).n).toBe(2);
  expect((await DB.prepare('SELECT COUNT(*) AS n FROM model_pricing_factory').first()).n).toBe(2);
  }finally{DB.close();}
 });

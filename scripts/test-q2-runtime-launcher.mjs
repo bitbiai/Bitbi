@@ -700,12 +700,13 @@ test('actual selected Worker shell stops before downstream work on every failure
         /^npm run check:ai-cost-policy$/, /^npm run test:ai-cost-policy$/, /^npm run test:ai-cost-operations$/,
         /^node --test tests\/website-assistant-knowledge.test.mjs$/,
         /^node --test tests\/q2-recovery-staging.test.mjs scripts\/test-q2-runtime-launcher.mjs$/,
-        /q2-member-music.spec.js tests\/q2-gemini-omni.spec.js tests\/model-pricing.spec.js/,
+        /q2-member-music.spec.js tests\/q2-gemini-omni.spec.js tests\/q2-seedance-25.spec.js tests\/model-pricing.spec.js/,
         /ElevenLabs/, /tests\/workers.spec.js/, /grok-chat-workers/, /fable-chat-workers/, /q2-lifecycle/,
         /--suite canvas$/, /--suite model-pricing$/, /--suite member-generation$/, /--suite q4-stream$/,
       ];
       const verify=commands=>{assert.equal(commands.length,required.length);required.forEach((pattern,index)=>assert.match(commands[index],pattern));};
       verify(passed.commands);
+      assert.throws(()=>verify(passed.commands.map(command=>command.replace('tests/q2-seedance-25.spec.js ',''))));
       // Removing either newly required boundary, or preserving the count while
       // substituting a different suite, must fail independently of stop-on-error.
       for(const index of [3,5,12]) {

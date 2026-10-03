@@ -38,21 +38,21 @@ test('Omni output is strict, keeps explicit interaction identity, and never mist
 test('Omni manual fixed retail pricing has no guessed factory price, no second margin, and accepted quotes survive tariff changes/reset', async () => {
     const m={...await import('../js/shared/model-pricing-catalog.mjs'),...await import('../workers/auth/src/lib/model-tariffs.js')};
     const DB=new SqliteD1Database();applyAuthMigrations(DB);const env={DB},actor={id:'synthetic-omni-admin'};
-    try {
+    try { const base=(await m.getModelTariff(env)).revision;
         await DB.prepare('INSERT INTO users(id,email,password_hash,created_at,role) VALUES(?,?,?,?,?)').bind(actor.id,'omni@example.invalid','unused',new Date().toISOString(),'admin').run();
         const {model,price,basis}=m.modelFactoryPrice(id);expect(price.credits).toBe(null);expect(price.providerCostUsd).toBe(null);expect(basis).toEqual({configuration:{resolution:'720p',operation:'text'},units:{request:1}});
         expect(m.modelPricingControls(model).map(field=>field.key)).toEqual(['resolution','operation']);
         await expect(m.pinModelTariff(env,{modelId:id,input:{},credits:1})).rejects.toMatchObject({code:'model_pricing_unavailable'});
         const settings={resolution:'720p',operation:'text'};
-        await m.changeModelTariff(env,actor,{modelId:id,revision:0,action:'save',settings,rates:{request:37}});
-        const pinned=await m.pinModelTariff(env,{modelId:id,input:settings});expect(pinned.credits).toBe(37);expect(pinned.tariff).toMatchObject({revision:1,units:{request:1},rates:{request:37}});
-        await m.changeModelTariff(env,actor,{modelId:id,revision:1,action:'save',settings,rates:{request:64}});
+        await m.changeModelTariff(env,actor,{modelId:id,revision:base,action:'save',settings,rates:{request:37}});
+        const pinned=await m.pinModelTariff(env,{modelId:id,input:settings});expect(pinned.credits).toBe(37);expect(pinned.tariff).toMatchObject({revision:base+1,units:{request:1},rates:{request:37}});
+        await m.changeModelTariff(env,actor,{modelId:id,revision:base+1,action:'save',settings,rates:{request:64}});
         expect((await m.quoteModelTariff(env,{modelId:id,input:settings})).credits).toBe(64);
         for(const units of [undefined,{request:0},{second:40},{inputToken:20000,outputToken:90000}])expect(m.settlePinnedModelTariff(pinned,9999,units)).toBe(37);
-        await m.changeModelTariff(env,actor,{modelId:id,revision:2,action:'reset',settings});
+        await m.changeModelTariff(env,actor,{modelId:id,revision:base+2,action:'reset',settings});
         await expect(m.pinModelTariff(env,{modelId:id,input:settings})).rejects.toMatchObject({code:'model_pricing_unavailable'});
         expect(m.settlePinnedModelTariff(pinned,0)).toBe(37);
-        expect((await DB.prepare('SELECT COUNT(*) AS n FROM model_pricing_changes').first()).n).toBe(3);
+        expect((await DB.prepare("SELECT COUNT(*) AS n FROM model_pricing_changes WHERE model_id='google/gemini-omni-flash'").first()).n).toBe(3);
         expect(()=>m.validateModelPricingSettings(model,{duration:5})).toThrow();
         expect((await m.quoteModelTariff(env,{modelId:id,input:{resolution:'4k',operation:'edit'}})).credits).toBe(null);
     } finally {DB.close();}

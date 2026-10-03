@@ -109,11 +109,17 @@ function mp3(bytes) {
     if(!frames||offset!==bytes.length)fail();return {duration};
 }
 export function inspectH3TimeReference(bytes,media,mime,{inspectOverrun=false}={}) {
-    const result=media==='video'?mp4(bytes):mime==='audio/mpeg'?mp3(bytes):wav(bytes);
-    if(!Number.isFinite(result.duration)||result.duration<=0)fail();
+    const result=inspectOwnedTimeReference(bytes,media,mime);
     if(result.duration<2 || (!inspectOverrun && result.duration>15))throw h3DurationError();
     if(media==='video'&&(!Number.isFinite(result.fps)||result.fps<23.976||result.fps>60))fail();
     if(media==='video')validateH3Dimensions(result);
+    return result;
+}
+// Shared byte measurement. Model-specific duration/dimension constraints stay
+// in their callers; Seedance 2.5 must not inherit H3's 2–15 second limits.
+export function inspectOwnedTimeReference(bytes,media,mime) {
+    const result=media==='video'?mp4(bytes):mime==='audio/mpeg'?mp3(bytes):wav(bytes);
+    if(!Number.isFinite(result.duration)||result.duration<=0)fail();
     return result;
 }
 export function validateH3Dimensions({width,height}) {

@@ -1,3 +1,5 @@
+import { SEEDANCE_25_MODEL, normalizeSeedance25Request } from '../../shared/seedance-25-contract.mjs';
+import { createSeedance25Lab, snapshotVideoPayload, fallbackVideoPayload } from './video-input-controls.js';
 import { createOmniLabControls, omniLabBody, validateOmniLab } from './gemini-omni-lab.js';
 import { OMNI_MODEL } from '../../shared/gemini-omni-contract.mjs';
 import { getBrowserTariff } from '../../shared/model-tariff.mjs';
@@ -283,6 +285,7 @@ const DEFAULT_FORMS = {
         sourceImages: [],
         h3References: [],
         omniReferences: [],
+        seedance25: {},
         user: '',
     },
     compare: {
@@ -536,6 +539,7 @@ function normalizeVideoJobSnapshot(job) {
         completedAt: typeof job.completedAt === 'string' ? job.completedAt : null,
         statusUrl: typeof job.statusUrl === 'string' ? job.statusUrl : `/api/admin/ai/video-jobs/${encodeURIComponent(jobId)}`,
         outputUrl: typeof job.outputUrl === 'string' ? job.outputUrl : null,
+        outputFormat: job.outputFormat === 'mov' ? 'mov' : null,
         posterUrl: typeof job.posterUrl === 'string' ? job.posterUrl : null,
         error: isObject(job.error) ? {
             code: typeof job.error.code === 'string' ? job.error.code : null,
@@ -545,37 +549,6 @@ function normalizeVideoJobSnapshot(job) {
     };
 }
 
-function snapshotVideoPayload(payload = {}) {
-    return {
-        preset: payload.preset || undefined,
-        model: payload.model || undefined,
-        prompt: typeof payload.prompt === 'string' ? payload.prompt : null,
-        duration: Number.isFinite(Number(payload.duration)) ? Number(payload.duration) : undefined,
-        aspect_ratio: payload.aspect_ratio || undefined,
-        ratio: payload.ratio || undefined,
-        quality: payload.quality || undefined,
-        resolution: payload.resolution || undefined,
-        references: payload.references ? structuredClone(payload.references) : undefined,
-        seed: payload.seed ?? null,
-        generate_audio: payload.generate_audio ?? payload.audio ?? null,
-        audio: payload.audio ?? undefined,
-        watermark: payload.watermark ?? null,
-        hasImageInput: !!(payload.image_input || payload.start_image),
-        hasVideoInput: !!(payload.video || payload.source_video),
-        hasEndImageInput: !!payload.end_image,
-        source_type: payload.source_video?.source_type || undefined,
-        source_asset_id: payload.source_video?.asset_id || undefined,
-        workflow: payload._operation === 'extend'
-            ? 'video_extend'
-            : payload._operation === 'edit'
-                ? 'video_edit'
-                : payload.end_image
-                    ? 'start_end_to_video'
-                    : payload.start_image || payload.image_input
-                        ? 'image_to_video'
-                        : 'text_to_video',
-    };
-}
 
 function mergeVideoJobState(savedVideoJob) {
     const lastJob = normalizeVideoJobSnapshot(savedVideoJob?.lastJob);
@@ -1447,6 +1420,8 @@ export function createAdminAiLab({ showToast } = {}) {
 
     const omniControls=createOmniLabControls({video:refs.video,assets:refs.savedAssets,form:()=>state.forms.video,picker:savedAssetsBrowser,changed:()=>{persistState();syncVideoFieldState();}});
 
+    const seedance25Controls=createSeedance25Lab(refs,state,savedAssetsBrowser,()=>{persistState();syncVideoFieldState();});
+
     let savedAssetsDirty = false;
     let savedAssetsWasShown = false;
     let savedAssetsShowing = null;
@@ -2189,6 +2164,7 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function getSelectedVideoCreditCost() {
+        if(getSelectedVideoModelSpec().id===SEEDANCE_25_MODEL)return calculateAiVideoCreditCost(SEEDANCE_25_MODEL,seedance25Controls.values())?.credits ?? null;
         if(getSelectedVideoModelSpec().id===OMNI_MODEL)return getBrowserTariff()?.omni?.adminTestCredits ?? null;
         const spec = getSelectedVideoModelSpec();
         const operation = state.forms.video.operation || 'generate';
@@ -2954,6 +2930,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         h3Controls.sync(spec.id===H3_MODEL,isBusy);
         omniControls.sync(spec.id===OMNI_MODEL,isBusy);
+        seedance25Controls.sync(spec.id===SEEDANCE_25_MODEL,isBusy);
         if(refs.video.durationField)refs.video.durationField.hidden=spec.id===OMNI_MODEL;
         refs.video.prompt.maxLength = spec.maxPromptLength || ADMIN_AI_LIMITS.video.maxPromptLength;
         refs.video.prompt.placeholder = isSeedance
@@ -3115,6 +3092,8 @@ export function createAdminAiLab({ showToast } = {}) {
             if (!isVidu) refs.video.minimalMode.checked = false;
         }
         if (refs.video.minimalModeHint && !isVidu) refs.video.minimalModeHint.hidden = true;
+        if(spec.id===SEEDANCE_25_MODEL){for(const field of ['durationField','aspectRatioField','resolutionField','qualityField','seedField'])if(refs.video[field])refs.video[field].hidden=true;if(audioLabel)audioLabel.hidden=true;}
+        else if(refs.video.aspectRatioField)refs.video.aspectRatioField.hidden=false;
         if (refs.video.run) {
             refs.video.run.disabled = isBusy || isGenerationBlocked || !hasCatalog() || (isPixverseExtension() && state.catalog.data?.pixverseDirect?.configured !== true);
             if (!isBusy) refs.video.run.textContent = getVideoRunLabel();
@@ -5563,6 +5542,7 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         const spec = getSelectedVideoModelSpec();
         const prompt = (state.forms.video.prompt || '').trim();
+        if(spec.id===SEEDANCE_25_MODEL){try{normalizeSeedance25Request({model:spec.id,prompt,...seedance25Controls.values()});return null;}catch(error){return error.message;}}
         if(spec.id===OMNI_MODEL)return validateOmniLab(state.forms.video,omniControls.values());
         if (spec.generationEnabled === false || spec.pricingRequired === true) {
             return spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE;
@@ -5728,6 +5708,7 @@ export function createAdminAiLab({ showToast } = {}) {
             preset: payload.preset || videoSpec?.defaultPreset || state.forms.video.preset || null,
             result: {
                 videoUrl: job.outputUrl,
+                ...(job.model===SEEDANCE_25_MODEL?{output_format:job.outputFormat||payload.output_format}:{}),
                 posterUrl: job.posterUrl || null,
                 prompt: payload.prompt || null,
                 duration: payload.duration,
@@ -5783,10 +5764,8 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function getLastVideoJobPayload(job = null) {
-        return state.videoJob.lastPayload || snapshotVideoPayload({
-            ...state.forms.video,
-            model: job?.model || state.videoJob.lastVideoSpecId || state.forms.video.model,
-        });
+        return state.videoJob.lastPayload || fallbackVideoPayload(state.forms.video,
+            job?.model || state.videoJob.lastVideoSpecId || state.forms.video.model);
     }
 
     function getVideoSpecForJob(job = null) {
@@ -5914,7 +5893,7 @@ export function createAdminAiLab({ showToast } = {}) {
             'video',
             slugify(payload?.prompt || state.forms.video.prompt || payload?.workflow || 'video'),
             dateStamp,
-        ].join('-') + '.mp4';
+        ].join('-') + (payload?.output_format==='mov'?'.mov':'.mp4');
 
         const link = document.createElement('a');
         link.href = state._previewBlobUrl || videoUrl;
@@ -6555,7 +6534,8 @@ export function createAdminAiLab({ showToast } = {}) {
             duration: Number(state.forms.video.duration),
         };
 
-        if(videoSpec.id===OMNI_MODEL){payload=omniLabBody(state.forms.video,omniControls.values());}
+        if(videoSpec.id===SEEDANCE_25_MODEL){payload=normalizeSeedance25Request({model:videoSpec.id,prompt,...seedance25Controls.values()});}
+        else if(videoSpec.id===OMNI_MODEL){payload=omniLabBody(state.forms.video,omniControls.values());}
         else if(videoSpec.id===H3_MODEL){payload={...payload,prompt,resolution:state.forms.video.resolution,aspect_ratio:state.forms.video.aspectRatio,references:h3Controls.values()};}
         else if (videoSpec.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) {
             payload.prompt = prompt;
@@ -6633,7 +6613,7 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         try {
-            const useSyncDebugPath = videoSpec.id!==OMNI_MODEL && !isPixverseExtension() && window.__BITBI_ADMIN_AI_SYNC_VIDEO_DEBUG === true;
+            const useSyncDebugPath = ![OMNI_MODEL,SEEDANCE_25_MODEL].includes(videoSpec.id) && !isPixverseExtension() && window.__BITBI_ADMIN_AI_SYNC_VIDEO_DEBUG === true;
             if (useSyncDebugPath) {
                 const syncRes = await apiAdminAiTestVideo(payload, {
                     signal: controller.signal,

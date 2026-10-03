@@ -1,3 +1,4 @@
+import { SEEDANCE_25_MODEL, SEEDANCE_25_ROLES } from '../../shared/seedance-25-contract.mjs';
 import { modelAreaEnabled } from '../../shared/model-availability.js';
 import { OMNI_MODEL, OMNI_RESOLUTIONS, OMNI_RATIOS, OMNI_ROLES } from '../../shared/gemini-omni-contract.mjs';
 import { H3_MODEL, H3_ROLES, H3_RESOLUTIONS, H3_RATIOS } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
@@ -470,7 +471,16 @@ const omniModel = Object.freeze({
     controls:{supportsImageInput:true,supportsVideoInput:true,supportsAudioInput:true,supportsReferenceImages:true,supportsDuration:false,referenceRoles:OMNI_ROLES,maxReferenceImages:10,maxPromptLength:7000,resolutionField:'resolution',aspectField:'aspectRatio'},
     estimateCredits:values=>estimateModelCredits('video',OMNI_MODEL,{...values,aspect_ratio:values.aspectRatio}),
 });
+const seedance25Model = Object.freeze({
+    id:SEEDANCE_25_MODEL,displayName:'Seedance 2.5',mediaType:'video',provider:'ByteDance / Cloudflare',route:'/api/ai/generate-video',outputType:'video',status:'PREVIEW',
+    summary:DE?'Video aus Text, Einzelbildern und geordneten Bild-, Video- oder Audioreferenzen.':'Video from text, frames and ordered image, video or audio references.',
+    capabilities:DE?['30 Bild-, 10 Video- und 10 Audioreferenzen','Audio-only, Bearbeiten und Verlängern','4–30 Sekunden oder Auto, MP4/MOV']:['30 image, 10 video and 10 audio references','Audio-only, editing and extension','4–30 seconds or Auto, MP4/MOV'],
+    defaults:{duration:5,resolution:'720p',aspectRatio:'adaptive'},options:{},
+    controls:{referenceRoles:SEEDANCE_25_ROLES,maxReferenceImages:30,maxPromptLength:2000},
+    estimateCredits:values=>estimateModelCredits('video',SEEDANCE_25_MODEL,values),
+});
 const modelDefinitions = Object.freeze([
+    seedance25Model,
     omniModel,
     h3Model,
     ...imageModels,

@@ -555,6 +555,7 @@ function buildVideoMetadata(payload, _savedAt, { mimeType, sizeBytes } = {}) {
     metadata.has_end_image_input = payload.hasEndImageInput;
   }
   if (payload.workflow) metadata.workflow = payload.workflow;
+  if (payload.seedance25_input) metadata.seedance25_input = payload.seedance25_input;
   if (payload.homepageHeroSource && typeof payload.homepageHeroSource === "object" && !Array.isArray(payload.homepageHeroSource)) {
     metadata.homepage_hero_source = payload.homepageHeroSource;
   }
@@ -779,6 +780,10 @@ async function buildVideoAssetFields(env, payload, now) {
     provider: job.provider || null,
     completedAt: job.completed_at || null,
   };
+  if(job.model==='bytedance/seedance-2.5') {
+    const {_source_snapshots,...original}=JSON.parse(job.input_json);
+    normalizedPayload.seedance25_input=original;
+  }
   const metadata = buildVideoMetadata(
     normalizedPayload,
     now,
@@ -886,6 +891,7 @@ export async function saveAdminAiTextAsset(env, { userId, folderId = null, title
     sanitizeAssetMetadata(metadataRaw, {
       field: "metadata",
       ...METADATA_JSON_LIMITS,
+      ...(metadataRaw?.seedance25_input ? {maxStringLength:16000} : {}),
       stringifyNested: true,
     })
   );
@@ -1110,6 +1116,7 @@ export async function saveGeneratedVideoAsset(env, {
     }), {
       field: "metadata",
       ...METADATA_JSON_LIMITS,
+      ...(payload.seedance25_input ? {maxStringLength:16000} : {}),
       stringifyNested: true,
     })
   );

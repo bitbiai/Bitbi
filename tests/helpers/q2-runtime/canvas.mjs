@@ -10,7 +10,8 @@ export async function runCanvasTests(f) {
   for (const [id, role] of [[adminId, 'admin'], [memberId, 'user']]) await f.sql('INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at,verification_method) VALUES(?,?,?,?,?,?,?,?)', id, id+'@example.invalid', 'synthetic', now, role, 'active', now, 'email').run();
   const cookie = async id => (await (await f.control('/session', { userId: id })).json()).cookie;
   let admin = await cookie(adminId); const member = await cookie(memberId); let count = 0;
-  const request = (route, body, key = 'native-canvas-key', auth = admin, method = body ? 'POST' : 'GET') => f.mf.dispatchFetch('https://bitbi.ai'+route, { method, headers: { Cookie: auth, Origin: 'https://bitbi.ai', 'Content-Type': 'application/json', 'Idempotency-Key': key, 'CF-Connecting-IP': `192.0.2.${++count}` }, body: body ? JSON.stringify(body) : undefined });
+  const tariffRevision=await f.scalar('SELECT revision AS value FROM model_pricing_state WHERE id=1');
+  const request = (route, body, key = 'native-canvas-key', auth = admin, method = body ? 'POST' : 'GET') => f.mf.dispatchFetch('https://bitbi.ai'+route, { method, headers: { Cookie: auth, 'X-Bitbi-Tariff-Revision':String(tariffRevision), Origin: 'https://bitbi.ai', 'Content-Type': 'application/json', 'Idempotency-Key': key, 'CF-Connecting-IP': `192.0.2.${++count}` }, body: body ? JSON.stringify(body) : undefined });
   const ok = async response => { const data = await response.json(); assert.equal(response.status, 200, JSON.stringify(data)); assert.equal(data.ok, true); return data.data; };
   const project = 'a'.repeat(32), node = 'b'.repeat(32), org = 'org_'+'c'.repeat(32), other = 'org_'+'d'.repeat(32);
   await f.sql('INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,?,?,?,?)', project, adminId, 'Synthetic Canvas', 'en', now, now).run();
@@ -404,6 +405,10 @@ export async function runCanvasTests(f) {
     const response=await f.control('/canvas-contributors',{});
     assert.equal(response.status,200,await response.clone().text());
     assert.deepEqual(await response.json(),{nodes:47,edges:47,legacyIncomplete:true});
+  });
+  await f.test('canvas_native_seedance_edit_auto_original_reference_duration_settlement_and_replay',async()=>{
+    const response=await f.control('/canvas-video',{name:'seedance-edit',videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64')});
+    assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
   });
   await f.test('canvas_native_omni_independent_video_edit_accepted_price_owned_output_and_replay',async()=>{
     const response=await f.control('/canvas-video',{name:'omni',videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64')});

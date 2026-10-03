@@ -10260,3 +10260,6 @@ test('@canvas-model-ui Omni public Models listing requires activation and a reta
  priced=false;await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
  await expect(entry).toHaveCount(0);
 });
+
+for(const locale of ['en','de']) test(`@canvas-model-ui Seedance 2.5 Generate Lab ${locale} owned input and custom reservation`,({page})=>require('./helpers/seedance25-model-controls.cjs').member({page,expect,locale,mockGenerateLabMemberSession}));
+test('@canvas-model-ui Seedance saved MOV plays and decodes its original native audio without inference',({page})=>require('./helpers/seedance25-model-controls.cjs').savedMov({page,expect,mockGenerateLabMemberSession}));

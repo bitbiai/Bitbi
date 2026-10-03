@@ -21,8 +21,10 @@ export async function runModelPricingTests(f) {
  const setupResponse=await call(admin,'POST','/api/admin/mfa/setup',{});assert.equal(setupResponse.status,200);const setup=(await setupResponse.json()).setup;
  const code=(await(await f.control('/totp',{secret:setup.secret})).json()).code;
  const enabled=await call(admin,'POST','/api/admin/mfa/enable',{code});assert.equal(enabled.status,200);admin+='; '+enabled.headers.getSetCookie().find(c=>c.startsWith('__Host-bitbi_admin_mfa=')).split(';')[0];
+ const base=(await(await call(admin,'GET',route)).json()).revision;
+ const auditBaseline=await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes');
  const change=async (revision,action='save',rates={second:7.25},settings={resolution:'768P',duration:5})=>{
-  const response=await call(admin,'PATCH',route,{revision,action,modelId:'minimax/h3',settings,...(action==='save'?{rates}:{})});assert.match(response.headers.get('content-type')||'',/json/,`pricing response ${response.status}: ${(await response.clone().text()).slice(0,600)}`);return {status:response.status,data:await response.json()};};
+  const response=await call(admin,'PATCH',route,{revision:base+revision,action,modelId:'minimax/h3',settings,...(action==='save'?{rates}:{})});assert.match(response.headers.get('content-type')||'',/json/,`pricing response ${response.status}: ${(await response.clone().text()).slice(0,600)}`);return {status:response.status,data:await response.json()};};
  const quote=async settings=>{const response=await call(admin,'POST',route+'/quote',{modelId:'minimax/h3',settings});assert.equal(response.status,200);return (await response.json()).price;};
  const control=async body=>{const response=await f.control('/model-pricing',body);assert.match(response.headers.get('content-type')||'',/json/,`pricing response ${response.status}: ${(await response.clone().text()).slice(0,600)}`);return {status:response.status,data:await response.json()};};
  await f.test('pricing_gpt_image_25_unverified_reference_cost_rejects_quotes_and_overrides_without_mutation',async()=>{
@@ -35,9 +37,9 @@ export async function runModelPricingTests(f) {
    const unavailable=await call(admin,'POST',route+'/quote',{modelId,settings:{quality:'max',size:'auto',background:'transparent',outputFormat:'webp',referenceImageCount:16,operation:'edit'}});
    assert.equal(unavailable.status,503);assert.equal((await unavailable.json()).code,'gpt_image_25_reference_pricing_unavailable');
    const invalid=await call(admin,'POST',route+'/quote',{modelId,settings:{background:'transparent',outputFormat:'jpeg'}});assert.equal(invalid.status,400);
-   const override=await call(admin,'PATCH',route,{modelId,revision:0,action:'save',settings:{referenceImageCount:1},rates:{image:1,referenceImage:1}});assert.equal(override.status,400);
+   const override=await call(admin,'PATCH',route,{modelId,revision:base,action:'save',settings:{referenceImageCount:1},rates:{image:1,referenceImage:1}});assert.equal(override.status,400);
   }
-  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes'),0);
+  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes'),auditBaseline+0);
   assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_ai_usage_attempts_v2'),0);
   assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM ai_usage_attempts_v2'),0);
   assert.equal(f.counters.outboundDenied,0);assert.equal(f.counters.serviceDenied,0);
@@ -45,45 +47,45 @@ export async function runModelPricingTests(f) {
  await f.test('pricing_factory_rollout_no_charge_change_and_configuration_specific_durable_override',async()=>{
   const csrf=await f.mf.dispatchFetch('https://bitbi.ai'+route,{method:'PATCH',headers:{Cookie:admin,Origin:'https://untrusted.invalid','Content-Type':'application/json'},body:'{}'});assert.equal(csrf.status,403);
   const before=await quote({duration:5,resolution:'768P'});assert.equal(before.credits,262);assert.equal(before.tariff.source,'factory');
-  const saved=await change(0);assert.equal(saved.status,200);assert.equal(saved.data.revision,1);
+  const saved=await change(0);assert.equal(saved.status,200);assert.equal(saved.data.revision,base+1);
   const after=await quote({duration:5,resolution:'768P'});assert.equal(after.credits,37);assert.equal(after.factoryCredits,262);assert.equal(after.providerCostUsd,before.providerCostUsd);
   assert.equal((await quote({duration:5,resolution:'2K'})).tariff.source,'factory');
-  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes'),1);
+  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes'),auditBaseline+1);
   assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_factory'),2);
   const publicResponse=await call('','GET','/api/model-pricing');assert.equal(publicResponse.status,200);assert.match(publicResponse.headers.get('cache-control'),/no-store/);
   assert.doesNotMatch(JSON.stringify(await publicResponse.json()),/providerCost|actor_user|baseline_json|source_url/);
  });
  await f.test('pricing_conflict_invalid_rates_and_stale_quote_rejected_before_reservation',async()=>{
   assert.equal((await change(0)).status,409);assert.equal((await change(1,'save',{second:-1})).status,400);
-  const rejected=await control({key:'pricing-old-quote-0001',revision:0});assert.equal(rejected.status,409);assert.equal(rejected.data.code,'model_pricing_stale');
+  const rejected=await control({key:'pricing-old-quote-0001',revision:base+0});assert.equal(rejected.status,409);assert.equal(rejected.data.code,'model_pricing_stale');
   assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_ai_usage_attempts_v2'),0);
  });
  await f.test('pricing_accepted_job_pins_tariff_after_change_and_settles_once_under_pinned_units',async()=>{
-  const accepted=await control({key:'pricing-accepted-0001',revision:1});assert.equal(accepted.status,200);assert.equal(accepted.data.credits,37);
-  const orgAccepted=await control({key:'pricing-org-accepted',revision:1,organization:org});assert.equal(orgAccepted.status,200);assert.equal(orgAccepted.data.credits,37);
+  const accepted=await control({key:'pricing-accepted-0001',revision:base+1});assert.equal(accepted.status,200);assert.equal(accepted.data.credits,37);
+  const orgAccepted=await control({key:'pricing-org-accepted',revision:base+1,organization:org});assert.equal(orgAccepted.status,200);assert.equal(orgAccepted.data.credits,37);
   assert.equal((await change(1,'save',{second:100})).status,200);
-  const resumed=await control({key:'pricing-accepted-0001',revision:1});assert.equal(resumed.status,200);assert.equal(resumed.data.credits,37);assert.equal(resumed.data.attemptId,accepted.data.attemptId);
-  const settled=await control({key:'pricing-accepted-0001',revision:1,settle:true,seconds:4});assert.equal(settled.status,200);assert.equal(settled.data.billing.credits_charged,29);
-  const replay=await control({key:'pricing-accepted-0001',revision:1});assert.equal(replay.status,200);assert.equal(replay.data.kind,'completed');assert.equal(replay.data.tariff.tariff.revision,1);
+  const resumed=await control({key:'pricing-accepted-0001',revision:base+1});assert.equal(resumed.status,200);assert.equal(resumed.data.credits,37);assert.equal(resumed.data.attemptId,accepted.data.attemptId);
+  const settled=await control({key:'pricing-accepted-0001',revision:base+1,settle:true,seconds:4});assert.equal(settled.status,200);assert.equal(settled.data.billing.credits_charged,29);
+  const replay=await control({key:'pricing-accepted-0001',revision:base+1});assert.equal(replay.status,200);assert.equal(replay.data.kind,'completed');assert.equal(replay.data.tariff.tariff.revision,base+1);
   assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_credit_ledger WHERE amount<0'),1);
-  const orgResumed=await control({key:'pricing-org-accepted',revision:1,organization:org});assert.equal(orgResumed.status,200);assert.equal(orgResumed.data.credits,37);assert.equal(orgResumed.data.tariff.tariff.revision,1);
-  const orgSettled=await control({key:'pricing-org-accepted',revision:1,organization:org,settle:true,seconds:4});assert.equal(orgSettled.status,200);assert.equal(orgSettled.data.billing.credits_charged,29);
-  const orgReplay=await control({key:'pricing-org-accepted',revision:1,organization:org});assert.equal(orgReplay.status,200);assert.equal(orgReplay.data.tariff.tariff.revision,1);assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM credit_ledger WHERE amount<0'),1);
-  const fresh=await control({key:'pricing-new-quote-0002',revision:2});assert.equal(fresh.status,200);assert.equal(fresh.data.credits,500);
+  const orgResumed=await control({key:'pricing-org-accepted',revision:base+1,organization:org});assert.equal(orgResumed.status,200);assert.equal(orgResumed.data.credits,37);assert.equal(orgResumed.data.tariff.tariff.revision,base+1);
+  const orgSettled=await control({key:'pricing-org-accepted',revision:base+1,organization:org,settle:true,seconds:4});assert.equal(orgSettled.status,200);assert.equal(orgSettled.data.billing.credits_charged,29);
+  const orgReplay=await control({key:'pricing-org-accepted',revision:base+1,organization:org});assert.equal(orgReplay.status,200);assert.equal(orgReplay.data.tariff.tariff.revision,base+1);assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM credit_ledger WHERE amount<0'),1);
+  const fresh=await control({key:'pricing-new-quote-0002',revision:base+2});assert.equal(fresh.status,200);assert.equal(fresh.data.credits,500);
  });
  await f.test('pricing_native_revision_trigger_blocks_admission_after_quote_race',async()=>{
   const before=await f.scalar('SELECT COUNT(*) AS value FROM member_ai_usage_attempts_v2');
   await assert.rejects(()=>f.sql(`INSERT INTO member_ai_usage_attempts_v2 (id,user_id,feature_key,operation_key,route,idempotency_key,request_fingerprint,credit_cost,quantity,status,provider_status,billing_status,result_status,created_at,updated_at,expires_at,metadata_json)
-    SELECT 'pricing-race',user_id,feature_key,operation_key,route,'pricing-race-key',request_fingerprint,credit_cost,quantity,'reserved','not_started','reserved','none',created_at,updated_at,expires_at,metadata_json FROM member_ai_usage_attempts_v2 WHERE metadata_json LIKE '%"revision":1%' LIMIT 1`).run(),/model_pricing_stale/);
+    SELECT 'pricing-race',user_id,feature_key,operation_key,route,'pricing-race-key',request_fingerprint,credit_cost,quantity,'reserved','not_started','reserved','none',created_at,updated_at,expires_at,metadata_json FROM member_ai_usage_attempts_v2 WHERE metadata_json LIKE '%"revision":${base+1}%' LIMIT 1`).run(),/model_pricing_stale/);
   assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_ai_usage_attempts_v2'),before);
  });
  await f.test('pricing_reset_preserves_factory_and_audit',async()=>{
   assert.equal((await change(2,'reset')).status,200);assert.equal((await quote({duration:5,resolution:'768P'})).credits,262);
-  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_factory'),2);assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes'),3);
+  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_factory'),2);assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes'),auditBaseline+3);
   assert.equal(f.counters.outboundDenied,0);assert.equal(f.counters.serviceDenied,0);
  });
  await f.test('pricing_gpt_image_25_generation_pins_member_and_org_quotes_across_override_reset_and_replay',async()=>{
-  let revision=3;
+  let revision=base+3;
   for(const modelId of ['openai/gpt-image-2.5-sunburst','openai/gpt-image-2.5-flare']){
    const settings={quality:'high',size:'1024x1536',background:'transparent',outputFormat:'webp',referenceImageCount:0,operation:'generate'};
    const patch=async(action,rates)=>{const response=await call(admin,'PATCH',route,{modelId,revision,action,settings,...(rates?{rates}:{})});assert.equal(response.status,200);revision=(await response.json()).revision;};
@@ -113,6 +115,16 @@ export async function runModelPricingTests(f) {
    const reset=await call(admin,'POST',route+'/quote',{modelId,settings});assert.equal(reset.status,200);assert.equal((await reset.json()).price.tariff.source,'factory');
   }
   assert.equal(f.counters.outboundDenied,0);assert.equal(f.counters.serviceDenied,0);
+ });
+ await f.test('seedance_native_custom_tariff_settles_personal_and_organization_once_without_repricing',async()=>{
+  const revision=(await(await call(admin,'GET',route)).json()).revision;
+  for(const organization of [undefined,org]){
+   const input={modelId:'bytedance/seedance-2.5',key:'seedance-pricing-'+(organization||'member'),revision,organization,settings:{duration:-1,resolution:'480p'}};
+   const accepted=await control(input);assert.equal(accepted.status,200);assert.equal(accepted.data.tariff.tariff.units.second,30);
+   const expected=Math.ceil(6.25*accepted.data.tariff.tariff.rates.second);
+   const settled=await control({...input,settle:true,seconds:6.25});assert.equal(settled.status,200);assert.equal(settled.data.billing.credits_charged,expected);assert.ok(expected<accepted.data.credits);
+   const replay=await control(input);assert.equal(replay.status,200);assert.equal(replay.data.kind,'completed');
+  }
  });
  await f.test('omni_native_admin_MFA_configuration_CAS_and_member_redaction',async()=>{
   const body={action:'omni_readiness',revision:0,reason:'Synthetic native budget authorization',config:{adminTestEnabled:true,adminTestCredits:29}};
