@@ -1029,6 +1029,16 @@ for(const key of ['homepage','carousel','full'])assert.equal(pricing[key],false,
 assert.deepEqual(Object.keys(requiredJobs(pricing)),['release-compatibility','worker-validation','browser-validation']);
 for(const neighbor of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/auth/src/lib/unknown-pricing.js','workers/media/src/index.js','js/pages/index/hero-controller.js'])assert.notEqual(selection([...pricingDelta,neighbor]).policy,'model-pricing-v1',neighbor);
 assert.equal(selection(pricingDelta,{forceFull:true}).full,true);
+// A browser-only refresh repair retains all existing pricing browser cases but
+// does not repeat unchanged Worker/native acceptance. Unknown additions broaden.
+const pricingClientDelta=['js/shared/model-pricing-client.js','tests/oma2-q3-model-pricing.spec.js','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs','docs/runbooks/REGRESSION_REGISTER.md'];
+for(const files of [['js/shared/model-pricing-client.js'],pricingClientDelta]){
+ const result=selection(files);assert.equal(result.policy,'model-pricing-v1');assert.equal(result.workers,false);
+ for(const key of ['auth','static','runtime','modelPricing'])assert.equal(result[key],true);
+ assert.deepEqual(Object.keys(requiredJobs(result)),['release-compatibility','browser-validation']);
+ assert.equal(selection(files,{forceFull:true}).full,true);
+}
+for(const file of ['workers/auth/src/lib/model-tariffs.js','js/shared/model-tariff.mjs','tests/model-pricing-runtime.mjs','tests/model-pricing.spec.js','js/shared/auth-api.js','workers/auth/src/lib/session.js','unknown.js'])assert.equal(selection([...pricingClientDelta,file]).workers,true,file);
 
 // Appearance spans every public/member/Admin host: never the Admin-reader path.
 const appearanceDelta = [

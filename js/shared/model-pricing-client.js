@@ -79,7 +79,12 @@ if (typeof window !== 'undefined') {
     document.addEventListener('bitbi:auth-change', event => {
         const user = event.detail?.user;
         sessionUser(user);
-        if (!user) { blocked = isAdminPage(); adminAuthorized = false; clear(); }
+        if (!user) {
+            blocked = isAdminPage(); adminAuthorized = false; clear();
+            // A guest still needs public tariffs and model availability. The
+            // initial /me response can invalidate an earlier retail fetch.
+            if (!blocked) void refreshModelPricing();
+        }
         else void refreshModelPricing();
     });
     refreshModelPricing();

@@ -806,17 +806,22 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     return selection;
   }
 
-  if (!forceFull && changedFiles.some(file => ['workers/shared/gpt-image-25.mjs','workers/auth/src/lib/image-delivery-recovery.js','workers/auth/src/lib/model-tariffs.js','js/shared/model-tariff.mjs','js/pages/admin/model-pricing.js','tests/model-pricing.spec.js','tests/oma2-q3-model-pricing.spec.js'].includes(file))
+  if (!forceFull && changedFiles.some(file => ['workers/shared/gpt-image-25.mjs','workers/auth/src/lib/image-delivery-recovery.js','workers/auth/src/lib/model-tariffs.js','js/shared/model-tariff.mjs','js/shared/model-pricing-client.js','js/pages/admin/model-pricing.js','tests/model-pricing.spec.js','tests/oma2-q3-model-pricing.spec.js'].includes(file))
       && changedFiles.every(file => isDocumentation(file) || MODEL_PRICING_FILES.has(file) || IMAGE_MODEL_FILES.has(file) || APPEARANCE_FILES.has(file) || RELEASE_TOOLING_FILES.has(file))) {
     selection.policy = 'model-pricing-v1'; selection.modelPricing = true;
     selection.imageModels = changedFiles.some(file => IMAGE_MODEL_FILES.has(file));
     selection.appearance = changedFiles.some(file => ['css/base/tokens.css','css/base/appearance.css','js/shared/appearance.js','js/shared/appearance-contract.js','workers/auth/src/lib/appearance-settings.js','tests/oma2-q3-appearance.spec.js'].includes(file));
     if (selection.imageModels) selection.reasons.workers.push('Image adapter payloads/errors, owned references, native Canvas D1/R2 persistence and unchanged GPT Image 2 accounting');
     if (selection.appearance) selection.reasons.auth.push('Unpublished appearance bytes retain all cross-segment Chromium/WebKit cases and native settings acceptance');
-    selection.workers = selection.auth = selection.static = selection.runtime = true;
-    selection.reasons.workers.push('Real member/organization/Admin billing callers, tariff/rounding/replay regressions and native D1 admission/settlement/edit-conflict checks');
+    const clientOnly = changedFiles.includes('js/shared/model-pricing-client.js') && changedFiles.every(file => isDocumentation(file)
+      || ['js/shared/model-pricing-client.js','tests/oma2-q3-model-pricing.spec.js','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs'].includes(file));
+    selection.auth = selection.static = selection.runtime = true;
+    selection.workers = !clientOnly;
+    if (!clientOnly) selection.reasons.workers.push('Real member/organization/Admin billing callers, tariff/rounding/replay regressions and native D1 admission/settlement/edit-conflict checks');
     selection.reasons.auth.push('Admin pricing editor, authorization denial and all four shared pricing surfaces in Chromium/WebKit against the candidate artifact');
-    selection.reasons.static.push('Schema 0094, protected backend continuation, exact candidate/build and frontend routing checks');
+    selection.reasons.static.push(clientOnly
+      ? 'Public pricing/session refresh, exact candidate/build and frontend routing checks; unchanged backend inputs'
+      : 'Schema 0094, protected backend continuation, exact candidate/build and frontend routing checks');
     return selection;
   }
 

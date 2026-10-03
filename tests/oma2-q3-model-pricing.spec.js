@@ -35,6 +35,27 @@ async function setup(page,baseURL,{gate=0}={}){
 }
 const root=page=>page.locator('#sectionModelPricing');
 async function open(page){await page.goto('/admin/index.html#model-pricing');await expect(root(page).locator('.model-pricing__row').first()).toBeVisible();}
+for(const locale of ['en','de'])test(`public Omni pricing survives cold signed-out initialization ${locale}`,async({page,baseURL})=>{
+ const f=await setup(page,baseURL,{gate:401});
+ const snapshot=await require('./helpers/omni-model-controls.cjs').snapshot(true);
+ for(const rule of Object.values(snapshot.rules))rule.rates.request=100;
+ let releaseSession,sessionRequest,pricingReads=0;
+ const sessionSeen=new Promise(resolve=>{sessionRequest=resolve;});
+ const sessionRelease=new Promise(resolve=>{releaseSession=resolve;});
+ await page.route('**/api/me',async route=>{sessionRequest();await sessionRelease;await route.fulfill({json:{loggedIn:false,user:null}});});
+ await page.route('**/api/model-pricing',async route=>{pricingReads++;await route.fulfill({json:snapshot});});
+ try{
+  await page.setViewportSize({width:390,height:844});await page.goto(`${locale==='de'?'/de':''}/generate-lab/`);await sessionSeen;
+  // Force the real race: retail response arrives before the first guest /me.
+  await expect.poll(()=>page.evaluate(async()=>{const m=await import('/js/shared/model-tariff.mjs');return m.getBrowserTariff()?.revision;})).toBe(snapshot.revision);
+  releaseSession();
+  await expect.poll(()=>pricingReads).toBe(2);
+  await page.locator('#mobileMenuBtn').click();await page.locator('#mobileNav [data-models-link]').click();
+  await expect(page.locator('.models-overlay [data-model-id="google/gemini-omni-flash"]')).toBeVisible();
+  expect(await page.evaluate(async()=>{const p=await import('/js/shared/gemini-omni-pricing.mjs');return p.calculateOmniCreditPricing({resolution:'720p',operation:'text'}).credits;})).toBe(100);
+  expect(f.calls.filter(c=>!['GET','HEAD','OPTIONS'].includes(c.method))).toEqual([]);expect(f.errors).toEqual([]);
+ }finally{releaseSession();f.DB.close();}
+});
 async function pricingLifecycle(page){
  const catalog=await import('../js/shared/model-pricing-catalog.mjs'),math=await import('../js/shared/model-tariff.mjs');
  const {basis}=catalog.modelFactoryPrice('minimax/h3',{duration:5,resolution:'768P'});

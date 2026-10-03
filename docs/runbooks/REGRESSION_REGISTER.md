@@ -796,10 +796,28 @@ execution, including pricing, and retain failed/skipped/missing-case rejection.
 Budget guards stay unchanged: new Admin integration code lives in a focused module.
 The public Models fixture excludes runtime-unapproved models and has a positive
 activation plus missing-tariff countercheck. No decorative Hero tests were added.
-No paid provider call or live Omni acceptance occurred; production is deliberately
-disabled until owner configuration/acceptance. See the release runbook's Omni
+No paid provider call or live Omni acceptance occurred. The initial disabled
+publication was followed by the explicit 2026-10-03 owner activation: all 20
+tariffs read back at 100 credits (pricing revision 20), all six capabilities and
+four resolutions enabled (readiness revision 1), with unverified provider
+acceptance recorded honestly and previous state retained. The website assistant
+remains off. See the release runbook's Omni
 section and the external `bitbi-gemini-omni-flash-checkpoint` for final source and
 publication evidence; local tests are not deployment receipts.
+
+Cold guest follow-up (2026-10-03, published source `84673d3c`): live read-only
+mobile inspection found Omni absent after the initial guest `/api/me` cleared
+the already-loaded public tariff snapshot. Refresh retail pricing after that
+clear on public pages; retain protected Admin denial and session epoch/abort
+fences. Existing `oma2-q3-model-pricing.spec.js` now forces this response order
+and requires restored EN/DE Models visibility, the 100-credit estimate and zero
+mutations. The original implementation fails that control; corrected Chromium/
+native WebKit cases pass 4/4, plus existing conflict/logout/account-switch checks
+2/2. Actual CI caller: existing `model-pricing-v1` browser discovery/execution and
+candidate report verification. Selector counterchecks omit unchanged Workers
+only for the closed browser-client scope, broaden for shared/backend/unknown
+neighbors and preserve forced Full. Fresh publication/live evidence belongs in
+the same external checkpoint; no paid inference or decorative-media test occurs.
 
 Release follow-up (2026-10-03): `37105294832/1`, source `33e86425`, failed in
 `release-compatibility / Test mandatory homepage selection` before candidate

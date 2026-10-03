@@ -367,7 +367,7 @@ Allowed direct-main release verdicts:
 
 Do not use `PRODUCTION READY` as an automatic result. Production/live billing readiness remains blocked until all production, Stripe, restore, alert, WAF/RUM, legal/accounting, and remediation evidence gates are complete and reviewed.
 
-## Gemini Omni Flash: disabled publication and manual activation
+## Gemini Omni Flash: publication and owner activation
 
 The owner-approved integration targets only `google/gemini-omni-flash` through the
 existing Cloudflare binding/Gateway. Admin Lab, Generate Lab and Canvas share
@@ -381,10 +381,14 @@ uploaded audio reference. There is no duration, seed or audio-toggle parameter;
 interaction field is preserved; job/asset/Gateway IDs are never substituted.
 
 Release AI → Auth → the tested frontend using the existing protected continuation.
-No new migration, secret, resource or media deployment is needed. Missing model
-acceptance or pricing blocks inference, not publication. Website-assistant public
-off is independent and must remain off. Default Omni readiness in `app_settings`
-is off for Admin tests and every member capability/resolution.
+No new migration, secret, resource or media deployment is needed. Default Omni
+readiness in `app_settings` is off for Admin tests and every member capability/
+resolution. On 2026-10-03 the owner explicitly authorized platform-wide activation
+with all 20 operation/resolution tariffs at 100 credits per request. The audited
+runtime setting records that exception, its previous disabled state, and that no
+real provider acceptance was performed. This is configuration activation, not
+verified provider quality or a known provider cost. Website-assistant public off
+is independent and remains off.
 
 In English Admin, use Model Pricing to set **final credits per request** for each
 Omni operation/resolution. No factory price is guessed and no second margin is
@@ -394,12 +398,19 @@ including after edits/reset; uncertain dispatches are never regenerated blindly.
 In Model Status, separately enable explicitly initiated Admin tests with a positive
 platform-budget reservation. Existing platform caps/switches still apply, without
 requiring a member tariff. A completed owned Admin job plus an explicit acceptance
-note is required to activate each member input capability and resolution. Review
-its actual result; successful storage alone is not quality approval. All reads and
-changes use existing Admin/MFA/CSRF protection, revision conflicts and audit history.
+note is required by the ordinary Admin activation API for each member input
+capability and resolution; the dated owner/operator exception above did not
+remove that API guard or invent acceptance jobs. Review
+its actual result; successful storage alone is not quality approval. Admin API
+reads and changes retain MFA/CSRF protection, revision conflicts and audit history.
 Deactivation blocks fresh dispatches, including queued work checked before the
 provider call; it cannot recall a provider request already dispatched. The public
 Models overlay additionally requires a usable activated and priced configuration.
+Guest session initialization must refresh public tariffs after clearing a prior
+snapshot; Admin denial still blocks pricing. Browser-only price-client changes
+use the existing model-pricing selection and both-engine pricing suite, without
+repeating unchanged Worker/native suites. Added backend/shared/unknown inputs
+restore the broader selection.
 
 Private uploads/asset pickers and Canvas roles/order retain ownership and source
 version checks. Generate Lab retains Omni settings/reference IDs per signed-in
