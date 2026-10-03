@@ -827,6 +827,41 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  assert.deepEqual(actions,['current','schema-read','current','active-read'],'Repeated same candidate verifies without another migration/Auth deploy');
 }
 
+{
+ const {assertSupportedBackendMigrations,assertModelAreaSchemaResume}=await import('./lib/backend-publication.mjs');
+ const {MODEL_AREA_SCHEMA_REPAIR,isModelAreaSchemaRepair,repairKind,repairSelection,assertUnchangedReleaseInputs}=await import('./lib/media-repair-source.mjs');
+ const contract=JSON.parse(fs.readFileSync(path.join(repoRoot,'config/release-compat.json')));
+ const latest=contract.release.schemaCheckpoints.auth.latest;
+ assertSupportedBackendMigrations([latest]); // Moving contract cannot outrun the actual deploy caller again.
+ assertSupportedBackendMigrations([]);
+ assert.throws(()=>assertSupportedBackendMigrations([latest,'9999_unreviewed.sql']),/9999_unreviewed.sql/);
+ const files=['scripts/lib/backend-publication.mjs','scripts/lib/media-repair-source.mjs','scripts/test-release-plan.mjs'];
+ assert(isModelAreaSchemaRepair(files));assert.equal(repairKind(files),'tooling');
+ for(const added of ['workers/auth/src/routes/canvas.js','workers/auth/migrations/0098_model_area_availability.sql','tests/admin-model-status-runtime.mjs','config/release-compat.json'])assert.throws(()=>repairKind([...files,added]));
+ for(const missing of files)assert(!isModelAreaSchemaRepair(files.filter(f=>f!==missing)));
+ const selection=repairSelection({reasons:{}},files);assert.equal(selection.workers,false);assert.equal(selection.auth,false);assert.equal(selection.policy,'release-tooling-repair-v1');
+ const env={REPAIR_SOURCE_SHA:MODEL_AREA_SCHEMA_REPAIR.sha,REPAIR_SOURCE_RUN:MODEL_AREA_SCHEMA_REPAIR.run,REPAIR_SOURCE_ATTEMPT:MODEL_AREA_SCHEMA_REPAIR.attempt},sha='f'.repeat(40);
+ assertModelAreaSchemaResume({id:MODEL_AREA_SCHEMA_REPAIR.authVersion},sha,env);
+ assertModelAreaSchemaResume({id:'new-version',annotations:{'workers/message':`bitbi-auth:${sha}`}},sha,env);
+ for(const key of Object.keys(env))assert.throws(()=>assertModelAreaSchemaResume({id:MODEL_AREA_SCHEMA_REPAIR.authVersion},sha,{...env,[key]:'wrong'}));
+ assert.throws(()=>assertModelAreaSchemaResume({id:'unknown'},sha,env));
+ assert.throws(()=>assertModelAreaSchemaResume({id:'partial',annotations:{'workers/message':`bitbi-auth:${MODEL_AREA_SCHEMA_REPAIR.sha}`}},sha,env));
+ // Real Git trees: a changed admission tool is reusable, product/schema edits are not.
+ const temp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-schema-admission-'));
+ try {
+  const git=args=>execFileSync('git',args,{cwd:temp,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+  git(['init','-q']);git(['config','user.name','Synthetic']);git(['config','user.email','synthetic@example.invalid']);
+  fs.mkdirSync(path.join(temp,'scripts/lib'),{recursive:true});fs.mkdirSync(path.join(temp,'workers/auth/migrations'),{recursive:true});
+  fs.writeFileSync(path.join(temp,'scripts/lib/backend-publication.mjs'),'old admission');fs.writeFileSync(path.join(temp,'workers/auth/migrations/0098_model_area_availability.sql'),'reviewed schema');
+  git(['add','.']);git(['commit','-qm','source']);const source=git(['rev-parse','HEAD']);
+  fs.writeFileSync(path.join(temp,'scripts/lib/backend-publication.mjs'),'corrected admission');git(['add','.']);git(['commit','-qm','repair']);const repaired=git(['rev-parse','HEAD']);
+  const cwd=process.cwd();try{process.chdir(temp);assertUnchangedReleaseInputs(source,repaired);}finally{process.chdir(cwd);}
+  fs.appendFileSync(path.join(temp,'workers/auth/migrations/0098_model_area_availability.sql'),'changed');git(['add','.']);git(['commit','-qm','invalid schema delta']);const invalid=git(['rev-parse','HEAD']);
+  try{process.chdir(temp);assert.throws(()=>assertUnchangedReleaseInputs(source,invalid),/Tested website\/backend\/build inputs changed/);}finally{process.chdir(cwd);}
+ }finally{fs.rmSync(temp,{recursive:true,force:true});}
+ console.log('Schema admission: current contract, unknown migration, exact evidence, partial activation, resume and real Git product-change countercontrols passed.');
+}
+
 await import('./test-media-auth-config.mjs');
 
 {

@@ -1336,6 +1336,15 @@ Worker shell has a failure countercheck at every stage. Existing dual-engine
 model-status/assistant callers cover saved/failed state, mobile/keyboard/themes,
 EN/DE hidden Lab choices and Canvas retained output/edges/downstream reuse.
 Candidate checks reject missing Main evidence or failed/skipped functional cases.
+Run `37119971202` attempt 1 completed selected Worker/browser acceptance for
+`eac93008`, then stopped before migration/activation: the separate backend
+migration allowlist still ended at 0097. The reviewed additive 0098 is admitted;
+`test:release-plan` now checks the moving contract against the actual admission
+function before publication and rejects unreviewed migrations. The existing
+closed tooling continuation retains the exact accepted product trees/archive
+and runs only release-tooling checks. A fresh backend receipt is required; the
+known pre-activation Auth version (or this continuation's own resumed version)
+is checked, and unknown/partial activations block. No old failure becomes green.
 SQL mocks gained the real availability-list query; no assertions were removed.
 Native and focused Chromium/macOS WebKit checks passed locally with synthetic
 providers. Hosted exact-source acceptance/publication is recorded in the private

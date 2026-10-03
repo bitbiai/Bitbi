@@ -33,8 +33,16 @@ export const TOOLING_REPAIR_FILES=new Set([
   'scripts/test-frontend-review.mjs','docs/runbooks/REGRESSION_REGISTER.md',
   'scripts/lib/image-delivery-acceptance.mjs','scripts/test-release-plan.mjs',
 ]);
+// This candidate completed every selected product check, then stopped before
+// schema/code activation because 0098 was absent from the deployment allowlist.
+export const MODEL_AREA_SCHEMA_REPAIR=Object.freeze({sha:'eac93008c61a803b95554c7b50a5569b5191f3ae',run:'37119971202',attempt:'1',authVersion:'82d1f19a-90ea-45a3-90bf-f37f7f418235'});
+export function isModelAreaSchemaRepair(files) {
+  return ['scripts/lib/backend-publication.mjs','scripts/lib/media-repair-source.mjs','scripts/test-release-plan.mjs'].every(f=>files.includes(f)) &&
+    files.every(f=>['scripts/lib/backend-publication.mjs','scripts/lib/media-repair-source.mjs','scripts/test-release-plan.mjs','docs/runbooks/REGRESSION_REGISTER.md'].includes(f));
+}
 const git=args=>execFileSync('git',args,{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 export function repairKind(files) {
+  if(isModelAreaSchemaRepair(files))return 'tooling';
   if(files.includes('tests/helpers/generation-selectors.cjs')) {
     assert(['tests/auth-admin.spec.js','scripts/lib/browser-fixture-repair.mjs','scripts/test-browser-fixture-repair.mjs','scripts/lib/media-repair-source.mjs','scripts/lib/frontend-source.mjs','scripts/pages-candidate.mjs'].every(f=>files.includes(f)),'Incomplete reviewed Omni browser fixture repair');
     assert(files.every(f=>OMNI_BROWSER_REPAIR_FILES.has(f)),'Changed input is outside Omni browser fixture equivalence');
@@ -76,6 +84,7 @@ export function repairDelta(source,head,base) {
   for(const sha of [source,head,base])assert(/^[a-f0-9]{40}$/.test(sha||''),'Exact repair identities required');
   git(['merge-base','--is-ancestor',base,source]);git(['merge-base','--is-ancestor',source,head]);
   const files=git(['diff','--name-only','--no-renames',source,head]).split('\n').filter(Boolean);assertRepairFiles(files);
+  if(isModelAreaSchemaRepair(files))assert.equal(source,MODEL_AREA_SCHEMA_REPAIR.sha,'Unreviewed schema-admission source');
   if(repairKind(files)==='tooling')assertUnchangedReleaseInputs(source,head);
   if(['browser-fixture','browser-publication'].includes(repairKind(files)))assertBrowserRepairTrees(source,head);
   if(repairKind(files)==='browser-publication')assertBrowserPublicationTree(head);

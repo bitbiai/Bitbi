@@ -15,7 +15,7 @@ import {mediaEvidenceRun} from './media-publication.mjs';
 import {verifyUploadSource} from './frontend-source.mjs';
 import {cloudflareRead} from './frontend-hosting.mjs';
 import {api,collection,REPOSITORY} from '../pages-candidate.mjs';
-import {repairDelta,repairKind,verifyRepairSource} from './media-repair-source.mjs';
+import {repairDelta,repairKind,verifyRepairSource,isModelAreaSchemaRepair,MODEL_AREA_SCHEMA_REPAIR} from './media-repair-source.mjs';
 const worker='bitbi-auth';
 const backendEnv=()=>({...process.env,CLOUDFLARE_API_TOKEN:process.env.CF_BACKEND_DEPLOY_TOKEN||process.env.CLOUDFLARE_API_TOKEN});
 const pause=milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds));
@@ -223,6 +223,9 @@ export function backendReceiptContext(c,env=process.env) {
   if(!env.REPAIR_SOURCE_SHA)return c;
   const files=repairDelta(env.REPAIR_SOURCE_SHA,c.sha,c.base);
   if(repairKind(files)!=='tooling')return c;
+  // No activation receipt exists for the reviewed pre-migration failure. New
+  // backend activation gets this run's identity; frontend keeps its tested one.
+  if(isModelAreaSchemaRepair(files))return c;
   return {...c,publicationSha:c.sha,sha:env.REPAIR_SOURCE_SHA,runId:env.REPAIR_SOURCE_RUN,attempt:env.REPAIR_SOURCE_ATTEMPT};
 }
 export async function readToolingBackendReceipt(c,env=process.env,{list=collection,download=fetch,verify=verifyRepairSource}={}) {
@@ -372,6 +375,15 @@ export async function advanceBackend({sha,pending,activeVersion,assertCurrent,ap
   const state=await readActive();if(verifyConfiguration)await verifyConfiguration();if(verifyMedia)await verifyMedia();return state;
 }
 
+export function assertSupportedBackendMigrations(pending) {
+  const allowed=['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql','0096_canvas_export_versions.sql','0097_canvas_preview_base.sql','0098_model_area_availability.sql'];
+  assert(pending.every(f=>allowed.includes(f)),`Unexpected pending migrations: ${pending.filter(f=>!allowed.includes(f)).map(f=>String(f).replace(/[^a-zA-Z0-9_.-]/g,'').slice(0,100)).join(', ')}`);
+}
+export function assertModelAreaSchemaResume(version,sha,env=process.env) {
+  for(const [key,value] of Object.entries({REPAIR_SOURCE_SHA:MODEL_AREA_SCHEMA_REPAIR.sha,REPAIR_SOURCE_RUN:MODEL_AREA_SCHEMA_REPAIR.run,REPAIR_SOURCE_ATTEMPT:MODEL_AREA_SCHEMA_REPAIR.attempt}))assert.equal(env[key],value,'Wrong schema-admission evidence');
+  assert(version.id===MODEL_AREA_SCHEMA_REPAIR.authVersion||version.annotations?.['workers/message']===`bitbi-auth:${sha}`,'Unexpected/partial prior Auth activation; reconcile before continuation');
+}
+
 export async function publishBackend() {
   fs.mkdirSync('test-results',{recursive:true});fs.rmSync('test-results/backend-diagnostics.jsonl',{force:true});
   const c=context();await verifyUploadSource();await current(c.sha);
@@ -388,14 +400,15 @@ export async function publishBackend() {
   if(mediaRequired)await readBackend('containers/applications');
 
   const before=await active();prerequisites(c.plan,before.version,c.config,false);
+  if(process.env.REPAIR_SOURCE_SHA&&isModelAreaSchemaRepair(repairDelta(process.env.REPAIR_SOURCE_SHA,c.sha,c.base)))assertModelAreaSchemaResume(before.version,c.sha);
   const imageTargets=c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?await captureImageDeliveryRecovery((sql,params)=>query(c.db,sql,params),imageDeliveryObject):[];
   await ensurePrivateVideoLogging();
   const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
   const applied=new Set((await query(c.db,'SELECT name FROM d1_migrations')).map(r=>r.name));
   const pending=fs.readdirSync('workers/auth/migrations').filter(f=>f.endsWith('.sql')&&!applied.has(f));
-  // This authority covers the reviewed additive Canvas migration only. Future
-  // schema changes need their own reviewed release support.
-  assert(pending.every(f=>['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql','0096_canvas_export_versions.sql','0097_canvas_preview_base.sql'].includes(f)),'Unexpected pending migrations');
+  // Reviewed additive migrations only. The contract/admission alignment is
+  // checked by test:release-plan before any protected publication is possible.
+  assertSupportedBackendMigrations(pending);
   const mediaReuse=mediaRequired?await resolveActiveMediaSource(c,{readCloudflare:readBackend}):null;
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-backend-secret-'));
   const mediaSourceSha=mediaRequired?(mediaReuse?.sha||c.sha):before.version.resources.bindings.find(b=>b.name==='PRIVATE_MEDIA_SOURCE_SHA')?.text;
