@@ -11,6 +11,25 @@ exports.readHomepageImageCapabilities = page => page.locator('#galleryStudio').e
   };
 });
 
+exports.assertVideoOptions = async (model, expect, expected) => {
+  const check = async () => expect(await model.locator('option').evaluateAll(options => options.map(o => o.value))).toEqual(expected);
+  await check();
+  const original = await model.evaluate(select => ({ html: select.innerHTML, value: select.value }));
+  // Real DOM countercontrols: the independent membership oracle must reject a
+  // missing, duplicated or substituted model, without triggering a request.
+  for (const fault of ['missing', 'duplicate', 'substituted']) {
+    await model.evaluate((select, fault) => {
+      const option = Array.from(select.options).find(o => o.value === 'google/gemini-omni-flash');
+      if (fault === 'missing') option.remove();
+      else if (fault === 'duplicate') option.after(option.cloneNode(true));
+      else option.value = 'google/gemini-1.1-flash';
+    }, fault);
+    await expect(check()).rejects.toThrow();
+    await model.evaluate((select, original) => { select.innerHTML = original.html; select.value = original.value; }, original);
+    await check();
+  }
+};
+
 exports.memberDimensions = async ({ page, expect, mockSession, locale }) => {
   await mockSession(page, { credits: 1000 });
   const requests = [];
@@ -47,8 +66,8 @@ exports.memberDimensions = async ({ page, expect, mockSession, locale }) => {
   await expect(model).toBeEnabled();
   await page.locator('[data-media-type="video"]').click();
   await expect(model).toHaveValue('minimax/h3');
-  expect(await model.locator('option').evaluateAll(options => options.map(o => o.value))).toEqual([
-    'alibaba/hh1-t2v', 'bytedance/seedance-2.0-fast', 'minimax/h3', 'pixverse/v6', 'xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview',
+  await exports.assertVideoOptions(model, expect, [
+    'alibaba/hh1-t2v', 'bytedance/seedance-2.0-fast', 'google/gemini-omni-flash', 'minimax/h3', 'pixverse/v6', 'xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview',
   ]);
   await model.selectOption('alibaba/hh1-t2v');
   await expect(page.locator('#labVideoQuality option')).toHaveText(['720P', '1080P']);

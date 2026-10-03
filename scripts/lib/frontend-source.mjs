@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
-import {api,collection,sourceAttempt,gitSelection,isRequiredValidationRun,validateSource,verifyManifest,verifyProofs,tree,REPOSITORY} from '../pages-candidate.mjs';
+import {api,collection,sourceAttempt,gitSelection,isRequiredValidationRun,validateSource,verifyManifest,verifyProofs,proofJobs,tree,REPOSITORY} from '../pages-candidate.mjs';
 import {hash,readJson,verifyFrontend} from './frontend-hosting.mjs';
 
 export function sourceExpectation(preview, env=process.env) {
@@ -89,13 +89,7 @@ export async function verifyUploadSource({preview=false,download=false}={}) {
     const proofs=fs.readdirSync('candidate').filter(f=>/^proof-.*\.json$/.test(f)).map(f=>readJson(`candidate/${f}`));
     if(source.preparation) {
       assert(download,'Partial browser evidence is download preparation only, never upload authorization');
-      assert(!proofs.some(p=>p.job==='browser-validation'),'Unexpected original browser proof');
-      // Preserve and validate all existing independent proofs without claiming
-      // acceptance for the original failed browser command.
-      for(const job of ['homepage-validation','frontend-runtime']) {
-        const p=proofs.filter(p=>p.job===job);assert.equal(p.length,1,`Missing original ${job} proof`);
-        assert.equal(p[0].status,'passed');assert.equal(p[0].manifestHash,hash(JSON.stringify(manifest)));assert(p[0].tests>0&&p[0].reportHash);
-      }
+      verifyPreparedBrowserProofs(manifest,proofs);
     } else {
       verifyProofs(manifest,proofs);
       if(source.browserRepair)verifyBrowserRepairProof(proofs.find(p=>p.job==='browser-validation'),manifest,source.completedBrowser?BROWSER_REPAIR_ACCEPTANCE:{publicationSha:process.env.GITHUB_SHA,run:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT});
@@ -104,4 +98,13 @@ export async function verifyUploadSource({preview=false,download=false}={}) {
     assert.deepEqual(sourceExpectation(preview),source.expected,'Local source changed during verification');
     return {manifest,proofs,source:{scope:preview?'preview':'production',branch:source.expected.branch,sha:manifest.sha,run:manifest.run,attempt:manifest.attempt,artifacts:source.selected.map(({id,digest})=>({id,digest}))}};
   }finally{fs.rmSync(source.temporary,{recursive:true,force:true});}
+}
+// Preparation preserves selected independent evidence but never grants upload
+// acceptance for the failed browser command. Unselected jobs need no fake proof.
+export function verifyPreparedBrowserProofs(manifest,proofs) {
+  assert(!proofs.some(p=>p.job==='browser-validation'),'Unexpected original browser proof');
+  for(const job of [...proofJobs(manifest.selection).filter(job=>job!=='browser-validation'),...(manifest.hosting?['frontend-runtime']:[])]) {
+    const p=proofs.filter(p=>p.job===job);assert.equal(p.length,1,`Missing original ${job} proof`);
+    assert.equal(p[0].status,'passed');assert.equal(p[0].manifestHash,hash(JSON.stringify(manifest)));assert(p[0].tests>0&&p[0].reportHash);
+  }
 }

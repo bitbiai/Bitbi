@@ -279,7 +279,7 @@ fresh execution of every changed, failed or flaky case plus unexecuted command
 tails. Its composite proof names the original and new evidence separately; the
 old failed run remains failed. Unknown deltas, missing cases, new failures, stale
 artifacts or incomplete proof block publication. This is not general permission
-to reuse failed candidates or to repeat a failed job until it turns green.
+to reuse failed candidates or to repeat a failed job until it turns green. The reviewed incident profiles preserve their own immutable provenance; the Omni catalog correction reuses 297 unchanged browser passes plus successful Worker acceptance and executes exactly six repaired Chromium/WebKit cases. Its complete discovery must remain 303 cases. Preparation requires the selected independent proofs only; an unselected homepage job is not fabricated or rerun.
 
 Private-media release admission is checked through the authenticated smoke route
 before seeding fixed synthetic jobs. Its write-free preflight validates the serving

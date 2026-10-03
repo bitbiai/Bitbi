@@ -162,7 +162,7 @@ export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected,
   if(browserRepair) {
     assert(mediaRepair,'Browser continuation requires verified repair ancestry');
     assert(['browser-fixture','browser-publication'].includes(repairKind(repairDelta(expected.sha,expected.publicationSha,expected.base))));
-    assertBrowserSourceIdentity(expected);assertBrowserReportArtifact(artifacts);
+    assertBrowserSourceIdentity(expected);assertBrowserReportArtifact(artifacts,expected.sha);
   }
   if(historicalActivation) {
     // Read-only attribution of an already activated version. This grants no

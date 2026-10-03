@@ -70,5 +70,42 @@ for(const mutate of [
 const report={errors:[],stats:{expected:1,unexpected:0,flaky:0,skipped:0},suites:[{specs:[{id:'i',file:'f',title:'t',tests:[{projectName:'p',expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0}]}]}]}]};
 assert.deepEqual(browserRows(report),[pass('p:i','f','t','p')]);assert.deepEqual(browserRows(report,{discovery:true}),[identity(pass('p:i','f','t','p'))]);assert.throws(()=>browserRows({...report,errors:[{}]}));assert.throws(()=>browserRows({suites:[]}));
 for(const stats of [undefined,{}, {...report.stats,expected:0},{...report.stats,skipped:-1},{...report.stats,flaky:'0'},{...report.stats,unexpected:1}])assert.throws(()=>browserRows({...report,stats}));
-assert(repairs.every(repairedCase)&&controls.every(repairedCase));assert.equal(Object.keys(BROWSER_REPAIR_SPECS).length,2);
+assert(repairs.every(row=>repairedCase(row))&&controls.every(row=>repairedCase(row)));assert.equal(Object.keys(BROWSER_REPAIR_SPECS).length,2);
 console.log('Browser fixture repair: complete case union, immutable failed-source identity, exact fresh controls/tail, retry/failure/skip/tampering/missing evidence and selected-job gates verified (synthetic counterchecks).');
+
+// The Omni incident retains the complete original 303-case selection. Exactly
+// six stale membership assertions execute again, with their real DOM controls.
+const {OMNI_BROWSER_REPAIR:omni,OMNI_BROWSER_REPAIR_FILES:omniFiles,OMNI_BROWSER_REPAIR_SPECS:omniSpecs}=await import('./lib/browser-fixture-repair.mjs');
+const {verifyPreparedBrowserProofs}=await import('./lib/frontend-source.mjs');
+const omniFresh=['chromium','webkit-canvas'].flatMap(project=>[
+  pass(project+'-admin','auth-admin.spec.js','@canvas-model-ui shows every admin Video AI model in publisher/name dropdown order',project),
+  ...['en','de'].map(locale=>pass(project+'-'+locale,'smoke.spec.js',`@canvas-model-ui Generate Lab dimensions and publisher dropdowns ${locale}`,project)),
+]);
+const omniPrevious=[...Array.from({length:297},(_,i)=>pass('unchanged-'+i)),...omniFresh.map(row=>({...structuredClone(row),status:'unexpected',results:[{status:'failed',retry:0,error:true}]}))];
+const omniEvidence={previous:omniPrevious,discovery:omniPrevious.map(identity),scoped:omniFresh,carouselDiscovery:[],carousel:[]};
+assert.deepEqual(verifyBrowserCaseCoverage(omniEvidence,omni.sha),{reused:omniPrevious.slice(0,297).map(r=>r.key).sort(),fresh:omniFresh.map(r=>r.key).sort(),carousel:[],reusedPassed:297,reusedSkipped:0,freshPassed:6,carouselPassed:0,carouselSkipped:0});
+for(const mutate of [
+ e=>e.previous.pop(),e=>e.discovery.pop(),e=>e.discovery.push(e.discovery[0]),e=>e.scoped.pop(),e=>e.scoped.push(e.scoped[0]),
+ e=>e.scoped[0].results[0].status='failed',e=>e.scoped[0].results[0].retry=1,e=>e.scoped[0].results.push({status:'passed',retry:1,error:false}),
+ e=>e.scoped[0].status='flaky',e=>e.scoped[0].expectedStatus='skipped',e=>e.scoped[0].results[0].error=true,e=>e.scoped[0].title='substituted',
+ e=>e.previous[0].results[0].status='failed',e=>e.previous[0].status='unexpected',e=>e.previous[0].title='changed',e=>e.discovery[0].project='foreign',
+ e=>e.carousel.push(pass('unrequested')),e=>e.carouselDiscovery.push(identity(pass('unrequested'))),
+]) {const bad=structuredClone(omniEvidence);mutate(bad);assert.throws(()=>verifyBrowserCaseCoverage(bad,omni.sha));}
+assert.throws(()=>verifyBrowserRepairCoverage(omniEvidence,omni.sha),/Original failed case evidence changed/);
+assert.equal(repairKind([...omniFiles]),'browser-fixture');
+for(const file of ['tests/helpers/generation-selectors.cjs','tests/auth-admin.spec.js','scripts/lib/frontend-source.mjs','scripts/pages-candidate.mjs','scripts/test-browser-fixture-repair.mjs'])assert.throws(()=>repairKind([...omniFiles].filter(f=>f!==file)));
+for(const file of ['js/shared/member-model-exposure.mjs','workers/auth/src/index.js','tests/smoke.spec.js','tests/helpers/omni-model-controls.cjs','playwright.config.js','package-lock.json','.github/workflows/static.yml'])assert.throws(()=>repairKind([...omniFiles,file]));
+assert.equal(Object.keys(omniSpecs).length,2);
+const omniArtifact={...artifact,id:omni.artifact,digest:`sha256:${omni.archiveHash}`,workflow_run:{id:Number(omni.run),head_sha:omni.sha}};
+assertBrowserReportArtifact([omniArtifact],omni.sha);assert.throws(()=>assertBrowserReportArtifact([artifact],omni.sha));assert.throws(()=>assertBrowserReportArtifact([omniArtifact]));
+assertBrowserSourceIdentity(omni);assert.throws(()=>assertBrowserSourceIdentity({...omni,run:BROWSER_REPAIR.run}));
+const omniJob={...originalJob,head_sha:omni.sha,steps:originalJob.steps.map(s=>({...s,name:s.name==='Install carousel browser matrix'?'Install browsers for selected frontend tests':s.name==='Run full static browser regression'?'Run selected auth and admin tests':s.name}))};
+assertOriginalBrowserJob(omniJob);
+for(const mutate of [j=>j.steps.pop(),j=>j.steps[0].conclusion='skipped',j=>j.steps[2].conclusion='failure',j=>j.steps[3].conclusion='success',j=>j.steps.reverse()]){const bad=structuredClone(omniJob);mutate(bad);assert.throws(()=>assertOriginalBrowserJob(bad));}
+for(const homepage of [false,true]) {
+ const preparedManifest={hosting:{},selection:{auth:true,homepage}};
+ const prepared=['frontend-runtime',...(homepage?['homepage-validation']:[])].map(job=>({job,status:'passed',tests:1,reportHash:'source-report',manifestHash:browserHash(JSON.stringify(preparedManifest))}));
+ verifyPreparedBrowserProofs(preparedManifest,prepared);
+ for(const mutate of [p=>p.pop(),p=>p.push(p[0]),p=>p[0].status='failed',p=>p[0].manifestHash='wrong',p=>p[0].tests=0,p=>p[0].reportHash='',p=>p.push({...p[0],job:'browser-validation'})]){const bad=structuredClone(prepared);mutate(bad);assert.throws(()=>verifyPreparedBrowserProofs(preparedManifest,bad));}
+}
+console.log('Omni browser repair: 297 unchanged + 6 fresh cases; exact source/artifact/profile, selected preparation proofs and missing/failed/retried/tampered countercontrols passed.');

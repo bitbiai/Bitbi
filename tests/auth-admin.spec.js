@@ -20239,9 +20239,9 @@ test.describe('Admin AI Lab', () => {
     const model = page.locator('#aiVideoModel');
     await expect(model).toBeVisible();
     await expect(model).toHaveValue('pixverse/v6');
-    expect(await model.locator('option').evaluateAll(options => options.map(option => option.value))).toEqual([
+    await require('./helpers/generation-selectors.cjs').assertVideoOptions(model, expect, [
       'alibaba/hh1-t2v', 'bytedance/seedance-2.0', 'bytedance/seedance-2.0-fast',
-      'minimax/h3', 'pixverse/v6', 'vidu/q3-pro', 'xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview',
+      'google/gemini-omni-flash', 'minimax/h3', 'pixverse/v6', 'vidu/q3-pro', 'xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview',
     ]);
   });
 
