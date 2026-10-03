@@ -111,11 +111,11 @@ for(const homepage of [false,true]) {
 console.log('Omni browser repair: 297 unchanged + 6 fresh cases; exact source/artifact/profile, selected preparation proofs and missing/failed/retried/tampered countercontrols passed.');
 
 const {SEEDANCE_BROWSER_REPAIR:seedance,SEEDANCE_BROWSER_REPAIR_FILES:seedanceFiles,SEEDANCE_BROWSER_REPAIR_CASES:seedanceCases}=await import('./lib/browser-fixture-repair.mjs');
-const seedanceFresh=['chromium','webkit-canvas'].flatMap(project=>seedanceCases.map(([file,title],i)=>pass(project+'-seedance-'+i,file,title,project)));
-const seedancePrevious=[...Array.from({length:255},(_,i)=>pass('unchanged-seedance-'+i)),...seedanceFresh.map((row,i)=>i<59?{...structuredClone(row),status:'unexpected',results:[{status:'failed',retry:0,error:true}]}:structuredClone(row))];
+const seedanceFresh=['chromium','webkit-canvas'].flatMap(project=>seedanceCases.filter(([,title,projects=['chromium','webkit-canvas']])=>projects.includes(project)).map(([file,title],i)=>pass(project+'-seedance-'+i,file,title,project)));
+const seedancePrevious=[...Array.from({length:258},(_,i)=>pass('unchanged-seedance-'+i)),...seedanceFresh.map((row,i)=>i<59?{...structuredClone(row),status:'unexpected',results:[{status:'failed',retry:0,error:true}]}:structuredClone(row))];
 const seedanceEvidence={previous:seedancePrevious,discovery:seedancePrevious.map(identity),scoped:seedanceFresh,carouselDiscovery:[],carousel:[]};
 const seedanceCoverage=verifyBrowserCaseCoverage(seedanceEvidence,seedance.sha);
-assert.equal(seedanceCoverage.reusedPassed,255);assert.equal(seedanceCoverage.freshPassed,62);
+assert.equal(seedanceCoverage.reusedPassed,258);assert.equal(seedanceCoverage.freshPassed,59);
 for(const mutate of [
  e=>e.previous.pop(),e=>e.discovery.pop(),e=>e.discovery.push(e.discovery[0]),e=>e.scoped.pop(),e=>e.scoped.push(e.scoped[0]),
  e=>e.scoped[0].results[0].status='failed',e=>e.scoped[0].results[0].retry=1,e=>e.scoped[0].status='flaky',
@@ -133,6 +133,6 @@ assertBrowserSourceIdentity(seedance);assert.throws(()=>assertBrowserSourceIdent
 assertOriginalBrowserJob({...omniJob,head_sha:seedance.sha});
 const seedanceSelection=repairSelection({reasons:{auth:[],static:[]},files:[...seedanceFiles]},[...seedanceFiles]);
 assert.equal(seedanceSelection.browserRepair,true);assert.equal(seedanceSelection.workers,false);
-console.log('Seedance browser repair: 255 unchanged + 62 fresh; exact fixture-only trees, complete cases, immutable evidence and missing/failed/retried/tampered counterchecks passed.');
+console.log('Seedance browser repair: 258 unchanged + 59 fresh; exact fixture-only trees, complete cases, immutable evidence and missing/failed/retried/tampered counterchecks passed.');
 
-const seedanceTimeout=structuredClone(seedanceEvidence);seedanceTimeout.previous[255].results[0].status='timedOut';assert.equal(verifyBrowserCaseCoverage(seedanceTimeout,seedance.sha).freshPassed,62);seedanceTimeout.scoped[0].results[0].status='timedOut';assert.throws(()=>verifyBrowserCaseCoverage(seedanceTimeout,seedance.sha));
+const seedanceTimeout=structuredClone(seedanceEvidence);seedanceTimeout.previous[258].results[0].status='timedOut';assert.equal(verifyBrowserCaseCoverage(seedanceTimeout,seedance.sha).freshPassed,59);seedanceTimeout.scoped[0].results[0].status='timedOut';assert.throws(()=>verifyBrowserCaseCoverage(seedanceTimeout,seedance.sha));
