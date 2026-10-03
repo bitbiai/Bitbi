@@ -1,3 +1,4 @@
+import {memberGenerationCase} from '../member-generation-control.mjs';
 import { modelPricingCase } from '../model-pricing-control.mjs';
 import { image25Output } from '../../../workers/shared/gpt-image-25.mjs';
 import { cleanupExpiredMemberAiUsageAttempts } from '../../../workers/auth/src/lib/member-ai-usage-attempts.js';
@@ -23,6 +24,7 @@ export default {
     if (request.method !== 'POST' || request.headers.get('x-q2-control') !== env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
     const path=new URL(request.url).pathname;
     const body=await request.json();
+    if(path==='/model-area-generation'&&['area-queued','area-running'].includes(body.name))return Response.json(await memberGenerationCase(env,body.name,body));
     if(path==='/image25-queue') {
       const job=await env.DB.prepare('SELECT id FROM member_generation_jobs WHERE id=? AND user_id=?').bind(body.id,MEMBER).first();
       if(!job)return new Response(null,{status:404});

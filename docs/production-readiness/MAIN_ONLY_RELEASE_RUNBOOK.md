@@ -449,3 +449,36 @@ budget exhaustion; reconcile before another attempt. If verified rates do not
 bound a requested attempt within the remaining ceiling, do not submit it. Other
 resolutions/reference modes remain off until separately accepted. No autonomous
 paid calls, top-ups, model substitution or inferred Cloudflare bill.
+
+## Model area availability
+
+Admin → AI & Models → Model status (`/admin/index.html#model-status`) derives its
+availability overview from the shared member and runnable Canvas registries.
+Generation Lab and Canvas use independent versioned `app_settings` entries; an
+absent entry preserves existing eligibility. Invalid state fails closed. Each
+mutation compares its own revision, records actor/time and previous state, and
+requires Admin/MFA/CSRF without a user-supplied reason. Pricing and Admin Lab remain
+independent. Main controls the existing assistant durable mode; its legacy false
+deployment flag is a compatibility sentinel, not a second activation veto. Main
+starts off; access, terms, prices, approved budgets and real EN/DE acceptance remain
+required. Main off preserves independent Admin testing.
+
+OFF omits new-use selectors. Canvas keeps nodes, edges and retained outputs, with
+the localized disabled note; downstream reuse does not invoke the source model.
+Trusted route/queue context determines the area, never a client workspace header.
+Admission and atomic SQL dispatch checks reject OFF before new provider exposure;
+undispatched holds use the existing release lifecycle. Dispatched work and retained
+output recovery finish/settle normally. Migration 0098 adds guards only: no policy
+seeding or data rewrites. Recovery keeps this compatible Auth/schema active; restore
+an individual switch through its current revision, never delete policy keys or
+roll back to an Auth build that ignores them.
+
+The closed `model-area-availability-v1` selection extends the existing model-status
+Worker/browser callers: policy/SQL and native Admin, queue, organization billing,
+plus existing Canvas/Admin boundaries; both browser engines exercise Admin, EN/DE
+Generation Lab/Canvas and Main Help. `MODEL_STATUS_ASSISTANT=true` includes the
+existing Main suite in discovery and execution. Candidate proof requires both
+files/engines; failure/skip/missing reports block publication. Unknown billing,
+session or provider siblings cannot use this scope; ordinary read-only status and
+cosmetic scopes retain their narrower checks. No decorative Hero tests or paid
+inference. Native/local fixtures prove enforcement, not live model quality.

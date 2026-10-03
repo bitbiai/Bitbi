@@ -81,6 +81,7 @@ function writeGithubOutput(selection) {
     member_assets: selection.memberAssets === true,
     public_media: selection.publicMedia === true,
     model_status: selection.modelStatus === true,
+    model_areas: selection.modelAreas === true,
     model_pricing: selection.modelPricing === true,
     image_models: selection.imageModels === true,
     appearance: selection.appearance === true,

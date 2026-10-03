@@ -127,6 +127,7 @@ export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSe
         const meta = element('div', 'canvas-node__meta');
         meta.append(element('span', '', model?.label || copy.noModel), element('span', '', `${Math.round(Number(node.x))}, ${Math.round(Number(node.y))}`));
         body.append(meta);
+        if(model?.areaEnabled===false)body.append(element('p','canvas-model-disabled',document.documentElement.lang==='de'?'Dieses Modell wurde vorübergehend deaktiviert.':'This model has been temporarily disabled.'));
         card.append(head, body, createPort(node, 'in'), createPort(node, 'out'));
 
         card.addEventListener('click', (event) => {

@@ -1313,3 +1313,25 @@ Local final checks: six focused native Linux audio cases and all 276 selected
 Assets cases on macOS passed without retries against the retained `036e08d3`
 candidate bytes. These results do not certify the fresh hosted candidate or live
 publication; retain exact run/attempt/artifact proof and protected continuation.
+
+### Independent model-area admission (2026-10-03)
+
+Previously the user catalog and model readiness did not express independent
+Generation Lab/Canvas availability. The Admin overview now derives 25 offered
+models (16 Lab, 24 Canvas, one Main assistant) from existing registries; per-pair
+CAS and admission/dispatch fences preserve pricing, Admin testing and running work.
+The old assistant deployment flag is superseded by its existing durable mode,
+without weakening activation evidence or spend caps. No production policy is seeded.
+
+Executable checks: `tests/admin-model-status.spec.js` covers defaults, independent
+CAS, invalid state, reservation/dispatch races and Main controlled activation;
+`--suite model-status` exercises real Admin/MFA/CSRF, native D1, queued OFF,
+already-dispatched storage/settlement and organization holds. The actual selected
+Worker shell has a failure countercheck at every stage. Existing dual-engine
+model-status/assistant callers cover saved/failed state, mobile/keyboard/themes,
+EN/DE hidden Lab choices and Canvas retained output/edges/downstream reuse.
+Candidate checks reject missing Main evidence or failed/skipped functional cases.
+SQL mocks gained the real availability-list query; no assertions were removed.
+Native and focused Chromium/macOS WebKit checks passed locally with synthetic
+providers. Hosted exact-source acceptance/publication is recorded in the private
+model-areas checkpoint and the resulting protected release receipt; no paid inference.

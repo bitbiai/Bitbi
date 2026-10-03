@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0097_canvas_preview_base.sql",
+        "latest": "0098_model_area_availability.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -888,6 +888,7 @@
       "/admin/ai/model-pricing/quote",
       "/admin/ai/model-pricing/source",
       "/admin/ai/model-status",
+      "/admin/ai/model-availability",
       "/admin/ai/models",
       "/admin/ai/test-text",
       "/admin/ai/test-image",
@@ -941,6 +942,7 @@
       "/api/admin/ai/model-pricing/quote",
       "/api/admin/ai/model-pricing/source",
       "/api/admin/ai/model-status",
+      "/api/admin/ai/model-availability",
       "/api/admin/ai/budget-evidence",
       "/api/admin/ai/budget-switches",
       "/api/admin/ai/platform-budget-caps",

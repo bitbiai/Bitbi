@@ -1,3 +1,4 @@
+import { modelAreaEnabled, modelAvailabilitySignature } from './model-availability.js';
 import { OMNI_MODEL } from './gemini-omni-contract.mjs';
 import { omniMemberVisible } from './gemini-omni-pricing.mjs';
 import './model-pricing-client.js';
@@ -23,7 +24,7 @@ function statusLabelForMemberModel() {
 
 function buildCatalogSignature() {
     return JSON.stringify({
-        locale: getCurrentLocale(), omni: omniMemberVisible(),
+        locale: getCurrentLocale(), omni: omniMemberVisible(), areas:modelAvailabilitySignature(),
     });
 }
 
@@ -32,7 +33,7 @@ function buildModelCatalog() {
         category: localeText(categoryKey),
         side,
         models: getMemberExposedModelsByMediaType(task)
-            .filter((model) => model?.id && (model.id !== OMNI_MODEL || omniMemberVisible()))
+            .filter((model) => model?.id && modelAreaEnabled(model.id, /(?:^|\/)canvas(?:\/|$)/.test(location.pathname)?'canvas':'generation') && (model.id !== OMNI_MODEL || omniMemberVisible()))
             .map((model) => ({
                 id: model.id,
                 name: model.label || model.id,

@@ -1,3 +1,4 @@
+import { assertModelArea, trustedModelArea, adminModelAvailability, changeModelAvailability } from '../lib/model-availability.js';
 import { OMNI_MODEL } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { getOmniReadiness } from '../lib/gemini-omni-readiness.js';
 import { readImage25Bytes, image25Base64 } from '../../../shared/gpt-image-25.mjs';
@@ -1983,6 +1984,19 @@ export async function handleAdminAI(ctx) {
     return handleModelPricing(ctx);
   }
 
+  // route-policy: admin.ai.model-availability.read
+  if ((pathname === "/api/admin/ai/model-availability" && method === "GET")
+      // route-policy: admin.ai.model-availability.update
+      || (pathname === "/api/admin/ai/model-availability" && method === "PATCH")) {
+    const limited=await rateLimitAdminAi(request,env,'admin-model-availability-ip',60,600_000,correlationId);
+    if(limited)return limited;
+    try {
+      if(method==='GET')return json({ok:true,data:await adminModelAvailability(env)},{headers:{'Cache-Control':'private, no-store'}});
+      const parsed=await readJsonBodyOrResponse(request,{maxBytes:BODY_LIMITS.smallJson});if(parsed.response)return parsed.response;
+      return json({ok:true,data:await changeModelAvailability(env,result.user,parsed.body)},{headers:{'Cache-Control':'private, no-store'}});
+    }catch(error){return json({ok:false,code:error.code || 'model_availability_unavailable',error:'Model availability could not be saved or confirmed.'},{status:error.status || 503,headers:{'Cache-Control':'private, no-store'}});}
+  }
+
   // route-policy: admin.ai.model-status
   if (pathname === "/api/admin/ai/model-status" && method === "GET") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-model-status-ip", 30, 600_000, correlationId);
@@ -3152,6 +3166,7 @@ export async function handleAdminAI(ctx) {
         pricing,
       });
       const existingPricingAttempt = await fetchOrgAttemptByIdempotency(env, { organizationId, idempotencyKey: scopedIdempotencyKey });
+      const availabilityKey=await assertModelArea(env,modelId,trustedModelArea(env,pathname),{attempt:existingPricingAttempt,table:'ai_usage_attempts_v2'});
       const pinnedPricing = await pinModelTariff(env, { modelId, input: pricingPayload, factory: pricing, credits: pricing.credits, request, existing: existingPricingAttempt });
       pricing = { ...pricing, credits: pinnedPricing.credits };
       const attemptState = await beginAiUsageAttempt({
@@ -3164,7 +3179,7 @@ export async function handleAdminAI(ctx) {
         idempotencyKey: scopedIdempotencyKey,
         requestFingerprint,
         creditCost: pricing.credits,
-        metadata: { model_tariff: pinnedPricing },
+        metadata: { model_tariff: pinnedPricing, ...(availabilityKey ? {model_area:{key:availabilityKey}} : {}) },
         quantity: 1,
       });
 
@@ -3221,7 +3236,7 @@ export async function handleAdminAI(ctx) {
         }
         throw error;
       }
-      const dispatchToken = await markAiUsageAttemptProviderRunning(env, attemptState.attempt.id);
+      const dispatchToken = await markAiUsageAttemptProviderRunning(env, attemptState.attempt.id,{availabilityKey});
       const response = await proxyToAiLab(
         env,
         "/internal/ai/test-image",

@@ -71,6 +71,7 @@ jobs:
       member_assets: ${{ steps.selection.outputs.member_assets }}
       public_media: ${{ steps.selection.outputs.public_media }}
       model_status: ${{ steps.selection.outputs.model_status }}
+      model_areas: ${{ steps.selection.outputs.model_areas }}
       model_pricing: ${{ steps.selection.outputs.model_pricing }}
       image_models: ${{ steps.selection.outputs.image_models }}
       appearance: ${{ steps.selection.outputs.appearance }}
@@ -315,6 +316,10 @@ jobs:
             Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/member-generation" node scripts/test-q2-runtime.mjs --suite member-generation &&
             Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/q4-stream" node scripts/test-q2-runtime.mjs --suite q4-stream
           elif [ "${{ needs.release-compatibility.outputs.model_status }}" = 'true' ]; then
+            if [ "${{ needs.release-compatibility.outputs.model_areas }}" = 'true' ]; then
+              node --test tests/website-assistant-route.test.mjs tests/website-assistant-control.test.mjs tests/website-assistant-provider.test.mjs &&
+              npx playwright test -c playwright.workers.config.js tests/workers.spec.js --grep 'Canvas|AI generate: member|Phase 2-E admin usage|member text|AI generate-music' --retries=0
+            fi &&
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
             npx playwright test -c playwright.workers.config.js tests/admin-model-status.spec.js --retries=0 &&
             node scripts/test-q2-runtime.mjs --suite model-status
@@ -560,6 +565,7 @@ jobs:
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static -- tests/canvas.spec.js tests/oma2-q1-canvas.spec.js tests/auth-admin.spec.js tests/smoke.spec.js tests/oma2-q1-member.spec.js tests/oma2-q3-model-pricing.spec.js --project=chromium --project=webkit-canvas --project=webkit-pricing --grep 'Canvas|P13|@canvas-model-ui' --list --reporter=json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- tests/canvas.spec.js tests/oma2-q1-canvas.spec.js tests/auth-admin.spec.js tests/smoke.spec.js tests/oma2-q1-member.spec.js tests/oma2-q3-model-pricing.spec.js --project=chromium --project=webkit-canvas --project=webkit-pricing --grep 'Canvas|P13|@canvas-model-ui' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json
           elif [ "${{ needs.release-compatibility.outputs.model_status }}" = 'true' ]; then
+            export MODEL_STATUS_ASSISTANT="${{ needs.release-compatibility.outputs.model_areas }}"
             rm -f test-results/model-status-discovery.json test-results/candidate-auth.json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/model-status-discovery.json npm run test:static -- --config playwright.model-status.config.js --list --reporter=json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- --config playwright.model-status.config.js --reporter=list,json

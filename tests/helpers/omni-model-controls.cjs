@@ -4,7 +4,7 @@ const path=require('node:path');
 const model='google/gemini-omni-flash';
 async function snapshot(enabled=false){
  const {tariffKey}=await import('../../js/shared/model-tariff.mjs');
- return {ok:true,revision:1,rules:Object.fromEntries(['text','image','reference','frames','edit'].map(operation=>[tariffKey(model,{resolution:'720p',operation}),{rates:{request:operation==='edit'?53:37}}])),omni:{revision:enabled?2:1,adminTestEnabled:enabled,adminTestCredits:29,enabled:Object.fromEntries(['generation','image','frames','reference_images','video_edit','audio_reference','360p','720p','1080p','4k'].map(k=>[k,enabled]))}};
+ return {ok:true,availability:require('../fixtures/model-availability.json'),revision:1,rules:Object.fromEntries(['text','image','reference','frames','edit'].map(operation=>[tariffKey(model,{resolution:'720p',operation}),{rates:{request:operation==='edit'?53:37}}])),omni:{revision:enabled?2:1,adminTestEnabled:enabled,adminTestCredits:29,enabled:Object.fromEntries(['generation','image','frames','reference_images','video_edit','audio_reference','360p','720p','1080p','4k'].map(k=>[k,enabled]))}};
 }
 exports.snapshot=snapshot;
 exports.admin=async({page,expect,mockAdminAiLab,clickAiLabMode})=>{

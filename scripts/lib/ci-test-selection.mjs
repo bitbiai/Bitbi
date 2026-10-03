@@ -704,6 +704,63 @@ const ADMIN_STATUS_FILES = new Set([
   'tests/helpers/q2-runtime/linux-runtime-child.mjs','tests/helpers/q2-runtime/test_linux_bootstrap.py',
 ]);
 
+// Independent area admission, existing billing/queue boundaries, Admin and member UI.
+const MODEL_AREA_FILES = new Set([
+  "scripts/test-q2-runtime-launcher.mjs",
+  "workers/auth/src/routes/admin.js",
+  "config/release-compat.json",
+  "css/admin/model-status.css",
+  "js/pages/admin/model-availability.js",
+  "js/pages/admin/model-status.js",
+  "js/pages/canvas/graph.js",
+  "js/pages/canvas/main.js",
+  "js/pages/canvas/workflow.js",
+  "js/pages/generate-lab/main.js",
+  "js/pages/generate-lab/model-registry.js",
+  "js/shared/auth-api.js",
+  "js/shared/model-area-contract.mjs",
+  "js/shared/model-availability.js",
+  "js/shared/model-pricing-client.js",
+  "js/shared/models-overlay.js",
+  "js/shared/website-assistant.js",
+  "playwright.model-status.config.js",
+  "tests/admin-model-status-runtime.mjs",
+  "tests/admin-model-status.spec.js",
+  "tests/canvas.spec.js",
+  "tests/fixtures/model-availability.json",
+  "tests/helpers/appearance.js",
+  "tests/helpers/auth-worker-harness.js",
+  "tests/helpers/member-generation-control.mjs",
+  "tests/helpers/model-pricing-control.mjs",
+  "tests/helpers/omni-model-controls.cjs",
+  "tests/helpers/q2-runtime/control.mjs",
+  "tests/helpers/q2-runtime/environment.mjs",
+  "tests/oma2-q1-canvas.spec.js",
+  "tests/oma2-q3-auth-lifecycle.spec.js",
+  "tests/oma2-q3-media.spec.js",
+  "tests/oma2-q3-model-pricing.spec.js",
+  "tests/oma2-q3-model-status.spec.js",
+  "tests/oma2-q3-workflows.spec.js",
+  "tests/smoke.spec.js",
+  "tests/website-assistant-provider.test.mjs",
+  "tests/website-assistant-route.test.mjs",
+  "workers/auth/migrations/0098_model_area_availability.sql",
+  "workers/auth/src/app/route-policy.js",
+  "workers/auth/src/lib/admin-ai-idempotency.js",
+  "workers/auth/src/lib/ai-dispatch-state.js",
+  "workers/auth/src/lib/ai-usage-attempts.js",
+  "workers/auth/src/lib/ai-usage-policy.js",
+  "workers/auth/src/lib/member-ai-usage-attempts.js",
+  "workers/auth/src/lib/member-generation-jobs.js",
+  "workers/auth/src/lib/model-availability.js",
+  "workers/auth/src/lib/website-assistant-policy.js",
+  "workers/auth/src/routes/admin-ai.js",
+  "workers/auth/src/routes/canvas.js",
+  "workers/auth/src/routes/model-pricing.js",
+  "workers/auth/src/routes/website-assistant.js",
+  "workers/shared/website-assistant-contract-version.mjs"
+]);
+
 // This multipurpose spec also contains checkout/organization tests outside the
 // Assets caller's filter. Admit only body edits to its existing durable image
 // case, with every shared fixture and neighboring case byte-identical. Missing
@@ -866,6 +923,15 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selection.workspaceHelp = true;
     selection.auth = selection.static = selection.runtime = true;
     selection.reasons.auth.push('Workspace model/form/credit guidance, session recovery, Help keyboard/touch and EN/DE registry parity in Chromium/WebKit; no provider or pricing changes');
+    return selection;
+  }
+
+  if (!forceFull && changedFiles.some(file=>['js/shared/model-area-contract.mjs','workers/auth/src/lib/model-availability.js','js/pages/admin/model-availability.js'].includes(file))
+      && changedFiles.every(file=>isDocumentation(file)||MODEL_AREA_FILES.has(file)||RELEASE_TOOLING_FILES.has(file))) {
+    selection.policy='model-area-availability-v1';selection.modelAreas=selection.modelStatus=true;
+    selection.auth=selection.workers=selection.static=selection.runtime=true;
+    selection.reasons.workers.push('Area policy, admission/dispatch races, native Admin/MFA/D1 and durable queue/output/credit checks; existing Canvas and Admin accounting boundaries');
+    selection.reasons.auth.push('Admin persistence/conflicts, EN/DE Generation Lab/Canvas and Main Help in Chromium/WebKit; no decorative video acceptance');
     return selection;
   }
 

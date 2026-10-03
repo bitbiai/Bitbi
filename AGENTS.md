@@ -234,3 +234,8 @@ for other tasks. Keep exact candidate evidence, owner environment review and
 publication lock. Observe required results under “Completion modes” and report
 any evidenced external rights/review blocker. A mixed push skipped without
 continuation is not a completed publication assignment.
+
+Per-area model availability uses the existing Admin model-status surface and
+server admission policy. Preserve independent Generation Lab/Canvas switches,
+Main's single durable assistant mode, and dispatched-result recovery; see
+[model area availability](docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md#model-area-availability).

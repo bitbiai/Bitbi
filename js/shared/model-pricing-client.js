@@ -48,11 +48,12 @@ function startRefresh() {
                 || !data.rules || typeof data.rules !== 'object' || Array.isArray(data.rules)) return;
             const previous = getBrowserTariff()?.revision;
             const previousOmni = getBrowserTariff()?.omni?.revision;
+            const previousAvailability=JSON.stringify(getBrowserTariff()?.availability);
             if (previous !== undefined && data.revision < previous) return;
             // Only retail data enters the estimator; Admin economics stay local
             // to its protected page. Never persist either response in storage.
-            setBrowserTariff({ revision:data.revision, rules:data.rules, omni:data.omni || null });
-            if (previous !== data.revision || previousOmni !== data.omni?.revision) window.dispatchEvent(new Event('bitbi:model-pricing'));
+            setBrowserTariff({ revision:data.revision, rules:data.rules, omni:data.omni || null, availability:data.availability || null });
+            if (previous !== data.revision || previousOmni !== data.omni?.revision || previousAvailability !== JSON.stringify(data.availability || null)) window.dispatchEvent(new Event('bitbi:model-pricing'));
         } catch { /* Server rejects stale quotes before new paid admission. */ }
         finally { clearTimeout(timer); if (pending === request) pending = null; }
     })();

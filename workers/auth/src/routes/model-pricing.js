@@ -1,3 +1,4 @@
+import { publicModelAvailability } from '../lib/model-availability.js';
 import { getOmniReadiness, getPublicOmniReadiness, changeOmniReadiness } from '../lib/gemini-omni-readiness.js';
 import { providerPriceEvidence } from '../lib/model-provider-prices.js';
 import { applyModelTariff } from '../../../../js/shared/model-tariff.mjs';
@@ -15,7 +16,7 @@ export async function handleModelPricing(ctx) {
         const session = await getSessionUser(request, env);
         const admin = session?.user?.role === 'admin' && session.user.status === 'active';
         const tariff = await getModelTariff(env), publicIds = new Set(modelPricingCatalog().filter(model => model.member).map(model => model.id));
-        return reply({ ...tariff, omni: await getPublicOmniReadiness(env), rules: Object.fromEntries(Object.entries(tariff.rules).filter(([, rule]) => admin || publicIds.has(rule.modelId))) });
+        return reply({ ...tariff, availability: await publicModelAvailability(env), omni: await getPublicOmniReadiness(env), rules: Object.fromEntries(Object.entries(tariff.rules).filter(([, rule]) => admin || publicIds.has(rule.modelId))) });
     }
     if (!pathname.startsWith('/api/admin/ai/model-pricing')) return null;
     const session = await requireAdmin(request, env, { isSecure, correlationId });

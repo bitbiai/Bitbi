@@ -1,3 +1,4 @@
+import { modelAreaEnvironment } from './model-availability.js';
 import { h3MemberReceipt, storedH3MemberTask } from './minimax-h3-callback.js';
 import { retainedImageDelivery, recordImageDelivery, IMAGE_DELIVERY_ATTEMPTS } from './image-delivery-recovery.js';
 import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
@@ -267,7 +268,7 @@ export async function processMemberGeneration(env, body, execute) {
     await env.DB.prepare("UPDATE member_generation_jobs SET status='failed',error_code='generation_owner_unavailable',locked_until=NULL WHERE id=? AND processing_token=?").bind(job.id,token).run();
     return { status:'failed' };
   }
-  const scoped = { ...env };
+  const scoped = modelAreaEnvironment(env, job.canvas_run_id ? 'canvas' : 'generation');
   const execution = { job, user, retainedImage:retained, receiptReplay: await hasPrimaryReceipt(env,job), assertClaim: () => assertClaim(env,job) };
   executions.set(scoped, execution);
   let calls = 0;

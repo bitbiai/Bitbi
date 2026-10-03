@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assistantAdmission, ASSISTANT_POLICY, measuredAssistantCost } from '../workers/auth/src/lib/website-assistant-policy.js';
+import { assistantAdmission, assistantReadiness, ASSISTANT_POLICY, measuredAssistantCost } from '../workers/auth/src/lib/website-assistant-policy.js';
 import { assistantModelEvents, openAssistantModel } from '../workers/auth/src/lib/website-assistant-provider.js';
 import { testAssistantPolicy, testAssistantStream } from './helpers/website-assistant-policy.mjs';
 
@@ -20,7 +20,8 @@ test('unapproved production policy never admits inference; every activation prer
     { acceptance: { ...valid.acceptance, knowledgeVersion: 'old-content' } }]) {
     assert.equal(admission({ ...valid, ...change }).ready, false, JSON.stringify(Object.keys(change)));
   }
-  assert.equal(assistantAdmission({}, valid, { knowledgeVersion: version }).ready, false);
+  assert.equal(assistantAdmission({WEBSITE_ASSISTANT_ENABLED:'false'}, valid, { knowledgeVersion: version }).ready, true, 'The durable mode owns public activation');
+  assert.equal(assistantReadiness({}, valid, { knowledgeVersion: version }).ready, false, 'Missing actual binding still blocks inference');
   assert.equal(assistantAdmission(env, { ...valid, acceptance: null }, { knowledgeVersion: version, privateAcceptance: true }).ready, true);
 });
 

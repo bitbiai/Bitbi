@@ -1770,6 +1770,7 @@ class MockD1 {
     const mediaTables={homepage_hero_video_uploads:this.state.homepageHeroVideoUploads,homepage_hero_video_derivatives:this.state.homepageHeroVideoDerivatives,memvid_stream_previews:this.state.memvidStreamPreviews};
     const assignment=query.match(/^SELECT processing_backend FROM (homepage_hero_video_uploads|homepage_hero_video_derivatives|memvid_stream_previews) WHERE id=\?$/);
     if(assignment)return mediaTables[assignment[1]].find(r=>r.id===bindings[0])||null;
+    if(query==="SELECT key,value_json FROM app_settings WHERE key LIKE 'model_area:%'")return {results:this.state.appSettings.filter(row=>row.key.startsWith('model_area:')).map(row=>({key:row.key,value_json:row.value_json}))};
     if(query==='SELECT value_json FROM app_settings WHERE key=?')return this.state.appSettings.find(r=>r.key===bindings[0])||null;
     if(query==="SELECT COALESCE(SUM(storage_reserved_bytes),0) AS bytes FROM private_video_references WHERE user_id=? AND status<>'retired'") {
       return {bytes:this.state.privateVideoReferences.filter(row=>row.user_id===bindings[0]&&row.status!=='retired').reduce((sum,row)=>sum+Number(row.storage_reserved_bytes||0),0)};

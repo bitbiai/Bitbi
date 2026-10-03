@@ -12,7 +12,8 @@ const positive = (n, maximum) => Number.isSafeInteger(n) && n > 0 && n <= maximu
 // terms and real acceptance deliberately keep this public feature unavailable.
 export function assistantAdmission(env, candidate = ASSISTANT_POLICY, { privateAcceptance = false, knowledgeVersion, now = Date.now() } = {}) {
   const closed = { ready: false };
-  if (env?.WEBSITE_ASSISTANT_ENABLED !== 'true' || candidate.version !== 1 ||
+  // Durable Admin mode owns activation; the historical deployment flag is retired.
+  if (candidate.version !== 1 ||
       !ASSISTANT_MODELS[candidate.model] || candidate.accessConfirmed !== true ||
       candidate.processingTermsReviewed !== true || candidate.euOnlyRequired !== false ||
       !Number.isFinite(Date.parse(candidate.accessVerifiedAt)) || Date.parse(candidate.accessVerifiedAt) > now) return closed;
@@ -64,7 +65,6 @@ export function assistantReadiness(env, candidate, options = {}) {
   const blockers = [];
   const add = (code, message) => blockers.push({ code, message });
   const now = options.now ?? Date.now();
-  if (env?.WEBSITE_ASSISTANT_ENABLED !== 'true') add('deployment_disabled', 'The deployment inference switch is off.');
   if (typeof env?.AI?.run !== 'function') add('ai_binding_missing', 'The Workers AI binding is unavailable.');
   if (!env?.PUBLIC_RATE_LIMITER) add('budget_binding_missing', 'Durable budget storage is unavailable.');
   if (!ASSISTANT_MODELS[candidate.model]) add('model_unapproved', 'The selected model is not approved.');

@@ -1,3 +1,4 @@
+import {changeModelAvailability,readModelArea} from '../../workers/auth/src/lib/model-availability.js';
 import { changeModelTariff, getModelTariff } from '../../workers/auth/src/lib/model-tariffs.js';
 import { OMNI_MODEL } from '../../js/shared/gemini-omni-contract.mjs';
 import worker from '../../workers/auth/src/index.js';
@@ -209,6 +210,16 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     const row=await db.prepare(`SELECT * FROM ${kind==='image'?'ai_images':'ai_text_assets'} WHERE id=?`).bind(id).first();
     check((kind==='image'?row.prompt:row.title)===renamed,'Manual rename is never shortened');
   };
+  const areaModel=input.model || '@cf/black-forest-labs/flux-1-schnell';
+  const toggleArea=async enabled=>{const state=await readModelArea(env,areaModel,'generation');return changeModelAvailability(env,{id:owner},{modelId:areaModel,area:'generation',enabled,revision:state.revision});};
+  if(name.startsWith('area-')) {
+    await toggleArea(false);
+    const blocked=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers:{...headers,'X-BITBI-Workspace':'canvas','X-Bitbi-Area':'canvas'},body});
+    const rejection=await blocked.json();check(blocked.status===409&&rejection.code==='model_area_disabled','Spoofed client area cannot bypass OFF');
+    check(messages.length===0&&calls.provider===0,'OFF creates no job/provider call');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_ai_usage_attempts_v2 WHERE user_id=?').bind(owner).first()).n===0,'OFF reserves no credit');
+    await toggleArea(true);
+  }
   const accepted=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body,signal:abort.signal});
   const acceptance=await accepted.json();
   if (input.model?.startsWith('xai/grok-imagine-video') && ['edit','extend'].includes(input._operation)) {
@@ -241,6 +252,14 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const row=()=>db.prepare('SELECT * FROM member_generation_jobs WHERE id=?').bind(id).first();
   const deliver=()=>worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body:messages[0],attempts:1,
     ack(){calls.ack++;},retry(){calls.retry++;}}]},env,{waitUntil(){throw new Error('No detached queue work allowed');}});
+  if(name==='area-queued') {
+    await toggleArea(false);await deliver();
+    const current=await row(),attempt=await db.prepare('SELECT * FROM member_ai_usage_attempts_v2 WHERE id=?').bind(current.usage_attempt_id).first();
+    check(calls.provider===0&&attempt.provider_outcome==='not_dispatched'&&attempt.billing_status==='released','Queued OFF releases the undispatched hold without provider dispatch');
+    check(current.status==='failed'&&current.error_code==='model_area_disabled','Queue exposes a final actionable disabled result');
+    await toggleArea(true);return {name,calls,status:current.status};
+  }
+  if(name==='area-running') duringProvider=async()=>{await toggleArea(false);};
   if(['clock-lease-expired','clock-credit-expired'].includes(name)) {
     const usage=await db.prepare('SELECT expires_at FROM member_ai_usage_attempts_v2 WHERE id=?').bind((await row()).usage_attempt_id).first();
     check(Math.abs(Date.parse(usage.expires_at)-Date.now()-30*60_000)<5000,'Credit reservation starts at 30 minutes');
@@ -258,6 +277,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     await deliver();await deliver();
     check((await row()).status==='failed' && (await row()).error_code==='generation_retry_exhausted','Killed executions cannot retry forever');
     check(calls.provider===0,'Exhaustion never creates another provider request');
+    if(name==='area-running')await toggleArea(true);
     return {name,calls,status:(await row()).status};
   }
   if(name==='h3-rejection-callback-race') {
@@ -428,6 +448,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check(calls.provider===1,'Unknown provider receipt must never generate again');
     check((await row()).status==='outcome_unknown','Unknown outcome remains visible');
     check((await row()).next_attempt_at>new Date().toISOString(),'Missing receipts rotate behind other due recovery rows');
+    if(name==='area-running')await toggleArea(true);
     return {name,calls,status:(await row()).status};
   }
   if(name==='insert-response-lost') check(!fail,'Lost insert reply was actually injected');
@@ -529,7 +550,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
 export default {async fetch(request,env) {
   if(request.method!=='POST'||request.headers.get('x-q2-control')!==env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
   const {name,...fixture}=await request.json();
-  if(!/^(admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})|flux-(success|schema|5006|http400|transport))$/.test(name) && !['omni-inline','omni-storage-restart','omni-references','h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-references','h3-callback-failed','h3-callback','h3-failed','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
+  if(!/^(admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})|flux-(success|schema|5006|http400|transport))$/.test(name) && !['area-queued','area-running','omni-inline','omni-storage-restart','omni-references','h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-references','h3-callback-failed','h3-callback','h3-failed','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
   return Response.json(await memberGenerationCase(env,name,fixture));
 }};
 

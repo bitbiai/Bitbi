@@ -49,3 +49,78 @@ test('model status real SQL is bounded/indexed, excludes private fields, caches 
   expect(partial.stale).toBe(true);expect(partial.provider.stale).toBe(true);expect(JSON.stringify(partial)).not.toMatch(/private failure|secret|prompt|user_id|r2_key/);
  }finally{DB.close();}
 });
+
+const areas=()=>import('../workers/auth/src/lib/model-availability.js');
+async function areaFixture(){
+ const DB=new SqliteD1Database();applyAuthMigrations(DB);
+ await DB.prepare("INSERT INTO users(id,email,password_hash,created_at,role,status) VALUES('area-admin','area@example.invalid','synthetic',?,'admin','active')").bind(new Date().toISOString()).run();
+ return {DB,actor:{id:'area-admin'}};
+}
+test('area policy covers the complete offered catalog, keeps defaults, and saves independent pairs with conflict protection',async()=>{
+ const m=await areas(),{DB,actor}=await areaFixture(),env={DB};
+ try {
+  const catalog=m.areaCatalog();expect(catalog).toHaveLength(25);expect(new Set(catalog.map(v=>v.id)).size).toBe(25);
+  expect(catalog.filter(v=>v.areas.includes('generation'))).toHaveLength(16);expect(catalog.filter(v=>v.areas.includes('canvas'))).toHaveLength(24);
+  expect(catalog.filter(v=>v.areas.includes('main')).map(v=>v.id)).toEqual(['@cf/swiss-ai/apertus-v1.5-8b']);
+  const publicBefore=await m.publicModelAvailability(env);expect(require('./fixtures/model-availability.json')).toEqual(publicBefore);expect(Object.values(publicBefore.models).every(v=>Object.values(v).every(Boolean))).toBe(true);
+  const save=(area,enabled,revision,modelId='minimax/h3')=>m.changeModelAvailability(env,actor,{modelId,area,enabled,revision});
+  await Promise.all([save('generation',false,0),save('canvas',false,0)]);
+  await save('canvas',true,1);expect((await m.publicModelAvailability(env)).models['minimax/h3']).toEqual({generation:false,canvas:true});
+  await expect(save('generation',true,0)).rejects.toMatchObject({code:'model_availability_conflict'});
+  await expect(save('main',true,0)).rejects.toMatchObject({code:'model_availability_invalid'});
+  await expect(m.changeModelAvailability(env,actor,{modelId:'minimax/h3',area:'generation',enabled:true,revision:1,reason:'not needed'})).rejects.toMatchObject({status:400});
+  expect(await DB.prepare('SELECT COUNT(*) AS count FROM model_pricing_changes').first()).toEqual({count:0});
+  expect((await m.readModelArea(env,'minimax/h3','generation')).history).toEqual([expect.objectContaining({actor:actor.id,enabled:false})]);
+  expect(m.trustedModelArea(m.modelAreaEnvironment(env,'canvas'),'/api/ai/generate-video')).toBe('canvas');
+  expect(m.trustedModelArea(env,'/api/ai/generate-video')).toBe('generation');expect(m.trustedModelArea(env,'/api/admin/ai/video')).toBe(null);
+  await m.assertModelArea(env,'minimax/h3',null);
+  await expect(m.assertModelArea(env,'minimax/h3','generation')).rejects.toMatchObject({code:'model_area_disabled'});
+  await m.assertModelArea(env,'minimax/h3','generation',{attempt:{providerOutcome:'dispatched'}});
+  await DB.prepare("UPDATE app_settings SET value_json='broken' WHERE key=?").bind('model_area:generation:minimax/h3').run();
+  await expect(m.publicModelAvailability(env)).rejects.toMatchObject({code:'model_availability_invalid'});
+ }finally{DB.close();}
+});
+test('area admission and atomic dispatch reject OFF races, release only undispatched holds, and retain dispatched results',async()=>{
+ const m=await areas(),{DB,actor}=await areaFixture(),env={DB};
+ const {claimAiDispatch,confirmAiDispatchSuccess}=await import('../workers/auth/src/lib/ai-dispatch-state.js');
+ try{
+  const stamp=new Date().toISOString(),expires=new Date(Date.now()+3600000).toISOString(),key='model_area:generation:minimax/h3';
+  const insert=id=>DB.prepare(`INSERT INTO member_ai_usage_attempts_v2(id,user_id,feature_key,operation_key,route,idempotency_key,request_fingerprint,credit_cost,status,provider_status,provider_outcome,billing_status,created_at,updated_at,expires_at,metadata_json)
+   VALUES(?,'area-admin','ai.video','member.video','/api/ai/generate-video',?,'fixture',100,'reserved','not_started','not_dispatched','reserved',?,?,?,?)`).bind(id,id,stamp,stamp,expires,JSON.stringify({model_area:{key}})).run();
+  await insert('queued');await insert('running');const token=await claimAiDispatch(env,'member_ai_usage_attempts_v2','running',{availabilityKey:key});
+  await m.changeModelAvailability(env,actor,{modelId:'minimax/h3',area:'generation',enabled:false,revision:0});
+  await expect(insert('race')).rejects.toThrow(/model_area_disabled/);
+  await expect(claimAiDispatch(env,'member_ai_usage_attempts_v2','queued',{availabilityKey:key})).rejects.toMatchObject({code:'model_area_disabled'});
+  expect(await DB.prepare("SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id='queued'").first()).toEqual({provider_outcome:'not_dispatched',billing_status:'released'});
+  await confirmAiDispatchSuccess(env,'member_ai_usage_attempts_v2','running',{dispatchToken:token});
+  expect(await DB.prepare("SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id='running'").first()).toEqual({provider_outcome:'succeeded',billing_status:'reserved'});
+  expect(await DB.prepare("SELECT COUNT(*) AS count FROM member_ai_usage_attempts_v2").first()).toEqual({count:2});
+ }finally{DB.close();}
+});
+test('Main uses the existing durable control, stays off without approvals, and can enable without a contradictory deployment flag',async()=>{
+ const m=await areas(),{harness}=await import('./helpers/website-assistant-fixture.mjs'),{testAssistantPolicy}=await import('./helpers/website-assistant-policy.mjs');
+ const {knowledgeVersion}=await import('../workers/shared/website-assistant-knowledge.mjs');
+ const {callAssistantControl}=await import('../workers/auth/src/lib/website-assistant-control.js');
+ const h=harness(),env={...h.env,WEBSITE_ASSISTANT_ENABLED:'false',AI:{run:()=>{throw Error('No inference authorized');}}};
+ const body={modelId:'@cf/swiss-ai/apertus-v1.5-8b',area:'main',enabled:true,revision:0},actor={id:'area-admin'};
+ await expect(m.changeModelAvailability(env,actor,body)).rejects.toMatchObject({code:'assistant_activation_blocked'});
+ expect((await callAssistantControl(env)).control.settings.mode).toBe('off');
+ const policy=testAssistantPolicy(knowledgeVersion);await m.changeModelAvailability(env,actor,body,{policy});
+ expect((await callAssistantControl(env)).control.settings.mode).toBe('public');
+ await m.changeModelAvailability(env,actor,{...body,enabled:false,revision:1},{policy});
+ expect((await callAssistantControl(env)).control.settings.mode).toBe('admin');
+ expect((await callAssistantControl(env)).usage.daily.requests).toBe(0);
+});
+test('Admin Canvas obeys area admission and atomic dispatch while independent Admin Lab stays available',async()=>{
+ const m=await areas(),{DB,actor}=await areaFixture(),env={DB},canvas=m.modelAreaEnvironment(env,'canvas');
+ const a=await import('../workers/auth/src/lib/admin-ai-idempotency.js'),modelId='@cf/meta/llama-3.1-8b-instruct-fast';
+ const begin=(scope,key)=>a.beginAdminAiIdempotencyAttempt({env:scope,operationKey:'admin.text.test',route:'/api/admin/ai/test-text',adminUserId:actor.id,idempotencyKey:key,requestFingerprint:key,modelKey:modelId,budgetScope:'admin_ai_lab',budgetPolicy:{estimated_cost_units:1}});
+ try{
+  const pending=await begin(canvas,'pending');
+  await m.changeModelAvailability(env,actor,{modelId,area:'canvas',enabled:false,revision:0});
+  await expect(begin(canvas,'new')).rejects.toMatchObject({code:'model_area_disabled'});
+  await expect(a.markAdminAiIdempotencyProviderRunning(canvas,pending.attempt.id)).rejects.toMatchObject({code:'model_area_disabled'});
+  const lab=await begin(env,'independent-lab');expect(lab.kind).toBe('created');
+  expect(await DB.prepare('SELECT SUM(platform_exposure_units) AS units FROM admin_ai_usage_attempts_v2').first()).toEqual({units:0});
+ }finally{DB.close();}
+});

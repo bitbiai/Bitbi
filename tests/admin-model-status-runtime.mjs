@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 export async function runModelStatusTests(f) {
  for(const m of f.migrations)await f.db.batch(m.statements.map(s=>f.db.prepare(s)));
@@ -35,4 +36,48 @@ export async function runModelStatusTests(f) {
   assert.doesNotMatch(JSON.stringify(result),/status-key|synthetic|q2-workerd-admin|request_fingerprint|PRIVATE TITLE|private-object|private-input/);
   const feedAttempts=f.counters.outboundDenied;assert.ok(feedAttempts<=1);const again=await get(admin);assert.equal(again.status,200);assert.equal(f.counters.outboundDenied,feedAttempts,'Cached refresh performs no additional public-feed request');
  });
+ const availability='/api/admin/ai/model-availability';
+ const call=(session,method='GET',body,origin='https://bitbi.ai')=>worker.fetch('https://bitbi.ai'+availability,{method,headers:{Cookie:session,Origin:origin,'Content-Type':'application/json','CF-Connecting-IP':`192.0.2.${++count}`},body:body?JSON.stringify(body):undefined});
+ await f.test('model_area_actual_Admin_API_authorization_CSRF_complete_catalog_and_no_rollout_activation',async()=>{
+  for(const session of ['',member]){assert.ok([401,403].includes((await call(session)).status));assert.ok([401,403].includes((await call(session,'PATCH',{})).status));}
+  assert.equal((await call(admin,'PATCH',{},'https://untrusted.invalid')).status,403);
+  const r=await call(admin);assert.equal(r.status,200);assert.match(r.headers.get('cache-control'),/no-store/);
+  const {data}=await r.json();assert.equal(data.models.length,25);assert.equal(data.models.filter(m=>m.switches.generation).length,16);assert.equal(data.models.filter(m=>m.switches.canvas).length,24);
+  assert.deepEqual(data.models.filter(m=>m.switches.main).map(m=>[m.id,m.switches.main.enabled]),[['@cf/swiss-ai/apertus-v1.5-8b',false]]);
+  assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM app_settings WHERE key LIKE 'model_area:%'"),0);
+ });
+ await f.test('model_area_actual_API_no_reason_independent_persistence_conflict_and_Main_fail_closed',async()=>{
+  const patch=(area,enabled,revision,modelId='minimax/h3')=>call(admin,'PATCH',{modelId,area,enabled,revision});
+  assert.equal((await patch('generation',false,0)).status,200);assert.equal((await patch('canvas',false,0)).status,200);assert.equal((await patch('canvas',true,1)).status,200);
+  const {data}=await(await call(admin)).json();const h3=data.models.find(m=>m.id==='minimax/h3');assert.equal(h3.switches.generation.enabled,false);assert.equal(h3.switches.canvas.enabled,true);
+  assert.equal((await patch('generation',true,0)).status,409);
+  assert.equal((await patch('main',true,0)).status,400);
+  const main=await patch('main',true,0,'@cf/swiss-ai/apertus-v1.5-8b');assert.equal(main.status,409);assert.equal((await main.json()).code,'assistant_activation_blocked');
+  const publicResult=await worker.fetch('https://bitbi.ai/api/model-pricing');assert.equal(publicResult.status,200);const publicBody=await publicResult.json();assert.deepEqual(publicBody.availability.models['minimax/h3'],{generation:false,canvas:true});
+  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes'),0);assert.equal(f.counters.serviceDenied,0);
+ });
+
+ for(const name of ['area-queued','area-running'])await f.test(`model_area_native_${name}_direct_admission_queue_storage_and_billing`,async()=>{
+  const response=await f.control('/model-area-generation',{name,kind:'image',input:{model:'@cf/black-forest-labs/flux-1-schnell',prompt:'Synthetic controlled image'},imageBase64:fs.readFileSync('tests/fixtures/media/member-image.png').toString('base64')});
+  assert.equal(response.status,200);const result=await response.json();assert.equal(result.calls.provider,name==='area-queued'?0:1);assert.equal(result.calls.retry,0);
+ });
+
+ await f.test('model_area_native_organization_reservation_release_independent_Canvas_and_dispatched_settlement',async()=>{
+  const org='org_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  await f.sql('INSERT INTO organizations(id,name,slug,status,created_by_user_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',org,'Synthetic area organization','synthetic-area','active','q2-workerd-admin',now,now).run();
+  await f.sql('INSERT INTO organization_memberships(id,organization_id,user_id,role,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)','area-membership',org,'q2-workerd-member','member','active',now,now).run();
+  await f.sql('INSERT INTO organization_subscriptions(id,organization_id,plan_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?)','area-subscription',org,'plan_free','active',now,now).run();
+  await f.sql("INSERT INTO credit_ledger(id,organization_id,amount,balance_after,entry_type,source,created_by_user_id,created_at) VALUES(?,?,10000,10000,'grant','synthetic',?,?)",'area-org-grant',org,'q2-workerd-admin',now).run();
+  const body={key:'area-org-queued',revision:0,organization:org,area:'canvas'};
+  assert.equal((await f.control('/model-pricing',body)).status,200,'Generation off does not block trusted Canvas');
+  assert.equal((await call(admin,'PATCH',{modelId:'minimax/h3',area:'canvas',enabled:false,revision:2})).status,200);
+  const denied=await f.control('/model-pricing',{...body,settle:true});assert.equal(denied.status,409);assert.equal((await denied.json()).code,'model_area_disabled');
+  assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM ai_usage_attempts_v2 WHERE billing_status='released' AND provider_outcome='not_dispatched'"),1);
+  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM credit_ledger WHERE amount<0'),0);
+  assert.equal((await call(admin,'PATCH',{modelId:'minimax/h3',area:'canvas',enabled:true,revision:3})).status,200);
+  const completed=await f.control('/model-pricing',{...body,key:'area-org-running',settle:true,dispatchThenDisable:true});assert.equal(completed.status,200);assert.equal((await completed.json()).billing.credits_charged,262);
+  assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM ai_usage_attempts_v2 WHERE billing_status='finalized' AND provider_outcome='succeeded'"),1);
+  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM credit_ledger WHERE amount<0'),1);assert.equal(f.counters.serviceDenied,0);
+ });
+
 }

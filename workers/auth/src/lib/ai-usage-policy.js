@@ -1,3 +1,4 @@
+import { assertModelArea, trustedModelArea } from './model-availability.js';
 import { pinModelTariff, settlePinnedModelTariff } from './model-tariffs.js';
 import { fetchMemberAttemptByIdempotency } from './member-ai-usage-attempts.js';
 import { fetchOrgAttemptByIdempotency } from './ai-usage-attempts.js';
@@ -274,6 +275,8 @@ async function prepareMemberGatewayPolicy({
   }
 
   const existingPricingAttempt = await fetchMemberAttemptByIdempotency(env, { userId: user.id, idempotencyKey: gatewayPlan.scopedIdempotencyKey });
+  const modelArea = trustedModelArea(env,route);
+  let availabilityKey = await assertModelArea(env,resolvedOperation.modelId || body.model,modelArea,{attempt:existingPricingAttempt,table:'member_ai_usage_attempts_v2'});
   let pinnedPricing = await pinModelTariff(env, { modelId: resolvedOperation.modelId || body.model, input: body, factory: resolvedOperation.pricingFactory,
     credits: resolvedOperation.credits, request, existing: existingPricingAttempt });
   resolvedOperation = { ...resolvedOperation, credits: pinnedPricing.credits };
@@ -289,6 +292,7 @@ async function prepareMemberGatewayPolicy({
     quantity: resolvedOperation.quantity || 1,
     metadata: {
       model_tariff: pinnedPricing,
+      ...(availabilityKey ? {model_area:{key:availabilityKey}} : {}),
       gateway_version: gatewayPlan.gatewayVersion,
       operation_id: gatewayPlan.operationId,
       route,
@@ -356,7 +360,8 @@ async function prepareMemberGatewayPolicy({
     },
     async markProviderRunning() {
       if (execution && dispatchToken) { await execution.assertClaim(); return dispatchToken; }
-      dispatchToken = await markMemberAiUsageAttemptProviderRunning(env, attemptState.attempt.id, { signal: request.signal });
+      availabilityKey = await assertModelArea(env,resolvedOperation.modelId || body.model,modelArea,{attempt:attemptState.attempt,table:'member_ai_usage_attempts_v2'});
+      dispatchToken = await markMemberAiUsageAttemptProviderRunning(env, attemptState.attempt.id, { signal: request.signal, availabilityKey });
       return dispatchToken;
     },
     async markProviderFailed(options = {}) {
@@ -628,6 +633,8 @@ export async function prepareAiUsagePolicy({
     userId: user?.id || null,
   });
   const existingPricingAttempt = await fetchOrgAttemptByIdempotency(env, { organizationId, idempotencyKey });
+  const modelArea = trustedModelArea(env,route);
+  let availabilityKey = await assertModelArea(env,resolvedOperation.modelId || body.model,modelArea,{attempt:existingPricingAttempt,table:'ai_usage_attempts_v2'});
   let pinnedPricing = await pinModelTariff(env, { modelId: resolvedOperation.modelId || body.model, input: body, factory: resolvedOperation.pricingFactory,
     credits: resolvedOperation.credits, request, existing: existingPricingAttempt });
   resolvedOperation = { ...resolvedOperation, credits: pinnedPricing.credits };
@@ -642,7 +649,7 @@ export async function prepareAiUsagePolicy({
     requestFingerprint,
     creditCost: resolvedOperation.credits,
     quantity: resolvedOperation.quantity || 1,
-    metadata: { model_tariff: pinnedPricing },
+    metadata: { model_tariff: pinnedPricing, ...(availabilityKey ? {model_area:{key:availabilityKey}} : {}) },
   });
 
   pinnedPricing = attemptState.attempt.metadata?.model_tariff || pinnedPricing;
@@ -658,7 +665,8 @@ export async function prepareAiUsagePolicy({
     attempt: attemptState.attempt,
     idempotencyKey,
     async markProviderRunning() {
-      dispatchToken = await markAiUsageAttemptProviderRunning(env, attemptState.attempt.id, { signal: request.signal });
+      availabilityKey = await assertModelArea(env,resolvedOperation.modelId || body.model,modelArea,{attempt:attemptState.attempt,table:'ai_usage_attempts_v2'});
+      dispatchToken = await markAiUsageAttemptProviderRunning(env, attemptState.attempt.id, { signal: request.signal, availabilityKey });
       return dispatchToken;
     },
     async markProviderFailed(options = {}) {

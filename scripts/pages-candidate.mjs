@@ -287,8 +287,8 @@ export function verifyModelPricingReport(report,discovery,selection={}) {
   verifyAdminReport(report,discovery,[['pricing',[...new Set(files)]]]);
 }
 
-export function verifyModelStatusReport(report, discovery) {
-  verifyAdminReport(report, discovery, [['status',['oma2-q3-model-status.spec.js']]]);
+export function verifyModelStatusReport(report, discovery, selection={}) {
+  verifyAdminReport(report, discovery, [['status',['oma2-q3-model-status.spec.js',...(selection.modelAreas?['website-assistant.spec.js']:[])]]]);
 }
 
 export function verifyWorkspaceHelpReport(report, discovery) {
@@ -405,7 +405,7 @@ async function main(command) {
     if (manifest.selection?.canvasText) verifyCanvasCandidateReports(names, reports, JSON.parse(fs.readFileSync('test-results/canvas-discovery.json')));
     if (manifest.selection?.appearance && !manifest.selection?.modelPricing) verifyAppearanceCandidateReports(names, reports, JSON.parse(fs.readFileSync('test-results/appearance-discovery.json')));
     if (manifest.selection?.modelPricing) verifyModelPricingReport(report, JSON.parse(fs.readFileSync('test-results/model-pricing-discovery.json')), manifest.selection);
-    if (manifest.selection?.modelStatus) verifyModelStatusReport(report, JSON.parse(fs.readFileSync('test-results/model-status-discovery.json')));
+    if (manifest.selection?.modelStatus) verifyModelStatusReport(report, JSON.parse(fs.readFileSync('test-results/model-status-discovery.json')), manifest.selection);
     if (manifest.selection?.workspaceHelp) verifyWorkspaceHelpReport(report, JSON.parse(fs.readFileSync('test-results/workspace-discovery.json')));
     if (manifest.selection?.publicMedia) verifyPublicMediaReport(report, JSON.parse(fs.readFileSync('test-results/public-media-discovery.json')));
     if (manifest.selection?.adminRelease) verifyAdminReport(report, JSON.parse(fs.readFileSync('test-results/admin-discovery.json')));

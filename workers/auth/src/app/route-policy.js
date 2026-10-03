@@ -1395,6 +1395,8 @@ export const ROUTE_POLICIES = Object.freeze([
   adminJsonWrite('admin.ai.model-pricing.update', 'PATCH', '/api/admin/ai/model-pricing', 'admin-ai', 'smallJson', 'admin-model-pricing-ip', { config: ['DB', 'PUBLIC_RATE_LIMITER'], audit: { event: 'model_pricing_change' } }),
   adminJsonWrite('admin.ai.model-pricing.quote', 'POST', '/api/admin/ai/model-pricing/quote', 'admin-ai', 'smallJson', 'admin-model-pricing-ip', { config: ['DB', 'PUBLIC_RATE_LIMITER'] }),
   adminJsonWrite('admin.ai.model-pricing.source', 'POST', '/api/admin/ai/model-pricing/source', 'admin-ai', 'smallJson', 'admin-model-pricing-ip', { config: ['DB', 'PUBLIC_RATE_LIMITER'] }),
+  adminRead('admin.ai.model-availability.read', '/api/admin/ai/model-availability', 'admin-ai', {config:['DB','PUBLIC_RATE_LIMITER']}),
+  adminJsonWrite('admin.ai.model-availability.update', 'PATCH', '/api/admin/ai/model-availability', 'admin-ai', 'smallJson', 'admin-model-availability-ip', {config:['DB','PUBLIC_RATE_LIMITER'],audit:{event:'model_area_availability_changed'}}),
   adminRead("admin.ai.model-status", "/api/admin/ai/model-status", "admin-ai", {
     config: ["DB", "PUBLIC_RATE_LIMITER"],
     rateLimit: { id: "admin-ai-model-status-ip", failClosed: true },

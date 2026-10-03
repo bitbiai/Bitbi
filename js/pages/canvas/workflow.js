@@ -134,6 +134,7 @@ export function analyzeWorkflow(nodes, edges, models, copy) {
 
 export function validationForNode(node, analysis, copy) {
     if (!GENERATION_CAPABILITY[node?.type]) return null;
+    if(analysis?.model?.areaEnabled===false)return copy.modelDisabled;
     if (isGptImage25Model(analysis?.model?.id)) {
         try {
             const { source_images, ...config } = node.config || {};

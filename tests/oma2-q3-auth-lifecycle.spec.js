@@ -138,7 +138,7 @@ async function stateFixture(page, baseURL, handle) {
     // non-Admin fixture page. Permit only that known read; mutations and all
     // other unconfigured endpoints still fail the unexpected-request assertion.
     if (request.method()==='GET' && url.pathname==='/api/model-pricing') return route.fulfill({
-      contentType:'application/json',body:JSON.stringify({revision:0,rules:{}}),
+      contentType:'application/json',body:JSON.stringify({revision:0,rules:{},availability:require('./fixtures/model-availability.json')}),
     });
     const response = await handle(request, url);
     if (!response) { unexpected.push(request.method() + ' ' + url.pathname); return route.abort(); }

@@ -1,3 +1,5 @@
+import { modelAreaEnabled } from '../../shared/model-availability.js';
+import { refreshModelPricing } from '../../shared/model-pricing-client.js';
 import { OMNI_MODEL, omniReferences as validateOmniReferences, omniSettings } from '../../shared/gemini-omni-contract.mjs';
 import { omniMemberAvailable } from '../../shared/gemini-omni-pricing.mjs';
 import { isGptImage25Model, normalizeGptImage25Options } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
@@ -617,7 +619,7 @@ function updateActionState() {
         refs.generate.textContent = state.loggedIn
             ? (insufficient ? localeText('generateLab.insufficientCredits') : localeText('generateLab.generate'))
             : localeText('generateLab.signInToGenerate');
-        refs.generate.disabled = state.loggedIn && (insufficient || price === null || omniBlocked);
+        refs.generate.disabled = !modelAreaEnabled(state.modelId,'generation') || state.loggedIn && (insufficient || price === null || omniBlocked);
         if(omniBlocked&&state.loggedIn)refs.generate.textContent=getCurrentLocale()==='de'?'Noch nicht freigegeben':'Not activated';
         refs.generate.setAttribute('aria-label', localeText('generateLab.generateAria', { label: refs.generate.textContent, cost: formatCredits(price) }));
     }
@@ -638,6 +640,7 @@ function renderImageModelOptions() {
     if (!refs.imageModel) return;
     const models = getGenerateLabModelsByMediaType(state.mediaType);
     refs.imageModel.replaceChildren(
+        ...(!models.some(model=>model.id===state.modelId) ? [el('option',{text:getCurrentLocale()==='de'?'Modell wählen':'Choose a model',attrs:{value:''}})] : []),
         ...models.map((model) => el('option', { text: model.displayName, attrs: { value: model.id } })),
     );
     refs.imageModel.value = state.modelId;
@@ -2086,6 +2089,8 @@ async function generateMusic(prompt, observation) {
 async function handleGenerate() {
     if (state.busy) return;
     if (!requireMember()) return;
+    await refreshModelPricing();
+    if (!modelAreaEnabled(state.modelId,'generation')) { renderImageModelOptions(); updateActionState(); return; }
 
     const prompt = refs.prompt?.value.trim() || '';
     if (!prompt && !(state.modelId === 'elevenlabs/music-v2' && state.elevenLabsMusic.inputMode === 'composition_plan')) {
@@ -2112,6 +2117,7 @@ async function handleGenerate() {
 
     setMessage('');
     const run=++generationView;
+    const previousResult={nodes:[...(refs.resultStage?.childNodes || [])],imageData:state.currentImageData,imageMeta:state.currentImageMeta};
     const submitted=Object.freeze({modelId:selectedModel().id,modelLabel:selectedModel().displayName,mediaType:state.mediaType});
     let acceptedJob=null;
     const onProgress=job=>{if(run!==generationView)return;acceptedJob=job;setWorkflowStatus(jobWorkflowStatus(job),submitted.modelLabel);};
@@ -2147,6 +2153,7 @@ async function handleGenerate() {
     acceptedStatusActive=false;
     if(res?.job?.delivery_status==='failed'){setMessage('');setWorkflowStatus('deliveryFailed',submitted.modelLabel);return;}
     if (!res?.ok) {
+        if(res?.code==='model_area_disabled') { state.currentImageData=previousResult.imageData;state.currentImageMeta=previousResult.imageMeta;refs.resultStage?.replaceChildren(...previousResult.nodes);syncDetachedImageSaves();setWorkflowStatus('idle');await refreshModelPricing(); renderImageModelOptions(); updateActionState(); setMessage(''); return; }
         if(res?.phase==='preflight') {
             setMessage(res.error,'error');setWorkflowStatus('preflightStopped');
             if(isAuthFailure(res)){state.sessionExpired=true;state.loggedIn=false;state.user=null;updateAccountPanel();}
@@ -2507,4 +2514,4 @@ document.addEventListener('bitbi:auth-change', event => {
 window.addEventListener('pagehide',()=>{generationView++;acceptedStatusActive=false;},{once:true});
 init();
 
-window.addEventListener('bitbi:model-pricing', updateActionState);
+window.addEventListener('bitbi:model-pricing', () => { renderImageModelOptions(); updateActionState(); });

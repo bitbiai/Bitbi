@@ -1,3 +1,4 @@
+import { assertModelArea, trustedModelArea } from './model-availability.js';
 import { addMinutesIso, nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
 import { platformBudgetDispatchCapacitySql, platformBudgetUnitsFromBudgetPolicy } from "./platform-budget-caps.js";
 
@@ -115,6 +116,7 @@ function sanitizeMetadataForAdmin(value, { key = "", depth = 0 } = {}) {
 }
 
 function unavailableAttemptsError(error) {
+  if(String(error?.message || error).includes('model_area_disabled')) return new AdminAiIdempotencyError('This model has been temporarily disabled.',{status:409,code:'model_area_disabled'});
   if (String(error?.message || error).includes('model_pricing_stale')) {
     return new AdminAiIdempotencyError('Prices changed. Review the refreshed estimate before generating.', { status:409, code:'model_pricing_stale' });
   }
@@ -655,6 +657,8 @@ export async function beginAdminAiIdempotencyAttempt({
     };
   }
 
+  const availabilityKey=await assertModelArea(env,modelKey,trustedModelArea(env,route));
+  if(availabilityKey)metadata={...metadata,model_area:{key:availabilityKey}};
   const attempt = {
     id: attemptId(),
     operationKey: normalizedOperation,
@@ -699,6 +703,7 @@ export async function beginAdminAiIdempotencyAttempt({
 export async function markAdminAiIdempotencyProviderRunning(env, attemptIdValue) {
   const attempt = await fetchAttemptById(env, attemptIdValue);
   if (!attempt) throw unavailableAttemptsError(new Error("Attempt missing."));
+  const availabilityKey=await assertModelArea(env,attempt.modelKey,trustedModelArea(env,attempt.route),{attempt});
   const now = nowIso();
   const dispatchToken = randomTokenHex(24);
   // Recovering an existing output does not dispatch billable provider work.
@@ -711,9 +716,11 @@ export async function markAdminAiIdempotencyProviderRunning(env, attemptIdValue)
            provider_outcome = 'dispatched', dispatch_token = ?, dispatched_at = ?,
            platform_exposure_units = ?, platform_window_day = ?, platform_window_month = ?, updated_at = ?
      WHERE id = ? AND status = 'pending' AND provider_status = 'not_started'
-       AND provider_outcome = 'not_dispatched' AND expires_at > ? AND (${recovery ? '1 = 1' : platformBudgetDispatchCapacitySql()})`
+       AND provider_outcome = 'not_dispatched' AND expires_at > ? AND (${recovery ? '1 = 1' : platformBudgetDispatchCapacitySql()})
+       AND NOT EXISTS(SELECT 1 FROM app_settings WHERE key=?
+         AND CASE WHEN json_valid(value_json) THEN (json_extract(value_json,'$.version')=1 AND json_type(value_json,'$.revision')='integer' AND json_extract(value_json,'$.revision')>=1 AND json_type(value_json,'$.history')='array' AND json_type(value_json,'$.enabled')='true') ELSE 0 END IS NOT 1)`
   ).bind(attempt.budgetScope, units, now.slice(0, 10), now.slice(0, 7), dispatchToken, now,
-    units, now.slice(0, 10), now.slice(0, 7), now, attemptIdValue, now).run();
+    units, now.slice(0, 10), now.slice(0, 7), now, attemptIdValue, now, availabilityKey).run();
   if (!result?.meta?.changes) {
     throw new AdminAiIdempotencyError("Admin AI dispatch is already claimed or platform capacity is unavailable.", {
       code: "admin_ai_dispatch_not_claimed", status: 409,

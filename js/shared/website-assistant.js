@@ -354,6 +354,7 @@ export function initWebsiteAssistant({ container }) {
     }
 
     const navigation = () => { if (opened) void refresh(); else reset(); };
+    const availabilityRefresh = () => { if (opened && !request) void refresh(); };
     const authChanged = () => reset();
     const pageHidden = () => { configController?.abort(); reset(); };
     form.addEventListener('submit', submit);
@@ -366,6 +367,8 @@ export function initWebsiteAssistant({ container }) {
     window.addEventListener('bitbi:page-change', navigation);
     window.addEventListener('hashchange', navigation);
     window.addEventListener('pagehide', pageHidden);
+    window.addEventListener('focus', availabilityRefresh);
+    window.addEventListener('pageshow', availabilityRefresh);
     document.addEventListener('bitbi:auth-change', authChanged);
     localize();
     void refresh();
@@ -378,6 +381,8 @@ export function initWebsiteAssistant({ container }) {
             window.removeEventListener('bitbi:page-change', navigation);
             window.removeEventListener('hashchange', navigation);
             window.removeEventListener('pagehide', pageHidden);
+            window.removeEventListener('focus', availabilityRefresh);
+            window.removeEventListener('pageshow', availabilityRefresh);
             document.removeEventListener('bitbi:auth-change', authChanged);
             card.remove();
         },

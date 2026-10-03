@@ -103,7 +103,7 @@ test('budget outage remains unavailable and cannot invoke an unmetered provider'
   assert.deepEqual(await response.json(), { ok: false, code: 'assistant_unavailable' }); assert.equal(f.calls.length, 0);
 });
 
-test('deactivation during a stream stops subsequent output without retry or refunding uncertain provider work', async () => {
+test('deactivation blocks new Main requests while already-dispatched output completes and settles once', async () => {
   let upstream;
   const encoder = new TextEncoder();
   const f = fixture({ stream: () => new ReadableStream({ start(controller) {
@@ -115,16 +115,13 @@ test('deactivation during a stream stops subsequent output without retry or refu
   while (!received.includes('Initial safe answer.')) received += new TextDecoder().decode((await reader.read()).value);
   const snapshot = await callAssistantControl(f.env);
   await callAssistantControl(f.env, 'write', { revision: snapshot.control.revision, actor: 'test-admin', settings: { ...snapshot.control.settings, mode: 'off' } });
-  const original = Date.now, advanced = original() + 1100;
-  Date.now = () => advanced;
-  try {
-    upstream.enqueue(encoder.encode('data: {"response":"Must not be delivered after revocation."}\n\n'));
-    while (true) { const next = await reader.read(); if (next.done) break; received += new TextDecoder().decode(next.value); }
-    await Promise.all(f.tasks);
-  } finally { Date.now = original; }
-  assert.doesNotMatch(received, /Must not be delivered|event: done/); assert.match(received, /assistant_deactivated/);
+  upstream.enqueue(encoder.encode('data: {"response":"Already dispatched continuation."}\n\n'));
+  upstream.enqueue(encoder.encode('data: {"usage":{"prompt_tokens":120,"completion_tokens":20}}\n\ndata: [DONE]\n\n'));upstream.close();
+  while (true) { const next = await reader.read(); if (next.done) break; received += new TextDecoder().decode(next.value); }
+  await Promise.all(f.tasks);
+  assert.match(received, /Already dispatched continuation/);assert.match(received,/event: done/);assert.doesNotMatch(received,/assistant_deactivated/);
   assert.equal(f.calls.length, 1);
   const totals = (await callAssistantControl(f.env)).usage.daily;
-  assert.equal(totals.cancelled, 1); assert.equal(totals.measuredRequests, 0); assert.ok(totals.chargedMicros > 0);
+  assert.equal(totals.cancelled, 0); assert.equal(totals.measuredRequests, 1); assert.ok(totals.chargedMicros > 0);
   assert.equal((await f.call()).status, 503);
 });

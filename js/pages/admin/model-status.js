@@ -1,3 +1,4 @@
+import { createModelAvailability } from './model-availability.js';
 import { createOmniReadinessControls } from './gemini-omni-controls.js';
 import { apiAdminModelStatus } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 
@@ -10,12 +11,13 @@ const TYPES={en:{image:'Image',video:'Video',music:'Music',text:'Text',chat:'Cha
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n;};
 export function createAdminModelStatus() {
  const root=document.getElementById('sectionModelStatus');
+ let availability=null;
  let locale='en', data=null, controller=null, life=null, expiry=null, busy=false, stale=false;
  let search='', type='', state='';
  const t=key=>COPY[locale][key]||key;
  const shownState=m=>m.state==='disabled'?'disabled':stale?'unknown':m.state;
  const date=value=>Number.isFinite(Date.parse(value))?new Date(value).toLocaleString(locale==='de'?'de-DE':'en-GB'):t('none');
- function dispose(){controller?.abort();life?.abort();clearTimeout(expiry);data=null;busy=false;root.replaceChildren();}
+ function dispose(){availability?.destroy();availability=null;controller?.abort();life?.abort();clearTimeout(expiry);data=null;busy=false;root.replaceChildren();}
  function badge(value){return el('span',`model-status__badge is-${value}`,`${SYMBOL[value]||'○'} ${t(value)}`);}
  function field(dl,label,value){dl.append(el('dt','',label),el('dd','',value));}
  function renderRows(list,summary) {
@@ -45,9 +47,10 @@ export function createAdminModelStatus() {
   document.getElementById('adminHeroTitle').textContent=t('title');document.getElementById('adminHeroDesc').textContent=t('description');
   document.querySelector('[data-section="model-status"]').textContent=t('title');root.lang=locale;root.setAttribute('aria-label',t('title'));
   const listen=(n,event,fn)=>n.addEventListener(event,fn,{signal:life.signal});
+  if(!availability){availability=createModelAvailability();void availability.load();}
+  root.append(availability.root);
   const header=el('div','model-status__header'),titles=el('div');titles.append(el('p','model-status__muted',`${t('updated')}: ${date(data?.evidenceObservedAt||data?.observedAt)}`));
   const tools=el('div','model-status__tools');
-  for(const language of ['en','de']){const b=el('button','btn-action',language.toUpperCase());b.type='button';b.dataset.language=language;b.setAttribute('aria-pressed',String(locale===language));listen(b,'click',()=>{locale=language;render();root.querySelector(`[data-language="${language}"]`)?.focus();});tools.append(b);}
   const refresh=el('button','btn-action',t('refresh'));refresh.type='button';refresh.dataset.action='refresh';refresh.disabled=busy;listen(refresh,'click',loadData);tools.append(refresh);header.append(titles,tools);root.append(header);
   const notice=el('p','model-status__notice',busy?t('loading'):stale?t('stale'):data?.sources.some(s=>!s.available)?t('partial'):'');notice.setAttribute('role','status');if(!notice.textContent)notice.hidden=true;root.append(notice);
   if(!data)return;

@@ -28,7 +28,7 @@ async function fixture(page, baseURL, { storageError = false } = {}) {
     if (!path.startsWith('/api/')) return route.continue();
     observed.requests.push({ method: req.method(), path, query: url.searchParams.toString() });
     if (req.method() === 'GET' && path === '/api/appearance') return reply(route, { appearance: { version: 1, revision: 0, segments: DEFAULT_SEGMENTS, personalEnabled: false } });
-    if (req.method() === 'GET' && path === '/api/model-pricing') return reply(route, { revision: 0, rules: {} });
+    if (req.method() === 'GET' && path === '/api/model-pricing') return reply(route, { revision: 0, rules: {}, availability: require('./fixtures/model-availability.json') });
     if (!['GET', 'HEAD'].includes(req.method())) {
       const input = req.postDataJSON(); observed.writes.push({ path, method: req.method(), body: input, key: req.headers()['idempotency-key'] });
       if (path === '/api/admin/news-pulse/items/q3-news' && req.method() === 'PATCH') { news = { ...news, ...input }; return reply(route, { data: { item: news } }); }

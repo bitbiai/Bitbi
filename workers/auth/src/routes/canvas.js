@@ -1,7 +1,8 @@
+import { areaCatalog, modelAreaEnvironment, assertModelArea, publicModelAvailability } from '../lib/model-availability.js';
 import { OMNI_MODEL, omniReferences, omniMediaType, omniOperation } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
 import { H3_MODEL, h3References, h3MediaType } from '../../../../js/shared/minimax-h3.mjs';
-import { canvasMediaStatements, canvasMediaEnvironment, saveCanvasMedia, annotateCanvasMedia, reclaimCanvasMedia } from '../lib/canvas-media-storage.js';
+import { canvasMediaRun, canvasMediaStatements, canvasMediaEnvironment, saveCanvasMedia, annotateCanvasMedia, reclaimCanvasMedia } from '../lib/canvas-media-storage.js';
 import { composeCanvasPrompt } from '../../../../js/shared/canvas-model-contract.mjs';
 import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens } from "../../../../js/shared/grok-text-contract.mjs";
 import { canvasExport } from './canvas-video-processing.js';
@@ -942,6 +943,10 @@ async function callGenerationHandler(ctx, model, body, idempotencyKey, durableVi
     body = { ...body };
     delete body.model;
   }
+  if(areaCatalog().some(entry=>entry.id===model.id&&entry.areas.includes('canvas'))){
+    ctx={...ctx,env:canvasMediaEnvironment(modelAreaEnvironment(ctx.env,'canvas'),canvasMediaRun(ctx.env))};
+    await assertModelArea(ctx.env,model.id,'canvas');
+  }
   const request = delegatedRequest(ctx, target[0], body, idempotencyKey);
   if (durableVideo) request.headers.set("Prefer", "respond-async");
   let usageAttemptId = null;
@@ -1280,10 +1285,11 @@ export async function handleCanvas(ctx) {
   try {
     if (pathname === "/api/account/canvas/models" && method === "GET") {
       const organizationContext = await canvasOrganizationContext(ctx.env, session.user);
+      const availability=await publicModelAvailability(ctx.env);
       return respond(ctx, {
         ok: true,
         data: {
-          models: listCanvasModelsForRole(session.user.role).filter(m => m.id !== GROK_4_6_MODEL_ID || String(ctx.env.ENABLE_GROK_4_6) === "true"),
+          models: listCanvasModelsForRole(session.user.role).filter(m => m.id !== GROK_4_6_MODEL_ID || String(ctx.env.ENABLE_GROK_4_6) === "true").map(m=>({...m,areaEnabled:availability.models[m.id]?.canvas!==false})),
           access: {
             role: session.user.role,
             is_admin: session.user.role === "admin",

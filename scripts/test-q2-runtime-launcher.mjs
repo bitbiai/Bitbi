@@ -643,11 +643,11 @@ test('actual selected Worker shell stops before downstream work on every failure
   for(const name of ['node','npx','npm'])fs.writeFileSync(path.join(bin,name),'#!/bin/sh\ncommand="${0##*/} $*"\nprintf "%s\\n" "$command" >> "$TRACE"\n[ "$command" != "$FAIL_COMMAND" ] || exit 37\n',{mode:0o700});
   const block=read('.github/workflows/static.yml').split('      - name: Run worker route tests\n')[1].split('      - name:')[0];
   const script=block.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n');
-  for(const [status,selected,canvas='false',pricing='false',appearance='false'] of [['false','true'],['false','false'],['true','false'],['false','false','true'],['false','false','false','true'],['false','false','false','false','true']]) {
-    const command=script.replaceAll('${{ needs.release-compatibility.outputs.appearance }}',appearance).replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}',pricing).replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}',canvas).replaceAll('${{ needs.release-compatibility.outputs.model_status }}',status).replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
+  for(const [status,selected,canvas='false',pricing='false',appearance='false',areas='false'] of [['false','true'],['false','false'],['true','false'],['false','false','true'],['false','false','false','true'],['false','false','false','false','true'],['true','false','false','false','false','true']]) {
+    const command=script.replaceAll('${{ needs.release-compatibility.outputs.appearance }}',appearance).replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}',pricing).replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}',canvas).replaceAll('${{ needs.release-compatibility.outputs.model_status }}',status).replaceAll('${{ needs.release-compatibility.outputs.model_areas }}',areas).replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
     const run=fail=>{fs.writeFileSync(trace,'');const result=spawnSync('/bin/sh',['-c',command],{cwd:f.base,env:{PATH:bin,TRACE:trace,FAIL_COMMAND:fail||''},encoding:'utf8'});return {status:result.status,commands:fs.readFileSync(trace,'utf8').trim().split('\n')};};
     const passed=run();assert.equal(passed.status,0);
-    if(canvas!=='true')assert.equal(passed.commands.length,appearance==='true'?3:pricing==='true'?4:status==='true'||selected==='true'?3:1);
+    if(canvas!=='true')assert.equal(passed.commands.length,areas==='true'?5:appearance==='true'?3:pricing==='true'?4:status==='true'||selected==='true'?3:1);
     if(appearance==='true'){assert.match(passed.commands[0],/test-q2-runtime-launcher/);assert.match(passed.commands[1],/tests\/appearance.spec.js --retries=0$/);assert.match(passed.commands[2],/--suite appearance$/);}
     else if(pricing==='true'){assert.match(passed.commands[0],/test-q2-runtime-launcher/);assert.match(passed.commands[1],/tests\/model-pricing.spec.js/);assert.match(passed.commands[2],/tests\/workers.spec.js/);assert.match(passed.commands[3],/--suite model-pricing$/);}
     else if(canvas==='true'){
@@ -668,7 +668,7 @@ test('actual selected Worker shell stops before downstream work on every failure
         assert.throws(()=>verify(passed.commands.map((command,i)=>i===index?'node unrelated-check.mjs':command)));
       }
     }
-    else if(status==='true')assert.match(passed.commands[2],/--suite model-status$/);
+    else if(status==='true'){assert.match(passed.commands[areas==='true'?4:2],/--suite model-status$/);if(areas==='true'){assert.match(passed.commands[0],/website-assistant-route/);assert.match(passed.commands[1],/Canvas\|AI generate: member/);assert.equal(passed.commands.length,5);}}
     else if(selected==='true')assert.match(passed.commands[2],/--suite member-generation$/);
     else assert.deepEqual(passed.commands,['npm run test:workers']);
     for(const [i,failed] of passed.commands.entries()) {const result=run(failed);assert.equal(result.status,37);assert.deepEqual(result.commands,passed.commands.slice(0,i+1));}

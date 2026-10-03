@@ -1,8 +1,10 @@
+import {modelAreaEnvironment,readModelArea,changeModelAvailability} from '../../workers/auth/src/lib/model-availability.js';
 import { prepareAiUsagePolicy, AI_USAGE_OPERATIONS } from '../../workers/auth/src/lib/ai-usage-policy.js';
 import { calculateAiVideoCreditCost, calculateAiImageCreditCost } from '../../js/shared/ai-model-pricing.mjs';
 import { isGptImage25Model } from '../../js/shared/gpt-image-25-contract.mjs';
 import { settlePinnedModelTariff } from '../../workers/auth/src/lib/model-tariffs.js';
 export async function modelPricingCase(env, body) {
+    if(body.area==='canvas')env=modelAreaEnvironment(env,'canvas');
     const image = isGptImage25Model(body.modelId), route=image?'/api/ai/generate-image':'/api/ai/generate-video';
     const payload = { ...(image ? {model:body.modelId} : {model:'minimax/h3', duration:5, resolution:'768P'}), prompt:'Synthetic pricing fixture', ...body.settings, ...(body.organization ? {organization_id:body.organization} : {}) };
     const request = new Request('https://bitbi.ai'+route, { method:'POST', headers:{ 'Idempotency-Key':body.key, 'X-Bitbi-Tariff-Revision':String(body.revision ?? 0) } });
@@ -11,7 +13,9 @@ export async function modelPricingCase(env, body) {
         route, operation:{...(image?AI_USAGE_OPERATIONS.MEMBER_IMAGE_GENERATE:AI_USAGE_OPERATIONS.MEMBER_VIDEO_GENERATE),credits:price.credits,modelId:payload.model} });
     if (body.settle) {
         const pinned = policy.attempt.metadata.model_tariff;
-        await policy.markProviderRunning(); await policy.markFinalizing();
+        await policy.markProviderRunning();
+        if(body.dispatchThenDisable){const area=body.area==='canvas'?'canvas':'generation',current=await readModelArea(env,payload.model,area);await changeModelAvailability(env,{id:'q2-workerd-admin'},{modelId:payload.model,area,enabled:false,revision:current.revision});}
+        await policy.markFinalizing();
         const units=image?undefined:{second:body.seconds ?? 5};
         const credits = settlePinnedModelTariff(pinned,price.credits,units);
         const result = await policy.chargeAfterSuccess({}, {credits,units});

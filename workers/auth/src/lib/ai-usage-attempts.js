@@ -280,6 +280,7 @@ function serializeAdminAttempt(row, { detail = false, now = nowIso() } = {}) {
 }
 
 function unavailableAttemptsError(error) {
+  if(String(error?.message || error).includes('model_area_disabled')) return new BillingError('This model has been temporarily disabled.',{status:409,code:'model_area_disabled'});
   if (String(error?.message || error).includes('model_pricing_stale')) {
     return new BillingError('Prices changed. Review the refreshed estimate before generating.', { status:409, code:'model_pricing_stale' });
   }

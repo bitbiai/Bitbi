@@ -2214,3 +2214,6 @@ export function apiAiUploadReferenceVideo(file) {
     const form=new FormData();form.append('file',file);
     return requestForm('POST','/ai/reference-video',form).then(result=>{if(result.ok)notifyAssetStorageChanged();return result;});
 }
+
+export const apiAdminModelAvailability = options => request('GET','/admin/ai/model-availability',undefined,options);
+export const apiAdminModelAvailabilityChange = (body,options) => request('PATCH','/admin/ai/model-availability',body,options);

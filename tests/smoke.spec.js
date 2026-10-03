@@ -8468,7 +8468,7 @@ test.describe('Homepage', () => {
       if (url.origin !== new URL(baseURL).origin) return route.abort();
       if (!url.pathname.startsWith('/api/')) return route.continue();
       if (request.method() === 'GET' && url.pathname === '/api/appearance') return route.fulfill({ json: { ok: true, appearance: { version: 1, revision: 0, segments: DEFAULT_SEGMENTS, personalEnabled: false } } });
-      if (request.method() === 'GET' && url.pathname === '/api/model-pricing') return route.fulfill({ json: { ok: true, revision: 0, rules: {} } });
+      if (request.method() === 'GET' && url.pathname === '/api/model-pricing') return route.fulfill({ json: { ok: true, revision: 0, rules: {}, availability: require('./fixtures/model-availability.json') } });
       if (request.method() === 'GET' && url.pathname === '/api/gallery/memtracks') return route.fulfill({ json: { ok: true, data: { items: [] } } });
       unexpectedRequests.push({ method: request.method(), pathname: url.pathname });
       return route.fulfill({ status: 404, json: { error: 'Unexpected fixture request' } });

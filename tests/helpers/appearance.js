@@ -5,6 +5,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 // Wallet controls require a fresh public response; cached settings alone do not
 // authorize them. Keep that precondition explicit in fixtures exercising wallets.
 async function mockPublicAppearance(page, { walletEnabled = true } = {}) {
+    await page.route(url => url.pathname === '/api/model-pricing', route => route.request().method()==='GET' ? route.fulfill({json:{ok:true,revision:0,rules:{},availability:require('../fixtures/model-availability.json')}}) : route.abort());
     const pending = [];
     const state = {
         appearance: { version: 1, revision: 0, segments: { ...DEFAULT_SEGMENTS }, personalEnabled: false, walletEnabled },
@@ -76,7 +77,7 @@ async function setupAppearance(page, baseURL, { role = 'admin', adminGate = 0, s
         thumb_url: `/api/ai/images/${asset.id}/thumb`, poster_url: `/api/ai/text-assets/${asset.id}/poster` })) : [];
     const textModel = listCanvasModelsForRole(role).find(model => model.capability === 'text' && model.runnable);
     const state = {
-        assets,
+        assets, availability: clone(require('../fixtures/model-availability.json')),
         appearance: appearance || { version: 1, revision: 0, segments: { ...DEFAULT_SEGMENTS, ...segments }, personalEnabled: false },
         calls: [], errors: [], saveFailure: 0, publicFailure: 0, unexpectedWrites: [], publicHolds: [],
         creditsResponse: { ok: true, dashboard: { balance: { totalCredits: 500 } } }, creditsStatus: 200, creditsHold: null,
@@ -141,7 +142,7 @@ async function setupAppearance(page, baseURL, { role = 'admin', adminGate = 0, s
             const video = pathname.includes('/text-assets/' + 'b'.repeat(32)) && pathname.endsWith('/file');
             return route.fulfill({ contentType: video ? 'video/mp4' : 'image/png', body: fs.readFileSync(path.join(__dirname, '../fixtures/media/', video ? 'test-video-changing.mp4' : 'member-image.png')) });
         }
-        if (pathname === '/api/model-pricing') return reply({ ok: true, revision: 0, rules: {} });
+        if (pathname === '/api/model-pricing') return reply({ ok: true, revision: 0, rules: {}, availability: state.availability });
         if (pathname === '/api/wallet/status') return reply({ ok: true, linked: false });
         if (pathname === '/api/ai/quota') return reply({ ok: true, data: { isAdmin: role === 'admin', credits: 500, totalCredits: 500, remaining: 500, dailyLimit: 500, storage: { usedBytes: 0, limitBytes: 104857600, isUnlimited: false } } });
         if (pathname === '/api/account/credits-dashboard' && method === 'GET') {

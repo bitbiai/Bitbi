@@ -65,6 +65,7 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "js/shared/flux-2-max-identity.mjs": ["auth"],
   "js/shared/admin-ai-contract.mjs": ["auth", "ai"],
   "js/shared/canvas-model-contract.mjs": ["auth"],
+  "js/shared/model-area-contract.mjs": ["auth"],
   "js/shared/appearance-contract.js": ["auth"],
   "js/shared/model-pricing-catalog.mjs": ["auth"],
   "js/shared/model-tariff.mjs": ["auth", "ai"],

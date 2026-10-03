@@ -19,7 +19,7 @@ async function setup(page,baseURL,{gate=0}={}){
    if(url.pathname==='/api/me')data={loggedIn:!!user,user};
    else if(url.pathname==='/api/admin/me')return route.fulfill({status:gate||200,json:{ok:!gate,user}});
    else if(url.pathname==='/api/admin/ai/model-status')data={ok:true,data:{models:[],pipeline:{active:0},sources:[],provider:{components:[],stale:true,observedAt:null},observedAt:new Date().toISOString(),freshForSeconds:300,unattributed:0,omni:await (await import('../workers/auth/src/lib/gemini-omni-readiness.js')).getOmniReadiness(env)}};
-   else if(url.pathname==='/api/model-pricing')data={ok:true,...await tariff.getModelTariff(env)};
+   else if(url.pathname==='/api/model-pricing')data={ok:true,availability:require('./fixtures/model-availability.json'),...await tariff.getModelTariff(env)};
    else if(url.pathname==='/api/account/canvas/projects')data={ok:true,data:{projects:[project]}};
    else if(url.pathname==='/api/account/canvas/models')data={ok:true,data:{models:canvasModels,organizations:[],access:{role:'admin',is_admin:true}}};
    else if(url.pathname===`/api/account/canvas/projects/${project.id}`)data={ok:true,data:{project,nodes:[node],edges:[],runs:[]}};

@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "models": {
+    "@cf/black-forest-labs/flux-1-schnell": {
+      "generation": true,
+      "canvas": true
+    },
+    "@cf/black-forest-labs/flux-2-klein-9b": {
+      "generation": true,
+      "canvas": true
+    },
+    "black-forest-labs/flux-2-max": {
+      "generation": true,
+      "canvas": true
+    },
+    "openai/gpt-image-2": {
+      "generation": true,
+      "canvas": true
+    },
+    "openai/gpt-image-2.5-flare": {
+      "generation": true,
+      "canvas": true
+    },
+    "openai/gpt-image-2.5-sunburst": {
+      "generation": true,
+      "canvas": true
+    },
+    "xai/grok-imagine-image-2.0": {
+      "generation": true,
+      "canvas": true
+    },
+    "google/gemini-omni-flash": {
+      "generation": true,
+      "canvas": true
+    },
+    "elevenlabs/music-v2": {
+      "generation": true,
+      "canvas": true
+    },
+    "minimax/h3": {
+      "generation": true,
+      "canvas": true
+    },
+    "pixverse/v6": {
+      "generation": true,
+      "canvas": true
+    },
+    "alibaba/hh1-t2v": {
+      "generation": true,
+      "canvas": true
+    },
+    "bytedance/seedance-2.0-fast": {
+      "generation": true,
+      "canvas": true
+    },
+    "xai/grok-imagine-video": {
+      "generation": true,
+      "canvas": true
+    },
+    "xai/grok-imagine-video-1.5-preview": {
+      "generation": true,
+      "canvas": true
+    },
+    "minimax/music-2.6": {
+      "generation": true,
+      "canvas": true
+    },
+    "xai/grok-4.6": {
+      "canvas": true
+    },
+    "@cf/meta/llama-3.1-8b-instruct-fast": {
+      "canvas": true
+    },
+    "@cf/meta/llama-3.3-70b-instruct-fp8-fast": {
+      "canvas": true
+    },
+    "@cf/google/gemma-4-26b-a4b-it": {
+      "canvas": true
+    },
+    "anthropic/claude-fable-5": {
+      "canvas": true
+    },
+    "@cf/openai/gpt-oss-20b": {
+      "canvas": true
+    },
+    "@cf/openai/gpt-oss-120b": {
+      "canvas": true
+    },
+    "bytedance/seedance-2.0": {
+      "canvas": true
+    }
+  }
+}

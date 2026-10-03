@@ -1,3 +1,5 @@
+import { modelAreaState } from '../../shared/model-availability.js';
+import { refreshModelPricing } from '../../shared/model-pricing-client.js';
 import { uploadOmniReference } from '../../shared/omni-reference-upload.js';
 import { OMNI_MODEL, OMNI_ROLES } from '../../shared/gemini-omni-contract.mjs';
 import { omniMemberAvailable } from '../../shared/gemini-omni-pricing.mjs';
@@ -40,7 +42,7 @@ const copy = isGerman ? {
     noInput: 'Kein Input', inputConnected: 'Input verbunden', needsUpstream: 'Upstream ausführen', runUpstream: 'Führe zuerst den Upstream-Node aus.', edgeCompatible: 'Kompatibler Input.',
     inputHandle: 'Input-Anschluss', outputHandle: 'Output-Anschluss', inputFrom: 'Input von', connectedInput: 'Verbundener Input', effectivePrompt: 'Effektiver Prompt', directOverride: 'Der direkte Prompt überschreibt verbundenen Text.',
     moveNode: 'Node ziehen oder mit den Pfeiltasten verschieben; Umschalt für größere Schritte.',
-    promptRequired: 'Füge einen direkten Prompt hinzu oder verbinde einen Text-Node.', selectedModel: 'Das ausgewählte Modell', imageInputUnsupported: '{model} unterstützt in Canvas keinen Bild-Input.', videoInputUnsupported: '{model} unterstützt in Canvas keinen Video-Input, keine Fortsetzung und keine Erweiterung.', audioInputUnsupported: 'Das ausgewählte Modell akzeptiert keinen Audio-Asset-Input.', jsonInputUnsupported: 'Das ausgewählte Modell akzeptiert keinen JSON-Workflow-Input.', noUsableOutput: 'Die verbundene Quelle hat noch keine nutzbare Ausgabe.',
+    modelDisabled: 'Dieses Modell wurde vorübergehend deaktiviert.', promptRequired: 'Füge einen direkten Prompt hinzu oder verbinde einen Text-Node.', selectedModel: 'Das ausgewählte Modell', imageInputUnsupported: '{model} unterstützt in Canvas keinen Bild-Input.', videoInputUnsupported: '{model} unterstützt in Canvas keinen Video-Input, keine Fortsetzung und keine Erweiterung.', audioInputUnsupported: 'Das ausgewählte Modell akzeptiert keinen Audio-Asset-Input.', jsonInputUnsupported: 'Das ausgewählte Modell akzeptiert keinen JSON-Workflow-Input.', noUsableOutput: 'Die verbundene Quelle hat noch keine nutzbare Ausgabe.',
     quickCreated: 'Text → Bild → Video wurde erstellt. Führe die Nodes von links nach rechts aus.', quickFailed: 'Der schnelle Workflow konnte nicht vollständig erstellt werden.', organizationSelect: 'Organisation auswählen', organizationRequired: 'Wähle eine aktive Organisation für dieses Modell.',
 } : {
     saved: 'Saved', saving: 'Saving', unsaved: 'Unsaved changes', saveFailed: 'Save failed', retrySave: 'Retry saving',
@@ -58,7 +60,7 @@ const copy = isGerman ? {
     noInput: 'No input', inputConnected: 'Input connected', needsUpstream: 'Needs upstream', runUpstream: 'Run the upstream node first.', edgeCompatible: 'Compatible input.',
     inputHandle: 'Input handle', outputHandle: 'Output handle', inputFrom: 'Input from', connectedInput: 'Connected input', effectivePrompt: 'Effective prompt', directOverride: 'The direct prompt overrides connected text.',
     moveNode: 'Drag the node or use arrow keys to move it; hold Shift for larger steps.',
-    promptRequired: 'Add a direct prompt or connect a text node.', selectedModel: 'The selected model', imageInputUnsupported: '{model} does not support image input in Canvas.', videoInputUnsupported: '{model} does not support video input, continuation, or extension in Canvas.', audioInputUnsupported: 'The selected model does not accept an audio asset input.', jsonInputUnsupported: 'The selected model does not accept JSON workflow input.', noUsableOutput: 'The connected source has no usable output yet.',
+    modelDisabled: 'This model has been temporarily disabled.', promptRequired: 'Add a direct prompt or connect a text node.', selectedModel: 'The selected model', imageInputUnsupported: '{model} does not support image input in Canvas.', videoInputUnsupported: '{model} does not support video input, continuation, or extension in Canvas.', audioInputUnsupported: 'The selected model does not accept an audio asset input.', jsonInputUnsupported: 'The selected model does not accept JSON workflow input.', noUsableOutput: 'The connected source has no usable output yet.',
     quickCreated: 'Text → Image → Video was created. Run the nodes from left to right.', quickFailed: 'The quick workflow could not be fully created.', organizationSelect: 'Select organization', organizationRequired: 'Select an active organization for this model.',
 };
 
@@ -568,7 +570,7 @@ function renderInspector() {
         workflowAnalysis = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy);
         const models = store.state.models.filter((model) => model.capability === capability);
         const model = models.find((item) => item.id === node.model_id) || models.find((item) => item.runnable) || null;
-        if (capability === 'image' && model) {
+        if (capability === 'image' && model && model.areaEnabled!==false) {
             const c = model.controls || {}, config = { ...node.config };
             for (const key of ['width', 'height']) {
                 if (!c.supportsDimensions) continue;
@@ -584,7 +586,7 @@ function renderInspector() {
             }
             if (JSON.stringify(config) !== JSON.stringify(node.config || {})) scheduleNode(node, { config });
         }
-        if (capability === 'video' && model) {
+        if (capability === 'video' && model && model.areaEnabled!==false) {
             const c = model.controls || {}, config = { ...node.config };
             for (const [key, options, fallback] of [
                 ['resolution', c.resolutionOptions, c.defaultResolution], ['quality', c.qualityOptions, c.defaultQuality],
@@ -595,11 +597,14 @@ function renderInspector() {
             if (c.duration && config.duration != null && (!Number.isInteger(Number(config.duration)) || Number(config.duration) < c.duration.min || Number(config.duration) > c.duration.max)) config.duration = c.duration.default;
             if (JSON.stringify(config) !== JSON.stringify(node.config || {})) scheduleNode(node, { config });
         }
-        const modelSelect = selectControl(sortGenerationModels(models).map((item) => ({ value: item.id, label: `${item.label}${item.runnable ? '' : ` — ${copy.disabled}`}` })), model?.id);
+        const available=models.filter(item=>item.runnable && item.areaEnabled!==false);
+        const modelSelect = selectControl([...(!available.some(item=>item.id===model?.id)?[{value:'',label:isGerman?'Modell wählen':'Choose a model'}]:[]),...sortGenerationModels(available).map(item=>({value:item.id,label:item.label}))], model?.areaEnabled===false?'':model?.id);
+        if(model?.areaEnabled===false)dom.inspector.append(el('p','canvas-model-disabled',isGerman?'Dieses Modell wurde vorübergehend deaktiviert.':'This model has been temporarily disabled.'));
         modelSelect.addEventListener('change', () => {
             // Only replace an unchanged model default. Explicit values survive
             // a switch and the selected model's validator checks their limits.
-            const next = models.find(item => item.id === modelSelect.value);
+            const next = available.find(item => item.id === modelSelect.value);
+            if(!next)return;
             const config = { ...(node.config || {}) };
             if (next?.controls?.reasoningEffort && !config.reasoningEffort) config.reasoningEffort = next.controls.reasoningEffort.default;
             if (capability === 'text' && !config.maxTokensEdited && (config.maxTokens == null || config.maxTokens === model?.controls?.maxTokens?.default)) config.maxTokens = next?.controls?.maxTokens?.default;
@@ -612,10 +617,10 @@ function renderInspector() {
             const updateCost = () => {
                 let estimate = model.estimatedCredits;
                 try {
-                    if (capability === 'video' && model.runnable) estimate = calculateAiVideoCreditCost(model.id, model.id === OMNI_MODEL ? omniCanvasInput(node) : { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, resolution: node.config?.resolution || model.controls.defaultResolution, aspect_ratio: node.config?.aspectRatio || model.controls.defaultAspectRatio, generateAudio: node.config?.generateAudio !== false })?.credits;
-                    if (capability === 'image' && model.runnable) estimate = calculateAiImageCreditCost(model.id, { ...node.config, ...(isGptImage25Model(model.id) ? { prompt: workflowAnalysis.byNode.get(node.id)?.effectivePrompt || undefined } : {}), source_images: undefined, referenceImageCount: (node.config?.source_images?.length || 0) + (workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0) })?.credits;
-                    if (capability === 'music' && model.runnable) estimate = calculateAiModelCreditCost({ mediaType:'music', modelId:model.id, params:model.id === 'elevenlabs/music-v2' ? elevenLabsMemberBody(node.config || {}) : node.config || {} })?.credits;
-                    if (capability === 'text' && model.runnable) estimate = estimateCanvasTextCredits(model.id, { ...node.config, systemPrompt: getCanvasTextInstructions(node.config), prompt: analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id)?.effectivePrompt || "" });
+                    if (capability === 'video' && model.runnable && model.areaEnabled!==false) estimate = calculateAiVideoCreditCost(model.id, model.id === OMNI_MODEL ? omniCanvasInput(node) : { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, resolution: node.config?.resolution || model.controls.defaultResolution, aspect_ratio: node.config?.aspectRatio || model.controls.defaultAspectRatio, generateAudio: node.config?.generateAudio !== false })?.credits;
+                    if (capability === 'image' && model.runnable && model.areaEnabled!==false) estimate = calculateAiImageCreditCost(model.id, { ...node.config, ...(isGptImage25Model(model.id) ? { prompt: workflowAnalysis.byNode.get(node.id)?.effectivePrompt || undefined } : {}), source_images: undefined, referenceImageCount: (node.config?.source_images?.length || 0) + (workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0) })?.credits;
+                    if (capability === 'music' && model.runnable && model.areaEnabled!==false) estimate = calculateAiModelCreditCost({ mediaType:'music', modelId:model.id, params:model.id === 'elevenlabs/music-v2' ? elevenLabsMemberBody(node.config || {}) : node.config || {} })?.credits;
+                    if (capability === 'text' && model.runnable && model.areaEnabled!==false) estimate = estimateCanvasTextCredits(model.id, { ...node.config, systemPrompt: getCanvasTextInstructions(node.config), prompt: analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id)?.effectivePrompt || "" });
                 } catch { estimate = null; }
                 cost.textContent = `${copy.estimated}: ${estimate ?? '—'}`;
             };
@@ -651,7 +656,7 @@ function renderInspector() {
             } else grid.append(field(copy.maxTokens, maxTokens));
             grid.append(field(copy.temperature, temperature)); dom.inspector.append(grid);
         }
-        if (capability === 'image' && model) {
+        if (capability === 'image' && model && model.areaEnabled!==false) {
             const c = model.controls || {}, grid = el('div', 'canvas-field-grid');
             const numberOption = (key, label, fallback, min, max, step = 1) => {
                 const control = inputControl(node.config?.[key] ?? fallback ?? '', 'number');
@@ -725,10 +730,10 @@ function renderInspector() {
         const videoState = canvasVideoRunState(store.state.runs, node.id, videoCopy);
         const status = el('div', 'canvas-run-status', runningNodeId === node.id ? copy.running : videoState.message); status.id = 'canvasNodeRunStatus'; status.setAttribute('role', 'status'); dom.inspector.append(status);
         const run = el('button', 'canvas-button canvas-button--primary', runningNodeId === node.id ? copy.running : copy.run);
-        run.type = 'button'; run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || omniCanvasBlocked(node) || Boolean(inputContext.validation); run.addEventListener('click', () => void runSelectedNode(node)); dom.inspector.append(run);
+        run.type = 'button'; run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || model.areaEnabled===false || omniCanvasBlocked(node) || Boolean(inputContext.validation); run.addEventListener('click', () => void runSelectedNode(node)); dom.inspector.append(run);
         const updateRun = () => {
             const current = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id);
-            run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || omniCanvasBlocked(node) || Boolean(validationForNode(node, current, copy));
+            run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || model.areaEnabled===false || omniCanvasBlocked(node) || Boolean(validationForNode(node, current, copy));
             if (node.model_id === OMNI_MODEL) {
                 run.textContent = omniCanvasBlocked(node) ? (isGerman ? 'Tarif oder Freigabe fehlt' : 'Tariff or acceptance required') : copy.run;
                 run.title = isGerman ? 'Verbundene Referenzen und Auflösung benötigen Freigabe und einen Admin-Tarif.' : 'Connected references and resolution require acceptance and an Admin tariff.';
@@ -769,7 +774,14 @@ function renderInspector() {
     dom.inspector.append(renderOutput(displayNodeOutput(node)));
 }
 
-function renderAll() { renderProjects(); renderGraph(); renderInspector(); renderHistory(); }
+function renderNewNodeChoices() {
+    const current=dom.nodeType.value;
+    const supported=capability=>store.state.models.some(model=>model.capability===capability&&model.runnable&&model.areaEnabled!==false);
+    dom.nodeType.replaceChildren(...Object.entries(copy.nodeTypes).filter(([type])=>!type.endsWith('_generation')||supported(type.replace('_generation',''))).map(([value,label])=>{const option=el('option');option.value=value;option.textContent=label;return option;}));
+    if([...dom.nodeType.options].some(option=>option.value===current))dom.nodeType.value=current;
+    dom.quickTextImageVideo.hidden=!['text','image','video'].every(supported);
+}
+function renderAll() { renderNewNodeChoices(); renderProjects(); renderGraph(); renderInspector(); renderHistory(); }
 
 const graph = createCanvasGraph({
     nodesRoot: dom.nodes, edgesRoot: dom.edges, emptyState: dom.empty, copy,
@@ -860,7 +872,8 @@ async function addNode() {
     const projectId = store.state.project.id;
     const type = dom.nodeType.value;
     const capability = ({ text_generation: 'text', image_generation: 'image', video_generation: 'video', music_generation: 'music' })[type];
-    const model = store.state.models.find((item) => item.capability === capability && item.runnable);
+    const model = store.state.models.find((item) => item.capability === capability && item.runnable && item.areaEnabled!==false);
+    if(capability&&!model)return;
     const count = store.state.nodes.length;
     const visibleX = Math.min(2140, Math.max(30, dom.viewport.scrollLeft + 70 + (count % 3) * 270));
     const visibleY = Math.min(1420, Math.max(30, dom.viewport.scrollTop + 70 + Math.floor(count / 3) * 180));
@@ -880,9 +893,9 @@ async function addNode() {
 async function createQuickTextImageVideo() {
     if (!store.state.project) { await createProject(); if (!store.state.project) return; }
     const projectId = store.state.project.id;
-    const textModel = store.state.models.find((model) => model.capability === 'text' && model.runnable);
-    const imageModel = store.state.models.find((model) => model.capability === 'image' && model.runnable);
-    const videoModel = store.state.models.find((model) => model.capability === 'video' && model.runnable && model.controls?.supportsImageInput);
+    const textModel = store.state.models.find((model) => model.capability === 'text' && model.runnable && model.areaEnabled!==false);
+    const imageModel = store.state.models.find((model) => model.capability === 'image' && model.runnable && model.areaEnabled!==false);
+    const videoModel = store.state.models.find((model) => model.capability === 'video' && model.runnable && model.areaEnabled!==false && model.controls?.supportsImageInput);
     if (!textModel || !imageModel || !videoModel) return showToast(copy.quickFailed);
     dom.quickTextImageVideo.disabled = true;
     const startX = Math.min(1450, Math.max(50, dom.viewport.scrollLeft + 70));
@@ -975,6 +988,8 @@ async function assignAsset(context, asset) {
 }
 
 async function runSelectedNode(node) {
+    await refreshModelPricing();
+    if(store.state.models.find(m=>m.id===node.model_id)?.areaEnabled===false){ refreshCanvasAvailability(); return; }
     if (omniCanvasBlocked(node)) return showToast(isGerman ? 'Tarif oder Freigabe fehlt.' : 'Tariff or acceptance required.');
     if (runningNodeId || projectTransition || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked) return;
     // Freeze editing only while the exact graph for this run is being saved.
@@ -1156,4 +1171,11 @@ async function init() {
     void loadCredits();
 }
 
+function refreshCanvasAvailability() {
+    if(!store.state.models.length)return;
+    let changed=false;
+    store.state.models=store.state.models.map(model=>{const enabled=modelAreaState(model.id,'canvas') ?? model.areaEnabled;if(model.areaEnabled!==enabled)changed=true;return {...model,areaEnabled:enabled};});
+    if(changed){renderNewNodeChoices();renderGraph();renderInspector();}
+}
+window.addEventListener('bitbi:model-pricing',refreshCanvasAvailability);
 void init();

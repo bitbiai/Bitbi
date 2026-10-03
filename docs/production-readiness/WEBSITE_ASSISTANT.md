@@ -166,8 +166,10 @@ questions and the actual UI. Preserve the original result and source identity.
 For public activation, only then populate the reviewed config's acceptance record with model, knowledge and
 implementation versions, real-provider EN/DE results, exact source SHA and date. Follow
 the existing protected Auth → frontend candidate release; no new proof pipeline or
-environment bypass. The `WEBSITE_ASSISTANT_ENABLED` switch and release compatibility
-expectation remain false for this disabled release. Publish Auth prerequisites and
+environment bypass. Durable Admin mode is the single runtime switch; the legacy
+`WEBSITE_ASSISTANT_ENABLED=false` deployment value remains a compatibility sentinel
+and no longer vetoes an explicitly approved Main activation. Access, pricing, terms,
+budget and current real EN/DE acceptance gates remain mandatory. Publish Auth prerequisites and
 the tested frontend through the existing main-to-live continuation; access/pricing
 do not block the disabled Admin surface. Verify deployed identities, protected API
 responses and public-off behavior without inference. Authenticated production UI
@@ -177,6 +179,8 @@ EN/DE visitor flow and update privacy availability wording.
 
 Emergency disable: save **Off** in Admin. Its revision and budget admission share the
 existing durable object, so new public inference cannot pass an earlier settings
-read. The scoped deployment switch provides a second disable path through a protected
-Auth release. Ordinary Help stays available; unrelated AI/media/billing switches are
-unchanged. Running provider work is cancelled best effort, without assuming a refund.
+read. Admin → AI & Models → Model status also provides the Main website switch:
+turning it off moves Public to Admin test, preserving independent Admin testing;
+the assistant control centre’s Off mode disables both. Ordinary Help stays available.
+Already-dispatched provider work may finish and settle normally; deactivation never
+replays, blindly refunds, or deletes its output.

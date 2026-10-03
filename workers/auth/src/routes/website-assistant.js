@@ -179,7 +179,6 @@ export function createWebsiteAssistantHandler({ policy = ASSISTANT_POLICY, openM
                 (privateAcceptance ? ['admin', 'public'].includes(current.control.settings.mode) : current.control.settings.mode === 'public');
             };
             if (!await stillAllowed()) { cancel('assistant_deactivated'); throw new Error('cancelled'); }
-            let lastControlCheck = Date.now();
             const pending = openModel(env, admission, messagesFor(body, evidence, settings));
             // Late provider responses are cancelled, never replayed. Cancelling
             // the transport does not prove inference stopped or was free.
@@ -189,12 +188,7 @@ export function createWebsiteAssistantHandler({ policy = ASSISTANT_POLICY, openM
               else abort.signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true });
             })]);
             for await (const item of assistantModelEvents(upstream, { signal: abort.signal, outputChars: admission.limits.outputChars })) {
-              // Event-driven revocation checks are bounded; there is no
-              // dashboard poller or background loop and no extra model call.
-              if (Date.now() - lastControlCheck >= 1000) {
-                lastControlCheck = Date.now();
-                if (!await stillAllowed()) { cancel('assistant_deactivated'); throw new Error('cancelled'); }
-              }
+              // Availability changes block new work, not this admitted provider result.
               if (item.text) emit('delta', { text: item.text });
               if (item.usage) usage = item.usage;
             }

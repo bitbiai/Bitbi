@@ -586,7 +586,7 @@ for(const status of ['failed','skipped','timedOut']){const wrong=structuredClone
 assert.throws(()=>verifyModelStatusReport({suites:[]},statusDiscovery));
 const statusSelection=selectCiTests(['workers/auth/src/lib/admin-model-status.js','js/pages/admin/model-status.js']);
 assert.deepEqual(Object.keys(requiredJobs(statusSelection)),['release-compatibility','worker-validation','browser-validation']);
-const statusShell=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.appearance }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','true').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
+const statusShell=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.appearance }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','true').replaceAll('${{ needs.release-compatibility.outputs.model_areas }}','true').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
 const statusTmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-status-shell-'));
 try{
  fs.mkdirSync(path.join(statusTmp,'test-results'));fs.writeFileSync(path.join(statusTmp,'npm'),'#!/bin/sh\nprintf "%s\\n" "$*" >> calls\nexit "${FAIL_NPM:-0}"\n',{mode:0o755});
@@ -905,3 +905,11 @@ try {
  assert(!fs.existsSync(path.join(appearanceTmp,'test-results/appearance-artifacts/stale.txt')));
 } finally {fs.rmSync(appearanceTmp,{recursive:true,force:true});}
 console.log('Appearance: real selected discovery/execution keeps fresh evidence, required native/browser jobs and both engines; missing, failed, retried or wrong-identity acceptance blocks.');
+
+// Area acceptance requires both workspace/Admin controls AND the real Main Help suite.
+assert.throws(()=>verifyModelStatusReport(statusReport,statusDiscovery,{modelAreas:true}));
+const areaDiscovery=structuredClone(statusDiscovery);
+for(const engine of ['chromium','webkit'])areaDiscovery.suites[0].specs.push({id:engine+'-assistant',file:'website-assistant.spec.js',tests:[{projectName:engine+'-status',results:[]}]});
+const areaReport=structuredClone(areaDiscovery);for(const spec of areaReport.suites[0].specs)spec.tests[0].results=[{status:'passed'}];
+verifyModelStatusReport(areaReport,areaDiscovery,{modelAreas:true});
+for(const status of ['failed','skipped','timedOut']){const invalid=structuredClone(areaReport);invalid.suites[0].specs.at(-1).tests[0].results=[{status}];assert.throws(()=>verifyModelStatusReport(invalid,areaDiscovery,{modelAreas:true}));}

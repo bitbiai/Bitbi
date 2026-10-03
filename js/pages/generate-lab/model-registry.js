@@ -1,3 +1,4 @@
+import { modelAreaEnabled } from '../../shared/model-availability.js';
 import { OMNI_MODEL, OMNI_RESOLUTIONS, OMNI_RATIOS, OMNI_ROLES } from '../../shared/gemini-omni-contract.mjs';
 import { H3_MODEL, H3_ROLES, H3_RESOLUTIONS, H3_RATIOS } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { sortGenerationModels } from '../../shared/generation-model-order.mjs?v=__ASSET_VERSION__';
@@ -508,7 +509,7 @@ export function getGenerateLabModels() {
 }
 
 export function getGenerateLabModelsByMediaType(mediaType) {
-    return sortGenerationModels(models.filter((model) => model.mediaType === mediaType));
+    return sortGenerationModels(models.filter((model) => model.mediaType === mediaType && modelAreaEnabled(model.id,'generation')));
 }
 
 export function getGenerateLabModel(modelId) {

@@ -26,7 +26,7 @@ export function classifyDispatchAttempt(attempt, now) {
   return 'in_progress';
 }
 
-export async function claimAiDispatch(env, table, id, { signal } = {}) {
+export async function claimAiDispatch(env, table, id, { signal, availabilityKey = null } = {}) {
   tableName(table);
   if (signal?.aborted) {
     await failAiDispatch(env, table, id, { definitelyNotDispatched: true, code: 'caller_cancelled_before_dispatch' });
@@ -38,8 +38,17 @@ export async function claimAiDispatch(env, table, id, { signal } = {}) {
     SET status = 'provider_running', provider_status = 'running',
         provider_outcome = 'dispatched', dispatch_token = ?, dispatched_at = ?, updated_at = ?
     WHERE id = ? AND status = 'reserved' AND billing_status = 'reserved'
-      AND provider_outcome = 'not_dispatched' AND expires_at > ?`).bind(token, now, now, id, now).run();
-  if (!result?.meta?.changes) throw unresolved('ai_usage_dispatch_not_claimed');
+      AND provider_outcome = 'not_dispatched' AND expires_at > ?
+      ${availabilityKey ? `AND NOT EXISTS (SELECT 1 FROM app_settings WHERE key=? AND
+        CASE WHEN json_valid(value_json) THEN (json_extract(value_json,'$.version')=1 AND json_type(value_json,'$.revision')='integer' AND json_extract(value_json,'$.revision')>=1 AND json_type(value_json,'$.history')='array' AND json_type(value_json,'$.enabled')='true') ELSE 0 END IS NOT 1)` : ''}`)
+    .bind(token, now, now, id, now, ...(availabilityKey ? [availabilityKey] : [])).run();
+  if (!result?.meta?.changes) {
+    if (availabilityKey) {
+      const denied=await env.DB.prepare(`SELECT key FROM app_settings WHERE key=? AND CASE WHEN json_valid(value_json) THEN (json_extract(value_json,'$.version')=1 AND json_type(value_json,'$.revision')='integer' AND json_extract(value_json,'$.revision')>=1 AND json_type(value_json,'$.history')='array' AND json_type(value_json,'$.enabled')='true') ELSE 0 END IS NOT 1`).bind(availabilityKey).first();
+      if (denied) { await failAiDispatch(env,table,id,{definitelyNotDispatched:true,code:'model_area_disabled'}); throw new BillingError('This model has been temporarily disabled.',{status:409,code:'model_area_disabled'}); }
+    }
+    throw unresolved('ai_usage_dispatch_not_claimed');
+  }
   // Abort after the durable claim is conservatively unknown; the caller may
   // have crossed its dispatch boundary. It cannot authorize a fresh attempt.
   return token;
