@@ -370,11 +370,35 @@ test('default native runtime plan stages every actual suite and control input', 
   const imports = Object.keys(compiled.metafile.inputs).sort();
   const plan = stageInputPlan();
   const coveredBy = (input, candidatePlan) => candidatePlan.some(item => input === item || input.startsWith(`${item}/`));
+  // esbuild's import graph excludes fs reads. Resolve media literals from the
+  // actual suite/control graph too, including the bounded music extension
+  // template. Do not derive this inventory from the staging allowlist itself.
+  const mediaInputs = new Set();
+  for (const input of imports.filter(name => name !== 'tests/helpers/q2-runtime/linux-hosted.mjs')) {
+    for (const match of read(input).matchAll(/(['"`])([^'"`\r\n]*fixtures\/media\/[^'"`\r\n]*)\1/g)) {
+      const reference = match[2];
+      const resolved = reference.startsWith('tests/') ? reference : path.posix.normalize(path.posix.join(path.posix.dirname(input), reference));
+      assert.ok(resolved.startsWith('tests/fixtures/media/'), `${input}: media reference must stay in the fixture tree`);
+      const directory = path.posix.dirname(resolved), basename = path.posix.basename(resolved);
+      assert.ok(!directory.includes('${'), `${input}: dynamic media directories need an explicit closure check`);
+      const pattern = new RegExp(`^${basename.split(/\$\{[^}]+\}/).map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^/]+')}$`);
+      const matches = fs.readdirSync(path.join(root, directory)).filter(name => pattern.test(name));
+      assert.ok(matches.length, `${input}: unresolved media fixture ${reference}`);
+      for (const name of matches) mediaInputs.add(`${directory}/${name}`);
+    }
+  }
+  for (const filename of ['canvas-preview.mp4', 'canvas-end-frame.mp4', 'member-music.mp3', 'member-music.opus']) {
+    assert.ok(mediaInputs.has(`tests/fixtures/media/${filename}`), `Actual media reader graph includes ${filename}`);
+  }
   const checkClosure = candidatePlan => {
-    const missing = imports.filter(input => !coveredBy(input, candidatePlan));
+    const missing = [...imports, ...mediaInputs].filter(input => !coveredBy(input, candidatePlan));
     assert.deepEqual(missing, [], 'Every resolved repository import must exist in the Linux stage plan');
   };
   checkClosure(plan);
+  for (const filename of mediaInputs) {
+    assert.throws(() => checkClosure(plan.filter(item => !coveredBy(filename, [item]))), /Every resolved repository import/,
+      `Removing ${filename} must fail before a hosted run`);
+  }
   for (const filename of [
     ...expected.map(([, filename]) => filename), ...controls, 'tests/admin-model-status-runtime.mjs', 'tests/model-pricing-runtime.mjs', 'tests/appearance-runtime.mjs', 'tests/helpers/model-pricing-control.mjs', 'tests/asset-preview-details-runtime.mjs',
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-fixture.mjs',
@@ -391,6 +415,16 @@ test('default native runtime plan stages every actual suite and control input', 
   const staged = stageRuntimeInputs(root, f.staged, plan);
   assert.ok(staged.files >= imports.length);
   for (const filename of imports) assert.deepEqual(fs.readFileSync(path.join(f.staged, filename)), fs.readFileSync(path.join(root, filename)), filename);
+  const checkMediaBytes = () => {
+    for (const filename of mediaInputs) assert.deepEqual(fs.readFileSync(path.join(f.staged, filename)), fs.readFileSync(path.join(root, filename)), filename);
+  };
+  checkMediaBytes();
+  const pricingFixture = path.join(f.staged, 'tests/fixtures/media/canvas-preview.mp4');
+  const pricingBytes = fs.readFileSync(pricingFixture);
+  fs.unlinkSync(pricingFixture);
+  assert.throws(checkMediaBytes, /ENOENT.*canvas-preview\.mp4/, 'The actual omitted pricing fixture must fail in the isolated tree');
+  fs.writeFileSync(pricingFixture, pricingBytes, { flag: 'wx' });
+  checkMediaBytes();
   // Import the actual member suite from the copied tree, not the checkout.
   // A fresh process also proves removal fails rather than hitting Node's cache.
   const memberEntry = pathToFileURL(path.join(f.staged, 'tests/member-generation-runtime.mjs')).href;
@@ -426,7 +460,7 @@ test('default native runtime plan stages every actual suite and control input', 
   assert.ok(Object.values(control.metafile.outputs).every(output => output.imports.length === 0));
   fs.unlinkSync(path.join(f.staged, 'tests/helpers/canvas-video-control.mjs'));
   assert.throws(buildControl, /Could not resolve.*canvas-video-control/, 'The old staged tree must fail the real Control build');
-  t.diagnostic(`Resolved ${imports.length} source modules and built the standard control from ${staged.files} actual staged files; ${expected.length} Q4 suites plus ${controls.length} native controls.`);
+  t.diagnostic(`Resolved ${imports.length} source modules and ${mediaInputs.size} media fixtures and built the standard control from ${staged.files} actual staged files; ${expected.length} Q4 suites plus ${controls.length} native controls.`);
 });
 
 

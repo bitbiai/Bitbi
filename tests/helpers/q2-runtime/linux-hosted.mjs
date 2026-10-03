@@ -85,7 +85,7 @@ export function stageInputPlan() {
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-control.mjs', 'tests/helpers/q4-memory-fixture.mjs',
     'tests/fixtures/media/h3-overrun.mp4','tests/fixtures/media/h3-prepared.mp4',
     'tests/fixtures/media/h3-reference.mp4', 'tests/fixtures/media/h3-frame.png',
-    'tests/fixtures/media/member-image.png', 'tests/fixtures/media/test-video-changing.mp4', 'tests/fixtures/media/member-video-poster.webp', 'tests/fixtures/media/canvas-end-frame.mp4',
+    'tests/fixtures/media/member-image.png', 'tests/fixtures/media/test-video-changing.mp4', 'tests/fixtures/media/member-video-poster.webp', 'tests/fixtures/media/canvas-end-frame.mp4', 'tests/fixtures/media/canvas-preview.mp4',
     'tests/admin-model-status-runtime.mjs', 'tests/model-pricing-runtime.mjs', 'tests/appearance-runtime.mjs', 'tests/helpers/model-pricing-control.mjs', 'tests/member-generation-runtime.mjs', 'tests/helpers/member-generation-control.mjs',
     'tests/asset-preview-details-runtime.mjs',
     'tests/website-assistant-runtime.mjs', 'tests/helpers/website-assistant-control.mjs', 'tests/helpers/website-assistant-policy.mjs',

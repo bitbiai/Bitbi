@@ -144,7 +144,7 @@ development-dependency exemption.
 
 Executable prevention stays in existing callers: `test:static-deploy-safety`
 checks media setup/order and real missing-tool failures across workflow callers;
-staging/launcher tests check native admission and chain order; `test:ci-selection`
+staging/launcher tests check native admission, chain order and the actual suite/control source plus filesystem-media input closure after required root/Auth dependency preparation; `test:ci-selection`
 and `test:release-plan` check affected selection plus unknown-input countercontrols.
 Merge confirmed cause, smallest countercheck and remaining uncertainty into the
 matching regression entry. Do not replace functional acceptance with prose or add
