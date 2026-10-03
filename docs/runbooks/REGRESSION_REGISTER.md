@@ -938,8 +938,13 @@ newer product work, missing proofs, wrong versions and unchanged reuse guards.
 Run 35714314642 exposed a Canvas fixture read relative to cwd: the hosted Linux
 boundary deliberately starts in `/`, although the PNG was correctly staged.
 Canvas now resolves that fixture relative to its module, like its other readers.
-The existing launcher self-test executes this reader from `/` and an empty cwd,
-checks the staged PNG digest, and rejects the old cwd-relative implementation.
+On 2026-10-03, source `7a807dad`, run `37119454435` attempt 1 repeated this
+assumption in the new model-area queue fixture: 69 Worker cases and four native
+cases passed before its cwd-relative PNG read failed. The model-area reader now
+uses its module URL too. The existing launcher checks both actual readers from
+`/` and an empty cwd, verifies the staged PNG digest and rejects each old reader.
+Its resolved module-graph guard also rejects direct cwd-relative media reads,
+so adding another native suite cannot silently repeat this assumption.
 Actual caller: `node --test tests/q2-recovery-staging.test.mjs
 scripts/test-q2-runtime-launcher.mjs`. This orchestration countercheck does not
 replace the selected hosted `test:q2-runtime -- --suite canvas` or the subsequent

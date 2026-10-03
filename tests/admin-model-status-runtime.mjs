@@ -58,7 +58,7 @@ export async function runModelStatusTests(f) {
  });
 
  for(const name of ['area-queued','area-running'])await f.test(`model_area_native_${name}_direct_admission_queue_storage_and_billing`,async()=>{
-  const response=await f.control('/model-area-generation',{name,kind:'image',input:{model:'@cf/black-forest-labs/flux-1-schnell',prompt:'Synthetic controlled image'},imageBase64:fs.readFileSync('tests/fixtures/media/member-image.png').toString('base64')});
+  const response=await f.control('/model-area-generation',{name,kind:'image',input:{model:'@cf/black-forest-labs/flux-1-schnell',prompt:'Synthetic controlled image'},imageBase64:fs.readFileSync(new URL('./fixtures/media/member-image.png',import.meta.url)).toString('base64')});
   assert.equal(response.status,200);const result=await response.json();assert.equal(result.calls.provider,name==='area-queued'?0:1);assert.equal(result.calls.retry,0);
  });
 

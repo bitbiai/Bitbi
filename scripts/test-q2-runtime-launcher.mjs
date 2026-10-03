@@ -375,6 +375,8 @@ test('default native runtime plan stages every actual suite and control input', 
   // template. Do not derive this inventory from the staging allowlist itself.
   const mediaInputs = new Set();
   for (const input of imports.filter(name => name !== 'tests/helpers/q2-runtime/linux-hosted.mjs')) {
+    assert.doesNotMatch(read(input), /readFile(?:Sync)?\(\s*['"`][^'"`\r\n]*fixtures\/media\//,
+      `${input}: native media reads must resolve against their module or explicit repository root, never cwd`);
     for (const match of read(input).matchAll(/(['"`])([^'"`\r\n]*fixtures\/media\/[^'"`\r\n]*)\1/g)) {
       const reference = match[2];
       const resolved = reference.startsWith('tests/') ? reference : path.posix.normalize(path.posix.join(path.posix.dirname(input), reference));
@@ -517,6 +519,49 @@ test('Canvas reference fixture reads the staged bytes from a non-repository cwd'
   f.put(moduleName, previous);
   const rejected = run(f.staged);
   assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /ENOENT/);
+});
+
+test('model-area queue fixture reads staged bytes independently of the Linux child cwd', t => {
+  const f = fixture(t), moduleName = 'tests/admin-model-status-runtime.mjs';
+  const source = read(moduleName), fixtureName = 'tests/fixtures/media/member-image.png';
+  const bytes = fs.readFileSync(path.join(root, fixtureName));
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  f.put(moduleName, source); f.put(fixtureName, bytes);
+  const child = `
+    import assert from 'node:assert/strict';
+    import { createHash } from 'node:crypto';
+    const { runModelStatusTests } = await import(process.argv[1]);
+    const reached = new Error('actual queue fixture read reached');
+    const f = {
+      migrations: [], sql: () => ({run: async () => {}}),
+      control: async (route, body) => {
+        if(route === '/model-area-generation') {
+          assert.equal(body.name, 'area-queued');
+          assert.equal(createHash('sha256').update(Buffer.from(body.imageBase64, 'base64')).digest('hex'), process.argv[2]);
+          throw reached;
+        }
+        return Response.json({cookie:'synthetic',code:'000000'});
+      },
+      mf: {dispatchFetch: async url => Response.json({setup:{secret:'synthetic'}}, {
+        headers:{'Set-Cookie':url.endsWith('/login')?'__Host-bitbi_session=synthetic':'__Host-bitbi_admin_mfa=synthetic'}
+      })},
+      test: async (name, operation) => {
+        if(name === 'model_area_native_area-queued_direct_admission_queue_storage_and_billing') await operation();
+      },
+    };
+    await assert.rejects(runModelStatusTests(f), error => error === reached);
+  `;
+  const run = cwd => spawnSync(process.execPath, ['--input-type=module', '-e', child,
+    pathToFileURL(path.join(f.repo, moduleName)).href, digest], {
+    cwd, env: {PATH: process.env.PATH}, encoding: 'utf8', timeout: 10000,
+  });
+  for(const cwd of [f.staged, path.parse(root).root]) {
+    const result = run(cwd); assert.equal(result.status, 0, result.stderr);
+  }
+  const previous = source.replace("new URL('./fixtures/media/member-image.png',import.meta.url)", "'tests/fixtures/media/member-image.png'");
+  assert.notEqual(previous, source); f.put(moduleName, previous);
+  const rejected = run(f.staged); assert.notEqual(rejected.status, 0);
   assert.match(rejected.stderr, /ENOENT/);
 });
 
