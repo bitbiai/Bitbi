@@ -13,6 +13,31 @@ export const CANVAS_WEBKIT_FILES = Object.freeze([
 ]);
 export const HOMEPAGE_CORE_WEBKIT_FILES = Object.freeze(HOMEPAGE_CORE_FILES.filter(file => CANVAS_WEBKIT_FILES.includes(file)));
 
+// The release includes pricing acceptance in its own WebKit project. Keep the
+// required file/engine matrix shared with candidate proof, while checking the
+// workflow's actual discovery independently against standard Playwright discovery.
+export const CANVAS_RELEASE_SCOPES = Object.freeze([
+  Object.freeze(['canvas', CANVAS_WEBKIT_FILES]),
+  Object.freeze(['pricing', Object.freeze(['oma2-q3-model-pricing.spec.js'])]),
+]);
+export const canvasReleaseProject = (engine, scope) => engine === 'chromium' ? 'chromium'
+  : scope === 'pricing' ? 'webkit-pricing' : 'webkit-canvas';
+
+export function verifyCanvasReleaseDiscovery(actual, standard) {
+  assert(Array.isArray(actual) && actual.length > 0, 'Canvas release: no tests discovered');
+  const required = CANVAS_RELEASE_SCOPES.flatMap(([scope, files]) => ['chromium', 'webkit']
+    .flatMap(engine => files.map(file => ({ project: canvasReleaseProject(engine, scope), file }))));
+  const expected = standard.filter(test => required.some(row => row.file === test.file && row.project === test.project)
+    && /Canvas|P13|@canvas-model-ui/i.test(test.title + ' ' + test.tags.join(' ')));
+  for (const row of required) {
+    assert(expected.some(test => test.file === row.file && test.project === row.project), `Standard discovery lost ${row.project}/${row.file}`);
+    assert(actual.some(test => test.file === row.file && test.project === row.project), `Canvas release missing ${row.project}/${row.file}`);
+  }
+  assert.equal(new Set(actual.map(key)).size, actual.length, 'Duplicate Canvas release discovery');
+  assert.deepEqual(actual.map(key).sort(), expected.map(key).sort(), 'CI Canvas discovery lost or added cases');
+  for (const test of actual) assert.equal(test.expectedStatus, 'passed', `Statically skipped Canvas case: ${key(test)}`);
+}
+
 // Read the real existing npm caller without evaluating a shell command.
 export function homepageCoreArguments(scripts) {
   const args = String(scripts?.['test:homepage-core'] || '').trim().split(/\s+/);

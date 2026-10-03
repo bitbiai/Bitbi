@@ -799,6 +799,26 @@ disabled until owner configuration/acceptance. See the release runbook's Omni
 section and the external `bitbi-gemini-omni-flash-checkpoint` for final source and
 publication evidence; local tests are not deployment receipts.
 
+Release follow-up (2026-10-03): `37105294832/1`, source `33e86425`, failed in
+`release-compatibility / Test mandatory homepage selection` before candidate
+creation or any deployment. The workflow and candidate verifier required the
+four new Chromium/WebKit pricing cases, but the independent discovery comparison
+still used only the five workspace specs and two workspace projects. Local
+focused product tests and synthetic candidate fixtures did not exercise that
+stale comparison. The exact CI command reproduced the same failure locally.
+
+`CANVAS_RELEASE_SCOPES` and `canvasReleaseProject` now define the shared required
+matrix for discovery and candidate proof. The existing homepage-selection check
+compares the actual workflow command with standard Playwright discovery, requires
+the four pricing cases independently, and rejects removed cases/files/engines,
+skips, duplicates and foreign/replaced cases. `test-pages-workflow.mjs` now invokes
+that guard as well as candidate proof checks, so `test:static-deploy-safety` cannot
+pass only its synthetic proof fixtures while real discovery is broken. Local
+checks cover 303 discovered cases without re-executing product browser suites;
+this is not CI acceptance. The failed run created no reusable candidate or Worker/
+browser acceptance: those previously unexecuted jobs still require the fresh
+protected run, with normal release gates and no unchanged-backend redeployment.
+
 The final built-candidate check passed all 16 Omni browser cases in Chromium and
 WebKit (EN/DE). It also exposed the public knowledge model list inheriting a
 runtime-gated model: that static list now excludes unverified runtime entries,

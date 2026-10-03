@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
+import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, CANVAS_RELEASE_SCOPES, canvasReleaseProject, verifyCanvasReleaseDiscovery, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
 import { validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
@@ -86,14 +86,29 @@ try {
   }
   // Playwright's plain-string CLI --grep is case-insensitive; the project's
   // RegExp above is not. Standard discovery already applied that project filter.
-  const expected = standard.filter(test => ['chromium','webkit-canvas'].includes(test.project)
-    && CANVAS_WEBKIT_FILES.includes(test.file) && /Canvas|P13|@canvas-model-ui/i.test(test.title + ' ' + test.tags.join(' ')));
-  const identity = test => [test.project,test.file,test.title].join('\0');
-  assert.deepEqual(canvas.map(identity).sort(), expected.map(identity).sort(), 'CI Canvas discovery lost or added cases');
-  for (const project of ['chromium','webkit-canvas']) for (const file of CANVAS_WEBKIT_FILES) {
-    assert(canvas.some(test => test.project === project && test.file === file), `Missing ${project}/${file}`);
+  verifyCanvasReleaseDiscovery(canvas, standard);
+  // These are the four legitimate cases omitted by the old release matrix in
+  // 37105294832/1. A shared matrix must not silently remove their requirement.
+  for (const project of ['chromium','webkit-pricing']) {
+    for (const title of [
+      '@canvas-model-ui Omni Model Status persists explicit Admin test settings without inference',
+      '@canvas-model-ui Omni final retail tariff has unknown provider cost and no duration or second margin',
+    ]) assert(canvas.some(test => test.project === project && test.file === 'oma2-q3-model-pricing.spec.js' && test.title === title), `Missing required pricing case ${project}/${title}`);
   }
-  for (const test of canvas) assert.equal(test.expectedStatus, 'passed', `Statically skipped Canvas case: ${identity(test)}`);
+  // Mutate real discovered cases: omissions, duplicates, foreign files/engines,
+  // skips and the former pricing-less scope must remain blocking.
+  for (const [scope, files] of CANVAS_RELEASE_SCOPES) for (const engine of ['chromium','webkit']) for (const file of files) {
+    const project = canvasReleaseProject(engine, scope);
+    const missing = canvas.filter(test => test.project !== project || test.file !== file);
+    assert.throws(() => verifyCanvasReleaseDiscovery(missing, standard), /Canvas release missing/);
+    assert.throws(() => verifyCanvasReleaseDiscovery(missing, standard.filter(test => test.project !== project || test.file !== file)), /Standard discovery lost/);
+  }
+  assert.throws(() => verifyCanvasReleaseDiscovery(canvas.filter(test => test.file !== 'oma2-q3-model-pricing.spec.js'), standard), /Canvas release missing/);
+  assert.throws(() => verifyCanvasReleaseDiscovery(canvas.slice(1), standard), /lost or added/);
+  assert.throws(() => verifyCanvasReleaseDiscovery([...canvas, canvas[0]], standard), /Duplicate/);
+  for (const change of [{file:'unrelated.spec.js'}, {project:'firefox'}, {title:'unreviewed replacement'}, {expectedStatus:'skipped'}]) {
+    assert.throws(() => verifyCanvasReleaseDiscovery(canvas.map((test,index) => index === 0 ? {...test,...change} : test), standard), /lost or added|Statically skipped/);
+  }
   console.log(`Actual caller discovery: homepage-core ${core.length}; Canvas/model ${canvas.length} (Chromium + WebKit). No browser execution claimed.`);
 } finally {
   fs.rmSync(discoveryDirectory, {recursive: true, force: true});

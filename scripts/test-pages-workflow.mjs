@@ -300,6 +300,9 @@ assert(!/\n  push:/.test(fast),'Legacy fast writer must not compete with normal 
 assert(standard.includes('name: Check frontend hosting package') && standard.includes('npm run test:frontend-hosting'));
 console.log('Pages workflow state, immutable checkout and identical early/final guard controls passed.');
 
+// Candidate/workflow checks must include actual selected discovery; independent
+// synthetic proof fixtures alone missed the pricing-project mismatch in 33e86425.
+await import('./test-homepage-selection.mjs');
 await import('./test-pages-candidate.mjs');
 
 const diagnostic=cfSteps.find(s=>s.name==='Preserve failed frontend upload identity');

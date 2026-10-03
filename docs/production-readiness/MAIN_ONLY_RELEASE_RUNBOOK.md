@@ -418,6 +418,17 @@ Local native evidence (2026-10-03 working candidate): member-generation 66,
 model-pricing 10, Canvas 85 passed. Final Git/run/attempt and production receipts
 belong in the task checkpoint; these local counts do not certify CI/publication.
 
+Selection maintenance: the shared `CANVAS_RELEASE_SCOPES`/`canvasReleaseProject`
+contract covers workspace and pricing engines in both real discovery and candidate
+proof. Existing `test:static-deploy-safety` imports the real `test:homepage-selection`
+guard through `test-pages-workflow`; discovery/candidate repairs must execute that
+caller on final inputs. The guard discovers tests without running browsers. Do not
+add a new coverage file/project only to workflow and proof fixtures: the omitted
+discovery comparison caused `37105294832/1` to stop before candidate creation.
+Such a pre-candidate failure has no reusable hosted functional acceptance; retain
+valid local evidence and execute the still-required CI tail through the existing
+workflow, without a duplicate Full dispatch or relabelling skipped jobs.
+
 Prepared paid acceptance proposal, **not executed or authorized by this note**:
 after the owner reviews actual account costs, approve a total USD 10 ceiling and
 at most three single attempts: (1) text at 360p/16:9 with requested audible content,

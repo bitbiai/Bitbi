@@ -4,7 +4,7 @@ import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests, requiresPrivateMediaImage, memberSpecSources } from './lib/ci-test-selection.mjs';
-import { verifyHomepageReport } from './lib/homepage-test-selection.mjs';
+import { verifyHomepageReport, CANVAS_RELEASE_SCOPES, canvasReleaseProject } from './lib/homepage-test-selection.mjs';
 // A changed acceptance scope requires fresh candidate evidence. Earlier Hero
 // reports cannot be recertified by removing their former required job.
 export const MEDIA_POLICY = 'homepage-functional-v3';
@@ -261,7 +261,7 @@ export function verifyAdminReport(report, discovery, scopes = [
 }
 
 export function verifyCanvasTextReport(report,discovery) {
-  verifyAdminReport(report,discovery,[['canvas',['canvas.spec.js','oma2-q1-canvas.spec.js','auth-admin.spec.js','smoke.spec.js','oma2-q1-member.spec.js']],['pricing',['oma2-q3-model-pricing.spec.js']]],(engine,scope)=>engine==='chromium'?'chromium':scope==='pricing'?'webkit-pricing':'webkit-canvas');
+  verifyAdminReport(report,discovery,CANVAS_RELEASE_SCOPES,canvasReleaseProject);
 }
 
 export function verifyCanvasCandidateReports(names, reports, discovery) {
