@@ -1,3 +1,4 @@
+import { createOmniReadinessControls } from './gemini-omni-controls.js';
 import { apiAdminModelStatus } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 
 const COPY = {
@@ -58,6 +59,7 @@ export function createAdminModelStatus() {
    listen(select,'change',()=>{if(kind==='type')type=select.value;else state=select.value;renderRows(list,summary);});filters.append(select);
   }
   root.append(summary,filters,list);renderRows(list,summary);
+  root.append(createOmniReadinessControls(data.omni));
   const pipeline=el('section','model-status__system');pipeline.append(el('h3','',t('processing')));const counts=el('div','model-status__pipeline');
   for(const [key,value]of Object.entries(data.pipeline)){const item=el('div');item.append(el('strong','',value),el('span','',t(key==='unknown'?'unknownJobs':key)));counts.append(item);}pipeline.append(counts,el('p','model-status__muted',t('sample')));root.append(pipeline);
   const providers=el('details','model-status__system');providers.append(el('summary','',t('provider')),el('p','model-status__muted',t('providerLimit')));

@@ -68,6 +68,8 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "js/shared/appearance-contract.js": ["auth"],
   "js/shared/model-pricing-catalog.mjs": ["auth"],
   "js/shared/model-tariff.mjs": ["auth", "ai"],
+  "js/shared/gemini-omni-contract.mjs": ["auth", "ai"],
+  "js/shared/gemini-omni-pricing.mjs": ["auth"],
   "js/shared/grok-text-contract.mjs": ["auth", "ai"],
   "js/shared/grok-imagine-image-2-pricing.mjs": ["auth", "ai"],
   "js/shared/canvas-video-input.mjs": ["auth"],

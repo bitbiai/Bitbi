@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 export async function runModelPricingTests(f) {
  for(const m of f.migrations) await f.db.batch(m.statements.map(s=>f.db.prepare(s)));
@@ -113,4 +114,30 @@ export async function runModelPricingTests(f) {
   }
   assert.equal(f.counters.outboundDenied,0);assert.equal(f.counters.serviceDenied,0);
  });
+ await f.test('omni_native_admin_MFA_configuration_CAS_and_member_redaction',async()=>{
+  const body={action:'omni_readiness',revision:0,reason:'Synthetic native budget authorization',config:{adminTestEnabled:true,adminTestCredits:29}};
+  for(const [actor,status]of [['',401],[member,403]])assert.equal((await call(actor,'PATCH',route,body)).status,status);
+  const denied=await f.mf.dispatchFetch('https://bitbi.ai'+route,{method:'PATCH',headers:{Cookie:admin,Origin:'https://foreign.invalid','Content-Type':'application/json'},body:JSON.stringify(body)});assert.equal(denied.status,403);
+  const saved=await call(admin,'PATCH',route,body);assert.equal(saved.status,200);assert.equal((await saved.json()).omni.adminTestCredits,29);
+  assert.equal((await call(admin,'PATCH',route,body)).status,409);
+  const fresh=(await(await call(admin,'GET',route)).json()).omni;assert.equal(fresh.revision,1);assert.equal(fresh.adminTestEnabled,true);assert.equal(fresh.enabled.generation,false);
+  const publicState=(await(await call('','GET','/api/model-pricing')).json()).omni;assert.deepEqual(Object.keys(publicState).sort(),['enabled','revision']);
+  const unproved=await call(admin,'PATCH',route,{action:'omni_readiness',revision:1,feature:'generation',enabled:true,evidenceJobId:'missing',reason:'Cannot fabricate a paid acceptance'});assert.equal(unproved.status,409);
+  const off=await call(admin,'PATCH',route,{...body,revision:1,config:{adminTestEnabled:false,adminTestCredits:29}});assert.equal(off.status,200);
+  assert.equal((await off.json()).omni.previous.adminTestEnabled,true);
+  assert.equal(f.counters.serviceDenied,0);assert.equal(f.counters.outboundDenied,0);
+ });
+ await f.test('omni_owned_video_upload_has_auth_CSRF_byte_and_private_read_boundaries_without_inference',async()=>{
+  const bytes=fs.readFileSync(new URL('./fixtures/media/canvas-preview.mp4',import.meta.url));
+  const upload=async(cookie,origin,content=bytes)=>{const body=new FormData();body.set('file',new Blob([content],{type:'video/mp4'}),'synthetic-reference.mp4');const request=new Request('https://bitbi.ai/api/ai/reference-video',{method:'POST',body});return f.mf.dispatchFetch(request.url,{method:'POST',headers:{Cookie:cookie,Origin:origin,'CF-Connecting-IP':'192.0.2.20','Content-Type':request.headers.get('content-type')},body:await request.arrayBuffer()});};
+  assert.equal((await upload('','https://bitbi.ai')).status,401);
+  assert.equal((await upload(member,'https://foreign.invalid')).status,403);
+  assert.equal((await upload(member,'https://bitbi.ai',new Uint8Array(32))).status,400);
+  const saved=await upload(member,'https://bitbi.ai');assert.equal(saved.status,201,await saved.clone().text());const asset=(await saved.json()).asset;
+  assert.ok(asset.id);const row=await f.sql('SELECT * FROM ai_text_assets WHERE id=?',asset.id).first();assert.equal(row.user_id,'q2-workerd-member');
+  const read=await call(member,'GET',`/api/ai/text-assets/${asset.id}/file`);assert.equal(read.status,200);assert.deepEqual(new Uint8Array(await read.arrayBuffer()),new Uint8Array(bytes));
+  assert.equal((await call('','GET',`/api/ai/text-assets/${asset.id}/file`)).status,401);
+  assert.equal(f.counters.serviceDenied,0);assert.equal(f.counters.outboundDenied,0);
+ });
+
 }

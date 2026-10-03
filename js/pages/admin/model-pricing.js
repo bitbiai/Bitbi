@@ -1,3 +1,4 @@
+import { OMNI_MODEL } from '../../shared/gemini-omni-contract.mjs';
 import { refreshModelPricing } from '../../shared/model-pricing-client.js';
 import { apiAdminModelPricing, apiAdminModelPricingQuote, apiAdminModelPricingChange, apiAdminModelPricingSource } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { applyModelTariff } from '../../shared/model-tariff.mjs';
@@ -73,7 +74,7 @@ export function createAdminModelPricing() {
   const save=button(t('save'),()=>write('save'));save.disabled=true;
   const update=()=>{try{const values=Object.fromEntries(Object.entries(inputs).map(([key,input])=>[key,Number(input.value)]));if(Object.values(inputs).some(input=>input.value.trim()===''))throw new Error(t('noQuote'));
    const next=applyModelTariff({...priced,credits:priced.factoryCredits},{revision:data.revision,rules:{[priced.tariff.key]:{rates:values}}},{configuration:priced.tariff.configuration,units:priced.tariff.units});
-   preview.textContent=`${t('before')}: ${number(priced.credits)} → ${t('after')}: ${number(next.credits)} ${t('credits')}`;save.disabled=busy||!model.enabled||!Number.isSafeInteger(priced.factoryCredits);
+   preview.textContent=`${t('before')}: ${number(priced.credits)} → ${t('after')}: ${number(next.credits)} ${t('credits')}`;save.disabled=busy||!model.enabled||(model.id !== OMNI_MODEL && !Number.isSafeInteger(priced.factoryCredits));
   }catch{preview.textContent=t('noQuote');save.disabled=true;}};
   async function quote(){const id=++quoteId;priced=null;save.disabled=true;status.textContent=t('pending');const result=await apiAdminModelPricingQuote({modelId:model.id,settings},{signal:controller.signal});if(id!==quoteId||dialog!==panel)return;
    status.textContent=result.ok?'':result.error||t('unavailable');if(!result.ok)return;priced=result.data.price;calculation.replaceChildren(node('summary','',t('factoryCalculation')));for(const [key,label] of [['usdToEur','conversion'],['targetProfitMargin','margin'],['netEurPerCredit','netCredit']])if(Number.isFinite(priced.formula?.[key]))calculation.append(node('p','',`${t(label)}: ${number(key==='targetProfitMargin'?priced.formula[key]*100:priced.formula[key])}${key==='targetProfitMargin'?' %':''}`));calculation.hidden=calculation.childElementCount===1;scope.textContent=t('scope')+' '+Object.entries(priced.tariff.configuration).map(([key,value])=>`${t(key)}: ${t(String(value))}`).join(' · ')+'. '+t('unitScope');inputs={};breakdown.replaceChildren();rates.replaceChildren(node('legend','',t('rates')));

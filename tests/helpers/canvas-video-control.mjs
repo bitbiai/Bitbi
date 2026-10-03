@@ -1,3 +1,4 @@
+import { changeModelTariff, getModelTariff } from '../../workers/auth/src/lib/model-tariffs.js';
 import { verifyGrokOutputUpload } from './member-generation-control.mjs';
 import { encodeAdminMfaProofToken } from '../../workers/auth/src/lib/admin-mfa.js';
 import worker from '../../workers/auth/src/index.js';
@@ -8,9 +9,10 @@ import { saveGeneratedVideoAsset } from '../../workers/auth/src/lib/ai-text-asse
 
 const check = (value, message) => { if (!value) throw new Error(message); };
 export async function canvasVideoCase(base, name, fixture) {
+  const omni = name==='omni';
   const grok = fixture.model?.startsWith('xai/grok-imagine-video');
   const h3=name.startsWith('h3'), overrun=name.startsWith('h3-overrun'), continuation=h3 && name!=='h3' && !overrun;
-  const model = h3?'minimax/h3':grok ? fixture.model : 'pixverse/v6';
+  const model = omni?'google/gemini-omni-flash':h3?'minimax/h3':grok ? fixture.model : 'pixverse/v6';
   if (grok) name = `grok-${model.endsWith('preview')?'preview':'base'}-${fixture.operation}`;
   const owner = `canvas-video-${name}`, other = `${owner}-other`, now = new Date().toISOString();
   const db = base.DB, messages = [], requests = [], waits = [];
@@ -26,6 +28,7 @@ export async function canvasVideoCase(base, name, fixture) {
         const actual=new Uint8Array(await response.arrayBuffer());
         check(response.ok && actual.length===expected.length && actual.every((b,i)=>b===expected[i]),'Provider receives exact authorized source bytes');
       }
+      if(omni) {check(typeof body.video==='string' && !('duration' in body) && body.resolution==='720p','Independent Omni video editing uses the exact schema');const source=await worker.fetch(new Request(body.video),env,{});check(source.ok && (await source.arrayBuffer()).byteLength===bytes.length,'Owned original bytes reach Omni');}
       if (name === 'provider-interrupted') throw new Error('Synthetic lost provider response'); return { video: 'https://fixture.invalid/result.mp4' }; } },
     __TEST_FETCH: async (url, init) => {
       if(h3 && url===`https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/ai/run`) {
@@ -95,15 +98,19 @@ export async function canvasVideoCase(base, name, fixture) {
     await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,x,y,created_at,updated_at) VALUES(?,?,?,'music_generation',0,0,?,?)").bind(musicNode,pid,owner,now,now).run();
     await db.prepare("INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,'{\"purpose\":\"export_background_music\"}',?,?)").bind(musicEdge,pid,owner,musicNode,dest,now,now).run();
   }
+  if(omni) {
+    await db.prepare("INSERT INTO app_settings(key,value_json,updated_at,reason) VALUES('model_readiness:google/gemini-omni-flash',?,?,'Synthetic Canvas fixture') ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json").bind(JSON.stringify({revision:1,adminTestEnabled:false,adminTestCredits:null,enabled:{generation:true,image:false,frames:false,reference_images:false,video_edit:true,audio_reference:false,'720p':true,'360p':false,'1080p':false,'4k':false},acceptance:{},history:[]}),now).run();
+    await changeModelTariff(env,{id:owner},{action:'save',modelId:model,revision:(await getModelTariff(env)).revision,settings:{resolution:'720p',operation:'edit'},rates:{request:53}});
+  }
   const request = async (path, method='GET', body, user=owner, key=`canvas-video-${name}`) => {
-    const response = await worker.fetch(new Request('https://bitbi.ai'+path, { method, headers: { Cookie:`__Host-bitbi_session=${user}${user===owner && env.testProof ? '; __Host-bitbi_admin_mfa='+env.testProof : ''}`,Origin:'https://bitbi.ai','Content-Type':'application/json','Idempotency-Key':key },body:body?JSON.stringify(body):undefined }),env,{ waitUntil(p){ waits.push(p); } });
+    const response = await worker.fetch(new Request('https://bitbi.ai'+path, { method, headers: { Cookie:`__Host-bitbi_session=${user}${user===owner && env.testProof ? '; __Host-bitbi_admin_mfa='+env.testProof : ''}`,Origin:'https://bitbi.ai','Content-Type':'application/json','Idempotency-Key':key,'X-Bitbi-Tariff-Revision':String((await getModelTariff(env)).revision) },body:body?JSON.stringify(body):undefined }),env,{ waitUntil(p){ waits.push(p); } });
     return { status:response.status, body:await response.json() };
   };
   const projectPath = `/api/account/canvas/projects/${pid}`, runPath = `${projectPath}/nodes/${dest}/run`, edgePath = `${projectPath}/edges/${eid}`;
   check((await request(projectPath,'GET',null,other)).status===404,'Foreign project denied');
   let result,method;
   if(name==='first') await db.prepare('DELETE FROM canvas_edges WHERE id=?').bind(eid).run();
-  else if(!h3 || continuation) {
+  else if(!omni && (!h3 || continuation)) {
   if (continuation) {
     const selected=await request(edgePath,'PATCH',{config:{videoInput:{modelId:model,assetId:original.id,runId:'source-run',method:'last_frame'}}});
     if(name==='h3-foreign'){check(selected.status===404 && !requests.length,'Foreign H3 predecessor denied');return {name,status:'denied'};}
@@ -294,7 +301,7 @@ export async function canvasVideoCase(base, name, fixture) {
   {
     check(['succeeded','preview_pending'].includes(finalJob.status),`Background completion ${finalJob.status}/${finalJob.error_code}`);
     check(debits.n===1,'Exactly one credit debit');
-    const expectedCredits=h3?calculateAiVideoCreditCost(model,{duration:4,resolution:'768P'}).credits:grok?calculateAiVideoCreditCost(model,{_operation:method,duration:2,resolution:'480p',size:'848x480'}).credits:56;
+    const expectedCredits=omni?53:h3?calculateAiVideoCreditCost(model,{duration:4,resolution:'768P'}).credits:grok?calculateAiVideoCreditCost(model,{_operation:method,duration:2,resolution:'480p',size:'848x480'}).credits:56;
     check((await db.prepare("SELECT amount FROM member_credit_ledger WHERE user_id=? AND entry_type='consume'").bind(owner).first()).amount===-expectedCredits,'One exact central estimate debit; Pixverse price unchanged');
     if(grok) {
       check(requests.length===1 && requests[0].model===model && requests[0].body._operation===method,'One exact native model/operation');

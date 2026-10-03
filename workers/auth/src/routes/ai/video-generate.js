@@ -1,3 +1,6 @@
+import { OMNI_MODEL, normalizeOmniRequest, buildOmniProviderInput, parseOmniResult } from '../../../../../js/shared/gemini-omni-contract.mjs';
+import { assertOmniReady } from '../../lib/gemini-omni-readiness.js';
+import { quoteModelTariff } from '../../lib/model-tariffs.js';
 import { prepareVideoReferences } from '../../lib/private-video-references.js';
 import { H3_MODEL, normalizeH3Request, buildH3ProviderInput, parseH3Task, calculateH3CreditPricing } from '../../../../../js/shared/minimax-h3.mjs';
 import { recordVideoLateError } from '../../lib/h3-provider-result.js';
@@ -222,7 +225,7 @@ function normalizeModelId(value) {
     ? PIXVERSE_V6_MODEL_ID
     : String(value).trim();
   if (
-    modelId === H3_MODEL ||
+    modelId === OMNI_MODEL || modelId === H3_MODEL ||
     modelId === PIXVERSE_V6_MODEL_ID ||
     modelId === HAPPYHORSE_T2V_MODEL_ID ||
     modelId === SEEDANCE_2_FAST_MODEL_ID ||
@@ -535,6 +538,15 @@ async function normalizeMemberVideoBody(body) {
   }
   if (modelId === SEEDANCE_2_FAST_MODEL_ID || modelId === SEEDANCE_2_MODEL_ID) {
     return normalizeSeedanceBody(body, modelId);
+  }
+  if(modelId===OMNI_MODEL) {
+    const {folder_id,folderId,title,...request}=body;
+    const validated=normalizeOmniRequest(request);
+    return {modelId:OMNI_MODEL,modelLabel:'Gemini Omni Flash',vendor:'Google',provider:'ai_gateway_google',preset:validated.preset,
+      pricingSource:'admin_manual_retail',prompt:validated.prompt,resolution:validated.resolution,aspectRatio:validated.aspect_ratio,
+      operation:validated.operation,price:null,seed:null,generateAudio:null,watermark:null,workflow:'omni-'+validated.operation,
+      title:normalizeOptionalString(title,MAX_TITLE_LENGTH,'title')||titleFromPrompt(validated.prompt,'Gemini Omni video'),
+      folderId:normalizeFolderId({folder_id,folderId}),policyBody:validated};
   }
   if(modelId===H3_MODEL) {
     const {folder_id,folderId,title,...request}=body;
@@ -889,7 +901,7 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
 
   try {
     const result = await runWithGenerationTimeout((signal) => env.AI.run(modelId, payload, {
-      gateway: { id: "default", ...(modelId===H3_MODEL?{skipCache:true,collectLog:false}:{}) }, signal,
+      gateway: { id: "default", ...([H3_MODEL,OMNI_MODEL].includes(modelId)?{skipCache:true,collectLog:false}:{}) }, signal,
     }), {
       signal: callerSignal,
       onLateResult: value => {
@@ -942,7 +954,7 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
 async function persistVideoResult({ env, userId, input, providerResult, elapsedMs, correlationId }) {
   const existing = await existingGenerationAsset(env,userId,'video');
   if(existing) return existing;
-  const videoUrl = input.modelId===H3_MODEL?parseH3Task(providerResult).videoUrl:extractProviderVideoUrl(providerResult);
+  const videoUrl = input.modelId===OMNI_MODEL?parseOmniResult(providerResult).video:input.modelId===H3_MODEL?parseH3Task(providerResult).videoUrl:extractProviderVideoUrl(providerResult);
   if (!videoUrl) {
     const error = new Error("Video provider returned no savable video.");
     error.status = 502;
@@ -951,6 +963,7 @@ async function persistVideoResult({ env, userId, input, providerResult, elapsedM
   }
 
   const videoAsset = await cacheGenerationDownload(env,'video',videoUrl,()=>fetchRemoteAsset(env, videoUrl, {
+    allowInlineVideo: input.modelId===OMNI_MODEL,
     maxBytes: VIDEO_OUTPUT_MAX_BYTES,
     allowedContentTypes: VIDEO_OUTPUT_CONTENT_TYPES,
     label: "video",
@@ -1006,6 +1019,7 @@ async function persistVideoResult({ env, userId, input, providerResult, elapsedM
       generate_audio: input.generateAudio,
       watermark: input.watermark,
       hasImageInput: Boolean(input.imageInput),
+      ...(input.modelId===OMNI_MODEL ? {provider_interaction_id:parseOmniResult(providerResult).interactionId,provider_cost_usd:null} : {}),
       workflow: input.workflow || (input.imageInput ? "image-to-video" : "text-to-video"),
       operation:input.operation || "generate",
       elapsedMs,
@@ -1064,9 +1078,15 @@ export async function handleGenerateVideo(ctx) {
   let input;
   try {
     input = await normalizeMemberVideoBody(parsed.body);
-    if (isGrokVideo(input.modelId) || input.modelId===H3_MODEL) {
+    if (isGrokVideo(input.modelId) || [H3_MODEL,OMNI_MODEL].includes(input.modelId)) {
       const existing = generationExecution(env)?.job || await env.DB.prepare("SELECT source_refs_json FROM member_generation_jobs WHERE user_id=? AND media_type='video' AND request_key=?")
         .bind(userId,request.headers.get('Idempotency-Key') || '').first();
+      if (input.modelId===OMNI_MODEL) {
+        const owned = existing ? await env.DB.prepare('SELECT a.credit_cost FROM member_ai_usage_attempts_v2 a JOIN member_generation_jobs j ON j.usage_attempt_id=a.id WHERE j.user_id=? AND j.request_key=?').bind(userId,request.headers.get('Idempotency-Key') || '').first() : null;
+        if (!existing) await assertOmniReady(env,input.policyBody);
+        input.price = owned?.credit_cost ?? (await quoteModelTariff(env,{modelId:OMNI_MODEL,input:input.policyBody,request})).credits;
+        if (!Number.isSafeInteger(input.price) || input.price < 1) throw Object.assign(new Error('An Admin retail tariff is required for this Omni configuration.'),{status:409,code:'omni_tariff_required'});
+      }
       input.sourceRefs = existing ? JSON.parse(existing.source_refs_json || '[]') : await snapshotGrokVideoSources(env,session.user,input.policyBody);
     }
   } catch (error) {
@@ -1168,6 +1188,11 @@ export async function handleGenerateVideo(ctx) {
     }
   }
 
+  if (input.modelId===OMNI_MODEL && !Object.keys(JSON.parse(generationExecution(env)?.job.provider_receipts_json || '{}')).length) {
+    try { await assertOmniReady(env,input.policyBody); }
+    catch(error) { await usagePolicy.markProviderFailed({code:error.code,definitelyNotDispatched:true}); return respond({ok:false,code:error.code,error:error.message},{status:error.status||409}); }
+  }
+
   if (typeof usagePolicy.markProviderRunning === "function") {
     try {
       await usagePolicy.markProviderRunning();
@@ -1190,14 +1215,14 @@ export async function handleGenerateVideo(ctx) {
   }
 
   let providerPayload = buildProviderPayload(input);
-  if (isGrokVideo(input.modelId) || input.modelId===H3_MODEL) {
+  if (isGrokVideo(input.modelId) || [H3_MODEL,OMNI_MODEL].includes(input.modelId)) {
     let resolved;
     try { resolved = await resolveAdminAiGrokPreviewMediaSourcesForProvider(env,session.user,input.policyBody,{jobId:generationExecution(env)?.job.id,origin:new URL(request.url).origin,prepareOutput:Boolean(generationExecution(env))}); }
     catch(error) {
       if(error.code!=='h3_reference_preparing')await markVideoProviderFailed(usagePolicy,{code:error.code||'video_source_resolution_failed',message:'Video reference preparation failed.'});
       throw error;
     }
-    const {model, preset, ...parameters} = resolved; providerPayload = input.modelId===H3_MODEL?buildH3ProviderInput(resolved):parameters;
+    const {model, preset, ...parameters} = resolved; providerPayload = input.modelId===OMNI_MODEL?buildOmniProviderInput(resolved):input.modelId===H3_MODEL?buildH3ProviderInput(resolved):parameters;
   }
   const providerResponse = await invokeMemberVideoModel(env, input.modelId, providerPayload, { correlationId, userId, signal: request.signal, usagePolicy });
   if (!providerResponse.ok) {

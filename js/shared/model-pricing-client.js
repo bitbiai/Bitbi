@@ -1,7 +1,7 @@
 import { getBrowserTariff, setBrowserTariff, TARIFF_HEADER } from './model-tariff.mjs';
 
 let pending, epoch = 0, identity, blocked = false, adminAuthorized = false;
-const isAdminPage = () => location.pathname === '/admin/' || location.pathname === '/admin/index.html';
+const isAdminPage = () => ['/admin', '/admin/', '/admin/index.html'].includes(location.pathname);
 const canRefresh = () => !blocked && (!isAdminPage() || adminAuthorized);
 function clear() {
     epoch++; pending?.controller.abort(); pending = null;
@@ -47,11 +47,12 @@ function startRefresh() {
                 || data.ok === false || !Number.isSafeInteger(data.revision) || data.revision < 0
                 || !data.rules || typeof data.rules !== 'object' || Array.isArray(data.rules)) return;
             const previous = getBrowserTariff()?.revision;
+            const previousOmni = getBrowserTariff()?.omni?.revision;
             if (previous !== undefined && data.revision < previous) return;
             // Only retail data enters the estimator; Admin economics stay local
             // to its protected page. Never persist either response in storage.
-            setBrowserTariff({ revision:data.revision, rules:data.rules });
-            if (previous !== data.revision) window.dispatchEvent(new Event('bitbi:model-pricing'));
+            setBrowserTariff({ revision:data.revision, rules:data.rules, omni:data.omni || null });
+            if (previous !== data.revision || previousOmni !== data.omni?.revision) window.dispatchEvent(new Event('bitbi:model-pricing'));
         } catch { /* Server rejects stale quotes before new paid admission. */ }
         finally { clearTimeout(timer); if (pending === request) pending = null; }
     })();

@@ -1902,6 +1902,32 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
     gapSeverity: "P3",
     nextMigrationPhase: "Monitor live operator evidence; production readiness remains blocked.",
   }),
+  operation({
+    operationConfig: {
+      operationId: "internal.website_assistant.respond", featureKey: "website_assistant",
+      actorType: "platform", billingScope: AI_COST_GATEWAY_SCOPES.EXTERNAL,
+      providerFamily: "workers_ai", modelResolverKey: "website_assistant.approved_model",
+      creditCost: 0, costPolicy: "delegated_to_caller", quantity: 1,
+      idempotencyPolicy: "inherited", reservationPolicy: "not_supported",
+      replayPolicy: "disabled", failurePolicy: "manual_review", storagePolicy: "none",
+      observabilityEventPrefix: "website_assistant", routeId: "internal.website_assistant.respond",
+      routePath: "/api/public/assistant/chat",
+      notes: "Internal adapter only. Public chat and Admin acceptance callers require readiness and durable assistant-budget admission before invoking it. Zero member credits is not zero provider cost.",
+    },
+    sourceFiles: ["workers/auth/src/lib/website-assistant-provider.js"],
+    currentStatus: "implemented",
+    currentEnforcement: { reservation: "delegated", replay: "not_applicable", creditCheck: "not_applicable", providerSuppression: "delegated" },
+    budgetPolicy: budgetPolicy(AI_COST_BUDGET_SCOPES.INTERNAL_AI_WORKER_CALLER_ENFORCED, {
+      targetFuturePhase: "Keep assistant provider calls bound to the existing reviewed caller",
+      targetEnforcementStatus: "delegated",
+      targetEnforcement: { budgetLedger: "website-assistant-budget Durable Object", killSwitch: "assistant server mode and policy readiness" },
+      notes: "website-assistant.js reserves daily/monthly cost and request caps through website-assistant-budget.js before openAssistantModel. This inventory does not migrate or reset that ledger. Unknown outcomes retain the conservative reservation; no prompt/response history or automatic inference retry.",
+      dailyLimitTarget: "assistant policy dailyMicros/dailyRequests", monthlyLimitTarget: "assistant policy monthlyMicros/monthlyRequests",
+      killSwitchTarget: "assistant persisted mode plus activation prerequisites",
+    }),
+    routePolicy: null, currentGaps: [], gapSeverity: "P3",
+    nextMigrationPhase: "Real provider acceptance remains separately gated; no paid calls from inventory checks",
+  }),
 ]);
 
 export function validateAiCostOperationRegistry(entries = AI_COST_OPERATION_REGISTRY) {

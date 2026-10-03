@@ -2209,3 +2209,8 @@ export const apiAdminWebsiteAssistant = options => request('GET', '/admin/websit
 export const apiAdminWebsiteAssistantSave = (body, options) => request('PUT', '/admin/website-assistant/config', body, options);
 export const apiAdminWebsiteAssistantRestore = (body, options) => request('POST', '/admin/website-assistant/restore', body, options);
 export const apiAdminWebsiteAssistantCheck = options => request('POST', '/admin/website-assistant/check', {}, options);
+
+export function apiAiUploadReferenceVideo(file) {
+    const form=new FormData();form.append('file',file);
+    return requestForm('POST','/ai/reference-video',form).then(result=>{if(result.ok)notifyAssetStorageChanged();return result;});
+}

@@ -18,6 +18,7 @@ async function setup(page,baseURL,{gate=0}={}){
    let data={ok:true,stats:{}};
    if(url.pathname==='/api/me')data={loggedIn:!!user,user};
    else if(url.pathname==='/api/admin/me')return route.fulfill({status:gate||200,json:{ok:!gate,user}});
+   else if(url.pathname==='/api/admin/ai/model-status')data={ok:true,data:{models:[],pipeline:{active:0},sources:[],provider:{components:[],stale:true,observedAt:null},observedAt:new Date().toISOString(),freshForSeconds:300,unattributed:0,omni:await (await import('../workers/auth/src/lib/gemini-omni-readiness.js')).getOmniReadiness(env)}};
    else if(url.pathname==='/api/model-pricing')data={ok:true,...await tariff.getModelTariff(env)};
    else if(url.pathname==='/api/account/canvas/projects')data={ok:true,data:{projects:[project]}};
    else if(url.pathname==='/api/account/canvas/models')data={ok:true,data:{models:canvasModels,organizations:[],access:{role:'admin',is_admin:true}}};
@@ -25,7 +26,7 @@ async function setup(page,baseURL,{gate=0}={}){
    else if(url.pathname===`/api/account/canvas/projects/${project.id}/nodes/${node.id}/run`)data={ok:true,data:{run:{id:'c'.repeat(32),node_id:node.id,status:'succeeded',output:null}}};
    else if(url.pathname.startsWith('/api/account/credits-dashboard'))data={ok:true,dashboard:{balance:{totalCredits:1000}}};
    else if(url.pathname==='/api/admin/ai/model-pricing'&&req.method()==='GET')data={ok:true,...await response()};
-   else if(url.pathname==='/api/admin/ai/model-pricing'&&req.method()==='PATCH')data={ok:true,...await tariff.changeModelTariff(env,user,req.postDataJSON())};
+   else if(url.pathname==='/api/admin/ai/model-pricing'&&req.method()==='PATCH')data=req.postDataJSON().action==='omni_readiness'?{ok:true,omni:await (await import('../workers/auth/src/lib/gemini-omni-readiness.js')).changeOmniReadiness(env,user,req.postDataJSON())}:{ok:true,...await tariff.changeModelTariff(env,user,req.postDataJSON())};
    else if(url.pathname==='/api/admin/ai/model-pricing/quote'){const {modelId,settings}=req.postDataJSON();data={ok:true,price:await tariff.quoteModelTariff(env,{modelId,input:settings})};}
    return route.fulfill({json:data});
   }catch(e){return route.fulfill({status:e.status||400,json:{ok:false,code:e.code,error:e.message}});}
@@ -195,4 +196,42 @@ test('pricing conflict preserves editor; a new retail snapshot refreshes existin
  }
  const cleared=await page.evaluate(async()=>{const client=await import('/js/shared/model-pricing-client.js'),math=await import('/js/shared/model-tariff.mjs');await client.refreshModelPricing();const original=window.fetch;let finish;window.fetch=()=>new Promise(resolve=>{finish=resolve;});try{const pending=client.refreshModelPricing();client.modelPricingSession('/logout',{ok:true},{});finish(new Response(JSON.stringify({revision:99,rules:{private:{modelId:'private-admin'}}}),{status:200}));await pending;return math.getBrowserTariff();}finally{window.fetch=original;}});expect(cleared).toBe(null);
  }finally{f.DB.close();}
+});
+
+test('@canvas-model-ui Omni final retail tariff has unknown provider cost and no duration or second margin',async({page,baseURL})=>{
+ const f=await setup(page,baseURL);
+ try {
+  await open(page);await root(page).getByRole('searchbox').fill('Gemini Omni');
+  await root(page).locator('.model-pricing__row').click();const dialog=page.getByRole('dialog',{name:'Gemini Omni Flash',exact:true});
+  await expect(dialog.locator('.model-pricing__breakdown')).toContainText('Not verified');
+  await expect(dialog.locator('[name=duration]')).toHaveCount(0);
+  await expect(dialog.locator('[name=operation] option')).toHaveCount(5);
+  await dialog.locator('input[step="0.00000001"]').fill('37');await expect(dialog.locator('.model-pricing__preview')).toContainText('37');
+  await dialog.getByRole('button',{name:'Save tariff',exact:true}).click();await expect(dialog).toHaveCount(0);
+  const saved=f.calls.find(c=>c.method==='PATCH');expect(saved.body).toMatchObject({modelId:'google/gemini-omni-flash',rates:{request:37},settings:{resolution:'720p',operation:'text'}});
+  expect((await f.tariff.quoteModelTariff(f.env,{modelId:'google/gemini-omni-flash'})).providerCostUsd).toBe(null);
+  await root(page).locator('.model-pricing__row').click();await dialog.getByRole('button',{name:'Reset configuration',exact:true}).click();
+  expect((await f.tariff.quoteModelTariff(f.env,{modelId:'google/gemini-omni-flash'})).credits).toBe(null);
+  expect(f.errors).toEqual([]);
+ } finally {f.DB.close();}
+});
+
+
+test('@canvas-model-ui Omni Model Status persists explicit Admin test settings without inference',async({page,baseURL})=>{
+ const f=await setup(page,baseURL);
+ try {
+  await page.setViewportSize({width:390,height:844});await page.goto('/admin/index.html#model-status');
+  const controls=page.locator('[data-omni-controls]');await expect(controls).toContainText('Admin paid testing: off');
+  await controls.getByLabel('Enable explicitly initiated paid Admin tests').check();
+  await controls.getByLabel('Reserved platform-budget units per test (not a verified USD cost)').fill('29');
+  await controls.getByLabel('Change / acceptance note').fill('Synthetic test authorization only');
+  await controls.getByRole('button',{name:'Save Admin test settings'}).click();await expect(controls).toContainText('Active revision 1');
+  await page.reload();await expect(controls).toContainText('Admin paid testing: enabled');
+  await expect(controls.getByLabel('Reserved platform-budget units per test (not a verified USD cost)')).toHaveValue('29');
+  await controls.getByLabel('Change / acceptance note').fill('Synthetic explicit deactivation');
+  await controls.getByLabel('Enable explicitly initiated paid Admin tests').uncheck();await controls.getByRole('button',{name:'Save Admin test settings'}).click();
+  await expect(controls).toContainText('Admin paid testing: off');
+  expect(f.calls.filter(c=>c.method!=='GET').map(c=>c.path)).toEqual(['/api/admin/ai/model-pricing','/api/admin/ai/model-pricing']);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect(f.errors).toEqual([]);
+ } finally {f.DB.close();}
 });

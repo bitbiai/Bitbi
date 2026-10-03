@@ -38,6 +38,8 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ["js/shared/appearance-contract.js", ["auth"]],
   ["js/shared/model-pricing-catalog.mjs", ["auth"]],
   ["js/shared/model-tariff.mjs", ["auth", "ai"]],
+  ["js/shared/gemini-omni-contract.mjs", ["auth", "ai"]],
+  ["js/shared/gemini-omni-pricing.mjs", ["auth"]],
   ["workers/shared/ai-caller-policy.mjs", ["auth", "ai"]],
   ["workers/shared/fable-chat-contract.mjs", ["auth", "ai"]],
   ["workers/shared/fable-chat-memory-contract.mjs", ["auth", "ai"]],
@@ -125,6 +127,18 @@ const CANVAS_UI_FILES = new Set([
 // Closed Canvas generation/provider/storage integration scope. Unknown runtime/billing inputs
 // continue through ordinary impact selection; chat and native D1 are exercised.
 const CANVAS_TEXT_FILES = new Set([
+  'js/shared/model-pricing-catalog.mjs', 'js/shared/model-pricing-client.js',
+  'js/shared/models-overlay.js', 'workers/auth/src/routes/ai.js',
+  'workers/shared/website-assistant-content.mjs', 'tests/website-assistant-knowledge.test.mjs',
+  // Omni shares the existing Canvas/Admin/member generation and pricing callers.
+  'js/shared/gemini-omni-contract.mjs', 'js/shared/gemini-omni-pricing.mjs',
+  'js/shared/omni-reference-upload.js', 'js/pages/admin/gemini-omni-controls.js', 'js/pages/admin/gemini-omni-lab.js',
+  'js/pages/admin/model-pricing.js', 'js/pages/admin/model-status.js',
+  'workers/auth/src/lib/gemini-omni-readiness.js', 'workers/auth/src/lib/gemini-omni-media.js',
+  'workers/auth/src/routes/ai/reference-video-upload.js', 'workers/auth/src/routes/model-pricing.js',
+  'tests/q2-gemini-omni.spec.js', 'tests/helpers/omni-model-controls.cjs',
+  'tests/model-pricing-runtime.mjs', 'tests/oma2-q3-model-pricing.spec.js',
+
   // Member music uses the existing Canvas/member native and dual-engine jobs.
   // No media-container or decorative homepage inputs change in this slice.
   'js/shared/member-music-contract.mjs', 'js/shared/member-music-controls.js',
@@ -236,7 +250,7 @@ const CANVAS_TEXT_FILES = new Set([
   'workers/auth/src/lib/canvas-media-storage.js',
   'workers/auth/src/lib/canvas-video-input.js',
   'workers/auth/src/lib/canvas-video-output.js',
-  'workers/auth/src/lib/ai-cost-operations.js', 'scripts/test-ai-cost-policy.mjs',
+  'workers/auth/src/lib/ai-cost-operations.js', 'scripts/test-ai-cost-policy.mjs', 'scripts/test-ai-cost-operations.mjs',
   'workers/auth/src/lib/member-generation-jobs.js',
   'workers/auth/src/lib/member-generation-storage.js',
   'workers/auth/src/lib/r2-cleanup.js',

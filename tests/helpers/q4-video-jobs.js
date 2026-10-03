@@ -45,7 +45,7 @@ function controlledClock() {
   };
 }
 
-async function videoFixture(provider, { download, filename } = {}) {
+async function videoFixture(provider, { download, filename, payload, prepare } = {}) {
   const db = new SqliteD1Database(filename ? { filename } : undefined);
   applyAuthMigrations(db);
   const now = new Date().toISOString();
@@ -71,8 +71,9 @@ async function videoFixture(provider, { download, filename } = {}) {
   } };
   const jobs = await load('workers/auth/src/lib/ai-video-jobs.js');
   const worker = (await load('workers/auth/src/index.js')).default;
+  if(prepare)await prepare(env,admin);
   const { job } = await jobs.createAdminAiVideoJob({ env, adminUser: admin,
-    payload: { model: 'pixverse/v6', prompt: 'Synthetic Q4 video', duration: 5, aspect_ratio: '16:9', quality: '720p', generate_audio: true },
+    payload: payload || { model: 'pixverse/v6', prompt: 'Synthetic Q4 video', duration: 5, aspect_ratio: '16:9', quality: '720p', generate_audio: true },
     idempotencyKey: 'q4-video-intent', correlationId: 'q4-video-fixture' });
   const message = env.AI_VIDEO_JOBS_QUEUE.messages.shift();
   return { env, db, jobs, worker, job, message, calls,

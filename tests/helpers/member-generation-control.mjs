@@ -1,3 +1,5 @@
+import { changeModelTariff, getModelTariff } from '../../workers/auth/src/lib/model-tariffs.js';
+import { OMNI_MODEL } from '../../js/shared/gemini-omni-contract.mjs';
 import worker from '../../workers/auth/src/index.js';
 import {calculateAiVideoCreditCost} from '../../js/shared/ai-model-pricing.mjs';
 import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
@@ -46,7 +48,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET:'synthetic-member-poster-secret-not-live',
     AI_VIDEO_JOBS_QUEUE:{async send(body){messages.push(body);}},
     AI_IMAGE_DERIVATIVES_QUEUE:{async send(){}},
-    AI:{async run(model,payload,options){check(model!=='minimax/h3','H3 must use REST, never binding');calls.provider++;await duringProvider(model,payload);if(model.startsWith('xai/grok-imagine-video'))try{await verifyGrokOutputUpload(env,payload,videoBytes);}catch(error){calls.fixtureFailure=error.message;throw error;}if(kind==='image'||kind==='music')return {image:(model==='xai/grok-imagine-image-2.0'||model.startsWith('openai/gpt-image-2.5-'))?`data:image/png;base64,${fixture.imageBase64||png}`:fixture.imageBase64||png};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');return {video_url:'https://fixture.invalid/member.mp4'};}},
+    AI:{async run(model,payload,options){check(model!=='minimax/h3','H3 must use REST, never binding');calls.provider++;await duringProvider(model,payload);if(model.startsWith('xai/grok-imagine-video'))try{await verifyGrokOutputUpload(env,payload,videoBytes);}catch(error){calls.fixtureFailure=error.message;throw error;}if(kind==='image'||kind==='music')return {image:(model==='xai/grok-imagine-image-2.0'||model.startsWith('openai/gpt-image-2.5-'))?`data:image/png;base64,${fixture.imageBase64||png}`:fixture.imageBase64||png};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');if(model===OMNI_MODEL)return {state:'Completed',result:{video:name.startsWith('omni-')?'data:video/mp4;base64,'+fixture.videoBase64:'https://fixture.invalid/member.mp4'},interaction_id:'synthetic-explicit-interaction'};return {video_url:'https://fixture.invalid/member.mp4'};}},
     AI_SERVICE_AUTH_SECRET:'synthetic-service-secret-not-live',
     AI_LAB:{async fetch(request){calls.provider++;if(name==='music-failed')return Response.json({ok:false,code:'provider_rejected',error:'Synthetic confirmed rejection'},{status:422,headers:{'x-bitbi-provider-outcome':'failed'}});const input=await request.json();return Response.json({ok:true,result:{audioBase64:'SUQzBAAAAAAA',mimeType:'audio/mpeg',mode:'song',durationMs:1000},model:{id:input.model},preset:'music_studio'});}},
     CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),H3_CLOUDFLARE_API_TOKEN:`synthetic-h3-${name}-not-live`,
@@ -79,8 +81,8 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     }
     return execute();
   });
-  if(['finalization-response-lost','storage-restart','clock-finalization-expired'].includes(name)) env.DB=interceptDb(db,async(sql,execute)=>{
-    if(fail && ['storage-restart','clock-finalization-expired'].includes(name) && sql.includes('INSERT INTO ai_text_assets')) {fail=false;throw new Error('synthetic database unavailable before asset insertion');}
+  if(['finalization-response-lost','storage-restart','omni-storage-restart','clock-finalization-expired'].includes(name)) env.DB=interceptDb(db,async(sql,execute)=>{
+    if(fail && ['storage-restart','omni-storage-restart','clock-finalization-expired'].includes(name) && sql.includes('INSERT INTO ai_text_assets')) {fail=false;throw new Error('synthetic database unavailable before asset insertion');}
     const result=await execute();
     if(fail && name==='finalization-response-lost' && sql.includes("SET status = 'succeeded'") && sql.includes("result_save_reference = ?")) {fail=false;throw new Error('synthetic finalized reply lost');}
     return result;
@@ -115,6 +117,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   await grantMemberCredits({env,userId:owner,amount:2000,createdByUserId:owner,idempotencyKey:`grant-${name}-synthetic`});
   const fetch = (path,options={})=>worker.fetch(new Request('https://bitbi.ai'+path,options),env,{waitUntil(){throw new Error('No detached HTTP work allowed');}});
   const headers={'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:`bitbi_session=${owner}`,'Idempotency-Key':`member-${name}-idempotency`,Prefer:'respond-async'};
+  headers['X-Bitbi-Tariff-Revision']=String((await getModelTariff(env)).revision);
   if(name.startsWith('h3-rejection-'))headers['Idempotency-Key']=`canvas-video-${name}`;
   if(name.startsWith('admin-lab-')){
     const denied=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body:JSON.stringify({prompt:'Fixture'})});
@@ -125,6 +128,21 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   }
   const abort=new AbortController();
   const input=fixture.input || (kind==='video'?{prompt:'Synthetic backend-only fixture',duration:5,quality:'720p',generate_audio:true}:kind==='image'?{prompt:'Synthetic backend-only image'}:{prompt:'Synthetic instrumental track',instrumental:true});
+  if(input.model===OMNI_MODEL) {
+    input.resolution='720p';input.aspect_ratio='16:9';
+    await db.prepare("DELETE FROM app_settings WHERE key='model_readiness:google/gemini-omni-flash'").run();
+    const blocked=await fetch('/api/ai/generate-video',{method:'POST',headers,body:JSON.stringify(input)});
+    check(blocked.status===409 && (await blocked.json()).code==='omni_capability_disabled','Unaccepted Omni is blocked before reservation');
+    check(calls.provider===0 && messages.length===0,'Readiness never calls provider');
+    // Explicit synthetic readiness, never a live acceptance claim.
+    await db.prepare("INSERT INTO app_settings(key,value_json,updated_at,reason) VALUES('model_readiness:google/gemini-omni-flash',?,?,'Synthetic native fixture') ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json").bind(JSON.stringify({revision:1,adminTestEnabled:false,adminTestCredits:null,enabled:{generation:true,image:false,frames:false,reference_images:name==='omni-references',video_edit:name==='omni-references',audio_reference:name==='omni-references','720p':true,'360p':false,'1080p':false,'4k':false},acceptance:{},history:[]}),now).run();
+    const tariff=await getModelTariff(env);
+    await changeModelTariff(env,{id:owner},{action:'save',modelId:OMNI_MODEL,revision:tariff.revision,settings:{resolution:'720p',operation:name==='omni-references'?'edit':'text'},rates:{request:37}});
+    headers['X-Bitbi-Tariff-Revision']=String(tariff.revision+1);
+    duringProvider=async(model,payload)=>{
+      check(model===OMNI_MODEL && JSON.stringify(payload)===JSON.stringify({text:input.prompt,aspect_ratio:'16:9',resolution:'720p'}),'Exact Omni binding payload, no duration or seed');
+    };
+  }
   if(name.startsWith('asset-naming-')) input.prompt='a  little worm in a pile of leaves';
   if(name.startsWith('asset-naming-') && name.includes('manual')) input.title='My deliberately long manual video name';
   let sourceUrl=null,callbackUrl=null;
@@ -148,13 +166,13 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
       check(Boolean(held),'Native managed cleanup retains the accepted source');
     };
   }
-  if(name==='h3-references') {
+  if(['h3-references','omni-references'].includes(name)) {
     const image=bytes(fixture.h3ImageBase64),video=bytes(fixture.h3VideoBase64),audio=new Uint8Array(64044),view=new DataView(audio.buffer);
     const text=(offset,value)=>audio.set(new TextEncoder().encode(value),offset);
     text(0,'RIFF');view.setUint32(4,audio.length-8,true);text(8,'WAVEfmt ');view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);view.setUint32(24,16000,true);view.setUint32(28,32000,true);view.setUint16(32,2,true);view.setUint16(34,16,true);text(36,'data');view.setUint32(40,64000,true);
     input.references=[];const sourceKeys=[];
     for(const [media,data,mime] of [['image',image,'image/png'],['video',video,'video/mp4'],['audio',audio,'audio/wav']]) {
-      const assetId=(await sha256Hex('h3-'+media)).slice(0,32),key=`users/${owner}/source-${media}`;sourceKeys.push(key);
+      const assetId=(await sha256Hex(name+'-'+media)).slice(0,32),key=`users/${owner}/source-${media}`;sourceKeys.push(key);
       await env.USER_IMAGES.put(key,data,{httpMetadata:{contentType:mime}});
       if(media==='image')await db.prepare("INSERT INTO ai_images(id,user_id,prompt,model,r2_key,size_bytes,created_at) VALUES(?,?,?,'synthetic',?,?,?)").bind(assetId,owner,'Synthetic frame',key,data.length,now).run();
       else await db.prepare("INSERT INTO ai_text_assets(id,user_id,title,file_name,mime_type,size_bytes,r2_key,source_module,created_at) VALUES(?,?,?,'source',?,?,?,?,?)").bind(assetId,owner,'Synthetic reference',mime,data.length,key,media==='audio'?'music':'video',now).run();
@@ -163,9 +181,10 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     const foreign=await fetch('/api/ai/generate-video',{method:'POST',headers:{...headers,'Idempotency-Key':'h3-foreign'},body:JSON.stringify({...input,references:[{role:'reference_audio',source:{source_type:'saved_asset',asset_id:'foreign-missing'}}]})});
     check(foreign.status===404&&calls.provider===0,'Unowned references rejected before provider');
     duringProvider=async(model,payload)=>{
-      check(payload.content.map(c=>c.role||'text').join(',')==='text,reference_image,reference_video,reference_audio','Reference order and distinct roles preserved');
+      if(input.model===OMNI_MODEL)check(payload.text===input.prompt && payload.reference_images.length===1 && !!payload.audio && !!payload.video && !('duration' in payload),'Exact Omni reference shape');
+      else check(payload.content.map(c=>c.role||'text').join(',')==='text,reference_image,reference_video,reference_audio','Reference order and distinct roles preserved');
       for(let i=0;i<3;i++) {
-        const entry=payload.content[i+1],url=entry[entry.type].url;
+        const entry=input.model===OMNI_MODEL?null:payload.content[i+1],url=input.model===OMNI_MODEL?[payload.reference_images[0],payload.video,payload.audio][i]:entry[entry.type].url;
         const res=await fetch(new URL(url).pathname);check(res.ok,'Pinned source privately readable by provider');
         const expected=[image,video,audio][i],actual=new Uint8Array(await res.arrayBuffer());
         check(actual.length===expected.length&&actual.every((v,j)=>v===expected[j]),'Exact original reference bytes, not poster');
@@ -384,7 +403,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check(credits.n===1 && calls.provider===(bundledCover?2:1),'One media debit and no repeated cover generation');
     return {name,calls,status:(await row()).status,debits:credits.n};
   }
-  if(['debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart','clock-finalization-expired'].includes(name)) {
+  if(['debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart','omni-storage-restart','clock-finalization-expired'].includes(name)) {
     check(!fail,'The requested interruption was actually injected');
     check((await row()).status==='queued',`Retryable checkpoint: ${(await row()).status} ${(await row()).error_code}`);
     if(name==='unpublished-asset') {
@@ -400,7 +419,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     env.__TEST_FETCH=async()=>{throw new Error('Provider URL expired after the first saved download');};
     await db.prepare("UPDATE member_generation_jobs SET next_attempt_at='2000-01-01T00:00:00.000Z',locked_until=NULL WHERE id=?").bind(id).run();
     await deliver();
-    check(calls.download===1,'Resume uses retained download, not an expiring provider URL');
+    check(calls.download===(name==='omni-storage-restart'?0:1),'Resume uses retained download, not an expiring provider URL');
   }
   if(name==='provider-unknown') {
     await db.prepare("UPDATE member_generation_jobs SET next_attempt_at='2000-01-01T00:00:00.000Z',locked_until=NULL WHERE id=?").bind(id).run();
@@ -488,8 +507,12 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const credits=await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
   check(credits.n===1 && calls.provider===1,'One successful generation debit, no poster debit');
   if(input.model?.startsWith('xai/grok-imagine-video')){const debit=await db.prepare('SELECT amount FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();check(debit.amount===-calculateAiVideoCreditCost(input.model,input).credits,'Admin personal payer is charged the central model estimate once');}
-  check((await db.prepare('SELECT COUNT(*) AS n FROM ai_text_assets WHERE user_id=?').bind(owner).first()).n===(name==='h3-references'?3:1),'One generated owner asset plus the explicitly seeded reference assets');
+  check((await db.prepare('SELECT COUNT(*) AS n FROM ai_text_assets WHERE user_id=?').bind(owner).first()).n===(['h3-references','omni-references'].includes(name)?3:1),'One generated owner asset plus the explicitly seeded reference assets');
   await checkName(await db.prepare('SELECT * FROM ai_text_assets WHERE id=?').bind(id).first(),id);
+  if(input.model===OMNI_MODEL) {
+    check((await db.prepare('SELECT amount FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).amount===-37,'Fixed accepted retail price without inferred duration');
+    const stored=await nativeEnv.USER_IMAGES.get(finished.r2_key);check(new Uint8Array(await stored.arrayBuffer()).every((v,i)=>v===videoBytes[i]),'Omni durable decoded fixture bytes');
+  }
   if(sourceUrl)check((await fetch(new URL(sourceUrl).pathname)).status===410,'Completed input capability revoked');
   const completion={name,calls,status:(await row()).status,debits:credits.n,ownerDenied:denied.status};
   if(name==='closed-browser') {
@@ -506,7 +529,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
 export default {async fetch(request,env) {
   if(request.method!=='POST'||request.headers.get('x-q2-control')!==env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
   const {name,...fixture}=await request.json();
-  if(!/^(admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})|flux-(success|schema|5006|http400|transport))$/.test(name) && !['h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-references','h3-callback-failed','h3-callback','h3-failed','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
+  if(!/^(admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})|flux-(success|schema|5006|http400|transport))$/.test(name) && !['omni-inline','omni-storage-restart','omni-references','h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-references','h3-callback-failed','h3-callback','h3-failed','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
   return Response.json(await memberGenerationCase(env,name,fixture));
 }};
 

@@ -112,11 +112,11 @@ assert.equal(musicParent.currentEnforcement.idempotency, "implemented");
 const summary = summarizeAiCostOperationRegistry();
 assert.deepEqual(summary, {
   version: "ai-cost-operations-2026-05-15",
-  totalOperations: 33,
-  providerCostOperations: 33,
+  totalOperations: 34,
+  providerCostOperations: 34,
   memberOperations: 7,
   organizationOperations: 2,
-  adminPlatformOperations: 24,
+  adminPlatformOperations: 25,
   currentMissingMandatoryIdempotency: 0,
   currentMissingReservation: 0,
   currentNoReplay: 0,
@@ -128,7 +128,7 @@ assert.deepEqual(summary, {
     platform_admin_lab_budget: 9,
     platform_background_budget: 0,
     openclaw_news_pulse_budget: 2,
-    internal_ai_worker_caller_enforced: 11,
+    internal_ai_worker_caller_enforced: 12,
     explicit_unmetered_admin: 1,
     external_provider_only: 0,
   },
@@ -521,3 +521,9 @@ assert(providerSourceFiles.includes("workers/ai/src/routes/video-task.js"));
 }
 
 console.log("AI cost operation registry tests passed.");
+
+const assistantAdapter=AI_COST_OPERATION_REGISTRY.find(entry=>entry.operationConfig.operationId==='internal.website_assistant.respond');
+assert.deepEqual(assistantAdapter.sourceFiles,['workers/auth/src/lib/website-assistant-provider.js']);
+assert.equal(assistantAdapter.operationConfig.costPolicy,'delegated_to_caller');
+assert.equal(assistantAdapter.currentEnforcement.reservation,'delegated');
+assert.equal(assistantAdapter.budgetPolicy.temporaryBaselineAllowed,false);

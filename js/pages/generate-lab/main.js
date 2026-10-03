@@ -1,3 +1,5 @@
+import { OMNI_MODEL, omniReferences as validateOmniReferences, omniSettings } from '../../shared/gemini-omni-contract.mjs';
+import { omniMemberAvailable } from '../../shared/gemini-omni-pricing.mjs';
 import { isGptImage25Model, normalizeGptImage25Options } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
 import { imageDimensionChoices } from '../../shared/image-dimensions.mjs?v=__ASSET_VERSION__';
 import { H3_MODEL, h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
@@ -272,13 +274,30 @@ function currentImageDimensionValue(ref, fallback, { min = 64, max = 2048 } = {}
     return parsed ?? fallback;
 }
 
-let grokVideoControls, h3Controls;
+let grokVideoControls, h3Controls, omniControls;
+let omniReferences=[], omniDraftOwner, omniDraftSettings;
+function readOmniDraft() {
+    const owner=state.user?.id || null;
+    if (owner===omniDraftOwner)return;
+    omniDraftOwner=owner;omniReferences=[];omniDraftSettings=null;
+    if (!owner)return;
+    try { const saved=JSON.parse(sessionStorage.getItem('bitbi_omni_settings:'+owner));
+        if(saved){omniReferences=validateOmniReferences(saved.references);omniDraftSettings=omniSettings(saved);}
+    } catch { /* Invalid local preferences cannot authorize server inputs. */ }
+}
+function saveOmniDraft() {
+    if (state.modelId!==OMNI_MODEL || !state.user?.id || state.user.id!==omniDraftOwner)return;
+    try { omniDraftSettings=omniSettings({resolution:refs.videoQuality.value,aspect_ratio:refs.videoAspect.value});
+        sessionStorage.setItem('bitbi_omni_settings:'+omniDraftOwner,JSON.stringify({...omniDraftSettings,references:omniControls.values()}));
+    } catch { /* A disabled browser store does not block the workspace. */ }
+}
+
 let h3References=[];
 function currentVideoEstimateValues(model = selectedModel()) {
     const controls = model.controls || {};
     const values = {
         ...(model.id.startsWith("xai/grok-imagine-video") ? grokVideoControls?.values() : {}),
-        duration: Number(refs.videoDuration?.value || model.defaults?.duration || 5),
+        ...(model.id===OMNI_MODEL?{references:omniControls?.values()||[]}:{duration:Number(refs.videoDuration?.value || model.defaults?.duration || 5)}),
     };
     if (controls.resolutionField === 'resolution') {
         values.resolution = refs.videoQuality?.value || model.defaults?.resolution;
@@ -565,6 +584,7 @@ function updateAccountPanel() {
 
 function updateActionState() {
     const price = currentCreditEstimate();
+    const omniBlocked=selectedModel().id===OMNI_MODEL&&!omniMemberAvailable(currentVideoEstimateValues());
     const insufficient = state.creditBalance !== null && state.creditBalance < price;
     const gptSelected = isSelectedGptImage2();
     const supportsImageReferences = selectedModel().mediaType === 'image' && selectedModel().controls?.supportsReferenceImages === true;
@@ -597,7 +617,8 @@ function updateActionState() {
         refs.generate.textContent = state.loggedIn
             ? (insufficient ? localeText('generateLab.insufficientCredits') : localeText('generateLab.generate'))
             : localeText('generateLab.signInToGenerate');
-        refs.generate.disabled = state.loggedIn && (insufficient || price === null);
+        refs.generate.disabled = state.loggedIn && (insufficient || price === null || omniBlocked);
+        if(omniBlocked&&state.loggedIn)refs.generate.textContent=getCurrentLocale()==='de'?'Noch nicht freigegeben':'Not activated';
         refs.generate.setAttribute('aria-label', localeText('generateLab.generateAria', { label: refs.generate.textContent, cost: formatCredits(price) }));
     }
 }
@@ -837,9 +858,13 @@ function syncVideoOptionState({ reset = false } = {}) {
         if(h3References.some(ref=>['first_frame','last_frame'].includes(ref.role)))refs.videoAspect.value='adaptive';updateActionState();
     }});
     h3Controls.sync(model.id===H3_MODEL,state.busy);
+    readOmniDraft();
+    if(!omniControls)omniControls=createH3ReferenceControls({omni:true,anchor:referenceField,de:document.documentElement.lang==='de',pick:openGrokSources,read:()=>omniReferences,write:value=>{omniReferences=value;},changed:()=>{saveOmniDraft();updateActionState();}});
+    omniControls.sync(model.id===OMNI_MODEL,state.busy);
+    if(refs.videoDuration?.closest('label'))refs.videoDuration.closest('label').hidden=model.id===OMNI_MODEL;
 
     const supportsNegative = controls.supportsNegativePrompt === true;
-    const supportsReference = controls.supportsImageInput === true && model.id!==H3_MODEL;
+    const supportsReference = controls.supportsImageInput === true && ![H3_MODEL,OMNI_MODEL].includes(model.id);
     const supportsSeed = controls.supportsSeed === true;
     const supportsAudio = controls.supportsAudioToggle === true;
     const supportsWatermark = controls.supportsWatermark === true;
@@ -878,14 +903,14 @@ function syncVideoOptionState({ reset = false } = {}) {
         const selected = reset
             ? (model.defaults?.[resolutionField] || resolutionValues[0])
             : (refs.videoQuality.value || model.defaults?.[resolutionField]);
-        setSelectOptions(refs.videoQuality, resolutionValues, selected);
+        setSelectOptions(refs.videoQuality, resolutionValues, model.id===OMNI_MODEL && reset ? omniDraftSettings?.resolution || selected : selected);
         refs.videoQuality.disabled = state.busy;
     }
     if (refs.videoAspect) {
         const selected = reset
             ? (model.defaults?.[aspectField] || aspectValues[0])
             : (refs.videoAspect.value || model.defaults?.[aspectField]);
-        setSelectOptions(refs.videoAspect, aspectValues, selected);
+        setSelectOptions(refs.videoAspect, aspectValues, model.id===OMNI_MODEL && reset ? omniDraftSettings?.aspect_ratio || selected : selected);
         refs.videoAspect.disabled = state.busy;
     }
     if (refs.videoSeed) {
@@ -1992,7 +2017,7 @@ async function generateVideo(prompt, observation) {
         model: model.id,
         prompt,
         ...(model.id.startsWith("xai/grok-imagine-video") ? grokVideoControls?.values() : {}),
-        duration: Number(refs.videoDuration?.value || model.defaults?.duration || 5),
+        ...(model.id===OMNI_MODEL?{references:omniControls?.values()||[]}:{duration:Number(refs.videoDuration?.value || model.defaults?.duration || 5)}),
     };
     if (controls.resolutionField === 'resolution') {
         payload.resolution = refs.videoQuality?.value || model.defaults?.resolution;
@@ -2019,7 +2044,8 @@ async function generateVideo(prompt, observation) {
     if (model.id.startsWith('xai/grok-imagine-video')) {
         if (!grokVideoControls.valid()) return {ok:false,error:document.documentElement.lang==='de'?'Ein Originalvideo ist erforderlich.':'An original video is required.'};
         Object.assign(payload,grokVideoControls.values());
-    } else if(model.id===H3_MODEL)payload.references=h3Controls.values();
+    } else if(model.id===OMNI_MODEL)payload.references=omniControls.values();
+    else if(model.id===H3_MODEL)payload.references=h3Controls.values();
     else if (controls.supportsImageInput && state.videoReferenceDataUri) payload.image_input = state.videoReferenceDataUri;
     const folderId = refs.folderSelect?.value || '';
     if (folderId) payload.folder_id = folderId;
@@ -2074,6 +2100,7 @@ async function handleGenerate() {
         try { validateElevenLabsMemberBody(elevenLabsMemberBody(state.elevenLabsMusic, prompt)); }
         catch { setMessage(getCurrentLocale() === 'de' ? 'Bitte Kompositionsplan und Musikeinstellungen prüfen.' : 'Check the composition plan and music settings.', 'error'); return; }
     }
+    if (state.modelId === OMNI_MODEL && !omniMemberAvailable(currentVideoEstimateValues())) { setMessage(getCurrentLocale() === 'de' ? 'Für diese Referenzen und Auflösung fehlen Tarif oder Freigabe.' : 'These references and resolution need an approved tariff and activation.', 'error'); return; }
     const price = currentCreditEstimate();
     if (price === null) { setMessage(getCurrentLocale() === 'de' ? 'Für diese Einstellungen ist kein gültiger Preis verfügbar. Transparenz erfordert PNG oder WebP.' : 'A valid price is unavailable for these settings. Transparency requires PNG or WebP.', 'error'); return; }
     if (state.creditBalance !== null && state.creditBalance < price) {
@@ -2246,6 +2273,7 @@ async function loadQuota() {
         if(owner!==state.user?.id || version!==sessionLoadVersion)return;
         state.creditBalance = null;
     }
+    readOmniDraft();
     updateAccountPanel();
     updateActionState();
 }
@@ -2266,6 +2294,7 @@ async function loadSession() {
         state.user = null;
         state.sessionExpired = false;
     }
+    readOmniDraft();
     updateAccountPanel();
     updateActionState();
     renderPostAuthHint({
@@ -2312,8 +2341,8 @@ function bindEvents() {
         renderImageReferenceSlots();
     });
     refs.videoDuration?.addEventListener('change', updateActionState);
-    refs.videoQuality?.addEventListener('change', updateActionState);
-    refs.videoAspect?.addEventListener('change', updateActionState);
+    refs.videoQuality?.addEventListener('change', () => { saveOmniDraft(); updateActionState(); });
+    refs.videoAspect?.addEventListener('change', () => { saveOmniDraft(); updateActionState(); });
     refs.videoAudio?.addEventListener('change', updateActionState);
     refs.videoSeed?.addEventListener('input', updateActionState);
     refs.videoWatermark?.addEventListener('change', updateActionState);

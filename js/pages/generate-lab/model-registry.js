@@ -1,3 +1,4 @@
+import { OMNI_MODEL, OMNI_RESOLUTIONS, OMNI_RATIOS, OMNI_ROLES } from '../../shared/gemini-omni-contract.mjs';
 import { H3_MODEL, H3_ROLES, H3_RESOLUTIONS, H3_RATIOS } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { sortGenerationModels } from '../../shared/generation-model-order.mjs?v=__ASSET_VERSION__';
 import { imageDimensionChoices } from '../../shared/image-dimensions.mjs?v=__ASSET_VERSION__';
@@ -460,7 +461,16 @@ const h3Model = Object.freeze({
     controls:{supportsImageInput:true,supportsVideoInput:true,supportsAudioInput:true,supportsReferenceImages:true,referenceRoles:H3_ROLES,maxReferenceImages:9,maxPromptLength:7000,resolutionField:'resolution',aspectField:'aspectRatio'},
     estimateCredits:values=>estimateModelCredits('video',H3_MODEL,{...values,aspect_ratio:values.aspectRatio}),
 });
+const omniModel = Object.freeze({
+    id:OMNI_MODEL,displayName:'Gemini Omni Flash',mediaType:'video',provider:'Google / Cloudflare',route:'/api/ai/generate-video',outputType:'video',status:'PREVIEW',
+    summary:DE?'Video mit Bildern und Medienreferenzen. Verfügbarkeit hängt von Freigabe und Tarif ab.':'Video with images and media references. Availability requires acceptance and a configured tariff.',
+    capabilities:DE?['Bis zu 10 geordnete Bildreferenzen','Anfangs-/Endbild, Video und Audio','Ton im Prompt beschreiben']:['Up to 10 ordered reference images','First/last frames, video and audio','Describe generated audio in the instruction'],
+    defaults:{resolution:'720p',aspectRatio:'16:9'},options:{resolution:OMNI_RESOLUTIONS,aspectRatio:OMNI_RATIOS},
+    controls:{supportsImageInput:true,supportsVideoInput:true,supportsAudioInput:true,supportsReferenceImages:true,supportsDuration:false,referenceRoles:OMNI_ROLES,maxReferenceImages:10,maxPromptLength:7000,resolutionField:'resolution',aspectField:'aspectRatio'},
+    estimateCredits:values=>estimateModelCredits('video',OMNI_MODEL,{...values,aspect_ratio:values.aspectRatio}),
+});
 const modelDefinitions = Object.freeze([
+    omniModel,
     h3Model,
     ...imageModels,
     pixverseV6Model,

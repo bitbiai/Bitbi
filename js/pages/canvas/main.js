@@ -1,3 +1,6 @@
+import { uploadOmniReference } from '../../shared/omni-reference-upload.js';
+import { OMNI_MODEL, OMNI_ROLES } from '../../shared/gemini-omni-contract.mjs';
+import { omniMemberAvailable } from '../../shared/gemini-omni-pricing.mjs';
 import { isGptImage25Model } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
 import { sortGenerationModels } from '../../shared/generation-model-order.mjs?v=__ASSET_VERSION__';
 import { imageDimensionChoices } from '../../shared/image-dimensions.mjs?v=__ASSET_VERSION__';
@@ -453,6 +456,15 @@ function displayNodeOutput(node, visited = new Set()) {
     return resolved;
 }
 
+function omniCanvasInput(node) {
+    const analysis = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id);
+    return { resolution: node.config?.resolution || '720p', aspect_ratio: node.config?.aspectRatio || '16:9',
+        references: (analysis?.compatible || []).filter(source => source.assetId).map(source => ({ role: source.h3Role, source: { source_type: 'saved_asset', asset_id: source.assetId } })) };
+}
+function omniCanvasBlocked(node) {
+    return node.model_id === OMNI_MODEL && !omniMemberAvailable(omniCanvasInput(node));
+}
+
 function renderInputContext(node, analysis) {
     const section = el('section', 'canvas-input-context');
     section.append(el('strong', '', copy.connectedInput));
@@ -463,14 +475,21 @@ function renderInputContext(node, analysis) {
                 ? `${source.sourceTitle}: ${source.inputKind}`
                 : `${source.sourceTitle}: ${source.reason}`;
             section.append(el('p', '', message));
-            if(analysis.model?.id===H3_MODEL && source.assetId && source.kind !== 'video_asset') {
+            if([H3_MODEL,OMNI_MODEL].includes(analysis.model?.id) && source.assetId && (analysis.model?.id===OMNI_MODEL || source.kind !== 'video_asset')) {
                 const select=el('select','canvas-select');select.dataset.h3Role=source.edgeId;
                 const media=source.kind==='video_asset'?'video':source.kind==='audio_asset'?'audio':'image';
-                for(const role of H3_ROLES.filter(role=>h3MediaType(role)===media)){const option=el('option');option.value=role;option.textContent=h3RoleLabel(role,isGerman);select.append(option);}
+                for(const role of (analysis.model?.id===OMNI_MODEL?OMNI_ROLES:H3_ROLES).filter(role=>h3MediaType(role)===media)){const option=el('option');option.value=role;option.textContent=h3RoleLabel(role,isGerman);select.append(option);}
                 select.value=source.h3Role;section.append(field(isGerman?'Eingaberolle':'Input role',select));
+                if(analysis.model.id===OMNI_MODEL){
+                    const order=analysis.sources.filter(item=>item.assetId).map(item=>item.edgeId),index=order.indexOf(source.edgeId);
+                    const up=el('button','canvas-button',isGerman?'Nach oben':'Move up');up.type='button';up.disabled=index<=0;
+                    up.addEventListener('click',()=>{[order[index-1],order[index]]=[order[index],order[index-1]];scheduleNode(node,{config:{...node.config,omniOrder:order}});renderGraph();renderInspector();});section.append(up);
+                }
+
                 select.addEventListener('change',()=>{
-                    const config={...node.config,h3Roles:{...node.config.h3Roles,[source.edgeId]:select.value}};
-                    if(['first_frame','last_frame'].includes(select.value))config.aspectRatio='adaptive';
+                    const roleKey=analysis.model.id===OMNI_MODEL?'omniRoles':'h3Roles';
+                    const config={...node.config,[roleKey]:{...node.config[roleKey],[source.edgeId]:select.value}};
+                    if(analysis.model.id===H3_MODEL&&['first_frame','last_frame'].includes(select.value))config.aspectRatio='adaptive';
                     scheduleNode(node,{config});renderGraph();renderInspector();
                     dom.inspector.querySelector(`[data-h3-role="${source.edgeId}"]`)?.focus({preventScroll:true});
                 });
@@ -593,7 +612,7 @@ function renderInspector() {
             const updateCost = () => {
                 let estimate = model.estimatedCredits;
                 try {
-                    if (capability === 'video' && model.runnable) estimate = calculateAiVideoCreditCost(model.id, { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, resolution: node.config?.resolution || model.controls.defaultResolution, aspect_ratio: node.config?.aspectRatio || model.controls.defaultAspectRatio, generateAudio: node.config?.generateAudio !== false })?.credits;
+                    if (capability === 'video' && model.runnable) estimate = calculateAiVideoCreditCost(model.id, model.id === OMNI_MODEL ? omniCanvasInput(node) : { ...node.config, duration: Number(node.config?.duration || model.controls.duration.default), quality: node.config?.quality || model.controls.defaultQuality, resolution: node.config?.resolution || model.controls.defaultResolution, aspect_ratio: node.config?.aspectRatio || model.controls.defaultAspectRatio, generateAudio: node.config?.generateAudio !== false })?.credits;
                     if (capability === 'image' && model.runnable) estimate = calculateAiImageCreditCost(model.id, { ...node.config, ...(isGptImage25Model(model.id) ? { prompt: workflowAnalysis.byNode.get(node.id)?.effectivePrompt || undefined } : {}), source_images: undefined, referenceImageCount: (node.config?.source_images?.length || 0) + (workflowAnalysis.byNode.get(node.id)?.compatible?.filter(item => item.inputKind === 'image_reference').length || 0) })?.credits;
                     if (capability === 'music' && model.runnable) estimate = calculateAiModelCreditCost({ mediaType:'music', modelId:model.id, params:model.id === 'elevenlabs/music-v2' ? elevenLabsMemberBody(node.config || {}) : node.config || {} })?.credits;
                     if (capability === 'text' && model.runnable) estimate = estimateCanvasTextCredits(model.id, { ...node.config, systemPrompt: getCanvasTextInstructions(node.config), prompt: analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id)?.effectivePrompt || "" });
@@ -679,7 +698,8 @@ function renderInspector() {
             const duration = inputControl(node.config?.duration ?? model?.controls?.duration?.default ?? 5, 'number'); duration.min = String(model?.controls?.duration?.min || 1); duration.max = String(model?.controls?.duration?.max || 15); bindConfig(node, duration, 'duration', Number);
             const ratios = model?.controls?.aspectRatioOptions?.length ? model.controls.aspectRatioOptions : ['16:9', '9:16', '1:1'];
             const ratio = selectControl(ratios.map((value) => ({ value, label: value })), node.config?.aspectRatio || model?.controls?.defaultAspectRatio || '16:9'); bindConfig(node, ratio, 'aspectRatio');
-            grid.append(field(copy.duration, duration), field(copy.aspectRatio, ratio));
+            if(model.id!==OMNI_MODEL)grid.append(field(copy.duration, duration));
+            grid.append(field(copy.aspectRatio, ratio));
             const c = model?.controls || {}, key = c.resolutionField === 'quality' ? 'quality' : 'resolution';
             const options = key === 'quality' ? c.qualityOptions : c.resolutionOptions;
             const fallback = key === 'quality' ? c.defaultQuality : c.defaultResolution;
@@ -705,15 +725,25 @@ function renderInspector() {
         const videoState = canvasVideoRunState(store.state.runs, node.id, videoCopy);
         const status = el('div', 'canvas-run-status', runningNodeId === node.id ? copy.running : videoState.message); status.id = 'canvasNodeRunStatus'; status.setAttribute('role', 'status'); dom.inspector.append(status);
         const run = el('button', 'canvas-button canvas-button--primary', runningNodeId === node.id ? copy.running : copy.run);
-        run.type = 'button'; run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || Boolean(inputContext.validation); run.addEventListener('click', () => void runSelectedNode(node)); dom.inspector.append(run);
-        prompt.addEventListener('input', () => {
+        run.type = 'button'; run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || omniCanvasBlocked(node) || Boolean(inputContext.validation); run.addEventListener('click', () => void runSelectedNode(node)); dom.inspector.append(run);
+        const updateRun = () => {
             const current = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id);
-            run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || Boolean(validationForNode(node, current, copy));
-        });
+            run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || omniCanvasBlocked(node) || Boolean(validationForNode(node, current, copy));
+            if (node.model_id === OMNI_MODEL) {
+                run.textContent = omniCanvasBlocked(node) ? (isGerman ? 'Tarif oder Freigabe fehlt' : 'Tariff or acceptance required') : copy.run;
+                run.title = isGerman ? 'Verbundene Referenzen und Auflösung benötigen Freigabe und einen Admin-Tarif.' : 'Connected references and resolution require acceptance and an Admin tariff.';
+            }
+        };
+        updateRun();
+        dom.inspector.addEventListener('input', updateRun, { signal: inspectorAbort.signal });
+        window.addEventListener('bitbi:model-pricing', updateRun, { signal: inspectorAbort.signal });
     }
 
     if (node.type === 'asset_reference') {
         const choose = el('button', 'canvas-button', copy.selectAsset);
+        const upload=inputControl('','file');upload.accept='image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime,audio/mpeg,audio/wav';
+        upload.addEventListener('change',async()=>{const file=upload.files[0],project=store.state.project;upload.value='';if(!file)return;upload.disabled=true;try{const asset=await uploadOmniReference(file);if(store.state.project===project&&selectedNode()===node)await assignAsset({node,isCurrent:()=>store.state.project===project&&selectedNode()===node},asset);}catch(error){showToast(isGerman?'Referenz konnte nicht gespeichert werden.':error.message);}finally{upload.disabled=false;}});
+        dom.inspector.append(field(isGerman?'Privates Medium hochladen':'Upload private media',upload));
         choose.id = 'canvasAssetChoose'; choose.type = 'button'; choose.setAttribute('aria-haspopup', 'dialog');
         choose.addEventListener('click', () => {
             const project = store.state.project;
@@ -945,6 +975,7 @@ async function assignAsset(context, asset) {
 }
 
 async function runSelectedNode(node) {
+    if (omniCanvasBlocked(node)) return showToast(isGerman ? 'Tarif oder Freigabe fehlt.' : 'Tariff or acceptance required.');
     if (runningNodeId || projectTransition || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked) return;
     // Freeze editing only while the exact graph for this run is being saved.
     // The API request itself is not treated as cancelled by a browser close.

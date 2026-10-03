@@ -1,3 +1,4 @@
+import { getOmniReadiness, getPublicOmniReadiness, changeOmniReadiness } from '../lib/gemini-omni-readiness.js';
 import { providerPriceEvidence } from '../lib/model-provider-prices.js';
 import { applyModelTariff } from '../../../../js/shared/model-tariff.mjs';
 import { requireAdmin, getSessionUser } from '../lib/session.js';
@@ -14,7 +15,7 @@ export async function handleModelPricing(ctx) {
         const session = await getSessionUser(request, env);
         const admin = session?.user?.role === 'admin' && session.user.status === 'active';
         const tariff = await getModelTariff(env), publicIds = new Set(modelPricingCatalog().filter(model => model.member).map(model => model.id));
-        return reply({ ...tariff, rules: Object.fromEntries(Object.entries(tariff.rules).filter(([, rule]) => admin || publicIds.has(rule.modelId))) });
+        return reply({ ...tariff, omni: await getPublicOmniReadiness(env), rules: Object.fromEntries(Object.entries(tariff.rules).filter(([, rule]) => admin || publicIds.has(rule.modelId))) });
     }
     if (!pathname.startsWith('/api/admin/ai/model-pricing')) return null;
     const session = await requireAdmin(request, env, { isSecure, correlationId });
@@ -27,11 +28,14 @@ export async function handleModelPricing(ctx) {
                 catch { return { ...model, factory: null, providerEvidence:providerPriceEvidence(model,null) }; }
             });
             const observations = await env.DB.prepare('SELECT model_id, source_url, observed_at, status FROM model_provider_price_observations').all();
-            return reply({ ...tariff, models, observations: observations.results || [] });
+            return reply({ ...tariff, omni: await getOmniReadiness(env), models, observations: observations.results || [] });
         }
         const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.smallJson });
         if (parsed.response) return parsed.response;
-        if (pathname === '/api/admin/ai/model-pricing' && method === 'PATCH') return reply(await changeModelTariff(env, session.user, parsed.body));
+        if (pathname === '/api/admin/ai/model-pricing' && method === 'PATCH') {
+            if (parsed.body.action === 'omni_readiness') return reply({ omni: await changeOmniReadiness(env, session.user, parsed.body) });
+            return reply(await changeModelTariff(env, session.user, parsed.body));
+        }
         if (pathname === '/api/admin/ai/model-pricing/quote' && method === 'POST') {
             const { modelId, settings = {} } = parsed.body;
             const model = modelPricingCatalog().find(m=>m.id===modelId);

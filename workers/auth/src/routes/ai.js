@@ -1,3 +1,4 @@
+import { handleReferenceVideoUpload } from './ai/reference-video-upload.js';
 import { retryMemberVideoPoster } from '../lib/member-generation-posters.js';
 import { json } from '../lib/response.js';
 import { readMemberGenerationJobs } from "../lib/member-generation-jobs.js";
@@ -65,6 +66,8 @@ export async function handleAI(ctx) {
   if (pathname === "/api/ai/generate-music" && method === "POST") {
     return handleGenerateMusic(ctx);
   }
+  // route-policy: ai.reference-video.upload
+  if(pathname === '/api/ai/reference-video' && method === 'POST')return handleReferenceVideoUpload(ctx);
   // route-policy: ai.generate-video
   if (pathname === "/api/ai/generate-video" && method === "POST") {
     return handleGenerateVideo(ctx);

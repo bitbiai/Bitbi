@@ -765,6 +765,48 @@ All charged member/organization paths, Admin organization-image admission and Ad
 
 Actual callers: static.yml model-pricing selection runs the four pricing/SQL cases, selected existing member/org/Admin accounting cases and isolated native `--suite model-pricing`; the existing browser job discovers/executes pricing controls, MFA/access denial, cross-surface estimates, real Canvas/member request headers, conflict and logout fences in Chromium/WebKit against the candidate. Reports are siblings of disposable Playwright artifacts and candidate proof rejects missing/failed/skipped/zero-case execution. Launcher/staging, selector, release-plan and candidate counterchecks retain unknown/security breadth, exact bytes and protected 0094 → AI → Auth → frontend continuation. No media image is selected for unchanged processor inputs. Local macOS workerd acceptance is not Linux CI or production acceptance.
 
+Omni extension (2026-10-03, owner-revised scope): unknown provider metering is not
+a guessed retail tariff. Exact `google/gemini-omni-flash` uses manual fixed
+operation/resolution credits in this same ledger, pins admission and settles that
+accepted amount without another margin. Admin testing has a separate explicit
+platform reservation; member admission additionally checks durable capability and
+resolution acceptance. `q2-gemini-omni.spec.js` rejects absent prices, unsupported
+controls, fabricated interaction IDs, unowned/unexercised acceptance and stale
+writes, and proves tariff edits/reset cannot reprice accepted work. Native
+member-generation66/model-pricing10/Canvas85 passed on the working candidate with
+real local D1/R2/queue boundaries and synthetic decoded media, including URL/inline
+storage, ownership, reference bytes, one debit and no second inference on recovery.
+
+The rendered Admin countercheck found `/admin` missing from the price-client Admin
+route predicate: it fetched public data while `/admin/` and `/admin/index.html`
+were recognized. All three forms now retain the protected Admin pricing context.
+The actual AI service adapter countercheck also found Omni missing from the
+private Gateway-options branch; it now explicitly disables content logging/cache.
+Canvas's independent-edit sources have no frame-extraction method; contributor
+metadata now checks that a method exists before reading it. Native Canvas Omni
+editing exercises this actual boundary. Admin inline output pins the existing
+job output key before R2 storage, preserving its managed cleanup reference.
+
+Actual callers are the existing Canvas/model selection in static.yml: focused
+Worker contracts, native member-generation/model-pricing/Canvas and tagged
+Chromium/WebKit UI. Selection, candidate and workflow counterchecks require
+execution, including pricing, and retain failed/skipped/missing-case rejection.
+Budget guards stay unchanged: new Admin integration code lives in a focused module.
+The public Models fixture excludes runtime-unapproved models and has a positive
+activation plus missing-tariff countercheck. No decorative Hero tests were added.
+No paid provider call or live Omni acceptance occurred; production is deliberately
+disabled until owner configuration/acceptance. See the release runbook's Omni
+section and the external `bitbi-gemini-omni-flash-checkpoint` for final source and
+publication evidence; local tests are not deployment receipts.
+
+The final built-candidate check passed all 16 Omni browser cases in Chromium and
+WebKit (EN/DE). It also exposed the public knowledge model list inheriting a
+runtime-gated model: that static list now excludes unverified runtime entries,
+with a bilingual knowledge countercheck in the existing selected Worker caller.
+The cost-policy caller exposed an existing omitted assistant adapter inventory;
+its existing durable caller budget is now explicitly inventoried (no ledger or
+activation change), with registry and unknown-provider-source guards retained.
+
 ### Global segment appearance and browser-cache authority (2026-09-21)
 
 Global settings use the existing app_settings row and atomic revision/CAS plus Admin audit; public reads expose only safe theme values. Five segments share one route/resolver and semantic paint layer. Defaults remain Dark; personal editing is server-denied. A higher disk-cache revision must not defeat the first confirmed server response, while an older in-flight response must never roll back a newer confirmed save. Page lifecycle aborts are released before resume so an aborted request cannot suppress revalidation. Theme changes update paint only and preserve drafts, Canvas identity and private media.

@@ -632,7 +632,10 @@ assert.throws(()=>verifyLaterAttempt({...run,conclusion:'failure'},[{name:'deplo
 {
   const {verifyCanvasTextReport,verifyCanvasCandidateReports,requiredJobs}=await import('./pages-candidate.mjs');
   const suite=(result=true)=>({suites:[{specs:['canvas.spec.js','oma2-q1-canvas.spec.js','auth-admin.spec.js','smoke.spec.js','oma2-q1-member.spec.js'].map((file,i)=>({id:String(i),file,tests:['chromium','webkit-canvas'].map(projectName=>({projectName,results:result?[{status:'passed'}]:[]}))}))}]});
-  const report=suite(),discovery=suite(false);verifyCanvasTextReport(report,discovery);
+  const report=suite(),discovery=suite(false);
+  assert.throws(()=>verifyCanvasTextReport(report,discovery),/Missing required Admin discovery/);
+  for(const [data,executed] of [[report,true],[discovery,false]])data.suites[0].specs.push({id:'omni-pricing',file:'oma2-q3-model-pricing.spec.js',tests:['chromium','webkit-pricing'].map(projectName=>({projectName,results:executed?[{status:'passed'}]:[]}))});
+  verifyCanvasTextReport(report,discovery);
   const names=['test-results/candidate-assets.json','test-results/candidate-auth.json'];
   verifyCanvasCandidateReports(names,[{suites:[]},report],discovery);
   assert.throws(()=>verifyCanvasCandidateReports(names,[report,{suites:[]}],discovery));

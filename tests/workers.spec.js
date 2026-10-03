@@ -6190,7 +6190,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     const modulePath = pathToFileURL(path.join(process.cwd(), 'js/shared/canvas-model-contract.mjs')).href;
     const { listCanvasModels, getCanvasModel, getCanvasModelForRole, CANVAS_FABLE_MAX_OUTPUT_TOKENS } = await import(modulePath);
     const models = listCanvasModels();
-    // Independent membership oracle: GPT Image 2.5 added both runnable aliases.
+    // Independent membership oracle: Omni adds an integrated, runtime-gated adapter.
     // Exact IDs also reject duplicate/substituted models, not only a stale count.
     expect(models.map(({ id }) => id).sort()).toEqual([
       'xai/grok-4.6',
@@ -6209,6 +6209,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
       'black-forest-labs/flux-2-max',
       'openai/gpt-image-2.5-sunburst',
       'openai/gpt-image-2.5-flare',
+      'google/gemini-omni-flash',
       'minimax/h3',
       'pixverse/v6',
       'vidu/q3-pro',

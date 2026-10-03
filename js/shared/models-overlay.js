@@ -1,3 +1,6 @@
+import { OMNI_MODEL } from './gemini-omni-contract.mjs';
+import { omniMemberVisible } from './gemini-omni-pricing.mjs';
+import './model-pricing-client.js';
 /* ============================================================
    BITBI — Shared models overlay
    Reusable across the homepage and any page that mounts
@@ -20,7 +23,7 @@ function statusLabelForMemberModel() {
 
 function buildCatalogSignature() {
     return JSON.stringify({
-        locale: getCurrentLocale(),
+        locale: getCurrentLocale(), omni: omniMemberVisible(),
     });
 }
 
@@ -29,7 +32,7 @@ function buildModelCatalog() {
         category: localeText(categoryKey),
         side,
         models: getMemberExposedModelsByMediaType(task)
-            .filter((model) => model?.id)
+            .filter((model) => model?.id && (model.id !== OMNI_MODEL || omniMemberVisible()))
             .map((model) => ({
                 id: model.id,
                 name: model.label || model.id,
@@ -152,6 +155,7 @@ function configureCatalog() {
 }
 
 function open() {
+    configureCatalog();
     if (isOpen) return;
     isOpen = true;
 
@@ -242,6 +246,7 @@ export function initModelsOverlay(root = document) {
 
     document.addEventListener('keydown', handleKey);
     window.addEventListener('hashchange', syncModelsHash);
+    window.addEventListener('bitbi:model-pricing', () => { const reopen = isOpen; configureCatalog(); if (reopen) open(); });
 
     if (window.location.hash === '#models') {
         requestAnimationFrame(syncModelsHash);

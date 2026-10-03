@@ -1,3 +1,4 @@
+import { OMNI_MODEL, buildOmniProviderInput, parseOmniResult } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { H3_MODEL, buildH3ProviderInput, parseH3Task } from '../../../../js/shared/minimax-h3.mjs';
 // @ts-check
 
@@ -738,11 +739,12 @@ function buildVideoRunOptions(env, model) {
   if (!model?.proxied) return undefined;
   if (
     model.id === H3_MODEL
+    || model.id === OMNI_MODEL
     || model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID
     || model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID
   ) {
     // Private source/output capabilities must never enter Gateway request logs.
-    return { gateway: { id: getAiGatewayId(env), collectLog: false, ...(model.id===H3_MODEL?{skipCache:true}:{}) } };
+    return { gateway: { id: getAiGatewayId(env), collectLog: false, ...([H3_MODEL,OMNI_MODEL].includes(model.id)?{skipCache:true}:{}) } };
   }
   return { gateway: { id: DEFAULT_AI_GATEWAY_ID } };
 }
@@ -1091,6 +1093,7 @@ function buildGrokImagineVideo15PreviewPayload(input) {
  * @returns {BuiltVideoPayload}
  */
 export function buildVideoPayload(model, input) {
+  if(model.id===OMNI_MODEL) { const {correlationId,...body}=input; return {payload:buildOmniProviderInput(body),normalized:{...body,workflow:'omni-'+body.operation}}; }
   if(model.id===H3_MODEL)return {payload:buildH3ProviderInput(input),normalized:{...input,hasImageInput:(input.references||[]).some(r=>r.role.includes('frame')||r.role==='reference_image'),hasVideoInput:(input.references||[]).some(r=>r.role==='reference_video'),workflow:'h3-generation'}};
   if (model.id === ADMIN_AI_VIDEO_MODEL_ID) {
     const payload = {
@@ -1220,6 +1223,10 @@ async function runWorkersAiVideoOnce(env, model, input, request, startedAt, runO
     payload_keys: Object.keys(request.payload).sort().join(","),
   });
   const raw = await runWithGenerationTimeout((signal) => env.AI.run(model.id, request.payload, { ...runOptions, signal }));
+  if(model.id===OMNI_MODEL) {
+    const result=parseOmniResult(raw);
+    return {...buildVideoTaskResult({status:'succeeded',request,startedAt,videoUrl:result.video,providerTaskId:null,providerState:'Completed'}),providerInteractionId:result.interactionId};
+  }
   if(model.id===H3_MODEL) {
     const task=parseH3Task(raw);
     return {...buildVideoTaskResult({status:task.pending?'provider_pending':task.failed?'failed':'succeeded',request,startedAt,videoUrl:task.videoUrl,providerTaskId:task.taskId,providerState:task.state,retryAfterSeconds:60}),outputSeconds:task.outputSeconds,resolution:task.resolution};

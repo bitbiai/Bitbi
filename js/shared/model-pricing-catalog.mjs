@@ -1,3 +1,5 @@
+import { OMNI_MODEL, OMNI_OPERATIONS } from './gemini-omni-contract.mjs';
+import { omniFactoryPrice } from './gemini-omni-pricing.mjs';
 import { listAdminAiCatalog } from './admin-ai-contract.mjs';
 import { listCanvasModels, estimateCanvasTextCredits } from './canvas-model-contract.mjs';
 import { getMemberExposedModels } from './member-model-exposure.mjs';
@@ -41,6 +43,7 @@ export function modelFactoryPrice(modelId, input = {}, { credits, context = 'can
         const price = gptImage25FactoryPrice(model.id, input);
         return { model, price, basis: mediaTariffBasis(price, 'image', input) };
     }
+    if (model.id === OMNI_MODEL) { const price = omniFactoryPrice(input); return { model, price, basis: mediaTariffBasis(price, 'video', input) }; }
     const c = model.controls;
     if (model.kind === 'video') {
         input.duration ??= c.duration?.default ?? c.defaultDuration ?? 5;
@@ -77,12 +80,12 @@ export function modelPricingControls(model) {
     const number = (key, min, max, value, step=1) => fields.push({key,min,max,step,default:value});
     for (const key of ['resolution','quality','size']) { const value=c['default'+key[0].toUpperCase()+key.slice(1)]; const options=c[key+'Options']; choice(key,key==='size' && options?.length && typeof value!=='string' ? ['',...options] : options,key==='size' && typeof value!=='string' ? '' : value); }
     if (isGptImage25Model(model.id)) for (const key of ['background','outputFormat']) choice(key,c[key+'Options'],c['default'+key[0].toUpperCase()+key.slice(1)]);
-    choice('operation',isGptImage25Model(model.id) ? ['generate','edit'] : c.availableOperations?.length ? c.availableOperations : ['generate'],'generate');
-    if (model.kind === 'video') number('duration',c.duration?.min ?? c.minDuration ?? 1,c.duration?.max ?? c.maxDuration ?? 15,c.duration?.default ?? c.defaultDuration ?? 5);
+    choice('operation',isGptImage25Model(model.id) ? ['generate','edit'] : model.id === OMNI_MODEL ? OMNI_OPERATIONS : c.availableOperations?.length ? c.availableOperations : ['generate'],model.id === OMNI_MODEL ? 'text' : 'generate');
+    if (model.kind === 'video' && model.id !== OMNI_MODEL) number('duration',c.duration?.min ?? c.minDuration ?? 1,c.duration?.max ?? c.maxDuration ?? 15,c.duration?.default ?? c.defaultDuration ?? 5);
     if (c.supportsAudioToggle) choice('generateAudio',[true,false],c.defaultGenerateAudio !== false);
     if (c.supportsDimensions) for (const key of ['width','height']) number(key,c.minDimension||64,c.maxDimension||2048,c.defaultSize?.[key]||1024);
     if (c.supportsSteps) number('steps',1,c.maxSteps||8,c.defaultSteps||4);
-    if (c.supportsReferenceImages) number('referenceImageCount',0,c.maxReferenceImages||4,0);
+    if (c.supportsReferenceImages && model.id !== OMNI_MODEL) number('referenceImageCount',0,c.maxReferenceImages||4,0);
     if (model.id.includes('flux-2-') && model.id !== '@cf/black-forest-labs/flux-2-dev') number('inputImageMegapixels',0,32,0,0.000001);
     if (model.id === 'xai/grok-imagine-image') number('n',1,10,1);
     if (model.kind === 'text' || model.kind === 'embeddings') number('previewInputTokens',1,100000,1);

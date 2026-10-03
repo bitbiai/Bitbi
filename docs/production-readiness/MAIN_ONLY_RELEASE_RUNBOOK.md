@@ -366,3 +366,64 @@ Allowed direct-main release verdicts:
 - `ROLLBACK REQUIRED`
 
 Do not use `PRODUCTION READY` as an automatic result. Production/live billing readiness remains blocked until all production, Stripe, restore, alert, WAF/RUM, legal/accounting, and remediation evidence gates are complete and reviewed.
+
+## Gemini Omni Flash: disabled publication and manual activation
+
+The owner-approved integration targets only `google/gemini-omni-flash` through the
+existing Cloudflare binding/Gateway. Admin Lab, Generate Lab and Canvas share
+`js/shared/gemini-omni-contract.mjs`: text, first/last frames, ten ordered image
+references, independent video editing and audio references; 16:9/9:16 and
+360p/720p/1080p/4k. These are implemented adapter inputs, not live provider
+acceptance. Generated audio is requested in the instruction, separately from an
+uploaded audio reference. There is no duration, seed or audio-toggle parameter;
+4k is an output choice, not a native-render claim. Stateful
+`previous_interaction_id` continuation is deferred. Only an explicit returned
+interaction field is preserved; job/asset/Gateway IDs are never substituted.
+
+Release AI → Auth → the tested frontend using the existing protected continuation.
+No new migration, secret, resource or media deployment is needed. Missing model
+acceptance or pricing blocks inference, not publication. Website-assistant public
+off is independent and must remain off. Default Omni readiness in `app_settings`
+is off for Admin tests and every member capability/resolution.
+
+In English Admin, use Model Pricing to set **final credits per request** for each
+Omni operation/resolution. No factory price is guessed and no second margin is
+applied. Reset removes that member tariff and blocks new admissions for it.
+Provider cost remains unknown. Existing accepted quotes keep their pinned tariff,
+including after edits/reset; uncertain dispatches are never regenerated blindly.
+In Model Status, separately enable explicitly initiated Admin tests with a positive
+platform-budget reservation. Existing platform caps/switches still apply, without
+requiring a member tariff. A completed owned Admin job plus an explicit acceptance
+note is required to activate each member input capability and resolution. Review
+its actual result; successful storage alone is not quality approval. All reads and
+changes use existing Admin/MFA/CSRF protection, revision conflicts and audit history.
+Deactivation blocks fresh dispatches, including queued work checked before the
+provider call; it cannot recall a provider request already dispatched. The public
+Models overlay additionally requires a usable activated and priced configuration.
+
+Private uploads/asset pickers and Canvas roles/order retain ownership and source
+version checks. Generate Lab retains Omni settings/reference IDs per signed-in
+owner in tab storage, without storing the instruction there. Admin and Canvas use
+their existing persisted forms/nodes. Inline output is bounded to 16 MiB by BITBI's
+existing receipt transport; HTTPS output uses the existing bounded downloader.
+Admin inline bytes use the existing job output reference/cleanup fence. Storage
+resumption and duplicate delivery must reuse the same received result.
+
+Acceptance callers: selected Canvas/model branch in `static.yml`,
+`q2-gemini-omni.spec.js`, native `--suite member-generation`, `--suite model-pricing`
+and `--suite canvas`; tagged Admin/Generate Lab/Canvas cases and Model Pricing in
+Chromium/WebKit. Candidate proof requires both workspace and pricing reports.
+Synthetic fixtures establish these contracts, never paid/live capability success.
+Local native evidence (2026-10-03 working candidate): member-generation 66,
+model-pricing 10, Canvas 85 passed. Final Git/run/attempt and production receipts
+belong in the task checkpoint; these local counts do not certify CI/publication.
+
+Prepared paid acceptance proposal, **not executed or authorized by this note**:
+after the owner reviews actual account costs, approve a total USD 10 ceiling and
+at most three single attempts: (1) text at 360p/16:9 with requested audible content,
+(2) first/last frames at 720p/9:16, (3) owned short-video editing plus an audio
+reference at 360p. Stop on unknown outcome, rejection, missing retained output or
+budget exhaustion; reconcile before another attempt. If verified rates do not
+bound a requested attempt within the remaining ceiling, do not submit it. Other
+resolutions/reference modes remain off until separately accepted. No autonomous
+paid calls, top-ups, model substitution or inferred Cloudflare bill.

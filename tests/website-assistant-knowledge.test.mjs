@@ -91,7 +91,8 @@ test('catalog facts derive from current member contracts without provider/admin 
   for (const language of ['en', 'de']) {
     assert.ok(plans[language].text.includes(String(BITBI_MEMBER_SUBSCRIPTION.allowanceCredits)));
     for (const pack of BITBI_LIVE_CREDIT_PACKS.filter(pack => pack.active)) assert.ok(plans[language].text.includes(String(pack.credits)));
-    for (const model of getMemberExposedModels()) assert.ok(models[language].text.includes(model.label));
+    for (const model of getMemberExposedModels()) assert.equal(models[language].text.includes(model.label), !model.runtimeApprovalRequired);
+    assert.ok(!models[language].text.includes('Gemini Omni Flash'), 'unverified runtime-gated model is not a static availability claim');
     assert.ok(!models[language].text.includes('/api/admin/'));
   }
   assert.ok(!knowledgeVersionInput().includes('STRIPE_FIXED_FEE'));

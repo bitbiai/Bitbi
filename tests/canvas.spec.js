@@ -1466,3 +1466,33 @@ for (const locale of ['en', 'de']) test(`Canvas GPT Image 2.5 ${locale} sixteen 
 test('Canvas GPT Image 2.5 complete enum mapping, connected order and truthful edit gate', ({ page }) => require('./helpers/gpt-image25-ui.cjs').contract({ page, expect }));
 
 test('Canvas GPT Image 2.5 delayed uploads never assign after model or reference selection changes', ({ page }) => require('./helpers/gpt-image25-ui.cjs').canvasLateUpload({ page, expect, mockSharedAuth, createCanvasApiMock }));
+
+for(const locale of ['en','de']) test(`Canvas Omni ${locale}: connected roles, fixed operation price and activation`,async({page},testInfo)=>{
+  await mockSharedAuth(page);
+  let enabled=false;
+  const {listCanvasModelsForRole}=await import('../js/shared/canvas-model-contract.mjs');
+  const state=createCanvasApiMock(page,{modelPayload:{models:listCanvasModelsForRole('user'),organizations:[],access:{role:'user'}}});
+  await page.route('**/api/model-pricing',async route=>route.fulfill({json:await require('./helpers/omni-model-controls.cjs').snapshot(enabled)}));
+  const project='1'.repeat(32),node='a'.repeat(32),now=new Date().toISOString();
+  state.projects.push({id:project,title:'Omni inputs',locale,created_at:now,updated_at:now});
+  state.nodes.push({id:node,project_id:project,type:'video_generation',title:'Omni target',model_id:'google/gemini-omni-flash',x:30,y:30,config:{prompt:'Synthetic motion',resolution:'720p',aspectRatio:'16:9'},content:{}});
+  for(const [i,kind] of ['image','video','audio'].entries()) {
+    const id=String(i+2).repeat(32);state.nodes.push({id,project_id:project,type:'asset_reference',title:kind,x:340,y:30+i*160,content:{asset:{id:'reference-'+kind,asset_type:kind,mime_type:kind==='image'?'image/png':kind==='video'?'video/mp4':'audio/wav'}},config:{}});
+    state.edges.push({id:String(i+4).repeat(32),project_id:project,source_node_id:id,target_node_id:node,config:{}});
+  }
+  await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${node}"]`).first().click();
+  const inspector=page.locator('#canvasInspectorBody'),roles=inspector.getByRole('combobox',{name:locale==='de'?'Eingaberolle':'Input role',exact:true}),run=inspector.locator('.canvas-button--primary');
+  await expect(roles).toHaveCount(3);expect(await roles.evaluateAll(list=>list.map(s=>s.value))).toEqual(['reference_image','reference_video','reference_audio']);
+  await expect(inspector.getByLabel(locale==='de'?'Dauer':'Duration',{exact:true})).toHaveCount(0);
+  await expect(run).toBeDisabled();await expect(inspector.locator('.canvas-cost-note')).toContainText('53');
+  enabled=true;await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(run).toBeEnabled();
+  await roles.first().selectOption('first_frame');await expect.poll(()=>state.nodes[0].config.omniRoles?.[state.edges[0].id]).toBe('first_frame');
+  await inspector.getByRole('button',{name:locale==='de'?'Nach oben':'Move up',exact:true}).last().click();
+  await expect.poll(()=>state.nodes[0].config.omniOrder).toEqual([state.edges[0].id,state.edges[2].id,state.edges[1].id]);
+  await page.reload();await page.locator(`[data-node-id="${node}"]`).first().click();await expect(roles.first()).toHaveValue('first_frame');
+  expect(await roles.evaluateAll(list=>list.map(s=>s.value))).toEqual(['first_frame','reference_audio','reference_video']);
+  await page.setViewportSize({width:390,height:844});await page.locator('#canvasInspectorToggle').click();await roles.first().scrollIntoViewIfNeeded();await expect(roles.first()).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath(`omni-canvas-${locale}-mobile.png`)});
+  enabled=false;await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(run).toBeDisabled();
+});

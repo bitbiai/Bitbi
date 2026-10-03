@@ -1,3 +1,4 @@
+import { OMNI_MODEL, OMNI_PRESET, OMNI_RESOLUTIONS, OMNI_RATIOS, OMNI_ROLES, normalizeOmniRequest } from './gemini-omni-contract.mjs';
 import { GPT_IMAGE_25_MODELS, isGptImage25Model, normalizeGptImage25Options } from "./gpt-image-25-contract.mjs";
 import { MULTIPART_IMAGE_DIMENSIONS } from './image-dimensions.mjs';
 import { H3_MODEL, H3_RESOLUTIONS, H3_RATIOS, H3_ROLES, normalizeH3Request } from './minimax-h3.mjs';
@@ -890,6 +891,18 @@ const MUSIC_MODELS = {
 };
 
 const VIDEO_MODELS = {
+  [OMNI_MODEL]: {
+    id: OMNI_MODEL, task: 'video', label: 'Gemini Omni Flash', vendor: 'Google', providerLabel: 'Cloudflare AI Gateway',
+    inputFormat: 'gemini-omni', proxied: true, generationEnabled: true, pricingRequired: false,
+    supportsImageInput: true, supportsEndImage: true, supportsVideoInput: true, supportsAudioInput: true,
+    supportsReferenceImages: true, maxReferenceImages: 10, referenceRoles: OMNI_ROLES,
+    supportsNegativePrompt: false, supportsSeed: false, supportsAudioToggle: false, supportsDuration: false,
+    resolutionField: 'resolution', aspectRatioMode: 'always', maxPromptLength: 7000,
+    allowedAspectRatios: OMNI_RATIOS, allowedResolutions: OMNI_RESOLUTIONS,
+    defaultResolution: '720p', defaultAspectRatio: '16:9',
+    supportedOperations: ['generate'], availableOperations: ['generate'], defaultPreset: OMNI_PRESET,
+    description: 'Cloudflare preview: text, images and media references. Admin testing and member modes require separate runtime approval. Audio is requested in the instruction; duration and stateful continuation are unavailable.',
+  },
   [H3_MODEL]: {
     id:H3_MODEL,task:'video',label:'MiniMax H3',vendor:'MiniMax',providerLabel:'Cloudflare AI Gateway',
     inputFormat:'minimax-h3',proxied:true,generationEnabled:true,pricingRequired:false,
@@ -1148,6 +1161,7 @@ const VIDEO_MODELS = {
 };
 
 const PRESETS = {
+  [OMNI_PRESET]: { name: OMNI_PRESET, task: 'video', label: 'Gemini Omni Flash', model: OMNI_MODEL, description: 'Cloudflare video preview with manual retail pricing.' },
   video_minimax_h3: {name:'video_minimax_h3',task:'video',label:'MiniMax H3',model:H3_MODEL,description:'Multimodal video generation.'},
   fast: {
     name: "fast",
@@ -1960,6 +1974,7 @@ function toPublicModel(model) {
       supportsNegativePrompt: !!model.supportsNegativePrompt,
       supportsSeed: !!model.supportsSeed,
       supportsAudioToggle: !!model.supportsAudioToggle,
+      ...(model.supportsDuration === false ? {supportsDuration:false} : {}),
       supportsWatermark: !!model.supportsWatermark,
       supportsPromptlessImageMode: !!model.supportsPromptlessImageMode,
       resolutionField: model.resolutionField || "quality",
@@ -2964,6 +2979,11 @@ export function validateAdminAiVideoBody(body, options = {}) {
     );
   }
 
+  if (selectedModel.id === OMNI_MODEL) {
+    const { omni_sources, ...publicInput } = input;
+    if (omni_sources !== undefined && !allowResolvedGrokPreviewMediaUrls) throw new AdminAiValidationError('Internal Omni sources are not accepted.', 400, 'validation_error');
+    return { ...normalizeOmniRequest(publicInput), ...(allowResolvedGrokPreviewMediaUrls ? { omni_sources } : {}) };
+  }
   if (selectedModel.id === H3_MODEL) {
     // Only the authenticated AI service caller may carry resolved internal media.
     const {h3_content, h3_callback, ...publicInput} = input;

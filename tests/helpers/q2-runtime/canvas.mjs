@@ -405,4 +405,10 @@ export async function runCanvasTests(f) {
     assert.equal(response.status,200,await response.clone().text());
     assert.deepEqual(await response.json(),{nodes:47,edges:47,legacyIncomplete:true});
   });
+  await f.test('canvas_native_omni_independent_video_edit_accepted_price_owned_output_and_replay',async()=>{
+    const response=await f.control('/canvas-video',{name:'omni',videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64')});
+    assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+
 }

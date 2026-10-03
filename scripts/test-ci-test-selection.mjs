@@ -143,7 +143,7 @@ try {
   for(const file of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','js/shared/unknown.js','package-lock.json'])assert(!selection([...flux,file],{memberTestSources}).canvasText,file);
   const workflow=fs.readFileSync(path.join(repoRoot,'.github/workflows/static.yml'),'utf8');
   assert(workflow.includes("--grep 'durable member generation: flux-|default FLUX Schnell|Canvas"));
-  assert(workflow.includes('tests/smoke.spec.js tests/oma2-q1-member.spec.js --project=chromium --project=webkit-canvas'));
+  assert(workflow.includes('tests/smoke.spec.js tests/oma2-q1-member.spec.js tests/oma2-q3-model-pricing.spec.js --project=chromium --project=webkit-canvas --project=webkit-pricing'));
 }
 
 for (const file of ['scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs',
@@ -1088,3 +1088,12 @@ for(const key of ['workers','auth','runtime','static'])assert.equal(deliverySele
 for(const key of ['full','carousel','appearance'])assert.equal(Boolean(deliverySelection[key]),false,key);
 assert.equal(requiresPrivateMediaImage(imageDeliveryDelta),false);
 for(const file of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','workers/ai/src/routes/unknown.js'])assert.notEqual(selection([...imageDeliveryDelta,file]).policy,'model-pricing-v1');
+
+const omniDelta = ['workers/auth/src/routes/canvas.js','js/shared/gemini-omni-contract.mjs','js/shared/gemini-omni-pricing.mjs','workers/auth/src/lib/gemini-omni-readiness.js','workers/auth/src/lib/gemini-omni-media.js','workers/auth/src/routes/ai/reference-video-upload.js','js/shared/omni-reference-upload.js','js/pages/admin/gemini-omni-controls.js','js/pages/admin/model-status.js','js/shared/model-pricing-client.js','js/shared/models-overlay.js','tests/q2-gemini-omni.spec.js','tests/helpers/omni-model-controls.cjs','tests/model-pricing-runtime.mjs'];
+assert.equal(selection(omniDelta).canvasText,true);
+for (const neighbor of ['workers/auth/src/lib/session.js','workers/ai/src/routes/unknown.js','workers/ai/wrangler.jsonc'])assert.notEqual(selection([...omniDelta,neighbor]).canvasText,true,neighbor);
+const omniWorkflow=fs.readFileSync(path.join(repoRoot,'.github/workflows/static.yml'),'utf8');
+assert(omniWorkflow.includes('tests/q2-gemini-omni.spec.js'));
+assert(omniWorkflow.includes('Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/model-pricing" node scripts/test-q2-runtime.mjs --suite model-pricing'));
+assert(omniWorkflow.includes('tests/oma2-q3-model-pricing.spec.js --project=chromium --project=webkit-canvas --project=webkit-pricing'));
+console.log('Omni: existing native queue/pricing and dual-engine workspace callers; unknown auth/provider siblings remain outside the narrow selection.');

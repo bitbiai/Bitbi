@@ -1,3 +1,4 @@
+import { OMNI_MODEL } from './gemini-omni-contract.mjs';
 // Retail credits only. Provider costs remain in the existing factory calculators.
 // This module is also used by Auth; browser state is never an authority there.
 import { isGptImage25Model } from './gpt-image-25-contract.mjs';
@@ -31,7 +32,8 @@ export function mediaTariffBasis(factory, mediaType, input = {}) {
     // Operations are separate tariffs even where their current prices coincide.
     if (mediaType === 'video' || mediaType === 'image') configuration.operation = input.operation || input._operation || normalized.operation || 'generate';
     let units;
-    if (mediaType === 'video') units = { second: Number(factory?.formula?.outputSeconds ?? normalized.duration ?? input.duration) };
+    if (factory?.modelId === OMNI_MODEL) units = { request: 1 };
+    else if (mediaType === 'video') units = { second: Number(factory?.formula?.outputSeconds ?? normalized.duration ?? input.duration) };
     else if (mediaType === 'image') {
         units = { image: Number(normalized.n ?? 1) };
         if (Object.hasOwn(normalized, 'inputImageMegapixels')) units.inputMegapixel = Number(normalized.inputImageMegapixels || 0);

@@ -1,3 +1,5 @@
+import { OMNI_MODEL } from '../../../../js/shared/gemini-omni-contract.mjs';
+import { getOmniReadiness } from '../lib/gemini-omni-readiness.js';
 import { readImage25Bytes, image25Base64 } from '../../../shared/gpt-image-25.mjs';
 import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
 import { resolveImage25Sources } from '../lib/gpt-image-25-sources.js';
@@ -1985,7 +1987,7 @@ export async function handleAdminAI(ctx) {
   if (pathname === "/api/admin/ai/model-status" && method === "GET") {
     const limited = await rateLimitAdminAi(request, env, "admin-ai-model-status-ip", 30, 600_000, correlationId);
     if (limited) return limited;
-    return withCorrelationId(json({ ok: true, data: await getAdminModelStatus(env) }, {
+    return withCorrelationId(json({ ok: true, data: { ...await getAdminModelStatus(env), omni: await getOmniReadiness(env) } }, {
       headers: { 'Cache-Control': 'private, no-store' },
     }), correlationId);
   }
@@ -3820,6 +3822,7 @@ export async function handleAdminAI(ctx) {
         preset: validated.preset,
         model: validated.model,
       });
+      if(validatedSelection.model.id===OMNI_MODEL)throw new AdminAiValidationError('Use the explicitly budgeted Omni async Admin test path.',409,'omni_async_test_required');
       assertAdminVideoPricingConfigured(validatedSelection.model.id, validated);
       const providerPayload = await resolveAdminAiGrokPreviewMediaSourcesForProvider(
         env,

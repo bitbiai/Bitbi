@@ -1,3 +1,4 @@
+import { OMNI_MODEL } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { BITBI_MODEL_PRICING_USD_TO_EUR, BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING, BITBI_TARGET_PROFIT_MARGIN, creditsForProviderCostUsd } from '../../../../js/shared/model-credit-pricing.mjs';
 import { applyModelTariff, mediaTariffBasis, canonicalPricingModel, tariffKey, validateTariffRates, FACTORY_TARIFF_VERSION, TARIFF_HEADER, stablePricingJson } from '../../../../js/shared/model-tariff.mjs';
 import { modelFactoryPrice, modelPricingCatalog, validateModelPricingSettings } from '../../../../js/shared/model-pricing-catalog.mjs';
@@ -67,7 +68,7 @@ export function settlePinnedModelTariff(pinned, fallbackCredits, actualUnits) {
     // This adapter promises an image URI, not metering or resolved auto values.
     // Its accepted image/reference quote is final; missing usage cannot zero a
     // charge and later factory/Admin changes cannot reprice successful work.
-    if (isGptImage25Model(pinned?.tariff?.key?.split(':')[0])) {
+    if (pinned?.tariff?.key?.split(':')[0] === OMNI_MODEL || isGptImage25Model(pinned?.tariff?.key?.split(':')[0])) {
         if (!Number.isSafeInteger(pinned.credits) || pinned.credits < 1) fail('The accepted image tariff requires review.', 'generation_result_requires_credit_review', 409);
         return pinned.credits;
     }
@@ -100,7 +101,7 @@ export async function changeModelTariff(env, actor, input) {
         for (const entry of Object.keys(rules)) if (rules[entry].modelId === model.id) delete rules[entry];
     } else {
         const { price, basis } = modelFactoryPrice(model.id, input.settings || {});
-        if (!model.enabled || !Number.isFinite(price.credits)) fail('Pricing cannot enable an unavailable execution path.');
+        if (!model.enabled || (model.id !== OMNI_MODEL && !Number.isFinite(price.credits))) fail('Pricing cannot enable an unavailable execution path.');
         key = tariffKey(model.id, basis.configuration);
         baseline = { price, basis, sourceUrl: model.sourceUrl, factoryVersion: FACTORY_TARIFF_VERSION };
         if (input.action === 'reset') delete rules[key];

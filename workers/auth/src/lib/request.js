@@ -30,6 +30,7 @@ export const BODY_LIMITS = Object.freeze({
   aiGenerateJson: 32 * 1024,
   musicPlanJson: 288 * 1024,
   aiGenerateImageJson: 15 * 1024 * 1024,
+  aiReferenceVideoMultipart: 25 * 1024 * 1024,
   aiGenerateVideoJson: 15 * 1024 * 1024,
   aiSaveImageJson: 15 * 1024 * 1024,
   // A 10-minute 320 kbps ElevenLabs output is 24,000,000 encoded bytes and

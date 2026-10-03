@@ -1774,6 +1774,11 @@ export const ROUTE_POLICIES = Object.freeze([
       idempotency: "required; member music generation is guarded by one bundled member_ai_usage_attempts parent reservation covering lyrics/audio/cover provider-cost work",
     },
   }),
+  userJsonWrite('ai.reference-video.upload','POST','/api/ai/reference-video','ai-studio','aiReferenceVideoMultipart','ai-reference-upload-user',{
+    body:{kind:'multipart',maxBytesName:'aiReferenceVideoMultipart',contentType:'multipart/form-data'},
+    config:['DB','PUBLIC_RATE_LIMITER','USER_IMAGES'],audit:{event:'ai_reference_video_upload'},
+    notes:'Owned reference upload only; storage quota and MIME/byte checks apply. No inference, external URL fetch or public publication.',
+  }),
   userJsonWrite("ai.generate-video", "POST", "/api/ai/generate-video", "ai-studio", "aiGenerateVideoJson", "ai-generate-video-user", {
     config: ["DB", "PUBLIC_RATE_LIMITER", "AI", "USER_IMAGES"],
     audit: { event: "ai_generate_video" },

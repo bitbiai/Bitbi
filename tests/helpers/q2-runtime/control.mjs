@@ -51,7 +51,7 @@ export default {
     if (path==='/canvas-music') return Response.json(await canvasMusicCase(env,body.name,body.role,body.imageBase64));
     if (path==='/elevenlabs-member') return Response.json(await elevenLabsMemberCase(env, body.name, body.role, body.media));
     if (path==='/canvas-contributors') return Response.json(await canvasContributorsCase(env));
-    if (path==='/canvas-video' && ['h3','h3-overrun','h3-overrun-failure','h3-last-frame','h3-stale','h3-deleted','h3-foreign','first','success','last-frame','foreign','changed','blocked','blocked-admin','provider-interrupted','receipt-write'].includes(body.name)) return Response.json(await canvasVideoCase(env, body.name, body));
+    if (path==='/canvas-video' && ['omni','h3','h3-overrun','h3-overrun-failure','h3-last-frame','h3-stale','h3-deleted','h3-foreign','first','success','last-frame','foreign','changed','blocked','blocked-admin','provider-interrupted','receipt-write'].includes(body.name)) return Response.json(await canvasVideoCase(env, body.name, body));
     if (path==='/session' && [ADMIN,MEMBER].includes(body.userId)) {
       const session=await createSession(env,body.userId);
       return Response.json({cookie:`${SECURE_SESSION_COOKIE_NAME}=${session.sessionToken}`});

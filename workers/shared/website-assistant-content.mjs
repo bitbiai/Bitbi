@@ -12,7 +12,7 @@ const packCopy = language => BITBI_LIVE_CREDIT_PACKS.filter(pack => pack.active 
   .map(pack => `${pack.credits} ${language === 'de' ? 'Credits für' : 'credits for'} ${formatAmount(pack.amountCents, language)}`).join('; ');
 const modelCopy = language => ['image', 'video', 'music'].map(type => {
   const labels = { en: { image: 'Image', video: 'Video', music: 'Music' }, de: { image: 'Bild', video: 'Video', music: 'Musik' } };
-  return `${labels[language][type]}: ${getMemberExposedModels().filter(model => model.mediaType === type).map(model => model.label).join(', ')}.`;
+  return `${labels[language][type]}: ${getMemberExposedModels().filter(model => model.mediaType === type && !model.runtimeApprovalRequired).map(model => model.label).join(', ')}.`;
 }).join(' ');
 
 export const knowledgeArticles = Object.freeze([

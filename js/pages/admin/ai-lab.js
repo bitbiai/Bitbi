@@ -1,3 +1,6 @@
+import { createOmniLabControls, omniLabBody, validateOmniLab } from './gemini-omni-lab.js';
+import { OMNI_MODEL } from '../../shared/gemini-omni-contract.mjs';
+import { getBrowserTariff } from '../../shared/model-tariff.mjs';
 import { renderReferenceSlots, saveOwnedReference, showUnavailableImagePricing, updateSourceExplanation, referenceUploadGuard, invalidateReferenceUploads } from './gpt-image25-controls.js?v=__ASSET_VERSION__';
 import { isGptImage25Model, normalizeGptImage25Options } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
 import { sortGenerationModels } from '../../shared/generation-model-order.mjs?v=__ASSET_VERSION__';
@@ -279,6 +282,7 @@ const DEFAULT_FORMS = {
         sourceVideo: null,
         sourceImages: [],
         h3References: [],
+        omniReferences: [],
         user: '',
     },
     compare: {
@@ -1441,6 +1445,8 @@ export function createAdminAiLab({ showToast } = {}) {
         pick:async request=>{await savedAssetsBrowser.startPickerMode({max:1,isAssetCompatible:asset=>request.media==='image'?asset.asset_type==='image'||asset.source_module==='image':request.media==='audio'?asset.source_module==='music':asset.source_module==='video',
             onApply:request.onApply,onApplied:()=>request.trigger.focus(),onCancel:()=>request.trigger.focus()});refs.savedAssets.root.scrollIntoView({block:'nearest'});}});
 
+    const omniControls=createOmniLabControls({video:refs.video,assets:refs.savedAssets,form:()=>state.forms.video,picker:savedAssetsBrowser,changed:()=>{persistState();syncVideoFieldState();}});
+
     let savedAssetsDirty = false;
     let savedAssetsWasShown = false;
     let savedAssetsShowing = null;
@@ -2183,6 +2189,7 @@ export function createAdminAiLab({ showToast } = {}) {
     }
 
     function getSelectedVideoCreditCost() {
+        if(getSelectedVideoModelSpec().id===OMNI_MODEL)return getBrowserTariff()?.omni?.adminTestCredits ?? null;
         const spec = getSelectedVideoModelSpec();
         const operation = state.forms.video.operation || 'generate';
         const sourceImage = getSelectedSourceImage();
@@ -2215,6 +2222,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
     function getVideoRunLabel() {
         const credits = getSelectedVideoCreditCost();
+        if(getSelectedVideoModelSpec().id===OMNI_MODEL)return `Run paid Admin test · ${credits ?? '—'} platform budget units`;
         if (isPixverseExtension()) {
             let estimate = null;
             try { estimate = calculateAiVideoCreditCost(ADMIN_AI_VIDEO_MODEL_ID, { duration: Number(state.forms.video.duration), quality: state.forms.video.quality, generate_audio: state.forms.video.generateAudio }); } catch {}
@@ -2930,7 +2938,7 @@ export function createAdminAiLab({ showToast } = {}) {
             || spec.id === ADMIN_AI_VIDEO_SEEDANCE_2_MODEL_ID;
         const isGrokImagine = spec.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID;
         const isGrokImagine15Preview = [ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID,ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].includes(spec.id);
-        const isGenerationBlocked = spec.generationEnabled === false
+        const isGenerationBlocked = (spec.id === OMNI_MODEL && getBrowserTariff()?.omni?.adminTestEnabled !== true) || spec.generationEnabled === false
             || spec.pricingRequired === true;
         const usesViduFrameWorkflow = spec.id === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID
             && (!!state.forms.video.startImageInput || !!state.forms.video.endImageInput);
@@ -2945,6 +2953,8 @@ export function createAdminAiLab({ showToast } = {}) {
         if (refs.video.modelDesc) refs.video.modelDesc.textContent = modelSummary.description || spec.description || '';
 
         h3Controls.sync(spec.id===H3_MODEL,isBusy);
+        omniControls.sync(spec.id===OMNI_MODEL,isBusy);
+        if(refs.video.durationField)refs.video.durationField.hidden=spec.id===OMNI_MODEL;
         refs.video.prompt.maxLength = spec.maxPromptLength || ADMIN_AI_LIMITS.video.maxPromptLength;
         refs.video.prompt.placeholder = isSeedance
             ? 'Describe a Seedance video prompt.'
@@ -3075,6 +3085,9 @@ export function createAdminAiLab({ showToast } = {}) {
         if (refs.video.qualityLabel) refs.video.qualityLabel.textContent = 'Quality';
 
         refs.video.resolutionField.hidden = spec.resolutionField !== 'resolution';
+        if (spec.id === OMNI_MODEL) for (const value of spec.allowedResolutions) {
+            if (![...refs.video.resolution.options].some(option => option.value === value)) refs.video.resolution.add(new Option(value, value));
+        }
         setAllowedSelectOptions(
             refs.video.resolution,
             spec.allowedResolutions,
@@ -3106,7 +3119,7 @@ export function createAdminAiLab({ showToast } = {}) {
             refs.video.run.disabled = isBusy || isGenerationBlocked || !hasCatalog() || (isPixverseExtension() && state.catalog.data?.pixverseDirect?.configured !== true);
             if (!isBusy) refs.video.run.textContent = getVideoRunLabel();
             refs.video.run.title = isGenerationBlocked
-                ? (spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE)
+                ? (spec.id === OMNI_MODEL ? 'Enable a budgeted Admin test in Model Status. No provider acceptance is implied.' : spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE)
                 : '';
         }
         refs.video.reset.disabled = isBusy;
@@ -5470,7 +5483,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         if (!result) {
             const spec = getSelectedVideoModelSpec();
-            const isGenerationBlocked = spec.generationEnabled === false
+            const isGenerationBlocked = (spec.id === OMNI_MODEL && getBrowserTariff()?.omni?.adminTestEnabled !== true) || spec.generationEnabled === false
                 || spec.pricingRequired === true;
             const blockedMessage = spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE;
             const credits = getSelectedVideoCreditCost();
@@ -5550,6 +5563,7 @@ export function createAdminAiLab({ showToast } = {}) {
         }
         const spec = getSelectedVideoModelSpec();
         const prompt = (state.forms.video.prompt || '').trim();
+        if(spec.id===OMNI_MODEL)return validateOmniLab(state.forms.video,omniControls.values());
         if (spec.generationEnabled === false || spec.pricingRequired === true) {
             return spec.unavailableMessage || ADMIN_AI_VIDEO_PRICING_REQUIRED_MESSAGE;
         }
@@ -6541,7 +6555,8 @@ export function createAdminAiLab({ showToast } = {}) {
             duration: Number(state.forms.video.duration),
         };
 
-        if(videoSpec.id===H3_MODEL){payload={...payload,prompt,resolution:state.forms.video.resolution,aspect_ratio:state.forms.video.aspectRatio,references:h3Controls.values()};}
+        if(videoSpec.id===OMNI_MODEL){payload=omniLabBody(state.forms.video,omniControls.values());}
+        else if(videoSpec.id===H3_MODEL){payload={...payload,prompt,resolution:state.forms.video.resolution,aspect_ratio:state.forms.video.aspectRatio,references:h3Controls.values()};}
         else if (videoSpec.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) {
             payload.prompt = prompt;
             payload.resolution = state.forms.video.resolution;
@@ -6618,7 +6633,7 @@ export function createAdminAiLab({ showToast } = {}) {
         }
 
         try {
-            const useSyncDebugPath = !isPixverseExtension() && window.__BITBI_ADMIN_AI_SYNC_VIDEO_DEBUG === true;
+            const useSyncDebugPath = videoSpec.id!==OMNI_MODEL && !isPixverseExtension() && window.__BITBI_ADMIN_AI_SYNC_VIDEO_DEBUG === true;
             if (useSyncDebugPath) {
                 const syncRes = await apiAdminAiTestVideo(payload, {
                     signal: controller.signal,
@@ -7721,7 +7736,7 @@ export function createAdminAiLab({ showToast } = {}) {
             bindEvents();
             window.addEventListener('bitbi:model-pricing', () => {
                 if (!state.active) return;
-                syncImageBillingUi(); syncMusicCostEstimate();
+                syncImageBillingUi(); syncMusicCostEstimate(); syncVideoFieldState();
                 if (refs.video.run && !state.controllers.video) refs.video.run.textContent = getVideoRunLabel();
             });
             syncFormInputs();

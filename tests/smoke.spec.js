@@ -147,6 +147,7 @@ async function getExpectedModelCatalog({ homepage = false } = {}) {
   );
   const entriesFor = (mediaType) => memberExposureModule
     .getMemberExposedModelsByMediaType(mediaType)
+    .filter(entry => !entry.runtimeApprovalRequired)
     .map((entry) => ({
       name: entry.label,
       vendor: entry.vendor,
@@ -10247,3 +10248,15 @@ for (const locale of ['en', 'de']) test(`@canvas-model-ui GPT Image 2.5 Generate
 for (const locale of ['en', 'de']) test(`@canvas-model-ui GPT Image 2.5 Generate Lab ${locale} actual factory generation price and edit gate`, ({ page }) => require('./helpers/gpt-image25-ui.cjs').memberPricingGate({ page, expect, locale, mockGenerateLabMemberSession }));
 
 for(const locale of ['en','de']) test(`@canvas-model-ui GPT Image 2.5 Generate Lab ${locale}: retained HTTPS delivery, reload and saved original`, ({page},testInfo)=>require('./helpers/gpt-image25-ui.cjs').memberRetainedDelivery({page,testInfo,expect,locale,mockGenerateLabMemberSession,mockGenerateLabSavedImageAssets,buildGenerateLabImageAssets}));
+
+for(const locale of ["en","de"]) test(`@canvas-model-ui Omni Generate Lab ${locale} gated quote and owned upload`,({page})=>require("./helpers/omni-model-controls.cjs").member({page,expect,locale,mockGenerateLabMemberSession}));
+
+test('@canvas-model-ui Omni public Models listing requires activation and a retail price',async({page})=>{
+ await mockGenerateLabMemberSession(page,{credits:3000});let enabled=false,priced=true;
+ await page.route('**/api/model-pricing',async route=>{const data=await require('./helpers/omni-model-controls.cjs').snapshot(enabled);if(!priced){data.rules={};data.revision=2;}return route.fulfill({json:data});});
+ await page.setViewportSize({width:390,height:844});await page.goto('/generate-lab/');await page.locator('#mobileMenuBtn').click();await page.locator('[data-models-link=mobile]').click();await expect(page.locator('.models-overlay')).toBeVisible();
+ const entry=page.locator('.models-overlay [data-model-id="google/gemini-omni-flash"]');await expect(entry).toHaveCount(0);
+ enabled=true;await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(entry).toHaveCount(1);
+ priced=false;await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+ await expect(entry).toHaveCount(0);
+});

@@ -1,3 +1,6 @@
+import { decodeOmniInlineVideo } from './gemini-omni-media.js';
+import { OMNI_MODEL } from '../../../../js/shared/gemini-omni-contract.mjs';
+import { assertOmniReady } from './gemini-omni-readiness.js';
 import { pinModelTariff, settlePinnedModelTariff } from './model-tariffs.js';
 import { H3_MODEL, calculateH3CreditPricing } from '../../../../js/shared/minimax-h3.mjs';
 import { invokePixverseExtension } from './pixverse-extend.js';
@@ -232,6 +235,7 @@ function sanitizePublicError(value, fallback = "Video job failed.") {
 }
 
 function resolveProvider(modelId) {
+  if(modelId===OMNI_MODEL)return 'google';
   if(modelId===H3_MODEL)return "minimax";
   if (modelId === ADMIN_AI_VIDEO_VIDU_Q3_PRO_MODEL_ID) return "vidu";
   if (
@@ -448,7 +452,10 @@ export async function buildAdminVideoJobBudgetPolicyContext({
   operationOverride = null,
 }) {
   const operation = adminVideoJobBudgetOperation({ modelId, payload, operationOverride });
-  const pinnedPricing = await pinModelTariff(env, { modelId, input: payload, credits: operation.estimatedCredits, request, context: 'admin' });
+  const omni = modelId === OMNI_MODEL ? await assertOmniReady(env, payload, { adminTest: true }) : null;
+  const pinnedPricing = omni ? { credits: omni.adminTestCredits, tariff: null, adminTest: true, readinessRevision: omni.revision, providerCostUsd: null }
+    : await pinModelTariff(env, { modelId, input: payload, credits: operation.estimatedCredits, request, context: 'admin' });
+  if (omni) operation.estimatedCostUnits = omni.adminTestCredits;
   operation.estimatedCredits = pinnedPricing.credits;
   // Preserve provider-budget exposure independently of retail credit overrides.
   const plan = classifyAdminPlatformBudgetPlan({
@@ -1210,8 +1217,8 @@ async function claimJobProviderDispatch(env, job, budgetPolicy, now) {
 
 function boundedProviderResult(result) {
   const clean = {};
-  for (const key of ["status", "providerTaskId", "providerState", "videoUrl", "posterUrl"]) {
-    if (typeof result?.[key] === "string") clean[key] = result[key].slice(0, key.endsWith("Url") ? 2048 : 256);
+  for (const key of ["status", "providerTaskId", "providerState", "videoUrl", "posterUrl", "providerInteractionId", "providerInlineKey"]) {
+    if (typeof result?.[key] === "string") clean[key] = result[key].slice(0, key.endsWith("Url") ? 2048 : key === "providerInteractionId" ? 512 : 256);
   }
   if(Number.isFinite(result?.outputSeconds))clean.outputSeconds=result.outputSeconds;
   if(typeof result?.resolution==="string")clean.resolution=result.resolution;
@@ -1219,6 +1226,20 @@ function boundedProviderResult(result) {
 }
 
 async function recordJobProviderReceipt(env, job, result) {
+  if(job.model===OMNI_MODEL && result.videoUrl?.startsWith('data:')) {
+    if(!job.dispatch_token)throw staleJobExecutionError();
+    const inline=decodeOmniInlineVideo(result.videoUrl);
+    const key=`users/${job.user_id}/video-jobs/${job.id}/provider-${job.dispatch_token}`;
+    // Reuse the job's existing lifecycle fence, as for private provider uploads.
+    // The result stays private until the normal ingestion/settlement completes.
+    await env.DB.prepare('UPDATE ai_video_jobs_v2 SET output_r2_key=? WHERE id=? AND dispatch_token=? AND (output_r2_key IS NULL OR output_r2_key=?)')
+      .bind(key,job.id,job.dispatch_token,key).run();
+    const pinned=await env.DB.prepare('SELECT output_r2_key FROM ai_video_jobs_v2 WHERE id=? AND dispatch_token=?').bind(job.id,job.dispatch_token).first();
+    if(pinned?.output_r2_key!==key)throw staleJobExecutionError();
+    const stored=await env.USER_IMAGES.put(key,inline.body,{onlyIf:new Headers({'If-None-Match':'*'}),httpMetadata:{contentType:inline.contentType}});
+    if(!stored && !await env.USER_IMAGES.head(key))throw staleJobExecutionError();
+    result={...result,videoUrl:'stored-inline-output',providerInlineKey:key};
+  }
   if (!job.dispatch_token) throw staleJobExecutionError();
   if(job.model===H3_MODEL) {
     const current=await env.DB.prepare('SELECT provider_result_json FROM ai_video_jobs_v2 WHERE id=? AND dispatch_token=?').bind(job.id,job.dispatch_token).first();
@@ -1959,10 +1980,12 @@ async function readResponseBodyLimited(response, maxBytes, label, signal) {
 
 export async function fetchRemoteAsset(env, urlValue, {
   maxBytes,
+  allowInlineVideo = false,
   allowedContentTypes,
   label,
   signal,
 }) {
+  if (allowInlineVideo && typeof urlValue==='string' && urlValue.startsWith('data:')) return decodeOmniInlineVideo(urlValue);
   const url = assertSafeRemoteUrl(urlValue, label);
   const fetcher = env.__TEST_FETCH || globalThis.fetch;
   if (typeof fetcher !== "function") {
@@ -2010,14 +2033,21 @@ async function ingestProviderVideoOutput(env, job, providerResult) {
   if (!job.processing_token) throw staleJobExecutionError();
   const fresh = await getAdminAiVideoJob(env,{id:job.user_id},job.id);
   const uploaded = await readGrokVideoOutput(env,fresh);
-  const output = uploaded || await fetchRemoteAsset(env, providerResult.videoUrl, {
+  let inlineOutput=null;
+  if(job.model===OMNI_MODEL && providerResult.providerInlineKey) {
+    if(providerResult.providerInlineKey!==`users/${job.user_id}/video-jobs/${job.id}/provider-${job.dispatch_token}`)throw staleJobExecutionError();
+    const object=await env.USER_IMAGES.get(providerResult.providerInlineKey);
+    if(!object?.body)throw Object.assign(new Error('Stored Omni output is unavailable.'),{code:'omni_stored_output_missing'});
+    inlineOutput={key:providerResult.providerInlineKey,body:await new Response(object.body).arrayBuffer(),contentType:object.httpMetadata.contentType,sizeBytes:object.size};
+  }
+  const output = uploaded || inlineOutput || await fetchRemoteAsset(env, providerResult.videoUrl, {
     maxBytes: VIDEO_OUTPUT_MAX_BYTES,
     allowedContentTypes: VIDEO_OUTPUT_CONTENT_TYPES,
     label: "video_output",
   });
   if (job.processing_token) await assertJobClaim(env, job);
-  const outputKey = uploaded?.key || videoOutputKey(job.id, job.user_id, job.processing_token);
-  if (!uploaded) await env.USER_IMAGES.put(outputKey, output.body, {
+  const outputKey = uploaded?.key || inlineOutput?.key || videoOutputKey(job.id, job.user_id, job.processing_token);
+  if (!uploaded && !inlineOutput) await env.USER_IMAGES.put(outputKey, output.body, {
     httpMetadata: { contentType: output.contentType },
   });
 
@@ -2324,6 +2354,7 @@ async function processClaimedAiVideoJob(env, body, { messageAttempts, startedAt,
   }
   let providerInput;
   try {
+    if(job.model===OMNI_MODEL && !storedProviderResult) await assertOmniReady(env, parsedInput, {adminTest:true});
     providerInput = await resolveAdminAiGrokPreviewMediaSourcesForProvider(
       env,
       { id: job.user_id, email: job.user_email || "" },
