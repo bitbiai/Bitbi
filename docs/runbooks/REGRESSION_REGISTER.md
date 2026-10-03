@@ -470,6 +470,24 @@ its actual native sibling remains the integration countercheck. This is a fixtur
 repair, not a product or processor failure. Retain the failed artifact; do not
 label that mixed Worker/native job successful or reuse it as a complete proof.
 
+Browser fixture follow-up: `11f1c54d` / `37150831760/1` completed all 315
+Worker and 188 native cases, then reported 322 browser passes and five failures.
+Four audition fixtures exposed an enabled export without the new current output
+identities; supply two attached, versioned videos and assert their exact chain in
+that explicit render request. Decoded gain, original audio, recovery and no-extra-
+write controls remain intact. The DE Chromium deletion test selected C while B's
+asynchronous delete was still pending; its eventual completion cleared selection.
+Wait for B to leave the rendered graph before selecting C; do not alter timeouts,
+retries or protected assertions. The screenshot confirmed an empty Inspector.
+The existing closed browser repair profile pins source/run/attempt, artifact/report/
+case hashes and both reviewed fixture hashes. It reuses 322 passes and executes
+only the five failures against the unchanged candidate. Three already passing
+merge variants retain identical assertions with the same deletion synchronization.
+`node scripts/test-browser-fixture-repair.mjs --canvas-merge` checks missing,
+failed/retried/tampered evidence, unrequested execution and forbidden product deltas;
+the real `static.yml` caller must discover all 327 and execute exactly five fresh.
+No repeated Worker/native/processor acceptance or new media image is needed.
+
 Browser audition, 2026-09-28: preview is separate decoded music plus the existing
 aggregate player, never an export request. Migration `0097_canvas_preview_base.sql`
 retains a private, quota-counted clean base inside the same explicit export lease;

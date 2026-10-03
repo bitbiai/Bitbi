@@ -1050,6 +1050,9 @@ for (const locale of ['en','de']) test(`Canvas merge selection ${locale}: curren
   stale=choices();if(de)await page.locator('#canvasInspectorToggle').click();
   await page.locator(`[data-node-id="${id(3)}"]`).press('Enter');page.once('dialog',dialog=>dialog.accept());
   await page.locator('#canvasDeleteSelection').click();
+  // Deletion is an asynchronous project transition that clears selection on
+  // completion. Observe that boundary before selecting the surviving endpoint.
+  await expect(page.locator(`[data-node-id="${id(3)}"]`)).toHaveCount(0);
   await page.locator(`[data-node-id="${id(4)}"]`).press('Enter');if(de)await page.locator('#canvasInspectorToggle').click();
   await manual.check();await expect(group.getByLabel('Clip 1',{exact:true})).toHaveValue('');
   await expect(group.getByLabel('Clip 1',{exact:true}).locator(`option[value="${id(3)}"]`)).toHaveCount(0);

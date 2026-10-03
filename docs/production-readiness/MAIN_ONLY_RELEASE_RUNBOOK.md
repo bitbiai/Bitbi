@@ -281,11 +281,20 @@ For an explicitly reviewed browser-fixture correction, the existing closed repai
 continuation can preserve successful source cases and completed upstream jobs. It
 requires exact source/run/attempt and artifact digests, unchanged product/build/
 backend inputs, reviewed before/after test hashes, complete fresh discovery and
-fresh execution of every changed, failed or flaky case plus unexecuted command
-tails. Its composite proof names the original and new evidence separately; the
+fresh execution of every behaviorally changed, failed or flaky case plus unexecuted
+command tails. A reviewed synchronization-only change may retain a passing case
+when its assertions, fixture semantics and product bytes are unchanged; pin the
+exact diff and retain its original result instead of rerunning it. Its composite proof names the original and new evidence separately; the
 old failed run remains failed. Unknown deltas, missing cases, new failures, stale
 artifacts or incomplete proof block publication. This is not general permission
 to reuse failed candidates or to repeat a failed job until it turns green. The reviewed incident profiles preserve their own immutable provenance; the Omni catalog correction reuses 297 unchanged browser passes plus successful Worker acceptance and executes exactly six repaired Chromium/WebKit cases. Its complete discovery must remain 303 cases. Preparation requires the selected independent proofs only; an unselected homepage job is not fabricated or rerun.
+
+The Canvas merge fixture continuation pins `11f1c54d` / `37150831760/1`:
+315 Worker, 188 native and 322 browser passes are retained; only four audition
+fixture failures and one DE Chromium deletion-synchronization failure execute.
+`test-browser-fixture-repair.mjs --canvas-merge` checks this exact five-case union;
+full discovery must still contain 327 cases. No processor/backend/product bytes
+change in this correction. The original failed run is never relabelled successful.
 
 Private-media release admission is checked through the authenticated smoke route
 before seeding fixed synthetic jobs. Its write-free preflight validates the serving

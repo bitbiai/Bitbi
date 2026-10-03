@@ -50,15 +50,24 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   // fixtures add a 1 kHz original. Existing MP3 is 440 Hz; loud WAV is stereo
   // 0.99*sin(2*pi*1000*t), 48 kHz / 1 s. No provider or production media.
   const media=`/api/plain/canvas-preview/video.${browserName==='chromium'?'webm':'mp4'}`;
-  const output={kind:'video',runId:rid,assetId:'original',previewUrl:'/tests/fixtures/media/member-video-poster.webp',asset:{id:'original',file_url:media}};
+  const output={kind:'video',runId:rid,assetId:'original',sourceVersion:'a'.repeat(64),previewUrl:'/tests/fixtures/media/member-video-poster.webp',asset:{id:'original',asset_type:'video',mime_type:'video/mp4',file_url:media}};
   state.projects=[{id:pid,title:'Audition',locale,created_at:now,updated_at:now}];
   state.nodes=[{id:nid,project_id:pid,type:'video_generation',model_id:'minimax/h3',title:'Video',x:100,y:100,config:{backgroundMusic:{enabled:true,gain:1,musicAssetId:mid}},content:{},output,asset_id:'original',created_at:now,updated_at:now},
     ...[[mid,'Music','/api/plain/music/mp3/file'],[second,'Loud','/api/plain/canvas-preview/loud.wav']].map(([id,title,url])=>({id,project_id:pid,type:'music_generation',title,x:100,y:400,config:{},content:{},output:{kind:'audio',asset:{id,asset_type:'music',mime_type:'audio/wav',file_url:url}},created_at:now,updated_at:now}))];
   state.edges=[mid,second].map((id,i)=>({id:String(i+6).repeat(32),project_id:pid,source_node_id:id,target_node_id:nid,config:{purpose:'export_background_music'},created_at:now}));
   state.runs=[{id:rid,node_id:nid,status:'completed',output,asset_id:'original',created_at:now}];
+  // The explicit render at the end needs two current, versioned node outputs.
+  // Preview/save remain independent of new-merge admission and perform no render.
+  const sourceId='8'.repeat(32),sourceRun='9'.repeat(32);
+  const sourceOutput={...output,runId:sourceRun,assetId:'prior',sourceVersion:'b'.repeat(64),asset:{...output.asset,id:'prior'}};
+  state.nodes.push({...structuredClone(state.nodes[0]),id:sourceId,title:'Previous clip',x:400,config:{},asset_id:'prior',output:sourceOutput});
+  state.runs.push({id:sourceRun,node_id:sourceId,status:'completed',output:sourceOutput,asset_id:'prior',created_at:now});
+  state.edges.push({id:'c'.repeat(32),project_id:pid,source_node_id:sourceId,target_node_id:nid,config:{},created_at:now});
+  const orderedClips=[{runId:sourceRun,assetId:'prior',version:'b'.repeat(64)},{runId:rid,assetId:'original',version:'a'.repeat(64)}];
+  const availableClips=orderedClips.map((clip,i)=>({...clip,nodeId:i?nid:sourceId,title:i?'Video':'Previous clip',modelId:'minimax/h3',createdAt:now}));
   let completed={id:'a'.repeat(32),status:'ready',storage:'canvas',asset:{id:'a'.repeat(32),file_url:media+'?completed=1'},preview_base:{export_id:'a'.repeat(32),file_url:media}};
   const writes=[];page.on('request',r=>{if(r.method()==='POST')writes.push({url:new URL(r.url()).pathname,body:r.postDataJSON()});});
-  await page.route('**/full-video',route=>route.fulfill({json:{ok:true,data:{eligible:true,export:completed,current:completed}}}));
+  await page.route('**/full-video',route=>route.fulfill({json:{ok:true,data:{eligible:true,availableClips,export:completed,current:completed}}}));
   const open=async()=>{await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${nid}"]`).press('Enter');if(locale==='de')await page.locator('#canvasInspectorToggle').click();};
   await open();const block=page.locator('.canvas-full-video'),video=block.locator('video'),slider=block.getByRole('slider');
   const start=()=>block.getByRole('button',{name:locale==='de'?'Vorschau mit Musik':'Preview with music',exact:true});
@@ -138,7 +147,7 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   await block.getByRole('button',{name:locale==='de'?'Gesamtvideo in Assets speichern':'Save full video to Assets'}).click();
   expect(writes[0].body).toEqual({saveExportId:completed.id});
   await block.getByRole('button',{name:locale==='de'?'Gesamtes Video mit Hintergrundmusik erstellen':'Create full video with background music',exact:true}).click();
-  await expect.poll(()=>writes.length).toBe(2);expect(writes[1].body).toEqual({backgroundMusic:{enabled:true,gain:1,musicAssetId:second}});
+  await expect.poll(()=>writes.length).toBe(2);expect(writes[1].body).toEqual({backgroundMusic:{enabled:true,gain:1,musicAssetId:second},orderedClips,mergeMode:'chain'});
   await start().click();await expect(pause()).toBeVisible();
   if(locale==='de')await page.locator('#canvasInspectorToggle').click();await page.locator(`[data-node-id="${mid}"]`).press('Enter');
   await expect.poll(()=>page.evaluate(()=>window.auditionContexts[0].context.state)).toBe('closed');

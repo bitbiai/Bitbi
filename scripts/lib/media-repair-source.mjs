@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {api,collection,sourceAttempt,validateSource,gitSelection,isRequiredValidationRun,requiredJobs,REPOSITORY} from '../pages-candidate.mjs';
-import {SEEDANCE_BROWSER_REPAIR,SEEDANCE_BROWSER_REPAIR_FILES,BROWSER_REPAIR,OMNI_BROWSER_REPAIR,OMNI_BROWSER_REPAIR_FILES,BROWSER_REPAIR_ACCEPTANCE,BROWSER_REPAIR_FILES,assertBrowserRepairTrees,assertBrowserPublicationTree,assertCompletedBrowserRepair} from './browser-fixture-repair.mjs';
+import {CANVAS_MERGE_BROWSER_REPAIR,CANVAS_MERGE_BROWSER_REPAIR_FILES,SEEDANCE_BROWSER_REPAIR,SEEDANCE_BROWSER_REPAIR_FILES,BROWSER_REPAIR,OMNI_BROWSER_REPAIR,OMNI_BROWSER_REPAIR_FILES,BROWSER_REPAIR_ACCEPTANCE,BROWSER_REPAIR_FILES,assertBrowserRepairTrees,assertBrowserPublicationTree,assertCompletedBrowserRepair} from './browser-fixture-repair.mjs';
 export const MEDIA_REPAIR_FILES=new Set([
   'services/homepage-ffmpeg-processor/video-reference.mjs',
   'services/homepage-ffmpeg-processor/video-reference.test.mjs',
@@ -44,6 +44,11 @@ export function isModelAreaSchemaRepair(files) {
 const git=args=>execFileSync('git',args,{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 export function repairKind(files) {
   if(isModelAreaSchemaRepair(files))return 'tooling';
+  if(files.includes('tests/helpers/canvas-music-preview.cjs')) {
+    assert(['tests/canvas.spec.js','scripts/lib/browser-fixture-repair.mjs','scripts/test-browser-fixture-repair.mjs','scripts/lib/media-repair-source.mjs'].every(f=>files.includes(f)),'Incomplete reviewed Canvas merge browser fixture repair');
+    assert(files.every(f=>CANVAS_MERGE_BROWSER_REPAIR_FILES.has(f)),'Changed input is outside Canvas merge browser fixture equivalence');
+    return 'browser-fixture';
+  }
   if(files.includes('tests/canvas.spec.js')&&files.includes('scripts/lib/browser-fixture-repair.mjs')) {
     assert(['tests/auth-admin.spec.js','tests/oma2-q1-member.spec.js','tests/oma2-q1-canvas.spec.js','tests/smoke.spec.js','tests/helpers/generation-selectors.cjs','scripts/lib/browser-fixture-repair.mjs','scripts/test-browser-fixture-repair.mjs','scripts/lib/media-repair-source.mjs'].every(f=>files.includes(f)),'Incomplete reviewed Seedance browser fixture repair');
     assert(files.every(f=>SEEDANCE_BROWSER_REPAIR_FILES.has(f)),'Changed input is outside Seedance browser fixture equivalence');
@@ -166,7 +171,7 @@ export async function discoverRepairSource(env=process.env,{verify=verifyRepairS
   }
   // This incident cannot silently fall back to the already completed broad
   // suite when its intended continuation has invalid files/evidence.
-  const intended=[SEEDANCE_BROWSER_REPAIR,OMNI_BROWSER_REPAIR,BROWSER_REPAIR].find(incident=>{try {
+  const intended=[CANVAS_MERGE_BROWSER_REPAIR,SEEDANCE_BROWSER_REPAIR,OMNI_BROWSER_REPAIR,BROWSER_REPAIR].find(incident=>{try {
     // The source push itself executes its normal selected acceptance. Only a
     // later reviewed correction may enter this continuation.
     if(env.GITHUB_SHA===incident.sha)return false;
