@@ -1029,9 +1029,10 @@ Local success is not hosted Linux or production acceptance. Private originals,
 receipt hashes, native failures and final reports remain outside the repository.
 
 Run 35725851650 stopped before Worker/browser acceptance because the Admin
-schema label still named 0094. Keep this label aligned with the release manifest
-(0095), and run both `test:doc-currentness` and **`check:doc-currentness`** on final
-source: fixture tests alone do not check the checkout. The release acceptance
+schema label still named 0094. Auth now obtains this label from the canonical
+release manifest at build time (2026-10-03 follow-up below). Run both
+`test:doc-currentness` and **`check:doc-currentness`** on final source: fixture
+tests alone do not check the checkout. The release acceptance
 also accepted an empty sample and allowed only 180 seconds before a five-minute
 cron. It now requires both exact incident jobs and authenticated input, provider
 receipt, result and original bytes; empty, unrelated, duplicate or incomplete
@@ -1412,3 +1413,10 @@ The guard itself is unchanged. Execute Git-tree-dependent checks after committin
 the reviewed inputs and before push; dirty-tree success cannot certify the new
 Git identity. Local planner counterchecks passed; fresh hosted acceptance remains
 required. No already-passed product suite from this failed run existed to reuse.
+
+Before the corrected push, the actual currentness check also caught the copied
+Admin schema label still at 0098. Auth now bundles the canonical release manifest
+using its existing JSON-import mechanism, removing that duplicate moving number.
+The real protected readiness-route tests compare its response to the manifest;
+currentness and the Worker build check the caller. This supersedes the earlier
+instruction to manually keep the Admin label aligned on every migration.
