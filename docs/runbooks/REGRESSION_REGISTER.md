@@ -901,7 +901,14 @@ countercontrols. Unknown outcomes still block. The accepted Auth receipt from
 `37120854735/1` is reused, preserving its version and billing/policy state. Caller:
 `test:frontend-hosting -- --unit` / static deploy safety, then protected baseline,
 backend receipt and frontend reconciliation. Never blind-rerun a byte mismatch;
-first read the served bytes and reconcile the actual activation.
+first read the served bytes and reconcile the actual activation. Run
+`37121752248` selected product suites again after recent-run source discovery
+returned no repair; it was cancelled. The known incident now directly verifies
+its exact source/run/attempt before selection. Missing/invalid proof throws and
+cannot silently fall back to repeated product suites. `test:release-plan` tests
+this no-listing/no-fallback boundary; real Actions evidence is also checked by
+the actual selector. The reason the generic discovery missed that source remains
+unproven; no transient API explanation is claimed.
 
 ### Light component visibility and Soft value propagation (2026-09-22)
 

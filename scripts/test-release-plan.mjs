@@ -829,7 +829,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
 
 {
  const {assertSupportedBackendMigrations,assertModelAreaSchemaResume,modelAreaBackendReceiptContext}=await import('./lib/backend-publication.mjs');
- const {MODEL_AREA_SCHEMA_REPAIR,isModelAreaSchemaRepair,repairKind,repairSelection,assertUnchangedReleaseInputs}=await import('./lib/media-repair-source.mjs');
+ const {MODEL_AREA_SCHEMA_REPAIR,isModelAreaSchemaRepair,repairKind,repairSelection,assertUnchangedReleaseInputs,discoverRepairSource}=await import('./lib/media-repair-source.mjs');
  const contract=JSON.parse(fs.readFileSync(path.join(repoRoot,'config/release-compat.json')));
  const latest=contract.release.schemaCheckpoints.auth.latest;
  assertSupportedBackendMigrations([latest]); // Moving contract cannot outrun the actual deploy caller again.
@@ -852,6 +852,12 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  for(const key of Object.keys(env))assert.throws(()=>assertModelAreaSchemaResume({id:MODEL_AREA_SCHEMA_REPAIR.authVersion},sha,{...env,[key]:'wrong'}));
  assert.throws(()=>assertModelAreaSchemaResume({id:'unknown'},sha,env));
  assert.throws(()=>assertModelAreaSchemaResume({id:'partial',annotations:{'workers/message':`bitbi-auth:${MODEL_AREA_SCHEMA_REPAIR.sha}`}},sha,env));
+ const discoveryEnv={GITHUB_REF:'refs/heads/main',GITHUB_SHA:execFileSync('git',['rev-parse','HEAD'],{cwd:repoRoot,encoding:'utf8'}).trim(),CANDIDATE_BASE:MODEL_AREA_SCHEMA_REPAIR.sha};
+ let verified=0;const noListing=async()=>{throw Error('Known source must not use recent-run discovery');};
+ const discovered=await discoverRepairSource(discoveryEnv,{read:noListing,verify:async e=>{verified++;for(const key of Object.keys(env))assert.equal(e[key],env[key]);return{expected:{sha:e.REPAIR_SOURCE_SHA}};}});
+ assert.equal(verified,1);assert.equal(discovered.expected.sha,MODEL_AREA_SCHEMA_REPAIR.sha);
+ await assert.rejects(discoverRepairSource(discoveryEnv,{read:noListing,verify:async()=>{throw Error('source evidence unavailable');}}),/source evidence unavailable/);
+ assert.equal(await discoverRepairSource({...discoveryEnv,GITHUB_SHA:MODEL_AREA_SCHEMA_REPAIR.sha},{read:async()=>({workflow_runs:[]}),verify:noListing}),null);
  // Real Git trees: a changed admission tool is reusable, product/schema edits are not.
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-schema-admission-'));
  try {

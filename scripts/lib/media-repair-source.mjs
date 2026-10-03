@@ -145,10 +145,20 @@ export async function verifyRepairSource(env=process.env,{complete=false}={}) {
   if(complete)assertRepairAcceptance(await collection(`actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs`,'jobs'),head,files);
   return {expected:e,files,artifacts:selected,completedBrowserArtifact};
 }
-export async function discoverRepairSource(env=process.env) {
+export async function discoverRepairSource(env=process.env,{verify=verifyRepairSource,read=api}={}) {
   // Only main's own completed run, still within the unpublished range. No
   // stale success, PR source, changing UI bytes or missing cases qualifies.
   if(env.GITHUB_REF!=='refs/heads/main')return null;
+  // A known continuation has an exact source. Do not depend on a recent-runs
+  // listing and silently allocate passed product suites if discovery misses it.
+  const schemaIntended=env.GITHUB_SHA!==MODEL_AREA_SCHEMA_REPAIR.sha&&(()=>{try {
+    git(['merge-base','--is-ancestor',env.CANDIDATE_BASE,MODEL_AREA_SCHEMA_REPAIR.sha]);
+    return git(['show',`${env.GITHUB_SHA}:scripts/lib/media-repair-source.mjs`]).includes(MODEL_AREA_SCHEMA_REPAIR.sha);
+  }catch{return false;}})();
+  if(schemaIntended) {
+    const inputs={REPAIR_SOURCE_SHA:MODEL_AREA_SCHEMA_REPAIR.sha,REPAIR_SOURCE_RUN:MODEL_AREA_SCHEMA_REPAIR.run,REPAIR_SOURCE_ATTEMPT:MODEL_AREA_SCHEMA_REPAIR.attempt};
+    return {...inputs,...await verify({...env,...inputs})};
+  }
   // This incident cannot silently fall back to the already completed broad
   // suite when its intended continuation has invalid files/evidence.
   const intended=[OMNI_BROWSER_REPAIR,BROWSER_REPAIR].find(incident=>{try {
@@ -160,9 +170,9 @@ export async function discoverRepairSource(env=process.env) {
   }catch{return false;}});
   if(intended) {
     const inputs={REPAIR_SOURCE_SHA:intended.sha,REPAIR_SOURCE_RUN:intended.run,REPAIR_SOURCE_ATTEMPT:intended.attempt};
-    return {...inputs,...await verifyRepairSource({...env,...inputs})};
+    return {...inputs,...await verify({...env,...inputs})};
   }
-  const runs=await api('actions/workflows/static.yml/runs?branch=main&per_page=20');
+  const runs=await read('actions/workflows/static.yml/runs?branch=main&per_page=20');
   for(const r of runs.workflow_runs.filter(r=>r.status==='completed'&&['success','failure'].includes(r.conclusion))) {
     try {repairDelta(r.head_sha,env.GITHUB_SHA,env.CANDIDATE_BASE);}catch{continue;}
     const jobs=await collection(`actions/runs/${r.id}/attempts/${r.run_attempt}/jobs`,'jobs');
@@ -172,7 +182,7 @@ export async function discoverRepairSource(env=process.env) {
     // Once a matching source is found, fail closed on invalid evidence rather
     // than searching past it for older green results.
     const inputs={REPAIR_SOURCE_SHA:r.head_sha,REPAIR_SOURCE_RUN:String(r.id),REPAIR_SOURCE_ATTEMPT:String(r.run_attempt)};
-    return {...inputs,...await verifyRepairSource({...env,...inputs})};
+    return {...inputs,...await verify({...env,...inputs})};
   }
   return null;
 }
