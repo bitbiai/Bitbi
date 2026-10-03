@@ -832,6 +832,18 @@ candidate has no complete hosted Worker/browser acceptance and cannot be publish
 as passed. Preserve successful product evidence; new CI must execute the missing
 acceptance through the normal guarded path.
 
+Run `37107028067/1` (`a7bb1c49`) then passed both orchestration guards and the first
+83 + 20 Worker cases. The next collection passed 136/137: the publisher-order
+case still asserted eight video catalog members after the authorized Omni
+addition. Its repaired oracle names the exact nine integrated models and rejects
+each omission, duplication and substitution with Gemini 1.1; publisher ordering
+and independent image-dimension rejection remain unchanged. Only this failed
+product case was rerun locally. Static registry membership still does not enable
+paid use: the separate readiness/tariff guards and public-listing checks remain.
+The existing protected pipeline has no general cross-SHA cache for incomplete
+Worker jobs; those logs are retained as evidence, not promoted to a successful
+job or used to skip the previously unexecuted native/browser tail.
+
 The final built-candidate check passed all 16 Omni browser cases in Chromium and
 WebKit (EN/DE). It also exposed the public knowledge model list inheriting a
 runtime-gated model: that static list now excludes unverified runtime entries,

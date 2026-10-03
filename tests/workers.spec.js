@@ -41046,7 +41046,13 @@ test.describe('Worker routes', () => {
     const { listAdminAiCatalog, validateAdminAiImageBody: validateImageRequest } = await import('../js/shared/admin-ai-contract.mjs');
     const { imageDimensionChoices } = await import('../js/shared/image-dimensions.mjs');
     const catalog = listAdminAiCatalog({ includeCanvas: true }).models;
-    expect(catalog.image).toHaveLength(9); expect(catalog.video).toHaveLength(8); expect(catalog.music).toHaveLength(2);
+    expect(catalog.image).toHaveLength(9); expect(catalog.music).toHaveLength(2);
+    const expectedVideoIds=['google/gemini-omni-flash','minimax/h3','pixverse/v6','vidu/q3-pro','alibaba/hh1-t2v','bytedance/seedance-2.0-fast','bytedance/seedance-2.0','xai/grok-imagine-video','xai/grok-imagine-video-1.5-preview'].sort();
+    const verifyVideoMembership=models=>expect(models.map(model=>model.id).sort()).toEqual(expectedVideoIds);
+    verifyVideoMembership(catalog.video);
+    for(const missing of expectedVideoIds)expect(()=>verifyVideoMembership(catalog.video.filter(model=>model.id!==missing))).toThrow();
+    expect(()=>verifyVideoMembership([...catalog.video,catalog.video[0]])).toThrow();
+    expect(()=>verifyVideoMembership(catalog.video.map((model,index)=>index===0?{...model,id:'google/gemini-omni-1.1-flash'}:model))).toThrow();
     for (const kind of ['image', 'video', 'music']) {
       expect(catalog[kind].every(model => model.vendor && !/Cloudflare|Gateway/.test(model.vendor))).toBe(true);
       const before = catalog[kind].map(model => model.id);
