@@ -868,7 +868,9 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  for(const key of Object.keys(env))assert.throws(()=>assertModelAreaSchemaResume({id:MODEL_AREA_SCHEMA_REPAIR.authVersion},sha,{...env,[key]:'wrong'}));
  assert.throws(()=>assertModelAreaSchemaResume({id:'unknown'},sha,env));
  assert.throws(()=>assertModelAreaSchemaResume({id:'partial',annotations:{'workers/message':`bitbi-auth:${MODEL_AREA_SCHEMA_REPAIR.sha}`}},sha,env));
- const discoveryEnv={GITHUB_REF:'refs/heads/main',GITHUB_SHA:execFileSync('git',['rev-parse','HEAD'],{cwd:repoRoot,encoding:'utf8'}).trim(),CANDIDATE_BASE:MODEL_AREA_SCHEMA_REPAIR.sha};
+ // Historical reuse evidence is immutable. HEAD becomes unrelated product
+ // work after this repair and must never be substituted for its accepted tree.
+ const discoveryEnv={GITHUB_REF:'refs/heads/main',GITHUB_SHA:'cea24f598abede35c056209f6b40b32fe50d0247',CANDIDATE_BASE:MODEL_AREA_SCHEMA_REPAIR.sha};
  const actualReceiptContext=modelAreaBackendReceiptContext({sha:discoveryEnv.GITHUB_SHA,base:MODEL_AREA_SCHEMA_REPAIR.sha});
  assert.equal(actualReceiptContext.acceptedSourceSha,MODEL_AREA_SCHEMA_REPAIR.sha);
  assert.equal(imageAcceptanceRepair(actualReceiptContext),false,'Actual backend publication/verification classifier must use accepted product source, not the separately activated backend source');
@@ -879,6 +881,9 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  assert.equal(verified,1);assert.equal(discovered.expected.sha,MODEL_AREA_SCHEMA_REPAIR.sha);
  await assert.rejects(discoverRepairSource(discoveryEnv,{read:noListing,verify:async()=>{throw Error('source evidence unavailable');}}),/source evidence unavailable/);
  assert.equal(await discoverRepairSource({...discoveryEnv,GITHUB_SHA:MODEL_AREA_SCHEMA_REPAIR.sha},{read:async()=>({workflow_runs:[]}),verify:noListing}),null);
+ const productHead='977548e974c54d18f1538114c0541996d8c72848';
+ assert.throws(()=>imageAcceptanceRepair({...actualReceiptContext,publicationSha:productHead}),/Not a closed release repair/);
+ assert.equal(await discoverRepairSource({...discoveryEnv,GITHUB_SHA:productHead,CANDIDATE_BASE:discoveryEnv.GITHUB_SHA},{read:async()=>({workflow_runs:[]}),verify:noListing}),null,'Later product bytes require fresh acceptance, never historical repair reuse');
  // Real Git trees: a changed admission tool is reusable, product/schema edits are not.
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-schema-admission-'));
  try {

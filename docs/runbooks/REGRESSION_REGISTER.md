@@ -1399,3 +1399,16 @@ SQL mocks gained the real availability-list query; no assertions were removed.
 Native and focused Chromium/macOS WebKit checks passed locally with synthetic
 providers. Hosted exact-source acceptance/publication is recorded in the private
 model-areas checkpoint and the resulting protected release receipt; no paid inference.
+
+
+Release-fixture follow-up (2026-10-03): Seedance candidate `977548e9`, run
+[37127459429/1](https://github.com/bitbiai/Bitbi/actions/runs/37127459429), stopped
+at `test:release-plan` before product suites or publication. Its historical
+schema-repair positive control used moving `HEAD`; after a real product commit,
+the production guard correctly rejected that tree as outside closed repair scope.
+The test now binds the real accepted repair `cea24f59` and separately rejects the
+Seedance product tree, including actual source discovery from its published base.
+The guard itself is unchanged. Execute Git-tree-dependent checks after committing
+the reviewed inputs and before push; dirty-tree success cannot certify the new
+Git identity. Local planner counterchecks passed; fresh hosted acceptance remains
+required. No already-passed product suite from this failed run existed to reuse.
