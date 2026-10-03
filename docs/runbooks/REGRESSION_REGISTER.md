@@ -819,6 +819,19 @@ this is not CI acceptance. The failed run created no reusable candidate or Worke
 browser acceptance: those previously unexecuted jobs still require the fresh
 protected run, with normal release gates and no unchanged-backend redeployment.
 
+The next run `37106195156/1` (`a897879e`) passed release compatibility and created
+the candidate, then stopped in the Worker shell countercheck: it still expected
+13 commands after knowledge validation and native model-pricing expanded the
+selected chain to 15. No provider/Worker product suite had started. The corrected
+ordered command requirements explicitly include both new boundaries and Omni's
+contract spec. Real shell failure injection still proves every command stops the
+tail; missing/substituted knowledge, contract or native-pricing checks are negative
+controls. The existing workflow safety caller now executes this focused launcher
+countercheck automatically without running the native/product suites. The prior
+candidate has no complete hosted Worker/browser acceptance and cannot be published
+as passed. Preserve successful product evidence; new CI must execute the missing
+acceptance through the normal guarded path.
+
 The final built-candidate check passed all 16 Omni browser cases in Chromium and
 WebKit (EN/DE). It also exposed the public knowledge model list inheriting a
 runtime-gated model: that static list now excludes unverified runtime entries,

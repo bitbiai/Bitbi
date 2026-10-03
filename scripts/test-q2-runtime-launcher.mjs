@@ -612,10 +612,28 @@ test('actual selected Worker shell stops before downstream work on every failure
   for(const [status,selected,canvas='false',pricing='false',appearance='false'] of [['false','true'],['false','false'],['true','false'],['false','false','true'],['false','false','false','true'],['false','false','false','false','true']]) {
     const command=script.replaceAll('${{ needs.release-compatibility.outputs.appearance }}',appearance).replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}',pricing).replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}',canvas).replaceAll('${{ needs.release-compatibility.outputs.model_status }}',status).replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
     const run=fail=>{fs.writeFileSync(trace,'');const result=spawnSync('/bin/sh',['-c',command],{cwd:f.base,env:{PATH:bin,TRACE:trace,FAIL_COMMAND:fail||''},encoding:'utf8'});return {status:result.status,commands:fs.readFileSync(trace,'utf8').trim().split('\n')};};
-    const passed=run();assert.equal(passed.status,0);assert.equal(passed.commands.length,appearance==='true'?3:pricing==='true'?4:canvas==='true'?13:status==='true'||selected==='true'?3:1);
+    const passed=run();assert.equal(passed.status,0);
+    if(canvas!=='true')assert.equal(passed.commands.length,appearance==='true'?3:pricing==='true'?4:status==='true'||selected==='true'?3:1);
     if(appearance==='true'){assert.match(passed.commands[0],/test-q2-runtime-launcher/);assert.match(passed.commands[1],/tests\/appearance.spec.js --retries=0$/);assert.match(passed.commands[2],/--suite appearance$/);}
     else if(pricing==='true'){assert.match(passed.commands[0],/test-q2-runtime-launcher/);assert.match(passed.commands[1],/tests\/model-pricing.spec.js/);assert.match(passed.commands[2],/tests\/workers.spec.js/);assert.match(passed.commands[3],/--suite model-pricing$/);}
-    else if(canvas==='true'){assert.deepEqual(passed.commands.slice(0,3),['npm run check:ai-cost-policy','npm run test:ai-cost-policy','npm run test:ai-cost-operations']);assert.match(passed.commands[3],/test-q2-runtime-launcher/);assert.match(passed.commands[4],/q2-member-music/);assert.match(passed.commands[5],/ElevenLabs/);assert.match(passed.commands[6],/tests\/workers.spec.js/);assert.match(passed.commands[7],/grok-chat-workers/);assert.match(passed.commands[8],/fable-chat-workers/);assert.match(passed.commands[9],/q2-lifecycle/);assert.match(passed.commands[10],/--suite canvas$/);assert.match(passed.commands[11],/--suite member-generation$/);assert.match(passed.commands[12],/--suite q4-stream$/);}
+    else if(canvas==='true'){
+      const required=[
+        /^npm run check:ai-cost-policy$/, /^npm run test:ai-cost-policy$/, /^npm run test:ai-cost-operations$/,
+        /^node --test tests\/website-assistant-knowledge.test.mjs$/,
+        /^node --test tests\/q2-recovery-staging.test.mjs scripts\/test-q2-runtime-launcher.mjs$/,
+        /q2-member-music.spec.js tests\/q2-gemini-omni.spec.js tests\/model-pricing.spec.js/,
+        /ElevenLabs/, /tests\/workers.spec.js/, /grok-chat-workers/, /fable-chat-workers/, /q2-lifecycle/,
+        /--suite canvas$/, /--suite model-pricing$/, /--suite member-generation$/, /--suite q4-stream$/,
+      ];
+      const verify=commands=>{assert.equal(commands.length,required.length);required.forEach((pattern,index)=>assert.match(commands[index],pattern));};
+      verify(passed.commands);
+      // Removing either newly required boundary, or preserving the count while
+      // substituting a different suite, must fail independently of stop-on-error.
+      for(const index of [3,5,12]) {
+        assert.throws(()=>verify(passed.commands.filter((_,i)=>i!==index)));
+        assert.throws(()=>verify(passed.commands.map((command,i)=>i===index?'node unrelated-check.mjs':command)));
+      }
+    }
     else if(status==='true')assert.match(passed.commands[2],/--suite model-status$/);
     else if(selected==='true')assert.match(passed.commands[2],/--suite member-generation$/);
     else assert.deepEqual(passed.commands,['npm run test:workers']);

@@ -303,6 +303,9 @@ console.log('Pages workflow state, immutable checkout and identical early/final 
 // Candidate/workflow checks must include actual selected discovery; independent
 // synthetic proof fixtures alone missed the pricing-project mismatch in 33e86425.
 await import('./test-homepage-selection.mjs');
+const workerChain=spawnSync(process.execPath,['--test','--test-name-pattern=^actual selected Worker shell stops before downstream work on every failure$','scripts/test-q2-runtime-launcher.mjs'],{cwd:fileURLToPath(new URL('..',import.meta.url)),encoding:'utf8',timeout:30000});
+assert.equal(workerChain.status,0,workerChain.error?.message||workerChain.stdout+workerChain.stderr);
+console.log('Actual Worker chain requirements and failure propagation passed without running product suites.');
 await import('./test-pages-candidate.mjs');
 
 const diagnostic=cfSteps.find(s=>s.name==='Preserve failed frontend upload identity');
