@@ -74,11 +74,12 @@ export async function runAppearanceTests(f) {
     });
     await f.test('appearance_failed_audit_cannot_report_success_or_change_settings_and_reset_keeps_pricing', async () => {
         const before = await publicRead();
+        const tariffBefore = await f.rows('SELECT * FROM model_pricing_state');
         await f.sql("CREATE TRIGGER appearance_audit_failure BEFORE INSERT ON admin_audit_log WHEN NEW.action='appearance.updated' BEGIN SELECT RAISE(ABORT,'synthetic appearance audit failure'); END").run();
         assert.equal((await save(2, defaults)).status, 503); assert.deepEqual(await publicRead(), before);
         await f.sql('DROP TRIGGER appearance_audit_failure').run();
         const reset = await save(2, defaults); assert.equal(reset.status, 200); assert.deepEqual((await publicRead()).segments, defaults);
-        assert.equal((await publicRead()).revision, 3); assert.equal(await f.scalar('SELECT revision AS value FROM model_pricing_state'), 0);
+        assert.equal((await publicRead()).revision, 3); assert.deepEqual(await f.rows('SELECT * FROM model_pricing_state'), tariffBefore);
         assert.equal(f.counters.outboundDenied, 0); assert.equal(f.counters.serviceDenied, 0);
     });
     await f.test('wallet_visibility_native_partial_saves_preserve_themes_and_CAS_audit_without_wallet_mutation', async () => {

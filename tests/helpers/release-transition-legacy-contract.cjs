@@ -194,7 +194,16 @@ for (const scenario of scenarios) {
       // through today's candidate additionally needs today's additive schema.
       for(const file of fs.readdirSync(path.join(REPO,'workers/auth/migrations')).filter(name=>/^\d{4}_.+\.sql$/.test(name)&&name.slice(0,4)>'0081').sort())
         f.DB.exec(fs.readFileSync(path.join(REPO,'workers/auth/migrations',file),'utf8'));
-      const fresh = await route.handleGenerateImage({ request: f.request('explicit-new-logical-operation'), env: f.env,
+      const currentRevision = (await f.originalPrepare('SELECT revision FROM model_pricing_state WHERE id=1').first()).revision;
+      const staleRequest = f.request('explicit-new-stale-quote');
+      staleRequest.headers.set('X-Bitbi-Tariff-Revision', String(currentRevision - 1));
+      const stale = await route.handleGenerateImage({ request: staleRequest, env: f.env, correlationId: 'local-candidate-stale-quote' });
+      assert.equal(stale.status, 409);
+      assert.equal((await stale.json()).code, 'model_pricing_stale');
+      assert.equal(f.providerCalls(), 1, 'A stale quote cannot add a provider call.');
+      const freshRequest = f.request('explicit-new-logical-operation');
+      freshRequest.headers.set('X-Bitbi-Tariff-Revision', String(currentRevision));
+      const fresh = await route.handleGenerateImage({ request: freshRequest, env: f.env,
         correlationId: 'local-candidate-new-operation' });
       assert.equal(fresh.status, 200, 'Explicitly new work remains possible under the existing member policy.');
       assert.equal(f.providerCalls(), 2, 'Exactly one new mock invocation belongs to the explicitly new operation.');

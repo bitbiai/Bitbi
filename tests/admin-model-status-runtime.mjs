@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 export async function runModelStatusTests(f) {
  for(const m of f.migrations)await f.db.batch(m.statements.map(s=>f.db.prepare(s)));
+ const pricingAuditBaseline=await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes');
  const now=new Date().toISOString(),expires=new Date(Date.now()+3600000).toISOString();
  for(const [id,role]of [['q2-workerd-admin','admin'],['q2-workerd-member','user']])await f.sql('INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at,verification_method) VALUES(?,?,?,?,?,?,?,?)',id,id+'@example.invalid','synthetic',now,role,'active',now,'email').run();
  const worker={fetch:(...args)=>f.mf.dispatchFetch(...args)};let count=0;
@@ -42,7 +43,8 @@ export async function runModelStatusTests(f) {
   for(const session of ['',member]){assert.ok([401,403].includes((await call(session)).status));assert.ok([401,403].includes((await call(session,'PATCH',{})).status));}
   assert.equal((await call(admin,'PATCH',{},'https://untrusted.invalid')).status,403);
   const r=await call(admin);assert.equal(r.status,200);assert.match(r.headers.get('cache-control'),/no-store/);
-  const {data}=await r.json();assert.equal(data.models.length,25);assert.equal(data.models.filter(m=>m.switches.generation).length,16);assert.equal(data.models.filter(m=>m.switches.canvas).length,24);
+  const {data}=await r.json();assert.equal(data.models.length,26);assert.equal(data.models.filter(m=>m.switches.generation).length,17);assert.equal(data.models.filter(m=>m.switches.canvas).length,25);
+  const seedance=data.models.find(m=>m.id==='bytedance/seedance-2.5');assert.ok(seedance.switches.generation.enabled && seedance.switches.canvas.enabled);assert.equal(Object.hasOwn(seedance.switches,'main'),false);
   assert.deepEqual(data.models.filter(m=>m.switches.main).map(m=>[m.id,m.switches.main.enabled]),[['@cf/swiss-ai/apertus-v1.5-8b',false]]);
   assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM app_settings WHERE key LIKE 'model_area:%'"),0);
  });
@@ -54,7 +56,7 @@ export async function runModelStatusTests(f) {
   assert.equal((await patch('main',true,0)).status,400);
   const main=await patch('main',true,0,'@cf/swiss-ai/apertus-v1.5-8b');assert.equal(main.status,409);assert.equal((await main.json()).code,'assistant_activation_blocked');
   const publicResult=await worker.fetch('https://bitbi.ai/api/model-pricing');assert.equal(publicResult.status,200);const publicBody=await publicResult.json();assert.deepEqual(publicBody.availability.models['minimax/h3'],{generation:false,canvas:true});
-  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes'),0);assert.equal(f.counters.serviceDenied,0);
+  assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes'),pricingAuditBaseline);assert.equal(f.counters.serviceDenied,0);
  });
 
  for(const name of ['area-queued','area-running'])await f.test(`model_area_native_${name}_direct_admission_queue_storage_and_billing`,async()=>{
@@ -68,7 +70,7 @@ export async function runModelStatusTests(f) {
   await f.sql('INSERT INTO organization_memberships(id,organization_id,user_id,role,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)','area-membership',org,'q2-workerd-member','member','active',now,now).run();
   await f.sql('INSERT INTO organization_subscriptions(id,organization_id,plan_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?)','area-subscription',org,'plan_free','active',now,now).run();
   await f.sql("INSERT INTO credit_ledger(id,organization_id,amount,balance_after,entry_type,source,created_by_user_id,created_at) VALUES(?,?,10000,10000,'grant','synthetic',?,?)",'area-org-grant',org,'q2-workerd-admin',now).run();
-  const body={key:'area-org-queued',revision:0,organization:org,area:'canvas'};
+  const body={key:'area-org-queued',revision:await f.scalar('SELECT revision AS value FROM model_pricing_state WHERE id=1'),organization:org,area:'canvas'};
   assert.equal((await f.control('/model-pricing',body)).status,200,'Generation off does not block trusted Canvas');
   assert.equal((await call(admin,'PATCH',{modelId:'minimax/h3',area:'canvas',enabled:false,revision:2})).status,200);
   const denied=await f.control('/model-pricing',{...body,settle:true});assert.equal(denied.status,409);assert.equal((await denied.json()).code,'model_area_disabled');

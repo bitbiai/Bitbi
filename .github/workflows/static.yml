@@ -314,7 +314,9 @@ jobs:
             node scripts/test-q2-runtime.mjs --suite canvas &&
             Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/model-pricing" node scripts/test-q2-runtime.mjs --suite model-pricing &&
             Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/member-generation" node scripts/test-q2-runtime.mjs --suite member-generation &&
-            Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/q4-stream" node scripts/test-q2-runtime.mjs --suite q4-stream
+            Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/q4-stream" node scripts/test-q2-runtime.mjs --suite q4-stream &&
+            Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/appearance" node scripts/test-q2-runtime.mjs --suite appearance &&
+            Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/model-status" node scripts/test-q2-runtime.mjs --suite model-status
           elif [ "${{ needs.release-compatibility.outputs.model_status }}" = 'true' ]; then
             if [ "${{ needs.release-compatibility.outputs.model_areas }}" = 'true' ]; then
               node --test tests/website-assistant-route.test.mjs tests/website-assistant-control.test.mjs tests/website-assistant-provider.test.mjs &&

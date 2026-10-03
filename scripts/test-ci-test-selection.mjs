@@ -48,6 +48,13 @@ function selection(files, options) {
 }
 
 // Unknown validation configuration still executes the complete retained matrix.
+for (const file of ['tests/appearance-runtime.mjs', 'tests/admin-model-status-runtime.mjs']) {
+  const selected = selection(['workers/auth/src/routes/canvas.js', 'workers/auth/migrations/0099_seedance_25_custom_tariffs.sql', file]);
+  assert(selected.canvasText && selected.workers && selected.auth, file);
+  assert.equal(selected.full, false, file);
+  assert(!selection(['css/pages/generate-lab.css', file]).canvasText, 'Fixture inclusion cannot invent a Canvas runtime anchor');
+}
+
 assert.equal(selection(['playwright.retired.config.js']).full, true);
 assert.equal(selection(['playwright.config.js'], {forceFull: true}).full, true);
 

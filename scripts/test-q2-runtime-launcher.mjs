@@ -539,6 +539,10 @@ test('model-area queue fixture reads staged bytes independently of the Linux chi
     const reached = new Error('actual queue fixture read reached');
     const f = {
       migrations: [], sql: () => ({run: async () => {}}),
+      scalar: async sql => {
+        assert.equal(sql, 'SELECT COUNT(*) AS value FROM model_pricing_changes');
+        return 3;
+      },
       control: async (route, body) => {
         if(route === '/model-area-generation') {
           assert.equal(body.name, 'area-queued');
@@ -707,13 +711,14 @@ test('actual selected Worker shell stops before downstream work on every failure
         /q2-member-music.spec.js tests\/q2-gemini-omni.spec.js tests\/q2-seedance-25.spec.js tests\/model-pricing.spec.js/,
         /ElevenLabs/, /tests\/workers.spec.js/, /grok-chat-workers/, /fable-chat-workers/, /q2-lifecycle/,
         /--suite canvas$/, /--suite model-pricing$/, /--suite member-generation$/, /--suite q4-stream$/,
+        /--suite appearance$/, /--suite model-status$/,
       ];
       const verify=commands=>{assert.equal(commands.length,required.length);required.forEach((pattern,index)=>assert.match(commands[index],pattern));};
       verify(passed.commands);
       assert.throws(()=>verify(passed.commands.map(command=>command.replace('tests/q2-seedance-25.spec.js ',''))));
       // Removing either newly required boundary, or preserving the count while
       // substituting a different suite, must fail independently of stop-on-error.
-      for(const index of [3,5,12]) {
+      for(const index of [3,5,12,15,16]) {
         assert.throws(()=>verify(passed.commands.filter((_,i)=>i!==index)));
         assert.throws(()=>verify(passed.commands.map((command,i)=>i===index?'node unrelated-check.mjs':command)));
       }

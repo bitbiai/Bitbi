@@ -150,6 +150,7 @@ const CANVAS_TEXT_FILES = new Set([
   'workers/auth/src/routes/ai/reference-video-upload.js', 'workers/auth/src/routes/model-pricing.js',
   'tests/q2-gemini-omni.spec.js', 'tests/helpers/omni-model-controls.cjs',
   'tests/model-pricing-runtime.mjs', 'tests/oma2-q3-model-pricing.spec.js',
+  'tests/appearance-runtime.mjs', 'tests/admin-model-status-runtime.mjs',
 
   // Member music uses the existing Canvas/member native and dual-engine jobs.
   // No media-container or decorative homepage inputs change in this slice.

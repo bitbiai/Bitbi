@@ -41,8 +41,9 @@ export async function canvasMusicCase(base, name, role, imageBase64) {
   await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,title,model_id,x,y,config_json,content_json,asset_id,output_json,created_at,updated_at) VALUES(?,?,?,'music_generation','Music','minimax/music-2.6',0,0,?,'{}',?,?,?,?)")
     .bind(nid,pid,owner,JSON.stringify(config),previous.assetId,JSON.stringify(previous),now,now).run();
   const path=`/api/account/canvas/projects/${pid}/nodes/${nid}/run`, key=`canvas-music-${role}-${name}`;
+  const tariffRevision=(await db.prepare('SELECT revision FROM model_pricing_state WHERE id=1').first()).revision;
   const request=async(url,body={},actor=owner,idempotency=key,method='POST')=>{
-    const response=await worker.fetch(new Request('https://bitbi.ai'+url,{method,headers:{Cookie:`__Host-bitbi_session=${actor}`,Origin:'https://bitbi.ai','Content-Type':'application/json','Idempotency-Key':idempotency},body:method==='GET'?undefined:JSON.stringify(body)}),env,{waitUntil(p){waits.push(p);}});
+    const response=await worker.fetch(new Request('https://bitbi.ai'+url,{method,headers:{Cookie:`__Host-bitbi_session=${actor}`,Origin:'https://bitbi.ai','Content-Type':'application/json','Idempotency-Key':idempotency,'X-Bitbi-Tariff-Revision':String(tariffRevision)},body:method==='GET'?undefined:JSON.stringify(body)}),env,{waitUntil(p){waits.push(p);}});
     return {status:response.status,body:await response.json()};
   };
   const scalar=async(sql,...args)=>Number((await db.prepare(sql).bind(...args).first()).n);

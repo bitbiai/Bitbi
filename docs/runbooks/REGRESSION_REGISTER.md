@@ -777,6 +777,25 @@ storage recovery, queued OFF/running completion and Canvas edit cases passed.
 The focused member wrapper's unrelated image-preview tail had no seeded image;
 it is not whole-suite acceptance. Final integrated CI remains separately required.
 
+Run [37129092860/1](https://github.com/bitbiai/Bitbi/actions/runs/37129092860),
+source `4cc47085`, passed staging guards and 72 Worker cases, then exposed the
+same zero-revision assumption in the shared ElevenLabs caller and today's request
+in the frozen legacy-transition fixture. Inspecting the still-unexecuted selected
+commands also exposed the MiniMax music caller and stale catalog membership.
+All current-client fixtures now read the migrated tariff revision; explicit stale
+quotes still reject without provider/debit, legacy accepted operations retain
+frozen evidence, and custom music cases preserve unrelated migrated rules without
+resetting the global revision. Appearance compares the complete unchanged pricing
+row; model-area tests retain baseline audit rows and explicitly include Seedance
+while Main remains off. Native Appearance (6) and model-area (7) checks passed;
+23 music/transition and 18 catalog/MiniMax checks passed. The remaining previously
+unexecuted adapter/chat/lifecycle commands passed; unchanged passing cases were
+not rerun locally. The existing Canvas/model CI caller now also executes native
+Appearance/model-area preservation checks, with missing-command and failure-stop
+countercontrols in its actual shell guard. Review every consumer of changed
+schema/defaults before push, not just the newly added model's tests; keep fresh
+hosted candidate acceptance distinct from these local results.
+
 Executable Seedance checks in `q2-seedance-25.spec.js` exercise actual migrated
 SQLite/R2/Admin queue and manual recovery, all 52 owned sources, foreign-owner
 rejection, four independent rate calculations, pinned settlement and missing

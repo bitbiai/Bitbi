@@ -10,6 +10,7 @@ export const elevenLabsMemberCases = ['prompt', 'plan-opus', 'plan-large', 'expl
 export async function elevenLabsMemberCase(base, name, role, media) {
   check(elevenLabsMemberCases.includes(name) && ['user', 'admin'].includes(role), 'Known ElevenLabs fixture');
   const owner = `el-${role}-${name}`, now = new Date().toISOString(), db = base.DB;
+  const originalTariff = await db.prepare('SELECT revision, rules_json FROM model_pricing_state WHERE id=1').first();
   const organizationDebits = Number((await db.prepare('SELECT COUNT(*) n FROM credit_ledger').first()).n);
   const calls = [], messages = [], nonces = new Set();
   const env = { ...base, BITBI_ENV: 'production', AI_SERVICE_AUTH_SECRET: 'synthetic-elevenlabs-member',
@@ -41,9 +42,9 @@ export async function elevenLabsMemberCase(base, name, role, media) {
     : { prompt: 'Synthetic member music', outputFormat: 'mp3_48000_192', forceInstrumental: true, signWithC2pa: true, seed: 0 };
   if(name === 'explicit-duration') config.musicLengthMs=3000;
   const body = { model: 'elevenlabs/music-v2', ...config };
-  if (name === 'custom-revision') await db.prepare("UPDATE model_pricing_state SET revision=1,rules_json=? WHERE id=1")
-    .bind(JSON.stringify({ 'elevenlabs/music-v2:{}': { modelId: body.model, rates: { second: 3 } } })).run();
-  const revision = name === 'custom-revision' ? 1 : 0;
+  if (name === 'custom-revision') await db.prepare('UPDATE model_pricing_state SET revision=revision+1,rules_json=? WHERE id=1')
+    .bind(JSON.stringify({ ...JSON.parse(originalTariff.rules_json), 'elevenlabs/music-v2:{}': { modelId: body.model, rates: { second: 3 } } })).run();
+  const revision = (await db.prepare('SELECT revision FROM model_pricing_state WHERE id=1').first()).revision;
   const request = async (path, data, key = owner, actor = owner, method = data ? 'POST' : 'GET', tariff = revision) => {
     const response = await worker.fetch(new Request('https://bitbi.ai'+path, { method,
       headers: { Cookie: `__Host-bitbi_session=${actor}`, Origin: 'https://bitbi.ai', 'Content-Type': 'application/json',
@@ -58,6 +59,9 @@ export async function elevenLabsMemberCase(base, name, role, media) {
     check(response.status === 400, 'Invalid contract denied before provider');
   }
   check(calls.length === 0 && await debits() === 0, 'Invalid requests neither invoke nor debit');
+  const stale = await request('/api/ai/generate-music', body, owner+'-stale', owner, 'POST', revision - 1);
+  check(stale.status === 409 && (await stale.json()).code === 'model_pricing_stale', 'Stale prices reject before dispatch');
+  check(calls.length === 0 && await debits() === 0, 'Stale quote neither invokes nor debits');
   await db.prepare("INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,?,'en',?,?)").bind(pid, owner, 'ElevenLabs fixture', now, now).run();
   const created = await request(`/api/account/canvas/projects/${pid}/nodes`, { type: 'music_generation', model_id: body.model, config });
   check(created.status === 201, `Create actual Canvas music node: ${created.status}`);
@@ -106,10 +110,10 @@ export async function elevenLabsMemberCase(base, name, role, media) {
     check(delivered.length === expectedBytes.length && delivered.every((byte, index) => byte === expectedBytes[index]), 'Stored and downloaded original audio bytes match the provider fixture');
     check((await request(`/api/ai/text-assets/${assetId}/file`, null, owner, owner+'-other')).status === 404, 'Foreign file denied');
   }
-  if (name === 'custom-revision') await db.prepare("UPDATE model_pricing_state SET revision=2,rules_json='{}' WHERE id=1").run();
+  if (name === 'custom-revision') await db.prepare('UPDATE model_pricing_state SET revision=revision+1,rules_json=? WHERE id=1').bind(originalTariff.rules_json).run();
   const before = await debits(); await request(route, submission);
   check(calls.length === 1 && await debits() === before, 'Replay cannot dispatch or debit again, even after tariff change');
   check(Number((await db.prepare('SELECT COUNT(*) n FROM credit_ledger').first()).n) === organizationDebits, 'No organization billing');
-  await db.prepare("UPDATE model_pricing_state SET revision=0,rules_json='{}' WHERE id=1").run();
+  check((await db.prepare('SELECT rules_json FROM model_pricing_state WHERE id=1').first()).rules_json === originalTariff.rules_json, 'Unrelated migrated tariffs survive the fixture');
   return { name, role, calls: calls.length, debits: before, persisted: Boolean(assetId) };
 }

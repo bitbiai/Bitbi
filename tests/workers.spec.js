@@ -6190,7 +6190,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     const modulePath = pathToFileURL(path.join(process.cwd(), 'js/shared/canvas-model-contract.mjs')).href;
     const { listCanvasModels, getCanvasModel, getCanvasModelForRole, CANVAS_FABLE_MAX_OUTPUT_TOKENS } = await import(modulePath);
     const models = listCanvasModels();
-    // Independent membership oracle: Omni adds an integrated, runtime-gated adapter.
+    // Independent membership oracle: Seedance adds the requested multimodal video model.
     // Exact IDs also reject duplicate/substituted models, not only a stale count.
     expect(models.map(({ id }) => id).sort()).toEqual([
       'xai/grok-4.6',
@@ -6216,6 +6216,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
       'alibaba/hh1-t2v',
       'bytedance/seedance-2.0-fast',
       'bytedance/seedance-2.0',
+      'bytedance/seedance-2.5',
       'xai/grok-imagine-video',
       'xai/grok-imagine-video-1.5-preview',
       'minimax/music-2.6',
@@ -41047,7 +41048,7 @@ test.describe('Worker routes', () => {
     const { imageDimensionChoices } = await import('../js/shared/image-dimensions.mjs');
     const catalog = listAdminAiCatalog({ includeCanvas: true }).models;
     expect(catalog.image).toHaveLength(9); expect(catalog.music).toHaveLength(2);
-    const expectedVideoIds=['google/gemini-omni-flash','minimax/h3','pixverse/v6','vidu/q3-pro','alibaba/hh1-t2v','bytedance/seedance-2.0-fast','bytedance/seedance-2.0','xai/grok-imagine-video','xai/grok-imagine-video-1.5-preview'].sort();
+    const expectedVideoIds=['bytedance/seedance-2.5','google/gemini-omni-flash','minimax/h3','pixverse/v6','vidu/q3-pro','alibaba/hh1-t2v','bytedance/seedance-2.0-fast','bytedance/seedance-2.0','xai/grok-imagine-video','xai/grok-imagine-video-1.5-preview'].sort();
     const verifyVideoMembership=models=>expect(models.map(model=>model.id).sort()).toEqual(expectedVideoIds);
     verifyVideoMembership(catalog.video);
     for(const missing of expectedVideoIds)expect(()=>verifyVideoMembership(catalog.video.filter(model=>model.id!==missing))).toThrow();
