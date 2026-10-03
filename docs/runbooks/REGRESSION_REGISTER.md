@@ -460,6 +460,16 @@ acceptance, explicitly excludes a media image rebuild, and rejects unknown/auth
 neighbors. No processor/schema/model/pricing change. Protected Auth then frontend
 publication and final live readback remain separate evidence in the task checkpoint.
 
+Native shared-fixture follow-up: `370364ac` / `37150166111/1` passed all 315
+Worker cases and 37 native Canvas cases, then the following private-media fixture
+hit `canvas_projects.id` uniqueness. The added cross-project control had reused
+that sibling's short synthetic ID and left its project behind. Namespaced hashed
+IDs plus explicit fixture cleanup preserve shared D1 state. The same helper now
+asserts the project count is restored before returning to subsequent callers;
+its actual native sibling remains the integration countercheck. This is a fixture
+repair, not a product or processor failure. Retain the failed artifact; do not
+label that mixed Worker/native job successful or reuse it as a complete proof.
+
 Browser audition, 2026-09-28: preview is separate decoded music plus the existing
 aggregate player, never an export request. Migration `0097_canvas_preview_base.sql`
 retains a private, quota-counted clean base inside the same explicit export lease;

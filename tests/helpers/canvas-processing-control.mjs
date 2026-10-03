@@ -23,7 +23,7 @@ export async function canvasProcessingCase(base,fixture) {
     const original=await ownedCanvasVideo(env,owner,asset.id),id=(await sha256Hex('canvas-run-'+i)).slice(0,32);
     const input=i?{connected_video_inputs:[{method:'last_frame',runId:runs[i-1],assetId:sources[i-1].id,frame:{version:sources[i-1].version}}]}:{};
     const output={kind:'video',assetId:asset.id,runId:id,sourceVersion:original.version,asset:{id:asset.id,file_url:asset.file_url}};
-    const nodeId=i===3?node:String(i+3).repeat(32);
+    const nodeId=i===3?node:(await sha256Hex('canvas-merge-node-'+i)).slice(0,32);
     if(nodeId!==node)await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,x,y,created_at,updated_at) VALUES(?,?,?,'video_generation',0,0,?,?)").bind(nodeId,project,owner,now,now).run();
     await db.prepare('UPDATE canvas_nodes SET asset_id=?,output_json=?,title=? WHERE id=?').bind(asset.id,JSON.stringify(output),i<2?'Same title':'Clip '+(i+1),nodeId).run();
     nodes.push(nodeId);
@@ -136,7 +136,8 @@ async function mergeContractCases({env,owner,other,project,runs,sources,nodes,re
   check(JSON.stringify(original.chain.clips.map(c=>c.runId))===JSON.stringify(runs.slice(0,3)),'A → B → C includes endpoint, excludes downstream');
   const post=()=>request(url,'POST',{backgroundMusic,orderedClips},{key:'stale-selection-guard'});
   const row=await db.prepare('SELECT output_json,asset_id,type FROM canvas_nodes WHERE id=?').bind(nodes[0]).first();
-  const otherProject='9'.repeat(32);
+  const projectCount=(await db.prepare('SELECT COUNT(*) n FROM canvas_projects').first()).n;
+  const otherProject=(await sha256Hex('canvas-merge-cross-project')).slice(0,32);
   await db.prepare("INSERT INTO canvas_projects(id,user_id,title,created_at,updated_at) VALUES(?,?,'Other project',?,?)").bind(otherProject,owner,new Date().toISOString(),new Date().toISOString()).run();
   for(const patch of [
     ['deleted_at',new Date().toISOString()],['project_id',otherProject],
@@ -195,6 +196,8 @@ async function mergeContractCases({env,owner,other,project,runs,sources,nodes,re
   blocked=false;try{await enqueueCanvasProcessing(env,{userId:owner,projectId:project,runId:runs[2],kind:'concat',sources:selection.videos,admission:selection.admission,requestKey:'atomic-new-branch-key',recipe:{version:2,videos:selection.videos,backgroundMusic}});}catch(e){blocked=e.code==='canvas_selection_changed';}
   check(blocked,'An upstream branch added during admission cannot silently change the previewed chain');
   await db.prepare('DELETE FROM canvas_edges WHERE id=?').bind(edgeId).run();
+  await db.prepare('DELETE FROM canvas_projects WHERE id=?').bind(otherProject).run();
+  check((await db.prepare('SELECT COUNT(*) n FROM canvas_projects').first()).n===projectCount,'The fixture restores shared project state before the next native caller');
   const graph=await canvasMergeView(env,owner,project,runs[2]);
   const missing=canvasMergeStrand(graph.nodes.filter(n=>n.id!==nodes[0]),graph.edges,nodes[2]);
   check(missing.error==='canvas_chain_broken','A dangling link is never skipped');
