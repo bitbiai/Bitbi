@@ -519,3 +519,20 @@ files/engines; failure/skip/missing reports block publication. Unknown billing,
 session or provider siblings cannot use this scope; ordinary read-only status and
 cosmetic scopes retain their narrower checks. No decorative Hero tests or paid
 inference. Native/local fixtures prove enforcement, not live model quality.
+
+### Canvas merge selection and current strands
+
+New exports admit only completed, owned video outputs currently selected on existing
+project nodes. Node/run/asset/version identities, not titles or project run history,
+define membership. Both manual ordering and “Merge this chain” use the existing
+versioned export service. The shared current-graph resolver also controls blue
+highlighting; ambiguous/cyclic/broken strands fail explicitly. Native edit/extend
+ancestry only prevents duplicated footage. New admission atomically checks the
+validated node/graph snapshot; accepted keys, processor retries, saved exports and
+originals keep their immutable contract.
+
+Use existing Canvas Worker/native and EN/DE Chromium/WebKit callers for this boundary.
+The selection guard distinguishes graph/UI changes from processor changes: unchanged
+`center-crop-v1` processing reuses its image and evidence. Do not rebuild/redeploy the
+media container for selection or label edits. Publish affected Auth before the tested
+frontend and verify current candidates, explicit intent and output through that UI.

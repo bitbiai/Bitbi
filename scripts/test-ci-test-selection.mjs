@@ -839,6 +839,12 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
 }
 
 {
+ const mergeFiles=['js/pages/canvas/main.js','js/pages/canvas/merge-clips.js','js/pages/canvas/full-video.js','js/shared/canvas-export.mjs','css/pages/canvas.css',
+   'workers/auth/src/lib/canvas-merge-selection.js','workers/auth/src/lib/canvas-video-processing.js','workers/auth/src/routes/canvas-video-processing.js',
+   'tests/helpers/canvas-processing-control.mjs','tests/canvas.spec.js','scripts/lib/ci-test-selection.mjs','scripts/test-ci-test-selection.mjs'];
+ const merge=selection(mergeFiles);assert(merge.canvasText&&merge.workers&&merge.auth&&!merge.full&&!merge.homepage);
+ assert.equal(requiresPrivateMediaImage(mergeFiles),false,'Graph admission/labels do not alter the crop processor or image');
+ for(const extra of ['workers/auth/src/lib/session.js','workers/auth/src/lib/canvas-unknown.js'])assert(!selection([...mergeFiles,extra]).canvasText);
  const cropFiles=['js/pages/canvas/full-video.js','css/pages/canvas.css','workers/auth/src/routes/canvas-video-processing.js',
    'workers/auth/src/lib/canvas-video-processing.js','workers/auth/src/lib/canvas-export-recipes.js',
    'services/homepage-ffmpeg-processor/canvas-full-video.mjs','services/homepage-ffmpeg-processor/canvas-full-video.test.mjs',

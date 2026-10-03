@@ -420,7 +420,7 @@ origin, rotation, equal SAR, sound and existing music/clean-base handling.
 Incompatible SAR is rejected instead of stretched.
 
 Counterchecks/callers: `canvas-processing-control.mjs` through the existing
-Worker case and native Canvas suite covers reference-only eligibility, explicit
+Worker case and native Canvas suite covers immutable historical provenance, explicit
 order, foreign/missing/changed sources, native inclusion, no charges, old/new
 claims, replay and stale leases. `canvas-full-video.test.mjs`, called inside the
 existing private-media Linux image, decodes coordinate markers for exact odd
@@ -434,6 +434,31 @@ passed; final Linux/candidate execution and protected media→Auth→frontend/li
 receipts remain required. A separate broad local preflight exposed the unchanged
 Admin image-budget evidence count (9 versus stale 6); it is outside this export
 scope and is not a selected static release check.
+
+Current-node merge selection, 2026-10-03 (baseline `f9c89c38`): live readback
+found 19 run-based candidates for seven attached video outputs. The query read
+project run history; it did not join existing nodes to their selected output.
+The blue highlight also followed historical generation contributors. New admission
+joins the current node/run/asset/version and checks owned usable video media.
+Current directed video edges now define both the blue strand and the chain preview;
+non-video references do not become clips. Native edit/extend evidence only removes
+already included footage; it never adds historical nodes to the strand. Manual
+selection remains independent and uses live titles plus stable immutable identities.
+A single conditional D1 insert rejects deletion, output replacement or graph changes
+between validation and acceptance. Accepted jobs/keys retain their immutable sources.
+
+Counterchecks: the existing `canvas-processing-control.mjs` Worker/native caller
+covers current versus historical output, deleted/foreign/non-video/replaced sources,
+branch/cycle/broken-link controls, native inclusion, atomic admission races, both
+modes through the same processor claim, and accepted-job replay after graph deletion.
+Existing EN/DE Canvas browser suites cover the exact highlighted order, live and
+duplicate titles, manual drafts, deletion/reopen, late refresh/project changes,
+output replacement/undo, keyboard/mobile and the unchanged music/save path.
+Focused local Worker acceptance and 26 Chromium/WebKit cases passed without retries.
+`test-ci-test-selection.mjs` keeps this exact change in existing Canvas/native/browser
+acceptance, explicitly excludes a media image rebuild, and rejects unknown/auth
+neighbors. No processor/schema/model/pricing change. Protected Auth then frontend
+publication and final live readback remain separate evidence in the task checkpoint.
 
 Browser audition, 2026-09-28: preview is separate decoded music plus the existing
 aggregate player, never an export request. Migration `0097_canvas_preview_base.sql`

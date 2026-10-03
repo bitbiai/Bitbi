@@ -1,3 +1,4 @@
+import { canvasMergeStrand } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 import { SEEDANCE_25_MODEL, SEEDANCE_25_ROLES } from '../../shared/seedance-25-contract.mjs';
 import { createSeedance25Controls } from '../../shared/seedance-25-controls.js';
 import { modelAreaState } from '../../shared/model-availability.js';
@@ -312,19 +313,11 @@ function renderGraph() {
     updateContributors();
 }
 
-let contributorProject = null, contributorRequest = null, contributorEvidence = new Map();
 function updateContributors() {
-    const project = store.state.project;
-    if (contributorProject !== project) { contributorRequest?.abort(); contributorRequest = null; contributorEvidence.clear(); contributorProject = project; }
-    const node = selectedNode(), runId = node?.type === 'video_generation' ? node.output?.runId : null;
-    graph.contributors(runId ? contributorEvidence.get(runId) : null);
-    contributorRequest?.abort(); contributorRequest = null;
-    if (!runId || !project || contributorEvidence.has(runId)) return;
-    const controller = new AbortController(); contributorRequest = controller;
-    void canvasApi.contributors(project.id, runId, controller.signal).then(result => {
-        if (controller.signal.aborted || store.state.project !== project || selectedNode()?.output?.runId !== runId) return;
-        if (result.ok && result.data.runId === runId) { contributorEvidence.set(runId, result.data); graph.contributors(result.data); }
-    });
+    const node = selectedNode();
+    graph.contributors(node?.type === 'video_generation'
+        ? canvasMergeStrand(store.state.nodes, store.state.edges, node.id) : null);
+    document.dispatchEvent(new Event('canvas:merge-state'));
 }
 
 function renderHistory() {
@@ -386,6 +379,7 @@ function scheduleNode(node, patch) {
     Object.assign(node, patch);
     nodeSave.schedule(node.project_id, node.id, patch);
     renderSaveState();
+    if (Object.hasOwn(patch, 'title')) document.dispatchEvent(new Event('canvas:merge-state'));
 }
 
 function scheduleProject(projectId, patch) {
@@ -421,7 +415,8 @@ function renderOutput(node) {
         renderCanvasFullVideo({ section, output, projectId: store.state.project.id, german: isGerman, signal: inspectorAbort.signal, video,
             music, settings:node.config?.backgroundMusic,
             onSettings:backgroundMusic=>scheduleNode(node,{config:{...node.config,backgroundMusic}}),
-            flush:()=>nodeSave.flush() });
+            flush:()=>nodeSave.flush(),
+            getGraph:()=>({projectId:store.state.project?.id,nodes:store.state.nodes,edges:store.state.edges,models:store.state.models}) });
     } else if (output.kind === 'audio' && output.asset?.file_url) {
         const audio = el('audio'); audio.src = output.asset.file_url; audio.controls = true; audio.preload = 'metadata'; section.append(audio);
     } else if (output.kind === 'file' && output.asset?.file_url) {

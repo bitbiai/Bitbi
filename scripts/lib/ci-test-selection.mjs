@@ -238,6 +238,8 @@ const CANVAS_TEXT_FILES = new Set([
   'workers/auth/src/lib/private-media-service.js',
   'workers/auth/src/lib/private-media-smoke.js',
   'workers/auth/src/lib/canvas-video-processing.js',
+  'workers/auth/src/lib/canvas-merge-selection.js',
+  'js/pages/canvas/merge-clips.js',
   'workers/auth/migrations/0091_separate_thumbnail_processing.sql',
   'workers/media/src/index.js',
   'workers/media/wrangler.jsonc',

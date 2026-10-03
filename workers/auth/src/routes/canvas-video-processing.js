@@ -1,5 +1,7 @@
+import { canvasMergeView, canvasVideoSelection } from '../lib/canvas-merge-selection.js';
+import { canvasClipIdentity } from '../../../../js/shared/canvas-export.mjs';
 import { processorBackend, notifyPrivateMedia } from '../lib/private-media-service.js';
-import { canvasVideoChain, canvasVideoSelection, canvasExportClips, canvasExportId, enqueueCanvasProcessing, publicCanvasProcessing, claimCanvasProcessing, canvasProcessingClaim, failCanvasProcessing, CANVAS_VIDEO_LIMITS, canvasProcessingError } from '../lib/canvas-video-processing.js';
+import { canvasVideoChain, canvasExportId, enqueueCanvasProcessing, publicCanvasProcessing, claimCanvasProcessing, canvasProcessingClaim, failCanvasProcessing, CANVAS_VIDEO_LIMITS, canvasProcessingError } from '../lib/canvas-video-processing.js';
 import { exportMusicSettings } from '../../../../js/shared/canvas-export.mjs';
 import { ownedCanvasVideo } from '../lib/canvas-video-input.js';
 import { saveGeneratedVideoAsset } from '../lib/ai-text-assets.js';
@@ -28,18 +30,9 @@ export async function canvasExport(ctx,userId,projectId,runId) {
     return {export:latest?publicCanvasProcessing(latest):null,current:previous?publicCanvasProcessing(previous):null,eligible:true,limits:CANVAS_VIDEO_LIMITS};
   };
   if(ctx.method==='GET') {
-    const availableClips=await canvasExportClips(ctx.env,userId,projectId);
-    if(head.latest)return reply({...await result(head.latest),availableClips});
-    if(task) return reply({export:publicCanvasProcessing(task),eligible:true,availableClips,limits:CANVAS_VIDEO_LIMITS});
-    try {
-      const sources=await canvasVideoChain(ctx.env,userId,projectId,runId);
-      return reply({export:null,eligible:sources.length>1,clips:sources.length,availableClips,limits:CANVAS_VIDEO_LIMITS});
-    } catch(error) {
-      // Explicit selection remains possible when historical ancestry is missing
-      // or ambiguous. The selected originals are independently checked on POST.
-      if(!availableClips.some(c=>c.runId===runId)||!['canvas_chain_provenance','canvas_chain_cycle','canvas_chain_unavailable','video_source_changed','video_source_unavailable'].includes(error.code))throw error;
-      return reply({export:null,eligible:false,chainError:error.code,availableClips,limits:CANVAS_VIDEO_LIMITS});
-    }
+    const {availableClips,chain}=await canvasMergeView(ctx.env,userId,projectId,runId);
+    const current=head.latest?await result(head.latest):task?{export:publicCanvasProcessing(task),eligible:true}:{export:null,eligible:!chain.error};
+    return reply({...current,availableClips,chain,clips:chain.clips.length,chainError:chain.error,limits:CANVAS_VIDEO_LIMITS});
   }
   const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.smallJson});
   if(parsed.response) return parsed.response;
@@ -49,26 +42,31 @@ export async function canvasExport(ctx,userId,projectId,runId) {
     return reply(await saveCanvasExport(ctx.env,userId,projectId,runId,parsed.body.saveExportId));
   }
   if(Object.hasOwn(parsed.body,'backgroundMusic')) {
-    if(Object.keys(parsed.body).some(k=>!['backgroundMusic','orderedClips'].includes(k)))throw canvasProcessingError('unsupported_option');
+    if(Object.keys(parsed.body).some(k=>!['backgroundMusic','orderedClips','mergeMode'].includes(k)))throw canvasProcessingError('unsupported_option');
     const requestKey=ctx.request.headers.get('Idempotency-Key');
     if(!/^[a-zA-Z0-9_-]{16,100}$/.test(requestKey||''))throw canvasProcessingError('canvas_export_key_required');
     const explicit=Object.hasOwn(parsed.body,'orderedClips');
+    if(parsed.body.mergeMode!==undefined && (!explicit || parsed.body.mergeMode!=='chain'))throw canvasProcessingError('unsupported_option');
     const existing=await ctx.env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=? AND user_id=?')
       .bind(await canvasExportId(userId,projectId,runId,requestKey),userId).first();
     if(existing) {
       const recipe=JSON.parse(existing.recipe_json||'null');
       const ordered=recipe?.videos.map(({runId,assetId,version})=>({runId,assetId,version}));
       if(![1,2].includes(recipe?.version)||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(parsed.body.backgroundMusic))
-        ||explicit!==(recipe.sequence==='explicit')||explicit&&JSON.stringify(parsed.body.orderedClips)!==JSON.stringify(ordered))
+        ||recipe.mergeMode!==parsed.body.mergeMode||explicit!==(recipe.sequence==='explicit')||explicit&&JSON.stringify(parsed.body.orderedClips)!==JSON.stringify(ordered))
         throw canvasProcessingError('canvas_export_idempotency_conflict');
       // A lost response, including one spanning deployment, observes the same
       // immutable job. Never turn a replay into a second render.
       return reply(await result(existing),202);
     }
-    const videos=explicit?await canvasVideoSelection(ctx.env,userId,projectId,runId,parsed.body.orderedClips):await canvasVideoChain(ctx.env,userId,projectId,runId);
-    if(videos.length<2)throw canvasProcessingError('canvas_chain_too_short');
+    const view=await canvasMergeView(ctx.env,userId,projectId,runId);
+    if(!explicit && view.chain.error)throw canvasProcessingError(view.chain.error);
+    const mode=parsed.body.mergeMode || (explicit?'manual':'chain');
+    const {videos,admission}=await canvasVideoSelection(ctx.env,userId,projectId,runId,
+      explicit?parsed.body.orderedClips:view.chain.clips.map(canvasClipIdentity),mode,view);
     const recipe=await canvasExportRecipe(ctx.env,userId,projectId,runId,videos,parsed.body.backgroundMusic,explicit);
-    task=await enqueueCanvasProcessing(ctx.env,{userId,projectId,runId,kind:'concat',recipe,requestKey,sources:[...videos,...(recipe.music?[recipe.music]:[])]});
+    if(parsed.body.mergeMode)recipe.mergeMode=parsed.body.mergeMode;
+    task=await enqueueCanvasProcessing(ctx.env,{userId,projectId,runId,kind:'concat',recipe,requestKey,admission,sources:[...videos,...(recipe.music?[recipe.music]:[])]});
     return reply(await result(task),202);
   }
   if(Object.keys(parsed.body).length) throw canvasProcessingError('unsupported_option');

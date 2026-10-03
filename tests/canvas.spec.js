@@ -299,29 +299,24 @@ for(const locale of ['en','de']) for(const width of [1440,390]) test(`Canvas mem
   await page.screenshot({path:info.outputPath(`member-music-${locale}-${width}.png`)});
 });
 
-for(const locale of ['en','de']) test(`Canvas contributors ${locale}: displayed History output, branches and keyboard selection`,async({page},info)=>{
+for(const locale of ['en','de']) test(`Canvas contributors ${locale}: current strand ignores historical ancestry and unrelated references`,async({page},info)=>{
   await page.setViewportSize({width:1600,height:1000});await mockSharedAuth(page);
-  const state=createCanvasApiMock(page),pid='1'.repeat(32),now=new Date().toISOString(),run='a'.repeat(32),old='b'.repeat(32),failed='c'.repeat(32);
-  const id=n=>String(n).repeat(32),node=(n,type,x,y)=>({id:id(n),project_id:pid,type,title:'Node '+n,model_id:type==='video_generation'?'pixverse/v6':null,x,y,config:{prompt:'Own prompt'},content:{text:'Connected but unused'},created_at:now,updated_at:now});
-  state.projects=[{id:pid,title:'Branched contributors',locale,created_at:now,updated_at:now}];
-  state.nodes=[node(2,'text_prompt',10,20),node(3,'asset_reference',10,200),node(4,'asset_reference',270,200),node(5,'video_generation',530,100),node(6,'text_prompt',270,390)];
-  const output={kind:'video',runId:run,assetId:'synthetic',fileUrl:'/tests/fixtures/media/test-video-changing.mp4'};
-  state.nodes[3].output=output;
-  state.edges=[[2,3],[3,5],[4,5],[6,5]].map(([a,b],i)=>({id:id(i+2),source_node_id:id(a),target_node_id:id(b),config:{}}));
-  state.runs=[{id:failed,node_id:id(5),status:'failed',model_id:'pixverse/v6',updated_at:now},{id:run,node_id:id(5),status:'completed',output,model_id:'pixverse/v6',updated_at:now},{id:old,node_id:id(5),status:'completed',output:{...output,runId:old},model_id:'pixverse/v6',updated_at:now}];
-  const reads=[];await page.route('**/runs/*/contributors',route=>{const selected=route.request().url().split('/').at(-2);reads.push(selected);const included=selected===old?[state.edges[2]]:state.edges.slice(0,3);return route.fulfill({json:{ok:true,data:{runId:selected,nodeIds:included.map(e=>e.source_node_id),edges:included.map(e=>({id:e.id,sourceNodeId:e.source_node_id,targetNodeId:e.target_node_id})),incomplete:false}}});});
+  const state=createCanvasApiMock(page),pid='1'.repeat(32),now=new Date().toISOString(),run='a'.repeat(32),old='b'.repeat(32);
+  const id=n=>String(n).repeat(32),node=(n,type,x,y)=>({id:id(n),project_id:pid,type,title:'Node '+n,model_id:type==='video_generation'?'pixverse/v6':null,x,y,config:{prompt:'Own prompt'},content:{text:'Reference'},created_at:now,updated_at:now});
+  state.projects=[{id:pid,title:'Branched strand',locale,created_at:now,updated_at:now}];
+  state.nodes=[node(2,'video_generation',10,20),node(3,'video_generation',270,20),node(4,'asset_reference',10,200),node(5,'video_generation',530,100),node(6,'video_generation',270,390)];
+  const output={kind:'video',runId:run,assetId:'synthetic',sourceVersion:'a'.repeat(64),fileUrl:'/tests/fixtures/media/test-video-changing.mp4'};state.nodes[3].output=output;
+  state.edges=[[2,3],[3,5],[4,5],[3,6]].map(([a,b],i)=>({id:id(i+2),source_node_id:id(a),target_node_id:id(b),config:{}}));
+  state.runs=[{id:old,node_id:id(5),status:'completed',output:{...output,runId:old},model_id:'pixverse/v6',updated_at:now}];
+  const reads=[];await page.route('**/runs/*/contributors',route=>{reads.push(route.request().url());return route.fulfill({status:500,json:{ok:false}});});
   await page.goto(`${locale==='de'?'/de':''}/canvas/`);await page.locator(`[data-node-id="${id(5)}"]`).press('Enter');
-  await expect(page.locator('.canvas-node.is-contributor')).toHaveCount(3);await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(3);
-  await expect(page.locator(`[data-node-id="${id(6)}"]`)).not.toHaveClass(/is-contributor/);
-  await expect(page.locator(`[data-node-id="${id(5)}"]`)).toHaveClass(/is-selected/);
+  await expect(page.locator('.canvas-node.is-contributor')).toHaveCount(3);await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(2);
+  for(const n of [4,6])await expect(page.locator(`[data-node-id="${id(n)}"]`)).not.toHaveClass(/is-contributor/);
   await page.screenshot({path:info.outputPath(`contributors-${locale}.png`)});
-  await page.locator('#canvasHistoryToggle').click();await page.locator('.canvas-run-item').first().click();
-  await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(3);expect(reads).not.toContain(failed);
   await page.locator('#canvasHistoryToggle').click();await page.locator('.canvas-run-item').last().click();
-  await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(1);expect(reads).toContain(old);
-  await page.locator(`[data-node-id="${id(5)}"]`).press('ArrowRight');
-  await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(1);
-  await page.locator(`[data-node-id="${id(6)}"]`).press('Enter');await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(0);
+  await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(2);expect(reads).toEqual([]);
+  await page.locator(`[data-node-id="${id(5)}"]`).press('ArrowRight');await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(2);
+  await page.locator(`[data-node-id="${id(4)}"]`).press('Enter');await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(0);
 });
 
 test.describe('BITBI Canvas static and protected workspace', () => {
@@ -933,6 +928,14 @@ for (const locale of ['en', 'de']) test(`Canvas durable video status ${locale}: 
   await expect(button).toBeEnabled(); expect(attachments).toBe(1);
 });
 
+function currentMergeFixture(state, nodeId, now) {
+  const endpoint=state.nodes.find(node=>node.id===nodeId),source={...structuredClone(endpoint),id:'c'.repeat(32),title:'Earlier clip',x:400,output:{...endpoint.output,runId:'b'.repeat(32),assetId:'earlier',sourceVersion:'b'.repeat(64),asset:{id:'earlier',file_url:'/api/ai/text-assets/earlier/file'}},asset_id:'earlier'};
+  endpoint.output.sourceVersion='a'.repeat(64);state.nodes.push(source);
+  state.edges.push({id:'d'.repeat(32),project_id:endpoint.project_id,source_node_id:source.id,target_node_id:endpoint.id,config:{}});
+  const availableClips=[source,endpoint].map(node=>({nodeId:node.id,title:node.title,runId:node.output.runId,assetId:node.output.assetId,version:node.output.sourceVersion,modelId:node.model_id,createdAt:now}));
+  return {availableClips,orderedClips:availableClips.map(({runId,assetId,version})=>({runId,assetId,version}))};
+}
+
 for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable export, private poster and reload`, async ({page},testInfo) => {
   await page.setViewportSize(locale==='de'?{width:390,height:844}:{width:1440,height:900});
   await mockSharedAuth(page);
@@ -941,10 +944,11 @@ for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable exp
   state.projects=[{id:projectId,title:'Private synthetic chain',locale,created_at:now,updated_at:now}];
   state.nodes=[{id:nodeId,project_id:projectId,type:'video_generation',model_id:'pixverse/v6',title:'Clip 2',x:100,y:100,config:{prompt:'Synthetic clip'},content:{},output,asset_id:'original',created_at:now,updated_at:now}];
   state.runs=[{id:runId,node_id:nodeId,project_id:projectId,status:'completed',output,asset_id:'original',created_at:now,updated_at:now}];
+  const merge=currentMergeFixture(state,nodeId,now);
   let posts=0, task=null;
   await page.route('**/api/account/canvas/**/full-video',route=>{
-    if(route.request().method()==='POST'){posts++;expect(route.request().postDataJSON()).toEqual({backgroundMusic:{enabled:false,gain:1}});expect(route.request().headers()['idempotency-key']).toBeTruthy();task={id:'export',status:'queued'};}
-    return route.fulfill({json:{ok:true,data:{eligible:true,export:task}}});
+    if(route.request().method()==='POST'){posts++;expect(route.request().postDataJSON()).toEqual({backgroundMusic:{enabled:false,gain:1},orderedClips:merge.orderedClips,mergeMode:'chain'});expect(route.request().headers()['idempotency-key']).toBeTruthy();task={id:'export',status:'queued'};}
+    return route.fulfill({json:{ok:true,data:{eligible:true,export:task,availableClips:merge.availableClips}}});
   });
   await page.route('**/api/ai/text-assets/*/file',route=>route.fulfill({contentType:'video/mp4',body:fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'))}));
   await page.route('**/api/ai/text-assets/*/poster',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#314760"/></svg>'}));
@@ -973,11 +977,12 @@ for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable exp
 for(const locale of ['en','de']) test(`Canvas full video ordered clips ${locale}: existing reference-only Seedance, failure, keyboard and reload`,async({page},testInfo)=>{
   const de=locale==='de';await page.setViewportSize(de?{width:390,height:844}:{width:1440,height:900});await mockSharedAuth(page);
   const state=createCanvasApiMock(page),projectId='1'.repeat(32),nodeId='2'.repeat(32),runId='3'.repeat(32),priorId='4'.repeat(32),now=new Date().toISOString();
-  const output={kind:'video',runId,assetId:'original',previewUrl:'/api/ai/text-assets/original/poster',asset:{id:'original',file_url:'/api/ai/text-assets/original/file'}};
+  const output={kind:'video',runId,assetId:'original',sourceVersion:'a'.repeat(64),previewUrl:'/api/ai/text-assets/original/poster',asset:{id:'original',file_url:'/api/ai/text-assets/original/file'}};
   state.projects=[{id:projectId,title:'Existing clips',locale,created_at:now,updated_at:now}];
   state.nodes=[{id:nodeId,project_id:projectId,type:'video_generation',model_id:'bytedance/seedance-2.5',title:'Seedance result',x:100,y:100,config:{prompt:'Synthetic retained draft'},content:{},output,asset_id:'original',created_at:now,updated_at:now}];
   state.runs=[{id:runId,node_id:nodeId,project_id:projectId,status:'completed',input:{used_sources:[{runId:priorId}],generation:{references:[{role:'reference_video'}]}},output,asset_id:'original',created_at:now,updated_at:now}];
-  const availableClips=[{runId,assetId:'original',version:'a'.repeat(64),modelId:'bytedance/seedance-2.5',createdAt:now},{runId:priorId,assetId:'h3',version:'b'.repeat(64),modelId:'minimax/h3',createdAt:now}];
+  const availableClips=[{nodeId,title:'Seedance result',runId,assetId:'original',version:'a'.repeat(64),modelId:'bytedance/seedance-2.5',createdAt:now},{nodeId:'5'.repeat(32),title:'Forest',runId:priorId,assetId:'h3',version:'b'.repeat(64),modelId:'minimax/h3',createdAt:now}];
+  state.nodes.push({...structuredClone(state.nodes[0]),id:'5'.repeat(32),title:'Forest',model_id:'minimax/h3',x:400,asset_id:'h3',output:{...output,runId:priorId,assetId:'h3',sourceVersion:'b'.repeat(64),asset:{id:'h3',file_url:'/api/ai/text-assets/h3/file'}}});
   const originalState=JSON.stringify([state.nodes,state.edges,state.runs]);let reject=true,posts=0,task=null;
   await page.route('**/api/account/canvas/**/full-video',route=>{
     if(route.request().method()==='POST'){
@@ -997,23 +1002,106 @@ for(const locale of ['en','de']) test(`Canvas full video ordered clips ${locale}
   await expect(sequence.getByLabel('Clip 1',{exact:true})).toHaveValue(runId);
   await sequence.getByRole('button',{name:de?'Nach oben: Clip 2':'Move up: Clip 2',exact:true}).click();
   await create.focus();await page.keyboard.press('Enter');await expect(block.getByRole('status',{name:de?'Exportstatus':'Export status',exact:true})).toContainText('video_source_changed');expect(posts).toBe(1);
-  await expect(sequence.getByLabel('Clip 1',{exact:true})).toHaveValue(priorId);reject=false;await create.click();
+  await expect(sequence.getByLabel('Clip 1',{exact:true})).toHaveValue('');await expect(create).toBeDisabled();reject=false;
+  await block.locator('..').getByRole('button',{name:de?'Status aktualisieren':'Refresh status',exact:true}).click();
+  await sequence.getByLabel('Clip 1',{exact:true}).selectOption(priorId);await sequence.getByLabel('Clip 2',{exact:true}).selectOption(runId);await create.click();
   await expect(block.getByRole('status',{name:de?'Exportstatus':'Export status',exact:true})).toContainText(de?'wartet':'queued');await expect(create).toBeDisabled();expect(posts).toBe(2);
   await open();await expect(sequence.getByLabel('Clip 1',{exact:true})).toHaveValue(priorId);await expect(sequence.getByLabel('Clip 2',{exact:true})).toHaveValue(runId);
   expect(JSON.stringify([state.nodes,state.edges,state.runs])).toBe(originalState);expect(state.requests.filter(r=>r.method!=='GET')).toEqual([]);expect(posts).toBe(2);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await sequence.scrollIntoViewIfNeeded();await page.screenshot({path:testInfo.outputPath(`ordered-clips-${locale}.png`)});
 });
 
+for (const locale of ['en','de']) test(`Canvas merge selection ${locale}: current strand, live titles, deletion and stale refresh`,async({page},testInfo)=>{
+  const de=locale==='de';await mockSharedAuth(page);await page.setViewportSize(de?{width:390,height:844}:{width:1440,height:960});
+  const state=createCanvasApiMock(page),pid='1'.repeat(32),now='2026-10-03T12:30:00.000Z',id=n=>String(n).repeat(32);
+  state.projects=[{id:pid,title:'Current project',locale,created_at:now,updated_at:now}];
+  state.nodes=[2,3,4,5,6,7].map((n,i)=>({id:id(n),project_id:pid,type:'video_generation',model_id:'pixverse/v6',title:i<2?'Same title':i===2?'':'Clip '+n,x:50+i*110,y:50,config:{},content:{},asset_id:'asset-'+n,output:{kind:'video',runId:id(n),assetId:'asset-'+n,sourceVersion:String(n).repeat(64),previewUrl:'/tests/fixtures/media/test-image.png',asset:{id:'asset-'+n,file_url:'/tests/fixtures/media/canvas-end-frame.mp4'}},created_at:now,updated_at:now}));
+  state.nodes.push({id:id(8),project_id:pid,type:'image_generation',title:'Image',x:50,y:300,config:{},content:{},output:{kind:'image',asset:{id:'image'}},created_at:now,updated_at:now});
+  state.edges=[[2,3],[3,4],[3,5],[6,7],[8,4]].map(([from,to],i)=>({id:(i+10).toString(16).repeat(32),project_id:pid,source_node_id:id(from),target_node_id:id(to),config:{}}));
+  const choices=()=>state.nodes.filter(n=>n.output?.kind==='video').map(n=>({nodeId:n.id,title:n.title,runId:n.output.runId,assetId:n.output.assetId,version:n.output.sourceVersion,modelId:n.model_id,createdAt:now}));
+  let posts=[],task=null,stale=null,releaseRead=null;
+  await page.route('**/api/account/canvas/**/full-video',async route=>{
+    const availableClips=stale||choices();
+    if(releaseRead){const wait=releaseRead;releaseRead=null;await wait;}
+    if(route.request().method()==='POST'){
+      posts.push(route.request().postDataJSON());task={id:'merge',status:'ready',storage:'canvas',asset:{id:'merged',file_url:'/tests/fixtures/media/canvas-end-frame.mp4'},recipe:{version:2,sequence:'explicit',mergeMode:'chain',videos:posts.at(-1).orderedClips}};
+    }
+    return route.fulfill({json:{ok:true,data:{eligible:true,availableClips,export:task}}});
+  });
+  const open=async()=>{await page.goto(de?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${id(4)}"]`).press('Enter');if(de)await page.locator('#canvasInspectorToggle').click();};
+  await open();const block=page.locator('.canvas-full-video'),group=block.getByRole('group'),manual=group.getByRole('radio',{name:de?'Clips und Reihenfolge auswählen':'Choose clips and order'}),chain=group.getByRole('radio',{name:de?'Diese Kette zusammenfügen':'Merge this chain'});
+  const create=block.getByRole('button',{name:de?'Gesamtes Video erstellen':'Create full video',exact:true});
+  await expect(chain).toBeChecked();await expect(group.locator('li')).toHaveCount(3);expect(posts).toEqual([]);
+  await expect(group.locator('li').nth(0)).toContainText('Same title · PixVerse V6');
+  await expect(group.locator('li').nth(2)).toContainText(de?'Videogenerierung':'Video generation');
+  await expect(page.locator('.canvas-node.is-contributor')).toHaveCount(3);await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(2);
+  await manual.check();await group.getByLabel('Clip 1',{exact:true}).selectOption(id(3));
+  const options=await group.getByLabel('Clip 1',{exact:true}).locator('option').allTextContents();
+  expect(options.filter(label=>label.includes('Same title'))).toHaveLength(2);expect(new Set(options).size).toBe(options.length);
+  await page.getByRole('textbox',{name:de?'Titel':'Title',exact:true}).fill('Flucht aus dem Wald');
+  await expect(group.getByLabel('Clip 2',{exact:true}).locator('option:checked')).toContainText('Flucht aus dem Wald · PixVerse V6');
+  await chain.check();await expect(group.locator('li')).toHaveCount(3);
+  await manual.check();await expect(group.getByLabel('Clip 1',{exact:true})).toHaveValue(id(3));await chain.check();
+  await create.focus();await page.keyboard.press('Enter');
+  await expect.poll(()=>posts.length).toBe(1);
+  expect(posts[0].mergeMode).toBe('chain');expect(posts[0].orderedClips.map(c=>c.runId)).toEqual([id(2),id(3),id(4)]);
+  expect(state.edges.map(e=>[e.source_node_id,e.target_node_id])).toEqual([[2,3],[3,4],[3,5],[6,7],[8,4]].map(pair=>pair.map(id)));
+  // Delete B through the real UI. No automatic substitution on returning to C.
+  stale=choices();if(de)await page.locator('#canvasInspectorToggle').click();
+  await page.locator(`[data-node-id="${id(3)}"]`).press('Enter');page.once('dialog',dialog=>dialog.accept());
+  await page.locator('#canvasDeleteSelection').click();
+  await page.locator(`[data-node-id="${id(4)}"]`).press('Enter');if(de)await page.locator('#canvasInspectorToggle').click();
+  await manual.check();await expect(group.getByLabel('Clip 1',{exact:true})).toHaveValue('');
+  await expect(group.getByLabel('Clip 1',{exact:true}).locator(`option[value="${id(3)}"]`)).toHaveCount(0);
+  await expect(block.getByRole('button',{name:de?'Gesamtes Video erneut erstellen':'Create full video again',exact:true})).toBeDisabled();
+  await open();await manual.check();await expect(group.getByLabel('Clip 1',{exact:true}).locator(`option[value="${id(3)}"]`)).toHaveCount(0);expect(posts).toHaveLength(1);
+  // A delayed response from the previous Inspector cannot fill a different one.
+  let release;releaseRead=new Promise(resolve=>{release=resolve;});
+  await block.locator('..').getByRole('button',{name:de?'Status aktualisieren':'Refresh status',exact:true}).click();
+  if(de)await page.locator('#canvasInspectorToggle').click();await page.locator(`[data-node-id="${id(7)}"]`).press('Enter');if(de)await page.locator('#canvasInspectorToggle').click();release();
+  await expect(group.locator('li')).toHaveCount(2);await expect(group.locator('li').last()).toContainText('Clip 7');
+  expect(posts).toHaveLength(1);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await group.scrollIntoViewIfNeeded();await page.screenshot({path:testInfo.outputPath(`current-merge-${locale}.png`)});
+});
+
+test('Canvas merge drafts: output replacement, undo and late project response keep stable versions',async({page})=>{
+  await mockSharedAuth(page);createCanvasApiMock(page);await page.goto('/canvas/');
+  const result=await page.evaluate(async()=>{
+    const {clipSequence}=await import('/js/pages/canvas/merge-clips.js');
+    const controls=document.createElement('div');document.body.append(controls);
+    const clip=(id)=>({nodeId:id,runId:id,assetId:id,version:id.repeat(64),title:'Same',modelId:'model',createdAt:'2026-10-03T12:30:00Z'});
+    const choices=[clip('a'),clip('b')],nodes=choices.map(c=>({id:c.nodeId,type:'video_generation',title:'Same',output:{kind:'video',runId:c.runId,assetId:c.assetId,sourceVersion:c.version}}));
+    const graph={projectId:'first',nodes,edges:[],models:[]};const abort=new AbortController();
+    const sequence=clipSequence(controls,'b',false,abort.signal,()=>{},()=>graph);
+    sequence.update({availableClips:choices});
+    const select=controls.querySelector('select');select.value='a';select.dispatchEvent(new Event('change'));
+    const before=sequence.valid;
+    graph.nodes=nodes.map(n=>n.id==='a'?{...n,output:{...n.output,sourceVersion:'c'.repeat(64)}}:n);
+    document.dispatchEvent(new Event('canvas:merge-state'));
+    sequence.update({availableClips:choices}); // A late old refresh cannot restore it.
+    const replaced={valid:sequence.valid,value:controls.querySelector('select').value};
+    graph.nodes=nodes;document.dispatchEvent(new Event('canvas:merge-state'));
+    const undo=controls.querySelector('select').value; // Restored nodes do not silently select a clip.
+    controls.querySelector('select').value='a';controls.querySelector('select').dispatchEvent(new Event('change'));
+    graph.projectId='second';graph.nodes=[];document.dispatchEvent(new Event('canvas:merge-state'));
+    sequence.update({availableClips:choices});
+    const switched={valid:sequence.valid,options:controls.querySelectorAll('select option[value="a"]').length};
+    abort.abort();controls.remove();return{before,replaced,undo,switched};
+  });
+  expect(result).toEqual({before:true,replaced:{valid:false,value:''},undo:'',switched:{valid:false,options:0}});
+});
+
 for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) test(`Canvas full video music ${locale}: explicit versions, persisted gain and saved preview${delayedMetadata?' during metadata arrival':''}`,async({page,browserName},testInfo)=>{
   await page.setViewportSize(locale==='de'?{width:390,height:844}:{width:1024,height:768});
   await mockSharedAuth(page);
   const state=createCanvasApiMock(page),projectId='1'.repeat(32),nodeId='2'.repeat(32),runId='3'.repeat(32),musicId='4'.repeat(32),now=new Date().toISOString();
-  const output={kind:'video',runId,assetId:'original',previewUrl:'/api/ai/text-assets/original/poster',asset:{id:'original',file_url:'/api/ai/text-assets/original/file'}};
+  const output={kind:'video',runId,assetId:'original',sourceVersion:'a'.repeat(64),previewUrl:'/api/ai/text-assets/original/poster',asset:{id:'original',file_url:'/api/ai/text-assets/original/file'}};
   state.projects=[{id:projectId,title:'Synthetic music export',locale,created_at:now,updated_at:now}];
   state.nodes=[{id:nodeId,project_id:projectId,type:'video_generation',model_id:'minimax/h3',title:'Clip 2',x:100,y:100,config:{prompt:'Synthetic clip'},content:{},output,asset_id:'original',created_at:now,updated_at:now},
     {id:musicId,project_id:projectId,type:'music_generation',title:'Music',x:100,y:400,config:{},content:{},output:{kind:'audio',asset:{id:'music',asset_type:'music',mime_type:'audio/wav',file_url:'/api/ai/text-assets/music/file'}},created_at:now,updated_at:now}];
   state.edges=[{id:'5'.repeat(32),project_id:projectId,source_node_id:musicId,target_node_id:nodeId,config:{},created_at:now}];
   state.runs=[{id:runId,node_id:nodeId,project_id:projectId,status:'completed',output,asset_id:'original',created_at:now,updated_at:now}];
+  const merge=currentMergeFixture(state,nodeId,now);
   let task=null,current=null;const exports=[],saved=[];
   await page.route('**/api/account/canvas/**/full-video',route=>{
     if(route.request().method()==='POST') {
@@ -1021,7 +1109,7 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
       if(body.saveExportId){saved.push(body.saveExportId);current.storage='assets';return route.fulfill({json:{ok:true,data:{asset_id:body.saveExportId,storage:'assets'}}});}
       exports.push({body,key:route.request().headers()['idempotency-key']});task={id:`version-${exports.length}`,status:'queued',storage:'canvas'};
     }
-    return route.fulfill({json:{ok:true,data:{eligible:true,export:task,current}}});
+    return route.fulfill({json:{ok:true,data:{eligible:true,export:task,current,availableClips:merge.availableClips}}});
   });
   let releaseMetadata;const metadataGate=new Promise(resolve=>{releaseMetadata=resolve;});
   // Open-codec 4:3 fixture for Linux Chromium metadata (its bundled H264 is
@@ -1037,7 +1125,7 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
   await open();const block=page.locator('.canvas-full-video'),inspector=page.locator('#canvasInspectorBody');
   await expect(block.getByRole('checkbox')).toHaveCount(0);
   if(locale==='de')await page.locator('#canvasInspectorToggle').click();
-  await page.locator('.canvas-edge-hit').press('Enter');
+  await page.locator(`[data-edge-id="${'5'.repeat(32)}"] .canvas-edge-hit`).press('Enter');
   if(locale==='de')await page.locator('#canvasInspectorToggle').click();
   const connectionPurpose=page.getByRole('combobox',{name:locale==='de'?'Verbindungszweck':'Connection purpose',exact:true});
   await expect(connectionPurpose).toHaveValue('');
@@ -1055,7 +1143,7 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
   expect(exports).toHaveLength(0);
   await block.getByRole('button',{name:locale==='de'?'Gesamtes Video mit Hintergrundmusik erstellen':'Create full video with background music',exact:true}).click();
   await expect.poll(()=>exports.length).toBe(1);
-  expect(exports[0].body).toEqual({backgroundMusic:{enabled:true,gain:0.5}});expect(exports[0].key).toBeTruthy();
+  expect(exports[0].body).toEqual({backgroundMusic:{enabled:true,gain:0.5},orderedClips:merge.orderedClips,mergeMode:'chain'});expect(exports[0].key).toBeTruthy();
   await expect.poll(()=>state.nodes[0].config.backgroundMusic).toEqual({enabled:true,gain:0.5});
   current={...task,status:'ready',asset:{id:task.id,file_url:'/api/ai/text-assets/version-1/file'}};task=current;
   await page.evaluate(()=>{
@@ -1102,9 +1190,9 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
     const model={id:'minimax/h3',capability:'video',runnable:true,controls:{supportsAudioInput:true}};
     const excluded=analyzeNodeInputs(nodes[0],nodes,edges,[model],{});
     const ordinary=analyzeNodeInputs(nodes[0],nodes,edges.map(e=>({...e,config:{}})),[model],{});
-    return {excluded:excluded.sources.length,ordinary:ordinary.sources.map(s=>s.h3Role)};
+    return {excludedMusic:excluded.sources.some(s=>s.edgeId==='5'.repeat(32)),ordinaryMusic:ordinary.sources.filter(s=>s.edgeId==='5'.repeat(32)).map(s=>s.h3Role),retainedVideo:excluded.sources.some(s=>s.edgeId==='d'.repeat(32))};
   },{nodes:state.nodes,edges:state.edges});
-  expect(analysis).toEqual({excluded:0,ordinary:['reference_audio']});
+  expect(analysis).toEqual({excludedMusic:false,ordinaryMusic:['reference_audio'],retainedVideo:true});
 });
 
 for (const locale of ['en', 'de']) for (const mobile of [false, true]) for(const role of ['user','admin']) {

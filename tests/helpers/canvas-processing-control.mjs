@@ -1,3 +1,5 @@
+import { canvasMergeView, canvasVideoSelection } from '../../workers/auth/src/lib/canvas-merge-selection.js';
+import { canvasClipIdentity, canvasMergeStrand, canvasMergeSequence } from '../../js/shared/canvas-export.mjs';
 import { registerCanvasMedia,canvasMediaEnvironment,reclaimCanvasMedia } from '../../workers/auth/src/lib/canvas-media-storage.js';
 import worker from '../../workers/auth/src/index.js';
 import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
@@ -15,15 +17,20 @@ export async function canvasProcessingCase(base,fixture) {
   }
   await db.prepare("INSERT INTO canvas_projects(id,user_id,title,created_at,updated_at) VALUES(?,?,'Synthetic chain',?,?)").bind(project,owner,now,now).run();
   await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,x,y,created_at,updated_at) VALUES(?,?,?,'video_generation',0,0,?,?)").bind(node,project,owner,now,now).run();
-  const sources=[],runs=[];
+  const sources=[],runs=[],nodes=[];
   for(let i=0;i<5;i++) {
     const asset=await saveGeneratedVideoAsset(env,{userId:owner,title:`Clip ${i+1}`,videoBytes:video,mimeType:'video/mp4'});
     const original=await ownedCanvasVideo(env,owner,asset.id),id=(await sha256Hex('canvas-run-'+i)).slice(0,32);
     const input=i?{connected_video_inputs:[{method:'last_frame',runId:runs[i-1],assetId:sources[i-1].id,frame:{version:sources[i-1].version}}]}:{};
     const output={kind:'video',assetId:asset.id,runId:id,sourceVersion:original.version,asset:{id:asset.id,file_url:asset.file_url}};
+    const nodeId=i===3?node:String(i+3).repeat(32);
+    if(nodeId!==node)await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,x,y,created_at,updated_at) VALUES(?,?,?,'video_generation',0,0,?,?)").bind(nodeId,project,owner,now,now).run();
+    await db.prepare('UPDATE canvas_nodes SET asset_id=?,output_json=?,title=? WHERE id=?').bind(asset.id,JSON.stringify(output),i<2?'Same title':'Clip '+(i+1),nodeId).run();
+    nodes.push(nodeId);
+    if(i)await db.prepare('INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)').bind((await sha256Hex('merge-edge-'+i)).slice(0,32),project,owner,nodes[i-1],nodeId,'{}',now,now).run();
     await db.prepare("INSERT INTO canvas_runs(id,project_id,node_id,user_id,model_id,operation_type,status,idempotency_key,input_json,output_json,asset_id,created_at,updated_at) VALUES(?,?,?,?,'pixverse/v6','canvas.video.generate','completed',?,?,?,?,?,?)")
-      .bind(id,project,node,owner,id,JSON.stringify(input),JSON.stringify(output),asset.id,now,now).run();
-    await registerCanvasMedia(env,{runId:id,userId:owner,projectId:project,nodeId:node,kind:'video'});
+      .bind(id,project,nodeId,owner,id,JSON.stringify(input),JSON.stringify(output),asset.id,now,now).run();
+    await registerCanvasMedia(env,{runId:id,userId:owner,projectId:project,nodeId,kind:'video'});
     await db.prepare('UPDATE canvas_media_outputs SET asset_id=? WHERE run_id=?').bind(asset.id,id).run();
     sources.push(original);runs.push(id);
   }
@@ -51,6 +58,8 @@ export async function canvasProcessingCase(base,fixture) {
   // Mutable node output is irrelevant to an old chain, deleted/version-changed originals are not.
   await db.prepare('UPDATE canvas_nodes SET asset_id=? WHERE id=?').bind(sources[4].id,node).run();
   check((await canvasVideoChain(env,owner,project,runs[1]))[0].assetId===sources[0].id,'Historical parent not overwritten');
+  await db.prepare('UPDATE canvas_nodes SET asset_id=? WHERE id=?').bind(sources[3].id,node).run();
+  await mergeContractCases({env,owner,other,project,runs,sources,nodes,request,payload});
   const originalInput=(await db.prepare('SELECT input_json FROM canvas_runs WHERE id=?').bind(runs[0]).first()).input_json;
   await db.prepare('UPDATE canvas_runs SET input_json=? WHERE id=?').bind(JSON.stringify({connected_video_inputs:[{method:'last_frame',runId:runs[1],assetId:sources[1].id,frame:{version:sources[1].version}}]}),runs[0]).run();
   let cycle=false;try{await canvasVideoChain(env,owner,project,runs[1]);}catch(e){cycle=e.code==='canvas_chain_cycle';}check(cycle,'Cycle rejected');
@@ -117,21 +126,96 @@ export async function canvasProcessingCase(base,fixture) {
   return {clips:5,assetCount:6,providerCalls:0,creditDebits:0,exportId:saved.id,status:'ready',storage};
 }
 
+async function mergeContractCases({env,owner,other,project,runs,sources,nodes,request,payload}) {
+  const db=env.DB,url=`/api/account/canvas/projects/${project}/runs/${runs[2]}/full-video`;
+  const view=async()=>payload(await request(url));
+  const original=await view();
+  check(original.availableClips.length===5 && original.availableClips[0].nodeId,'Current nodes define candidate membership');
+  check(original.availableClips.filter(c=>c.title==='Same title').length===2,'Duplicate live titles retain distinct identities');
+  const backgroundMusic={enabled:false,gain:1},orderedClips=[0,1,2].map(i=>({runId:runs[i],assetId:sources[i].id,version:sources[i].version}));
+  check(JSON.stringify(original.chain.clips.map(c=>c.runId))===JSON.stringify(runs.slice(0,3)),'A → B → C includes endpoint, excludes downstream');
+  const post=()=>request(url,'POST',{backgroundMusic,orderedClips},{key:'stale-selection-guard'});
+  const row=await db.prepare('SELECT output_json,asset_id,type FROM canvas_nodes WHERE id=?').bind(nodes[0]).first();
+  const otherProject='9'.repeat(32);
+  await db.prepare("INSERT INTO canvas_projects(id,user_id,title,created_at,updated_at) VALUES(?,?,'Other project',?,?)").bind(otherProject,owner,new Date().toISOString(),new Date().toISOString()).run();
+  for(const patch of [
+    ['deleted_at',new Date().toISOString()],['project_id',otherProject],
+    ['output_json',JSON.stringify({kind:'image',runId:runs[0],assetId:sources[0].id,sourceVersion:sources[0].version})],
+    ['output_json',JSON.stringify({kind:'video',runId:runs[1],assetId:sources[1].id,sourceVersion:sources[1].version})],
+    ['asset_id',sources[1].id],['user_id',other],
+  ]) {
+    await db.prepare(`UPDATE canvas_nodes SET ${patch[0]}=? WHERE id=?`).bind(patch[1],nodes[0]).run();
+    check(!(await view()).availableClips.some(c=>c.runId===runs[0]),'Deleted, replaced, non-video or foreign node excluded');
+    check((await post()).status===409,'Stale direct new-job request rejected');
+    await db.prepare(`UPDATE canvas_nodes SET ${patch[0]}=? WHERE id=?`).bind(patch[0]==='deleted_at'?null:patch[0]==='user_id'?owner:patch[0]==='project_id'?project:row[patch[0]],nodes[0]).run();
+  }
+  await db.prepare("UPDATE ai_text_assets SET mime_type='audio/mpeg' WHERE id=?").bind(sources[0].id).run();
+  check(!(await view()).availableClips.some(c=>c.runId===runs[0]) && (await post()).status===409,'Video labels/model names cannot override authoritative non-video MIME');
+  await db.prepare("UPDATE ai_text_assets SET mime_type='video/mp4' WHERE id=?").bind(sources[0].id).run();
+  // Same run history remains present but an unselected output cannot leak in.
+  const historical=(await sha256Hex('unselected-history')).slice(0,32);
+  await db.prepare(`INSERT INTO canvas_runs(id,project_id,node_id,user_id,model_id,operation_type,status,idempotency_key,input_json,output_json,asset_id,created_at,updated_at)
+    SELECT ?,project_id,node_id,user_id,model_id,operation_type,status,?,'{}',output_json,asset_id,created_at,updated_at FROM canvas_runs WHERE id=?`).bind(historical,historical,runs[0]).run();
+  check(!(await view()).availableClips.some(c=>c.runId===historical),'Unselected historical run excluded');
+  await db.prepare('DELETE FROM canvas_runs WHERE id=?').bind(historical).run();
+  await db.prepare('UPDATE canvas_nodes SET title=? WHERE id=?').bind('Live renamed title',nodes[0]).run();
+  check((await view()).availableClips.find(c=>c.runId===runs[0]).title==='Live renamed title','Rename uses live node, no generation');
+  await db.prepare("UPDATE canvas_nodes SET title='Same title' WHERE id=?").bind(nodes[0]).run();
+  // Replace C → D by sibling B → D. E remains downstream of D, outside C's strand.
+  const branch=await db.prepare('SELECT id,source_node_id FROM canvas_edges WHERE target_node_id=?').bind(nodes[3]).first();
+  await db.prepare('UPDATE canvas_edges SET source_node_id=? WHERE id=?').bind(nodes[1],branch.id).run();
+  check(JSON.stringify((await view()).chain.clips.map(c=>c.runId))===JSON.stringify(runs.slice(0,3)),'Sibling strand never enters the sequence');
+  const edgeId='e'.repeat(32),now=new Date().toISOString();
+  const link=async(source,target)=>db.prepare('INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)').bind(edgeId,project,owner,source,target,'{}',now,now).run();
+  await link(nodes[4],nodes[2]);check((await view()).chain.error==='canvas_chain_ambiguous','Several upstream video branches are explicit');
+  check((await request(url,'POST',{backgroundMusic,orderedClips,mergeMode:'chain'},{key:'ambiguous-chain-key'})).status===409,'Direct ambiguous chain blocked');
+  await db.prepare('DELETE FROM canvas_edges WHERE id=?').bind(edgeId).run();
+  await link(nodes[2],nodes[0]);check((await view()).chain.error==='canvas_chain_cycle','Current graph cycle blocked');
+  await db.prepare('DELETE FROM canvas_edges WHERE id=?').bind(edgeId).run();
+  await db.prepare('UPDATE canvas_edges SET source_node_id=? WHERE id=?').bind(branch.source_node_id,branch.id).run();
+  for(const method of ['edit','extend']) {
+    const old=(await db.prepare('SELECT input_json FROM canvas_runs WHERE id=?').bind(runs[2]).first()).input_json;
+    await db.prepare('UPDATE canvas_runs SET input_json=? WHERE id=?').bind(JSON.stringify({connected_video_inputs:[{method,runId:runs[1],assetId:sources[1].id,sourceVersion:sources[1].version}]}),runs[2]).run();
+    check(JSON.stringify((await view()).chain.clips.map(c=>c.runId))===JSON.stringify([runs[0],runs[2]]),'Native edit/extend does not repeat contained segment');
+    await db.prepare('UPDATE canvas_runs SET input_json=? WHERE id=?').bind(old,runs[2]).run();
+  }
+  // Mutation precisely between validated selection and INSERT, using the actual SQL
+  // admission statement (also executed by the native D1 suite).
+  const before=(await db.prepare('SELECT COUNT(*) n FROM canvas_video_processing').first()).n;
+  const selection=await canvasVideoSelection(env,owner,project,runs[2],orderedClips,'chain');
+  await db.prepare('UPDATE canvas_nodes SET deleted_at=? WHERE id=?').bind(now,nodes[0]).run();
+  let blocked=false;try{await enqueueCanvasProcessing(env,{userId:owner,projectId:project,runId:runs[2],kind:'concat',sources:selection.videos,admission:selection.admission,requestKey:'atomic-race-selection',recipe:{version:2,videos:selection.videos,backgroundMusic}});}catch(e){blocked=e.code==='canvas_selection_changed';}
+  check(blocked && (await db.prepare('SELECT COUNT(*) n FROM canvas_video_processing').first()).n===before,'Deletion during admission creates no job');
+  await db.prepare('UPDATE canvas_nodes SET deleted_at=NULL WHERE id=?').bind(nodes[0]).run();
+  await db.prepare('UPDATE canvas_nodes SET output_json=? WHERE id=?').bind(JSON.stringify({...JSON.parse(row.output_json),sourceVersion:'f'.repeat(64)}),nodes[0]).run();
+  blocked=false;try{await enqueueCanvasProcessing(env,{userId:owner,projectId:project,runId:runs[2],kind:'concat',sources:selection.videos,admission:selection.admission,requestKey:'atomic-replacement-key',recipe:{version:2,videos:selection.videos,backgroundMusic}});}catch(e){blocked=e.code==='canvas_selection_changed';}
+  check(blocked,'Output replacement between validation and insertion blocks new work');
+  await db.prepare('UPDATE canvas_nodes SET output_json=? WHERE id=?').bind(row.output_json,nodes[0]).run();
+  await link(nodes[4],nodes[2]);
+  blocked=false;try{await enqueueCanvasProcessing(env,{userId:owner,projectId:project,runId:runs[2],kind:'concat',sources:selection.videos,admission:selection.admission,requestKey:'atomic-new-branch-key',recipe:{version:2,videos:selection.videos,backgroundMusic}});}catch(e){blocked=e.code==='canvas_selection_changed';}
+  check(blocked,'An upstream branch added during admission cannot silently change the previewed chain');
+  await db.prepare('DELETE FROM canvas_edges WHERE id=?').bind(edgeId).run();
+  const graph=await canvasMergeView(env,owner,project,runs[2]);
+  const missing=canvasMergeStrand(graph.nodes.filter(n=>n.id!==nodes[0]),graph.edges,nodes[2]);
+  check(missing.error==='canvas_chain_broken','A dangling link is never skipped');
+  check(canvasMergeSequence(canvasMergeStrand(graph.nodes,graph.edges,nodes[2]),graph.availableClips.filter(c=>c.runId!==runs[1])).error==='canvas_chain_unavailable','Required unavailable video is not skipped');
+}
+
 async function selectionCases({env,owner,other,project,runs,sources,request,payload}) {
   const db=env.DB,run=runs[1],url=`/api/account/canvas/projects/${project}/runs/${run}/full-video`,internal='/api/internal/homepage/hero-videos/canvas-exports/jobs';
   const before=await db.prepare('SELECT model_id,input_json FROM canvas_runs WHERE id=?').bind(run).first();
   const reference={generation:{references:[{role:'reference_video',source:{assetId:sources[0].id}}]},used_sources:[{runId:runs[0],assetId:sources[0].id,version:sources[0].version}]};
   await db.prepare('UPDATE canvas_runs SET model_id=?,input_json=? WHERE id=?').bind('bytedance/seedance-2.5',JSON.stringify(reference),run).run();
   const view=await payload(await request(url));
-  check(!view.eligible && view.clips===1 && view.availableClips.length===5,'Existing reference-only Seedance output requires explicit sequence, not fabricated continuation');
+  check(view.eligible && view.clips===2 && view.availableClips.length===5,'Current graph, not historical reference ancestry, defines the automatic strand');
   const backgroundMusic={enabled:false,gain:1},orderedClips=[0,1].map(i=>({runId:runs[i],assetId:sources[i].id,version:sources[i].version}));
   const post=(clips,key='explicit-clips-key-1',options={})=>request(url,'POST',{backgroundMusic,orderedClips:clips},{key,...options});
-  check((await request(url,'POST',{backgroundMusic},{key:'automatic-reference-key'})).status===409,'Reference-only ancestry still rejected automatically');
+  check((await request(url,'POST',{backgroundMusic,orderedClips:[...orderedClips].reverse(),mergeMode:'chain'},{key:'automatic-reference-key'})).status===409,'Automatic mode must match current directed order');
   for(const invalid of [[],[orderedClips[1]],orderedClips.concat(orderedClips[0]),[orderedClips[0],{...orderedClips[1],version:'0'.repeat(64)}],[orderedClips[0],{...orderedClips[1],assetId:sources[2].id}],[orderedClips[0],{...orderedClips[1],runId:'f'.repeat(32)}]])
     check((await post(invalid)).status===409,'Missing, duplicate, changed or unauthoritative selection rejected');
   check((await post(orderedClips,'foreign-project-key',{user:other})).status===404,'Other owner cannot select private clips');
   await db.prepare('UPDATE ai_text_assets SET user_id=? WHERE id=?').bind(other,sources[0].id).run();
-  const foreign=await post(orderedClips);check(foreign.status===404&&(await foreign.json()).code==='video_source_unavailable','Foreign source cannot be selected');
+  const foreign=await post(orderedClips);check(foreign.status===409&&(await foreign.json()).code==='canvas_selection_changed','Foreign source cannot be selected');
   await db.prepare('UPDATE ai_text_assets SET user_id=? WHERE id=?').bind(owner,sources[0].id).run();
   for(const method of ['edit','extend']){
     await db.prepare('UPDATE canvas_runs SET input_json=? WHERE id=?').bind(JSON.stringify({connected_video_inputs:[{method,runId:runs[0],assetId:sources[0].id,sourceVersion:sources[0].version}]}),run).run();
@@ -143,6 +227,10 @@ async function selectionCases({env,owner,other,project,runs,sources,request,payl
   check(JSON.stringify(created.recipe.videos.map(s=>s.runId))===JSON.stringify([runs[0],run]),'Explicit clip order reaches immutable recipe');
   check((await payload(await post(orderedClips))).export.id===created.id,'Lost-response replay does not enqueue another render');
   check((await post([...orderedClips].reverse())).status===409,'Replay cannot silently reorder');
+  await db.prepare('UPDATE canvas_nodes SET deleted_at=? WHERE id=(SELECT node_id FROM canvas_runs WHERE id=?)').bind(new Date().toISOString(),runs[0]).run();
+  check((await payload(await post(orderedClips))).export.id===created.id,'Already accepted job survives graph deletion and lost response');
+  check((await post(orderedClips,'new-after-delete-key')).status===409,'Fresh job cannot reuse the deleted node');
+  await db.prepare('UPDATE canvas_nodes SET deleted_at=NULL WHERE id=(SELECT node_id FROM canvas_runs WHERE id=?)').bind(runs[0]).run();
   check((await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:2,limit:3},{container:true}))).jobs.length===0,'Old processor cannot claim a new crop recipe');
   const job=(await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:3,limit:1},{container:true}))).jobs[0];
   check(job.id===created.id && job.spatialPolicy==='center-crop-v1' && job.sources.length===2,'Actual processor admission carries exact new policy');
@@ -153,6 +241,12 @@ async function selectionCases({env,owner,other,project,runs,sources,request,payl
   check(replay.export.id===legacy.id&&replay.export.recipe.version===1,'In-flight pre-deployment key retains old recipe without a new render');
   const old=(await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:2,limit:1},{container:true}))).jobs[0];
   check(old.id===legacy.id && old.spatialPolicy==='legacy-pad-v1','Old queued recipe remains claimable under old capability');
+  const automatic=(await payload(await request(url,'POST',{backgroundMusic,orderedClips,mergeMode:'chain'},{key:'current-chain-key-1'}))).export;
+  check(automatic.id!==created.id && automatic.recipe.mergeMode==='chain','Explicit chain intent creates its own immutable version');
+  const automaticJob=(await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:3,limit:1},{container:true}))).jobs[0];
+  check(automaticJob.id===automatic.id && automaticJob.sources.length===2 && automaticJob.spatialPolicy==='center-crop-v1','Automatic and manual modes use the same real processor admission');
+  await db.prepare('UPDATE canvas_video_processing SET attempt_count=7 WHERE id=?').bind(automaticJob.id).run();
+  await payload(await request(automaticJob.completion.failure_url,'POST',{code:'canvas_synthetic_retry'},{container:true,token:automaticJob.claim}));
   await payload(await request(job.completion.failure_url,'POST',{code:'canvas_synthetic_retry'},{container:true,token:job.claim}));
   await db.prepare("UPDATE canvas_video_processing SET next_attempt_at='2000-01-01' WHERE id=?").bind(job.id).run();
   const retry=(await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:3,limit:1},{container:true}))).jobs[0];
