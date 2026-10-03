@@ -553,8 +553,15 @@ function buildRecommendedChecks(impacts, changedFiles) {
   // text. Surface a stale reviewed version before expensive selected suites.
   const knowledgeRequired = impacts.static.changedFiles.length > 0
     || changedFiles.some(file => file.startsWith('workers/shared/website-assistant-'));
+  // Native fixture/schema changes can break the staging caller before any real
+  // runtime case executes. Run its complete small guard, not a named-test subset.
+  const nativeHarnessChanged = changedFiles.some(file => file.startsWith('tests/helpers/q2-runtime/')
+    || file.startsWith('workers/auth/migrations/')
+    || ['scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs',
+      'tests/q2-recovery-staging.test.mjs'].includes(file));
   const checks = [...(discoveryChanged ? ['npm run test:homepage-selection'] : []),
     ...(knowledgeRequired ? ['node scripts/check-website-assistant-knowledge.mjs'] : []),
+    ...(nativeHarnessChanged ? ['node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs'] : []),
     ...(workersRequired ? ['node scripts/check-media-tools.mjs'] : []), ...ALWAYS_RECOMMENDED_CHECKS];
   if (workersRequired) {
     checks.push(...WORKER_RECOMMENDED_CHECKS);

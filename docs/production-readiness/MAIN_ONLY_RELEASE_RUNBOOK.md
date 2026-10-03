@@ -91,6 +91,12 @@ it does not authorize new production operations, paid calls or protection change
    workflows against the entire unpublished range from the last verified publication.
    Check discovered cases, runtime prerequisites and downstream jobs. Discovery,
    helper mocks and a green prefix of an `&&` chain are not complete acceptance.
+   After shared native fixture/schema changes, run the complete small staging/
+   launcher guard from that caller before push. `release:preflight` schedules it
+   early and stops on failure; a passing named-test subset does not certify its
+   siblings. Git-tree-dependent checks run on the committed SHA, and static
+   currentness/build checks use final inputs. Reuse unchanged product evidence;
+   this requirement does not mandate another broad local regression.
 3. For full Worker acceptance, install locked root/Auth dependencies and execute
    `bash scripts/setup-media-tools.sh` on Ubuntu; it installs and executes both
    FFmpeg and ffprobe. Run `node scripts/test-q2-runtime.mjs --preflight` before

@@ -484,6 +484,10 @@ test('Canvas reference fixture reads the staged bytes from a non-repository cwd'
     const f = {
       migrations: [],
       rows: async sql => sql.includes('sqlite_schema') ? Array.from({length:sql.includes('canvas_preview_base_fence')?3:7},()=>({name:'synthetic-guard'})) : [],
+      scalar: async sql => {
+        assert.equal(sql, 'SELECT revision AS value FROM model_pricing_state WHERE id=1');
+        return 7;
+      },
       sql: () => ({ run: async () => {} }),
       control: async () => Response.json({ cookie: 'synthetic' }),
       test: async (name, operation) => {

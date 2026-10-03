@@ -1011,6 +1011,20 @@ scripts/test-q2-runtime-launcher.mjs`. This orchestration countercheck does not
 replace the selected hosted `test:q2-runtime -- --suite canvas` or the subsequent
 Appearance/native and Chromium/WebKit gates; the failed run provided neither.
 
+Seedance follow-up (2026-10-03), source `25566771`, run
+[37128306488/1](https://github.com/bitbiai/Bitbi/actions/runs/37128306488):
+release compatibility/build passed, but the staging guard stopped before product
+cases because its isolated Canvas fixture lacked the new tariff-revision scalar
+query. The real runtime already supports it. The stub now accepts only that SQL
+query and returns a nonzero revision; both cwd/digest assertions and the broken
+cwd-reader countercontrol remain. All 27 staging/launcher checks passed locally.
+The earlier targeted shell-only check missed this sibling: after shared native
+fixture or schema edits, execute the complete small guard, not just the named
+changed case. Existing `release:preflight` now schedules that guard before costly
+suites, and `test:release-plan` rejects continued execution after its failure while
+excluding unrelated CSS/docs/Contact changes. This is fixture/orchestration proof,
+not hosted native or production acceptance; the failed run remains failed.
+
 ### GPT Image 2.5 retained HTTPS delivery (2026-09-22)
 
 Pinned native workerd rejects `fetch(..., {redirect:'error'})` before transport;

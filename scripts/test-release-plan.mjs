@@ -91,8 +91,25 @@ for (const file of ['docs/example.md', 'css/pages/generate-lab.css']) {
   assert(!plan.recommendedChecks.includes('npm run test:workers'), file);
 }
 
-// Real Git blobs across the full release range, not latest-push filenames or
-// dirty files, establish the one reviewed tool-only dependency exception.
+// A shared native fixture or migration must execute the entire small launcher
+// guard before costly suites; a failed guard cannot be skipped by preflight.
+for (const file of ['tests/helpers/q2-runtime/canvas.mjs', 'tests/helpers/q2-runtime/environment.mjs',
+  'scripts/test-q2-runtime-launcher.mjs', 'tests/q2-recovery-staging.test.mjs',
+  'workers/auth/migrations/0099_seedance_25_custom_tariffs.sql']) {
+  const guard = 'node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs';
+  const executed = [];
+  const result = runReleasePreflight(repoRoot, {files: [file]}, {runCommand(command) {
+    const text = command.join(' '); executed.push(text);
+    return {ok: text !== guard, status: text === guard ? 1 : 0};
+  }});
+  assert.equal(result.ok, false, file);
+  assert.equal(executed.at(-1), guard, file);
+  assert(!executed.includes('npm run test:workers'), file);
+}
+for (const file of ['docs/example.md', 'css/pages/generate-lab.css', 'workers/contact/src/index.js']) {
+  assert(!createReleasePlanFromRepo(repoRoot, {files: [file]}).recommendedChecks.some(check => check.includes('test-q2-runtime-launcher.mjs')), file);
+}
+
 for(const file of ['js/shared/member-model-exposure.mjs','workers/shared/website-assistant-version.mjs']) {
   const executed=[];
   const result=runReleasePreflight(repoRoot,{files:[file]},{runCommand(command){const text=command.join(' ');executed.push(text);return {ok:text!=='node scripts/check-website-assistant-knowledge.mjs',status:1};}});
@@ -100,6 +117,8 @@ for(const file of ['js/shared/member-model-exposure.mjs','workers/shared/website
   assert(!executed.includes('npm run test:workers'),'Stale corpus stops before product suites');
 }
 {
+  // Real Git blobs across the full release range, not latest-push filenames or
+  // dirty files, establish the one reviewed tool-only dependency exception.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bitbi-worker-tooling-'));
   const git = args => execFileSync('git', args, {cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();
   const write = (file, value) => {fs.mkdirSync(path.dirname(path.join(root, file)), {recursive: true}); fs.writeFileSync(path.join(root, file), typeof value === 'string' ? value : JSON.stringify(value));};
@@ -722,6 +741,7 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
       execute: entry.execute,
     })),
     [
+      { command: "node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs", cwd: null, execute: true },
       { command: "node scripts/check-media-tools.mjs", cwd: null, execute: true },
       { command: "npm run check:toolchain", cwd: null, execute: true },
       { command: "npm run test:quality-gates", cwd: null, execute: true },
