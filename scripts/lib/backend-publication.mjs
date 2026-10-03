@@ -231,7 +231,7 @@ export function backendReceiptContext(c,env=process.env) {
 export function modelAreaBackendReceiptContext(c) {
   const activation=MODEL_AREA_SCHEMA_REPAIR.activation;
   if(c.sha===activation.sha)return c;
-  return {...c,publicationSha:c.sha,sha:activation.sha,runId:activation.run,attempt:activation.attempt};
+  return {...c,acceptedSourceSha:MODEL_AREA_SCHEMA_REPAIR.sha,publicationSha:c.sha,sha:activation.sha,runId:activation.run,attempt:activation.attempt};
 }
 export async function readToolingBackendReceipt(c,env=process.env,{list=collection,download=fetch,verify=verifyRepairSource}={}) {
   assert(c.publicationSha,'Not a tooling receipt continuation');
@@ -266,8 +266,8 @@ function storeBackendReceipt(receipt) {
   fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/backend-release.json',JSON.stringify(receipt,null,2)+'\n');
   if(process.env.GITHUB_ENV)fs.appendFileSync(process.env.GITHUB_ENV,`BACKEND_RELEASE_RECEIPT=${path.resolve('test-results/backend-release.json')}\n`);
 }
-function imageAcceptanceRepair(c) {
-  return Boolean(c.publicationSha&&repairDelta(c.sha,c.publicationSha,c.base).includes('scripts/lib/image-delivery-acceptance.mjs'));
+export function imageAcceptanceRepair(c) {
+  return Boolean(c.publicationSha&&repairDelta(c.acceptedSourceSha||c.sha,c.publicationSha,c.base).includes('scripts/lib/image-delivery-acceptance.mjs'));
 }
 // Independently attribute an already-active backend to the protected failed
 // publication window. The failed step stays failed; this run records NEW

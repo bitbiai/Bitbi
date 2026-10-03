@@ -908,7 +908,13 @@ its exact source/run/attempt before selection. Missing/invalid proof throws and
 cannot silently fall back to repeated product suites. `test:release-plan` tests
 this no-listing/no-fallback boundary; real Actions evidence is also checked by
 the actual selector. The reason the generic discovery missed that source remains
-unproven; no transient API explanation is claimed.
+unproven; no transient API explanation is claimed. Run `37122123162/1` then
+exposed a classifier still using the backend activation SHA as the product
+acceptance SHA. The receipt context now carries both identities; the real
+publication/verification classifier has a broken-context countercontrol in
+`test:release-plan`. A read-only call through `readToolingBackendReceipt` also
+verified the genuine Actions metadata, ZIP digest and `37120854735/1` receipt
+before the next protected continuation; no inference or redeployment was used.
 
 ### Light component visibility and Soft value propagation (2026-09-22)
 

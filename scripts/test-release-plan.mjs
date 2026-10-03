@@ -828,7 +828,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
 }
 
 {
- const {assertSupportedBackendMigrations,assertModelAreaSchemaResume,modelAreaBackendReceiptContext}=await import('./lib/backend-publication.mjs');
+ const {assertSupportedBackendMigrations,assertModelAreaSchemaResume,modelAreaBackendReceiptContext,imageAcceptanceRepair}=await import('./lib/backend-publication.mjs');
  const {MODEL_AREA_SCHEMA_REPAIR,isModelAreaSchemaRepair,repairKind,repairSelection,assertUnchangedReleaseInputs,discoverRepairSource}=await import('./lib/media-repair-source.mjs');
  const contract=JSON.parse(fs.readFileSync(path.join(repoRoot,'config/release-compat.json')));
  const latest=contract.release.schemaCheckpoints.auth.latest;
@@ -853,6 +853,11 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  assert.throws(()=>assertModelAreaSchemaResume({id:'unknown'},sha,env));
  assert.throws(()=>assertModelAreaSchemaResume({id:'partial',annotations:{'workers/message':`bitbi-auth:${MODEL_AREA_SCHEMA_REPAIR.sha}`}},sha,env));
  const discoveryEnv={GITHUB_REF:'refs/heads/main',GITHUB_SHA:execFileSync('git',['rev-parse','HEAD'],{cwd:repoRoot,encoding:'utf8'}).trim(),CANDIDATE_BASE:MODEL_AREA_SCHEMA_REPAIR.sha};
+ const actualReceiptContext=modelAreaBackendReceiptContext({sha:discoveryEnv.GITHUB_SHA,base:MODEL_AREA_SCHEMA_REPAIR.sha});
+ assert.equal(actualReceiptContext.acceptedSourceSha,MODEL_AREA_SCHEMA_REPAIR.sha);
+ assert.equal(imageAcceptanceRepair(actualReceiptContext),false,'Actual backend publication/verification classifier must use accepted product source, not the separately activated backend source');
+ const oldContext={...actualReceiptContext};delete oldContext.acceptedSourceSha;
+ assert.throws(()=>imageAcceptanceRepair(oldContext),/Unreviewed schema-admission source/);
  let verified=0;const noListing=async()=>{throw Error('Known source must not use recent-run discovery');};
  const discovered=await discoverRepairSource(discoveryEnv,{read:noListing,verify:async e=>{verified++;for(const key of Object.keys(env))assert.equal(e[key],env[key]);return{expected:{sha:e.REPAIR_SOURCE_SHA}};}});
  assert.equal(verified,1);assert.equal(discovered.expected.sha,MODEL_AREA_SCHEMA_REPAIR.sha);
