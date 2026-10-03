@@ -35,10 +35,11 @@ export const TOOLING_REPAIR_FILES=new Set([
 ]);
 // This candidate completed every selected product check, then stopped before
 // schema/code activation because 0098 was absent from the deployment allowlist.
-export const MODEL_AREA_SCHEMA_REPAIR=Object.freeze({sha:'eac93008c61a803b95554c7b50a5569b5191f3ae',run:'37119971202',attempt:'1',authVersion:'82d1f19a-90ea-45a3-90bf-f37f7f418235'});
+export const MODEL_AREA_SCHEMA_REPAIR=Object.freeze({sha:'eac93008c61a803b95554c7b50a5569b5191f3ae',run:'37119971202',attempt:'1',authVersion:'82d1f19a-90ea-45a3-90bf-f37f7f418235',activation:{sha:'d3e3602b8334e4126a37ddf0e7637bedc7662141',run:'37120854735',attempt:'1'}});
 export function isModelAreaSchemaRepair(files) {
   return ['scripts/lib/backend-publication.mjs','scripts/lib/media-repair-source.mjs','scripts/test-release-plan.mjs'].every(f=>files.includes(f)) &&
-    files.every(f=>['scripts/lib/backend-publication.mjs','scripts/lib/media-repair-source.mjs','scripts/test-release-plan.mjs','docs/runbooks/REGRESSION_REGISTER.md'].includes(f));
+    files.every(f=>['scripts/lib/backend-publication.mjs','scripts/lib/media-repair-source.mjs','scripts/test-release-plan.mjs','scripts/lib/frontend-receipts.mjs','scripts/test-frontend-review.mjs','docs/runbooks/REGRESSION_REGISTER.md'].includes(f)) &&
+    files.includes('scripts/lib/frontend-receipts.mjs')===files.includes('scripts/test-frontend-review.mjs');
 }
 const git=args=>execFileSync('git',args,{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 export function repairKind(files) {

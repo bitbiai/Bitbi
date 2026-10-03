@@ -223,10 +223,15 @@ export function backendReceiptContext(c,env=process.env) {
   if(!env.REPAIR_SOURCE_SHA)return c;
   const files=repairDelta(env.REPAIR_SOURCE_SHA,c.sha,c.base);
   if(repairKind(files)!=='tooling')return c;
-  // No activation receipt exists for the reviewed pre-migration failure. New
-  // backend activation gets this run's identity; frontend keeps its tested one.
-  if(isModelAreaSchemaRepair(files))return c;
+  // The schema repair created a fresh backend receipt before frontend readback
+  // failed. Later reconciliation must retain that authenticated activation.
+  if(isModelAreaSchemaRepair(files))return modelAreaBackendReceiptContext(c);
   return {...c,publicationSha:c.sha,sha:env.REPAIR_SOURCE_SHA,runId:env.REPAIR_SOURCE_RUN,attempt:env.REPAIR_SOURCE_ATTEMPT};
+}
+export function modelAreaBackendReceiptContext(c) {
+  const activation=MODEL_AREA_SCHEMA_REPAIR.activation;
+  if(c.sha===activation.sha)return c;
+  return {...c,publicationSha:c.sha,sha:activation.sha,runId:activation.run,attempt:activation.attempt};
 }
 export async function readToolingBackendReceipt(c,env=process.env,{list=collection,download=fetch,verify=verifyRepairSource}={}) {
   assert(c.publicationSha,'Not a tooling receipt continuation');

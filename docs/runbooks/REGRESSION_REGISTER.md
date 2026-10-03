@@ -890,6 +890,19 @@ Public appearance acceptance must compare the document actually served by the ex
 
 A failure after activation is not a completed publication. The baseline resolver permits reconciliation only after independently matching the original accepted candidate archive, protected failed upload artifact, exact source/run/attempt/package, current 100% version and domains. It retains the previous accepted baseline until the existing protected deploy job verifies the active version without uploading and records a new durable receipt; the old job remains failed. `test-frontend-review.mjs` covers wrong/expired evidence, supersession, unconfirmed activation, unchanged-byte reuse across tooling repairs and durable receipt survival after diagnostic artifact expiry; the publication adapter has a zero-upload countercheck. No Auth redeployment or routing/protection change follows from this verification repair.
 
+On 2026-10-03, `37120854735/1` activated Auth and the unchanged accepted frontend,
+then exact public-byte readback failed; subsequent EN/DE reads matched without
+code/configuration changes. `37121383011/1` exposed a separate reconciliation
+bug: an earlier pre-upload schema failure was incorrectly required to contain
+activation evidence. The existing resolver now excludes only authenticated jobs
+whose frontend-upload step completed as skipped. Its real-Git/API/ZIP regression
+includes both failures, plus missing/unknown/attempted upload and no-activation
+countercontrols. Unknown outcomes still block. The accepted Auth receipt from
+`37120854735/1` is reused, preserving its version and billing/policy state. Caller:
+`test:frontend-hosting -- --unit` / static deploy safety, then protected baseline,
+backend receipt and frontend reconciliation. Never blind-rerun a byte mismatch;
+first read the served bytes and reconcile the actual activation.
+
 ### Light component visibility and Soft value propagation (2026-09-22)
 
 Light surfaces alone did not fix pinned white text in Admin model cards, nested

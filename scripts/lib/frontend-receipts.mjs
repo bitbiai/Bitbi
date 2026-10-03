@@ -76,6 +76,10 @@ export async function findPendingFrontendActivation({api=githubRequest,read=clou
     const failedRun=await api(`actions/runs/${log[1]}`),job=await api(`actions/jobs/${log[2]}`);
     assert.equal(String(failedRun.id),log[1]);assert.equal(failedRun.repository?.full_name,repo);assert.equal(failedRun.head_repository?.full_name,repo);assert.equal(failedRun.path,'.github/workflows/static.yml');assert.equal(failedRun.head_branch,'main');assert(['push','workflow_dispatch'].includes(failedRun.event));assert.equal(failedRun.head_sha,d.sha);assert.equal(failedRun.status,'completed');assert.equal(failedRun.conclusion,'failure');
     assert.equal(job.name,'deploy');assert.equal(job.head_sha,d.sha);assert.equal(String(job.run_id),log[1]);assert.equal(String(job.id),log[2]);assert.equal(job.run_attempt,failedRun.run_attempt);assert.equal(job.status,'completed');assert.equal(job.conclusion,'failure');
+    // A completed pre-upload failure cannot have activated this frontend.
+    // Do not let it mask a later, independently attributable failed upload.
+    // Unknown, missing or attempted upload outcomes still require all evidence.
+    if(job.steps.some(s=>s.name==='Deploy and verify Cloudflare frontend'&&s.status==='completed'&&s.conclusion==='skipped'))continue;
     for(const name of ['Validate candidate references before backend publication','Apply verified candidate backend prerequisites','Preserve backend activation evidence','Preserve failed frontend upload identity'])assert(job.steps.some(s=>s.name===name&&s.status==='completed'&&s.conclusion==='success'),`Missing protected activation step: ${name}`);
     assert(job.steps.some(s=>s.name==='Deploy and verify Cloudflare frontend'&&s.status==='completed'&&s.conclusion==='failure'),'Missing post-upload failure');assert(job.steps.some(s=>s.name==='Record durable frontend receipt'&&s.status==='completed'&&s.conclusion==='skipped'),'Prior failed job unexpectedly recorded acceptance');
     if(d.sha===sha) {

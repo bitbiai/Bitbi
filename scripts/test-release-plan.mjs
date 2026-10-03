@@ -828,7 +828,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
 }
 
 {
- const {assertSupportedBackendMigrations,assertModelAreaSchemaResume}=await import('./lib/backend-publication.mjs');
+ const {assertSupportedBackendMigrations,assertModelAreaSchemaResume,modelAreaBackendReceiptContext}=await import('./lib/backend-publication.mjs');
  const {MODEL_AREA_SCHEMA_REPAIR,isModelAreaSchemaRepair,repairKind,repairSelection,assertUnchangedReleaseInputs}=await import('./lib/media-repair-source.mjs');
  const contract=JSON.parse(fs.readFileSync(path.join(repoRoot,'config/release-compat.json')));
  const latest=contract.release.schemaCheckpoints.auth.latest;
@@ -839,6 +839,12 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
  assert(isModelAreaSchemaRepair(files));assert.equal(repairKind(files),'tooling');
  for(const added of ['workers/auth/src/routes/canvas.js','workers/auth/migrations/0098_model_area_availability.sql','tests/admin-model-status-runtime.mjs','config/release-compat.json'])assert.throws(()=>repairKind([...files,added]));
  for(const missing of files)assert(!isModelAreaSchemaRepair(files.filter(f=>f!==missing)));
+ assert(!isModelAreaSchemaRepair([...files,'scripts/lib/frontend-receipts.mjs']));
+ assert(isModelAreaSchemaRepair([...files,'scripts/lib/frontend-receipts.mjs','scripts/test-frontend-review.mjs']));
+ const activeContext={sha:MODEL_AREA_SCHEMA_REPAIR.activation.sha,base:'b'.repeat(40)};
+ assert.deepEqual(modelAreaBackendReceiptContext(activeContext),activeContext);
+ const resumed=modelAreaBackendReceiptContext({...activeContext,sha:'f'.repeat(40)});
+ assert.equal(resumed.sha,MODEL_AREA_SCHEMA_REPAIR.activation.sha);assert.equal(resumed.runId,MODEL_AREA_SCHEMA_REPAIR.activation.run);assert.equal(resumed.attempt,'1');assert.equal(resumed.publicationSha,'f'.repeat(40));
  const selection=repairSelection({reasons:{}},files);assert.equal(selection.workers,false);assert.equal(selection.auth,false);assert.equal(selection.policy,'release-tooling-repair-v1');
  const env={REPAIR_SOURCE_SHA:MODEL_AREA_SCHEMA_REPAIR.sha,REPAIR_SOURCE_RUN:MODEL_AREA_SCHEMA_REPAIR.run,REPAIR_SOURCE_ATTEMPT:MODEL_AREA_SCHEMA_REPAIR.attempt},sha='f'.repeat(40);
  assertModelAreaSchemaResume({id:MODEL_AREA_SCHEMA_REPAIR.authVersion},sha,env);

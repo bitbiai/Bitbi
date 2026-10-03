@@ -341,6 +341,31 @@ try {
   return {api,read,download,env:pendingEnv,baseline:{id:6,receipt:state.previous},manifest};
  }
  const pending=await findPendingFrontendActivation(pendingOptions(structuredClone(pendingState)));
+ // An earlier backend/schema failure has no frontend upload. It must not mask
+ // the later matching activation; unknown or attempted upload failures remain fatal.
+ const earlyRun={...structuredClone(failedRun),id:201,head_sha:sha};
+ const earlyJob={...structuredClone(failedJob),id:4201,run_id:201,head_sha:sha};
+ earlyJob.steps.find(s=>s.name==='Apply verified candidate backend prerequisites').conclusion='failure';
+ earlyJob.steps.find(s=>s.name==='Preserve backend activation evidence').conclusion='skipped';
+ earlyJob.steps.find(s=>s.name==='Deploy and verify Cloudflare frontend').conclusion='skipped';
+ const withEarlyFailure=(job=earlyJob,onlyEarly=false)=>{
+  const options=pendingOptions(structuredClone(pendingState)),read=options.api;
+  options.api=async endpoint=>{
+   if(endpoint===`deployments?environment=${policy.productionEnvironment}&per_page=100`)return [...(onlyEarly?[]:await read(endpoint)),{id:2201,task:'deploy',sha,environment:policy.productionEnvironment}];
+   if(endpoint==='deployments/2201/statuses')return [{state:'failure',log_url:'https://github.com/bitbiai/Bitbi/actions/runs/201/job/4201'}];
+   if(endpoint==='actions/runs/201')return earlyRun;
+   if(endpoint==='actions/jobs/4201')return job;
+   return read(endpoint);
+  };return options;
+ };
+ const afterEarly=await findPendingFrontendActivation(withEarlyFailure());assert.deepEqual(afterEarly.reconciliation,pending.reconciliation);
+ await assert.rejects(findPendingFrontendActivation(withEarlyFailure(earlyJob,true)),/Missing unique protected failed activation/);
+ for(const state of ['failure','unknown',null]) {
+  const job=structuredClone(earlyJob),step=job.steps.find(s=>s.name==='Deploy and verify Cloudflare frontend');
+  if(state===null)job.steps=job.steps.filter(s=>s!==step);else step.conclusion=state;
+  await assert.rejects(findPendingFrontendActivation(withEarlyFailure(job)));
+ }
+ record('pre-upload schema failure cannot mask later activation; missing/unknown/attempted upload evidence and no actual activation still fail');
  assert.equal(pending.receipt.versionId,activeVersion);assert.equal(pending.receipt.deploymentId,activeDeployment);assert.equal(pending.baseline.sha,base);assert.equal(pending.reconciliation.publicationSha,toolingSha);assert.equal(pending.reconciliation.run,'202');
  const sameHeadState=structuredClone(pendingState);sameHeadState.head=toolingSha;const sameHeadOptions=pendingOptions(sameHeadState);sameHeadOptions.env={...pendingEnv,GITHUB_SHA:toolingSha};
  assert.equal((await findPendingFrontendActivation(sameHeadOptions)).reconciliation.run,'202','Read-only diagnosis recognizes prior failed activation at current main');
