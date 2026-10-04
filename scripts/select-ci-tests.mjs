@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { formatCiTestSelection, selectCiTests, memberSpecSources } from "./lib/ci-test-selection.mjs";
+import { formatCiTestSelection, selectCiTests, memberSpecSources, canvasCompletionRouteSources } from "./lib/ci-test-selection.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -86,6 +86,7 @@ function writeGithubOutput(selection) {
     image_models: selection.imageModels === true,
     appearance: selection.appearance === true,
     canvas_text: selection.canvasText === true,
+    canvas_completion: selection.canvasCompletion === true,
     media_lifecycle: selection.mediaLifecycle === true,
     workspace_help: selection.workspaceHelp === true,
     homepage: selection.homepage,
@@ -147,6 +148,7 @@ try {
     forceFull: options.forceFull || !!resolved.issue,
     forceReason: resolved.issue || "explicit full regression",
     memberTestSources: options.base ? memberSpecSources(options.base, options.head, repoRoot) : null,
+    canvasRouteSources: options.base ? canvasCompletionRouteSources(options.base, options.head, repoRoot) : null,
   });
   if(options.githubOutput && !options.forceFull && !resolved.issue && process.env.GITHUB_ACTIONS==='true') {
     const source=await discoverRepairSource();

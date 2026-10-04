@@ -20,6 +20,12 @@ export const CANVAS_RELEASE_SCOPES = Object.freeze([
   Object.freeze(['canvas', CANVAS_WEBKIT_FILES]),
   Object.freeze(['pricing', Object.freeze(['oma2-q3-model-pricing.spec.js'])]),
 ]);
+export function verifyCanvasCompletionDiscovery(actual) {
+  const expected = ['chromium', 'webkit-canvas'].flatMap(project => ['en', 'de'].map(locale =>
+    `${project}:canvas.spec.js:Canvas completion metadata ${locale}: queue, deficient Inspector, appended chain and admission`));
+  assert.deepEqual(actual.map(test => `${test.project}:${test.file}:${test.title}`).sort(), expected.sort(), 'Canvas completion discovery must contain every EN/DE engine case exactly once');
+  for (const test of actual) assert.equal(test.expectedStatus, 'passed', 'Canvas completion case must execute');
+}
 export const canvasReleaseProject = (engine, scope) => engine === 'chromium' ? 'chromium'
   : scope === 'pricing' ? 'webkit-pricing' : 'webkit-canvas';
 

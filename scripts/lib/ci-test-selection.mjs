@@ -279,6 +279,7 @@ const CANVAS_TEXT_FILES = new Set([
   'workers/auth/src/routes/admin.js',
   'tests/helpers/auth-worker-harness.js',
   'tests/helpers/canvas-processing-control.mjs', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs',
+  'tests/helpers/canvas-completion-control.mjs', 'tests/helpers/canvas-completion-ui.cjs',
   'tests/q2-lifecycle.spec.js',
   'tests/auth-admin.spec.js',
   'tests/helpers/private-media-ui.js', 'tests/helpers/grok-image-controls.cjs',
@@ -819,7 +820,33 @@ export function memberSpecSources(base, head, cwd = process.cwd()) {
   } catch { return null; }
 }
 
-export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression", memberTestSources = null } = {}) {
+export function canvasCompletionRouteSources(base, head, cwd = process.cwd()) {
+  try {
+    const git = args => execFileSync('git', args, {cwd, encoding:'utf8', stdio:['ignore','pipe','pipe']});
+    const ancestor = git(['merge-base', base, head]).trim(), file = 'workers/auth/src/routes/canvas.js';
+    return {before:git(['show', `${ancestor}:${file}`]), after:git(['show', `${head}:${file}`])};
+  } catch { return null; }
+}
+
+export function isCanvasCompletionRouteChange(sources) {
+  if (!sources?.before || !sources.after || sources.before === sources.after) return false;
+  // This narrow repair may add only owned version metadata. Any other route
+  // change restores the existing broader Canvas/accounting acceptance.
+  return sources.after.replace('applyCanvasVideoInput, ownedCanvasVideo }', 'applyCanvasVideoInput }')
+    .replace(/      \/\/ The browser-attach path must carry the same owned original version as\n      \/\/ queue completion\. Never take this identity from provider\/client metadata\.\n      if \(model\.capability === 'video'\) output\.sourceVersion = \(await ownedCanvasVideo\(ctx\.env, userId, output\.asset\.id, null, 80_000_000\)\)\.version;\n/, '') === sources.before;
+}
+
+const CANVAS_COMPLETION_FILES = new Set([
+  'scripts/test-q2-runtime-launcher.mjs',
+  'workers/auth/src/routes/canvas.js', 'workers/auth/src/lib/canvas-merge-selection.js',
+  'js/shared/canvas-export.mjs', 'js/pages/canvas/merge-clips.js', 'js/pages/canvas/full-video.js',
+  'tests/canvas.spec.js', 'tests/helpers/canvas-completion-control.mjs', 'tests/helpers/canvas-completion-ui.cjs',
+  'tests/helpers/q2-runtime/canvas.mjs', 'tests/helpers/q2-runtime/control.mjs', 'tests/helpers/q2-runtime/runner.mjs',
+  'tests/helpers/q2-runtime/linux-hosted.mjs', 'tests/helpers/q2-runtime/linux-runtime-child.mjs', 'tests/helpers/q2-runtime/linux-bootstrap.py',
+  'tests/helpers/q2-runtime/environment.mjs',
+]);
+
+export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression", memberTestSources = null, canvasRouteSources = null } = {}) {
   const changedFiles = normalizeFiles(files);
   const selection = {
     files: changedFiles,
@@ -958,6 +985,16 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selection.workers = changedFiles.some(file=>file.startsWith('workers/') || file.includes('q2-runtime') || file==='tests/admin-model-status.spec.js' || file==='tests/admin-model-status-runtime.mjs' || file==='playwright.workers.config.js');
     selection.reasons.auth.push('Read-only Admin model status: Chromium/WebKit, EN/DE, navigation/session denial, stale data, cleanup and build identity');
     if(selection.workers) selection.reasons.workers.push('Model status catalog/evidence/query tests and native guarded Admin/MFA/D1 route; no inference, generation or accounting changes');
+    return selection;
+  }
+
+  if (!forceFull && changedFiles.includes('workers/auth/src/routes/canvas.js')
+      && isCanvasCompletionRouteChange(canvasRouteSources)
+      && changedFiles.every(file => isDocumentation(file) || CANVAS_COMPLETION_FILES.has(file) || RELEASE_TOOLING_FILES.has(file))) {
+    selection.policy = 'canvas-completion-v1'; selection.canvasText = selection.canvasCompletion = true;
+    selection.workers = selection.auth = selection.static = selection.runtime = true;
+    selection.reasons.workers.push('Actual Canvas completion/queue/owned R2 version and eight-to-nine clip export admission, native runtime; provider synthetic, no processor rebuild');
+    selection.reasons.auth.push('EN/DE Chromium/WebKit completion-to-Inspector, missing-version recovery and replaced/deleted endpoint countercontrols on final candidate');
     return selection;
   }
 

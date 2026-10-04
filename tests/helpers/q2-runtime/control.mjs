@@ -5,6 +5,7 @@ import { cleanupExpiredMemberAiUsageAttempts } from '../../../workers/auth/src/l
 import worker from '../../../workers/auth/src/index.js';
 import { privateMediaCase,privateMediaSmokeCase } from '../private-media-control.mjs';
 import { canvasProcessingCase } from '../canvas-processing-control.mjs';
+import { canvasCompletionCase } from '../canvas-completion-control.mjs';
 import { canvasMusicCase } from '../canvas-music-control.mjs';
 import { elevenLabsMemberCase } from '../elevenlabs-member-control.mjs';
 import { canvasContributorsCase } from '../canvas-contributors-control.mjs';
@@ -50,6 +51,7 @@ export default {
     if (path==='/private-media-smoke') return Response.json(await privateMediaSmokeCase(env,body));
     if (path==='/private-media') return Response.json(await privateMediaCase(env,body));
     if (path==='/canvas-processing') return Response.json(await canvasProcessingCase(env,body));
+    if (path==='/canvas-completion') return Response.json(await canvasCompletionCase(env,body));
     if (path==='/canvas-music') return Response.json(await canvasMusicCase(env,body.name,body.role,body.imageBase64));
     if (path==='/elevenlabs-member') return Response.json(await elevenLabsMemberCase(env, body.name, body.role, body.media));
     if (path==='/canvas-contributors') return Response.json(await canvasContributorsCase(env));

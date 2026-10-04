@@ -21,6 +21,9 @@ export function clipSequence(controls, runId, german, signal, onChange, getGraph
     box.append(help, notice, list, add); controls.append(box);
     let choices = [], available = [], selected = [], mode = 'manual', initialized = false, chain = { clips: [], error: 'canvas_chain_unavailable' }, invalidated = false;
     const problem = error => ({
+        canvas_chain_endpoint_missing: german ? 'Der ausgewählte Endpunkt fehlt oder zeigt inzwischen eine andere Ausgabe. Aktuelle Ausgabe auswählen oder Status aktualisieren.' : 'The selected endpoint is missing or now shows another output. Select the current output or refresh status.',
+        canvas_chain_endpoint_unavailable: german ? 'Die Videoausgabe des Endpunkts ist noch nicht fertig, fehlt oder wurde ersetzt. Status aktualisieren und die aktuelle Ausgabe prüfen.' : 'The endpoint video output is unfinished, missing or replaced. Refresh status and check the current output.',
+        canvas_chain_limit: german ? 'Die Kette überschreitet die Grenze von 120 Nodes. Eine kürzere Kette oder manuelle Auswahl verwenden.' : 'This chain exceeds the 120-node limit. Use a shorter chain or manual selection.',
         canvas_chain_ambiguous: german ? 'Mehrere Videostränge führen hier zusammen. Bitte Clips manuell auswählen.' : 'Several video strands meet here. Choose clips manually.',
         canvas_chain_cycle: german ? 'Die Kette enthält einen Kreis. Verbindung korrigieren oder manuell auswählen.' : 'This chain contains a cycle. Correct the connection or choose manually.',
         canvas_chain_broken: german ? 'Eine Verbindung fehlt oder die angezeigte Ausgabe ist nicht mehr aktuell. Projekt erneut öffnen oder manuell auswählen.' : 'A connection is missing or the displayed output is no longer current. Reopen the project or choose manually.',
@@ -41,8 +44,8 @@ export function clipSequence(controls, runId, german, signal, onChange, getGraph
             return output?.kind === 'video' && sameCanvasClip(clip, { runId: output.runId, assetId: output.assetId || output.asset?.id, version: output.sourceVersion });
         }) : [];
         selected = selected.map(clip => choices.find(current => sameCanvasClip(current, clip)) || null);
-        const endpoint = choices.find(clip => clip.runId === runId);
-        chain = canvasMergeSequence(canvasMergeStrand(graph.nodes, graph.edges, endpoint?.nodeId), choices);
+        const endpoint = graph.nodes.find(node => node.output?.runId === runId);
+        chain = canvasMergeSequence(canvasMergeStrand(graph.nodes, graph.edges, endpoint?.id), choices);
     }
     const valid = () => !invalidated && (mode === 'chain' ? !chain.error : selected.length >= 2
         && selected.every(Boolean) && selected.some(clip => clip.runId === runId)
@@ -80,6 +83,18 @@ export function clipSequence(controls, runId, german, signal, onChange, getGraph
     return {
         update(data) {
             if (!Array.isArray(data.availableClips)) return;
+            // Canonical candidates have already passed current-node, owner and
+            // R2-version validation. Heal incomplete completion responses only;
+            // a different run/asset/version or a switched project stays rejected.
+            const graph = getGraph();
+            if (graph.projectId === initial.projectId) for (const clip of data.availableClips) {
+                const node = graph.nodes.find(node => node.id === clip.nodeId), output = node?.output;
+                if (output?.kind === 'video' && output.runId === clip.runId
+                    && (output.assetId || output.asset?.id) === clip.assetId
+                    && (!node.asset_id || node.asset_id === clip.assetId)
+                    && (output.sourceVersion == null || output.sourceVersion === '')
+                    && /^[a-f0-9]{64}$/.test(clip.version || '')) output.sourceVersion = clip.version;
+            }
             available = data.availableClips; invalidated = false; reconcile();
             if (!initialized) {
                 const draft = drafts.get(key), recipe = data.export?.recipe;

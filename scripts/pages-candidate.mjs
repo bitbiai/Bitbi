@@ -3,8 +3,8 @@ import { assertBrowserSourceIdentity, assertBrowserReportArtifact, assertOrigina
 import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase } from './lib/frontend-hosting.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { selectCiTests, requiresPrivateMediaImage, memberSpecSources } from './lib/ci-test-selection.mjs';
-import { verifyHomepageReport, CANVAS_RELEASE_SCOPES, canvasReleaseProject } from './lib/homepage-test-selection.mjs';
+import { selectCiTests, requiresPrivateMediaImage, memberSpecSources, canvasCompletionRouteSources } from './lib/ci-test-selection.mjs';
+import { verifyHomepageReport, CANVAS_RELEASE_SCOPES, canvasReleaseProject, flattenHomepageDiscovery, verifyCanvasCompletionDiscovery } from './lib/homepage-test-selection.mjs';
 // A changed acceptance scope requires fresh candidate evidence. Earlier Hero
 // reports cannot be recertified by removing their former required job.
 export const MEDIA_POLICY = 'homepage-functional-v3';
@@ -63,7 +63,7 @@ export function gitSelection(base, sha) {
   assert(/^[a-f0-9]{40}$/.test(base || ''), 'Missing exact release base');
   assert(/^[a-f0-9]{40}$/.test(sha || ''), 'Missing exact release head');
   execFileSync('git',['merge-base','--is-ancestor',base,sha],{stdio:'pipe'});
-  return selectCiTests(execFileSync('git',['diff','--name-only','--no-renames',`${base}...${sha}`,'--'],{encoding:'utf8'}).trim().split('\n').filter(Boolean), {memberTestSources:memberSpecSources(base,sha)});
+  return selectCiTests(execFileSync('git',['diff','--name-only','--no-renames',`${base}...${sha}`,'--'],{encoding:'utf8'}).trim().split('\n').filter(Boolean), {memberTestSources:memberSpecSources(base,sha),canvasRouteSources:canvasCompletionRouteSources(base,sha)});
 }
 export function validatePublishedDeployment(deployment,status,run,job) {
   assert.equal(deployment.environment,'github-pages'); assert.equal(status.state,'success');
@@ -264,10 +264,13 @@ export function verifyCanvasTextReport(report,discovery) {
   verifyAdminReport(report,discovery,CANVAS_RELEASE_SCOPES,canvasReleaseProject);
 }
 
-export function verifyCanvasCandidateReports(names, reports, discovery) {
+export function verifyCanvasCandidateReports(names, reports, discovery, selection = {}) {
   const name = 'test-results/candidate-auth.json';
   assert.equal(names.filter(value => value === name).length, 1, 'Exactly one Canvas auth report required');
-  verifyCanvasTextReport(reports[names.indexOf(name)], discovery);
+  if (selection.canvasCompletion) {
+    verifyCanvasCompletionDiscovery(flattenHomepageDiscovery(discovery));
+    verifyAdminReport(reports[names.indexOf(name)], discovery, [['canvas', ['canvas.spec.js']]], canvasReleaseProject);
+  } else verifyCanvasTextReport(reports[names.indexOf(name)], discovery);
 }
 
 export function verifyAppearanceReport(report,discovery) {
@@ -402,7 +405,7 @@ async function main(command) {
     if(process.env.GITHUB_JOB==='homepage-validation')
       verifyHomepageReport(report, JSON.parse(fs.readFileSync('test-results/homepage-discovery.json')));
     if (manifest.selection?.assets && !manifest.selection.full && process.env.GITHUB_JOB === 'browser-validation') verifyAssetReport(reports[names.indexOf('test-results/candidate-assets.json')], JSON.parse(fs.readFileSync('test-results/assets-discovery.json')));
-    if (manifest.selection?.canvasText) verifyCanvasCandidateReports(names, reports, JSON.parse(fs.readFileSync('test-results/canvas-discovery.json')));
+    if (manifest.selection?.canvasText) verifyCanvasCandidateReports(names, reports, JSON.parse(fs.readFileSync('test-results/canvas-discovery.json')), manifest.selection);
     if (manifest.selection?.appearance && !manifest.selection?.modelPricing) verifyAppearanceCandidateReports(names, reports, JSON.parse(fs.readFileSync('test-results/appearance-discovery.json')));
     if (manifest.selection?.modelPricing) verifyModelPricingReport(report, JSON.parse(fs.readFileSync('test-results/model-pricing-discovery.json')), manifest.selection);
     if (manifest.selection?.modelStatus) verifyModelStatusReport(report, JSON.parse(fs.readFileSync('test-results/model-status-discovery.json')), manifest.selection);

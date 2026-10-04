@@ -3,6 +3,18 @@ import assert from 'node:assert/strict';
 import {verifyCanvasExportSchema} from '../../../scripts/lib/canvas-export-readiness.mjs';
 
 // Real Auth bundle, native D1/R2/Images; only the AI service response is synthetic.
+export async function runCanvasCompletionTests(f, { prepared = false } = {}) {
+  if (!prepared) for (const migration of f.migrations) await f.db.batch(migration.statements.map(s => f.db.prepare(s)));
+  await f.test('canvas_native_completion_metadata_attach_queue_extend_and_music_admission', async () => {
+    const response = await f.control('/canvas-completion', {
+      videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
+      imageBase64: fs.readFileSync(new URL('../../fixtures/media/h3-frame.png', import.meta.url)).toString('base64'),
+      musicBase64: fs.readFileSync(new URL('../../fixtures/media/member-music.mp3', import.meta.url)).toString('base64'),
+    });
+    assert.equal(response.status, 200, await response.clone().text()); f.metrics.push(await response.json());
+  });
+}
+
 export async function runCanvasTests(f) {
   for (const migration of f.migrations) await f.db.batch(migration.statements.map(s => f.db.prepare(s)));
   await f.test('canvas_export_release_schema_queries',()=>verifyCanvasExportSchema(sql=>f.rows(sql)));
@@ -415,5 +427,5 @@ export async function runCanvasTests(f) {
     assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
-
+  await runCanvasCompletionTests(f, { prepared: true });
 }

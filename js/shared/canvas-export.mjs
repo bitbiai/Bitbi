@@ -13,6 +13,7 @@ export function canvasMergeStrand(nodes, edges, endpointId) {
     const byId = new Map(nodes.map(node => [node.id, node])), nodeIds = [], links = [], seen = new Set();
     let id = endpointId;
     const failed = error => ({ nodeIds: [], edges: [], error });
+    if (!id || !byId.has(id)) return failed('canvas_chain_endpoint_missing');
     while (id) {
         if (seen.has(id)) return failed('canvas_chain_cycle');
         if (seen.size >= 120) return failed('canvas_chain_limit');
@@ -33,7 +34,9 @@ export function canvasMergeStrand(nodes, edges, endpointId) {
 
 export function canvasMergeSequence(strand, choices) {
     if (strand.error) return { ...strand, clips: [] };
+    if (!strand.nodeIds.length) return { ...strand, clips: [], error: 'canvas_chain_endpoint_missing' };
     const clips = strand.nodeIds.map(id => choices.find(clip => clip.nodeId === id));
+    if (!clips.at(-1)) return { ...strand, clips: [], error: 'canvas_chain_endpoint_unavailable' };
     if (clips.some(clip => !clip)) return { ...strand, clips: [], error: 'canvas_chain_unavailable' };
     const included = new Set();
     for (const clip of clips) for (const parent of clip.includedSources || []) {

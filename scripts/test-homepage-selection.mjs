@@ -5,7 +5,8 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, CANVAS_RELEASE_SCOPES, canvasReleaseProject, verifyCanvasReleaseDiscovery, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
+import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, CANVAS_RELEASE_SCOPES, canvasReleaseProject, verifyCanvasReleaseDiscovery, verifyCanvasCompletionDiscovery, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
+import { verifyCanvasCandidateReports } from './pages-candidate.mjs';
 import { validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
@@ -62,8 +63,31 @@ try {
   assert(!core.some(test => test.file === 'auth-admin.spec.js'));
   const workflow = read('.github/workflows/static.yml');
   const lines = workflow.split('\n').map(line => line.trim());
-  const discoveryLines = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static'));
-  const executionLines = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static') && line.includes('tests/canvas.spec.js'));
+  const allDiscovery = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static'));
+  const allExecution = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static') && line.includes('tests/canvas.spec.js'));
+  assert.equal(allDiscovery.length, 2); assert.equal(allExecution.length, 2);
+  const focused = allDiscovery.find(line => line.includes("--grep 'Canvas completion metadata'"));
+  assert(focused);
+  assert.equal(focused.split(' npm ')[1].replace(' --list --reporter=json', ''),
+    allExecution.find(line => line.includes("--grep 'Canvas completion metadata'")).split(' npm ')[1].replace(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json', ''));
+  const focusedOutput = path.join(discoveryDirectory, 'canvas-completion-ci.json');
+  const focusedRun = spawnSync('/bin/bash', ['--noprofile', '--norc', '-e', '-c', focused], {
+    cwd: root, env: {...process.env, PLAYWRIGHT_JSON_OUTPUT_FILE: focusedOutput}, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+  });
+  assert.equal(focusedRun.status, 0, focusedRun.stderr);
+  const focusedReport = JSON.parse(fs.readFileSync(focusedOutput)), focusedCases = flattenHomepageDiscovery(focusedReport);
+  verifyCanvasCompletionDiscovery(focusedCases);
+  assert.throws(() => verifyCanvasCompletionDiscovery(focusedCases.slice(1)));
+  assert.throws(() => verifyCanvasCompletionDiscovery([...focusedCases, focusedCases[0]]));
+  assert.throws(() => verifyCanvasCompletionDiscovery(focusedCases.map((row,i) => i ? row : {...row,expectedStatus:'skipped'})));
+  const proofReport = structuredClone(focusedReport);
+  const setResults = (suite, status) => {for (const spec of suite.specs || []) for (const item of spec.tests || []) item.results=[{status}]; for(const child of suite.suites || []) setResults(child,status);};
+  setResults(proofReport, 'passed');
+  const verify = report => verifyCanvasCandidateReports(['test-results/candidate-auth.json'], [report], focusedReport, {canvasCompletion:true});
+  verify(proofReport); setResults(proofReport, 'failed'); assert.throws(() => verify(proofReport));
+  assert.throws(() => verifyCanvasCandidateReports([], [], focusedReport, {canvasCompletion:true}));
+  const discoveryLines = allDiscovery.filter(line => !line.includes("--grep 'Canvas completion metadata'"));
+  const executionLines = allExecution.filter(line => !line.includes("--grep 'Canvas completion metadata'"));
   assert.equal(discoveryLines.length, 1); assert.equal(executionLines.length, 1);
   assert(discoveryLines[0].endsWith(' --list --reporter=json'));
   assert(executionLines[0].endsWith(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json'));

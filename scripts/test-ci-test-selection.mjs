@@ -9,7 +9,7 @@ import {
   FAST_DEPLOY_WORKFLOW_PATHS,
   isFastDeploySafePath,
 } from "./lib/fast-deploy-paths.mjs";
-import { selectCiTests, requiresPrivateMediaImage, isDurableImageTestChange, isFluxReviewTestChange } from "./lib/ci-test-selection.mjs";
+import { selectCiTests, requiresPrivateMediaImage, isDurableImageTestChange, isFluxReviewTestChange, isCanvasCompletionRouteChange } from "./lib/ci-test-selection.mjs";
 import { requiredJobs } from "./pages-candidate.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1141,3 +1141,18 @@ assert.equal(selection([...seedanceDelta,'workers/shared/website-assistant-versi
 assert.match(omniWorkflow,/PLAYWRIGHT_JSON_OUTPUT_NAME=test-results\/canvas-music-worker\.json[^\n]*tests\/q2-seedance-25\.spec\.js[^\n]*--retries=0/);
 for(const neighbor of ['workers/auth/src/lib/session.js','workers/ai/src/routes/unknown.js'])assert.notEqual(selection([...seedanceDelta,neighbor]).canvasText,true);
 console.log('Seedance: real durable Worker/native and workspace/pricing callers remain selected.');
+
+{
+  const after=fs.readFileSync(new URL('../workers/auth/src/routes/canvas.js',import.meta.url),'utf8');
+  const before=after.replace('applyCanvasVideoInput, ownedCanvasVideo }','applyCanvasVideoInput }')
+    .replace(/      \/\/ The browser-attach path[^\n]*\n      \/\/ queue completion[^\n]*\n      if \(model.capability === 'video'\) output.sourceVersion[^\n]*\n/,'');
+  const sources={before,after};
+  assert(isCanvasCompletionRouteChange(sources));
+  const files=['workers/auth/src/routes/canvas.js','workers/auth/src/lib/canvas-merge-selection.js','js/shared/canvas-export.mjs','js/pages/canvas/merge-clips.js','js/pages/canvas/full-video.js','tests/canvas.spec.js','tests/helpers/canvas-completion-control.mjs','tests/helpers/canvas-completion-ui.cjs',...['canvas.mjs','control.mjs','environment.mjs','runner.mjs','linux-hosted.mjs','linux-runtime-child.mjs','linux-bootstrap.py'].map(file=>'tests/helpers/q2-runtime/'+file),'scripts/test-q2-runtime-launcher.mjs'];
+  const selected=selectCiTests(files,{canvasRouteSources:sources});
+  assert.equal(selected.canvasCompletion,true);assert.equal(selected.workers,true);assert.equal(selected.auth,true);
+  assert.equal(requiresPrivateMediaImage(files),false);
+  for(const canvasRouteSources of [null,{before,after:after+'\n// other route change'},{before,after:after.replace('80_000_000','1_000_000')}]) assert.notEqual(selectCiTests(files,{canvasRouteSources}).canvasCompletion,true);
+  for(const extra of ['workers/auth/src/lib/billing.js','workers/auth/src/lib/canvas-video-processing.js','workers/media/src/index.js','js/pages/canvas/main.js']) assert.notEqual(selectCiTests([...files,extra],{canvasRouteSources:sources}).canvasCompletion,true);
+  assert.notEqual(selectCiTests(files,{canvasRouteSources:sources,forceFull:true}).canvasCompletion,true);
+}

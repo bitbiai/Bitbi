@@ -53,9 +53,9 @@ export function parseRuntimeArgs(args, env = {}) {
     if (args[i] === '--preflight' && !result.preflight) result.preflight = true;
     else if (args[i] === '--artifacts' && !explicitArtifacts && args[i + 1] && !args[i + 1].startsWith('--')) {
       result.artifacts = args[++i]; explicitArtifacts = true;
-    } else if (args[i] === '--suite' && !result.suite && ['member-generation','model-status','model-pricing','appearance','canvas','q4-stream','website-assistant'].includes(args[i+1])) {
+    } else if (args[i] === '--suite' && !result.suite && ['member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','q4-stream','website-assistant'].includes(args[i+1])) {
       result.suite = args[++i];
-    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation|model-status|model-pricing|appearance|canvas|q4-stream|website-assistant] [--artifacts <outside-repository-directory>]');
+    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation|model-status|model-pricing|appearance|canvas|canvas-completion|q4-stream|website-assistant] [--artifacts <outside-repository-directory>]');
   }
   return result;
 }
@@ -79,7 +79,7 @@ export function stageInputPlan() {
     'workers/ai/src', 'tests/helpers/elevenlabs-member-control.mjs', 'tests/fixtures/media/member-music.mp3', 'tests/fixtures/media/member-music.opus',
     'tests/helpers/canvas-contributors-control.mjs',
     'scripts/lib/canvas-export-readiness.mjs',
-    'tests/helpers/q2-runtime', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs', 'tests/helpers/canvas-processing-control.mjs', 'tests/helpers/private-media-control.mjs', 'tests/q2-runtime-native.mjs',
+    'tests/helpers/q2-runtime', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs', 'tests/helpers/canvas-processing-control.mjs', 'tests/helpers/canvas-completion-control.mjs', 'tests/helpers/private-media-control.mjs', 'tests/q2-runtime-native.mjs',
     'tests/q2-runtime-references.mjs', 'tests/q2-runtime-recovery.mjs',
     'tests/q4-runtime-public-video.mjs', 'tests/q4-runtime-stream.mjs', 'tests/q4-runtime-memory.mjs', 'tests/q4-runtime-video.mjs', 'tests/q4-runtime-subscription.mjs',
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-control.mjs', 'tests/helpers/q4-memory-fixture.mjs',

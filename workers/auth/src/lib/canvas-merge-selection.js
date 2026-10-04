@@ -50,8 +50,8 @@ export async function canvasMergeView(env, userId, projectId, runId) {
       // Missing, inaccessible or replaced originals never become new sources.
     }
   }
-  const anchor = availableClips.find(clip => clip.runId === runId);
-  const chain = canvasMergeSequence(canvasMergeStrand(nodes, edges, anchor?.nodeId), availableClips);
+  const anchor = nodes.find(node => node.output?.runId === runId);
+  const chain = canvasMergeSequence(canvasMergeStrand(nodes, edges, anchor?.id), availableClips);
   return { availableClips, chain, nodes, edges };
 }
 

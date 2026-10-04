@@ -28,7 +28,8 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         previewButton.disabled=!chosen()||!selected.enabled||!completed?.preview_base?.file_url;
         returnButton.hidden=!previewMode;
         previewNote.hidden=!previewMode;
-        if(auditionState==='idle')previewStatus.textContent=completed?.asset && tracks.length && !completed.preview_base?auditionCopy.missing:'';
+        if(auditionState==='idle')previewStatus.textContent=tracks.length && selected.enabled && !completed?.preview_base
+            ? completed?.asset ? auditionCopy.missing : german ? 'Musikvorschau erst nach Erstellung eines vollständigen Videos verfügbar.' : 'Music preview is available after a full video has been created.' : '';
         createButton.textContent=selected.enabled?auditionCopy.create:completed?copy.again:copy.create;
     };
     const restore=()=>{previewMode=false;audition?.reset();auditionState='idle';if(resultVideo&&completed?.asset){resultVideo.src=completed.asset.file_url;resultVideo.load();}updateButtons();};

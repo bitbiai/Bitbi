@@ -488,6 +488,36 @@ failed/retried/tampered evidence, unrequested execution and forbidden product de
 the real `static.yml` caller must discover all 327 and execute exactly five fresh.
 No repeated Worker/native/processor acceptance or new media image is needed.
 
+Completion metadata follow-up, 2026-10-04 (baseline `1b374e3a`): live Safari
+held the completed Out run/asset without `sourceVersion`, while canonical project
+and full-video GETs contained all eight valid outputs. Exact UI reconciliation
+excluded that endpoint; resolving from the filtered list then turned its absence
+into a misleading one-clip message. The alternate browser attachment serializer
+also omitted the owned R2 version. Its omission is reproduced through real
+Worker/queue/D1/R2 callers with a controlled projection gap; the original incident's
+response/timing was not captured, so that ingress is not claimed as proven history.
+
+The attachment route now returns the verified owned original version. Ordinary
+Inspector status reconciliation fills only absent versions for the same project,
+existing node, current run and asset. It never replaces differing metadata. Strand
+resolution starts from the current graph endpoint; missing/replaced/unready
+endpoints have distinct reasons. No migration, regeneration or media rebuild.
+
+Executable prevention: `canvas-completion-control.mjs` exercises Seedance → H3,
+further H3 extension, independent canonical queue/attach/reopen identities, exact
+eight/nine clip order, no repeated inference and music-off/on export admission.
+`Canvas completion metadata` runs the actual completion/Inspector transition in
+EN/DE Chromium/WebKit, injects only the observed deficient response, and rejects
+changed/deleted endpoints. Local four browser cases and isolated native scope passed;
+provider responses are synthetic. Existing `--suite canvas` includes this regression;
+`--suite canvas-completion` executes it alone for the closed metadata repair.
+Selection compares the complete route before/after blobs and fails back to broader
+Canvas acceptance for other route/product inputs. Real workflow discovery/candidate
+checks require all four engine/locale cases, reject omissions/skips/failures/retries,
+and retain native staging/Images preparation. Processor, manual/deletion/ownership
+and prior release evidence are reused only where inputs are unchanged. Fresh final
+CI, protected publication and live export receipts belong in the task checkpoint.
+
 Browser audition, 2026-09-28: preview is separate decoded music plus the existing
 aggregate player, never an export request. Migration `0097_canvas_preview_base.sql`
 retains a private, quota-counted clean base inside the same explicit export lease;

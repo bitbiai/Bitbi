@@ -2,6 +2,10 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 
+for (const locale of ['en', 'de']) test(`Canvas completion metadata ${locale}: queue, deficient Inspector, appended chain and admission`, async ({ page }, info) => {
+  await require('./helpers/canvas-completion-ui.cjs').completionUi({ page, expect, locale, mockSharedAuth, createCanvasApiMock, info });
+});
+
 function source(relativePath) {
   return fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
 }

@@ -12,7 +12,7 @@ import { validateExportEdge } from '../lib/canvas-export-recipes.js';
 import { refreshCanvasVideoOutputs } from '../lib/canvas-video-output.js';
 import { pendingCanvasVideo, readCanvasVideoResult, restoreCanvasVideoJobs } from '../lib/canvas-video-jobs.js';
 import { resolveCanvasVideoInput, canvasVideoMethods } from '../../../../js/shared/canvas-video-input.mjs';
-import { prepareCanvasVideoEdge, applyCanvasVideoInput } from '../lib/canvas-video-input.js';
+import { prepareCanvasVideoEdge, applyCanvasVideoInput, ownedCanvasVideo } from '../lib/canvas-video-input.js';
 import { json } from "../lib/response.js";
 import { requireUser, requireAdmin } from "../lib/session.js";
 import { BODY_LIMITS, readJsonBodyOrResponse } from "../lib/request.js";
@@ -1208,6 +1208,9 @@ async function runNode(ctx, session, projectId, nodeId) {
       output.mimeType = output.asset.mime_type || output.mimeType;
       output.previewUrl = output.asset.preview_url || null;
       output.fileUrl = output.asset.file_url || null;
+      // The browser-attach path must carry the same owned original version as
+      // queue completion. Never take this identity from provider/client metadata.
+      if (model.capability === 'video') output.sourceVersion = (await ownedCanvasVideo(ctx.env, userId, output.asset.id, null, 80_000_000)).version;
     }
     const disposition=await ctx.env.DB.prepare("SELECT state FROM canvas_media_outputs WHERE run_id=? AND user_id=? AND role='original'").bind(runId,userId).first();
     if(disposition) {output.storage=disposition.state==='saved'?'assets':'canvas';output.runId=runId;}

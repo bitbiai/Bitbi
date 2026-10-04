@@ -486,6 +486,19 @@ Such a pre-candidate failure has no reusable hosted functional acceptance; retai
 valid local evidence and execute the still-required CI tail through the existing
 workflow, without a duplicate Full dispatch or relabelling skipped jobs.
 
+For the closed completion-metadata repair, `canvas-completion-v1` compares the
+complete unpublished Canvas route blobs: only the owned source-version addition
+is eligible, alongside its listed merge/Inspector inputs. Other route changes,
+processing, billing, model or unknown files restore broader selection. The existing
+static workflow executes native `--suite canvas-completion` and all four `Canvas
+completion metadata` EN/DE Chromium/WebKit cases on the candidate. Discovery,
+execution and candidate proof share this scope; missing/failed/skipped/retried
+required cases block publication. Full and ordinary Canvas suites retain the new
+regression. The unchanged processor image and previously accepted independent
+manual/deletion/ownership behavior need no duplicate local run or media deployment.
+Native staging/Images preparation and protected Auth → frontend continuation remain
+required. A synthetic provider proves the completion contract, not paid inference.
+
 Prepared paid acceptance proposal, **not executed or authorized by this note**:
 after the owner reviews actual account costs, approve a total USD 10 ceiling and
 at most three single attempts: (1) text at 360p/16:9 with requested audible content,
