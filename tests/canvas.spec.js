@@ -1,6 +1,19 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
+const {openCanvasSettings} = require('./helpers/canvas-inspector-actions.cjs');
+
+for (const locale of ['en', 'de']) {
+  for (const media of ['image', 'video', 'music']) test(`Canvas Inspector ${locale}: ${media} successful-output disclosure lifecycle`, async ({page}, info) => {
+    await require('./helpers/canvas-inspector-ui.cjs').generation({page, expect, locale, media, info, mockSharedAuth, createCanvasApiMock});
+  });
+  test(`Canvas Inspector ${locale}: merge disclosure retains choices and export access`, async ({page}, info) => {
+    await require('./helpers/canvas-inspector-ui.cjs').merge({page, expect, locale, info, mockSharedAuth, createCanvasApiMock});
+  });
+  test(`Canvas Inspector ${locale}: typed vector icons preserve graph geometry`, async ({page}, info) => {
+    await require('./helpers/canvas-inspector-ui.cjs').icons({page, expect, locale, info, mockSharedAuth, createCanvasApiMock, prepareCanvasAssetPicker});
+  });
+}
 
 for (const locale of ['en', 'de']) test(`Canvas completion metadata ${locale}: queue, deficient Inspector, appended chain and admission`, async ({ page }, info) => {
   await require('./helpers/canvas-completion-ui.cjs').completionUi({ page, expect, locale, mockSharedAuth, createCanvasApiMock, info });
@@ -1034,7 +1047,7 @@ for(const locale of ['en','de']) test(`Canvas full video ordered clips ${locale}
   await page.route('**/api/ai/text-assets/*/file',route=>route.fulfill({contentType:'video/mp4',body:fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'))}));
   await page.route('**/api/ai/text-assets/*/poster',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"/>'}));
   const open=async()=>{await page.goto(de?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${nodeId}"]`).first().press('Enter');if(de)await page.locator('#canvasInspectorToggle').click();};
-  await open();const block=page.locator('.canvas-full-video'),sequence=block.getByRole('group',{name:de?'Clips zusammenfügen':'Merge clips'}),create=block.getByRole('button',{name:de?'Gesamtes Video erstellen':'Create full video',exact:true});
+  await open();await openCanvasSettings(page,'merge');const block=page.locator('.canvas-full-video'),sequence=block.getByRole('group',{name:de?'Clips zusammenfügen':'Merge clips'}),create=block.getByRole('button',{name:de?'Gesamtes Video erstellen':'Create full video',exact:true});
   await expect(sequence).toBeVisible();await expect(create).toBeDisabled();expect(posts).toBe(0);
   await sequence.getByLabel('Clip 1',{exact:true}).selectOption(priorId);await expect(create).toBeEnabled();
   await sequence.getByRole('button',{name:de?'Nach unten: Clip 1':'Move down: Clip 1',exact:true}).focus();await page.keyboard.press('Enter');
@@ -1045,7 +1058,7 @@ for(const locale of ['en','de']) test(`Canvas full video ordered clips ${locale}
   await block.locator('..').getByRole('button',{name:de?'Status aktualisieren':'Refresh status',exact:true}).click();
   await sequence.getByLabel('Clip 1',{exact:true}).selectOption(priorId);await sequence.getByLabel('Clip 2',{exact:true}).selectOption(runId);await create.click();
   await expect(block.getByRole('status',{name:de?'Exportstatus':'Export status',exact:true})).toContainText(de?'wartet':'queued');await expect(create).toBeDisabled();expect(posts).toBe(2);
-  await open();await expect(sequence.getByLabel('Clip 1',{exact:true})).toHaveValue(priorId);await expect(sequence.getByLabel('Clip 2',{exact:true})).toHaveValue(runId);
+  await open();await openCanvasSettings(page,'merge');await expect(sequence.getByLabel('Clip 1',{exact:true})).toHaveValue(priorId);await expect(sequence.getByLabel('Clip 2',{exact:true})).toHaveValue(runId);
   expect(JSON.stringify([state.nodes,state.edges,state.runs])).toBe(originalState);expect(state.requests.filter(r=>r.method!=='GET')).toEqual([]);expect(posts).toBe(2);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await sequence.scrollIntoViewIfNeeded();await page.screenshot({path:testInfo.outputPath(`ordered-clips-${locale}.png`)});
 });
@@ -1068,7 +1081,7 @@ for (const locale of ['en','de']) test(`Canvas merge selection ${locale}: curren
     return route.fulfill({json:{ok:true,data:{eligible:true,availableClips,export:task}}});
   });
   const open=async()=>{await page.goto(de?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${id(4)}"]`).press('Enter');if(de)await page.locator('#canvasInspectorToggle').click();};
-  await open();const block=page.locator('.canvas-full-video'),group=block.getByRole('group'),manual=group.getByRole('radio',{name:de?'Clips und Reihenfolge auswählen':'Choose clips and order'}),chain=group.getByRole('radio',{name:de?'Diese Kette zusammenfügen':'Merge this chain'});
+  await open();await openCanvasSettings(page,'merge');const block=page.locator('.canvas-full-video'),group=block.getByRole('group'),manual=group.getByRole('radio',{name:de?'Clips und Reihenfolge auswählen':'Choose clips and order'}),chain=group.getByRole('radio',{name:de?'Diese Kette zusammenfügen':'Merge this chain'});
   const create=block.getByRole('button',{name:de?'Gesamtes Video erstellen':'Create full video',exact:true});
   await expect(chain).toBeChecked();await expect(group.locator('li')).toHaveCount(3);expect(posts).toEqual([]);
   await expect(group.locator('li').nth(0)).toContainText('Same title · PixVerse V6');
@@ -1077,6 +1090,7 @@ for (const locale of ['en','de']) test(`Canvas merge selection ${locale}: curren
   await manual.check();await group.getByLabel('Clip 1',{exact:true}).selectOption(id(3));
   const options=await group.getByLabel('Clip 1',{exact:true}).locator('option').allTextContents();
   expect(options.filter(label=>label.includes('Same title'))).toHaveLength(2);expect(new Set(options).size).toBe(options.length);
+  await openCanvasSettings(page,'generation');
   await page.getByRole('textbox',{name:de?'Titel':'Title',exact:true}).fill('Flucht aus dem Wald');
   await expect(group.getByLabel('Clip 2',{exact:true}).locator('option:checked')).toContainText('Flucht aus dem Wald · PixVerse V6');
   await chain.check();await expect(group.locator('li')).toHaveCount(3);
@@ -1096,11 +1110,11 @@ for (const locale of ['en','de']) test(`Canvas merge selection ${locale}: curren
   await manual.check();await expect(group.getByLabel('Clip 1',{exact:true})).toHaveValue('');
   await expect(group.getByLabel('Clip 1',{exact:true}).locator(`option[value="${id(3)}"]`)).toHaveCount(0);
   await expect(block.getByRole('button',{name:de?'Gesamtes Video erneut erstellen':'Create full video again',exact:true})).toBeDisabled();
-  await open();await manual.check();await expect(group.getByLabel('Clip 1',{exact:true}).locator(`option[value="${id(3)}"]`)).toHaveCount(0);expect(posts).toHaveLength(1);
+  await open();await openCanvasSettings(page,'merge');await manual.check();await expect(group.getByLabel('Clip 1',{exact:true}).locator(`option[value="${id(3)}"]`)).toHaveCount(0);expect(posts).toHaveLength(1);
   // A delayed response from the previous Inspector cannot fill a different one.
   let release;releaseRead=new Promise(resolve=>{release=resolve;});
   await block.locator('..').getByRole('button',{name:de?'Status aktualisieren':'Refresh status',exact:true}).click();
-  if(de)await page.locator('#canvasInspectorToggle').click();await page.locator(`[data-node-id="${id(7)}"]`).press('Enter');if(de)await page.locator('#canvasInspectorToggle').click();release();
+  if(de)await page.locator('#canvasInspectorToggle').click();await page.locator(`[data-node-id="${id(7)}"]`).press('Enter');if(de)await page.locator('#canvasInspectorToggle').click();await openCanvasSettings(page,'merge');release();
   await expect(group.locator('li')).toHaveCount(2);await expect(group.locator('li').last()).toContainText('Clip 7');
   expect(posts).toHaveLength(1);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await group.scrollIntoViewIfNeeded();await page.screenshot({path:testInfo.outputPath(`current-merge-${locale}.png`)});
@@ -1381,6 +1395,7 @@ test.describe('Canvas private media controls',()=>{
     await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await expect(page.locator('#canvasProjectTitle')).toHaveValue('Private Canvas outputs');
     await select(ids[0]);const inspector=page.locator('#canvasInspectorBody'),label=locale==='de'?'Zusätzlicher Prompt':'Additional prompt';
     await expect(inspector.getByLabel(label,{exact:true})).toBeHidden();
+    await openCanvasSettings(page,'generation');
     await inspector.locator('.canvas-additional-prompt summary').focus();await page.keyboard.press('Enter');
     await inspector.getByLabel(label,{exact:true}).fill('Preserved extra light');
     const quality=inspector.getByRole('combobox',{name:locale==='de'?'Qualität':'Quality',exact:true});
@@ -1389,7 +1404,7 @@ test.describe('Canvas private media controls',()=>{
     await expect(inspector.locator('.canvas-cost-note')).toHaveText(`${locale==='de'?'Geschätzte Credits':'Estimated credits'}: ${calculateAiImageCreditCost('xai/grok-imagine-image-2.0',{quality:'medium',resolution:'2k'}).credits}`);
     const save=()=>inspector.getByRole('button',{name:locale==='de'?'In Assets speichern':'Save to Assets',exact:true});
     await save().tap();await expect(inspector.getByRole('button',{name:locale==='de'?'In Assets gespeichert':'Saved to Assets',exact:true})).toBeDisabled();
-    await select(ids[1]);const resolution=inspector.getByRole('combobox',{name:locale==='de'?'Auflösung':'Resolution',exact:true});
+    await select(ids[1]);await openCanvasSettings(page,'generation');const resolution=inspector.getByRole('combobox',{name:locale==='de'?'Auflösung':'Resolution',exact:true});
     await expect(resolution.locator('option')).toHaveText(['360p','540p','720p','1080p']);
     const cost=await inspector.locator('.canvas-cost-note').textContent();await resolution.selectOption('1080p');await expect(inspector.locator('.canvas-cost-note')).not.toHaveText(cost);
     await save().focus();await page.keyboard.press('Enter');await expect.poll(()=>saved.length).toBe(2);
@@ -1397,7 +1412,7 @@ test.describe('Canvas private media controls',()=>{
     await expect.poll(()=>state.nodes[0].config.prompt).toBe('Preserved extra light');
     await expect.poll(()=>state.nodes[1].config.quality).toBe('1080p');
     await page.reload();await expect(page.locator('#canvasProjectTitle')).toHaveValue('Private Canvas outputs');await select(ids[0]);
-    await expect(save()).toHaveCount(0);await inspector.locator('.canvas-additional-prompt summary').tap();await expect(inspector.getByLabel(label,{exact:true})).toHaveValue('Preserved extra light');
+    await expect(save()).toHaveCount(0);await openCanvasSettings(page,'generation');await inspector.locator('.canvas-additional-prompt summary').tap();await expect(inspector.getByLabel(label,{exact:true})).toHaveValue('Preserved extra light');
     expect(state.nodes[1].config.quality).toBe('1080p');expect(saved).toEqual(ids);
     expect(state.requests.filter(r=>r.pathname.endsWith('/run'))).toHaveLength(0);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);

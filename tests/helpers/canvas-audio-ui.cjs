@@ -87,6 +87,7 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
     await expect(fade).toHaveValue('1.25');await fade.press('Tab');await expect(sound.getByRole('slider',{name:de?'Originalton: Einblenden':'Original audio: Fade in',exact:true})).toHaveValue('1.25');
     await expect.poll(async()=>(await f.readProject()).nodes.find(n=>n.id===f.last.id).config.originalAudio?.fadeIn).toBe(1.25);
     await page.reload();await open(f.last.id);await expand();await expect(gain()).toHaveValue('60');await expect(fade).toHaveValue('1.25');
+    await require('./canvas-inspector-actions.cjs').openCanvasSettings(page,'merge');
     const group=inspector.locator('.canvas-clip-sequence');await expect(group.locator('li')).toHaveCount(4);await expect(group.locator('li').nth(1)).toContainText('Imported first');await expect(group.locator('li').last()).toContainText('Imported last');
     expect(await page.locator('.canvas-node.is-contributor').count()).toBe(4);
     for(const name of [de?'Hintergrundmusik: Einblenden (Sekunden)':'Background music: Fade in (seconds)',de?'Hintergrundmusik: Ausblenden (Sekunden)':'Background music: Fade out (seconds)']){const field=sound.getByRole('spinbutton',{name,exact:true});await field.fill('2.5');await field.press('Tab');}

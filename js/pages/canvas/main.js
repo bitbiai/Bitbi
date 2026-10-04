@@ -15,6 +15,7 @@ import { H3_MODEL, H3_ROLES, h3MediaType } from '../../shared/minimax-h3.mjs?v=_
 import { h3RoleLabel } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { renderCanvasFullVideo } from './full-video.js?v=__ASSET_VERSION__';
 import { canvasAudioControls } from './audio-controls.js?v=__ASSET_VERSION__';
+import { canvasDisclosure, rememberCanvasDisclosures, hasCompletedMedia, inspectorRunError } from './inspector-disclosure.js?v=__ASSET_VERSION__';
 import { canvasNodeMediaKind } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 import { EXPORT_MUSIC_PURPOSE, isExportMusic } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 import { createMemberMusicControls } from '../../shared/member-music-controls.js?v=__ASSET_VERSION__';
@@ -523,6 +524,7 @@ function renderInputContext(node, analysis) {
 
 let inspectorAbort = new AbortController();
 function renderInspector() {
+    rememberCanvasDisclosures(dom.inspector);
     assetPicker.invalidate();
     inspectorAbort.abort(); inspectorAbort = new AbortController();
     dom.inspector.replaceChildren();
@@ -639,9 +641,10 @@ function renderInspector() {
         prompt.maxLength = Number(model?.controls?.maxPromptLength || 12000);
         bindConfig(node, prompt, 'prompt');
         if (capability === 'image') {
-            const editor = el('details', 'canvas-additional-prompt');
             const label = isGerman ? 'Zusätzlicher Prompt' : 'Additional prompt';
-            editor.append(el('summary', '', label), field(label, prompt));
+            const editor = canvasDisclosure([store.state.project.id, node.id, 'prompt'], label, 'canvas-additional-prompt');
+            editor.className = 'canvas-additional-prompt';
+            editor.append(field(label, prompt));
             dom.inspector.append(editor);
         } else dom.inspector.append(field(copy.prompt, prompt));
 
@@ -739,7 +742,7 @@ function renderInspector() {
             }
         }
         const videoState = canvasVideoRunState(store.state.runs, node.id, videoCopy);
-        const status = el('div', 'canvas-run-status', runningNodeId === node.id ? copy.running : videoState.message); status.id = 'canvasNodeRunStatus'; status.setAttribute('role', 'status'); dom.inspector.append(status);
+        const status = el('div', 'canvas-run-status', runningNodeId === node.id ? copy.running : inspectorRunError(node) || videoState.message); status.id = 'canvasNodeRunStatus'; status.setAttribute('role', 'status'); dom.inspector.append(status);
         const run = el('button', 'canvas-button canvas-button--primary', runningNodeId === node.id ? copy.running : copy.run);
         run.type = 'button'; run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || model.areaEnabled===false || omniCanvasBlocked(node) || Boolean(inputContext.validation); run.addEventListener('click', () => void runSelectedNode(node)); dom.inspector.append(run);
         const updateRun = () => {
@@ -753,6 +756,12 @@ function renderInspector() {
         updateRun();
         dom.inspector.addEventListener('input', updateRun, { signal: inspectorAbort.signal });
         window.addEventListener('bitbi:model-pricing', updateRun, { signal: inspectorAbort.signal });
+        if (hasCompletedMedia(node)) {
+            const settings = canvasDisclosure([store.state.project.id, node.id, 'generation'], isGerman ? 'Generierungseinstellungen' : 'Generation settings', 'canvas-generation-settings');
+            const content = el('div', 'canvas-generation-settings__body');
+            content.append(...[...dom.inspector.children].filter(child => child !== status));
+            settings.append(content); dom.inspector.prepend(settings);
+        }
     }
 
     if (node.type === 'asset_reference') {
@@ -1025,6 +1034,7 @@ async function runSelectedNode(node) {
     const model = store.state.models.find((item) => item.id === node.model_id);
     const organizationId = model?.requiresOrganization ? store.state.selectedOrganizationId : null;
     if (model?.requiresOrganization && !organizationId) { runningNodeId = null; return showToast(copy.organizationRequired); }
+    inspectorRunError(node, '');
     runningNodeId = node.id; renderInspector();
     const status = document.getElementById('canvasNodeRunStatus');
     if (status) status.textContent = copy.running;
@@ -1043,6 +1053,7 @@ async function runSelectedNode(node) {
     runningNodeId = null;
     if (!result.ok) {
         if (result.status !== 0 && !['canvas_run_in_progress', 'canvas_image_save_pending', 'canvas_image_save_unavailable', 'image_save_reference_missing', 'image_save_checkpoint_failed'].includes(result.code)) pendingRunKeys.delete(node.id);
+        inspectorRunError(node, errorMessage(result));
         if (status) { status.textContent = errorMessage(result); status.dataset.kind = 'error'; }
         if (result.data?.run) store.state.runs = [result.data.run, ...store.state.runs.filter((run) => run.id !== result.data.run.id)].slice(0, 40);
         renderInspector(); renderHistory(); showToast(errorMessage(result)); return;

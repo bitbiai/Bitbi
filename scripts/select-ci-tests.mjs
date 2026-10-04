@@ -1,3 +1,4 @@
+import {canvasInspectorSources} from './lib/canvas-inspector-selection.mjs';
 import { discoverRepairSource, repairSelection } from './lib/media-repair-source.mjs';
 import fs from "node:fs";
 import path from "node:path";
@@ -89,6 +90,7 @@ function writeGithubOutput(selection) {
     canvas_completion: selection.canvasCompletion === true,
     canvas_audio: selection.canvasAudio === true,
     canvas_audio_fit: selection.canvasAudioFit === true,
+    canvas_inspector: selection.canvasInspector === true,
     media_lifecycle: selection.mediaLifecycle === true,
     workspace_help: selection.workspaceHelp === true,
     homepage: selection.homepage,
@@ -149,6 +151,7 @@ try {
   let selection = selectCiTests(resolved.files, {
     forceFull: options.forceFull || !!resolved.issue,
     forceReason: resolved.issue || "explicit full regression",
+    inspectorSources: options.base ? canvasInspectorSources(options.base, options.head, repoRoot) : null,
     memberTestSources: options.base ? memberSpecSources(options.base, options.head, repoRoot) : null,
     canvasRouteSources: options.base ? canvasCompletionRouteSources(options.base, options.head, repoRoot) : null,
   });

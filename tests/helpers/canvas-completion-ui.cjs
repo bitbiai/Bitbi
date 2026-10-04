@@ -60,6 +60,7 @@ exports.completionUi = async ({ page, expect, locale, mockSharedAuth, createCanv
       const run = inspector.getByRole('button', { name: de ? 'Ausführen' : 'Run', exact: true }); await expect(run).toBeEnabled();
       const observed = page.waitForResponse(response => response.url().includes('/api/ai/generation-jobs/'));
       await run.click(); await observed;
+      await require('./canvas-inspector-actions.cjs').openCanvasSettings(page,'merge');
       const group = inspector.locator('.canvas-clip-sequence');
       await expect(group.getByRole('radio', { name: de ? 'Diese Kette zusammenfügen' : 'Merge this chain' })).toBeChecked();
       await expect(group.locator('li')).toHaveCount(index + 1);

@@ -799,6 +799,25 @@ callers in static, Full and UI-fast. No duplicate Full or unrelated platform sui
 is required for this task. Native fixtures remain synthetic provider acceptance;
 actual D1/R2, decoded playback/export and live readback are separate evidence.
 
+### Canvas Inspector disclosures and media icons
+
+The Inspector keeps merge selection/order and smooth-join settings inside one
+initially closed native disclosure. Export actions, status and completed output
+stay outside. A selected successful image/video/music output makes generation
+configuration initially collapsible; queued/failed/cancelled first runs do not.
+Session-local disclosure preferences survive Inspector rebuilds without changing
+project data or render recipes. Rerun errors remain visible beside retained output.
+Header SVGs use the resolved media type and 1.2em of the title font; graph anchors
+and node geometry are unchanged.
+
+`canvas-inspector-v1` selects the existing Canvas browser caller's 20 EN/DE
+Chromium/WebKit cases for these UI boundaries. Source comparison of the complete
+published-base range rejects neighbouring generation, graph and export changes.
+Discovery/candidate checks reject missing, skipped, duplicated or failed cases.
+Existing audio/processor evidence is unaffected; this scope publishes only the
+frontend. Full keeps its independent Canvas coverage, whose actions now explicitly
+open the new settings disclosures.
+
 The focused `canvas-audio-fit-v1` selection covers only the closed audio-fit
 correction surface. It executes `--suite canvas-audio-fit`, four EN/DE
 Chromium/WebKit real Worker/FFmpeg cases, and target AMD64 decoded audio-fit plus

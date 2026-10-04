@@ -1,6 +1,7 @@
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { isMemberModelFastDeployPath } from "./fast-deploy-paths.mjs";
+import {isCanvasInspectorChange} from './canvas-inspector-selection.mjs';
 
 const DOCUMENTATION_FILENAMES = new Set([
   "AGENTS.md",
@@ -944,7 +945,7 @@ const CANVAS_COMPLETION_FILES = new Set([
   'tests/helpers/q2-runtime/environment.mjs',
 ]);
 
-export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression", memberTestSources = null, canvasRouteSources = null } = {}) {
+export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression", memberTestSources = null, canvasRouteSources = null, inspectorSources = null } = {}) {
   const changedFiles = normalizeFiles(files);
   const selection = {
     files: changedFiles,
@@ -1083,6 +1084,21 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selection.workers = changedFiles.some(file=>file.startsWith('workers/') || file.includes('q2-runtime') || file==='tests/admin-model-status.spec.js' || file==='tests/admin-model-status-runtime.mjs' || file==='playwright.workers.config.js');
     selection.reasons.auth.push('Read-only Admin model status: Chromium/WebKit, EN/DE, navigation/session denial, stale data, cleanup and build identity');
     if(selection.workers) selection.reasons.workers.push('Model status catalog/evidence/query tests and native guarded Admin/MFA/D1 route; no inference, generation or accounting changes');
+    return selection;
+  }
+
+  if (!forceFull && changedFiles.some(file=>['js/pages/canvas/inspector-disclosure.js','js/pages/canvas/media-icon.js'].includes(file))
+      && isCanvasInspectorChange(inspectorSources)
+      && changedFiles.every(file=>isDocumentation(file)||RELEASE_TOOLING_FILES.has(file)||[
+        'scripts/lib/canvas-inspector-selection.mjs',
+        'js/pages/canvas/main.js','js/pages/canvas/full-video.js','js/pages/canvas/graph.js','css/pages/canvas.css',
+        'js/pages/canvas/inspector-disclosure.js','js/pages/canvas/media-icon.js','tests/canvas.spec.js',
+        'tests/helpers/canvas-inspector-ui.cjs','tests/helpers/canvas-inspector-actions.cjs',
+        'tests/helpers/canvas-completion-ui.cjs','tests/helpers/canvas-audio-ui.cjs','tests/helpers/canvas-smooth-ui.cjs',
+      ].includes(file))) {
+    selection.policy='canvas-inspector-v1';selection.canvasText=selection.canvasInspector=true;
+    selection.auth=selection.static=selection.runtime=true;
+    selection.reasons.auth.push('EN/DE Chromium/WebKit Inspector lifecycle, merge/export controls and typed icon geometry; unchanged generation/audio/backend inputs remain source-checked');
     return selection;
   }
 

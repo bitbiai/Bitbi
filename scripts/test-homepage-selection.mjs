@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, CANVAS_RELEASE_SCOPES, canvasReleaseProject, verifyCanvasReleaseDiscovery, verifyCanvasCompletionDiscovery, verifyCanvasAudioDiscovery, verifyCanvasAudioFitDiscovery, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
 import { verifyCanvasCandidateReports } from './pages-candidate.mjs';
+import {verifyCanvasInspectorDiscovery} from './lib/homepage-test-selection.mjs';
 import { validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
@@ -66,7 +67,7 @@ try {
   const lines = workflow.split('\n').map(line => line.trim());
   const allDiscovery = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static'));
   const allExecution = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static') && line.includes('tests/canvas.spec.js'));
-  assert.equal(allDiscovery.length, 4); assert.equal(allExecution.length, 4);
+  assert.equal(allDiscovery.length, 5); assert.equal(allExecution.length, 5);
   const focused = allDiscovery.find(line => line.includes("--grep 'Canvas completion metadata'"));
   assert(focused);
   assert.equal(focused.split(' npm ')[1].replace(' --list --reporter=json', ''),
@@ -98,6 +99,18 @@ try {
   const verifyFit=report=>verifyCanvasCandidateReports(['test-results/candidate-auth.json'],[report],fitReport,{canvasAudioFit:true});
   verifyFit(fitProof);setResults(fitProof,'failed');assert.throws(()=>verifyFit(fitProof));
   assert.throws(()=>verifyCanvasCandidateReports([],[],fitReport,{canvasAudioFit:true}));
+  const inspectorLine=allDiscovery.find(line=>line.includes("--grep 'Canvas Inspector'"));assert(inspectorLine);
+  assert.equal(inspectorLine.split(' npm ')[1].replace(' --list --reporter=json',''),allExecution.find(line=>line.includes("--grep 'Canvas Inspector'")).split(' npm ')[1].replace(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json',''));
+  const inspectorOutput=path.join(discoveryDirectory,'canvas-inspector-ci.json');
+  const inspectorRun=spawnSync('/bin/bash',['--noprofile','--norc','-e','-c',inspectorLine],{cwd:root,env:{...process.env,PLAYWRIGHT_JSON_OUTPUT_FILE:inspectorOutput},encoding:'utf8',maxBuffer:16*1024*1024});
+  assert.equal(inspectorRun.status,0,inspectorRun.stderr);
+  const inspectorReport=JSON.parse(fs.readFileSync(inspectorOutput)),inspectorCases=flattenHomepageDiscovery(inspectorReport);verifyCanvasInspectorDiscovery(inspectorCases);
+  for(const altered of [inspectorCases.slice(1),[...inspectorCases,inspectorCases[0]],inspectorCases.map((row,i)=>i?row:{...row,expectedStatus:'skipped'})])assert.throws(()=>verifyCanvasInspectorDiscovery(altered));
+  const inspectorProof=structuredClone(inspectorReport);setResults(inspectorProof,'passed');
+  const verifyInspector=report=>verifyCanvasCandidateReports(['test-results/candidate-auth.json'],[report],inspectorReport,{canvasInspector:true});
+  verifyInspector(inspectorProof);
+  for(const status of ['failed','skipped','timedOut']){setResults(inspectorProof,status);assert.throws(()=>verifyInspector(inspectorProof));}
+  assert.throws(()=>verifyCanvasCandidateReports([],[],inspectorReport,{canvasInspector:true}));
   const audioLine=allDiscovery.find(line=>line.includes('tests/oma2-q1-canvas.spec.js')&&!line.includes('tests/auth-admin.spec.js'));
   assert(audioLine);
   assert.equal(audioLine.split(' npm ')[1].replace(' --list --reporter=json',''),allExecution.find(line=>line.includes('tests/oma2-q1-canvas.spec.js')&&!line.includes('tests/auth-admin.spec.js')).split(' npm ')[1].replace(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json',''));

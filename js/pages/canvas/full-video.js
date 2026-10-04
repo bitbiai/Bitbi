@@ -5,6 +5,7 @@ import { hasAudioEffects } from '../../shared/canvas-audio.mjs?v=__ASSET_VERSION
 import {smoothJoinControls} from './smooth-joins.js?v=__ASSET_VERSION__';
 import {smoothJoinResultText} from '../../shared/canvas-smooth-joins.mjs?v=__ASSET_VERSION__';
 import {audioFitResultText} from '../../shared/canvas-audio-fit.mjs?v=__ASSET_VERSION__';
+import {canvasDisclosure} from './inspector-disclosure.js?v=__ASSET_VERSION__';
 
 export function renderCanvasFullVideo({section,output,projectId,german,signal,video,music=[],sound,readSmooth=()=>false,writeSmooth=()=>{},flush=async()=>true,getGraph}) {
     const anchor=output.runId || (output.nodeId?{nodeId:output.nodeId}:null);
@@ -71,8 +72,11 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
     },{signal});
     const createButton=document.createElement('button');createButton.type='button';createButton.className='canvas-button canvas-button--primary';createButton.textContent=copy.create;createButton.hidden=true;
     let sequenceBlocked=true;
-    const sequence=clipSequence(controls,anchor,german,signal,()=>{createButton.disabled=sequenceBlocked||!sequence.valid;joins?.sync();},getGraph);
-    joins=smoothJoinControls({parent:controls,german,signal,projectId,anchor,read:readSmooth,write:writeSmooth,flush,sequence,settings:()=>({...selected}),getGraph,pause:()=>{video.pause();resultVideo?.pause();audition?.pause();}});
+    const nodeId=output.nodeId||getGraph().nodes.find(node=>node.output?.runId===output.runId)?.id||output.runId;
+    const mergeSettings=canvasDisclosure([projectId,nodeId,'merge'],german?'Clips zusammenfügen':'Merge clips','canvas-merge-settings');
+    controls.append(mergeSettings);
+    const sequence=clipSequence(mergeSettings,anchor,german,signal,()=>{createButton.disabled=sequenceBlocked||!sequence.valid;joins?.sync();},getGraph);
+    joins=smoothJoinControls({parent:mergeSettings,german,signal,projectId,anchor,read:readSmooth,write:writeSmooth,flush,sequence,settings:()=>({...selected}),getGraph,pause:()=>{video.pause();resultVideo?.pause();audition?.pause();}});
     video.addEventListener('play',()=>joins.pause(),{signal});
     controls.append(createButton);
     createButton.addEventListener('click',()=>void update(true),{signal});

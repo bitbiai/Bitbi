@@ -23,7 +23,7 @@ exports.smoothUi=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,in
     await route.fulfill({status:response.status,headers,body:bytes});
     if(req.method()==='POST'&&url.pathname.endsWith('/full-video')&&req.postDataJSON()?.backgroundMusic){writes.push({body:req.postDataJSON(),result:JSON.parse(bytes)});rendering=rendering.then(processor);}
   });
-  const open=async()=>{await page.locator(`[data-node-id="${f.last.id}"]`).press('Enter');if(de&&!await page.locator('#canvasInspectorBody').isVisible())await page.locator('#canvasInspectorToggle').click();};
+  const open=async()=>{await page.locator(`[data-node-id="${f.last.id}"]`).press('Enter');if(de&&!await page.locator('#canvasInspectorBody').isVisible())await page.locator('#canvasInspectorToggle').click();await require('./canvas-inspector-actions.cjs').openCanvasSettings(page,'merge');};
   const inspector=page.locator('#canvasInspectorBody'),smooth=inspector.getByRole('checkbox',{name:de?'Sanft zusammenführen':'Smooth joins',exact:true});
   try {
     await page.goto(de?'/de/canvas/':'/canvas/');await open();await expect(smooth).not.toBeChecked();

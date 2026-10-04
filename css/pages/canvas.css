@@ -115,6 +115,10 @@
   .canvas-node__head:active { cursor: grabbing; }
   .canvas-node__type { display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; overflow-wrap: anywhere; font-size: .78rem; line-height: 1.45; font-weight: 600; }
   .canvas-node__mark { width: 6px; height: 6px; flex: none; border-radius: 2px; background: #96dcce; }
+  .canvas-node__icon { width: 1.2em; height: 1.2em; flex: none; display: block; pointer-events: none; color: #96dcce; }
+  .canvas-node[data-capability="video"] .canvas-node__icon { color: #c8b2e7; }
+  .canvas-node[data-capability="music"] .canvas-node__icon { color: #e3aabd; }
+  .canvas-node[data-capability="asset"] .canvas-node__icon { color: #b1c1cc; }
   .canvas-node[data-capability="text"] .canvas-node__mark { background: #e3c184; }
   .canvas-node[data-capability="video"] .canvas-node__mark { background: #c8b2e7; }
   .canvas-node[data-capability="music"] .canvas-node__mark { background: #e3aabd; }
@@ -210,6 +214,12 @@
   .canvas-inspector, .canvas-history { padding-bottom: max(84px, calc(env(safe-area-inset-bottom) + 72px)); scroll-padding-bottom: 84px; }
   .canvas-sound { margin-block: 12px; border: 1px solid var(--border-color, #3a4b54); border-radius: 10px; padding: 10px; }
   .canvas-sound > summary { cursor: pointer; min-height: 32px; padding-block: 6px; font-weight: 600; }
+  .canvas-disclosure { margin-block: 12px; border: 1px solid var(--border-color, #3a4b54); border-radius: 10px; padding: 10px; min-width: 0; }
+  .canvas-disclosure > summary { cursor: pointer; min-height: 32px; padding-block: 6px; font-weight: 600; }
+  .canvas-disclosure > summary:focus-visible { outline: 2px solid var(--accent-color, #7dd5cd); outline-offset: 3px; }
+  .canvas-generation-settings { margin: 0; }
+  .canvas-generation-settings__body { display: grid; gap: 18px; padding-top: 14px; }
+  .canvas-merge-settings .canvas-clip-sequence { border: 0; padding: 0; }
   .canvas-sound-group { border: 0; padding: 12px 0; min-width: 0; }
   .canvas-sound-group + .canvas-sound-group { border-top: 1px solid var(--border-color, #3a4b54); }
   .canvas-sound-group legend { font-weight: 600; padding: 4px 0; }

@@ -1,3 +1,4 @@
+import {canvasInspectorSources} from './lib/canvas-inspector-selection.mjs';
 import {browserRows} from './lib/browser-fixture-repair.mjs';
 import { repairDelta, repairKind } from './lib/media-repair-source.mjs';
 import { assertBrowserSourceIdentity, assertBrowserReportArtifact, assertOriginalBrowserJob, verifyBrowserRepairProof, runBrowserRepair } from './lib/browser-fixture-repair.mjs';
@@ -7,7 +8,7 @@ import { LOCAL_BROWSER_POLICY, verifyMigrationBrowserReport, SMOOTH_BROWSER_POLI
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests, requiresPrivateMediaImage, memberSpecSources, canvasCompletionRouteSources } from './lib/ci-test-selection.mjs';
-import { verifyHomepageReport, CANVAS_RELEASE_SCOPES, canvasReleaseProject, flattenHomepageDiscovery, verifyCanvasCompletionDiscovery, CANVAS_AUDIO_SCOPES, verifyCanvasAudioDiscovery, verifyCanvasAudioFitDiscovery } from './lib/homepage-test-selection.mjs';
+import { verifyHomepageReport, CANVAS_RELEASE_SCOPES, canvasReleaseProject, flattenHomepageDiscovery, verifyCanvasCompletionDiscovery, CANVAS_AUDIO_SCOPES, verifyCanvasAudioDiscovery, verifyCanvasAudioFitDiscovery, verifyCanvasInspectorDiscovery } from './lib/homepage-test-selection.mjs';
 // A changed acceptance scope requires fresh candidate evidence. Earlier Hero
 // reports cannot be recertified by removing their former required job.
 export const MEDIA_POLICY = 'homepage-functional-v3';
@@ -68,7 +69,7 @@ export function gitSelection(base, sha) {
   assert(/^[a-f0-9]{40}$/.test(base || ''), 'Missing exact release base');
   assert(/^[a-f0-9]{40}$/.test(sha || ''), 'Missing exact release head');
   execFileSync('git',['merge-base','--is-ancestor',base,sha],{stdio:'pipe'});
-  return selectCiTests(execFileSync('git',['diff','--name-only','--no-renames',`${base}...${sha}`,'--'],{encoding:'utf8'}).trim().split('\n').filter(Boolean), {memberTestSources:memberSpecSources(base,sha),canvasRouteSources:canvasCompletionRouteSources(base,sha)});
+  return selectCiTests(execFileSync('git',['diff','--name-only','--no-renames',`${base}...${sha}`,'--'],{encoding:'utf8'}).trim().split('\n').filter(Boolean), {inspectorSources:canvasInspectorSources(base,sha),memberTestSources:memberSpecSources(base,sha),canvasRouteSources:canvasCompletionRouteSources(base,sha)});
 }
 export function validatePublishedDeployment(deployment,status,run,job) {
   assert.equal(deployment.environment,'github-pages'); assert.equal(status.state,'success');
@@ -282,7 +283,10 @@ export function verifyCanvasTextReport(report,discovery) {
 export function verifyCanvasCandidateReports(names, reports, discovery, selection = {}) {
   const name = 'test-results/candidate-auth.json';
   assert.equal(names.filter(value => value === name).length, 1, 'Exactly one Canvas auth report required');
-  if (selection.canvasAudioFit) {
+  if (selection.canvasInspector) {
+    verifyCanvasInspectorDiscovery(flattenHomepageDiscovery(discovery));
+    verifyAdminReport(reports[names.indexOf(name)],discovery,[['canvas',['canvas.spec.js']]],canvasReleaseProject);
+  } else if (selection.canvasAudioFit) {
     verifyCanvasAudioFitDiscovery(flattenHomepageDiscovery(discovery));
     const report=reports[names.indexOf(name)];
     if(report.policy===SMOOTH_BROWSER_POLICY){assert.deepEqual(report.discovery,browserRows(discovery,{discovery:true}));verifySmoothBrowserReport(report,report.sha);}

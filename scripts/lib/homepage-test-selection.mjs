@@ -33,6 +33,12 @@ export function verifyCanvasAudioDiscovery(actual, standard=actual) {
   }
   for(const row of actual)assert.equal(row.expectedStatus,'passed','Selected Canvas audio case must execute');
 }
+export function verifyCanvasInspectorDiscovery(actual) {
+  const titles=['image successful-output disclosure lifecycle','video successful-output disclosure lifecycle','music successful-output disclosure lifecycle','merge disclosure retains choices and export access','typed vector icons preserve graph geometry'];
+  const expected=['chromium','webkit-canvas'].flatMap(project=>['en','de'].flatMap(locale=>titles.map(title=>`${project}:canvas.spec.js:Canvas Inspector ${locale}: ${title}`)));
+  assert.deepEqual(actual.map(row=>`${row.project}:${row.file}:${row.title}`).sort(),expected.sort(),'Inspector discovery requires all media, locales and engines');
+  for(const row of actual)assert.equal(row.expectedStatus,'passed','Inspector case must execute');
+}
 export function verifyCanvasAudioFitDiscovery(actual) {
   const expected=['chromium','webkit-canvas'].flatMap(project=>['en','de'].map(locale=>
     `${project}:canvas.spec.js:Canvas audio fit ${locale}: original timing, comparison and saved export`));

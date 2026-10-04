@@ -12,9 +12,29 @@ import {
 } from "./lib/fast-deploy-paths.mjs";
 import { selectCiTests, requiresPrivateMediaImage, isDurableImageTestChange, isFluxReviewTestChange, isCanvasCompletionRouteChange } from "./lib/ci-test-selection.mjs";
 import { requiredJobs } from "./pages-candidate.mjs";
+import {isCanvasInspectorChange} from './lib/canvas-inspector-selection.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
+
+{
+  const runtime=['js/pages/canvas/main.js','js/pages/canvas/full-video.js','js/pages/canvas/graph.js','css/pages/canvas.css'];
+  const inspectorSources=Object.fromEntries(runtime.map(file=>{const source=fs.readFileSync(path.join(repoRoot,file),'utf8');return [file,{before:source,after:source}];}));
+  const files=[...runtime,'js/pages/canvas/inspector-disclosure.js','js/pages/canvas/media-icon.js','tests/canvas.spec.js','tests/helpers/canvas-inspector-ui.cjs'];
+  const chosen=selectCiTests(files,{inspectorSources});
+  assert.equal(chosen.policy,'canvas-inspector-v1');
+  for(const key of ['canvasInspector','canvasText','auth','static','runtime'])assert.equal(chosen[key],true);
+  for(const key of ['workers','homepage','full','assets'])assert.equal(chosen[key],false);
+  assert.equal(requiresPrivateMediaImage(files),false);
+  assert(!isCanvasInspectorChange(null));
+  for(const file of runtime) {
+    const changed=structuredClone(inspectorSources);changed[file].after+='\n/* unrelated change */';
+    assert(!isCanvasInspectorChange(changed));assert.notEqual(selectCiTests(files,{inspectorSources:changed}).canvasInspector,true);
+    delete changed[file];assert(!isCanvasInspectorChange(changed));
+  }
+  for(const file of ['workers/auth/src/routes/canvas.js','js/shared/canvas-audio.mjs','js/pages/canvas/workflow.js','services/homepage-ffmpeg-processor/canvas-full-video.mjs'])assert.notEqual(selectCiTests([...files,file],{inspectorSources}).canvasInspector,true);
+  assert.notEqual(selectCiTests(files,{inspectorSources,forceFull:true}).canvasInspector,true);
+}
 
 for (const file of ['config/website-assistant.json', 'workers/shared/website-assistant-knowledge.mjs', 'workers/shared/website-assistant-content.mjs',
   'js/shared/website-assistant-context.mjs', 'tests/website-assistant-runtime.mjs', 'workers/auth/src/lib/website-assistant-control.js', 'tests/website-assistant-control.test.mjs']) {

@@ -1,4 +1,5 @@
 import { canvasNodeMediaKind } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
+import { canvasMediaIcon } from './media-icon.js?v=__ASSET_VERSION__';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const NODE_WIDTH = 230;
 const NODE_HEIGHT = 126;
@@ -101,7 +102,7 @@ export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSe
     function createNode(node) {
         const card = element('article', 'canvas-node');
         card.dataset.nodeId = node.id;
-        const media=node.type==='asset_reference'?canvasNodeMediaKind(node):null;
+        const media=node.type==='asset_reference' && node.content?.asset?.id===node.asset_id && node.content.asset.availability!=='unavailable'?canvasNodeMediaKind(node):null;
         card.dataset.capability = media==='audio'?'music':media||capabilityForType(node.type);
         card.tabIndex = 0;
         card.setAttribute('role', 'group');
@@ -113,7 +114,8 @@ export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSe
 
         const head = element('div', 'canvas-node__head');
         const type = element('div', 'canvas-node__type');
-        type.append(element('span', 'canvas-node__mark'), element('span', '', node.title || copy.nodeTypes[node.type] || node.type));
+        const iconKind = node.type === 'asset_reference' ? media || 'asset' : ({ image_generation: 'image', video_generation: 'video', music_generation: 'audio' })[node.type];
+        type.append(iconKind ? canvasMediaIcon(iconKind) : element('span', 'canvas-node__mark'), element('span', '', node.title || copy.nodeTypes[node.type] || node.type));
         const latestRun = data.runs?.find((run) => run.node_id === node.id);
         const analysis = data.nodeAnalysis?.get(node.id);
         let statusLabel = latestRun?.status || (node.output ? copy.completed : copy.noInput);
