@@ -620,6 +620,29 @@ Those retained failures are not passes. Final-SHA Linux CI and publication recei
 remain required; unchanged Worker/image checks from the failed run are not a new
 candidate certificate.
 
+2026-10-04 extension (base `a281fc9e`, pre-publication local evidence): imported
+video references formerly had no real export subject; per-node original-audio
+settings were absent. Migration 0100 and recipe v3/protocol 4 preserve old records,
+use real node/asset/version identities and immutable per-clip envelopes. Existing
+`--suite canvas-audio` passed four native cases including populated migration,
+role/type replacement, synthetic image/video provider inputs and export recovery.
+EN/DE Chromium/WebKit integration decodes ordered mixed generated/imported clips,
+original gain/fades and separate background music off/on through the actual Worker
+and FFmpeg path. Final CI/source/attempt and live receipts belong in the task
+checkpoint; these local passes alone do not establish publication.
+
+Related confirmed boundary defects: ranged MockBucket reads replaced the whole
+object size with the partial body length; its fixture now matches R2 metadata,
+with a range/body countercheck in `q2-mock-lifecycle` and native export acceptance.
+Music upload sent a Data-URL to the existing plain-Base64 API; the shared client now
+strips only the audio prefix, tested by real fixture upload/type replacement.
+Late metadata could overwrite a focused fractional fade edit or move the preview
+button during pointer-down. The input preserves its draft, and dynamic notes sit
+below action buttons; existing Canvas tests inject metadata and verify the exact
+persisted fade and click/error-recovery outcome. No retry/time-limit/audio-threshold
+relaxation, provider generation or decorative Hero test is involved.
+
+
 ### Private media dispatch and backend assignment (2026-09-19)
 Private exports/posters previously depended on the public 600-second dispatcher
 cooldown and cron. Durable acceptance now wakes the existing video queue;

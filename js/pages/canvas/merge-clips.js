@@ -1,16 +1,18 @@
-import { canvasClipIdentity, sameCanvasClip, canvasMergeStrand, canvasMergeSequence } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
+import { canvasClipIdentity, sameCanvasClip, canvasMergeStrand, canvasMergeSequence, canvasExportSubject } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 
 // Inspector drafts are scoped to a project AND displayed output. No account or
 // label based selection; reopening a saved export revalidates its source versions.
 const drafts = new Map();
 export function clipSequence(controls, runId, german, signal, onChange, getGraph) {
-    const initial = getGraph(), key = `${initial.projectId}:${runId}`;
+    const initial = getGraph(), subject=canvasExportSubject(runId),key = `${initial.projectId}:${subject.key}`;
+    const choiceId=clip=>clip?.runId || (clip?.nodeId?`node:${clip.nodeId}`:'');
+    const isEndpoint=clip=>subject.nodeId?clip?.nodeId===subject.nodeId:clip?.runId===subject.runId;
     const box = document.createElement('fieldset'); box.className = 'canvas-clip-sequence';
     const legend = document.createElement('legend'); legend.textContent = german ? 'Clips zusammenfügen' : 'Merge clips'; box.append(legend);
     const modes = new Map();
     for (const [value, text] of [['manual', german ? 'Clips und Reihenfolge auswählen' : 'Choose clips and order'], ['chain', german ? 'Diese Kette zusammenfügen' : 'Merge this chain']]) {
         const label = document.createElement('label'), input = document.createElement('input');
-        input.type = 'radio'; input.name = `merge-mode-${runId}`; input.value = value;
+        input.type = 'radio'; input.name = `merge-mode-${subject.key}`; input.value = value;
         label.append(input, document.createTextNode(text)); box.append(label); modes.set(value, input);
         input.addEventListener('change', () => { mode = value; render(); }, { signal });
     }
@@ -32,24 +34,25 @@ export function clipSequence(controls, runId, german, signal, onChange, getGraph
     const labelFor = clip => {
         const graph = getGraph(), node = graph.nodes.find(node => node.id === clip.nodeId);
         let title = node?.title || clip.title;
-        if (!title || ['Video generation', 'Videogenerierung'].includes(title)) title = german ? 'Videogenerierung' : 'Video generation';
-        const model = graph.models.find(model => model.id === clip.modelId)?.label || clip.modelId;
+        if (!title || ['Video generation', 'Videogenerierung','Asset reference','Asset-Referenz'].includes(title)) title = node?.type==='asset_reference'?(german?'Video-Asset':'Video asset'):(german ? 'Videogenerierung' : 'Video generation');
+        const model = graph.models.find(model => model.id === clip.modelId)?.label || clip.modelId || (german?'Video-Asset':'Video asset');
         const duplicate = choices.filter(other => (graph.nodes.find(node => node.id === other.nodeId)?.title || other.title || '') === (node?.title || clip.title || '')).length > 1;
-        return `${title} · ${model} · ${new Date(clip.createdAt).toLocaleString(german ? 'de-DE' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' })}${duplicate ? ' · ' + clip.runId.slice(0, 8) : ''}`;
+        return `${title} · ${model} · ${new Date(clip.createdAt).toLocaleString(german ? 'de-DE' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' })}${duplicate ? ' · ' + (clip.runId||clip.nodeId).slice(0, 8) : ''}`;
     };
     function reconcile() {
         const graph = getGraph();
         choices = graph.projectId === initial.projectId ? available.filter(clip => {
             const node = graph.nodes.find(node => node.id === clip.nodeId), output = node?.output;
+            if(node?.type==='asset_reference')return node.content?.asset?.asset_type==='video' && sameCanvasClip(clip,{nodeId:node.id,assetId:node.asset_id,version:node.content.asset.sourceVersion});
             return output?.kind === 'video' && sameCanvasClip(clip, { runId: output.runId, assetId: output.assetId || output.asset?.id, version: output.sourceVersion });
         }) : [];
         selected = selected.map(clip => choices.find(current => sameCanvasClip(current, clip)) || null);
-        const endpoint = graph.nodes.find(node => node.output?.runId === runId);
+        const endpoint = graph.nodes.find(node => subject.nodeId?node.id===subject.nodeId:node.output?.runId === runId);
         chain = canvasMergeSequence(canvasMergeStrand(graph.nodes, graph.edges, endpoint?.id), choices);
     }
     const valid = () => !invalidated && (mode === 'chain' ? !chain.error : selected.length >= 2
-        && selected.every(Boolean) && selected.some(clip => clip.runId === runId)
-        && new Set(selected.map(clip => clip.runId)).size === selected.length);
+        && selected.every(Boolean) && selected.some(isEndpoint)
+        && new Set(selected.map(choiceId)).size === selected.length);
     function render(focusIndex = null) {
         reconcile(); modes.forEach((input, value) => { input.checked = mode === value; }); list.replaceChildren();
         const clips = mode === 'chain' ? chain.clips : selected;
@@ -62,11 +65,11 @@ export function clipSequence(controls, runId, german, signal, onChange, getGraph
             field.className = 'canvas-field'; field.append(document.createTextNode(`Clip ${index + 1}`), select);
             const empty = document.createElement('option'); empty.value = ''; empty.textContent = german ? 'Clip auswählen' : 'Choose clip'; select.append(empty);
             for (const current of choices) {
-                const option = document.createElement('option'); option.value = current.runId; option.textContent = labelFor(current);
+                const option = document.createElement('option'); option.value = choiceId(current); option.textContent = labelFor(current);
                 option.disabled = selected.some(other => sameCanvasClip(other, current)) && !sameCanvasClip(current, clip); select.append(option);
             }
-            select.value = clip?.runId || '';
-            select.addEventListener('change', () => { selected[index] = choices.find(clip => clip.runId === select.value) || null; invalidated = false; render(index); }, { signal }); row.append(field);
+            select.value = choiceId(clip);
+            select.addEventListener('change', () => { selected[index] = choices.find(clip => choiceId(clip) === select.value) || null; invalidated = false; render(index); }, { signal }); row.append(field);
             for (const [text, delta] of [[german ? 'Nach oben' : 'Move up', -1], [german ? 'Nach unten' : 'Move down', 1], [german ? 'Entfernen' : 'Remove', 0]]) {
                 const button = document.createElement('button'); button.type = 'button'; button.className = 'canvas-button'; button.textContent = text; button.setAttribute('aria-label', `${text}: Clip ${index + 1}`);
                 button.disabled = delta < 0 && index === 0 || delta > 0 && index === selected.length - 1;
@@ -89,6 +92,7 @@ export function clipSequence(controls, runId, german, signal, onChange, getGraph
             const graph = getGraph();
             if (graph.projectId === initial.projectId) for (const clip of data.availableClips) {
                 const node = graph.nodes.find(node => node.id === clip.nodeId), output = node?.output;
+                if(node?.type==='asset_reference' && node.asset_id===clip.assetId && node.content?.asset?.id===clip.assetId && !node.content.asset.sourceVersion && /^[a-f0-9]{64}$/.test(clip.version||''))node.content.asset.sourceVersion=clip.version;
                 if (output?.kind === 'video' && output.runId === clip.runId
                     && (output.assetId || output.asset?.id) === clip.assetId
                     && (!node.asset_id || node.asset_id === clip.assetId)
@@ -99,7 +103,7 @@ export function clipSequence(controls, runId, german, signal, onChange, getGraph
             if (!initialized) {
                 const draft = drafts.get(key), recipe = data.export?.recipe;
                 mode = draft?.mode || (recipe?.sequence === 'explicit' && recipe.mergeMode !== 'chain' || chain.error ? 'manual' : 'chain');
-                selected = draft?.selected || (recipe?.sequence === 'explicit' ? recipe.videos : [null, choices.find(clip => clip.runId === runId) || null]);
+                selected = draft?.selected || (recipe?.sequence === 'explicit' ? recipe.videos : [null, choices.find(isEndpoint) || null]);
                 initialized = true;
             }
             render();

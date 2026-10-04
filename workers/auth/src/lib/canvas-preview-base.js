@@ -3,11 +3,12 @@ import { putNewManagedR2Object } from './r2-cleanup.js';
 import { publicVideoResponse } from './public-video-response.mjs';
 import { canvasProcessingError, CANVAS_VIDEO_LIMITS } from './canvas-video-processing.js';
 import { nowIso } from './tokens.js';
+import { canvasExportSubject } from '../../../../js/shared/canvas-export.mjs';
 
 // Called only by the authenticated processor, inside an explicit export lease.
 // Register cleanup before PUT; a lost response/lease never invents a new job.
 export async function storeCanvasPreviewBase(env,job,bytes) {
-  if(!job.recipe_json || !JSON.parse(job.recipe_json).backgroundMusic?.enabled)throw canvasProcessingError('canvas_music_settings');
+  if(!job.recipe_json || !(JSON.parse(job.recipe_json).version===3 || JSON.parse(job.recipe_json).backgroundMusic?.enabled))throw canvasProcessingError('canvas_music_settings');
   if(!bytes.length || bytes.length>CANVAS_VIDEO_LIMITS.outputBytes || String.fromCharCode(...bytes.slice(4,8))!=='ftyp')throw canvasProcessingError('canvas_export_file_invalid');
   const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),v=>v.toString(16).padStart(2,'0')).join('');
   const key=`users/${job.user_id}/canvas-export-bases/${job.id}/${digest}.mp4`;
@@ -32,9 +33,10 @@ export async function storeCanvasPreviewBase(env,job,bytes) {
 }
 
 export async function readCanvasPreviewBase(ctx,userId,projectId,runId,id) {
+  const subject=canvasExportSubject(runId);
   const row=await ctx.env.DB.prepare(`SELECT p.* FROM canvas_video_processing p JOIN ai_text_assets a ON a.id=p.asset_id AND a.user_id=p.user_id
-    WHERE p.id=? AND p.user_id=? AND p.project_id=? AND p.run_id=? AND p.preview_base_etag IS NOT NULL`)
-    .bind(id,userId,projectId,runId).first();
+    WHERE p.id=? AND p.user_id=? AND p.project_id=? AND p.${subject.column}=? AND p.preview_base_etag IS NOT NULL`)
+    .bind(id,userId,projectId,subject.id).first();
   const head=row && await ctx.env.USER_IMAGES.head(row.preview_base_key);
   if(!head || head.etag!==row.preview_base_etag || head.size!==row.preview_base_bytes)throw canvasProcessingError('canvas_preview_base_unavailable','Preview unavailable.',404);
   return await publicVideoResponse(ctx.request,ctx.env.USER_IMAGES,row.preview_base_key,object=>new Headers({

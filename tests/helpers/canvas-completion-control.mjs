@@ -9,8 +9,9 @@ import { getModelTariff } from '../../workers/auth/src/lib/model-tariffs.js';
 import { PRIVATE_MEDIA_WAKE } from '../../workers/auth/src/lib/private-media-service.js';
 const check=(value,message)=>{if(!value)throw new Error(message);};
 export async function canvasCompletionFixture(base,fixture) {
-  const db=base.DB,owner='canvas-completion-member',now=new Date().toISOString(),ids=[];
-  for(let i=0;i<12;i++)ids.push((await sha256Hex('canvas-completion-'+i)).slice(0,32));
+  const prefix=fixture.scope||'completion';
+  const db=base.DB,owner='canvas-'+prefix+'-member',now=new Date().toISOString(),ids=[];
+  for(let i=0;i<12;i++)ids.push((await sha256Hex('canvas-'+prefix+'-'+i)).slice(0,32));
   const project=ids[0],nodes=ids.slice(1,10),musicNode=ids[10],video=Uint8Array.from(atob(fixture.videoBase64),c=>c.charCodeAt(0));
   const messages=[],calls=[],waits=[],observations=[];
   const env={...base,BITBI_ENV:'production',MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:'synthetic-completion-processor',ENABLE_HOMEPAGE_HERO_EXTERNAL_FFMPEG:'false',ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH:'false',
@@ -20,7 +21,7 @@ export async function canvasCompletionFixture(base,fixture) {
       if(url==='https://fixture.invalid/completion.mp4')return new Response(video,{headers:{'Content-Type':'video/mp4'}});
       check(url===`https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/ai/run`,'Unexpected completion fixture network');
       const body=JSON.parse(init.body);check(body.model==='minimax/h3','Exact H3 adapter');check(body.input.content.filter(c=>c.type!=='text').every(c=>c.role==='first_frame'),'Last-frame input becomes first_frame');calls.push(body);
-      return Response.json({success:true,result:{state:'Completed',result:{task:{id:'synthetic-completion-'+calls.length,model:'MiniMax-H3',status:'succeeded',resolution:'768P',duration:4,content:{url:'https://fixture.invalid/completion.mp4'},usage:{output_seconds:4}}}}});
+      return Response.json({success:true,result:{state:'Completed',result:{task:{id:'synthetic-'+prefix+'-'+calls.length,model:'MiniMax-H3',status:'succeeded',resolution:'768P',duration:4,content:{url:'https://fixture.invalid/completion.mp4'},usage:{output_seconds:4}}}}});
     }};
   await db.prepare("INSERT INTO users(id,email,password_hash,created_at,role,email_verified_at) VALUES(?,?,?,?,'user',?)").bind(owner,owner+'@example.invalid','synthetic',now,now).run();
   await db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?)').bind(owner,owner,await sha256Hex(`${owner}:${env.SESSION_HASH_SECRET}`),now,new Date(Date.now()+3600000).toISOString(),now).run();
@@ -31,9 +32,9 @@ export async function canvasCompletionFixture(base,fixture) {
     const model=i===6?'bytedance/seedance-2.5':'minimax/h3';
     await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,title,model_id,x,y,config_json,content_json,created_at,updated_at) VALUES(?,?,?,'video_generation',?,?,?,50,?,'{}',?,?)")
       .bind(nodes[i],project,owner,i===6?'Final':i===7?'Out':i===8?'Next':'Clip '+(i+1),model,50+i*150,JSON.stringify({prompt:'Synthetic continuation',duration:4,resolution:'768P',aspectRatio:'adaptive',backgroundMusic:{enabled:true,gain:.5,musicAssetId:music.id}}),now,now).run();
-    if(i)await db.prepare("INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,'{}',?,?)").bind((await sha256Hex('completion-edge-'+i)).slice(0,32),project,owner,nodes[i-1],nodes[i],now,now).run();
+    if(i)await db.prepare("INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,'{}',?,?)").bind((await sha256Hex(prefix+'-edge-'+i)).slice(0,32),project,owner,nodes[i-1],nodes[i],now,now).run();
     if(i<7) {
-      const runId=(await sha256Hex('completion-run-'+i)).slice(0,32);
+      const runId=(await sha256Hex(prefix+'-run-'+i)).slice(0,32);
       await db.prepare("INSERT INTO canvas_runs(id,project_id,node_id,user_id,model_id,operation_type,status,idempotency_key,input_json,created_at,updated_at) VALUES(?,?,?,?,?,'canvas.video.generate','running',?,'{}',?,?)").bind(runId,project,nodes[i],owner,model,runId,now,now).run();
       await registerCanvasMedia(env,{runId,userId:owner,projectId:project,nodeId:nodes[i],kind:'video'});
       const asset=await saveGeneratedVideoAsset(env,{userId:owner,title:'Original '+i,videoBytes:video,mimeType:'video/mp4'});
@@ -43,7 +44,7 @@ export async function canvasCompletionFixture(base,fixture) {
     }
   }
   await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,title,asset_id,x,y,config_json,content_json,created_at,updated_at) VALUES(?,?,?,'asset_reference','Music',?,50,350,'{}','{}',?,?)").bind(musicNode,project,owner,music.id,now,now).run();
-  for(const node of nodes.slice(7))await db.prepare("INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,'{\"purpose\":\"export_background_music\"}',?,?)").bind((await sha256Hex('completion-music-'+node)).slice(0,32),project,owner,musicNode,node,now,now).run();
+  for(const node of nodes.slice(7))await db.prepare("INSERT INTO canvas_edges(id,project_id,user_id,source_node_id,target_node_id,config_json,created_at,updated_at) VALUES(?,?,?,?,?,'{\"purpose\":\"export_background_music\"}',?,?)").bind((await sha256Hex(prefix+'-music-'+node)).slice(0,32),project,owner,musicNode,node,now,now).run();
   const request=async(url,method='GET',body,headers={})=>worker.fetch(new Request('https://bitbi.ai'+url,{method,headers:{Cookie:`__Host-bitbi_session=${owner}`,Origin:'https://bitbi.ai','X-Bitbi-Tariff-Revision':String((await getModelTariff(env)).revision),...(body?{'Content-Type':'application/json'}:{}),...headers},...(body?{body:typeof body==='string'?body:JSON.stringify(body)}:{})}),env,{waitUntil(p){waits.push(p);}});
   async function deliver({attachmentGap=false}={}) {
     let item;
@@ -71,7 +72,7 @@ export async function canvasCompletionFixture(base,fixture) {
   }
   async function prepare(index) {
     const source=await db.prepare('SELECT output_json FROM canvas_nodes WHERE id=?').bind(nodes[index-1]).first(),output=JSON.parse(source.output_json);
-    const url=`/api/account/canvas/projects/${project}/edges/${(await sha256Hex('completion-edge-'+index)).slice(0,32)}`;
+    const url=`/api/account/canvas/projects/${project}/edges/${(await sha256Hex(prefix+'-edge-'+index)).slice(0,32)}`;
     let r=await request(url,'PATCH',{config:{videoInput:{modelId:'minimax/h3',assetId:output.assetId,runId:output.runId,method:'last_frame'}}});check(r.ok,'Prepare completed predecessor');let data=(await r.json()).data;
     r=await request(url,'PATCH',{config:data.edge.config,frame_image:'data:image/png;base64,'+fixture.imageBase64});check(r.ok,'Store exact last frame');
   }

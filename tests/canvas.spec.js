@@ -6,6 +6,33 @@ for (const locale of ['en', 'de']) test(`Canvas completion metadata ${locale}: q
   await require('./helpers/canvas-completion-ui.cjs').completionUi({ page, expect, locale, mockSharedAuth, createCanvasApiMock, info });
 });
 
+for (const locale of ['en', 'de']) test(`Canvas asset audio ${locale}: typed references, persistent controls and real export`, async ({ page, browserName }, info) => {
+  await require('./helpers/canvas-audio-ui.cjs').audioUi({page,expect,locale,browserName,mockSharedAuth,createCanvasApiMock,info});
+});
+
+for (const locale of ['en','de']) test(`Canvas legacy audio ${locale}: changed originals require a new timeline without replacing saved media`,async({page},info)=>{
+  await page.setViewportSize({width:locale==='de'?390:1440,height:900});await mockSharedAuth(page);
+  const state=createCanvasApiMock(page),project='1'.repeat(32),node='2'.repeat(32),run='3'.repeat(32),now=new Date().toISOString();
+  const output={kind:'video',runId:run,assetId:'original',sourceVersion:'a'.repeat(64),previewUrl:'/tests/fixtures/media/member-video-poster.webp',asset:{id:'original',file_url:'/api/plain/canvas-preview/video.mp4'}};
+  state.projects=[{id:project,title:'Legacy export',locale,created_at:now,updated_at:now}];
+  state.nodes=[{id:node,project_id:project,type:'video_generation',title:'Video',x:100,y:100,config:{originalAudio:{enabled:true,gain:.5,fadeIn:0,fadeOut:0}},output,created_at:now,updated_at:now}];
+  state.runs=[{id:run,node_id:node,status:'completed',output,created_at:now}];
+  const completed={id:'a'.repeat(32),status:'ready',storage:'assets',asset:{file_url:output.asset.file_url+'?saved=1'},recipe:{version:2,videos:[{runId:run,assetId:'original',version:output.sourceVersion}]},preview_base:{file_url:output.asset.file_url}};
+  const writes=[];await page.route('**/full-video',route=>{if(route.request().method()!=='GET')writes.push(route.request().method());return route.fulfill({json:{ok:true,data:{eligible:true,current:completed,export:completed}}});});
+  await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${node}"]`).press('Enter');
+  if(locale==='de')await page.locator('#canvasInspectorToggle').click();
+  const sound=page.locator('.canvas-sound');await sound.locator('summary').click();
+  const button=sound.getByRole('button',{name:locale==='de'?'Toneinstellungen vorhören':'Preview sound settings',exact:true});
+  await expect(button).toBeDisabled();await expect(sound.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toContainText(locale==='de'?'erneut erstellen':'Create this older full video again');
+  const gain=sound.getByRole('slider',{name:locale==='de'?'Originalton: Lautstärke':'Original audio: Volume',exact:true});
+  await gain.fill('100');await gain.dispatchEvent('input');await expect(button).toBeEnabled();
+  await gain.fill('50');await gain.dispatchEvent('input');await expect(button).toBeDisabled();
+  await expect(page.locator('.canvas-full-video video')).toHaveAttribute('src',completed.asset.file_url);
+  await expect(page.locator('.canvas-full-video a')).toHaveAttribute('href',completed.asset.file_url+'?download=1');
+  await sound.scrollIntoViewIfNeeded();await sound.screenshot({path:info.outputPath(`canvas-sound-settings-${locale}.png`)});
+  expect(writes).toEqual([]);expect(state.requests.filter(request=>request.pathname.endsWith('/run'))).toEqual([]);
+});
+
 function source(relativePath) {
   return fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
 }
@@ -175,8 +202,9 @@ for (const locale of ['en','de']) test(`Canvas music preview ${locale}: metadata
   try {
     await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${node}"]`).press('Enter');
     if(locale==='de')await page.locator('#canvasInspectorToggle').click();
-    const block=page.locator('.canvas-full-video'),original=page.locator('.canvas-output > video');
-    const start=block.getByRole('button',{name:locale==='de'?'Vorschau mit Musik':'Preview with music',exact:true});
+    const block=page.locator('.canvas-full-video'),sound=page.locator('.canvas-sound'),original=page.locator('.canvas-output > video');
+    await sound.locator('summary').click();
+    const start=sound.getByRole('button',{name:locale==='de'?'Vorschau mit Musik':'Preview with music',exact:true});
     await expect(start).toBeEnabled();await start.scrollIntoViewIfNeeded();
     await expect(original).toHaveJSProperty('videoWidth',0);
     const before=await start.boundingBox();
@@ -186,8 +214,8 @@ for (const locale of ['en','de']) test(`Canvas music preview ${locale}: metadata
     await info.attach('metadata-pointer-geometry',{contentType:'application/json',body:JSON.stringify({before,after})});
     expect(after.y).toBeCloseTo(before.y,1);
     await expect.poll(()=>missing.length).toBeGreaterThan(0);
-    await expect(block.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toContainText(locale==='de'?'nicht abgespielt':'could not play');
-    await block.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();
+    await expect(sound.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toContainText(locale==='de'?'nicht abgespielt':'could not play');
+    await sound.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();
     const result=block.locator('video');await expect(result).toHaveAttribute('src',completed.asset.file_url);
     await result.evaluate(v=>v.play());await expect.poll(()=>result.evaluate(v=>v.currentTime)).toBeGreaterThan(.2);
     expect(writes).toEqual([]);expect(state.requests.filter(request=>request.pathname.endsWith('/run'))).toEqual([]);
@@ -951,7 +979,7 @@ for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable exp
   const merge=currentMergeFixture(state,nodeId,now);
   let posts=0, task=null;
   await page.route('**/api/account/canvas/**/full-video',route=>{
-    if(route.request().method()==='POST'){posts++;expect(route.request().postDataJSON()).toEqual({backgroundMusic:{enabled:false,gain:1},orderedClips:merge.orderedClips,mergeMode:'chain'});expect(route.request().headers()['idempotency-key']).toBeTruthy();task={id:'export',status:'queued'};}
+    if(route.request().method()==='POST'){posts++;expect(route.request().postDataJSON()).toEqual({backgroundMusic:{enabled:false,gain:1,fadeIn:0,fadeOut:0},orderedClips:merge.orderedClips,mergeMode:'chain'});expect(route.request().headers()['idempotency-key']).toBeTruthy();task={id:'export',status:'queued'};}
     return route.fulfill({json:{ok:true,data:{eligible:true,export:task,availableClips:merge.availableClips}}});
   });
   await page.route('**/api/ai/text-assets/*/file',route=>route.fulfill({contentType:'video/mp4',body:fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'))}));
@@ -990,7 +1018,7 @@ for(const locale of ['en','de']) test(`Canvas full video ordered clips ${locale}
   const originalState=JSON.stringify([state.nodes,state.edges,state.runs]);let reject=true,posts=0,task=null;
   await page.route('**/api/account/canvas/**/full-video',route=>{
     if(route.request().method()==='POST'){
-      posts++;const body=route.request().postDataJSON();expect(body).toEqual({backgroundMusic:{enabled:false,gain:1},orderedClips:[1,0].map(i=>{const{runId,assetId,version}=availableClips[i];return{runId,assetId,version};})});expect(route.request().headers()['idempotency-key']).toBeTruthy();
+      posts++;const body=route.request().postDataJSON();expect(body).toEqual({backgroundMusic:{enabled:false,gain:1,fadeIn:0,fadeOut:0},orderedClips:[1,0].map(i=>{const{runId,assetId,version}=availableClips[i];return{runId,assetId,version};})});expect(route.request().headers()['idempotency-key']).toBeTruthy();
       if(reject)return route.fulfill({status:409,json:{ok:false,code:'video_source_changed'}});
       task={id:'export',status:'queued',recipe:{version:2,spatialPolicy:'center-crop-v1',sequence:'explicit',videos:body.orderedClips}};
     }
@@ -1143,15 +1171,16 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
   if(locale==='de')await page.locator('#canvasInspectorToggle').click();
   await page.locator(`[data-node-id="${nodeId}"]`).first().click();
   if(locale==='de')await page.locator('#canvasInspectorToggle').click();
-  const check=block.getByRole('checkbox',{name:locale==='de'?'Musik als Hintergrund hinzufügen':'Add music as background'});
-  await check.check();const slider=block.getByRole('slider');await slider.focus();await page.keyboard.press('Home');await page.keyboard.press('ArrowRight');
-  await expect(block.locator('output')).toHaveText('1%');
-  await slider.fill('50');await slider.dispatchEvent('input');await expect(block.locator('output')).toHaveText('50%');
+  const sound=inspector.locator('.canvas-sound');await sound.locator('summary').click();
+  const check=sound.getByRole('checkbox',{name:locale==='de'?'Musik als Hintergrund hinzufügen':'Add music as background'});
+  await check.check();const slider=sound.getByRole('slider',{name:locale==='de'?'Hintergrundmusik: Lautstärke':'Background music: Volume',exact:true});await slider.focus();await page.keyboard.press('Home');await page.keyboard.press('ArrowRight');
+  await expect(sound.getByRole('spinbutton',{name:locale==='de'?'Hintergrundmusik: Lautstärke (%)':'Background music: Volume (%)'})).toHaveValue('1');
+  await slider.fill('50');await slider.dispatchEvent('input');await expect(sound.getByRole('spinbutton',{name:locale==='de'?'Hintergrundmusik: Lautstärke (%)':'Background music: Volume (%)'})).toHaveValue('50');
   expect(exports).toHaveLength(0);
   await block.getByRole('button',{name:locale==='de'?'Gesamtes Video mit Hintergrundmusik erstellen':'Create full video with background music',exact:true}).click();
   await expect.poll(()=>exports.length).toBe(1);
-  expect(exports[0].body).toEqual({backgroundMusic:{enabled:true,gain:0.5},orderedClips:merge.orderedClips,mergeMode:'chain'});expect(exports[0].key).toBeTruthy();
-  await expect.poll(()=>state.nodes[0].config.backgroundMusic).toEqual({enabled:true,gain:0.5});
+  expect(exports[0].body).toEqual({backgroundMusic:{enabled:true,gain:0.5,fadeIn:0,fadeOut:0},orderedClips:merge.orderedClips,mergeMode:'chain'});expect(exports[0].key).toBeTruthy();
+  await expect.poll(()=>state.nodes[0].config.backgroundMusic).toEqual({enabled:true,gain:0.5,fadeIn:0,fadeOut:0});
   current={...task,status:'ready',asset:{id:task.id,file_url:'/api/ai/text-assets/version-1/file'}};task=current;
   await page.evaluate(()=>{
     const records=window.canvasSaveTrace=[],ids=new WeakMap();let sequence=0;
@@ -1179,8 +1208,8 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
   expect(Math.abs(up.save.rect[1]-down.save.rect[1])).toBeLessThan(1);
   await expect(block.getByRole('status',{name:locale==='de'?'Exportstatus':'Export status',exact:true})).toContainText(locale==='de'?'Diese Version ist in Assets gespeichert.':'This version is saved to Assets.');
   await expect(block.getByRole('button',{name:locale==='de'?'Gesamtvideo in Assets speichern':'Save full video to Assets'})).toHaveCount(0);
-  await open();await expect(block.getByRole('slider')).toHaveValue('50');await expect(block.getByRole('checkbox')).toBeChecked();
-  await block.getByRole('slider').fill('100');await block.getByRole('slider').dispatchEvent('input');expect(exports).toHaveLength(1);
+  await open();await sound.locator('summary').click();await expect(slider).toHaveValue('50');await expect(check).toBeChecked();
+  await slider.fill('100');await slider.dispatchEvent('input');expect(exports).toHaveLength(1);
   await block.getByRole('button',{name:locale==='de'?'Gesamtes Video mit Hintergrundmusik erstellen':'Create full video with background music'}).click();
   await expect.poll(()=>exports.length).toBe(2);
   expect(exports[1].body.backgroundMusic.gain).toBe(1);expect(exports[1].key).not.toBe(exports[0].key);

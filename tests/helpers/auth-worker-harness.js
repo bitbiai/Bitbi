@@ -834,7 +834,9 @@ class MockBucket {
     return {
       ...object,
       body,
-      size: body?.byteLength ?? (typeof body === 'string' ? body.length : length),
+      // R2Object metadata describes the whole stored object. Only body/range
+      // describe a partial GET; replacing size breaks HTTP Content-Range.
+      range: {offset:start,length:body?.byteLength ?? (typeof body === 'string' ? body.length : length)},
     };
   }
 

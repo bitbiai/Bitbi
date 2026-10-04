@@ -468,6 +468,8 @@ export const ROUTE_POLICIES = Object.freeze([
     audit: { noneReason: "The edge soft-delete timestamp is the durable deletion record." },
   }),
   safeRead("account.canvas.full-video.read", "GET", "/api/account/canvas/projects/:projectId/runs/:runId/full-video", "canvas", {auth: "user", sensitivity: "high"}),
+  safeRead("account.canvas.node-full-video.read", "GET", "/api/account/canvas/projects/:projectId/nodes/:nodeId/full-video", "canvas", {auth: "user", sensitivity: "high"}),
+  userJsonWrite("account.canvas.node-full-video.create", "POST", "/api/account/canvas/projects/:projectId/nodes/:nodeId/full-video", "canvas", "smallJson", "canvas-write-user", {notes: "Owned imported video endpoint; same immutable export, no inference or debit."}),
   safeRead('account.canvas.contributors.read', 'GET', '/api/account/canvas/projects/:projectId/runs/:runId/contributors', 'canvas', { auth: 'user', sensitivity: 'high' }),
   userJsonWrite("account.canvas.output.save", "POST", "/api/account/canvas/projects/:projectId/runs/:runId/save-asset", "canvas", "smallJson", "canvas-write-user", {notes:"Owner-only promotion of existing private Canvas output; no inference or debit."}),
   userJsonWrite("account.canvas.full-video.create", "POST", "/api/account/canvas/projects/:projectId/runs/:runId/full-video", "canvas", "smallJson", "canvas-write-user", {notes: "Owner-only immutable original chain; postprocessing without inference or debit."}),

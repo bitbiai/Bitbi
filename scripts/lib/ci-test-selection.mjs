@@ -35,6 +35,7 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ['workers/shared/website-assistant-contract-version.mjs', ['auth']],
   ['js/shared/website-assistant-context.mjs', ['auth']],
   ['js/shared/canvas-export.mjs', ['auth']],
+  ['js/shared/canvas-audio.mjs', ['auth']],
   ["js/shared/appearance-contract.js", ["auth"]],
   ["js/shared/model-pricing-catalog.mjs", ["auth"]],
   ["js/shared/model-tariff.mjs", ["auth", "ai"]],
@@ -836,6 +837,60 @@ export function isCanvasCompletionRouteChange(sources) {
     .replace(/      \/\/ The browser-attach path must carry the same owned original version as\n      \/\/ queue completion\. Never take this identity from provider\/client metadata\.\n      if \(model\.capability === 'video'\) output\.sourceVersion = \(await ownedCanvasVideo\(ctx\.env, userId, output\.asset\.id, null, 80_000_000\)\)\.version;\n/, '') === sources.before;
 }
 
+// Canvas media controls reuse the existing native and browser callers. Model,
+// provider, pricing, billing and unknown neighboring changes retain broader coverage.
+const CANVAS_AUDIO_FILES = new Set([
+  'js/shared/omni-reference-upload.js',
+  'config/release-compat.json',
+  'config/website-assistant-sources.json',
+  'workers/shared/website-assistant-content.mjs',
+  'workers/shared/website-assistant-version.mjs',
+  'workers/shared/website-assistant-contract-version.mjs',
+  '.github/workflows/full-regression.yml',
+  'css/pages/canvas.css',
+  'js/pages/canvas/api.js',
+  'js/pages/canvas/audio-controls.js',
+  'js/pages/canvas/full-video.js',
+  'js/pages/canvas/graph.js',
+  'js/pages/canvas/main.js',
+  'js/pages/canvas/merge-clips.js',
+  'js/pages/canvas/music-preview-worklet.js',
+  'js/pages/canvas/music-preview.js',
+  'js/pages/canvas/workflow.js',
+  'js/shared/canvas-audio.mjs',
+  'js/shared/canvas-export.mjs',
+  'js/shared/canvas-video-input.mjs',
+  'services/homepage-ffmpeg-processor/canvas-full-video.mjs',
+  'services/homepage-ffmpeg-processor/canvas-full-video.test.mjs',
+  'tests/canvas.spec.js',
+  'tests/oma2-q1-canvas.spec.js',
+  'tests/website-assistant-knowledge.test.mjs',
+  'tests/helpers/canvas-audio-control.mjs',
+  'tests/helpers/canvas-audio-ui.cjs',
+  'tests/helpers/canvas-completion-control.mjs',
+  'tests/helpers/canvas-processing-control.mjs',
+  'tests/helpers/canvas-music-preview.cjs',
+  'tests/helpers/auth-worker-harness.js',
+  'tests/q2-mock-lifecycle.spec.js',
+  'scripts/test-q2-runtime-launcher.mjs',
+  'tests/helpers/q2-runtime/canvas.mjs',
+  'tests/helpers/q2-runtime/control.mjs',
+  'tests/helpers/q2-runtime/environment.mjs',
+  'tests/helpers/q2-runtime/linux-bootstrap.py',
+  'tests/helpers/q2-runtime/linux-hosted.mjs',
+  'tests/helpers/q2-runtime/linux-runtime-child.mjs',
+  'tests/helpers/q2-runtime/runner.mjs',
+  'workers/auth/migrations/0100_canvas_asset_audio_exports.sql',
+  'workers/auth/src/app/route-policy.js',
+  'workers/auth/src/lib/canvas-export-recipes.js',
+  'workers/auth/src/lib/canvas-merge-selection.js',
+  'workers/auth/src/lib/canvas-preview-base.js',
+  'workers/auth/src/lib/canvas-video-input.js',
+  'workers/auth/src/lib/canvas-video-processing.js',
+  'workers/auth/src/routes/canvas-video-processing.js',
+  'workers/auth/src/routes/canvas.js',
+]);
+
 const CANVAS_COMPLETION_FILES = new Set([
   'scripts/test-q2-runtime-launcher.mjs',
   'workers/auth/src/routes/canvas.js', 'workers/auth/src/lib/canvas-merge-selection.js',
@@ -985,6 +1040,15 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selection.workers = changedFiles.some(file=>file.startsWith('workers/') || file.includes('q2-runtime') || file==='tests/admin-model-status.spec.js' || file==='tests/admin-model-status-runtime.mjs' || file==='playwright.workers.config.js');
     selection.reasons.auth.push('Read-only Admin model status: Chromium/WebKit, EN/DE, navigation/session denial, stale data, cleanup and build identity');
     if(selection.workers) selection.reasons.workers.push('Model status catalog/evidence/query tests and native guarded Admin/MFA/D1 route; no inference, generation or accounting changes');
+    return selection;
+  }
+
+  if (!forceFull && changedFiles.some(file=>['js/shared/canvas-audio.mjs','js/pages/canvas/audio-controls.js','tests/helpers/canvas-audio-control.mjs'].includes(file))
+      && changedFiles.every(file=>isDocumentation(file)||CANVAS_AUDIO_FILES.has(file)||RELEASE_TOOLING_FILES.has(file))) {
+    selection.policy='canvas-audio-v1';selection.canvasText=selection.canvasAudio=true;
+    selection.workers=selection.auth=selection.static=selection.runtime=true;
+    selection.reasons.workers.push('Native Canvas asset/audio admission, populated migration and existing export/recovery/ownership lifecycle; actual Linux FFmpeg image with decoded audio controls');
+    selection.reasons.auth.push('Existing Canvas suites in Chromium/WebKit, including real Worker/media integration, typed references, persistence and measured audio; no unrelated Admin/pricing or paid generation');
     return selection;
   }
 

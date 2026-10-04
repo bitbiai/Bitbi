@@ -69,7 +69,7 @@ export const canvasApi = Object.freeze({
         };
     },
     saveOutput: (projectId,runId) => request(`/projects/${id(projectId)}/runs/${id(runId)}/save-asset`, {method:'POST',body:{}}),
-    fullVideo: (projectId, runId, create, signal, body = {}, idempotencyKey) => request(`/projects/${id(projectId)}/runs/${id(runId)}/full-video`, { method: create ? 'POST' : 'GET', ...(create ? {body,idempotencyKey} : {}), signal }),
+    fullVideo: (projectId, runId, create, signal, body = {}, idempotencyKey) => request(`/projects/${id(projectId)}/${runId?.nodeId?'nodes/'+id(runId.nodeId):'runs/'+id(runId)}/full-video`, { method: create ? 'POST' : 'GET', ...(create ? {body,idempotencyKey} : {}), signal }),
     retryPoster: (assetId, signal) => requestUrl(`/api/ai/generation-jobs/${id(assetId)}/retry-preview`, {method:'POST',body:{},signal}),
     getGenerationJob: (jobId, signal) => requestUrl(`/api/ai/generation-jobs/${id(jobId)}`, { signal }),
     getCredits: () => requestUrl('/api/account/credits-dashboard?limit=1', { responseKey: 'dashboard' }),

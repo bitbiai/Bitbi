@@ -1156,3 +1156,14 @@ console.log('Seedance: real durable Worker/native and workspace/pricing callers 
   for(const extra of ['workers/auth/src/lib/billing.js','workers/auth/src/lib/canvas-video-processing.js','workers/media/src/index.js','js/pages/canvas/main.js']) assert.notEqual(selectCiTests([...files,extra],{canvasRouteSources:sources}).canvasCompletion,true);
   assert.notEqual(selectCiTests(files,{canvasRouteSources:sources,forceFull:true}).canvasCompletion,true);
 }
+
+// Focused asset/audio changes must execute the existing Worker and both browser
+// callers. Unrelated provider/billing/unknown inputs may not inherit this scope.
+{
+ const files=['js/shared/canvas-audio.mjs','workers/auth/src/routes/canvas.js','workers/auth/src/lib/canvas-merge-selection.js','workers/auth/migrations/0100_canvas_asset_audio_exports.sql','services/homepage-ffmpeg-processor/canvas-full-video.mjs','js/shared/omni-reference-upload.js'];
+ const selected=selectCiTests(files);assert.equal(selected.policy,'canvas-audio-v1');
+ for(const key of ['canvasAudio','canvasText','workers','auth','static','runtime'])assert.equal(selected[key],true);
+ for(const key of ['homepage','carousel','dependencies','full'])assert.equal(selected[key],false);
+ for(const file of ['workers/auth/src/lib/billing.js','workers/ai/src/routes/video-task.js','workers/auth/src/lib/member-generation-jobs.js','unknown.js'])assert.notEqual(selectCiTests([...files,file]).canvasAudio,true);
+ assert.notEqual(selectCiTests(files,{forceFull:true}).canvasAudio,true);
+}

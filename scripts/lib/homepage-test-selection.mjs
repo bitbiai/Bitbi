@@ -20,6 +20,18 @@ export const CANVAS_RELEASE_SCOPES = Object.freeze([
   Object.freeze(['canvas', CANVAS_WEBKIT_FILES]),
   Object.freeze(['pricing', Object.freeze(['oma2-q3-model-pricing.spec.js'])]),
 ]);
+export const CANVAS_AUDIO_SCOPES = Object.freeze([Object.freeze(['canvas', Object.freeze(['canvas.spec.js','oma2-q1-canvas.spec.js'])])]);
+export function verifyCanvasAudioDiscovery(actual, standard=actual) {
+  const files=CANVAS_AUDIO_SCOPES[0][1],projects=['chromium','webkit-canvas'];
+  const expected=standard.filter(row=>files.includes(row.file)&&projects.includes(row.project)&&/Canvas|P13|@canvas-model-ui/i.test(row.title+' '+row.tags.join(' ')));
+  assert.deepEqual(actual.map(key).sort(),expected.map(key).sort(),'Canvas audio discovery lost or added cases');
+  assert.equal(new Set(actual.map(key)).size,actual.length,'Duplicate Canvas audio case');
+  for(const project of projects) {
+    for(const file of files)assert(actual.some(row=>row.project===project&&row.file===file),'Missing retained Canvas suite');
+    for(const locale of ['en','de'])assert.equal(actual.filter(row=>row.project===project&&row.file==='canvas.spec.js'&&row.title===`Canvas asset audio ${locale}: typed references, persistent controls and real export`).length,1,'Missing required typed-asset/audio integration');
+  }
+  for(const row of actual)assert.equal(row.expectedStatus,'passed','Selected Canvas audio case must execute');
+}
 export function verifyCanvasCompletionDiscovery(actual) {
   const expected = ['chromium', 'webkit-canvas'].flatMap(project => ['en', 'de'].map(locale =>
     `${project}:canvas.spec.js:Canvas completion metadata ${locale}: queue, deficient Inspector, appended chain and admission`));

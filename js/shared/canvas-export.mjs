@@ -1,11 +1,17 @@
 // This purpose is intentionally outside the inference graph.
 export const EXPORT_MUSIC_PURPOSE = 'export_background_music';
 export const isExportMusic = config => config?.purpose === EXPORT_MUSIC_PURPOSE;
+export const canvasExportSubject = value => value?.nodeId
+    ? { id: value.nodeId, column: 'node_id', runId: null, nodeId: value.nodeId, key: `node:${value.nodeId}`, path: `nodes/${value.nodeId}` }
+    : { id: value, column: 'run_id', runId: value, nodeId: null, key: `run:${value}`, path: `runs/${value}` };
 
-export const canvasClipIdentity = clip => ({ runId: clip.runId, assetId: clip.assetId, version: clip.version });
-export const sameCanvasClip = (a, b) => Boolean(a && b && a.runId === b.runId && a.assetId === b.assetId && a.version === b.version);
-const videoNode = node => node?.type === 'video_generation' || node?.output?.kind === 'video'
-    || node?.content?.asset?.asset_type === 'video';
+export const canvasClipKey = clip => clip?.runId ? `run:${clip.runId}` : clip?.nodeId ? `node:${clip.nodeId}` : '';
+export const canvasClipIdentity = clip => ({ ...(clip.runId ? { runId: clip.runId } : { nodeId: clip.nodeId }), assetId: clip.assetId, version: clip.version });
+export const sameCanvasClip = (a, b) => Boolean(a && b && canvasClipKey(a) && canvasClipKey(a) === canvasClipKey(b) && a.assetId === b.assetId && a.version === b.version);
+export const canvasNodeMediaKind = node => node?.type === 'asset_reference'
+    ? ({ video: 'video', image: 'image', audio: 'audio', music: 'audio' }[node.content?.asset?.asset_type] || null)
+    : node?.output?.kind || ({ video_generation: 'video', image_generation: 'image', music_generation: 'audio' }[node?.type] || null);
+const videoNode = node => canvasNodeMediaKind(node) === 'video';
 
 // The blue strand and export order share this current-graph resolver. Immutable
 // generation ancestry is evidence about included footage, never graph membership.
@@ -40,23 +46,25 @@ export function canvasMergeSequence(strand, choices) {
     if (clips.some(clip => !clip)) return { ...strand, clips: [], error: 'canvas_chain_unavailable' };
     const included = new Set();
     for (const clip of clips) for (const parent of clip.includedSources || []) {
-        const current = clips.find(candidate => candidate.runId === parent.runId);
+        const current = clips.find(candidate => canvasClipKey(candidate) === canvasClipKey(parent));
         if (!current) continue;
         if (!sameCanvasClip(current, parent)) return { ...strand, clips: [], error: 'canvas_chain_provenance' };
-        included.add(current.runId);
+        included.add(canvasClipKey(current));
     }
-    const sequence = clips.filter(clip => !included.has(clip.runId));
+    const sequence = clips.filter(clip => !included.has(canvasClipKey(clip)));
     const error = sequence.length < 2 ? 'canvas_chain_too_short'
-        : new Set(sequence.map(clip => clip.assetId)).size !== sequence.length ? 'canvas_sequence_invalid' : null;
+        : new Set(sequence.map(canvasClipKey)).size !== sequence.length ? 'canvas_sequence_invalid' : null;
     return { ...strand, clips: sequence, error, includedCount: included.size };
 }
 export function exportMusicSettings(value = { enabled: false, gain: 1 }) {
     if (!value || typeof value !== 'object' || Array.isArray(value)
-        || Object.keys(value).some(key => !['enabled', 'gain', 'musicAssetId'].includes(key))
+        || Object.keys(value).some(key => !['enabled', 'gain', 'musicAssetId', 'fadeIn', 'fadeOut'].includes(key))
+        || ['fadeIn', 'fadeOut'].some(key => value[key] !== undefined && (!Number.isFinite(value[key]) || value[key] < 0 || value[key] > 600))
         || (value.musicAssetId!==undefined && (typeof value.musicAssetId!=='string' || !/^[a-f0-9]{32}$/.test(value.musicAssetId)))
         || typeof value.enabled !== 'boolean' || typeof value.gain !== 'number'
         || !Number.isFinite(value.gain) || value.gain < 0 || value.gain > 1) {
         throw Object.assign(new Error('Invalid background music settings.'), { code: 'canvas_music_settings', status: 400 });
     }
-    return { enabled: value.enabled, gain: value.gain, ...(value.musicAssetId?{musicAssetId:value.musicAssetId}:{}) };
+    return { enabled: value.enabled, gain: value.gain, ...(value.musicAssetId?{musicAssetId:value.musicAssetId}:{}),
+        ...(value.fadeIn !== undefined ? {fadeIn:value.fadeIn} : {}), ...(value.fadeOut !== undefined ? {fadeOut:value.fadeOut} : {}) };
 }

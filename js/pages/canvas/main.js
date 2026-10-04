@@ -14,6 +14,8 @@ import { h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION_
 import { H3_MODEL, H3_ROLES, h3MediaType } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { h3RoleLabel } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { renderCanvasFullVideo } from './full-video.js?v=__ASSET_VERSION__';
+import { canvasAudioControls } from './audio-controls.js?v=__ASSET_VERSION__';
+import { canvasNodeMediaKind } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 import { EXPORT_MUSIC_PURPOSE, isExportMusic } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 import { createMemberMusicControls } from '../../shared/member-music-controls.js?v=__ASSET_VERSION__';
 import { elevenLabsMemberBody } from '../../shared/member-music-contract.mjs?v=__ASSET_VERSION__';
@@ -45,6 +47,7 @@ const copy = isGerman ? {
     noInput: 'Kein Input', inputConnected: 'Input verbunden', needsUpstream: 'Upstream ausführen', runUpstream: 'Führe zuerst den Upstream-Node aus.', edgeCompatible: 'Kompatibler Input.',
     inputHandle: 'Input-Anschluss', outputHandle: 'Output-Anschluss', inputFrom: 'Input von', connectedInput: 'Verbundener Input', effectivePrompt: 'Effektiver Prompt', directOverride: 'Der direkte Prompt überschreibt verbundenen Text.',
     moveNode: 'Node ziehen oder mit den Pfeiltasten verschieben; Umschalt für größere Schritte.',
+    mediaRoleChanged: 'Die gespeicherte Eingaberolle passt nicht zum Medientyp. Bitte eine passende Rolle auswählen.',
     modelDisabled: 'Dieses Modell wurde vorübergehend deaktiviert.', promptRequired: 'Füge einen direkten Prompt hinzu oder verbinde einen Text-Node.', selectedModel: 'Das ausgewählte Modell', imageInputUnsupported: '{model} unterstützt in Canvas keinen Bild-Input.', videoInputUnsupported: '{model} unterstützt in Canvas keinen Video-Input, keine Fortsetzung und keine Erweiterung.', audioInputUnsupported: 'Das ausgewählte Modell akzeptiert keinen Audio-Asset-Input.', jsonInputUnsupported: 'Das ausgewählte Modell akzeptiert keinen JSON-Workflow-Input.', noUsableOutput: 'Die verbundene Quelle hat noch keine nutzbare Ausgabe.',
     quickCreated: 'Text → Bild → Video wurde erstellt. Führe die Nodes von links nach rechts aus.', quickFailed: 'Der schnelle Workflow konnte nicht vollständig erstellt werden.', organizationSelect: 'Organisation auswählen', organizationRequired: 'Wähle eine aktive Organisation für dieses Modell.',
 } : {
@@ -63,6 +66,7 @@ const copy = isGerman ? {
     noInput: 'No input', inputConnected: 'Input connected', needsUpstream: 'Needs upstream', runUpstream: 'Run the upstream node first.', edgeCompatible: 'Compatible input.',
     inputHandle: 'Input handle', outputHandle: 'Output handle', inputFrom: 'Input from', connectedInput: 'Connected input', effectivePrompt: 'Effective prompt', directOverride: 'The direct prompt overrides connected text.',
     moveNode: 'Drag the node or use arrow keys to move it; hold Shift for larger steps.',
+    mediaRoleChanged: 'The saved input role does not match this media type. Choose a compatible role.',
     modelDisabled: 'This model has been temporarily disabled.', promptRequired: 'Add a direct prompt or connect a text node.', selectedModel: 'The selected model', imageInputUnsupported: '{model} does not support image input in Canvas.', videoInputUnsupported: '{model} does not support video input, continuation, or extension in Canvas.', audioInputUnsupported: 'The selected model does not accept an audio asset input.', jsonInputUnsupported: 'The selected model does not accept JSON workflow input.', noUsableOutput: 'The connected source has no usable output yet.',
     quickCreated: 'Text → Image → Video was created. Run the nodes from left to right.', quickFailed: 'The quick workflow could not be fully created.', organizationSelect: 'Select organization', organizationRequired: 'Select an active organization for this model.',
 };
@@ -315,7 +319,7 @@ function renderGraph() {
 
 function updateContributors() {
     const node = selectedNode();
-    graph.contributors(node?.type === 'video_generation'
+    graph.contributors(canvasNodeMediaKind(node)==='video'
         ? canvasMergeStrand(store.state.nodes, store.state.edges, node.id) : null);
     document.dispatchEvent(new Event('canvas:merge-state'));
 }
@@ -412,9 +416,12 @@ function renderOutput(node) {
         if (output.previewUrl || output.asset.preview_url) video.poster = output.previewUrl || output.asset.preview_url;
         const music=store.state.edges.filter(edge=>edge.target_node_id===node.id && isExportMusic(edge.config))
             .map(edge=>nodeOutputValue(store.state.nodes.find(source=>source.id===edge.source_node_id)));
+        const settingsNode=store.state.nodes.find(item=>item.id===node.id)||node;
+        const sound=canvasAudioControls({section,video,german:isGerman,signal:inspectorAbort.signal,original:node.config?.originalAudio,
+            backgroundMusic:node.config?.backgroundMusic,tracks:music.filter(track=>track.kind==='audio_asset'&&track.assetId),
+            onChange:values=>scheduleNode(settingsNode,{config:{...settingsNode.config,...values}})});
         renderCanvasFullVideo({ section, output, projectId: store.state.project.id, german: isGerman, signal: inspectorAbort.signal, video,
-            music, settings:node.config?.backgroundMusic,
-            onSettings:backgroundMusic=>scheduleNode(node,{config:{...node.config,backgroundMusic}}),
+            music, settings:node.config?.backgroundMusic,sound,
             flush:()=>nodeSave.flush(),
             getGraph:()=>({projectId:store.state.project?.id,nodes:store.state.nodes,edges:store.state.edges,models:store.state.models}) });
     } else if (output.kind === 'audio' && output.asset?.file_url) {
@@ -450,7 +457,7 @@ function displayNodeOutput(node, visited = new Set()) {
             : (asset.asset_type === 'music' || asset.asset_type === 'audio' || mime.startsWith('audio/'))
                 ? 'audio'
                 : asset.asset_type === 'video' || mime.startsWith('video/') ? 'video' : 'file';
-        return { ...resolved, output: { kind, asset } };
+        return { ...resolved, output: { kind, asset, nodeId:resolved.id, sourceVersion:asset.sourceVersion } };
     }
     return resolved;
 }
@@ -526,7 +533,7 @@ function renderInspector() {
             dom.inspector.append(el('p', 'canvas-muted', `${edge.source_node_id.slice(0, 8)} → ${edge.target_node_id.slice(0, 8)}`));
             const source=nodeOutputValue(store.state.nodes.find(item=>item.id===edge.source_node_id));
             const target=store.state.nodes.find(item=>item.id===edge.target_node_id);
-            if((source.kind==='audio_asset' || source.expectedKind==='audio_asset') && target?.type==='video_generation') {
+            if((source.kind==='audio_asset' || source.expectedKind==='audio_asset') && canvasNodeMediaKind(target)==='video') {
                 const purpose=el('select');purpose.dataset.exportPurpose=edge.id;
                 for(const [value,label] of [['',isGerman?'Audio-Referenz für Generierung':'Audio reference for generation'],[EXPORT_MUSIC_PURPOSE,isGerman?'Hintergrundmusik nur für Export':'Background music for export only']]) {
                     const option=el('option','',label);option.value=value;purpose.append(option);
@@ -759,6 +766,11 @@ function renderInspector() {
         });
         dom.inspector.append(choose);
         if (node.asset_id) {
+            const media=canvasNodeMediaKind(node);
+            dom.inspector.append(el('p','canvas-asset-type',media?({video:'Video',image:isGerman?'Bild':'Image',audio:isGerman?'Musik':'Music'}[media]):node.content?.asset?.availability==='unavailable'?(isGerman?'Asset nicht verfügbar. Bitte erneut auswählen.':'Asset unavailable. Choose it again.'):(isGerman?'Dieser Dateityp ist keine Video-, Bild- oder Musikquelle.':'This file is not a video, image or music source.')));
+            const issues=store.state.edges.filter(edge=>edge.source_node_id===node.id||edge.target_node_id===node.id)
+                .map(edge=>workflowAnalysis.edgeStates.get(edge.id)).filter(state=>state?.status==='incompatible');
+            if(issues.length)dom.inspector.append(el('p','canvas-muted',isGerman?'Der neue Medientyp passt nicht zu allen Verbindungen. Markierte Verbindungen prüfen.':'The media type is incompatible with some connections. Review the marked connections.'));
             const label = node.config?.assetReferenceLabel;
             const name = el('p', 'canvas-asset-name', label?.id === node.asset_id ? label.name : (node.content?.asset?.title || node.asset_id));
             dom.inspector.append(name);
@@ -937,7 +949,9 @@ async function connectNodes(sourceId, targetId) {
     if (sourceId === targetId) return showToast(copy.selfEdge);
     if (store.state.edges.some((edge) => edge.source_node_id === sourceId && edge.target_node_id === targetId)) return showToast(copy.duplicateEdge);
     const projectId = store.state.project.id;
-    const result = await canvasApi.createEdge(projectId, { source_node_id: sourceId, target_node_id: targetId });
+    const source=store.state.nodes.find(node=>node.id===sourceId),target=store.state.nodes.find(node=>node.id===targetId);
+    const config=canvasNodeMediaKind(source)==='audio'&&canvasNodeMediaKind(target)==='video'?{purpose:EXPORT_MUSIC_PURPOSE}:{};
+    const result = await canvasApi.createEdge(projectId, { source_node_id: sourceId, target_node_id: targetId,config });
     if (!result.ok) return showToast(errorMessage(result));
     if (store.state.project?.id !== projectId) return;
     if (!store.state.edges.some((edge) => edge.id === result.data.edge.id)) store.state.edges.push(result.data.edge);
@@ -976,7 +990,8 @@ async function assignAsset(context, asset) {
         if (!isCurrent()) return false;
         const result = await canvasApi.setAssetReference(node.project_id, node.id, asset.id);
         if (!isCurrent() || !result.ok || result.data?.node_id !== node.id || result.data?.asset?.id !== asset.id) return false;
-        node.asset_id = result.data.asset.id; node.content = { asset: result.data.asset };
+        node.asset_id = result.data.asset.id; node.content = { asset: result.data.asset };node.output=null;
+        for(const edge of result.data.edges||[])store.upsertEdge(edge);
         // Display-only snapshot uses existing node persistence; authorization,
         // source URLs and downstream media identity come solely from the API.
         scheduleNode(node, { config: { ...node.config, assetReferenceLabel: { id: asset.id,

@@ -15,6 +15,46 @@ export async function runCanvasCompletionTests(f, { prepared = false } = {}) {
   });
 }
 
+export async function runCanvasAudioTests(f, {prepared=false}={}) {
+  if(!prepared) {
+    let snapshot;
+    for(const migration of f.migrations) {
+      if(migration.path.startsWith('0100')) {
+        const response=await f.control('/canvas-audio-migration-seed',{});assert.equal(response.status,200,await response.clone().text());snapshot=await response.json();
+      }
+      await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
+    }
+    await f.test('canvas_audio_populated_schema_preserves_exports_heads_claims_quota',async()=>{
+      const response=await f.control('/canvas-audio-migration-verify',snapshot);assert.equal(response.status,200,await response.clone().text());
+      await verifyCanvasExportSchema(sql=>f.rows(sql));
+    });
+  }
+  await f.test('canvas_audio_imported_identity_independent_settings_and_snapshot_admission',async()=>{
+    const response=await f.control('/canvas-audio',{
+      videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
+      imageBase64:fs.readFileSync(new URL('../../fixtures/media/h3-frame.png',import.meta.url)).toString('base64'),
+      musicBase64:fs.readFileSync(new URL('../../fixtures/media/member-music.mp3',import.meta.url)).toString('base64'),
+    });
+    assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+  });
+  await f.test('canvas_audio_real_imported_video_and_image_inputs_type_replacement',async()=>{
+    const response=await f.control('/canvas-audio-inputs',{
+      videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
+      imageBase64:fs.readFileSync(new URL('../../fixtures/media/h3-frame.png',import.meta.url)).toString('base64'),
+      musicBase64:fs.readFileSync(new URL('../../fixtures/media/member-music.mp3',import.meta.url)).toString('base64'),
+    });
+    assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+  });
+  if(!prepared)await f.test('canvas_audio_existing_export_lifecycle_and_recovery',async()=>{
+    const response=await f.control('/canvas-processing',{
+      videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
+      imageBase64:fs.readFileSync(new URL('../../fixtures/media/member-image.png',import.meta.url)).toString('base64'),
+    });
+    assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+}
+
 export async function runCanvasTests(f) {
   for (const migration of f.migrations) await f.db.batch(migration.statements.map(s => f.db.prepare(s)));
   await f.test('canvas_export_release_schema_queries',()=>verifyCanvasExportSchema(sql=>f.rows(sql)));
@@ -428,4 +468,5 @@ export async function runCanvasTests(f) {
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
   await runCanvasCompletionTests(f, { prepared: true });
+  await runCanvasAudioTests(f, { prepared: true });
 }

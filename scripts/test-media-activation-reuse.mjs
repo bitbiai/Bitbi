@@ -85,7 +85,7 @@ try {
   // Original archive bytes are verified at the publication boundary before any
   // live reuse; this path never invokes push/deploy, even for a matching label.
   const archive=Buffer.from('synthetic Docker save bytes'),image='sha256:'+'e'.repeat(64);
-  const record={sha,run:'100',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',image,tag:`bitbi-private-media:${sha}`,ffmpeg:'ffmpeg fixture',ffprobe:'ffprobe fixture',archiveDigest:hash(archive),tests:['two-five-clips','copy-normalize-audio','background-music-decoded','private-drain-poster','container-process-restart','h3-video-reference']};
+  const record={sha,run:'100',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',image,tag:`bitbi-private-media:${sha}`,ffmpeg:'ffmpeg fixture',ffprobe:'ffprobe fixture',archiveDigest:hash(archive),tests:['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','private-drain-poster','container-process-restart','h3-video-reference']};
   const publish=async(change=()=>{})=>{
     const input={record:structuredClone(record),active:{workerVersion:'media-v',deployment:'media-d'},artifact:structuredClone(source.artifact)},calls=[];change(input);
     const folder=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-archive-'));

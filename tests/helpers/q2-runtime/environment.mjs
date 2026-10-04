@@ -81,7 +81,7 @@ export function prepareBuild(artifactParent = os.tmpdir()) {
   const migrations = readMigrations(repoRoot);
   const latest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'config/release-compat.json'), 'utf8')).release.schemaCheckpoints.auth.latest;
   assert.equal(migrations.at(-1).path, latest, 'Native build and declared release schema must match');
-  assert.deepEqual(migrations.filter(row => Number(row.path.slice(0, 4)) > 83).map(row => row.path.slice(0, 4)), ['0084', '0085', '0086', '0087', '0088', '0089', '0090', '0091', '0092', '0093', '0094', '0095', '0096', '0097', '0098', '0099'], 'Native matrix includes the additive member-generation and Canvas processing migrations');
+  assert.deepEqual(migrations.filter(row => Number(row.path.slice(0, 4)) > 83).map(row => row.path.slice(0, 4)), ['0084', '0085', '0086', '0087', '0088', '0089', '0090', '0091', '0092', '0093', '0094', '0095', '0096', '0097', '0098', '0099', '0100'], 'Native matrix includes the additive member-generation and Canvas processing migrations');
   const provenance = { versions, compatibilityDate: config.compatibility_date, bundleSha256: sha256(bundle), sourceLedger,
     workerdBinarySha256: sha256(fs.readFileSync(workerd.default)), migrations: migrations.map(({ path: name, sha256: hash }) => ({ path: name, sha256: hash })) };
   fs.writeFileSync(path.join(workDir, 'build-provenance.json'), JSON.stringify(provenance, null, 2), { flag: 'wx' });
@@ -152,7 +152,7 @@ export async function createRuntime(build, name, { restricted = false, reference
     if(caseName.startsWith('h3-rejection-'))return Response.json({errors:[{code:caseName==='h3-rejection-unknown'?7003:3003,message:'Invalid input: private prompt https://bitbi.ai/api/internal/ai/media-source/secret-token'}]},{status:400,headers:{'cf-ai-req-id':'synthetic-request-123','cf-aig-log-id':'synthetic-gateway-123'}});
     return Response.json({success:true,result:{state:'Completed',result:{task:{id:'synthetic-h3-'+caseName,model:'MiniMax-H3',status:caseName.startsWith('h3-callback')?'queued':caseName==='h3-failed'?'failed':'succeeded',resolution:input.resolution,duration:input.duration,content:{url:caseName.startsWith('canvas-')?'https://fixture.invalid/result.mp4':'https://fixture.invalid/member.mp4'},usage:{output_seconds:caseName==='h3-output-usage'||caseName.startsWith('canvas-')?4:input.duration,input_seconds:99,total_seconds:104}}}}});
   };
-  const shared = { modules: true, ...(['member-generation','canvas','canvas-completion','model-status'].includes(name) ? {images:{binding:'IMAGES'}} : {}), compatibilityDate: build.config.compatibility_date, bindings, d1Databases: { DB: `q2-${name}-db` },
+  const shared = { modules: true, ...(['member-generation','canvas','canvas-completion','canvas-audio','model-status'].includes(name) ? {images:{binding:'IMAGES'}} : {}), compatibilityDate: build.config.compatibility_date, bindings, d1Databases: { DB: `q2-${name}-db` },
     r2Buckets: { USER_IMAGES: `q2-${name}-images`, PRIVATE_MEDIA: `q2-${name}-private`, AUDIT_ARCHIVE: `q2-${name}-archive` },
     outboundService: name === 'canvas' ? canvasOutput : name==='member-generation' ? h3Rest : deny, serviceBindings: { AI_LAB: name === 'canvas' ? canvasService : denyService },
     ...(name === 'canvas' ? { unsafeBindings: [{name:'AI',type:'q2-image25-ai',plugin:{name:'q2-image25-ai',package:fileURLToPath(new URL('./image25-ai-binding.mjs',import.meta.url))},options:{}}] } : {}), unsafeRegisterWorker: false };

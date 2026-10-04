@@ -2,6 +2,8 @@ import { MEDIA_BACKEND_SQL, THUMBNAIL_BACKEND_SQL, notifyPrivateMedia } from './
 import { nowIso, sha256Hex, randomTokenHex } from './tokens.js';
 import { CANVAS_MERGE_ADMISSION_SQL } from './canvas-merge-selection.js';
 import { ownedCanvasVideo } from './canvas-video-input.js';
+import { canvasExportSubject } from '../../../../js/shared/canvas-export.mjs';
+import { hasAudioEffects } from '../../../../js/shared/canvas-audio.mjs';
 
 export const CANVAS_VIDEO_LIMITS = Object.freeze({ sourceBytes: 400_000_000, outputBytes: 80_000_000, durationSeconds: 600, leaseMs: 15*60_000 });
 export const parseCanvasJson = value => { try { return JSON.parse(value || '{}'); } catch { return {}; } };
@@ -43,11 +45,12 @@ export async function canvasVideoChain(env,userId,projectId,runId) {
 export const canvasExportId=async(userId,projectId,runId,requestKey)=>(await sha256Hex(JSON.stringify(['canvas-export-v2',userId,projectId,runId,requestKey]))).slice(0,32);
 
 export async function enqueueCanvasProcessing(env,{userId,projectId,runId,kind,sources,assetId=null,recipe=null,requestKey=null,admission=null}) {
+  const subject=canvasExportSubject(runId);
   const id=(await sha256Hex(JSON.stringify(recipe?['canvas-export-v2',userId,projectId,runId,requestKey]:['canvas-processing-v1',userId,projectId,kind,assetId,sources]))).slice(0,32),now=nowIso();
   const nodeState=admission?JSON.stringify(admission.nodes):null, edgeState=admission?.edges?JSON.stringify(admission.edges):null;
   await env.DB.prepare(`INSERT OR IGNORE INTO canvas_video_processing
-    (id,user_id,project_id,run_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at,processing_backend,thumbnail_backend,recipe_json) SELECT ?,?,?,?,?,?,?,?,?,?,${recipe?"'cloudflare'":kind==='concat'?MEDIA_BACKEND_SQL:THUMBNAIL_BACKEND_SQL},${THUMBNAIL_BACKEND_SQL},? ${admission?'WHERE '+CANVAS_MERGE_ADMISSION_SQL:''}`)
-    .bind(id,userId,projectId,runId,kind,JSON.stringify(sources),assetId,now,now,now,recipe?JSON.stringify(recipe):null,
+    (id,user_id,project_id,run_id,node_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at,processing_backend,thumbnail_backend,recipe_json) SELECT ?,?,?,?,?,?,?,?,?,?,?,${recipe?"'cloudflare'":kind==='concat'?MEDIA_BACKEND_SQL:THUMBNAIL_BACKEND_SQL},${THUMBNAIL_BACKEND_SQL},? ${admission?'WHERE '+CANVAS_MERGE_ADMISSION_SQL:''}`)
+    .bind(id,userId,projectId,subject.runId,subject.nodeId,kind,JSON.stringify(sources),assetId,now,now,now,recipe?JSON.stringify(recipe):null,
       ...(admission?[nodeState,userId,projectId,edgeState,userId,projectId,nodeState,userId,projectId,edgeState,edgeState,userId,projectId]:[])).run();
   const row=await env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=? AND user_id=?').bind(id,userId).first();
   if(!row && admission)throw canvasProcessingError('canvas_selection_changed','The project changed before the export was accepted. Refresh the clip selection.');
@@ -58,9 +61,11 @@ export async function enqueueCanvasProcessing(env,{userId,projectId,runId,kind,s
 
 export function publicCanvasProcessing(row) {
   const recipe=row.recipe_json?JSON.parse(row.recipe_json):null;
-  const clean=!recipe || recipe.backgroundMusic?.enabled===false || recipe.backgroundMusic?.gain===0;
+  const clean=(!recipe || recipe.backgroundMusic?.enabled===false || recipe.backgroundMusic?.gain===0) && !recipe?.videos.some(clip=>hasAudioEffects(clip.originalAudio));
+  const subject=canvasExportSubject(row.node_id?{nodeId:row.node_id}:row.run_id);
   return {id:row.id,run_id:row.run_id,status:row.status,error_code:row.error_code||null,storage:row.recipe_json?(row.export_state==='saved'?'assets':'canvas'):'assets',recipe:row.recipe_json?JSON.parse(row.recipe_json):null,
-    preview_base:row.asset_id && (clean || row.preview_base_etag)?{export_id:row.id,file_url:clean?`/api/ai/text-assets/${row.asset_id}/file`:`/api/account/canvas/projects/${row.project_id}/runs/${row.run_id}/full-video?previewBase=${row.id}`}:null,
+    node_id:row.node_id||null,audio_timeline:row.audio_timeline_json?JSON.parse(row.audio_timeline_json):null,
+    preview_base:row.asset_id && (clean || row.preview_base_etag)?{export_id:row.id,file_url:clean?`/api/ai/text-assets/${row.asset_id}/file`:`/api/account/canvas/projects/${row.project_id}/${subject.path}/full-video?previewBase=${row.id}`}:null,
     asset:row.asset_id?{id:row.asset_id,file_url:`/api/ai/text-assets/${row.asset_id}/file`,poster_url:row.status==='ready'?`/api/ai/text-assets/${row.asset_id}/poster`:null}:null};
 }
 
@@ -68,7 +73,7 @@ export async function claimCanvasProcessing(env,kind,limit,backend='github',reci
   const now=nowIso();
   const rows=await env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE
     ${kind==='poster'?"((kind='poster' AND status IN ('queued','processing')) OR status='preview_pending')":"kind='concat' AND status IN ('queued','processing')"}
-    AND ${kind==='poster'?'1=1':recipeProtocol===3?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2))":recipeProtocol===2?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version')=1)":'recipe_json IS NULL'}
+    AND ${kind==='poster'?'1=1':recipeProtocol===4?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2,3))":recipeProtocol===3?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2))":recipeProtocol===2?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version')=1)":'recipe_json IS NULL'}
     AND ${kind==='poster'?"CASE WHEN status='preview_pending' THEN thumbnail_backend ELSE processing_backend END":'processing_backend'}=? AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?) AND attempt_count<8 ORDER BY next_attempt_at LIMIT ?`).bind(backend,now,now,limit).all();
   const claimed=[];
   for(const row of rows.results||[]) {

@@ -1,4 +1,10 @@
-import { H3_MODEL } from './minimax-h3.mjs';
+import { H3_MODEL, H3_ROLES, h3MediaType } from './minimax-h3.mjs';
+// Keep a saved role visible after a media-type replacement, but never reinterpret
+// that asset as the previous type. The Inspector and admission share this check.
+export function canvasInputRoleMatches(role, kind) {
+  const media={image_asset:'image',video_asset:'video',audio_asset:'audio'}[kind];
+  return !media || H3_ROLES.includes(role) && h3MediaType(role)===media;
+}
 // A provider capability is not a Canvas integration. Only connected adapters
 // are listed here; role/runnable policy remains owned by the model registry.
 export function canvasVideoMethods(model, source) {
@@ -11,7 +17,7 @@ export function canvasVideoMethods(model, source) {
 }
 
 export function canvasVideoContext(model, source) {
-  return { modelId: model?.id, assetId: source?.assetId, runId: source?.runId || null };
+  return { modelId: model?.id, assetId: source?.assetId, runId: source?.runId || null, ...(!source?.runId && source?.sourceNodeId ? {nodeId:source.sourceNodeId} : {}) };
 }
 
 export function resolveCanvasVideoInput(model, source, config = {}) {

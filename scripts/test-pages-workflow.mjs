@@ -101,10 +101,12 @@ for(const [source,jobName,setupName,callers] of [
   [standard,'worker-validation','Install Worker media test tools',['Verify native Linux isolation before Worker tests','Run worker route tests']],
   [full,'worker-tests','Install Worker media test tools',['Verify native Linux isolation before Worker tests','Run full Worker regression']],
   [processor,'process','Install ffmpeg',['Verify processor configuration','Run Memvid Stream preview processor']],
+  [standard,'browser-validation','Install Canvas browser media tools',['Run selected auth and admin tests']],
+  [full,'browser-tests','Install Canvas browser media tools',['Run full static regression']],
 ]) {
   const setup=requiresMediaSetup(source,jobName,setupName,callers);
-  assert.throws(()=>requiresMediaSetup(source.replace(setup.source,setup.source.replace(setupCommand,'')),jobName,setupName,callers),/shared media setup is required/);
-  if(jobName!=='worker-validation')for(const success of [true,false])assert.equal(permits(setup,{success:()=>success}),success);
+  assert.throws(()=>requiresMediaSetup(source.replace(job(source,jobName),job(source,jobName).replace(setup.source,setup.source.replace(setupCommand,''))),jobName,setupName,callers),/shared media setup is required/);
+  if(!['worker-validation','browser-validation'].includes(jobName))for(const success of [true,false])assert.equal(permits(setup,{success:()=>success}),success);
 }
 function requiresBackendMediaSetup(source) {
   const step=steps(job(source,'deploy')).find(s=>s.name==='Apply verified candidate backend prerequisites');
@@ -456,3 +458,6 @@ assert(diagnostics&&cfSteps.indexOf(diagnostics)>cfSteps.indexOf(backend));
 assert.equal(diagnostics.source.match(/path: (.+)/)[1],'test-results/backend-diagnostics.jsonl','Never upload raw Wrangler bindings or credential files');
 for(const failed of [true,false])assert.equal(vm.runInNewContext(diagnostics.condition,{failure:()=>failed}),failed);
 assert(!permits(cfDeploy,{...cfContext,success:()=>false}),'Retaining diagnostics must not allow failed publication');
+
+const fastBrowserJob=fast.slice(0,fast.indexOf('        run: npm run test:homepage-core')).match(/^  ([a-z][\w-]*):$/gm).at(-1).trim().slice(0,-1);
+requiresMediaSetup(fast,fastBrowserJob,'Install Canvas browser media tools',[]);

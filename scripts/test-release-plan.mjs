@@ -1002,7 +1002,7 @@ await import('./test-media-auth-config.mjs');
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'media-identity-')),archive=path.join(dir,'image.tar');fs.writeFileSync(archive,'synthetic archive bytes');
  try {
    const sha='a'.repeat(40),expected={sha,run:'123',attempt:'1',archive};
-   const record={sha,run:'123',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',ffmpeg:'synthetic-version',ffprobe:'synthetic-version',image:`sha256:${'b'.repeat(64)}`,archiveDigest:hash(fs.readFileSync(archive)),tests:['two-five-clips','copy-normalize-audio','background-music-decoded','private-drain-poster','container-process-restart','h3-video-reference']};
+   const record={sha,run:'123',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',ffmpeg:'synthetic-version',ffprobe:'synthetic-version',image:`sha256:${'b'.repeat(64)}`,archiveDigest:hash(fs.readFileSync(archive)),tests:['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','private-drain-poster','container-process-restart','h3-video-reference']};
    verifyMediaImage(record,expected);
    for(const patch of [{sha:'wrong'},{run:'124'},{attempt:'2'},{dirty:true},{sourceFiles:{}},{archiveDigest:'wrong'},{platform:'linux/arm64'},{tests:[]}])assert.throws(()=>verifyMediaImage({...record,...patch},expected));
    fs.appendFileSync(archive,'changed');assert.throws(()=>verifyMediaImage(record,expected));

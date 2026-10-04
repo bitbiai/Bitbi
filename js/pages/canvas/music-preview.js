@@ -2,7 +2,7 @@
 const MAX_BYTES=80_000_000;
 export function createMusicPreview({video,signal,onState=()=>{}}) {
     let context,source,mixer,ready,load,epoch=0,disposed=false,active=false,buffering=false,track=null;
-    let clock=0,clockTime=0,musicDuration=0,reported=null,selectedGain=1,failedProcessor=false;
+    let clock=0,clockTime=0,musicDuration=0,reported=null,selectedGain=1,failedProcessor=false,settings={};
     const report=state=>{if(!disposed&&reported!==state){reported=state;onState(state);}};
     const send=data=>mixer?.port.postMessage(data);
     const route=preview=>{if(!source)return;source.disconnect();source.connect(preview?mixer:context.destination);};
@@ -47,7 +47,8 @@ export function createMusicPreview({video,signal,onState=()=>{}}) {
         if(!(audio.duration>0&&audio.duration<=600) || audio.numberOfChannels>2)throw new Error('media');
         return audio;
     }
-    async function start({baseUrl,musicUrl,gain}) {
+    async function start({baseUrl,musicUrl,gain=0,originalAudio,timeline,music}) {
+        settings={originalAudio,timeline,music:music||{enabled:Boolean(musicUrl),gain,fadeIn:0,fadeOut:0}};
         selectedGain=gain;
         const token=++epoch;load?.abort();load=new AbortController();stop();active=false;video.pause();report('loading');
         try {
@@ -55,7 +56,7 @@ export function createMusicPreview({video,signal,onState=()=>{}}) {
             if(base.origin!==location.origin || !base.pathname.startsWith('/api/'))throw new Error('source');
             await setup();await context.resume();
             if(disposed || token!==epoch)return;
-            if(track!==musicUrl) {
+            if(musicUrl && track!==musicUrl) {
                 const audio=await readTrack(musicUrl,load.signal);
                 if(disposed || token!==epoch)return;
                 const channels=Array.from({length:audio.numberOfChannels},(_,i)=>audio.getChannelData(i).slice());
@@ -71,11 +72,19 @@ export function createMusicPreview({video,signal,onState=()=>{}}) {
             });
             if(disposed || token!==epoch)return;
             video.currentTime=Math.min(position,Number.isFinite(video.duration)?Math.max(0,video.duration-.01):position);
-            active=true;buffering=false;route(true);send({gain:selectedGain,time:video.currentTime,speed:video.playbackRate,repeat:video.duration>musicDuration});
+            active=true;buffering=false;route(true);send({gain:musicUrl?selectedGain:0,time:video.currentTime,speed:video.playbackRate,repeat:video.duration>musicDuration});
+            setAudio(settings);
             await video.play();if(disposed || token!==epoch)return;sync(true);
         } catch(error) {if(disposed || token!==epoch)return;active=false;stop();route(false);video.pause();report('error');}
     }
     function reset() {++epoch;load?.abort();active=false;stop();route(false);video.pause();report('idle');}
+    function setAudio(next) {
+        settings={...settings,...next};
+        if(!(Number.isFinite(video.duration)&&video.duration>0))return;
+        const m=settings.music||{enabled:false,gain:0};
+        send({duration:video.duration,timeline:settings.timeline || [{start:0,duration:video.duration,originalAudio:settings.originalAudio}],
+            music:{enabled:m.enabled,gain:m.gain,fadeIn:m.fadeIn||0,fadeOut:m.fadeOut||0}});
+    }
     video.addEventListener('playing',()=>{buffering=false;sync(true);},{signal});
     for(const name of ['pause','ended','seeking'])video.addEventListener(name,()=>{stop();sync(true);},{signal});
     video.addEventListener('waiting',()=>{if(active){buffering=true;stop();report('paused');}},{signal});
@@ -84,5 +93,6 @@ export function createMusicPreview({video,signal,onState=()=>{}}) {
     video.addEventListener('timeupdate',()=>sync(),{signal});
     video.addEventListener('error',()=>{if(active){reset();report('error');}},{signal});
     signal.addEventListener('abort',()=>{disposed=true;reset();source?.disconnect();mixer?.disconnect();mixer?.port.close();void context?.close().catch(()=>{});track=null;},{once:true});
-    return {start,pause(){++epoch;load?.abort();video.pause();stop();report('paused');},reset,setGain(gain){selectedGain=gain;send({gain});}};
+    return {start,pause(){++epoch;load?.abort();video.pause();stop();report('paused');},reset,setAudio,
+        get active(){return active;},get loading(){return reported==='loading';},setGain(gain){selectedGain=gain;send({gain});}};
 }

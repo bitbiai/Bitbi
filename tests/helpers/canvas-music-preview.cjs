@@ -68,10 +68,10 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   let completed={id:'a'.repeat(32),status:'ready',storage:'canvas',asset:{id:'a'.repeat(32),file_url:media+'?completed=1'},preview_base:{export_id:'a'.repeat(32),file_url:media}};
   const writes=[];page.on('request',r=>{if(r.method()==='POST')writes.push({url:new URL(r.url()).pathname,body:r.postDataJSON()});});
   await page.route('**/full-video',route=>route.fulfill({json:{ok:true,data:{eligible:true,availableClips,export:completed,current:completed}}}));
-  const open=async()=>{await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${nid}"]`).press('Enter');if(locale==='de')await page.locator('#canvasInspectorToggle').click();};
-  await open();const block=page.locator('.canvas-full-video'),video=block.locator('video'),slider=block.getByRole('slider');
-  const start=()=>block.getByRole('button',{name:locale==='de'?'Vorschau mit Musik':'Preview with music',exact:true});
-  const pause=()=>block.getByRole('button',{name:locale==='de'?'Vorschau pausieren':'Pause preview',exact:true});
+  const open=async()=>{await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${nid}"]`).press('Enter');if(locale==='de')await page.locator('#canvasInspectorToggle').click();await page.locator('.canvas-sound summary').click();};
+  await open();const block=page.locator('.canvas-full-video'),video=block.locator('video'),sound=page.locator('.canvas-sound'),slider=sound.getByRole('slider',{name:locale==='de'?'Hintergrundmusik: Lautstärke':'Background music: Volume',exact:true});
+  const start=()=>sound.getByRole('button',{name:locale==='de'?'Vorschau mit Musik':'Preview with music',exact:true});
+  const pause=()=>sound.getByRole('button',{name:locale==='de'?'Vorschau pausieren':'Pause preview',exact:true});
   const meter=(original=false,calibration=null)=>page.evaluate(({original,calibration})=>{
     const {context,meter}=(original?window.auditionSources:window.auditionContexts).at(-1),samples=new Float32Array(meter.fftSize);meter.getFloatTimeDomainData(samples);
     if(calibration!==null)for(let n=0;n<samples.length;n++)samples[n]=Math.max(-.95,Math.min(.95,1.11*Math.sin(2*Math.PI*1000*n/context.sampleRate)))+calibration*Math.sin(2*Math.PI*440*n/context.sampleRate);
@@ -85,7 +85,7 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
     return reading;
   },{original,calibration});
   await expect(start()).toBeEnabled();await start().focus();await page.keyboard.press('Enter');await expect(pause()).toBeVisible();
-  await expect(block.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toHaveText(locale==='de'?'Vorschau · noch nicht übernommen':'Preview · not exported');
+  await expect(sound.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toHaveText(locale==='de'?'Vorschau · noch nicht übernommen':'Preview · not exported');
   await expect(pause()).toBeFocused();
   await block.screenshot({path:info.outputPath(`canvas-audition-${locale}.png`)});
   await expect.poll(()=>video.evaluate(v=>v.currentTime)).toBeGreaterThan(.3);
@@ -125,7 +125,7 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
     const level=await meter();expect(Math.abs(level.original/full.original-1)).toBeLessThan(.15);levels.push(level);
   }
   await pause().click();const at=await video.evaluate(v=>v.currentTime);await expect.poll(()=>video.evaluate(v=>v.paused)).toBe(true);
-  const select=block.getByRole('combobox',{name:locale==='de'?'Hintergrundmusik':'Background music',exact:true});
+  const select=sound.getByRole('combobox',{name:locale==='de'?'Musikquelle':'Music source',exact:true});
   await select.selectOption(second);expect(await video.evaluate(v=>v.paused)).toBe(true);await select.selectOption(mid);expect(await video.evaluate(v=>v.paused)).toBe(true);
   await video.evaluate(v=>{v.currentTime=3.4;});await start().click();await expect.poll(()=>video.evaluate(v=>v.currentTime)).toBeGreaterThan(3.5);
   try {await expect.poll(async()=>(await meter()).music).toBeGreaterThan(.06);} // past the short-track loop boundary
@@ -141,21 +141,21 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   await expect.poll(async()=>(await meter()).peak).toBeLessThan(.001);
   await expect(block.getByRole('link')).toHaveAttribute('href',completed.asset.file_url+'?download=1');
   expect(writes).toEqual([]);expect(state.requests.filter(r=>r.pathname.endsWith('/run'))).toEqual([]);
-  await block.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();await expect(video).toHaveAttribute('src',completed.asset.file_url);
+  await sound.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();await expect(video).toHaveAttribute('src',completed.asset.file_url);
   await video.evaluate(v=>v.play());await expect.poll(async()=>preservesOriginalSignal(await meter())).toBe(true);
   expect((await meter()).music).toBeLessThan(.003);await video.evaluate(v=>v.pause());
   await block.getByRole('button',{name:locale==='de'?'Gesamtvideo in Assets speichern':'Save full video to Assets'}).click();
   expect(writes[0].body).toEqual({saveExportId:completed.id});
   await block.getByRole('button',{name:locale==='de'?'Gesamtes Video mit Hintergrundmusik erstellen':'Create full video with background music',exact:true}).click();
-  await expect.poll(()=>writes.length).toBe(2);expect(writes[1].body).toEqual({backgroundMusic:{enabled:true,gain:1,musicAssetId:second},orderedClips,mergeMode:'chain'});
+  await expect.poll(()=>writes.length).toBe(2);expect(writes[1].body).toEqual({backgroundMusic:{enabled:true,gain:1,fadeIn:0,fadeOut:0,musicAssetId:second},orderedClips,mergeMode:'chain'});
   await start().click();await expect(pause()).toBeVisible();
   if(locale==='de')await page.locator('#canvasInspectorToggle').click();await page.locator(`[data-node-id="${mid}"]`).press('Enter');
   await expect.poll(()=>page.evaluate(()=>window.auditionContexts[0].context.state)).toBe('closed');
   expect(writes).toHaveLength(2);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await info.attach('decoded-audition',{body:JSON.stringify({full,levels,loud,pausePosition:at}),contentType:'application/json'});
-  completed={...completed,preview_base:null};await open();await expect(start()).toBeDisabled();await expect(block.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toContainText(locale==='de'?'nicht verfügbar':'unavailable');
+  completed={...completed,preview_base:null};await open();await expect(start()).toBeDisabled();await expect(sound.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toContainText(locale==='de'?'nicht verfügbar':'unavailable');
   completed={...completed,preview_base:{file_url:media}};await open();await select.selectOption(mid);await page.route('**/api/plain/music/mp3/file',r=>r.fulfill({contentType:'audio/mpeg',body:'invalid'}));await start().click();
-  await expect(block.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toContainText(locale==='de'?'nicht abgespielt':'could not play');
+  await expect(sound.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toContainText(locale==='de'?'nicht abgespielt':'could not play');
   await page.unroute('**/api/plain/music/mp3/file');
   // A delayed old read must never play over a newer track selection.
   await open();await select.selectOption(mid);let release,requested=false;
@@ -166,14 +166,14 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   await page.unroute('**/api/plain/music/mp3/file');
   completed={...completed,preview_base:{file_url:'/api/plain/canvas-preview/missing.mp4'}};await open();
   await page.route('**/api/plain/canvas-preview/missing.mp4',route=>route.fulfill({status:404,body:''}));await start().click();
-  try {await expect(block.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toContainText(locale==='de'?'nicht abgespielt':'could not play');}
+  try {await expect(sound.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toContainText(locale==='de'?'nicht abgespielt':'could not play');}
   catch(error) {
     await info.attach('missing-preview-lifecycle',{contentType:'application/json',body:JSON.stringify(await page.evaluate(()=>({
       events:window.auditionLifecycle,trace:window.auditionTrace,contexts:window.auditionContexts.map(({context})=>context.state),
       video:[...document.querySelectorAll('.canvas-full-video video')].map(v=>({src:v.getAttribute('src'),time:v.currentTime,ready:v.readyState,paused:v.paused,error:v.error?.code})),
     })))});throw error;
   }
-  await block.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();await expect(video).toHaveAttribute('src',completed.asset.file_url);
+  await sound.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();await expect(video).toHaveAttribute('src',completed.asset.file_url);
   expect(writes).toHaveLength(2);
 };
 module.exports.measureDecodedSignal=measureDecodedSignal;

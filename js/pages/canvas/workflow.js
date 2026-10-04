@@ -4,8 +4,8 @@ import { calculateAiImageCreditCost } from '../../shared/ai-model-pricing.mjs?v=
 import { isGptImage25Model, normalizeGptImage25Options } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
 import { H3_MODEL, h3References } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { composeCanvasPrompt } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
-import { canvasVideoMethods, resolveCanvasVideoInput } from '../../shared/canvas-video-input.mjs?v=__ASSET_VERSION__';
-import { isExportMusic } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
+import { canvasVideoMethods, resolveCanvasVideoInput, canvasInputRoleMatches } from '../../shared/canvas-video-input.mjs?v=__ASSET_VERSION__';
+import { isExportMusic, canvasNodeMediaKind } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 import { elevenLabsMemberBody, validateElevenLabsMemberBody } from '../../shared/member-music-contract.mjs?v=__ASSET_VERSION__';
 const GENERATION_CAPABILITY = Object.freeze({
     text_generation: 'text',
@@ -53,6 +53,7 @@ export function nodeOutputValue(node) {
         preview_url: node.output?.previewUrl,
         file_url: node.output?.fileUrl,
     } : null);
+    if(asset?.availability==='unavailable')return {...base,kind:'none',expectedKind:'none'};
     if (asset?.id) return {
         ...base,
         kind: assetKind(asset),
@@ -61,13 +62,14 @@ export function nodeOutputValue(node) {
         mimeType: asset.mime_type || asset.mimeType || node.output?.mimeType || null,
         previewUrl: asset.preview_url || asset.previewUrl || node.output?.previewUrl || null,
         fileUrl: asset.file_url || asset.fileUrl || node.output?.fileUrl || null,
-        runId: node.output?.runId || null,
+        runId: node.type==='asset_reference'?null:node.output?.runId || null,
     };
     if (node?.output?.kind === 'json') return { ...base, kind: 'json', json: node.output.json || null };
     return { ...base, kind: 'none', expectedKind: expectedKind(node) };
 }
 
 function compatibility(target, model, kind, copy) {
+    if (target.type === 'asset_reference' && canvasNodeMediaKind(target)==='video' && ['video_asset','video_reference'].includes(kind)) return {compatible:true,inputKind:'video_reference'};
     if (target.type === 'output_result') return { compatible: kind !== 'none', inputKind: kind };
     if (kind === 'text' || kind === 'prompt') return { compatible: true, inputKind: 'prompt' };
     if (kind === 'image_asset' || kind === 'image_reference') {
@@ -102,9 +104,12 @@ export function analyzeNodeInputs(target, nodes, edges, models, copy) {
         const value = nodeOutputValue(source);
         const kind = value.kind === 'none' ? value.expectedKind : value.kind;
         const accepted = compatibility(target, model, kind, copy);
-        const status = value.kind === 'none' ? (accepted.compatible ? 'unresolved' : 'incompatible') : (accepted.compatible ? 'compatible' : 'incompatible');
-        const videoInput = kind === 'video_asset' && ![OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id) ? resolveCanvasVideoInput(model, value, edge.config) : null;
-        return { ...value, videoInput, h3Role:videoInput?.method === 'last_frame' ? 'first_frame' : (model?.id===SEEDANCE_25_MODEL?target.config?.seedance25Roles:model?.id===OMNI_MODEL?target.config?.omniRoles:target.config?.h3Roles)?.[edge.id] || (kind==='video_asset'?'reference_video':kind==='audio_asset'?'reference_audio':'reference_image'), edgeId: edge.id, inputKind: accepted.inputKind, status, reason: status === 'unresolved' ? copy.runUpstream : accepted.reason || '' };
+        let status = value.kind === 'none' ? (accepted.compatible ? 'unresolved' : 'incompatible') : (accepted.compatible ? 'compatible' : 'incompatible');
+        const videoInput = target.type==='video_generation' && kind === 'video_asset' && ![OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id) ? resolveCanvasVideoInput(model, value, edge.config) : null;
+        const h3Role=videoInput?.method === 'last_frame' ? 'first_frame' : (model?.id===SEEDANCE_25_MODEL?target.config?.seedance25Roles:model?.id===OMNI_MODEL?target.config?.omniRoles:target.config?.h3Roles)?.[edge.id] || (kind==='video_asset'?'reference_video':kind==='audio_asset'?'reference_audio':'reference_image');
+        const roleMismatch=[H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id)&&videoInput?.method!=='last_frame'&&!canvasInputRoleMatches(h3Role,kind);
+        if(roleMismatch)status='incompatible';
+        return { ...value, videoInput, h3Role, edgeId: edge.id, inputKind: accepted.inputKind, status, reason: roleMismatch?copy.mediaRoleChanged:status === 'unresolved' ? copy.runUpstream : accepted.reason || '' };
     });
     const compatible = sources.filter((item) => item.status === 'compatible');
     const connectedPrompt = compatible.filter((item) => item.inputKind === 'prompt' && item.text).map((item) => item.text).join('\n\n').trim();
@@ -129,6 +134,11 @@ export function analyzeWorkflow(nodes, edges, models, copy) {
         const analysis = analyzeNodeInputs(node, nodes, edges, models, copy);
         byNode.set(node.id, analysis);
         for (const source of analysis.sources) edgeStates.set(source.edgeId, { status: source.status, reason: source.reason });
+    }
+    for(const edge of edges.filter(edge=>isExportMusic(edge.config))) {
+        const source=nodes.find(node=>node.id===edge.source_node_id),target=nodes.find(node=>node.id===edge.target_node_id);
+        const valid=canvasNodeMediaKind(source)==='audio'&&canvasNodeMediaKind(target)==='video';
+        edgeStates.set(edge.id,{status:valid?'compatible':'incompatible',reason:valid?'':copy.audioInputUnsupported});
     }
     return { byNode, edgeStates };
 }

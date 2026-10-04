@@ -6,6 +6,7 @@ import worker from '../../../workers/auth/src/index.js';
 import { privateMediaCase,privateMediaSmokeCase } from '../private-media-control.mjs';
 import { canvasProcessingCase } from '../canvas-processing-control.mjs';
 import { canvasCompletionCase } from '../canvas-completion-control.mjs';
+import { canvasAudioCase, canvasAudioInputsCase, seedCanvasAudioMigration, verifyCanvasAudioMigration } from '../canvas-audio-control.mjs';
 import { canvasMusicCase } from '../canvas-music-control.mjs';
 import { elevenLabsMemberCase } from '../elevenlabs-member-control.mjs';
 import { canvasContributorsCase } from '../canvas-contributors-control.mjs';
@@ -51,6 +52,10 @@ export default {
     if (path==='/private-media-smoke') return Response.json(await privateMediaSmokeCase(env,body));
     if (path==='/private-media') return Response.json(await privateMediaCase(env,body));
     if (path==='/canvas-processing') return Response.json(await canvasProcessingCase(env,body));
+    if (path==='/canvas-audio-inputs') return Response.json(await canvasAudioInputsCase(env,body));
+    if (path==='/canvas-audio') return Response.json(await canvasAudioCase(env,body));
+    if (path==='/canvas-audio-migration-seed') return Response.json(await seedCanvasAudioMigration(env.DB));
+    if (path==='/canvas-audio-migration-verify') return Response.json(await verifyCanvasAudioMigration(env.DB,body));
     if (path==='/canvas-completion') return Response.json(await canvasCompletionCase(env,body));
     if (path==='/canvas-music') return Response.json(await canvasMusicCase(env,body.name,body.role,body.imageBase64));
     if (path==='/elevenlabs-member') return Response.json(await elevenLabsMemberCase(env, body.name, body.role, body.media));

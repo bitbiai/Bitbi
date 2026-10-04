@@ -20,6 +20,13 @@ function environment(seed = {}) {
   return { DB: new MockD1(seed), USER_IMAGES: new MockBucket({ [KEY]: { body: new Uint8Array([1, 2, 3]) } }) };
 }
 
+test('Canvas audio MockBucket ranges preserve full object metadata',async()=>{
+  const bucket=new MockBucket();await bucket.put('synthetic',new Uint8Array([1,2,3,4,5,6,7,8]));
+  const part=await bucket.get('synthetic',{range:{offset:2,length:2}});
+  expect([...part.body]).toEqual([3,4]);expect(part.size).toBe(8);expect(part.range).toEqual({offset:2,length:2});
+  expect((await bucket.head('synthetic')).size).toBe(8);
+});
+
 test('L01 MockD1 native source guards enforce empty counts, identity, NULL keys and folder scope', async () => {
   const db = new MockD1({ aiImages: [{ id: 'image', user_id: USER, folder_id: 'folder', r2_key: KEY }] });
   const guard = `SELECT CASE WHEN EXISTS (SELECT 1 FROM ai_images WHERE id = ? AND user_id = ? AND folder_id IS ?

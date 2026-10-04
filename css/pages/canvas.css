@@ -208,5 +208,16 @@
   }
   /* Let the last panel content scroll completely above the existing Help button. */
   .canvas-inspector, .canvas-history { padding-bottom: max(84px, calc(env(safe-area-inset-bottom) + 72px)); scroll-padding-bottom: 84px; }
+  .canvas-sound { margin-block: 12px; border: 1px solid var(--border-color, #3a4b54); border-radius: 10px; padding: 10px; }
+  .canvas-sound > summary { cursor: pointer; min-height: 32px; padding-block: 6px; font-weight: 600; }
+  .canvas-sound-group { border: 0; padding: 12px 0; min-width: 0; }
+  .canvas-sound-group + .canvas-sound-group { border-top: 1px solid var(--border-color, #3a4b54); }
+  .canvas-sound-group legend { font-weight: 600; padding: 4px 0; }
+  .canvas-audio-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 18px; align-items: center; gap: 8px; margin-block: 10px; }
+  .canvas-audio-row > span:first-child { grid-column: 1 / -1; font-size: .85rem; }
+  .canvas-audio-row input[type="range"] { width: 100%; min-width: 0; min-height: 40px; accent-color: var(--accent-color, #7dd5cd); }
+  .canvas-audio-row input[type="number"] { width: 100%; min-width: 0; min-height: 40px; padding-inline: 6px; }
+  .canvas-sound :focus-visible { outline: 2px solid var(--accent-color, #7dd5cd); outline-offset: 3px; }
+  .canvas-asset-type { font-weight: 600; }
   @media (prefers-reduced-motion: reduce) { .canvas-spinner { animation-duration: 1.8s; } }
 }

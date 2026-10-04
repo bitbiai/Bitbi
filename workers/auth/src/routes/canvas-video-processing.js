@@ -1,5 +1,5 @@
 import { canvasMergeView, canvasVideoSelection } from '../lib/canvas-merge-selection.js';
-import { canvasClipIdentity } from '../../../../js/shared/canvas-export.mjs';
+import { canvasClipIdentity, canvasExportSubject } from '../../../../js/shared/canvas-export.mjs';
 import { processorBackend, notifyPrivateMedia } from '../lib/private-media-service.js';
 import { canvasVideoChain, canvasExportId, enqueueCanvasProcessing, publicCanvasProcessing, claimCanvasProcessing, canvasProcessingClaim, failCanvasProcessing, CANVAS_VIDEO_LIMITS, canvasProcessingError } from '../lib/canvas-video-processing.js';
 import { exportMusicSettings } from '../../../../js/shared/canvas-export.mjs';
@@ -16,17 +16,18 @@ const base='/api/internal/homepage/hero-videos/canvas-exports/jobs';
 const reply=(data,status=200)=>json({ok:true,data},{status,headers:{'Cache-Control':'no-store'}});
 
 export async function canvasExport(ctx,userId,projectId,runId) {
+  const subject=canvasExportSubject(runId);
   const project=await ctx.env.DB.prepare('SELECT id FROM canvas_projects WHERE id=? AND user_id=? AND deleted_at IS NULL').bind(projectId,userId).first();
   if(!project) throw canvasProcessingError('project_not_found','Project not found.',404);
   const previewId=new URL(ctx.request.url).searchParams.get('previewBase');
   if(ctx.method==='GET' && previewId!==null)return readCanvasPreviewBase(ctx,userId,projectId,runId,previewId);
-  const rows=await ctx.env.DB.prepare("SELECT * FROM canvas_video_processing WHERE user_id=? AND project_id=? AND run_id=? AND kind='concat' ORDER BY created_at DESC LIMIT 1").bind(userId,projectId,runId).all();
+  const rows=await ctx.env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE user_id=? AND project_id=? AND ${subject.column}=? AND kind='concat' ORDER BY created_at DESC LIMIT 1`).bind(userId,projectId,subject.id).all();
   let task=rows.results?.[0];
   const head=await exportHead(ctx.env,userId,runId);
   const result=async selected=>{
     const currentHead=await exportHead(ctx.env,userId,runId);
     const latest=selected||currentHead.latest;
-    const previous=currentHead.current||await ctx.env.DB.prepare("SELECT * FROM canvas_video_processing WHERE user_id=? AND project_id=? AND run_id=? AND kind='concat' AND recipe_json IS NULL AND asset_id IS NOT NULL ORDER BY created_at DESC LIMIT 1").bind(userId,projectId,runId).first();
+    const previous=currentHead.current||await ctx.env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE user_id=? AND project_id=? AND ${subject.column}=? AND kind='concat' AND recipe_json IS NULL AND asset_id IS NOT NULL ORDER BY created_at DESC LIMIT 1`).bind(userId,projectId,subject.id).first();
     return {export:latest?publicCanvasProcessing(latest):null,current:previous?publicCanvasProcessing(previous):null,eligible:true,limits:CANVAS_VIDEO_LIMITS};
   };
   if(ctx.method==='GET') {
@@ -51,8 +52,8 @@ export async function canvasExport(ctx,userId,projectId,runId) {
       .bind(await canvasExportId(userId,projectId,runId,requestKey),userId).first();
     if(existing) {
       const recipe=JSON.parse(existing.recipe_json||'null');
-      const ordered=recipe?.videos.map(({runId,assetId,version})=>({runId,assetId,version}));
-      if(![1,2].includes(recipe?.version)||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(parsed.body.backgroundMusic))
+      const ordered=recipe?.videos.map(canvasClipIdentity);
+      if(![1,2,3].includes(recipe?.version)||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(parsed.body.backgroundMusic))
         ||recipe.mergeMode!==parsed.body.mergeMode||explicit!==(recipe.sequence==='explicit')||explicit&&JSON.stringify(parsed.body.orderedClips)!==JSON.stringify(ordered))
         throw canvasProcessingError('canvas_export_idempotency_conflict');
       // A lost response, including one spanning deployment, observes the same
@@ -83,6 +84,16 @@ export async function canvasExport(ctx,userId,projectId,runId) {
     if(['queued','preview_pending'].includes(task.status))await notifyPrivateMedia(ctx.env,task.status==='preview_pending'?task.thumbnail_backend:task.processing_backend);
   return reply({export:publicCanvasProcessing(task),eligible:true,limits:CANVAS_VIDEO_LIMITS},202);
   }
+  if(task.recipe_json) {
+    // Retry an accepted recipe with its original sources/settings, even after
+    // the graph changes. A retry never fabricates ancestry for an imported node.
+    for(const source of JSON.parse(task.sources_json))await ownedExportSource(ctx.env,userId,source);
+    await ctx.env.DB.prepare("UPDATE canvas_video_processing SET status='queued',attempt_count=0,error_code=NULL,next_attempt_at=?,updated_at=? WHERE id=? AND user_id=? AND status='failed'")
+      .bind(nowIso(),nowIso(),task.id,userId).run();
+    task=await ctx.env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=? AND user_id=?').bind(task.id,userId).first();
+    if(task.status==='queued')await notifyPrivateMedia(ctx.env,task.processing_backend);
+    return reply(await result(task),202);
+  }
   const sources=await canvasVideoChain(ctx.env,userId,projectId,runId);
   if(sources.length<2) throw canvasProcessingError('canvas_chain_too_short','Connect and finish at least two last-frame clips.');
   task=await enqueueCanvasProcessing(ctx.env,{userId,projectId,runId,kind:'concat',sources});
@@ -106,7 +117,7 @@ export async function handleCanvasExportProcessor(ctx) {
   if(!backend) return json({ok:false,code:'processor_auth_failed'},{status:403});
   try {
     if(ctx.pathname===base+'/claim') {
-      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:3,previewBase:1});
+      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:4,previewBase:1});
       // route-policy: internal.canvas-export.claim
       if (!(method === 'POST')) return null;
       const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.homepageHeroProcessorJson});
@@ -114,6 +125,8 @@ export async function handleCanvasExportProcessor(ctx) {
       if(parsed.body?.protocol!==1) throw canvasProcessingError('canvas_processor_protocol');
       const jobs=await claimCanvasProcessing(ctx.env,'concat',Math.max(1,Math.min(3,Math.floor(Number(parsed.body.limit)||1))),backend,parsed.body.recipeProtocol);
       return reply({protocol:1,jobs:jobs.map(row=>({id:row.id,claim:row.processing_token,limits:CANVAS_VIDEO_LIMITS,
+        recipeVersion:row.recipe_json?JSON.parse(row.recipe_json).version:null,
+        originalAudio:row.recipe_json?JSON.parse(row.recipe_json).videos.map(clip=>clip.originalAudio||{enabled:true,gain:1,fadeIn:0,fadeOut:0}):null,
         spatialPolicy:row.recipe_json?JSON.parse(row.recipe_json).spatialPolicy||'legacy-pad-v1':'legacy-pad-v1',
         backgroundMusic:row.recipe_json?JSON.parse(row.recipe_json).backgroundMusic:null,
         sources:JSON.parse(row.sources_json).map((s,i)=>({url:`${base}/${row.id}/source/${i}`,size:s.size,kind:s.kind||'video'})),
@@ -148,6 +161,20 @@ export async function handleCanvasExportProcessor(ctx) {
       if(!(duration>0 && duration<=CANVAS_VIDEO_LIMITS.durationSeconds && Number.isInteger(width) && width>0 && width<=4096 && Number.isInteger(height) && height>0 && height<=4096)) throw canvasProcessingError('canvas_export_metadata_invalid');
       const bytes=new Uint8Array(await file.arrayBuffer());
       if(String.fromCharCode(...bytes.slice(4,8))!=='ftyp') throw canvasProcessingError('canvas_export_file_invalid');
+      if(JSON.parse(job.recipe_json||'null')?.version===3) {
+        let timeline;try{timeline=JSON.parse(form.get('audioTimeline'));}catch{throw canvasProcessingError('canvas_audio_timeline_invalid');}
+        const count=JSON.parse(job.recipe_json).videos.length;
+        let end=0;
+        if(!Array.isArray(timeline)||timeline.length!==count)throw canvasProcessingError('canvas_audio_timeline_invalid');
+        for(const clip of timeline) {
+          if(!clip||Object.keys(clip).sort().join(',')!=='duration,start'||!Number.isFinite(clip.start)||!Number.isFinite(clip.duration)
+            ||clip.duration<=0||Math.abs(clip.start-end)>.001)throw canvasProcessingError('canvas_audio_timeline_invalid');
+          end=clip.start+clip.duration;
+        }
+        if(Math.abs(end-duration)>Math.max(.25,count*.06))throw canvasProcessingError('canvas_audio_timeline_invalid');
+        await ctx.env.DB.prepare("UPDATE canvas_video_processing SET audio_timeline_json=? WHERE id=? AND processing_token=? AND status='processing' AND locked_until>?")
+          .bind(JSON.stringify(timeline),job.id,token,nowIso()).run();
+      }
       if(new URL(ctx.request.url).searchParams.get('part')==='preview-base') {
         await storeCanvasPreviewBase(ctx.env,job,bytes);
         return reply({base_stored:true});

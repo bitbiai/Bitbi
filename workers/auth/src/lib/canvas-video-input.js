@@ -11,7 +11,7 @@ export async function ownedCanvasVideo(env, userId, assetId, expectedVersion = n
   const row = await env.DB.prepare("SELECT id, r2_key, mime_type, size_bytes FROM ai_text_assets WHERE id = ? AND user_id = ? AND source_module = 'video' LIMIT 1").bind(assetId, userId).first();
   if (!row?.r2_key) fail('video_source_unavailable', 'The connected video is not available to this account.', 404);
   const head = await env.USER_IMAGES.head(row.r2_key);
-  if (!head || !['video/mp4', 'video/quicktime', 'video/mov'].includes(row.mime_type)) fail('video_source_unavailable', 'The connected original must be an available MP4 or MOV.');
+  if (!head || !['video/mp4', 'video/quicktime', 'video/mov', 'video/webm'].includes(row.mime_type)) fail('video_source_unavailable', 'The connected original must be an available MP4, MOV or WebM.');
   if (!head.size || head.size > maxBytes) fail('video_source_too_large', `Original video exceeds the ${maxBytes} byte processing limit.`);
   const version = await sha256Hex(`${row.id}:${row.r2_key}:${head.etag}:${head.size}`);
   if (expectedVersion && expectedVersion !== version) fail('video_source_changed', 'The connected original changed; prepare its input again.');
@@ -31,7 +31,7 @@ export async function prepareCanvasVideoEdge(ctx, user, edge, proposed, imageDat
   const target = rows.results?.find(row => row.id === edge.target_node_id);
   if (!source || !target || target.type !== 'video_generation') fail('video_connection_invalid', 'This video connection is unavailable.');
   const output = parse(source.output_json);
-  const value = { kind: 'video_asset', assetId: source.asset_id || output.assetId || output.asset?.id, runId: output.runId || null };
+  const value = { kind: 'video_asset', assetId: source.asset_id || output.assetId || output.asset?.id, runId: source.type==='asset_reference'?null:output.runId || null, sourceNodeId:source.id };
   const model = getCanvasModelForRole(target.model_id, user.role);
   const selected = resolveCanvasVideoInput(model, value, config);
   if (!Object.keys(selected.context).every(key => config.videoInput[key] === selected.context[key])) fail('video_source_changed', 'The connected video or target model changed.');

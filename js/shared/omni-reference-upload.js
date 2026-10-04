@@ -8,7 +8,7 @@ export async function uploadOmniReference(file) {
     else {
         const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('The file could not be read.'));reader.readAsDataURL(file);});
         result=media==='image'?await apiAiSaveImage(data,file.name,'uploaded-reference')
-            :await apiAiSaveAudio({audioBase64:data,mimeType:type,title:file.name,provider:'user_upload',source:'uploaded-reference'});
+            :await apiAiSaveAudio({audioBase64:data.slice(data.indexOf(',')+1),mimeType:type,title:file.name,provider:'user_upload',source:'uploaded-reference'});
     }
     if(!result.ok)throw new Error(result.error||'The reference could not be saved.');
     const asset=result.data?.asset||result.data?.data||result.data;

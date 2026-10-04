@@ -363,6 +363,8 @@ jobs:
             npx playwright install --with-deps chromium
           fi
 
+      - name: Install Canvas browser media tools
+        run: bash scripts/setup-media-tools.sh
       - name: Run homepage core tests
         if: needs.guard.outputs.homepage == 'true'
         run: npm run test:homepage-core

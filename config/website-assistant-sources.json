@@ -12,7 +12,8 @@
     { "file": "canvas/index.html", "includes": ["Text → Image → Video", "Your positions and settings save automatically.", "Sign in to use Canvas"] },
     { "file": "de/canvas/index.html", "includes": ["Text → Bild → Video"] },
     { "file": "js/pages/canvas/main.js", "includes": ["Run the nodes from left to right.", "Run the upstream node first.", "Not runnable", "Retry saving"] },
-    { "file": "js/pages/canvas/full-video.js", "includes": ["Preview does not change a saved video", "Original video sound is retained.", "Download and Save use the last completed export.", "Save full video to Assets"] },
+    { "file": "js/pages/canvas/audio-controls.js", "includes": ["Sound & Music", "Original audio enabled", "Background music", "Fade in", "Fade out"] },
+    { "file": "js/pages/canvas/full-video.js", "includes": ["Download and Save use the last completed export.", "Save full video to Assets"] },
     { "file": "legal/privacy.html", "includes": ["Public delivery is only intended after you explicitly publish eligible content.", "We do not state that all processing is limited to the EU."] },
     { "file": "index.html", "includes": ["id=\"contact\"", "id=\"gallery\"", "id=\"video-creations\"", "id=\"soundlab\""] }
   ]

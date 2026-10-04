@@ -1,7 +1,7 @@
 import { runAppearanceTests } from '../../appearance-runtime.mjs';
 import { runWebsiteAssistantTests } from '../../website-assistant-runtime.mjs';
 import { runModelPricingTests } from '../../model-pricing-runtime.mjs';
-import { runCanvasTests, runCanvasCompletionTests } from './canvas.mjs';
+import { runCanvasTests, runCanvasCompletionTests, runCanvasAudioTests } from './canvas.mjs';
 import { runModelStatusTests } from '../../admin-model-status-runtime.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,6 +39,7 @@ export const runtimeSuites = Object.freeze([
 // invented attestation of that external OS boundary.
 export function selectedRuntimeSuites(suite) {
   // Focused entry into the existing Canvas suite; Full still executes it once.
+  if (suite === 'canvas-audio') return [['canvas-audio', runCanvasAudioTests, {}]];
   if (suite === 'canvas-completion') return [['canvas-completion', runCanvasCompletionTests, {}]];
   if (suite && !['member-generation','model-status','model-pricing','appearance','canvas','q4-stream','website-assistant'].includes(suite)) throw new Error('Unsupported native suite');
   return suite ? runtimeSuites.filter(([name]) => name === suite) : runtimeSuites;

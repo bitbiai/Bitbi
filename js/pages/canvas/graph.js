@@ -1,3 +1,4 @@
+import { canvasNodeMediaKind } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const NODE_WIDTH = 230;
 const NODE_HEIGHT = 126;
@@ -100,7 +101,8 @@ export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSe
     function createNode(node) {
         const card = element('article', 'canvas-node');
         card.dataset.nodeId = node.id;
-        card.dataset.capability = capabilityForType(node.type);
+        const media=node.type==='asset_reference'?canvasNodeMediaKind(node):null;
+        card.dataset.capability = media==='audio'?'music':media||capabilityForType(node.type);
         card.tabIndex = 0;
         card.setAttribute('role', 'group');
         card.setAttribute('aria-label', `${copy.nodeTypes[node.type] || node.type}: ${node.title || copy.untitled}`);
@@ -125,7 +127,8 @@ export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSe
         body.append(element('p', '', nodeSummary(node, data.models, copy)));
         const model = data.models.find((item) => item.id === node.model_id);
         const meta = element('div', 'canvas-node__meta');
-        meta.append(element('span', '', model?.label || copy.noModel), element('span', '', `${Math.round(Number(node.x))}, ${Math.round(Number(node.y))}`));
+        const german=document.documentElement.lang==='de';
+        meta.append(element('span', '', model?.label || ({video:'Video',image:german?'Bild':'Image',audio:german?'Musik':'Music'}[media]) || copy.noModel), element('span', '', `${Math.round(Number(node.x))}, ${Math.round(Number(node.y))}`));
         body.append(meta);
         if(model?.areaEnabled===false)body.append(element('p','canvas-model-disabled',document.documentElement.lang==='de'?'Dieses Modell wurde vorübergehend deaktiviert.':'This model has been temporarily disabled.'));
         card.append(head, body, createPort(node, 'in'), createPort(node, 'out'));

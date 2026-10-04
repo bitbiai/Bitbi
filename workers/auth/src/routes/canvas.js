@@ -7,11 +7,12 @@ import { canvasMediaRun, canvasMediaStatements, canvasMediaEnvironment, saveCanv
 import { composeCanvasPrompt } from '../../../../js/shared/canvas-model-contract.mjs';
 import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens } from "../../../../js/shared/grok-text-contract.mjs";
 import { canvasExport } from './canvas-video-processing.js';
-import { isExportMusic } from '../../../../js/shared/canvas-export.mjs';
-import { validateExportEdge } from '../lib/canvas-export-recipes.js';
+import { isExportMusic, exportMusicSettings } from '../../../../js/shared/canvas-export.mjs';
+import { originalAudioSettings } from '../../../../js/shared/canvas-audio.mjs';
+import { validateExportEdge, ownedCanvasMusic } from '../lib/canvas-export-recipes.js';
 import { refreshCanvasVideoOutputs } from '../lib/canvas-video-output.js';
 import { pendingCanvasVideo, readCanvasVideoResult, restoreCanvasVideoJobs } from '../lib/canvas-video-jobs.js';
-import { resolveCanvasVideoInput, canvasVideoMethods } from '../../../../js/shared/canvas-video-input.mjs';
+import { resolveCanvasVideoInput, canvasVideoMethods, canvasInputRoleMatches } from '../../../../js/shared/canvas-video-input.mjs';
 import { prepareCanvasVideoEdge, applyCanvasVideoInput, ownedCanvasVideo } from '../lib/canvas-video-input.js';
 import { json } from "../lib/response.js";
 import { requireUser, requireAdmin } from "../lib/session.js";
@@ -147,6 +148,10 @@ function normalizeJsonObject(value, { field, maxBytes = MAX_NODE_JSON_BYTES } = 
     throw error;
   }
   let encoded;
+  if (field === 'config') {
+    if (object.originalAudio !== undefined) originalAudioSettings(object.originalAudio);
+    if (object.backgroundMusic !== undefined) exportMusicSettings(object.backgroundMusic);
+  }
   try {
     encoded = JSON.stringify(object);
   } catch {
@@ -499,7 +504,7 @@ async function getProject(ctx, userId, projectId) {
     ok: true,
     data: {
       project: projectRecord(project),
-      nodes: (await annotateCanvasMedia(ctx.env,userId,await refreshCanvasVideoOutputs(ctx.env,userId,nodes.results || []))).map(nodeRecord),
+      nodes: (await refreshCanvasReferences(ctx.env,userId,await annotateCanvasMedia(ctx.env,userId,await refreshCanvasVideoOutputs(ctx.env,userId,nodes.results || [])))).map(nodeRecord),
       edges: (edges.results || []).map(edgeRecord),
       runs: (await annotateCanvasMedia(ctx.env,userId,await refreshCanvasVideoOutputs(ctx.env,userId,await restoreCanvasVideoJobs(ctx.env, userId, runs.results || [])))).map(runRecord),
     },
@@ -558,7 +563,7 @@ async function createNode(ctx, userId, projectId) {
   const x = normalizeNumber(parsed.body.x, { field: "x", fallback: 80 });
   const y = normalizeNumber(parsed.body.y, { field: "y", fallback: 80 });
   const config = normalizeJsonObject(parsed.body.config, { field: "config", maxBytes: parsed.body.model_id === 'elevenlabs/music-v2' ? MEMBER_MUSIC_PLAN_BODY_BYTES : MAX_NODE_JSON_BYTES });
-  const content = normalizeJsonObject(parsed.body.content, { field: "content" });
+  let content = normalizeJsonObject(parsed.body.content, { field: "content" });
   const modelId = parsed.body.model_id ? String(parsed.body.model_id).trim() : null;
   const expectedCapability = GENERATION_NODE_CAPABILITY[type];
   if (modelId) {
@@ -569,6 +574,7 @@ async function createNode(ctx, userId, projectId) {
   }
   let assetId = null;
   if (parsed.body.asset_id) assetId = (await assertAssetOwnership(ctx.env, userId, parsed.body.asset_id)).id;
+  if (type === 'asset_reference') content = normalizeJsonObject(assetId ? {asset:await canvasReferenceAsset(ctx.env,userId,assetId)} : {}, {field:'content'});
   const id = randomTokenHex(16);
   const now = nowIso();
   await ctx.env.DB.prepare(
@@ -594,7 +600,7 @@ async function updateNode(ctx, userId, projectId, nodeId) {
   const width = Object.prototype.hasOwnProperty.call(parsed.body, "width") ? normalizeNumber(parsed.body.width, { field: "width", min: 160, max: 1200 }) : current.width;
   const height = Object.prototype.hasOwnProperty.call(parsed.body, "height") ? normalizeNumber(parsed.body.height, { field: "height", min: 100, max: 1200 }) : current.height;
   const config = Object.prototype.hasOwnProperty.call(parsed.body, "config") ? normalizeJsonObject(parsed.body.config, { field: "config", maxBytes: (parsed.body.model_id ?? current.model_id) === 'elevenlabs/music-v2' ? MEMBER_MUSIC_PLAN_BODY_BYTES : MAX_NODE_JSON_BYTES }) : { encoded: current.config_json };
-  const content = Object.prototype.hasOwnProperty.call(parsed.body, "content") ? normalizeJsonObject(parsed.body.content, { field: "content" }) : { encoded: current.content_json };
+  let content = Object.prototype.hasOwnProperty.call(parsed.body, "content") ? normalizeJsonObject(parsed.body.content, { field: "content" }) : { encoded: current.content_json };
   const modelId = Object.prototype.hasOwnProperty.call(parsed.body, "model_id") ? (String(parsed.body.model_id || "").trim() || null) : current.model_id;
   const expectedCapability = GENERATION_NODE_CAPABILITY[current.type];
   if (modelId) {
@@ -603,6 +609,8 @@ async function updateNode(ctx, userId, projectId, nodeId) {
   }
   let assetId = current.asset_id || null;
   if (Object.prototype.hasOwnProperty.call(parsed.body, "asset_id")) assetId = parsed.body.asset_id ? (await assertAssetOwnership(ctx.env, userId, parsed.body.asset_id)).id : null;
+  if (current.type === 'asset_reference' && (Object.hasOwn(parsed.body,'content') || Object.hasOwn(parsed.body,'asset_id')))
+    content = normalizeJsonObject(assetId ? {asset:await canvasReferenceAsset(ctx.env,userId,assetId)} : {}, {field:'content'});
   const now = nowIso();
   await ctx.env.DB.prepare(
     `UPDATE canvas_nodes
@@ -794,7 +802,9 @@ async function sourceValue(env, userId, input) {
   }
   const outputAssetId = input.asset_id || output?.assetId || output?.asset?.id || null;
   if (outputAssetId) {
-    const asset = await assertAssetOwnership(env, userId, outputAssetId);
+    const asset = input.type==='asset_reference'
+      ? await canvasReferenceAsset(env,userId,outputAssetId,content.asset?.sourceVersion)
+      : await assertAssetOwnership(env, userId, outputAssetId);
     return {
       ...base,
       kind: assetKind(asset),
@@ -803,7 +813,7 @@ async function sourceValue(env, userId, input) {
       mimeType: asset.mime_type || output?.mimeType || null,
       previewUrl: asset.preview_url || null,
       fileUrl: asset.file_url || null,
-      runId: output?.runId || null,
+      runId: input.type === 'asset_reference' ? null : output?.runId || null,
     };
   }
   if (output?.kind === "json") return { ...base, kind: CANVAS_DATA_KINDS.JSON, json: output.json || null, runId: output.runId || null };
@@ -823,11 +833,14 @@ async function resolveCanvasNodeInputs(env, userId, projectId, node, model) {
     const value = await sourceValue(env, userId, row);
     const kindForCompatibility = value.kind === CANVAS_DATA_KINDS.NONE ? value.expectedKind : value.kind;
     const compatibility = compatibilityForInput(node, model, kindForCompatibility);
-    const status = value.kind === CANVAS_DATA_KINDS.NONE
+    let status = value.kind === CANVAS_DATA_KINDS.NONE
       ? (compatibility.compatible ? "unresolved" : "incompatible")
       : (compatibility.compatible ? "compatible" : "incompatible");
     const videoInput = kindForCompatibility === CANVAS_DATA_KINDS.VIDEO_ASSET && ![OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id) ? resolveCanvasVideoInput(model, value, safeJsonParse(row.edge_config_json, {})) : null;
-    sources.push({ ...value, videoInput, h3Role:videoInput?.method === 'last_frame' ? 'first_frame' : (model.id===SEEDANCE_25_MODEL?config.seedance25Roles:model.id===OMNI_MODEL?config.omniRoles:config.h3Roles)?.[row.edge_id] || (kindForCompatibility===CANVAS_DATA_KINDS.VIDEO_ASSET?"reference_video":kindForCompatibility===CANVAS_DATA_KINDS.AUDIO_ASSET?"reference_audio":"reference_image"), inputKind: compatibility.inputKind, status, reason: status === "unresolved" ? "Run the upstream node first." : compatibility.reason });
+    const h3Role=videoInput?.method === 'last_frame' ? 'first_frame' : (model.id===SEEDANCE_25_MODEL?config.seedance25Roles:model.id===OMNI_MODEL?config.omniRoles:config.h3Roles)?.[row.edge_id] || (kindForCompatibility===CANVAS_DATA_KINDS.VIDEO_ASSET?'reference_video':kindForCompatibility===CANVAS_DATA_KINDS.AUDIO_ASSET?'reference_audio':'reference_image');
+    const roleMismatch=[H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id)&&videoInput?.method!=='last_frame'&&!canvasInputRoleMatches(h3Role,kindForCompatibility);
+    if(roleMismatch)status='incompatible';
+    sources.push({ ...value, videoInput, h3Role, inputKind: compatibility.inputKind, status, reason: roleMismatch?'The saved input role does not match this media type. Choose a compatible role.':status === 'unresolved' ? 'Run the upstream node first.' : compatibility.reason });
   }
   const compatible = sources.filter((source) => source.status === "compatible");
   const connectedPrompt = compatible
@@ -1265,6 +1278,26 @@ async function listRuns(ctx, userId, projectId, nodeId = null) {
   return respond(ctx, { ok: true, data: { runs: (await annotateCanvasMedia(ctx.env,userId,await refreshCanvasVideoOutputs(ctx.env,userId,await restoreCanvasVideoJobs(ctx.env, userId, rows.results || [])))).map(runRecord), applied_limit: RUN_LIMIT } });
 }
 
+async function canvasReferenceAsset(env,userId,id,version=null) {
+  const asset = await assertAssetOwnership(env,userId,id);
+  if (asset.asset_type === 'video') asset.sourceVersion=(await ownedCanvasVideo(env,userId,id,version,80_000_000)).version;
+  if (asset.asset_type === 'audio') asset.sourceVersion=(await ownedCanvasMusic(env,userId,id,version)).version;
+  return asset;
+}
+async function refreshCanvasReferences(env,userId,rows) {
+  const result=[];
+  for(const row of rows) {
+    if(row.type!=='asset_reference'||!row.asset_id){result.push(row);continue;}
+    const content=safeJsonParse(row.content_json,{});
+    try { result.push({...row,output_json:null,content_json:JSON.stringify({asset:await canvasReferenceAsset(env,userId,row.asset_id,content.asset?.sourceVersion)})}); }
+    catch(error) {
+      if(!error.status)throw error;
+      result.push({...row,output_json:null,content_json:JSON.stringify({asset:{id:row.asset_id,availability:'unavailable'}})});
+    }
+  }
+  return result;
+}
+
 async function setAssetReference(ctx, userId, projectId, nodeId) {
   const limited = await enforceWriteLimit(ctx, userId);
   if (limited) return limited;
@@ -1273,14 +1306,19 @@ async function setAssetReference(ctx, userId, projectId, nodeId) {
   if (node.type !== "asset_reference") return respond(ctx, { ok: false, error: "Asset references can only be assigned to Asset Reference nodes.", code: "invalid_node_type" }, { status: 400 });
   const parsed = await readBody(ctx);
   if (parsed.response) return parsed.response;
-  const asset = await assertAssetOwnership(ctx.env, userId, parsed.body.asset_id);
+  const asset = await canvasReferenceAsset(ctx.env, userId, parsed.body.asset_id);
   const content = normalizeJsonObject({ asset }, { field: "content" });
   const now = nowIso();
   await ctx.env.DB.batch([
-    ctx.env.DB.prepare("UPDATE canvas_nodes SET asset_id = ?, content_json = ?, updated_at = ? WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL").bind(asset.id, content.encoded, now, nodeId, projectId, userId),
+    ctx.env.DB.prepare("UPDATE canvas_nodes SET asset_id = ?, content_json = ?, output_json = NULL, updated_at = ? WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL").bind(asset.id, content.encoded, now, nodeId, projectId, userId),
+    // Keep connections, but remove prepared frames/methods for the previous
+    // source. Incompatible roles stay visible for explicit correction.
+    ctx.env.DB.prepare("UPDATE canvas_edges SET config_json=json_remove(config_json,'$.videoInput'),updated_at=? WHERE source_node_id=? AND project_id=? AND user_id=? AND deleted_at IS NULL AND ? IS NOT ?")
+      .bind(now,nodeId,projectId,userId,node.asset_id,asset.id),
     ctx.env.DB.prepare("UPDATE canvas_projects SET updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL").bind(now, projectId, userId),
   ]);
-  return respond(ctx, { ok: true, data: { node_id: nodeId, asset } });
+  const edges=await ctx.env.DB.prepare('SELECT * FROM canvas_edges WHERE project_id=? AND user_id=? AND deleted_at IS NULL AND (source_node_id=? OR target_node_id=?)').bind(projectId,userId,nodeId,nodeId).all();
+  return respond(ctx, { ok: true, data: { node_id: nodeId, asset, edges:edges.results.map(edgeRecord) } });
 }
 
 export async function handleCanvas(ctx) {
@@ -1351,6 +1389,12 @@ export async function handleCanvas(ctx) {
     if (exportMatch && ['GET','POST'].includes(method)) {
       if (method === 'POST') { const limited = await enforceWriteLimit(ctx,userId); if (limited) return limited; }
       return await canvasExport(ctx,userId,exportMatch[1],exportMatch[2]);
+    }
+    const nodeExportMatch = pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/nodes\/([a-f0-9]{32})\/full-video$/);
+    // route-policy: account.canvas.node-full-video.create
+    if (nodeExportMatch && ['GET','POST'].includes(method)) {
+      if (method === 'POST') { const limited = await enforceWriteLimit(ctx,userId); if (limited) return limited; }
+      return await canvasExport(ctx,userId,nodeExportMatch[1],{nodeId:nodeExportMatch[2]});
     }
     const runMatch = pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/nodes\/([a-f0-9]{32})\/run$/);
     // route-policy: account.canvas.node.run

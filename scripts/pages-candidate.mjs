@@ -4,7 +4,7 @@ import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests, requiresPrivateMediaImage, memberSpecSources, canvasCompletionRouteSources } from './lib/ci-test-selection.mjs';
-import { verifyHomepageReport, CANVAS_RELEASE_SCOPES, canvasReleaseProject, flattenHomepageDiscovery, verifyCanvasCompletionDiscovery } from './lib/homepage-test-selection.mjs';
+import { verifyHomepageReport, CANVAS_RELEASE_SCOPES, canvasReleaseProject, flattenHomepageDiscovery, verifyCanvasCompletionDiscovery, CANVAS_AUDIO_SCOPES, verifyCanvasAudioDiscovery } from './lib/homepage-test-selection.mjs';
 // A changed acceptance scope requires fresh candidate evidence. Earlier Hero
 // reports cannot be recertified by removing their former required job.
 export const MEDIA_POLICY = 'homepage-functional-v3';
@@ -267,7 +267,10 @@ export function verifyCanvasTextReport(report,discovery) {
 export function verifyCanvasCandidateReports(names, reports, discovery, selection = {}) {
   const name = 'test-results/candidate-auth.json';
   assert.equal(names.filter(value => value === name).length, 1, 'Exactly one Canvas auth report required');
-  if (selection.canvasCompletion) {
+  if (selection.canvasAudio) {
+    verifyCanvasAudioDiscovery(flattenHomepageDiscovery(discovery));
+    verifyAdminReport(reports[names.indexOf(name)], discovery, CANVAS_AUDIO_SCOPES, canvasReleaseProject);
+  } else if (selection.canvasCompletion) {
     verifyCanvasCompletionDiscovery(flattenHomepageDiscovery(discovery));
     verifyAdminReport(reports[names.indexOf(name)], discovery, [['canvas', ['canvas.spec.js']]], canvasReleaseProject);
   } else verifyCanvasTextReport(reports[names.indexOf(name)], discovery);

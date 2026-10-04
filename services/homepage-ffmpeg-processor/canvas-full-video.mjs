@@ -106,7 +106,48 @@ export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffpro
   const result=await inspectClip(output,{ffprobe,run});
   // Encoded packet duration rounding is permitted, missing clips/audio is not.
   if(Math.abs(result.duration-duration)>Math.max(0.25,files.length*0.06) || Boolean(result.audio)!==hasAudio) throw failure('canvas_output_incomplete');
-  return {output,duration:result.duration,width:result.video.width,height:result.video.height,mode:compatible?'copy':'normalized'};
+  const timeline=[];let start=0;
+  for(let i=0;i<inputs.length;i++) {
+    const info=compatible?clips[i]:await inspectClip(inputs[i],{ffprobe,run});
+    const duration=i===inputs.length-1?result.duration-start:info.duration;
+    timeline.push({start,duration});start+=duration;
+  }
+  return {output,duration:result.duration,width:result.video.width,height:result.video.height,mode:compatible?'copy':'normalized',timeline};
+}
+
+function audioSettings(value,duration) {
+  const s={enabled:true,gain:1,fadeIn:0,fadeOut:0,...value};
+  if(typeof s.enabled!=='boolean'||![s.gain,s.fadeIn,s.fadeOut].every(Number.isFinite)||s.gain<0||s.gain>1
+    ||s.fadeIn<0||s.fadeOut<0||s.fadeIn>600||s.fadeOut>600)throw failure('canvas_audio_settings');
+  s.fadeIn=Math.min(s.fadeIn,duration);s.fadeOut=Math.min(s.fadeOut,duration);
+  const scale=Math.min(1,duration/(s.fadeIn+s.fadeOut||1));s.fadeIn*=scale;s.fadeOut*=scale;return s;
+}
+const modifiedAudio=s=>s && (s.enabled===false || s.gain!==1 || s.fadeIn>0 || s.fadeOut>0);
+
+// The clean concatenation is retained for audition. Apply each clip's envelope
+// once, sample-by-sample, to that soundtrack; never re-encode spatial pixels.
+export async function applyOriginalAudio(base,settings,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,limits={outputBytes:80000000}}={}) {
+  if(!settings)return base;
+  if(!Array.isArray(settings)||settings.length!==base.timeline.length)throw failure('canvas_audio_settings');
+  const effective=settings.map((s,i)=>audioSettings(s,base.timeline[i].duration));
+  if(!effective.some(modifiedAudio))return base;
+  const clip=await inspectClip(base.output,{ffprobe,run});
+  if(!clip.audio)return base; // An audio-less original remains playable and silent.
+  let expression='0';
+  for(let i=effective.length-1;i>=0;i--) {
+    const s=effective[i],{start,duration}=base.timeline[i],end=start+duration;
+    const gain=s.enabled?s.gain:0;
+    const envelope=`${gain}*min(1,min(${s.fadeIn?`max(0,(t-${start})/${s.fadeIn})`:'1'},${s.fadeOut?`max(0,(${end}-t)/${s.fadeOut})`:'1'}))`;
+    expression=`if(lt(t,${end}),${envelope},${expression})`;
+  }
+  const output=path.join(dir,'full-video-audio.mp4');
+  await run(ffmpeg,['-y','-v','error','-nostdin','-protocol_whitelist','file,pipe','-i',base.output,
+    '-filter_complex',`[0:a:0]aresample=48000,aformat=channel_layouts=stereo,apad,atrim=duration=${base.duration},aeval=exprs='val(0)*(${expression})|val(1)*(${expression})'[audio]`,
+    '-map','0:v:0','-map','[audio]','-c:v','copy','-c:a','aac','-b:a','192k','-ac','2','-ar','48000','-t',String(base.duration),'-fs',String(limits.outputBytes+1),'-movflags','+faststart',output],{cwd:dir});
+  if((await stat(output)).size>limits.outputBytes)throw failure('canvas_output_size_limit');
+  const result=await inspectClip(output,{ffprobe,run});
+  if(!result.audio||Math.abs(result.duration-base.duration)>.05)throw failure('canvas_output_incomplete');
+  return {...base,output,duration:result.duration,mode:base.mode+'+audio'};
 }
 
 // Decode once, then overlap only the music's loop boundary (10 ms). The first
@@ -132,11 +173,13 @@ export function loopMusicPcm(source,frames,channels=2) {
   }
   return output;
 }
-export async function mixBackgroundMusic(base,music,gain,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,limits={outputBytes:80000000}}={}) {
+export async function mixBackgroundMusic(base,music,gain,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,limits={outputBytes:80000000},fadeIn=0,fadeOut=0}={}) {
   if(typeof gain!=='number' || !Number.isFinite(gain) || gain<0 || gain>1)throw failure('canvas_music_gain_invalid');
   if(gain===0)return base; // Exact original soundtrack, with no extra encode.
   const clip=await inspectClip(base.output,{ffprobe,run});
   const duration=Number(clip.video.duration)||base.duration,frames=Math.round(duration*48000);
+  const fades=audioSettings({gain,fadeIn,fadeOut},duration);
+  const fadeFilter=(fades.fadeIn?`,afade=t=in:st=0:d=${fades.fadeIn}:curve=tri`:'')+(fades.fadeOut?`,afade=t=out:st=${duration-fades.fadeOut}:d=${fades.fadeOut}:curve=tri`:'');
   const decoded=path.join(dir,'music-source.f32'),bed=path.join(dir,'music-bed.f32'),output=path.join(dir,'full-video-music.mp4');
   await run(ffmpeg,['-y','-v','error','-nostdin','-protocol_whitelist','file,pipe','-i',music,'-map','0:a:0','-vn','-t','600','-ac','2','-ar','48000','-f','f32le',decoded],{cwd:dir});
   const bytes=(await stat(decoded)).size;
@@ -144,7 +187,7 @@ export async function mixBackgroundMusic(base,music,gain,dir,{ffmpeg='ffmpeg',ff
   await writeFile(bed,loopMusicPcm(await readFile(decoded),frames));
   const args=['-y','-v','error','-nostdin','-protocol_whitelist','file,pipe','-i',base.output,'-f','f32le','-ar','48000','-ac','2','-i',bed];
   const original=clip.audio?'[0:a:0]aresample=48000,apad,atrim=duration='+duration+'[original];':'anullsrc=r=48000:cl=stereo,atrim=duration='+duration+'[original];';
-  args.push('-filter_complex',`${original}[1:a:0]volume=${gain}[music];[original][music]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95:level=false:latency=true[audio]`,
+  args.push('-filter_complex',`${original}[1:a:0]volume=${gain}${fadeFilter}[music];[original][music]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95:level=false:latency=true[audio]`,
     '-map','0:v:0','-map','[audio]','-c:v','copy','-c:a','aac','-b:a','192k','-ac','2','-ar','48000','-t',String(duration),'-fs',String(limits.outputBytes+1),'-movflags','+faststart',output);
   await run(ffmpeg,args,{cwd:dir});
   if((await stat(output)).size>limits.outputBytes)throw failure('canvas_output_size_limit');
@@ -159,7 +202,7 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
   const protocol=await json(base+'/claim');
   if(protocol?.data?.protocol!==1) throw failure('canvas_processor_protocol');
   if(dryRun) return; // A dry run must not acquire a processing lease.
-  const jobs=(await json(base+'/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:1,recipeProtocol:3,limit:Math.min(1,limit)})})).data.jobs;
+  const jobs=(await json(base+'/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:1,recipeProtocol:4,limit:Math.min(1,limit)})})).data.jobs;
   for(const job of jobs) {
     const deadline=Date.now()+12*60_000;
     const boundedRun=(cmd,args,options={})=>{const remaining=deadline-Date.now();if(remaining<=0)throw failure('canvas_processing_deadline');return mediaCommand(cmd,args,{...options,timeout:remaining});};
@@ -184,17 +227,20 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
       let result=await concatenateClips(files,dir,{ffmpeg,ffprobe,limits:job.limits,run:boundedRun,spatialPolicy:job.spatialPolicy||'legacy-pad-v1'});
       // Reuse this job's already-created clean base. Never another render/job.
       // Separate bounded upload keeps the existing completion body limit intact.
-      if(protocol.data.previewBase===1 && job.backgroundMusic?.enabled && job.backgroundMusic.gain>0) {
+      if(protocol.data.previewBase===1 && (job.backgroundMusic?.enabled && job.backgroundMusic.gain>0 || job.originalAudio?.some(modifiedAudio))) {
         const clean=new FormData();clean.set('video',new Blob([await readFile(result.output)],{type:'video/mp4'}),'clean-base.mp4');
         for(const key of ['duration','width','height'])clean.set(key,String(result[key]));
+        if(job.recipeVersion===3)clean.set('audioTimeline',JSON.stringify(result.timeline));
         await json(`${base}/${job.id}/complete?part=preview-base`,{method:'POST',headers,body:clean,signal:AbortSignal.timeout(processingTimeout(deadline))});
       }
+      result=await applyOriginalAudio(result,job.originalAudio,dir,{ffmpeg,ffprobe,limits:job.limits,run:boundedRun});
       if(job.backgroundMusic?.enabled) {
         if(!music)throw failure('canvas_music_unavailable');
-        result=await mixBackgroundMusic(result,music,job.backgroundMusic.gain,dir,{ffmpeg,ffprobe,limits:job.limits,run:boundedRun});
+        result=await mixBackgroundMusic(result,music,job.backgroundMusic.gain,dir,{ffmpeg,ffprobe,limits:job.limits,run:boundedRun,...job.backgroundMusic});
       } else if(music)throw failure('canvas_music_settings');
       const form=new FormData();form.set('video',new Blob([await readFile(result.output)],{type:'video/mp4'}),'full-video.mp4');
       for(const key of ['duration','width','height'])form.set(key,String(result[key]));
+      if(job.recipeVersion===3)form.set('audioTimeline',JSON.stringify(result.timeline));
       await json(`${base}/${job.id}/complete`,{method:'POST',headers,body:form,signal:AbortSignal.timeout(processingTimeout(deadline))});
       console.log(JSON.stringify({phase:'canvas_full_video',status:'stored',mode:result.mode}));
     } catch(error) {

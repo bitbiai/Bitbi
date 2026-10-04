@@ -87,6 +87,7 @@ function writeGithubOutput(selection) {
     appearance: selection.appearance === true,
     canvas_text: selection.canvasText === true,
     canvas_completion: selection.canvasCompletion === true,
+    canvas_audio: selection.canvasAudio === true,
     media_lifecycle: selection.mediaLifecycle === true,
     workspace_help: selection.workspaceHelp === true,
     homepage: selection.homepage,

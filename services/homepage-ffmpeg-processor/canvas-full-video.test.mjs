@@ -52,7 +52,7 @@ export async function testCanvasConcatenation() {
       requestJson:async(url,init={})=>{
         calls.push([url,init.method||'GET']);assert(init.signal);
         if(url===prefix+'/claim' && !init.method)return {data:{protocol:1,previewBase:1}};
-        if(url===prefix+'/claim'){assert.equal(JSON.parse(init.body).limit,1);assert.equal(JSON.parse(init.body).recipeProtocol,3);return {data:{jobs:[{id,claim,limits:{sourceBytes:400000000,outputBytes:80000000,durationSeconds:600},backgroundMusic:musicRecipe?{enabled:true,gain:0.5}:undefined,sources:bytes.map((b,i)=>({url:`${prefix}/${id}/source/${i}`,size:b.length,kind:i===2?'music':'video'}))}]}};}
+        if(url===prefix+'/claim'){assert.equal(JSON.parse(init.body).limit,1);assert.equal(JSON.parse(init.body).recipeProtocol,4);return {data:{jobs:[{id,claim,limits:{sourceBytes:400000000,outputBytes:80000000,durationSeconds:600},backgroundMusic:musicRecipe?{enabled:true,gain:0.5}:undefined,sources:bytes.map((b,i)=>({url:`${prefix}/${id}/source/${i}`,size:b.length,kind:i===2?'music':'video'}))}]}};}
         if(url===`${prefix}/${id}/complete?part=preview-base`) {
           assert.equal(init.headers['X-BITBI-Canvas-Claim'],claim);
           assert.deepEqual(Buffer.from(await init.body.get('video').arrayBuffer()),await readFile(pair.output),'Preserve the byte-identical clean concatenation before mixing');
@@ -84,6 +84,7 @@ export async function testCanvasConcatenation() {
     assert(audio(0.2)>100,'First audio retained');assert(audio(1.8)<20,'Silent segment retained');assert(audio(3.3)>100,'Final audio retained');
     await testBackgroundMusic(full,dir);
     await testCenterCrop();
+    await testCanvasAudioControls();
     await assert.rejects(concatenateClips(files,dir,{limits:{durationSeconds:1,outputBytes:80000000}}),/canvas_duration_limit/);
     await assert.rejects(concatenateClips(files.slice(0,1),dir),/canvas_sources_invalid/);
     assert((await readFile(full.output)).byteLength>1000);
@@ -196,4 +197,46 @@ async function testBackgroundMusic(base,dir) {
   for(let i=1;i<15000;i++)jump=Math.max(jump,Math.abs(loop.readFloatLE(i*8)-loop.readFloatLE((i-1)*8)));
   assert(jump<0.003,'Loop boundary crossfade removes discontinuity, without silence insertion');
   console.log(JSON.stringify({test:'canvas-background-music-decoded',gain:'PASS',originalUnity:'PASS',loopAndTrim:'PASS',peak:'PASS',nonCumulative:'PASS'}));
+}
+
+// Focused decoded acceptance for the new per-clip envelopes. Separate entrypoint
+// permits reuse of unchanged crop/lifecycle evidence during local development.
+export async function testCanvasAudioControls() {
+  const {applyOriginalAudio}=await import('./canvas-full-video.mjs');
+  const dir=await mkdtemp(path.join(tmpdir(),'canvas-audio-test-'));
+  try {
+    const files=[];
+    for(let i=0;i<3;i++) {
+      const file=path.join(dir,`audio-${i}.mp4`);files.push(file);
+      await mediaCommand('ffmpeg',['-v','error','-y','-f','lavfi','-i',`color=c=${['red','green','blue'][i]}:s=${i===1?'352x240':'320x180'}:r=24:d=2`,
+        ...(i===2?[]:['-f','lavfi','-i','sine=frequency=1000:sample_rate=48000:duration=2']),'-c:v','libx264','-pix_fmt','yuv420p','-threads','1',...(i===2?[]:['-c:a','aac']),file]);
+    }
+    const raw=await concatenateClips(files,dir);
+    const settings=[{enabled:true,gain:.5,fadeIn:.5,fadeOut:.5},{enabled:false,gain:.8,fadeIn:1,fadeOut:1},{enabled:true,gain:1,fadeIn:6,fadeOut:6}];
+    const adjusted=await applyOriginalAudio(raw,settings,dir);
+    const decode=async file=>Buffer.from(await new Promise((resolve,reject)=>{
+      const p=spawnSync('ffmpeg',['-v','error','-i',file,'-map','0:a:0','-ac','1','-ar','48000','-f','f32le','-'],{maxBuffer:20_000_000});p.status?reject(new Error(String(p.stderr))):resolve(p.stdout);
+    }));
+    const amplitude=(pcm,hz,start,span=.08)=>{const offset=Math.round(start*48000),n=Math.round(span*48000);let re=0,im=0,w=0;
+      for(let i=0;i<n;i++){const weight=.5-.5*Math.cos(2*Math.PI*i/(n-1)),v=pcm.readFloatLE((offset+i)*4);re+=v*weight*Math.cos(2*Math.PI*hz*i/48000);im+=v*weight*Math.sin(2*Math.PI*hz*i/48000);w+=weight;}return 2*Math.hypot(re,im)/w;};
+    const original=await decode(raw.output),audio=await decode(adjusted.output);
+    const source=amplitude(original,1000,.9);assert(source>.08);
+    for(const [t,ratio] of [[.06,.1],[.9,.5],[1.75,.21]])assert(Math.abs(amplitude(audio,1000,t)/source-ratio)<.055,`Local clip envelope at ${t}`);
+    assert(amplitude(audio,1000,2.9)<.001,'Only second original is muted');
+    assert(amplitude(audio,1000,4.8)<.001,'Silent clip stays silent');
+    const music=path.join(dir,'music.wav');await mediaCommand('ffmpeg',['-v','error','-y','-f','lavfi','-i','sine=frequency=440:sample_rate=48000:duration=1','-ac','2',music]);
+    const mixed=await mixBackgroundMusic(adjusted,music,.5,dir,{fadeIn:1,fadeOut:1});const both=await decode(mixed.output);
+    assert(Math.abs(amplitude(both,1000,.9)/source-.5)<.04,'Music does not reapply original gain');
+    assert(amplitude(both,440,2.9)>.04,'Music audible while clip original muted');
+    assert(amplitude(both,440,4.8)>.04,'Music spans silent endpoint as well as chain');
+    const musicMid=amplitude(both,440,2.9);assert(amplitude(both,440,.06)/musicMid<.16);assert(amplitude(both,440,5.85)/musicMid<.3);
+    // Real broken-signal controls: the oracle rejects unprocessed/missing/mixed
+    // originals and zero-gain music, not merely matching settings JSON.
+    const validMuted=pcm=>amplitude(pcm,1000,2.9)<.001;
+    assert(!validMuted(original));assert(validMuted(audio));
+    assert(amplitude(audio,440,2.9)<.001,'No invented music in music-off output');
+    const off=await mixBackgroundMusic(adjusted,music,0,dir,{fadeIn:1,fadeOut:1});assert.equal(off.output,adjusted.output);
+    assert.equal(mixed.width,320);assert.equal(mixed.height,180);assert(Math.abs(mixed.duration-raw.duration)<.06);
+    console.log('Canvas audio decoded: independent mute/gain, fractional local fades, music across the full chain, silence, no double gain and broken-signal controls passed.');
+  } finally {await rm(dir,{recursive:true,force:true});}
 }

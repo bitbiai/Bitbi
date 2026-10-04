@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, CANVAS_RELEASE_SCOPES, canvasReleaseProject, verifyCanvasReleaseDiscovery, verifyCanvasCompletionDiscovery, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
+import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, CANVAS_RELEASE_SCOPES, canvasReleaseProject, verifyCanvasReleaseDiscovery, verifyCanvasCompletionDiscovery, verifyCanvasAudioDiscovery, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
 import { verifyCanvasCandidateReports } from './pages-candidate.mjs';
 import { validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
@@ -65,7 +65,7 @@ try {
   const lines = workflow.split('\n').map(line => line.trim());
   const allDiscovery = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static'));
   const allExecution = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static') && line.includes('tests/canvas.spec.js'));
-  assert.equal(allDiscovery.length, 2); assert.equal(allExecution.length, 2);
+  assert.equal(allDiscovery.length, 3); assert.equal(allExecution.length, 3);
   const focused = allDiscovery.find(line => line.includes("--grep 'Canvas completion metadata'"));
   assert(focused);
   assert.equal(focused.split(' npm ')[1].replace(' --list --reporter=json', ''),
@@ -86,8 +86,23 @@ try {
   const verify = report => verifyCanvasCandidateReports(['test-results/candidate-auth.json'], [report], focusedReport, {canvasCompletion:true});
   verify(proofReport); setResults(proofReport, 'failed'); assert.throws(() => verify(proofReport));
   assert.throws(() => verifyCanvasCandidateReports([], [], focusedReport, {canvasCompletion:true}));
-  const discoveryLines = allDiscovery.filter(line => !line.includes("--grep 'Canvas completion metadata'"));
-  const executionLines = allExecution.filter(line => !line.includes("--grep 'Canvas completion metadata'"));
+  const audioLine=allDiscovery.find(line=>line.includes('tests/oma2-q1-canvas.spec.js')&&!line.includes('tests/auth-admin.spec.js'));
+  assert(audioLine);
+  assert.equal(audioLine.split(' npm ')[1].replace(' --list --reporter=json',''),allExecution.find(line=>line.includes('tests/oma2-q1-canvas.spec.js')&&!line.includes('tests/auth-admin.spec.js')).split(' npm ')[1].replace(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json',''));
+  const audioOutput=path.join(discoveryDirectory,'canvas-audio-ci.json');
+  const audioRun=spawnSync('/bin/bash',['--noprofile','--norc','-e','-c',audioLine],{cwd:root,env:{...process.env,PLAYWRIGHT_JSON_OUTPUT_FILE:audioOutput},encoding:'utf8',maxBuffer:16*1024*1024});
+  assert.equal(audioRun.status,0,audioRun.stderr);
+  const audioReport=JSON.parse(fs.readFileSync(audioOutput)),audioCases=flattenHomepageDiscovery(audioReport);
+  verifyCanvasAudioDiscovery(audioCases,standard);
+  assert.throws(()=>verifyCanvasAudioDiscovery(audioCases.slice(1),standard));
+  assert.throws(()=>verifyCanvasAudioDiscovery([...audioCases,audioCases[0]],standard));
+  assert.throws(()=>verifyCanvasAudioDiscovery(audioCases.map((row,i)=>i?row:{...row,expectedStatus:'skipped'}),standard));
+  const audioProof=structuredClone(audioReport);setResults(audioProof,'passed');
+  const verifyAudio=report=>verifyCanvasCandidateReports(['test-results/candidate-auth.json'],[report],audioReport,{canvasAudio:true});
+  verifyAudio(audioProof);setResults(audioProof,'failed');assert.throws(()=>verifyAudio(audioProof));
+  assert.throws(()=>verifyCanvasCandidateReports([],[],audioReport,{canvasAudio:true}));
+  const discoveryLines = allDiscovery.filter(line => line.includes('tests/auth-admin.spec.js'));
+  const executionLines = allExecution.filter(line => line.includes('tests/auth-admin.spec.js'));
   assert.equal(discoveryLines.length, 1); assert.equal(executionLines.length, 1);
   assert(discoveryLines[0].endsWith(' --list --reporter=json'));
   assert(executionLines[0].endsWith(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json'));

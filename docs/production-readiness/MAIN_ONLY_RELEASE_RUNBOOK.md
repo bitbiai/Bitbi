@@ -558,3 +558,34 @@ The selection guard distinguishes graph/UI changes from processor changes: uncha
 `center-crop-v1` processing reuses its image and evidence. Do not rebuild/redeploy the
 media container for selection or label edits. Publish affected Auth before the tested
 frontend and verify current candidates, explicit intent and output through that UI.
+
+### Canvas asset references and persistent sound
+
+Asset Reference capabilities come from owned media metadata. Imported videos use
+`nodeId/assetId/version`, never a fabricated run, through the same manual/current
+strand export service. Image/music references stay outside video timelines;
+replacement revalidates saved input roles and clears obsolete prepared frames.
+Per-node original-audio settings and independent background-music fades persist
+with the project. Recipe v3 snapshots them in cache/job identity; processor protocol
+4 retains the clean concatenation, applies original envelopes once, then music.
+Audio timelines record measured clip durations. Center-crop normalization is unchanged.
+Older exports remain playable/downloadable; changed original audio needs a newly
+rendered timeline for audition, not guessed segment timing.
+
+Forward migration `0100_canvas_asset_audio_exports.sql` preserves populated jobs,
+export versions/heads and quota while admitting real node subjects. Publish the
+schema and tested processor before dependent Auth/frontend. Recovery preserves
+this additive contract and intentionally retained exports: no downmigration,
+original-media deletion or regeneration. Old processor protocols cannot claim v3;
+accepted failed jobs retry their immutable recipe even after graph edits.
+
+The closed `canvas-audio-v1` policy selects native `--suite canvas-audio` (populated
+migration, real asset inputs, immutable admission/retry and existing export lifecycle)
+and the complete existing Canvas/Q1 Chromium/WebKit collection. Unknown provider,
+billing or neighboring runtime inputs restore ordinary impact. Discovery and
+candidate proof use the same scope; missing/failed cases fail publication. The
+changed private-media image must include `per-clip-audio-decoded` evidence from its
+existing processor test. FFmpeg/ffprobe preparation also precedes actual browser
+callers in static, Full and UI-fast. No duplicate Full or unrelated platform suite
+is required for this task. Native fixtures remain synthetic provider acceptance;
+actual D1/R2, decoded playback/export and live readback are separate evidence.
