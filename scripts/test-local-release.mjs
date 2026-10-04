@@ -8,7 +8,7 @@ import { selectCiTests } from './lib/ci-test-selection.mjs';
 import { validationPlan, selectedCommands, sha256 } from './lib/local-release-plan.mjs';
 import { environmentInputs, environmentKey, TOOL_PREFLIGHT } from './lib/local-release-environment.mjs';
 import { validateLocator, extractEvidence } from './lib/local-release-transport.mjs';
-import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
+import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation, tapResults, verifyNativeCaseUnion, NATIVE_REPAIRED_CASES } from './lib/local-release-evidence.mjs';
 import { prepareFrontend } from './lib/frontend-hosting.mjs';
 import { gitSelection, tree, MEDIA_POLICY, validateSource, verifyManifest, verifyProofs } from './pages-candidate.mjs';
 import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
@@ -28,7 +28,14 @@ async function testLocalRepair() {
   assert.equal(workerListResults(log,fixture.discovery).length,3);
   assert.throws(()=>workerListResults(log.split('\n').slice(1).join('\n'),fixture.discovery));
   assert.throws(()=>workerListResults(log.replace(' › pending',' › foreign'),fixture.discovery));
-  assert(localWorkerContinuation().endsWith('npm run test:homepage-ffmpeg-processor && npm run test:q2-runtime'));
+  assert(localWorkerContinuation().endsWith('node scripts/test-q2-runtime.mjs'));
+  assert(!localWorkerContinuation().includes('npm run test:homepage-ffmpeg-processor'),'Passed processor must not be repeated');
+  const nativeBefore=[...Array.from({length:25},(_,i)=>({title:`kept-${i}`,status:'passed'})),...NATIVE_REPAIRED_CASES.map(title=>({title,status:'failed'}))];
+  const nativeAfter=NATIVE_REPAIRED_CASES.map(title=>({title,status:'passed'}));verifyNativeCaseUnion(nativeBefore,nativeAfter);
+  assert.throws(()=>verifyNativeCaseUnion(nativeBefore,nativeAfter.slice(1)));
+  assert.throws(()=>verifyNativeCaseUnion(nativeBefore,[{...nativeAfter[0],status:'failed'},nativeAfter[1]]));
+  assert.throws(()=>verifyNativeCaseUnion(nativeBefore,[...nativeAfter,nativeAfter[0]]));
+  assert.deepEqual(tapResults('ok 1 - foo # SKIP\nnot ok 2 - bar'),[{title:'foo',status:'skipped'},{title:'bar',status:'failed'}]);
   // Genuine stored Linux reports are optional test inputs; never manufactured.
   // The closed continuation itself always requires them at the actual verifier.
   if(fs.existsSync('.local-release/reuse/checkpoint.json')) {
@@ -40,7 +47,7 @@ async function testLocalRepair() {
       fs.cpSync('.local-release/reuse',path.join(tmp,'reuse'),{recursive:true});
       fs.mkdirSync(path.join(tmp,'test-results'));
       fs.copyFileSync('.local-release/test-results/worker-discovery.json',path.join(tmp,'test-results/worker-discovery.json'));
-      for(const name of ['checkpoint.json','worker.log','last-run.json','original-discovery.json','progress.json','corrected.json','progress-receipt.json','corrected-receipt.json']) {
+      for(const name of ['checkpoint.json','worker.log','last-run.json','original-discovery.json','progress.json','corrected.json','progress-receipt.json','corrected-receipt.json','tail-checkpoint.json','tail.log']) {
         const file=path.join(tmp,'reuse',name),original=fs.readFileSync(file);
         fs.unlinkSync(file);assert.throws(()=>verifyLocalWorkerRepair(tmp,head));
         fs.writeFileSync(file,Buffer.concat([original,Buffer.from('changed')]));assert.throws(()=>verifyLocalWorkerRepair(tmp,head));fs.writeFileSync(file,original);
@@ -53,7 +60,7 @@ async function testLocalRepair() {
       const changed=execFileSync('git',['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit-tree',tree,'-p',head],{input:'Synthetic protected-tree countercheck\n',encoding:'utf8'}).trim();
       assert.throws(()=>assertLocalRepairTree(changed),/Changed product/);
     } finally {fs.rmSync(tmp,{recursive:true,force:true});}
-    console.log('Original 1404 + corrected 3 + corrected 1 Worker cases verified; 16 real artifact tamper/missing controls and changed-product Git countercheck rejected.');
+    console.log('Original 1404 + corrected 3 + corrected 1 Worker cases verified; 20 real artifact tamper/missing controls and changed-product Git countercheck rejected.');
   }
   console.log('Closed local continuation: complete case union, missing/duplicate/failed/retried/substituted controls passed; unexecuted FFmpeg/native tail remains required.');
 }

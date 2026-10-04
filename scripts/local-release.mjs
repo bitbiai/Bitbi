@@ -119,6 +119,10 @@ function runLocalRelease({ base, resume }) {
       if(name==='corrected')fs.copyFileSync(path.join(root,'final-discovery.json'),path.join(bundle,'test-results/worker-discovery.json'));
       if(name==='progress')copy(path.join(root,'original-discovery.json'),'original-discovery.json');
     }
+    const tails=fs.readdirSync(path.join(cacheRoot(),'runs')).filter(name=>name.startsWith(LOCAL_WORKER_REPAIR.tailSource+'-'))
+      .map(name=>path.join(cacheRoot(),'runs',name)).filter(dir=>sha256(fs.readFileSync(path.join(dir,'checkpoint.json')))===LOCAL_WORKER_REPAIR.tailCheckpoint);
+    assert.equal(tails.length,1,'Missing/ambiguous original partial native chain');
+    copy(path.join(tails[0],'checkpoint.json'),'tail-checkpoint.json');copy(path.join(tails[0],'bundle/logs/42.log'),'tail.log');
     fs.cpSync(path.join(originalDirectory,'runtime'),path.join(directory,'runtime'),{recursive:true});
     state={...state,startedAt:prior.startedAt,repair:{source:prior.sha,checkpoint:LOCAL_WORKER_REPAIR.checkpoint},commands:prior.commands.map((row,index)=>LOCAL_REPAIR_REFRESH.has(index)?null:{...row,command:commands[index],reusedFrom:prior.sha})};
   }

@@ -61,7 +61,11 @@ export const LOCAL_WORKER_REPAIR = Object.freeze({
   corrected: '0e078f74eb85b73b7d5f413deb8f5291d8b1d3c5',
   correctedReport: '5492305521021af2ffaa243dbae5feb254f320fcc917728d22b6ce0f6edbfd9d',
   correctedReceipt: '44d0453864c2a5d7cc285c8a77ace471fbc0bb329afbe3dcf9f2bb81f742f05a',
+  tailSource:'ed7a7d6a6084b79aabcff903f7cc66698f8e0c86',
+  tailCheckpoint:'38f1757fa3b5e8134c65b5c89f11cbcd06c8495461cd99b6b29a1395c797a29f',
+  tailLog:'a4905f85e7c5c5a3c19f37a8c30479f35f5459c617ebd4e4d34ebae52e2ac114',
   specs: {
+    'scripts/test-q2-runtime-launcher.mjs':'195741c2c1decc256225dcdcc2b3dbd64e9bee37439661544a1c00d45617badc',
     'tests/admin-model-status.spec.js':'7c0a013cff629249a73148363f9304322e07c4c635b5bbf0c8ac00d12c4c8a64',
     'tests/appearance.spec.js':'4344d83d6712d4348b5b37db72e2bee024684891ff74a6eaa8c033890cc0d4e4',
     'tests/workers.spec.js':'e4bff15e0ce29398175e7d88e007029e853c7fb90751e7a766d0e1bcc3e0133d',
@@ -152,6 +156,12 @@ export function verifyLocalWorkerRepair(directory,head,{discoveryFile=path.join(
     const receipt=JSON.parse(pinned(`${name}-receipt.json`,hash));assert.equal(receipt.sha,sha);assert.equal(receipt.image,original.environment.image);
     gitBytes(['merge-base','--is-ancestor',sha,head]);
   }
+  const tail=JSON.parse(pinned('tail-checkpoint.json',p.tailCheckpoint));
+  assert.equal(tail.sha,p.tailSource);assert.equal(tail.status,'failed');assert.equal(tail.commands[42].exitCode,1);
+  const tailLog=pinned('tail.log',p.tailLog);
+  assert.match(tailLog,/Private video reference FFmpeg: .*passed\./);
+  assert.match(tailLog,/# pass 25\n# fail 2\n# cancelled 0\n# skipped 0/);
+  assert.deepEqual(tapResults(tailLog).filter(row=>row.status!=='passed').map(row=>row.title),NATIVE_REPAIRED_CASES);
   const discovery=workerDiscovery(parseDiscovery(fs.readFileSync(discoveryFile,'utf8')));
   const result=verifyWorkerUnion({previous,discovery,progress,corrected});
   assert.deepEqual(result,{originalPassed:1404,progressPassed:3,correctedPassed:1,total:1408});
@@ -160,10 +170,27 @@ export function verifyLocalWorkerRepair(directory,head,{discoveryFile=path.join(
 export function localWorkerContinuation() {
   const script=JSON.parse(fs.readFileSync('package.json')).scripts['test:workers'];
   assert.equal(script,'node scripts/check-media-tools.mjs && npm run test:website-assistant && node scripts/check-q4-selection.mjs && playwright test -c playwright.workers.config.js && npm run test:homepage-ffmpeg-processor && npm run test:q2-runtime','Worker chain changed');
-  return 'PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js --list --reporter=json > .local-release/test-results/worker-discovery.json\nnode scripts/local-release.mjs verify-worker-repair .local-release\n'+script.split(' && ').slice(4).join(' && ');
+  assert.equal(JSON.parse(fs.readFileSync('package.json')).scripts['test:q2-runtime'],'node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs && node scripts/test-q2-runtime.mjs');
+  return 'PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js --list --reporter=json > .local-release/test-results/worker-discovery.json\nnode scripts/local-release.mjs verify-worker-repair .local-release\n'+
+    `node --test --test-name-pattern='^(${NATIVE_REPAIRED_CASES.join('|')})$' scripts/test-q2-runtime-launcher.mjs\nnode scripts/test-q2-runtime.mjs`;
+
+}
+export const NATIVE_REPAIRED_CASES=['existing Worker gates retain native suite, fail early and upload only after execution','native artifact paths use runner context only after runner assignment'];
+export function tapResults(log) {
+  return log.split('\n').flatMap(line=>{const match=line.match(/^(ok|not ok) \d+ - (.*?)(?: # (SKIP|TODO).*)?$/);return match?[{title:match[2],status:match[3]?'skipped':match[1]==='ok'?'passed':'failed'}]:[];});
+}
+export function verifyNativeCaseUnion(before,after) {
+  assert.equal(before.length,27);assert.equal(new Set(before.map(row=>row.title)).size,27);
+  assert.deepEqual(before.filter(row=>row.status!=='passed').map(row=>row.title),NATIVE_REPAIRED_CASES);
+  const executed=after.filter(row=>row.status!=='skipped');
+  assert.deepEqual(executed.map(row=>row.title),NATIVE_REPAIRED_CASES);
+  assert(executed.every(row=>row.status==='passed'),'Corrected launcher contract failed');
+  assert(after.every(row=>before.some(old=>old.title===row.title)),'Foreign launcher test result');
+  assert.equal(new Set(after.map(row=>row.title)).size,after.length,'Duplicate launcher result');
 }
 export function verifyLocalReuse(directory,evidence) {
   const {original}=verifyLocalWorkerRepair(directory,evidence.sha);
+  verifyNativeCaseUnion(tapResults(fs.readFileSync(path.join(directory,'reuse/tail.log'),'utf8')),tapResults(fs.readFileSync(path.join(directory,evidence.commands[42].log),'utf8')));
   assert.equal(evidence.repair?.source,original.sha);assert.equal(evidence.repair?.checkpoint,LOCAL_WORKER_REPAIR.checkpoint);
   assert.equal(evidence.base,original.base);assert.equal(evidence.startedAt,original.startedAt);
   assert.deepEqual(evidence.environment.inputs,original.environment.inputs);
@@ -172,6 +199,9 @@ export function verifyLocalReuse(directory,evidence) {
   assert.equal(evidence.commands[18].supplement,'npm run test:local-release -- --repair-only');
   assert.equal(sha256(fs.readFileSync(path.join(directory,'reuse/local-contract.log'))),original.commands[18].logHash);
   const oldSelection={...original.selection},newSelection={...evidence.selection};
+  // The retained Worker fixture file also selects independent Auth browser
+  // acceptance under the unchanged selector. That new downstream job must run.
+  assert.equal(oldSelection.auth,false);assert.equal(newSelection.auth,true);oldSelection.auth=true;
   for(const selection of [oldSelection,newSelection]){delete selection.files;delete selection.reasons;}
   assert.deepEqual(oldSelection,newSelection,'Changed selected scope cannot reuse local commands');
   for(const [index,result] of evidence.commands.entries()) {

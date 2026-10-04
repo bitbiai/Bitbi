@@ -259,7 +259,9 @@ test('existing Worker gates retain native suite, fail early and upload only afte
     const block = content.split(`  ${job}:\n`)[1]?.split(/^  [a-z][a-z-]+:\n/m)[0];
     assert.ok(block, `${file}: worker job exists`);
     assert.match(block, /runs-on: ubuntu-latest/);
-    assert.match(block, /Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1'/);
+    const origin=file==='.github/workflows/static.yml'?'BITBI_LOCAL_RELEASE_CONTAINER':'Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP';
+    assert.match(block,new RegExp(`${origin}: '1'`));
+    assert.doesNotMatch(block,new RegExp(`${origin==='BITBI_LOCAL_RELEASE_CONTAINER'?'Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP':'BITBI_LOCAL_RELEASE_CONTAINER'}: '1'`));
     assert.match(block, /persist-credentials: false/);
     const authInstall = block.indexOf('run: npm --prefix workers/auth ci');
     const preflight = block.indexOf('run: node scripts/test-q2-runtime.mjs --preflight');
@@ -321,8 +323,9 @@ test('native artifact paths use runner context only after runner assignment', ()
     const wrongIdentity = upload.replace('name: q2-linux-runtime-', 'name: different-runtime-');
     assert.throws(() => assertArtifactContext(content.replace(upload, wrongIdentity), job), /regular expression/);
     // Reintroduce exactly the rejected job-level assignment from f316019d.
-    const broken = content.replace("      Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1'\n",
-      "      Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP: '1'\n      Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence\n");
+    const origin=file==='.github/workflows/static.yml'?'BITBI_LOCAL_RELEASE_CONTAINER':'Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP';
+    const marker=`      ${origin}: '1'\n`;assert.ok(content.includes(marker));
+    const broken = content.replace(marker,marker+"      Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence\n");
     assert.throws(() => assertArtifactContext(broken, job), /Runner context is unavailable/);
     // Losing the path on either caller must not hide its result from upload.
     const stepEnv = '        env:\n          Q2_RUNTIME_ARTIFACTS: ${{ runner.temp }}/q2-runtime-evidence\n';

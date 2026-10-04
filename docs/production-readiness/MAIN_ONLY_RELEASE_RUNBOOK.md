@@ -57,8 +57,11 @@ fresh affected acceptance; missing or changed outputs cannot inherit a pass. The
 closed `a918c749` migration continuation pins the original failed checkpoint/list
 report, exact corrected fixtures and subsequent 3+1 executed JSON results. It
 checks the complete 1,408-case discovery union, retains 1,404 unchanged passes,
-refreshes changed release checks and executes the previously unreached FFmpeg/
-native tail. Changed product, shared fixture, dependency or command inputs reject
+refreshes changed release checks and completes the remaining native tail. The
+subsequent `ed7a7d6a` attempt retains passed FFmpeg and 25 launcher/staging checks;
+only its two repaired origin/counterexample cases execute again, followed by the
+actual native runtime. The unchanged selector also requires fresh Auth browser
+acceptance after the Worker spec correction; no downstream proof is inferred. Changed product, shared fixture, dependency or command inputs reject
 this exception; failed originals remain failed. Archive tools (`zip`, `unzip`)
 are checked before suites alongside the browser/media prerequisites. There is
 no hosted fallback, blind rerun, or retention of browser/database sessions.
