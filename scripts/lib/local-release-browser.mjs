@@ -179,7 +179,7 @@ export const INSPECTOR_CONTINUATION=Object.freeze({
   "rows": "898fe678e97e31cec3565eeee91a6b56ccff5935638e0e3b71c36570998fbb12"
 },
   "specs": {
-    "tests/helpers/canvas-inspector-ui.cjs": "756e203a8dea2523de451ed059fc53e744b3f2b5c1c8d773659b074ee6738965"
+    "tests/helpers/canvas-inspector-ui.cjs": "21c2df5c038c8bd4fb300ad4a61e708aeca5319eec6268689c2c7d536d518917"
   }
 });
 export const smoothProfile=source=>source===INSPECTOR_CONTINUATION.source?INSPECTOR_CONTINUATION:source===AUDIO_FIT_CONTINUATION.source?AUDIO_FIT_CONTINUATION:SMOOTH_BROWSER_CONTINUATION;

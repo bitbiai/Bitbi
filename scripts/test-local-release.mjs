@@ -73,7 +73,7 @@ function testSmoothContinuation(p=SMOOTH_BROWSER_CONTINUATION) {
         .replace('  await result.evaluate(v=>v.play());','  await result.scrollIntoViewIfNeeded();await expect(result).toBeInViewport();\n  await result.evaluate(v=>v.play());')
         .replace("toHaveAttribute('href',video+'?download=1')","toHaveAttribute('href',media+'?download=1')")
         .replace("  await select(2);const card=","  await select(2);if(locale==='de')await page.locator('#canvasGraphToggle').click();const card=")
-        .replace('    await page.locator(`#canvasAssetsGrid [data-asset-id="${picker.assets[index].id}"]`).click();', '    if(locale===\'de\')await page.locator(`#canvasAssetsOverlay [role="tab"][data-target-index="${index}"]`).click();\n    await page.locator(`#canvasAssetsGrid [data-asset-id="${picker.assets[index].id}"]`).click();'));
+        .replace('    await page.locator(`#canvasAssetsGrid [data-asset-id="${picker.assets[index].id}"]`).click();', '    if(locale===\'de\')await page.getByRole(\'tablist\',{name:\'Saved image cards\',exact:true}).getByRole(\'tab\',{name:`Show image ${index+1}`,exact:true}).click();\n    await page.locator(`#canvasAssetsGrid [data-asset-id="${picker.assets[index].id}"]`).click();'));
     }
     if(!audioFit)return execFileSync('git',['show',`${p.accepted}:${file}`]);
     const before=execFileSync('git',['show',`${p.source}:${file}`],{encoding:'utf8'});
