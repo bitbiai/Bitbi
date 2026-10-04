@@ -191,15 +191,16 @@ function runLocalRelease({ base, resume }) {
   if(permissionContinuation) {
     const bytes=fs.readFileSync(path.join(originalDirectory,'checkpoint.json'));
     const prior=permissionContinuationPrefix(bytes,{head:sha,base,planHash:state.planHash,environment,commands});
-    const reuse=path.join(bundle,'reuse');fs.mkdirSync(reuse,{recursive:true});fs.mkdirSync(path.join(bundle,'logs'),{recursive:true});
-    fs.writeFileSync(path.join(reuse,'permission-checkpoint.json'),bytes);
+    const reuse=path.join(bundle,'reuse');fs.mkdirSync(path.join(reuse,'test-results'),{recursive:true});fs.mkdirSync(path.join(bundle,'logs'),{recursive:true});
+    fs.writeFileSync(path.join(reuse,'test-results/permission-checkpoint.json'),bytes);
     const tail=prior.sha===PERMISSION_CONTINUATION.tail,smooth=isSmoothContinuation(prior.sha),progress=prior.sha===SMOOTH_BROWSER_CONTINUATION.progress,accepted=prior.sha===SMOOTH_BROWSER_CONTINUATION.accepted,completed=prior.sha===SMOOTH_BROWSER_CONTINUATION.completed;
     state={...state,startedAt:prior.startedAt,permissionContinuation:{source:prior.sha,checkpoint:completed?SMOOTH_BROWSER_CONTINUATION.completedCheckpoint:accepted?SMOOTH_BROWSER_CONTINUATION.acceptedCheckpoint:progress?SMOOTH_BROWSER_CONTINUATION.progressCheckpoint:smooth?SMOOTH_BROWSER_CONTINUATION.checkpoint:tail?PERMISSION_CONTINUATION.tailCheckpoint:PERMISSION_CONTINUATION.checkpoint},
       commands:prior.commands.map((row,i)=>!row||row.exitCode!==0||permissionRefresh(prior.sha).has(i)?null:{...row,command:commands[i],reusedFrom:row.reusedFrom||prior.sha})};
     for(const row of state.commands.filter(Boolean))fs.copyFileSync(path.join(originalDirectory,'bundle',row.log),path.join(bundle,row.log));
     if(smooth) {
       fs.cpSync(path.join(originalDirectory,'bundle/reuse'),reuse,{recursive:true});
-      fs.writeFileSync(path.join(reuse,'permission-checkpoint.json'),bytes);
+      fs.rmSync(path.join(reuse,'permission-checkpoint.json'),{force:true});
+      fs.writeFileSync(path.join(reuse,'test-results/permission-checkpoint.json'),bytes);
       if(!fs.existsSync(path.join(reuse,'smooth-browser.json')))fs.copyFileSync(path.join(originalDirectory,'source/test-results/candidate-auth.json'),path.join(reuse,'smooth-browser.json'));
       if(accepted)fs.copyFileSync(path.join(originalDirectory,'source/test-results/candidate-auth.json'),path.join(reuse,'smooth-accepted.json'));
       for(const item of ['runtime','test-results'])fs.cpSync(path.join(originalDirectory,'source',item==='runtime'?'../runtime':item),path.join(bundle,item),{recursive:true});

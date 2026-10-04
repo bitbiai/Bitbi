@@ -226,7 +226,7 @@ function verifyPermissionContinuation(directory,evidence,commands) {
   const p=PERMISSION_CONTINUATION,completed=evidence.permissionContinuation.source===SMOOTH_BROWSER_CONTINUATION.completed,accepted=evidence.permissionContinuation.source===SMOOTH_BROWSER_CONTINUATION.accepted,progress=evidence.permissionContinuation.source===SMOOTH_BROWSER_CONTINUATION.progress,smooth=isSmoothContinuation(evidence.permissionContinuation.source);assertPermissionContinuationTree(evidence.sha,gitBytes,{smooth});
   const tail=evidence.permissionContinuation.source===p.tail;
   assert.deepEqual(evidence.permissionContinuation,{source:completed?SMOOTH_BROWSER_CONTINUATION.completed:accepted?SMOOTH_BROWSER_CONTINUATION.accepted:progress?SMOOTH_BROWSER_CONTINUATION.progress:smooth?SMOOTH_BROWSER_CONTINUATION.source:tail?p.tail:p.source,checkpoint:completed?SMOOTH_BROWSER_CONTINUATION.completedCheckpoint:accepted?SMOOTH_BROWSER_CONTINUATION.acceptedCheckpoint:progress?SMOOTH_BROWSER_CONTINUATION.progressCheckpoint:smooth?SMOOTH_BROWSER_CONTINUATION.checkpoint:tail?p.tailCheckpoint:p.checkpoint});assert(!evidence.repair);
-  const original=permissionContinuationPrefix(fs.readFileSync(path.join(directory,'reuse/permission-checkpoint.json')),{...evidence,head:evidence.sha,commands});
+  const original=permissionContinuationPrefix(fs.readFileSync(path.join(directory,'reuse/test-results/permission-checkpoint.json')),{...evidence,head:evidence.sha,commands});
   for(const [i,row] of evidence.commands.entries()) {
     if(i<(completed?47:accepted?46:smooth?45:tail?41:36)&&original.commands[i]?.exitCode===0&&!permissionRefresh(original.sha).has(i)) {
       assert.equal(row.reusedFrom,original.commands[i].reusedFrom||original.sha);

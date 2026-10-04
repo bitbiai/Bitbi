@@ -29,7 +29,7 @@ function testPermissionContinuation() {
   assert.throws(()=>assertPermissionContinuationTree(head,reader(['scripts/test-frontend-review.mjs'],Buffer.from('unchecked write permissions'))),/Unreviewed/);
   assert.throws(()=>permissionContinuationPrefix(Buffer.from('{}'),{}),/original failed/);
   assert(PERMISSION_REFRESH.has(17)&&PERMISSION_REFRESH.has(34)&&!PERMISSION_REFRESH.has(18),'Changed verifiers/build refresh; unchanged discovery retains proof');
-  const file='.local-release/reuse/permission-checkpoint.json';
+  const file='.local-release/reuse/test-results/permission-checkpoint.json';
   if(fs.existsSync(file)) {
     const bytes=fs.readFileSync(file),original=JSON.parse(bytes),actualHead=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
     const context={head:actualHead,base:original.base,planHash:validationPlan().digest,environment:original.environment,
@@ -59,8 +59,10 @@ function testSmoothContinuation() {
   try {
     const source=path.join(staging,'source'),target=path.join(staging,'target');fs.mkdirSync(path.join(source,'test-results/canvas-artifacts'),{recursive:true});fs.mkdirSync(path.join(source,'docs'));
     for(const file of ['test-results/canvas-artifacts/error-context.md','test-results/canvas-artifacts/result.json','docs/UNKNOWN.md'])fs.writeFileSync(path.join(source,file),'retained');
+    fs.mkdirSync(path.join(source,'reuse/test-results'),{recursive:true});fs.writeFileSync(path.join(source,'reuse/test-results/permission-checkpoint.json'),JSON.stringify({candidateFiles:{'site/js/api-token.js':'a'.repeat(64)}},null,2));
     copyEvidenceToolInputs(source,target);assert(fs.existsSync(path.join(source,'test-results/canvas-artifacts/error-context.md')));
-    assert(!fs.existsSync(path.join(target,'test-results/canvas-artifacts/error-context.md')));assert(fs.existsSync(path.join(target,'test-results/canvas-artifacts/result.json')));assert(fs.existsSync(path.join(target,'docs/UNKNOWN.md')));
+    assert(!fs.existsSync(path.join(target,'test-results/canvas-artifacts/error-context.md')));assert(fs.existsSync(path.join(target,'test-results/canvas-artifacts/result.json')));assert(fs.existsSync(path.join(target,'docs/UNKNOWN.md')));assert.equal(scanRepoForSecrets(target).length,0);
+    fs.writeFileSync(path.join(target,'product.js'),'const token = '+JSON.stringify('Z'.repeat(40))+';');assert(scanRepoForSecrets(target).length>0,'Product secrets must still block after staging proof metadata');
   }finally{fs.rmSync(staging,{recursive:true,force:true});}
   const read=(changed=Object.keys(p.specs),broken=false)=>args=>args[0]==='show'?broken?Buffer.from('invalid expectation'):fs.readFileSync(args[1].split(':')[1]):Buffer.from(args[0]==='diff'?changed.join('\n'):'');
   assertSmoothContinuationTree(head,read());
